@@ -9,6 +9,7 @@ import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { OrganizationProvider } from "../portal/context/OrganizationContext";
 import { BackgroundLocationProvider } from "./context/BackgroundLocationContext";
+import { PushNotificationsProvider, unregisterDeviceToken } from "./context/PushNotificationsContext";
 import { useRoleGate } from "../portal/hooks/useRoleGate";
 
 interface Props {
@@ -38,7 +39,7 @@ interface Props {
  */
 export default function FieldLayout({ children }: Props) {
   const router = useRouter();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn, getToken } = useAuth();
   const { signOut } = useClerk();
   const { onlyNormalUser } = useRoleGate();
 
@@ -58,6 +59,11 @@ export default function FieldLayout({ children }: Props) {
   }, [onlyNormalUser, router]);
 
   const handleSignOut = async () => {
+    // Drop this device's push token BEFORE signOut(): the DELETE is
+    // authenticated, so once the Clerk session is gone there is no way to name
+    // the token any more and the row would linger until FCM reports it dead.
+    // Never allowed to block the sign-out itself.
+    await unregisterDeviceToken(getToken);
     await signOut();
     router.replace("/");
   };
@@ -65,41 +71,43 @@ export default function FieldLayout({ children }: Props) {
   return (
     <OrganizationProvider>
       <BackgroundLocationProvider>
-        <Box
-          sx={{
-            minHeight: "100vh",
-            width: "100%",
-            display: "flex",
-            flexDirection: "column",
-            bgcolor: "background.default",
-          }}
-        >
-          <Tooltip title="Sign out">
-            <IconButton
-              aria-label="Sign out"
-              size="small"
-              onClick={handleSignOut}
-              sx={{
-                position: "fixed",
-                top: 8,
-                right: 8,
-                zIndex: 1200,
-                color: "text.secondary",
-                bgcolor: "background.paper",
-                boxShadow: 1,
-                "&:hover": { bgcolor: "background.paper" },
-              }}
-            >
-              <LogoutIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          {children}
-          {/* Field-flow toasts (e.g. "Item created and assigned to …"). Lives
-              at the layout level so a toast fired right before a
-              router.replace survives the navigation. top-center keeps it
-              clear of the fixed sign-out button at top-right. */}
-          <ToastContainer position="top-center" autoClose={3000} hideProgressBar newestOnTop closeOnClick pauseOnFocusLoss={false} draggable />
-        </Box>
+        <PushNotificationsProvider>
+          <Box
+            sx={{
+              minHeight: "100vh",
+              width: "100%",
+              display: "flex",
+              flexDirection: "column",
+              bgcolor: "background.default",
+            }}
+          >
+            <Tooltip title="Sign out">
+              <IconButton
+                aria-label="Sign out"
+                size="small"
+                onClick={handleSignOut}
+                sx={{
+                  position: "fixed",
+                  top: 8,
+                  right: 8,
+                  zIndex: 1200,
+                  color: "text.secondary",
+                  bgcolor: "background.paper",
+                  boxShadow: 1,
+                  "&:hover": { bgcolor: "background.paper" },
+                }}
+              >
+                <LogoutIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            {children}
+            {/* Field-flow toasts (e.g. "Item created and assigned to …"). Lives
+                at the layout level so a toast fired right before a
+                router.replace survives the navigation. top-center keeps it
+                clear of the fixed sign-out button at top-right. */}
+            <ToastContainer position="top-center" autoClose={3000} hideProgressBar newestOnTop closeOnClick pauseOnFocusLoss={false} draggable />
+          </Box>
+        </PushNotificationsProvider>
       </BackgroundLocationProvider>
     </OrganizationProvider>
   );
