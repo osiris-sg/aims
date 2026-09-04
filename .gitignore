@@ -3,3 +3,15 @@ linear-triage/.state.json
 .playwright-mcp/
 masterfiles-services.png
 .claude/worktrees/
+
+# Service-account credentials — NEVER commit these.
+# The Firebase Admin key (FCM push sender) lives only in Render's
+# FCM_SERVICE_ACCOUNT_B64. Any local copy of the JSON is a private key and must
+# stay out of the repo. Note this does NOT cover portal-production/android/app/
+# google-services.json, which is deliberately committed: that one is client
+# config shipped inside every APK, not a credential.
+*firebase-adminsdk*.json
+*-service-account*.json
+*service-account-key*.json
+serviceAccountKey*.json
+gcp-credentials*.json

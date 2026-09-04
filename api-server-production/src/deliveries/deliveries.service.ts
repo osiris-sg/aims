@@ -7,6 +7,7 @@ import { resolveLineAssetClass, minPhotosForAssetClass } from 'src/common/asset-
 import { DocumentsService } from '../documents/documents.service';
 import { ProjectsService } from '../projects/projects.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PushService } from '../push/push.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { ScheduleDeliveryDto, ClaimScheduledDto } from './dto/schedule-delivery.dto';
@@ -28,11 +29,17 @@ class SkipDraftDo extends Error {}
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
 
+  // Only org whose riders get the "new scheduled delivery" push today. Biofuel
+  // is the only one running the field app; an org-wide push is not something to
+  // switch on for everybody by accident. Delete the test to widen it.
+  private static readonly PUSH_ENABLED_ORG_ID = '52e90ba8-bfbd-48b0-bb76-4f9667bf74f1';
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly documentsService: DocumentsService,
     private readonly projectsService: ProjectsService,
     private readonly notifications: NotificationsService,
+    private readonly push: PushService,
   ) {}
 
   // ── reservation ──────────────────────────────────────────────────────────
@@ -657,7 +664,72 @@ export class DeliveriesService {
       }
     }
 
+    // ── notify the riders ────────────────────────────────────────────────
+    // A DRAFT is an unfinished office note: it mints no DO and is excluded from
+    // every rider query, so notifying about one would send a rider to something
+    // that does not exist yet. Real schedules only.
+    //
+    // Scoped to Biofuel for now — they are the only org running the field app,
+    // and an org-wide push is not something to switch on for everyone by
+    // accident. Widen by deleting the org test once other orgs are on it.
+    //
+    // Fire-and-forget on purpose: PushService.sendToFieldTechs already resolves
+    // rather than throws, and the extra catch here means even a synchronous
+    // surprise (FCM constructing a message, a Prisma hiccup resolving
+    // recipients) cannot fail a schedule the office has already committed.
+    if (!isDraft && organizationId === DeliveriesService.PUSH_ENABLED_ORG_ID) {
+      void this.pushNewScheduledDelivery(run.id, organizationId).catch((err: any) =>
+        this.logger.warn(`createScheduled: push notify failed for delivery ${run.id}: ${err?.message}`),
+      );
+    }
+
     return { ...run, documentId };
+  }
+
+  /**
+   * "New scheduled delivery" push to every active field-tech in the org.
+   * Best-effort and never awaited by the caller — see the call site.
+   */
+  private async pushNewScheduledDelivery(deliveryId: string, organizationId: string) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: {
+        deliveryNumber: true,
+        scheduledFor: true,
+        siteAddress: true,
+        project: { select: { name: true } },
+        customer: { select: { name: true } },
+      },
+    });
+    if (!run) return;
+
+    // Singapore time — the riders are in SGT and a UTC timestamp on a phone
+    // notification would be read as local and be eight hours wrong.
+    const when = run.scheduledFor
+      ? new Date(run.scheduledFor).toLocaleString('en-GB', {
+          timeZone: 'Asia/Singapore',
+          weekday: 'short',
+          day: '2-digit',
+          month: 'short',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        })
+      : 'date to be confirmed';
+
+    // customer · project · when. Each part is dropped when absent rather than
+    // rendering an empty separator, so a run with no customer still reads well.
+    const parts = [run.customer?.name, run.project?.name ?? run.siteAddress, when].filter(Boolean);
+
+    await this.push.sendToFieldTechs(organizationId, {
+      title: 'New scheduled delivery',
+      body: parts.join(' · '),
+      data: {
+        kind: 'DELIVERY_SCHEDULED',
+        deliveryId,
+        deliveryNumber: String(run.deliveryNumber),
+      },
+    });
   }
 
   /**

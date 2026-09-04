@@ -995,6 +995,37 @@ model Notification {
   @@index([userId, organizationId, readAt])
 }
 
+// Push notification device registration (2026-09). One row per (user, device
+// token, org).
+//
+// Keyed on BOTH user and org on purpose:
+//   userId         owns the device and survives FCM token rotation — the app
+//                  re-registers on every start and the upsert refreshes
+//                  lastSeenAt rather than minting a duplicate.
+//   organizationId is what an org-wide send filters on, so "notify every
+//                  field-tech in this org" is one indexed read.
+// A user can hold roles in more than one org, so the SAME token may legitimately
+// appear on several rows — one per org. That is why `token` is NOT unique on its
+// own; uniqueness is (userId, token) per the registration contract, and the
+// org lives alongside it.
+//
+// Rows are deleted when FCM reports the token unregistered/invalid on a send.
+// Without that pruning the table silently fills with dead tokens and every send
+// degrades into partial failures nobody sees.
+model DeviceToken {
+  id             String   @id @default(uuid())
+  userId         String // Clerk user id
+  organizationId String
+  token          String // FCM registration token
+  platform       String   @default("android") // android | ios | web
+  lastSeenAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, token])
+  @@index([organizationId])
+}
+
 model UserOrganization {
   id             String       @id @default(uuid())
   userId         String

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "337479881538",
+    "project_id": "aims-field",
+    "storage_bucket": "aims-field.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:337479881538:android:ca7e9c8ea6aa1e179e2edb",
+        "android_client_info": {
+          "package_name": "so.osiris.aims.field"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAGPNsTcOPrDpm5DyE3uTqBlhKMLyS_Xl8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
