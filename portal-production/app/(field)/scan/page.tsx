@@ -8,6 +8,7 @@ import NfcIcon from "@mui/icons-material/Nfc";
 import KeyboardIcon from "@mui/icons-material/Keyboard";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import PrintIcon from "@mui/icons-material/Print";
+import EventIcon from "@mui/icons-material/Event";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useNfcScan } from "../hooks/useNfcScan";
@@ -34,6 +35,9 @@ export default function ScanLandingPage() {
   // Count of the rider's own unfinished runs — drives the "Deliveries in
   // progress (N)" badge below the primary scan action. 0 → nothing rendered.
   const [unfinishedCount, setUnfinishedCount] = useState(0);
+  // Open office-scheduled runs, org-wide — drives the "Scheduled deliveries (N)"
+  // entry point. Same feed the scheduled page itself uses (no new endpoint).
+  const [scheduledCount, setScheduledCount] = useState(0);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -46,6 +50,11 @@ export default function ScanLandingPage() {
         const mine = await request({ path: `/deliveries?mine=true&unfinished=true&limit=100`, method: "GET" }, {}, token);
         if (cancelled) return;
         if (mine.success !== false) setUnfinishedCount(((mine.data ?? mine).docs ?? []).length);
+        // Org-wide scheduled runs — the run-first entry point. Identical query to
+        // scan/deliveries/scheduled so the badge and that page never disagree.
+        const sched = await request({ path: `/deliveries?status=scheduled&limit=100`, method: "GET" }, {}, token);
+        if (cancelled) return;
+        if (sched.success !== false) setScheduledCount(((sched.data ?? sched).docs ?? []).length);
       } catch {
         // best-effort — the badges just stay hidden on failure
       }
@@ -172,6 +181,22 @@ export default function ScanLandingPage() {
       >
         Enter serial manually
       </Button>
+
+      {/* Run-FIRST entry point: pick the scheduled delivery, then scan item 1,
+          item 2, … The scan-first flow (scan a unit, then pick its run) is
+          unchanged and still the default above. Rendered only when something is
+          scheduled, matching the "deliveries in progress" rule. */}
+      {scheduledCount > 0 && (
+        <Button
+          variant="text"
+          size="large"
+          onClick={() => router.push("/scan/deliveries/scheduled")}
+          startIcon={<EventIcon />}
+          sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "text.secondary" }}
+        >
+          Scheduled deliveries ({scheduledCount})
+        </Button>
+      )}
 
       {/* Resume unfinished deliveries — rendered ONLY when the rider has runs
           in progress, so the scan landing stays clean when there's nothing. */}

@@ -91,7 +91,10 @@ interface Run {
   id: string;
   deliveryNumber: number;
   direction?: "OUTBOUND" | "RETURN";
-  status: "in_progress" | "delivered" | "completed" | "cancelled";
+  // "scheduled" = the office declared this run and NO unit has been scanned yet
+  // (the run-first entry point lands here). The first successful scan claims it
+  // to in_progress via claimScheduled; every other status is post-claim.
+  status: "scheduled" | "in_progress" | "delivered" | "completed" | "cancelled";
   // Set = the office scheduled this run, which is what turns on the one-pass
   // walk-through. An ad-hoc run (null) keeps the free-order basket behaviour.
   scheduledFor?: string | null;
@@ -123,6 +126,7 @@ const STATUS_CHIP: Record<ItemStatus, { label: string; color: "default" | "warni
 };
 
 const RUN_STATUS_LABEL: Record<Run["status"], string> = {
+  scheduled: "Scheduled — scan the first item to start",
   in_progress: "In progress",
   delivered: "Delivered — awaiting installation",
   completed: "Completed",
@@ -411,12 +415,27 @@ export default function DeliveryBasketPage() {
         return;
       }
       if (pending.mode === "add") {
-        const res = await request(
-          { path: `/deliveries/${deliveryId}/items`, method: "POST" },
-          { assetId: pending.assetId, inventoryId: pending.inventoryId },
-          token,
-        );
-        if (res.success === false) throw new Error(res.message ?? "Could not add unit");
+        // Run-first entry point: the run is still `scheduled`, so this is the
+        // FIRST unit. claimScheduled is the run-first binder — it fills the
+        // declared slot, reserves the unit, sets the rider and flips the run to
+        // in_progress. POST /items is the ad-hoc path and would not claim.
+        // Everything after this scan takes the normal in_progress branch below,
+        // so the walk continues unchanged from item 2 onward.
+        if (run?.status === "scheduled") {
+          const res = await request(
+            { path: `/deliveries/${deliveryId}/claim-scheduled`, method: "POST" },
+            { assetId: pending.assetId, inventoryId: pending.inventoryId },
+            token,
+          );
+          if (res.success === false) throw new Error(res.message ?? "Could not start this delivery");
+        } else {
+          const res = await request(
+            { path: `/deliveries/${deliveryId}/items`, method: "POST" },
+            { assetId: pending.assetId, inventoryId: pending.inventoryId },
+            token,
+          );
+          if (res.success === false) throw new Error(res.message ?? "Could not add unit");
+        }
       }
       await startUnit(pending.assetId, pending.inventoryId, token, pendingPhotos.map((p) => p.key));
       setActionMsg(pending.sku ? `${pending.sku} added ✓` : "Unit added ✓");
@@ -424,7 +443,14 @@ export default function DeliveryBasketPage() {
       setPendingPhotos([]);
       await load();
     } catch (e: any) {
-      setActionMsg(e?.message ?? "Unit not available — already out for delivery");
+      // claimScheduled deliberately REJECTS a unit whose asset is not on this
+      // run ("No open scheduled slot for this asset on this run") — that loud
+      // failure is correct and kept. Reword it for someone holding a phone.
+      const raw = String(e?.message ?? "");
+      const friendly = /no open scheduled slot/i.test(raw)
+        ? "That unit isn't on this delivery. Check the item list below, or scan it from the scan page to start it as its own delivery."
+        : raw || "Unit not available — already out for delivery";
+      setActionMsg(friendly);
       // 'add' failures: nothing was created, close the photo step. A failed
       // DO_START after a successful add leaves the item with its own Start
       // button (which re-runs the photo step).
@@ -434,7 +460,7 @@ export default function DeliveryBasketPage() {
     } finally {
       setBusy(false);
     }
-  }, [pending, pendingPhotos, requiredPhotos, deliveryId, getToken, load, startUnit]);
+  }, [pending, pendingPhotos, requiredPhotos, deliveryId, getToken, load, startUnit, run?.status]);
 
   // #3 fallback: rider decides installation isn't needed from the basket.
   // Free-typed lines now run the full lifecycle (Start -> photos -> End -> sign)
@@ -599,7 +625,10 @@ export default function DeliveryBasketPage() {
   // are acknowledged. Only the run being finished closes it. The generic add
   // controls below stay on `canAdd`, so ad-hoc units still lock at first
   // hand-over; the backend enforces the same split in addItem.
-  const canFillScheduledSlot = run.status === "in_progress";
+  // "scheduled" included: on the run-first entry point NOTHING has been scanned
+  // yet, so slot 1 must be fillable while the run is still unclaimed. The scan
+  // itself claims it (claimScheduled), which is what flips it to in_progress.
+  const canFillScheduledSlot = run.status === "in_progress" || run.status === "scheduled";
 
   // EVERY item still delivering, unit-backed OR free-typed. The single "End
   // Delivery" / "End Return" button covers all of them: ack-all fans across every
@@ -720,7 +749,10 @@ export default function DeliveryBasketPage() {
   // Active while the run is in progress and un-started, unskipped items remain.
   // When they are all scanned or skipped the walk ends and the basket takes over.
   const walkActive =
-    isScheduledRun && run.status === "in_progress" && !!walkItem && !walkDismissed;
+    isScheduledRun &&
+    (run.status === "in_progress" || run.status === "scheduled") &&
+    !!walkItem &&
+    !walkDismissed;
   // Counter position within the full item list. OUTBOUND fills slots in walk
   // order, so the walkItem's fixed declared position (its index in the ordered
   // list) already reads 1..N as the rider advances. RETURN items are unit-bound,
@@ -1015,7 +1047,7 @@ export default function DeliveryBasketPage() {
 
       {/* Stepped out of the walk with positions still to visit — offer the way
           back rather than stranding them in the basket. */}
-      {isScheduledRun && walkDismissed && walkItem && run.status === "in_progress" && (
+      {isScheduledRun && walkDismissed && walkItem && (run.status === "in_progress" || run.status === "scheduled") && (
         <Button
           variant="outlined"
           startIcon={<PlayArrowIcon />}
