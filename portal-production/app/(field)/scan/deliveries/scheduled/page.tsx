@@ -145,14 +145,11 @@ export default function ScheduledDeliveriesPage() {
                   {rows.map((i) => {
                     // Same precedence the walk-through uses (description first,
                     // /scan/delivery/[deliveryId]). A unit-backed line shows its
-                    // serial; an office slot that no unit has been scanned into
-                    // yet says so rather than showing a blank or a dash.
+                    // serial; an office slot with no unit scanned in yet shows
+                    // the asset name alone — no trailing text, so it reads the
+                    // same either way.
                     const label = i.description || "Item";
-                    const suffix = i.sku
-                      ? ` — ${i.sku}`
-                      : i.assetId && !i.inventoryId
-                        ? " — unit not yet assigned"
-                        : "";
+                    const suffix = i.sku ? ` — ${i.sku}` : "";
                     return (
                       <Typography key={i.id} variant="body2">
                         • {label}
