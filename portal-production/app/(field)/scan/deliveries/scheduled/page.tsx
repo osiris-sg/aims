@@ -37,6 +37,9 @@ interface SchedItem {
   description: string | null;
   assetId: string | null;
   inventoryId: string | null;
+  // Enriched by the list endpoint from the bound unit (null until one is
+  // scanned in). An office-scheduled slot has an assetId but no unit yet.
+  sku?: string | null;
 }
 interface SchedRun {
   id: string;
@@ -139,11 +142,29 @@ export default function ScheduledDeliveriesPage() {
                   <Typography variant="caption" color="text.secondary">Collect:</Typography>
                 )}
                 <Stack spacing={0.25} sx={{ mt: 0.5 }}>
-                  {rows.map((i) => (
-                    <Typography key={i.id} variant="body2">
-                      • {i.description ?? "Item"}{i.quantity && i.quantity > 1 ? ` ×${i.quantity}` : ""}
-                    </Typography>
-                  ))}
+                  {rows.map((i) => {
+                    // Same precedence the walk-through uses (description first,
+                    // /scan/delivery/[deliveryId]). A unit-backed line shows its
+                    // serial; an office slot that no unit has been scanned into
+                    // yet says so rather than showing a blank or a dash.
+                    const label = i.description || "Item";
+                    const suffix = i.sku
+                      ? ` — ${i.sku}`
+                      : i.assetId && !i.inventoryId
+                        ? " — unit not yet assigned"
+                        : "";
+                    return (
+                      <Typography key={i.id} variant="body2">
+                        • {label}
+                        {i.quantity && i.quantity > 1 ? ` ×${i.quantity}` : ""}
+                        {suffix && (
+                          <Typography component="span" variant="body2" color="text.secondary">
+                            {suffix}
+                          </Typography>
+                        )}
+                      </Typography>
+                    );
+                  })}
                 </Stack>
                 <Stack direction="row" spacing={1} sx={{ mt: 0.5, flexWrap: "wrap", rowGap: 1 }}>
                   {/* Navigation only — the run is NOT claimed until the first

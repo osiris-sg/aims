@@ -1803,6 +1803,12 @@ export class DeliveriesService {
               assetId: true,
               inventoryId: true,
               documentId: true,
+              // The rider's scheduled list labels each line from these two. They
+              // were absent from this select, so every row rendered as the
+              // fallback "Item" with no quantity — the rows themselves have
+              // always carried the text (office writes it at schedule time).
+              description: true,
+              quantity: true,
               document: { select: { id: true, name: true } },
             },
           },
