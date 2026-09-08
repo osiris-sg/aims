@@ -1437,7 +1437,20 @@ export class ProjectsService {
         },
       },
     });
-    return links.map((l) => l.customerContact);
+    // UNIQUE BY PERSON. This returns PEOPLE, not links, and its only consumer is
+    // the delivery contact picker (which maps straight to ids for its selection
+    // state). One person can already hold a DO row and — once the unique
+    // constraint is widened — an INVOICE row on the same project, and the picker
+    // must not then list them twice. Oldest link wins, preserving the createdAt
+    // ordering the picker relies on.
+    const seen = new Set<string>();
+    return links
+      .map((l) => l.customerContact)
+      .filter((c) => {
+        if (!c || seen.has(c.id)) return false;
+        seen.add(c.id);
+        return true;
+      });
   }
 
   // OSI-84 — replace the project's contact set with contactIds. Each id must be
@@ -1466,9 +1479,26 @@ export class ProjectsService {
       validIds = contacts.map((c) => c.id);
     }
 
-    // Replace the set atomically (simplest correct semantics for a small list).
+    // Replace the set atomically — but ONLY the rows this picker owns.
+    //
+    // OWNERSHIP: a row with `group` NULL was attached here; a row with a group
+    // ('DO' | 'INVOICE') came from the customer-info ACCEPT path. This used to
+    // deleteMany({ projectId }) — every row — so scheduling a delivery silently
+    // erased the accepted groupings the office had just approved. The accept
+    // path already shows the matching restraint (it only detaches group-set
+    // rows), and this makes the two writers symmetric: each removes what it
+    // created and leaves the other's rows alone.
+    //
+    // Every ProjectContact in prod today has group NULL, so all of them remain
+    // picker-owned and this changes nothing for existing data.
+    //
+    // Selecting a person who ALREADY holds an accepted (group-set) row is a
+    // no-op: the insert collides on @@unique([projectId, customerContactId])
+    // and skipDuplicates drops it, leaving the accepted row — with its group —
+    // standing. That is the intended outcome; the picker must not silently
+    // demote an accepted contact to ungrouped.
     await this.prisma.$transaction([
-      this.prisma.projectContact.deleteMany({ where: { projectId } }),
+      this.prisma.projectContact.deleteMany({ where: { projectId, group: null } }),
       ...(validIds.length
         ? [
             this.prisma.projectContact.createMany({
