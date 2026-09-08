@@ -741,7 +741,7 @@ model ProjectMilestone {
 model Lead {
   id                   String    @id @default(uuid())
   organizationId       String
-  source               String    @default("manual") // ezid | network | manual
+  source               String    @default("manual") // ezid | network | manual | fb | ig
   ref                  String? // provider reference, e.g. NSG-2026-2160
   name                 String
   email                String?
@@ -782,6 +782,25 @@ model Lead {
   @@index([organizationId, status])
   @@index([organizationId, assignedToUserId])
   @@index([organizationId, receivedAt])
+}
+
+// Multiple files per lead (floor plans, photos, videos, other docs). Loose FK
+// on leadId — no @relation — matching how Lead already holds quotationId /
+// projectId. Additive & nullable only (Render's build runs `prisma db push`
+// without --accept-data-loss). Upload/validation live in leads.service.ts.
+model LeadAttachment {
+  id             String   @id @default(uuid())
+  organizationId String
+  leadId         String
+  url            String
+  key            String
+  filename       String?
+  mimeType       String?
+  sizeBytes      Int?
+  kind           String? // floorplan | photo | video | other
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, leadId])
 }
 
 // Public share link for a project's client-facing surfaces (2026-08: kind

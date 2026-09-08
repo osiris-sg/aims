@@ -46,6 +46,18 @@ type LeadDto = Partial<{
 // quotation).
 export const LEAD_STATUSES = ['unqualified', 'engaging', 'dead', 'converted'] as const;
 
+// All recognised sources. ezid | network are set ONLY by the email-ingestion
+// path; manual | fb | ig are the human-entered ones a UI edit may set.
+export const LEAD_SOURCES = ['ezid', 'network', 'manual', 'fb', 'ig'] as const;
+export const MANUAL_SOURCES = ['manual', 'fb', 'ig'] as const;
+const isManualSource = (s: string | null | undefined) => MANUAL_SOURCES.includes(s as any);
+
+// Lead attachment validation (this endpoint validates, unlike /uploads/image).
+const ATTACH_ALLOWED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'video/mp4', 'video/quicktime']);
+const ATTACH_MAX_IMAGE = 10 * 1024 * 1024; // images + PDF
+const ATTACH_MAX_VIDEO = 100 * 1024 * 1024; // video
+const ATTACH_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'application/pdf': 'pdf', 'video/mp4': 'mp4', 'video/quicktime': 'mov' };
+
 /** Does this inbound email look like a lead (vs a bill/invoice)? */
 export function looksLikeLeadEmail(fromEmail: string, subject: string | undefined): boolean {
   const s = (subject || '').toLowerCase();
@@ -303,12 +315,21 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     // Dead needs evidence: a lead can only be marked dead once the no-reply
     // proof is on file (uploadDeadProof sets both together).
     if (dto.status === 'dead' && !existing.deadProofUrl) throw new BadRequestException('Attach proof that the client never replied before marking the lead dead');
+    // Source guard: a UI edit may only move a MANUAL-ish lead between the
+    // manual sources (manual | fb | ig). It can never re-source an email
+    // lead (ezid | network), nor claim one of those — those are set by the
+    // ingestion path only.
+    if (dto.source !== undefined) {
+      if (!LEAD_SOURCES.includes(dto.source as any)) throw new BadRequestException('Unknown source');
+      if (!isManualSource(dto.source)) throw new BadRequestException(`Source can only be set to ${MANUAL_SOURCES.join(', ')} — ezid/network are set by email ingestion only`);
+      if (!isManualSource(existing.source)) throw new BadRequestException('This lead was captured from email; its source cannot be changed');
+    }
     const assigningNow = dto.assignedToUserId !== undefined && dto.assignedToUserId !== existing.assignedToUserId;
     return this.prisma.lead.update({
       where: { id: leadId },
       data: {
         ...Object.fromEntries(
-          ['ref', 'name', 'email', 'phone', 'location', 'propertyType', 'propertyRooms', 'propertyStatus', 'keyCollection', 'moveIn', 'budget', 'areas', 'designStyle', 'remarks', 'approachNotes', 'floorPlanUrl', 'status', 'assignedToUserId', 'assignedToName', 'quotationId', 'projectId', 'notes'].map((k) => [k, (dto as any)[k] !== undefined ? (dto as any)[k] : undefined]),
+          ['source', 'ref', 'name', 'email', 'phone', 'location', 'propertyType', 'propertyRooms', 'propertyStatus', 'keyCollection', 'moveIn', 'budget', 'areas', 'designStyle', 'remarks', 'approachNotes', 'floorPlanUrl', 'status', 'assignedToUserId', 'assignedToName', 'quotationId', 'projectId', 'notes'].map((k) => [k, (dto as any)[k] !== undefined ? (dto as any)[k] : undefined]),
         ),
         assignedAt: assigningNow ? (dto.assignedToUserId ? new Date() : null) : undefined,
         deadAt: dto.status === 'dead' ? new Date() : undefined,
@@ -331,6 +352,60 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       where: { id: leadId },
       data: { deadProofUrl: url, deadProofKey: key, status: 'dead', deadAt: new Date() },
     });
+  }
+
+  /** Lead + its attachments (the detail response). */
+  async getOne(leadId: string, organizationId: string) {
+    const lead = await this.prisma.lead.findFirst({ where: { id: leadId, organizationId } });
+    if (!lead) throw new NotFoundException('Lead not found');
+    const attachments = await this.listAttachments(leadId, organizationId);
+    return { ...lead, attachments };
+  }
+
+  async listAttachments(leadId: string, organizationId: string) {
+    return this.prisma.leadAttachment.findMany({ where: { organizationId, leadId }, orderBy: { createdAt: 'desc' } });
+  }
+
+  /**
+   * Add ONE attachment. Follows the dead-proof pattern (base64 data-URL in the
+   * JSON body) but VALIDATES type + size, unlike /uploads/image. Returns the
+   * refreshed attachment list. NOTE: the 15mb Express json limit (main.ts)
+   * caps a base64 upload at ~11MB of real bytes — video needs multipart/a
+   * raised limit to reach the 100MB ceiling checked here.
+   */
+  async addAttachment(leadId: string, organizationId: string, file: string, filename?: string, kind?: string) {
+    const existing = await this.prisma.lead.findFirst({ where: { id: leadId, organizationId } });
+    if (!existing) throw new NotFoundException('Lead not found');
+    if (!file) throw new BadRequestException('No file provided');
+    const mediaType = file.match(/^data:([a-zA-Z/+.-]+);base64,/)?.[1];
+    if (!mediaType) throw new BadRequestException('File must be a base64 data URL');
+    if (!ATTACH_ALLOWED_TYPES.has(mediaType)) throw new BadRequestException(`Unsupported file type "${mediaType}". Allowed: PNG, JPEG, WebP, PDF, MP4, MOV`);
+    const buffer = Buffer.from(file.slice(file.indexOf(',') + 1), 'base64');
+    const sizeBytes = buffer.length;
+    const isVideo = mediaType.startsWith('video/');
+    const max = isVideo ? ATTACH_MAX_VIDEO : ATTACH_MAX_IMAGE;
+    if (sizeBytes > max) throw new BadRequestException(`File is ${(sizeBytes / 1048576).toFixed(1)}MB — the limit is ${isVideo ? '100MB for video' : '10MB for images and PDF'}`);
+    const ext = ATTACH_EXT[mediaType] || 'bin';
+    const key = `leads/${organizationId}/attachments/${leadId}-${Date.now()}.${ext}`;
+    const url = await this.s3.uploadFile(key, buffer, mediaType);
+    const derivedKind = kind || (isVideo ? 'video' : mediaType === 'application/pdf' ? 'other' : 'photo');
+    await this.prisma.leadAttachment.create({
+      data: { organizationId, leadId, url, key, filename: filename ?? null, mimeType: mediaType, sizeBytes, kind: derivedKind },
+    });
+    return this.listAttachments(leadId, organizationId);
+  }
+
+  /** Delete an attachment row AND its S3 object. Returns the refreshed list. */
+  async removeAttachment(leadId: string, attachmentId: string, organizationId: string) {
+    const att = await this.prisma.leadAttachment.findFirst({ where: { id: attachmentId, leadId, organizationId } });
+    if (!att) throw new NotFoundException('Attachment not found');
+    try {
+      await this.s3.deleteFile(att.key);
+    } catch {
+      /* best effort — still drop the row */
+    }
+    await this.prisma.leadAttachment.delete({ where: { id: attachmentId } });
+    return this.listAttachments(leadId, organizationId);
   }
 
   async remove(leadId: string, organizationId: string) {

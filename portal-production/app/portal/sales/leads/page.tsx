@@ -31,6 +31,7 @@ import {
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import VisibilityIcon from "@mui/icons-material/VisibilityOutlined";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
+import EditIcon from "@mui/icons-material/EditOutlined";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import DescriptionIcon from "@mui/icons-material/DescriptionOutlined";
 import moment from "moment";
@@ -76,6 +77,17 @@ type Lead = {
   notes: string | null;
 };
 
+type LeadAttachment = {
+  id: string;
+  url: string;
+  key: string;
+  filename: string | null;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  kind: string | null;
+  createdAt: string;
+};
+
 // unqualified → engaging → dead (proof required) | converted (auto-quotation)
 const STATUS_OPTIONS: Array<{ value: string; label: string; color: "default" | "primary" | "info" | "success" | "warning" | "error" }> = [
   { value: "unqualified", label: "Unqualified", color: "primary" },
@@ -84,6 +96,34 @@ const STATUS_OPTIONS: Array<{ value: string; label: string; color: "default" | "
   { value: "converted", label: "Converted", color: "success" },
 ];
 const statusOf = (v: string) => STATUS_OPTIONS.find((s) => s.value === v) || STATUS_OPTIONS[0];
+
+// ezid | network are ingestion-only; manual | fb | ig are human-entered.
+const SOURCE_OPTIONS = [
+  { value: "ezid", label: "EZiD" },
+  { value: "network", label: "Network" },
+  { value: "manual", label: "Manual" },
+  { value: "fb", label: "Facebook" },
+  { value: "ig", label: "Instagram" },
+];
+const MANUAL_SOURCES = ["manual", "fb", "ig"];
+const isManualSource = (s: string) => MANUAL_SOURCES.includes(s);
+
+// Attachment upload — mirrors the server-side allow-list + size caps
+// (leads.service.ts). Oversize files are blocked client-side BEFORE upload:
+// main.ts caps the Express JSON body at 15mb, so a too-large base64 payload
+// would otherwise fail with a bare 413.
+const ATTACH_ACCEPT = "image/png,image/jpeg,image/webp,application/pdf,video/mp4,video/quicktime";
+const ATTACH_MAX_IMAGE = 10 * 1048576; // images + PDF
+const ATTACH_MAX_VIDEO = 100 * 1048576; // video
+const attachTooBig = (f: File) => (f.type.startsWith("video/") ? f.size > ATTACH_MAX_VIDEO : f.size > ATTACH_MAX_IMAGE);
+const fmtBytes = (n: number | null) => (n == null ? "" : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+const readAsDataURL = (f: File) =>
+  new Promise<string>((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result));
+    r.onerror = () => rej(new Error("Could not read file"));
+    r.readAsDataURL(f);
+  });
 
 export default function LeadsPage() {
   const router = useRouter();
@@ -104,7 +144,11 @@ export default function LeadsPage() {
   const [busy, setBusy] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [deadFor, setDeadFor] = useState<Lead | null>(null);
-  const [manual, setManual] = useState({ name: "", phone: "", email: "", propertyType: "", budget: "", remarks: "" });
+  const [manual, setManual] = useState({ name: "", phone: "", email: "", propertyType: "", budget: "", keyCollection: "", remarks: "" });
+  const [attachments, setAttachments] = useState<LeadAttachment[]>([]);
+  const [attBusy, setAttBusy] = useState(false);
+  const [editFor, setEditFor] = useState<Lead | null>(null);
+  const [edit, setEdit] = useState<any>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -133,6 +177,91 @@ export default function LeadsPage() {
       load();
     } catch (e: any) {
       toast.error(e.message || "Update failed");
+    }
+  };
+
+  // Attachments load with the detail drawer (GET /leads/:id returns them).
+  useEffect(() => {
+    if (!detail) {
+      setAttachments([]);
+      return;
+    }
+    api
+      .request<any>(`/leads/${detail.id}`)
+      .then((r) => setAttachments(r?.attachments || []))
+      .catch(() => setAttachments([]));
+  }, [detail, api]);
+
+  // Upload one-by-one (a 100MB video over base64 is not instant; sequential
+  // keeps each request small and lets the busy state track progress).
+  const uploadAttachments = async (files: FileList) => {
+    if (!detail || !files.length) return;
+    setAttBusy(true);
+    try {
+      let latest: LeadAttachment[] = attachments;
+      for (const f of Array.from(files)) {
+        // Block oversize before upload (the server enforces the same caps).
+        if (attachTooBig(f)) {
+          toast.error(`${f.name} is ${(f.size / 1048576).toFixed(1)}MB — max ${f.type.startsWith("video/") ? "100MB for video" : "10MB for images and PDF"}`);
+          continue;
+        }
+        const dataUrl = await readAsDataURL(f);
+        latest = await api.request<any>(`/leads/${detail.id}/attachments`, { method: "POST", body: JSON.stringify({ file: dataUrl, filename: f.name }) });
+      }
+      setAttachments(latest || []);
+      toast.success("Attachment uploaded");
+    } catch (e: any) {
+      toast.error(e.message || "Upload failed");
+    } finally {
+      setAttBusy(false);
+    }
+  };
+
+  const deleteAttachment = async (id: string) => {
+    if (!detail) return;
+    setAttBusy(true);
+    try {
+      const list = await api.request<any>(`/leads/${detail.id}/attachments/${id}`, { method: "DELETE" });
+      setAttachments(list || []);
+    } catch (e: any) {
+      toast.error(e.message || "Delete failed");
+    } finally {
+      setAttBusy(false);
+    }
+  };
+
+  const openEdit = (l: Lead) => {
+    setEdit({
+      ref: l.ref || "", name: l.name || "", email: l.email || "", phone: l.phone || "", location: l.location || "",
+      propertyType: l.propertyType || "", propertyRooms: l.propertyRooms || "", propertyStatus: l.propertyStatus || "",
+      keyCollection: l.keyCollection || "", moveIn: l.moveIn || "", budget: l.budget || "", areas: l.areas || "",
+      designStyle: l.designStyle || "", remarks: l.remarks || "", approachNotes: l.approachNotes || "", notes: l.notes || "",
+      source: l.source,
+    });
+    setEditFor(l);
+  };
+
+  const saveEdit = async () => {
+    if (!editFor || !edit?.name?.trim()) return;
+    setBusy(true);
+    try {
+      const payload: any = { ...edit, name: edit.name.trim() };
+      // Source is only editable on a manual-ish lead; never send it for an
+      // email-ingested lead (the server rejects it too).
+      if (!isManualSource(editFor.source)) delete payload.source;
+      // Empty strings → null so a cleared field actually clears.
+      Object.keys(payload).forEach((k) => {
+        if (k !== "name" && payload[k] === "") payload[k] = null;
+      });
+      await api.request(`/leads/${editFor.id}`, { method: "PATCH", body: JSON.stringify(payload) });
+      toast.success("Lead updated");
+      setEditFor(null);
+      if (detail?.id === editFor.id) setDetail({ ...detail, ...payload });
+      load();
+    } catch (e: any) {
+      toast.error(e.message || "Update failed");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -307,6 +436,11 @@ export default function LeadsPage() {
                   </span>
                 </Tooltip>
               )}
+              <Tooltip title="Edit">
+                <IconButton size="small" onClick={() => openEdit(l)}>
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
               <IconButton size="small" onClick={() => setToDelete(l)} sx={{ "&:hover": { color: "error.main" } }}>
                 <DeleteIcon fontSize="small" />
               </IconButton>
@@ -321,7 +455,7 @@ export default function LeadsPage() {
   const filterConfig: FilterField[] = useMemo(
     () => [
       { type: "select", key: "status", label: "Status", options: [{ value: "", label: "All" }, ...STATUS_OPTIONS.map((s) => ({ value: s.value, label: s.label }))] },
-      { type: "select", key: "source", label: "Source", options: [{ value: "", label: "All" }, { value: "ezid", label: "EZiD" }, { value: "network", label: "Network" }, { value: "manual", label: "Manual" }] },
+      { type: "select", key: "source", label: "Source", options: [{ value: "", label: "All" }, ...SOURCE_OPTIONS] },
     ],
     [],
   );
@@ -363,7 +497,7 @@ export default function LeadsPage() {
         totalDocs={total}
         buttonName="New lead"
         onAddClick={() => {
-          setManual({ name: "", phone: "", email: "", propertyType: "", budget: "", remarks: "" });
+          setManual({ name: "", phone: "", email: "", propertyType: "", budget: "", keyCollection: "", remarks: "" });
           setManualOpen(true);
         }}
       />
@@ -377,6 +511,9 @@ export default function LeadsPage() {
                 {detail.name}
               </Typography>
               <Chip size="small" color={statusOf(detail.status).color} label={statusOf(detail.status).label} />
+              <Button size="small" variant="outlined" startIcon={<EditIcon />} onClick={() => openEdit(detail)} sx={{ textTransform: "none" }}>
+                Edit
+              </Button>
             </Stack>
             <Typography variant="caption" sx={{ color: "text.secondary" }}>
               {detail.source.toUpperCase()}
@@ -454,6 +591,59 @@ export default function LeadsPage() {
                 </Button>
               )}
             </Stack>
+
+            {/* Attachments — floor plans, photos, videos, other docs. */}
+            <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
+              <Stack direction="row" alignItems="center" sx={{ mb: attachments.length ? 1 : 0.5 }}>
+                <Typography variant="caption" sx={{ color: "text.secondary", flex: 1 }}>
+                  Attachments
+                </Typography>
+                <Button size="small" component="label" variant="outlined" disabled={attBusy} sx={{ textTransform: "none" }}>
+                  {attBusy ? "Uploading…" : "Upload"}
+                  <input
+                    hidden
+                    type="file"
+                    multiple
+                    accept={ATTACH_ACCEPT}
+                    onChange={(e) => {
+                      if (e.target.files?.length) uploadAttachments(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                </Button>
+              </Stack>
+              {attachments.length === 0 ? (
+                <Typography variant="body2" sx={{ color: "text.disabled" }}>
+                  None yet. Accepts images, PDF and video (MP4/MOV).
+                </Typography>
+              ) : (
+                <Stack spacing={1}>
+                  {attachments.map((a) => (
+                    <Box key={a.id} sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                      {a.mimeType?.startsWith("image/") ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={a.url} alt={a.filename || ""} style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 4, cursor: "pointer", flexShrink: 0 }} onClick={() => window.open(a.url, "_blank")} />
+                      ) : a.mimeType?.startsWith("video/") ? (
+                        <video src={a.url} controls style={{ width: 120, borderRadius: 4, flexShrink: 0 }} />
+                      ) : (
+                        <DescriptionIcon sx={{ color: "text.secondary", flexShrink: 0 }} />
+                      )}
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="body2" noWrap sx={{ cursor: "pointer", "&:hover": { textDecoration: "underline" } }} onClick={() => window.open(a.url, "_blank")}>
+                          {a.filename || a.kind || "file"}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                          {[a.kind, fmtBytes(a.sizeBytes)].filter(Boolean).join(" · ")}
+                        </Typography>
+                      </Box>
+                      <IconButton size="small" disabled={attBusy} onClick={() => deleteAttachment(a.id)} sx={{ "&:hover": { color: "error.main" } }}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  ))}
+                </Stack>
+              )}
+            </Paper>
           </Stack>
         )}
       </Drawer>
@@ -520,6 +710,9 @@ export default function LeadsPage() {
             <Grid item xs={6}>
               <TextField label="Budget" size="small" fullWidth value={manual.budget} onChange={(e) => setManual({ ...manual, budget: e.target.value })} />
             </Grid>
+            <Grid item xs={6}>
+              <TextField label="Est. key collection" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={manual.keyCollection} onChange={(e) => setManual({ ...manual, keyCollection: e.target.value })} />
+            </Grid>
             <Grid item xs={12}>
               <TextField label="Remarks" size="small" fullWidth multiline minRows={2} value={manual.remarks} onChange={(e) => setManual({ ...manual, remarks: e.target.value })} />
             </Grid>
@@ -533,7 +726,7 @@ export default function LeadsPage() {
             onClick={async () => {
               setBusy(true);
               try {
-                await api.request(`/leads`, { method: "POST", body: JSON.stringify({ ...manual, phone: manual.phone.replace(/\D/g, "") || null, source: "manual" }) });
+                await api.request(`/leads`, { method: "POST", body: JSON.stringify({ ...manual, phone: manual.phone.replace(/\D/g, "") || null, keyCollection: manual.keyCollection || null, source: "manual" }) });
                 setManualOpen(false);
                 load();
               } catch (e: any) {
@@ -544,6 +737,89 @@ export default function LeadsPage() {
             }}
           >
             Add
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* edit lead — every whitelisted human-set field; available in any status */}
+      <Dialog open={!!editFor} onClose={() => setEditFor(null)} fullWidth maxWidth="sm" PaperProps={{ sx: { borderRadius: 2 } }}>
+        <DialogTitle>Edit lead</DialogTitle>
+        <DialogContent dividers>
+          {edit && editFor && (
+            <Grid container spacing={1.5}>
+              <Grid item xs={12} sm={6}>
+                <TextField label="Name" size="small" fullWidth value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  select
+                  label="Source"
+                  size="small"
+                  fullWidth
+                  value={edit.source}
+                  disabled={!isManualSource(editFor.source)}
+                  helperText={!isManualSource(editFor.source) ? "Set by email ingestion — not editable" : undefined}
+                  onChange={(e) => setEdit({ ...edit, source: e.target.value })}
+                >
+                  {(isManualSource(editFor.source) ? SOURCE_OPTIONS.filter((o) => MANUAL_SOURCES.includes(o.value)) : SOURCE_OPTIONS.filter((o) => o.value === editFor.source)).map((o) => (
+                    <MenuItem key={o.value} value={o.value}>
+                      {o.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField label="Ref" size="small" fullWidth value={edit.ref} onChange={(e) => setEdit({ ...edit, ref: e.target.value })} />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField label="Phone" size="small" fullWidth value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField label="Email" size="small" fullWidth value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField label="Location" size="small" fullWidth value={edit.location} onChange={(e) => setEdit({ ...edit, location: e.target.value })} />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField label="Property type" size="small" fullWidth value={edit.propertyType} onChange={(e) => setEdit({ ...edit, propertyType: e.target.value })} />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField label="Rooms" size="small" fullWidth value={edit.propertyRooms} onChange={(e) => setEdit({ ...edit, propertyRooms: e.target.value })} />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField label="Property status" size="small" fullWidth value={edit.propertyStatus} onChange={(e) => setEdit({ ...edit, propertyStatus: e.target.value })} />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField label="Est. key collection" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={edit.keyCollection} onChange={(e) => setEdit({ ...edit, keyCollection: e.target.value })} />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField label="Move-in" size="small" fullWidth value={edit.moveIn} onChange={(e) => setEdit({ ...edit, moveIn: e.target.value })} />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField label="Budget" size="small" fullWidth value={edit.budget} onChange={(e) => setEdit({ ...edit, budget: e.target.value })} />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField label="Design style" size="small" fullWidth value={edit.designStyle} onChange={(e) => setEdit({ ...edit, designStyle: e.target.value })} />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField label="Areas to renovate" size="small" fullWidth value={edit.areas} onChange={(e) => setEdit({ ...edit, areas: e.target.value })} />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField label="Homeowner remarks" size="small" fullWidth multiline minRows={2} value={edit.remarks} onChange={(e) => setEdit({ ...edit, remarks: e.target.value })} />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField label="How to approach (concierge)" size="small" fullWidth multiline minRows={2} value={edit.approachNotes} onChange={(e) => setEdit({ ...edit, approachNotes: e.target.value })} />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField label="Internal notes" size="small" fullWidth multiline minRows={2} value={edit.notes} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} />
+              </Grid>
+            </Grid>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditFor(null)}>Cancel</Button>
+          <Button variant="contained" disabled={busy || !edit?.name?.trim()} onClick={saveEdit}>
+            Save
           </Button>
         </DialogActions>
       </Dialog>

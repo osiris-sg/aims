@@ -1,9 +1,9 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { LeadsService } from './leads.service';
+import { LeadsService, MANUAL_SOURCES } from './leads.service';
 
 interface RequestWithOrganization extends Request {
   userOrganization?: { id: string };
@@ -46,10 +46,34 @@ export class LeadsController {
     return this.service.list(orgId(req), { page: Number(page) || 1, limit: Number(limit) || 20, search, status, source, assignedToUserId });
   }
 
+  @Get(':id')
+  @Permissions('documents:read')
+  getOne(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    return this.service.getOne(id, orgId(req));
+  }
+
   @Post()
   @Permissions('documents:create-basic')
   create(@Body() body: any, @Req() req: RequestWithOrganization) {
+    // A manually created lead may only carry a manual-ish source; ezid/network
+    // are reserved for the email-ingestion path (which bypasses this route).
+    if (body?.source !== undefined && !MANUAL_SOURCES.includes(body.source)) {
+      throw new BadRequestException(`Source can only be ${MANUAL_SOURCES.join(', ')} — ezid/network are set by email ingestion only`);
+    }
     return this.service.create(orgId(req), body || {});
+  }
+
+  // Multiple attachments per lead (floor plans, photos, videos, other docs).
+  @Post(':id/attachments')
+  @Permissions('documents:update')
+  addAttachment(@Param('id') id: string, @Body() body: { file: string; filename?: string; kind?: string }, @Req() req: RequestWithOrganization) {
+    return this.service.addAttachment(id, orgId(req), body?.file, body?.filename, body?.kind);
+  }
+
+  @Delete(':id/attachments/:attachmentId')
+  @Permissions('documents:update')
+  removeAttachment(@Param('id') id: string, @Param('attachmentId') attachmentId: string, @Req() req: RequestWithOrganization) {
+    return this.service.removeAttachment(id, attachmentId, orgId(req));
   }
 
   @Patch(':id')
