@@ -114,7 +114,12 @@ const isManualSource = (s: string) => MANUAL_SOURCES.includes(s);
 // would otherwise fail with a bare 413.
 const ATTACH_ACCEPT = "image/png,image/jpeg,image/webp,application/pdf,video/mp4,video/quicktime";
 const ATTACH_MAX_IMAGE = 10 * 1048576; // images + PDF
-const ATTACH_MAX_VIDEO = 100 * 1048576; // video
+// 10MB, NOT the server's 100MB video branch: base64 inflates ~33% and main.ts
+// caps the Express JSON body at 15mb, so anything over ~11MB of real bytes 413s
+// at the body parser before the server's validation runs. The server keeps its
+// 100MB video ceiling, ready for a presigned/multipart transport later; until
+// then this is the largest video the base64 JSON path can actually carry.
+const ATTACH_MAX_VIDEO = 10 * 1048576; // video (transport-limited, see above)
 const attachTooBig = (f: File) => (f.type.startsWith("video/") ? f.size > ATTACH_MAX_VIDEO : f.size > ATTACH_MAX_IMAGE);
 const fmtBytes = (n: number | null) => (n == null ? "" : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 const readAsDataURL = (f: File) =>
@@ -202,7 +207,7 @@ export default function LeadsPage() {
       for (const f of Array.from(files)) {
         // Block oversize before upload (the server enforces the same caps).
         if (attachTooBig(f)) {
-          toast.error(`${f.name} is ${(f.size / 1048576).toFixed(1)}MB — max ${f.type.startsWith("video/") ? "100MB for video" : "10MB for images and PDF"}`);
+          toast.error(`${f.name} is ${(f.size / 1048576).toFixed(1)}MB — ${f.type.startsWith("video/") ? "video files over 10MB are not supported yet" : "max 10MB for images and PDF"}`);
           continue;
         }
         const dataUrl = await readAsDataURL(f);
