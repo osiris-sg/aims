@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
   HttpException,
@@ -42,13 +43,25 @@ function enforceRateLimit(key: string) {
   }
 }
 
-// Public resolve states. Resubmission is allowed while the link is active, so
-// there is NO terminal "submitted" state — a submitted link stays `ok` and the
-// recipient can reopen it prefilled and correct it. `submitted` here is only the
-// office-facing list status (see requestStatus), not a public gate.
-type TokenState = 'ok' | 'expired' | 'revoked' | 'notfound';
+// Public resolve states.
+//
+// 'submitted' is TERMINAL (2026-09). A link is SPENT once used: resubmission
+// was removed deliberately, so a customer who needs to correct something asks
+// the office for a new link. That makes a change of contacts a decision
+// somebody makes, rather than a set silently replacing an earlier one under an
+// already-issued document.
+//
+// (This reverses the earlier design, where a submitted link stayed `ok` and the
+// recipient could reopen it prefilled. The soft-supersede machinery in submit()
+// is left in place but is no longer reachable through this gate.)
+type TokenState = 'ok' | 'expired' | 'revoked' | 'submitted' | 'notfound';
 
 const CONTACT_GROUPS = ['DO', 'INVOICE'] as const;
+
+// acceptedBy value when submit() accepted the contacts itself. Deliberately not
+// null: null would be indistinguishable from "accepted by an unknown user", and
+// the office needs to see that nobody reviewed this.
+const AUTO_ACCEPT_BY = 'system:auto-accept';
 type ContactGroup = (typeof CONTACT_GROUPS)[number];
 
 /**
@@ -66,6 +79,8 @@ type ContactGroup = (typeof CONTACT_GROUPS)[number];
  */
 @Injectable()
 export class CustomerInfoService {
+  private readonly logger = new Logger(CustomerInfoService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /** Controller calls this per public request with the token + client IP. */
@@ -209,6 +224,34 @@ export class CustomerInfoService {
     });
     if (!project) throw new NotFoundException('Project not found in this organization');
 
+    // REUSE AN OUTSTANDING LINK rather than minting a second one.
+    //
+    // The check lives HERE, not in a caller, because there are two: the project
+    // page's button and the customer-information dialog. Only the first checked,
+    // so the office could mint a competing link from the other — and a
+    // submission now auto-accepts onto the project with nobody reviewing it, so
+    // a second link is a second set of contacts silently replacing the first.
+    // 18 Holland Drive already carries three requests from exactly this.
+    //
+    // "Live" = never submitted, not revoked, not past its window. A SUBMITTED
+    // request is deliberately NOT reused: its link is spent, so the office
+    // asking again genuinely needs a new one.
+    //
+    // regenerateRequest does not come through here — replacing a link is a
+    // deliberate act and keeps working unchanged.
+    const existing = await this.prisma.customerInfoRequest.findFirst({
+      where: {
+        organizationId,
+        projectId: project.id,
+        submittedAt: null,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, token: true, expiresAt: true },
+    });
+    if (existing) return { ...existing, reused: true as const };
+
     const created = await this.prisma.customerInfoRequest.create({
       data: {
         organizationId,
@@ -222,7 +265,7 @@ export class CustomerInfoService {
       },
       select: { id: true, token: true, expiresAt: true },
     });
-    return created;
+    return { ...created, reused: false as const };
   }
 
   /** Revoke a request's link (idempotent). */
@@ -295,6 +338,9 @@ export class CustomerInfoService {
     let state: TokenState = 'ok';
     if (link.revokedAt) state = 'revoked';
     else if (link.expiresAt && link.expiresAt.getTime() < Date.now()) state = 'expired';
+    // Spent. Checked AFTER revoked/expired so an office action still reads as
+    // the office's doing in the logs; the public page renders all four alike.
+    else if (link.submittedAt) state = 'submitted';
     return { link, state };
   }
 
@@ -303,6 +349,7 @@ export class CustomerInfoService {
     const messages: Record<Exclude<TokenState, 'ok'>, string> = {
       expired: 'This link has expired. Please ask the sender for a new one.',
       revoked: 'This link is no longer active.',
+      submitted: 'This link has already been used. Please ask the sender for a new one.',
       notfound: 'This link was not found.',
     };
     // 410 Gone: the link resolved but is no longer usable.
@@ -416,13 +463,15 @@ export class CustomerInfoService {
     const now = Date.now();
     const requests = rows.map((r) => {
       const expired = !!r.expiresAt && r.expiresAt.getTime() <= now;
+      // Four states now, not five. 'awaiting_accept' is gone: submit() accepts
+      // the contacts itself, so a submitted request IS accepted. A request whose
+      // auto-accept failed still reads 'submitted' with acceptedAt null — the
+      // tab surfaces that so the office can repair it with the manual endpoint.
       const status = r.revokedAt
         ? 'revoked'
         : !r.submittedAt
           ? expired ? 'expired' : 'outstanding'
-          : !r.acceptedAt || r.submittedAt.getTime() > r.acceptedAt.getTime()
-            ? 'awaiting_accept'
-            : 'accepted';
+          : 'submitted';
       return { ...r, status, isLive: !r.revokedAt && !expired };
     });
 
@@ -492,10 +541,45 @@ export class CustomerInfoService {
       throw new BadRequestException('This submission has no live contacts to accept');
     }
 
+    const result = await this.syncContactsOntoProject(
+      { requestId: req.id, customerId: customer.id, projectId: project.id, live },
+      acceptedBy ?? 'system:manual-resync',
+    );
+    return { ok: true, ...result };
+  }
+
+  /**
+   * THE ONE implementation that mirrors a submission's contacts onto the
+   * project. Called automatically by submit() and manually by acceptRequest().
+   *
+   * `acceptedBy` is a Clerk user id for a manual re-sync, or the AUTO_ACCEPT_BY
+   * sentinel when submit() runs it — so the row records WHAT accepted it, not
+   * just when.
+   *
+   * MATCHING: by email within the customer, else create. A contact with NO
+   * email falls back to a name match; without that a phone-only contact would
+   * be recreated on every re-sync, which is the duplication this avoids.
+   *
+   * RE-SYNC IS A SYNC, NOT AN APPEND. Rows this flow owns (group NOT NULL) that
+   * the new set drops are detached; rows the delivery contact picker attached
+   * (group NULL) are left alone — they may be feeding the Attention on an
+   * already-issued DO, and this flow did not create them. Detaching drops the
+   * LINK only; the CustomerContact person survives for reuse elsewhere.
+   */
+  private async syncContactsOntoProject(
+    args: {
+      requestId: string;
+      customerId: string;
+      projectId: string;
+      live: Array<{ name: string; email: string | null; phone: string | null; group: string }>;
+    },
+    acceptedBy: string,
+  ) {
+    const { requestId, customerId, projectId, live } = args;
     const norm = (v: string | null | undefined) => (v ?? '').trim().toLowerCase();
     const result = await this.prisma.$transaction(async (tx) => {
       const existingPeople = await tx.customerContact.findMany({
-        where: { customerId: customer.id },
+        where: { customerId },
         select: { id: true, name: true, email: true, phone: true },
       });
 
@@ -525,7 +609,7 @@ export class CustomerInfoService {
         } else {
           const created = await tx.customerContact.create({
             data: {
-              customerId: customer.id,
+              customerId,
               name: c.name.trim(),
               email: c.email?.trim() || null,
               phone: c.phone?.trim() || null,
@@ -542,9 +626,9 @@ export class CustomerInfoService {
         // one link. Last group in sortOrder order wins; the alternative is a
         // schema change to allow two links per person per project.
         const link = await tx.projectContact.upsert({
-          where: { projectId_customerContactId: { projectId: project.id, customerContactId: personId } },
+          where: { projectId_customerContactId: { projectId, customerContactId: personId } },
           update: { group: c.group },
-          create: { projectId: project.id, customerContactId: personId, group: c.group },
+          create: { projectId, customerContactId: personId, group: c.group },
           select: { id: true },
         });
         keptLinkIds.push(link.id);
@@ -553,13 +637,13 @@ export class CustomerInfoService {
 
       // Detach only rows THIS flow owns (group NOT NULL) that the new set drops.
       const detached = await tx.projectContact.deleteMany({
-        where: { projectId: project.id, group: { not: null }, id: { notIn: keptLinkIds } },
+        where: { projectId, group: { not: null }, id: { notIn: keptLinkIds } },
       });
 
       const now = new Date();
       await tx.customerInfoRequest.update({
-        where: { id: req.id },
-        data: { acceptedAt: now, acceptedBy: acceptedBy ?? null },
+        where: { id: requestId },
+        data: { acceptedAt: now, acceptedBy },
       });
 
       return {
@@ -571,7 +655,7 @@ export class CustomerInfoService {
       };
     });
 
-    return { ok: true, ...result };
+    return result;
   }
 
   async submit(token: string, dto: SubmitCustomerInfoDto) {
@@ -598,7 +682,10 @@ export class CustomerInfoService {
 
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
-      // Supersede the current live set (if any) — kept for reconciliation.
+      // UNREACHABLE since 2026-09: a link is spent on submit (TokenState
+      // 'submitted'), so submit() never runs twice for one request and there is
+      // never a prior set to supersede. Left in place deliberately — it is the
+      // only thing that would keep history if resubmission ever returns.
       await tx.customerInfoContact.updateMany({
         where: { requestId: link.id, supersededAt: null },
         data: { supersededAt: now },
@@ -619,6 +706,36 @@ export class CustomerInfoService {
         data: { submittedAt: now, submissionCount: { increment: 1 } },
       });
     });
+
+    // AUTO-ACCEPT. The manual step is gone: contacts flow straight onto the
+    // project through the same code the accept endpoint runs. Safe now that a
+    // link is spent on submit — the original objection to auto-accept was that
+    // two competing submissions on one project would let the last silently win,
+    // and one submit per link removes that path.
+    //
+    // Best-effort by design: the customer's submission is already committed
+    // above and must not be rolled back because the mirror failed. A failure
+    // leaves acceptedAt null, which the office sees as "submitted, not
+    // accepted" and can repair with the manual accept endpoint.
+    try {
+      await this.syncContactsOntoProject(
+        {
+          requestId: link.id,
+          customerId: link.customerId,
+          projectId: link.projectId,
+          live: [...doRows, ...invoiceRows].map((c) => ({
+            name: c.name, email: c.email, phone: c.phone, group: c.group,
+          })),
+        },
+        AUTO_ACCEPT_BY,
+      );
+    } catch (err: any) {
+      this.logger.error(
+        `auto-accept failed for request ${link.id} (submission is committed; ` +
+          `use POST /customer-info/${link.id}/accept to repair): ${err?.message}`,
+        err?.stack,
+      );
+    }
     return { ok: true, submittedAt: now };
   }
 

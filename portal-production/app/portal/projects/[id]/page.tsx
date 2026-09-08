@@ -303,7 +303,7 @@ interface CustomerInfoRequestRow {
   submittedAt: string | null;
   acceptedAt: string | null;
   submissionCount: number;
-  status: "outstanding" | "awaiting_accept" | "accepted" | "revoked" | "expired";
+  status: "outstanding" | "submitted" | "revoked" | "expired";
   isLive: boolean;
   contacts: Array<{ name: string; email: string | null; phone: string | null; group: string }>;
 }
@@ -315,10 +315,12 @@ interface CustomerInfoView {
   contacts: { DO: CustomerInfoContactRow[]; INVOICE: CustomerInfoContactRow[]; UNGROUPED: CustomerInfoContactRow[] };
 }
 
+// Four states. Submitting now accepts the contacts automatically, so there is
+// no "needs accept" step and no Accept button — a submitted request has already
+// been mirrored onto the project.
 const CI_STATUS_LABEL: Record<string, { label: string; color: any }> = {
   outstanding: { label: "Awaiting customer", color: "warning" },
-  awaiting_accept: { label: "Submitted — needs accept", color: "info" },
-  accepted: { label: "Accepted", color: "success" },
+  submitted: { label: "Submitted", color: "success" },
   revoked: { label: "Revoked", color: "default" },
   expired: { label: "Expired", color: "default" },
 };
@@ -479,38 +481,17 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
       const data = res?.data ?? res;
       if (res?.success === false || !data?.token) throw new Error(res?.message ?? "Could not create the link");
       setCiLink(`${window.location.origin}/customer-info/${data.token}`);
-      setCiMsg("Link created. Send it to the customer.");
+      // createRequest reuses an outstanding link rather than minting a second,
+      // so this can come back as a reuse even though the button said "Request".
+      setCiMsg(
+        data.reused
+          ? "This project already had an unused link — reusing it. Anything already sent still works."
+          : "Link created. Send it to the customer. It stops working once they submit.",
+      );
       setTab(6);
       await loadCustomerInfo();
     } catch (e: any) {
       toast.error(e?.message ?? "Could not create the link");
-    } finally {
-      setCiBusy(false);
-    }
-  };
-
-  /** Copy the submitted contacts onto the project. See acceptRequest. */
-  const acceptCustomerInfo = async (requestId: string) => {
-    if (ciBusy) return;
-    setCiBusy(true);
-    setCiMsg(null);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error("Not signed in");
-      const res = await request(
-        { path: `/customer-info/${requestId}/accept`, method: "POST" },
-        {},
-        token,
-      );
-      const data = res?.data ?? res;
-      if (res?.success === false) throw new Error(res?.message ?? "Could not accept");
-      toast.success(
-        `Accepted ${data?.contactsAccepted ?? 0} contact(s)` +
-          (data?.linksDetached ? ` · ${data.linksDetached} removed` : ""),
-      );
-      await loadCustomerInfo();
-    } catch (e: any) {
-      toast.error(e?.message ?? "Could not accept");
     } finally {
       setCiBusy(false);
     }
@@ -1050,14 +1031,12 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
                           {r.acceptedAt ? ` · accepted ${fmtDate(r.acceptedAt)}` : ""}
                         </Typography>
                         <Box sx={{ flex: 1 }} />
-                        {/* Accept stays available after a RESUBMISSION — status
-                            returns to awaiting_accept when submittedAt is newer
-                            than acceptedAt, so a re-accept re-syncs. */}
-                        {r.status === "awaiting_accept" && (
-                          <Button size="small" variant="contained" disabled={ciBusy}
-                            onClick={() => void acceptCustomerInfo(r.id)}>
-                            {ciBusy ? "Working…" : "Accept contacts"}
-                          </Button>
+                        {/* No Accept button: submit() mirrors the contacts onto
+                            the project itself. A submitted row with no
+                            acceptedAt means that auto-accept failed — say so
+                            rather than showing a green tick. */}
+                        {r.status === "submitted" && !r.acceptedAt && (
+                          <Chip size="small" color="warning" variant="outlined" label="Not mirrored — contact support" />
                         )}
                         {r.status === "outstanding" && r.isLive && (
                           <Button size="small" onClick={() => setCiLink(`${window.location.origin}/customer-info/${r.token}`)}>

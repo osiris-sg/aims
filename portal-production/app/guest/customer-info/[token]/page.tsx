@@ -21,7 +21,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { request } from "@/helpers/request";
 
-type State = "ok" | "expired" | "revoked" | "notfound";
+type State = "ok" | "expired" | "revoked" | "submitted" | "notfound";
 
 interface ContactRow {
   name: string;
@@ -39,9 +39,17 @@ interface GuestView {
 }
 
 const STATE_MSG: Record<Exclude<State, "ok">, { title: string; body: string }> = {
-  expired: { title: "Link expired", body: "This link has expired. Please ask the sender for a new one." },
-  revoked: { title: "Link no longer active", body: "This link is no longer active." },
-  notfound: { title: "Link not found", body: "This link was not found." },
+  // ONE message for every non-ok state, deliberately.
+  //
+  // A spent link (already submitted) must not be distinguishable from a link
+  // that was revoked, has expired, or never existed — otherwise the page
+  // becomes an oracle telling a stranger with a guessed token whether it was
+  // ever real. It reads as a plain statement rather than an error: nothing has
+  // gone wrong from the recipient's point of view, the form is simply closed.
+  expired: { title: "This form is closed", body: "This link is no longer available. If you still need to send your details, please ask your contact for a new link." },
+  revoked: { title: "This form is closed", body: "This link is no longer available. If you still need to send your details, please ask your contact for a new link." },
+  submitted: { title: "This form is closed", body: "This link is no longer available. If you still need to send your details, please ask your contact for a new link." },
+  notfound: { title: "This form is closed", body: "This link is no longer available. If you still need to send your details, please ask your contact for a new link." },
 };
 
 const emptyRow = (): ContactRow => ({ name: "", email: "", phone: "" });
@@ -273,11 +281,10 @@ export default function CustomerInfoCollectPage() {
           Please add the people we should contact for Delivery Orders and for Invoices. Name is required for each
           person; email and phone are optional.
         </Typography>
-        {view.submittedAt && (
-          <Alert severity="info" sx={{ mt: 2 }}>
-            You already submitted on {new Date(view.submittedAt).toLocaleString()}. You can update and resubmit.
-          </Alert>
-        )}
+        {/* The "you can resubmit" banner is gone with resubmission itself: a
+            submitted link now resolves to `submitted` and never reaches this
+            form, so the banner was both unreachable and a promise the backend
+            no longer keeps. */}
 
         <Divider sx={{ my: 3 }} />
         <ContactGroup

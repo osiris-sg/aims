@@ -57,6 +57,7 @@ export default function AddCustomerInfoDialog({ open, onClose, onCreated }: Prop
   const [error, setError] = useState<string | null>(null);
   // Once minted, we show the shareable link instead of the picker.
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
+  const [reused, setReused] = useState(false);
 
   // Reset everything when the dialog closes.
   useEffect(() => {
@@ -154,6 +155,11 @@ export default function AddCustomerInfoDialog({ open, onClose, onCreated }: Prop
       const data = res?.data ?? res;
       if (res?.success === false || !data?.token) throw new Error(res?.message ?? "Failed to generate link");
       setGeneratedUrl(`${APP_URL}/guest/customer-info/${data.token}`);
+      // The backend REUSES an outstanding link rather than minting a second one
+      // for the same project. Say so plainly: the office would otherwise think
+      // it had just created a fresh link and that any copy already sent was
+      // superseded — when in fact this is that same link.
+      setReused(!!data.reused);
       onCreated();
     } catch (e: any) {
       setError(e?.message ?? "Failed to generate link");
@@ -178,9 +184,17 @@ export default function AddCustomerInfoDialog({ open, onClose, onCreated }: Prop
       <DialogContent>
         {generatedUrl ? (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, mt: 0.5 }}>
+            {reused && (
+              <Alert severity="info">
+                This project already had an unused link, so that one is shown here rather than a new one being
+                created. Anything already sent to the customer still works. To replace it instead, revoke and
+                regenerate it from the list.
+              </Alert>
+            )}
             <Typography variant="body2" color="text.secondary">
-              Share this link with the customer. They fill in their DO and Invoice contacts and submit. The link works
-              for 30 days.
+              {reused
+                ? "Share this link with the customer. They fill in their DO and Invoice contacts and submit. It stops working once they do."
+                : "Share this link with the customer. They fill in their DO and Invoice contacts and submit. The link works for 30 days, and stops working once they submit."}
             </Typography>
             <Stack direction="row" spacing={1} alignItems="center">
               <TextField value={generatedUrl} fullWidth size="small" InputProps={{ readOnly: true }} />
