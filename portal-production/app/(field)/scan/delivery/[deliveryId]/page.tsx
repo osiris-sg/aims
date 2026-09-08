@@ -44,6 +44,7 @@ import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCap
 import GuidedPhotoCapture from "@/components/delivery/GuidedPhotoCapture";
 import { minPhotosForAssetClass } from "@/helpers/assetClass";
 import { useNfcScan } from "../../../hooks/useNfcScan";
+import NameplateCapture from "../../../components/NameplateCapture";
 
 /**
  * Standalone-delivery BASKET (Layer 3 + in-basket scanning patch).
@@ -1430,6 +1431,22 @@ export default function DeliveryBasketPage() {
       <Dialog open={manualOpen} onClose={() => !resolving && setManualOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>Add unit by serial</DialogTitle>
         <DialogContent>
+          {/* Photo-to-serial, same component and same endpoint /scan/manual uses.
+              It fills the field below and stops there — the rider still taps
+              "Find unit", which is where a misread gets caught. Deliberately NO
+              auto-advance and NO create-new path: a rider mid-run must never
+              mint a unit. Reached identically on a RETURN run, since this dialog
+              is direction-agnostic (run.direction only changes what the ack does). */}
+          <NameplateCapture
+            onSerial={(read) => {
+              setSerial(read);
+              setActionMsg(null);
+              setCandidates(null);
+            }}
+            onError={setActionMsg}
+            disabled={resolving}
+            sx={{ mt: 1, mb: 1.5 }}
+          />
           <TextField
             autoFocus
             fullWidth
