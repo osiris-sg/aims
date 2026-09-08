@@ -43,8 +43,12 @@ const CSS = `
 <style>
   .idq { font-size: 12.5px; color: #111; }
   .idq h1 { font-size: 13.5px; font-weight: 700; margin: 0 0 10px; letter-spacing: .2px; }
-  .idq .brand { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 2px solid #111; }
-  .idq .brand img { max-height: 46px; max-width: 200px; object-fit: contain; }
+  /* Logo now sits centred on its own line and larger; the company name + UEN
+     stay right-aligned (below it) — unchanged in position, just no longer a
+     flex row beside the logo. */
+  .idq .brand { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 2px solid #111; }
+  .idq .brand .logo { text-align: center; margin-bottom: 8px; }
+  .idq .brand .logo img { max-height: 90px; max-width: 320px; object-fit: contain; display: block; margin: 0 auto; }
   .idq .brand .co { text-align:right; font-size: 11.5px; line-height: 1.45; color:#333; }
   .idq .brand .co b { font-size: 14px; color:#111; letter-spacing:.3px; }
   .idq .hdr { display:grid; grid-template-columns: 1fr 1fr; gap: 4px 28px; margin-bottom: 14px; }
@@ -132,9 +136,12 @@ export function renderIdQuotationBody(data: any, organization: any): string {
   const t = idQuoteTotals(quote);
   const docNumber = h.contractNo || data?.documentInfo?.documentNumber || data?.name || '';
 
+  // NOTE: this template is only reached by orgs with enableIdQuotation, which
+  // today is CIEL alone. The centred logo line falls back to the org name text
+  // (as before) when org.logo is null.
   const brand = `
   <div class="brand">
-    <div>${org.logo ? `<img src="${escapeHtml(org.logo)}" alt="" />` : `<b style="font-size:16px;">${escapeHtml(org.name || '')}</b>`}</div>
+    <div class="logo">${org.logo ? `<img src="${escapeHtml(org.logo)}" alt="" />` : `<b style="font-size:16px;">${escapeHtml(org.name || '')}</b>`}</div>
     <div class="co">
       <b>${escapeHtml(org.name || '')}</b><br/>
       ${org.registrationNumber ? `UEN ${escapeHtml(org.registrationNumber)}<br/>` : ''}

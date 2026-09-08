@@ -29,6 +29,13 @@ import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
 import logo from "@/components/Sidebar/aims-logo.png";
 
+// Deliberate hardcoded org check pending a general per-org nav-logo solution.
+// CIEL gets its cream mark (transparent PNG on the dark navy bar); ~2.2:1, so
+// it is sized 62x28 to keep the aspect and fit the 52px bar. The S3 domain is
+// already whitelisted in next.config.mjs images.domains.
+const CIEL_ORG_ID = "09e55c23-e031-4254-8152-a373597b2cb3";
+const CIEL_NAV_LOGO = "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/logos/ciel-logo-cream.png";
+
 // Mirrors DynamicSidebarContent — keep the two in sync.
 const HIDDEN_MODULES = new Set<string>(["CUSTOMERS", "SUPPLIERS"]);
 const HIDDEN_SUBMENUS: Record<string, string[]> = {
@@ -146,6 +153,7 @@ export default function TopNavBar() {
   const router = useRouter();
   const rawPathname = usePathname() || "";
   const { user } = useUser();
+  const { organization } = useOrganization(); // active org (respects admin "view as")
   const { mode, toggleMode } = useThemeMode();
   const { modules } = useConfiguration();
   const { isModuleAllowed, userRoles } = useUserPermissions();
@@ -214,8 +222,16 @@ export default function TopNavBar() {
       }}
     >
       <Stack direction="row" alignItems="center" gap={1} sx={{ mr: 2, flexShrink: 0 }}>
-        <Image src={logo} alt="AIMS" width={26} height={26} style={{ display: "block" }} />
-        <Typography sx={{ fontWeight: 800, letterSpacing: "0.06em", fontSize: "0.95rem" }}>AIMS</Typography>
+        {organization?.id === CIEL_ORG_ID ? (
+          // CIEL only: cream mark instead of the AIMS mark. The AIMS wordmark is
+          // suppressed because the CIEL logo already contains its own name.
+          <Image src={CIEL_NAV_LOGO} alt="CIEL" width={62} height={28} style={{ display: "block", objectFit: "contain" }} />
+        ) : (
+          <>
+            <Image src={logo} alt="AIMS" width={26} height={26} style={{ display: "block" }} />
+            <Typography sx={{ fontWeight: 800, letterSpacing: "0.06em", fontSize: "0.95rem" }}>AIMS</Typography>
+          </>
+        )}
       </Stack>
 
       <Stack
