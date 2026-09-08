@@ -1604,7 +1604,18 @@ export class DocumentsService {
         );
       }
 
-      if (projectId && dto.config?.items?.length) {
+      // A RETURN document lists units LEAVING the project, so nothing here
+      // applies to it: creating an assignment would attach a unit as part of
+      // collecting it, and the reopen branch below actively UNDID the return —
+      // it set endDate null and startDate `dto.config.startDate || null`, and an
+      // RDO config has no startDate key, so confirming an RDO wiped BOTH dates
+      // on every unit it listed. The block cannot tell an outbound DO (where
+      // re-adding a unit should reopen it) from a return, so returns are
+      // excluded outright. Both spellings are matched: the stored type is
+      // RETURN_DELIVERY_ORDER, but 'RDO' is the variant alias callers pass
+      // (same pair public-document.service.ts guards on).
+      const isReturnDoc = dto.type === 'RETURN_DELIVERY_ORDER' || dto.type === 'RDO';
+      if (projectId && !isReturnDoc && dto.config?.items?.length) {
         // Validate that all PHYSICAL items have inventoryItemId for project
         // assignments — service rows have no unit to assign and are skipped.
         const itemsWithoutInventory = dto.config.items.filter(

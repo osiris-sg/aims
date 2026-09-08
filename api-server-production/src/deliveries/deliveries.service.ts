@@ -3684,12 +3684,21 @@ export class DeliveriesService {
         };
         await this.prisma.document.update({ where: { id: linkedDocId }, data: { config: merged } });
         const claimed = await this.documentsService.claimPendingNumber(linkedDocId, organizationId);
+        // Same stamp the OUTBOUND completion has always done. documents.getById
+        // joins maintenanceReports on documentId, so without it the RDO renders
+        // an empty RECEIVED BY block and no proof photos — the run's MSRs carry
+        // only deliveryId/deliveryItemId. Items are born-linked on this path, so
+        // the helper's read of DeliveryItem.documentId already resolves.
+        await this.stampProofMsrDocumentIds(run.id, organizationId);
         this.logger.log(`Return run #${run.deliveryNumber}: claimed RDO ${claimed ?? linkedDocId} on the placeholder for ${collected.length} unit(s).`);
         await this.emitRdoReady(linkedDocId, organizationId);
         return;
       }
       const doc = await this.documentsService.createBasicDocument(templateId, 'RETURN_DELIVERY_ORDER', organizationId, config, run.projectId ?? undefined);
       await this.prisma.deliveryItem.updateMany({ where: { deliveryId: run.id }, data: { documentId: doc.id } });
+      // AFTER the back-link above: the helper maps each proof MSR to ITS unit's
+      // DeliveryItem.documentId, so the items must carry the RDO id first.
+      await this.stampProofMsrDocumentIds(run.id, organizationId);
       this.logger.log(`Return run #${run.deliveryNumber}: created RDO ${doc.id} for ${collected.length} unit(s) (goods-only, no GL).`);
       await this.emitRdoReady(doc.id, organizationId);
     } catch (err: any) {
