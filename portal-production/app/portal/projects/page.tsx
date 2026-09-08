@@ -8,7 +8,7 @@ import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
 import { useGetCustomers } from "@/app/portal/hooks/api/useCustomers";
-import { Box, Dialog, DialogTitle, DialogContent, DialogActions, Button, CircularProgress, Typography, IconButton } from "@mui/material";
+import { Box, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button, CircularProgress, Typography, IconButton } from "@mui/material";
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
 import VisibilityIcon from "@mui/icons-material/Visibility";
@@ -94,6 +94,22 @@ function LegacyProjectsPage() {
     { id: "customer", accessorKey: "customer", header: "Customer", cell: ({ row }: { row: any }) => <Typography variant="body2">{row.original.customer?.name ?? "N/A"}</Typography> },
     { id: "siteOffice", accessorKey: "siteOffice", header: "Site Office", cell: ({ row }: { row: any }) => <Typography variant="body2">{row.original.siteOffice?.name ?? "N/A"}</Typography> },
     { id: "itemsRelated", accessorKey: "itemsRelated", header: "Items Related", cell: ({ row }: { row: any }) => <Typography variant="body2">{row.original.itemsRelated ?? 0}</Typography> },
+    {
+      // Yes when the project has ANY ProjectContact — the same rows the DO/RDO
+      // Attention is derived from, so "Yes" means a document would actually
+      // find someone to address. Backed by _count on Project.contacts.
+      id: "hasCustomerContact",
+      accessorKey: "hasCustomerContact",
+      header: "Customer Contact",
+      cell: ({ row }: { row: any }) => (
+        <Chip
+          size="small"
+          variant="outlined"
+          color={row.original.hasCustomerContact ? "success" : "default"}
+          label={row.original.hasCustomerContact ? "Yes" : "No"}
+        />
+      ),
+    },
     { id: "startDate", accessorKey: "startDate", header: "Start Date", cell: (info: any) => fmtDate(info.getValue()) },
     { id: "endDate", accessorKey: "endDate", header: "End Date", cell: (info: any) => fmtDate(info.getValue()) },
     { id: "status", accessorKey: "status", header: "Status", cell: (info: any) => info.getValue() },

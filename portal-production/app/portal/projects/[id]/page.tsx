@@ -10,6 +10,7 @@ import MainCard from "@/components/MainCard";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import IdProjectPage from "../_id/IdProjectPage";
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -31,6 +32,7 @@ import {
 import EditIcon from "@mui/icons-material/Edit";
 import StopCircleIcon from "@mui/icons-material/StopCircle";
 import AddIcon from "@mui/icons-material/Add";
+import ContactMailIcon from "@mui/icons-material/ContactMail";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import CloseIcon from "@mui/icons-material/Close";
 import RouteIcon from "@mui/icons-material/Route";
@@ -283,6 +285,44 @@ function statusChip(status: DeploymentStatus) {
 // Interior-design orgs (enableIdQuotation) get the costing-summary project
 // page (costs ledger, progressive payments, contract & P&L). Everyone else
 // keeps the rental deployments page below.
+interface CustomerInfoContactRow {
+  linkId: string;
+  id: string;
+  group: string | null;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  designation?: string | null;
+  isPrimary?: boolean;
+}
+interface CustomerInfoRequestRow {
+  id: string;
+  token: string;
+  createdAt: string;
+  expiresAt: string | null;
+  submittedAt: string | null;
+  acceptedAt: string | null;
+  submissionCount: number;
+  status: "outstanding" | "awaiting_accept" | "accepted" | "revoked" | "expired";
+  isLive: boolean;
+  contacts: Array<{ name: string; email: string | null; phone: string | null; group: string }>;
+}
+interface CustomerInfoView {
+  projectId: string;
+  customerId: string | null;
+  requests: CustomerInfoRequestRow[];
+  liveUnsubmitted: CustomerInfoRequestRow | null;
+  contacts: { DO: CustomerInfoContactRow[]; INVOICE: CustomerInfoContactRow[]; UNGROUPED: CustomerInfoContactRow[] };
+}
+
+const CI_STATUS_LABEL: Record<string, { label: string; color: any }> = {
+  outstanding: { label: "Awaiting customer", color: "warning" },
+  awaiting_accept: { label: "Submitted — needs accept", color: "info" },
+  accepted: { label: "Accepted", color: "success" },
+  revoked: { label: "Revoked", color: "default" },
+  expired: { label: "Expired", color: "default" },
+};
+
 export default function ProjectDetailsPage({ params }: { params: { id: string } }) {
   const { isIdQuotationEnabled, isLoading } = useOrganizationFeatures();
   if (isLoading) return null;
@@ -305,6 +345,12 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
   const [previewDocId, setPreviewDocId] = useState<string | null>(null);
   const [fieldReports, setFieldReports] = useState<FieldReport[] | null>(null);
   const [fieldReportsLoading, setFieldReportsLoading] = useState(false);
+  // Customer Info tab: the project's requests + the contacts currently attached
+  // to the project (the SAME ProjectContact rows the DO/RDO Attention reads).
+  const [ciView, setCiView] = useState<CustomerInfoView | null>(null);
+  const [ciBusy, setCiBusy] = useState(false);
+  const [ciLink, setCiLink] = useState<string | null>(null);
+  const [ciMsg, setCiMsg] = useState<string | null>(null);
   const [photoDialogSrc, setPhotoDialogSrc] = useState<string | null>(null);
   // Open delivery-route dialog, keyed by the DO_START report id. null = closed.
   const [routeDialogReportId, setRouteDialogReportId] = useState<string | null>(null);
@@ -370,7 +416,110 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
   // Reset cached reports whenever the project id changes so a fresh fetch fires.
   useEffect(() => {
     setFieldReports(null);
+    setCiView(null);
+    setCiLink(null);
+    setCiMsg(null);
   }, [params?.id]);
+
+  // ── Customer info ───────────────────────────────────────────────────────
+  // Loaded on mount rather than on tab open: the "Request customer info"
+  // button lives OUTSIDE the tabs and needs liveUnsubmitted to know whether to
+  // mint or to show the existing link.
+  const loadCustomerInfo = useCallback(async () => {
+    if (!params?.id) return;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await request(
+        { path: `/customer-info/project/${params.id}`, method: "GET" },
+        {},
+        token,
+      );
+      const data = res?.data ?? res;
+      if (data && res?.success !== false) setCiView(data as CustomerInfoView);
+    } catch {
+      /* non-fatal — the tab shows its empty state */
+    }
+  }, [params?.id, getToken]);
+
+  useEffect(() => {
+    void loadCustomerInfo();
+  }, [loadCustomerInfo]);
+
+  /**
+   * Mint a customer-info link for THIS project, or surface the live one.
+   * Reuse is the whole point: 18 Holland Drive already carries three requests
+   * because nothing checked first, and once two links exist the office cannot
+   * tell which one the customer was sent.
+   */
+  const requestCustomerInfo = async () => {
+    if (!params?.id || ciBusy) return;
+    const existing = ciView?.liveUnsubmitted;
+    if (existing) {
+      setCiLink(`${window.location.origin}/customer-info/${existing.token}`);
+      setCiMsg("A link is already out for this project and has not been submitted yet — reusing it.");
+      setTab(6);
+      return;
+    }
+    const customerId = ciView?.customerId ?? project?.customer?.id;
+    if (!customerId) {
+      toast.error("This project has no customer, so there is nobody to ask.");
+      return;
+    }
+    setCiBusy(true);
+    setCiMsg(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: "/customer-info", method: "POST" },
+        { customerId, projectId: params.id },
+        token,
+      );
+      const data = res?.data ?? res;
+      if (res?.success === false || !data?.token) throw new Error(res?.message ?? "Could not create the link");
+      setCiLink(`${window.location.origin}/customer-info/${data.token}`);
+      setCiMsg("Link created. Send it to the customer.");
+      setTab(6);
+      await loadCustomerInfo();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not create the link");
+    } finally {
+      setCiBusy(false);
+    }
+  };
+
+  /** Copy the submitted contacts onto the project. See acceptRequest. */
+  const acceptCustomerInfo = async (requestId: string) => {
+    if (ciBusy) return;
+    setCiBusy(true);
+    setCiMsg(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: `/customer-info/${requestId}/accept`, method: "POST" },
+        {},
+        token,
+      );
+      const data = res?.data ?? res;
+      if (res?.success === false) throw new Error(res?.message ?? "Could not accept");
+      toast.success(
+        `Accepted ${data?.contactsAccepted ?? 0} contact(s)` +
+          (data?.linksDetached ? ` · ${data.linksDetached} removed` : ""),
+      );
+      await loadCustomerInfo();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not accept");
+    } finally {
+      setCiBusy(false);
+    }
+  };
+
+  const ciContactCount =
+    (ciView?.contacts.DO.length ?? 0) +
+    (ciView?.contacts.INVOICE.length ?? 0) +
+    (ciView?.contacts.UNGROUPED.length ?? 0);
 
   // Lazy-load the QUOTATION template id when the user first opens the Quotations
   // tab — needed for the "Create Quotation" button and to construct the link
@@ -626,12 +775,28 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
             <Tab label={`All Invoices (${project.allInvoices.length})`} />
             <Tab label={`Quotations (${project.quotations?.length ?? 0})`} />
             <Tab label={fieldReports === null ? "Field Reports" : `Field Reports (${fieldReports.length})`} />
+            <Tab label={ciView === null ? "Customer Info" : `Customer Info (${ciContactCount})`} />
           </Tabs>
-          {tab === 0 && (
-            <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
-              New Deployment
+          <Stack direction="row" gap={1}>
+            {/* Deliberately OUTSIDE the tab === 0 guard: requesting customer
+                info is not tab-specific, and the office should not have to
+                find the right tab first. New Deployment keeps its guard. */}
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<ContactMailIcon />}
+              onClick={() => void requestCustomerInfo()}
+              disabled={ciBusy || !project.customer?.id}
+              title={project.customer?.id ? undefined : "This project has no customer"}
+            >
+              {ciBusy ? "Working…" : ciView?.liveUnsubmitted ? "Show customer info link" : "Request customer info"}
             </Button>
-          )}
+            {tab === 0 && (
+              <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
+                New Deployment
+              </Button>
+            )}
+          </Stack>
         </Stack>
 
         {/* Item search — applies to the deployment tabs (0, 1, 2). Hidden on
@@ -842,6 +1007,117 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
             onPhotoClick={setPhotoDialogSrc}
             onViewRoute={setRouteDialogReportId}
           />
+        )}
+
+        {/* Tab 6: Customer Info — the request's lifecycle plus the contacts
+            currently attached to the PROJECT. These are the same ProjectContact
+            rows projectFirstContactAttention reads, so what is listed here is
+            what a DO or RDO would address. */}
+        {tab === 6 && (
+          <Box>
+            {ciMsg && <Alert severity="info" sx={{ mb: 2 }} onClose={() => setCiMsg(null)}>{ciMsg}</Alert>}
+            {ciLink && (
+              <Box sx={{ mb: 2, p: 1.5, border: 1, borderColor: "divider", borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary">Customer link</Typography>
+                <Stack direction="row" gap={1} alignItems="center">
+                  <Typography variant="body2" sx={{ flex: 1, wordBreak: "break-all", fontFamily: "monospace" }}>
+                    {ciLink}
+                  </Typography>
+                  <Button size="small" onClick={() => { void navigator.clipboard?.writeText(ciLink); toast.success("Copied"); }}>
+                    Copy
+                  </Button>
+                </Stack>
+              </Box>
+            )}
+
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Requests</Typography>
+            {(ciView?.requests.length ?? 0) === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                No customer info has been requested for this project yet.
+              </Typography>
+            ) : (
+              <Stack gap={1} sx={{ mb: 3 }}>
+                {ciView!.requests.map((r) => {
+                  const st = CI_STATUS_LABEL[r.status] ?? { label: r.status, color: "default" };
+                  return (
+                    <Box key={r.id} sx={{ p: 1.5, border: 1, borderColor: "divider", borderRadius: 1 }}>
+                      <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
+                        <Chip size="small" color={st.color} label={st.label} />
+                        <Typography variant="caption" color="text.secondary">
+                          sent {fmtDate(r.createdAt)}
+                          {r.submittedAt ? ` · submitted ${fmtDate(r.submittedAt)}` : ""}
+                          {r.submissionCount > 1 ? ` · ${r.submissionCount} submissions` : ""}
+                          {r.acceptedAt ? ` · accepted ${fmtDate(r.acceptedAt)}` : ""}
+                        </Typography>
+                        <Box sx={{ flex: 1 }} />
+                        {/* Accept stays available after a RESUBMISSION — status
+                            returns to awaiting_accept when submittedAt is newer
+                            than acceptedAt, so a re-accept re-syncs. */}
+                        {r.status === "awaiting_accept" && (
+                          <Button size="small" variant="contained" disabled={ciBusy}
+                            onClick={() => void acceptCustomerInfo(r.id)}>
+                            {ciBusy ? "Working…" : "Accept contacts"}
+                          </Button>
+                        )}
+                        {r.status === "outstanding" && r.isLive && (
+                          <Button size="small" onClick={() => setCiLink(`${window.location.origin}/customer-info/${r.token}`)}>
+                            Show link
+                          </Button>
+                        )}
+                      </Stack>
+                      {r.contacts.length > 0 && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                          Submitted: {r.contacts.map((c) => `${c.name} (${c.group})`).join(", ")}
+                        </Typography>
+                      )}
+                    </Box>
+                  );
+                })}
+              </Stack>
+            )}
+
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+              Contacts on this project
+            </Typography>
+            {ciContactCount === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                Nobody is attached yet. Accepting a submission attaches them here, and a DO or
+                RDO will then be addressed to the first one.
+              </Typography>
+            ) : (
+              <Stack gap={2}>
+                {([
+                  ["DO", "Delivery Orders"],
+                  ["INVOICE", "Invoices"],
+                  ["UNGROUPED", "Attached from the delivery contact picker"],
+                ] as const).map(([key, heading]) => {
+                  const rows = ciView?.contacts[key] ?? [];
+                  if (rows.length === 0) return null;
+                  return (
+                    <Box key={key}>
+                      <Typography variant="caption" color="text.secondary">{heading}</Typography>
+                      <Stack gap={0.5} sx={{ mt: 0.5 }}>
+                        {rows.map((c) => (
+                          <Box key={c.linkId} sx={{ p: 1.25, border: 1, borderColor: "divider", borderRadius: 1 }}>
+                            <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+                              <Typography variant="body2" fontWeight={600}>{c.name}</Typography>
+                              {c.isPrimary && <Chip size="small" label="Primary" color="primary" variant="outlined" />}
+                              {c.designation && (
+                                <Typography variant="caption" color="text.secondary">{c.designation}</Typography>
+                              )}
+                            </Stack>
+                            <Typography variant="caption" color="text.secondary">
+                              {[c.email, c.phone].filter(Boolean).join(" · ") || "no email or phone"}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Stack>
+                    </Box>
+                  );
+                })}
+              </Stack>
+            )}
+          </Box>
         )}
 
         <NewDeploymentDialog

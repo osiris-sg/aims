@@ -141,6 +141,11 @@ export class ProjectsService {
           // are empty under the deployment-centric model, so counting them
           // gave every Biofuel project "0 items".
           documents: { select: { _count: { select: { documentItems: true } } } },
+          // Customer Contact column: does this project have anyone attached?
+          // Counts the SAME ProjectContact rows projectFirstContactAttention
+          // reads for the DO/RDO Attention, so a "yes" means a document would
+          // actually find someone — not merely that a form was submitted.
+          _count: { select: { contacts: true } },
         },
       });
 
@@ -202,6 +207,9 @@ export class ProjectsService {
               ? { id: resolvedCustomer.id, name: resolvedCustomer.name }
               : null,
             itemsRelated: itemCount,
+            // Boolean, not the raw count: the column is yes/no and the number
+            // would invite reading it as "how many contacts should there be".
+            hasCustomerContact: ((project as any)._count?.contacts ?? 0) > 0,
             startDate: project.startDate,
             endDate: project.endDate,
             status: project.status,

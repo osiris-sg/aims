@@ -348,6 +348,232 @@ export class CustomerInfoService {
    * evidence and the "current" view is simply supersededAt IS NULL. One
    * transaction so the request never sits with two live sets or none.
    */
+  /**
+   * OFFICE ACCEPT — copy a submitted request's live contacts onto the PROJECT.
+   *
+   * The request stays the submission RECORD: its CustomerInfoContact rows are
+   * never deleted or edited here, because they are the evidence of what the
+   * customer actually said. This only mirrors them forward into the structures
+   * documents already read (CustomerContact + ProjectContact →
+   * projectFirstContactAttention → the DO/RDO Attention).
+   *
+   * Deliberately explicit rather than automatic on submit: 18 Holland Drive
+   * carries three requests and two submissions with different people, so an
+   * auto-copy would change contacts under an already-issued document.
+   *
+   * MATCHING (as decided): by email within the customer, else create. A contact
+   * with NO email falls back to a name match — without that, a phone-only
+   * contact would be recreated on every re-accept, which is exactly the
+   * duplication the re-sync is meant to avoid.
+   *
+   * RE-ACCEPT IS A SYNC, NOT AN APPEND. Rows this flow owns (group NOT NULL)
+   * that are absent from the new set are detached; rows the delivery contact
+   * picker attached (group NULL) are left alone — they may be feeding the
+   * Attention on an already-issued DO, and this flow did not create them so it
+   * does not get to remove them. Detaching drops the ProjectContact LINK only;
+   * the CustomerContact person survives for reuse on other projects.
+   */
+  /**
+   * Everything the PROJECT page needs in one read: the project's requests with
+   * a derived status, and the contacts currently attached to the project.
+   *
+   * `liveUnsubmitted` is what the "Request customer info" button checks before
+   * minting — 18 Holland Drive already carries three requests because nothing
+   * looked first. Reusing an existing live link is always preferable to a
+   * second one: both would work, and the office cannot tell which the customer
+   * received.
+   *
+   * Status is derived, not stored:
+   *   revoked   → revokedAt set
+   *   expired   → past expiresAt and never submitted
+   *   outstanding        → never submitted
+   *   awaiting_accept    → submitted, and submittedAt is newer than acceptedAt
+   *                        (covers both never-accepted and RESUBMITTED-since)
+   *   accepted           → accepted at or after the latest submission
+   */
+  async getProjectView(projectId: string, organizationId: string) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, organizationId },
+      select: { id: true, customerId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found in this organization');
+
+    const rows = await this.prisma.customerInfoRequest.findMany({
+      where: { organizationId, projectId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, token: true, customerName: true, projectName: true,
+        createdAt: true, expiresAt: true, revokedAt: true,
+        submittedAt: true, submissionCount: true, acceptedAt: true,
+        contacts: {
+          where: { supersededAt: null },
+          orderBy: { sortOrder: 'asc' },
+          select: { name: true, email: true, phone: true, group: true },
+        },
+      },
+    });
+
+    const now = Date.now();
+    const requests = rows.map((r) => {
+      const expired = !!r.expiresAt && r.expiresAt.getTime() <= now;
+      const status = r.revokedAt
+        ? 'revoked'
+        : !r.submittedAt
+          ? expired ? 'expired' : 'outstanding'
+          : !r.acceptedAt || r.submittedAt.getTime() > r.acceptedAt.getTime()
+            ? 'awaiting_accept'
+            : 'accepted';
+      return { ...r, status, isLive: !r.revokedAt && !expired };
+    });
+
+    // Contacts attached to the project today — the same rows
+    // projectFirstContactAttention reads for the DO/RDO Attention.
+    const links = await this.prisma.projectContact.findMany({
+      where: { projectId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true, group: true, createdAt: true,
+        customerContact: { select: { id: true, name: true, email: true, phone: true, designation: true, isPrimary: true } },
+      },
+    });
+    const contacts = links.map((l) => ({
+      linkId: l.id,
+      group: l.group,               // 'DO' | 'INVOICE' | null (picker-attached)
+      ...l.customerContact,
+    }));
+
+    return {
+      projectId: project.id,
+      customerId: project.customerId,
+      requests,
+      // The link to reuse instead of minting a second one.
+      liveUnsubmitted: requests.find((r) => r.status === 'outstanding') ?? null,
+      contacts: {
+        DO: contacts.filter((c) => c.group === 'DO'),
+        INVOICE: contacts.filter((c) => c.group === 'INVOICE'),
+        // Attached by the delivery contact picker before groups existed. Shown
+        // so the office can see everything feeding the Attention, not just what
+        // came through a customer-info submission.
+        UNGROUPED: contacts.filter((c) => !c.group),
+      },
+    };
+  }
+
+  async acceptRequest(id: string, organizationId: string, acceptedBy: string | null) {
+    const req = await this.prisma.customerInfoRequest.findFirst({
+      where: { id, organizationId },
+      select: {
+        id: true, customerId: true, projectId: true, submittedAt: true,
+        acceptedAt: true, submissionCount: true,
+      },
+    });
+    if (!req) throw new NotFoundException('Request not found');
+    if (!req.submittedAt) {
+      throw new BadRequestException('This request has not been submitted yet — nothing to accept');
+    }
+
+    // The customer and project are plain UUID columns (no FK), so re-validate
+    // both still exist in this org rather than trusting the snapshot.
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: req.customerId, organizationId }, select: { id: true },
+    });
+    if (!customer) throw new NotFoundException('The customer on this request no longer exists');
+    const project = await this.prisma.project.findFirst({
+      where: { id: req.projectId, organizationId }, select: { id: true },
+    });
+    if (!project) throw new NotFoundException('The project on this request no longer exists');
+
+    const live = await this.prisma.customerInfoContact.findMany({
+      where: { requestId: req.id, supersededAt: null },
+      orderBy: { sortOrder: 'asc' },
+      select: { name: true, email: true, phone: true, group: true },
+    });
+    if (live.length === 0) {
+      throw new BadRequestException('This submission has no live contacts to accept');
+    }
+
+    const norm = (v: string | null | undefined) => (v ?? '').trim().toLowerCase();
+    const result = await this.prisma.$transaction(async (tx) => {
+      const existingPeople = await tx.customerContact.findMany({
+        where: { customerId: customer.id },
+        select: { id: true, name: true, email: true, phone: true },
+      });
+
+      const keptLinkIds: string[] = [];
+      let peopleCreated = 0, peopleUpdated = 0, linksCreated = 0, linksUpdated = 0;
+
+      for (const c of live) {
+        const email = norm(c.email);
+        const match =
+          (email && existingPeople.find((p) => norm(p.email) === email)) ||
+          (!email && existingPeople.find((p) => norm(p.name) === norm(c.name))) ||
+          null;
+
+        let personId: string;
+        if (match) {
+          personId = match.id;
+          // Fill blanks from the submission; never blank out what we already
+          // hold with an empty field the customer left behind.
+          const data: Prisma.CustomerContactUpdateInput = {};
+          if (c.name.trim() && c.name.trim() !== match.name) data.name = c.name.trim();
+          if (c.email?.trim() && !match.email) data.email = c.email.trim();
+          if (c.phone?.trim() && !match.phone) data.phone = c.phone.trim();
+          if (Object.keys(data).length) {
+            await tx.customerContact.update({ where: { id: personId }, data });
+            peopleUpdated++;
+          }
+        } else {
+          const created = await tx.customerContact.create({
+            data: {
+              customerId: customer.id,
+              name: c.name.trim(),
+              email: c.email?.trim() || null,
+              phone: c.phone?.trim() || null,
+            },
+            select: { id: true, name: true, email: true, phone: true },
+          });
+          existingPeople.push(created); // so a duplicate row in the SAME submission reuses it
+          personId = created.id;
+          peopleCreated++;
+        }
+
+        // ProjectContact is unique on (projectId, customerContactId), so the
+        // same person appearing as BOTH a DO and an INVOICE contact collapses to
+        // one link. Last group in sortOrder order wins; the alternative is a
+        // schema change to allow two links per person per project.
+        const link = await tx.projectContact.upsert({
+          where: { projectId_customerContactId: { projectId: project.id, customerContactId: personId } },
+          update: { group: c.group },
+          create: { projectId: project.id, customerContactId: personId, group: c.group },
+          select: { id: true },
+        });
+        keptLinkIds.push(link.id);
+        linksCreated++;
+      }
+
+      // Detach only rows THIS flow owns (group NOT NULL) that the new set drops.
+      const detached = await tx.projectContact.deleteMany({
+        where: { projectId: project.id, group: { not: null }, id: { notIn: keptLinkIds } },
+      });
+
+      const now = new Date();
+      await tx.customerInfoRequest.update({
+        where: { id: req.id },
+        data: { acceptedAt: now, acceptedBy: acceptedBy ?? null },
+      });
+
+      return {
+        acceptedAt: now,
+        contactsAccepted: live.length,
+        peopleCreated, peopleUpdated,
+        linksSynced: linksCreated - linksUpdated,
+        linksDetached: detached.count,
+      };
+    });
+
+    return { ok: true, ...result };
+  }
+
   async submit(token: string, dto: SubmitCustomerInfoDto) {
     const { link, state } = await this.resolveToken(token);
     this.assertActionable(state);

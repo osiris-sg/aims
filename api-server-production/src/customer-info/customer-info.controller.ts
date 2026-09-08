@@ -35,6 +35,15 @@ export class CustomerInfoController {
     });
   }
 
+  // Project-scoped view for the project page's Customer Info tab AND the
+  // "Request customer info" button's reuse check. Declared BEFORE :id so
+  // "project" is not captured as a request id.
+  @Get('project/:projectId')
+  @Permissions('customer-info:read')
+  projectView(@Param('projectId') projectId: string, @UserOrganization() org: { id: string }) {
+    return this.service.getProjectView(projectId, org.id);
+  }
+
   @Get(':id')
   @Permissions('customer-info:read')
   detail(@Param('id') id: string, @UserOrganization() org: { id: string }) {
@@ -49,6 +58,20 @@ export class CustomerInfoController {
     @Req() req: ClerkRequest,
   ) {
     return this.service.createRequest(org.id, dto, req.user?.id ?? null);
+  }
+
+  // Office ACCEPT: mirror a submitted request's live contacts onto the project
+  // (CustomerContact + ProjectContact), which is what documents already read.
+  // Separate from submit so the office decides when contacts change under a
+  // project — see acceptRequest for why auto-copy was rejected.
+  @Post(':id/accept')
+  @Permissions('customer-info:create')
+  accept(
+    @Param('id') id: string,
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    return this.service.acceptRequest(id, org.id, req.user?.id ?? null);
   }
 
   @Post(':id/revoke')

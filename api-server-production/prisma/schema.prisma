@@ -551,6 +551,16 @@ model CustomerInfoRequest {
   revokedAt       DateTime? // set on office revoke (bulk)
   submittedAt     DateTime? // last submission time; null = awaiting response
   submissionCount Int       @default(0) // bumped each (re)submit
+  // Office ACCEPT (2026-09): the moment the submitted contacts were copied onto
+  // the project as CustomerContact + ProjectContact rows. Null = never accepted.
+  //
+  // Copying is deliberately NOT automatic on submit: 18 Holland Drive already
+  // carries three requests and two submissions with different people, so an
+  // auto-copy would silently change the contacts under an already-issued
+  // document. This column is also what makes a re-accept detectable —
+  // submittedAt > acceptedAt means the customer has resubmitted since.
+  acceptedAt      DateTime?
+  acceptedBy      String? // Clerk userId of the office accepter
 
   // Purchase Order (2026-08): either the office pre-selected an existing PO
   // document for the project, or the customer uploaded one on the public form
@@ -1228,6 +1238,16 @@ model ProjectContact {
   id                String   @id @default(uuid()) @db.Uuid
   projectId         String   @db.Uuid
   customerContactId String   @db.Uuid
+  // Which paperwork this person is the contact for ON THIS PROJECT: 'DO' |
+  // 'INVOICE'. Deliberately here and NOT on CustomerContact — the same person
+  // can be the DO contact on one site and the invoice contact on another, so
+  // the role belongs to the project link, not the person.
+  //
+  // NULLABLE on purpose: every ProjectContact predating this column was
+  // attached by the delivery contact picker, which has no notion of group.
+  // Null means "unclassified, treat as before" — projectFirstContactAttention
+  // ignores it entirely, so existing DO/RDO Attention is unaffected.
+  group             String?
   createdAt         DateTime @default(now())
 
   project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
