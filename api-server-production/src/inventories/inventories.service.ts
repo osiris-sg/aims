@@ -224,7 +224,21 @@ export class InventoriesService {
         asset: { select: { name: true, skuKey: true, assetClass: true } },
       },
     });
-    const hits = units.filter((u) => norm(u.sku) === wanted);
+    // Exact pass reads BOTH identifiers. `sku` is the real serial by design
+    // ("identity is sku-only", createAndBind) and is what every DO/RDO prints,
+    // so a sku hit always ranks first. `serialNumber` is matched as a REPAIR:
+    // 20 units predate that convention and carry a generated sku (LION375-008)
+    // with the real nameplate serial in serialNumber — 11 of them out on rental.
+    // Without this they miss the exact pass entirely, then miss nearMatches too
+    // (its `cn !== wanted` guard excludes an exact hit), and the rider is offered
+    // three WRONG sibling units as tappable buttons. Ordering is explicit rather
+    // than incidental: sku first, then serialNumber-only rows, deduped by id.
+    // `wanted` is non-empty (guarded above) and norm(null) is '', so a unit with
+    // no serialNumber can never match here — the 273 empty rows are untouched.
+    const skuHits = units.filter((u) => norm(u.sku) === wanted);
+    const skuHitIds = new Set(skuHits.map((u) => u.id));
+    const serialHits = units.filter((u) => !skuHitIds.has(u.id) && norm(u.serialNumber) === wanted);
+    const hits = [...skuHits, ...serialHits];
     const preferred = assetId ? hits.filter((u) => u.assetId === assetId) : hits;
     const shape = (u: (typeof units)[number]) => ({
       inventoryId: u.id,
