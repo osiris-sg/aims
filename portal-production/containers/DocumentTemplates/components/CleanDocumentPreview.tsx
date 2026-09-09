@@ -2010,7 +2010,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
       // the TIMELINE heading. Biofuel replica only (generic no longer uses this).
       // Constant: the hint now sits ABOVE the table, so the table→TIMELINE gap is
       // back to its original value (item-table box mb:3 + this mt:4).
-      <Box sx={{ mt: 4 }}>
+      // break-inside: the heading must never be orphaned from its rows.
+      <Box sx={{ mt: 4, pageBreakInside: "avoid", breakInside: "avoid" }}>
         <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700, letterSpacing: "1px", pb: 0.5, mb: 1, borderBottom: "1px solid #ddd" }}>
           TIMELINE
         </Typography>
@@ -2121,12 +2122,21 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           //
           // minHeight is released here — the page-1 wrapper below owns the
           // height so the footer lands INSIDE the band.
+          // PRINT LAYOUT IS BLOCK, NOT FLEX (2026-09). `break-inside: avoid` is
+          // only reliable on block-level boxes; on a FLEX ITEM Chrome ignores
+          // it, which is why the RECEIVED BY box split across the page break
+          // with its grey header on page 1 and its contents on page 2 despite
+          // already carrying the property. The invoice renderer has never had
+          // this bug because its Paper is a plain block container — this makes
+          // the DO match it for print only. Screen keeps flex so the tail still
+          // pins to the bottom of the visible page.
           "@media print": {
             width: "186mm",
             minHeight: 0,
             margin: "0 auto",
             padding: "8mm",
             boxShadow: "none",
+            display: "block",
           },
         }}
       >
@@ -2147,7 +2157,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             minHeight: "calc(297mm - 40mm)",
             display: "flex",
             flexDirection: "column",
-            "@media print": { minHeight: "261mm" },
+            // Block in print for the same reason as the Paper above: its
+            // children must be block-level boxes for break-inside to hold.
+            // minHeight is kept so a short DO still reserves the full page.
+            "@media print": { minHeight: "261mm", display: "block" },
           }}
         >
         {/* Page 1 — Biofuel org gets a replica of their paper DO (letterhead,
@@ -2312,7 +2325,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </TableHead>
                   <TableBody>
                     {items.map((item: any, index: number) => (
-                      <TableRow key={index}>
+                      <TableRow key={index} sx={{ pageBreakInside: "avoid", breakInside: "avoid" }}>
                         <TableCell sx={{ textAlign: "center" }}>{index + 1}.</TableCell>
                         <TableCell>
                           <DescriptionText text={item.description || ""} sx={{ fontWeight: 500 }} />
@@ -2338,9 +2351,18 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               {timelineBlock}
 
               {/* Flex spacer pins the footer signature block to the page bottom
-                  now that the item box fits its content instead of stretching. */}
+                  now that the item box fits its content instead of stretching.
+                  SCREEN ONLY: print is block layout (see the Paper), where
+                  flex:1 does nothing — the tail simply follows the content. */}
               <Box sx={{ flex: 1 }} />
 
+              {/* KEEP-TOGETHER GROUP: the RECEIVED BY box and the closing
+                  footer move to the next page as ONE unit. Separately they
+                  each carry break-inside: avoid, which stops either splitting
+                  internally — but nothing stopped the page break landing
+                  BETWEEN them, leaving a signature box stranded at the bottom
+                  of page 1 with its footer alone overleaf. */}
+              <Box sx={{ pageBreakInside: "avoid", breakInside: "avoid" }}>
               {/* Footer — the RECEIVED BY block (reference receipt style). The
                   old left-hand Biofuel signature + stamp was removed; the
                   customer signature now lives in this shared bordered box. */}
@@ -2384,6 +2406,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </Box>
                 );
               })()}
+              </Box>{/* end keep-together: RECEIVED BY + closing footer */}
             </>
           );
         })() : (
