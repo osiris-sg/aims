@@ -162,6 +162,17 @@ The root package.json only contains Xero integration dependencies (`xero-node`).
 - **Organizations**: Multi-tenant structure where all data is organization-scoped; per-org feature flags + `MODULE_CATALOG` module toggles
 - **Assets**: Hierarchical asset management with parent-child relationships
 - **Documents**: ALL document types (INVOICE, BILL, QUOTATION, PO, CN/DN…) live in the unified `Document` table — never create a per-type table
+- **Document reference key — `config.referenceNo` is CANONICAL** (guru
+  2026-09-09): every writer that stores a document's free-text reference MUST
+  write it to `config.referenceNo` (mirror into legacy keys only for
+  back-compat). History: the editor wrote `referenceNo` while other writers
+  used `reference` (bills/v1 API), `xeroReference` (Xero imports) or
+  `documentInfo.reference` (AI extraction), so list tables (which read a
+  fallback chain) showed a Reference the editor didn't. Readers may keep the
+  fallback chain `documentInfo.referenceNo → referenceNo → documentInfo.reference
+  → reference → xeroReference` for old rows; `updateDocument` also
+  canonicalises legacy keys into `referenceNo` on save (an explicit "" from
+  the editor still clears it). Never introduce a new reference key.
 - **Accounting**: documents auto-post double-entry journals to the GL; Xero-style reports; posting queue for accountant review
 - **Inventory**: Asset-based inventory tracking with QR codes (tracked by serial, `Inventory.sku`)
 - **Projects**: Project → Deployment (RENTAL/SALE/SERVICE) → Assignments + Documents; recurring invoicing anchors on deployments

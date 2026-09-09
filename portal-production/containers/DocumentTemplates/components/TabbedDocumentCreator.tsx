@@ -735,7 +735,19 @@ export default function TabbedDocumentCreator({
     documentInfo: {
       date: existingData?.documentInfo?.date || existingData?.date || new Date().toISOString().split("T")[0],
       documentNumber: existingData?.documentInfo?.documentNumber || existingData?.documentNumber || existingData?.name || "",
-      referenceNo: existingData?.documentInfo?.referenceNo || existingData?.referenceNo || "",
+      // Canonical key is referenceNo, but older writers used other keys
+      // (AI-extraction: documentInfo.reference; ingestion: reference;
+      // Xero import: xeroReference). Hydrate through the SAME fallback chain
+      // the list tables use so the editor never shows a blank Reference for a
+      // doc whose list row shows one — and the next save re-stores it under
+      // referenceNo, converging old docs onto the canonical key.
+      referenceNo:
+        existingData?.documentInfo?.referenceNo ||
+        existingData?.referenceNo ||
+        existingData?.documentInfo?.reference ||
+        existingData?.reference ||
+        existingData?.xeroReference ||
+        "",
       poNo: existingData?.documentInfo?.poNo || existingData?.poNo || "",
       doNo: existingData?.documentInfo?.doNo || existingData?.doNo || "",
       returnOrderNo: existingData?.documentInfo?.returnOrderNo || existingData?.returnOrderNo || "",

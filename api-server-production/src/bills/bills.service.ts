@@ -293,6 +293,9 @@ export class BillsService {
       date: dto.billDate, // mirror under "date" so generic Document views work
       dueDate: dto.dueDate || null,
       reference: dto.reference || null,
+      // referenceNo is the canonical document reference key (editor + list
+      // tables read it first); `reference` kept for the AP views that read it.
+      referenceNo: dto.reference || null,
       description: dto.description || null,
       currency: 'SGD',
       subtotal,
@@ -364,7 +367,7 @@ export class BillsService {
     }
     if (dto.billDate !== undefined) { config.billDate = dto.billDate; config.date = dto.billDate; }
     if (dto.dueDate !== undefined) config.dueDate = dto.dueDate || null;
-    if (dto.reference !== undefined) config.reference = dto.reference;
+    if (dto.reference !== undefined) { config.reference = dto.reference; config.referenceNo = dto.reference; }
     if (dto.description !== undefined) config.description = dto.description;
     if (dto.kind !== undefined) config.kind = dto.kind === 'SPR' ? 'SPR' : 'SIN';
     if (dto.amountsAre !== undefined) config.amountsAre = dto.amountsAre;

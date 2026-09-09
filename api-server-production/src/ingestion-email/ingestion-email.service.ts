@@ -418,7 +418,7 @@ export class IngestionEmailService {
           if (rechargeRef && (!cfg.reference || /^JP Pass application$/i.test(cfg.reference))) {
             await this.prisma.document.update({
               where: { id: existing.id },
-              data: { config: { ...cfg, reference: rechargeRef } as unknown as Prisma.InputJsonValue },
+              data: { config: { ...cfg, reference: rechargeRef, referenceNo: rechargeRef } as unknown as Prisma.InputJsonValue },
             });
             this.logger.log(`bill ${extracted.billNumber} already exists — back-stamped ref ${rechargeRef}`);
           }

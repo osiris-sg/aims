@@ -183,7 +183,9 @@ export class RecurringInvoicesService {
     const bump = (v: any) => (typeof v === 'string' ? v.replace(/^BI\{YEAR\}\{MONTH NO\}\d{3}/, num) : v);
     const config: any = { ...c, documentNumber: num, reference: bump(c.reference) };
     if (config.documentInfo?.referenceNo) config.documentInfo = { ...config.documentInfo, referenceNo: bump(config.documentInfo.referenceNo) };
-    await this.prisma.recurringInvoiceTemplate.update({ where: { id }, data: { config } });
+    // REC code mirrors the slot (guru 2026-09-09: after a delete the visible
+    // IDs must close up too, not just the invoice numbers).
+    await this.prisma.recurringInvoiceTemplate.update({ where: { id }, data: { code: `REC-${String(slot).padStart(3, '0')}`, config } });
   }
 
   async create(organizationId: string, dto: any, userId?: string) {
@@ -280,12 +282,17 @@ export class RecurringInvoicesService {
     if (!slotted.length) return;
     let moved = 0;
     for (let i = 0; i < slotted.length; i++) {
+      const wantCode = `REC-${String(i + 1).padStart(3, '0')}`;
       if (this.slotOf(slotted[i].config) !== i + 1) {
         await this.updateSlot(slotted[i].id, i + 1);
         moved++;
+      } else if (slotted[i].code !== wantCode) {
+        // slot already right but the visible REC code lags — align it
+        await this.prisma.recurringInvoiceTemplate.update({ where: { id: slotted[i].id }, data: { code: wantCode } });
+        moved++;
       }
     }
-    if (moved) this.logger.log(`[slots] compacted after delete — ${moved} template(s) re-slotted (1..${slotted.length})`);
+    if (moved) this.logger.log(`[slots] compacted after delete — ${moved} template(s) re-slotted/re-coded (1..${slotted.length})`);
     await this.syncCurrentMonthDrafts(organizationId);
   }
 

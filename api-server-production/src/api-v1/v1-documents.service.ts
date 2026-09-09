@@ -88,6 +88,9 @@ export class V1DocumentsService {
       dueDate: this.toIso(dto.dueDate),
       documentNumber: number,
       reference: dto.reference ?? null,
+      // referenceNo is the canonical reference key (editor + list tables read
+      // it first); `reference` kept for back-compat readers.
+      referenceNo: dto.reference ?? null,
       items: lines.map((l, i) => ({
         lineNumber: i + 1,
         description: l.description ?? '',

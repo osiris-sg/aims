@@ -1116,6 +1116,24 @@ export class DocumentsService {
             (configAsPlainObject as any)[k] = existingConfig[k];
           }
         }
+        // Reference canonicalisation (guru 2026-09-09): config.referenceNo is
+        // THE document reference key — legacy writers used `reference` /
+        // `xeroReference` / `documentInfo.reference`, which made the list
+        // tables (fallback chain) show a Reference the editor (referenceNo
+        // only) didn't. Converge on save: a caller that doesn't send
+        // referenceNo at all inherits the best legacy value. An explicit ""
+        // (the editor clearing the field) is respected, not resurrected.
+        if ((configAsPlainObject as any).referenceNo === undefined) {
+          const legacyRef =
+            (configAsPlainObject as any).reference ||
+            (configAsPlainObject as any).documentInfo?.reference ||
+            (configAsPlainObject as any).xeroReference ||
+            existingConfig.referenceNo ||
+            existingConfig.reference ||
+            existingConfig.documentInfo?.reference ||
+            existingConfig.xeroReference;
+          if (legacyRef) (configAsPlainObject as any).referenceNo = legacyRef;
+        }
       }
 
       // Validate status transition for invoices
@@ -2827,11 +2845,16 @@ export class DocumentsService {
             customerEmail: matchedCustomer.email || undefined,
           }
         : {}),
+      // Canonical reference key is referenceNo (flat AND documentInfo) — the
+      // editor and the list tables read it first. `reference` kept for
+      // back-compat with older readers of extraction docs.
+      referenceNo: extracted?.document?.reference || undefined,
       documentInfo: {
         documentNumber: extracted?.document?.number || undefined,
         date: extracted?.document?.date || undefined,
         dueDate: extracted?.document?.dueDate || undefined,
         reference: extracted?.document?.reference || undefined,
+        referenceNo: extracted?.document?.reference || undefined,
         // OSI-13 (PART 2): carry the extracted delivery date onto the DO — the
         // preview reads documentInfo.deliveryDate; previously dropped.
         ...(isDeliveryOrder && extracted?.additionalFields?.deliveryDate
