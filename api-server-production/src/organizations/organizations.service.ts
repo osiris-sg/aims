@@ -213,6 +213,30 @@ export class OrganizationsService {
     id: string,
     data: { name?: string; address?: string; phoneNumber?: string; registrationNumber?: string; logo?: string | null; defaultStamp?: string | null; customDocumentTypes?: Record<string, string>; taxRate?: number; taxApplicable?: boolean; absorbTax?: boolean; defaultCurrency?: string; quoteRoundingStep?: number; docTypeDefaults?: Record<string, { tnc?: string; notes?: string; footerMessage?: string }> | null; bankDetails?: Record<string, string> },
   ) {
+    // Wipe guard (guru 2026-09-09): the Company Profile form always PATCHes the
+    // FULL bankDetails block from on-screen values. A save from a tab whose
+    // form never loaded the real org (fresh tab lost the admin "Viewing as"
+    // switch, or a stale session) sends all-empty strings and silently erases
+    // the real account — which then vanishes from invoice footers. An
+    // all-empty incoming block over a non-empty stored one is treated as that
+    // accident and dropped; clearing a single field still works.
+    if (data.bankDetails) {
+      // A block "has data" if any string field (besides the SGD default) is
+      // filled, or any additional bank row exists.
+      const hasData = (bd: Record<string, any>) =>
+        Object.entries(bd)
+          .filter(([k, v]) => k !== 'currencyCode' && typeof v === 'string')
+          .some(([, v]) => String(v ?? '').trim()) ||
+        (Array.isArray(bd.additionalBanks) && bd.additionalBanks.length > 0);
+      if (!hasData(data.bankDetails)) {
+        const existing = await this.prisma.organization.findUnique({ where: { id }, select: { bankDetails: true } });
+        const stored = (existing?.bankDetails ?? {}) as Record<string, any>;
+        if (hasData(stored)) {
+          console.warn(`[organizations] ignoring all-empty bankDetails PATCH for ${id} — stored details kept`);
+          delete data.bankDetails;
+        }
+      }
+    }
     return this.prisma.organization.update({
       where: { id },
       data,
