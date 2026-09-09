@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import AddOrganizationItem from "./AddOrganizationItem";
@@ -11,9 +11,17 @@ import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import useOrganizationTableHeader from "../hooks/useOrganizationTableHeader";
 
 export default function Organizations() {
-  const { columns, editOrganizationOpen, selectedOrganization, handleCloseEditOrganization, organizationToDelete, isDeleteInProgress, confirmDeleteOrganization, cancelDelete } = useOrganizationTableHeader();
+  const { columns, editOrganizationOpen, selectedOrganization, handleEditOrganization, handleCloseEditOrganization, organizationToDelete, isDeleteInProgress, confirmDeleteOrganization, cancelDelete } = useOrganizationTableHeader();
 
-  const { organizations, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshOrganizations } = useGetOrganizations();
+  // Header sorting is applied to the FULL list inside the hook (before its
+  // slice) — the table is in manualSorting mode.
+  const [sorting, setSorting] = useState<{ id: string; desc: boolean }[]>([]);
+  const { organizations, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshOrganizations } = useGetOrganizations(sorting);
+
+  // Sort changes restart at page 1.
+  useEffect(() => {
+    setPage(1);
+  }, [sorting, setPage]);
 
   const { openDrawer, onAddClick, onCloseClick } = useAddOrganizationStates();
 
@@ -34,8 +42,12 @@ export default function Organizations() {
   return (
     <MainCard>
       <PageTable
+        onRowClick={(r: any) => handleEditOrganization(r)}
         data={organizations.docs}
         columns={columns}
+        manualSorting
+        sorting={sorting}
+        onSortingChange={setSorting}
         tableName="Organizations Management"
         subTitle="Manage all organizations in the platform"
         buttonName="Add Organization"

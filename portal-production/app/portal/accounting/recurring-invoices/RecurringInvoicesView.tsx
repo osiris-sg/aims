@@ -7,10 +7,8 @@ import {
   TableHead, TableRow, TextField, Tooltip, Typography, alpha,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
-import EditIcon from "@mui/icons-material/Edit";
+import { RowKebab } from "@/components/RowKebab";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import PlayArrowIcon from "@mui/icons-material/PlayArrow";
-import CloudSyncIcon from "@mui/icons-material/CloudSync";
 import LinkIcon from "@mui/icons-material/Link";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import CloseIcon from "@mui/icons-material/Close";
@@ -453,12 +451,12 @@ export default function RecurringInvoicesView() {
                 <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sortCol === "nextRunDate"} direction={sortCol === "nextRunDate" ? sortDir : "asc"} onClick={() => requestSort("nextRunDate")}>Next run</TableSortLabel></TableCell>
                 <TableCell sx={{ fontWeight: 700 }} align="center"><TableSortLabel active={sortCol === "autoSend"} direction={sortCol === "autoSend" ? sortDir : "asc"} onClick={() => requestSort("autoSend")}>Mode</TableSortLabel></TableCell>
                 <TableCell sx={{ fontWeight: 700 }} align="center"><TableSortLabel active={sortCol === "isActive"} direction={sortCol === "isActive" ? sortDir : "asc"} onClick={() => requestSort("isActive")}>Active</TableSortLabel></TableCell>
-                <TableCell sx={{ fontWeight: 700 }} align="right">Actions</TableCell>
+                <TableCell sx={{ fontWeight: 700 }} align="right"></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {sortedItems.map((t) => (
-                <TableRow key={t.id}>
+                <TableRow key={t.id} hover sx={{ cursor: "pointer" }} onClick={() => openEdit(t)}>
                   <TableCell sx={{ whiteSpace: "nowrap" }}>
                     <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: "monospace" }}>{t.code || "—"}</Typography>
                   </TableCell>
@@ -477,20 +475,19 @@ export default function RecurringInvoicesView() {
                   <TableCell><Chip size="small" label={t.frequency.toLowerCase()} /></TableCell>
                   <TableCell>{toLocalInput(t.nextRunDate).replace("T", " ")}</TableCell>
                   <TableCell align="center">{t.autoSend ? <Chip size="small" color="info" label="Auto (email)" /> : <Chip size="small" label="Draft" />}</TableCell>
-                  <TableCell align="center"><Switch size="small" checked={t.isActive} onChange={() => toggle(t)} /></TableCell>
+                  <TableCell align="center" onClick={(e) => e.stopPropagation()}><Switch size="small" checked={t.isActive} onChange={() => toggle(t)} /></TableCell>
                   <TableCell align="right">
-                    <Tooltip title="Generate now"><span><IconButton size="small" disabled={busyId === t.id} onClick={() => generateNow(t)}>{busyId === t.id ? <CircularProgress size={16} /> : <PlayArrowIcon fontSize="small" />}</IconButton></span></Tooltip>
-                    {isXeroDocSyncEnabled && (
-                      <Tooltip title={t.lastRunDocumentId ? "Sync the latest generated invoice to Xero (DRAFT)" : "No generated invoice yet — run the schedule first"}>
-                        <span>
-                          <IconButton size="small" disabled={syncingId === t.id || !t.lastRunDocumentId} onClick={() => syncToXero(t)}>
-                            {syncingId === t.id ? <CircularProgress size={16} /> : <CloudSyncIcon fontSize="small" />}
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    )}
-                    <Tooltip title="Edit"><IconButton size="small" onClick={() => openEdit(t)}><EditIcon fontSize="small" /></IconButton></Tooltip>
-                    <Tooltip title="Delete"><IconButton size="small" onClick={() => remove(t)}><DeleteOutlineIcon fontSize="small" /></IconButton></Tooltip>
+                    {/* Row click = edit; kebab holds the rest (CLAUDE.md pattern). */}
+                    <RowKebab
+                      actions={[
+                        { label: busyId === t.id ? "Generating…" : "Generate now", disabled: busyId === t.id, onClick: () => generateNow(t) },
+                        ...(isXeroDocSyncEnabled
+                          ? [{ label: "Sync latest to Xero", disabled: syncingId === t.id || !t.lastRunDocumentId, onClick: () => syncToXero(t) }]
+                          : []),
+                        { label: "Edit", onClick: () => openEdit(t) },
+                        { label: "Delete", destructive: true, onClick: () => remove(t) },
+                      ]}
+                    />
                   </TableCell>
                 </TableRow>
               ))}

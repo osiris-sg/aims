@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
-import { Box, Button, Chip, Typography, IconButton } from "@mui/material";
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
+import { Chip, Typography } from "@mui/material";
+import { kebabColumn } from "@/components/RowKebab";
 import { useAuth } from "@clerk/nextjs";
 
 const columnHelper = createColumnHelper<any>();
@@ -90,26 +89,15 @@ export default function useRoleTableHeader() {
       header: "Created",
       cell: (info) => new Date(info.getValue()).toLocaleDateString(),
     }),
-    columnHelper.accessor("id", {
-      header: "Actions",
-      cell: (info) => {
-        const role = info.row.original;
-        return (
-          <Box sx={{ display: "flex", gap: 1 }}>
-            <IconButton size="small" color="primary" onClick={() => handleEditRole(role)}>
-              <EditIcon fontSize="small" />
-            </IconButton>
-            <IconButton size="small" color="error" onClick={() => handleDeleteRole(info.getValue())}>
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Box>
-        );
-      },
-    }),
+    kebabColumn((row: any) => [
+      { label: "Edit", onClick: () => handleEditRole(row) },
+      { label: "Delete", destructive: true, onClick: () => handleDeleteRole(row.id) },
+    ]),
   ];
 
   return {
     columns,
+    handleEditRole,
     editRoleOpen,
     selectedRole,
     handleCloseEditRole,

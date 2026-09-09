@@ -3,12 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createColumnHelper } from "@tanstack/react-table";
-import { IconButton, Chip, Box, Dialog, DialogTitle, DialogContent, DialogActions, Button, Tooltip, Typography } from "@mui/material";
-import EditIcon from "@mui/icons-material/Edit";
-import VisibilityIcon from "@mui/icons-material/Visibility";
+import { Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
-import SettingsIcon from "@mui/icons-material/Settings";
+import { kebabColumn } from "@/components/RowKebab";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
@@ -51,6 +49,8 @@ export default function useDocumentTemplatesTableHeader(onRefetch?: () => void) 
       setActivateDialog({ open: false, templateId: "", templateName: "" });
     }
   };
+
+  const openTemplate = (row: any) => router.push(`/portal/admin/document-templates/${row.id}`);
 
   const columns = [
     columnHelper.accessor("name", {
@@ -108,48 +108,20 @@ export default function useDocumentTemplatesTableHeader(onRefetch?: () => void) 
       header: "Organization",
       cell: (info) => <Typography variant="body2">{info.getValue() || "N/A"}</Typography>,
     }),
-    columnHelper.accessor("id", {
-      id: "actions",
-      header: "Actions",
-      cell: (info) => {
-        const row = info.row.original;
-        return (
-          <Box sx={{ display: "flex", gap: 0.5 }}>
-            <Tooltip title="View Template">
-              <IconButton
-                size="small"
-                onClick={() => router.push(`/portal/admin/document-templates/${row.id}`)}
-              >
-                <VisibilityIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Edit Fields">
-              <IconButton
-                size="small"
-                onClick={() => router.push(`/portal/admin/document-templates/${row.id}/fields`)}
-              >
-                <SettingsIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title={row.isActive ? "Already Active" : "Activate Template"}>
-              <span>
-                <IconButton
-                  size="small"
-                  disabled={row.isActive}
-                  onClick={() => setActivateDialog({
-                    open: true,
-                    templateId: row.id,
-                    templateName: row.name,
-                  })}
-                >
-                  <CheckCircleIcon fontSize="small" color={row.isActive ? "success" : "disabled"} />
-                </IconButton>
-              </span>
-            </Tooltip>
-          </Box>
-        );
+    kebabColumn((row: any) => [
+      { label: "View Template", onClick: () => openTemplate(row) },
+      { label: "Edit Fields", onClick: () => router.push(`/portal/admin/document-templates/${row.id}/fields`) },
+      {
+        label: row.isActive ? "Already Active" : "Activate Template",
+        disabled: row.isActive,
+        onClick: () =>
+          setActivateDialog({
+            open: true,
+            templateId: row.id,
+            templateName: row.name,
+          }),
       },
-    }),
+    ]),
   ];
 
   const activateDialogComponent = (
@@ -176,5 +148,6 @@ export default function useDocumentTemplatesTableHeader(onRefetch?: () => void) 
   return {
     columns,
     activateDialog: activateDialogComponent,
+    openTemplate,
   };
 }

@@ -8,22 +8,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
-  Box,
   Button,
   Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  IconButton,
   Stack,
   TextField,
 } from "@mui/material";
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
 import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { useClientSort } from "@/components/clientSort";
+import { kebabColumn } from "@/components/RowKebab";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import GLAccountSelect from "@/components/GLAccountSelect";
 
@@ -126,8 +124,13 @@ export default function MasterFilesServices() {
       [it.code, it.name].some((v) => String(v ?? "").toLowerCase().includes(s))
     );
   }, [services, search]);
-  const paged = useMemo(() => filtered.slice((page - 1) * limit, page * limit), [filtered, page, limit]);
+  // Sort the WHOLE filtered list before slicing — the table itself is in
+  // manualSorting mode, so header arrows drive this hook.
+  const { sorted, sorting, sortingProps } = useClientSort(filtered);
+  const paged = useMemo(() => sorted.slice((page - 1) * limit, page * limit), [sorted, page, limit]);
   useEffect(() => { setPage(1); }, [search, limit]);
+  // Sort changes restart at page 1 (declared after the hook — TDZ).
+  useEffect(() => { setPage(1); }, [sorting]);
 
   const openNew = () => { setEditing(null); setForm(blankForm); setDialogOpen(true); };
   const openEdit = (it: Service) => {
@@ -208,37 +211,19 @@ export default function MasterFilesServices() {
         <Chip size="small" label={info.getValue() === false ? "Inactive" : "Active"} color={info.getValue() === false ? "default" : "success"} variant="outlined" />
       ),
     },
-    {
-      id: "actions",
-      header: "Actions",
-      enableSorting: false,
-      cell: (info: any) => {
-        const svc = info.row.original as Service;
-        return (
-          <Box display="flex" gap={1}>
-            <IconButton
-              onClick={() => openEdit(svc)}
-              sx={{ color: "text.secondary", "&:hover": { color: "info.main" } }}
-            >
-              <EditIcon />
-            </IconButton>
-            <IconButton
-              onClick={() => setServiceToDelete(svc)}
-              sx={{ color: "text.secondary", "&:hover": { color: "error.main" } }}
-            >
-              <DeleteIcon />
-            </IconButton>
-          </Box>
-        );
-      },
-    },
+    kebabColumn((svc: any) => [
+      { label: "Edit", onClick: () => openEdit(svc as Service) },
+      { label: "Delete", destructive: true, onClick: () => setServiceToDelete(svc as Service) },
+    ]),
   ];
 
   return (
     <MainCard>
       <PageTable
+        onRowClick={(r: any) => openEdit(r as Service)}
         columns={columns}
         data={paged}
+        {...sortingProps}
         tableName="Services List"
         subTitle="All services for this organization"
         buttonName="Add Service"

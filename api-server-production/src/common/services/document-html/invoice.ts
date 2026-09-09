@@ -186,14 +186,20 @@ export function renderInvoiceBody(data: any, organization: any): string {
   }
 
   const bank: any = organization?.bankDetails || null;
-  const hasBank = bank && (bank.accountName || bank.accountNumber || bank.bankName);
-  const bankBlock = hasBank
+  const oneBank = (b: any) =>
+    `${b.accountName ? `<p style="font-size:13px;">All Cheque should be crossed and made payable to: ${escapeHtml(b.accountName)}</p>` : ''}
+     ${b.bankName ? `<p style="font-size:13px;">By Bank Transfer: ${escapeHtml(b.bankName)}</p>` : ''}
+     ${b.branchCode ? `<p style="font-size:13px;">Branch: ${escapeHtml(b.branchCode)}</p>` : ''}
+     ${b.bankCode || b.swiftCode ? `<p style="font-size:13px;">Bank Branch No.: ${escapeHtml(b.bankCode || '')}${b.swiftCode ? ` Swift Code: ${escapeHtml(b.swiftCode)}` : ''}</p>` : ''}
+     ${b.accountNumber ? `<p style="font-size:13px;">Bank Account No.: ${escapeHtml(b.accountNumber)}</p>` : ''}`;
+  // All banks with details: the primary + bankDetails.additionalBanks, joined
+  // by an "OR" divider on the printed document (guru 2026-09-09).
+  const banks = [bank, ...(Array.isArray(bank?.additionalBanks) ? bank.additionalBanks : [])].filter(
+    (b: any) => b && (b.accountName || b.accountNumber || b.bankName),
+  );
+  const bankBlock = banks.length
     ? `<div style="font-size:13px;line-height:1.6;">
-         ${bank.accountName ? `<p style="font-size:13px;">All Cheque should be crossed and made payable to: ${escapeHtml(bank.accountName)}</p>` : ''}
-         ${bank.bankName ? `<p style="font-size:13px;">By Bank Transfer: ${escapeHtml(bank.bankName)}</p>` : ''}
-         ${bank.branchCode ? `<p style="font-size:13px;">Branch: ${escapeHtml(bank.branchCode)}</p>` : ''}
-         ${bank.bankCode || bank.swiftCode ? `<p style="font-size:13px;">Bank Branch No.: ${escapeHtml(bank.bankCode || '')}${bank.swiftCode ? ` Swift Code: ${escapeHtml(bank.swiftCode)}` : ''}</p>` : ''}
-         ${bank.accountNumber ? `<p style="font-size:13px;">Bank Account No.: ${escapeHtml(bank.accountNumber)}</p>` : ''}
+         ${banks.map(oneBank).join(`<p style="font-size:13px;font-weight:700;margin:4px 0;">OR</p>`)}
          ${organization?.registrationNumber ? `<p style="font-size:13px;">PayNow to UEN: ${escapeHtml(organization.registrationNumber)}</p>` : ''}
        </div>`
     : `<p style="font-size:13px;">&nbsp;</p>`;

@@ -3,11 +3,9 @@
 import React, { useState } from "react";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { kebabColumn } from "@/components/RowKebab";
 import { useRouter } from "next/navigation";
 import { Avatar, IconButton, Typography, Box, TextField, ToggleButton, ToggleButtonGroup } from "@mui/material";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import ModeEditIcon from "@mui/icons-material/ModeEdit";
-import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import CheckIcon from "@mui/icons-material/Check";
 import CloseIcon from "@mui/icons-material/Close";
@@ -22,7 +20,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 function EditableSkuKeyCell({ row, onSave, onCancel }: { row: any; onSave: (id: string, skuKey: string) => void; onCancel: () => void }) {
   const [value, setValue] = useState(row.skuKey);
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+    <Box onClick={(e) => e.stopPropagation()} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
       <TextField
         size="small"
         value={value}
@@ -111,7 +109,14 @@ export default function ProductsPage() {
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
             <Typography variant="body2">{asset.skuKey}</Typography>
             {isEditInventorySkuEnabled && (
-              <IconButton size="small" onClick={() => setEditingSkuId(asset.id)} sx={{ opacity: 0.5, "&:hover": { opacity: 1 } }}>
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingSkuId(asset.id);
+                }}
+                sx={{ opacity: 0.5, "&:hover": { opacity: 1 } }}
+              >
                 <EditIcon sx={{ fontSize: 14 }} />
               </IconButton>
             )}
@@ -168,46 +173,19 @@ export default function ProductsPage() {
         );
       },
     },
-    {
-      accessorKey: "action",
-      header: "Action",
-      enableSorting: false,
-      cell: ({ row }: any) => (
-        <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
-          <IconButton
-            onClick={() => router.push(`${ROUTES.ASSETS}/${row.original.skuKey}`)}
-            sx={{
-              color: "text.secondary",
-              "&:hover": { color: "primary.main" },
-            }}
-          >
-            <VisibilityIcon />
-          </IconButton>
-          <IconButton
-            onClick={() => router.push(`${ROUTES.ADD_ASSET}?id=${row.original.id}`)}
-            sx={{
-              color: "text.secondary",
-              "&:hover": { color: "info.main" },
-            }}
-          >
-            <ModeEditIcon />
-          </IconButton>
-          <IconButton
-            onClick={() => {
-              setDeleteName(row.original.name);
-              setAssetToDelete(row.original.id);
-              setConfirmOpen(true);
-            }}
-            sx={{
-              color: "text.secondary",
-              "&:hover": { color: "error.main" },
-            }}
-          >
-            <DeleteIcon />
-          </IconButton>
-        </Box>
-      ),
-    },
+    kebabColumn((row: any) => [
+      { label: "Open", onClick: () => router.push(`${ROUTES.ASSETS}/${row.skuKey}`) },
+      { label: "Edit", onClick: () => router.push(`${ROUTES.ADD_ASSET}?id=${row.id}`) },
+      {
+        label: "Delete",
+        destructive: true,
+        onClick: () => {
+          setDeleteName(row.name);
+          setAssetToDelete(row.id);
+          setConfirmOpen(true);
+        },
+      },
+    ]),
   ];
 
   const columns = [...baseColumns, ...remainingColumns];
@@ -230,6 +208,7 @@ export default function ProductsPage() {
 
       {viewMode === "table" ? (
         <PageTable
+          onRowClick={(r: any) => router.push(`${ROUTES.ASSETS}/${r.skuKey}`)}
           loading={isLoading}
           columns={columns}
           data={assets}

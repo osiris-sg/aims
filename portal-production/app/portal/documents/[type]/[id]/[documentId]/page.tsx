@@ -462,7 +462,11 @@ export default function page() {
         id: documentId as string,
         type: type as string,
         config: configData,
-        status: data.status || 'unconfirmed', // Use provided status or default to unconfirmed
+        // Keep the document's CURRENT status when the form doesn't set one —
+        // the old 'unconfirmed' default tried to downgrade confirmed docs on
+        // every edit-after-confirm save and the backend rejected the whole
+        // update (guru 2026-09-09).
+        status: data.status || documentMetadata?.status || 'unconfirmed',
         customerId: data.customer?.id || null,
         projectId: data.project?.id || data.projectId || null,
         documentTemplateId: documentMetadata?.documentTemplateId || params.id as string,

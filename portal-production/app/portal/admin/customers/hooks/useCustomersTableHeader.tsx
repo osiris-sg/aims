@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
-import { IconButton, Typography, Chip, Box } from "@mui/material";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import DeleteIcon from "@mui/icons-material/Delete";
+import { Typography, Chip } from "@mui/material";
+import { kebabColumn } from "@/components/RowKebab";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import { useAuth } from "@clerk/nextjs";
 
@@ -103,20 +102,10 @@ export default function useCustomersTableHeader() {
         </Typography>
       ),
     }),
-    columnHelper.accessor("id", {
-      id: "actions",
-      header: "Actions",
-      cell: (info) => (
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <IconButton size="small" onClick={() => handleViewCustomer(info.row.original)} sx={{ color: "primary.main" }}>
-            <VisibilityIcon fontSize="small" />
-          </IconButton>
-          <IconButton size="small" onClick={() => handleDeleteCustomer(info.getValue())} sx={{ color: "error.main" }}>
-            <DeleteIcon fontSize="small" />
-          </IconButton>
-        </Box>
-      ),
-    }),
+    kebabColumn((row: any) => [
+      { label: "Open", onClick: () => handleViewCustomer(row) },
+      { label: "Delete", destructive: true, onClick: () => handleDeleteCustomer(row.id) },
+    ]),
   ];
 
   const deleteDialog = <DeleteItemDialogNoConfirm open={!!customerToDelete} onConfirm={confirmDeleteCustomer} onCancel={cancelDelete} loading={isDeleteInProgress} />;
@@ -124,5 +113,6 @@ export default function useCustomersTableHeader() {
   return {
     columns,
     deleteDialog,
+    handleViewCustomer,
   };
 }

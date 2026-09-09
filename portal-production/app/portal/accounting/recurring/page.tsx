@@ -4,20 +4,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box,
   Chip,
-  CircularProgress,
-  IconButton,
   Stack,
   Switch,
-  Tooltip,
   Typography,
 } from "@mui/material";
-import PlayArrowIcon from "@mui/icons-material/PlayArrow";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import EditIcon from "@mui/icons-material/Edit";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import RecurringTemplateDialog from "./_components/RecurringTemplateDialog";
 import PageTable from "@/components/PageTable";
+import { useClientSort } from "@/components/clientSort";
+import { kebabColumn } from "@/components/RowKebab";
 
 type Template = {
   id: string;
@@ -111,10 +107,18 @@ export default function RecurringPage() {
 
   useEffect(() => { setPage(1); }, [search]);
 
+  // Header sort over the WHOLE filtered list (not just the visible page);
+  // the table is in manualSorting mode. Only "Lines" needs a getter (count).
+  const { sorted, sorting, sortingProps } = useClientSort(visible, {
+    lines: (t: Template) => (Array.isArray(t.lines) ? t.lines.length : 0),
+  });
+
+  useEffect(() => { setPage(1); }, [sorting]);
+
   const pageCount = Math.max(1, Math.ceil(visible.length / limit));
   const paged = useMemo(
-    () => visible.slice((page - 1) * limit, page * limit),
-    [visible, page, limit],
+    () => sorted.slice((page - 1) * limit, page * limit),
+    [sorted, page, limit],
   );
 
   const columns = useMemo(() => [
@@ -123,7 +127,7 @@ export default function RecurringPage() {
       header: "Active",
       cell: ({ row }: any) => {
         const t: Template = row.original;
-        return <Switch size="small" checked={t.isActive} onChange={() => toggleActive(t)} />;
+        return <Switch size="small" checked={t.isActive} onClick={(e) => e.stopPropagation()} onChange={() => toggleActive(t)} />;
       },
     },
     {
@@ -179,49 +183,24 @@ export default function RecurringPage() {
         </Box>
       ),
     },
-    {
-      accessorKey: "actions",
-      header: "Actions",
-      cell: ({ row }: any) => {
-        const t: Template = row.original;
-        return (
-          <Stack direction="row" gap={0.25} justifyContent="flex-end">
-            <Tooltip title="Run now">
-              <span>
-                <IconButton
-                  size="small"
-                  onClick={() => runNow(t)}
-                  disabled={runningId === t.id}
-                >
-                  {runningId === t.id ? (
-                    <CircularProgress size={14} />
-                  ) : (
-                    <PlayArrowIcon fontSize="small" />
-                  )}
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="Edit">
-              <IconButton size="small" onClick={() => { setEditing(t); setEditorOpen(true); }}>
-                <EditIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Delete">
-              <IconButton size="small" onClick={() => remove(t)}>
-                <DeleteOutlineIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Stack>
-        );
+    kebabColumn((t: Template) => [
+      {
+        label: runningId === t.id ? "Running\u2026" : "Run now",
+        disabled: runningId === t.id,
+        onClick: () => runNow(t),
       },
-    },
+      { label: "Edit", onClick: () => { setEditing(t); setEditorOpen(true); } },
+      { label: "Delete", destructive: true, onClick: () => remove(t) },
+    ]),
   ], [runningId]);
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
       <PageTable
+        onRowClick={(t: Template) => { setEditing(t); setEditorOpen(true); }}
         columns={columns}
         data={paged}
+        {...sortingProps}
         tableName="Recurring Journals"
         subTitle="Templates that auto-create unconfirmed journal entries on a schedule. They stay in the Posting Queue until confirmed."
         buttonName="New Template"

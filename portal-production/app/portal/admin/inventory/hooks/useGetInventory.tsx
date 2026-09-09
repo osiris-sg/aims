@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { sortRows } from "@/components/clientSort";
 
 interface InventoryItem {
   id: string;
@@ -21,7 +22,7 @@ interface InventoryItem {
   };
 }
 
-export function useGetInventory() {
+export function useGetInventory(sorting: { id: string; desc: boolean }[] = []) {
   const { getToken } = useAuth();
 
   const [inventory, setInventory] = useState<{
@@ -96,6 +97,14 @@ export function useGetInventory() {
         filteredInventory = filteredInventory.filter((item: any) => item.organization?.name.toLowerCase().includes(filters.organization.toLowerCase()));
       }
 
+      // Sort the WHOLE filtered list before slicing so header sorting reorders
+      // across pages (the table is in manualSorting mode).
+      filteredInventory = sortRows(filteredInventory, sorting, {
+        // accessor "asset.name" / "organization.name" → tanstack ids with "_"
+        asset_name: (i: any) => i.asset?.name,
+        organization_name: (i: any) => i.organization?.name,
+      });
+
       // Apply pagination
       const totalDocuments = filteredInventory.length;
       const totalPagesCount = Math.ceil(totalDocuments / limit);
@@ -113,7 +122,7 @@ export function useGetInventory() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, filters, getToken]);
+  }, [page, limit, search, filters, sorting, getToken]);
 
   useEffect(() => {
     fetchInventory();

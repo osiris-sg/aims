@@ -15,18 +15,17 @@ import {
   DialogContent,
   DialogTitle,
   Grid,
-  IconButton,
   MenuItem,
   Stack,
   TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { useClientSort } from "@/components/clientSort";
+import { kebabColumn } from "@/components/RowKebab";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import { useIdQuoteApi } from "@/app/portal/sales/quotations/id/_lib/api";
 import type { WorkItem, WorkSection } from "@/app/portal/sales/quotations/id/_lib/types";
@@ -87,7 +86,19 @@ export default function WorkLibraryPage() {
       .filter((w) => !filters.section || w.workSectionId === filters.section)
       .filter((w) => !term || `${w.code || ""} ${w.name} ${w.descriptionTemplate || ""}`.toLowerCase().includes(term));
   }, [items, search, filters]);
-  const paged = useMemo(() => filtered.slice((page - 1) * limit, page * limit), [filtered, page, limit]);
+  // Sort the WHOLE filtered list before slicing — the table itself is in
+  // manualSorting mode, so header arrows drive this hook.
+  const { sorted, sorting, sortingProps } = useClientSort(filtered, {
+    section: (w: any) => `${w.workSection?.letter || ""} ${w.workSection?.title || ""}`.trim(),
+    descriptionTemplate: (w: any) => w.descriptionTemplate || w.name,
+  });
+
+  // Sort changes restart at page 1 (declared after the hook — TDZ).
+  useEffect(() => {
+    setPage(1);
+  }, [sorting]);
+
+  const paged = useMemo(() => sorted.slice((page - 1) * limit, page * limit), [sorted, page, limit]);
 
   const openCreate = () => {
     setEditing(null);
@@ -203,20 +214,10 @@ export default function WorkLibraryPage() {
           ),
       },
       { accessorKey: "unitCost", header: "Unit cost", cell: ({ row }: any) => <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", color: "text.secondary" }}>{row.original.unitCost == null ? "—" : `$${money(row.original.unitCost)}`}</Typography> },
-      {
-        id: "actions",
-        header: "",
-        cell: ({ row }: any) => (
-          <Stack direction="row" justifyContent="flex-end">
-            <IconButton size="small" onClick={() => openEdit(row.original)}>
-              <EditIcon fontSize="small" />
-            </IconButton>
-            <IconButton size="small" onClick={() => setToDelete(row.original)} sx={{ "&:hover": { color: "error.main" } }}>
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Stack>
-        ),
-      },
+      kebabColumn((row: any) => [
+        { label: "Edit", onClick: () => openEdit(row) },
+        { label: "Delete", destructive: true, onClick: () => setToDelete(row) },
+      ]),
     ],
     [],
   );
@@ -224,10 +225,12 @@ export default function WorkLibraryPage() {
   return (
     <MainCard>
       <PageTable
+        onRowClick={(r: any) => openEdit(r)}
         tableName="Work Library"
         subTitle="Trade sections and templatised quotation lines used by the quotation editor"
         columns={columns as any}
         data={paged}
+        {...sortingProps}
         loading={loading}
         page={page}
         limit={limit}

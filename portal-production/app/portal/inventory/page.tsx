@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { kebabColumn } from "@/components/RowKebab";
 import type { FilterField } from "@/components/FilterDrawer";
 import { INVENTORY_STATUS } from "@/containers/Inventory/slice/constants";
 import { Box, Dialog, DialogTitle, DialogContent, DialogActions, Button, CircularProgress, Typography, IconButton, Chip } from "@mui/material";
@@ -12,10 +13,7 @@ import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
 import AddInventoryItem from "./components/AddInventoryItem";
 import { useGetInventory, useGetAssets, useDeleteInventory, useGetQrCode, useUpdateInventory, useGetCategories } from "@/app/portal/hooks/api";
-import QrCode2Icon from "@mui/icons-material/QrCode2";
 import ViewQRDialog from "./components/ViewQRDialog";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import CheckIcon from "@mui/icons-material/Check";
 import CloseIcon from "@mui/icons-material/Close";
@@ -26,7 +24,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 function EditableSkuCell({ row, onSave, onCancel }: { row: any; onSave: (id: string, sku: string) => void; onCancel: () => void }) {
   const [value, setValue] = useState(row.sku);
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+    <Box onClick={(e) => e.stopPropagation()} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
       <TextField
         size="small"
         value={value}
@@ -202,7 +200,10 @@ export default function InventoryPage() {
             {isEditInventorySkuEnabled && (
               <IconButton
                 size="small"
-                onClick={() => setEditingSkuId(row.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingSkuId(row.id);
+                }}
                 sx={{ opacity: 0.5, "&:hover": { opacity: 1 } }}
               >
                 <EditIcon fontSize="small" />
@@ -294,45 +295,18 @@ export default function InventoryPage() {
         );
       },
     },
-    {
-      id: "actions",
-      accessorKey: "actions",
-      header: "Actions",
-      cell: (info: any) => (
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <IconButton
-            onClick={() => handleOpenQRDialog(info.row.original.sku)}
-            sx={{
-              color: "text.secondary",
-              "&:hover": { color: "primary.main" },
-            }}
-          >
-            <QrCode2Icon />
-          </IconButton>
-          <IconButton
-            onClick={() => router.push(`${ROUTES.INVENTORY}/${info.row.original.sku}`)}
-            sx={{
-              color: "text.secondary",
-              "&:hover": { color: "primary.main" },
-            }}
-          >
-            <VisibilityIcon />
-          </IconButton>
-          <IconButton
-            sx={{
-              color: "text.secondary",
-              "&:hover": { color: "error.main" },
-            }}
-            onClick={() => {
-              setSelectedInventory(info.row.original);
-              setDeleteDialogOpen(true);
-            }}
-          >
-            <DeleteIcon />
-          </IconButton>
-        </Box>
-      ),
-    },
+    kebabColumn((row: any) => [
+      { label: "Open", onClick: () => router.push(`${ROUTES.INVENTORY}/${row.sku}`) },
+      { label: "View QR code", onClick: () => handleOpenQRDialog(row.sku) },
+      {
+        label: "Delete",
+        destructive: true,
+        onClick: () => {
+          setSelectedInventory(row);
+          setDeleteDialogOpen(true);
+        },
+      },
+    ]),
   ];
 
   const handleSaveSku = async (inventoryId: string, newSku: string) => {
@@ -385,6 +359,7 @@ export default function InventoryPage() {
   return (
     <MainCard>
       <PageTable
+        onRowClick={(r: any) => router.push(`${ROUTES.INVENTORY}/${r.sku}`)}
         columns={columns}
         data={inventory}
         tableName="Inventory List"

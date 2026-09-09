@@ -25,11 +25,11 @@ import {
   FormControl,
   InputLabel,
   Chip,
-  IconButton,
   Alert,
   CircularProgress,
 } from '@mui/material';
-import { Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { Add as AddIcon } from '@mui/icons-material';
+import { RowKebab } from '@/components/RowKebab';
 import { useGetPayments, useCreatePayment, useDeletePayment, PAYMENT_METHODS } from '@/app/portal/hooks/api';
 import { useGetCustomers } from '@/app/portal/hooks/api';
 
@@ -202,7 +202,7 @@ export default function PaymentsPage() {
                 <TableCell>Amount</TableCell>
                 <TableCell>Payment Method</TableCell>
                 <TableCell>Reference</TableCell>
-                <TableCell>Actions</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -245,14 +245,16 @@ export default function PaymentsPage() {
                       />
                     </TableCell>
                     <TableCell>{payment.reference || '-'}</TableCell>
-                    <TableCell>
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => handleDelete(payment.id)}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
+                    <TableCell align="right">
+                      <RowKebab
+                        actions={[
+                          {
+                            label: 'Delete',
+                            destructive: true,
+                            onClick: () => handleDelete(payment.id),
+                          },
+                        ]}
+                      />
                     </TableCell>
                   </TableRow>
                 ))

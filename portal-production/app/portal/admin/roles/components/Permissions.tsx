@@ -11,7 +11,7 @@ import EditRole from "./EditRole";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 
 export default function Permissions() {
-  const { columns, editRoleOpen, selectedRole, handleCloseEditRole, roleToDelete, isDeleteInProgress, confirmDeleteRole, cancelDelete } = useRoleTableHeader();
+  const { columns, handleEditRole, editRoleOpen, selectedRole, handleCloseEditRole, roleToDelete, isDeleteInProgress, confirmDeleteRole, cancelDelete } = useRoleTableHeader();
   const { roles, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshRoles } = useGetRoles();
   const { openDrawer, onAddClick, onCloseClick } = useAddRoleStates();
 
@@ -32,6 +32,7 @@ export default function Permissions() {
   return (
     <AdminCard>
       <PageTable
+        onRowClick={(r: any) => handleEditRole(r)}
         columns={columns}
         data={roles.docs}
         tableName="Role Management"

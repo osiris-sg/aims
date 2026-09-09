@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { sortRows } from "@/components/clientSort";
 
 interface Organization {
   id: string;
@@ -18,7 +19,7 @@ interface Organization {
   };
 }
 
-export function useGetOrganizations() {
+export function useGetOrganizations(sorting: { id: string; desc: boolean }[] = []) {
   const { getToken } = useAuth();
 
   const [organizations, setOrganizations] = useState<{
@@ -105,6 +106,16 @@ export function useGetOrganizations() {
         filteredOrganizations = filteredOrganizations.filter((org: any) => new Date(org.createdAt) <= new Date(filters.createdOn.endDate!));
       }
 
+      // Sort the WHOLE filtered list before slicing so header sorting reorders
+      // across pages (the table is in manualSorting mode).
+      filteredOrganizations = sortRows(filteredOrganizations, sorting, {
+        // accessor "_count.x" → tanstack column id "_count_x"
+        _count_userOrganizations: (o: any) => o._count?.userOrganizations ?? 0,
+        _count_assets: (o: any) => o._count?.assets ?? 0,
+        _count_documents: (o: any) => o._count?.documents ?? 0,
+        _count_inventories: (o: any) => o._count?.inventories ?? 0,
+      });
+
       // Apply pagination
       const totalDocuments = filteredOrganizations.length;
       const totalPagesCount = Math.ceil(totalDocuments / limit);
@@ -122,7 +133,7 @@ export function useGetOrganizations() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, filters, getToken]);
+  }, [page, limit, search, filters, sorting, getToken]);
 
   // Use fetchOrganizations in useEffect
   useEffect(() => {

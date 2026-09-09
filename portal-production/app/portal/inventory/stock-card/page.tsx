@@ -11,7 +11,6 @@ import {
   TableHead,
   TableRow,
   Paper,
-  IconButton,
   Typography,
   InputAdornment,
   Chip,
@@ -19,10 +18,7 @@ import {
   CardContent,
   Button,
 } from "@mui/material";
-import {
-  Search as SearchIcon,
-  Visibility as ViewIcon,
-} from "@mui/icons-material";
+import { Search as SearchIcon } from "@mui/icons-material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
@@ -206,19 +202,18 @@ export default function InventoryStockCardPage() {
               {isAssetTrackingModeEnabled && (
                 <TableCell align="center" sx={{ width: "10%" }}>Status</TableCell>
               )}
-              <TableCell align="center" sx={{ width: "8%" }}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={isAssetTrackingModeEnabled ? 8 : 7} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={isAssetTrackingModeEnabled ? 7 : 6} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">Loading...</Typography>
                 </TableCell>
               </TableRow>
             ) : filteredItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={isAssetTrackingModeEnabled ? 8 : 7} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={isAssetTrackingModeEnabled ? 7 : 6} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">
                     {searchTerm
                       ? `No ${itemType.toLowerCase()}s found matching your search`
@@ -228,7 +223,12 @@ export default function InventoryStockCardPage() {
               </TableRow>
             ) : (
               filteredItems.map((item, index) => (
-                <TableRow key={item.id || index} hover>
+                <TableRow
+                  key={item.id || index}
+                  hover
+                  sx={{ cursor: "pointer" }}
+                  onClick={() => handleViewItem(item)}
+                >
                   <TableCell sx={{ fontWeight: 500, color: "text.primary" }}>
                     {item.sku || "-"}
                   </TableCell>
@@ -271,16 +271,6 @@ export default function InventoryStockCardPage() {
                       />
                     </TableCell>
                   )}
-                  <TableCell align="center">
-                    <IconButton
-                      size="small"
-                      color="secondary"
-                      onClick={() => handleViewItem(item)}
-                      title="View details"
-                    >
-                      <ViewIcon fontSize="small" />
-                    </IconButton>
-                  </TableCell>
                 </TableRow>
               ))
             )}

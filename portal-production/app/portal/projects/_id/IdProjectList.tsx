@@ -5,8 +5,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Stack, TextField, Tooltip, Typography } from "@mui/material";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography } from "@mui/material";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
@@ -133,21 +132,8 @@ export default function IdProjectList() {
         ),
       },
       { id: "started", header: "Started", cell: ({ row }: any) => <Typography variant="body2">{fmtDate(row.original.startDate || row.original.createdAt)}</Typography> },
-      {
-        id: "actions",
-        header: "",
-        cell: ({ row }: any) => (
-          <Stack direction="row" justifyContent="flex-end">
-            <Tooltip title="Open project">
-              <IconButton size="small" onClick={() => router.push(`/portal/projects/${row.original.id}`)} sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}>
-                <OpenInNewIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Stack>
-        ),
-      },
     ],
-    [router],
+    [],
   );
 
   const filterConfig: FilterField[] = useMemo(
@@ -158,6 +144,7 @@ export default function IdProjectList() {
   return (
     <MainCard>
       <PageTable
+        onRowClick={(r: any) => router.push(`/portal/projects/${r.id}`)}
         tableName="Projects"
         buttonName="New project"
         onAddClick={() => setCreateOpen(true)}

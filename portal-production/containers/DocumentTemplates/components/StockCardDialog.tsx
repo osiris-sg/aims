@@ -26,11 +26,10 @@ import {
 import {
   Close as CloseIcon,
   Search as SearchIcon,
-  Add as AddIcon,
-  Visibility as ViewIcon,
 } from "@mui/icons-material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import ProductDetailDialog from "./ProductDetailDialog";
+import { RowKebab } from "@/components/RowKebab";
 
 interface InventoryItem {
   id: string;
@@ -167,17 +166,9 @@ export default function StockCardDialog({
     return { ...item, __revenueMode: revenueMode, accountCode, ...(unitPrice != null ? { unitPrice } : {}) } as any;
   };
 
-  const handleViewItem = (item: InventoryItem, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent row click
+  const handleViewItem = (item: InventoryItem) => {
     setSelectedViewItem(item);
     setViewDialogOpen(true);
-  };
-
-  const handleAddItem = (item: InventoryItem, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent row click
-    onSelectItem(decorate(item));
-    setSearchTerm("");
-    onClose();
   };
 
   // Filter inventory items by the Rental/Sales tab, then the search term.
@@ -467,24 +458,12 @@ export default function StockCardDialog({
                       </TableCell>
                     )}
                     <TableCell align="center">
-                      <Box sx={{ display: "flex", gap: 0.5, justifyContent: "center" }}>
-                        <IconButton
-                          size="small"
-                          onClick={(e) => handleAddItem(item, e)}
-                          title="Add to document"
-                          sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
-                        >
-                          <AddIcon fontSize="small" />
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          onClick={(e) => handleViewItem(item, e)}
-                          title="View details"
-                          sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
-                        >
-                          <ViewIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
+                      <RowKebab
+                        actions={[
+                          { label: "Add to document", onClick: () => handleRowClick(item) },
+                          { label: "View details", onClick: () => handleViewItem(item) },
+                        ]}
+                      />
                     </TableCell>
                   </TableRow>
                 ))

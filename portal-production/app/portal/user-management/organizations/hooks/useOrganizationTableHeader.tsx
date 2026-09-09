@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
-import { Box, Button, Chip, Typography, IconButton } from "@mui/material";
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
+import { Box, Chip, Typography } from "@mui/material";
+import { kebabColumn } from "@/components/RowKebab";
 import { useAuth } from "@clerk/nextjs";
 
 const columnHelper = createColumnHelper<any>();
@@ -100,20 +99,10 @@ export default function useOrganizationTableHeader() {
         </Typography>
       ),
     }),
-    columnHelper.accessor("id", {
-      id: "actions",
-      header: "Actions",
-      cell: (info) => (
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <IconButton size="small" onClick={() => handleEditOrganization(info.row.original)} sx={{ color: "primary.main" }}>
-            <EditIcon fontSize="small" />
-          </IconButton>
-          <IconButton size="small" onClick={() => handleDeleteOrganization(info.getValue())} sx={{ color: "error.main" }}>
-            <DeleteIcon fontSize="small" />
-          </IconButton>
-        </Box>
-      ),
-    }),
+    kebabColumn((row: any) => [
+      { label: "Edit", onClick: () => handleEditOrganization(row) },
+      { label: "Delete", destructive: true, onClick: () => handleDeleteOrganization(row.id) },
+    ]),
   ];
 
   return {

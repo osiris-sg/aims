@@ -3,13 +3,11 @@
 import React, { useMemo, useState } from "react";
 import { useGetCustomers, useDeleteCustomer } from "@/app/portal/hooks/api";
 import MainCard from "@/components/MainCard";
+import { kebabColumn } from "@/components/RowKebab";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import { Box, IconButton } from "@mui/material";
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
-import VisibilityIcon from "@mui/icons-material/Visibility";
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
 import AddCustomer from "./components/AddCustomer";
@@ -140,44 +138,11 @@ export default function CustomersPage() {
         return value ? new Date(value).toLocaleDateString() : "";
       },
     },
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (info: any) => {
-        const customer = info.row.original;
-        return (
-          <Box display="flex" gap={1}>
-            <IconButton
-              onClick={() => router.push(`${ROUTES.CUSTOMERS}/${customer.id}`)}
-              sx={{
-                color: "text.secondary",
-                "&:hover": { color: "primary.main" },
-              }}
-            >
-              <VisibilityIcon />
-            </IconButton>
-            <IconButton
-              onClick={() => handleEditCustomer(customer.id)}
-              sx={{
-                color: "text.secondary",
-                "&:hover": { color: "info.main" },
-              }}
-            >
-              <EditIcon />
-            </IconButton>
-            <IconButton
-              onClick={() => setCustomerToDelete(customer.id)}
-              sx={{
-                color: "text.secondary",
-                "&:hover": { color: "error.main" },
-              }}
-            >
-              <DeleteIcon />
-            </IconButton>
-          </Box>
-        );
-      },
-    },
+    kebabColumn((customer: any) => [
+      { label: "Open", onClick: () => router.push(`${ROUTES.CUSTOMERS}/${customer.id}`) },
+      { label: "Edit", onClick: () => handleEditCustomer(customer.id) },
+      { label: "Delete", destructive: true, onClick: () => setCustomerToDelete(customer.id) },
+    ]),
   ];
 
   const handleDelete = async () => {
@@ -213,6 +178,7 @@ export default function CustomersPage() {
   return (
     <MainCard>
       <PageTable
+        onRowClick={(r: any) => router.push(`${ROUTES.CUSTOMERS}/${r.id}`)}
         columns={columns}
         data={customers}
         tableName="Customers List"

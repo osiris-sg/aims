@@ -16,6 +16,9 @@ interface Props {
   subRowAccessor?: string;
   loading?: boolean;
   loadingTableRowId?: string | null;
+  /** Row-click-to-open (CLAUDE.md table pattern): click anywhere on a row
+   *  opens the record; in-row controls must stopPropagation. */
+  onRowClick?: (row: any) => void;
   height?: string;
   onRowSelect?: (rows: any[]) => void;
   isNoSelectionColumn?: boolean;
@@ -29,7 +32,7 @@ interface Props {
 }
 
 export default function Table(props: Props) {
-  const { data = [], columns = [], subRowAccessor, loading = false, loadingTableRowId = null, onRowSelect, isNoSelectionColumn = false, manualSorting = false, sorting: controlledSorting, onSortingChange: controlledOnSortingChange } = props;
+  const { data = [], columns = [], subRowAccessor, loading = false, loadingTableRowId = null, onRowSelect, isNoSelectionColumn = false, manualSorting = false, sorting: controlledSorting, onSortingChange: controlledOnSortingChange, onRowClick } = props;
   const _data = useMemo(() => data, [data]);
 
   // Mobile responsiveness
@@ -60,7 +63,9 @@ export default function Table(props: Props) {
         if (row.depth > 0) {
           return <span style={{ color: "grey" }}>└──</span>;
         }
-        return <Checkbox checked={row.getIsSelected()} onChange={row.getToggleSelectedHandler()} sx={{ p: 0 }} />;
+        // stopPropagation: with row-click-to-open (CLAUDE.md pattern), ticking
+        // a checkbox must not also open the record.
+        return <Checkbox checked={row.getIsSelected()} onClick={(e) => e.stopPropagation()} onChange={row.getToggleSelectedHandler()} sx={{ p: 0 }} />;
       },
       size: 40,
       minSize: 40,
@@ -235,6 +240,8 @@ export default function Table(props: Props) {
                   <TableRow
                     key={row.id}
                     className={row.getIsExpanded() ? "--TABLE-EXPANDED-ROWS" : ""}
+                    hover={!!onRowClick}
+                    onClick={onRowClick ? () => onRowClick(row.original) : undefined}
                     sx={{
                       "& > td:first-of-type": {
                         paddingLeft: row.depth ? `${row.depth * 2}rem` : undefined,
@@ -242,6 +249,7 @@ export default function Table(props: Props) {
                       // Allow rows to expand vertically based on content
                       height: "auto",
                       minHeight: "40px",
+                      ...(onRowClick ? { cursor: "pointer" } : {}),
                     }}
                   >
                     {row.getVisibleCells().map((cell: any) => {

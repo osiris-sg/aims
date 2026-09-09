@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { sortRows } from "@/components/clientSort";
 
 interface Customer {
   id: string;
@@ -15,7 +16,7 @@ interface Customer {
   };
 }
 
-export function useGetCustomers() {
+export function useGetCustomers(sorting: { id: string; desc: boolean }[] = []) {
   const { getToken } = useAuth();
 
   const [customers, setCustomers] = useState<{
@@ -86,6 +87,13 @@ export function useGetCustomers() {
         filteredCustomers = filteredCustomers.filter((customer: any) => customer.organization?.name.toLowerCase().includes(filters.organization.toLowerCase()));
       }
 
+      // Sort the WHOLE filtered list before slicing so header sorting reorders
+      // across pages (the table is in manualSorting mode).
+      filteredCustomers = sortRows(filteredCustomers, sorting, {
+        // accessor "organization.name" → tanstack column id "organization_name"
+        organization_name: (c: any) => c.organization?.name,
+      });
+
       // Apply pagination
       const totalDocuments = filteredCustomers.length;
       const totalPagesCount = Math.ceil(totalDocuments / limit);
@@ -103,7 +111,7 @@ export function useGetCustomers() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, filters, getToken]);
+  }, [page, limit, search, filters, sorting, getToken]);
 
   useEffect(() => {
     fetchCustomers();

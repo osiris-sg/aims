@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { sortRows } from "@/components/clientSort";
 
 interface Asset {
   id: string;
@@ -21,7 +22,7 @@ interface Asset {
   };
 }
 
-export function useGetAssets() {
+export function useGetAssets(sorting: { id: string; desc: boolean }[] = []) {
   const { getToken } = useAuth();
 
   const [assets, setAssets] = useState<{
@@ -104,6 +105,14 @@ export function useGetAssets() {
         filteredAssets = filteredAssets.filter((asset: any) => asset.organization?.name.toLowerCase().includes(filters.organization.toLowerCase()));
       }
 
+      // Sort the WHOLE filtered list before slicing so header sorting reorders
+      // across pages (the table is in manualSorting mode).
+      filteredAssets = sortRows(filteredAssets, sorting, {
+        // accessor "organization.name" / "category.name" → tanstack ids with "_"
+        organization_name: (a: any) => a.organization?.name,
+        category_name: (a: any) => a.category?.name,
+      });
+
       // Apply pagination
       const totalDocuments = filteredAssets.length;
       const totalPagesCount = Math.ceil(totalDocuments / limit);
@@ -125,7 +134,7 @@ export function useGetAssets() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, filters, getToken]);
+  }, [page, limit, search, filters, sorting, getToken]);
 
   useEffect(() => {
     fetchAssets();

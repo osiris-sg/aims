@@ -1,9 +1,8 @@
 import React, { useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
-import { Box, Button, Chip, Typography, IconButton, Avatar } from "@mui/material";
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
+import { Box, Chip, Typography, Avatar } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
+import { kebabColumn } from "@/components/RowKebab";
 import { request } from "@/helpers/request";
 import { useAuth } from "@clerk/nextjs";
 
@@ -172,42 +171,15 @@ export default function useUserTableHeader() {
         );
       },
     }),
-    columnHelper.accessor("id", {
-      header: "Actions",
-      cell: (info) => {
-        const userRecord = info.row.original;
-        return (
-          <Box sx={{ display: "flex", gap: 1 }}>
-            <IconButton
-              size="small"
-              onClick={() => handleEditUser(userRecord)}
-              title="Edit user"
-              sx={{
-                color: "secondary.main",
-                "&:hover": { bgcolor: "secondary.main", color: "secondary.contrastText" },
-              }}
-            >
-              <EditIcon fontSize="small" />
-            </IconButton>
-            <IconButton
-              size="small"
-              onClick={() => handleDeleteUser(userRecord.userId)}
-              title="Delete user"
-              sx={{
-                color: "error.main",
-                "&:hover": { bgcolor: "error.main", color: "error.contrastText" },
-              }}
-            >
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Box>
-        );
-      },
-    }),
+    kebabColumn((row: any) => [
+      { label: "Edit", onClick: () => handleEditUser(row) },
+      { label: "Delete", destructive: true, onClick: () => handleDeleteUser(row.userId) },
+    ]),
   ];
 
   return {
     columns,
+    handleEditUser,
     editUserOpen,
     setEditUserOpen,
     selectedUser,

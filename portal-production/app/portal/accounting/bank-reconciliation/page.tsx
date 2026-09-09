@@ -31,15 +31,13 @@ import {
 import RefreshIcon from "@mui/icons-material/Refresh";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import LinkOffIcon from "@mui/icons-material/LinkOff";
-import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
-import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import PageTable from "@/components/PageTable";
+import { useClientSort } from "@/components/clientSort";
+import { kebabColumn } from "@/components/RowKebab";
 
 // ---------------------------------------------------------------------------
 // Bank reconciliation workspace.
@@ -386,10 +384,24 @@ export default function BankReconciliationPage() {
 
   useEffect(() => { setPage(1); }, [search, activeImportId, statusFilter]);
 
+  // Header sort over the WHOLE filtered list (not just the visible page);
+  // the table is in manualSorting mode. Getters mirror the computed cells.
+  const { sorted: sortedLines, sorting, sortingProps } = useClientSort(visibleFiltered, {
+    status: (l: StatementLine) =>
+      l.status === "SUGGESTED" ? "SUGGESTED (AI)" : (l.status || "").replace("_", " "),
+    match: (l: any) => {
+      const multi: any[] = l.matchedJournalLines || [];
+      if (multi.length > 1) return `${multi.length} journals (batch)`;
+      return l.matchedJournalLine?.journalEntry?.journalNumber || null;
+    },
+  });
+
+  useEffect(() => { setPage(1); }, [sorting]);
+
   const pageCount = Math.max(1, Math.ceil(visibleFiltered.length / limit));
   const pagedLines = useMemo(
-    () => visibleFiltered.slice((page - 1) * limit, page * limit),
-    [visibleFiltered, page, limit],
+    () => sortedLines.slice((page - 1) * limit, page * limit),
+    [sortedLines, page, limit],
   );
 
   const lineColumns = useMemo(() => [
@@ -503,89 +515,43 @@ export default function BankReconciliationPage() {
         );
       },
     },
-    {
-      accessorKey: "actions",
-      header: "Actions",
-      cell: ({ row }: any) => {
-        const line: StatementLine = row.original;
-        const isMatched = line.status === "MATCHED" || line.status === "POSTED_NEW";
-        const isSuggested = line.status === "SUGGESTED";
-        return (
-          <Stack direction="row" gap={0.25} justifyContent="flex-end">
-            {isSuggested && (
-              <>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="success"
-                  sx={{ mr: 0.5, textTransform: "none", fontSize: "0.7rem", py: 0.25 }}
-                  onClick={async () => {
-                    try {
-                      await request(`/bank-rec/lines/${line.id}/confirm`, { method: "POST" });
-                      toast.success("Match confirmed");
-                      loadActive();
-                    } catch (e: any) {
-                      toast.error(e?.message || "Confirm failed");
-                    }
-                  }}
-                >
-                  Confirm
-                </Button>
-                <Tooltip title="Reconciliation details — verify before confirming">
-                  <IconButton size="small" onClick={() => openDetail(line)}>
-                    <VisibilityOutlinedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Reject suggestion (back to pending)">
-                  <IconButton size="small" onClick={() => unmatchLine(line)}>
-                    <LinkOffIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </>
-            )}
-            {line.status === "PENDING" && (
-              <>
-                <Button
-                  size="small"
-                  variant="contained"
-                  onClick={() => openMatchPicker(line)}
-                  sx={{ mr: 0.5, textTransform: "none", fontSize: "0.7rem", py: 0.25 }}
-                >
-                  Match
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => setPostDialogLine(line)}
-                  sx={{ mr: 0.5, textTransform: "none", fontSize: "0.7rem", py: 0.25 }}
-                >
-                  Post as new
-                </Button>
-                <Tooltip title="Ignore (e.g. duplicate, opening balance)">
-                  <IconButton size="small" onClick={() => ignoreLine(line)}>
-                    <VisibilityOffIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </>
-            )}
-            {isMatched && (
-              <>
-                <Tooltip title="Reconciliation details — what this matched to">
-                  <IconButton size="small" onClick={() => openDetail(line)}>
-                    <VisibilityOutlinedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Unmatch">
-                  <IconButton size="small" onClick={() => unmatchLine(line)}>
-                    <LinkOffIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </>
-            )}
-          </Stack>
-        );
-      },
-    },
+    kebabColumn((line: StatementLine) => {
+      const isMatched = line.status === "MATCHED" || line.status === "POSTED_NEW";
+      const isSuggested = line.status === "SUGGESTED";
+      return [
+        ...(isSuggested
+          ? [
+              {
+                label: "Confirm match",
+                onClick: async () => {
+                  try {
+                    await request(`/bank-rec/lines/${line.id}/confirm`, { method: "POST" });
+                    toast.success("Match confirmed");
+                    loadActive();
+                  } catch (e: any) {
+                    toast.error(e?.message || "Confirm failed");
+                  }
+                },
+              },
+              { label: "Details", onClick: () => openDetail(line) },
+              { label: "Reject suggestion", onClick: () => unmatchLine(line) },
+            ]
+          : []),
+        ...(line.status === "PENDING"
+          ? [
+              { label: "Match\u2026", onClick: () => openMatchPicker(line) },
+              { label: "Post as new\u2026", onClick: () => setPostDialogLine(line) },
+              { label: "Ignore", onClick: () => ignoreLine(line) },
+            ]
+          : []),
+        ...(isMatched
+          ? [
+              { label: "Details", onClick: () => openDetail(line) },
+              { label: "Unmatch", onClick: () => unmatchLine(line) },
+            ]
+          : []),
+      ];
+    }),
   ], []);
 
   return (
@@ -766,8 +732,10 @@ export default function BankReconciliationPage() {
       {/* Statement-line table */}
       {activeImport && (
         <PageTable
+          onRowClick={(line: StatementLine) => openDetail(line)}
           columns={lineColumns}
           data={pagedLines}
+          {...sortingProps}
           tableName="Statement lines"
           subTitle="Match against posted journal entries, or post new entries for charges and interest."
           loading={loading}

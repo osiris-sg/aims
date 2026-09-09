@@ -76,6 +76,20 @@ Do NOT confuse this with the legacy `AuditLog` table (document "History &
 notes" + old audit page) — that stays as-is; per-document history still goes
 through `logDocumentEvent`. Full context: memory note `user-action-log-study.md`.
 
+## Table interaction pattern (EVERY list table — no exceptions)
+
+List tables follow the Deliveries-tab pattern (`app/portal/deliveries/page.tsx`):
+
+- The ROW is clickable: `<TableRow hover sx={{ cursor: "pointer" }} onClick={openRecord}>`
+  — clicking anywhere on the row opens/enters the record (the old "eye" action).
+- Secondary actions (delete, download, approve, pay…) live behind a
+  three-dots kebab (`MoreVertIcon`) at the row's end, opening a `Menu`;
+  every control inside the row calls `e.stopPropagation()`. Destructive
+  items are styled `color: "error.main"` and confirm before acting.
+- Do NOT add inline "Action" columns of icon buttons (eye/trash/download
+  rows). That pattern is retired (guru 2026-09-03) — if you find one while
+  touching a table, convert it.
+
 ## Development Commands
 
 ### Backend (api-server-production/)

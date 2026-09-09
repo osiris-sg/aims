@@ -8,7 +8,6 @@ import {
   CircularProgress,
   Divider,
   Grid2,
-  IconButton,
   MenuItem,
   Paper,
   Stack,
@@ -20,7 +19,6 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Tooltip,
   Typography,
   Dialog,
   DialogTitle,
@@ -28,9 +26,8 @@ import {
   DialogActions,
   FormControlLabel,
 } from "@mui/material";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import EditIcon from "@mui/icons-material/Edit";
 import AddIcon from "@mui/icons-material/Add";
+import { RowKebab } from "@/components/RowKebab";
 import { toast } from "react-toastify";
 
 type Account = {
@@ -280,7 +277,12 @@ export default function AccountsDefinitionTab({
                 </TableRow>
               )}
               {visibleAccounts.map((a) => (
-                <TableRow key={a.id} hover sx={{ opacity: a.isActive ? 1 : 0.5 }}>
+                <TableRow
+                  key={a.id}
+                  hover
+                  sx={{ cursor: "pointer", opacity: a.isActive ? 1 : 0.5 }}
+                  onClick={() => { setEditing(a); setDialogOpen(true); }}
+                >
                   <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{a.code}</TableCell>
                   <TableCell>{a.name}</TableCell>
                   <TableCell>{ACCOUNT_TYPES.find((t) => t.value === a.accountType)?.label || a.accountType}</TableCell>
@@ -294,18 +296,12 @@ export default function AccountsDefinitionTab({
                     </Stack>
                   </TableCell>
                   <TableCell align="right">
-                    <Tooltip title="Edit">
-                      <IconButton size="small" onClick={() => { setEditing(a); setDialogOpen(true); }}>
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title={a.isSystem ? "System accounts can only be deactivated" : "Deactivate"}>
-                      <span>
-                        <IconButton size="small" onClick={() => handleDelete(a)} disabled={!a.isActive}>
-                          <DeleteOutlineIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
+                    <RowKebab
+                      actions={[
+                        { label: "Edit", onClick: () => { setEditing(a); setDialogOpen(true); } },
+                        { label: "Deactivate", destructive: true, disabled: !a.isActive, onClick: () => handleDelete(a) },
+                      ]}
+                    />
                   </TableCell>
                 </TableRow>
               ))}

@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
-import { IconButton, Typography, Chip, Box } from "@mui/material";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import DeleteIcon from "@mui/icons-material/Delete";
+import { Typography, Chip } from "@mui/material";
+import { kebabColumn } from "@/components/RowKebab";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import { useAuth } from "@clerk/nextjs";
 
@@ -119,20 +118,10 @@ export default function useInventoryTableHeader() {
         </Typography>
       ),
     }),
-    columnHelper.accessor("id", {
-      id: "actions",
-      header: "Actions",
-      cell: (info) => (
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <IconButton size="small" onClick={() => handleViewItem(info.row.original)} sx={{ color: "primary.main" }}>
-            <VisibilityIcon fontSize="small" />
-          </IconButton>
-          <IconButton size="small" onClick={() => handleDeleteItem(info.getValue())} sx={{ color: "error.main" }}>
-            <DeleteIcon fontSize="small" />
-          </IconButton>
-        </Box>
-      ),
-    }),
+    kebabColumn((row: any) => [
+      { label: "Open", onClick: () => handleViewItem(row) },
+      { label: "Delete", destructive: true, onClick: () => handleDeleteItem(row.id) },
+    ]),
   ];
 
   const deleteDialog = <DeleteItemDialogNoConfirm open={!!itemToDelete} onConfirm={confirmDeleteItem} onCancel={cancelDelete} loading={isDeleteInProgress} />;
@@ -140,5 +129,6 @@ export default function useInventoryTableHeader() {
   return {
     columns,
     deleteDialog,
+    handleViewItem,
   };
 }

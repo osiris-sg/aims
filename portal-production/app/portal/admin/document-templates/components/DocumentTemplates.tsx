@@ -33,7 +33,7 @@ const DOCUMENT_TYPES = [
 
 export default function DocumentTemplates() {
   const { templates, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refetch } = useGetDocumentTemplates();
-  const { columns, activateDialog } = useDocumentTemplatesTableHeader(refetch);
+  const { columns, activateDialog, openTemplate } = useDocumentTemplatesTableHeader(refetch);
   const { populateFields, loading: populateLoading } = usePopulateTemplateFields();
   const { getToken } = useAuth();
   const [populateDialogOpen, setPopulateDialogOpen] = useState(false);
@@ -116,6 +116,7 @@ export default function DocumentTemplates() {
         </Button>
       </Box>
       <PageTable
+        onRowClick={(r: any) => openTemplate(r)}
         loading={loading}
         columns={columns}
         data={templates.docs}

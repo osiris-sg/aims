@@ -7,13 +7,12 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Box, Chip, IconButton, Stack, Tooltip, Typography } from "@mui/material";
-import EditIcon from "@mui/icons-material/EditOutlined";
-import DeleteIcon from "@mui/icons-material/DeleteOutline";
+import { Box, Chip, Typography } from "@mui/material";
 import moment from "moment";
 import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { kebabColumn } from "@/components/RowKebab";
 import StatusChip from "@/components/StatusChip";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import type { FilterField } from "@/components/FilterDrawer";
@@ -170,30 +169,12 @@ export default function IdQuotationList() {
         header: "Created",
         cell: ({ row }: any) => <Typography variant="body2">{moment(row.original.createdAt).format("DD MMM YYYY")}</Typography>,
       },
-      {
-        id: "actions",
-        header: "",
-        cell: ({ row }: any) => {
-          const d = row.original;
-          const deletable = ["draft", "unconfirmed"].includes(d.status);
-          return (
-            <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-              <Tooltip title="Open">
-                <IconButton size="small" onClick={() => router.push(`/portal/sales/quotations/id/${d.id}`)} sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}>
-                  <EditIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              {deletable && (
-                <Tooltip title="Delete">
-                  <IconButton size="small" onClick={() => setToDelete(d)} sx={{ color: "text.secondary", "&:hover": { color: "error.main" } }}>
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              )}
-            </Stack>
-          );
-        },
-      },
+      kebabColumn((d: any) => [
+        { label: "Open", onClick: () => router.push(`/portal/sales/quotations/id/${d.id}`) },
+        ...(["draft", "unconfirmed"].includes(d.status)
+          ? [{ label: "Delete", destructive: true, onClick: () => setToDelete(d) }]
+          : []),
+      ]),
     ],
     [router],
   );
@@ -209,6 +190,7 @@ export default function IdQuotationList() {
   return (
     <MainCard>
       <PageTable
+        onRowClick={(d: any) => router.push(`/portal/sales/quotations/id/${d.id}`)}
         tableName="Quotations"
         subTitle="Letter of Intent & Appointment for Renovation Works"
         columns={columns as any}

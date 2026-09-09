@@ -29,9 +29,13 @@ const ordinal = (n: number) => {
   return `${n}${suffix}`;
 };
 
-export function resolveText(str: string, date: Date, runNo?: number): string {
-  const y = date.getFullYear();
-  const m = date.getMonth(); // 0-based
+export function resolveText(str: string, dateIn: Date, runNo?: number): string {
+  // Anchor to SGT regardless of server TZ (Render runs UTC): a run date of
+  // 1 Sep 00:00 SGT is 31 Aug 16:00 UTC — local getters resolved the tokens
+  // to AUGUST and minted a wrong-month invoice (caught 2026-09-03).
+  const date = new Date(dateIn.getTime() + 8 * 3600 * 1000);
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth(); // 0-based
   const nextM = (m + 1) % 12, nextY = m === 11 ? y + 1 : y;
   const prevM = (m + 11) % 12, prevY = m === 0 ? y - 1 : y;
   const map: Record<string, string> = {
@@ -40,8 +44,8 @@ export function resolveText(str: string, date: Date, runNo?: number): string {
     'MONTH YEAR': `${MONTHS[m]} ${y}`,
     PERIOD: `${MONTHS[m].slice(0, 3)} ${y}`,
     YEAR: String(y),
-    DAY: pad2(date.getDate()),
-    DATE: `${pad2(date.getDate())}/${pad2(m + 1)}/${y}`,
+    DAY: pad2(date.getUTCDate()),
+    DATE: `${pad2(date.getUTCDate())}/${pad2(m + 1)}/${y}`,
     'NEXT MONTH': MONTHS[nextM],
     'NEXT MONTH YEAR': `${MONTHS[nextM]} ${nextY}`,
     'PREV MONTH': MONTHS[prevM],

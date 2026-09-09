@@ -8,7 +8,6 @@ import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { Box, Chip, IconButton, Tab, Tabs, Typography } from "@mui/material";
-import VisibilityIcon from "@mui/icons-material/Visibility";
 import moment from "moment";
 import { toast } from "react-toastify";
 import {
@@ -227,19 +226,6 @@ export default function SlimOrdersList() {
       size: 9,
       cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
     },
-    {
-      accessorKey: "action",
-      header: "Action",
-      size: 5,
-      cell: ({ row }: any) => (
-        <IconButton
-          onClick={() => router.push(`/portal/orders/${row.original.id}`)}
-          sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
-        >
-          <VisibilityIcon />
-        </IconButton>
-      ),
-    },
   ];
 
   return (
@@ -263,6 +249,7 @@ export default function SlimOrdersList() {
         </Tabs>
       </Box>
       <PageTable
+        onRowClick={(r: any) => router.push(`/portal/orders/${r.id}`)}
         columns={columns}
         data={filtered}
         tableName="Orders"

@@ -1,8 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
-import { IconButton } from "@mui/material";
-import DeleteIcon from "@mui/icons-material/Delete";
+import { kebabColumn } from "@/components/RowKebab";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
@@ -81,15 +80,7 @@ export default function useViewAssetTableHeader(assetId?: string, fetchDocuments
       accessorKey: "doc_id",
       header: "Document ID",
     },
-    {
-      id: "actions",
-      header: "Actions",
-      cell: ({ row }) => (
-        <IconButton onClick={() => handleDeleteDocument(row.original.doc_id)}>
-          <DeleteIcon />
-        </IconButton>
-      ),
-    },
+    kebabColumn((row: any) => [{ label: "Untag Template", destructive: true, onClick: () => handleDeleteDocument(row.doc_id) }]),
   ];
   const sampleDataDocuments = [
     {

@@ -10,7 +10,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  IconButton,
   Paper,
   Stack,
   Table,
@@ -22,16 +21,14 @@ import {
   TextField,
   ToggleButton,
   ToggleButtonGroup,
-  Tooltip,
   Typography,
   alpha,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import SearchIcon from "@mui/icons-material/Search";
 import { toast } from "react-toastify";
 import GLAccountSelect from "@/components/GLAccountSelect";
+import { RowKebab } from "@/components/RowKebab";
 
 type Asset = { id: string; name: string; skuKey?: string; salesAccountCode?: string | null; rentalAccountCode?: string | null };
 type Service = { id: string; code?: string | null; name: string; unitPrice?: number | null; accountCode: string; accountName?: string | null; isActive: boolean };
@@ -275,14 +272,18 @@ function ServicesSection({ revenueAccounts, authedFetch }: { revenueAccounts: an
             </TableHead>
             <TableBody>
               {filtered.map((it) => (
-                <TableRow key={it.id}>
+                <TableRow key={it.id} hover sx={{ cursor: "pointer" }} onClick={() => openEdit(it)}>
                   <TableCell><Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{it.code || "—"}</Typography></TableCell>
                   <TableCell><Typography variant="body2" sx={{ fontWeight: 600 }}>{it.name}</Typography></TableCell>
                   <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{it.unitPrice != null ? it.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</TableCell>
                   <TableCell><Typography variant="body2"><b>{it.accountCode}</b> {it.accountName ? `— ${it.accountName}` : ""}</Typography></TableCell>
                   <TableCell align="right">
-                    <Tooltip title="Edit"><IconButton size="small" onClick={() => openEdit(it)}><EditIcon fontSize="small" /></IconButton></Tooltip>
-                    <Tooltip title="Delete"><IconButton size="small" onClick={() => remove(it)}><DeleteOutlineIcon fontSize="small" /></IconButton></Tooltip>
+                    <RowKebab
+                      actions={[
+                        { label: "Edit", onClick: () => openEdit(it) },
+                        { label: "Delete", destructive: true, onClick: () => remove(it) },
+                      ]}
+                    />
                   </TableCell>
                 </TableRow>
               ))}

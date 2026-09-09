@@ -5,9 +5,7 @@ import { useGetSuppliers, useDeleteSupplier } from "@/app/portal/hooks/api/useSu
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
-import { Box, IconButton } from "@mui/material";
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
+import { kebabColumn } from "@/components/RowKebab";
 import AddSupplier from "./components/AddSupplier";
 
 interface Filters {
@@ -83,35 +81,10 @@ export default function SuppliersPage() {
         return value ? new Date(value).toLocaleDateString() : "";
       },
     },
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (info: any) => {
-        const supplier = info.row.original;
-        return (
-          <Box display="flex" gap={1}>
-            <IconButton
-              onClick={() => handleEditSupplier(supplier.id)}
-              sx={{
-                color: "text.secondary",
-                "&:hover": { color: "info.main" },
-              }}
-            >
-              <EditIcon />
-            </IconButton>
-            <IconButton
-              onClick={() => setSupplierToDelete(supplier.id)}
-              sx={{
-                color: "text.secondary",
-                "&:hover": { color: "error.main" },
-              }}
-            >
-              <DeleteIcon />
-            </IconButton>
-          </Box>
-        );
-      },
-    },
+    kebabColumn((supplier: any) => [
+      { label: "Edit", onClick: () => handleEditSupplier(supplier.id) },
+      { label: "Delete", destructive: true, onClick: () => setSupplierToDelete(supplier.id) },
+    ]),
   ];
 
   const handleDelete = async () => {
@@ -147,6 +120,7 @@ export default function SuppliersPage() {
   return (
     <MainCard>
       <PageTable
+        onRowClick={(r: any) => handleEditSupplier(r.id)}
         columns={columns}
         data={suppliers}
         tableName="Suppliers List"

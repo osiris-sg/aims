@@ -15,10 +15,10 @@ import {
   DialogContentText,
   DialogActions,
   Button,
+  Menu,
+  MenuItem,
 } from "@mui/material";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import DownloadIcon from "@mui/icons-material/Download";
-import DeleteIcon from "@mui/icons-material/Delete";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import DocumentUploadDialog from "@/app/portal/components/DocumentUploadDialog";
 import { useRouter } from "next/navigation";
@@ -233,57 +233,31 @@ export default function SalesDocumentList({
     ...additionalColumns,
     {
       accessorKey: "action",
-      header: "Action",
+      header: "",
       nowrap: true,
       align: "center",
-      pxWidth: 150, // fits all row icons — never squeezed/clipped
-      cell: ({ row }: any) => {
-        const { documentType, templateId, id, status } = row.original;
-        const isDraft = (status || "draft") === "draft";
-
-        const handleDownload = () => {
-          const viewUrl = `/portal/documents/view/${documentType}/${templateId}/${id}?autoprint=true`;
-          window.open(viewUrl, "_blank");
-        };
-
-        return (
-          <Box sx={{ display: "flex", gap: "var(--default-gap)", justifyContent: "center" }}>
-            <IconButton
-              onClick={() =>
-                router.push(`/portal/documents/${documentType}/${templateId}/${id}`)
-              }
-              sx={{
-              color: "text.secondary",
-              "&:hover": { color: "primary.main" },
-              }}
-            >
-              <VisibilityIcon />
-            </IconButton>
-            <IconButton
-              onClick={handleDownload}
-              sx={{
-              color: "text.secondary",
-              "&:hover": { color: "primary.main" },
-              }}
-            >
-              <DownloadIcon />
-            </IconButton>
-            {showDelete && isDraft && (
-              <IconButton
-                onClick={() => handleDeleteClick(row.original)}
-                sx={{
-              color: "text.secondary",
-              "&:hover": { color: "error.main" },
-                }}
-              >
-                <DeleteIcon />
-              </IconButton>
-            )}
-          </Box>
-        );
-      },
+      // Row-click opens; kebab holds secondary actions (CLAUDE.md pattern).
+      pxWidth: 56,
+      cell: ({ row }: any) => (
+        <IconButton
+          size="small"
+          aria-label="Row actions"
+          onClick={(e: React.MouseEvent<HTMLElement>) => {
+            e.stopPropagation();
+            setRowMenu({ anchor: e.currentTarget, row: row.original });
+          }}
+          sx={{ color: "text.secondary" }}
+        >
+          <MoreVertIcon fontSize="small" />
+        </IconButton>
+      ),
     },
   ];
+
+  const openDocument = (doc: any) =>
+    router.push(`/portal/documents/${doc.documentType}/${doc.templateId}/${doc.id}`);
+  const downloadDocument = (doc: any) =>
+    window.open(`/portal/documents/view/${doc.documentType}/${doc.templateId}/${doc.id}?autoprint=true`, "_blank");
 
   const serializeDate = (date: Date | null) => {
     if (!date) return null;
@@ -304,6 +278,8 @@ export default function SalesDocumentList({
     };
     setFilters(updatedFilters);
   };
+
+  const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: any } | null>(null);
 
   const handleDeleteClick = (document: Document) => {
     setDocumentToDelete(document);
@@ -396,6 +372,7 @@ export default function SalesDocumentList({
         </Alert>
       )}
       <PageTable
+        onRowClick={openDocument}
         columns={baseColumns}
         data={filteredDocuments}
         tableName={title}
@@ -441,6 +418,17 @@ export default function SalesDocumentList({
         documentType={createDocumentType}
         documentLabel={uploadDocumentLabel}
       />
+
+      {/* Row kebab menu (CLAUDE.md table pattern) */}
+      <Menu anchorEl={rowMenu?.anchor ?? null} open={!!rowMenu} onClose={() => setRowMenu(null)}>
+          <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); openDocument(r); }}>Open</MenuItem>
+          <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); downloadDocument(r); }}>Download / print</MenuItem>
+          {rowMenu && showDelete && (rowMenu.row.status || "draft") === "draft" && (
+            <MenuItem sx={{ color: "error.main" }} onClick={() => { const r = rowMenu!.row; setRowMenu(null); handleDeleteClick(r); }}>
+              Delete draft
+            </MenuItem>
+          )}
+      </Menu>
 
       {/* Delete Confirmation Dialog */}
       {showDelete && (

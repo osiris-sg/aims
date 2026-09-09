@@ -7,6 +7,7 @@ import {
 } from "@mui/material";
 import { useAccountingApi } from "../_lib/api";
 import PageTable from "@/components/PageTable";
+import { useClientSort } from "@/components/clientSort";
 
 type Supplier = { id: string; name: string };
 type Tx = { date: string; type: "BILL" | "PAYMENT"; reference: string; description: string; debit: number; credit: number; balance: number };
@@ -67,10 +68,16 @@ export default function SupplierStatementPage() {
 
   useEffect(() => { setPage(1); }, [search, data]);
 
+  // Header sort over the WHOLE filtered list (not just the visible page);
+  // the table is in manualSorting mode. All columns are direct row fields.
+  const { sorted, sorting, sortingProps } = useClientSort(visible);
+
+  useEffect(() => { setPage(1); }, [sorting]);
+
   const pageCount = Math.max(1, Math.ceil(visible.length / limit));
   const paged = useMemo(
-    () => visible.slice((page - 1) * limit, page * limit),
-    [visible, page, limit],
+    () => sorted.slice((page - 1) * limit, page * limit),
+    [sorted, page, limit],
   );
 
   const columns = useMemo(() => [
@@ -200,6 +207,7 @@ export default function SupplierStatementPage() {
           <PageTable
             columns={columns}
             data={paged}
+            {...sortingProps}
             tableName="Transactions"
             subTitle="Bills + payments with running balance"
             loading={loading}

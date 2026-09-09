@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { sortRows } from "@/components/clientSort";
 
 interface Organization {
   id: string;
@@ -17,7 +18,7 @@ interface Organization {
   };
 }
 
-export function useGetOrganizations() {
+export function useGetOrganizations(sorting: { id: string; desc: boolean }[] = []) {
   const { getToken } = useAuth();
 
   const [organizations, setOrganizations] = useState<{
@@ -78,13 +79,22 @@ export function useGetOrganizations() {
 
       // Handle the response from the API (nested structure: data.data.data)
       if (data.success && data.data?.success) {
-        const organizationsArray = Array.isArray(data.data.data) ? data.data.data : [];
+        const organizationsArray: any[] = Array.isArray(data.data.data) ? data.data.data : [];
         console.log("Organizations array:", organizationsArray);
 
+        // The endpoint returns the FULL list (no server pagination) — sort the
+        // whole set, then slice the current page so header sorting reorders
+        // across pages (the table is in manualSorting mode).
+        const sorted = sortRows(organizationsArray, sorting, {
+          // accessor "_count.userOrganizations" → tanstack id "_count_userOrganizations"
+          _count_userOrganizations: (o: any) => o._count?.userOrganizations ?? 0,
+          _count_assets: (o: any) => o._count?.assets ?? 0,
+        });
+
         setOrganizations({
-          docs: organizationsArray,
-          totalDocuments: organizationsArray.length,
-          totalPagesCount: Math.ceil(organizationsArray.length / limit),
+          docs: sorted.slice((page - 1) * limit, page * limit),
+          totalDocuments: sorted.length,
+          totalPagesCount: Math.ceil(sorted.length / limit),
         });
       } else {
         throw new Error(data.message || data.data?.message || "Failed to fetch organizations");
@@ -141,15 +151,19 @@ export function useGetOrganizations() {
         },
       ];
 
+      const sortedMock = sortRows(mockOrganizations, sorting, {
+        _count_userOrganizations: (o: any) => o._count?.userOrganizations ?? 0,
+        _count_assets: (o: any) => o._count?.assets ?? 0,
+      });
       setOrganizations({
-        docs: mockOrganizations.slice((page - 1) * limit, page * limit),
-        totalDocuments: mockOrganizations.length,
-        totalPagesCount: Math.ceil(mockOrganizations.length / limit),
+        docs: sortedMock.slice((page - 1) * limit, page * limit),
+        totalDocuments: sortedMock.length,
+        totalPagesCount: Math.ceil(sortedMock.length / limit),
       });
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, filters, getToken]);
+  }, [page, limit, search, filters, sorting, getToken]);
 
   // Use fetchOrganizations in useEffect
   useEffect(() => {

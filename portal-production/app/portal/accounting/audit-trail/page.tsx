@@ -21,17 +21,17 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Tooltip,
   Typography,
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import PrintIcon from "@mui/icons-material/Print";
-import VisibilityIcon from "@mui/icons-material/Visibility";
 import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import JournalEntryDialog from "../_lib/JournalEntryDialog";
 import PageTable from "@/components/PageTable";
+import { useClientSort } from "@/components/clientSort";
+import { kebabColumn } from "@/components/RowKebab";
 
 type Account = { id: string; code: string; name: string };
 
@@ -174,10 +174,16 @@ export default function AuditTrailPage() {
 
   useEffect(() => { setPage(1); }, [search, typeFilter, statusFilter, startDate, endDate]);
 
+  // Header sort over the WHOLE filtered list (not just the visible page);
+  // the table is in manualSorting mode. All columns are direct row fields.
+  const { sorted, sorting, sortingProps } = useClientSort(visible);
+
+  useEffect(() => { setPage(1); }, [sorting]);
+
   const pageCount = Math.max(1, Math.ceil(visible.length / limit));
   const paged = useMemo(
-    () => visible.slice((page - 1) * limit, page * limit),
-    [visible, page, limit],
+    () => sorted.slice((page - 1) * limit, page * limit),
+    [sorted, page, limit],
   );
 
   const columns = useMemo(() => [
@@ -223,32 +229,11 @@ export default function AuditTrailPage() {
         <Chip size="small" label={row.original.status} color={statusColor(row.original.status)} variant="outlined" />
       ),
     },
-    {
-      accessorKey: "actions",
-      header: "Actions",
-      cell: ({ row }: any) => {
-        const e: JournalEntry = row.original;
-        return (
-          <Stack direction="row" gap={0.25} justifyContent="flex-end" alignItems="center">
-            <Tooltip title="View lines">
-              <IconButton size="small" onClick={() => setSelected(e)}>
-                <VisibilityIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            {e.status === "DRAFT" && (
-              <Button size="small" onClick={() => post(e.id)}>
-                Post
-              </Button>
-            )}
-            {e.status !== "VOID" && (
-              <Button size="small" color="error" onClick={() => voidEntry(e.id)}>
-                Void
-              </Button>
-            )}
-          </Stack>
-        );
-      },
-    },
+    kebabColumn((e: JournalEntry) => [
+      { label: "View lines", onClick: () => setSelected(e) },
+      ...(e.status === "DRAFT" ? [{ label: "Post", onClick: () => post(e.id) }] : []),
+      ...(e.status !== "VOID" ? [{ label: "Void", destructive: true, onClick: () => voidEntry(e.id) }] : []),
+    ]),
   ], []);
 
   return (
@@ -324,8 +309,10 @@ export default function AuditTrailPage() {
       </Paper>
 
       <PageTable
+        onRowClick={(e: JournalEntry) => setSelected(e)}
         columns={columns}
         data={paged}
+        {...sortingProps}
         tableName="Audit Trail"
         subTitle="Chronological log of every journal entry — invoices, payments, manual vouchers, voids."
         buttonName="New Entry"

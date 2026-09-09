@@ -29,6 +29,8 @@ interface HistoryEntry {
 const ACTION_CHIPS: Record<string, { label: string; sx: object }> = {
   CREATED: { label: "Created", sx: { bgcolor: "#E3F0FB", color: "#0B5394" } },
   EDITED: { label: "Edited", sx: { bgcolor: "#EEF0F2", color: "#40484F" } },
+  // Post-confirmation edits stand out — red chip so reviewers can't miss them.
+  EDITED_AFTER_CONFIRM: { label: "Edited after confirm", sx: { bgcolor: "#FBE2E2", color: "#8A1F1F" } },
   APPROVED: { label: "Approved", sx: { bgcolor: "#DCF5E4", color: "#116632" } },
   STATUS_CHANGED: { label: "Status changed", sx: { bgcolor: "#FBEEDC", color: "#8A5A00" } },
   NOTE: { label: "Note", sx: { bgcolor: "#F0E8FB", color: "#5B2E98" } },

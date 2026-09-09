@@ -7,6 +7,7 @@ import {
 } from "@mui/material";
 import { useAccountingApi } from "../_lib/api";
 import PageTable from "@/components/PageTable";
+import { useClientSort } from "@/components/clientSort";
 
 const fmt = (n: number) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -44,10 +45,16 @@ export default function SalesByCustomerPage() {
 
   useEffect(() => { setPage(1); }, [search, data]);
 
+  // Header sort over the WHOLE filtered list (not just the visible page);
+  // the table is in manualSorting mode. All columns are direct row fields.
+  const { sorted, sorting, sortingProps } = useClientSort(visible);
+
+  useEffect(() => { setPage(1); }, [sorting]);
+
   const pageCount = Math.max(1, Math.ceil(visible.length / limit));
   const paged = useMemo(
-    () => visible.slice((page - 1) * limit, page * limit),
-    [visible, page, limit],
+    () => sorted.slice((page - 1) * limit, page * limit),
+    [sorted, page, limit],
   );
 
   const columns = useMemo(() => [
@@ -122,6 +129,7 @@ export default function SalesByCustomerPage() {
           <PageTable
             columns={columns}
             data={paged}
+            {...sortingProps}
             tableName="Sales by Customer"
             subTitle="One row per customer in the selected range"
             loading={loading}

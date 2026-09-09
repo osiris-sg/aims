@@ -10,7 +10,6 @@ import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
 import { useGetCustomers } from "@/app/portal/hooks/api/useCustomers";
 import { Box, Chip, IconButton, Stack, Tooltip, Typography } from "@mui/material";
-import VisibilityIcon from "@mui/icons-material/Visibility";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import ReceiptIcon from "@mui/icons-material/Receipt";
@@ -255,25 +254,13 @@ export function CappitechOrdersList() {
       size: 9,
       cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
     },
-    {
-      accessorKey: "action",
-      header: "Action",
-      size: 5,
-      cell: ({ row }: any) => (
-        <IconButton
-          onClick={() => router.push(`/portal/orders/${row.original.id}`)}
-          sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
-        >
-          <VisibilityIcon />
-        </IconButton>
-      ),
-    },
   ] as Array<any>).filter(Boolean);
 
   return (
     <MainCard>
       <VerifySupplierUploadPanel />
       <PageTable
+        onRowClick={(r: any) => router.push(`/portal/orders/${r.id}`)}
         columns={columns}
         data={filteredOrders}
         tableName="Orders"

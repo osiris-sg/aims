@@ -152,7 +152,7 @@ export class DocumentsService {
   private logDocumentEvent(opts: {
     documentId: string;
     organizationId: string;
-    action: 'CREATED' | 'EDITED' | 'APPROVED' | 'STATUS_CHANGED' | 'NOTE' | 'SENT' | 'EMAIL_FAILED' | 'DELETED';
+    action: 'CREATED' | 'EDITED' | 'EDITED_AFTER_CONFIRM' | 'APPROVED' | 'STATUS_CHANGED' | 'NOTE' | 'SENT' | 'EMAIL_FAILED' | 'DELETED';
     detail: string;
     documentName?: string;
     actor?: DocumentActor;
@@ -937,15 +937,12 @@ export class DocumentsService {
         throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
       }
 
-      // If document is already confirmed, prevent any edits to config/content
-      // Only allow status changes or no changes at all
-      if (existingDocument.status === 'confirmed') {
-        // If trying to change config/content of a confirmed document, prevent it
-        if (dto.config && Object.keys(dto.config).length > 0) {
-          throw new HttpException('Cannot edit confirmed document. Please create a revision instead.', HttpStatus.FORBIDDEN);
-        }
-        // Allow only status changes for confirmed documents
-      }
+      // Confirmed documents ARE editable (guru 2026-09-09) — the editor gates
+      // this behind an explicit "Edit" unlock with a warning, and every such
+      // save is stamped in the document history as EDITED_AFTER_CONFIRM with
+      // the actor, so the person who re-edited a confirmed document is always
+      // traceable. (The old behavior threw "Cannot edit confirmed document".)
+      const wasConfirmedBeforeSave = !['draft', 'unconfirmed'].includes(existingDocument.status);
 
       // Optimistic-concurrency guard. If the client sent the version it loaded,
       // reject the save when the document has since moved on (someone else saved
@@ -1717,18 +1714,27 @@ export class DocumentsService {
       try {
         const oldCfg: any = (existingDocument.config as any) || {};
         const newCfg: any = configAsPlainObject || {};
-        const oldInfo: any = oldCfg.documentInfo || {};
-        const newInfo: any = newCfg.documentInfo || {};
+        // Two config layouts exist: newer editors nest header fields under
+        // config.documentInfo; the classic TabbedDocumentCreator saves them
+        // FLAT on config itself (referenceNo, documentNumber, nettTotal, …).
+        // Diff whichever layout each side actually carries — reading only
+        // documentInfo silently logged nothing for flat-config documents.
+        const pickInfo = (cfg: any) =>
+          cfg?.documentInfo && Object.keys(cfg.documentInfo).length > 0 ? cfg.documentInfo : cfg || {};
+        const oldInfo: any = pickInfo(oldCfg);
+        const newInfo: any = pickInfo(newCfg);
         const changes: string[] = [];
+        // Diff only fields the incoming payload actually CARRIES (newVal
+        // undefined = caller didn't send it). Some callers (payment/status
+        // flows) send a partial config — without this gate a partial update
+        // logged every field as `changed to ""`. Clearing a field still logs:
+        // the editor sends "" for cleared fields, not undefined.
         const track = (label: string, oldVal: any, newVal: any) => {
+          if (newVal === undefined) return;
           const a = oldVal ?? '';
           const b = newVal ?? '';
           if (String(a) !== String(b)) changes.push(`${label} changed from "${a}" to "${b}"`);
         };
-        // Diff only the sections the incoming payload actually CARRIES. Some
-        // callers (payment/status flows) send a partial or empty config — the
-        // full editor save always sends complete documentInfo/customer. Without
-        // this gate a partial update logged every field as `changed to ""`.
         const hasInfo = newInfo && Object.keys(newInfo).length > 0;
         if (configAsPlainObject && hasInfo) {
           track('Document number', oldInfo.documentNumber, newInfo.documentNumber);
@@ -1738,17 +1744,21 @@ export class DocumentsService {
           // form round-trips yyyy-mm-dd — full-string compare would log a fake
           // change on the first save.
           const day = (v: any) => (v ? String(v).slice(0, 10) : '');
-          if (day(oldInfo.date) !== day(newInfo.date)) {
+          if (newInfo.date !== undefined && day(oldInfo.date) !== day(newInfo.date)) {
             changes.push(`Date changed from "${day(oldInfo.date)}" to "${day(newInfo.date)}"`);
           }
-          const oldTotal = Number(oldInfo.nettTotal ?? 0);
-          const newTotal = Number(newInfo.nettTotal ?? 0);
-          if (oldTotal.toFixed(2) !== newTotal.toFixed(2)) {
-            changes.push(`Total changed from ${oldTotal.toFixed(2)} to ${newTotal.toFixed(2)}`);
+          if (newInfo.nettTotal !== undefined) {
+            const oldTotal = Number(oldInfo.nettTotal ?? 0);
+            const newTotal = Number(newInfo.nettTotal ?? 0);
+            if (oldTotal.toFixed(2) !== newTotal.toFixed(2)) {
+              changes.push(`Total changed from ${oldTotal.toFixed(2)} to ${newTotal.toFixed(2)}`);
+            }
           }
-          if (newCfg.customer !== undefined) {
-            track('Customer', oldCfg?.customer?.name, newCfg?.customer?.name);
-          }
+          track(
+            'Customer',
+            oldCfg?.customer?.name ?? oldCfg?.customerName,
+            newCfg?.customer?.name ?? newCfg?.customerName,
+          );
         }
         const statusChanged = dto.status && dto.status !== existingDocument.status;
         if (statusChanged || changes.length) {
@@ -1764,9 +1774,15 @@ export class DocumentsService {
           void this.logDocumentEvent({
             documentId: updatedDocument.id,
             organizationId,
-            action: statusChanged ? (dto.status === 'confirmed' ? 'APPROVED' : 'STATUS_CHANGED') : 'EDITED',
+            action: statusChanged
+              ? (dto.status === 'confirmed' ? 'APPROVED' : 'STATUS_CHANGED')
+              : wasConfirmedBeforeSave
+              ? 'EDITED_AFTER_CONFIRM'
+              : 'EDITED',
             detail: statusChanged
               ? `${docName} status changed from ${existingDocument.status} to ${dto.status}`
+              : wasConfirmedBeforeSave
+              ? `Edited AFTER confirmation: ${capped.join('; ')}`
               : capped.join('; '),
             documentName: docName,
             actor: effectiveActor,

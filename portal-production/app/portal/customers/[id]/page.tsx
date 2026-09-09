@@ -7,9 +7,8 @@ import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import { Avatar, Box, Skeleton, Stack, Typography } from "@mui/material";
 import Table from "@/components/Table";
-import { Button, IconButton } from "@mui/material";
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
+import { kebabColumn } from "@/components/RowKebab";
+import { Button } from "@mui/material";
 import { ColumnDef } from "@tanstack/react-table";
 import AddSiteOffice from "./components/AddSiteOffice";
 import { useGetSiteOffices } from "./hooks/useGetSiteOffices";
@@ -79,54 +78,46 @@ export default function ViewCustomerPage({ params }: { params: { id: string } })
       header: "Contact(s)",
       cell: ({ row }) => row.original.contactDetails?.map((cd: any) => `${cd.name} (${cd.phone})`).join(", ") || "-",
     },
-    {
-      accessorKey: "action",
-      header: "Action",
-      cell: ({ row }) => (
-        <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
-          <IconButton
-            onClick={() => {
-              setSelectedSiteOffice(row.original);
-              setAddDialogOpen(true);
-            }}
-          >
-            <EditIcon />
-          </IconButton>
-          <IconButton
-            onClick={async () => {
-              try {
-                const token = await getToken();
-                if (!token) throw new Error("No token available");
+    kebabColumn((siteOffice: any) => [
+      {
+        label: "Edit",
+        onClick: () => {
+          setSelectedSiteOffice(siteOffice);
+          setAddDialogOpen(true);
+        },
+      },
+      {
+        label: "Delete",
+        destructive: true,
+        onClick: async () => {
+          try {
+            const token = await getToken();
+            if (!token) throw new Error("No token available");
 
-                const response = await request(
-                  {
-                    path: `/customers/site-offices/${row.original.id}`,
-                    method: "DELETE",
-                  },
-                  {},
-                  token
-                );
+            const response = await request(
+              {
+                path: `/customers/site-offices/${siteOffice.id}`,
+                method: "DELETE",
+              },
+              {},
+              token
+            );
 
-                if (response.success) {
-                  console.log("Deleted site office:", row.original.id);
-                  toast.success("Site Office deleted successfully!");
-                  refetchSiteOffices();
-                } else {
-                  console.error("Failed to delete site office:", response);
-                  toast.error("Failed to delete Site Office.");
-                }
-              } catch (error) {
-                console.error("Error deleting site office:", error);
-                toast.error("An error occurred while deleting the Site Office.");
-              }
-            }}
-            color="error"
-          >
-            <DeleteIcon />
-          </IconButton>
-        </Box>
-      ),
-    },
+            if (response.success) {
+              console.log("Deleted site office:", siteOffice.id);
+              toast.success("Site Office deleted successfully!");
+              refetchSiteOffices();
+            } else {
+              console.error("Failed to delete site office:", response);
+              toast.error("Failed to delete Site Office.");
+            }
+          } catch (error) {
+            console.error("Error deleting site office:", error);
+            toast.error("An error occurred while deleting the Site Office.");
+          }
+        },
+      },
+    ]),
   ];
 
   return (
@@ -187,7 +178,19 @@ export default function ViewCustomerPage({ params }: { params: { id: string } })
                       Add Site Office
                     </Button>
                   </Box>
-                  {isLoadingSiteOffices ? <Skeleton variant="rectangular" width="100%" height={200} /> : <Table columns={siteOfficeColumns} data={siteOffices} onRowSelect={() => {}} />}
+                  {isLoadingSiteOffices ? (
+                    <Skeleton variant="rectangular" width="100%" height={200} />
+                  ) : (
+                    <Table
+                      columns={siteOfficeColumns}
+                      data={siteOffices}
+                      onRowClick={(siteOffice: any) => {
+                        setSelectedSiteOffice(siteOffice);
+                        setAddDialogOpen(true);
+                      }}
+                      onRowSelect={() => {}}
+                    />
+                  )}
                 </Box>
               </>
             )}

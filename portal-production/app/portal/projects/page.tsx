@@ -6,14 +6,12 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { kebabColumn } from "@/components/RowKebab";
 import type { FilterField } from "@/components/FilterDrawer";
 import { useGetCustomers } from "@/app/portal/hooks/api/useCustomers";
 import { Box, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button, CircularProgress, Typography, IconButton } from "@mui/material";
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import DeleteIcon from "@mui/icons-material/Delete";
-import EditIcon from "@mui/icons-material/Edit";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import IdProjectList from "./_id/IdProjectList";
 
@@ -113,29 +111,18 @@ function LegacyProjectsPage() {
     { id: "startDate", accessorKey: "startDate", header: "Start Date", cell: (info: any) => fmtDate(info.getValue()) },
     { id: "endDate", accessorKey: "endDate", header: "End Date", cell: (info: any) => fmtDate(info.getValue()) },
     { id: "status", accessorKey: "status", header: "Status", cell: (info: any) => info.getValue() },
-    {
-      id: "actions",
-      header: "Actions",
-      cell: ({ row }: { row: any }) => (
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <IconButton onClick={() => router.push(`${ROUTES.PROJECTS}/${row.original.id}`)} sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}>
-            <VisibilityIcon />
-          </IconButton>
-          <IconButton onClick={() => router.push(`${ROUTES.CREATE_PROJECT}?id=${row.original.id}`)} sx={{ color: "text.secondary", "&:hover": { color: "info.main" } }}>
-            <EditIcon />
-          </IconButton>
-          <IconButton
-            onClick={() => {
-              setSelectedProject(row.original);
-              setDeleteDialogOpen(true);
-            }}
-            sx={{ color: "text.secondary", "&:hover": { color: "error.main" } }}
-          >
-            <DeleteIcon />
-          </IconButton>
-        </Box>
-      ),
-    },
+    kebabColumn((row: any) => [
+      { label: "Open", onClick: () => router.push(`${ROUTES.PROJECTS}/${row.id}`) },
+      { label: "Edit", onClick: () => router.push(`${ROUTES.CREATE_PROJECT}?id=${row.id}`) },
+      {
+        label: "Delete",
+        destructive: true,
+        onClick: () => {
+          setSelectedProject(row);
+          setDeleteDialogOpen(true);
+        },
+      },
+    ]),
   ];
 
   // All four filters are applied server-side (status/customerId/startDate/endDate
@@ -229,6 +216,7 @@ function LegacyProjectsPage() {
   return (
     <MainCard>
       <PageTable
+        onRowClick={(r: any) => router.push(`${ROUTES.PROJECTS}/${r.id}`)}
         columns={columns}
         data={projects.docs}
         tableName="Projects"

@@ -28,11 +28,10 @@ import {
   alpha,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import CloseIcon from "@mui/icons-material/Close";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
+import { RowKebab } from "@/components/RowKebab";
 
 // Canonical document types — MUST match the values the create picker uses.
 export const NUMBERING_DOC_TYPES: { value: string; label: string }[] = [
@@ -266,7 +265,7 @@ export default function DocumentNumberFormatsManager() {
             <TableBody>
               {Array.from(grouped.entries()).map(([type, list]) =>
                 list.map((f, i) => (
-                  <TableRow key={f.id}>
+                  <TableRow key={f.id} hover sx={{ cursor: "pointer" }} onClick={() => openEdit(f)}>
                     <TableCell>
                       <Typography variant="body2" sx={{ fontWeight: i === 0 ? 600 : 400, color: i === 0 ? "text.primary" : "text.secondary" }}>
                         {labelOf(type)}
@@ -277,8 +276,12 @@ export default function DocumentNumberFormatsManager() {
                     <TableCell><Typography variant="caption">{RESETS.find((r) => r.value === f.resetPolicy)?.label}</Typography></TableCell>
                     <TableCell align="center">{f.isActive ? <Chip size="small" color="success" label="On" /> : <Chip size="small" label="Off" />}</TableCell>
                     <TableCell align="right">
-                      <Tooltip title="Edit"><IconButton size="small" onClick={() => openEdit(f)}><EditIcon fontSize="small" /></IconButton></Tooltip>
-                      <Tooltip title="Delete"><IconButton size="small" onClick={() => remove(f)}><DeleteOutlineIcon fontSize="small" /></IconButton></Tooltip>
+                      <RowKebab
+                        actions={[
+                          { label: "Edit", onClick: () => openEdit(f) },
+                          { label: "Delete", destructive: true, onClick: () => remove(f) },
+                        ]}
+                      />
                     </TableCell>
                   </TableRow>
                 )),
