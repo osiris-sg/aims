@@ -19,10 +19,12 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { Cancel, Schedule } from "@mui/icons-material";
+import { Schedule } from "@mui/icons-material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import PageTable from "@/components/PageTable";
+import { useClientSort } from "@/components/clientSort";
+import { kebabColumn } from "@/components/RowKebab";
 import ContactSelect from "../_components/ContactSelect";
 import { useWhatsAppApi } from "../_lib/api";
 
@@ -155,7 +157,18 @@ export default function CrmScheduledPage() {
     return rows.filter((r) => r.to.includes(q) || r.body.toLowerCase().includes(q));
   }, [rows, search]);
 
-  const paged = useMemo(() => visible.slice((page - 1) * limit, page * limit), [visible, page, limit]);
+  // Sort the WHOLE filtered list before slicing — the table itself is in
+  // manualSorting mode, so header arrows drive this hook.
+  const { sorted, sorting, sortingProps } = useClientSort(visible, {
+    recurrence: (r: ScheduledMessage) => recurrenceLabel(r),
+  });
+
+  // Sort changes restart at page 1 (declared after the hook — TDZ).
+  useEffect(() => {
+    setPage(1);
+  }, [sorting]);
+
+  const paged = useMemo(() => sorted.slice((page - 1) * limit, page * limit), [sorted, page, limit]);
   const pageCount = Math.max(1, Math.ceil(visible.length / limit));
 
   const columns = useMemo(
@@ -223,16 +236,11 @@ export default function CrmScheduledPage() {
           );
         },
       },
-      {
-        accessorKey: "actions",
-        header: "",
-        cell: ({ row }: any) =>
-          row.original.status === "PENDING" ? (
-            <Button size="small" color="warning" startIcon={<Cancel />} onClick={() => cancel(row.original.id)}>
-              Cancel
-            </Button>
-          ) : null,
-      },
+      kebabColumn((r: ScheduledMessage) =>
+        r.status === "PENDING"
+          ? [{ label: "Cancel", destructive: true, onClick: () => cancel(r.id) }]
+          : [],
+      ),
     ],
     [cancel],
   );
@@ -260,6 +268,7 @@ export default function CrmScheduledPage() {
       <PageTable
         columns={columns}
         data={paged}
+        {...sortingProps}
         tableName="Scheduled messages"
         buttonName="Schedule message"
         onAddClick={() => setDialogOpen(true)}

@@ -15,15 +15,14 @@ import {
   Paper,
   Stack,
   TextField,
-  Tooltip,
   Typography,
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import EditIcon from "@mui/icons-material/Edit";
 import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import PageTable from "@/components/PageTable";
+import { useClientSort } from "@/components/clientSort";
 
 type FA = {
   id: string;
@@ -101,10 +100,21 @@ export default function FixedAssetsPage() {
 
   useEffect(() => { setPage(1); }, [search]);
 
+  // Header sort over the WHOLE filtered list (not just the visible page);
+  // the table is in manualSorting mode. Getters mirror the computed cells.
+  const { sorted, sorting, sortingProps } = useClientSort(visible, {
+    method: (f: FA) => METHOD_LABELS[f.method] || f.method,
+    accumulated: (f: FA) => (f.entries || []).reduce((s, e) => s + e.amount, 0),
+    bookValue: (f: FA) => f.cost - (f.entries || []).reduce((s, e) => s + e.amount, 0),
+    status: (f: FA) => (f.disposedAt ? "Disposed" : f.isActive ? "Active" : "Inactive"),
+  });
+
+  useEffect(() => { setPage(1); }, [sorting]);
+
   const pageCount = Math.max(1, Math.ceil(visible.length / limit));
   const paged = useMemo(
-    () => visible.slice((page - 1) * limit, page * limit),
-    [visible, page, limit],
+    () => sorted.slice((page - 1) * limit, page * limit),
+    [sorted, page, limit],
   );
 
   const columns = useMemo(() => [
@@ -186,19 +196,6 @@ export default function FixedAssetsPage() {
         return <Chip size="small" label="Inactive" color="default" variant="outlined" sx={{ fontSize: "0.65rem" }} />;
       },
     },
-    {
-      accessorKey: "actions",
-      header: "",
-      cell: ({ row }: any) => (
-        <Stack direction="row" justifyContent="flex-end">
-          <Tooltip title="Edit">
-            <IconButton size="small" onClick={() => { setEditing(row.original); setEditorOpen(true); }}>
-              <EditIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-      ),
-    },
   ], []);
 
   return (
@@ -223,8 +220,10 @@ export default function FixedAssetsPage() {
       </Stack>
 
       <PageTable
+        onRowClick={(r: FA) => { setEditing(r); setEditorOpen(true); }}
         columns={columns}
         data={paged}
+        {...sortingProps}
         tableName="Fixed Assets Register"
         subTitle="Vehicles, machinery, office equipment. Depreciation auto-posts during Month-End Close."
         buttonName="New Fixed Asset"

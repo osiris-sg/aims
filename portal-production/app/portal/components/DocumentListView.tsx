@@ -21,9 +21,11 @@ import {
   IconButton,
   Skeleton,
   Typography,
+  Menu,
+  MenuItem,
 } from "@mui/material";
-import VisibilityIcon from "@mui/icons-material/Visibility";
 import DeleteIcon from "@mui/icons-material/Delete";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
 import DraftsOutlinedIcon from "@mui/icons-material/DraftsOutlined";
@@ -219,6 +221,7 @@ export default function DocumentListView({
   const { stats, isLoading: statsLoading, refetch: refetchStats } = useGetDocumentStats(documentTypes);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [docToDelete, setDocToDelete] = useState<DocumentRow | null>(null);
+  const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: any } | null>(null);
 
   const deleteDocumentMutation = useDeleteDocument();
 
@@ -314,36 +317,32 @@ export default function DocumentListView({
       cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
     },
     {
+      // Row-click opens the document; the kebab holds secondary actions
+      // (CLAUDE.md table pattern — inline action-icon columns retired).
       accessorKey: "action",
-      header: "Action",
+      header: "",
       nowrap: true,
       align: "center",
-      pxWidth: 150, // fits all row icons — never squeezed/clipped
-      cell: ({ row }: any) => {
-        const { documentType, templateId, id, status } = row.original;
-        const isDraft = ["draft", "unconfirmed"].includes(status || "unconfirmed");
-        return (
-          <Box sx={{ display: "flex", gap: 0.5, justifyContent: "center" }}>
-            <IconButton
-              data-tour="document-row-view"
-              onClick={() => router.push(`/portal/documents/${documentType}/${templateId}/${id}`)}
-              sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
-            >
-              <VisibilityIcon />
-            </IconButton>
-            {isDraft && (
-              <IconButton
-                onClick={() => setDocToDelete(row.original)}
-                sx={{ color: "text.secondary", "&:hover": { color: "error.main" } }}
-              >
-                <DeleteIcon />
-              </IconButton>
-            )}
-          </Box>
-        );
-      },
+      pxWidth: 56,
+      cell: ({ row }: any) => (
+        <IconButton
+          size="small"
+          aria-label="Row actions"
+          data-tour="document-row-view"
+          onClick={(e: React.MouseEvent<HTMLElement>) => {
+            e.stopPropagation();
+            setRowMenu({ anchor: e.currentTarget, row: row.original });
+          }}
+          sx={{ color: "text.secondary" }}
+        >
+          <MoreVertIcon fontSize="small" />
+        </IconButton>
+      ),
     },
   ];
+
+  const openDocument = (doc: any) =>
+    router.push(`/portal/documents/${doc.documentType}/${doc.templateId}/${doc.id}`);
 
   const serializeDate = (d: Date | null) => (d ? JSON.parse(JSON.stringify(d)) : null);
   const handleSetFilters = (newFilters: any) => {
@@ -378,6 +377,7 @@ export default function DocumentListView({
       <PageTable
         columns={columns}
         data={docs}
+        onRowClick={openDocument}
         manualSorting
         sorting={sorting}
         onSortingChange={setSorting}
@@ -448,6 +448,31 @@ export default function DocumentListView({
           }}
         />
       )}
+
+      {/* Row kebab menu (CLAUDE.md table pattern) */}
+      <Menu anchorEl={rowMenu?.anchor ?? null} open={!!rowMenu} onClose={() => setRowMenu(null)}>
+        <MenuItem
+          onClick={() => {
+            const row = rowMenu!.row;
+            setRowMenu(null);
+            openDocument(row);
+          }}
+        >
+          Open
+        </MenuItem>
+        {rowMenu && ["draft", "unconfirmed"].includes(rowMenu.row.status || "unconfirmed") && (
+          <MenuItem
+            sx={{ color: "error.main" }}
+            onClick={() => {
+              const row = rowMenu!.row;
+              setRowMenu(null);
+              setDocToDelete(row);
+            }}
+          >
+            Delete draft
+          </MenuItem>
+        )}
+      </Menu>
 
       <Dialog open={!!docToDelete} onClose={() => setDocToDelete(null)}>
         <DialogTitle>Delete {documentLabel}</DialogTitle>

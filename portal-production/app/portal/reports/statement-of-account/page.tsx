@@ -22,6 +22,7 @@ import { Download as DownloadIcon, Print as PrintIcon } from '@mui/icons-materia
 import { useGetCustomers } from '@/app/portal/hooks/api';
 import { useGenerateSOA } from '@/app/portal/hooks/api';
 import PageTable from '@/components/PageTable';
+import { useClientSort } from '@/components/clientSort';
 
 interface Customer {
   id: string;
@@ -193,10 +194,16 @@ export default function StatementOfAccountPage() {
 
   useEffect(() => { setPage(1); }, [search, statementData]);
 
+  // Header sort over the WHOLE filtered list (not just the visible page);
+  // the table is in manualSorting mode. All columns are direct row fields.
+  const { sorted, sorting, sortingProps } = useClientSort(visible);
+
+  useEffect(() => { setPage(1); }, [sorting]);
+
   const pageCount = Math.max(1, Math.ceil(visible.length / limit));
   const paged = useMemo(
-    () => visible.slice((page - 1) * limit, page * limit),
-    [visible, page, limit],
+    () => sorted.slice((page - 1) * limit, page * limit),
+    [sorted, page, limit],
   );
 
   const columns = useMemo(() => [
@@ -417,6 +424,7 @@ export default function StatementOfAccountPage() {
             <PageTable
               columns={columns}
               data={paged}
+              {...sortingProps}
               tableName="Transactions"
               subTitle="Activity in the selected period"
               loading={generateSOAMutation.isPending}

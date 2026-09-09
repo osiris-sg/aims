@@ -28,16 +28,16 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
-import VisibilityIcon from "@mui/icons-material/VisibilityOutlined";
+
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
+import DescriptionIcon from "@mui/icons-material/DescriptionOutlined";
 import EditIcon from "@mui/icons-material/EditOutlined";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
-import DescriptionIcon from "@mui/icons-material/DescriptionOutlined";
 import moment from "moment";
 import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { kebabColumn } from "@/components/RowKebab";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import type { FilterField } from "@/components/FilterDrawer";
 import { useOrganization } from "@hooks/useOrganization";
@@ -358,16 +358,18 @@ export default function LeadsPage() {
         cell: ({ row }: any) => {
           const l: Lead = row.original;
           return (
-            <Autocomplete
-              size="small"
-              options={designers}
-              getOptionLabel={(o: any) => o.name}
-              value={designers.find((d) => d.id === l.assignedToUserId) || (l.assignedToName ? ({ id: "", name: l.assignedToName } as any) : null)}
-              isOptionEqualToValue={(a: any, b: any) => a?.id === b?.id}
-              onChange={(_, v: any) => patch(l.id, { assignedToUserId: v?.id || null, assignedToName: v?.name || null, status: v && l.status === "unqualified" ? "engaging" : undefined })}
-              renderInput={(p) => <TextField {...p} placeholder="Assign" variant="standard" InputProps={{ ...p.InputProps, disableUnderline: true, sx: { fontSize: 13 } }} />}
-              sx={{ minWidth: 140 }}
-            />
+            <Box onClick={(e) => e.stopPropagation()}>
+              <Autocomplete
+                size="small"
+                options={designers}
+                getOptionLabel={(o: any) => o.name}
+                value={designers.find((d) => d.id === l.assignedToUserId) || (l.assignedToName ? ({ id: "", name: l.assignedToName } as any) : null)}
+                isOptionEqualToValue={(a: any, b: any) => a?.id === b?.id}
+                onChange={(_, v: any) => patch(l.id, { assignedToUserId: v?.id || null, assignedToName: v?.name || null, status: v && l.status === "unqualified" ? "engaging" : undefined })}
+                renderInput={(p) => <TextField {...p} placeholder="Assign" variant="standard" InputProps={{ ...p.InputProps, disableUnderline: true, sx: { fontSize: 13 } }} />}
+                sx={{ minWidth: 140 }}
+              />
+            </Box>
           );
         },
       },
@@ -382,6 +384,7 @@ export default function LeadsPage() {
               select
               size="small"
               value={l.status}
+              onClick={(e) => e.stopPropagation()}
               onChange={(e) => {
                 const next = e.target.value;
                 if (next === "dead") setDeadFor(l); // proof of no reply is mandatory
@@ -401,58 +404,22 @@ export default function LeadsPage() {
           );
         },
       },
-      {
-        id: "actions",
-        header: "",
-        cell: ({ row }: any) => {
-          const l: Lead = row.original;
-          return (
-            <Stack direction="row" spacing={0.25} justifyContent="flex-end">
-              {l.phone && (
-                <Tooltip title="WhatsApp the homeowner">
-                  <IconButton size="small" href={`https://wa.me/${l.phone.startsWith("65") ? l.phone : `65${l.phone}`}`} target="_blank" rel="noreferrer" sx={{ color: "success.main" }}>
-                    <WhatsAppIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              )}
-              <Tooltip title="Details">
-                <IconButton size="small" onClick={() => setDetail(l)}>
-                  <VisibilityIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              {l.projectId ? (
-                <Tooltip title="Open project">
-                  <IconButton size="small" onClick={() => router.push(`/portal/projects/${l.projectId}`)} sx={{ color: "primary.main" }}>
-                    <DescriptionIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              ) : l.quotationId ? (
-                <Tooltip title="Open quotation">
-                  <IconButton size="small" onClick={() => router.push(`/portal/sales/quotations/id/${l.quotationId}`)} sx={{ color: "primary.main" }}>
-                    <DescriptionIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              ) : (
-                <Tooltip title="Create project from this lead (the quotation follows from the project page)">
-                  <span>
-                    <IconButton size="small" disabled={busy} onClick={() => convertLeadToProject(l)} sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}>
-                      <OpenInNewIcon fontSize="small" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              )}
-              <Tooltip title="Edit">
-                <IconButton size="small" onClick={() => openEdit(l)}>
-                  <EditIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <IconButton size="small" onClick={() => setToDelete(l)} sx={{ "&:hover": { color: "error.main" } }}>
-                <DeleteIcon fontSize="small" />
-              </IconButton>
-            </Stack>
-          );
-        },
-      },
+      kebabColumn((l: Lead) => [
+        ...(l.phone
+          ? [{
+              label: "WhatsApp",
+              onClick: () => window.open(`https://wa.me/${l.phone!.startsWith("65") ? l.phone : `65${l.phone}`}`, "_blank", "noopener,noreferrer"),
+            }]
+          : []),
+        { label: "Details", onClick: () => setDetail(l) },
+        ...(l.projectId
+          ? [{ label: "Open project", onClick: () => router.push(`/portal/projects/${l.projectId}`) }]
+          : l.quotationId
+          ? [{ label: "Open quotation", onClick: () => router.push(`/portal/sales/quotations/id/${l.quotationId}`) }]
+          : [{ label: "Create project", disabled: busy, onClick: () => convertLeadToProject(l) }]),
+        { label: "Edit", onClick: () => openEdit(l) },
+        { label: "Delete", destructive: true, onClick: () => setToDelete(l) },
+      ]),
     ],
     [designers, busy, router],
   );
@@ -484,6 +451,7 @@ export default function LeadsPage() {
         </Stack>
       )}
       <PageTable
+        onRowClick={(l: Lead) => setDetail(l)}
         tableName="Leads"
         subTitle="EZiD and Network Singapore enquiries land here automatically from email"
         columns={columns as any}

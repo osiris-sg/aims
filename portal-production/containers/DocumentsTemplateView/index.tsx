@@ -6,16 +6,21 @@ import React from "react";
 import { useGetDocuments } from "./hooks/useGetDocuments";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import useDeleteDocumentHandler from "./hooks/useDeleteDocumentHandler";
+import useEditDocumentHandler from "./hooks/useEditDocumentHandler";
 import useDocumentsTableHeader from "./hooks/useDocumentsTableHeader";
 
 export default function DocumentsTemplateView() {
   const { columns } = useDocumentsTableHeader();
   const { documentTemplates, loading, page, limit, search, setPage, setLimit, setSearch } = useGetDocuments();
   const { documentToDelete, isDeleteInProgress, onDeleteConfirm, setDocumentToDelete } = useDeleteDocumentHandler();
+  const { handleEdit } = useEditDocumentHandler();
 
   return (
     <MainCard>
       <PageTable
+        onRowClick={(r: any) => {
+          if (!r.document) handleEdit(r); // subrows are document links, not templates
+        }}
         loading={loading}
         columns={columns}
         data={documentTemplates.docs}

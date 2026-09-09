@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { request } from "@/helpers/request";
 import { useAuth } from "@clerk/nextjs";
+import { sortRows } from "@/components/clientSort";
 
-export function useGetUsers() {
+export function useGetUsers(sorting: { id: string; desc: boolean }[] = []) {
   const { getToken } = useAuth();
 
   interface Role {
@@ -103,13 +104,31 @@ export function useGetUsers() {
     };
 
     const filtered = (allUsers || []).filter((u) => matchesSearch(u) && matchesDateRange(u));
-    const totalDocuments = filtered.length;
+
+    // Sort the WHOLE filtered list before slicing so header sorting reorders
+    // across pages (the table is in manualSorting mode). Getters mirror what
+    // the columns display for computed cells.
+    const sorted = sortRows(filtered, sorting, {
+      userId: (u: any) => {
+        const c = u.clerkUser;
+        const email = c?.emailAddresses?.[0]?.emailAddress;
+        return (c?.firstName && c?.lastName ? `${c.firstName} ${c.lastName}` : c?.firstName || c?.lastName || email || u.userId) ?? "";
+      },
+      roles: (u: any) => (Array.isArray(u.roles) ? u.roles.map((r: any) => r?.name).filter(Boolean).join(", ") : ""),
+      permissions: (u: any) => {
+        const perms = Array.isArray(u.permissions) ? u.permissions : [];
+        return perms.filter((p: any, i: number, self: any[]) => i === self.findIndex((q: any) => q.id === p.id)).length;
+      },
+      organization: (u: any) => u.organization?.name || u.organizationId || "",
+    });
+
+    const totalDocuments = sorted.length;
     const totalPagesCount = Math.max(1, Math.ceil(totalDocuments / limit));
     const start = (page - 1) * limit;
-    const docs = filtered.slice(start, start + limit);
+    const docs = sorted.slice(start, start + limit);
 
     return { docs, totalDocuments, totalPagesCount };
-  }, [allUsers, search, filters, page, limit]);
+  }, [allUsers, search, filters, page, limit, sorting]);
 
   const refreshUsers = () => {
     fetchUsers();

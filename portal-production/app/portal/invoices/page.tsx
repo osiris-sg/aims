@@ -6,14 +6,13 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { useClientSort } from "@/components/clientSort";
 import type { FilterField } from "@/components/FilterDrawer";
 import { Box, IconButton, Alert, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import DownloadIcon from "@mui/icons-material/Download";
 import DeleteIcon from "@mui/icons-material/Delete";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import LinkIcon from "@mui/icons-material/Link";
-import PaymentIcon from "@mui/icons-material/Payment";
-import { Tab, Tabs, Chip, alpha, Stack, Typography } from "@mui/material";
+import { Tab, Tabs, Chip, alpha, Stack, Typography, Menu, MenuItem } from "@mui/material";
 import { useDeleteDocument, useGetCustomers } from "@/app/portal/hooks/api";
 import { useRouter } from "next/navigation";
 import { useCreateDocumentFlow } from "@/app/portal/components/useCreateDocumentFlow";
@@ -141,6 +140,7 @@ export default function InvoicesPage() {
   const [numberingPicker, setNumberingPicker] = useState<{ formats: any[]; data: any; customer?: any; variantId?: string } | null>(null);
 
   // Draft-only delete: invoices in draft status can be removed.
+  const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: any } | null>(null);
   const [docToDelete, setDocToDelete] = useState<Document | null>(null);
   const deleteDocumentMutation = useDeleteDocument();
   const handleDeleteConfirm = async () => {
@@ -335,96 +335,53 @@ export default function InvoicesPage() {
       cell: ({ row }: any) => moment(row.original.config?.date ?? row.original.createdAt).format("DD/MM/YYYY"),
     },
     {
+      // Row-click opens the invoice; the kebab holds payment/download/delete
+      // (CLAUDE.md table pattern — inline action-icon columns retired).
       accessorKey: "action",
-      header: "Action",
+      header: "",
       nowrap: true,
       align: "center",
-      pxWidth: 200, // 4 icons max (pay/view/download/delete) — never squeezed
+      pxWidth: 56,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cell: ({ row }: any) => {
-        const { documentType, templateId, id } = row.original;
-
-        const handleDownload = () => {
-          // Open document in view mode in a new tab and auto-trigger print
-          const viewUrl = `/portal/documents/view/${documentType}/${templateId}/${id}?autoprint=true`;
-          window.open(viewUrl, "_blank");
-        };
-
-        const status = arStatusOf(row.original);
-        const isDraft = ["draft", "unconfirmed"].includes(row.original.status || "unconfirmed");
-        return (
-          <Box sx={{ display: "flex", gap: "var(--default-gap)", justifyContent: "center" }}>
-            {/* Drafts can't take payments — confirm the invoice first. */}
-            {!isDraft && status !== "paid" && (
-              <IconButton
-                title="Record payment"
-                onClick={() => {
-                  const total = getInvoiceTotal(row.original);
-                  const paid = paymentSummary[row.original.id]?.totalPaid ?? 0;
-                  setPayDialogInvoice({
-                    id: row.original.id,
-                    name: row.original.name,
-                    // Editor-created invoices store the customer flat (config.customerId);
-                    // imported ones nested (config.customer.id) — read both.
-                    customerId: row.original.config?.customer?.id ?? row.original.config?.customerId,
-                    customerName:
-                      row.original.associated_customer ||
-                      row.original.config?.customer?.name ||
-                      row.original.config?.customerName,
-                    amount: Math.max(0, total - paid),
-                    status: row.original.status,
-                  });
-                  setPayDialogOpen(true);
-                }}
-                sx={{
-                  color: "text.secondary",
-                  "&:hover": { color: "success.main" },
-                }}
-              >
-                <PaymentIcon />
-              </IconButton>
-            )}
-            <IconButton
-              onClick={() => {
-                // Pass the CURRENT page (this list is embedded on both the AR
-                // tab and /portal/invoices) so the editor's Back returns here
-                // instead of the type's default list.
-                const from = encodeURIComponent(window.location.pathname + window.location.search);
-                router.push(`/portal/documents/${documentType}/${templateId}/${id}?from=${from}`);
-              }}
-              sx={{
-              color: "text.secondary",
-              "&:hover": { color: "primary.main" },
-              }}
-            >
-              <VisibilityIcon />
-            </IconButton>
-            <IconButton
-              onClick={handleDownload}
-              sx={{
-              color: "text.secondary",
-              "&:hover": { color: "primary.main" },
-              }}
-            >
-              <DownloadIcon />
-            </IconButton>
-            {isDraft && (
-              <IconButton
-                title="Delete draft"
-                onClick={() => setDocToDelete(row.original)}
-                sx={{
-                  color: "text.secondary",
-                  "&:hover": { color: "error.main" },
-                }}
-              >
-                <DeleteIcon />
-              </IconButton>
-            )}
-          </Box>
-        );
-      },
+      cell: ({ row }: any) => (
+        <IconButton
+          size="small"
+          aria-label="Row actions"
+          onClick={(e: React.MouseEvent<HTMLElement>) => {
+            e.stopPropagation();
+            setRowMenu({ anchor: e.currentTarget, row: row.original });
+          }}
+          sx={{ color: "text.secondary" }}
+        >
+          <MoreVertIcon fontSize="small" />
+        </IconButton>
+      ),
     },
   ];
+
+  // Row-click target — keeps the ?from= so the editor's Back returns here
+  // (this list is embedded on both the AR tab and /portal/invoices).
+  const openInvoice = (doc: any) => {
+    const from = encodeURIComponent(window.location.pathname + window.location.search);
+    router.push(`/portal/documents/${doc.documentType}/${doc.templateId}/${doc.id}?from=${from}`);
+  };
+  const downloadInvoice = (doc: any) =>
+    window.open(`/portal/documents/view/${doc.documentType}/${doc.templateId}/${doc.id}?autoprint=true`, "_blank");
+  const openPayDialogFor = (doc: any) => {
+    const total = getInvoiceTotal(doc);
+    const paid = paymentSummary[doc.id]?.totalPaid ?? 0;
+    setPayDialogInvoice({
+      id: doc.id,
+      name: doc.name,
+      // Editor-created invoices store the customer flat (config.customerId);
+      // imported ones nested (config.customer.id) — read both.
+      customerId: doc.config?.customer?.id ?? doc.config?.customerId,
+      customerName: doc.associated_customer || doc.config?.customer?.name || doc.config?.customerName,
+      amount: Math.max(0, total - paid),
+      status: doc.status,
+    });
+    setPayDialogOpen(true);
+  };
 
   const serializeDate = (date: Date | null) => {
     if (!date) return null;
@@ -582,6 +539,31 @@ export default function InvoicesPage() {
     }
     return docs;
   })();
+
+  // Header-driven sorting over the WHOLE filtered list (not just the visible
+  // page) — the table itself is in manualSorting mode (guru 2026-09-09).
+  const { sorted: sortedDocs, sorting, sortingProps } = useClientSort(visibleDocs, {
+    reference: (d: any) => {
+      const c: any = d.config || {};
+      return c?.documentInfo?.referenceNo || c?.referenceNo || c?.reference || c?.xeroReference || "";
+    },
+    dueDate: (d: any) => d.config?.dueDate || null,
+    status: (d: any) => arStatusOf(d),
+    xeroSync: (d: any) => (d.config?.xeroInvoiceId ? d.config?.xeroStatus || "SYNCED" : ""),
+    outstanding: (d: any) => {
+      if (arStatusOf(d) === "paid") return 0;
+      const paid = paymentSummary[d.id]?.totalPaid ?? 0;
+      return Math.max(0, getInvoiceTotal(d) - paid);
+    },
+    daysOverdue: (d: any) => daysOverdue(d),
+    createdAt: (d: any) => d.config?.date ?? d.createdAt,
+  });
+
+  // Sort changes also restart at page 1 (separate effect — `sorting` is
+  // declared just above and can't be referenced by the earlier reset).
+  useEffect(() => {
+    setPage(1);
+  }, [sorting]);
 
   const arCounts = (() => {
     let draft = 0,
@@ -829,11 +811,13 @@ export default function InvoicesPage() {
       )}
 
       <PageTable
+        onRowClick={openInvoice}
         columns={columns}
         // PageTable renders `data` as-is — hand it only the CURRENT page's
         // slice, or every filtered row renders at once and the pager does
         // nothing (guru 2026-08-07).
-        data={visibleDocs.slice((page - 1) * limit, page * limit)}
+        data={sortedDocs.slice((page - 1) * limit, page * limit)}
+        {...sortingProps}
         tableName="Invoice List"
         subTitle="Invoice Detail Information"
         buttonName="Create Invoice"
@@ -871,6 +855,24 @@ export default function InvoicesPage() {
           </Box>
         }
       />
+
+      {/* Row kebab menu (CLAUDE.md table pattern) */}
+      <Menu anchorEl={rowMenu?.anchor ?? null} open={!!rowMenu} onClose={() => setRowMenu(null)}>
+        <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); openInvoice(r); }}>Open</MenuItem>
+        {rowMenu &&
+          !["draft", "unconfirmed"].includes(rowMenu.row.status || "unconfirmed") &&
+          arStatusOf(rowMenu.row) !== "paid" && (
+            <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); openPayDialogFor(r); }}>
+              Record payment
+            </MenuItem>
+          )}
+        <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); downloadInvoice(r); }}>Download / print</MenuItem>
+        {rowMenu && ["draft", "unconfirmed"].includes(rowMenu.row.status || "unconfirmed") && (
+          <MenuItem sx={{ color: "error.main" }} onClick={() => { const r = rowMenu!.row; setRowMenu(null); setDocToDelete(r); }}>
+            Delete draft
+          </MenuItem>
+        )}
+      </Menu>
 
       {/* Customer Selection Drawer */}
       {/* Shared create-flow pickers (number format + template) */}

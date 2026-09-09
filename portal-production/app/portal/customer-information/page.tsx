@@ -1,14 +1,13 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Box, Chip, IconButton, Tooltip } from "@mui/material";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import BlockIcon from "@mui/icons-material/Block";
+import { Chip } from "@mui/material";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
 import { useAuth } from "@clerk/nextjs";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { kebabColumn } from "@/components/RowKebab";
 import type { FilterField } from "@/components/FilterDrawer";
 import { request } from "@/helpers/request";
 import { ROUTES } from "@/routes";
@@ -109,44 +108,25 @@ export default function CustomerInformationPage() {
         return v ? new Date(v).toLocaleDateString() : "-";
       },
     },
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (info: any) => {
-        const row = info.row.original;
-        const isRevoked = row.status === "revoked";
-        return (
-          <Box display="flex" gap={1}>
-            <Tooltip title="View collected contacts">
-              <IconButton
-                onClick={() => router.push(`${ROUTES.CUSTOMER_INFORMATION}/${row.id}`)}
-                sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
-              >
-                <VisibilityIcon />
-              </IconButton>
-            </Tooltip>
-            {!isRevoked && (
-              <Tooltip title="Revoke link">
-                <span>
-                  <IconButton
-                    onClick={() => handleRevoke(row.id)}
-                    disabled={revokingId === row.id}
-                    sx={{ color: "text.secondary", "&:hover": { color: "error.main" } }}
-                  >
-                    <BlockIcon />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            )}
-          </Box>
-        );
-      },
-    },
+    kebabColumn((row: any) => [
+      { label: "Open", onClick: () => router.push(`${ROUTES.CUSTOMER_INFORMATION}/${row.id}`) },
+      ...(row.status !== "revoked"
+        ? [
+            {
+              label: "Revoke link",
+              destructive: true,
+              disabled: revokingId === row.id,
+              onClick: () => handleRevoke(row.id),
+            },
+          ]
+        : []),
+    ]),
   ];
 
   return (
     <MainCard>
       <PageTable
+        onRowClick={(r: any) => router.push(`${ROUTES.CUSTOMER_INFORMATION}/${r.id}`)}
         columns={columns}
         data={docs}
         tableName="Customer Information"

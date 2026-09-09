@@ -5,11 +5,9 @@ import { useGetDocumentsPaginated, useDeleteDocument } from "@/app/portal/hooks/
 import { useGetCustomers } from "@/app/portal/hooks/api/useCustomers";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { kebabColumn } from "@/components/RowKebab";
 import type { FilterField } from "@/components/FilterDrawer";
-import { Box, Chip, IconButton, Alert, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button } from "@mui/material";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import DownloadIcon from "@mui/icons-material/Download";
-import DeleteIcon from "@mui/icons-material/Delete";
+import { Box, Chip, Alert, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button } from "@mui/material";
 import { useRouter } from "next/navigation";
 import moment from "moment";
 import { toast } from "react-toastify";
@@ -238,55 +236,19 @@ export default function DocumentsPage() {
         );
       },
     },
-    {
-      accessorKey: "action",
-      header: "Action",
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cell: ({ row }: any) => {
-        const { documentType, templateId, id, status } = row.original;
-        const isDraft = (status || "draft") === "draft";
-
-        const handleDownload = () => {
-          // Open document in view mode in a new tab and auto-trigger print
-          const viewUrl = `/portal/documents/view/${documentType}/${templateId}/${id}?autoprint=true`;
-          window.open(viewUrl, "_blank");
-        };
-
-        return (
-          <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
-            <IconButton
-              onClick={() => router.push(`/portal/documents/${documentType}/${templateId}/${id}`)}
-              sx={{
-              color: "text.secondary",
-              "&:hover": { color: "primary.main" },
-              }}
-            >
-              <VisibilityIcon />
-            </IconButton>
-            <IconButton
-              onClick={handleDownload}
-              sx={{
-              color: "text.secondary",
-              "&:hover": { color: "primary.main" },
-              }}
-            >
-              <DownloadIcon />
-            </IconButton>
-            {isDraft && (
-              <IconButton
-                onClick={() => handleDeleteClick(row.original)}
-                sx={{
-                color: "text.secondary",
-                "&:hover": { color: "error.main" },
-                }}
-              >
-                <DeleteIcon />
-              </IconButton>
-            )}
-          </Box>
-        );
-      },
-    },
+    kebabColumn((doc: any) => {
+      const { documentType, templateId, id, status } = doc;
+      const isDraft = (status || "draft") === "draft";
+      return [
+        { label: "Open", onClick: () => router.push(`/portal/documents/${documentType}/${templateId}/${id}`) },
+        {
+          // Opens the document's print view in a new tab and auto-triggers print
+          label: "Download",
+          onClick: () => window.open(`/portal/documents/view/${documentType}/${templateId}/${id}?autoprint=true`, "_blank"),
+        },
+        ...(isDraft ? [{ label: "Delete", destructive: true, onClick: () => handleDeleteClick(doc) }] : []),
+      ];
+    }),
   ];
 
   const serializeDate = (date: Date | null) => {
@@ -338,6 +300,7 @@ export default function DocumentsPage() {
         </Alert>
       )}
       <PageTable
+        onRowClick={(r: any) => router.push(`/portal/documents/${r.documentType}/${r.templateId}/${r.id}`)}
         columns={columns}
         data={docs}
         tableName="Document List"

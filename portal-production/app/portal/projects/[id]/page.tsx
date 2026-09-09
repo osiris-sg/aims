@@ -950,29 +950,17 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
                   { id: "status", accessorKey: "status", header: "Status", cell: (i: any) => i.getValue() },
                   { id: "amount", accessorKey: "amount", header: "Amount", cell: (i: any) => fmtMoney(i.getValue() ?? 0) },
                   { id: "createdAt", accessorKey: "createdAt", header: "Created", cell: (i: any) => fmtDate(i.getValue()) },
-                  {
-                    id: "actions",
-                    header: "",
-                    cell: ({ row }: { row: any }) => (
-                      <IconButton
-                        size="small"
-                        sx={{ color: "text.secondary", "&:hover": { color: "primary.main" } }}
-                        onClick={() => {
-                          const q = row.original;
-                          const tmpl = q.documentTemplateId ?? quotationTemplateId;
-                          if (!tmpl) {
-                            toast.error("Cannot open quotation: missing template id");
-                            return;
-                          }
-                          router.push(`/portal/documents/QUOTATION/${tmpl}/${q.id}`);
-                        }}
-                      >
-                        <VisibilityIcon fontSize="small" />
-                      </IconButton>
-                    ),
-                  },
                 ]}
                 data={project.quotations ?? []}
+                // Row click opens the quotation (CLAUDE.md table pattern).
+                onRowClick={(q: any) => {
+                  const tmpl = q.documentTemplateId ?? quotationTemplateId;
+                  if (!tmpl) {
+                    toast.error("Cannot open quotation: missing template id");
+                    return;
+                  }
+                  router.push(`/portal/documents/QUOTATION/${tmpl}/${q.id}`);
+                }}
               />
             )}
           </Box>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { sortRows } from "@/components/clientSort";
 
-export function useGetRoles() {
+export function useGetRoles(sorting: { id: string; desc: boolean }[] = []) {
   const { getToken } = useAuth();
   interface Role {
     id: string;
@@ -36,10 +37,12 @@ export function useGetRoles() {
       const token = await getToken();
       if (!token) return;
       
-      // Replace with your API call
+      // Fetch the FULL (searched) role set — the backend paginates with
+      // skip/take but cannot sort, so sorting must happen client-side over
+      // every row; role lists are small, so one big page is fine.
       const queryParams = new URLSearchParams();
-      queryParams.append("page", page.toString());
-      queryParams.append("limit", limit.toString());
+      queryParams.append("page", "1");
+      queryParams.append("limit", "1000");
       queryParams.append("search", search);
       if (filters.createdOn.startDate) {
         queryParams.append("startDate", filters.createdOn.startDate);
@@ -66,10 +69,17 @@ export function useGetRoles() {
 
       // Handle the response from the updated API
       if (data.success !== false) {
-      setRoles({
-          docs: data.data?.roles || [],
-          totalDocuments: data.data?.totalDocuments || 0,
-          totalPagesCount: data.data?.totalPagesCount || 0,
+        // Sort the WHOLE list, then slice the current page so header sorting
+        // reorders across pages (the table is in manualSorting mode).
+        const allRoles: Role[] = data.data?.roles || [];
+        const sorted = sortRows(allRoles, sorting, {
+          // "Permissions Count" column — sort by the count, not the array.
+          permissions: (r: any) => (Array.isArray(r.permissions) ? r.permissions.length : 0),
+        });
+        setRoles({
+          docs: sorted.slice((page - 1) * limit, page * limit),
+          totalDocuments: sorted.length,
+          totalPagesCount: Math.ceil(sorted.length / limit),
         });
       } else {
         throw new Error(data.message || "Failed to fetch roles");
@@ -77,15 +87,18 @@ export function useGetRoles() {
     } catch (error) {
       console.error("Error fetching roles:", error);
       // Use mock data for development
+      const sortedMock = sortRows(mockRoles, sorting, {
+        permissions: (r: any) => (Array.isArray(r.permissions) ? r.permissions.length : 0),
+      });
       setRoles({
-        docs: mockRoles.slice((page - 1) * limit, page * limit),
-        totalDocuments: mockRoles.length,
-        totalPagesCount: Math.ceil(mockRoles.length / limit),
+        docs: sortedMock.slice((page - 1) * limit, page * limit),
+        totalDocuments: sortedMock.length,
+        totalPagesCount: Math.ceil(sortedMock.length / limit),
       });
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, filters]);
+  }, [page, limit, search, filters, sorting]);
 
   // Use fetchRoles in useEffect
   useEffect(() => {

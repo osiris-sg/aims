@@ -11,7 +11,7 @@ import useAddRoleStates from "../hooks/useAddUser";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 
 export default function Users() {
-  const { columns, editUserOpen, selectedUser, handleCloseEditUser, userToDelete, isDeleteInProgress, confirmDeleteUser, cancelDelete } = useUserTableHeader();
+  const { columns, handleEditUser, editUserOpen, selectedUser, handleCloseEditUser, userToDelete, isDeleteInProgress, confirmDeleteUser, cancelDelete } = useUserTableHeader();
 
   const { users, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshUsers } = useGetUsers();
   const { openDrawer, onAddClick, onCloseClick } = useAddRoleStates();
@@ -34,6 +34,7 @@ export default function Users() {
   return (
     <MainCard>
       <PageTable
+        onRowClick={(r: any) => handleEditUser(r)}
         columns={columns}
         data={users.docs || []}
         tableName="Users Management"

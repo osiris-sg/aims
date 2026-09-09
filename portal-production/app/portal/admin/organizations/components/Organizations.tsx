@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import AdminCard from "@/components/AdminCard";
 import PageTable from "@/components/PageTable";
 import AddOrganizationItem from "./AddOrganizationItem";
@@ -13,9 +13,17 @@ import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import { Button } from "@mui/material";
 
 export default function Organizations() {
-  const { columns, editOrganizationOpen, selectedOrganization, handleCloseEditOrganization, organizationToDelete, isDeleteInProgress, confirmDeleteOrganization, cancelDelete } = useOrganizationTableHeader();
+  const { columns, handleViewOrganization, editOrganizationOpen, selectedOrganization, handleCloseEditOrganization, organizationToDelete, isDeleteInProgress, confirmDeleteOrganization, cancelDelete } = useOrganizationTableHeader();
 
-  const { organizations, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshOrganizations } = useGetOrganizations();
+  // Header sorting is applied to the FULL filtered list inside the hook
+  // (before its slice) — the table is in manualSorting mode.
+  const [sorting, setSorting] = useState<{ id: string; desc: boolean }[]>([]);
+  const { organizations, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshOrganizations } = useGetOrganizations(sorting);
+
+  // Sort changes restart at page 1.
+  useEffect(() => {
+    setPage(1);
+  }, [sorting, setPage]);
 
   const { openOrganizationDrawer, onAddOrganizationClick, onCloseOrganizationClick } = useAddOrganizationStates();
 
@@ -36,8 +44,12 @@ export default function Organizations() {
   return (
     <AdminCard>
       <PageTable
+        onRowClick={(r: any) => handleViewOrganization(r.id)}
         data={organizations.docs}
         columns={columns}
+        manualSorting
+        sorting={sorting}
+        onSortingChange={setSorting}
         tableName="Organizations Management (Admin)"
         subTitle="Manage all organizations across the platform"
         loading={loading}

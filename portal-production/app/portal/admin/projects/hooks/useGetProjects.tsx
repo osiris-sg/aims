@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { sortRows } from "@/components/clientSort";
 
 interface Project {
   id: string;
@@ -14,7 +15,7 @@ interface Project {
   [key: string]: any; // Allow for additional properties
 }
 
-export function useGetProjects() {
+export function useGetProjects(sorting: { id: string; desc: boolean }[] = []) {
   const { getToken } = useAuth();
 
   const [projects, setProjects] = useState<{
@@ -70,6 +71,13 @@ export function useGetProjects() {
         filtered = filtered.filter((project: Project) => project.name?.toLowerCase().includes(search.toLowerCase()) || project.organization?.name?.toLowerCase().includes(search.toLowerCase()));
       }
 
+      // Sort the WHOLE filtered list before slicing so header sorting reorders
+      // across pages (the table is in manualSorting mode).
+      filtered = sortRows(filtered, sorting, {
+        // accessor "organization.name" → tanstack column id "organization_name"
+        organization_name: (p: any) => p.organization?.name,
+      });
+
       const totalDocuments = filtered.length;
       const totalPagesCount = Math.ceil(totalDocuments / limit);
       const paginatedProjects = filtered.slice((page - 1) * limit, page * limit);
@@ -84,7 +92,7 @@ export function useGetProjects() {
     } finally {
       setLoading(false);
     }
-  }, [page, limit, search, filters, getToken]);
+  }, [page, limit, search, filters, sorting, getToken]);
 
   useEffect(() => {
     fetchProjects();

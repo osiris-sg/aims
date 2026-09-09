@@ -1,9 +1,8 @@
 import React, { useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
-import { Box, Button, Chip, Typography, IconButton, Avatar } from "@mui/material";
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
+import { Box, Chip, Typography, Avatar } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
+import { kebabColumn } from "@/components/RowKebab";
 import { request } from "@/helpers/request";
 import { useAuth } from "@clerk/nextjs";
 
@@ -142,42 +141,15 @@ export default function useUserTableHeader() {
         return <Typography variant="body2">{new Date(info.getValue()).toLocaleDateString()}</Typography>;
       },
     }),
-    columnHelper.accessor("id", {
-      header: "Actions",
-      cell: (info) => {
-        const user = info.row.original;
-        return (
-          <Box sx={{ display: "flex", gap: 1 }}>
-            <IconButton
-              size="small"
-              onClick={() => handleEditUser(user)}
-              title="Edit user"
-              sx={{
-                color: "text.secondary",
-                "&:hover": { color: "primary.main" },
-              }}
-            >
-              <EditIcon fontSize="small" />
-            </IconButton>
-            <IconButton
-              size="small"
-              onClick={() => handleDeleteUser(info.getValue())}
-              title="Delete user"
-              sx={{
-                color: "text.secondary",
-                "&:hover": { color: "error.main" },
-              }}
-            >
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Box>
-        );
-      },
-    }),
+    kebabColumn((row: any) => [
+      { label: "Edit", onClick: () => handleEditUser(row) },
+      { label: "Delete", destructive: true, onClick: () => handleDeleteUser(row.id) },
+    ]),
   ];
 
   return {
     columns,
+    handleEditUser,
     editUserOpen,
     setEditUserOpen,
     selectedUser,

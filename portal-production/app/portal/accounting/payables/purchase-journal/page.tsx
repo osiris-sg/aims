@@ -8,7 +8,6 @@ import {
   Dialog,
   DialogContent,
   DialogTitle,
-  IconButton,
   ListItemButton,
   ListItemText,
   Paper,
@@ -20,11 +19,6 @@ import {
 } from "@mui/material";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
-import CheckIcon from "@mui/icons-material/Check";
-import ClearIcon from "@mui/icons-material/Clear";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import PaymentIcon from "@mui/icons-material/Payment";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../../_lib/api";
 import { useOrganizationFeatures } from "../../../hooks/useOrganizationFeatures";
@@ -35,6 +29,8 @@ import { expandUploadFiles, UPLOAD_ACCEPT } from "@/helpers/uploadExpand";
 import { Button } from "@mui/material";
 import RecordBillPaymentDialog from "../../bills/_components/RecordBillPaymentDialog";
 import PageTable from "@/components/PageTable";
+import { useClientSort } from "@/components/clientSort";
+import { kebabColumn } from "@/components/RowKebab";
 
 // Purchase Journal (supplier invoices) — lives under the AP path
 // /portal/accounting/payables/purchase-journal (guru 2026-08-01; the old
@@ -162,11 +158,27 @@ export default function BillsPage() {
     );
   }, [visible]);
 
+  // Header sort over the WHOLE filtered list (not just the visible page);
+  // the table is in manualSorting mode. Getters mirror the computed cells.
+  const { sorted, sorting, sortingProps } = useClientSort(visible, {
+    supplier: (b: Bill) => b.supplier?.name || "",
+    outstanding: (b: Bill) =>
+      b.status === "POSTED" || b.status === "PAID"
+        ? Math.max(0, b.totalAmount - (b.amountPaid || 0))
+        : null,
+    status: (b: Bill) =>
+      b.status === "DRAFT" ? "UNCONFIRMED" : b.status === "POSTED" ? "AWAITING PAYMENT" : (b.status || "").replace("_", " "),
+    xeroSyncStatus: (b: any) => (b.xeroBillId ? b.xeroSyncStatus || "SYNCED" : ""),
+    inboundChannel: (b: Bill) => b.inboundChannel || "MANUAL",
+  });
+
+  useEffect(() => { setPage(1); }, [sorting]);
+
   // PageTable expects a page of data, not the whole list — slice manually.
   const pageCount = Math.max(1, Math.ceil(visible.length / limit));
   const paged = useMemo(
-    () => visible.slice((page - 1) * limit, page * limit),
-    [visible, page, limit],
+    () => sorted.slice((page - 1) * limit, page * limit),
+    [sorted, page, limit],
   );
 
   // ---------- Action handlers ----------
@@ -292,44 +304,25 @@ export default function BillsPage() {
         <Box sx={{ fontSize: "0.7rem", color: "text.secondary" }}>{row.original.inboundChannel || "MANUAL"}</Box>
       ),
     },
-    {
-      accessorKey: "actions",
-      header: "Actions",
-      cell: ({ row }: any) => {
-        const b: Bill = row.original;
-        const outstanding = (b.status === "POSTED" || b.status === "PAID")
-          ? Math.max(0, b.totalAmount - (b.amountPaid || 0))
-          : 0;
-        return (
-          <Stack direction="row" gap={0.25} justifyContent="flex-end">
-            {b.status === "DRAFT" && (
-              <Tooltip title="Submit">
-                <IconButton size="small" onClick={() => submitDraft(b)}><CheckIcon fontSize="small" /></IconButton>
-              </Tooltip>
-            )}
-            {b.status === "PENDING_APPROVAL" && (
-              <>
-                <Tooltip title="Approve + Post"><IconButton size="small" sx={{ color: "success.main" }} onClick={() => approve(b)}><CheckIcon fontSize="small" /></IconButton></Tooltip>
-                <Tooltip title="Reject"><IconButton size="small" sx={{ color: "error.main" }} onClick={() => reject(b)}><ClearIcon fontSize="small" /></IconButton></Tooltip>
-              </>
-            )}
-            {(b.status === "POSTED" || b.status === "PAID") && outstanding > 0 && (b as any).kind !== "SPR" && (
-              <Tooltip title="Record payment">
-                <IconButton size="small" sx={{ color: "primary.main" }} onClick={() => { setPayingBill(b); setPaymentOpen(true); }}>
-                  <PaymentIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            )}
-            <Tooltip title="View / edit">
-              <IconButton size="small" onClick={() => { setEditing(b); setEditorOpen(true); }}><VisibilityIcon fontSize="small" /></IconButton>
-            </Tooltip>
-            {b.status !== "VOID" && (
-              <Tooltip title="Void"><IconButton size="small" onClick={() => voidIt(b)}><DeleteOutlineIcon fontSize="small" /></IconButton></Tooltip>
-            )}
-          </Stack>
-        );
-      },
-    },
+    kebabColumn((b: Bill) => {
+      const outstanding = (b.status === "POSTED" || b.status === "PAID")
+        ? Math.max(0, b.totalAmount - (b.amountPaid || 0))
+        : 0;
+      return [
+        { label: "View / edit", onClick: () => { setEditing(b); setEditorOpen(true); } },
+        ...(b.status === "DRAFT" ? [{ label: "Submit", onClick: () => submitDraft(b) }] : []),
+        ...(b.status === "PENDING_APPROVAL"
+          ? [
+              { label: "Approve + Post", onClick: () => approve(b) },
+              { label: "Reject", destructive: true, onClick: () => reject(b) },
+            ]
+          : []),
+        ...((b.status === "POSTED" || b.status === "PAID") && outstanding > 0 && (b as any).kind !== "SPR"
+          ? [{ label: "Record payment", onClick: () => { setPayingBill(b); setPaymentOpen(true); } }]
+          : []),
+        ...(b.status !== "VOID" ? [{ label: "Void", destructive: true, onClick: () => voidIt(b) }] : []),
+      ];
+    }),
   ], [request, isXeroDocSyncEnabled]);
 
   return (
@@ -379,8 +372,10 @@ export default function BillsPage() {
 
       {/* Standard reusable table (same component as Invoices, Inventory, etc.) */}
       <PageTable
+        onRowClick={(b: Bill) => { setEditing(b); setEditorOpen(true); }}
         columns={columns}
         data={paged}
+        {...sortingProps}
         tableName="Purchase Journal"
         subTitle="Supplier invoices (purchase journal) — save posts to GL as unconfirmed; confirm from the Posting Queue"
         buttonName="New Purchase Entry"

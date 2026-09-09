@@ -11,6 +11,7 @@ import { Chat } from "@mui/icons-material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import PageTable from "@/components/PageTable";
+import { useClientSort } from "@/components/clientSort";
 import { useWhatsAppApi } from "../_lib/api";
 
 interface Contact {
@@ -72,7 +73,19 @@ export default function CrmContactsPage() {
     return rows.filter((r) => r.waId.includes(q.replace(/\D/g, "")) || (r.name || "").toLowerCase().includes(q));
   }, [rows, search]);
 
-  const paged = useMemo(() => visible.slice((page - 1) * limit, page * limit), [visible, page, limit]);
+  // Sort the WHOLE filtered list before slicing — the table itself is in
+  // manualSorting mode, so header arrows drive this hook.
+  const { sorted, sorting, sortingProps } = useClientSort(visible, {
+    name: (r: Contact) => r.name || r.waId,
+    agentAutoReply: (r: Contact) => r.agentAutoReply ?? "DEFAULT",
+  });
+
+  // Sort changes restart at page 1 (declared after the hook — TDZ).
+  useEffect(() => {
+    setPage(1);
+  }, [sorting]);
+
+  const paged = useMemo(() => sorted.slice((page - 1) * limit, page * limit), [sorted, page, limit]);
   const pageCount = Math.max(1, Math.ceil(visible.length / limit));
 
   const columns = useMemo(
@@ -163,6 +176,7 @@ export default function CrmContactsPage() {
       <PageTable
         columns={columns}
         data={paged}
+        {...sortingProps}
         tableName="Contacts"
         loading={loading}
         page={page}

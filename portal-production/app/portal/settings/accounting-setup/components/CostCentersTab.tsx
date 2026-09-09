@@ -10,7 +10,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  IconButton,
   Paper,
   Stack,
   Switch,
@@ -21,11 +20,9 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Tooltip,
   Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
-import EditIcon from "@mui/icons-material/Edit";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
@@ -133,20 +130,19 @@ export default function CostCentersTab() {
               <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Parent</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading && (
               <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                   <CircularProgress size={20} />
                 </TableCell>
               </TableRow>
             )}
             {!loading && items.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 4, color: "text.secondary" }}>
+                <TableCell colSpan={5} align="center" sx={{ py: 4, color: "text.secondary" }}>
                   No cost centers yet. Click "New Cost Center" to create the first one.
                 </TableCell>
               </TableRow>
@@ -154,9 +150,14 @@ export default function CostCentersTab() {
             {items.map((cc) => {
               const parent = cc.parentId ? items.find((p) => p.id === cc.parentId) : null;
               return (
-                <TableRow key={cc.id} hover sx={{ opacity: cc.isActive ? 1 : 0.5 }}>
+                <TableRow
+                  key={cc.id}
+                  hover
+                  sx={{ cursor: "pointer", opacity: cc.isActive ? 1 : 0.5 }}
+                  onClick={() => { setEditing(cc); setEditorOpen(true); }}
+                >
                   <TableCell>
-                    <Switch size="small" checked={cc.isActive} onChange={() => toggle(cc)} />
+                    <Switch size="small" checked={cc.isActive} onClick={(e) => e.stopPropagation()} onChange={() => toggle(cc)} />
                   </TableCell>
                   <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{cc.code}</TableCell>
                   <TableCell>{cc.name}</TableCell>
@@ -165,13 +166,6 @@ export default function CostCentersTab() {
                     {parent ? (
                       <Chip size="small" variant="outlined" label={`${parent.code} · ${parent.name}`} sx={{ fontSize: "0.7rem" }} />
                     ) : "—"}
-                  </TableCell>
-                  <TableCell align="right">
-                    <Tooltip title="Edit">
-                      <IconButton size="small" onClick={() => { setEditing(cc); setEditorOpen(true); }}>
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
                   </TableCell>
                 </TableRow>
               );

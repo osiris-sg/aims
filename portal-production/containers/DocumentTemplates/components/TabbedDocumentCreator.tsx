@@ -311,11 +311,21 @@ export default function TabbedDocumentCreator({
   // paid, delivered_*, …) — it is locked to the read-only preview. Named
   // "confirmed" for history; it really means "not unconfirmed" so all
   // downstream lock/preview gates cover those states.
-  const isDocumentConfirmed = !["draft", "unconfirmed"].includes(documentStatus);
+  const isDocumentConfirmedStatus = !["draft", "unconfirmed"].includes(documentStatus);
+  // Edit-after-confirm (guru 2026-09-09): a confirmed document opens as a
+  // READ-ONLY form; the toolbar "Edit" button (behind a warning dialog)
+  // unlocks it. Unlocking flips this effective flag so every downstream
+  // gate (Save, undo/redo, field editability, presence lock) behaves as if
+  // the document were editable again — while the backend stamps each save
+  // as EDITED_AFTER_CONFIRM in the document history.
+  const [confirmedEditUnlocked, setConfirmedEditUnlocked] = useState(false);
+  const [confirmedEditWarningOpen, setConfirmedEditWarningOpen] = useState(false);
+  const isDocumentConfirmed = isDocumentConfirmedStatus && !confirmedEditUnlocked;
+  const confirmedReadOnly = isDocumentConfirmedStatus && !confirmedEditUnlocked;
   const isDocumentEditable = !isDocumentConfirmed && !isTemplateEditMode;
 
-  // Force preview mode for confirmed documents or when initialPreviewMode is set
-  const [previewMode, setPreviewMode] = useState(isDocumentConfirmed || initialPreviewMode);
+  // Confirmed documents now open on the (read-only) edit screen, not preview.
+  const [previewMode, setPreviewMode] = useState(initialPreviewMode);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [confirmPODialogOpen, setConfirmPODialogOpen] = useState(false);
   const [confirmAdjustmentDialogOpen, setConfirmAdjustmentDialogOpen] = useState(false);
@@ -3682,20 +3692,18 @@ export default function TabbedDocumentCreator({
               Ask AI
             </Button>
           )}
-          {!isDocumentConfirmed && (
-            <Button
-              data-tour="editor-preview"
-              size="small"
-              variant={previewMode ? "contained" : "text"}
-              startIcon={previewMode ? <EditIcon /> : <PreviewIcon />}
-              onClick={() => setPreviewMode(!previewMode)}
-              sx={previewMode ? TOOLBAR_BLUE : PREVIEW_LINK_SX}
-            >
-              {previewMode ? "Edit" : "Preview"}
-            </Button>
-          )}
+          <Button
+            data-tour="editor-preview"
+            size="small"
+            variant={previewMode ? "contained" : "text"}
+            startIcon={previewMode ? <EditIcon /> : <PreviewIcon />}
+            onClick={() => setPreviewMode(!previewMode)}
+            sx={previewMode ? TOOLBAR_BLUE : PREVIEW_LINK_SX}
+          >
+            {previewMode ? (isDocumentConfirmedStatus ? "Details" : "Edit") : "Preview"}
+          </Button>
           {/* Receive button for Purchase Orders only (before receiving mode) */}
-          {!isDocumentConfirmed && !isTemplateEditMode && isPurchaseOrder && !isReceiving && (
+          {!isDocumentConfirmedStatus && !isTemplateEditMode && isPurchaseOrder && !isReceiving && (
             <Button
               size="small"
               variant="outlined"
@@ -3707,7 +3715,7 @@ export default function TabbedDocumentCreator({
             </Button>
           )}
           {/* Cancel Receive button for Purchase Orders (in receiving mode) */}
-          {!isDocumentConfirmed && !isTemplateEditMode && isPurchaseOrder && isReceiving && (
+          {!isDocumentConfirmedStatus && !isTemplateEditMode && isPurchaseOrder && isReceiving && (
             <Button
               size="small"
               variant="outlined"
@@ -3719,7 +3727,7 @@ export default function TabbedDocumentCreator({
             </Button>
           )}
           {/* Confirm button for Purchase Orders (after entering received quantities) */}
-          {!isDocumentConfirmed && !isTemplateEditMode && isPurchaseOrder && isReceiving && (
+          {!isDocumentConfirmedStatus && !isTemplateEditMode && isPurchaseOrder && isReceiving && (
             <Button
               size="small"
               variant="contained"
@@ -3731,7 +3739,7 @@ export default function TabbedDocumentCreator({
             </Button>
           )}
           {/* Confirm button for Purchase Returns */}
-          {!isDocumentConfirmed && !isTemplateEditMode && isPurchaseReturn && (
+          {!isDocumentConfirmedStatus && !isTemplateEditMode && isPurchaseReturn && (
             <Button
               size="small"
               variant="contained"
@@ -3743,7 +3751,7 @@ export default function TabbedDocumentCreator({
             </Button>
           )}
           {/* Confirm button for Stock Adjustments */}
-          {!isDocumentConfirmed && !isTemplateEditMode && isStockAdjustment && (
+          {!isDocumentConfirmedStatus && !isTemplateEditMode && isStockAdjustment && (
             <Button
               size="small"
               variant="contained"
@@ -3755,7 +3763,7 @@ export default function TabbedDocumentCreator({
             </Button>
           )}
           {/* Confirm button for Delivery Orders */}
-          {!isDocumentConfirmed && !isTemplateEditMode && isDeliveryOrder && (
+          {!isDocumentConfirmedStatus && !isTemplateEditMode && isDeliveryOrder && (
             <Button
               data-tour="editor-confirm"
               size="small"
@@ -3778,7 +3786,7 @@ export default function TabbedDocumentCreator({
           {/* Confirm split-button for Invoices: primary confirms as always;
               the dropdown adds "Confirm & make recurring", which confirms then
               opens the recurring setup prefilled from this invoice. */}
-          {!isDocumentConfirmed && !isTemplateEditMode && isInvoiceType && (
+          {!isDocumentConfirmedStatus && !isTemplateEditMode && isInvoiceType && (
             <>
               <ButtonGroup size="small" variant="contained">
                 <Button
@@ -3824,7 +3832,7 @@ export default function TabbedDocumentCreator({
           {/* Confirm button for Quotations — only when enableConfirmQuotation is on.
               After confirm saves, a popup asks if the user wants to convert the
               quotation into a PO / DO / Invoice. */}
-          {!isDocumentConfirmed && !isTemplateEditMode && isConfirmQuotationEnabled &&
+          {!isDocumentConfirmedStatus && !isTemplateEditMode && isConfirmQuotationEnabled &&
            (documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" || documentType === "QO2") && (
             <Button
               data-tour="editor-confirm"
@@ -3839,7 +3847,7 @@ export default function TabbedDocumentCreator({
             </Button>
           )}
           {/* Confirm button for non-Purchase Order/Return, non-Quotation, non-Stock Adjustment, non-DO, and non-Invoice documents */}
-          {!isDocumentConfirmed && !isTemplateEditMode && !isPurchaseDocument && !isStockAdjustment && !isDeliveryOrder && !isInvoiceType && !isOfficialReceipt &&
+          {!isDocumentConfirmedStatus && !isTemplateEditMode && !isPurchaseDocument && !isStockAdjustment && !isDeliveryOrder && !isInvoiceType && !isOfficialReceipt &&
            !(documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
             <Button
               size="small"
@@ -3940,24 +3948,35 @@ export default function TabbedDocumentCreator({
               </Button>
             </>
           )}
-          {isDocumentConfirmed && (
+          {isDocumentConfirmedStatus && (
             <Typography
               variant="body2"
               sx={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 0.5,
-                color: 'success.main',
+                color: confirmedEditUnlocked ? 'warning.main' : 'success.main',
                 fontWeight: 500,
-                bgcolor: 'success.lighter',
+                bgcolor: confirmedEditUnlocked ? 'warning.lighter' : 'success.lighter',
                 px: 2,
                 py: 0.5,
                 borderRadius: 1
               }}
             >
               <CheckCircleIcon fontSize="small" />
-              Document Confirmed
+              {confirmedEditUnlocked ? 'Editing confirmed document' : 'Document Confirmed'}
             </Typography>
+          )}
+          {confirmedReadOnly && !isTemplateEditMode && (
+            <Button
+              size="small"
+              variant="outlined"
+              color="warning"
+              startIcon={<EditIcon />}
+              onClick={() => setConfirmedEditWarningOpen(true)}
+            >
+              Edit
+            </Button>
           )}
           {/* ⋮ overflow menu — secondary actions (Xero-style) */}
           <Tooltip title="More actions">
@@ -4040,7 +4059,7 @@ export default function TabbedDocumentCreator({
             )}
             {/* AI posting-preview ("Review") for Invoices — suggests a revenue
                 account per line before confirming. */}
-            {!isDocumentConfirmed && !isTemplateEditMode && isInvoiceType && (
+            {!isDocumentConfirmedStatus && !isTemplateEditMode && isInvoiceType && (
               <MenuItem disabled={invoicePreviewLoading} onClick={() => { closeMoreMenu(); openInvoiceReview(); }}>
                 <ListItemIcon><AutoAwesomeIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Review Posting</ListItemText>
@@ -4128,8 +4147,9 @@ export default function TabbedDocumentCreator({
           </Box>
         )}
 
-        {/* Main Content Area */}
-        {!previewMode && !isDocumentConfirmed ? (
+        {/* Main Content Area — confirmed documents render the SAME form,
+            shielded read-only until the Edit unlock (guru 2026-09-09). */}
+        {!previewMode ? (
           <Box sx={{ flex: 1, overflow: "visible", position: "relative", display: "flex", flexDirection: "column" }}>
             {/* Template Settings Toggle Button */}
             {isTemplateEditMode && (
@@ -4242,7 +4262,7 @@ export default function TabbedDocumentCreator({
           {templateFieldConfig?.tabs.map((tab, index) => (
             <TabPanel key={tab.tabId} value={mainTabValue} index={index}>
               <Card sx={{ flexShrink: 0, maxHeight: isOfficialReceipt ? 420 : 320, display: "flex", flexDirection: "column" }}>
-                <CardContent sx={{ p: 1, flex: 1, overflow: "auto", "&:last-child": { pb: 1 } }}>
+                <CardContent sx={{ p: 1, flex: 1, overflow: "auto", "&:last-child": { pb: 1 }, ...(confirmedReadOnly && { pointerEvents: "none" }) }}>
                   {/* Collapsed state = one-line summary card (Xero-style —
                       guru 2026-09-03): key details + chevron; click expands. */}
                   {isFieldsCollapsed && (
@@ -5128,7 +5148,7 @@ export default function TabbedDocumentCreator({
                     whole page scrolls, Xero-style (guru 2026-09-03). No inner
                     table scrollbar. */}
                 <TabPanel value={itemsTabValue} index={0} grow>
-                  <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 120 }}>
+                  <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 120, ...(confirmedReadOnly && { pointerEvents: "none" }) }}>
                     <Box sx={{ display: "flex", flexDirection: "column" }}>
                       <TableContainer
                         sx={{
@@ -5878,7 +5898,7 @@ export default function TabbedDocumentCreator({
                     {/* Sticky action row at the bottom — Add Item / Add Service
                         sit outside the scroll container so they're always
                         visible without scrolling to the end of the items list. */}
-                    <Box sx={{ pt: 1, pb: 0.5, pl: 1, display: "flex", gap: 1, flexShrink: 0 }}>
+                    <Box sx={{ pt: 1, pb: 0.5, pl: 1, display: confirmedReadOnly ? "none" : "flex", gap: 1, flexShrink: 0 }}>
                       <Button
                         data-tour="editor-add-item"
                         variant="contained"
@@ -6127,7 +6147,7 @@ export default function TabbedDocumentCreator({
 
                 {/* ITEMS FOOTER TAB */}
                 <TabPanel value={itemsTabValue} index={1}>
-                  <Grid container spacing={2} sx={{ height: "100%" }}>
+                  <Grid container spacing={2} sx={{ height: "100%", ...(confirmedReadOnly && { pointerEvents: "none" }) }}>
                     {/* Notes - for all types */}
                     <Grid item xs={12} md={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 12 : 6} sx={{ display: "flex", flexDirection: "column" }}>
                       <Typography variant="caption" sx={{ mb: 0.5, color: "text.secondary" }}>Notes</Typography>
@@ -6971,6 +6991,36 @@ export default function TabbedDocumentCreator({
         onClose={() => setHistoryDrawerOpen(false)}
         documentId={(existingData?.id || documentId || "") as string}
       />
+
+      {/* Edit-after-confirm warning (guru 2026-09-09): unlocking is an
+          explicit, deliberate act — and every subsequent save is recorded in
+          the document history as "Edited after confirm" with the actor. */}
+      <Dialog open={confirmedEditWarningOpen} onClose={() => setConfirmedEditWarningOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Edit confirmed document?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            {formData.documentInfo?.documentNumber || formData.name || "This document"} is already confirmed.
+            Are you sure you want to edit it?
+          </Typography>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            Any changes you save will be recorded in the document&apos;s history as edits made
+            after confirmation, under your name.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmedEditWarningOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={() => {
+              setConfirmedEditWarningOpen(false);
+              setConfirmedEditUnlocked(true);
+            }}
+          >
+            Yes, edit document
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Biofuel DO "Our Ref" quotation picker */}
       <QuotationSelectDialog

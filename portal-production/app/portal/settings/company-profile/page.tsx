@@ -82,6 +82,13 @@ export default function OrganizationSettingsPage() {
   const [activeTab, setActiveTab] = useState<"general" | "bank" | "branding" | "documents" | "docDefaults">("general");
   // PayNow QR (public Click-to-pay page) — stored inside bankDetails JSON.
   const [paynowQrKey, setPaynowQrKey] = useState<string>("");
+  // Additional banks (guru 2026-09-09): extra accounts printed below the
+  // first bank on documents, separated by "OR". Stored as
+  // bankDetails.additionalBanks — same JSON blob, no schema change.
+  const emptyBank = { accountName: "", accountNumber: "", bankName: "", swiftCode: "", branchCode: "", bankCode: "", currencyCode: "SGD" };
+  const [additionalBanks, setAdditionalBanks] = useState<Array<Record<string, string>>>([]);
+  const setBankField = (i: number, key: string, val: string) =>
+    setAdditionalBanks((arr) => arr.map((b, j) => (j === i ? { ...b, [key]: val } : b)));
   const [qrUploading, setQrUploading] = useState(false);
   const qrFileRef = useRef<HTMLInputElement | null>(null);
 
@@ -89,6 +96,11 @@ export default function OrganizationSettingsPage() {
   useEffect(() => {
     reset(defaultValues);
     setPaynowQrKey((organization as any)?.bankDetails?.paynowQrKey || "");
+    setAdditionalBanks(
+      Array.isArray((organization as any)?.bankDetails?.additionalBanks)
+        ? (organization as any).bankDetails.additionalBanks
+        : []
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultValues, reset]);
 
@@ -157,6 +169,10 @@ export default function OrganizationSettingsPage() {
         currencyCode: data.bankCurrencyCode || "SGD",
         // PayNow QR for the public Click-to-pay page.
         paynowQrKey: paynowQrKey || "",
+        // Extra accounts printed with "OR" separators; drop all-empty rows.
+        additionalBanks: additionalBanks.filter((b) =>
+          Object.entries(b).some(([k, v]) => k !== "currencyCode" && String(v || "").trim())
+        ),
       },
     };
 
@@ -308,6 +324,39 @@ export default function OrganizationSettingsPage() {
                 <Box sx={{ flex: 1 }}>
                   <FormInputBox control={control} name="bankCurrencyCode" label="Currency Code" placeHolder="Enter currency" />
                 </Box>
+              </Box>
+
+              {/* Additional banks — printed under the first bank with an "OR"
+                  between each on invoices/documents (guru 2026-09-09). */}
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Additional Banks</Typography>
+                <Typography variant="body2" sx={{ color: "text.secondary", mb: 1 }}>
+                  Extra accounts appear below the first bank on documents, separated by &quot;OR&quot;.
+                </Typography>
+                {additionalBanks.map((b, i) => (
+                  <Box key={i} sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 2, mb: 1.5 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Bank {i + 2}</Typography>
+                      <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => setAdditionalBanks((arr) => arr.filter((_, j) => j !== i))}>
+                        Remove
+                      </Button>
+                    </Box>
+                    <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                      <TextField size="small" fullWidth label="Account Name" value={b.accountName || ""} onChange={(e) => setBankField(i, "accountName", e.target.value)} />
+                      <TextField size="small" fullWidth label="Account Number" value={b.accountNumber || ""} onChange={(e) => setBankField(i, "accountNumber", e.target.value)} />
+                      <TextField size="small" fullWidth label="Bank Name" value={b.bankName || ""} onChange={(e) => setBankField(i, "bankName", e.target.value)} />
+                      <TextField size="small" fullWidth label="SWIFT/BIC Code" value={b.swiftCode || ""} onChange={(e) => setBankField(i, "swiftCode", e.target.value)} />
+                      <Box sx={{ display: "flex", gap: 2 }}>
+                        <TextField size="small" sx={{ flex: 1 }} label="Branch Code" value={b.branchCode || ""} onChange={(e) => setBankField(i, "branchCode", e.target.value)} />
+                        <TextField size="small" sx={{ flex: 1 }} label="Bank Code" value={b.bankCode || ""} onChange={(e) => setBankField(i, "bankCode", e.target.value)} />
+                        <TextField size="small" sx={{ flex: 1 }} label="Currency Code" value={b.currencyCode || ""} onChange={(e) => setBankField(i, "currencyCode", e.target.value)} />
+                      </Box>
+                    </Box>
+                  </Box>
+                ))}
+                <Button variant="outlined" startIcon={<AddIcon />} onClick={() => setAdditionalBanks((arr) => [...arr, { ...emptyBank }])}>
+                  Add another bank
+                </Button>
               </Box>
 
               {/* PayNow QR — shown on the public Click-to-pay page linked from

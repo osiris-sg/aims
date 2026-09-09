@@ -124,6 +124,32 @@ interface FieldDeliveryReport {
   subjectSku?: string | null;
 }
 
+// Org bank block for document footers: primary bank + any
+// bankDetails.additionalBanks, separated by "OR" (guru 2026-09-09).
+// Shared by both footer variants below so they can't drift.
+function OrgBankFooter({ organization }: { organization?: any }) {
+  const primary = organization?.bankDetails;
+  const banks = [primary, ...(Array.isArray(primary?.additionalBanks) ? primary.additionalBanks : [])].filter(
+    (b: any) => b && (b.accountName || b.accountNumber || b.bankName)
+  );
+  if (!banks.length) return <Typography sx={{ fontSize: "0.8125rem" }}>&nbsp;</Typography>;
+  return (
+    <Box sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }}>
+      {banks.map((bank: any, i: number) => (
+        <React.Fragment key={i}>
+          {i > 0 && <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, my: 0.5 }}>OR</Typography>}
+          {bank.accountName && <Typography sx={{ fontSize: "0.8125rem" }}>All Cheque should be crossed and made payable to: {bank.accountName}</Typography>}
+          {bank.bankName && <Typography sx={{ fontSize: "0.8125rem" }}>By Bank Transfer: {bank.bankName}</Typography>}
+          {bank.branchCode && <Typography sx={{ fontSize: "0.8125rem" }}>Branch: {bank.branchCode}</Typography>}
+          {(bank.bankCode || bank.swiftCode) && <Typography sx={{ fontSize: "0.8125rem" }}>Bank Branch No.: {bank.bankCode || ""}{bank.swiftCode ? ` Swift Code: ${bank.swiftCode}` : ""}</Typography>}
+          {bank.accountNumber && <Typography sx={{ fontSize: "0.8125rem" }}>Bank Account No.: {bank.accountNumber}</Typography>}
+        </React.Fragment>
+      ))}
+      {organization?.registrationNumber && <Typography sx={{ fontSize: "0.8125rem" }}>PayNow to UEN: {organization.registrationNumber}</Typography>}
+    </Box>
+  );
+}
+
 interface CleanDocumentPreviewProps {
   documentType: "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "INVOICE" | string;
   data: any;
@@ -1856,25 +1882,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
           {/* Left - Bank Details from Organization */}
           <Box sx={{ flex: 1, maxWidth: "55%" }}>
-            {(() => {
-              const bank = organization?.bankDetails;
-              const hasBank = bank && (bank.accountName || bank.accountNumber || bank.bankName);
-              return (
-                <>
-                  {hasBank && (
-                    <Box sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }}>
-                      {bank.accountName && <Typography sx={{ fontSize: "0.8125rem" }}>All Cheque should be crossed and made payable to: {bank.accountName}</Typography>}
-                      {bank.bankName && <Typography sx={{ fontSize: "0.8125rem" }}>By Bank Transfer: {bank.bankName}</Typography>}
-                      {bank.branchCode && <Typography sx={{ fontSize: "0.8125rem" }}>Branch: {bank.branchCode}</Typography>}
-                      {(bank.bankCode || bank.swiftCode) && <Typography sx={{ fontSize: "0.8125rem" }}>Bank Branch No.: {bank.bankCode || ""}{bank.swiftCode ? ` Swift Code: ${bank.swiftCode}` : ""}</Typography>}
-                      {bank.accountNumber && <Typography sx={{ fontSize: "0.8125rem" }}>Bank Account No.: {bank.accountNumber}</Typography>}
-                      {organization?.registrationNumber && <Typography sx={{ fontSize: "0.8125rem" }}>PayNow to UEN: {organization.registrationNumber}</Typography>}
-                    </Box>
-                  )}
-                  {!hasBank && <Typography sx={{ fontSize: "0.8125rem" }}>&nbsp;</Typography>}
-                </>
-              );
-            })()}
+            <OrgBankFooter organization={organization} />
           </Box>
 
           {/* Center - PayNow QR */}
@@ -3164,25 +3172,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
             {/* Left - Bank Details from Organization */}
             <Box sx={{ flex: 1, maxWidth: "55%" }}>
-              {(() => {
-                const bank = organization?.bankDetails;
-                const hasBank = bank && (bank.accountName || bank.accountNumber || bank.bankName);
-                return (
-                  <>
-                    {hasBank && (
-                      <Box sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }}>
-                        {bank.accountName && <Typography sx={{ fontSize: "0.8125rem" }}>All Cheque should be crossed and made payable to: {bank.accountName}</Typography>}
-                        {bank.bankName && <Typography sx={{ fontSize: "0.8125rem" }}>By Bank Transfer: {bank.bankName}</Typography>}
-                        {bank.branchCode && <Typography sx={{ fontSize: "0.8125rem" }}>Branch: {bank.branchCode}</Typography>}
-                        {(bank.bankCode || bank.swiftCode) && <Typography sx={{ fontSize: "0.8125rem" }}>Bank Branch No.: {bank.bankCode || ""}{bank.swiftCode ? ` Swift Code: ${bank.swiftCode}` : ""}</Typography>}
-                        {bank.accountNumber && <Typography sx={{ fontSize: "0.8125rem" }}>Bank Account No.: {bank.accountNumber}</Typography>}
-                        {organization?.registrationNumber && <Typography sx={{ fontSize: "0.8125rem" }}>PayNow to UEN: {organization.registrationNumber}</Typography>}
-                      </Box>
-                    )}
-                    {!hasBank && <Typography sx={{ fontSize: "0.8125rem" }}>&nbsp;</Typography>}
-                  </>
-                );
-              })()}
+              <OrgBankFooter organization={organization} />
             </Box>
 
             {/* Right - Computer generated notice */}

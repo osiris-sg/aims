@@ -2,12 +2,10 @@
 import React, { useMemo, useState } from "react";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { kebabColumn } from "@/components/RowKebab";
 import type { FilterField } from "@/components/FilterDrawer";
 import { useRouter } from "next/navigation";
-import { Avatar, IconButton, Typography, Box, ToggleButton, ToggleButtonGroup } from "@mui/material";
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import ModeEditIcon from "@mui/icons-material/ModeEdit";
-import DeleteIcon from "@mui/icons-material/Delete";
+import { Avatar, Typography, Box, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import DeleteItemDialog from "@/components/DeleteItemDialog";
 import { useGetAssets, useDeleteAsset, useGetCategories } from "@/app/portal/hooks/api";
 import { ROUTES } from "@/routes";
@@ -122,45 +120,19 @@ export default function AssetsPage() {
         );
       },
     },
-    {
-      accessorKey: "action",
-      header: "Action",
-      cell: ({ row }: any) => (
-        <Box sx={{ display: "flex", gap: "var(--default-gap)" }}>
-          <IconButton
-            onClick={() => router.push(`${ROUTES.ASSETS}/${row.original.skuKey}`)}
-            sx={{
-              color: "text.secondary",
-              "&:hover": { color: "primary.main" },
-            }}
-          >
-            <VisibilityIcon />
-          </IconButton>
-          <IconButton
-            onClick={() => router.push(`${ROUTES.ADD_ASSET}?id=${row.original.id}`)}
-            sx={{
-              color: "text.secondary",
-              "&:hover": { color: "info.main" },
-            }}
-          >
-            <ModeEditIcon />
-          </IconButton>
-          <IconButton
-            onClick={() => {
-              setDeleteName(row.original.name);
-              setAssetToDelete(row.original.id);
-              setConfirmOpen(true);
-            }}
-            sx={{
-              color: "text.secondary",
-              "&:hover": { color: "error.main" },
-            }}
-          >
-            <DeleteIcon />
-          </IconButton>
-        </Box>
-      ),
-    },
+    kebabColumn((row: any) => [
+      { label: "Open", onClick: () => router.push(`${ROUTES.ASSETS}/${row.skuKey}`) },
+      { label: "Edit", onClick: () => router.push(`${ROUTES.ADD_ASSET}?id=${row.id}`) },
+      {
+        label: "Delete",
+        destructive: true,
+        onClick: () => {
+          setDeleteName(row.name);
+          setAssetToDelete(row.id);
+          setConfirmOpen(true);
+        },
+      },
+    ]),
   ];
 
   // Combine all columns
@@ -200,6 +172,7 @@ export default function AssetsPage() {
 
       {viewMode === "table" ? (
         <PageTable
+          onRowClick={(r: any) => router.push(`${ROUTES.ASSETS}/${r.skuKey}`)}
           loading={isLoading}
           columns={columns}
           data={filteredAssets}

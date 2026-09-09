@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import MainCard from "@/components/MainCard";
 import useRoleTableHeader from "../hooks/useRoleTableHeader";
 import PageTable from "@/components/PageTable";
@@ -11,8 +11,16 @@ import EditRole from "./EditRole";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 
 export default function Permissions() {
-  const { columns, editRoleOpen, selectedRole, handleCloseEditRole, roleToDelete, isDeleteInProgress, confirmDeleteRole, cancelDelete } = useRoleTableHeader();
-  const { roles, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshRoles } = useGetRoles();
+  const { columns, handleEditRole, editRoleOpen, selectedRole, handleCloseEditRole, roleToDelete, isDeleteInProgress, confirmDeleteRole, cancelDelete } = useRoleTableHeader();
+  // Header sorting is applied to the FULL list inside the hook (before its
+  // slice) — the table is in manualSorting mode.
+  const [sorting, setSorting] = useState<{ id: string; desc: boolean }[]>([]);
+  const { roles, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshRoles } = useGetRoles(sorting);
+
+  // Sort changes restart at page 1.
+  useEffect(() => {
+    setPage(1);
+  }, [sorting, setPage]);
   const { openDrawer, onAddClick, onCloseClick } = useAddRoleStates();
 
   const handleRoleUpdated = () => {
@@ -32,8 +40,12 @@ export default function Permissions() {
   return (
     <MainCard>
       <PageTable
+        onRowClick={(r: any) => handleEditRole(r)}
         columns={columns}
         data={roles.docs}
+        manualSorting
+        sorting={sorting}
+        onSortingChange={setSorting}
         tableName="Role Management"
         subTitle="Assign and manage roles and permissions"
         buttonName="Create Role"
