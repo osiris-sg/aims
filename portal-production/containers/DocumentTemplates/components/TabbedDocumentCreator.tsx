@@ -58,6 +58,7 @@ import {
   ContentCopy as ContentCopyIcon,
   OpenInNew as OpenInNewIcon,
   History as HistoryIcon,
+  AttachFile as AttachFileIcon,
   Close as CloseIcon,
   Email as EmailIcon,
   Payment as PaymentIcon,
@@ -82,6 +83,7 @@ import {
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import DocumentAssistantDrawer, { ProposalPatch } from "./DocumentAssistantDrawer";
 import DocumentHistoryDrawer from "./DocumentHistoryDrawer";
+import DocumentAttachmentsDialog from "./DocumentAttachmentsDialog";
 import QuotationSelectDialog from "./QuotationSelectDialog";
 import { AutoAwesome as AutoAwesomeIcon } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
@@ -2855,6 +2857,10 @@ export default function TabbedDocumentCreator({
   // Xero-style per-document "History & notes" drawer (⋮ menu).
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
 
+  // Attachments dialog (⋮ menu) — global for every document type
+  // (guru 2026-09-09; same contract as bills' Source Documents).
+  const [attachmentsDialogOpen, setAttachmentsDialogOpen] = useState(false);
+
   // Official Receipt delete (⋮ menu) — server voids the JE, removes the
   // allocation payments and restores invoice statuses (idempotent DELETE).
   const [orDeleteConfirmOpen, setOrDeleteConfirmOpen] = useState(false);
@@ -4041,6 +4047,12 @@ export default function TabbedDocumentCreator({
               <MenuItem onClick={() => { closeMoreMenu(); setStockCardDialogOpen(true); }}>
                 <ListItemIcon><InventoryIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Stock Card</ListItemText>
+              </MenuItem>
+            )}
+            {(existingData?.id || documentId) && (
+              <MenuItem onClick={() => { closeMoreMenu(); setAttachmentsDialogOpen(true); }}>
+                <ListItemIcon><AttachFileIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Attachments</ListItemText>
               </MenuItem>
             )}
             {(existingData?.id || documentId) && (
@@ -6992,6 +7004,13 @@ export default function TabbedDocumentCreator({
         documentId={(existingData?.id || documentId || "") as string}
       />
 
+      {/* Per-document Attachments (⋮ menu) — supporting files on any doc type */}
+      <DocumentAttachmentsDialog
+        open={attachmentsDialogOpen}
+        onClose={() => setAttachmentsDialogOpen(false)}
+        documentId={(existingData?.id || documentId || "") as string}
+      />
+
       {/* Edit-after-confirm warning (guru 2026-09-09): unlocking is an
           explicit, deliberate act — and every subsequent save is recorded in
           the document history as "Edited after confirm" with the actor. */}
@@ -7015,6 +7034,16 @@ export default function TabbedDocumentCreator({
             onClick={() => {
               setConfirmedEditWarningOpen(false);
               setConfirmedEditUnlocked(true);
+              // Stamp the unlock itself into the document history so the
+              // trail shows WHEN the post-confirm editing session started and
+              // by whom — not just the saves it produced. Fire-and-forget:
+              // failing to log must not block the unlock the user asked for.
+              const unlockDocId = existingData?.id || documentId;
+              if (unlockDocId) {
+                getToken()
+                  .then((token) => token && request({ path: `/documents/${unlockDocId}/log-edit-unlock`, method: "POST" }, {}, token))
+                  .catch(() => {});
+              }
             }}
           >
             Yes, edit document

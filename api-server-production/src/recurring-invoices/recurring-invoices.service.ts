@@ -169,6 +169,7 @@ export class RecurringInvoicesService {
       await this.updateSlot(t.id, next);
     }
     this.logger.log(`[slots] spliced at position ${newPos}; re-dealt slots ${highestSent + 1}..${next} (frozen: 1..${highestSent})`);
+    await this.syncCurrentMonthDrafts(organizationId);
   }
 
   private async updateSlot(id: string, slot: number) {
@@ -177,7 +178,12 @@ export class RecurringInvoicesService {
     const c: any = t.config || {};
     const num = `BI{YEAR}{MONTH NO}${String(slot).padStart(3, '0')}`;
     if (c.documentNumber === num) return;
-    await this.prisma.recurringInvoiceTemplate.update({ where: { id }, data: { config: { ...c, documentNumber: num } } });
+    // The Jul/Aug-style reference starts with the tokenized number
+    // ("BI{YEAR}{MONTH NO}050 (5th mth …)") — keep it in step with the slot.
+    const bump = (v: any) => (typeof v === 'string' ? v.replace(/^BI\{YEAR\}\{MONTH NO\}\d{3}/, num) : v);
+    const config: any = { ...c, documentNumber: num, reference: bump(c.reference) };
+    if (config.documentInfo?.referenceNo) config.documentInfo = { ...config.documentInfo, referenceNo: bump(config.documentInfo.referenceNo) };
+    await this.prisma.recurringInvoiceTemplate.update({ where: { id }, data: { config } });
   }
 
   async create(organizationId: string, dto: any, userId?: string) {
@@ -248,8 +254,89 @@ export class RecurringInvoicesService {
   }
 
   async remove(organizationId: string, id: string) {
+    const tpl = await this.prisma.recurringInvoiceTemplate.findFirst({ where: { id, organizationId } });
     await this.prisma.recurringInvoiceTemplate.deleteMany({ where: { id, organizationId } });
+    // Deleting a slotted template self-corrects the series (guru 2026-09-09):
+    // remaining templates compact to close the gap, so next month's run mints
+    // gap-free numbers; this month's already-generated UNSENT drafts are
+    // renamed to follow. Sent/authorised invoices are immutable and keep
+    // their numbers. Non-fatal by design — a delete must never fail on this.
+    if (tpl && this.slotOf(tpl.config)) {
+      try {
+        await this.compactSlots(organizationId);
+      } catch (e: any) {
+        this.logger.warn(`[slots] compact after delete failed (non-fatal): ${e?.message || e}`);
+      }
+    }
     return { ok: true };
+  }
+
+  /** Re-deal all reserved slots 1..N in current slot order (future months are
+   *  unminted, so a full compact is always safe), then pull this month's
+   *  generated drafts along where possible. */
+  private async compactSlots(organizationId: string) {
+    const tpls = await this.prisma.recurringInvoiceTemplate.findMany({ where: { organizationId } });
+    const slotted = tpls.filter((t) => this.slotOf(t.config)).sort((a, b) => this.slotOf(a.config)! - this.slotOf(b.config)!);
+    if (!slotted.length) return;
+    let moved = 0;
+    for (let i = 0; i < slotted.length; i++) {
+      if (this.slotOf(slotted[i].config) !== i + 1) {
+        await this.updateSlot(slotted[i].id, i + 1);
+        moved++;
+      }
+    }
+    if (moved) this.logger.log(`[slots] compacted after delete — ${moved} template(s) re-slotted (1..${slotted.length})`);
+    await this.syncCurrentMonthDrafts(organizationId);
+  }
+
+  /** Rename this month's generated, still-unsent drafts to their template's
+   *  current slot number (two-phase to survive swaps). A draft that was sent,
+   *  authorised in Xero, or whose target number is occupied by a document we
+   *  are not renaming (e.g. a kept final invoice of a deleted chain) stays
+   *  untouched — those numbers are pinned. */
+  private async syncCurrentMonthDrafts(organizationId: string) {
+    const now = new Date(Date.now() + 8 * 3600 * 1000); // SGT
+    const prefix = `BI${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+    const tpls = await this.prisma.recurringInvoiceTemplate.findMany({ where: { organizationId } });
+    const renames: { docId: string; from: string; to: string }[] = [];
+    for (const t of tpls) {
+      const slot = this.slotOf(t.config);
+      if (!slot || !t.lastRunDocumentId) continue;
+      const doc = await this.prisma.document.findFirst({ where: { id: t.lastRunDocumentId, organizationId, type: 'INVOICE' } });
+      if (!doc || !doc.name?.startsWith(prefix)) continue; // last run wasn't this month's series
+      const to = `${prefix}${String(slot).padStart(3, '0')}`;
+      if (doc.name === to) continue;
+      const xs = String((doc.config as any)?.xeroStatus || '').toUpperCase();
+      const sent = !['draft', 'unconfirmed'].includes(String(doc.status)) || ['AUTHORISED', 'PAID'].includes(xs) || Boolean((doc.config as any)?.sentAt);
+      if (sent) continue; // immutable
+      renames.push({ docId: doc.id, from: doc.name, to });
+    }
+    if (!renames.length) return;
+    // Drop renames whose target is held by a document outside the rename set.
+    const fromNames = new Set(renames.map((r) => r.from));
+    const targets = renames.map((r) => r.to);
+    const blockers = await this.prisma.document.findMany({
+      where: { organizationId, type: 'INVOICE', name: { in: targets } },
+      select: { name: true },
+    });
+    const blocked = new Set(blockers.map((b) => b.name).filter((n) => !fromNames.has(n!)));
+    const doable = renames.filter((r) => !blocked.has(r.to));
+    for (const r of renames.filter((x) => blocked.has(x.to))) {
+      this.logger.warn(`[slots] draft ${r.from} keeps its number — target ${r.to} is occupied by an unmanaged document`);
+    }
+    // Two-phase rename so swaps inside the set never collide.
+    for (const r of doable) {
+      await this.prisma.document.update({ where: { id: r.docId }, data: { name: `TMP-${r.docId.slice(0, 6)}-${r.to}` } });
+    }
+    for (const r of doable) {
+      const doc = await this.prisma.document.findUnique({ where: { id: r.docId } });
+      const c: any = doc?.config || {};
+      const bump = (v: any) => (typeof v === 'string' ? v.split(r.from).join(r.to) : v);
+      const config: any = { ...c, documentNumber: r.to, reference: bump(c.reference) };
+      if (config.documentInfo) config.documentInfo = { ...config.documentInfo, documentNumber: r.to, referenceNo: bump(config.documentInfo.referenceNo) };
+      await this.prisma.document.update({ where: { id: r.docId }, data: { name: r.to, config } });
+      this.logger.log(`[slots] draft renamed ${r.from} → ${r.to}`);
+    }
   }
 
   // ---------- generation ----------

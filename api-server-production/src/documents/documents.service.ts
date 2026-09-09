@@ -152,7 +152,7 @@ export class DocumentsService {
   private logDocumentEvent(opts: {
     documentId: string;
     organizationId: string;
-    action: 'CREATED' | 'EDITED' | 'EDITED_AFTER_CONFIRM' | 'APPROVED' | 'STATUS_CHANGED' | 'NOTE' | 'SENT' | 'EMAIL_FAILED' | 'DELETED';
+    action: 'CREATED' | 'EDITED' | 'EDITED_AFTER_CONFIRM' | 'EDIT_UNLOCKED' | 'APPROVED' | 'STATUS_CHANGED' | 'NOTE' | 'SENT' | 'EMAIL_FAILED' | 'DELETED';
     detail: string;
     documentName?: string;
     actor?: DocumentActor;
@@ -324,6 +324,27 @@ export class DocumentsService {
     });
   }
 
+  // Called by the editor the moment a user unlocks a CONFIRMED document via
+  // the Edit warning dialog — so history shows WHEN the post-confirm editing
+  // session started, not just the saves it later produced. Saves during the
+  // session then log as EDITED_AFTER_CONFIRM, bracketing the whole session.
+  async logEditUnlock(documentId: string, organizationId: string, actor?: DocumentActor) {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, name: true, status: true },
+    });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    await this.logDocumentEvent({
+      documentId,
+      organizationId,
+      action: 'EDIT_UNLOCKED',
+      detail: `Unlocked ${doc.name || 'document'} for editing after confirmation (status: ${doc.status})`,
+      documentName: doc.name || undefined,
+      actor,
+    });
+    return { success: true };
+  }
+
   async addDocumentNote(documentId: string, organizationId: string, actor: DocumentActor, text: string) {
     const doc = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
@@ -341,6 +362,72 @@ export class DocumentsService {
       actor,
     });
     return { success: true };
+  }
+
+  // ── Attachments (global, every document type — guru 2026-09-09) ─────────
+  // Same shape and contract as bills' Source Documents: metadata rows on the
+  // Document.attachments Json column, files themselves in S3. Every add and
+  // remove is stamped into the document's History & notes.
+  async getAttachments(documentId: string, organizationId: string) {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { attachments: true },
+    });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    return (doc.attachments as any[]) || [];
+  }
+
+  async addAttachments(
+    documentId: string,
+    organizationId: string,
+    files: Array<{ fileKey: string; fileName: string; mimeType?: string; label?: string }>,
+    actor: DocumentActor,
+  ) {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, name: true, attachments: true },
+    });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    const existing = (doc.attachments as any[]) || [];
+    const existingKeys = new Set(existing.map((a) => a.fileKey));
+    const stamped = (files || [])
+      .filter((f) => f?.fileKey && !existingKeys.has(f.fileKey))
+      .map((f) => ({ ...f, uploadedAt: new Date().toISOString(), uploadedBy: actor?.id || 'unknown' }));
+    if (stamped.length === 0) return existing;
+    const next = [...existing, ...stamped];
+    await this.prisma.document.update({ where: { id: documentId }, data: { attachments: next as any } });
+    void this.logDocumentEvent({
+      documentId,
+      organizationId,
+      action: 'EDITED',
+      detail: `Attachment${stamped.length === 1 ? '' : 's'} added: ${stamped.map((f) => f.fileName).join(', ')}`,
+      documentName: doc.name,
+      actor,
+    });
+    return next;
+  }
+
+  async removeAttachment(documentId: string, organizationId: string, fileKey: string, actor: DocumentActor) {
+    if (!fileKey) throw new HttpException('fileKey is required', HttpStatus.BAD_REQUEST);
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, name: true, attachments: true },
+    });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    const existing = (doc.attachments as any[]) || [];
+    const removed = existing.find((a) => a.fileKey === fileKey);
+    if (!removed) return existing;
+    const next = existing.filter((a) => a.fileKey !== fileKey);
+    await this.prisma.document.update({ where: { id: documentId }, data: { attachments: next as any } });
+    void this.logDocumentEvent({
+      documentId,
+      organizationId,
+      action: 'EDITED',
+      detail: `Attachment removed: ${removed.fileName || fileKey}`,
+      documentName: doc.name,
+      actor,
+    });
+    return next;
   }
 
   /**
@@ -1760,10 +1847,42 @@ export class DocumentsService {
             newCfg?.customer?.name ?? newCfg?.customerName,
           );
         }
+        // Item-level diffs — for a post-confirm edit these are the changes
+        // that actually move money, so "what did the edit change" must cover
+        // them, not just header fields. Lines are matched by Product Code
+        // (falling back to description); qty/price/description changes,
+        // additions and removals each log a change line.
+        if (Array.isArray(newCfg.items) && Array.isArray(oldCfg.items)) {
+          const label = (it: any, i: number) => it?.itemCode || it?.description || `line ${i + 1}`;
+          const sig = (it: any) => (it?.itemCode ? `c:${it.itemCode}` : `d:${it?.description ?? ''}`);
+          const num = (v: any) => Number(v ?? 0);
+          const remainingOld: any[] = [...oldCfg.items];
+          (newCfg.items as any[]).forEach((ni: any, i: number) => {
+            const idx = remainingOld.findIndex((oi) => sig(oi) === sig(ni));
+            if (idx === -1) {
+              changes.push(`Item "${label(ni, i)}" added (qty ${num(ni.quantity)} @ ${num(ni.unitPrice).toFixed(2)})`);
+              return;
+            }
+            const oi = remainingOld.splice(idx, 1)[0];
+            if (num(oi.quantity) !== num(ni.quantity)) {
+              changes.push(`Item "${label(ni, i)}" quantity changed from ${num(oi.quantity)} to ${num(ni.quantity)}`);
+            }
+            if (num(oi.unitPrice) !== num(ni.unitPrice)) {
+              changes.push(`Item "${label(ni, i)}" unit price changed from ${num(oi.unitPrice).toFixed(2)} to ${num(ni.unitPrice).toFixed(2)}`);
+            }
+            if (oi.itemCode && String(oi.description ?? '') !== String(ni.description ?? '')) {
+              changes.push(`Item "${label(ni, i)}" description changed from "${oi.description ?? ''}" to "${ni.description ?? ''}"`);
+            }
+          });
+          remainingOld.forEach((oi: any, i: number) => {
+            changes.push(`Item "${label(oi, i)}" removed (qty ${num(oi.quantity)} @ ${num(oi.unitPrice).toFixed(2)})`);
+          });
+        }
         const statusChanged = dto.status && dto.status !== existingDocument.status;
         if (statusChanged || changes.length) {
           // Cap entry size — AuditService drops oversized details wholesale.
           const capped = changes.slice(0, 6).map((c) => (c.length > 220 ? `${c.slice(0, 220)}…` : c));
+          if (changes.length > 6) capped.push(`…and ${changes.length - 6} more change(s)`);
           const docName =
             newInfo.documentNumber || updatedDocument.name || existingDocument.name || updatedDocument.id;
           const effectiveActor: DocumentActor = {

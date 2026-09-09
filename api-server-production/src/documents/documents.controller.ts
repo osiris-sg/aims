@@ -298,6 +298,54 @@ export class DocumentsController {
     return await this.documentsService.getDocumentHistory(id, organizationId);
   }
 
+  // Fired by the editor when a user confirms the "edit a confirmed document"
+  // warning — stamps an "Unlocked for editing" entry so history shows when
+  // the post-confirm editing session began (and by whom).
+  @Post(':id/log-edit-unlock')
+  @Permissions('documents:update')
+  async logEditUnlock(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.logEditUnlock(id, organizationId, actorFromReq(req));
+  }
+
+  // ── Attachments (global, every document type — guru 2026-09-09) ────────
+  // Files are uploaded to S3 first (POST /uploads/image, same as bills), then
+  // their metadata is appended here onto Document.attachments.
+  @Get(':id/attachments')
+  @Permissions('documents:read-one')
+  async getDocumentAttachments(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return await this.documentsService.getAttachments(id, organizationId);
+  }
+
+  @Post(':id/attachments')
+  @Permissions('documents:update')
+  async addDocumentAttachments(
+    @Param('id') id: string,
+    @Body() body: { files: Array<{ fileKey: string; fileName: string; mimeType?: string; label?: string }> },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return await this.documentsService.addAttachments(id, organizationId, body?.files || [], actorFromReq(req));
+  }
+
+  @Post(':id/attachments/remove')
+  @Permissions('documents:update')
+  async removeDocumentAttachment(
+    @Param('id') id: string,
+    @Body() body: { fileKey: string },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return await this.documentsService.removeAttachment(id, organizationId, body?.fileKey, actorFromReq(req));
+  }
+
   @Post(':id/notes')
   @Permissions('documents:update')
   async addDocumentNote(

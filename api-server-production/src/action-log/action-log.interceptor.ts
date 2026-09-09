@@ -46,6 +46,10 @@ const VERB_ACTIONS: Record<string, string> = {
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
   revoke: 'REVOKE', activate: 'ACTIVATE', deactivate: 'DEACTIVATE',
   'auto-match': 'MATCH', match: 'MATCH', unmatch: 'UNMATCH', ignore: 'IGNORE',
+  'log-edit-unlock': 'UNLOCK',
+  // Document attachments: POST :id/attachments = ATTACH, :id/attachments/remove = DETACH
+  // (the trailing segment wins, so "remove" must map before generic fallbacks).
+  attachments: 'ATTACH', remove: 'DETACH',
   update: 'UPDATE', create: 'CREATE', delete: 'DELETE',
 };
 
