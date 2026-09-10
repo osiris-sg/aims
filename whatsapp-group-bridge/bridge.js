@@ -177,6 +177,10 @@ if (!ORG_ID || !BRIDGE_TOKEN) {
 }
 
 let lastReplyAt = 0;
+// Pending delayed replies, keyed by chat. The whole point of the delay is to
+// let a human answer first, so a staff message arriving in the meantime must
+// cancel ours — otherwise the PA talks over the advisor minutes later.
+const pendingReplies = new Map();
 
 // SESSION_DIR lets a hosted deploy point the session at a persistent disk so it
 // survives restarts/redeploys (Render worker mounts a disk here). Local default
@@ -617,6 +621,14 @@ client.on('message_create', async (msg) => {
     // for a templated answer (the agent's template gate decides whether to
     // reply at all). Staff messages are only acted on when they summon the PA
     // explicitly or send the intro.
+    // A human answered before our delayed reply fired: drop it. Sending anyway
+    // makes the PA look like it is talking over the advisor.
+    if (isStaff && pendingReplies.has(chatId)) {
+      clearTimeout(pendingReplies.get(chatId));
+      pendingReplies.delete(chatId);
+      console.log('   ⤷ cancelled pending reply: a human answered first');
+    }
+
     // Staff posting a booking: capture it and remind the client later. This is
     // checked before the summon gate because the advisor may just drop the
     // details in without tagging the PA.
@@ -657,7 +669,10 @@ client.on('message_create', async (msg) => {
     const mins = Math.round(delay / 60000);
     console.log(`   ⏲  reply scheduled in ${mins}m${delay === HOLDING_DELAY_MS ? ' (holding)' : ''}: ${reply.slice(0, 60)}…`);
     const group = await groupInfo(msg, chatId);
-    setTimeout(async () => {
+    // Replace any earlier pending reply for this chat — only the latest stands.
+    if (pendingReplies.has(chatId)) clearTimeout(pendingReplies.get(chatId));
+    const timer = setTimeout(async () => {
+      pendingReplies.delete(chatId);
       try {
         await client.sendMessage(chatId, reply);
         lastReplyAt = Date.now();
@@ -669,6 +684,7 @@ client.on('message_create', async (msg) => {
         console.error('   ✖ delayed send failed:', e && e.message ? e.message : e);
       }
     }, delay);
+    pendingReplies.set(chatId, timer);
   } catch (e) {
     console.error('handler error:', e && e.message ? e.message : e);
   }
