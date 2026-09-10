@@ -181,6 +181,9 @@ let lastReplyAt = 0;
 // let a human answer first, so a staff message arriving in the meantime must
 // cancel ours — otherwise the PA talks over the advisor minutes later.
 const pendingReplies = new Map();
+// Drafts waiting on Denzel's OK, keyed by a short code he replies with.
+// In-memory: a restart drops them, and the draft still sits in CRM > Suggestions.
+const pendingApprovals = new Map();
 
 // SESSION_DIR lets a hosted deploy point the session at a persistent disk so it
 // survives restarts/redeploys (Render worker mounts a disk here). Local default
@@ -590,9 +593,59 @@ async function notifyDenzel(group, clientMsg, reply) {
   );
 }
 
+/**
+ * Denzel replying "ok <code>" / "no <code>" to a held draft. Anything else in a
+ * DM is ignored: this bridge is only ever meant to act inside groups.
+ */
+async function handleApprovalReply(msg, chatId) {
+  const senderDigits = String(msg.author || msg.from || '').replace(/\D/g, '');
+  const isStaffDm =
+    !!msg.fromMe || DENZEL_NUMBERS.some((n) => senderDigits.endsWith(n.slice(-8))) ||
+    STAFF_NUMBERS.some((n) => n && senderDigits.endsWith(n.slice(-8)));
+  if (!isStaffDm) return;
+
+  const m = String(msg.body || '').trim().match(/^(ok|yes|send|no|drop|skip)\s+([a-z0-9]{4,8})$/i);
+  if (!m) return;
+  const approve = /^(ok|yes|send)$/i.test(m[1]);
+  const code = m[2].toLowerCase();
+  const held = pendingApprovals.get(code);
+  if (!held) {
+    await client.sendMessage(chatId, `I can't find draft ${code} any more. It may have expired or already been handled.`);
+    return;
+  }
+
+  try {
+    if (approve) {
+      const res = await callBridgeApi(`/whatsapp/group-approval/${held.id}/approve`, {
+        body: { organizationId: ORG_ID },
+      });
+      await client.sendMessage(res.groupId || held.chatId, res.reply || held.draft);
+      await client.sendMessage(chatId, `✅ Sent.`);
+      console.log(`   ✅ approved draft ${code} -> ${held.chatId}`);
+    } else {
+      await callBridgeApi(`/whatsapp/group-approval/${held.id}/dismiss`, { body: { organizationId: ORG_ID } });
+      await client.sendMessage(chatId, `👍 Dropped.`);
+      console.log(`   🗑  dismissed draft ${code}`);
+    }
+  } catch (e) {
+    const err = e && e.message ? e.message : String(e);
+    console.error(`   ✖ approval ${code} failed:`, err);
+    await client.sendMessage(chatId, `Sorry, that didn't go through: ${err}`);
+  }
+  pendingApprovals.delete(code);
+}
+
 client.on('message_create', async (msg) => {
   try {
     const chatId = msg.from;
+
+    // Approval replies arrive as a 1:1 DM from Denzel, so handle them before
+    // the groups-only guard below.
+    if (typeof chatId === 'string' && chatId.endsWith('@c.us')) {
+      await handleApprovalReply(msg, chatId);
+      return;
+    }
+
     if (!(typeof chatId === 'string' && chatId.endsWith('@g.us'))) return; // GROUPS ONLY
     if (ALLOWED_GROUPS.length && !ALLOWED_GROUPS.includes(chatId)) return; // only allowlisted groups
     const from = (msg.author || msg.from || '').split('@')[0];
@@ -659,7 +712,25 @@ client.on('message_create', async (msg) => {
       return;
     }
 
-    const { reply, reason } = await askAgent(chatId, from, msg.body);
+    const verdict = await askAgent(chatId, from, msg.body);
+    const { reply, reason } = verdict;
+
+    // Not confident enough to speak for Denzel: send him the draft instead.
+    if (verdict.needsApproval && verdict.draft) {
+      const group = await groupInfo(msg, chatId);
+      const code = String(verdict.approvalId || '').slice(0, 6) || String(Date.now()).slice(-6);
+      pendingApprovals.set(code.toLowerCase(), { id: verdict.approvalId, chatId, draft: verdict.draft });
+      console.log(`   ✋ held for approval [${code}] (match ${(verdict.confidence ?? 0).toFixed(2)})`);
+      await dmDenzel(
+        `✋ Not sure enough to send this one.\n\n` +
+          `Chat: ${group?.name || chatId}\n` +
+          `They said:\n"${String(msg.body || '').slice(0, 200)}"\n\n` +
+          `I'd reply:\n"${verdict.draft}"\n\n` +
+          `Reply  ok ${code}  to send it, or  no ${code}  to drop it.`,
+      );
+      return;
+    }
+
     if (!reply) {
       console.log(`   🤖 no reply (${reason || 'held/empty'})`);
       return;

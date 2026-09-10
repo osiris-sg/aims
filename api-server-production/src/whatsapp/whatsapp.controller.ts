@@ -269,6 +269,32 @@ export class WhatsAppController {
   }
 
   @Public()
+  @Post('group-approval/:id/approve')
+  @ApiOperation({ summary: 'Group bridge: approve a held draft and get the text to post' })
+  async approveGroupDraft(
+    @Req() req: RequestWithOrganization,
+    @Param('id') id: string,
+    @Body() body: { organizationId: string; reply?: string },
+  ) {
+    this.assertBridgeToken(req);
+    if (!body?.organizationId) throw new BadRequestException('organizationId is required');
+    return this.service.approveGroupDraft(body.organizationId, id, body.reply);
+  }
+
+  @Public()
+  @Post('group-approval/:id/dismiss')
+  @ApiOperation({ summary: 'Group bridge: discard a held draft' })
+  async dismissGroupDraft(
+    @Req() req: RequestWithOrganization,
+    @Param('id') id: string,
+    @Body() body: { organizationId: string },
+  ) {
+    this.assertBridgeToken(req);
+    if (!body?.organizationId) throw new BadRequestException('organizationId is required');
+    return this.service.dismissGroupDraft(body.organizationId, id);
+  }
+
+  @Public()
   @Get('group-reminders/due')
   @ApiOperation({ summary: 'Group bridge: appointment reminders now due to post (X-Group-Bridge-Token gated)' })
   async dueGroupReminders(@Req() req: RequestWithOrganization, @Query('organizationId') organizationId: string) {

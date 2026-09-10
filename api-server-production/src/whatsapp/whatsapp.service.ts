@@ -17,6 +17,10 @@ import { OperatorAuthService } from '../operator/operator-auth.service';
 // How often the scheduled-message loop scans for due messages.
 const SCHEDULER_TICK_MS = 60_000;
 
+// A group reply only goes out unattended when the message matched a trained
+// example this closely. Below it, the draft is sent to Denzel to approve.
+const GROUP_AUTOSEND_THRESHOLD = Number(process.env.WHATSAPP_GROUP_AUTOSEND_THRESHOLD) || 0.75;
+
 @Injectable()
 export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WhatsAppService.name);
@@ -943,7 +947,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     if (!config.enabled) return { reply: null, reason: 'agent disabled' };
 
     // Log the inbound group message (counterparty = the group id).
-    await this.prisma.whatsAppMessage
+    const inbound = await this.prisma.whatsAppMessage
       .create({
         data: {
           organizationId,
@@ -956,6 +960,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         },
       })
       .catch(() => null); // dupe key on a redelivered message — ignore
+    const inboundId = inbound?.id;
 
     const history = (
       await this.prisma.whatsAppMessage.findMany({
@@ -973,6 +978,38 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const verdict = await this.agent.draftReply(organizationId, body, history, customerContext);
     if (!verdict.reply) return { reply: null, reason: 'no draft' };
 
+    // How well the message actually matched a trained example is the honest
+    // signal here; the model's own confidence sits at ~0.95 almost regardless.
+    // A weak-but-passing match is where the embarrassing replies come from
+    // (answering "see u later" as if it were an address change), so anything
+    // under the bar is drafted for Denzel to approve rather than sent.
+    const score = verdict.matchScore ?? 0;
+    if (score < GROUP_AUTOSEND_THRESHOLD) {
+      const suggestion = await this.prisma.whatsAppSuggestion
+        .create({
+          data: {
+            organizationId,
+            inboundMessageId: inboundId || `grp-${groupId}-${Date.now()}`,
+            counterparty: groupId,
+            inboundBody: body,
+            suggestedReply: verdict.reply,
+            canAutoSend: false,
+            confidence: score,
+            reason: `match ${score.toFixed(2)} below ${GROUP_AUTOSEND_THRESHOLD} — needs approval`,
+            status: 'PENDING',
+          },
+        })
+        .catch(() => null);
+      this.logger.log(`Group reply held for approval (match ${score.toFixed(2)}) in ${groupId}`);
+      return {
+        reply: null,
+        needsApproval: true,
+        approvalId: suggestion?.id || null,
+        draft: verdict.reply,
+        confidence: score,
+      };
+    }
+
     // Log the outbound optimistically (the bridge sends it right after).
     await this.prisma.whatsAppMessage
       .create({
@@ -988,7 +1025,27 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       })
       .catch(() => null);
 
-    return { reply: verdict.reply, confidence: verdict.confidence };
+    return { reply: verdict.reply, confidence: score };
+  }
+
+  /**
+   * Approve a held group draft: hands the bridge the text to post and closes
+   * the suggestion. Editing is supported so Denzel can fix a draft in place.
+   */
+  async approveGroupDraft(organizationId: string, id: string, edited?: string) {
+    const row = await this.prisma.whatsAppSuggestion.findFirst({ where: { id, organizationId } });
+    if (!row) throw new NotFoundException('Draft not found');
+    if (row.status !== 'PENDING') throw new BadRequestException(`Draft already ${row.status.toLowerCase()}`);
+    const reply = (edited || row.suggestedReply).trim();
+    await this.prisma.whatsAppSuggestion.update({ where: { id }, data: { status: 'SENT' } });
+    return { groupId: row.counterparty, reply };
+  }
+
+  async dismissGroupDraft(organizationId: string, id: string) {
+    const row = await this.prisma.whatsAppSuggestion.findFirst({ where: { id, organizationId } });
+    if (!row) throw new NotFoundException('Draft not found');
+    await this.prisma.whatsAppSuggestion.update({ where: { id }, data: { status: 'DISMISSED' } });
+    return { dismissed: true };
   }
 
   async dryRun(organizationId: string, message: string, counterparty?: string) {
