@@ -2089,7 +2089,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 page cannot be clicked, and an invitation to sign must never
                 appear on the paper copy or in a PDF. */}
             {canSign && (
-              <Typography sx={{ fontSize: "0.75rem", color: "#666", "@media print": { display: "none" } }}>
+              <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "primary.main", "@media print": { display: "none" } }}>
                 — click to sign
               </Typography>
             )}
@@ -2105,12 +2105,34 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             <Box sx={{ flex: 1, display: "flex", alignItems: "flex-end", gap: 2 }}>
               <Box sx={{ flex: 1 }}>
                 <Typography sx={{ fontSize: "0.75rem", color: "#666", mb: 0.75 }}>Signature</Typography>
-                <Box sx={{ border: "1px solid #ccc", backgroundColor: "#fff", height: 68, display: "flex", alignItems: "center", justifyContent: "center", p: 0.5 }}>
-                  {canSign && (
-                    <Typography sx={{ fontSize: "0.8125rem", color: "primary.main", textDecoration: "underline", "@media print": { display: "none" } }}>
-                      Sign here
-                    </Typography>
-                  )}
+                <Box
+                  sx={{
+                    border: "1px solid #ccc",
+                    backgroundColor: "#fff",
+                    height: 68,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    p: 0.5,
+                    // Signable + empty: the box IS the affordance, with no text
+                    // inside it — an empty signature box should look like one.
+                    // Hover is a POINTER-ONLY cue (a touch device never fires
+                    // it), which is why the header keeps its "click to sign"
+                    // hint: that is what carries the affordance on a phone.
+                    ...(canSign
+                      ? {
+                          cursor: "pointer",
+                          borderColor: "primary.main",
+                          transition: "background-color .15s ease, border-color .15s ease",
+                          "&:hover": { backgroundColor: "rgba(25, 118, 210, 0.08)", borderColor: "primary.dark" },
+                          // Print must be untouched: an unsigned DO prints its
+                          // empty box exactly as it always has, with no hint
+                          // that it is clickable anywhere on the sheet.
+                          "@media print": { borderColor: "#ccc", backgroundColor: "#fff", cursor: "auto" },
+                        }
+                      : {}),
+                  }}
+                >
                   {sig?.signature && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={resolvePhotoSrc(sig.signature)} alt="Customer signature" style={{ maxHeight: 60, maxWidth: "100%", objectFit: "contain" }} />

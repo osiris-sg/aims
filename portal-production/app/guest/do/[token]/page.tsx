@@ -408,7 +408,46 @@ export default function PublicDocumentViewPage() {
               <Typography variant="caption" sx={{ color: "text.secondary" }}>
                 Signature
               </Typography>
-              <SignaturePadField ref={padRef} />
+              {/* The pad is styled FROM HERE, not by editing SignaturePadField:
+                  that component is shared with six other pages (the four field
+                  scan flows, the standalone signature page and the guest
+                  delivery page) and its faint dashed border is what they all
+                  render today. These overrides are scoped to this dialog.
+
+                  `& > div` is the component's own wrapper Box; the solid,
+                  higher-contrast border makes the drawing area read as a
+                  distinct field rather than a faint suggestion.
+
+                  The baseline is a SIBLING DOM element laid over the canvas,
+                  NOT drawn into it — so it cannot appear in the captured PNG
+                  (see below). pointerEvents:none keeps it from swallowing
+                  strokes near the line. */}
+              <Box
+                sx={{
+                  position: "relative",
+                  "& > div": {
+                    borderStyle: "solid",
+                    borderWidth: "1px",
+                    borderColor: "text.secondary",
+                  },
+                }}
+              >
+                <SignaturePadField ref={padRef} />
+                {/* Paper-style signature line, inset from the edges and sitting
+                    low in the 200px pad so there is room to sign above it. */}
+                <Box
+                  aria-hidden
+                  sx={{
+                    position: "absolute",
+                    left: 16,
+                    right: 16,
+                    bottom: 52,
+                    borderBottom: "1px solid",
+                    borderColor: "grey.400",
+                    pointerEvents: "none",
+                  }}
+                />
+              </Box>
               <Button size="small" onClick={() => padRef.current?.clear()} disabled={signing} sx={{ mt: 0.5 }}>
                 Clear
               </Button>
