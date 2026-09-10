@@ -5,19 +5,40 @@
  * tokenised URL sees the DO rendered EXACTLY as the portal preview does — the
  * Biofuel replica layout when the org matches, inline proof photos with
  * click-to-zoom, and the same header/footer. There is NO dashboard, nav,
- * sidebar, link elsewhere in the app, or action of any kind: the page only
- * fetches a read-only payload from a GET endpoint and renders it. A revoked or
- * unknown token shows a single neutral message that reveals nothing about
- * whether the token ever existed.
+ * sidebar or link elsewhere in the app. A revoked or unknown token shows a
+ * single neutral message that reveals nothing about whether the token ever
+ * existed.
+ *
+ * The ONE action available here (2026-09) is signing: when the DO carries no
+ * signature the RECEIVED BY box becomes clickable and the customer signs in
+ * place. That posts to a single token-scoped endpoint which writes signature
+ * fields and nothing else — it does not finalise the run, mint a document or
+ * trigger an invoice. Everything else on the page remains read-only.
  */
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { Box, Button, Card, CircularProgress, Container, GlobalStyles, Typography } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CircularProgress,
+  Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  GlobalStyles,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import { useReactToPrint } from "react-to-print";
 import { request } from "@/helpers/request";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
+import SignaturePadField, { type SignaturePadHandle } from "@/components/delivery/SignaturePadField";
 
 // CleanDocumentPreview renders the DO at a fixed A4 Paper width
 // (`width: "210mm"` ≈ 794px @96dpi). On a phone that overflows, so the customer
@@ -117,6 +138,77 @@ export default function PublicDocumentViewPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // ── Signing ──────────────────────────────────────────────────────────────
+  // Local to this page ON PURPOSE: CleanDocumentPreview is shared with the
+  // authenticated portal and must stay a pure renderer that never POSTs. It
+  // raises onSignRequest; the token, the dialog and the write live here.
+  const [signOpen, setSignOpen] = useState(false);
+  const [signName, setSignName] = useState("");
+  // Defaults to today in the BROWSER's timezone. toISOString() would render the
+  // UTC day, which is yesterday for anyone west of Greenwich after 00:00 local.
+  const todayLocal = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+  const [signDate, setSignDate] = useState(todayLocal);
+  const [signing, setSigning] = useState(false);
+  const [signError, setSignError] = useState<string | null>(null);
+  const padRef = useRef<SignaturePadHandle>(null);
+
+  const openSignDialog = useCallback(() => {
+    setSignName("");
+    setSignDate(todayLocal());
+    setSignError(null);
+    setSignOpen(true);
+  }, []);
+
+  const submitSignature = useCallback(async () => {
+    setSignError(null);
+    const name = signName.trim();
+    if (!name) {
+      setSignError("Please enter the name of the person signing.");
+      return;
+    }
+    if (!padRef.current || padRef.current.isEmpty()) {
+      setSignError("Please sign in the box above.");
+      return;
+    }
+    const signature = padRef.current.toDataUrl();
+    setSigning(true);
+    try {
+      const res: any = await request(
+        { path: `/public/document/${token}/sign`, method: "POST" },
+        { name, signature, signedDate: signDate || undefined },
+      );
+      const body = res?.data ?? res;
+      // The shared request helper does NOT throw on an HTTP error — it resolves
+      // to { success: false, message }. Branch on that FIRST, or a 400/429 would
+      // read as a success and the dialog would close on a write that never
+      // happened.
+      if (body?.success === false) {
+        setSignError(body?.message || "Could not save the signature. Please try again.");
+        return;
+      }
+      if (body?.ok === false) {
+        // The backend reports "already signed" rather than succeeding silently,
+        // so surface it and refresh — the box below will render the signature
+        // that beat us to it.
+        setSignError(body?.message || "This delivery order could not be signed.");
+        await load();
+        return;
+      }
+      setSignOpen(false);
+      // Refetch rather than patching local state: the signature the customer now
+      // sees is the one the server stored, read back the same way every other
+      // viewer will read it.
+      await load();
+    } catch (e: any) {
+      setSignError(e?.message || "Could not save the signature. Please try again.");
+    } finally {
+      setSigning(false);
+    }
+  }, [signName, signDate, token, load]);
 
   // Fit-to-width scaling. scrollRef measures the usable viewport width; paperRef
   // is the fixed-A4 render whose natural height we read to RESERVE the scaled
@@ -288,11 +380,60 @@ export default function PublicDocumentViewPage() {
                 organization={view.organization}
                 maintenanceReports={view.maintenanceReports}
                 publicShareToken={token}
+                onSignRequest={openSignDialog}
               />
             </div>
           </Box>
         </Box>
       </Box>
+
+      {/* Signing dialog. Rendered in a portal, so the page's fit-to-width scale
+          transform does not affect it and the pad is full size on a phone. */}
+      <Dialog open={signOpen} onClose={() => !signing && setSignOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Sign this delivery order</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            {signError && <Alert severity="error">{signError}</Alert>}
+            <TextField
+              label="Name"
+              size="small"
+              fullWidth
+              autoFocus
+              value={signName}
+              onChange={(e) => setSignName(e.target.value)}
+              disabled={signing}
+              inputProps={{ maxLength: 120 }}
+            />
+            <Box>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                Signature
+              </Typography>
+              <SignaturePadField ref={padRef} />
+              <Button size="small" onClick={() => padRef.current?.clear()} disabled={signing} sx={{ mt: 0.5 }}>
+                Clear
+              </Button>
+            </Box>
+            <TextField
+              label="Date"
+              type="date"
+              size="small"
+              fullWidth
+              value={signDate}
+              onChange={(e) => setSignDate(e.target.value)}
+              disabled={signing}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setSignOpen(false)} disabled={signing}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={submitSignature} disabled={signing}>
+            {signing ? "Saving…" : "Sign"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

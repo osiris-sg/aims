@@ -55,7 +55,10 @@ const VERB_ACTIONS: Record<string, string> = {
 
 const METHOD_ACTION: Record<string, string> = { GET: 'VIEW', POST: 'CREATE', PUT: 'UPDATE', PATCH: 'UPDATE', DELETE: 'DELETE' };
 
-const SENSITIVE_KEYS = ['password', 'token', 'secret', 'key', 'authorization', 'apikey'];
+// 'signature' joins these because signature payloads are inline base64 data
+// URLs: the summary would otherwise store a meaningless 200-char fragment of a
+// customer's handwritten signature on every field/guest sign.
+const SENSITIVE_KEYS = ['password', 'token', 'secret', 'key', 'authorization', 'apikey', 'signature'];
 
 @Injectable()
 export class ActionLogInterceptor implements NestInterceptor {
@@ -134,7 +137,17 @@ export class ActionLogInterceptor implements NestInterceptor {
     }
     // Token-holding guests on public pages: identify by the token itself.
     const params: any = req.params || {};
-    if (path.startsWith('/public/delivery/') || path.startsWith('/public-pay/')) {
+    if (
+      path.startsWith('/public/delivery/') ||
+      path.startsWith('/public-pay/') ||
+      // The share-link DO surface, matching how /public/delivery/ is already
+      // treated: opens log as a Guest VIEW, and the one write (the customer
+      // signing) logs as a Guest SIGN rather than falling through to "System
+      // creation" — who signed is the whole point of that row.
+      path.startsWith('/public/document/')
+    ) {
+      // params.token FIRST: the path tail is the verb ('sign') on the write
+      // route, so popping the last segment would record the verb as the actor.
       const token = params.token || path.split('/').filter(Boolean).pop() || 'unknown';
       return { actorType: 'GUEST', actorId: `token:${String(token).substring(0, 24)}`, actorName: 'Guest (share link)', channel: 'public' };
     }

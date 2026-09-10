@@ -695,6 +695,12 @@ export class DocumentsService {
               // pingCount: whether this DO_START has a GPS route to link to (the
               // Timeline shows a Route link only when there are pings).
               _count: { select: { locationPings: true } },
+              // serviceData carries signedDateText — the date the SIGNER TYPED,
+              // which can legitimately differ from signedAt (the moment of
+              // capture). Narrowed to that one key below; the rest of the blob
+              // (photo angles, and for a guest signature the IP + user agent)
+              // never leaves this method.
+              serviceData: true,
             },
           },
         },
@@ -733,6 +739,12 @@ export class DocumentsService {
           // Whether this DO_START has a GPS route (the Timeline links to it only
           // when pings were recorded). _count comes from the select above.
           r.pingCount = (r as any)._count?.locationPings ?? 0;
+          // Narrow serviceData to the single render-relevant key, then drop it.
+          // Provenance recorded at signing (IP, user agent) is for a dispute, not
+          // for a template, and must not reach any client.
+          const sd = (r as any).serviceData;
+          r.signedDateText = sd && typeof sd === 'object' ? (sd as any).signedDateText ?? null : null;
+          delete (r as any).serviceData;
         }
       }
 

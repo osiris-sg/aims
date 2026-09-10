@@ -35,6 +35,36 @@ function enforceRateLimit(key: string) {
   }
 }
 
+// A SEPARATE, far tighter bucket for the one WRITE route. 60/min is a READ
+// budget; a signature submit is a once-ever action, so anything past a couple of
+// attempts a minute is either a mistake or someone probing. Same per-process
+// caveat as above.
+const SIGN_RL_WINDOW_MS = 60_000;
+const SIGN_RL_MAX = 5;
+const signRlBuckets = new Map<string, { count: number; resetAt: number }>();
+function enforceSignRateLimit(key: string) {
+  const now = Date.now();
+  const bucket = signRlBuckets.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    signRlBuckets.set(key, { count: 1, resetAt: now + SIGN_RL_WINDOW_MS });
+    return;
+  }
+  if (bucket.count >= SIGN_RL_MAX) {
+    throw new HttpException('Too many attempts. Please wait a minute and try again.', HttpStatus.TOO_MANY_REQUESTS);
+  }
+  bucket.count += 1;
+  if (signRlBuckets.size > 5000) {
+    for (const [k, v] of signRlBuckets) if (v.resetAt <= now) signRlBuckets.delete(k);
+  }
+}
+
+// Signature payload bounds. Stored VERBATIM and rendered in an <img> for
+// everyone who opens the document afterwards, so it is validated on the way in
+// rather than trusted.
+const SIG_PREFIX = 'data:image/png;base64,';
+const SIG_MAX_BYTES = 500_000; // a pad drawing is single-digit KB; this is a sanity ceiling
+const NAME_MAX = 120;
+
 type TokenState = 'ok' | 'revoked' | 'notfound';
 
 /**
@@ -203,6 +233,149 @@ export class PublicDocumentService {
     return { revoked: r.count };
   }
 
+  /** Gate for the ONE write route — far tighter than the read budget. */
+  publicSignRateGate(token: string, ip: string) {
+    enforceSignRateLimit(`${token || 'notoken'}::${ip || 'noip'}`);
+  }
+
+  /**
+   * PUBLIC — the customer signs an UNSIGNED DO from the share link.
+   *
+   * This is the only mutating route behind this token, and it is deliberately
+   * narrow: it writes signature fields on the run's DO_ACK rows and NOTHING
+   * else. It does NOT call finalizeRun — that flips run status, mints the DO and
+   * triggers the invoice, none of which belongs to a customer clicking a link
+   * (and its `status: not completed` guard would skip these rows regardless).
+   *
+   * WRITE-ONCE is enforced by the WHERE clause, not by a read-then-write: the
+   * precondition `signature: null` lives in the same statement as the update, so
+   * two concurrent submits cannot both win. A rowCount of 0 means it was already
+   * signed, and that is reported rather than returned as a silent success.
+   *
+   * NOTHING addressable comes from the body. deliveryId and organizationId are
+   * resolved from the TOKEN, so the endpoint cannot be aimed at another
+   * document by editing the payload.
+   *
+   * `signedAt` is the true moment of signing. The date the customer TYPES is a
+   * separate fact — it may legitimately differ — and goes to
+   * serviceData.signedDateText as an ISO date, formatted at render. Writing it
+   * into signedAt would corrupt the audit trail that records when the signature
+   * was actually captured.
+   *
+   * Provenance (ip, user agent, submitted timestamp) is recorded alongside.
+   * Nothing else in this codebase does that, but this is the one write where the
+   * signer is anonymous and a disputed signature is plausible.
+   */
+  async publicSign(
+    token: string,
+    body: { name?: string; signature?: string; signedDate?: string },
+    meta: { ip: string; userAgent: string },
+  ) {
+    const { link, state } = await this.resolveToken(token);
+    if (!link || state !== 'ok') {
+      // Same opaque refusal the read path gives — never reveal whether a token
+      // existed beyond ok/revoked/notfound.
+      throw new HttpException('This link is no longer available.', HttpStatus.GONE);
+    }
+
+    // ── validate the payload ────────────────────────────────────────────────
+    const name = (body?.name ?? '').trim();
+    if (!name) throw new BadRequestException('Please enter the name of the person signing.');
+    if (name.length > NAME_MAX) throw new BadRequestException('That name is too long.');
+
+    const signature = (body?.signature ?? '').trim();
+    if (!signature) throw new BadRequestException('A signature is required.');
+    if (!signature.startsWith(SIG_PREFIX)) {
+      throw new BadRequestException('The signature must be a PNG data URL.');
+    }
+    const b64 = signature.slice(SIG_PREFIX.length);
+    let decoded: Buffer;
+    try {
+      decoded = Buffer.from(b64, 'base64');
+    } catch {
+      throw new BadRequestException('The signature could not be read.');
+    }
+    // Buffer.from is lenient; re-encoding catches a payload that is not really
+    // base64 rather than storing something that will never render.
+    if (decoded.length === 0 || decoded.toString('base64').replace(/=+$/, '') !== b64.replace(/=+$/, '')) {
+      throw new BadRequestException('The signature could not be read.');
+    }
+    if (decoded.length > SIG_MAX_BYTES) throw new BadRequestException('That signature image is too large.');
+    // PNG magic bytes — the prefix claims PNG, so verify the bytes agree.
+    if (decoded.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') {
+      throw new BadRequestException('The signature must be a PNG image.');
+    }
+
+    // Typed date: stored as an ISO date (YYYY-MM-DD), formatted at render, so a
+    // signer cannot put free text on the document.
+    let signedDateText: string | null = null;
+    if (body?.signedDate) {
+      const d = new Date(body.signedDate);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException('That date could not be read.');
+      signedDateText = d.toISOString().slice(0, 10);
+    }
+
+    // ── resolve the run FROM THE TOKEN ──────────────────────────────────────
+    const item = await this.prisma.deliveryItem.findFirst({
+      where: { documentId: link.documentId },
+      select: { deliveryId: true },
+    });
+    if (!item?.deliveryId) {
+      throw new BadRequestException('This document has no delivery run to sign against.');
+    }
+
+    const now = new Date();
+    const provenance = {
+      signedDateText,
+      signedVia: 'public-share-link',
+      signedIp: meta.ip || null,
+      signedUserAgent: (meta.userAgent || '').slice(0, 400) || null,
+      signedSubmittedAt: now.toISOString(),
+    };
+
+    // ── WRITE-ONCE ──────────────────────────────────────────────────────────
+    // The precondition IS the WHERE clause. status is deliberately absent from
+    // the SET: the run stays exactly as finalized as it already was.
+    const targets = await this.prisma.maintenanceServiceReport.findMany({
+      where: { deliveryId: item.deliveryId, kind: 'DO_ACK', signature: null },
+      select: { id: true, serviceData: true },
+    });
+    if (targets.length === 0) {
+      // Either already signed, or the run has no DO_ACK at all. Say so instead
+      // of returning a success that wrote nothing.
+      const signed = await this.prisma.maintenanceServiceReport.count({
+        where: { deliveryId: item.deliveryId, kind: 'DO_ACK', signature: { not: null } },
+      });
+      return {
+        ok: false,
+        alreadySigned: signed > 0,
+        signedCount: 0,
+        message: signed > 0
+          ? 'This delivery order has already been signed.'
+          : 'This delivery order cannot be signed.',
+      };
+    }
+
+    // serviceData is merged per row so an existing payload (photoAngles etc.)
+    // survives — a blind overwrite would discard it.
+    let signedCount = 0;
+    await this.prisma.$transaction(async (tx) => {
+      for (const t of targets) {
+        const merged = { ...((t.serviceData as Record<string, unknown>) ?? {}), ...provenance };
+        const res = await tx.maintenanceServiceReport.updateMany({
+          where: { id: t.id, signature: null }, // re-asserted at write time
+          data: { signature, signedByName: name, signedAt: now, serviceData: merged },
+        });
+        signedCount += res.count;
+      }
+    });
+
+    if (signedCount === 0) {
+      return { ok: false, alreadySigned: true, signedCount: 0, message: 'This delivery order has already been signed.' };
+    }
+    return { ok: true, alreadySigned: false, signedCount, signedAt: now };
+  }
+
   private async resolveToken(token: string): Promise<{
     link: { documentId: string; organizationId: string } | null;
     state: TokenState;
@@ -287,6 +460,9 @@ export class PublicDocumentService {
         createdAt: r.createdAt,
         subjectAsset: r.subjectAsset ?? null,
         subjectSku: r.subjectSku ?? null,
+        // The date the signer typed (getById already narrowed serviceData down
+        // to this one key — no provenance reaches here to be leaked).
+        signedDateText: r.signedDateText ?? null,
         // pingCount is a plain integer (how many GPS pings this DO_START has). The
         // Timeline uses it to decide whether to offer the "View route" link; the
         // actual coordinates come from the token-scoped route endpoint below.

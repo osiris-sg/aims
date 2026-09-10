@@ -122,6 +122,12 @@ interface FieldDeliveryReport {
   // name + unit sku; either can be null (asset-less proof shows no label).
   subjectAsset?: string | null;
   subjectSku?: string | null;
+  // The date the SIGNER TYPED, ISO (YYYY-MM-DD), when the signature was captured
+  // from the public share link. Distinct from signedAt (the moment of capture) —
+  // a customer signing on Monday may date it the Friday of delivery. Absent on
+  // every signature captured in the field app, which is why the render falls
+  // back to signedAt and existing documents are unchanged.
+  signedDateText?: string | null;
 }
 
 // Org bank block for document footers: primary bank + any
@@ -164,6 +170,11 @@ interface CleanDocumentPreviewProps {
   // does not poll. Absent in the authenticated portal (which keeps the Clerk
   // path). Never used to gate rendering — only to pick the route fetch mode.
   publicShareToken?: string | null;
+  // Set ONLY by the public guest page, alongside publicShareToken. When present
+  // and the DO has no signature yet, the RECEIVED BY box becomes clickable and
+  // this fires. The preview stays a RENDERER: it never POSTs, so the dialog and
+  // the write live on the page that owns the token.
+  onSignRequest?: () => void;
 }
 
 // Resolve an S3 key or a data URL to a renderable img src. Mirrors the helper
@@ -319,7 +330,7 @@ function groupDeliveryLines(raw: any[], isReturn = false): any[] {
   return out;
 }
 
-function CleanDocumentPreviewInner({ documentType, data, organization, maintenanceReports, publicShareToken }: CleanDocumentPreviewProps) {
+function CleanDocumentPreviewInner({ documentType, data, organization, maintenanceReports, publicShareToken, onSignRequest }: CleanDocumentPreviewProps) {
   // DO/RDO Timeline: the route popup opens keyed on the DO_START report id, the
   // same trigger the editor header uses. Screen only.
   const [routeOpen, setRouteOpen] = useState(false);
@@ -2051,17 +2062,42 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
       const install = maintenanceReports?.find((r) => r.kind === "DO_INSTALL") ?? null;
       const sig = ack?.signature ? ack : install?.signature ? install : null;
       const signedName = sig?.signedByName ?? "";
-      const signedDate = sig ? new Date(sig.signedAt ?? sig.createdAt).toLocaleDateString("en-GB") : "";
+      // Date preference: the date the SIGNER TYPED wins, because on a guest
+      // signature that is the date the customer is attesting to. signedAt is the
+      // fallback and createdAt the last resort, so every document signed in the
+      // field app — none of which carries signedDateText — renders EXACTLY as it
+      // did before. Parsed as UTC noon: an ISO date at midnight shifts back a day
+      // in any negative-offset timezone.
+      const signedDate = sig
+        ? sig.signedDateText
+          ? new Date(`${sig.signedDateText}T12:00:00Z`).toLocaleDateString("en-GB")
+          : new Date(sig.signedAt ?? sig.createdAt).toLocaleDateString("en-GB")
+        : "";
+      // The guest may sign only when the token is present (so this is the public
+      // page, never the authenticated portal) AND nothing is signed yet. The
+      // backend re-checks both — this only decides whether to OFFER it.
+      const canSign = Boolean(publicShareToken) && !sig && Boolean(onSignRequest);
       return (
         // mt:4 gives a guaranteed gap between the last Timeline row and the top
         // of this box. It sits after the flex spacer, so on a short page the
         // spacer absorbs it (no extra page height); on a full page it keeps a
         // minimum gap. Footer stays pinned to the bottom. Biofuel replica only.
         <Box sx={{ mt: 4, border: "1px solid #000", pageBreakInside: "avoid", breakInside: "avoid" }}>
-          <Box sx={{ backgroundColor: "#e0e0e0", px: 1.5, py: 0.75, borderBottom: "1px solid #000" }}>
+          <Box sx={{ backgroundColor: "#e0e0e0", px: 1.5, py: 0.75, borderBottom: "1px solid #000", display: "flex", alignItems: "center", gap: 1 }}>
             <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, letterSpacing: "0.5px" }}>RECEIVED BY</Typography>
+            {/* Screen only — the same treatment the Route row gets. A printed
+                page cannot be clicked, and an invitation to sign must never
+                appear on the paper copy or in a PDF. */}
+            {canSign && (
+              <Typography sx={{ fontSize: "0.75rem", color: "#666", "@media print": { display: "none" } }}>
+                — click to sign
+              </Typography>
+            )}
           </Box>
-          <Box sx={{ display: "flex", gap: 2, p: 1.5 }}>
+          <Box
+            onClick={canSign ? onSignRequest : undefined}
+            sx={{ display: "flex", gap: 2, p: 1.5, ...(canSign ? { cursor: "pointer", "&:hover": { backgroundColor: "#fafafa" } } : {}) }}
+          >
             <Box sx={{ width: "38%", flexShrink: 0 }}>
               <Typography sx={{ fontSize: "0.75rem", color: "#666", mb: 0.75 }}>Name</Typography>
               <Typography sx={{ fontSize: "0.875rem", fontWeight: 500 }}>{signedName}</Typography>
@@ -2070,6 +2106,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               <Box sx={{ flex: 1 }}>
                 <Typography sx={{ fontSize: "0.75rem", color: "#666", mb: 0.75 }}>Signature</Typography>
                 <Box sx={{ border: "1px solid #ccc", backgroundColor: "#fff", height: 68, display: "flex", alignItems: "center", justifyContent: "center", p: 0.5 }}>
+                  {canSign && (
+                    <Typography sx={{ fontSize: "0.8125rem", color: "primary.main", textDecoration: "underline", "@media print": { display: "none" } }}>
+                      Sign here
+                    </Typography>
+                  )}
                   {sig?.signature && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={resolvePhotoSrc(sig.signature)} alt="Customer signature" style={{ maxHeight: 60, maxWidth: "100%", objectFit: "contain" }} />
