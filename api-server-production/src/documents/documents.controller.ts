@@ -298,6 +298,19 @@ export class DocumentsController {
     return await this.documentsService.getDocumentHistory(id, organizationId);
   }
 
+  // Bulk PDF download for list-page selections: one id → that PDF, several →
+  // one ZIP; files named "<doc name> - <reference>.pdf". Returns base64 —
+  // the page turns it into a Blob download.
+  @Post('bulk-download')
+  @Permissions('documents:read')
+  async bulkDownload(@Body() body: { ids: string[] }, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.bulkDownloadPdfs(organizationId, body?.ids || []);
+  }
+
   // Fired by the editor when a user confirms the "edit a confirmed document"
   // warning — stamps an "Unlocked for editing" entry so history shows when
   // the post-confirm editing session began (and by whom).

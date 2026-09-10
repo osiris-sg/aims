@@ -19,6 +19,13 @@ interface Props {
   /** Row-click-to-open (CLAUDE.md table pattern): click anywhere on a row
    *  opens the record; in-row controls must stopPropagation. */
   onRowClick?: (row: any) => void;
+  /** Makes each row a REAL browser link (guru 2026-09-11): a stretched
+   *  invisible <a href> overlays the row, so right-click shows Chrome's own
+   *  "Open link in new tab / new window / copy link" menu and middle- or
+   *  cmd-click open a new tab natively. Plain left-clicks still route through
+   *  onRowClick (client-side navigation). Interactive controls inside cells
+   *  (buttons, checkboxes, inputs) are auto-elevated above the overlay. */
+  rowHref?: (row: any) => string;
   height?: string;
   onRowSelect?: (rows: any[]) => void;
   isNoSelectionColumn?: boolean;
@@ -32,7 +39,7 @@ interface Props {
 }
 
 export default function Table(props: Props) {
-  const { data = [], columns = [], subRowAccessor, loading = false, loadingTableRowId = null, onRowSelect, isNoSelectionColumn = false, manualSorting = false, sorting: controlledSorting, onSortingChange: controlledOnSortingChange, onRowClick } = props;
+  const { data = [], columns = [], subRowAccessor, loading = false, loadingTableRowId = null, onRowSelect, isNoSelectionColumn = false, manualSorting = false, sorting: controlledSorting, onSortingChange: controlledOnSortingChange, onRowClick, rowHref } = props;
   const _data = useMemo(() => data, [data]);
 
   // Mobile responsiveness
@@ -250,9 +257,13 @@ export default function Table(props: Props) {
                       height: "auto",
                       minHeight: "40px",
                       ...(onRowClick ? { cursor: "pointer" } : {}),
+                      // Containing block for the stretched row-link overlay.
+                      // (position:relative on <tr> is supported in all modern
+                      // browsers.)
+                      ...(rowHref ? { position: "relative" } : {}),
                     }}
                   >
-                    {row.getVisibleCells().map((cell: any) => {
+                    {row.getVisibleCells().map((cell: any, cellIdx: number) => {
                       // Cells WRAP by default — long values grow the row
                       // instead of silently truncating ("Qingjian Intern…").
                       // Structured columns (dates, amounts, status, actions)
@@ -267,6 +278,21 @@ export default function Table(props: Props) {
                           padding: isMobile ? "8px 10px" : "8px 16px",
                           fontSize: isMobile ? "0.8125rem" : "0.875rem",
                           textAlign: cell.column.columnDef.align || "left",
+                          // Row-link mode: the stretched <a> (zIndex 0) covers
+                          // the whole row, so interactive controls inside
+                          // cells must sit ABOVE it to stay clickable.
+                          ...(rowHref
+                            ? {
+                                // Only component ROOTS — a bare `& input`
+                                // selector also hit the Checkbox's internal
+                                // absolutely-positioned input and broke its
+                                // layout (clipped checkbox, guru 2026-09-11).
+                                "& .MuiButtonBase-root, & .MuiInputBase-root, & a": {
+                                  position: "relative",
+                                  zIndex: 1,
+                                },
+                              }
+                            : {}),
                           ...(cell.column.id === "select"
                             ? {
                                 width: "40px",
@@ -314,6 +340,25 @@ export default function Table(props: Props) {
                               }),
                         }}
                       >
+                        {cellIdx === 0 && rowHref && (
+                          // Stretched row link: real <a> so the browser offers
+                          // its native link context menu (open in new tab /
+                          // window, copy link). Plain left-click is converted
+                          // to the client-side onRowClick navigation; clicks
+                          // with modifier keys fall through to the browser.
+                          <a
+                            href={rowHref(row.original)}
+                            draggable={false}
+                            aria-label="Open record"
+                            onClick={(e: React.MouseEvent) => {
+                              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (onRowClick) onRowClick(row.original);
+                            }}
+                            style={{ position: "absolute", inset: 0, zIndex: 0 }}
+                          />
+                        )}
                         {id === loadingTableRowId ? (
                           <Skeleton variant="text" sx={{ m: "0.5rem 0.3rem" }} />
                         ) : (

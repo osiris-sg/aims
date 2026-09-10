@@ -3,13 +3,15 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
-import { request } from "@/helpers/request";
+import { request, withActiveOrg } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { useClientSort } from "@/components/clientSort";
 import type { FilterField } from "@/components/FilterDrawer";
-import { Box, IconButton, Alert, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
+import { Box, IconButton, Alert, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
+import BulkActionBar from "@/components/BulkActionBar";
 import DeleteIcon from "@mui/icons-material/Delete";
+import DownloadIcon from "@mui/icons-material/Download";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import LinkIcon from "@mui/icons-material/Link";
 import { Tab, Tabs, Chip, alpha, Stack, Typography, Menu, MenuItem } from "@mui/material";
@@ -133,6 +135,7 @@ export default function InvoicesPage() {
   // stranded past the last page of the new (smaller) result set.
   useEffect(() => {
     setPage(1);
+    setSelectedIds(new Set());
   }, [search, filters, arTab, limit]);
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [payDialogInvoice, setPayDialogInvoice] = useState<any>(null);
@@ -140,9 +143,27 @@ export default function InvoicesPage() {
   const [numberingPicker, setNumberingPicker] = useState<{ formats: any[]; data: any; customer?: any; variantId?: string } | null>(null);
 
   // Draft-only delete: invoices in draft status can be removed.
-  const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: any } | null>(null);
+  // The kebab menu anchors to the CLICK POSITION, not the button element —
+  // the table re-renders on selection/menu state changes, which detached the
+  // stored anchorEl and made the menu open at the top-left corner (guru
+  // 2026-09-11).
+  const [rowMenu, setRowMenu] = useState<{ pos: { left: number; top: number }; row: any } | null>(null);
   const [docToDelete, setDocToDelete] = useState<Document | null>(null);
   const deleteDocumentMutation = useDeleteDocument();
+
+  // Row selection for the floating bulk-action bar (CIEL-editor pattern,
+  // guru 2026-09-11). Selection is a Set of doc ids so it survives paging;
+  // it resets whenever the visible list is re-scoped (tab/search/filter).
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const toggleSelected = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const handleDeleteConfirm = async () => {
     if (!docToDelete) return;
     const id = docToDelete.id;
@@ -217,6 +238,52 @@ export default function InvoicesPage() {
   const { connectionStatus, loading: xeroLoading, connectToXero } = useXeroConnection();
 
   const columns = [
+    {
+      // Bulk-select checkboxes (CIEL-editor pattern). The header checkbox
+      // toggles the CURRENT page; row checkboxes stopPropagation so the
+      // row-click still opens the invoice. `sortedDocs` is declared later in
+      // this component — safe: these closures only run while rendering
+      // PageTable, after the whole body has executed.
+      accessorKey: "_select",
+      enableSorting: false,
+      header: () => {
+        const pageRows = sortedDocs.slice((page - 1) * limit, page * limit);
+        const allChecked = pageRows.length > 0 && pageRows.every((r: any) => selectedIds.has(r.id));
+        const someChecked = pageRows.some((r: any) => selectedIds.has(r.id));
+        return (
+          <Checkbox
+            size="small"
+            // p:0 — the fixed 56px cell (minus its 16px side paddings) only
+            // leaves ~24px of content box; any checkbox padding clips it.
+            sx={{ p: 0 }}
+            checked={allChecked}
+            indeterminate={!allChecked && someChecked}
+            onClick={(e) => e.stopPropagation()}
+            onChange={() =>
+              setSelectedIds((prev) => {
+                const next = new Set(prev);
+                if (allChecked) pageRows.forEach((r: any) => next.delete(r.id));
+                else pageRows.forEach((r: any) => next.add(r.id));
+                return next;
+              })
+            }
+          />
+        );
+      },
+      nowrap: true,
+      align: "center",
+      pxWidth: 56,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cell: ({ row }: any) => (
+        <Checkbox
+          size="small"
+          sx={{ p: 0 }}
+          checked={selectedIds.has(row.original.id)}
+          onClick={(e) => e.stopPropagation()}
+          onChange={() => toggleSelected(row.original.id)}
+        />
+      ),
+    },
     {
       accessorKey: "name",
       header: "Document SKU",
@@ -349,7 +416,7 @@ export default function InvoicesPage() {
           aria-label="Row actions"
           onClick={(e: React.MouseEvent<HTMLElement>) => {
             e.stopPropagation();
-            setRowMenu({ anchor: e.currentTarget, row: row.original });
+            setRowMenu({ pos: { left: e.clientX, top: e.clientY }, row: row.original });
           }}
           sx={{ color: "text.secondary" }}
         >
@@ -361,10 +428,16 @@ export default function InvoicesPage() {
 
   // Row-click target — keeps the ?from= so the editor's Back returns here
   // (this list is embedded on both the AR tab and /portal/invoices).
-  const openInvoice = (doc: any) => {
+  const invoiceUrl = (doc: any) => {
     const from = encodeURIComponent(window.location.pathname + window.location.search);
-    router.push(`/portal/documents/${doc.documentType}/${doc.templateId}/${doc.id}?from=${from}`);
+    // withActiveOrg: keeps the admin "viewing as" org when the link is opened
+    // in a NEW tab (sessionStorage override doesn't cross tabs by itself).
+    return withActiveOrg(`/portal/documents/${doc.documentType}/${doc.templateId}/${doc.id}?from=${from}`);
   };
+  const openInvoice = (doc: any) => router.push(invoiceUrl(doc));
+  // Kebab convenience; rows themselves are real links (rowHref below), so
+  // right-click also shows Chrome's native "Open link in new tab" menu.
+  const openInvoiceNewTab = (doc: any) => window.open(invoiceUrl(doc), "_blank", "noopener");
   const downloadInvoice = (doc: any) =>
     window.open(`/portal/documents/view/${doc.documentType}/${doc.templateId}/${doc.id}?autoprint=true`, "_blank");
   const openPayDialogFor = (doc: any) => {
@@ -564,6 +637,82 @@ export default function InvoicesPage() {
   useEffect(() => {
     setPage(1);
   }, [sorting]);
+
+  // Bulk-bar derived state. Delete only applies to unconfirmed/draft
+  // invoices (same rule as the row kebab's "Delete draft") — confirmed rows
+  // stay selected but are skipped, and the bar says so.
+  const selectedDocs = documents.docs.filter((d) => selectedIds.has(d.id));
+  const deletableSelected = selectedDocs.filter((d) => ["draft", "unconfirmed"].includes(d.status || "unconfirmed"));
+  const skippedCount = selectedDocs.length - deletableSelected.length;
+
+  // Bulk PDF download (guru 2026-09-11): one selected invoice downloads its
+  // PDF; several download as one ZIP. Server names each file
+  // "<document name> - <reference>.pdf".
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const handleBulkDownload = async () => {
+    if (selectedDocs.length === 0 || bulkDownloading) return;
+    setBulkDownloading(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Authentication required");
+      const res = await request(
+        // Generating many fresh PDFs (Puppeteer) can exceed the 30s default —
+        // give the batch a longer per-call timeout.
+        { path: "/documents/bulk-download", method: "POST", timeout: 180000 },
+        { ids: selectedDocs.map((d) => d.id) },
+        token
+      );
+      // The API's global CustomResponseInterceptor wraps every body as
+      // { success, data, message } — the real payload sits under data.
+      const payload = res?.data;
+      if (!res?.success || !payload?.base64) throw new Error((!res?.success && res?.message) || "Download failed");
+      const bytes = Uint8Array.from(atob(payload.base64), (ch) => ch.charCodeAt(0));
+      const blob = new Blob([bytes], { type: payload.mime || "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = payload.filename || "invoices.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      if (payload.failed?.length) toast.warn(`${payload.failed.length} document${payload.failed.length === 1 ? "" : "s"} could not be included`);
+    } catch (err: any) {
+      console.error("Bulk download failed:", err);
+      toast.error(err?.message || "Failed to download PDFs");
+    } finally {
+      setBulkDownloading(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = deletableSelected.map((d) => d.id);
+    if (ids.length === 0) return;
+    setBulkDeleting(true);
+    const deleted = new Set<string>();
+    let failed = 0;
+    // Sequential on purpose: each delete also voids the doc's GL entry
+    // server-side; hammering them in parallel risks version conflicts.
+    for (const id of ids) {
+      try {
+        await deleteDocumentMutation.mutateAsync(id);
+        deleted.add(id);
+      } catch (err) {
+        console.error("Bulk delete failed for", id, err);
+        failed += 1;
+      }
+    }
+    setBulkDeleting(false);
+    setBulkDeleteOpen(false);
+    if (deleted.size) toast.success(`Deleted ${deleted.size} invoice${deleted.size === 1 ? "" : "s"}`);
+    if (failed) toast.error(`${failed} invoice${failed === 1 ? "" : "s"} failed to delete`);
+    setDocuments((prev) => ({
+      ...prev,
+      docs: (prev.docs || []).filter((d) => !deleted.has(d.id)),
+      totalDocs: Math.max(0, (prev.totalDocs || 0) - deleted.size),
+    }));
+    setSelectedIds((prev) => new Set(Array.from(prev).filter((id) => !deleted.has(id))));
+  };
 
   const arCounts = (() => {
     let draft = 0,
@@ -812,6 +961,10 @@ export default function InvoicesPage() {
 
       <PageTable
         onRowClick={openInvoice}
+        rowHref={invoiceUrl}
+        // This page renders its own id-keyed checkbox column (survives
+        // paging, feeds the BulkActionBar) — hide Table's built-in one.
+        noSelectionColumn
         columns={columns}
         // PageTable renders `data` as-is — hand it only the CURRENT page's
         // slice, or every filtered row renders at once and the pager does
@@ -856,9 +1009,63 @@ export default function InvoicesPage() {
         }
       />
 
+      {/* Floating bulk-action bar (CIEL-editor pattern) */}
+      <BulkActionBar
+        count={selectedDocs.length}
+        onClear={() => setSelectedIds(new Set())}
+        actions={[
+          {
+            key: "download",
+            label: bulkDownloading ? "Preparing…" : "Download",
+            icon: <DownloadIcon />,
+            disabled: bulkDownloading,
+            tooltip:
+              selectedDocs.length > 1
+                ? "Download the selected invoices' PDFs as one ZIP"
+                : "Download this invoice's PDF",
+            onClick: handleBulkDownload,
+          },
+          {
+            key: "delete",
+            label: skippedCount > 0 && deletableSelected.length > 0 ? `Delete ${deletableSelected.length} unconfirmed` : "Delete",
+            icon: <DeleteIcon />,
+            color: "error",
+            disabled: deletableSelected.length === 0 || bulkDeleting,
+            tooltip:
+              deletableSelected.length === 0
+                ? "Only unconfirmed (draft) invoices can be deleted"
+                : skippedCount > 0
+                ? `${skippedCount} confirmed invoice${skippedCount === 1 ? "" : "s"} in the selection will be skipped`
+                : "Delete the selected unconfirmed invoices",
+            onClick: () => setBulkDeleteOpen(true),
+          },
+        ]}
+      />
+
+      {/* Bulk delete confirm */}
+      <Dialog open={bulkDeleteOpen} onClose={() => !bulkDeleting && setBulkDeleteOpen(false)}>
+        <DialogTitle>Delete {deletableSelected.length} invoice{deletableSelected.length === 1 ? "" : "s"}</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Delete {deletableSelected.length} unconfirmed invoice{deletableSelected.length === 1 ? "" : "s"}? This cannot be undone.
+            {skippedCount > 0 &&
+              ` ${skippedCount} confirmed invoice${skippedCount === 1 ? "" : "s"} in the selection will not be touched.`}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkDeleteOpen(false)} disabled={bulkDeleting}>
+            Cancel
+          </Button>
+          <Button color="error" variant="contained" onClick={handleBulkDelete} disabled={bulkDeleting}>
+            {bulkDeleting ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Row kebab menu (CLAUDE.md table pattern) */}
-      <Menu anchorEl={rowMenu?.anchor ?? null} open={!!rowMenu} onClose={() => setRowMenu(null)}>
+      <Menu anchorReference="anchorPosition" anchorPosition={rowMenu?.pos} open={!!rowMenu} onClose={() => setRowMenu(null)}>
         <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); openInvoice(r); }}>Open</MenuItem>
+        <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); openInvoiceNewTab(r); }}>Open in new tab</MenuItem>
         {rowMenu &&
           !["draft", "unconfirmed"].includes(rowMenu.row.status || "unconfirmed") &&
           arStatusOf(rowMenu.row) !== "paid" && (

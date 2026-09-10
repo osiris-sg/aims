@@ -12,6 +12,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import LinkIcon from "@mui/icons-material/Link";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import CloseIcon from "@mui/icons-material/Close";
+import SpeedIcon from "@mui/icons-material/Speed";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 import { useSearchParams } from "next/navigation";
 import { toast } from "react-toastify";
@@ -144,6 +145,27 @@ export default function RecurringInvoicesView() {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  // Metered chains: dialog where the accountant types ONLY the new month-end
+  // reading — usage and amount are derived server-side (guru 2026-09-09).
+  const [meterFor, setMeterFor] = useState<any>(null);
+  const [meterValue, setMeterValue] = useState<string>("");
+  const [meterSaving, setMeterSaving] = useState(false);
+  const saveMeterReading = async () => {
+    if (!meterFor) return;
+    const reading = parseFloat(meterValue.replace(/,/g, ""));
+    if (!isFinite(reading)) return toast.warn("Enter the meter reading as a number");
+    setMeterSaving(true);
+    try {
+      const res: any = await request(`/recurring-invoices/${meterFor.id}/meter-reading`, { method: "POST", body: JSON.stringify({ reading }) });
+      toast.success(`${res.invoice}: ${res.usage} m³ × $${res.rate} = $${res.amount.toFixed(2)} (total $${res.nettTotal.toFixed(2)})`);
+      setMeterFor(null);
+      load();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to apply reading");
+    } finally {
+      setMeterSaving(false);
+    }
+  };
   // Column sorting — same TableSortLabel mechanism as the shared components/Table.
   const [sortCol, setSortCol] = useState<string>("code");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -464,6 +486,12 @@ export default function RecurringInvoicesView() {
                     <Stack direction="row" alignItems="center" gap={0.75}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>{t.name}</Typography>
                       {!t.isActive && !t.lastRunAt && <Chip size="small" color="warning" variant="outlined" label="DRAFT" />}
+                      {(t.config as any)?.meter && (
+                        <Tooltip title={`Metered billing — enter the ${"month-end"} meter reading each month before confirming`}>
+                          <Chip size="small" color="warning" icon={<SpeedIcon sx={{ fontSize: 14 }} />} label="METER"
+                            onClick={(e) => { e.stopPropagation(); setMeterFor(t); setMeterValue(""); }} />
+                        </Tooltip>
+                      )}
                       {t.projectDeploymentId && (
                         <Tooltip title="Linked to a project deployment — generated invoices appear on its deployment card">
                           <Chip size="small" icon={<LinkIcon sx={{ fontSize: 14 }} />} label="Deployment" variant="outlined" />
@@ -480,6 +508,9 @@ export default function RecurringInvoicesView() {
                     {/* Row click = edit; kebab holds the rest (CLAUDE.md pattern). */}
                     <RowKebab
                       actions={[
+                        ...((t.config as any)?.meter
+                          ? [{ label: "Enter meter reading", disabled: !t.lastRunDocumentId, onClick: () => { setMeterFor(t); setMeterValue(""); } }]
+                          : []),
                         { label: busyId === t.id ? "Generating…" : "Generate now", disabled: busyId === t.id, onClick: () => generateNow(t) },
                         ...(isXeroDocSyncEnabled
                           ? [{ label: "Sync latest to Xero", disabled: syncingId === t.id || !t.lastRunDocumentId, onClick: () => syncToXero(t) }]
@@ -618,6 +649,68 @@ export default function RecurringInvoicesView() {
           <Button variant="outlined" startIcon={<VisibilityIcon />} onClick={() => setPreviewOpen(true)} disabled={saving}>Preview</Button>
           <Button variant="outlined" onClick={() => save(true)} disabled={saving}>Save as draft</Button>
           <Button variant="contained" onClick={() => save(false)} disabled={saving} startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}>{editing ? "Save" : "Create & activate"}</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Meter-reading dialog: the accountant types ONE number (the month-end
+          reading); previous accumulative, usage, and amount are derived. */}
+      <Dialog open={!!meterFor} onClose={() => !meterSaving && setMeterFor(null)} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <SpeedIcon color="warning" /> Meter reading — {custName(meterFor?.customerId || "")}
+        </DialogTitle>
+        <DialogContent>
+          {(() => {
+            const m: any = meterFor?.config?.meter || {};
+            const prev = Number(m.lastReading || 0);
+            const rate = Number(m.rate || 0);
+            const parsed = parseFloat(meterValue.replace(/,/g, ""));
+            const usage = isFinite(parsed) ? +(parsed - prev).toFixed(2) : null;
+            const amount = usage != null && usage >= 0 ? +(usage * rate).toFixed(2) : null;
+            return (
+              <Stack gap={1.5} sx={{ mt: 0.5 }}>
+                {(m.site || m.model || m.serial) && (
+                  <Box sx={{ fontSize: "0.85rem", color: "text.secondary", lineHeight: 1.6 }}>
+                    {m.site && <div>{m.site}</div>}
+                    {m.model && <div>Model: {m.model}</div>}
+                    {m.serial && <div>Meter Reader S/No. {m.serial}</div>}
+                  </Box>
+                )}
+                <TextField size="small" label="Previous accumulative reading" value={`${prev.toLocaleString()} m³`} disabled fullWidth
+                  helperText="Carried automatically from last month's invoice" />
+                <TextField
+                  size="small" fullWidth autoFocus
+                  label="Meter reading at month end (m³)"
+                  placeholder="e.g. 4,896"
+                  value={meterValue}
+                  onChange={(e) => setMeterValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveMeterReading(); }}
+                  sx={{
+                    "& .MuiOutlinedInput-root": {
+                      bgcolor: (th) => (th.palette.mode === "dark" ? "rgba(255,167,38,0.12)" : "rgba(255,167,38,0.10)"),
+                      "& fieldset": { borderColor: "warning.main", borderWidth: 2 },
+                    },
+                    "& .MuiInputLabel-root": { color: "warning.main", fontWeight: 600 },
+                  }}
+                />
+                <Box sx={{ fontSize: "0.9rem", p: 1.25, borderRadius: 1.5, border: 1, borderColor: "divider" }}>
+                  {usage == null ? (
+                    <>Type the reading to see the usage.</>
+                  ) : usage < 0 ? (
+                    <Box component="span" sx={{ color: "error.main" }}>Reading is below the previous accumulative ({prev.toLocaleString()} m³).</Box>
+                  ) : (
+                    <>Usage: <b>{usage.toLocaleString()} m³</b> × ${rate.toFixed(2)} = <b>${(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</b> + GST</>
+                  )}
+                </Box>
+              </Stack>
+            );
+          })()}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMeterFor(null)} disabled={meterSaving}>Cancel</Button>
+          <Button variant="contained" color="warning" onClick={saveMeterReading}
+            disabled={meterSaving || !isFinite(parseFloat(meterValue.replace(/,/g, ""))) || parseFloat(meterValue.replace(/,/g, "")) < Number(meterFor?.config?.meter?.lastReading || 0)}>
+            {meterSaving ? "Applying…" : "Apply to invoice"}
+          </Button>
         </DialogActions>
       </Dialog>
 

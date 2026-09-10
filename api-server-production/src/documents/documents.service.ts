@@ -1,5 +1,6 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import AdmZip = require('adm-zip');
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { isUnconfirmedDoc } from '../common/doc-status';
@@ -5760,6 +5761,88 @@ export class DocumentsService {
       console.error('Failed to get/generate PDF:', error);
       return undefined;
     }
+  }
+
+  // Bulk PDF download for the list pages' selection bar (guru 2026-09-11):
+  // one selected doc → its PDF; several → one ZIP. Each file is named
+  // "<document name> - <reference>.pdf" (reference omitted when blank).
+  // PDFs come from the same getOrGeneratePdfUrl pipeline the email / pay
+  // flows use, so the branded layout and the S3 cache are shared.
+  async bulkDownloadPdfs(organizationId: string, ids: string[]) {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new HttpException('No documents selected', HttpStatus.BAD_REQUEST);
+    }
+    if (ids.length > 50) {
+      throw new HttpException('Too many documents — select at most 50 at a time', HttpStatus.BAD_REQUEST);
+    }
+    const sanitize = (s: string) =>
+      s
+        .replace(/[\\/:*?"<>|]/g, '-')
+        // ASCII-only: adm-zip doesn't set the UTF-8 filename flag, so e.g. an
+        // em-dash in a reference shows as mojibake in some unzip tools.
+        .replace(/[‒-―]/g, '-')
+        .replace(/[‘’]/g, "'")
+        .replace(/[“”]/g, "'")
+        // eslint-disable-next-line no-control-regex
+        .replace(/[^\x20-\x7E]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 140);
+    const files: { name: string; buffer: Buffer }[] = [];
+    const failed: string[] = [];
+    const used = new Set<string>();
+    for (const id of ids) {
+      const doc = await this.prisma.document.findFirst({
+        where: { id, organizationId },
+        select: { id: true, name: true, config: true },
+      });
+      if (!doc) {
+        failed.push(id);
+        continue;
+      }
+      const c: any = doc.config || {};
+      const ref = c.documentInfo?.referenceNo || c.referenceNo || c.documentInfo?.reference || c.reference || c.xeroReference || '';
+      let base = sanitize(`${doc.name || doc.id}${ref ? ` - ${ref}` : ''}`) || doc.id;
+      // Duplicate names (same number+ref twice) would silently overwrite
+      // inside the zip — suffix them.
+      if (used.has(base)) {
+        let n = 2;
+        while (used.has(`${base} (${n})`)) n += 1;
+        base = `${base} (${n})`;
+      }
+      used.add(base);
+      try {
+        const url = await this.getOrGeneratePdfUrl(doc.id, organizationId);
+        if (!url) throw new Error('PDF generation failed');
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`PDF fetch failed (${res.status})`);
+        files.push({ name: `${base}.pdf`, buffer: Buffer.from(await res.arrayBuffer()) });
+      } catch (e) {
+        console.error('[bulk-download] failed for', doc.id, e);
+        failed.push(doc.name || doc.id);
+      }
+    }
+    if (files.length === 0) {
+      throw new HttpException('Could not generate a PDF for any of the selected documents', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+    if (files.length === 1) {
+      return {
+        success: true,
+        filename: files[0].name,
+        mime: 'application/pdf',
+        base64: files[0].buffer.toString('base64'),
+        failed,
+      };
+    }
+    const zip = new AdmZip();
+    for (const f of files) zip.addFile(f.name, f.buffer);
+    return {
+      success: true,
+      filename: `invoices-${moment().format('YYYYMMDD-HHmm')}.zip`,
+      mime: 'application/zip',
+      base64: zip.toBuffer().toString('base64'),
+      failed,
+    };
   }
 
   // Mint (once) the unguessable public-pay token stored on the document.

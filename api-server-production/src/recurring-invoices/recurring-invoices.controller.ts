@@ -52,6 +52,14 @@ export class RecurringInvoicesController {
     return this.service.remove(orgId(req), id);
   }
 
+  // Metered chains: apply the month-end meter reading to the latest generated
+  // draft (usage/amount derived server-side) and roll the meter forward.
+  @Post(':id/meter-reading')
+  @Permissions('accounting:update')
+  setMeterReading(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: { reading: number }) {
+    return this.service.setMeterReading(orgId(req), id, Number(body?.reading));
+  }
+
   // Lazy scheduler — the Finance Hub / recurring page calls this on load.
   @Post('run-due')
   @Permissions('documents:read')

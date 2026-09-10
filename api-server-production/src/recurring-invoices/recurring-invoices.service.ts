@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma.service';
 import { DocumentsService } from '../documents/documents.service';
@@ -331,19 +331,77 @@ export class RecurringInvoicesService {
     for (const r of renames.filter((x) => blocked.has(x.to))) {
       this.logger.warn(`[slots] draft ${r.from} keeps its number — target ${r.to} is occupied by an unmanaged document`);
     }
-    // Two-phase rename so swaps inside the set never collide.
-    for (const r of doable) {
-      await this.prisma.document.update({ where: { id: r.docId }, data: { name: `TMP-${r.docId.slice(0, 6)}-${r.to}` } });
+    // Two-phase rename so swaps inside the set never collide — inside ONE
+    // transaction, so a crash/redeploy mid-loop can't strand documents on
+    // their TMP names (bit us on 2026-09-09: 29 drafts left as TMP-*).
+    const docsById = new Map(
+      (await this.prisma.document.findMany({ where: { id: { in: doable.map((r) => r.docId) } } })).map((d) => [d.id, d]),
+    );
+    await this.prisma.$transaction([
+      ...doable.map((r) => this.prisma.document.update({ where: { id: r.docId }, data: { name: `TMP-${r.docId.slice(0, 6)}-${r.to}` } })),
+      ...doable.map((r) => {
+        const c: any = docsById.get(r.docId)?.config || {};
+        const bump = (v: any) => (typeof v === 'string' ? v.split(r.from).join(r.to) : v);
+        const config: any = { ...c, documentNumber: r.to, reference: bump(c.reference) };
+        if (config.documentInfo) config.documentInfo = { ...config.documentInfo, documentNumber: r.to, referenceNo: bump(config.documentInfo.referenceNo) };
+        return this.prisma.document.update({ where: { id: r.docId }, data: { name: r.to, config } });
+      }),
+    ]);
+    for (const r of doable) this.logger.log(`[slots] draft renamed ${r.from} → ${r.to}`);
+  }
+
+  /** Metered chains: apply the month-end meter reading to the latest generated
+   *  draft — usage = reading − previous accumulative, amount = usage × rate —
+   *  and roll the template's meter state forward for next month's generation.
+   *  The accountant types ONE number; everything else is derived (guru
+   *  2026-09-09). */
+  async setMeterReading(organizationId: string, id: string, reading: number) {
+    const template = await this.findOne(organizationId, id);
+    const meter: any = (template.config as any)?.meter;
+    if (!meter) throw new HttpException('This schedule is not metered', HttpStatus.BAD_REQUEST);
+    if (!template.lastRunDocumentId) throw new HttpException('No generated invoice yet — run the schedule first', HttpStatus.BAD_REQUEST);
+    const doc = await this.prisma.document.findFirst({ where: { id: template.lastRunDocumentId, organizationId, type: 'INVOICE' } });
+    if (!doc) throw new HttpException('Generated invoice not found', HttpStatus.NOT_FOUND);
+    const dc: any = doc.config || {};
+    const xs = String(dc.xeroStatus || '').toUpperCase();
+    if (!['draft', 'unconfirmed'].includes(String(doc.status)) || ['AUTHORISED', 'PAID'].includes(xs)) {
+      throw new HttpException(`${doc.name} is already confirmed/sent — the reading can no longer be applied`, HttpStatus.BAD_REQUEST);
     }
-    for (const r of doable) {
-      const doc = await this.prisma.document.findUnique({ where: { id: r.docId } });
-      const c: any = doc?.config || {};
-      const bump = (v: any) => (typeof v === 'string' ? v.split(r.from).join(r.to) : v);
-      const config: any = { ...c, documentNumber: r.to, reference: bump(c.reference) };
-      if (config.documentInfo) config.documentInfo = { ...config.documentInfo, documentNumber: r.to, referenceNo: bump(config.documentInfo.referenceNo) };
-      await this.prisma.document.update({ where: { id: r.docId }, data: { name: r.to, config } });
-      this.logger.log(`[slots] draft renamed ${r.from} → ${r.to}`);
+    const prev = Number(meter.lastReading || 0);
+    const newReading = Number(reading);
+    if (!isFinite(newReading) || newReading < prev) {
+      throw new HttpException(`Reading must be a number ≥ the previous accumulative (${prev})`, HttpStatus.BAD_REQUEST);
     }
+    const usage = +(newReading - prev).toFixed(2);
+    const rate = Number(meter.rate || 0);
+    const amount = +(usage * rate).toFixed(2);
+    const fmtR = (n: number) => Number(n).toLocaleString('en-SG');
+    let hit = false;
+    const items = (dc.items || []).map((it: any) => {
+      const desc = String(it?.description || '');
+      if (!/Meter Reading/i.test(desc)) return it;
+      hit = true;
+      const newDesc = desc
+        .replace(/(Meter Readings? as at [\d/]+ =\s*)[\d,._]*\s*(m3|m³)?/i, `$1${fmtR(newReading)}m3`)
+        .replace(/(previous month accumulative readings? of\s*)[\d,._]*\s*(m3|m³)?/i, `$1${fmtR(prev)}m3`);
+      return { ...it, description: newDesc, quantity: usage, unitPrice: rate, amount };
+    });
+    if (!hit) throw new HttpException('No meter line found on the generated invoice', HttpStatus.BAD_REQUEST);
+    const lineAmount = (it: any) => parseFloat(it.amount) || (parseFloat(it.quantity) * parseFloat(it.unitPrice)) || 0;
+    const net = +items.reduce((sum: number, it: any) => sum + lineAmount(it), 0).toFixed(2);
+    const gst = +items.reduce((sum: number, it: any) => sum + lineAmount(it) * ((it.tax || 0) / 100), 0).toFixed(2);
+    const config: any = { ...dc, items, subTotal: net, gstAmount: gst, nettTotal: +(net + gst).toFixed(2) };
+    config.documentInfo = { ...(config.documentInfo || {}), subTotal: net, gstAmount: gst };
+    await this.prisma.document.update({ where: { id: doc.id }, data: { config } });
+    // Roll the meter state forward so next month's generation shows this
+    // reading as the "previous accumulative".
+    const tc: any = template.config || {};
+    await this.prisma.recurringInvoiceTemplate.update({
+      where: { id: template.id },
+      data: { config: { ...tc, meter: { ...meter, lastReading: newReading, lastReadingAt: new Date().toISOString() } } },
+    });
+    this.logger.log(`[meter] ${doc.name}: ${fmtR(prev)} → ${fmtR(newReading)} = ${usage} × ${rate} = $${amount}`);
+    return { ok: true, invoice: doc.name, previous: prev, reading: newReading, usage, rate, amount, nettTotal: config.nettTotal };
   }
 
   // ---------- generation ----------
@@ -402,6 +460,26 @@ export class RecurringInvoicesService {
     const orgRate = org?.taxRate ?? 0;
     const items: any[] = Array.isArray(config.items) ? config.items : [];
     for (const it of items) if (it && it.tax == null) it.tax = orgRate;
+    // Metered chain (guru 2026-09-09): the meter line rolls forward — the
+    // "previous accumulative" is last month's closing reading (from
+    // config.meter.lastReading); the new month-end reading is typed by the
+    // accountant via setMeterReading before confirming. Generate with the
+    // reading blank and the line at $0 so an unfilled metered invoice can
+    // never bill last month's usage by accident.
+    const meter: any = (template.config as any)?.meter;
+    if (meter) {
+      const fmtR = (n: number) => Number(n || 0).toLocaleString('en-SG');
+      for (const it of items) {
+        const desc = String(it?.description || '');
+        if (!/Meter Reading/i.test(desc)) continue;
+        it.description = desc
+          .replace(/\{PREV READING\}/g, fmtR(meter.lastReading))
+          .replace(/\{METER READING\}/g, '________');
+        it.quantity = 0;
+        if (meter.rate != null) it.unitPrice = meter.rate;
+        it.amount = 0;
+      }
+    }
     const lineAmount = (it: any) => parseFloat(it.amount) || (parseFloat(it.quantity) * parseFloat(it.unitPrice)) || 0;
     const net = items.reduce((s, it) => s + lineAmount(it), 0);
     const gst = +items.reduce((s, it) => s + lineAmount(it) * ((it.tax || 0) / 100), 0).toFixed(2);

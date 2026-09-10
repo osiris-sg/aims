@@ -33,6 +33,38 @@ export function parseJSON(response: Response) {
   return response.json();
 }
 
+// New-tab org inheritance (guru 2026-09-11): the admin "viewing as org"
+// override lives in per-tab sessionStorage, so a row link opened in a NEW tab
+// lost it — the tab fetched under the admin's home org and documents "failed
+// to load". Links that must survive new tabs append ?aorg=<orgId>; adopt it
+// here at module-eval time (before any request fires) when the new tab has no
+// override yet. Harmless for non-admins: the backend only honors
+// X-Active-Org-Id for osiris admins, and OrganizationContext clears stale
+// values for everyone else.
+if (typeof window !== "undefined") {
+  try {
+    const inherited = new URLSearchParams(window.location.search).get("aorg");
+    if (inherited && !window.sessionStorage.getItem("aims-admin-active-org")) {
+      window.sessionStorage.setItem("aims-admin-active-org", inherited);
+    }
+  } catch {
+    /* sessionStorage unavailable — nothing to inherit */
+  }
+}
+
+/** Append the current admin org override to a URL so opening it in a new tab
+ *  keeps the same "viewing as" org (adopted by the snippet above). */
+export function withActiveOrg(url: string): string {
+  if (typeof window === "undefined") return url;
+  try {
+    const aorg = window.sessionStorage.getItem("aims-admin-active-org");
+    if (!aorg) return url;
+    return `${url}${url.includes("?") ? "&" : "?"}aorg=${encodeURIComponent(aorg)}`;
+  } catch {
+    return url;
+  }
+}
+
 // Default request timeout. axios.create() has NO timeout (0 = infinite), so a
 // stalled connection used to pend forever — leaving callers' `await` hanging
 // and their try/finally never running (e.g. the field bind button stuck on
