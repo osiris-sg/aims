@@ -5690,6 +5690,10 @@ export class DocumentsService {
     documentId: string,
     organizationId: string,
     prefetched?: { document: any; customer: any; documentInfo: any; items: any[]; config: any; isQuotation: boolean; dueDate?: string },
+    // Skip the S3 cache and re-render. The cache is never invalidated on
+    // document edit or layout change, so downloads that must reflect the
+    // CURRENT document (bulk download, guru 2026-09-11) force-regenerate.
+    forceRegenerate = false,
   ): Promise<string | undefined> {
     try {
       const docType =
@@ -5697,6 +5701,7 @@ export class DocumentsService {
         (await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { type: true } }))?.type;
       const s3Key = `documents/${organizationId}/${docType}/${documentId}.pdf`;
       try {
+        if (forceRegenerate) throw new Error('regenerate requested');
         // getSignedUrl signs whether or not the object EXISTS — a missing PDF
         // came back as a valid-looking URL to an S3 NoSuchKey error (guru
         // 2026-08-06, pay page). HEAD-check before trusting it.
@@ -5812,7 +5817,9 @@ export class DocumentsService {
       }
       used.add(base);
       try {
-        const url = await this.getOrGeneratePdfUrl(doc.id, organizationId);
+        // Force-regenerate: the S3 PDF cache is never invalidated on edits or
+        // layout changes, so a download must always reflect the current doc.
+        const url = await this.getOrGeneratePdfUrl(doc.id, organizationId, undefined, true);
         if (!url) throw new Error('PDF generation failed');
         const res = await fetch(url);
         if (!res.ok) throw new Error(`PDF fetch failed (${res.status})`);
