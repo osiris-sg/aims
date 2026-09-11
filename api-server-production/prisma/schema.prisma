@@ -2720,7 +2720,8 @@ model WhatsAppSuggestion {
   canAutoSend      Boolean @default(false)
   confidence       Float?
   reason           String?
-  // PENDING (awaiting review) | AUTO_SENT | SENT (approved, possibly edited) | DISMISSED
+  // PENDING (awaiting review) | AUTO_SENT | APPROVED (group draft OK'd by button, bridge yet to post)
+  // | SENT (approved, possibly edited) | DISMISSED | FAILED
   status           String  @default("PENDING")
   // The outbound WhatsAppMessage id once sent (auto or approved).
   sentMessageId    String?

@@ -56,6 +56,8 @@ const MIN_REPLY_GAP_MS = Number(process.env.MIN_REPLY_GAP_MS || 4000); // gentle
 const REPLY_DELAY_MS = Number(process.env.REPLY_DELAY_MS || 5 * 60 * 1000);
 // How often to check AIMS for appointment reminders that have come due.
 const REMINDER_POLL_MS = Number(process.env.REMINDER_POLL_MS || 5 * 60 * 1000);
+// Approvals should feel instant, so this polls far more often than reminders.
+const APPROVAL_POLL_MS = Number(process.env.APPROVAL_POLL_MS || 20 * 1000);
 // A holding reply ("Denzel's with clients, he'll come back to you") only makes
 // sense once he has actually had a chance to answer. Firing it minutes after
 // the client writes reads as eager and pre-empts him, so these wait longer than
@@ -248,6 +250,9 @@ client.on('ready', () => {
   // can do, so the bridge polls AIMS for ones that have come due.
   deliverDueReminders();
   setInterval(deliverDueReminders, REMINDER_POLL_MS);
+  // Button taps land on the AIMS webhook, not here — poll for the results.
+  postApprovedDrafts();
+  setInterval(postApprovedDrafts, APPROVAL_POLL_MS);
   // One-shot: preview a notification format on the real device without waiting
   // for the triggering event. Set DEMO_NOTIFY to the message body.
   if (process.env.DEMO_NOTIFY) {
@@ -440,6 +445,37 @@ async function captureAppointment(msg, chatId, group, clientName) {
   }
 }
 
+/** Post drafts Denzel approved by tapping a button. The tap lands on the Cloud
+ *  API webhook, which only marks the draft APPROVED — this device is the one
+ *  that can actually write into a group. */
+async function postApprovedDrafts() {
+  try {
+    const approved = await callBridgeApi('/whatsapp/group-approvals/approved', {
+      method: 'GET',
+      query: { organizationId: ORG_ID },
+    });
+    if (!Array.isArray(approved) || !approved.length) return;
+    for (const d of approved) {
+      if (ALLOWED_GROUPS.length && !ALLOWED_GROUPS.includes(d.groupId)) continue;
+      try {
+        await client.sendMessage(d.groupId, d.reply);
+        await callBridgeApi(`/whatsapp/group-approval/${d.id}/posted`, { body: { organizationId: ORG_ID } });
+        console.log(`   ✅ approved draft ${d.id.slice(0, 6)} posted to ${d.groupId}`);
+      } catch (e) {
+        const err = e && e.message ? e.message : String(e);
+        console.error(`   ✖ approved draft ${d.id.slice(0, 6)} failed:`, err);
+        await callBridgeApi(`/whatsapp/group-approval/${d.id}/posted`, {
+          body: { organizationId: ORG_ID, error: err },
+        }).catch(() => {});
+      }
+      // The typed-"ok" path no longer has anything to act on.
+      for (const [code, held] of pendingApprovals) if (held.id === d.id) pendingApprovals.delete(code);
+    }
+  } catch (e) {
+    console.error('approval poll failed:', e && e.message ? e.message : e);
+  }
+}
+
 /** Post any reminders that have come due into their groups. */
 async function deliverDueReminders() {
   try {
@@ -606,8 +642,9 @@ async function handleApprovalReply(msg, chatId) {
   if (!isStaffDm) return;
 
   const text = String(msg.body || '').trim();
-  // The code is optional: typing it out is friction, and WhatsApp no longer
-  // supports tappable buttons for a linked device, so a bare "ok" has to work.
+  // The code is optional: typing it out is friction, and a linked device cannot
+  // send tappable buttons (only the Cloud API can), so a bare "ok" has to work
+  // whenever the button prompt could not go out.
   const m = text.match(/^(ok|okay|yes|y|send|no|n|drop|skip)\b\s*([a-z0-9]{4,8})?$/i);
   if (!m) return;
   const approve = /^(ok|okay|yes|y|send)$/i.test(m[1]);
@@ -754,13 +791,35 @@ client.on('message_create', async (msg) => {
       const code = String(verdict.approvalId || '').slice(0, 6) || String(Date.now()).slice(-6);
       pendingApprovals.set(code.toLowerCase(), { id: verdict.approvalId, chatId, draft: verdict.draft, groupName: group?.name });
       console.log(`   ✋ held for approval [${code}] (match ${(verdict.confidence ?? 0).toFixed(2)})`);
-      await dmDenzel(
-        `✋ Not sure enough to send this one.\n\n` +
-          `Chat: ${group?.name || chatId}\n` +
-          `They said:\n"${String(msg.body || '').slice(0, 200)}"\n\n` +
-          `I'd reply:\n"${verdict.draft}"\n\n` +
-          `Reply *ok* to send it, or *no* to drop it.\n(code ${code} if you have several waiting)`,
-      );
+      // Real tappable buttons can only come from the PA's Cloud API number, so
+      // ask AIMS to send the prompt. It needs Denzel's 24h window to be open;
+      // when it isn't, fall back to this linked device and a typed "ok".
+      let buttoned = false;
+      if (verdict.approvalId) {
+        try {
+          const res = await callBridgeApi(`/whatsapp/group-approval/${verdict.approvalId}/notify`, {
+            body: {
+              organizationId: ORG_ID,
+              groupName: group?.name || chatId,
+              inbound: String(msg.body || '').slice(0, 200),
+              draft: verdict.draft,
+            },
+          });
+          buttoned = !!res?.ok;
+          if (!buttoned) console.log(`   ↷ buttons unavailable (${res?.error || 'unknown'}), DMing instead`);
+        } catch (e) {
+          console.error('   ✖ button prompt failed:', e && e.message ? e.message : e);
+        }
+      }
+      if (!buttoned) {
+        await dmDenzel(
+          `✋ Not sure enough to send this one.\n\n` +
+            `Chat: ${group?.name || chatId}\n` +
+            `They said:\n"${String(msg.body || '').slice(0, 200)}"\n\n` +
+            `I'd reply:\n"${verdict.draft}"\n\n` +
+            `Reply *ok* to send it, or *no* to drop it.\n(code ${code} if you have several waiting)`,
+        );
+      }
       return;
     }
 

@@ -1029,6 +1029,115 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * DM Denzel a held draft with real tappable Approve/Discard buttons.
+   *
+   * The bridge (a linked device) cannot send interactive messages, but the PA's
+   * Cloud API number can — so the prompt goes out over the official API and the
+   * tap comes back as an `interactive.button_reply` on the webhook. Buttons
+   * need Denzel's own 24h window to be open; when it isn't, Meta rejects the
+   * send and the bridge falls back to its typed "ok" DM.
+   */
+  async sendGroupApprovalPrompt(
+    organizationId: string,
+    id: string,
+    opts: { to?: string; groupName?: string; inbound?: string; draft?: string } = {},
+  ): Promise<{ ok: boolean; error?: string }> {
+    const row = await this.prisma.whatsAppSuggestion.findFirst({ where: { id, organizationId } });
+    if (!row) throw new NotFoundException('Draft not found');
+    let to = (opts.to || '').replace(/\D/g, '');
+    if (!to) {
+      const config = await this.prisma.whatsAppAgentConfig.findUnique({
+        where: { organizationId },
+        select: { ownerNotifyNumber: true },
+      });
+      to = (config?.ownerNotifyNumber || '').replace(/\D/g, '');
+    }
+    if (!to) return { ok: false, error: 'no owner number configured' };
+
+    const inbound = (opts.inbound || row.inboundBody || '').slice(0, 200);
+    const draft = opts.draft || row.suggestedReply;
+    const text =
+      `\u270B Not sure enough to send this one.\n\n` +
+      `Chat: ${opts.groupName || row.counterparty}\n` +
+      `They said:\n"${inbound}"\n\n` +
+      `I'd reply:\n"${draft}"`;
+
+    const payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text: text.slice(0, 1024) },
+        action: {
+          buttons: [
+            // Cloud API caps titles at 20 chars and ids at 256.
+            { type: 'reply', reply: { id: `grpok:${row.id}`.slice(0, 256), title: '\u2705 Send it' } },
+            { type: 'reply', reply: { id: `grpno:${row.id}`.slice(0, 256), title: '\u274C Drop it' } },
+          ],
+        },
+      },
+    };
+    try {
+      await this.dispatch(organizationId, payload, { body: text });
+      return { ok: true };
+    } catch (e: any) {
+      this.logger.warn(`Group approval buttons failed for ${id}: ${e.message}`);
+      return { ok: false, error: e.message };
+    }
+  }
+
+  /**
+   * A tapped Approve/Discard button on an approval prompt. Approving only marks
+   * the draft APPROVED — the bridge is the one that can write into a group, so
+   * it picks it up on its next poll and posts it.
+   */
+  private async handleGroupApprovalButton(organizationId: string, replyId: string, from: string) {
+    const m = replyId.match(/^grp(ok|no):(.+)$/);
+    if (!m) return false;
+    const [, verb, id] = m;
+    const row = await this.prisma.whatsAppSuggestion.findFirst({ where: { id, organizationId } });
+    if (!row) {
+      await this.sendText(organizationId, { to: from, body: `That draft is gone. It may have already been handled.` }).catch(() => null);
+      return true;
+    }
+    if (row.status !== 'PENDING') {
+      await this.sendText(organizationId, { to: from, body: `That one was already ${row.status.toLowerCase()}.` }).catch(() => null);
+      return true;
+    }
+    if (verb === 'ok') {
+      await this.prisma.whatsAppSuggestion.update({ where: { id }, data: { status: 'APPROVED' } });
+      await this.sendText(organizationId, { to: from, body: `\u2705 Sending it now.` }).catch(() => null);
+    } else {
+      await this.prisma.whatsAppSuggestion.update({ where: { id }, data: { status: 'DISMISSED' } });
+      await this.sendText(organizationId, { to: from, body: `\uD83D\uDC4D Dropped.` }).catch(() => null);
+    }
+    return true;
+  }
+
+  /** Drafts approved by a button tap that the bridge hasn't posted yet. */
+  async approvedGroupDrafts(organizationId: string) {
+    const rows = await this.prisma.whatsAppSuggestion.findMany({
+      where: { organizationId, status: 'APPROVED' },
+      orderBy: { createdAt: 'asc' },
+      take: 20,
+    });
+    return rows.map((r) => ({ id: r.id, groupId: r.counterparty, reply: r.suggestedReply }));
+  }
+
+  /** Bridge confirms an approved draft actually landed in the group. */
+  async markGroupDraftPosted(organizationId: string, id: string, error?: string) {
+    const row = await this.prisma.whatsAppSuggestion.findFirst({ where: { id, organizationId } });
+    if (!row) throw new NotFoundException('Draft not found');
+    await this.prisma.whatsAppSuggestion.update({
+      where: { id },
+      data: { status: error ? 'FAILED' : 'SENT', reason: error ? `post failed: ${error}` : row.reason },
+    });
+    return { ok: !error };
+  }
+
+  /**
    * Approve a held group draft: hands the bridge the text to post and closes
    * the suggestion. Editing is supported so Denzel can fix a draft in place.
    */
@@ -1252,6 +1361,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           // (tool-use agent) and DO NOT run the CRM Q&A agent. Unknown senders
           // (customers) fall through to the existing agent path untouched.
           const from: string | undefined = message.from;
+          // A tapped Approve/Discard on a group-draft prompt. Checked before
+          // Operator routing so it works whether or not Denzel is linked.
+          const tapped = message.interactive?.button_reply?.id;
+          if (from && tapped && /^grp(ok|no):/.test(tapped)) {
+            await this.handleGroupApprovalButton(connection.organizationId, tapped, from).catch((e) =>
+              this.logger.error(`Group approval button failed: ${e.message}`),
+            );
+            continue;
+          }
           if (from && (await this.operatorAuth.isLinked('whatsapp', from))) {
             const senderName = (value.contacts || []).find((c: any) => c?.wa_id === from)?.profile
               ?.name;
