@@ -438,8 +438,6 @@ export default function InvoicesPage() {
   // Kebab convenience; rows themselves are real links (rowHref below), so
   // right-click also shows Chrome's native "Open link in new tab" menu.
   const openInvoiceNewTab = (doc: any) => window.open(invoiceUrl(doc), "_blank", "noopener");
-  const downloadInvoice = (doc: any) =>
-    window.open(`/portal/documents/view/${doc.documentType}/${doc.templateId}/${doc.id}?autoprint=true`, "_blank");
   const openPayDialogFor = (doc: any) => {
     const total = getInvoiceTotal(doc);
     const paid = paymentSummary[doc.id]?.totalPaid ?? 0;
@@ -645,12 +643,13 @@ export default function InvoicesPage() {
   const deletableSelected = selectedDocs.filter((d) => ["draft", "unconfirmed"].includes(d.status || "unconfirmed"));
   const skippedCount = selectedDocs.length - deletableSelected.length;
 
-  // Bulk PDF download (guru 2026-09-11): one selected invoice downloads its
-  // PDF; several download as one ZIP. Server names each file
-  // "<document name> - <reference>.pdf".
+  // PDF download (guru 2026-09-11): one invoice downloads its PDF; several
+  // download as one ZIP. Server names each file
+  // "<document name> - <reference>.pdf". Shared by the bulk-action bar AND
+  // the row kebab's "Download PDF" (guru wants both identical).
   const [bulkDownloading, setBulkDownloading] = useState(false);
-  const handleBulkDownload = async () => {
-    if (selectedDocs.length === 0 || bulkDownloading) return;
+  const downloadPdfs = async (ids: string[]) => {
+    if (ids.length === 0 || bulkDownloading) return;
     setBulkDownloading(true);
     try {
       const token = await getToken();
@@ -659,7 +658,7 @@ export default function InvoicesPage() {
         // Generating many fresh PDFs (Puppeteer) can exceed the 30s default —
         // give the batch a longer per-call timeout.
         { path: "/documents/bulk-download", method: "POST", timeout: 180000 },
-        { ids: selectedDocs.map((d) => d.id) },
+        { ids },
         token
       );
       // The API's global CustomResponseInterceptor wraps every body as
@@ -684,6 +683,7 @@ export default function InvoicesPage() {
       setBulkDownloading(false);
     }
   };
+  const handleBulkDownload = () => downloadPdfs(selectedDocs.map((d) => d.id));
 
   const handleBulkDelete = async () => {
     const ids = deletableSelected.map((d) => d.id);
@@ -1073,7 +1073,9 @@ export default function InvoicesPage() {
               Record payment
             </MenuItem>
           )}
-        <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); downloadInvoice(r); }}>Download / print</MenuItem>
+        {/* Same server-rendered branded PDF as the bulk bar's Download
+            (guru 2026-09-11) — not the old print-view popup. */}
+        <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); downloadPdfs([r.id]); }}>Download PDF</MenuItem>
         {rowMenu && ["draft", "unconfirmed"].includes(rowMenu.row.status || "unconfirmed") && (
           <MenuItem sx={{ color: "error.main" }} onClick={() => { const r = rowMenu!.row; setRowMenu(null); setDocToDelete(r); }}>
             Delete draft
