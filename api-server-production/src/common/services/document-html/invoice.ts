@@ -142,7 +142,7 @@ export function renderInvoiceBody(data: any, organization: any): string {
         }</td>` +
         `<td style="padding:10px 8px;text-align:center;">${num2(item.quantity)}</td>` +
         `<td style="padding:10px 8px;text-align:right;">${num2(item.unitPrice)}</td>` +
-        `<td style="padding:10px 8px;text-align:right;">${num2(item.amount || 0)}</td>` +
+        `<td style="padding:10px 8px;text-align:right;">${num2(item.amount)}</td>` +
         `</tr>`,
     )
     .join('');
