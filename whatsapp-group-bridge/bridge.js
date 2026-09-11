@@ -600,14 +600,47 @@ async function notifyDenzel(group, clientMsg, reply) {
 async function handleApprovalReply(msg, chatId) {
   const senderDigits = String(msg.author || msg.from || '').replace(/\D/g, '');
   const isStaffDm =
-    !!msg.fromMe || DENZEL_NUMBERS.some((n) => senderDigits.endsWith(n.slice(-8))) ||
+    !!msg.fromMe ||
+    DENZEL_NUMBERS.some((n) => senderDigits.endsWith(n.slice(-8))) ||
     STAFF_NUMBERS.some((n) => n && senderDigits.endsWith(n.slice(-8)));
   if (!isStaffDm) return;
 
-  const m = String(msg.body || '').trim().match(/^(ok|yes|send|no|drop|skip)\s+([a-z0-9]{4,8})$/i);
+  const text = String(msg.body || '').trim();
+  // The code is optional: typing it out is friction, and WhatsApp no longer
+  // supports tappable buttons for a linked device, so a bare "ok" has to work.
+  const m = text.match(/^(ok|okay|yes|y|send|no|n|drop|skip)\b\s*([a-z0-9]{4,8})?$/i);
   if (!m) return;
-  const approve = /^(ok|yes|send)$/i.test(m[1]);
-  const code = m[2].toLowerCase();
+  const approve = /^(ok|okay|yes|y|send)$/i.test(m[1]);
+  let code = (m[2] || '').toLowerCase();
+
+  // Quoting the approval message is the most precise way to pick one out when
+  // several are outstanding.
+  if (!code && msg.hasQuotedMsg) {
+    try {
+      const quoted = await msg.getQuotedMessage();
+      const found = String(quoted?.body || '').match(/\b(ok|no)\s+([a-z0-9]{4,8})\b/i);
+      if (found) code = found[2].toLowerCase();
+    } catch {
+      /* quoting unavailable on this build — fall through to most-recent */
+    }
+  }
+
+  // Otherwise act on the most recent outstanding draft.
+  if (!code) {
+    const codes = [...pendingApprovals.keys()];
+    if (!codes.length) {
+      await client.sendMessage(chatId, 'Nothing is waiting for approval right now.');
+      return;
+    }
+    code = codes[codes.length - 1];
+    if (codes.length > 1) {
+      await client.sendMessage(
+        chatId,
+        `You have ${codes.length} drafts waiting. I'll take this as the latest one. Reply "ok <code>" to pick a specific one.`,
+      );
+    }
+  }
+
   const held = pendingApprovals.get(code);
   if (!held) {
     await client.sendMessage(chatId, `I can't find draft ${code} any more. It may have expired or already been handled.`);
@@ -620,7 +653,7 @@ async function handleApprovalReply(msg, chatId) {
         body: { organizationId: ORG_ID },
       });
       await client.sendMessage(res.groupId || held.chatId, res.reply || held.draft);
-      await client.sendMessage(chatId, `✅ Sent.`);
+      await client.sendMessage(chatId, `✅ Sent to ${held.groupName || 'the group'}.`);
       console.log(`   ✅ approved draft ${code} -> ${held.chatId}`);
     } else {
       await callBridgeApi(`/whatsapp/group-approval/${held.id}/dismiss`, { body: { organizationId: ORG_ID } });
@@ -719,14 +752,14 @@ client.on('message_create', async (msg) => {
     if (verdict.needsApproval && verdict.draft) {
       const group = await groupInfo(msg, chatId);
       const code = String(verdict.approvalId || '').slice(0, 6) || String(Date.now()).slice(-6);
-      pendingApprovals.set(code.toLowerCase(), { id: verdict.approvalId, chatId, draft: verdict.draft });
+      pendingApprovals.set(code.toLowerCase(), { id: verdict.approvalId, chatId, draft: verdict.draft, groupName: group?.name });
       console.log(`   ✋ held for approval [${code}] (match ${(verdict.confidence ?? 0).toFixed(2)})`);
       await dmDenzel(
         `✋ Not sure enough to send this one.\n\n` +
           `Chat: ${group?.name || chatId}\n` +
           `They said:\n"${String(msg.body || '').slice(0, 200)}"\n\n` +
           `I'd reply:\n"${verdict.draft}"\n\n` +
-          `Reply  ok ${code}  to send it, or  no ${code}  to drop it.`,
+          `Reply *ok* to send it, or *no* to drop it.\n(code ${code} if you have several waiting)`,
       );
       return;
     }
