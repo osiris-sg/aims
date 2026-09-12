@@ -87,6 +87,32 @@ export class ProjectCostingController {
     return this.service.summary(id, orgId(req));
   }
 
+  // Project quest (CIEL 09-12): the 10-step client journey, in order,
+  // proof where required, skip only with a reason.
+  @Get(':id/quest')
+  @Permissions('projects:read')
+  quest(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    return this.service.questSteps(id, orgId(req));
+  }
+
+  @Post('quest/:stepId/complete')
+  @Permissions('projects:update')
+  completeQuest(@Param('stepId') stepId: string, @Body() body: any, @Req() req: RequestWithOrganization) {
+    return this.service.completeQuestStep(stepId, orgId(req), body || {}, { userId: req.user?.id, name: actorName(req) });
+  }
+
+  @Post('quest/:stepId/skip')
+  @Permissions('projects:update')
+  skipQuest(@Param('stepId') stepId: string, @Body() body: { reason?: string }, @Req() req: RequestWithOrganization) {
+    return this.service.skipQuestStep(stepId, orgId(req), body?.reason || '', { userId: req.user?.id, name: actorName(req) });
+  }
+
+  @Post('quest/:stepId/reset')
+  @Permissions('projects:update')
+  resetQuest(@Param('stepId') stepId: string, @Req() req: RequestWithOrganization) {
+    return this.service.resetQuestStep(stepId, orgId(req));
+  }
+
   // Variation Orders — one main quotation per project; changes after signing
   // are VO documents (CIEL 09-01).
   @Post(':id/vo')

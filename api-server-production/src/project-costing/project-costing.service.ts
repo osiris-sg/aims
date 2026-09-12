@@ -211,6 +211,7 @@ export class ProjectCostingService {
         status: project.status,
         stage: project.stage || (quotation?.signedAt ? 'signed' : null),
         designer: project.designer || quotation?.designer || null,
+        designerUserId: project.designerUserId || null,
         commissionPct,
         startDate: project.startDate,
         endDate: project.endDate,
@@ -646,6 +647,113 @@ export class ProjectCostingService {
       weeks: buildWeeks(items).map((w) => ({ index: w.index, days: w.days.map((d) => ({ iso: d.iso, dow: d.dow, holiday: d.holiday, work: d.work, notes: d.notes })) })),
       html: renderScheduleHtml({ projectSite: h.projectSite, contractNo: h.contractNo, manager: h.manager, contact: h.contact, orgName: h.orgName, logo: h.logo, items }).toString(),
     };
+  }
+
+  // ── project quest (CIEL 09-12): the 10-step client journey, gamified ──
+  private static readonly QUEST_STEPS: Array<{ stepNo: number; title: string; description: string; paymentTag?: string; requiresProof: boolean }> = [
+    { stepNo: 1, title: 'Engagement fee received', description: 'Client transfers the S$1,500 engagement fee to begin the preparation process.', requiresProof: false },
+    { stepNo: 2, title: 'Initial material selection meeting', description: 'Meet-up for initial material selection and project schedule discussion.', requiresProof: true },
+    { stepNo: 3, title: 'Sanitary, lighting & furniture shopping', description: 'Accompany the client for sanitary, lighting and furniture shopping.', requiresProof: true },
+    { stepNo: 4, title: 'Lighting & socket plan discussion', description: 'Walk the client through the lighting and socket plan.', requiresProof: false },
+    { stepNo: 5, title: 'Rendering finalised & details confirmed', description: 'Finalise the rendering with shortlisted materials, lightings and socket plan; draft initial elevation drawings. Collect the full 10% payment.', paymentTag: '10%', requiresProof: true },
+    { stepNo: 6, title: 'Site visit & electrical discussion', description: 'Site visit and discussion of the electrical works.', requiresProof: true },
+    { stepNo: 7, title: 'Work started · weekly updates', description: 'Works begin — send the homeowners photo/video updates at least once a week. Collect the 40% payment.', paymentTag: '40%', requiresProof: true },
+    { stepNo: 8, title: 'Elevation drawings confirmed on site', description: 'Update the elevation drawings to site conditions and walk the owners through them. Collect the 45% payment once confirmed.', paymentTag: '45%', requiresProof: true },
+    { stepNo: 9, title: '95% complete · defect check', description: 'At 95% completion, collect the final 5% payment and go through defect checking with the owner.', paymentTag: '5%', requiresProof: true },
+    { stepNo: 10, title: 'Defects rectified · handover', description: 'Rectify all defects and complete the handover.', requiresProof: true },
+  ];
+
+  /** Steps for a project — lazily seeded on first read so existing projects get them too. */
+  async questSteps(projectId: string, organizationId: string) {
+    await this.project(projectId, organizationId);
+    const count = await this.prisma.projectQuestStep.count({ where: { projectId, organizationId } });
+    if (count === 0) {
+      await this.prisma.projectQuestStep.createMany({
+        data: ProjectCostingService.QUEST_STEPS.map((q) => ({ organizationId, projectId, ...q })),
+        skipDuplicates: true,
+      });
+    }
+    const steps = await this.prisma.projectQuestStep.findMany({ where: { projectId, organizationId }, orderBy: { stepNo: 'asc' } });
+    const done = steps.filter((x) => x.status === 'done').length;
+    const skipped = steps.filter((x) => x.status === 'skipped').length;
+    return { steps, progress: { done, skipped, total: steps.length, points: steps.reduce((a, x) => a + (x.points || 0), 0) } };
+  }
+
+  private async questStep(stepId: string, organizationId: string) {
+    const step = await this.prisma.projectQuestStep.findFirst({ where: { id: stepId, organizationId } });
+    if (!step) throw new NotFoundException('Quest step not found');
+    return step;
+  }
+
+  /** Sequence guard: a step can only move once every earlier step is done/skipped. */
+  private async assertQuestOrder(step: { projectId: string; stepNo: number }, organizationId: string) {
+    const blocked = await this.prisma.projectQuestStep.count({
+      where: { projectId: step.projectId, organizationId, stepNo: { lt: step.stepNo }, status: 'pending' },
+    });
+    if (blocked > 0) throw new BadRequestException(`Complete the earlier steps first (${blocked} still pending before step ${step.stepNo})`);
+  }
+
+  async completeQuestStep(
+    stepId: string,
+    organizationId: string,
+    body: { proof?: string; filename?: string; notes?: string },
+    actor?: { userId?: string; name?: string },
+  ) {
+    const step = await this.questStep(stepId, organizationId);
+    if (step.status !== 'pending') throw new BadRequestException('This step is already closed — undo it first to redo');
+    await this.assertQuestOrder(step, organizationId);
+    let proofUrl: string | null = null;
+    let proofKey: string | null = null;
+    if (body.proof) {
+      const headerMatch = body.proof.match(/^data:([a-zA-Z/+.-]+);base64,/);
+      const mediaType = headerMatch?.[1] || 'image/jpeg';
+      const raw = body.proof.slice(body.proof.indexOf(',') + 1);
+      const ext = mediaType === 'application/pdf' ? 'pdf' : mediaType.includes('png') ? 'png' : mediaType.includes('mp4') ? 'mp4' : 'jpg';
+      proofKey = `projects/${organizationId}/quest/${step.projectId}-step${step.stepNo}-${Date.now()}.${ext}`;
+      proofUrl = await this.s3.uploadFile(proofKey, Buffer.from(raw, 'base64'), mediaType);
+    } else if (step.requiresProof) {
+      throw new BadRequestException('This step needs proof — attach a photo, video or document');
+    }
+    return this.prisma.projectQuestStep.update({
+      where: { id: step.id },
+      data: {
+        status: 'done',
+        completedAt: new Date(),
+        completedBy: actor?.userId || null,
+        completedByName: actor?.name || null,
+        notes: body.notes?.trim() || null,
+        proofUrl,
+        proofKey,
+        skipReason: null,
+        // points stay 0 until guru defines the structure
+      },
+    });
+  }
+
+  async skipQuestStep(stepId: string, organizationId: string, reason: string, actor?: { userId?: string; name?: string }) {
+    const step = await this.questStep(stepId, organizationId);
+    if (step.status !== 'pending') throw new BadRequestException('This step is already closed — undo it first to redo');
+    if (!reason?.trim()) throw new BadRequestException('Skipping needs a reason — say why this step does not apply');
+    await this.assertQuestOrder(step, organizationId);
+    return this.prisma.projectQuestStep.update({
+      where: { id: step.id },
+      data: { status: 'skipped', skipReason: reason.trim(), completedAt: new Date(), completedBy: actor?.userId || null, completedByName: actor?.name || null },
+    });
+  }
+
+  /** Undo — only the LAST closed step can reopen, so the sequence stays honest. */
+  async resetQuestStep(stepId: string, organizationId: string) {
+    const step = await this.questStep(stepId, organizationId);
+    if (step.status === 'pending') return step;
+    const laterClosed = await this.prisma.projectQuestStep.count({
+      where: { projectId: step.projectId, organizationId, stepNo: { gt: step.stepNo }, status: { not: 'pending' } },
+    });
+    if (laterClosed > 0) throw new BadRequestException('Undo the later steps first — the quest runs in order');
+    if (step.proofKey) await this.s3.deleteFile?.(step.proofKey)?.catch?.(() => null);
+    return this.prisma.projectQuestStep.update({
+      where: { id: step.id },
+      data: { status: 'pending', completedAt: null, completedBy: null, completedByName: null, notes: null, proofUrl: null, proofKey: null, skipReason: null, points: 0 },
+    });
   }
 
   // ── designer dashboard (CIEL 09-01) ────────────────────────────────────

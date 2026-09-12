@@ -155,7 +155,7 @@ export default function DetailsCard({ header, contractNo, readOnly, onChange, on
                 getOptionLabel={(o: any) => (typeof o === "string" ? o : o?.name || "")}
                 value={designers.find((d) => d.name === header.designer) || (header.designer ? ({ id: "", name: header.designer } as any) : null)}
                 isOptionEqualToValue={(a: any, b: any) => a?.id === b?.id || a?.name === b?.name}
-                onChange={(_, v: any) => onChange({ designer: v?.name || "", designerPhone: header.designerPhone || v?.whatsappNumber || "" })}
+                onChange={(_, v: any) => onChange({ designer: v?.name || "", designerUserId: v?.id || null, designerPhone: header.designerPhone || v?.whatsappNumber || "" })}
                 renderOption={(props, o: any) => (
                   <li {...props} key={o.id || o.name}>
                     <Box>

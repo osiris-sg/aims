@@ -29,7 +29,7 @@ const ALIASES: Record<string, string> = {
   let made = 0, skip = 0, noCust = 0;
   for (const f of files) {
     // ---- signed DO / RTN, 2026 ----
-    let m = /Signed\s+(RTN-?\s?DO|DO)\s?(?:BI)?\s?(2026\d{2}-\d{2,4}[A-Z]?)\s+dtd\s+(\d{8})\s+(.+?)\s*[-(]/i.exec(f);
+    let m = /(?:Scan\s+)?Signed\s+(?:Digitally\s+)?(RTN-?\s?DO|DO)\s?(?:BI)?\s?(20\d{4}-\d{2,4}[A-Z]?)\s+(?:\(REV\)\s+)?dtd\s+(\d{8})\s+(.+?)\s*[-(]/i.exec(f);
     if (m) {
       const isRtn = /RTN/i.test(m[1]);
       const name = (isRtn ? "RTN-DO" : "DO") + m[2];
@@ -48,7 +48,7 @@ const ALIASES: Record<string, string> = {
       continue;
     }
     // ---- customer PO, 2026 ----
-    m = /^(2026\d{4})\s+PO\s+(?:No\.?\s*)?([A-Za-z0-9._\/-]+)\s+(.+?)\s*[-(]/i.exec(f);
+    m = /^(20\d{6})\s+PO\s+(?:No\.?\s*)?([A-Za-z0-9._\/-]+)\s+(.+?)\s*[-(]/i.exec(f);
     if (m) {
       const name = `SO-${m[2].replace(/[^\w.-]/g, "")}`.slice(0, 40);
       if (existing.has(name.toUpperCase())) { skip++; continue; }

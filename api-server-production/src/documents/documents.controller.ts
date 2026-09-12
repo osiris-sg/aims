@@ -117,7 +117,7 @@ export class DocumentsController {
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }
-    return await this.documentsService.getDocumentsPaginated(organizationId, body || {});
+    return await this.documentsService.getDocumentsPaginated(organizationId, body || {}, (req as any).user?.id);
   }
 
   // Stat-card counts (total / this-month / drafts) for a document-type set.

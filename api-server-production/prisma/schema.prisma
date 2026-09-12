@@ -821,6 +821,35 @@ model ProjectShareLink {
 // Per-org member profile for Clerk users (users themselves live in Clerk, so
 // org-scoped attributes go here): the WhatsApp number the agent matches
 // incoming messages against, and the designer's default commission share.
+// CIEL 09-12: per-project designer "quest" — the 10-step client journey
+// gamified. Steps complete IN ORDER with proof where required, or are
+// skipped with a mandatory reason. Points per step accrue once guru defines
+// the structure (0 until then).
+model ProjectQuestStep {
+  id              String    @id @default(uuid())
+  organizationId  String
+  projectId       String    @db.Uuid
+  stepNo          Int // 1..10, completion enforced in sequence
+  title           String
+  description     String?
+  paymentTag      String? // "10%" | "40%" | "45%" | "5%" — collection milestone tied to the step
+  requiresProof   Boolean   @default(false)
+  status          String    @default("pending") // pending | done | skipped
+  completedAt     DateTime?
+  completedBy     String? // Clerk user id
+  completedByName String?
+  notes           String?
+  proofUrl        String?
+  proofKey        String?
+  skipReason      String?
+  points          Int       @default(0) // awarded points (structure TBD)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([projectId, stepNo])
+  @@index([organizationId, projectId])
+}
+
 model OrganizationMemberProfile {
   id             String   @id @default(uuid())
   organizationId String

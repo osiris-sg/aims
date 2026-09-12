@@ -198,8 +198,9 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 | 9.13 | Designer dashboard | 🟡 Built (3 Sep) | /id-projects/dashboard + IdDashboard.tsx replaces rental cards for ID orgs; designers self-scoped, mgmt per-designer table; Create project button top right |
 | 9.14 | Manager-set yearly sales target per designer | 🟡 Built (3 Sep) | OrganizationMemberProfile.yearlySalesTarget; Edit User field; dashboard target bars |
 | 9.15 | Projects list scoped to designer-in-charge (Designer role); Management/admin see all | 🟡 Built (2 Sep) | /id-projects filters designerUserId when caller's only org role is Designer |
+| 9.15a | Designer scoping extended to LEADS + QUOTATIONS (guru 12 Sep) | 🟡 Built (12 Sep) | leads list+stats force assignedToUserId; /documents/paginated quotation/VO listings filter config.designerUserId OR quote.header.designerUserId OR project.designerUserId; quotes stamp designerUserId (creator default, Designer picker, create-from-project) |
 | 9.16 | WhatsApp share of sign link "copy issue" / not working | ➡ Moved | → CIEL_WHATSAPP_WORKLIST.md W1 (guru-owned) |
 | 9.17 | Invoice send to a company number failed | ✅ Fixed by guru (2 Sep) | tracked in CIEL_WHATSAPP_WORKLIST.md W2 |
 | 9.18 | WhatsApp automation: designer follow-up stages | ➡ Moved | → CIEL_WHATSAPP_WORKLIST.md W3 (guru-owned) |
 | 9.19 | Voice-to-quotation / voice-to-invoice via WhatsApp | ➡ Moved | → CIEL_WHATSAPP_WORKLIST.md W4 (guru-owned) |
-| 9.20 | "Quest" gamification system | ⬜ Parked | CIEL gathering info |
+| 9.20 | "Quest" gamification system | 🟡 Built (12 Sep) | spec arrived: 10-step client journey per project (engagement fee → … → handover, payment tags 10/40/45/5); ProjectQuestStep model (dev+staging pushed), sequential complete with S3 proof / skip with reason / undo-last, Quest tab on project page; POINTS + REWARDS structure pending from guru (column ships at 0) |

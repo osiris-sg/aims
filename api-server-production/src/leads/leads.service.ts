@@ -257,13 +257,27 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     return lead;
   }
 
-  async list(organizationId: string, opts: { page?: number; limit?: number; search?: string; status?: string; source?: string; assignedToUserId?: string }) {
+  /** True when the caller's ONLY active role in the org is Designer — such
+   *  users are force-scoped to their own assigned records (guru 2026-09-12). */
+  private async isPureDesigner(organizationId: string, userId?: string | null): Promise<boolean> {
+    if (!userId) return false;
+    const roles = await this.prisma.userRole.findMany({
+      where: { userId, organizationId, isActive: true },
+      select: { role: { select: { name: true } } },
+    });
+    const names = roles.map((r) => r.role.name);
+    return names.length > 0 && names.every((n) => n === 'Designer');
+  }
+
+  async list(organizationId: string, opts: { page?: number; limit?: number; search?: string; status?: string; source?: string; assignedToUserId?: string; callerUserId?: string }) {
     const page = Math.max(1, opts.page || 1);
     const limit = Math.min(100, Math.max(1, opts.limit || 20));
     const where: any = { organizationId };
     if (opts.status) where.status = opts.status;
     if (opts.source) where.source = opts.source;
     if (opts.assignedToUserId) where.assignedToUserId = opts.assignedToUserId;
+    // Designers only see their assigned leads.
+    if (await this.isPureDesigner(organizationId, opts.callerUserId)) where.assignedToUserId = opts.callerUserId;
     if (opts.search?.trim()) {
       const s = opts.search.trim();
       where.OR = [
@@ -282,9 +296,10 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
   }
 
   /** Funnel stats + per-designer conversion (the owners' ratios). */
-  async stats(organizationId: string) {
+  async stats(organizationId: string, callerUserId?: string) {
+    const selfOnly = await this.isPureDesigner(organizationId, callerUserId);
     const leads = await this.prisma.lead.findMany({
-      where: { organizationId },
+      where: { organizationId, ...(selfOnly ? { assignedToUserId: callerUserId } : {}) },
       select: { status: true, source: true, assignedToUserId: true, assignedToName: true },
     });
     const byStatus: Record<string, number> = {};

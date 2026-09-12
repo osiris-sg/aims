@@ -7,6 +7,7 @@ import { LeadsService, MANUAL_SOURCES } from './leads.service';
 
 interface RequestWithOrganization extends Request {
   userOrganization?: { id: string };
+  user?: { id?: string };
 }
 function orgId(req: RequestWithOrganization): string {
   const id = req.userOrganization?.id;
@@ -29,7 +30,7 @@ export class LeadsController {
   @Get('stats')
   @Permissions('documents:read')
   stats(@Req() req: RequestWithOrganization) {
-    return this.service.stats(orgId(req));
+    return this.service.stats(orgId(req), req.user?.id);
   }
 
   @Get()
@@ -43,7 +44,7 @@ export class LeadsController {
     @Query('source') source?: string,
     @Query('assignedToUserId') assignedToUserId?: string,
   ) {
-    return this.service.list(orgId(req), { page: Number(page) || 1, limit: Number(limit) || 20, search, status, source, assignedToUserId });
+    return this.service.list(orgId(req), { page: Number(page) || 1, limit: Number(limit) || 20, search, status, source, assignedToUserId, callerUserId: req.user?.id });
   }
 
   @Get(':id')

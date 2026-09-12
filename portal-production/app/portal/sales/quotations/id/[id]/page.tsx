@@ -169,6 +169,7 @@ export default function IdQuotationEditorPage() {
           grandTotal: totals.grand,
         },
         designer: q.header.designer,
+        designerUserId: q.header.designerUserId ?? base.designerUserId ?? null,
       };
     },
     [doc, customer],

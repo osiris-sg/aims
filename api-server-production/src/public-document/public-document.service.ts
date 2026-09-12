@@ -436,6 +436,20 @@ export class PublicDocumentService {
     // Carry the name (the DO number) so the header shows it, matching the portal.
     const data = this.sanitizeConfigForPublic(groupedCfg);
     if (full?.name && data && data.name == null) data.name = full.name;
+    // The portal preview shows the customer's ADDRESS by folding the customer
+    // relation in; the config-only public payload lost it (guru 2026-09-12:
+    // guest DO rendered the Customer block without the address). Fold name +
+    // address from the customer master when the config doesn't carry billTo.
+    if (data && !data.billTo && !data.customerAddress && rawCfg.customerId) {
+      const cust = await this.prisma.customer.findFirst({
+        where: { id: rawCfg.customerId, organizationId: link.organizationId },
+        select: { name: true, address: true },
+      });
+      if (cust) {
+        if (!data.customerName) data.customerName = cust.name;
+        if (cust.address) data.customerAddress = cust.address;
+      }
+    }
 
     return {
       state: 'ok' as const,

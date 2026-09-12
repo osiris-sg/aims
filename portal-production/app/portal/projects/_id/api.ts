@@ -52,6 +52,7 @@ export type Summary = {
     status: string;
     stage: string | null;
     designer: string | null;
+    designerUserId: string | null;
     commissionPct: number;
     startDate: string | null;
     endDate: string | null;
@@ -87,6 +88,22 @@ export type Summary = {
     projectedMargin: number | null;
   };
   stages: string[];
+};
+
+export type QuestStep = {
+  id: string;
+  stepNo: number;
+  title: string;
+  description: string | null;
+  paymentTag: string | null;
+  requiresProof: boolean;
+  status: "pending" | "done" | "skipped";
+  completedAt: string | null;
+  completedByName: string | null;
+  notes: string | null;
+  proofUrl: string | null;
+  skipReason: string | null;
+  points: number;
 };
 
 export type ScheduleItem = { id: string; label: string; kind: "work" | "note" | "holiday"; startDate: string; endDate: string; sortOrder: number; notes: string | null };
@@ -152,6 +169,10 @@ export function useIdProjectApi() {
       removeMilestone: (mid: string) => request(`/projects/milestones/${mid}`, { method: "DELETE" }),
       recalcMilestones: (id: string) => request(`/projects/${id}/milestones/recalc`, { method: "POST" }),
       // schedule
+      questSteps: (id: string) => request<{ steps: QuestStep[]; progress: { done: number; skipped: number; total: number; points: number } }>(`/projects/${id}/quest`),
+      completeQuestStep: (stepId: string, body: { proof?: string; filename?: string; notes?: string }) => request(`/projects/quest/${stepId}/complete`, { method: "POST", body: j(body) }),
+      skipQuestStep: (stepId: string, reason: string) => request(`/projects/quest/${stepId}/skip`, { method: "POST", body: j({ reason }) }),
+      resetQuestStep: (stepId: string) => request(`/projects/quest/${stepId}/reset`, { method: "POST" }),
       getSchedule: (id: string) => request<Schedule>(`/projects/${id}/schedule`),
       getScheduleHtml: (id: string) => request<{ html: string }>(`/projects/${id}/schedule/html`),
       addScheduleItems: (id: string, items: Array<{ label: string; kind?: string; startDate: string; endDate?: string; notes?: string | null }>) => request(`/projects/${id}/schedule`, { method: "POST", body: j({ items }) }),

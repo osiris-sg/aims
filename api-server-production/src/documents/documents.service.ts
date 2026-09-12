@@ -3234,6 +3234,7 @@ export class DocumentsService {
       sortBy?: 'name' | 'createdAt' | 'status' | 'type';
       sortDir?: 'asc' | 'desc';
     } = {},
+    callerUserId?: string,
   ) {
     try {
       const page = Math.max(1, opts.page || 1);
@@ -3242,6 +3243,30 @@ export class DocumentsService {
 
       const where: any = { organizationId };
       const and: any[] = [];
+
+      // Designers only see their own quotations (guru 2026-09-12): when the
+      // caller's ONLY org role is Designer and this is a quotation/VO listing,
+      // scope to quotes they own — the stamped config.designerUserId (designer
+      // picker / create paths write it), the quote header's copy, or a linked
+      // project they are the designer of. Other doc types and other roles are
+      // untouched.
+      const DESIGNER_SCOPED_TYPES = new Set(['QUOTATION', 'QO', 'QO1', 'QO2', 'QT', 'VARIATION_ORDER']);
+      if (callerUserId && opts.documentTypes?.length && opts.documentTypes.every((t) => DESIGNER_SCOPED_TYPES.has(String(t).toUpperCase()))) {
+        const roles = await this.prisma.userRole.findMany({
+          where: { userId: callerUserId, organizationId, isActive: true },
+          select: { role: { select: { name: true } } },
+        });
+        const names = roles.map((r) => r.role.name);
+        if (names.length > 0 && names.every((n) => n === 'Designer')) {
+          and.push({
+            OR: [
+              { config: { path: ['designerUserId'], equals: callerUserId } },
+              { config: { path: ['quote', 'header', 'designerUserId'], equals: callerUserId } },
+              { project: { designerUserId: callerUserId } },
+            ],
+          });
+        }
+      }
 
       if (opts.documentTypes?.length) where.type = { in: opts.documentTypes };
       else if (opts.excludeTypes?.length) where.type = { notIn: opts.excludeTypes };

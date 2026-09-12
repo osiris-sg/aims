@@ -47,6 +47,7 @@ import StatusChip from "@/components/StatusChip";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import CostDialog from "./CostDialog";
 import ScheduleTab from "./ScheduleTab";
+import QuestTab from "./QuestTab";
 import { STAGE_LABEL, fmtDate, money, pct, useIdProjectApi, type Cost, type Milestone, type Summary } from "./api";
 import VoDialog from "./VoDialog";
 import { useOrganization } from "@hooks/useOrganization";
@@ -175,6 +176,7 @@ export default function IdProjectPage({ id }: { id: string }) {
       qd.header.address = data.project.client.address || data.project.address || "";
       qd.header.contact = data.project.client.contact || "";
       qd.header.designer = data.project.designer || "";
+      qd.header.designerUserId = data.project.designerUserId || null;
       const doc = await quoteApi.createQuotation(organization.id, qd, { projectId: id, leadId: data.project.leadId });
       router.push(`/portal/sales/quotations/id/${doc.id}`);
     } catch (e: any) {
@@ -297,6 +299,7 @@ export default function IdProjectPage({ id }: { id: string }) {
           <Tab label="Contract & P&L" />
           <Tab label="Schedule" />
           <Tab label={`Documents (${data.documents.length + (q ? 1 : 0)})`} />
+          <Tab label="Quest" data-tour="idp-quest-tab" />
         </Tabs>
 
         {/* ── Costing ───────────────────────────────────────────────── */}
@@ -814,6 +817,13 @@ export default function IdProjectPage({ id }: { id: string }) {
                 )}
               </TableBody>
             </Table>
+          </Box>
+        )}
+
+        {/* ── Quest ────────────────────────────────────────────────── */}
+        {tab === 5 && (
+          <Box sx={{ p: 2, width: "100%", minWidth: 0 }}>
+            <QuestTab projectId={id} />
           </Box>
         )}
       </Paper>

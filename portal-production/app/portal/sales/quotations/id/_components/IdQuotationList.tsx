@@ -17,6 +17,7 @@ import StatusChip from "@/components/StatusChip";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import type { FilterField } from "@/components/FilterDrawer";
 import { useOrganization } from "@hooks/useOrganization";
+import { useAuth } from "@clerk/nextjs";
 import { useIdQuoteApi } from "../_lib/api";
 import { defaultQuote, normalizeQuote } from "../_lib/defaults";
 import { money, pct, quoteTotals } from "../_lib/math";
@@ -32,6 +33,7 @@ export default function IdQuotationList() {
   const router = useRouter();
   const api = useIdQuoteApi();
   const { organization } = useOrganization();
+  const { userId } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -74,7 +76,11 @@ export default function IdQuotationList() {
     if (!organization?.id) return;
     setCreating(true);
     try {
-      const doc = await api.createQuotation(organization.id, defaultQuote());
+      const q = defaultQuote();
+      // The creator starts as the designer-of-record so designer-scoped users
+      // can see their own drafts; the Designer picker can reassign it.
+      q.header.designerUserId = userId || null;
+      const doc = await api.createQuotation(organization.id, q);
       router.push(`/portal/sales/quotations/id/${doc.id}`);
     } catch (e: any) {
       toast.error(e.message || "Failed to create quotation");

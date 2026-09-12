@@ -71,6 +71,8 @@ export interface QuoteHeader {
   agreementDate: string | null; // ISO date
   remarks: string;
   designer: string;
+  /** Clerk user id of the designer — drives designer-scoped visibility. */
+  designerUserId?: string | null;
   designerPhone: string;
   paymentTerms: string;
 }
