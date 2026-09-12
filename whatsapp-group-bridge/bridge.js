@@ -794,23 +794,34 @@ client.on('message_create', async (msg) => {
       // Real tappable buttons can only come from the PA's Cloud API number, so
       // ask AIMS to send the prompt. It needs Denzel's 24h window to be open;
       // when it isn't, fall back to this linked device and a typed "ok".
+      // DENZEL_NUMBER is the single source of truth for who gets notified, so
+      // hand the recipients over rather than relying on a second setting in the
+      // agent config. One good send is enough to count as buttoned.
       let buttoned = false;
       if (verdict.approvalId) {
-        try {
-          const res = await callBridgeApi(`/whatsapp/group-approval/${verdict.approvalId}/notify`, {
-            body: {
-              organizationId: ORG_ID,
-              groupName: group?.name || chatId,
-              inbound: String(msg.body || '').slice(0, 200),
-              draft: verdict.draft,
-            },
-          });
-          buttoned = !!res?.ok;
-          if (!buttoned) console.log(`   ↷ buttons unavailable (${res?.error || 'unknown'}), DMing instead`);
-        } catch (e) {
-          console.error('   ✖ button prompt failed:', e && e.message ? e.message : e);
+        for (const number of DENZEL_NUMBERS) {
+          try {
+            const res = await callBridgeApi(`/whatsapp/group-approval/${verdict.approvalId}/notify`, {
+              body: {
+                organizationId: ORG_ID,
+                to: number,
+                groupName: group?.name || chatId,
+                inbound: String(msg.body || '').slice(0, 200),
+                draft: verdict.draft,
+              },
+            });
+            if (res?.ok) {
+              buttoned = true;
+              console.log(`   🔘 buttons sent to ${number}`);
+            } else {
+              console.log(`   ↷ buttons unavailable for ${number} (${res?.error || 'unknown'})`);
+            }
+          } catch (e) {
+            console.error(`   ✖ button prompt to ${number} failed:`, e && e.message ? e.message : e);
+          }
         }
       }
+      if (!buttoned) console.log('   ↷ no buttons got through, DMing instead');
       if (!buttoned) {
         await dmDenzel(
           `✋ Not sure enough to send this one.\n\n` +
