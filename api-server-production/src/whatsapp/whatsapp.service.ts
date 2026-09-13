@@ -14,6 +14,7 @@ import { WhatsAppAgentService } from './whatsapp-agent.service';
 import { LeadsService } from '../leads/leads.service';
 import { OperatorService } from '../operator/operator.service';
 import { OperatorAuthService } from '../operator/operator-auth.service';
+import { ProjectCostingService } from '../project-costing/project-costing.service';
 
 // How often the scheduled-message loop scans for due messages.
 const SCHEDULER_TICK_MS = 60_000;
@@ -35,6 +36,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     private readonly leads: LeadsService,
     private readonly operator: OperatorService,
     private readonly operatorAuth: OperatorAuthService,
+    private readonly projectCosting: ProjectCostingService,
   ) {}
 
   onModuleInit() {
@@ -1485,6 +1487,25 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
               this.logger.error(`Group approval button failed: ${e.message}`),
             );
             continue;
+          }
+          // Designer replying to the 9am schedule request with a photo/video →
+          // save it onto the project's quest step. Checked before operator
+          // routing so site media never lands in the extraction agent; the
+          // sender must have an OPEN QuestMediaRequest (48h) or this is a no-op.
+          const questMedia = message.image || message.video;
+          if (from && questMedia?.id) {
+            try {
+              const dl = await this.downloadMedia(questMedia.id, connection.accessToken);
+              const confirmation = dl
+                ? await this.projectCosting.captureQuestMedia(from, { buffer: dl.buffer, mimetype: dl.mimetype, caption: questMedia.caption || null })
+                : null;
+              if (confirmation) {
+                await this.dispatch(connection.organizationId, { messaging_product: 'whatsapp', to: from, type: 'text', text: { body: confirmation } }, { body: confirmation, fromPhoneNumberId: connection.phoneNumberId }).catch(() => null);
+                continue;
+              }
+            } catch (e) {
+              this.logger.error(`Quest media capture failed for ${message.id}: ${(e as Error).message}`);
+            }
           }
           // Lead-capture line: every customer (non-staff) message becomes/updates
           // a Lead. Staff senders fall through to operator routing below.

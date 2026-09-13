@@ -104,6 +104,8 @@ export type QuestStep = {
   proofUrl: string | null;
   skipReason: string | null;
   points: number;
+  // Media the designer sent over WhatsApp (9am schedule request replies).
+  attachments?: Array<{ url: string; key: string; type: string; caption: string | null; at: string; via: string }> | null;
 };
 
 export type ScheduleItem = { id: string; label: string; kind: "work" | "note" | "holiday"; startDate: string; endDate: string; sortOrder: number; notes: string | null };

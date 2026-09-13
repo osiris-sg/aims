@@ -845,11 +845,35 @@ model ProjectQuestStep {
   proofKey        String?
   skipReason      String?
   points          Int       @default(0) // awarded points (structure TBD)
+  // Media collected for this step outside the portal (e.g. the designer
+  // replying to the 9am schedule WhatsApp with before photos/videos):
+  // [{ url, key, type, caption, at, via }]
+  attachments     Json?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@unique([projectId, stepNo])
   @@index([organizationId, projectId])
+}
+
+// One 9am "send a BEFORE video + photo" WhatsApp request to the designer of a
+// scheduled activity (CIEL 09-14). While the request is open, any photo/video
+// the designer sends back on that line attaches to the linked quest step.
+model QuestMediaRequest {
+  id             String    @id @default(uuid())
+  organizationId String
+  projectId      String    @db.Uuid
+  stepId         String? // ProjectQuestStep to attach media to (null → first pending proof step at capture time)
+  scheduleItemId String?
+  waNumber       String // designer's WhatsApp number, digits only
+  label          String // schedule activity label, used in the message
+  status         String    @default("open") // open | closed
+  mediaCount     Int       @default(0)
+  createdAt      DateTime  @default(now())
+  lastMediaAt    DateTime?
+
+  @@index([organizationId, waNumber, status])
+  @@index([projectId])
 }
 
 model OrganizationMemberProfile {
@@ -882,6 +906,7 @@ model ProjectScheduleItem {
   endDate        DateTime
   sortOrder      Int      @default(0)
   notes          String?
+  reminderSentAt DateTime? // 9am designer WhatsApp ("send before video+photo") sent
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

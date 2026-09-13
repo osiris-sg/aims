@@ -15,6 +15,8 @@ import RedoIcon from "@mui/icons-material/RemoveDone";
 import SkipNextIcon from "@mui/icons-material/SkipNext";
 import LockIcon from "@mui/icons-material/LockOutlined";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
+import PhotoCameraIcon from "@mui/icons-material/PhotoCameraOutlined";
+import VideocamIcon from "@mui/icons-material/VideocamOutlined";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEventsOutlined";
 import { toast } from "react-toastify";
 import { fmtDate, useIdProjectApi, type QuestStep } from "./api";
@@ -181,6 +183,25 @@ export default function QuestTab({ projectId }: { projectId: string }) {
                   <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
                     {s.description}
                   </Typography>
+                  {Array.isArray((s as any).attachments) && (s as any).attachments.length > 0 && (
+                    <Stack direction="row" spacing={0.75} sx={{ mt: 0.75 }} flexWrap="wrap" useFlexGap>
+                      {(s as any).attachments.map((a: any, i: number) => (
+                        <Chip
+                          key={a.key || i}
+                          size="small"
+                          variant="outlined"
+                          icon={String(a.type || "").startsWith("video") ? <VideocamIcon sx={{ fontSize: 14 }} /> : <PhotoCameraIcon sx={{ fontSize: 14 }} />}
+                          label={`${String(a.type || "").startsWith("video") ? "video" : "photo"}${a.at ? ` · ${fmtDate(a.at)}` : ""}${a.via === "whatsapp" ? " · WhatsApp" : ""}`}
+                          component="a"
+                          href={a.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          clickable
+                          sx={{ height: 22 }}
+                        />
+                      ))}
+                    </Stack>
+                  )}
                   {s.status !== "pending" && (
                     <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.5 }} flexWrap="wrap" useFlexGap>
                       <Typography variant="caption" sx={{ color: s.status === "done" ? "success.main" : "text.disabled", fontWeight: 600 }}>

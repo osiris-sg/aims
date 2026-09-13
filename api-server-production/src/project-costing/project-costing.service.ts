@@ -1,6 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma.service';
 import { S3Service } from '../common/services/s3.service';
+import { ActionLogService } from '../action-log/action-log.service';
 import { BillsService } from '../bills/bills.service';
 import { DocumentsService } from '../documents/documents.service';
 import { ID_SCHEDULE_SEQUENCE, SG_PUBLIC_HOLIDAYS, MY_PUBLIC_HOLIDAYS, buildWeeks, renderScheduleHtml } from './schedule';
@@ -57,9 +59,12 @@ const num = (v: any) => {
 
 @Injectable()
 export class ProjectCostingService {
+  private readonly logger = new Logger(ProjectCostingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly s3: S3Service,
+    private readonly actionLog: ActionLogService,
     private readonly bills: BillsService,
     private readonly documents: DocumentsService,
   ) {}
@@ -662,8 +667,9 @@ export class ProjectCostingService {
     { stepNo: 7, title: 'Site visit & electrical discussion', description: 'Site visit and discussion of the electrical works.', requiresProof: true },
     { stepNo: 8, title: 'Work started · weekly updates', description: 'Works begin — send the homeowners photo/video updates at least once a week. Collect the 40% payment.', paymentTag: '40%', requiresProof: true },
     { stepNo: 9, title: 'Elevation drawings confirmed on site', description: 'Update the elevation drawings to site conditions and walk the owners through them. Collect the 45% payment once confirmed.', paymentTag: '45%', requiresProof: true },
-    { stepNo: 10, title: '95% complete · defect check', description: 'At 95% completion, collect the final 5% payment and go through defect checking with the owner.', paymentTag: '5%', requiresProof: true },
-    { stepNo: 11, title: 'Defects rectified · handover', description: 'Rectify all defects and complete the handover.', requiresProof: true },
+    { stepNo: 10, title: 'Carpentry installation — before video & photo', description: 'On the day carpentry installation starts, the designer gets a 9am WhatsApp asking for a BEFORE video and photo of the site — whatever they send back attaches here automatically.', requiresProof: true },
+    { stepNo: 11, title: '95% complete · defect check', description: 'At 95% completion, collect the final 5% payment and go through defect checking with the owner.', paymentTag: '5%', requiresProof: true },
+    { stepNo: 12, title: 'Defects rectified · handover', description: 'Rectify all defects and complete the handover.', requiresProof: true },
   ];
 
   /** Steps for a project — lazily seeded on first read so existing projects get them too. */
@@ -766,6 +772,133 @@ export class ProjectCostingService {
       where: { id: step.id },
       data: { status: 'pending', completedAt: null, completedBy: null, completedByName: null, notes: null, proofUrl: null, proofKey: null, skipReason: null, points: 0 },
     });
+  }
+
+  // ── schedule-day media requests (guru 2026-09-14) ──────────────────────
+  // At 9am SGT every WORK schedule activity running that day pings the
+  // project's designer on WhatsApp (via the platform agent line) asking for a
+  // BEFORE video + photo. An open QuestMediaRequest ties whatever photo/video
+  // the designer sends back to the right quest step: carpentry-installation
+  // activities land on the "Carpentry installation" step; anything else on
+  // the project's first pending proof step.
+  private static readonly AGENT_ORG_NAME = 'Osiris Technology Pte. Ltd.';
+
+  private async mediaAgentLine(fallbackOrgId?: string) {
+    const osiris = await this.prisma.organization.findFirst({ where: { name: ProjectCostingService.AGENT_ORG_NAME }, select: { id: true } });
+    for (const orgId of [osiris?.id, fallbackOrgId].filter(Boolean) as string[]) {
+      const line = await this.prisma.whatsAppConnection.findFirst({
+        where: { organizationId: orgId, status: 'CONNECTED' },
+        orderBy: [{ isPrimary: 'desc' }, { connectedAt: 'asc' }],
+      });
+      if (line) return line;
+    }
+    return null;
+  }
+
+  private async mediaWaSend(line: { organizationId: string; phoneNumberId: string; accessToken: string }, to: string, text: string) {
+    const res = await fetch(`https://graph.facebook.com/v23.0/${line.phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${line.accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: text } }),
+    });
+    const json: any = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error?.message || `WhatsApp send failed (${res.status})`);
+    await this.prisma.whatsAppMessage
+      .create({
+        data: { organizationId: line.organizationId, direction: 'OUTBOUND', counterparty: to, phoneNumberId: line.phoneNumberId, waMessageId: json?.messages?.[0]?.id || null, body: text, status: 'sent', payload: { type: 'text' } as any },
+      })
+      .catch(() => null);
+  }
+
+  /** 01:00 UTC = 09:00 SGT — same hour the keep-alive template lands, so the 24h window is open. */
+  @Cron('0 1 * * *')
+  async scheduleMediaRequestCron() {
+    const sgNow = new Date(Date.now() + 8 * 3600 * 1000);
+    const iso = sgNow.toISOString().slice(0, 10);
+    const dayStart = new Date(`${iso}T00:00:00+08:00`);
+    const dayEnd = new Date(dayStart.getTime() + 24 * 3600 * 1000);
+    // Every work activity running today that has never been reminded — catches
+    // both "starts today" and blocks already mid-flight when the feature ships.
+    const items = await this.prisma.projectScheduleItem.findMany({
+      where: { kind: 'work', reminderSentAt: null, startDate: { lt: dayEnd }, endDate: { gte: dayStart } },
+      include: { project: { select: { id: true, name: true, organizationId: true, status: true, designerUserId: true, designer: true } } },
+      orderBy: { startDate: 'asc' },
+    });
+    for (const it of items) {
+      const pj = it.project;
+      try {
+        if (!pj?.organizationId || pj.status === 'completed' || !pj.designerUserId) continue;
+        const prof = await this.prisma.organizationMemberProfile.findUnique({
+          where: { organizationId_userId: { organizationId: pj.organizationId, userId: pj.designerUserId } },
+          select: { whatsappNumber: true },
+        });
+        const to = String(prof?.whatsappNumber || '').replace(/\D/g, '');
+        if (!to) continue;
+        const line = await this.mediaAgentLine(pj.organizationId);
+        if (!line) continue;
+        // Seed the quest lazily (same path the Quest tab uses), then pin the
+        // step this activity's media belongs to.
+        const { steps } = await this.questSteps(pj.id, pj.organizationId).catch(() => ({ steps: [] as any[] }));
+        const carpentry = /carpentry/i.test(it.label) && /install/i.test(it.label);
+        const step = carpentry ? steps.find((s: any) => /^carpentry installation/i.test(s.title)) : null;
+        const text = [
+          `📸 ${it.label} starts today — ${pj.name}.`,
+          '',
+          'Before work begins, please send a BEFORE video and a photo of the site here.',
+          'They will be saved to the project quest automatically.',
+        ].join('\n');
+        await this.mediaWaSend(line, to, text);
+        await this.prisma.questMediaRequest.create({
+          data: { organizationId: pj.organizationId, projectId: pj.id, stepId: step?.id || null, scheduleItemId: it.id, waNumber: to, label: it.label },
+        });
+        await this.prisma.projectScheduleItem.update({ where: { id: it.id }, data: { reminderSentAt: new Date() } });
+        this.actionLog.system('quest-media-request', 'SEND', 'project', {
+          organizationId: pj.organizationId,
+          resourceId: pj.id,
+          details: { scheduleItemId: it.id, label: it.label, designer: pj.designer, to },
+        });
+      } catch (e) {
+        this.logger.warn(`Schedule media request failed for item ${it.id}: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  /**
+   * Inbound WhatsApp photo/video from a designer with an open media request
+   * (last 48h) → S3 → the quest step's attachments. Returns a confirmation
+   * text to send back, or null when the sender has no open request.
+   */
+  async captureQuestMedia(from: string, media: { buffer: Buffer; mimetype: string; caption?: string | null }): Promise<string | null> {
+    const digits = String(from || '').replace(/\D/g, '');
+    if (!digits) return null;
+    const req = await this.prisma.questMediaRequest.findFirst({
+      where: { waNumber: digits, status: 'open', createdAt: { gte: new Date(Date.now() - 48 * 3600 * 1000) } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!req) return null;
+    let step = req.stepId ? await this.prisma.projectQuestStep.findUnique({ where: { id: req.stepId } }) : null;
+    if (!step) {
+      step = await this.prisma.projectQuestStep.findFirst({
+        where: { projectId: req.projectId, organizationId: req.organizationId, status: 'pending', requiresProof: true },
+        orderBy: { stepNo: 'asc' },
+      });
+    }
+    if (!step) return null;
+    const mt = media.mimetype || 'image/jpeg';
+    const ext = mt.includes('mp4') ? 'mp4' : mt.includes('quicktime') ? 'mov' : mt.includes('3gpp') ? '3gp' : mt.includes('png') ? 'png' : mt.includes('webp') ? 'webp' : 'jpg';
+    const key = `projects/${req.organizationId}/quest/${req.projectId}-step${step.stepNo}-wa-${Date.now()}.${ext}`;
+    const url = await this.s3.uploadFile(key, media.buffer, mt);
+    const list: any[] = Array.isArray(step.attachments) ? (step.attachments as any[]) : [];
+    list.push({ url, key, type: mt, caption: media.caption || null, at: new Date().toISOString(), via: 'whatsapp' });
+    await this.prisma.projectQuestStep.update({ where: { id: step.id }, data: { attachments: list as any } });
+    await this.prisma.questMediaRequest.update({ where: { id: req.id }, data: { mediaCount: { increment: 1 }, lastMediaAt: new Date() } });
+    this.actionLog.system('quest-media-capture', 'CREATE', 'project', {
+      organizationId: req.organizationId,
+      resourceId: req.projectId,
+      details: { stepNo: step.stepNo, stepTitle: step.title, type: mt, label: req.label },
+    });
+    const word = mt.startsWith('video') ? 'Video' : 'Photo';
+    return `✅ ${word} saved to "${step.title}" on ${req.label}. Send more photos/videos anytime.`;
   }
 
   // ── designer dashboard (CIEL 09-01) ────────────────────────────────────
