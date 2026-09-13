@@ -927,7 +927,11 @@ export class OperatorToolsService {
           const sig = crypto.createHmac('sha256', secret).update(`${ctx.clerkUserId}.${ts}`).digest('hex');
           const port = process.env.PORT || 4040;
           const res = await fetch(`http://127.0.0.1:${port}${path}`, {
-            headers: { 'x-operator-internal': `${ctx.clerkUserId}.${ts}.${sig}` },
+            // x-active-org-id keeps the self-call in the operator session's org:
+            // admins (whose membership org differs from the org they're acting
+            // in) would otherwise read their own org's data. The guard ignores
+            // the header for non-admin users, whose membership org is ctx's.
+            headers: { 'x-operator-internal': `${ctx.clerkUserId}.${ts}.${sig}`, 'x-active-org-id': ctx.organizationId },
           });
           const text = await res.text();
           if (!res.ok) return { result: { error: `${res.status} ${text.slice(0, 500)}` } };
