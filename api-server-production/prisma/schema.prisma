@@ -2671,6 +2671,22 @@ model WhatsAppConnection {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
+// Raw webhook deliveries (guru 2026-09-13, after the operatorEnabled deploy
+// gap silently dropped messages): every payload is persisted BEFORE
+// processing, so a processing bug is replayable instead of lost — Meta gets
+// its 200 either way and never redelivers.
+model WhatsAppWebhookEvent {
+  id          String    @id @default(uuid())
+  payload     Json
+  status      String    @default("PENDING") // PENDING | DONE | ERROR
+  error       String?
+  attempts    Int       @default(0)
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
+
+  @@index([status, createdAt])
+}
+
 model WhatsAppMessage {
   id             String  @id @default(uuid())
   organizationId String

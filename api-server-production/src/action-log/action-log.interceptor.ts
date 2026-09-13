@@ -48,7 +48,7 @@ const VERB_ACTIONS: Record<string, string> = {
   'auto-match': 'MATCH', match: 'MATCH', unmatch: 'UNMATCH', ignore: 'IGNORE',
   'log-edit-unlock': 'UNLOCK',
   // Project quest steps (CIEL): POST quest/:stepId/complete|skip|reset
-  complete: 'COMPLETE', skip: 'SKIP', reset: 'UPDATE',
+  complete: 'COMPLETE', skip: 'SKIP', reset: 'UPDATE', replay: 'RUN',
   'bulk-download': 'EXPORT', 'meter-reading': 'UPDATE',
   // Document attachments: POST :id/attachments = ATTACH, :id/attachments/remove = DETACH
   // (the trailing segment wins, so "remove" must map before generic fallbacks).

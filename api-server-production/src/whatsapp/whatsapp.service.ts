@@ -386,6 +386,61 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     if (stored) this.logger.log(`History sync: stored ${stored} past messages for org ${organizationId}`);
   }
 
+  // ── webhook durability ────────────────────────────────────────────────────
+  // The controller acks Meta with 200 BEFORE processing (Meta retries
+  // aggressively otherwise), so a processing failure would lose the message
+  // forever. Persist first, process from the stored copy, keep failures
+  // replayable.
+
+  async storeWebhookEvent(payload: any) {
+    return this.prisma.whatsAppWebhookEvent.create({ data: { payload }, select: { id: true } });
+  }
+
+  async markWebhookEvent(id: string, ok: boolean, error?: string) {
+    await this.prisma.whatsAppWebhookEvent
+      .update({
+        where: { id },
+        data: { status: ok ? 'DONE' : 'ERROR', error: ok ? null : (error || 'unknown').slice(0, 1000), processedAt: new Date(), attempts: { increment: 1 } },
+      })
+      .catch(() => null);
+  }
+
+  /**
+   * Re-run stored deliveries that never completed (ERROR, or PENDING left by
+   * a crash). Message creation is unique on waMessageId, so replays are
+   * idempotent. Events that keep failing stop retrying after 5 attempts.
+   */
+  async replayWebhookEvents(limit = 100) {
+    const events = await this.prisma.whatsAppWebhookEvent.findMany({
+      where: { status: { in: ['ERROR', 'PENDING'] }, attempts: { lt: 5 } },
+      orderBy: { createdAt: 'asc' },
+      take: Math.min(500, Math.max(1, limit)),
+    });
+    let done = 0;
+    let failed = 0;
+    for (const ev of events) {
+      try {
+        await this.handleWebhook(ev.payload);
+        await this.markWebhookEvent(ev.id, true);
+        done++;
+      } catch (e) {
+        await this.markWebhookEvent(ev.id, false, (e as Error).message);
+        failed++;
+      }
+    }
+    return { replayed: done, failed, scanned: events.length };
+  }
+
+  /** Failed/stuck deliveries, newest first — the admin's damage report. */
+  async listFailedWebhookEvents(limit = 50) {
+    return this.prisma.whatsAppWebhookEvent.findMany({
+      where: { status: { in: ['ERROR', 'PENDING'] } },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(200, Math.max(1, limit)),
+      select: { id: true, status: true, error: true, attempts: true, createdAt: true },
+    });
+  }
+
   // ── AI agent orchestration ────────────────────────────────────────────────
 
   /**

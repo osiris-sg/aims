@@ -381,11 +381,36 @@ export class WhatsAppController {
     }
     // Ack fast — Meta retries aggressively on slow/non-200 responses.
     res.status(200).send('OK');
+    // Persist BEFORE processing: with the 200 already sent, Meta never
+    // redelivers — a processing failure must be replayable, not fatal
+    // (2026-09-13: an un-migrated column dropped a window of messages).
+    let eventId: string | null = null;
+    try {
+      eventId = (await this.service.storeWebhookEvent(body)).id;
+    } catch (e) {
+      this.logger.error(`Webhook event store failed (processing anyway): ${(e as Error).message}`);
+    }
     try {
       await this.service.handleWebhook(body);
+      if (eventId) await this.service.markWebhookEvent(eventId, true);
     } catch (e) {
       this.logger.error(`Webhook processing failed: ${(e as Error).message}`);
+      if (eventId) await this.service.markWebhookEvent(eventId, false, (e as Error).message);
     }
+  }
+
+  // Damage report + replay for stored deliveries (admin). Replays are
+  // idempotent — WhatsAppMessage is unique on waMessageId.
+  @Get('webhook-events/failed')
+  @Permissions('organizations:manage')
+  listFailedWebhookEvents(@Query('limit') limit?: string) {
+    return this.service.listFailedWebhookEvents(Number(limit) || 50);
+  }
+
+  @Post('webhook-events/replay')
+  @Permissions('organizations:manage')
+  replayWebhookEvents(@Body() body: { limit?: number }) {
+    return this.service.replayWebhookEvents(body?.limit || 100);
   }
 
   /**
