@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
 import { S3Service } from '../common/services/s3.service';
 import { ActionLogService } from '../action-log/action-log.service';
@@ -611,6 +612,104 @@ export class ProjectCostingService {
       ),
     );
     return { shifted: rows.length };
+  }
+
+  // ── natural-language schedule editing (guru 2026-09-14) ────────────────
+  // The Schedule tab's voice/typed assistant: the user says "add painting 20
+  // to 22 Sept" or "push everything back 2 days" (dictated via the browser's
+  // speech recognition, or typed). Claude turns it into structured ops which
+  // the UI previews, then applies via scheduleAssistApply.
+  async scheduleAssist(projectId: string, organizationId: string, text: string) {
+    await this.project(projectId, organizationId);
+    const instruction = String(text || '').trim();
+    if (!instruction) throw new BadRequestException('Say or type what to change');
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new BadRequestException('AI is not configured on this server');
+    const items = await this.prisma.projectScheduleItem.findMany({
+      where: { projectId },
+      orderBy: [{ startDate: 'asc' }, { sortOrder: 'asc' }],
+      select: { id: true, label: true, kind: true, startDate: true, endDate: true },
+    });
+    const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const current = items.length
+      ? items.map((i) => `${i.id} | ${i.label} | ${i.kind} | ${i.startDate.toISOString().slice(0, 10)} → ${i.endDate.toISOString().slice(0, 10)}`).join('\n')
+      : '(no activities yet)';
+    const system = `You edit the weekly renovation schedule of an interior-design project in Singapore.
+Today is ${today} (Singapore). Dates the user says are day-first (dd/mm); "next Monday" etc. are relative to today.
+Current activities (id | label | kind | start → end):
+${current}
+
+The firm's standard activity names, for reference when the user names one loosely:
+${ID_SCHEDULE_SEQUENCE.join(', ')}
+
+The user's instruction may come from voice dictation, so tolerate misheard words and match the closest activity.
+Reply with ONLY a JSON object:
+{"summary":"one short sentence describing what will change (or a clarifying question)","ops":[
+ {"op":"add","label":"...","kind":"work|note","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD"},
+ {"op":"update","id":"<existing id>","label"?:"...","startDate"?:"YYYY-MM-DD","endDate"?:"YYYY-MM-DD"},
+ {"op":"remove","id":"<existing id>"},
+ {"op":"shift","days":N,"fromDate"?:"YYYY-MM-DD"}
+]}
+Rules: work never happens on a Sunday — when a range starts or ends on one, use the surrounding days; use existing ids exactly; prefer "shift" for "push/delay everything"; if the instruction is ambiguous or matches nothing, return "ops":[] and ask in "summary". STRICT JSON only.`;
+    const client = new Anthropic({ apiKey });
+    const res = await client.messages.create({
+      model: 'claude-sonnet-5',
+      max_tokens: 1500,
+      system,
+      messages: [{ role: 'user', content: instruction }],
+    });
+    const textOut = res.content.find((c: any) => c.type === 'text') as any;
+    const m = textOut?.text?.match(/\{[\s\S]*\}/);
+    if (!m) throw new BadRequestException('Could not understand that — try rephrasing');
+    let parsed: any;
+    try {
+      parsed = JSON.parse(m[0]);
+    } catch {
+      throw new BadRequestException('Could not understand that — try rephrasing');
+    }
+    const ids = new Set(items.map((i) => i.id));
+    const labelOf = new Map(items.map((i) => [i.id, i.label]));
+    const ops = (Array.isArray(parsed.ops) ? parsed.ops : []).filter((o: any) => {
+      if (o?.op === 'add') return o.label && o.startDate;
+      if (o?.op === 'update') return o.id && ids.has(o.id) && (o.startDate || o.endDate || o.label);
+      if (o?.op === 'remove') return o.id && ids.has(o.id);
+      if (o?.op === 'shift') return Number.isFinite(Number(o.days)) && Number(o.days) !== 0;
+      return false;
+    });
+    // Human-readable line per op for the preview card.
+    const lines = ops.map((o: any) => {
+      if (o.op === 'add') return `Add "${o.label}" ${o.startDate}${o.endDate && o.endDate !== o.startDate ? ` → ${o.endDate}` : ''}`;
+      if (o.op === 'update') return `Move "${labelOf.get(o.id)}"${o.label ? ` (rename to "${o.label}")` : ''}${o.startDate ? ` to ${o.startDate}` : ''}${o.endDate ? ` → ${o.endDate}` : ''}`;
+      if (o.op === 'remove') return `Remove "${labelOf.get(o.id)}"`;
+      return `Shift everything${o.fromDate ? ` from ${o.fromDate}` : ''} by ${o.days > 0 ? '+' : ''}${o.days} day(s)`;
+    });
+    return { summary: String(parsed.summary || '').slice(0, 400), ops, lines };
+  }
+
+  /** Apply the ops the user approved in the preview. */
+  async scheduleAssistApply(projectId: string, organizationId: string, ops: any[]) {
+    await this.project(projectId, organizationId);
+    let applied = 0;
+    for (const o of Array.isArray(ops) ? ops : []) {
+      if (o?.op === 'add' && o.label && o.startDate) {
+        await this.addScheduleItems(projectId, organizationId, [{ label: o.label, kind: o.kind === 'note' ? 'note' : 'work', startDate: o.startDate, endDate: o.endDate || o.startDate }]);
+        applied++;
+      } else if (o?.op === 'update' && o.id) {
+        const owns = await this.prisma.projectScheduleItem.findFirst({ where: { id: o.id, projectId, organizationId }, select: { id: true } });
+        if (!owns) continue;
+        await this.updateScheduleItem(o.id, organizationId, { label: o.label, startDate: o.startDate, endDate: o.endDate });
+        applied++;
+      } else if (o?.op === 'remove' && o.id) {
+        const owns = await this.prisma.projectScheduleItem.findFirst({ where: { id: o.id, projectId, organizationId }, select: { id: true } });
+        if (!owns) continue;
+        await this.removeScheduleItem(o.id, organizationId);
+        applied++;
+      } else if (o?.op === 'shift' && Number(o.days)) {
+        await this.shiftSchedule(projectId, organizationId, Number(o.days), o.fromDate);
+        applied++;
+      }
+    }
+    return { applied };
   }
 
   async scheduleHtml(projectId: string, organizationId: string) {

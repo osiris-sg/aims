@@ -182,6 +182,8 @@ export function useIdProjectApi() {
       updateScheduleItem: (itemId: string, body: any) => request(`/projects/schedule/${itemId}`, { method: "PATCH", body: j(body) }),
       removeScheduleItem: (itemId: string) => request(`/projects/schedule/${itemId}`, { method: "DELETE" }),
       shiftSchedule: (id: string, days: number, fromDate?: string) => request(`/projects/${id}/schedule/shift`, { method: "POST", body: j({ days, fromDate }) }),
+      scheduleAssist: (id: string, text: string) => request<{ summary: string; ops: any[]; lines: string[] }>(`/projects/${id}/schedule/assist`, { method: "POST", body: j({ text }) }),
+      scheduleAssistApply: (id: string, ops: any[]) => request<{ applied: number }>(`/projects/${id}/schedule/assist/apply`, { method: "POST", body: j({ ops }) }),
       createScheduleLink: (id: string) => request<{ url: string; path: string }>(`/projects/${id}/schedule/share-link`, { method: "POST" }),
       revokeScheduleLink: (id: string) => request(`/projects/${id}/schedule/share-link/revoke`, { method: "POST" }),
       // Designer-role holders only (fallback to all users when the org has no

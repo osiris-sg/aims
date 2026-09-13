@@ -60,6 +60,7 @@ const TOOL_STATUS: Record<string, string> = {
   edit_document: '✏️ Editing the document...',
   get_document_link: '🔗 Getting the link...',
   add_project_cost: '🧾 Recording the project cost...',
+  edit_schedule: '🗓 Updating the schedule...',
 };
 
 @Injectable()

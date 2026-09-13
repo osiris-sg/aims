@@ -843,6 +843,39 @@ export class OperatorToolsService {
       },
 
       {
+        name: 'edit_schedule',
+        description:
+          "Change a project's weekly renovation schedule with natural language — add activities to the calendar, move or remove them, or shift the whole schedule by N days (site delays). Pass the user's instruction VERBATIM (voice notes arrive already transcribed). Project selection: single-project org → use it without asking; else list_projects and match, or ask. Returns a preview of the changes; the user must confirm before anything is written.",
+        permissions: ['projects:update'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            projectId: { type: 'string', description: 'Project id (from list_projects)' },
+            instruction: { type: 'string', description: "The user's schedule request, verbatim — e.g. 'add painting 20 to 22 Sept', 'move tiling to next Monday', 'push everything back 2 days'" },
+          },
+          required: ['projectId', 'instruction'],
+        },
+        run: async (ctx, args) => {
+          const proj = await this.prisma.project.findFirst({
+            where: { id: args.projectId, organizationId: ctx.organizationId },
+            select: { id: true, name: true },
+          });
+          if (!proj) return { result: { error: 'Project not found in this organization' } };
+          const plan = await this.costing.scheduleAssist(proj.id, ctx.organizationId, String(args.instruction || ''));
+          if (!plan.ops.length) {
+            return { result: { needsClarification: true, question: plan.summary || 'I could not match that to the schedule — can you rephrase?' } };
+          }
+          const pending: PendingAction = {
+            kind: 'edit_schedule',
+            summary: `Schedule of ${proj.name}: ${plan.summary || plan.lines.join('; ')}`,
+            args: { projectId: proj.id, projectName: proj.name, ops: plan.ops, lines: plan.lines },
+            createdAt: new Date().toISOString(),
+          };
+          return { result: { needsConfirmation: true, project: proj.name, changes: plan.lines, summary: plan.summary }, pending };
+        },
+      },
+
+      {
         name: 'confirm_invoice',
         description:
           'Finalize an invoice. This deducts stock and POSTS THE DOUBLE-ENTRY JOURNAL to the ledger and is irreversible. Always requires the user to confirm.',
@@ -1618,6 +1651,13 @@ export class OperatorToolsService {
       // PaymentsService does not write an audit log of its own.
       this.log(ctx, 'PAYMENT', 'document', a.documentId, undefined, `Payment ${a.amount} recorded via Operator (${ctx.channel})`);
       return { ok: true, message: `✅ Payment of ${a.amount} recorded${pay?.document?.name ? ` against ${pay.document.name}` : ''}.` };
+    }
+
+    if (pending.kind === 'edit_schedule') {
+      const a = pending.args || {};
+      const res = await this.costing.scheduleAssistApply(a.projectId, ctx.organizationId, a.ops || []);
+      const lines: string[] = Array.isArray(a.lines) ? a.lines : [];
+      return { ok: true, message: `🗓 Schedule of ${a.projectName} updated (${res.applied} change${res.applied === 1 ? '' : 's'}):\n${lines.map((l) => `• ${l}`).join('\n')}` };
     }
 
     if (pending.kind === 'add_project_cost') {

@@ -195,6 +195,20 @@ export class ProjectCostingController {
     return this.service.shiftSchedule(id, orgId(req), body?.days, body?.fromDate);
   }
 
+  // Voice/typed schedule assistant: parse the instruction into ops (no writes)…
+  @Post(':id/schedule/assist')
+  @Permissions('projects:update')
+  scheduleAssist(@Param('id') id: string, @Body() body: { text: string }, @Req() req: RequestWithOrganization) {
+    return this.service.scheduleAssist(id, orgId(req), body?.text || '');
+  }
+
+  // …then apply the ops the user approved in the preview.
+  @Post(':id/schedule/assist/apply')
+  @Permissions('projects:update')
+  scheduleAssistApply(@Param('id') id: string, @Body() body: { ops: any[] }, @Req() req: RequestWithOrganization) {
+    return this.service.scheduleAssistApply(id, orgId(req), body?.ops || []);
+  }
+
   @Patch('schedule/:itemId')
   @Permissions('projects:update')
   updateSchedule(@Param('itemId') itemId: string, @Body() body: any, @Req() req: RequestWithOrganization) {

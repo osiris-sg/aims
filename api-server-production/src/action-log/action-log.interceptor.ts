@@ -47,6 +47,9 @@ const VERB_ACTIONS: Record<string, string> = {
   revoke: 'REVOKE', activate: 'ACTIVATE', deactivate: 'DEACTIVATE',
   'auto-match': 'MATCH', match: 'MATCH', unmatch: 'UNMATCH', ignore: 'IGNORE',
   'log-edit-unlock': 'UNLOCK',
+  // Schedule assistant (CIEL): POST .../schedule/assist parses only (no writes);
+  // .../schedule/assist/apply performs the approved changes.
+  assist: 'VIEW', apply: 'UPDATE',
   // Project quest steps (CIEL): POST quest/:stepId/complete|skip|reset
   complete: 'COMPLETE', skip: 'SKIP', reset: 'UPDATE', replay: 'RUN',
   'bulk-download': 'EXPORT', 'meter-reading': 'UPDATE',

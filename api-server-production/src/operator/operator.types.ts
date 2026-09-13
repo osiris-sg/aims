@@ -98,7 +98,8 @@ export interface PendingAction {
     | 'record_payment'
     | 'post_bill'
     | 'email_document'
-    | 'add_project_cost';
+    | 'add_project_cost'
+    | 'edit_schedule';
   documentId?: string;
   documentType?: string;
   summary: string;

@@ -45,6 +45,9 @@ import CalendarMonthIcon from "@mui/icons-material/CalendarMonthOutlined";
 import ListAltIcon from "@mui/icons-material/ListAltOutlined";
 import UpdateIcon from "@mui/icons-material/Update";
 import ShareIcon from "@mui/icons-material/IosShareOutlined";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import MicIcon from "@mui/icons-material/Mic";
+import MicNoneIcon from "@mui/icons-material/MicNone";
 import { toast } from "react-toastify";
 import { useIdProjectApi, type Schedule, type ScheduleItem } from "./api";
 
@@ -53,6 +56,123 @@ const isoToday = () => new Date().toISOString().slice(0, 10);
 const addDays = (iso: string, n: number) => new Date(new Date(iso).getTime() + n * DAY).toISOString().slice(0, 10);
 const fmt = (iso: string) => new Date(iso).toLocaleDateString("en-SG", { day: "2-digit", month: "short" });
 const fmtFull = (iso: string) => new Date(iso).toLocaleDateString("en-SG", { day: "2-digit", month: "short", year: "numeric" });
+
+/** Voice/typed schedule assistant: dictate or type an instruction ("add
+ *  painting 20 to 22 Sept", "push everything back 2 days"), preview the
+ *  parsed changes, apply. Dictation uses the browser's speech recognition. */
+function AssistBar({ projectId, onApplied }: { projectId: string; onApplied: () => void }) {
+  const api = useIdProjectApi();
+  const [text, setText] = useState("");
+  const [listening, setListening] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [plan, setPlan] = useState<{ summary: string; ops: any[]; lines: string[] } | null>(null);
+  const recRef = useRef<any>(null);
+  useEffect(() => () => recRef.current?.abort?.(), []);
+
+  const toggleMic = () => {
+    if (listening) {
+      recRef.current?.stop();
+      return;
+    }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      toast.error("Voice input isn't supported in this browser — type the change instead");
+      return;
+    }
+    const rec = new SR();
+    rec.lang = "en-SG";
+    rec.interimResults = true;
+    rec.continuous = false;
+    rec.onresult = (e: any) => setText(Array.from(e.results).map((r: any) => r[0].transcript).join(" "));
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    recRef.current = rec;
+    setListening(true);
+    rec.start();
+  };
+
+  const parse = async () => {
+    const t = text.trim();
+    if (!t || busy) return;
+    setBusy(true);
+    setPlan(null);
+    try {
+      const p = await api.scheduleAssist(projectId, t);
+      if (!p.ops?.length) toast.info(p.summary || "Couldn't match that to the schedule — try rephrasing");
+      else setPlan(p);
+    } catch (e: any) {
+      toast.error(e.message || "Could not understand that");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const apply = async () => {
+    if (!plan || busy) return;
+    setBusy(true);
+    try {
+      const r = await api.scheduleAssistApply(projectId, plan.ops);
+      toast.success(`Schedule updated — ${r.applied} change${r.applied === 1 ? "" : "s"}`);
+      setPlan(null);
+      setText("");
+      onApplied();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to apply");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Box sx={{ mb: 1.5 }} data-tour="schedule-assist">
+      <Stack direction="row" spacing={1} alignItems="center">
+        <AutoAwesomeIcon fontSize="small" sx={{ color: "primary.main" }} />
+        <TextField
+          size="small"
+          fullWidth
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && parse()}
+          placeholder={listening ? "Listening… speak the change" : 'Type or dictate a change — "add painting 20 to 22 Sept", "move tiling to next Monday", "push everything back 2 days"'}
+          disabled={busy}
+        />
+        <Tooltip title={listening ? "Stop listening" : "Dictate the change"}>
+          <IconButton size="small" onClick={toggleMic} sx={{ color: listening ? "error.main" : "text.secondary" }}>
+            {listening ? <MicIcon fontSize="small" /> : <MicNoneIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
+        <Button size="small" variant="outlined" onClick={parse} disabled={busy || !text.trim()} sx={{ textTransform: "none", flexShrink: 0 }}>
+          {busy && !plan ? "Reading…" : "Preview"}
+        </Button>
+      </Stack>
+      {plan && (
+        <Alert
+          severity="info"
+          sx={{ mt: 1 }}
+          action={
+            <Stack direction="row" spacing={0.5}>
+              <Button size="small" color="inherit" onClick={() => setPlan(null)} sx={{ textTransform: "none" }}>
+                Discard
+              </Button>
+              <Button size="small" variant="contained" onClick={apply} disabled={busy} sx={{ textTransform: "none" }}>
+                Apply
+              </Button>
+            </Stack>
+          }
+        >
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            {plan.summary}
+          </Typography>
+          {plan.lines.map((l, i) => (
+            <Typography key={i} variant="caption" sx={{ display: "block" }}>
+              • {l}
+            </Typography>
+          ))}
+        </Alert>
+      )}
+    </Box>
+  );
+}
 
 export default function ScheduleTab({ projectId }: { projectId: string }) {
   const api = useIdProjectApi();
@@ -146,6 +266,8 @@ export default function ScheduleTab({ projectId }: { projectId: string }) {
           Add activities
         </Button>
       </Stack>
+
+      <AssistBar projectId={projectId} onApplied={load} />
 
       {data.items.length === 0 && view === "calendar" && (
         <Alert severity="info" sx={{ mb: 1.5 }}>
