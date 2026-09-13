@@ -113,6 +113,7 @@ export type Schedule = {
   weeks: Array<{ index: number; days: Array<{ iso: string; dow: string; holiday: string | null; work: string[]; notes: string[] }> }>;
   sequence: string[];
   holidays: Record<string, string>;
+  holidaysMy?: Record<string, string>;
 };
 
 export function useIdProjectApi() {

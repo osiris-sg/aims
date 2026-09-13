@@ -70,6 +70,47 @@ export const SG_PUBLIC_HOLIDAYS: Record<string, string> = {
   '2026-11-08': 'Deepavali',
   '2026-11-09': 'Deepavali (in lieu)',
   '2026-12-25': 'Christmas Day',
+  // 2027 — fixed-date holidays only; the moveable ones (Hari Raya Puasa/Haji,
+  // Vesak, Deepavali) get added once MOM gazettes them.
+  '2027-01-01': "New Year's Day",
+  '2027-02-06': 'Chinese New Year',
+  '2027-02-07': 'Chinese New Year',
+  '2027-02-08': 'Chinese New Year (in lieu)',
+  '2027-03-26': 'Good Friday',
+  '2027-05-01': 'Labour Day',
+  '2027-08-09': 'National Day',
+  '2027-12-25': 'Christmas Day',
+};
+
+// Malaysia national public holidays — INTERNAL ONLY (most site workers are
+// Malaysian, so their off-days matter for planning). The client link and the
+// printed schedule show Singapore holidays only. Moveable Islamic dates for
+// 2026 follow the official calendar; 2027's get added once announced.
+export const MY_PUBLIC_HOLIDAYS: Record<string, string> = {
+  '2026-01-01': "New Year's Day",
+  '2026-02-17': 'Chinese New Year',
+  '2026-02-18': 'Chinese New Year',
+  '2026-03-21': 'Hari Raya Aidilfitri',
+  '2026-03-22': 'Hari Raya Aidilfitri (day 2)',
+  '2026-03-23': 'Hari Raya Aidilfitri (in lieu)',
+  '2026-05-01': 'Labour Day',
+  '2026-05-27': 'Hari Raya Aidiladha',
+  '2026-05-31': 'Wesak Day',
+  '2026-06-01': "Agong's Birthday",
+  '2026-06-16': 'Awal Muharram',
+  '2026-08-25': 'Maulidur Rasul',
+  '2026-08-31': 'Merdeka Day',
+  '2026-09-16': 'Malaysia Day',
+  '2026-11-08': 'Deepavali',
+  '2026-12-25': 'Christmas Day',
+  '2027-01-01': "New Year's Day",
+  '2027-02-06': 'Chinese New Year',
+  '2027-02-07': 'Chinese New Year',
+  '2027-05-01': 'Labour Day',
+  '2027-06-07': "Agong's Birthday",
+  '2027-08-31': 'Merdeka Day',
+  '2027-09-16': 'Malaysia Day',
+  '2027-12-25': 'Christmas Day',
 };
 
 export type ScheduleItem = { id?: string; label: string; kind: string; startDate: Date | string; endDate: Date | string; notes?: string | null };
@@ -174,7 +215,7 @@ export function renderScheduleHtml(opts: { projectSite: string; contractNo: stri
     .dow { font-weight:700; } .date { color:#444; font-weight:400; }
     table.week td { height:72px; } th.sun, td.sun { background:#f5f5f5; }
     .act { background:#ffe58a; border:1px solid #e6c95a; border-radius:3px; padding:2px 4px; margin-bottom:3px; font-weight:600; }
-    .note { background:#d9f2d0; border:1px solid #9fd38f; border-radius:3px; padding:2px 4px; margin-bottom:3px; font-style:italic; }
+    .note { background:#c62828; border:1px solid #b71c1c; border-radius:3px; padding:2px 4px; margin-bottom:3px; color:#fff; font-weight:600; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     .ph { background:#f8b4b4; border:1px solid #e07070; border-radius:3px; padding:2px 4px; margin-bottom:3px; font-weight:700; text-transform:uppercase; }
     .off { color:#777; font-weight:700; font-size:10px; margin-bottom:3px; }
     .empty { color:#888; padding:24px; text-align:center; }

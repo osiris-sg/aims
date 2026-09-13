@@ -30,7 +30,7 @@ const C = {
   sub: "#6b6f76",
   line: "#e3e5e8",
   work: { bg: "#fff3c4", border: "#e8c96a", text: "#5c4a00" },
-  note: { bg: "#e2f4d9", border: "#a4d38f", text: "#2c5e1a" },
+  note: { bg: "#c62828", border: "#b71c1c", text: "#ffffff" },
   ph: { bg: "#fde2e2", border: "#e9a0a0", text: "#8a1f1f" },
 };
 

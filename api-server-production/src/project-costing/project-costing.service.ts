@@ -3,7 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { S3Service } from '../common/services/s3.service';
 import { BillsService } from '../bills/bills.service';
 import { DocumentsService } from '../documents/documents.service';
-import { ID_SCHEDULE_SEQUENCE, SG_PUBLIC_HOLIDAYS, buildWeeks, renderScheduleHtml } from './schedule';
+import { ID_SCHEDULE_SEQUENCE, SG_PUBLIC_HOLIDAYS, MY_PUBLIC_HOLIDAYS, buildWeeks, renderScheduleHtml } from './schedule';
 
 const DEFAULT_ENGAGEMENT_FEE = 1500; // S$ — in lieu of the 10% deposit (their T&C clause A)
 
@@ -541,6 +541,8 @@ export class ProjectCostingService {
       weeks: buildWeeks(items).map((w) => ({ index: w.index, days: w.days.map((d) => ({ iso: d.iso, dow: d.dow, holiday: d.holiday, work: d.work, notes: d.notes })) })),
       sequence: ID_SCHEDULE_SEQUENCE,
       holidays: SG_PUBLIC_HOLIDAYS,
+      // MY holidays are internal-only — the public link never receives them.
+      holidaysMy: MY_PUBLIC_HOLIDAYS,
     };
   }
 
@@ -893,7 +895,7 @@ export class ProjectCostingService {
       .slice(0, 12)
       .map((l) => ({ id: l.id, name: l.name, status: l.status, source: l.source, phone: l.phone, assignedToName: l.assignedToName, firstContactDeadline: l.firstContactDeadline, receivedAt: l.receivedAt }));
 
-    return { scope, year, designers, totals, myLeads, schedule, holidays: SG_PUBLIC_HOLIDAYS };
+    return { scope, year, designers, totals, myLeads, schedule, holidays: SG_PUBLIC_HOLIDAYS, holidaysMy: MY_PUBLIC_HOLIDAYS };
   }
 
   // ── Lead → Project → Quotation (CIEL 09-01) ───────────────────────

@@ -2660,6 +2660,10 @@ model WhatsAppConnection {
   status             String   @default("CONNECTED") // CONNECTED | DISCONNECTED | ERROR
   lastError          String?
   connectedAt        DateTime @default(now())
+  // Operator kill-switch for this line (guru 2026-09-13, CIEL: "read first,
+  // actions later"): false = inbound messages are stored/readable in the CRM
+  // but NEVER routed to the Operator agent, even for linked staff numbers.
+  operatorEnabled    Boolean  @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -75,6 +75,7 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 | 3.15 | Client share link for the schedule (live, always latest) | ✅ Tested (31 Aug) | `/schedule/<token>` responsive rewrite: mobile agenda rows / desktop 7-col grid, Print/PDF keeps the A4 sheet layout; verified both widths in Chrome |
 | 3.15a | Schedule dates bug (default range + compressing spread) | 🟡 Fixed (31 Aug) | default 2-week window; ticking re-spreads live; extends past To date, min 1 day each |
 | 3.15c | Interactive calendar (guru 13 Sep) | 🟡 Built (13 Sep) | calendar always visible (empty grid pre-activities); click a date → add-activity picker; hold-drag across days → one activity over the range; drag a chip to move it (duration kept, drop-target highlight, Sunday-work blocked); chip click → details/remove popover |
+| 3.15d | SG + MY holidays (guru 13 Sep) | 🟡 Built (13 Sep) | MY national holidays on internal calendars only (Schedule tab + dashboard, outlined MY chips); client link/print SG-only; SG 2027 fixed dates added, moveable pending gazette |
 | 3.15b | Payments tab button clarity | 🟡 Fixed (31 Aug) | explanatory tooltips on Recalculate / Add VO / Add refund |
 | 3.16 | Monthly supplier payment run view (all approved costs across projects) | ⬜ Not started | from the "1st of the month I pay everyone" walkthrough |
 | 3.17 | Project number auto-generation (`PRJ-{YY}-{###}`) | ⬜ Not started | column exists, never populated |

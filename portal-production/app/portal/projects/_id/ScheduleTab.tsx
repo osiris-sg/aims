@@ -350,6 +350,7 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
               const sun = di === 6;
               const isToday = iso === todayIso;
               const holiday = data.holidays[iso];
+              const holidayMy = data.holidaysMy?.[iso];
               const selected = inRange(iso);
               const dropTarget = dragId && dragOver === iso;
               return (
@@ -390,6 +391,7 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
                     sx={{ p: 0.75, minHeight: 60, cursor: "cell", height: "calc(100% - 25px)" }}
                   >
                     {holiday && <Chip size="small" color="error" label={`${holiday} · PH`} sx={{ height: 20, pointerEvents: "none", "& .MuiChip-label": { fontSize: 10.5, px: 0.75 } }} />}
+                    {holidayMy && <Chip size="small" color="error" variant="outlined" label={`MY · ${holidayMy}`} sx={{ height: 20, pointerEvents: "none", "& .MuiChip-label": { fontSize: 10, px: 0.75 } }} />}
                     {sun && (
                       <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: 700, fontSize: 10, pointerEvents: "none" }}>
                         WORKERS OFF DAY
@@ -401,8 +403,8 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
                         <Chip
                           key={it.id}
                           size="small"
-                          color={it.kind === "note" ? "success" : "warning"}
-                          variant={it.kind === "note" ? "outlined" : "filled"}
+                          color={it.kind === "note" ? "error" : "warning"}
+                          variant="filled"
                           label={it.label}
                           onMouseDown={(e) => {
                             e.stopPropagation();
@@ -418,10 +420,13 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
                           }}
                           sx={{
                             height: "auto",
+                            width: "100%",
+                            justifyContent: "flex-start",
+                            borderRadius: 1,
                             cursor: dragId === it.id ? "grabbing" : "grab",
                             opacity: dragId === it.id ? 0.35 : 1,
                             boxShadow: dragId === it.id ? 2 : 0,
-                            "& .MuiChip-label": { fontSize: it.kind === "note" ? 10.5 : 11, whiteSpace: "normal", px: 0.75, py: 0.25, lineHeight: 1.25, fontStyle: it.kind === "note" ? "italic" : "normal" },
+                            "& .MuiChip-label": { fontSize: 11, whiteSpace: "normal", px: 0.75, py: 0.4, lineHeight: 1.3, textAlign: "left", fontWeight: it.kind === "note" ? 700 : 500 },
                           }}
                         />
                       ))}
@@ -531,7 +536,7 @@ function AddOnDateDialog({ range, sequence, busy, onClose, onAdd }: { range: { s
           <Stack direction="row" spacing={1}>
             <TextField select size="small" label="Type" value={kind} onChange={(e) => setKind(e.target.value)} sx={{ minWidth: 130 }}>
               <MenuItem value="work">Work</MenuItem>
-              <MenuItem value="note">Note / reminder</MenuItem>
+              <MenuItem value="note">Reminder (red)</MenuItem>
             </TextField>
             <TextField label="From" type="date" size="small" InputLabelProps={{ shrink: true }} value={start} onChange={(e) => setStart(e.target.value)} />
             <TextField label="To" type="date" size="small" InputLabelProps={{ shrink: true }} value={end} onChange={(e) => setEnd(e.target.value)} />
@@ -599,7 +604,7 @@ function ListView({ data, onChange }: { data: Schedule; onChange: () => void }) 
                 <TableCell>
                   <TextField select size="small" value={d.kind ?? it.kind} onChange={(e) => setDrafts((s) => ({ ...s, [it.id]: { ...d, kind: e.target.value as any } }))} inputProps={{ style: { padding: "4px 8px" } }}>
                     <MenuItem value="work">Work</MenuItem>
-                    <MenuItem value="note">Note / reminder</MenuItem>
+                    <MenuItem value="note">Reminder (red)</MenuItem>
                     <MenuItem value="holiday">Holiday / no entry</MenuItem>
                   </TextField>
                 </TableCell>

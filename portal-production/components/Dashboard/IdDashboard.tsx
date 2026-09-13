@@ -32,6 +32,7 @@ type Payload = {
   myLeads: Array<{ id: string; name: string; status: string; source: string; phone: string | null; assignedToName: string | null; firstContactDeadline: string | null; receivedAt: string }>;
   schedule: Array<{ id: string; projectId: string; projectName: string; designer: string | null; label: string; kind: string; startDate: string; endDate: string }>;
   holidays: Record<string, string>;
+  holidaysMy?: Record<string, string>;
 };
 
 const money = (n: number | null | undefined) => `S$ ${new Intl.NumberFormat("en-SG", { maximumFractionDigits: 0 }).format(Number(n) || 0)}`;
@@ -77,7 +78,7 @@ const PROJECT_COLORS: Array<"primary" | "warning" | "success" | "info" | "second
 
 /** Master calendar: every scheduled activity across the visible projects,
  *  paged two weeks at a time, one colour per project, chip → the project. */
-function ScheduleOverview({ schedule, holidays, self }: { schedule: Payload["schedule"]; holidays: Record<string, string>; self: boolean }) {
+function ScheduleOverview({ schedule, holidays, holidaysMy, self }: { schedule: Payload["schedule"]; holidays: Record<string, string>; holidaysMy: Record<string, string>; self: boolean }) {
   const router = useRouter();
   const todayIso = isoOf(new Date());
   const mondayOf = (iso: string) => addDays(iso, -((new Date(iso + "T00:00:00").getDay() + 6) % 7));
@@ -133,6 +134,7 @@ function ScheduleOverview({ schedule, holidays, self }: { schedule: Payload["sch
                   const isToday = iso === todayIso;
                   const sun = di === 6;
                   const holiday = holidays[iso];
+                  const holidayMy = holidaysMy[iso];
                   return (
                     <Box key={iso} sx={{ borderLeft: di ? 1 : 0, borderColor: "divider", minHeight: 76, bgcolor: sun ? "action.hover" : "transparent" }}>
                       <Box sx={{ px: 0.75, py: 0.25, borderBottom: 1, borderColor: "divider", display: "flex", justifyContent: "space-between", bgcolor: isToday ? "primary.main" : "action.hover", color: isToday ? "primary.contrastText" : "text.primary" }}>
@@ -143,6 +145,7 @@ function ScheduleOverview({ schedule, holidays, self }: { schedule: Payload["sch
                       </Box>
                       <Stack spacing={0.4} sx={{ p: 0.5 }}>
                         {holiday && <Chip size="small" color="error" variant="outlined" label={holiday} sx={{ height: 18, "& .MuiChip-label": { fontSize: 9.5, px: 0.5 } }} />}
+                        {holidayMy && <Chip size="small" color="error" variant="outlined" label={`MY · ${holidayMy}`} sx={{ height: 18, opacity: 0.75, "& .MuiChip-label": { fontSize: 9.5, px: 0.5 } }} />}
                         {itemsOn(iso)
                           .filter((it) => !(sun && it.kind === "work"))
                           .map((it) => (
@@ -266,7 +269,7 @@ export default function IdDashboard() {
       )}
 
       {/* Master calendar across the visible projects */}
-      <ScheduleOverview schedule={data.schedule || []} holidays={data.holidays || {}} self={self} />
+      <ScheduleOverview schedule={data.schedule || []} holidays={data.holidays || {}} holidaysMy={data.holidaysMy || {}} self={self} />
 
       {/* Management: per-designer table */}
       {!self && (

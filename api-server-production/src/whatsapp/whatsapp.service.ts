@@ -1370,7 +1370,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             );
             continue;
           }
-          if (from && (await this.operatorAuth.isLinked('whatsapp', from))) {
+          // Line-level kill-switch: a connection with operatorEnabled=false is
+          // read-only — staff messages store like any other, no agent replies.
+          if (from && (connection as any).operatorEnabled !== false && (await this.operatorAuth.isLinked('whatsapp', from))) {
             const senderName = (value.contacts || []).find((c: any) => c?.wa_id === from)?.profile
               ?.name;
             // An uploaded photo/PDF — download it so the operator can extract it.
