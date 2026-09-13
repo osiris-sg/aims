@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { S3Service } from '../common/services/s3.service';
+import { UsersModule } from '../users/users.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { LeadsController } from './leads.controller';
 import { LeadsService } from './leads.service';
@@ -12,7 +13,7 @@ import { LeadsService } from './leads.service';
  * can route lead emails in.
  */
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, UsersModule],
   controllers: [LeadsController],
   providers: [LeadsService, PrismaService, S3Service],
   exports: [LeadsService],

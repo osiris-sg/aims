@@ -2755,6 +2755,9 @@ model WhatsAppAgentConfig {
   // Whether the AI may send replies without human review (only when it also
   // judges the message to be inside autoSendGuidance and is confident).
   autoSendEnabled   Boolean @default(false)
+  // Management number (digits, country code) that receives internal prompts —
+  // e.g. the new-lead assignment list (guru 2026-09-13).
+  notifyNumber      String?
   // Plain-text description of the KINDS of messages the AI may answer on its
   // own, e.g. "opening hours, price list questions, delivery status".
   autoSendGuidance  String?

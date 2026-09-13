@@ -1467,7 +1467,14 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           const from: string | undefined = message.from;
           // A tapped Approve/Discard on a group-draft prompt. Checked before
           // Operator routing so it works whether or not Denzel is linked.
-          const tapped = message.interactive?.button_reply?.id;
+          const tapped = message.interactive?.button_reply?.id || message.interactive?.list_reply?.id;
+          // A tapped designer on a lead-assignment list (sent via the agent line).
+          if (from && tapped && /^leadassign:/.test(tapped)) {
+            await this.leads
+              .handleAssignTap(tapped, from, { organizationId: connection.organizationId, phoneNumberId: connection.phoneNumberId, accessToken: connection.accessToken })
+              .catch((e) => this.logger.error(`Lead assign tap failed: ${e.message}`));
+            continue;
+          }
           if (from && tapped && /^grp(ok|no):/.test(tapped)) {
             await this.handleGroupApprovalButton(connection.organizationId, tapped, from).catch((e) =>
               this.logger.error(`Group approval button failed: ${e.message}`),

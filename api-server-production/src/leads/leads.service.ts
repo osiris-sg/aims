@@ -1,8 +1,11 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
+import { ActionLogService } from '../action-log/action-log.service';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
 import { S3Service } from '../common/services/s3.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { UsersService } from '../users/users.service';
 
 const DAY = 86400000;
 
@@ -77,6 +80,8 @@ export class LeadsService {
     private readonly prisma: PrismaService,
     private readonly s3: S3Service,
     private readonly notifications: NotificationsService,
+    private readonly users: UsersService,
+    private readonly actionLog: ActionLogService,
   ) {}
 
   // ── EZiD: deterministic parse of the plain-text field list ───────────────
@@ -254,6 +259,8 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       entityId: lead.id,
       linkUrl: `/portal/sales/leads`,
     });
+    // New unassigned lead → WhatsApp assignment prompt (fire-and-forget).
+    this.leadAssignBroadcast(lead).catch(() => null);
     return lead;
   }
 
@@ -323,6 +330,229 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     };
   }
 
+  // ── WhatsApp lead-assignment loop (guru 2026-09-13) ─────────────────────
+  // Every new unassigned lead pings management (WhatsAppAgentConfig.notifyNumber)
+  // through the OSIRIS AIMS agent line with the lead card + an interactive list
+  // of the org's designers. A tap assigns the lead and messages that designer.
+  private static readonly AGENT_ORG_NAME = 'Osiris Technology Pte. Ltd.';
+
+  /** The platform agent's primary WhatsApp line (falls back to the lead org's own). */
+  private async agentLine(fallbackOrgId?: string) {
+    const osiris = await this.prisma.organization.findFirst({ where: { name: LeadsService.AGENT_ORG_NAME }, select: { id: true } });
+    for (const orgId of [osiris?.id, fallbackOrgId].filter(Boolean) as string[]) {
+      const line = await this.prisma.whatsAppConnection.findFirst({
+        where: { organizationId: orgId, status: 'CONNECTED' },
+        orderBy: [{ isPrimary: 'desc' }, { connectedAt: 'asc' }],
+      });
+      if (line) return line;
+    }
+    return null;
+  }
+
+  private async waSend(line: { organizationId: string; phoneNumberId: string; accessToken: string }, to: string, payload: Record<string, any>, bodyText: string) {
+    const res = await fetch(`https://graph.facebook.com/v23.0/${line.phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${line.accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', to, ...payload }),
+    });
+    const json: any = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error?.message || `WhatsApp send failed (${res.status})`);
+    await this.prisma.whatsAppMessage
+      .create({
+        data: {
+          organizationId: line.organizationId,
+          direction: 'OUTBOUND',
+          counterparty: to,
+          phoneNumberId: line.phoneNumberId,
+          waMessageId: json?.messages?.[0]?.id || null,
+          body: bodyText,
+          status: 'sent',
+          payload: payload as any,
+        },
+      })
+      .catch(() => null);
+  }
+
+  /** The org's Designer-role users (falls back to everyone, same as the pickers). */
+  private async designersOf(organizationId: string) {
+    const res: any = await this.users.getUsers({ page: 1, limit: 100, search: '', filters: {} } as any, organizationId);
+    const all: any[] = res?.users || res?.docs || (Array.isArray(res) ? res : []);
+    const designers = all.filter((u) => (u.roles || []).some((r: any) => /designer/i.test(r?.name || '')));
+    return (designers.length ? designers : all).map((u) => ({ id: u.id, name: u.name || u.email || String(u.id).slice(0, 12), whatsappNumber: u.whatsappNumber || null }));
+  }
+
+  /** Fire-and-forget after lead creation — never blocks the capture path. */
+  async leadAssignBroadcast(lead: any) {
+    try {
+      if (!lead || lead.assignedToUserId) return;
+      const cfg: any = await this.prisma.whatsAppAgentConfig.findUnique({ where: { organizationId: lead.organizationId } });
+      const to = String(cfg?.notifyNumber || '').replace(/\D/g, '');
+      if (!to) return;
+      const line = await this.agentLine(lead.organizationId);
+      if (!line) return;
+      const summary = [
+        `🆕 New lead — ${lead.name}`,
+        `Source: ${String(lead.source || 'manual').toUpperCase()}${lead.ref ? ` · ${lead.ref}` : ''}`,
+        lead.phone ? `Phone: ${lead.phone}` : null,
+        [lead.propertyType, lead.propertyRooms, lead.budget].filter(Boolean).join(' · ') || null,
+        lead.location ? `Location: ${lead.location}` : null,
+        lead.remarks ? `Remarks: ${String(lead.remarks).slice(0, 200)}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      const designers = (await this.designersOf(lead.organizationId)).slice(0, 10);
+      if (!designers.length) {
+        await this.waSend(line, to, { type: 'text', text: { body: summary } }, summary);
+        return;
+      }
+      await this.waSend(
+        line,
+        to,
+        {
+          type: 'interactive',
+          interactive: {
+            type: 'list',
+            body: { text: summary.slice(0, 1024) },
+            footer: { text: 'Tap to assign a designer' },
+            action: {
+              button: 'Assign designer',
+              sections: [
+                {
+                  title: 'Designers',
+                  rows: designers.map((d) => ({
+                    id: `leadassign:${lead.id}:${d.id}`.slice(0, 200),
+                    title: String(d.name).slice(0, 24),
+                    ...(d.whatsappNumber ? { description: `+${d.whatsappNumber}` } : {}),
+                  })),
+                },
+              ],
+            },
+          },
+        },
+        summary,
+      );
+    } catch (e) {
+      const msg = (e as Error).message || '';
+      this.logger.warn(`Lead assignment broadcast failed for ${lead?.id}: ${msg}`);
+      // Closed 24h window → nudge with the pre-approved template (deliverable
+      // any time); one reply/tap to it reopens the window for the real list.
+      if (/re-?engagement|131047/i.test(msg)) {
+        try {
+          const cfg: any = await this.prisma.whatsAppAgentConfig.findUnique({ where: { organizationId: lead.organizationId } });
+          const to = String(cfg?.notifyNumber || '').replace(/\D/g, '');
+          const line = await this.agentLine(lead.organizationId);
+          if (to && line) await this.sendKeepAliveTemplate(line, to);
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+  }
+
+  private async sendKeepAliveTemplate(line: { organizationId: string; phoneNumberId: string; accessToken: string }, to: string) {
+    const templateName = process.env.WHATSAPP_KEEPALIVE_TEMPLATE || 'hello_world';
+    await this.waSend(
+      line,
+      to,
+      { type: 'template', template: { name: templateName, language: { code: 'en_US' } } },
+      `keep-alive template (${templateName}) — reply to open the 24h window`,
+    );
+  }
+
+  /**
+   * Daily keep-alive (guru 2026-09-13): ping management + every designer of
+   * each org that has a notifyNumber, so the assignment prompts have a live
+   * window when leads land. Template messages deliver regardless of the 24h
+   * window; a reply/tap opens it. 01:00 UTC = 09:00 SGT.
+   */
+  @Cron('0 1 * * *')
+  async keepAliveCron() {
+    const configs = await this.prisma.whatsAppAgentConfig.findMany({ where: { notifyNumber: { not: null } } });
+    for (const cfg of configs) {
+      try {
+        const line = await this.agentLine(cfg.organizationId);
+        if (!line) continue;
+        const targets = new Set<string>();
+        const notify = String((cfg as any).notifyNumber || '').replace(/\D/g, '');
+        if (notify) targets.add(notify);
+        for (const d of await this.designersOf(cfg.organizationId)) {
+          const n = String(d.whatsappNumber || '').replace(/\D/g, '');
+          if (n) targets.add(n);
+        }
+        let sent = 0;
+        for (const to of targets) {
+          await this.sendKeepAliveTemplate(line, to).then(() => sent++).catch((e) => this.logger.warn(`keep-alive to ${to} failed: ${e.message}`));
+        }
+        this.actionLog.system('whatsapp-keepalive', 'SEND', 'whatsapp', { organizationId: cfg.organizationId, details: { targets: targets.size, sent } });
+      } catch (e) {
+        this.logger.warn(`keep-alive for org ${cfg.organizationId} failed: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  /** A tapped designer row on the assignment list (arrives on the agent line's webhook). */
+  async handleAssignTap(tapped: string, from: string, line: { organizationId: string; phoneNumberId: string; accessToken: string }) {
+    const m = tapped.match(/^leadassign:([^:]+):(.+)$/);
+    if (!m) return;
+    const [, leadId, userId] = m;
+    const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
+    if (!lead) {
+      await this.waSend(line, from, { type: 'text', text: { body: 'That lead no longer exists in AIMS.' } }, 'lead missing').catch(() => null);
+      return;
+    }
+    const designers = await this.designersOf(lead.organizationId);
+    const d = designers.find((x) => x.id === userId);
+    const name = d?.name || 'the designer';
+    await this.prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        assignedToUserId: userId,
+        assignedToName: d?.name || null,
+        assignedAt: new Date(),
+        status: lead.status === 'unqualified' ? 'engaging' : undefined,
+      },
+    });
+    await this.waSend(line, from, { type: 'text', text: { body: `✅ ${lead.name} assigned to ${name}` } }, `assigned to ${name}`).catch(() => null);
+    const dnum = String(d?.whatsappNumber || '').replace(/\D/g, '');
+    if (dnum) {
+      const brief = [
+        `📋 New lead assigned to you — ${lead.name}`,
+        lead.phone ? `Phone: ${lead.phone}` : null,
+        `Source: ${String(lead.source || 'manual').toUpperCase()}`,
+        [lead.propertyType, lead.propertyRooms, lead.budget].filter(Boolean).join(' · ') || null,
+        lead.remarks ? `Remarks: ${String(lead.remarks).slice(0, 200)}` : null,
+        'Contact them within 24h · details in AIMS → Sales → Leads.',
+      ]
+        .filter(Boolean)
+        .join('\n');
+      const leadNum = String(lead.phone || '').replace(/\D/g, '');
+      if (leadNum) {
+        // CTA button deep-links into a WhatsApp chat WITH THE LEAD, prefilled —
+        // the designer texts from their own number in one tap.
+        const intro = `Hi ${lead.name?.split(' ')[0] || ''}, this is ${d?.name || 'your designer'} from CIEL Interior — thanks for your enquiry! When would be a good time to chat about your renovation?`;
+        const waUrl = `https://wa.me/${leadNum.startsWith('65') || leadNum.length > 8 ? leadNum : '65' + leadNum}?text=${encodeURIComponent(intro)}`;
+        await this.waSend(
+          line,
+          dnum,
+          {
+            type: 'interactive',
+            interactive: {
+              type: 'cta_url',
+              body: { text: brief.slice(0, 1024) },
+              action: { name: 'cta_url', parameters: { display_text: '💬 Message the lead', url: waUrl } },
+            },
+          },
+          brief,
+        ).catch((e) => this.logger.warn(`Designer notify failed: ${e.message}`));
+      } else {
+        await this.waSend(line, dnum, { type: 'text', text: { body: brief } }, brief).catch((e) => this.logger.warn(`Designer notify failed: ${e.message}`));
+      }
+    }
+    await this.notifications
+      .emit({ organizationId: lead.organizationId, kind: 'lead_assigned', title: `Lead ${lead.name} → ${name}`, body: 'Assigned via WhatsApp' })
+      .catch(() => null);
+  }
+
   /**
    * WhatsApp lead-capture line (guru 2026-09-13): every customer message on a
    * mode='leads' number lands here. One open lead per phone — a new message
@@ -353,6 +583,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         status: 'unqualified',
       },
     });
+    this.leadAssignBroadcast(lead).catch(() => null);
     await this.notifications
       .emit({ organizationId, kind: 'lead_captured', title: `New WhatsApp lead: ${lead.name}`, body: (msg.text || '').slice(0, 140) })
       .catch(() => null);
