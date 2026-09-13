@@ -402,14 +402,17 @@ export default function WhatsAppPage() {
               </Stack>
             ))}
             {connection?.lastError && <Alert severity="warning">{connection.lastError}</Alert>}
-            <Box>
-              <Button variant="outlined" color="success" size="small" disabled={connecting || !sdkReady} onClick={() => launchSignup(true)}>
-                {connecting ? "Waiting for signup…" : "Connect another number"}
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
+              <Button variant="contained" color="success" size="small" startIcon={<WhatsAppIcon />} disabled={connecting || !sdkReady} onClick={() => launchSignup(false)}>
+                {connecting ? "Waiting for signup…" : "Connect new number"}
               </Button>
-              <Typography variant="caption" color="text.secondary" sx={{ ml: 1.5 }}>
-                Each designer's number can be its own line — the PRIMARY line is the default sender.
+              <Button variant="outlined" color="success" size="small" startIcon={<WhatsAppIcon />} disabled={connecting || !sdkReady} onClick={() => launchSignup(true)}>
+                Connect existing Business app number
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                Existing = the number lives in the WhatsApp Business app on a phone (coexistence). Each designer's number is its own line — PRIMARY is the default sender.
               </Typography>
-            </Box>
+            </Stack>
           </Stack>
         ) : (
           <Stack spacing={2} alignItems="flex-start">
