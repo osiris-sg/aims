@@ -31,8 +31,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     designers.push({ id, name: [u?.firstName, u?.lastName].filter(Boolean).join(' ') || id.slice(0, 12), whatsappNumber: prof?.whatsappNumber || null });
   }
 
+  const RESEND = process.env.RESEND_CARD === '1';
   const summary = `🆕 New lead — ${lead.name}\nSource: MANUAL · Phone: ${lead.phone}\n${lead.propertyType} · ${lead.budget}\nTap below to assign.`;
-  await send('6582289608', {
+  if (!RESEND) console.log('watch-only mode (card already on his phone) — set RESEND_CARD=1 to send a fresh one');
+  if (RESEND) await send('6582289608', {
     type: 'interactive',
     interactive: {
       type: 'list',
@@ -44,9 +46,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
       },
     },
   }, summary);
-  console.log('📤 card sent to Mike — watching for the tap...');
+  if (RESEND) console.log('📤 fresh card sent to Mike');
+  console.log('👀 watching for the tap...');
 
-  const since = new Date();
+  const since = new Date(Date.now() - 15 * 60000);
   for (let i = 0; i < 36; i++) {
     await sleep(5000);
     const tap: any = await p.whatsAppMessage.findFirst({

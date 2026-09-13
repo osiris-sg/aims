@@ -795,7 +795,7 @@ export class ProjectCostingService {
       where: projWhere,
       select: {
         id: true, name: true, stage: true, status: true, designer: true, designerUserId: true,
-        commissionPct: true, startDate: true, createdAt: true,
+        commissionPct: true, startDate: true, createdAt: true, description: true,
         documents: { where: { type: { in: QUOTATION_TYPES }, status: 'confirmed' }, select: { config: true }, orderBy: { createdAt: 'desc' }, take: 1 },
         milestones: { select: { kind: true, amount: true, paidAmount: true } },
         costs: { where: { status: { in: ['approved', 'pending'] } }, select: { amount: true } },
@@ -905,7 +905,13 @@ export class ProjectCostingService {
       .slice(0, 12)
       .map((l) => ({ id: l.id, name: l.name, status: l.status, source: l.source, phone: l.phone, assignedToName: l.assignedToName, firstContactDeadline: l.firstContactDeadline, receivedAt: l.receivedAt }));
 
-    return { scope, year, designers, totals, myLeads, schedule, holidays: SG_PUBLIC_HOLIDAYS, holidaysMy: MY_PUBLIC_HOLIDAYS };
+    // Project notes (Project.description) — surfaced on the dashboard so
+    // data-review items (e.g. Drive-backfill caveats) reach the owner.
+    const reviewNotes = projects
+      .filter((p: any) => typeof p.description === 'string' && p.description.trim())
+      .map((p: any) => ({ projectId: p.id, projectName: p.name, stage: p.stage, note: p.description.trim() }));
+
+    return { scope, year, designers, totals, myLeads, schedule, reviewNotes, holidays: SG_PUBLIC_HOLIDAYS, holidaysMy: MY_PUBLIC_HOLIDAYS };
   }
 
   // ── Lead → Project → Quotation (CIEL 09-01) ───────────────────────

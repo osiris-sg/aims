@@ -31,6 +31,7 @@ type Payload = {
   totals: { ongoing: number; done: number; revenueYtd: number; target: number | null; projectedProfit: number; earnings: number };
   myLeads: Array<{ id: string; name: string; status: string; source: string; phone: string | null; assignedToName: string | null; firstContactDeadline: string | null; receivedAt: string }>;
   schedule: Array<{ id: string; projectId: string; projectName: string; designer: string | null; label: string; kind: string; startDate: string; endDate: string }>;
+  reviewNotes?: Array<{ projectId: string; projectName: string; stage: string | null; note: string }>;
   holidays: Record<string, string>;
   holidaysMy?: Record<string, string>;
 };
@@ -311,6 +312,36 @@ export default function IdDashboard() {
               </TableBody>
             </Table>
           </Box>
+        </Paper>
+      )}
+
+      {/* Project notes (Project.description) — data-review items for the owner */}
+      {(data.reviewNotes || []).length > 0 && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, mb: 2.5, overflow: "hidden" }} data-tour="dash-project-notes">
+          <Stack direction="row" alignItems="baseline" spacing={1} sx={{ px: 2, pt: 1.5, pb: 0.5 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              Project notes
+            </Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              please review — click a project to open it
+            </Typography>
+          </Stack>
+          <Stack divider={<Box sx={{ borderBottom: 1, borderColor: "divider" }} />}>
+            {(data.reviewNotes || []).map((n) => (
+              <Box key={n.projectId} sx={{ px: 2, py: 1.25, cursor: "pointer", "&:hover": { bgcolor: "action.hover" } }} onClick={() => router.push(`/portal/projects/${n.projectId}`)}>
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                    {n.projectName}
+                  </Typography>
+                  {n.stage && <Chip size="small" variant="outlined" label={n.stage} sx={{ height: 20, textTransform: "capitalize" }} />}
+                  <OpenInNewIcon sx={{ fontSize: 14, color: "text.disabled" }} />
+                </Stack>
+                <Typography variant="body2" sx={{ color: "text.secondary", whiteSpace: "pre-line" }}>
+                  {n.note}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
         </Paper>
       )}
 
