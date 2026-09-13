@@ -795,9 +795,11 @@ export class OperatorToolsService {
         run: async (ctx, args) => {
           const proj = await this.prisma.project.findFirst({
             where: { id: args.projectId, organizationId: ctx.organizationId },
-            select: { id: true, name: true },
+            select: { id: true, name: true, designerUserId: true },
           });
-          if (!proj) return { result: { error: 'Project not found in this organization' } };
+          if (!proj || (this.designerOnly(ctx) && proj.designerUserId !== ctx.clerkUserId)) {
+            return { result: { error: 'Project not found in this organization' } };
+          }
           const up = ctx.upload;
           const amount = Number(args.amount ?? up?.extracted.amount) || 0;
           if (!(amount > 0)) {
@@ -858,9 +860,11 @@ export class OperatorToolsService {
         run: async (ctx, args) => {
           const proj = await this.prisma.project.findFirst({
             where: { id: args.projectId, organizationId: ctx.organizationId },
-            select: { id: true, name: true },
+            select: { id: true, name: true, designerUserId: true },
           });
-          if (!proj) return { result: { error: 'Project not found in this organization' } };
+          if (!proj || (this.designerOnly(ctx) && proj.designerUserId !== ctx.clerkUserId)) {
+            return { result: { error: 'Project not found in this organization' } };
+          }
           const plan = await this.costing.scheduleAssist(proj.id, ctx.organizationId, String(args.instruction || ''));
           if (!plan.ops.length) {
             return { result: { needsClarification: true, question: plan.summary || 'I could not match that to the schedule — can you rephrase?' } };
@@ -872,6 +876,71 @@ export class OperatorToolsService {
             createdAt: new Date().toISOString(),
           };
           return { result: { needsConfirmation: true, project: proj.name, changes: plan.lines, summary: plan.summary }, pending };
+        },
+      },
+
+      {
+        name: 'api_docs',
+        description:
+          "Search the FULL AIMS REST API — every read endpoint the web dashboard itself uses. Use this whenever the user asks for something no dedicated tool covers (commissions, designer earnings, dashboards, reports, schedules, quests, leads, budgets, any screen's data): search here first, then fetch the matching endpoint with api_get. Returns 'GET <path> — <what it serves>' lines matching your query.",
+        permissions: [],
+        input_schema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: "Keywords to match against endpoint paths/summaries, e.g. 'commission', 'dashboard', 'schedule', 'aged', 'profit'" },
+          },
+          required: ['query'],
+        },
+        run: async (_ctx, args) => {
+          const lines = await this.apiCatalog();
+          const terms = String(args.query || '').toLowerCase().split(/\s+/).filter(Boolean);
+          const hits = terms.length ? lines.filter((l) => terms.some((t) => l.toLowerCase().includes(t))) : [];
+          return {
+            result: {
+              endpoints: hits.slice(0, 60),
+              ...(hits.length ? {} : { hint: 'No match — try broader keywords, or list_projects/list_recent_documents. Useful areas: /id-projects/dashboard (designer revenue & commissions), /projects/{id}/costing (project P&L incl. commission), /projects/{id}/schedule, /projects/{id}/quest.' }),
+            },
+          };
+        },
+      },
+
+      {
+        name: 'api_get',
+        description:
+          "Fetch any GET endpoint of the AIMS API as this user — the same data their dashboard shows, with their real permissions enforced. Find the path with api_docs first. Path params in {braces} must be replaced with real ids (e.g. from list_projects). Read-only: writes still go through the dedicated tools.",
+        permissions: [],
+        input_schema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: "Absolute API path starting with /, query string allowed — e.g. '/id-projects/dashboard' or '/projects/<id>/costing'" },
+          },
+          required: ['path'],
+        },
+        run: async (ctx, args) => {
+          const secret = process.env.INTERNAL_API_SECRET;
+          if (!secret) return { result: { error: 'Internal API access is not configured on this server (INTERNAL_API_SECRET missing).' } };
+          const path = String(args.path || '');
+          if (!path.startsWith('/') || path.includes('..') || /:\/\//.test(path)) return { result: { error: 'Path must be an absolute API path like /projects/<id>/costing' } };
+          if (/\{[^}]+\}/.test(path)) return { result: { error: 'Replace the {param} placeholders with real ids first (use list_projects etc.).' } };
+          const ts = Date.now();
+          const crypto = require('crypto');
+          const sig = crypto.createHmac('sha256', secret).update(`${ctx.clerkUserId}.${ts}`).digest('hex');
+          const port = process.env.PORT || 4040;
+          const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+            headers: { 'x-operator-internal': `${ctx.clerkUserId}.${ts}.${sig}` },
+          });
+          const text = await res.text();
+          if (!res.ok) return { result: { error: `${res.status} ${text.slice(0, 500)}` } };
+          let body: any = text;
+          try {
+            body = JSON.parse(text);
+          } catch {
+            /* non-JSON stays as text */
+          }
+          let out = JSON.stringify(body);
+          const truncated = out.length > 14000;
+          if (truncated) out = out.slice(0, 14000);
+          return { result: { path, data: truncated ? out + '…[truncated — ask for a narrower endpoint or add query filters]' : body } };
         },
       },
 
@@ -1195,6 +1264,21 @@ export class OperatorToolsService {
         permissions: ['projects:read'],
         input_schema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } } },
         run: async (ctx, { query, limit }) => {
+          // Designer-only users are row-scoped to their own projects, same as
+          // the portal list and the HTTP DesignerProjectScopeGuard.
+          if (this.designerOnly(ctx)) {
+            const rows = await this.prisma.project.findMany({
+              where: {
+                organizationId: ctx.organizationId,
+                designerUserId: ctx.clerkUserId,
+                ...(query ? { name: { contains: String(query), mode: 'insensitive' } } : {}),
+              },
+              orderBy: { createdAt: 'desc' },
+              take: Math.min(Number(limit) || 10, 25),
+              select: { id: true, name: true, status: true, customer: { select: { name: true } } },
+            });
+            return { result: rows.map((p) => ({ id: p.id, name: p.name, status: p.status, customer: p.customer?.name })) };
+          }
           const res: any = await this.projects.getProjects(
             { page: 1, limit: Math.min(Number(limit) || 10, 25), search: query } as any,
             ctx.organizationId,
@@ -1592,6 +1676,35 @@ export class OperatorToolsService {
   }
 
   /** Execute a held action after the user confirms it in chat. */
+  /** True when the user's ONLY active role in this org is Designer — such
+   *  users are row-scoped to projects where they are the designer in charge
+   *  (mirrors the portal lists and the HTTP DesignerProjectScopeGuard). */
+  private designerOnly(ctx: OperatorContext): boolean {
+    if (ctx.isOsirisAdmin) return false;
+    const names = ctx.roles.map((r) => r.name);
+    return names.length > 0 && names.every((n) => n === 'Designer');
+  }
+
+  /** Condensed GET-endpoint catalog from the server's own Swagger doc (the
+   *  full dashboard API), cached for an hour — feeds the api_docs tool. */
+  private apiCatalogCache: { at: number; lines: string[] } | null = null;
+  private async apiCatalog(): Promise<string[]> {
+    if (this.apiCatalogCache && Date.now() - this.apiCatalogCache.at < 3600_000) return this.apiCatalogCache.lines;
+    const port = process.env.PORT || 4040;
+    const doc: any = await (await fetch(`http://127.0.0.1:${port}/api-json`)).json();
+    const lines: string[] = [];
+    for (const [path, methods] of Object.entries<any>(doc?.paths || {})) {
+      for (const [m, op] of Object.entries<any>(methods || {})) {
+        if (m.toLowerCase() !== 'get') continue;
+        const summary = op?.summary || '';
+        const tag = op?.tags?.[0] || '';
+        lines.push(`GET ${path}${summary ? ` — ${summary}` : ''}${tag ? ` [${tag}]` : ''}`);
+      }
+    }
+    this.apiCatalogCache = { at: Date.now(), lines };
+    return lines;
+  }
+
   async runPending(ctx: OperatorContext, pending: PendingAction): Promise<{ ok: boolean; message: string }> {
     if (pending.kind === 'post_bill') {
       const bill = await this.prisma.document.findFirst({

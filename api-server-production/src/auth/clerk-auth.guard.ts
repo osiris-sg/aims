@@ -157,6 +157,29 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
     return { userRoles, userOrg };
   }
 
+  /** Validate the x-operator-internal header: `<userId>.<ts>.<hmac>` signed
+   *  with INTERNAL_API_SECRET, at most 60s old, GET requests only. Returns the
+   *  user id to impersonate, or null to fall through to normal Clerk auth. */
+  private verifyOperatorInternal(request: any): string | null {
+    try {
+      const secret = process.env.INTERNAL_API_SECRET;
+      const raw = request.headers?.['x-operator-internal'];
+      if (!secret || !raw || request.method !== 'GET') return null;
+      const val = Array.isArray(raw) ? raw[0] : String(raw);
+      const [userId, ts, sig] = val.split('.');
+      if (!userId || !ts || !sig) return null;
+      if (Math.abs(Date.now() - Number(ts)) > 60_000) return null;
+      const crypto = require('crypto');
+      const expect = crypto.createHmac('sha256', secret).update(`${userId}.${ts}`).digest('hex');
+      const a = Buffer.from(sig);
+      const b = Buffer.from(expect);
+      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+      return userId;
+    } catch {
+      return null;
+    }
+  }
+
   async canActivate(context: ExecutionContext) {
     // Check if the route is marked as public
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [context.getHandler(), context.getClass()]);
@@ -165,12 +188,24 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
       return true;
     }
 
-    const canActivate = await super.canActivate(context);
-    if (!canActivate) {
-      return false;
+    const request = context.switchToHttp().getRequest();
+
+    // Internal operator impersonation (WA-agent dashboard parity, 2026-09-14):
+    // the WhatsApp operator agent's generic api_get tool self-calls the API AS
+    // the linked staff user, authenticated by a short-lived HMAC header minted
+    // in-process (never leaves the box). READ-ONLY by construction — any
+    // non-GET request falls through to normal Clerk auth. Role, org and
+    // permission checks below run exactly as they would for the real user.
+    const impersonatedUserId = this.verifyOperatorInternal(request);
+    if (impersonatedUserId) {
+      request.user = { id: impersonatedUserId };
+    } else {
+      const canActivate = await super.canActivate(context);
+      if (!canActivate) {
+        return false;
+      }
     }
 
-    const request = context.switchToHttp().getRequest();
     const user = request.user;
 
     if (!user) {

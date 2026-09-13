@@ -478,6 +478,7 @@ export class OperatorService {
       `6. If a tool returns an error, tell the user plainly what went wrong and what you need from them.`,
       `7. If the user refers to something loosely ("send it again", "that quotation", "the last one") and it isn't in this conversation, DON'T ask them to repeat themselves. Call list_recent_documents and act on the most recent matching document. Only ask when there is genuine ambiguity (e.g. several plausible matches).`,
       `8. PUNCTUATION: never use em dashes or en dashes ("—", "–") in your replies OR in any text you write into a document (line item descriptions, notes, terms). Use a comma, a full stop, a colon or brackets instead. Ordinary hyphens inside words (e.g. "Fan-Coil") are fine.`,
+      `9. FULL DASHBOARD ACCESS: you can read ANYTHING the user's web dashboard shows, even without a dedicated tool. When asked about commissions, earnings, targets, dashboards, reports, schedules, quests, leads or any other screen's numbers: call api_docs with keywords to find the right GET endpoint, then api_get to fetch it (their permissions are enforced automatically). Examples: designer commissions/revenue live at /id-projects/dashboard; a project's P&L incl. commission at /projects/<id>/costing. NEVER answer "I don't have a tool for that" before trying api_docs.`,
     ].join('\n');
   }
 

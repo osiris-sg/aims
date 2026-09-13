@@ -4,6 +4,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { Public } from '../decorators/public.decorator';
+import { DesignerProjectScopeGuard } from './designer-project-scope.guard';
 import { ProjectCostingService } from './project-costing.service';
 
 interface RequestWithOrganization extends Request {
@@ -77,7 +78,7 @@ export class IdProjectsListController {
 @ApiTags('project-costing')
 @ApiBearerAuth()
 @Controller('projects')
-@UseGuards(ClerkAuthGuard)
+@UseGuards(ClerkAuthGuard, DesignerProjectScopeGuard)
 export class ProjectCostingController {
   constructor(private readonly service: ProjectCostingService) {}
 

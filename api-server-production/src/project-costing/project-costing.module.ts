@@ -4,6 +4,7 @@ import { S3Service } from '../common/services/s3.service';
 import { BillsModule } from '../bills/bills.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { IdProjectsListController, ProjectCostingController, PublicScheduleController } from './project-costing.controller';
+import { DesignerProjectScopeGuard } from './designer-project-scope.guard';
 import { ProjectCostingService } from './project-costing.service';
 
 /**
@@ -14,7 +15,7 @@ import { ProjectCostingService } from './project-costing.service';
 @Module({
   imports: [BillsModule, DocumentsModule],
   controllers: [PublicScheduleController, IdProjectsListController, ProjectCostingController],
-  providers: [ProjectCostingService, PrismaService, S3Service],
+  providers: [ProjectCostingService, DesignerProjectScopeGuard, PrismaService, S3Service],
   exports: [ProjectCostingService],
 })
 export class ProjectCostingModule {}
