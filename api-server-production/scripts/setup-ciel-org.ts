@@ -52,6 +52,7 @@ const ENABLED_MODULES: Array<{ code: string; subMenus?: Array<{ key: string; lab
     ],
   },
   { code: 'CUSTOMERS' },
+  { code: 'CRM' }, // WhatsApp inbox / client conversations (guru 2026-09-13)
   { code: 'PROJECTS' },
   { code: 'ACCOUNTING' },
   { code: 'USER_MANAGEMENT' },
@@ -71,11 +72,11 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
 
 // Management (the owners): full permissions, but the nav shows only the day-to-day
 // modules (guru 2026-09-01) — user/role admin stays with Osiris superadmins.
-const MANAGEMENT_MODULES = ['DASHBOARD', 'SALES', 'ACCOUNTING', 'PROJECTS', 'CUSTOMERS'];
+const MANAGEMENT_MODULES = ['DASHBOARD', 'SALES', 'ACCOUNTING', 'PROJECTS', 'CUSTOMERS', 'CRM'];
 
 // Designer: can raise quotations / invoices, manage their projects + customers.
 // No accounting, no user management, no admin.
-const DESIGNER_MODULES = ['DASHBOARD', 'SALES', 'CUSTOMERS', 'PROJECTS'];
+const DESIGNER_MODULES = ['DASHBOARD', 'SALES', 'CUSTOMERS', 'PROJECTS', 'CRM'];
 const DESIGNER_RESOURCES = new Set([
   'dashboard',
   'documents',

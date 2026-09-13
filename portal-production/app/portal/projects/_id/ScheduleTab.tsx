@@ -5,9 +5,10 @@
 // Schedule" sheet). List view edits each activity's dates; Print renders the
 // client-facing calendar from the server (same HTML as the PDF).
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Checkbox,
@@ -24,6 +25,7 @@ import {
   ListItemButton,
   ListItemText,
   MenuItem,
+  Popover,
   Stack,
   Table,
   TableBody,
@@ -145,13 +147,13 @@ export default function ScheduleTab({ projectId }: { projectId: string }) {
         </Button>
       </Stack>
 
-      {data.items.length === 0 && (
+      {data.items.length === 0 && view === "calendar" && (
         <Alert severity="info" sx={{ mb: 1.5 }}>
-          No activities yet. "Add activities" lets you tick items from the standard sequence (3D discussion → shopping → site survey → hacking → … → furniture move-in) and give each a date range; they appear on the weekly calendar below.
+          Click any date to put an activity on it, or hold and drag across days to give one activity the whole range. "Add activities" still bulk-loads the standard sequence.
         </Alert>
       )}
 
-      {view === "calendar" ? <CalendarView data={data} /> : <ListView data={data} onChange={load} />}
+      {view === "calendar" ? <CalendarView data={data} projectId={projectId} sequence={data.sequence} onChange={load} /> : <ListView data={data} onChange={load} />}
 
       <AddActivitiesDialog open={addOpen} sequence={data.sequence} projectId={projectId} onClose={() => setAddOpen(false)} onAdded={load} />
 
@@ -202,40 +204,227 @@ export default function ScheduleTab({ projectId }: { projectId: string }) {
   );
 }
 
-// ── weekly calendar (their sheet on screen) ───────────────────────────────
-function CalendarView({ data }: { data: Schedule }) {
-  if (!data.weeks.length) return null;
+// ── weekly calendar — the primary, interactive surface ────────────────────
+// Always rendered (empty grid before any activities). Click a day to add an
+// activity there; hold + drag across days to paint a range for one activity;
+// hold an activity chip and drag it onto another day to move it (duration
+// kept). Drag is POINTER-BASED (mousedown → 6px threshold → drop on hovered
+// day) — native HTML5 drag never fires reliably on MUI chips.
+const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule; projectId: string; sequence: string[]; onChange: () => void }) {
+  const api = useIdProjectApi();
   const todayIso = isoToday();
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
+  const [rangeSel, setRangeSel] = useState<{ anchor: string; head: string } | null>(null);
+  const [picker, setPicker] = useState<{ start: string; end: string } | null>(null);
+  const [chipInfo, setChipInfo] = useState<{ item: ScheduleItem; anchor: HTMLElement } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const dragRef = useRef<{ id: string; fromIso: string; x: number; y: number; moved: boolean } | null>(null);
+  const dragOverRef = useRef<string | null>(null);
+  const suppressClickRef = useRef(false);
+
+  // Grid range: earliest item (or this week) → latest item, minimum 3 weeks.
+  const mondayOf = (iso: string) => addDays(iso, -((new Date(iso).getDay() + 6) % 7));
+  const starts = data.items.map((i) => i.startDate.slice(0, 10));
+  const ends = data.items.map((i) => i.endDate.slice(0, 10));
+  const minIso = starts.length ? starts.reduce((a, b) => (a < b ? a : b)) : todayIso;
+  const maxIso = ends.length ? ends.reduce((a, b) => (a > b ? a : b)) : todayIso;
+  const from = mondayOf(minIso < todayIso ? minIso : todayIso);
+  const floor = addDays(from, 20);
+  const to = maxIso > floor ? maxIso : floor;
+  const weeks: string[][] = [];
+  for (let c = from; c <= to; c = addDays(c, 7)) weeks.push([0, 1, 2, 3, 4, 5, 6].map((i) => addDays(c, i)));
+
+  const itemsOn = (iso: string) => data.items.filter((it) => it.startDate.slice(0, 10) <= iso && it.endDate.slice(0, 10) >= iso && it.kind !== "holiday");
+
+  const inRange = (iso: string) => {
+    if (!rangeSel) return false;
+    const [lo, hi] = rangeSel.anchor <= rangeSel.head ? [rangeSel.anchor, rangeSel.head] : [rangeSel.head, rangeSel.anchor];
+    return iso >= lo && iso <= hi;
+  };
+
+  // Move ONE day of an activity (guru 13 Sep: dragging a chip must not shift
+  // the whole block). A single-day item simply moves; a day pulled out of a
+  // multi-day block splits it — the block shrinks (or splits in two around a
+  // middle day) and the grabbed day becomes its own 1-day item on the drop.
+  const moveItem = useCallback(
+    async (id: string, fromIso: string, dropIso: string) => {
+      const it = data.items.find((x) => x.id === id);
+      if (!it || dropIso === fromIso) return;
+      if (new Date(dropIso).getDay() === 0 && it.kind === "work") {
+        toast.warn("Sundays are workers' off days — pick another day");
+        return;
+      }
+      const s0 = it.startDate.slice(0, 10);
+      const e0 = it.endDate.slice(0, 10);
+      setBusy(true);
+      try {
+        if (s0 === e0) {
+          await api.updateScheduleItem(id, { startDate: dropIso, endDate: dropIso });
+        } else if (dropIso >= s0 && dropIso <= e0) {
+          toast.info("That day already has this activity");
+          return;
+        } else {
+          if (fromIso === s0) {
+            await api.updateScheduleItem(id, { startDate: addDays(s0, 1) });
+          } else if (fromIso === e0) {
+            await api.updateScheduleItem(id, { endDate: addDays(e0, -1) });
+          } else {
+            // middle day: shrink the block to [start, from-1] + re-add [from+1, end]
+            await api.updateScheduleItem(id, { endDate: addDays(fromIso, -1) });
+            await api.addScheduleItems(projectId, [{ label: it.label, kind: it.kind, startDate: addDays(fromIso, 1), endDate: e0, notes: it.notes }]);
+          }
+          await api.addScheduleItems(projectId, [{ label: it.label, kind: it.kind, startDate: dropIso, endDate: dropIso, notes: it.notes }]);
+        }
+        onChange();
+      } catch (e: any) {
+        toast.error(e.message || "Could not move the activity");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [api, data.items, onChange, projectId],
+  );
+  const moveItemRef = useRef(moveItem);
+  moveItemRef.current = moveItem;
+
+  // Pointer drag lifecycle: threshold on move, drop on the last hovered day.
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const d = dragRef.current;
+      if (!d || d.moved) return;
+      if (Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) > 6) {
+        d.moved = true;
+        setDragId(d.id);
+      }
+    };
+    const onUp = () => {
+      const d = dragRef.current;
+      dragRef.current = null;
+      if (d?.moved) {
+        suppressClickRef.current = true;
+        const over = dragOverRef.current;
+        setDragId(null);
+        setDragOver(null);
+        dragOverRef.current = null;
+        if (over) moveItemRef.current(d.id, d.fromIso, over);
+      }
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  // Finish the range paint anywhere the mouse comes up.
+  useEffect(() => {
+    if (!rangeSel) return;
+    const up = () => {
+      const [lo, hi] = rangeSel.anchor <= rangeSel.head ? [rangeSel.anchor, rangeSel.head] : [rangeSel.head, rangeSel.anchor];
+      setRangeSel(null);
+      setPicker({ start: lo, end: hi });
+    };
+    window.addEventListener("mouseup", up);
+    return () => window.removeEventListener("mouseup", up);
+  }, [rangeSel]);
+
   return (
-    <Box sx={{ overflowX: "auto", width: "100%" }}>
+    <Box sx={{ overflowX: "auto", width: "100%", userSelect: rangeSel || dragId ? "none" : "auto", cursor: dragId ? "grabbing" : undefined }}>
+      {dragId && (
+        /* floating pill — the grid must not shift when a drag starts */
+        <Box sx={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 30, bgcolor: "background.paper", border: 1, borderColor: "primary.main", borderRadius: 3, boxShadow: 6, px: 2, py: 0.75, pointerEvents: "none" }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            Moving this day — release on the date it should land on
+          </Typography>
+        </Box>
+      )}
       <Box sx={{ minWidth: 980 }}>
-        {data.weeks.map((w) => (
-          <Box key={w.index} sx={{ display: "grid", gridTemplateColumns: "64px repeat(7, minmax(0, 1fr))", border: 1, borderColor: "divider", borderRadius: 1.5, overflow: "hidden", mb: 1.25 }}>
-            <Box sx={{ bgcolor: "action.selected", p: 1, fontWeight: 800, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>Wk {w.index}</Box>
-            {w.days.map((d) => {
-              const sun = d.dow === "Sun";
-              const isToday = d.iso === todayIso;
+        {weeks.map((days, wi) => (
+          <Box key={days[0]} sx={{ display: "grid", gridTemplateColumns: "64px repeat(7, minmax(0, 1fr))", border: 1, borderColor: "divider", borderRadius: 1.5, overflow: "hidden", mb: 1.25 }}>
+            <Box sx={{ bgcolor: "action.selected", p: 1, fontWeight: 800, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>Wk {wi + 1}</Box>
+            {days.map((iso, di) => {
+              const sun = di === 6;
+              const isToday = iso === todayIso;
+              const holiday = data.holidays[iso];
+              const selected = inRange(iso);
+              const dropTarget = dragId && dragOver === iso;
               return (
-                <Box key={d.iso} sx={{ borderLeft: 1, borderColor: "divider", minHeight: 96, bgcolor: sun ? "action.hover" : "transparent" }}>
+                <Box
+                  key={iso}
+                  onMouseEnter={() => {
+                    if (dragRef.current?.moved) {
+                      dragOverRef.current = iso;
+                      setDragOver(iso);
+                    } else if (rangeSel) {
+                      setRangeSel((r) => (r ? { ...r, head: iso } : r));
+                    }
+                  }}
+                  sx={{
+                    borderLeft: 1,
+                    borderColor: dropTarget ? "primary.main" : "divider",
+                    minHeight: 96,
+                    bgcolor: selected ? "action.selected" : sun ? "action.hover" : "transparent",
+                    outline: dropTarget ? "2px dashed" : "none",
+                    outlineColor: "primary.main",
+                    outlineOffset: -2,
+                    transition: "background-color .1s",
+                  }}
+                >
                   <Box sx={{ px: 1, py: 0.5, borderBottom: 1, borderColor: "divider", display: "flex", justifyContent: "space-between", bgcolor: isToday ? "primary.main" : "action.hover", color: isToday ? "primary.contrastText" : "text.primary" }}>
                     <Typography variant="caption" sx={{ fontWeight: 700 }}>
-                      {d.dow}
+                      {DOW[di]}
                     </Typography>
-                    <Typography variant="caption">{fmt(d.iso)}</Typography>
+                    <Typography variant="caption">{fmt(iso)}</Typography>
                   </Box>
-                  <Stack spacing={0.5} sx={{ p: 0.75 }}>
-                    {d.holiday && <Chip size="small" color="error" label={`${d.holiday} · PH`} sx={{ height: 20, "& .MuiChip-label": { fontSize: 10.5, px: 0.75 } }} />}
+                  <Stack
+                    spacing={0.5}
+                    onMouseDown={(e) => {
+                      if (e.button !== 0 || dragRef.current) return;
+                      e.preventDefault();
+                      setRangeSel({ anchor: iso, head: iso });
+                    }}
+                    sx={{ p: 0.75, minHeight: 60, cursor: "cell", height: "calc(100% - 25px)" }}
+                  >
+                    {holiday && <Chip size="small" color="error" label={`${holiday} · PH`} sx={{ height: 20, pointerEvents: "none", "& .MuiChip-label": { fontSize: 10.5, px: 0.75 } }} />}
                     {sun && (
-                      <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: 700, fontSize: 10 }}>
+                      <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: 700, fontSize: 10, pointerEvents: "none" }}>
                         WORKERS OFF DAY
                       </Typography>
                     )}
-                    {d.work.map((l, i) => (
-                      <Chip key={`${l}-${i}`} size="small" color="warning" variant="filled" label={l} sx={{ height: "auto", "& .MuiChip-label": { fontSize: 11, whiteSpace: "normal", px: 0.75, py: 0.25, lineHeight: 1.25 } }} />
-                    ))}
-                    {d.notes.map((n, i) => (
-                      <Chip key={`n-${i}`} size="small" color="success" variant="outlined" label={n} sx={{ height: "auto", "& .MuiChip-label": { fontSize: 10.5, whiteSpace: "normal", px: 0.75, py: 0.25, lineHeight: 1.25, fontStyle: "italic" } }} />
-                    ))}
+                    {itemsOn(iso)
+                      .filter((it) => !(sun && it.kind === "work"))
+                      .map((it) => (
+                        <Chip
+                          key={it.id}
+                          size="small"
+                          color={it.kind === "note" ? "success" : "warning"}
+                          variant={it.kind === "note" ? "outlined" : "filled"}
+                          label={it.label}
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            if (e.button === 0) dragRef.current = { id: it.id, fromIso: iso, x: e.clientX, y: e.clientY, moved: false };
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (suppressClickRef.current) {
+                              suppressClickRef.current = false;
+                              return;
+                            }
+                            setChipInfo({ item: it, anchor: e.currentTarget as HTMLElement });
+                          }}
+                          sx={{
+                            height: "auto",
+                            cursor: dragId === it.id ? "grabbing" : "grab",
+                            opacity: dragId === it.id ? 0.35 : 1,
+                            boxShadow: dragId === it.id ? 2 : 0,
+                            "& .MuiChip-label": { fontSize: it.kind === "note" ? 10.5 : 11, whiteSpace: "normal", px: 0.75, py: 0.25, lineHeight: 1.25, fontStyle: it.kind === "note" ? "italic" : "normal" },
+                          }}
+                        />
+                      ))}
                   </Stack>
                 </Box>
               );
@@ -243,7 +432,124 @@ function CalendarView({ data }: { data: Schedule }) {
           </Box>
         ))}
       </Box>
+
+      <AddOnDateDialog
+        range={picker}
+        sequence={sequence}
+        busy={busy}
+        onClose={() => setPicker(null)}
+        onAdd={async (label, kind, start, end) => {
+          setBusy(true);
+          try {
+            await api.addScheduleItems(projectId, [{ label, kind, startDate: start, endDate: end }]);
+            toast.success(start === end ? `"${label}" on ${fmt(start)}` : `"${label}" · ${fmt(start)} – ${fmt(end)}`);
+            setPicker(null);
+            onChange();
+          } catch (e: any) {
+            toast.error(e.message || "Could not add the activity");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+
+      <Popover
+        open={!!chipInfo}
+        anchorEl={chipInfo?.anchor}
+        onClose={() => setChipInfo(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+      >
+        {chipInfo && (
+          <Box sx={{ p: 1.5, maxWidth: 280 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              {chipInfo.item.label}
+            </Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
+              {fmtFull(chipInfo.item.startDate)} – {fmtFull(chipInfo.item.endDate)} · {chipInfo.item.kind}
+            </Typography>
+            <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mb: 1 }}>
+              Hold and drag a day's chip to move JUST that day (the block splits around it). Whole-block dates are editable in the List view; Shift moves everything.
+            </Typography>
+            <Button
+              size="small"
+              color="error"
+              startIcon={<DeleteIcon />}
+              disabled={busy}
+              onClick={async () => {
+                try {
+                  await api.removeScheduleItem(chipInfo.item.id);
+                  setChipInfo(null);
+                  onChange();
+                } catch (e: any) {
+                  toast.error(e.message || "Could not remove");
+                }
+              }}
+              sx={{ textTransform: "none" }}
+            >
+              Remove from schedule
+            </Button>
+          </Box>
+        )}
+      </Popover>
     </Box>
+  );
+}
+
+// ── click/paint → pick the activity for that date (range) ─────────────────
+function AddOnDateDialog({ range, sequence, busy, onClose, onAdd }: { range: { start: string; end: string } | null; sequence: string[]; busy: boolean; onClose: () => void; onAdd: (label: string, kind: string, start: string, end: string) => void }) {
+  const [label, setLabel] = useState<string>("");
+  const [kind, setKind] = useState("work");
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+
+  useEffect(() => {
+    if (range) {
+      setLabel("");
+      setKind("work");
+      setStart(range.start);
+      setEnd(range.end);
+    }
+  }, [range]);
+
+  const days = start && end ? Math.max(1, Math.round((new Date(end).getTime() - new Date(start).getTime()) / DAY) + 1) : 1;
+
+  return (
+    <Dialog open={!!range} onClose={onClose} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 2 } }}>
+      <DialogTitle sx={{ pb: 1 }}>
+        {range && (range.start === range.end ? `Add activity · ${fmtFull(range.start)}` : `Add activity · ${fmt(range.start)} – ${fmt(range.end)} (${days}d)`)}
+      </DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ mt: 0.5 }}>
+          <Autocomplete
+            freeSolo
+            autoHighlight
+            options={sequence}
+            inputValue={label}
+            onInputChange={(_, v) => setLabel(v)}
+            renderInput={(p) => <TextField {...p} autoFocus size="small" label="Activity" placeholder="Pick from the sequence or type your own" />}
+          />
+          <Stack direction="row" spacing={1}>
+            <TextField select size="small" label="Type" value={kind} onChange={(e) => setKind(e.target.value)} sx={{ minWidth: 130 }}>
+              <MenuItem value="work">Work</MenuItem>
+              <MenuItem value="note">Note / reminder</MenuItem>
+            </TextField>
+            <TextField label="From" type="date" size="small" InputLabelProps={{ shrink: true }} value={start} onChange={(e) => setStart(e.target.value)} />
+            <TextField label="To" type="date" size="small" InputLabelProps={{ shrink: true }} value={end} onChange={(e) => setEnd(e.target.value)} />
+          </Stack>
+          <Typography variant="caption" sx={{ color: "text.disabled" }}>
+            The activity covers every day in the range. Sundays never show work; public holidays stay flagged.
+          </Typography>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} sx={{ textTransform: "none" }}>
+          Cancel
+        </Button>
+        <Button variant="contained" disabled={busy || !label.trim() || !start || !end || end < start} onClick={() => onAdd(label.trim(), kind, start, end)} sx={{ textTransform: "none" }}>
+          Add
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
@@ -474,5 +780,3 @@ function AddActivitiesDialog({ open, sequence, projectId, onClose, onAdded }: { 
   );
 }
 
-// keep the helper referenced for future range presets
-void fmtFull;

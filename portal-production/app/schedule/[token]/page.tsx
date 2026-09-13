@@ -9,7 +9,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Alert, Box, Button, Chip, CircularProgress, Container, Paper, Stack, Typography, useMediaQuery } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Container, Paper, Stack, Typography, useMediaQuery } from "@mui/material";
 import PrintIcon from "@mui/icons-material/PrintOutlined";
 
 type Day = { iso: string; dow: string; holiday: string | null; work: string[]; notes: string[] };
@@ -90,25 +90,50 @@ export default function PublicSchedulePage() {
 
   const h = data.header;
 
+  // Plain rounded boxes, NOT MuiChip: a Chip is a fixed-height pill, so a
+  // wrapped multi-line label spilled outside its ellipse-shaped bubble
+  // ("overrun with the dialog", guru 2026-09-13). A Box grows with its text.
+  const label = (text: string, c: { bg: string; border: string; text: string }, extra: object = {}) => (
+    <Box
+      sx={{
+        bgcolor: c.bg,
+        color: c.text,
+        border: `1px solid ${c.border}`,
+        borderRadius: 1,
+        px: 0.9,
+        py: 0.5,
+        fontSize: 12,
+        lineHeight: 1.35,
+        fontWeight: 600,
+        whiteSpace: "normal",
+        wordBreak: "break-word",
+        ...extra,
+      }}
+    >
+      {text}
+    </Box>
+  );
+
   const DayChips = ({ d }: { d: Day }) => (
     <Stack spacing={0.5} sx={{ minWidth: 0 }}>
-      {d.holiday && (
-        <Chip size="small" label={`${d.holiday} · Public holiday`} sx={{ bgcolor: C.ph.bg, color: C.ph.text, border: `1px solid ${C.ph.border}`, height: "auto", "& .MuiChip-label": { whiteSpace: "normal", py: 0.4, px: 0.9, fontSize: 11.5, lineHeight: 1.3, fontWeight: 700 } }} />
-      )}
+      {d.holiday && label(`${d.holiday} · Public holiday`, C.ph, { fontSize: 11.5, fontWeight: 700, lineHeight: 1.3 })}
       {d.dow === "Sun" && (
         <Typography sx={{ color: "#9aa0a6", fontWeight: 700, fontSize: 10, letterSpacing: 0.5 }}>WORKERS' OFF DAY</Typography>
       )}
       {d.work.map((l, i) => (
-        <Chip key={`w${i}`} size="small" label={l} sx={{ bgcolor: C.work.bg, color: C.work.text, border: `1px solid ${C.work.border}`, height: "auto", justifyContent: "flex-start", "& .MuiChip-label": { whiteSpace: "normal", py: 0.4, px: 0.9, fontSize: 12, lineHeight: 1.35, fontWeight: 600 } }} />
+        <React.Fragment key={`w${i}`}>{label(l, C.work)}</React.Fragment>
       ))}
       {d.notes.map((n, i) => (
-        <Chip key={`n${i}`} size="small" label={n} sx={{ bgcolor: C.note.bg, color: C.note.text, border: `1px solid ${C.note.border}`, height: "auto", justifyContent: "flex-start", "& .MuiChip-label": { whiteSpace: "normal", py: 0.4, px: 0.9, fontSize: 11.5, lineHeight: 1.35, fontStyle: "italic" } }} />
+        <React.Fragment key={`n${i}`}>{label(n, C.note, { fontSize: 11.5, fontWeight: 400, fontStyle: "italic" })}</React.Fragment>
       ))}
     </Stack>
   );
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "#f3f4f6", color: C.ink, pb: 6 }}>
+    // width:100% — the ROOT layout styles <body> as display:flex, so without
+    // an explicit width this page shrank to its content (1200px) and sat
+    // pinned to the LEFT with a dead white gutter (guru 2026-09-13).
+    <Box sx={{ minHeight: "100vh", width: "100%", bgcolor: "#f3f4f6", color: C.ink, pb: 6 }}>
       {/* header */}
       <Box sx={{ bgcolor: "#ffffff", borderBottom: `2px solid ${C.ink}` }}>
         <Container maxWidth="lg" sx={{ py: 2 }}>

@@ -5,14 +5,17 @@
 // Revenue = contract value (signed quotation + confirmed VOs) of projects
 // started this year, tracked against the manager-set yearly target.
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
-  Box, Button, Chip, CircularProgress, Grid, LinearProgress, Paper, Stack,
-  Table, TableBody, TableCell, TableHead, TableRow, Typography,
+  Box, Button, Chip, CircularProgress, Grid, IconButton, LinearProgress, Paper, Stack,
+  Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import TodayIcon from "@mui/icons-material/TodayOutlined";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import MainCard from "@/components/MainCard";
 
@@ -27,6 +30,8 @@ type Payload = {
   scope: "self" | "all"; year: number; designers: Row[];
   totals: { ongoing: number; done: number; revenueYtd: number; target: number | null; projectedProfit: number; earnings: number };
   myLeads: Array<{ id: string; name: string; status: string; source: string; phone: string | null; assignedToName: string | null; firstContactDeadline: string | null; receivedAt: string }>;
+  schedule: Array<{ id: string; projectId: string; projectName: string; designer: string | null; label: string; kind: string; startDate: string; endDate: string }>;
+  holidays: Record<string, string>;
 };
 
 const money = (n: number | null | undefined) => `S$ ${new Intl.NumberFormat("en-SG", { maximumFractionDigits: 0 }).format(Number(n) || 0)}`;
@@ -59,6 +64,109 @@ function TargetBar({ revenue, target }: { revenue: number; target: number | null
         {pct.toFixed(0)}% of {money(target)}
       </Typography>
     </Box>
+  );
+}
+
+const DAY = 86400000;
+const isoOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const addDays = (iso: string, n: number) => isoOf(new Date(new Date(iso + "T00:00:00").getTime() + n * DAY));
+const fmtDay = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString("en-SG", { day: "2-digit", month: "short" });
+const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+// Per-project chip colours — MUI palette colours so both themes hold up.
+const PROJECT_COLORS: Array<"primary" | "warning" | "success" | "info" | "secondary" | "error"> = ["primary", "warning", "success", "info", "secondary", "error"];
+
+/** Master calendar: every scheduled activity across the visible projects,
+ *  paged two weeks at a time, one colour per project, chip → the project. */
+function ScheduleOverview({ schedule, holidays, self }: { schedule: Payload["schedule"]; holidays: Record<string, string>; self: boolean }) {
+  const router = useRouter();
+  const todayIso = isoOf(new Date());
+  const mondayOf = (iso: string) => addDays(iso, -((new Date(iso + "T00:00:00").getDay() + 6) % 7));
+  const [weekStart, setWeekStart] = useState(() => mondayOf(isoOf(new Date())));
+
+  const projects = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const it of schedule) if (!seen.has(it.projectId)) seen.set(it.projectId, it.projectName);
+    return Array.from(seen.entries()).map(([id, name], i) => ({ id, name, color: PROJECT_COLORS[i % PROJECT_COLORS.length] }));
+  }, [schedule]);
+  const colorOf = (projectId: string) => projects.find((p) => p.id === projectId)?.color || "primary";
+
+  const weeks = [0, 1].map((w) => [0, 1, 2, 3, 4, 5, 6].map((d) => addDays(weekStart, w * 7 + d)));
+  const itemsOn = (iso: string) => schedule.filter((it) => it.startDate <= iso && it.endDate >= iso && it.kind !== "holiday");
+  const windowHasItems = weeks.some((days) => days.some((iso) => itemsOn(iso).length > 0));
+
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 2, mb: 2.5, overflow: "hidden" }}>
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 2, pt: 1.5, pb: 1, flexWrap: "wrap", rowGap: 1 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+          {self ? "My schedule" : "Schedule"}
+        </Typography>
+        <Typography variant="caption" sx={{ color: "text.secondary" }}>
+          {fmtDay(weeks[0][0])} – {fmtDay(weeks[1][6])} · all {self ? "your" : ""} projects
+        </Typography>
+        <Box sx={{ flex: 1 }} />
+        {projects.map((p) => (
+          <Chip key={p.id} size="small" color={p.color} variant="outlined" label={p.name} onClick={() => router.push(`/portal/projects/${p.id}`)} sx={{ height: 22, maxWidth: 200 }} />
+        ))}
+        <IconButton size="small" onClick={() => setWeekStart((w) => addDays(w, -7))} aria-label="Earlier week">
+          <ChevronLeftIcon fontSize="small" />
+        </IconButton>
+        <Tooltip title="Back to this week">
+          <IconButton size="small" onClick={() => setWeekStart(mondayOf(todayIso))} aria-label="This week">
+            <TodayIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <IconButton size="small" onClick={() => setWeekStart((w) => addDays(w, 7))} aria-label="Later week">
+          <ChevronRightIcon fontSize="small" />
+        </IconButton>
+      </Stack>
+      {!windowHasItems && (
+        <Typography variant="body2" sx={{ color: "text.disabled", px: 2, pb: 2 }}>
+          Nothing scheduled in this window — plan activities on each project's Schedule tab, or page with the arrows.
+        </Typography>
+      )}
+      {windowHasItems && (
+        <Box sx={{ overflowX: "auto", px: 2, pb: 2 }}>
+          <Box sx={{ minWidth: 900 }}>
+            {weeks.map((days) => (
+              <Box key={days[0]} sx={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", border: 1, borderColor: "divider", borderRadius: 1.5, overflow: "hidden", mb: 1 }}>
+                {days.map((iso, di) => {
+                  const isToday = iso === todayIso;
+                  const sun = di === 6;
+                  const holiday = holidays[iso];
+                  return (
+                    <Box key={iso} sx={{ borderLeft: di ? 1 : 0, borderColor: "divider", minHeight: 76, bgcolor: sun ? "action.hover" : "transparent" }}>
+                      <Box sx={{ px: 0.75, py: 0.25, borderBottom: 1, borderColor: "divider", display: "flex", justifyContent: "space-between", bgcolor: isToday ? "primary.main" : "action.hover", color: isToday ? "primary.contrastText" : "text.primary" }}>
+                        <Typography variant="caption" sx={{ fontWeight: 700, fontSize: 10.5 }}>
+                          {DOW[di]}
+                        </Typography>
+                        <Typography variant="caption" sx={{ fontSize: 10.5 }}>{fmtDay(iso)}</Typography>
+                      </Box>
+                      <Stack spacing={0.4} sx={{ p: 0.5 }}>
+                        {holiday && <Chip size="small" color="error" variant="outlined" label={holiday} sx={{ height: 18, "& .MuiChip-label": { fontSize: 9.5, px: 0.5 } }} />}
+                        {itemsOn(iso)
+                          .filter((it) => !(sun && it.kind === "work"))
+                          .map((it) => (
+                            <Tooltip key={it.id} title={`${it.projectName} · ${it.label} (${fmtDay(it.startDate)} – ${fmtDay(it.endDate)})${it.designer ? ` · ${it.designer}` : ""}`}>
+                              <Chip
+                                size="small"
+                                color={colorOf(it.projectId)}
+                                variant={it.kind === "note" ? "outlined" : "filled"}
+                                label={it.label}
+                                onClick={() => router.push(`/portal/projects/${it.projectId}`)}
+                                sx={{ height: "auto", justifyContent: "flex-start", "& .MuiChip-label": { fontSize: 10, whiteSpace: "normal", px: 0.6, py: 0.2, lineHeight: 1.2 } }}
+                              />
+                            </Tooltip>
+                          ))}
+                      </Stack>
+                    </Box>
+                  );
+                })}
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      )}
+    </Paper>
   );
 }
 
@@ -156,6 +264,9 @@ export default function IdDashboard() {
           </Stack>
         </Paper>
       )}
+
+      {/* Master calendar across the visible projects */}
+      <ScheduleOverview schedule={data.schedule || []} holidays={data.holidays || {}} self={self} />
 
       {/* Management: per-designer table */}
       {!self && (

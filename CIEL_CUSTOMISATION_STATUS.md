@@ -74,6 +74,7 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 | 3.14 | **Schedule tab**: 35-step sequence picker with date ranges (sequential spread), weekly Mon–Sun calendar (Sun off, SG PH flagged), list editor, Shift, Print/PDF in their sheet layout | 🟡 Built | |
 | 3.15 | Client share link for the schedule (live, always latest) | ✅ Tested (31 Aug) | `/schedule/<token>` responsive rewrite: mobile agenda rows / desktop 7-col grid, Print/PDF keeps the A4 sheet layout; verified both widths in Chrome |
 | 3.15a | Schedule dates bug (default range + compressing spread) | 🟡 Fixed (31 Aug) | default 2-week window; ticking re-spreads live; extends past To date, min 1 day each |
+| 3.15c | Interactive calendar (guru 13 Sep) | 🟡 Built (13 Sep) | calendar always visible (empty grid pre-activities); click a date → add-activity picker; hold-drag across days → one activity over the range; drag a chip to move it (duration kept, drop-target highlight, Sunday-work blocked); chip click → details/remove popover |
 | 3.15b | Payments tab button clarity | 🟡 Fixed (31 Aug) | explanatory tooltips on Recalculate / Add VO / Add refund |
 | 3.16 | Monthly supplier payment run view (all approved costs across projects) | ⬜ Not started | from the "1st of the month I pay everyone" walkthrough |
 | 3.17 | Project number auto-generation (`PRJ-{YY}-{###}`) | ⬜ Not started | column exists, never populated |
@@ -196,6 +197,7 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 | 9.11 | AIMS branding for CIEL org per new logo colour scheme | ⬜ Blocked | waiting: logo assets |
 | 9.12 | Designer counter-signature after client signs + saved signature on profile | 🟡 Built (3 Sep) | "Sign as designer" in editor header; draw or one-tap saved signature (OrganizationMemberProfile.signatureImage); stamps Prepared-by block on print/PDF |
 | 9.13 | Designer dashboard | 🟡 Built (3 Sep) | /id-projects/dashboard + IdDashboard.tsx replaces rental cards for ID orgs; designers self-scoped, mgmt per-designer table; Create project button top right |
+| 9.13a | Dashboard master calendar (guru 13 Sep) | 🟡 Built (13 Sep) | Schedule card: all visible projects' activities in one weekly grid (2-week window, arrows + today), colour per project + clickable legend, chip/tooltip → project; holidays + Sundays marked; payload window −7d…+42d |
 | 9.14 | Manager-set yearly sales target per designer | 🟡 Built (3 Sep) | OrganizationMemberProfile.yearlySalesTarget; Edit User field; dashboard target bars |
 | 9.15 | Projects list scoped to designer-in-charge (Designer role); Management/admin see all | 🟡 Built (2 Sep) | /id-projects filters designerUserId when caller's only org role is Designer |
 | 9.15a | Designer scoping extended to LEADS + QUOTATIONS (guru 12 Sep) | 🟡 Built (12 Sep) | leads list+stats force assignedToUserId; /documents/paginated quotation/VO listings filter config.designerUserId OR quote.header.designerUserId OR project.designerUserId; quotes stamp designerUserId (creator default, Designer picker, create-from-project) |

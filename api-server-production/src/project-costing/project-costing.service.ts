@@ -858,13 +858,42 @@ export class ProjectCostingService {
       projectedProfit: ROUND2(designers.reduce((x, r) => x + r.projectedProfit, 0)),
       earnings: ROUND2(designers.reduce((x, r) => x + r.earnings, 0)),
     };
+    // Master calendar: every scheduled activity across the visible projects,
+    // a week back and six weeks forward (the dashboard pages by week).
+    const winFrom = new Date(Date.now() - 7 * 86400000);
+    const winTo = new Date(Date.now() + 42 * 86400000);
+    const scheduleRows = projects.length
+      ? await this.prisma.projectScheduleItem.findMany({
+          where: {
+            organizationId,
+            projectId: { in: projects.map((p) => p.id) },
+            startDate: { lte: winTo },
+            endDate: { gte: winFrom },
+          },
+          orderBy: [{ startDate: 'asc' }, { sortOrder: 'asc' }],
+          select: { id: true, projectId: true, label: true, kind: true, startDate: true, endDate: true },
+        })
+      : [];
+    const projName = new Map(projects.map((p) => [p.id, p.name]));
+    const projDesigner = new Map(projects.map((p) => [p.id, p.designer || null]));
+    const schedule = scheduleRows.map((r) => ({
+      id: r.id,
+      projectId: r.projectId,
+      projectName: projName.get(r.projectId) || 'Project',
+      designer: projDesigner.get(r.projectId) || null,
+      label: r.label,
+      kind: r.kind,
+      startDate: r.startDate.toISOString().slice(0, 10),
+      endDate: r.endDate.toISOString().slice(0, 10),
+    }));
+
     // Open leads list (the actionable ones) — for the "my leads" table.
     const myLeads = leads
       .filter((l) => l.status === 'unqualified' || l.status === 'engaging')
       .slice(0, 12)
       .map((l) => ({ id: l.id, name: l.name, status: l.status, source: l.source, phone: l.phone, assignedToName: l.assignedToName, firstContactDeadline: l.firstContactDeadline, receivedAt: l.receivedAt }));
 
-    return { scope, year, designers, totals, myLeads };
+    return { scope, year, designers, totals, myLeads, schedule, holidays: SG_PUBLIC_HOLIDAYS };
   }
 
   // ── Lead → Project → Quotation (CIEL 09-01) ───────────────────────
