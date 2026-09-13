@@ -13,6 +13,7 @@ import {
   Res,
   UnauthorizedException,
   UseGuards,
+  Patch,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -67,8 +68,15 @@ export class WhatsAppController {
   @Post('disconnect')
   @Permissions('whatsapp:manage')
   @ApiOperation({ summary: 'Soft-disconnect the org WhatsApp connection' })
-  disconnect(@Req() req: RequestWithOrganization) {
-    return this.service.disconnect(requireOrgId(req));
+  disconnect(@Req() req: RequestWithOrganization, @Body() body?: { phoneNumberId?: string }) {
+    return this.service.disconnect(requireOrgId(req), body?.phoneNumberId);
+  }
+
+  @Patch('lines/:phoneNumberId')
+  @Permissions('whatsapp:manage')
+  @ApiOperation({ summary: "Per-line settings: mode (standard | leads), operator on/off, primary" })
+  updateLine(@Param('phoneNumberId') phoneNumberId: string, @Body() body: { mode?: string; operatorEnabled?: boolean; isPrimary?: boolean }, @Req() req: RequestWithOrganization) {
+    return this.service.updateLine(requireOrgId(req), phoneNumberId, body || {});
   }
 
   @Post('send-template')

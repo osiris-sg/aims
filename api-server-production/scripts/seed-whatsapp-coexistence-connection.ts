@@ -69,11 +69,14 @@ async function main() {
     console.warn(`   ⚠️ subscribe: ${e.message}`);
   }
 
+  // Multi-line orgs: upsert by phone number; the org's first CONNECTED line
+  // becomes primary (outbound default).
+  const hasOther = await prisma.whatsAppConnection.count({ where: { organizationId: org.id, status: 'CONNECTED', phoneNumberId: { not: phone.id } } });
   const connection = await prisma.whatsAppConnection.upsert({
-    where: { organizationId: org.id },
+    where: { phoneNumberId: phone.id },
     update: {
+      organizationId: org.id,
       wabaId,
-      phoneNumberId: phone.id,
       displayPhoneNumber: phone.display_phone_number,
       verifiedName: phone.verified_name || null,
       accessToken: token,
@@ -89,6 +92,7 @@ async function main() {
       verifiedName: phone.verified_name || null,
       accessToken: token,
       status: 'CONNECTED',
+      isPrimary: hasOther === 0,
     },
   });
 

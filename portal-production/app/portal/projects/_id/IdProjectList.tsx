@@ -90,11 +90,15 @@ export default function IdProjectList() {
         id: "project",
         header: "Project",
         cell: ({ row }: any) => (
-          <Box sx={{ minWidth: 220 }}>
-            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+          // No hard minWidth: the shared Table renders wrap-cells with
+          // overflow visible, so a fixed 220px box SPILLED under the next
+          // column when the column came out narrower (guru 2026-09-13).
+          // Long names wrap inside the cell instead.
+          <Box sx={{ maxWidth: 320 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: "normal", wordBreak: "break-word" }}>
               {row.original.clientName || row.original.name}
             </Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 320 }}>
+            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", whiteSpace: "normal", wordBreak: "break-word" }}>
               {row.original.address || "—"}
             </Typography>
           </Box>

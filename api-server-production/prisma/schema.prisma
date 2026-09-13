@@ -101,7 +101,7 @@ model Organization {
   emailIngestLogs          EmailIngestLog[]
   submitJobs               SubmitJob[]
   passTrackerEntries       PassTrackerEntry[]
-  whatsAppConnection       WhatsAppConnection?
+  whatsAppConnection       WhatsAppConnection[]
   whatsAppMessages         WhatsAppMessage[]
   whatsAppQnA              WhatsAppQnA[]
   whatsAppAgentConfig      WhatsAppAgentConfig?
@@ -2645,7 +2645,9 @@ enum MaintenanceReportKind {
 
 model WhatsAppConnection {
   id                 String   @id @default(uuid())
-  organizationId     String   @unique
+  // Multiple numbers per org (guru 2026-09-13): each designer/line is its own
+  // row; exactly one CONNECTED line per org is primary (default for outbound).
+  organizationId     String
   // IDs handed back by Embedded Signup's postMessage session-info payload.
   wabaId             String
   phoneNumberId      String   @unique
@@ -2664,11 +2666,19 @@ model WhatsAppConnection {
   // actions later"): false = inbound messages are stored/readable in the CRM
   // but NEVER routed to the Operator agent, even for linked staff numbers.
   operatorEnabled    Boolean  @default(true)
+  // Default line for outbound sends when the caller names no number.
+  isPrimary          Boolean  @default(false)
+  // Per-line inbound logic (guru 2026-09-13): 'standard' = store + operator
+  // for linked staff; 'leads' = every customer message auto-creates/updates a
+  // Lead (the ads-funnel number). More modes can join later.
+  mode               String   @default("standard")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 // Raw webhook deliveries (guru 2026-09-13, after the operatorEnabled deploy
@@ -2693,6 +2703,9 @@ model WhatsAppMessage {
   direction      String // OUTBOUND | INBOUND
   // E.164 counterparty number (recipient for outbound, sender for inbound).
   counterparty   String
+  // Which line (WhatsAppConnection.phoneNumberId) carried this message —
+  // null on rows from the single-number era.
+  phoneNumberId  String?
   // Meta's message id (wamid...) — idempotency anchor for webhook redeliveries.
   waMessageId    String? @unique
   templateName   String?

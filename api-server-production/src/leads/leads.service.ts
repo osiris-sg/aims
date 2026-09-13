@@ -323,6 +323,42 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     };
   }
 
+  /**
+   * WhatsApp lead-capture line (guru 2026-09-13): every customer message on a
+   * mode='leads' number lands here. One open lead per phone — a new message
+   * appends to the existing lead's notes instead of spawning duplicates.
+   */
+  async captureFromWhatsApp(organizationId: string, msg: { phone: string; name?: string | null; text?: string | null }) {
+    const digits = String(msg.phone || '').replace(/\D/g, '');
+    if (!digits) return null;
+    const stamp = new Date().toLocaleString('en-SG', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const line = `[${stamp}] ${msg.text?.trim() || '(media)'}`;
+    const existing = await this.prisma.lead.findFirst({
+      where: { organizationId, phone: digits, status: { in: ['unqualified', 'engaging'] } },
+      orderBy: { receivedAt: 'desc' },
+    });
+    if (existing) {
+      const notes = `${existing.notes ? existing.notes + '\n' : ''}${line}`.slice(-4000);
+      return this.prisma.lead.update({ where: { id: existing.id }, data: { notes, name: existing.name === existing.phone && msg.name ? msg.name : undefined } });
+    }
+    const lead = await this.prisma.lead.create({
+      data: {
+        organizationId,
+        source: 'whatsapp',
+        name: msg.name?.trim() || digits,
+        phone: digits,
+        phoneVerified: true, // they messaged us from it
+        remarks: msg.text?.trim()?.slice(0, 1000) || null,
+        notes: line,
+        status: 'unqualified',
+      },
+    });
+    await this.notifications
+      .emit({ organizationId, kind: 'lead_captured', title: `New WhatsApp lead: ${lead.name}`, body: (msg.text || '').slice(0, 140) })
+      .catch(() => null);
+    return lead;
+  }
+
   async update(leadId: string, organizationId: string, dto: LeadDto) {
     const existing = await this.prisma.lead.findFirst({ where: { id: leadId, organizationId } });
     if (!existing) throw new NotFoundException('Lead not found');

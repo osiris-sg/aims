@@ -29,8 +29,7 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Typography,
-} from "@mui/material";
+  Typography,, MenuItem, Tooltip } from "@mui/material";
 import { WhatsApp as WhatsAppIcon, Refresh, LinkOff, Send } from "@mui/icons-material";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
@@ -48,6 +47,19 @@ declare global {
   }
 }
 
+interface ConnectionLine {
+  phoneNumberId: string;
+  wabaId?: string;
+  displayPhoneNumber?: string | null;
+  verifiedName?: string | null;
+  status: string;
+  isPrimary?: boolean;
+  operatorEnabled?: boolean;
+  mode?: string;
+  lastError?: string | null;
+  connectedAt?: string;
+}
+
 interface ConnectionStatus {
   status: string;
   wabaId?: string;
@@ -56,6 +68,8 @@ interface ConnectionStatus {
   verifiedName?: string | null;
   lastError?: string | null;
   connectedAt?: string;
+  /** Every line the org has connected — the top-level fields mirror the primary. */
+  lines?: ConnectionLine[];
 }
 
 interface MessageRow {
@@ -97,6 +111,7 @@ export default function WhatsAppPage() {
   const [connecting, setConnecting] = useState(false);
   const [sdkReady, setSdkReady] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
+  const [disconnectLine, setDisconnectLine] = useState<ConnectionLine | null>(null);
 
   // Test-send form
   const [sendTo, setSendTo] = useState("");
@@ -245,14 +260,16 @@ export default function WhatsAppPage() {
 
   const handleDisconnect = useCallback(async () => {
     setDisconnectOpen(false);
+    const line = disconnectLine;
+    setDisconnectLine(null);
     try {
-      await request("/whatsapp/disconnect", { method: "POST" });
+      await request("/whatsapp/disconnect", { method: "POST", body: JSON.stringify(line?.phoneNumberId ? { phoneNumberId: line.phoneNumberId } : {}) });
       toast.success("WhatsApp disconnected");
       await loadAll();
     } catch (e: any) {
       toast.error(e.message || "Disconnect failed");
     }
-  }, [request, loadAll]);
+  }, [request, loadAll, disconnectLine]);
 
   const handleSend = useCallback(
     async (mode: "template" | "text") => {
@@ -318,29 +335,67 @@ export default function WhatsAppPage() {
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
         {isConnected ? (
           <Stack spacing={1.5}>
-            <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" useFlexGap>
-              <Chip label="Connected" color="success" size="small" />
-              <Typography variant="h6">{connection?.displayPhoneNumber || connection?.phoneNumberId}</Typography>
-              {connection?.verifiedName && (
-                <Typography variant="body2" color="text.secondary">
-                  {connection.verifiedName}
+            {(connection?.lines?.length ? connection.lines : [connection as unknown as ConnectionLine]).map((line) => (
+              <Stack key={line.phoneNumberId} direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ py: 0.75, borderBottom: 1, borderColor: "divider", "&:last-of-type": { borderBottom: 0 } }}>
+                <Chip label={line.status === "CONNECTED" ? "Connected" : line.status} color={statusChipColor(line.status)} size="small" />
+                <Typography variant="h6" sx={{ fontSize: 17 }}>{line.displayPhoneNumber || line.phoneNumberId}</Typography>
+                {line.verifiedName && (
+                  <Typography variant="body2" color="text.secondary">
+                    {line.verifiedName}
+                  </Typography>
+                )}
+                {line.isPrimary && <Chip label="PRIMARY" size="small" variant="outlined" color="info" sx={{ height: 20 }} />}
+                {line.operatorEnabled === false && <Chip label="read-only" size="small" variant="outlined" sx={{ height: 20 }} />}
+                <Tooltip title="What this line does with customer messages: Standard = store (staff get the operator); Lead capture = every customer message auto-creates/updates a Lead in Sales → Leads">
+                  <TextField
+                    select
+                    size="small"
+                    label="Logic"
+                    value={line.mode || "standard"}
+                    onChange={async (e) => {
+                      try {
+                        await request(`/whatsapp/lines/${line.phoneNumberId}`, { method: "PATCH", body: JSON.stringify({ mode: e.target.value }) });
+                        toast.success(e.target.value === "leads" ? "Lead capture on — customer messages become leads" : "Standard logic");
+                        loadAll();
+                      } catch (err: any) {
+                        toast.error(err.message || "Could not update the line");
+                      }
+                    }}
+                    sx={{ minWidth: 150 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MenuItem value="standard">Standard</MenuItem>
+                    <MenuItem value="leads">Lead capture</MenuItem>
+                  </TextField>
+                </Tooltip>
+                <Typography variant="caption" color="text.secondary">
+                  WABA {line.wabaId} · Phone ID {line.phoneNumberId}
                 </Typography>
-              )}
-            </Stack>
-            <Typography variant="body2" color="text.secondary">
-              WABA ID: {connection?.wabaId} · Phone Number ID: {connection?.phoneNumberId}
-            </Typography>
+                <Box sx={{ flex: 1 }} />
+                {line.status === "CONNECTED" && (
+                  <Button
+                    startIcon={<LinkOff />}
+                    color="warning"
+                    variant="outlined"
+                    size="small"
+                    onClick={() => {
+                      setDisconnectLine(line);
+                      setDisconnectOpen(true);
+                    }}
+                  >
+                    Disconnect
+                  </Button>
+                )}
+              </Stack>
+            ))}
             {connection?.lastError && <Alert severity="warning">{connection.lastError}</Alert>}
             <Box>
-              <Button
-                startIcon={<LinkOff />}
-                color="warning"
-                variant="outlined"
-                size="small"
-                onClick={() => setDisconnectOpen(true)}
-              >
-                Disconnect
+              <Button variant="outlined" color="success" size="small" disabled={connecting || !sdkReady} onClick={() => launchSignup(true)}>
+                {connecting ? "Waiting for signup…" : "Connect another number"}
               </Button>
+              <Typography variant="caption" color="text.secondary" sx={{ ml: 1.5 }}>
+                Each designer's number can be its own line — the PRIMARY line is the default sender.
+              </Typography>
             </Box>
           </Stack>
         ) : (

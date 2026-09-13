@@ -11,6 +11,7 @@ import { randomInt } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { OnboardDto, SendTemplateDto, SendTextDto } from './dto/whatsapp.dto';
 import { WhatsAppAgentService } from './whatsapp-agent.service';
+import { LeadsService } from '../leads/leads.service';
 import { OperatorService } from '../operator/operator.service';
 import { OperatorAuthService } from '../operator/operator-auth.service';
 
@@ -31,6 +32,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly agent: WhatsAppAgentService,
+    private readonly leads: LeadsService,
     private readonly operator: OperatorService,
     private readonly operatorAuth: OperatorAuthService,
   ) {}
@@ -208,11 +210,14 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // Multi-line orgs: each phone number is its own row (upsert by phone).
+    // The org's first CONNECTED line becomes primary (outbound default).
+    const hasOther = await this.prisma.whatsAppConnection.count({ where: { organizationId, status: 'CONNECTED', phoneNumberId: { not: phoneNumberId } } });
     const connection = await this.prisma.whatsAppConnection.upsert({
-      where: { organizationId },
+      where: { phoneNumberId },
       update: {
+        organizationId,
         wabaId: dto.wabaId,
-        phoneNumberId,
         displayPhoneNumber,
         verifiedName,
         accessToken,
@@ -230,6 +235,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         accessToken,
         pin,
         status: 'CONNECTED',
+        isPrimary: hasOther === 0,
         lastError: registered ? null : 'Phone registration reported an error — may already be registered',
       },
     });
@@ -238,17 +244,55 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getStatus(organizationId: string) {
-    const connection = await this.prisma.whatsAppConnection.findUnique({ where: { organizationId } });
-    return connection ? this.publicView(connection) : { status: 'NOT_CONNECTED' };
+    const lines = await this.prisma.whatsAppConnection.findMany({
+      where: { organizationId },
+      orderBy: [{ isPrimary: 'desc' }, { connectedAt: 'asc' }],
+    });
+    if (!lines.length) return { status: 'NOT_CONNECTED' };
+    // Back-compat: the primary line's fields at the top level, all lines under `lines`.
+    return { ...this.publicView(lines[0]), lines: lines.map((l) => this.publicView(l)) };
   }
 
-  /** Soft disconnect: stop using the connection but keep the row for history. */
-  async disconnect(organizationId: string) {
-    const connection = await this.prisma.whatsAppConnection.findUnique({ where: { organizationId } });
+  /** Soft disconnect: stop using the line but keep the row for history.
+   *  Names a specific line via phoneNumberId; defaults to the primary. If the
+   *  primary goes, the oldest surviving CONNECTED line inherits primary. */
+  async disconnect(organizationId: string, phoneNumberId?: string) {
+    const connection = await this.prisma.whatsAppConnection.findFirst({
+      where: { organizationId, ...(phoneNumberId ? { phoneNumberId } : {}) },
+      orderBy: [{ isPrimary: 'desc' }, { connectedAt: 'asc' }],
+    });
     if (!connection) throw new NotFoundException('No WhatsApp connection for this organization');
     const updated = await this.prisma.whatsAppConnection.update({
-      where: { organizationId },
-      data: { status: 'DISCONNECTED' },
+      where: { id: connection.id },
+      data: { status: 'DISCONNECTED', isPrimary: false },
+    });
+    if (connection.isPrimary) {
+      const heir = await this.prisma.whatsAppConnection.findFirst({
+        where: { organizationId, status: 'CONNECTED' },
+        orderBy: { connectedAt: 'asc' },
+      });
+      if (heir) await this.prisma.whatsAppConnection.update({ where: { id: heir.id }, data: { isPrimary: true } });
+    }
+    return this.publicView(updated);
+  }
+
+  /** Per-line settings: inbound logic + operator kill-switch (guru 2026-09-13). */
+  async updateLine(organizationId: string, phoneNumberId: string, dto: { mode?: string; operatorEnabled?: boolean; isPrimary?: boolean }) {
+    const line = await this.prisma.whatsAppConnection.findFirst({ where: { organizationId, phoneNumberId } });
+    if (!line) throw new NotFoundException('No such WhatsApp line for this organization');
+    if (dto.mode !== undefined && !['standard', 'leads'].includes(dto.mode)) {
+      throw new BadRequestException("mode must be 'standard' or 'leads'");
+    }
+    if (dto.isPrimary === true) {
+      await this.prisma.whatsAppConnection.updateMany({ where: { organizationId, id: { not: line.id } }, data: { isPrimary: false } });
+    }
+    const updated = await this.prisma.whatsAppConnection.update({
+      where: { id: line.id },
+      data: {
+        mode: dto.mode !== undefined ? dto.mode : undefined,
+        operatorEnabled: dto.operatorEnabled !== undefined ? dto.operatorEnabled : undefined,
+        isPrimary: dto.isPrimary !== undefined ? dto.isPrimary : undefined,
+      },
     });
     return this.publicView(updated);
   }
@@ -261,10 +305,13 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   // ── Sending ────────────────────────────────────────────────────────────────
 
-  private async requireConnection(organizationId: string) {
-    const connection = await this.prisma.whatsAppConnection.findUnique({ where: { organizationId } });
-    if (!connection || connection.status !== 'CONNECTED') {
-      throw new BadRequestException('WhatsApp is not connected for this organization');
+  private async requireConnection(organizationId: string, phoneNumberId?: string) {
+    const connection = await this.prisma.whatsAppConnection.findFirst({
+      where: { organizationId, status: 'CONNECTED', ...(phoneNumberId ? { phoneNumberId } : {}) },
+      orderBy: [{ isPrimary: 'desc' }, { connectedAt: 'asc' }],
+    });
+    if (!connection) {
+      throw new BadRequestException(phoneNumberId ? 'That WhatsApp line is not connected for this organization' : 'WhatsApp is not connected for this organization');
     }
     return connection;
   }
@@ -299,9 +346,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private async dispatch(
     organizationId: string,
     payload: Record<string, any>,
-    logFields: { templateName?: string; body?: string },
+    logFields: { templateName?: string; body?: string; fromPhoneNumberId?: string },
   ) {
-    const connection = await this.requireConnection(organizationId);
+    const connection = await this.requireConnection(organizationId, logFields.fromPhoneNumberId);
     try {
       const resp = await this.graph<{ messages?: Array<{ id: string }> }>(
         `${connection.phoneNumberId}/messages`,
@@ -313,6 +360,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           organizationId,
           direction: 'OUTBOUND',
           counterparty: payload.to,
+          phoneNumberId: connection.phoneNumberId,
           waMessageId,
           templateName: logFields.templateName || null,
           body: logFields.body || null,
@@ -1403,6 +1451,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
                 organizationId: connection.organizationId,
                 direction: 'INBOUND',
                 counterparty: message.from || 'unknown',
+                phoneNumberId: connection.phoneNumberId,
                 waMessageId: message.id,
                 body,
                 status: 'received',
@@ -1423,6 +1472,17 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             await this.handleGroupApprovalButton(connection.organizationId, tapped, from).catch((e) =>
               this.logger.error(`Group approval button failed: ${e.message}`),
             );
+            continue;
+          }
+          // Lead-capture line: every customer (non-staff) message becomes/updates
+          // a Lead. Staff senders fall through to operator routing below.
+          if (from && (connection as any).mode === 'leads' && !(await this.operatorAuth.isLinked('whatsapp', from))) {
+            const profileName = (value.contacts || []).find((c: any) => c?.wa_id === from)?.profile?.name || null;
+            const text: string | null =
+              message.text?.body || message.button?.text || message.interactive?.button_reply?.title || message.interactive?.list_reply?.title || null;
+            await this.leads
+              .captureFromWhatsApp(connection.organizationId, { phone: from, name: profileName, text })
+              .catch((e) => this.logger.error(`WhatsApp lead capture failed: ${e.message}`));
             continue;
           }
           // Line-level kill-switch: a connection with operatorEnabled=false is
