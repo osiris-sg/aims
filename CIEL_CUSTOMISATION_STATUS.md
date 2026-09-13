@@ -207,3 +207,4 @@ Everything is on the `elroy/dev` working tree, **uncommitted**, dev DB only. Sta
 | 9.18 | WhatsApp automation: designer follow-up stages | ➡ Moved | → CIEL_WHATSAPP_WORKLIST.md W3 (guru-owned) |
 | 9.19 | Voice-to-quotation / voice-to-invoice via WhatsApp | ➡ Moved | → CIEL_WHATSAPP_WORKLIST.md W4 (guru-owned) |
 | 9.20 | "Quest" gamification system | 🟡 Built (12 Sep) | spec arrived: 10-step client journey per project (engagement fee → … → handover, payment tags 10/40/45/5); ProjectQuestStep model (dev+staging pushed), sequential complete with S3 proof / skip with reason / undo-last, Quest tab on project page; POINTS + REWARDS structure pending from guru (column ships at 0) |
+| 9.20a | Quest step 1: Contact the lead — auto-complete via WhatsApp chat detection (guru 13 Sep) | 🟡 Built (13 Sep) | Lead.firstContactedAt; detection on inbound + coexistence echoes; existing quests migrated dev+prod; NEXT: Set appointment step |

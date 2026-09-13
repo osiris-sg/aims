@@ -12,3 +12,4 @@ Claude does NOT work on these — guru handles them; Claude only keeps this list
 | W5 | Designer cost upload via WhatsApp agent (supplier invoice photo → project costing table) | Backend endpoints ready | needs CIEL WhatsApp connection |
 | W6 | WhatsApp invoice send to clients (PayNow PDF) | Open | part of payments-completion phase |
 | W7 | CIEL org WhatsApp connection (Meta embedded signup) | Open | prerequisite for W3/W5/W6 |
+| W8 | Meta business verification for CIEL's portfolio (Security Centre + ACRA docs) — blocks adding further WhatsApp lines beyond Summer's | Open (13 Sep) | coexistence WABAs are single-number by design; each new designer line = own signup, gated on verification |

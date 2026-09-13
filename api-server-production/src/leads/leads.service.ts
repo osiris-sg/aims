@@ -490,6 +490,32 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     }
   }
 
+  /**
+   * A WhatsApp chat with a lead's number was detected on a connected line
+   * (designer's outbound echo, or the lead replying). First detection stamps
+   * the lead and auto-completes quest step 1 ("Contact the lead") on the
+   * linked project, if any.
+   */
+  async markLeadContacted(organizationId: string, phone: string) {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (!digits || digits.length < 8) return;
+    const lead: any = await this.prisma.lead.findFirst({
+      where: { organizationId, phone: { in: [digits, digits.replace(/^65/, '')] }, status: { in: ['unqualified', 'engaging', 'converted'] }, firstContactedAt: null },
+      orderBy: { receivedAt: 'desc' },
+    });
+    if (!lead) return;
+    await this.prisma.lead.update({ where: { id: lead.id }, data: { firstContactedAt: new Date() } });
+    if (lead.projectId) {
+      await this.prisma.projectQuestStep
+        .updateMany({
+          where: { projectId: lead.projectId, organizationId, stepNo: 1, title: 'Contact the lead', status: 'pending' },
+          data: { status: 'done', completedAt: new Date(), completedByName: lead.assignedToName ? `auto · ${lead.assignedToName}` : 'auto · WhatsApp chat detected' },
+        })
+        .catch(() => null);
+    }
+    this.logger.log(`Lead ${lead.id} marked contacted via WhatsApp (${digits})`);
+  }
+
   /** A tapped designer row on the assignment list (arrives on the agent line's webhook). */
   async handleAssignTap(tapped: string, from: string, line: { organizationId: string; phoneNumberId: string; accessToken: string }) {
     const m = tapped.match(/^leadassign:([^:]+):(.+)$/);

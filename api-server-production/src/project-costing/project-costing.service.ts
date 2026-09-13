@@ -653,16 +653,17 @@ export class ProjectCostingService {
 
   // ── project quest (CIEL 09-12): the 10-step client journey, gamified ──
   private static readonly QUEST_STEPS: Array<{ stepNo: number; title: string; description: string; paymentTag?: string; requiresProof: boolean }> = [
-    { stepNo: 1, title: 'Engagement fee received', description: 'Client transfers the S$1,500 engagement fee to begin the preparation process.', requiresProof: false },
-    { stepNo: 2, title: 'Initial material selection meeting', description: 'Meet-up for initial material selection and project schedule discussion.', requiresProof: true },
-    { stepNo: 3, title: 'Sanitary, lighting & furniture shopping', description: 'Accompany the client for sanitary, lighting and furniture shopping.', requiresProof: true },
-    { stepNo: 4, title: 'Lighting & socket plan discussion', description: 'Walk the client through the lighting and socket plan.', requiresProof: false },
-    { stepNo: 5, title: 'Rendering finalised & details confirmed', description: 'Finalise the rendering with shortlisted materials, lightings and socket plan; draft initial elevation drawings. Collect the full 10% payment.', paymentTag: '10%', requiresProof: true },
-    { stepNo: 6, title: 'Site visit & electrical discussion', description: 'Site visit and discussion of the electrical works.', requiresProof: true },
-    { stepNo: 7, title: 'Work started · weekly updates', description: 'Works begin — send the homeowners photo/video updates at least once a week. Collect the 40% payment.', paymentTag: '40%', requiresProof: true },
-    { stepNo: 8, title: 'Elevation drawings confirmed on site', description: 'Update the elevation drawings to site conditions and walk the owners through them. Collect the 45% payment once confirmed.', paymentTag: '45%', requiresProof: true },
-    { stepNo: 9, title: '95% complete · defect check', description: 'At 95% completion, collect the final 5% payment and go through defect checking with the owner.', paymentTag: '5%', requiresProof: true },
-    { stepNo: 10, title: 'Defects rectified · handover', description: 'Rectify all defects and complete the handover.', requiresProof: true },
+    { stepNo: 1, title: 'Contact the lead', description: "Reach out to the client on WhatsApp — completes automatically when a chat with the lead's number is detected on a connected line.", requiresProof: false },
+    { stepNo: 2, title: 'Engagement fee received', description: 'Client transfers the S$1,500 engagement fee to begin the preparation process.', requiresProof: false },
+    { stepNo: 3, title: 'Initial material selection meeting', description: 'Meet-up for initial material selection and project schedule discussion.', requiresProof: true },
+    { stepNo: 4, title: 'Sanitary, lighting & furniture shopping', description: 'Accompany the client for sanitary, lighting and furniture shopping.', requiresProof: true },
+    { stepNo: 5, title: 'Lighting & socket plan discussion', description: 'Walk the client through the lighting and socket plan.', requiresProof: false },
+    { stepNo: 6, title: 'Rendering finalised & details confirmed', description: 'Finalise the rendering with shortlisted materials, lightings and socket plan; draft initial elevation drawings. Collect the full 10% payment.', paymentTag: '10%', requiresProof: true },
+    { stepNo: 7, title: 'Site visit & electrical discussion', description: 'Site visit and discussion of the electrical works.', requiresProof: true },
+    { stepNo: 8, title: 'Work started · weekly updates', description: 'Works begin — send the homeowners photo/video updates at least once a week. Collect the 40% payment.', paymentTag: '40%', requiresProof: true },
+    { stepNo: 9, title: 'Elevation drawings confirmed on site', description: 'Update the elevation drawings to site conditions and walk the owners through them. Collect the 45% payment once confirmed.', paymentTag: '45%', requiresProof: true },
+    { stepNo: 10, title: '95% complete · defect check', description: 'At 95% completion, collect the final 5% payment and go through defect checking with the owner.', paymentTag: '5%', requiresProof: true },
+    { stepNo: 11, title: 'Defects rectified · handover', description: 'Rectify all defects and complete the handover.', requiresProof: true },
   ];
 
   /** Steps for a project — lazily seeded on first read so existing projects get them too. */
@@ -674,6 +675,15 @@ export class ProjectCostingService {
         data: ProjectCostingService.QUEST_STEPS.map((q) => ({ organizationId, projectId, ...q })),
         skipDuplicates: true,
       });
+      // Project born from an already-contacted lead → step 1 is auto-done.
+      const proj = await this.prisma.project.findUnique({ where: { id: projectId }, select: { leadId: true } });
+      const lead = (proj as any)?.leadId ? await this.prisma.lead.findUnique({ where: { id: (proj as any).leadId } }) : null;
+      if ((lead as any)?.firstContactedAt) {
+        await this.prisma.projectQuestStep.updateMany({
+          where: { projectId, organizationId, stepNo: 1, status: 'pending' },
+          data: { status: 'done', completedAt: (lead as any).firstContactedAt, completedByName: 'auto · WhatsApp chat detected' },
+        });
+      }
     }
     const steps = await this.prisma.projectQuestStep.findMany({ where: { projectId, organizationId }, orderBy: { stepNo: 'asc' } });
     const done = steps.filter((x) => x.status === 'done').length;

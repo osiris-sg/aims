@@ -768,6 +768,8 @@ model Lead {
   assignedToUserId     String?
   assignedToName       String?
   assignedAt           DateTime?
+  // First detected WhatsApp contact with the lead (quest step 1 auto-complete).
+  firstContactedAt     DateTime?
   firstContactDeadline DateTime? // Network: 24h from distribution
   replacementDeadline  DateTime? // Network: 14 days from distribution
   quotationId          String?   @db.Uuid

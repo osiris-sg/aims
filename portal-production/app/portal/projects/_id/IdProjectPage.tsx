@@ -106,8 +106,8 @@ function DesignerSelect({ value, onPick }: { value: string | null; onPick: (u: {
   );
 }
 
-const Cell = ({ children, right, sx }: { children?: React.ReactNode; right?: boolean; sx?: any }) => (
-  <TableCell sx={{ py: 0.75, whiteSpace: "nowrap", textAlign: right ? "right" : "left", fontVariantNumeric: "tabular-nums", ...sx }}>{children}</TableCell>
+const Cell = ({ children, right, sx, colSpan }: { children?: React.ReactNode; right?: boolean; sx?: any; colSpan?: number }) => (
+  <TableCell colSpan={colSpan} sx={{ py: 0.75, whiteSpace: "nowrap", textAlign: right ? "right" : "left", fontVariantNumeric: "tabular-nums", ...sx }}>{children}</TableCell>
 );
 
 export default function IdProjectPage({ id }: { id: string }) {
@@ -225,7 +225,7 @@ export default function IdProjectPage({ id }: { id: string }) {
               {p.client.name || p.name}
             </Typography>
             {q && (
-              <Chip size="small" variant="outlined" icon={<DescriptionIcon />} label={`Contract ${q.number || ""}`} onClick={() => router.push(`/portal/sales/quotations/id/${q.id}`)} />
+              <Chip size="small" variant="outlined" icon={<DescriptionIcon />} label={q.number ? `Contract ${q.number}` : "Draft quotation"} onClick={() => router.push(`/portal/sales/quotations/id/${q.id}`)} />
             )}
             {q?.signedAt && <Chip size="small" color="success" variant="outlined" label={`Signed ${fmtDate(q.signedAt)}`} />}
             <StatusChip status={p.status} />
@@ -256,6 +256,13 @@ export default function IdProjectPage({ id }: { id: string }) {
             <Tooltip title="Raise this project's main quotation — pre-filled with the client, and signing locks onto this project">
               <Button variant="contained" size="small" startIcon={<DescriptionIcon />} onClick={createQuotationHere} disabled={busy} sx={{ textTransform: "none", whiteSpace: "nowrap" }}>
                 Create quotation
+              </Button>
+            </Tooltip>
+          )}
+          {q && q.status !== "confirmed" && (
+            <Tooltip title="This project's quotation is still a draft — open it to finish and send it for signature">
+              <Button variant="contained" size="small" startIcon={<DescriptionIcon />} onClick={() => router.push(`/portal/sales/quotations/id/${q.id}`)} sx={{ textTransform: "none", whiteSpace: "nowrap" }}>
+                Open draft quotation
               </Button>
             </Tooltip>
           )}
@@ -702,8 +709,16 @@ export default function IdProjectPage({ id }: { id: string }) {
                   </TableBody>
                 </Table>
                 {!q && (
-                  <Alert severity="info" sx={{ mt: 2 }}>
-                    No quotation is linked to this project yet.
+                  <Alert
+                    severity="info"
+                    sx={{ mt: 2 }}
+                    action={
+                      <Button color="inherit" size="small" disabled={busy} onClick={createQuotationHere} sx={{ textTransform: "none", whiteSpace: "nowrap" }}>
+                        Create quotation
+                      </Button>
+                    }
+                  >
+                    No quotation yet — the flow is project first, then its quotation: create it here, pre-filled with this client.
                   </Alert>
                 )}
               </Grid>
@@ -778,9 +793,21 @@ export default function IdProjectPage({ id }: { id: string }) {
                 </TableRow>
               </TableHead>
               <TableBody>
+                {!q && (
+                  <TableRow>
+                    <Cell colSpan={4} sx={{ color: "text.secondary" }}>
+                      No quotation yet — create this project's main quotation, pre-filled with the client.
+                    </Cell>
+                    <Cell right>
+                      <Button size="small" variant="contained" disabled={busy} onClick={createQuotationHere} sx={{ textTransform: "none", whiteSpace: "nowrap" }}>
+                        Create quotation
+                      </Button>
+                    </Cell>
+                  </TableRow>
+                )}
                 {q && (
                   <TableRow hover>
-                    <Cell sx={{ fontWeight: 600 }}>{q.number}</Cell>
+                    <Cell sx={{ fontWeight: 600 }}>{q.number || "Draft"}</Cell>
                     <Cell>Quotation</Cell>
                     <Cell>
                       <StatusChip status={q.status} />

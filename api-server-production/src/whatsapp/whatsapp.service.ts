@@ -1379,6 +1379,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
                 },
               })
               .catch(() => {}); // redelivery
+            // Designer texted this number from their phone → lead contact detected
+            // (auto-completes quest step 1 on the lead's project).
+            this.leads.markLeadContacted(connection.organizationId, counterparty).catch(() => null);
             const closed = await this.prisma.whatsAppSuggestion.updateMany({
               where: { organizationId: connection.organizationId, counterparty, status: 'PENDING' },
               data: { status: 'HANDLED_MANUALLY' },
@@ -1459,6 +1462,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
               },
             })
             .catch(() => null); // Unique waMessageId → webhook redelivery, already stored.
+          // A message to/from this number may be a lead's thread — mark contacted.
+          if (message.from) this.leads.markLeadContacted(connection.organizationId, message.from).catch(() => null);
 
           // Operator routing: if the sender is a linked AIMS staff member, this
           // number is their command line — hand the message to the Operator
