@@ -31,7 +31,6 @@ import {
   TextField,
   Typography,
   MenuItem,
-  Tooltip,
 } from "@mui/material";
 import { WhatsApp as WhatsAppIcon, Refresh, LinkOff, Send } from "@mui/icons-material";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -349,28 +348,39 @@ export default function WhatsAppPage() {
                 )}
                 {line.isPrimary && <Chip label="PRIMARY" size="small" variant="outlined" color="info" sx={{ height: 20 }} />}
                 {line.operatorEnabled === false && <Chip label="read-only" size="small" variant="outlined" sx={{ height: 20 }} />}
-                <Tooltip title="What this line does with customer messages: Standard = store (staff get the operator); Lead capture = every customer message auto-creates/updates a Lead in Sales → Leads">
-                  <TextField
-                    select
-                    size="small"
-                    label="Logic"
-                    value={line.mode || "standard"}
-                    onChange={async (e) => {
-                      try {
-                        await request(`/whatsapp/lines/${line.phoneNumberId}`, { method: "PATCH", body: JSON.stringify({ mode: e.target.value }) });
-                        toast.success(e.target.value === "leads" ? "Lead capture on — customer messages become leads" : "Standard logic");
-                        loadAll();
-                      } catch (err: any) {
-                        toast.error(err.message || "Could not update the line");
-                      }
-                    }}
-                    sx={{ minWidth: 150 }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <MenuItem value="standard">Standard</MenuItem>
-                    <MenuItem value="leads">Lead capture</MenuItem>
-                  </TextField>
-                </Tooltip>
+                <TextField
+                  select
+                  size="small"
+                  label="Logic"
+                  value={line.mode || "standard"}
+                  onChange={async (e) => {
+                    try {
+                      await request(`/whatsapp/lines/${line.phoneNumberId}`, { method: "PATCH", body: JSON.stringify({ mode: e.target.value }) });
+                      toast.success(e.target.value === "leads" ? "Lead capture on — customer messages become leads" : "Standard logic");
+                      loadAll();
+                    } catch (err: any) {
+                      toast.error(err.message || "Could not update the line");
+                    }
+                  }}
+                  sx={{ minWidth: 170 }}
+                >
+                  <MenuItem value="standard">
+                    <Box>
+                      <Typography variant="body2">Standard</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        store messages · staff get the operator
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                  <MenuItem value="leads">
+                    <Box>
+                      <Typography variant="body2">Lead capture</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        customer messages become Leads automatically
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                </TextField>
                 <Typography variant="caption" color="text.secondary">
                   WABA {line.wabaId} · Phone ID {line.phoneNumberId}
                 </Typography>
