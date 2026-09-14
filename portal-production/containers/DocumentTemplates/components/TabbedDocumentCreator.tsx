@@ -5425,19 +5425,9 @@ export default function TabbedDocumentCreator({
                                 </TableCell>
                               )}
                               {/* Section-header rows (quotation groups): one bold underlined
-                                  full-width cell instead of the column cells; delete cell below
-                                  still renders so a header can be removed. */}
-                              {item.isGroupHeader ? (
-                                <TableCell colSpan={12}>
-                                  <TextField
-                                    variant="standard"
-                                    fullWidth
-                                    value={item.description || ""}
-                                    onChange={(e) => updateItem(item.id, "description", e.target.value)}
-                                    InputProps={{ disableUnderline: true, sx: { fontWeight: 700, textDecoration: "underline", fontSize: "0.875rem" } }}
-                                  />
-                                </TableCell>
-                              ) : (() => {
+                                  cell spanning the DATA columns; delete cell below still
+                                  renders so a header can be removed. */}
+                              {(() => {
                                 const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
                                 const isStockAdjustmentIn = documentType === "SAI" || documentType === "STOCK_ADJUSTMENT_IN";
                                 const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
@@ -5467,7 +5457,29 @@ export default function TabbedDocumentCreator({
                                 if (isQuotation && !isFcuCuVariant && !defaultColumns.includes("item")) {
                                   defaultColumns.unshift("item");
                                 }
-                                return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
+                                const renderColumns: string[] = (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns) || [];
+                                if (item.isGroupHeader) {
+                                  // colSpan must equal the REAL rendered data-column
+                                  // count — the old fixed colSpan={12} exceeded the
+                                  // table's columns, creating phantom columns that
+                                  // pushed the body rows wider than the header band
+                                  // (guru 2026-09-14).
+                                  const dataColCount = renderColumns.filter(
+                                    (c: string) => !(isInvoiceType && c === "tax") && (isTemplateEditMode ? templateWatch(`tableHeaders.${c}`) : true),
+                                  ).length;
+                                  return (
+                                    <TableCell colSpan={Math.max(1, dataColCount)}>
+                                      <TextField
+                                        variant="standard"
+                                        fullWidth
+                                        value={item.description || ""}
+                                        onChange={(e) => updateItem(item.id, "description", e.target.value)}
+                                        InputProps={{ disableUnderline: true, sx: { fontWeight: 700, textDecoration: "underline", fontSize: "0.875rem" } }}
+                                      />
+                                    </TableCell>
+                                  );
+                                }
+                                return renderColumns.map((columnId: string) => {
                                   // Skip tax column for invoices
                                   if (isInvoiceType && columnId === "tax") return null;
                                   const isVisible = isTemplateEditMode ? templateWatch(`tableHeaders.${columnId}`) : true;
