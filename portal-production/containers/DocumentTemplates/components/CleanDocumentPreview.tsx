@@ -4082,23 +4082,48 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           </>
         )}
 
-        {/* Items Table */}
+        {/* Items Table. Biofuel: NISHIO-style boxed grid (guru 2026-09-14) —
+            every cell bordered (collapsed single lines) with a grey bold
+            centred header band; print-color-adjust keeps the grey in print.
+            Other orgs keep the open layout. */}
         <TableContainer sx={{ mb: 3 }}>
           <Table
             sx={{
-              "& .MuiTableCell-root": {
-                border: "none",
-                borderBottom: "none",
-                padding: "6px 8px",
-                fontSize: "0.8125rem",
-                verticalAlign: "top",
-              },
-              "& .MuiTableHead-root .MuiTableCell-root": {
-                border: "none",
-                borderBottom: "2px solid #000",
-                fontWeight: 600,
-                fontSize: "0.8125rem",
-              },
+              ...(isBiofuelQuotation
+                ? {
+                    borderCollapse: "collapse",
+                    border: "1px solid #000",
+                    "& .MuiTableCell-root": {
+                      border: "1px solid #000",
+                      padding: "6px 8px",
+                      fontSize: "0.8125rem",
+                      verticalAlign: "top",
+                    },
+                    "& .MuiTableHead-root .MuiTableCell-root": {
+                      border: "1px solid #000",
+                      fontWeight: 700,
+                      fontSize: "0.8125rem",
+                      textAlign: "center",
+                      backgroundColor: "#d9d9d9",
+                      WebkitPrintColorAdjust: "exact",
+                      printColorAdjust: "exact",
+                    },
+                  }
+                : {
+                    "& .MuiTableCell-root": {
+                      border: "none",
+                      borderBottom: "none",
+                      padding: "6px 8px",
+                      fontSize: "0.8125rem",
+                      verticalAlign: "top",
+                    },
+                    "& .MuiTableHead-root .MuiTableCell-root": {
+                      border: "none",
+                      borderBottom: "2px solid #000",
+                      fontWeight: 600,
+                      fontSize: "0.8125rem",
+                    },
+                  }),
               "@media print": {
                 "& thead": { display: "table-row-group" },
               },
@@ -4189,7 +4214,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     <TableHead>
                       <TableRow>
                         {configColumns.map((col) => (
-                          <TableCell key={col} sx={{ textAlign: alignFor(col), ...(isBiofuelQuotation ? { border: "1px solid #000", fontWeight: 700 } : {}) }}>{labelFor(col)}</TableCell>
+                          <TableCell key={col} sx={isBiofuelQuotation ? { textAlign: "center" } : { textAlign: alignFor(col) }}>{labelFor(col)}</TableCell>
                         ))}
                       </TableRow>
                     </TableHead>
@@ -4251,6 +4276,28 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                           })}
                         </>
                       )}
+                      {/* NISHIO-style totals INSIDE the boxed grid (Biofuel):
+                          Sub-Total / GST / Total rows share the grid lines,
+                          label spanning all but the amount column. */}
+                      {isBiofuelQuotation && (() => {
+                        const sub = items.filter((it: any) => !it.isGroupHeader && !it.isTagGroup).reduce((s: number, it: any) => s + (Number(it.amount) || 0), 0);
+                        const gstP = Number((data as any).documentInfo?.gstPercent ?? (data as any).gstPercent ?? 9) || 0;
+                        const taxAppl = ((data as any).taxApplicable ?? (data as any).documentInfo?.taxApplicable) !== "N" && gstP > 0;
+                        const fmt = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                        const row = (label: string, value: number, key: string) => (
+                          <TableRow key={key}>
+                            <TableCell colSpan={configColumns.length - 1} sx={{ fontWeight: 700 }}>{label}</TableCell>
+                            <TableCell sx={{ textAlign: "right", fontWeight: 700 }}>{fmt(value)}</TableCell>
+                          </TableRow>
+                        );
+                        return (
+                          <>
+                            {row("Sub-Total", sub, "t-sub")}
+                            {taxAppl && row(`${gstP}% GST`, (sub * gstP) / 100, "t-gst")}
+                            {taxAppl && row(`Total Include ${gstP}% GST`, sub + (sub * gstP) / 100, "t-total")}
+                          </>
+                        );
+                      })()}
                       {!isBiofuelQuotation && items.filter((it: any) => !it.isTagGroup).length < 8 &&
                         Array.from({ length: 8 - items.filter((it: any) => !it.isTagGroup).length }).map((_, index) => (
                           <TableRow key={`empty-${index}`} sx={{ height: 35 }}>
@@ -4308,7 +4355,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     </TableRow>
                   ))}
 
-                  {items.length <= 3 && items.length < 8 &&
+                  {!isBiofuelQuotation && items.length <= 3 && items.length < 8 &&
                     Array.from({ length: 8 - items.length }).map((_, index) => (
                       <TableRow key={`empty-${index}`} sx={{ height: 35 }}>
                         <TableCell>&nbsp;</TableCell>
@@ -4320,6 +4367,28 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                         <TableCell>&nbsp;</TableCell>
                       </TableRow>
                     ))}
+                  {/* NISHIO-style boxed totals (Biofuel) — mirrors the
+                      config-driven branch above. */}
+                  {isBiofuelQuotation && (() => {
+                    const colCount = 4 + (hasItemCode ? 1 : 0) + (hasUom ? 1 : 0) + 1;
+                    const sub = items.filter((it: any) => !it.isGroupHeader).reduce((s: number, it: any) => s + (Number(it.amount) || 0), 0);
+                    const gstP = Number((data as any).documentInfo?.gstPercent ?? (data as any).gstPercent ?? 9) || 0;
+                    const taxAppl = ((data as any).taxApplicable ?? (data as any).documentInfo?.taxApplicable) !== "N" && gstP > 0;
+                    const fmt = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                    const row = (label: string, value: number, key: string) => (
+                      <TableRow key={key}>
+                        <TableCell colSpan={colCount - 1} sx={{ fontWeight: 700 }}>{label}</TableCell>
+                        <TableCell sx={{ textAlign: "right", fontWeight: 700 }}>{fmt(value)}</TableCell>
+                      </TableRow>
+                    );
+                    return (
+                      <>
+                        {row("Sub-Total", sub, "t-sub")}
+                        {taxAppl && row(`${gstP}% GST`, (sub * gstP) / 100, "t-gst")}
+                        {taxAppl && row(`Total Include ${gstP}% GST`, sub + (sub * gstP) / 100, "t-total")}
+                      </>
+                    );
+                  })()}
             </TableBody>
                 </>
               );
