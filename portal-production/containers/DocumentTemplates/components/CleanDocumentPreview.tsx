@@ -4189,7 +4189,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     <TableHead>
                       <TableRow>
                         {configColumns.map((col) => (
-                          <TableCell key={col} sx={{ textAlign: alignFor(col) }}>{labelFor(col)}</TableCell>
+                          <TableCell key={col} sx={{ textAlign: alignFor(col), ...(isBiofuelQuotation ? { border: "1px solid #000", fontWeight: 700 } : {}) }}>{labelFor(col)}</TableCell>
                         ))}
                       </TableRow>
                     </TableHead>
@@ -4199,14 +4199,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                           /* Quotation section header (guru 2026-09-14): bold underlined
                              full-width row, no qty/price cells. */
                           <TableRow key={index}>
-                            <TableCell colSpan={configColumns.length} sx={{ fontWeight: 700, textDecoration: "underline", pt: 1.5 }}>
+                            <TableCell colSpan={configColumns.length} sx={{ fontWeight: 700, textDecoration: "underline", pt: 1.5, ...(isBiofuelQuotation ? { border: "1px solid #000" } : {}) }}>
                               {item.description}
                             </TableCell>
                           </TableRow>
                         ) : (
                         <TableRow key={index} sx={{ verticalAlign: "top" }}>
                           {configColumns.map((col) => (
-                            <TableCell key={col} sx={{ textAlign: alignFor(col), verticalAlign: "top" }}>
+                            <TableCell key={col} sx={{ textAlign: alignFor(col), verticalAlign: "top", ...(isBiofuelQuotation ? { border: "1px solid #000" } : {}) }}>
                               {valueFor(col, item, index)}
                             </TableCell>
                           ))}
@@ -4251,7 +4251,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                           })}
                         </>
                       )}
-                      {items.filter((it: any) => !it.isTagGroup).length < 8 &&
+                      {!isBiofuelQuotation && items.filter((it: any) => !it.isTagGroup).length < 8 &&
                         Array.from({ length: 8 - items.filter((it: any) => !it.isTagGroup).length }).map((_, index) => (
                           <TableRow key={`empty-${index}`} sx={{ height: 35 }}>
                             {configColumns.map((col) => (
@@ -4421,17 +4421,6 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {data.footerMessage || data.documentInfo?.footerMessage || "We trust that the above meets your requirements and look forward to receiving your favourable reply soon. Should you have any further queries regarding the above, please do not hesitate to contact the undersigned. Thank you."}
               </Typography>
 
-              {/* 3. Numbered terms — delivery per redline is "Ex-stock, subject
-                  to availability" (was "To be advised"); transport waiver for
-                  3-month+ rentals added. Terms reads documentInfo first (the
-                  editor's Terms field edits it live). */}
-              <Box sx={{ mb: 3 }}>
-                <Typography sx={{ fontSize: "0.8125rem" }}>1. All the above prices exclude GST</Typography>
-                <Typography sx={{ fontSize: "0.8125rem" }}>2. Payment terms: {data.documentInfo?.paymentTerms || data.paymentTerms || "CASH"}</Typography>
-                <Typography sx={{ fontSize: "0.8125rem" }}>3. Delivery: Ex-stock, subject to availability</Typography>
-                <Typography sx={{ fontSize: "0.8125rem" }}>4. Transport charges waived for rental periods of 3 months and above</Typography>
-              </Box>
-
               {/* 3b. Per-quote Notes / Terms & Conditions — the Footer-tab
                   fields (config.note / config.termsAndConditions). Each renders
                   only when filled, so existing quotes with empty values are
@@ -4448,6 +4437,15 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
                 </Box>
               )}
+
+              {/* Numbered terms — LAST thing before the signatures (guru
+                  2026-09-14: "at the most bottom, right above Yours faithfully"). */}
+              <Box sx={{ mb: 3, pageBreakInside: "avoid", breakInside: "avoid" }}>
+                <Typography sx={{ fontSize: "0.8125rem" }}>1. All the above prices exclude GST</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>2. Payment terms: {data.documentInfo?.paymentTerms || data.paymentTerms || "CASH"}</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>3. Delivery: Ex-stock, subject to availability</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>4. Transport charges waived for rental periods of 3 months and above</Typography>
+              </Box>
 
               {/* 4. Dual signature block — LEFT Biofuel / RIGHT customer (50/50) */}
               <Box sx={{ display: "flex", justifyContent: "space-between", gap: 4, mb: 4, pageBreakInside: "avoid", breakInside: "avoid" }}>
