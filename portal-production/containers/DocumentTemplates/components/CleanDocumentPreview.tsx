@@ -4195,6 +4195,15 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     </TableHead>
                     <TableBody>
                       {items.filter((it: any) => !it.isTagGroup).map((item: any, index: number) => (
+                        item.isGroupHeader ? (
+                          /* Quotation section header (guru 2026-09-14): bold underlined
+                             full-width row, no qty/price cells. */
+                          <TableRow key={index}>
+                            <TableCell colSpan={configColumns.length} sx={{ fontWeight: 700, textDecoration: "underline", pt: 1.5 }}>
+                              {item.description}
+                            </TableCell>
+                          </TableRow>
+                        ) : (
                         <TableRow key={index} sx={{ verticalAlign: "top" }}>
                           {configColumns.map((col) => (
                             <TableCell key={col} sx={{ textAlign: alignFor(col), verticalAlign: "top" }}>
@@ -4202,6 +4211,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                             </TableCell>
                           ))}
                         </TableRow>
+                        )
                       ))}
                       {/* "Tagged CUs" sub-section — printed after FCU rows. Each
                           unique CU appears once with its own qty + unit price
@@ -4404,25 +4414,23 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {data.projectName || data.documentInfo?.projectName || data.project?.name || ""}
               </Typography>
 
-              {/* 2. Numbered terms — 1 & 3 hardcoded; 2 reads data.paymentTerms
-                  (DB-confirmed real key) with 'CASH' fallback. */}
-              <Box sx={{ mb: 2 }}>
-                <Typography sx={{ fontSize: "0.8125rem" }}>1. All the above prices exclude GST</Typography>
-                {/* documentInfo first: the editor's Terms field edits
-                    documentInfo.paymentTerms live; the flat key is what saved
-                    docs carry (guru 2026-09-14). */}
-                <Typography sx={{ fontSize: "0.8125rem" }}>2. Payment terms: {data.documentInfo?.paymentTerms || data.paymentTerms || "CASH"}</Typography>
-                <Typography sx={{ fontSize: "0.8125rem" }}>3. Delivery date: To be advised</Typography>
-              </Box>
-
-              {/* 3. Courtesy closing — sourced from the org's Doc Defaults footer
-                  (docTypeDefaults.QUOTATION.footerMessage, inherited into the
-                  doc's footerMessage and editable per-quote). Falls back to the
-                  house default so quotes with no footer set still show the
-                  standard closing. */}
-              <Typography sx={{ fontSize: "0.8125rem", mb: 3 }}>
+              {/* 2. Courtesy closing FIRST, numbered terms below it (guru's
+                  2026-09-14 redline on QO202609-0063: "move to bottom of
+                  paragraph"). Closing sourced from Doc Defaults footer. */}
+              <Typography sx={{ fontSize: "0.8125rem", mb: 2 }}>
                 {data.footerMessage || data.documentInfo?.footerMessage || "We trust that the above meets your requirements and look forward to receiving your favourable reply soon. Should you have any further queries regarding the above, please do not hesitate to contact the undersigned. Thank you."}
               </Typography>
+
+              {/* 3. Numbered terms — delivery per redline is "Ex-stock, subject
+                  to availability" (was "To be advised"); transport waiver for
+                  3-month+ rentals added. Terms reads documentInfo first (the
+                  editor's Terms field edits it live). */}
+              <Box sx={{ mb: 3 }}>
+                <Typography sx={{ fontSize: "0.8125rem" }}>1. All the above prices exclude GST</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>2. Payment terms: {data.documentInfo?.paymentTerms || data.paymentTerms || "CASH"}</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>3. Delivery: Ex-stock, subject to availability</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>4. Transport charges waived for rental periods of 3 months and above</Typography>
+              </Box>
 
               {/* 3b. Per-quote Notes / Terms & Conditions — the Footer-tab
                   fields (config.note / config.termsAndConditions). Each renders

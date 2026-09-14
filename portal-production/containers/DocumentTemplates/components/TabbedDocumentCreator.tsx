@@ -97,6 +97,7 @@ import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields, { headerInputSx } from "./DynamicFormFields";
 import StockCardDialog from "./StockCardDialog";
 import RevenueItemPickerDialog from "./RevenueItemPickerDialog";
+import { resolveQuotationGroup, insertItemGrouped } from "./quotationItemGroups";
 import LocateDocumentDialog from "./LocateDocumentDialog";
 import ExtractQuotationDialog from "./ExtractQuotationDialog";
 import ExtractDOToInvoiceDialog from "./ExtractDOToInvoiceDialog";
@@ -247,7 +248,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled } = useOrganizationFeatures();
   // "Sync to Xero" only shows when the editor was opened from the accounting
   // section (?from=/portal/accounting/... set by the embedded AR list).
   const openedFromAccounting =
@@ -1569,7 +1570,20 @@ export default function TabbedDocumentCreator({
       }));
       setEditingItemId(null);
     } else {
-      setItems([...items, newItem]);
+      // Quotations with grouped items (guru 2026-09-14, Nishio-style layout):
+      // slot the product under its section header, creating the header row on
+      // first use. Other doc types keep the plain append.
+      const isQuoteDoc = documentType === "QT" || documentType === "QUOTATION" || documentType === "QO" || documentType === "QO1" || documentType === "QO2";
+      if (isQuoteDoc && isQuotationItemGroupsEnabled) {
+        const group = resolveQuotationGroup({
+          sku: selectedItem.sku,
+          name: selectedItem.name || selectedItem.asset?.name,
+          description,
+        });
+        setItems(insertItemGrouped(items, newItem, group));
+      } else {
+        setItems([...items, newItem]);
+      }
     }
 
     // Prefetch price history for this asset if available
@@ -5410,8 +5424,20 @@ export default function TabbedDocumentCreator({
                                   />
                                 </TableCell>
                               )}
-                              {/* Render cells based on configuration - exclude tax for invoices */}
-                              {(() => {
+                              {/* Section-header rows (quotation groups): one bold underlined
+                                  full-width cell instead of the column cells; delete cell below
+                                  still renders so a header can be removed. */}
+                              {item.isGroupHeader ? (
+                                <TableCell colSpan={12}>
+                                  <TextField
+                                    variant="standard"
+                                    fullWidth
+                                    value={item.description || ""}
+                                    onChange={(e) => updateItem(item.id, "description", e.target.value)}
+                                    InputProps={{ disableUnderline: true, sx: { fontWeight: 700, textDecoration: "underline", fontSize: "0.875rem" } }}
+                                  />
+                                </TableCell>
+                              ) : (() => {
                                 const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
                                 const isStockAdjustmentIn = documentType === "SAI" || documentType === "STOCK_ADJUSTMENT_IN";
                                 const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
@@ -7149,7 +7175,7 @@ export default function TabbedDocumentCreator({
 
           // Populate items from quotation
           if (quotationConfig.items && Array.isArray(quotationConfig.items)) {
-            const newItems = quotationConfig.items.map((item: any, index: number) => ({
+            const newItems = quotationConfig.items.filter((it: any) => !it.isGroupHeader).map((item: any, index: number) => ({
               id: Date.now() + index,
               itemCode: item.itemCode || "",
               inventoryItemId: item.inventoryItemId || "",
@@ -7315,7 +7341,7 @@ export default function TabbedDocumentCreator({
 
           // Populate items from delivery order
           if (doConfig.items && Array.isArray(doConfig.items)) {
-            const newItems = doConfig.items.map((item: any, index: number) => ({
+            const newItems = doConfig.items.filter((it: any) => !it.isGroupHeader).map((item: any, index: number) => ({
               id: Date.now() + index,
               itemCode: item.itemCode || "",
               inventoryItemId: item.inventoryItemId || "",
@@ -7482,7 +7508,7 @@ export default function TabbedDocumentCreator({
 
           // Populate items from quotation
           if (quotationConfig.items && Array.isArray(quotationConfig.items)) {
-            const newItems = quotationConfig.items.map((item: any, index: number) => ({
+            const newItems = quotationConfig.items.filter((it: any) => !it.isGroupHeader).map((item: any, index: number) => ({
               id: Date.now() + index,
               itemCode: item.itemCode || "",
               inventoryItemId: item.inventoryItemId || "",

@@ -235,11 +235,14 @@ function configDrivenTable(data: any, items: any[]): string {
 
   const nonTag = items.filter((i) => !i.isTagGroup);
   const body = nonTag
-    .map(
-      (item, idx) =>
-        `<tr style="vertical-align:top;">${columns
-          .map((c) => `<td style="text-align:${alignFor(c)};">${valueFor(c, item, idx)}</td>`)
-          .join('')}</tr>`,
+    .map((item, idx) =>
+      // Quotation section headers (guru 2026-09-14): bold underlined
+      // full-width row, no qty/price cells — mirrors CleanDocumentPreview.
+      item.isGroupHeader
+        ? `<tr><td colspan="${columns.length}" style="font-weight:700;text-decoration:underline;padding-top:12px;">${escapeHtml(item.description || '')}</td></tr>`
+        : `<tr style="vertical-align:top;">${columns
+            .map((c) => `<td style="text-align:${alignFor(c)};">${valueFor(c, item, idx)}</td>`)
+            .join('')}</tr>`,
     )
     .join('');
 

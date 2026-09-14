@@ -147,6 +147,7 @@ export function useOrganizationFeatures() {
     isFieldScanAppEnabled: features.enableFieldScanApp ?? false,
     isDocumentListViewEnabled: features.enableDocumentListView ?? false,
     isPOAsProjectEnabled: features.enablePOAsProject ?? false,
+    isQuotationItemGroupsEnabled: features.enableQuotationItemGroups ?? false,
     isAssetPointsEnabled: features.enableAssetPoints ?? false,
     isItemTaggingEnabled: features.enableItemTagging ?? false,
     isConfirmQuotationEnabled: features.enableConfirmQuotation ?? false,
