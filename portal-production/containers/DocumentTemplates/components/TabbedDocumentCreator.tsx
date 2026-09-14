@@ -6300,7 +6300,14 @@ export default function TabbedDocumentCreator({
                   // specific preview styling (e.g. Biofuel's bordered quotation
                   // grid) must follow the document even for admin sessions
                   // whose active org differs.
-                  documentOrganizationId: (existingData as any)?.organizationId,
+                  // Saved docs carry their own org; NEW docs fall back to the
+                  // admin "Viewing as" org (sessionStorage) — the legacy Redux
+                  // organization prop is the admin's REAL org, so without this
+                  // a fresh Biofuel quote previewed unboxed (guru 2026-09-14).
+                  documentOrganizationId:
+                    (existingData as any)?.organizationId ||
+                    (typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null) ||
+                    undefined,
                   logo: organization?.logo, // Pass the logo from organization
                   // Forward the per-template column layout so the preview
                   // renders the configured columns (e.g. FCU/CU Quotation).
