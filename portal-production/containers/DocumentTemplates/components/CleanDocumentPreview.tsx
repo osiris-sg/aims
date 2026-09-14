@@ -4209,6 +4209,30 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     default: return item[col] || "";
                   }
                 };
+                // NISHIO-style category boxes (guru 2026-09-15): a group
+                // header and its items share ONE box — internal horizontal
+                // lines are suppressed, borders only between groups (both
+                // adjacent edges must be "none" for the collapsed border to
+                // disappear). Standalone items before any header keep their
+                // own box each.
+                const rowsArr = items.filter((it: any) => !it.isTagGroup);
+                const groupOf: number[] = [];
+                {
+                  let g = -1;
+                  let sawHeader = false;
+                  rowsArr.forEach((it: any, i: number) => {
+                    if (it.isGroupHeader) { g++; sawHeader = true; }
+                    else if (!sawHeader) { g++; }
+                    groupOf[i] = g;
+                  });
+                }
+                const groupEdges = (i: number) =>
+                  isBiofuelQuotation
+                    ? {
+                        borderTop: i === 0 || groupOf[i] !== groupOf[i - 1] ? undefined : "none",
+                        borderBottom: i === rowsArr.length - 1 || groupOf[i] !== groupOf[i + 1] ? undefined : "none",
+                      }
+                    : {};
                 return (
                   <>
                     <TableHead>
@@ -4219,19 +4243,19 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {items.filter((it: any) => !it.isTagGroup).map((item: any, index: number) => (
+                      {rowsArr.map((item: any, index: number) => (
                         item.isGroupHeader ? (
                           /* Quotation section header (guru 2026-09-14): bold underlined
                              full-width row, no qty/price cells. */
                           <TableRow key={index}>
-                            <TableCell colSpan={configColumns.length} sx={{ fontWeight: 700, textDecoration: "underline", pt: 1.5, ...(isBiofuelQuotation ? { border: "1px solid #000" } : {}) }}>
+                            <TableCell colSpan={configColumns.length} sx={{ fontWeight: 700, pt: 1.5, textDecoration: "underline", ...groupEdges(index) }}>
                               {item.description}
                             </TableCell>
                           </TableRow>
                         ) : (
                         <TableRow key={index} sx={{ verticalAlign: "top" }}>
                           {configColumns.map((col) => (
-                            <TableCell key={col} sx={{ textAlign: alignFor(col), verticalAlign: "top", ...(isBiofuelQuotation ? { border: "1px solid #000" } : {}) }}>
+                            <TableCell key={col} sx={{ textAlign: alignFor(col), verticalAlign: "top", ...groupEdges(index) }}>
                               {valueFor(col, item, index)}
                             </TableCell>
                           ))}
