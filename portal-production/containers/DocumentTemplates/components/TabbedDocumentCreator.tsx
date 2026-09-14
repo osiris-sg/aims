@@ -4883,7 +4883,15 @@ export default function TabbedDocumentCreator({
                             <Select
                               value={formData.paymentTerms}
                               onChange={(e) =>
-                                setFormData({ ...formData, paymentTerms: e.target.value })
+                                // Write BOTH keys: the save transformer prefers
+                                // documentInfo.paymentTerms (the General-form
+                                // Terms field edits that one), so updating only
+                                // the top-level here would be ignored on save.
+                                setFormData({
+                                  ...formData,
+                                  paymentTerms: e.target.value,
+                                  documentInfo: { ...formData.documentInfo, paymentTerms: e.target.value },
+                                })
                               }
                               label="Payment Terms"
                             >

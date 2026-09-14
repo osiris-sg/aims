@@ -4408,7 +4408,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   (DB-confirmed real key) with 'CASH' fallback. */}
               <Box sx={{ mb: 2 }}>
                 <Typography sx={{ fontSize: "0.8125rem" }}>1. All the above prices exclude GST</Typography>
-                <Typography sx={{ fontSize: "0.8125rem" }}>2. Payment terms: {data.paymentTerms || "CASH"}</Typography>
+                {/* documentInfo first: the editor's Terms field edits
+                    documentInfo.paymentTerms live; the flat key is what saved
+                    docs carry (guru 2026-09-14). */}
+                <Typography sx={{ fontSize: "0.8125rem" }}>2. Payment terms: {data.documentInfo?.paymentTerms || data.paymentTerms || "CASH"}</Typography>
                 <Typography sx={{ fontSize: "0.8125rem" }}>3. Delivery date: To be advised</Typography>
               </Box>
 

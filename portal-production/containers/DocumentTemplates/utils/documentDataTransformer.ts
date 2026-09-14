@@ -154,6 +154,19 @@ export function transformFormDataForBackend(
   ];
 
   flatFields.forEach(field => {
+    // paymentTerms: same trap as the salesPerson NOTE above. With a template
+    // field-config the General-form Terms field edits
+    // formData.documentInfo.paymentTerms (already flattened into result by the
+    // field-def loop), while the top-level formData.paymentTerms stays at its
+    // page-load value — emitting it here OVERWROTE the edit every save, so the
+    // printed "Payment terms:" line could never be changed (guru 2026-09-14).
+    // Prefer the nested (live-edited) value; top-level remains the fallback
+    // for the no-field-config path and the legacy DETAILS-tab select.
+    if (field === 'paymentTerms') {
+      const terms = formData?.documentInfo?.paymentTerms ?? formData.paymentTerms;
+      if (terms !== undefined) result.paymentTerms = terms;
+      return;
+    }
     if (formData[field] !== undefined) {
       result[field] = formData[field];
     }
