@@ -423,7 +423,8 @@ export default function TabbedDocumentCreator({
 
   // Per-line price-tier menu (selling vs each customPrice on the asset).
   // Only opens for the row whose itemId matches; hidden entirely for PO/PR.
-  const [tierMenu, setTierMenu] = useState<{ anchorEl: HTMLElement; itemId: number } | null>(null);
+  // Click-position anchored (element anchors detach on items-table re-renders).
+  const [tierMenu, setTierMenu] = useState<{ pos: { left: number; top: number }; itemId: number } | null>(null);
 
   // Stock card dialog state
   const [stockCardDialogOpen, setStockCardDialogOpen] = useState(false);
@@ -5649,15 +5650,19 @@ export default function TabbedDocumentCreator({
                                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
                                         <TextField
                                           type="number"
-                                          value={item.unitPrice}
-                                          onChange={(e) => updateItem(item.id, "unitPrice", parseFloat(e.target.value))}
+                                          // Never render NaN — docs saved before the
+                                          // onChange guard can carry NaN unit prices
+                                          // (guru 2026-09-14: blank/0 lines are fine,
+                                          // "NaN" is not).
+                                          value={Number.isFinite(Number(item.unitPrice)) ? item.unitPrice : 0}
+                                          onChange={(e) => updateItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)}
                                           size="small"
                                           sx={{ width: 100 }}
                                         />
                                         {tierPickerVisible && (
                                           <IconButton
                                             size="small"
-                                            onClick={(e) => setTierMenu({ anchorEl: e.currentTarget, itemId: item.id })}
+                                            onClick={(e) => setTierMenu({ pos: { left: e.clientX, top: e.clientY }, itemId: item.id })}
                                             sx={{
                                               padding: 0.5,
                                               color: 'success.main',
@@ -5763,7 +5768,7 @@ export default function TabbedDocumentCreator({
                                       <TextField
                                         type="number"
                                         value={item.tax}
-                                        onChange={(e) => updateItem(item.id, "tax", parseFloat(e.target.value))}
+                                        onChange={(e) => updateItem(item.id, "tax", parseFloat(e.target.value) || 0)}
                                         size="small"
                                         sx={{ width: 60 }}
                                       />
@@ -6772,7 +6777,8 @@ export default function TabbedDocumentCreator({
       {/* Per-line price tier menu — populated from the active row's asset.customPrices */}
       <Menu
         open={!!tierMenu}
-        anchorEl={tierMenu?.anchorEl}
+        anchorReference="anchorPosition"
+        anchorPosition={tierMenu?.pos}
         onClose={() => setTierMenu(null)}
       >
         {(() => {

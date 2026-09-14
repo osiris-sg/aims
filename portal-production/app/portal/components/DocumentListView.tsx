@@ -221,7 +221,10 @@ export default function DocumentListView({
   const { stats, isLoading: statsLoading, refetch: refetchStats } = useGetDocumentStats(documentTypes);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [docToDelete, setDocToDelete] = useState<DocumentRow | null>(null);
-  const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: any } | null>(null);
+  // Anchored to the CLICK POSITION, not the button element — the table
+  // re-renders on menu-state changes, detaching the stored anchorEl and
+  // making the menu open at the top-left corner (guru 2026-09-14).
+  const [rowMenu, setRowMenu] = useState<{ pos: { left: number; top: number }; row: any } | null>(null);
 
   const deleteDocumentMutation = useDeleteDocument();
 
@@ -331,7 +334,7 @@ export default function DocumentListView({
           data-tour="document-row-view"
           onClick={(e: React.MouseEvent<HTMLElement>) => {
             e.stopPropagation();
-            setRowMenu({ anchor: e.currentTarget, row: row.original });
+            setRowMenu({ pos: { left: e.clientX, top: e.clientY }, row: row.original });
           }}
           sx={{ color: "text.secondary" }}
         >
@@ -450,7 +453,7 @@ export default function DocumentListView({
       )}
 
       {/* Row kebab menu (CLAUDE.md table pattern) */}
-      <Menu anchorEl={rowMenu?.anchor ?? null} open={!!rowMenu} onClose={() => setRowMenu(null)}>
+      <Menu anchorReference="anchorPosition" anchorPosition={rowMenu?.pos} open={!!rowMenu} onClose={() => setRowMenu(null)}>
         <MenuItem
           onClick={() => {
             const row = rowMenu!.row;

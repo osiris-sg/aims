@@ -89,6 +89,12 @@ List tables follow the Deliveries-tab pattern (`app/portal/deliveries/page.tsx`)
 - Do NOT add inline "Action" columns of icon buttons (eye/trash/download
   rows). That pattern is retired (guru 2026-09-03) — if you find one while
   touching a table, convert it.
+- Row menus/popovers MUST anchor to the CLICK POSITION, never the button
+  element: `setMenu({ pos: { left: e.clientX, top: e.clientY }, row })` +
+  `<Menu anchorReference="anchorPosition" anchorPosition={menu?.pos}>`.
+  Element anchors (`e.currentTarget`) detach when the table re-renders and
+  the menu then opens at the TOP-LEFT corner (guru 2026-09-14, full sweep).
+  Stable toolbar/button dropdowns outside tables may keep `anchorEl`.
 
 ## Development Commands
 

@@ -341,7 +341,8 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [rangeSel, setRangeSel] = useState<{ anchor: string; head: string } | null>(null);
   const [picker, setPicker] = useState<{ start: string; end: string } | null>(null);
-  const [chipInfo, setChipInfo] = useState<{ item: ScheduleItem; anchor: HTMLElement } | null>(null);
+  // Click-position anchored (element anchors detach when the grid re-renders).
+  const [chipInfo, setChipInfo] = useState<{ item: ScheduleItem; pos: { left: number; top: number } } | null>(null);
   const [busy, setBusy] = useState(false);
   const dragRef = useRef<{ id: string; fromIso: string; x: number; y: number; moved: boolean } | null>(null);
   const dragOverRef = useRef<string | null>(null);
@@ -538,7 +539,7 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
                               suppressClickRef.current = false;
                               return;
                             }
-                            setChipInfo({ item: it, anchor: e.currentTarget as HTMLElement });
+                            setChipInfo({ item: it, pos: { left: e.clientX, top: e.clientY } });
                           }}
                           sx={{
                             height: "auto",
@@ -582,9 +583,9 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
 
       <Popover
         open={!!chipInfo}
-        anchorEl={chipInfo?.anchor}
+        anchorReference="anchorPosition"
+        anchorPosition={chipInfo?.pos}
         onClose={() => setChipInfo(null)}
-        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
       >
         {chipInfo && (
           <Box sx={{ p: 1.5, maxWidth: 280 }}>

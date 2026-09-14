@@ -244,7 +244,7 @@ export default function SalesDocumentList({
           aria-label="Row actions"
           onClick={(e: React.MouseEvent<HTMLElement>) => {
             e.stopPropagation();
-            setRowMenu({ anchor: e.currentTarget, row: row.original });
+            setRowMenu({ pos: { left: e.clientX, top: e.clientY }, row: row.original });
           }}
           sx={{ color: "text.secondary" }}
         >
@@ -279,7 +279,10 @@ export default function SalesDocumentList({
     setFilters(updatedFilters);
   };
 
-  const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; row: any } | null>(null);
+  // Anchored to the CLICK POSITION, not the button element — the table
+  // re-renders on menu-state changes, detaching the stored anchorEl and
+  // making the menu open at the top-left corner (guru 2026-09-14).
+  const [rowMenu, setRowMenu] = useState<{ pos: { left: number; top: number }; row: any } | null>(null);
 
   const handleDeleteClick = (document: Document) => {
     setDocumentToDelete(document);
@@ -420,7 +423,7 @@ export default function SalesDocumentList({
       />
 
       {/* Row kebab menu (CLAUDE.md table pattern) */}
-      <Menu anchorEl={rowMenu?.anchor ?? null} open={!!rowMenu} onClose={() => setRowMenu(null)}>
+      <Menu anchorReference="anchorPosition" anchorPosition={rowMenu?.pos} open={!!rowMenu} onClose={() => setRowMenu(null)}>
           <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); openDocument(r); }}>Open</MenuItem>
           <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); downloadDocument(r); }}>Download / print</MenuItem>
           {rowMenu && showDelete && (rowMenu.row.status || "draft") === "draft" && (

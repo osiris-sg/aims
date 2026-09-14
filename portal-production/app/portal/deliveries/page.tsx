@@ -107,7 +107,10 @@ export default function DeliveriesQueuePage() {
   const [error, setError] = useState<string | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
-  const [menu, setMenu] = useState<{ anchor: HTMLElement; row: DeliveryRow } | null>(null);
+  // Anchored to the CLICK POSITION, not the button element — element anchors
+  // detach when rows re-render and the menu then opens at the top-left
+  // corner (full-sweep fix, guru 2026-09-14).
+  const [menu, setMenu] = useState<{ pos: { left: number; top: number }; row: DeliveryRow } | null>(null);
   const [confirm, setConfirm] = useState<{ action: "cancel" | "delete"; row: DeliveryRow } | null>(null);
   const [acting, setActing] = useState(false);
   const [actionMsg, setActionMsg] = useState<{ text: string; severity: "success" | "error" } | null>(null);
@@ -350,7 +353,7 @@ export default function DeliveriesQueuePage() {
                             aria-label="Run actions"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setMenu({ anchor: e.currentTarget, row: r });
+                              setMenu({ pos: { left: e.clientX, top: e.clientY }, row: r });
                             }}
                           >
                             <MoreVertIcon fontSize="small" />
@@ -378,7 +381,7 @@ export default function DeliveriesQueuePage() {
         </TableContainer>
       )}
 
-      <Menu anchorEl={menu?.anchor ?? null} open={!!menu} onClose={() => setMenu(null)}>
+      <Menu anchorReference="anchorPosition" anchorPosition={menu?.pos} open={!!menu} onClose={() => setMenu(null)}>
         {menu && rowActions(menu.row).canCancel && (
           <MenuItem
             onClick={() => {
