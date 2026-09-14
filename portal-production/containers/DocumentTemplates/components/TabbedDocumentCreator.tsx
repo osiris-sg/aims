@@ -172,6 +172,18 @@ const PREVIEW_LINK_SX = (t: { palette: { mode: string } }) => ({
 // shade for dark mode (app/globals.css).
 const TABLE_GRID_COLOR = "var(--table-grid)";
 
+// Numeric item-table fields (qty / unit price / tax / discount / received qty):
+// a CLEARED field stays EMPTY — it is not snapped back to 0 — and legacy NaN
+// values render as empty instead of "NaN" (guru 2026-09-14). The amount maths
+// treats empty as 0 (Number("") || 0), so blank/0 lines are fully allowed.
+const numFieldValue = (v: any) => (v === "" || v == null || !Number.isFinite(Number(v)) ? "" : v);
+const numFieldParse = (raw: string, min?: number) => {
+  if (raw === "") return "";
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n)) return "";
+  return min != null ? Math.max(min, n) : n;
+};
+
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
@@ -1671,11 +1683,19 @@ export default function TabbedDocumentCreator({
           // without this fallback its amount stuck at 0 (guru 2026-08-26).
           const unit = Number(updated.unitPrice) || Number(updated.salePrice) || 0;
           const disc = Number(updated.discount) || 0;
+          // A line with EMPTY qty AND price is a text/annotation line — its
+          // amount stays blank everywhere (editor cell, preview, PDF), never
+          // 0.00 (guru 2026-09-14). Totals treat "" as 0.
+          const isEmptyLine =
+            (updated.quantity == null || updated.quantity === "") &&
+            (updated.unitPrice == null || updated.unitPrice === "") &&
+            (updated.salePrice == null || updated.salePrice === "");
           const gross = qty * unit;
-          updated.amount =
-            updated.discountType === "amount"
-              ? Math.max(0, gross - disc)
-              : gross * (1 - disc / 100);
+          updated.amount = isEmptyLine
+            ? ""
+            : updated.discountType === "amount"
+            ? Math.max(0, gross - disc)
+            : gross * (1 - disc / 100);
           return updated;
         }
         return item;
@@ -5588,8 +5608,8 @@ export default function TabbedDocumentCreator({
                                     <TableCell key={columnId} align="center">
                                       <TextField
                                         type="number"
-                                        value={item.quantity}
-                                        onChange={(e) => updateItem(item.id, "quantity", Math.max(0, parseFloat(e.target.value) || 0))}
+                                        value={numFieldValue(item.quantity)}
+                                        onChange={(e) => updateItem(item.id, "quantity", numFieldParse(e.target.value, 0))}
                                         size="small"
                                         sx={{ width: 80 }}
                                         inputProps={{ min: 0 }}
@@ -5654,8 +5674,8 @@ export default function TabbedDocumentCreator({
                                           // onChange guard can carry NaN unit prices
                                           // (guru 2026-09-14: blank/0 lines are fine,
                                           // "NaN" is not).
-                                          value={Number.isFinite(Number(item.unitPrice)) ? item.unitPrice : 0}
-                                          onChange={(e) => updateItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)}
+                                          value={numFieldValue(item.unitPrice)}
+                                          onChange={(e) => updateItem(item.id, "unitPrice", numFieldParse(e.target.value))}
                                           size="small"
                                           sx={{ width: 100 }}
                                         />
@@ -5698,8 +5718,8 @@ export default function TabbedDocumentCreator({
                                     <TableCell key={columnId} align="center">
                                       <TextField
                                         type="number"
-                                        value={item.salePrice ?? ""}
-                                        onChange={(e) => updateItem(item.id, "salePrice", e.target.value === "" ? undefined : parseFloat(e.target.value))}
+                                        value={numFieldValue(item.salePrice)}
+                                        onChange={(e) => updateItem(item.id, "salePrice", numFieldParse(e.target.value))}
                                         size="small"
                                         sx={{ width: 100 }}
                                       />
@@ -5723,8 +5743,8 @@ export default function TabbedDocumentCreator({
                                       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.25 }}>
                                         <TextField
                                           type="number"
-                                          value={item.discount || 0}
-                                          onChange={(e) => updateItem(item.id, "discount", parseFloat(e.target.value) || 0)}
+                                          value={numFieldValue(item.discount)}
+                                          onChange={(e) => updateItem(item.id, "discount", numFieldParse(e.target.value))}
                                           size="small"
                                           sx={{ width: 56 }}
                                         />
@@ -5754,8 +5774,8 @@ export default function TabbedDocumentCreator({
                                     <TableCell key={columnId} align="center">
                                       <TextField
                                         type="number"
-                                        value={item.receivedQty || 0}
-                                        onChange={(e) => updateItem(item.id, "receivedQty", Math.max(0, parseFloat(e.target.value) || 0))}
+                                        value={numFieldValue(item.receivedQty)}
+                                        onChange={(e) => updateItem(item.id, "receivedQty", numFieldParse(e.target.value, 0))}
                                         size="small"
                                         sx={{ width: 80 }}
                                         inputProps={{ min: 0 }}
@@ -5767,8 +5787,8 @@ export default function TabbedDocumentCreator({
                                     <TableCell key={columnId} align="center">
                                       <TextField
                                         type="number"
-                                        value={item.tax}
-                                        onChange={(e) => updateItem(item.id, "tax", parseFloat(e.target.value) || 0)}
+                                        value={numFieldValue(item.tax)}
+                                        onChange={(e) => updateItem(item.id, "tax", numFieldParse(e.target.value))}
                                         size="small"
                                         sx={{ width: 60 }}
                                       />
@@ -5940,8 +5960,8 @@ export default function TabbedDocumentCreator({
                                   <TableCell align="center" sx={{ bgcolor: "info.50" }}>
                                     <TextField
                                       type="number"
-                                      value={item.receivedQty || 0}
-                                      onChange={(e) => updateItem(item.id, "receivedQty", Math.max(0, parseFloat(e.target.value) || 0))}
+                                      value={numFieldValue(item.receivedQty)}
+                                      onChange={(e) => updateItem(item.id, "receivedQty", numFieldParse(e.target.value, 0))}
                                       size="small"
                                       sx={{ width: 80 }}
                                       inputProps={{ min: 0, max: item.quantity || 0 }}

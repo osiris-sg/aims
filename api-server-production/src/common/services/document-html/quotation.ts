@@ -217,7 +217,7 @@ function configDrivenTable(data: any, items: any[]): string {
       case 'salePrice':
         return item.salePrice == null || item.salePrice === '' ? '' : Number(item.salePrice).toFixed(2);
       case 'amount':
-        return money(item.amount);
+        return item.amount == null || item.amount === '' ? '' : money(item.amount);
       case 'discount':
         return item.discount == null ? '' : escapeHtml(item.discount);
       case 'tax':
@@ -302,7 +302,7 @@ function hardcodedTable(items: any[]): string {
         `<td style="text-align:center;">${escapeHtml(item.quantity?.toLocaleString?.('en-US') ?? item.quantity ?? '')}</td>` +
         (hasUom ? `<td style="text-align:center;">${escapeHtml(item.uom || '')}</td>` : '') +
         `<td style="text-align:right;">${item.unitPrice == null ? '' : Number(item.unitPrice).toFixed(2)}</td>` +
-        `<td style="text-align:right;">${money(item.amount)}</td>` +
+        `<td style="text-align:right;">${item.amount == null || item.amount === '' ? '' : money(item.amount)}</td>` +
         `</tr>`,
     )
     .join('');

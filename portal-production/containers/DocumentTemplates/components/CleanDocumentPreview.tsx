@@ -737,9 +737,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       )}
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ textAlign: "center" }}>{Number.isFinite(Number(item.quantity)) ? Number(item.quantity).toFixed(2) : "0.00"}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{Number.isFinite(Number(item.unitPrice)) ? Number(item.unitPrice).toFixed(2) : "0.00"}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null ? "" : Number(item.amount).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "center" }}>{item.quantity === "" || item.quantity == null || !Number.isFinite(Number(item.quantity)) ? "" : Number(item.quantity).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.unitPrice === "" || item.unitPrice == null || !Number.isFinite(Number(item.unitPrice)) ? "" : Number(item.unitPrice).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : Number(item.amount).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -1047,9 +1047,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       )}
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ textAlign: "center" }}>{Number.isFinite(Number(item.quantity)) ? Number(item.quantity).toFixed(2) : "0.00"}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{Number.isFinite(Number(item.unitPrice)) ? Number(item.unitPrice).toFixed(2) : "0.00"}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null ? "" : Number(item.amount).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "center" }}>{item.quantity === "" || item.quantity == null || !Number.isFinite(Number(item.quantity)) ? "" : Number(item.quantity).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.unitPrice === "" || item.unitPrice == null || !Number.isFinite(Number(item.unitPrice)) ? "" : Number(item.unitPrice).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : Number(item.amount).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -1669,9 +1669,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       )}
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ textAlign: "center" }}>{Number.isFinite(Number(item.quantity)) ? Number(item.quantity).toFixed(2) : "0.00"}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{Number.isFinite(Number(item.unitPrice)) ? Number(item.unitPrice).toFixed(2) : "0.00"}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null ? "" : Number(item.amount).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "center" }}>{item.quantity === "" || item.quantity == null || !Number.isFinite(Number(item.quantity)) ? "" : Number(item.quantity).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.unitPrice === "" || item.unitPrice == null || !Number.isFinite(Number(item.unitPrice)) ? "" : Number(item.unitPrice).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : Number(item.amount).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -2597,7 +2597,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <TableCell>
                     <DescriptionText text={item.description || ""} sx={{ fontWeight: 500 }} />
                   </TableCell>
-                  <TableCell sx={{ textAlign: "center" }}>{Number.isFinite(Number(item.quantity)) ? Number(item.quantity).toFixed(2) : "0.00"}</TableCell>
+                  <TableCell sx={{ textAlign: "center" }}>{item.quantity === "" || item.quantity == null || !Number.isFinite(Number(item.quantity)) ? "" : Number(item.quantity).toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
                   <TableCell>{item.remarks || ""}</TableCell>
                 </TableRow>
@@ -3079,9 +3079,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       )}
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ textAlign: "center" }}>{Number.isFinite(Number(item.quantity)) ? Number(item.quantity).toFixed(2) : "0.00"}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{Number.isFinite(Number(item.unitPrice)) ? Number(item.unitPrice).toFixed(2) : "0.00"}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null ? "" : Number(item.amount).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "center" }}>{item.quantity === "" || item.quantity == null || !Number.isFinite(Number(item.quantity)) ? "" : Number(item.quantity).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.unitPrice === "" || item.unitPrice == null || !Number.isFinite(Number(item.unitPrice)) ? "" : Number(item.unitPrice).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : Number(item.amount).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -3414,10 +3414,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <TableCell>
                     <DescriptionText text={item.description || ""} />
                   </TableCell>
-                  <TableCell sx={{ textAlign: "center" }}>{Number.isFinite(Number(item.quantity)) ? Number(item.quantity).toFixed(2) : "0.00"}</TableCell>
+                  <TableCell sx={{ textAlign: "center" }}>{item.quantity === "" || item.quantity == null || !Number.isFinite(Number(item.quantity)) ? "" : Number(item.quantity).toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice?.toFixed(4)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null ? "" : Number(item.amount).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : Number(item.amount).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -3689,10 +3689,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <TableCell>
                     <DescriptionText text={item.description || ""} />
                   </TableCell>
-                  <TableCell sx={{ textAlign: "center" }}>{Number.isFinite(Number(item.quantity)) ? Number(item.quantity).toFixed(2) : "0.00"}</TableCell>
+                  <TableCell sx={{ textAlign: "center" }}>{item.quantity === "" || item.quantity == null || !Number.isFinite(Number(item.quantity)) ? "" : Number(item.quantity).toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice?.toFixed(4)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null ? "" : Number(item.amount).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : Number(item.amount).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -4202,7 +4202,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     // alongside the rental unitPrice). Formatted + right-aligned
                     // exactly like unitPrice, never the raw item[col] fallthrough.
                     case "salePrice": return item.salePrice != null && item.salePrice !== "" ? Number(item.salePrice).toFixed(2) : "";
-                    case "amount": return (item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    case "amount": return item.amount === "" || item.amount == null ? "" : (Number(item.amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                     case "discount": return item.discount != null ? `${item.discount}` : "";
                     case "tax": return item.tax != null ? `${item.tax}` : "";
                     case "uom": return item.uom || "";
@@ -4350,8 +4350,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       </TableCell>
                       <TableCell sx={{ textAlign: "center", verticalAlign: "top" }}>{item.quantity?.toLocaleString()}</TableCell>
                       {hasUom && <TableCell sx={{ textAlign: "center", verticalAlign: "top" }}>{item.uom || ""}</TableCell>}
-                      <TableCell sx={{ textAlign: "right", verticalAlign: "top" }}>{Number.isFinite(Number(item.unitPrice)) ? Number(item.unitPrice).toFixed(2) : "0.00"}</TableCell>
-                      <TableCell sx={{ textAlign: "right", verticalAlign: "top" }}>{(item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                      <TableCell sx={{ textAlign: "right", verticalAlign: "top" }}>{item.unitPrice === "" || item.unitPrice == null || !Number.isFinite(Number(item.unitPrice)) ? "" : Number(item.unitPrice).toFixed(2)}</TableCell>
+                      <TableCell sx={{ textAlign: "right", verticalAlign: "top" }}>{item.amount === "" || item.amount == null ? "" : (Number(item.amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                     </TableRow>
                   ))}
 
@@ -4890,8 +4890,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 <TableCell>{index + 1}</TableCell>
                 <TableCell><DescriptionText text={item.description || ""} /></TableCell>
                 <TableCell align="center">{item.quantity}</TableCell>
-                <TableCell align="right">{Number.isFinite(Number(item.unitPrice)) ? Number(item.unitPrice).toFixed(2) : "0.00"}</TableCell>
-                <TableCell align="right">{item.amount == null ? "" : Number(item.amount).toFixed(2)}</TableCell>
+                <TableCell align="right">{item.unitPrice === "" || item.unitPrice == null || !Number.isFinite(Number(item.unitPrice)) ? "" : Number(item.unitPrice).toFixed(2)}</TableCell>
+                <TableCell align="right">{item.amount == null || item.amount === "" ? "" : Number(item.amount).toFixed(2)}</TableCell>
               </TableRow>
             ))}
 
