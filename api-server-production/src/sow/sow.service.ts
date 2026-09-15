@@ -4,6 +4,7 @@ import { PrismaService } from 'src/common/prisma.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { DocumentsService, DocumentActor } from '../documents/documents.service';
 import { DocumentTemplatesService } from '../documentTemplates/documentTemplates.service';
+import { OSIRIS_LOGO_DATA_URI } from './osiris-logo';
 
 /**
  * SOW Builder — OSIRIS-INTERNAL tool (osirisadmin only, guru 2026-09-16).
@@ -169,7 +170,7 @@ One scope section per selected module (merge closely-related modules if that rea
   renderHtml(d: SowData): string {
     const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const ul = (items?: string[]) => (items?.length ? `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>` : '');
-    const logo = `<div class="logo">O&#420;IRI&#420;</div>`;
+    const logo = `<div class="logo"><img src="${OSIRIS_LOGO_DATA_URI}" alt="OSIRIS" /></div>`;
     const footer = `<div class="foot">Osiris Technology Pte. Ltd.<br/>UEN ${OSIRIS_UEN}</div>`;
     const custFull = `${esc(d.customerName)}${d.customerUen ? ` (UEN ${esc(d.customerUen)})` : ''}`;
 
@@ -180,14 +181,16 @@ One scope section per selected module (merge closely-related modules if that rea
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
       @page { margin: 20mm 18mm; }
       body { font-family: 'Times New Roman', Times, serif; font-size: 11.5pt; color: #000; line-height: 1.45; }
-      .logo { text-align: right; font-family: Arial, sans-serif; font-weight: 700; font-size: 20pt; letter-spacing: 4px; margin-bottom: 24px; }
+      .logo { text-align: right; margin-bottom: 24px; }
+      .logo img { width: 150px; height: auto; }
+      * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .page { page-break-after: always; }
-      .titlebox { border: 1px solid #000; text-align: center; padding: 36px 24px; margin: 90px 30px 40px; }
+      .titlebox { border: 1.5px solid #000; text-align: center; padding: 36px 24px; margin: 90px 30px 40px; }
       .titlebox h1 { font-size: 18pt; margin: 0 0 4px; }
       .titlebox .for { font-size: 15pt; font-style: italic; font-weight: 700; margin-bottom: 8px; }
       .titlebox .eff { font-weight: 700; margin-top: 18px; }
       table { border-collapse: collapse; width: 100%; margin: 8px 0 18px; }
-      td, th { border: 1px solid #000; padding: 5px 8px; text-align: left; vertical-align: top; font-size: 11pt; }
+      td, th { border: 1.2px solid #000; white-space: normal; padding: 5px 8px; text-align: left; vertical-align: top; font-size: 11pt; }
       th { font-weight: 700; }
       h2 { font-size: 13.5pt; margin: 22px 0 8px; }
       h3 { font-size: 12pt; font-weight: 400; margin: 16px 0 6px; }
@@ -211,7 +214,7 @@ One scope section per selected module (merge closely-related modules if that rea
       <table><tr><th style="width:40%;">Document Owner:</th><td>OSIRIS TECHNOLOGY PTE. LTD.</td></tr></table>
       <p style="font-weight:700;margin-bottom:2px;">Version</p>
       <table><tr><th>Version</th><th>Date</th><th>Description</th><th>Author</th></tr>
-      <tr><td>1.0</td><td>${esc(d.effectiveDate)}</td><td>${esc(d.versionDescription)}</td><td>${esc(d.author || 'Kumaraguru')}</td></tr></table>
+      <tr><td>1.0</td><td style="white-space:nowrap;">${esc(d.effectiveDate)}</td><td>${esc(d.versionDescription)}</td><td>${esc(d.author || 'Kumaraguru')}</td></tr></table>
       <p style="font-weight:700;margin-bottom:2px;">Approval</p>
       <p class="small">(By signing below, all Approvers agree to all terms and conditions outlined in this Agreement.)</p>
       <table><tr><th>Approvers</th><th>Role</th><th>Signed</th><th>Approval Date</th></tr>

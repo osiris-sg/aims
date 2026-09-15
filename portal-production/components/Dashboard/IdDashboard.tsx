@@ -243,7 +243,18 @@ export default function IdDashboard() {
           <KPI label="Completed" value={t.done} />
         </Grid>
         <Grid item xs={6} md={2.4}>
-          <KPI label={`Revenue ${data.year}`} value={money(t.revenueYtd)} hint={t.target ? `target ${money(t.target)}` : "no target set"} color={t.target && t.revenueYtd >= t.target ? "success.main" : undefined} />
+          <KPI
+            label={`Revenue ${data.year}`}
+            value={money(t.revenueYtd)}
+            hint={
+              t.target
+                ? self
+                  ? `target ${money(t.target)}`
+                  : `target ${money(t.target)} · ${data.designers.filter((r) => r.target != null).length} designers combined`
+                : "no target set"
+            }
+            color={t.target && t.revenueYtd >= t.target ? "success.main" : undefined}
+          />
         </Grid>
         <Grid item xs={6} md={2.4}>
           <KPI label="Projected profit" value={money(t.projectedProfit)} hint="contract − costs, all ongoing" />
@@ -257,7 +268,7 @@ export default function IdDashboard() {
         <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2, mb: 2.5 }}>
           <Stack direction="row" alignItems="center" spacing={2}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
-              {data.year} target
+              {data.year} target{self ? "" : " (all designers)"}
             </Typography>
             <Box sx={{ flex: 1 }}>
               <LinearProgress variant="determinate" value={Math.min(100, (t.revenueYtd / t.target) * 100)} sx={{ height: 10, borderRadius: 5 }} color={t.revenueYtd >= t.target ? "success" : "primary"} />

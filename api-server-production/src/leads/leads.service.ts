@@ -342,7 +342,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     const selfOnly = await this.isPureDesigner(organizationId, callerUserId);
     const leads = await this.prisma.lead.findMany({
       where: { organizationId, ...(selfOnly ? { assignedToUserId: callerUserId } : {}) },
-      select: { status: true, source: true, assignedToUserId: true, assignedToName: true },
+      select: { status: true, source: true, assignedToUserId: true, assignedToName: true, receivedAt: true, firstContactedAt: true },
     });
     const byStatus: Record<string, number> = {};
     for (const l of leads) byStatus[l.status] = (byStatus[l.status] || 0) + 1;
@@ -356,12 +356,71 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       if (l.status === 'dead') row.dead += 1;
       perDesigner.set(key, row);
     }
+    // Manager-only source insights (guru 2026-09-16): where the leads come
+    // from and how each channel performs. Designer-only callers get null —
+    // the panel is a management view.
+    let insights: any = null;
+    if (!selfOnly) {
+      const bySrc = new Map<string, { source: string; total: number; open: number; converted: number; dead: number }>();
+      for (const l of leads) {
+        const key = (l.source || 'manual').toLowerCase();
+        const row = bySrc.get(key) || { source: key, total: 0, open: 0, converted: 0, dead: 0 };
+        row.total += 1;
+        if (l.status === 'converted') row.converted += 1;
+        else if (l.status === 'dead') row.dead += 1;
+        else row.open += 1;
+        bySrc.set(key, row);
+      }
+      const bySource = [...bySrc.values()]
+        .sort((a, b) => b.total - a.total)
+        .map((r) => ({ ...r, share: leads.length ? (r.total / leads.length) * 100 : 0, convertedPct: r.total ? (r.converted / r.total) * 100 : 0 }));
+
+      // Last 6 calendar months of arrivals, split by source (SGT months).
+      const monthKey = (d: Date) => {
+        const s = new Date(d.getTime() + 8 * 3600 * 1000);
+        return `${s.getUTCFullYear()}-${String(s.getUTCMonth() + 1).padStart(2, '0')}`;
+      };
+      const months: string[] = [];
+      const now = new Date(Date.now() + 8 * 3600 * 1000);
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+        months.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+      }
+      const monthly = months.map((m) => ({ month: m, total: 0, bySource: {} as Record<string, number> }));
+      const byMonth = new Map(monthly.map((m) => [m.month, m]));
+      for (const l of leads) {
+        if (!l.receivedAt) continue;
+        const row = byMonth.get(monthKey(l.receivedAt));
+        if (!row) continue;
+        row.total += 1;
+        const src = (l.source || 'manual').toLowerCase();
+        row.bySource[src] = (row.bySource[src] || 0) + 1;
+      }
+
+      // Response speed: average hours from arrival to the first WhatsApp
+      // contact, where both stamps exist.
+      const contacted = leads.filter((l) => l.receivedAt && l.firstContactedAt);
+      const avgFirstContactHours = contacted.length
+        ? contacted.reduce((s, l) => s + (l.firstContactedAt!.getTime() - l.receivedAt!.getTime()), 0) / contacted.length / 3600000
+        : null;
+
+      insights = {
+        bySource,
+        monthly,
+        thisMonth: monthly[monthly.length - 1]?.total || 0,
+        lastMonth: monthly[monthly.length - 2]?.total || 0,
+        avgFirstContactHours,
+        contactedCount: contacted.length,
+      };
+    }
+
     return {
       total: leads.length,
       byStatus,
       convertedPct: leads.length ? ((byStatus['converted'] || 0) / leads.length) * 100 : null,
       deadPct: leads.length ? ((byStatus['dead'] || 0) / leads.length) * 100 : null,
       perDesigner: [...perDesigner.values()].sort((a, b) => b.taken - a.taken),
+      insights,
     };
   }
 

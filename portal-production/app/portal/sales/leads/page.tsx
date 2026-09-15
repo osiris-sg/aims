@@ -21,6 +21,7 @@ import {
   Drawer,
   Grid,
   IconButton,
+  LinearProgress,
   MenuItem,
   Paper,
   Stack,
@@ -131,6 +132,81 @@ const readAsDataURL = (f: File) =>
     r.onerror = () => rej(new Error("Could not read file"));
     r.readAsDataURL(f);
   });
+
+// Manager-only lead insights (guru 2026-09-16): where the leads come from and
+// how each channel performs. Designers never receive `insights` from the API,
+// so the panel simply doesn't render for them.
+const SRC_LABEL: Record<string, string> = { ezid: "EZiD", network: "Network SG", whatsapp: "WhatsApp", manual: "Manual", fb: "Facebook", ig: "Instagram" };
+const SRC_COLOR: Record<string, string> = { ezid: "primary.main", network: "warning.main", whatsapp: "success.main", manual: "text.disabled", fb: "info.main", ig: "secondary.main" };
+
+function LeadInsights({ stats }: { stats: any }) {
+  const ins = stats.insights;
+  const maxMonth = Math.max(1, ...ins.monthly.map((m: any) => m.total));
+  const delta = ins.thisMonth - ins.lastMonth;
+  const kpis: Array<[string, React.ReactNode, string?]> = [
+    ["Total leads", stats.total],
+    ["This month", <>{ins.thisMonth}{ins.lastMonth > 0 || ins.thisMonth > 0 ? <Typography component="span" variant="caption" sx={{ ml: 0.5, color: delta >= 0 ? "success.main" : "error.main" }}>{delta >= 0 ? "+" : ""}{delta} vs last</Typography> : null}</>],
+    ["Conversion", stats.convertedPct != null ? `${stats.convertedPct.toFixed(0)}%` : "—", "signed / all leads"],
+    ["Dead", stats.deadPct != null ? `${stats.deadPct.toFixed(0)}%` : "—"],
+    ["Avg first contact", ins.avgFirstContactHours != null ? (ins.avgFirstContactHours < 48 ? `${ins.avgFirstContactHours.toFixed(1)}h` : `${(ins.avgFirstContactHours / 24).toFixed(1)}d`) : "—", ins.contactedCount ? `across ${ins.contactedCount} contacted` : "no contact stamps yet"],
+  ];
+  return (
+    <Grid container spacing={1.5} sx={{ mb: 2 }} data-tour="leads-insights">
+      {kpis.map(([label, value, hint]) => (
+        <Grid item xs={6} sm={4} md={2.4} key={label as string}>
+          <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, height: "100%" }}>
+            <Typography variant="overline" sx={{ color: "text.secondary", lineHeight: 1.4 }}>{label}</Typography>
+            <Typography variant="h6" sx={{ fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{value}</Typography>
+            {hint && <Typography variant="caption" sx={{ color: "text.secondary" }}>{hint}</Typography>}
+          </Paper>
+        </Grid>
+      ))}
+      <Grid item xs={12} md={7}>
+        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, height: "100%" }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>Where leads come from</Typography>
+          <Stack spacing={1}>
+            {ins.bySource.map((s: any) => (
+              <Box key={s.source}>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: SRC_COLOR[s.source] || "text.disabled", flexShrink: 0 }} />
+                  <Typography variant="body2" sx={{ fontWeight: 600, minWidth: 92 }}>{SRC_LABEL[s.source] || s.source}</Typography>
+                  <Box sx={{ flex: 1 }}>
+                    <LinearProgress variant="determinate" value={s.share} sx={{ height: 8, borderRadius: 4, "& .MuiLinearProgress-bar": { bgcolor: SRC_COLOR[s.source] || "text.disabled" }, bgcolor: "action.hover" }} />
+                  </Box>
+                  <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums", minWidth: 148, textAlign: "right", color: "text.secondary" }}>
+                    {s.total} · {s.share.toFixed(0)}% share · {s.converted} signed ({s.convertedPct.toFixed(0)}%){s.dead ? ` · ${s.dead} dead` : ""}
+                  </Typography>
+                </Stack>
+              </Box>
+            ))}
+          </Stack>
+        </Paper>
+      </Grid>
+      <Grid item xs={12} md={5}>
+        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, height: "100%" }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>Last 6 months</Typography>
+          <Stack direction="row" spacing={1} alignItems="flex-end" sx={{ height: 110 }}>
+            {ins.monthly.map((m: any) => (
+              <Tooltip key={m.month} title={`${m.total} lead${m.total === 1 ? "" : "s"}${Object.entries(m.bySource).map(([s, n]) => ` · ${SRC_LABEL[s] || s} ${n}`).join("")}`}>
+                <Stack sx={{ flex: 1, height: "100%", cursor: "default" }} justifyContent="flex-end" alignItems="stretch">
+                  <Typography variant="caption" sx={{ textAlign: "center", color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>{m.total || ""}</Typography>
+                  <Stack sx={{ height: `${(m.total / maxMonth) * 78}%`, minHeight: m.total ? 4 : 0, borderRadius: 0.75, overflow: "hidden" }}>
+                    {Object.entries(m.bySource).map(([s, n]: any) => (
+                      <Box key={s} sx={{ flex: n, bgcolor: SRC_COLOR[s] || "text.disabled" }} />
+                    ))}
+                  </Stack>
+                  <Typography variant="caption" sx={{ textAlign: "center", color: "text.secondary", pt: 0.25 }}>
+                    {new Date(m.month + "-01T00:00:00").toLocaleDateString("en-SG", { month: "short" })}
+                  </Typography>
+                </Stack>
+              </Tooltip>
+            ))}
+          </Stack>
+        </Paper>
+      </Grid>
+    </Grid>
+  );
+}
 
 export default function LeadsPage() {
   const router = useRouter();
@@ -441,6 +517,7 @@ export default function LeadsPage() {
 
   return (
     <MainCard>
+      {stats?.insights && stats.total > 0 && <LeadInsights stats={stats} />}
       {stats && stats.total > 0 && (
         <Stack direction="row" spacing={1} sx={{ mb: 1.5, flexWrap: "wrap", rowGap: 1 }}>
           <Chip size="small" label={`${stats.total} leads`} />
