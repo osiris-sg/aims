@@ -3,10 +3,10 @@ import { CHAT, QUOTE_FILE, QUOTE_LINES, QUOTE_TOTAL } from "../_content/site";
 import { FileIcon, SendIcon } from "./Icons";
 
 /** Static rendering of a sample operator conversation, the hero's product shot. */
-export function ChatMock() {
+export function ChatMock({ animate = false }: { animate?: boolean } = {}) {
   return (
     <div className="phone-wrap">
-      <div className="phone" role="img" aria-label="Sample conversation with the AIMS agent on WhatsApp">
+      <div className={`phone${animate ? " phone-anim" : ""}`} role="img" aria-label="Sample conversation with the AIMS agent on WhatsApp">
         <div className="phone-screen">
           <div className="chat-head">
             <Image src="/aims-logo.png" alt="" width={32} height={32} />
@@ -18,12 +18,12 @@ export function ChatMock() {
           <div className="chat-body">
             {CHAT.map((t, i) =>
               t.from === "you" ? (
-                <div key={i} className="bubble bubble-out">
+                <div key={i} className="bubble bubble-out" style={{ "--i": i } as React.CSSProperties}>
                   {t.text}
                   <div className="stamp">{t.time}</div>
                 </div>
               ) : t.quote ? (
-                <div key={i} className="bubble bubble-in bubble-card">
+                <div key={i} className="bubble bubble-in bubble-card" style={{ "--i": i } as React.CSSProperties}>
                   <span dangerouslySetInnerHTML={{ __html: t.html }} />
                   <div className="quote-lines mono">
                     {QUOTE_LINES.map((l) => (
@@ -38,7 +38,7 @@ export function ChatMock() {
                   </div>
                 </div>
               ) : (
-                <div key={i} className="bubble bubble-in">
+                <div key={i} className="bubble bubble-in" style={{ "--i": i } as React.CSSProperties}>
                   <span dangerouslySetInnerHTML={{ __html: t.html }} />
                   <div className="stamp">{t.time}</div>
                 </div>

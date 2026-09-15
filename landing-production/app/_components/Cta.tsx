@@ -3,7 +3,7 @@ import { ArrowIcon } from "./Icons";
 
 export function Cta() {
   return (
-    <section id="pricing" className="cta">
+    <div className="wrap"><section id="pricing" className="cta cta-card">
       <div id="book-a-demo" className="wrap section cta-inner">
         <span className="eyebrow">{CTA.eyebrow}</span>
         <h2 className="cta-title">{CTA.title}</h2>
@@ -17,6 +17,6 @@ export function Cta() {
           ) : null}
         </div>
       </div>
-    </section>
+    </section></div>
   );
 }

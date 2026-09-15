@@ -73,10 +73,13 @@ const RULES: Rule[] = [
   { rx: /L\. ?K\. ?MAJU|LES AMIS/i, acct: 'EX120', label: 'Staff welfare' },
 
   // ---- equipment, supplies, consumables ----
-  { rx: /TAOBAO|SHOPEE|TikTok Shop|SPEEDWAY E-COMMERCE|MUSTAFA|KRISHNA HARDWARE|3F HARDWARE|TROSEAL|LATERALCO|PUSHPA TRADING|SANLIGHT|360 BATHWARE|O PLUS SG|HWXYZ|INNOCREATION/i, acct: 'EX060', label: 'Gym equipment & supplies' },
+  // VINALEX = soap/air-freshener consumables (guru 2026-09-15)
+  { rx: /VINALEX|TAOBAO|SHOPEE|TikTok Shop|SPEEDWAY E-COMMERCE|MUSTAFA|KRISHNA HARDWARE|3F HARDWARE|TROSEAL|LATERALCO|PUSHPA TRADING|SANLIGHT|360 BATHWARE|O PLUS SG|HWXYZ|INNOCREATION/i, acct: 'EX060', label: 'Gym equipment & supplies' },
+  // reimbursements to people who bought gym equipment (guru 2026-09-15)
+  { rx: /^(Natalie soh|Ganesan|Dorothy|Hoe cherh inn)\b/i, acct: 'EX060', label: 'Gym equipment reimbursement' },
 
   // ---- coaches / instructors (payment vouchers signed by Finance Manager) ----
-  { rx: /^(Tam|SANJANA CAROL|AHMED KAWSAR|Hanurdeen|MOHAXXX HANURXXXX BIX HAMXX|KHARSXXX KUMXX|Anderson|KO LIANG YU RUSSEL|DARMAN BALASUBRAMANIAM|GADDIEL PRADEEP|SATHISH|SATHIAVARMAN|S DHINXXX KUMXX|Joseph|jl|Nirmal|Natalie soh|Ganesan|Dorothy|Hoe cherh inn)\b/i, acct: 'CS002', label: 'Coaching & instructor fees' },
+  { rx: /^(Tam|SANJANA CAROL|AHMED KAWSAR|Hanurdeen|MOHAXXX HANURXXXX BIX HAMXX|KHARSXXX KUMXX|Anderson|KO LIANG YU RUSSEL|DARMAN BALASUBRAMANIAM|GADDIEL PRADEEP|SATHISH|SATHIAVARMAN|S DHINXXX KUMXX|Joseph|jl|Nirmal)\b/i, acct: 'CS002', label: 'Coaching & instructor fees' },
 ];
 
 type Line = { code: string; debit: number; credit: number; desc: string };

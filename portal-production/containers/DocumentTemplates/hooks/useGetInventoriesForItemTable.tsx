@@ -43,20 +43,26 @@ export const useGetInventoriesForItemTable = () => {
     const token = await getToken();
     if (!token || !organizationId) return [];
 
-    const response = await request(
-      {
-        path: "/inventories",
-        method: "POST",
-      },
-      {
-        status: "all",
-        page: 1,
-        limit: 100,
-      },
-      token
-    );
-
-    return response?.data?.docs || [];
+    // Page through ALL units. The old single capped page (limit:100) silently
+    // hid every unit past the first hundred — e.g. the accountant invoicing
+    // MG20260147 found "no items" while the unit existed (guru 2026-09-15).
+    const PAGE_SIZE = 200;
+    let page = 1;
+    let all: any[] = [];
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const response = await request(
+        { path: "/inventories", method: "POST" },
+        { status: "all", page, limit: PAGE_SIZE },
+        token
+      );
+      const docs = response?.data?.docs || [];
+      all = all.concat(docs);
+      const hasNext = response?.data?.hasNextPage ?? docs.length === PAGE_SIZE;
+      if (!hasNext || docs.length === 0 || page > 100) break;
+      page += 1;
+    }
+    return all;
   }, [organizationId, getToken]);
 
   // Fetch assets/products for Products mode (when tracking is OFF)

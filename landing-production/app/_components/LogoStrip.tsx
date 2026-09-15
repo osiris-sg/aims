@@ -1,9 +1,9 @@
 import { SOFTWARE } from "../_content/logos";
 
 /** "Works with" strip. Marks are masked with currentColor so they sit quietly in both themes. */
-export function LogoStrip({ label = "Move your books from" }: { label?: string }) {
+export function LogoStrip({ label = "Move your books from", variant }: { label?: string; variant?: "dark" }) {
   return (
-    <section className="logos" aria-label="Compatible accounting software">
+    <section className={`logos${variant === "dark" ? " logos-dark" : ""}`} aria-label="Compatible accounting software">
       <div className="wrap logos-inner">
         <span className="logos-label">{label}</span>
         <ul className="logos-list">

@@ -477,3 +477,66 @@ h1, h2, h3, p { margin: 0; }
 .logo { display: inline-flex; align-items: center; gap: 8px; color: var(--muted-2); font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
 .logo-mark { width: 20px; height: 20px; background: currentColor; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-size: contain; mask-size: contain; -webkit-mask-position: center; mask-position: center; }
 .logo:hover { color: var(--ink); }
+
+/* ===== 1Password-style hero band ===== */
+.btn { border-radius: 999px; }
+.btn-sm { border-radius: 999px; }
+
+.hero-dark { background: #0a0a0a; color: #fafafa; padding-top: 84px; }
+.hero-center { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 24px; }
+.hero-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 16px; border-radius: 999px; border: 1px solid #2a3038; background: #10141b;
+  font-size: 12.5px; font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; color: #c2c7d0;
+}
+.hero-title { color: #ffffff; font-size: 76px; line-height: 1.0; max-width: 1000px; text-wrap: balance; }
+.hero-sub { font-size: 19px; line-height: 1.55; color: #c2c7d0; max-width: 620px; text-wrap: pretty; margin: 0; }
+.hero-cta-center { justify-content: center; }
+
+.hero-stage {
+  margin-top: 56px; border-radius: 28px; border: 1px solid #2a3038; overflow: hidden;
+  background:
+    radial-gradient(90% 120% at 85% 110%, rgba(0, 165, 114, 0.28) 0%, rgba(0, 165, 114, 0) 55%),
+    radial-gradient(120% 140% at 15% -10%, #1a2b3c 0%, #10141b 55%, #0a0e14 100%);
+  padding: 48px;
+}
+.hero-video { display: block; width: 100%; border-radius: 16px; }
+.hero-stage-inner { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 48px; align-items: center; }
+.hero-stage-phone { display: flex; justify-content: center; }
+.hero-stage-phone .phone { width: 340px; box-shadow: 0 40px 80px -40px rgba(0, 0, 0, 0.9); }
+.hero-stage-shot { min-width: 0; }
+.hero-stage-shot .shot-caption { display: none; }
+.hero-stage-shot .shot-chrome { background: #1f252e; border-color: #2a3038; }
+.hero-stage-shot .shot-body { border-color: #2a3038; }
+
+/* chat bubbles animate in once, staggered */
+.phone-anim .bubble { opacity: 0; transform: translateY(10px); animation: bubble-in 0.5s ease forwards; animation-delay: calc(0.5s + var(--i, 0) * 0.85s); }
+@keyframes bubble-in { to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .phone-anim .bubble { animation: none; opacity: 1; transform: none; } }
+
+/* logo strip inside the dark band */
+.logos-dark { background: transparent; border: none; }
+.logos-dark .logos-inner { padding-top: 44px; padding-bottom: 52px; justify-content: center; }
+.logos-dark .logos-label { color: #737b85; }
+.logos-dark .logo { color: #9aa3ad; }
+.logos-dark .logo:hover { color: #ffffff; }
+
+/* CTA as a rounded super-card */
+.cta-card { border-radius: 28px; border: none; overflow: hidden; margin-bottom: 96px; }
+.cta-card .cta-inner { align-items: center; text-align: center; }
+.cta-card .cta-title, .cta-card .cta-body { max-width: 760px; }
+.cta-card .eyebrow { justify-content: center; }
+
+@media (max-width: 1024px) {
+  .hero-title { font-size: 56px; }
+  .hero-stage-inner { grid-template-columns: 300px minmax(0, 1fr); gap: 32px; }
+}
+@media (max-width: 860px) {
+  .hero-dark { padding-top: 56px; }
+  .hero-title { font-size: 40px; }
+  .hero-sub { font-size: 16px; }
+  .hero-stage { padding: 20px; border-radius: 20px; margin-top: 36px; }
+  .hero-stage-inner { grid-template-columns: minmax(0, 1fr); }
+  .hero-stage-shot { display: none; }
+  .cta-card { margin-bottom: 56px; }
+}
