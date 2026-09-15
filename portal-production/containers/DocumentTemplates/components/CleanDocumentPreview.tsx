@@ -368,11 +368,18 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
   const doStartReport = maintenanceReports?.find((r) => r.kind === "DO_START") ?? null;
   const doStartReportId = doStartReport?.id ?? null;
   const doStartPingCount = (doStartReport as any)?.pingCount ?? 0;
-  // Scheduled date/time comes from the Delivery run (getById folds it into config).
-  // Shown as one line, e.g. "26 Aug 2026, 4:12 pm".
+  // Scheduled date comes from the Delivery run (getById folds it into config).
+  // DATE ONLY, e.g. "26 Aug 2026". The office schedules a DAY, not a minute —
+  // printing "at 9:00 am" read as a committed arrival time the run never
+  // promised, and the actual moments are already on the Delivery Started /
+  // Delivery Ended rows below.
+  //
+  // scheduledAt (the Date) is deliberately left intact: tlTimeValue compares it
+  // against each event to decide time-only vs date+time, so it still needs the
+  // full timestamp. Only the RENDERED STRING drops the time.
   const scheduledAt = (data as any)?.scheduledFor ? new Date((data as any).scheduledFor) : null;
-  const scheduledDateTimeStr = scheduledAt && !isNaN(scheduledAt.getTime())
-    ? scheduledAt.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true })
+  const scheduledDateStr = scheduledAt && !isNaN(scheduledAt.getTime())
+    ? scheduledAt.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
     : "";
 
   const getDocumentTitle = () => {
@@ -2034,7 +2041,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700, letterSpacing: "1px", pb: 0.5, mb: 1, borderBottom: "1px solid #ddd" }}>
           TIMELINE
         </Typography>
-        {tlRow("Scheduled Date", scheduledDateTimeStr)}
+        {tlRow("Scheduled Date", scheduledDateStr)}
         {/* Print rows (no screenOnly). Each hides entirely when its source MSR
             is absent, rather than showing a blank or a placeholder. */}
         {deliveryStartedAt && tlRow("Delivery Started", tlTimeValue(deliveryStartedAt))}
