@@ -68,6 +68,21 @@ export class RevenueItemsController {
     return this.service.create(orgId(req), body);
   }
 
+  // Contractor price-list upload: parse the PDF/photo into proposed work
+  // items (no writes)…
+  @Post('import-pricelist')
+  @Permissions('accounting:update')
+  importPricelist(@Req() req: RequestWithOrganization, @Body() body: { file: string; filename?: string; supplierName?: string }) {
+    return this.service.importPricelist(orgId(req), body);
+  }
+
+  // …then create the reviewed items.
+  @Post('import-pricelist/apply')
+  @Permissions('accounting:update')
+  importPricelistApply(@Req() req: RequestWithOrganization, @Body() body: any) {
+    return this.service.importPricelistApply(orgId(req), body);
+  }
+
   @Patch(':id')
   @Permissions('accounting:update')
   update(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: any) {

@@ -61,6 +61,7 @@ const TOOL_STATUS: Record<string, string> = {
   get_document_link: '🔗 Getting the link...',
   add_project_cost: '🧾 Recording the project cost...',
   edit_schedule: '🗓 Updating the schedule...',
+  import_price_list: '📚 Adding the price list to the Work Library...',
 };
 
 @Injectable()
@@ -207,9 +208,15 @@ export class OperatorService {
   ): Promise<void> {
     const e = up?.extracted;
     if (!up || e?.amount == null) {
+      // Keep the stored file around — the next message may name what it really
+      // is (e.g. "this is a contractor price list, add it to the work library").
+      if (up) {
+        session.pendingUpload = up;
+        await this.saveSession(msg.channel, msg.channelUserId, session);
+      }
       await adapter.sendText(
         msg.chatId,
-        "I couldn't read the amount from that invoice. Reply with the amount (and the project) and I'll record it.",
+        "I couldn't read an invoice amount from that file. If it's a supplier invoice, reply with the amount (and the project). If it's a contractor PRICE LIST, say \"add it to the work library\" and I'll import the rates.",
       );
       return;
     }

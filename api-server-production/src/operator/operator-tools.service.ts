@@ -16,6 +16,7 @@ import { BillsService } from '../bills/bills.service';
 import { InventoriesService } from '../inventories/inventories.service';
 import { ProjectsService } from '../projects/projects.service';
 import { ProjectCostingService } from '../project-costing/project-costing.service';
+import { RevenueItemsService } from '../revenue-items/revenue-items.service';
 import { S3Service } from '../common/services/s3.service';
 import { OperatorAuthService } from './operator-auth.service';
 import { OperatorContext, PendingAction } from './operator.types';
@@ -62,6 +63,7 @@ export class OperatorToolsService {
     private readonly inventories: InventoriesService,
     private readonly projects: ProjectsService,
     private readonly costing: ProjectCostingService,
+    private readonly revenueItems: RevenueItemsService,
     private readonly s3: S3Service,
     private readonly auth: OperatorAuthService,
   ) {}
@@ -876,6 +878,72 @@ export class OperatorToolsService {
             createdAt: new Date().toISOString(),
           };
           return { result: { needsConfirmation: true, project: proj.name, changes: plan.lines, summary: plan.summary }, pending };
+        },
+      },
+
+      {
+        name: 'import_price_list',
+        description:
+          "Import a CONTRACTOR/SUPPLIER PRICE LIST the user just uploaded (PDF or photo) into the Work Library as reusable work items with unit COSTS. Use when the user says an uploaded file is a price list / rate card / to be added to the work library — NOT for supplier invoices (those are add_project_cost). Parses the file and shows a preview; the user must confirm before anything is created.",
+        permissions: ['accounting:update'],
+        input_schema: {
+          type: 'object',
+          properties: { supplierName: { type: 'string', description: "The contractor's name, if the user said it (else auto-detected)" } },
+        },
+        run: async (ctx, args) => {
+          // The file comes from this turn's upload, or the one stashed when the
+          // upload didn't look like an invoice.
+          let up = ctx.upload || null;
+          if (!up?.attachmentKey) {
+            const sess: any = await this.prisma.operatorSession.findFirst({
+              where: { channel: ctx.channel, channelUserId: ctx.channelUserId },
+              orderBy: { updatedAt: 'desc' },
+            });
+            up = sess?.state?.pendingUpload || null;
+          }
+          if (!up?.attachmentKey) return { result: { error: 'Send me the price list first (PDF or photo), then ask me to add it to the work library.' } };
+          const buffer = await this.s3.downloadFile(up.attachmentKey);
+          const ext = String(up.attachmentKey).split('.').pop()?.toLowerCase() || 'pdf';
+          const mime = ext === 'pdf' ? 'application/pdf' : ext === 'png' ? 'image/png' : 'image/jpeg';
+          const parsed = await this.revenueItems.importPricelist(ctx.organizationId, {
+            file: `data:${mime};base64,${buffer.toString('base64')}`,
+            filename: up.filename,
+            supplierName: args.supplierName || undefined,
+          });
+          // Supplier already in the library → this is an UPDATE: existing
+          // items get the new costs in place instead of being duplicated.
+          const isUpdate = !!parsed.existing?.count;
+          const pending: PendingAction = {
+            kind: 'import_price_list',
+            summary: isUpdate
+              ? `Update ${parsed.supplierName}'s price list in the Work Library (${parsed.existing.priceChanges.length} price change(s), ${parsed.existing.added} new item(s))`
+              : `Add ${parsed.items.length} work item(s) from ${parsed.supplierName || 'the price list'} to the Work Library`,
+            args: { supplierName: parsed.supplierName, items: parsed.items, mode: isUpdate ? 'update' : 'add' },
+            createdAt: new Date().toISOString(),
+          };
+          return {
+            result: {
+              needsConfirmation: true,
+              supplierName: parsed.supplierName,
+              trade: parsed.trade,
+              itemCount: parsed.items.length,
+              ...(isUpdate
+                ? {
+                    existing: {
+                      note: `${parsed.supplierName} already has ${parsed.existing.count} item(s) in the library — confirming UPDATES them in place (no duplicates).`,
+                      priceChanges: parsed.existing.priceChanges.slice(0, 8).map((c: any) => `${c.name}: $${c.from ?? '—'} → $${c.to}`),
+                      newItems: parsed.existing.added,
+                      unchanged: parsed.existing.unchanged,
+                      noLongerListed: parsed.existing.missingCount,
+                    },
+                  }
+                : {}),
+              sample: parsed.items.slice(0, 8).map((i: any) => `${i.name} — $${i.unitCost}/${i.uom} (${i.section})`),
+              conditions: parsed.conditions,
+              note: 'Prices land as unit COSTS; selling prices are set later in the Work Library or per quotation.',
+            },
+            pending,
+          };
         },
       },
 
@@ -1775,6 +1843,16 @@ export class OperatorToolsService {
       const res = await this.costing.scheduleAssistApply(a.projectId, ctx.organizationId, a.ops || []);
       const lines: string[] = Array.isArray(a.lines) ? a.lines : [];
       return { ok: true, message: `🗓 Schedule of ${a.projectName} updated (${res.applied} change${res.applied === 1 ? '' : 's'}):\n${lines.map((l) => `• ${l}`).join('\n')}` };
+    }
+
+    if (pending.kind === 'import_price_list') {
+      const a = pending.args || {};
+      const res = await this.revenueItems.importPricelistApply(ctx.organizationId, { supplierName: a.supplierName || null, mode: a.mode || 'add', items: a.items || [] });
+      const parts = [res.updated ? `${res.updated} updated` : null, res.created ? `${res.created} added` : null].filter(Boolean).join(', ');
+      return {
+        ok: true,
+        message: `📚 ${a.supplierName || 'Price list'} → Work Library: ${parts || 'no changes'}${res.newSections.length ? ` (new sections: ${res.newSections.join(', ')})` : ''}. Review in Master Files → Work Library.`,
+      };
     }
 
     if (pending.kind === 'add_project_cost') {

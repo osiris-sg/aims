@@ -48,11 +48,12 @@ const VERB_ACTIONS: Record<string, string> = {
   'auto-match': 'MATCH', match: 'MATCH', unmatch: 'UNMATCH', ignore: 'IGNORE',
   'log-edit-unlock': 'UNLOCK',
   // Schedule assistant (CIEL): POST .../schedule/assist parses only (no writes);
-  // .../schedule/assist/apply performs the approved changes.
-  assist: 'VIEW', apply: 'UPDATE',
+  // .../schedule/assist/apply performs the approved changes. Same shape for
+  // the Work Library price-list import (parse → apply).
+  assist: 'VIEW', apply: 'UPDATE', 'import-pricelist': 'VIEW',
   // Project quest steps (CIEL): POST quest/:stepId/complete|skip|reset
   complete: 'COMPLETE', skip: 'SKIP', reset: 'UPDATE', replay: 'RUN',
-  'bulk-download': 'EXPORT', 'meter-reading': 'UPDATE',
+  'bulk-download': 'EXPORT', pdf: 'EXPORT', generate: 'CREATE', 'meter-reading': 'UPDATE',
   // Document attachments: POST :id/attachments = ATTACH, :id/attachments/remove = DETACH
   // (the trailing segment wins, so "remove" must map before generic fallbacks).
   attachments: 'ATTACH', remove: 'DETACH',

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { RevenueItemsModule } from '../revenue-items/revenue-items.module';
 import { PrismaService } from '../common/prisma.service';
 import { CommonModule } from '../common/common.module';
 import { CustomersModule } from '../customers/customers.module';
@@ -43,6 +44,7 @@ import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
     InventoriesModule,
     ProjectsModule,
     ProjectCostingModule,
+    RevenueItemsModule,
   ],
   controllers: [OperatorController],
   providers: [OperatorService, OperatorAuthService, OperatorToolsService, TelegramAdapter, WhatsAppAdapter, PrismaService],

@@ -116,6 +116,8 @@ export interface WorkItem {
   workSection?: { id: string; letter: string | null; title: string } | null;
   accountCode: string;
   isActive: boolean;
+  // Which contractor's price list the unitCost came from (price-list import).
+  supplierName?: string | null;
 }
 
 export interface QuoteDocument {

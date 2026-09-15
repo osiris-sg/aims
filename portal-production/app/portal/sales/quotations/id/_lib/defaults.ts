@@ -30,7 +30,7 @@ export const DEFAULT_CLAUSES: string[] = [
   "Life time warranty will only be issued upon full collection of all outstanding payment from the client/s.",
 ];
 
-export const UOM_OPTIONS = ["nos", "sqft", "ft", "trip", "lot", "set", "pcs", "unit"];
+export const UOM_OPTIONS = ["nos", "sqft", "ft", "pfr", "trip", "lot", "set", "pcs", "unit"];
 
 export const AREA_SUGGESTIONS = [
   "General",

@@ -99,7 +99,8 @@ export interface PendingAction {
     | 'post_bill'
     | 'email_document'
     | 'add_project_cost'
-    | 'edit_schedule';
+    | 'edit_schedule'
+    | 'import_price_list';
   documentId?: string;
   documentType?: string;
   summary: string;

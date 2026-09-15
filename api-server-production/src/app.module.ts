@@ -26,6 +26,7 @@ import { LeadsModule } from './leads/leads.module';
 import { CustomerInfoModule } from './customer-info/customer-info.module';
 import { PublicApiModule } from './public-api/public-api.module';
 import { DocumentsModule } from './documents/documents.module';
+import { SowModule } from './sow/sow.module';
 import { TimelineItemsModule } from './timeline-items/timeline-items.module';
 import { RolesModule } from './roles/roles.module';
 import { PermissionsModule } from './permissions/permissions.module';
@@ -93,6 +94,7 @@ import { ActionLogInterceptor } from './action-log/action-log.interceptor';
     DocumentTemplatesModule,
     UploadsModule,
     DocumentsModule,
+    SowModule,
     TimelineItemsModule,
     RolesModule,
     PermissionsModule,

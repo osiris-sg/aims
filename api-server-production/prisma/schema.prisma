@@ -668,6 +668,7 @@ model RevenueItem {
   unitCost            Float? // default cost per uom (what the subcontractor charges)
   uom                 String? // sqft | ft | nos | trip | lot
   pricingMode         String   @default("priced") // priced | inclusive | complimentary
+  supplierName        String? // which contractor's price list the unitCost came from
 
   @@index([organizationId, isActive])
   @@index([organizationId, type])
