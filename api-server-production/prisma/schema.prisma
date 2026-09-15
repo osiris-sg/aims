@@ -859,6 +859,20 @@ model ProjectQuestStep {
   @@index([organizationId, projectId])
 }
 
+// Per-contractor supplier rebate override (CIEL 09-16, management-only): the
+// org-wide % this supplier rebates on invoiced costs. Overrides the 10%
+// default; a project's own rebatePct overrides both for that project.
+model SupplierRebate {
+  id             String   @id @default(uuid())
+  organizationId String
+  supplierName   String // normalized (lowercased, collapsed spaces)
+  pct            Float
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, supplierName])
+}
+
 // One 9am "send a BEFORE video + photo" WhatsApp request to the designer of a
 // scheduled activity (CIEL 09-14). While the request is open, any photo/video
 // the designer sends back on that line attaches to the linked quest step.
@@ -1160,6 +1174,11 @@ model Project {
   deliveries       Delivery[]
   contacts         ProjectContact[]
   designerUserId   String? // Clerk user id of the designer in charge (drives WhatsApp routing)
+  // Management-only supplier rebate override for THIS project (CIEL 09-16):
+  // suppliers quietly rebate ~10% of invoiced costs back to the firm; costs
+  // stay booked at full value (designer commission unaffected), the rebate is
+  // company profit visible to management only. null → per-supplier % → 10.
+  rebatePct        Float?
   source           String? // where the project came from: lead | referral | self (CIEL 09-01)
   leadId           String? @db.Uuid // the Lead this project was converted from
   costs            ProjectCost[]

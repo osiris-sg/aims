@@ -43,6 +43,7 @@ import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import type { FilterField } from "@/components/FilterDrawer";
 import { useOrganization } from "@hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useIdQuoteApi } from "@/app/portal/sales/quotations/id/_lib/api";
 
 type Lead = {
@@ -213,6 +214,11 @@ export default function LeadsPage() {
   const api = useIdQuoteApi();
   const { organization } = useOrganization();
   const { isIdQuotationEnabled, isLoading: flagsLoading } = useOrganizationFeatures();
+  // A user whose ONLY role is Designer works the funnel read-mostly: status
+  // changes on their own leads, no assigning/editing/deleting (backend
+  // enforces the same in leads.service update/remove).
+  const { userRoles } = useUserPermissions();
+  const designerOnly = userRoles.length > 0 && userRoles.every((r: any) => r?.name === "Designer");
   const [rows, setRows] = useState<Lead[]>([]);
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState<any>(null);
@@ -437,16 +443,21 @@ export default function LeadsPage() {
           const l: Lead = row.original;
           return (
             <Box onClick={(e) => e.stopPropagation()}>
-              <Autocomplete
-                size="small"
-                options={designers}
-                getOptionLabel={(o: any) => o.name}
-                value={designers.find((d) => d.id === l.assignedToUserId) || (l.assignedToName ? ({ id: "", name: l.assignedToName } as any) : null)}
-                isOptionEqualToValue={(a: any, b: any) => a?.id === b?.id}
-                onChange={(_, v: any) => patch(l.id, { assignedToUserId: v?.id || null, assignedToName: v?.name || null, status: v && l.status === "unqualified" ? "engaging" : undefined })}
-                renderInput={(p) => <TextField {...p} placeholder="Assign" variant="standard" InputProps={{ ...p.InputProps, disableUnderline: true, sx: { fontSize: 13 } }} />}
-                sx={{ minWidth: 140 }}
-              />
+              {designerOnly ? (
+                // Designers can't re-assign — the name is read-only for them.
+                <Typography variant="body2" sx={{ color: l.assignedToName ? "text.primary" : "text.disabled" }}>{l.assignedToName || "—"}</Typography>
+              ) : (
+                <Autocomplete
+                  size="small"
+                  options={designers}
+                  getOptionLabel={(o: any) => o.name}
+                  value={designers.find((d) => d.id === l.assignedToUserId) || (l.assignedToName ? ({ id: "", name: l.assignedToName } as any) : null)}
+                  isOptionEqualToValue={(a: any, b: any) => a?.id === b?.id}
+                  onChange={(_, v: any) => patch(l.id, { assignedToUserId: v?.id || null, assignedToName: v?.name || null, status: v && l.status === "unqualified" ? "engaging" : undefined })}
+                  renderInput={(p) => <TextField {...p} placeholder="Assign" variant="standard" InputProps={{ ...p.InputProps, disableUnderline: true, sx: { fontSize: 13 } }} />}
+                  sx={{ minWidth: 140 }}
+                />
+              )}
             </Box>
           );
         },
@@ -498,11 +509,17 @@ export default function LeadsPage() {
           : l.quotationId
           ? [{ label: "Open quotation", onClick: () => router.push(`/portal/sales/quotations/id/${l.quotationId}`) }]
           : [{ label: "Create project", disabled: busy, onClick: () => convertLeadToProject(l) }]),
-        { label: "Edit", onClick: () => openEdit(l) },
-        { label: "Delete", destructive: true, onClick: () => setToDelete(l) },
+        // Designers work the funnel only: no editing the captured details, no
+        // deleting — status (and its dead-proof/convert flows) is theirs.
+        ...(designerOnly
+          ? []
+          : [
+              { label: "Edit", onClick: () => openEdit(l) },
+              { label: "Delete", destructive: true, onClick: () => setToDelete(l) },
+            ]),
       ]),
     ],
-    [designers, busy, router],
+    [designers, busy, router, designerOnly],
   );
 
   const filterConfig: FilterField[] = useMemo(

@@ -159,6 +159,32 @@ export class ProjectCostingController {
     return this.service.removeCost(costId, orgId(req));
   }
 
+  // Supplier rebates — MANAGEMENT ONLY (designer-only callers get 404; the
+  // service enforces it, so api_get/WhatsApp go through the same gate).
+  @Get(':id/rebate')
+  @Permissions('projects:read')
+  rebate(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    return this.service.projectRebate(id, orgId(req), req.user?.id);
+  }
+
+  @Patch(':id/rebate')
+  @Permissions('projects:update')
+  setRebate(@Param('id') id: string, @Body() body: { pct: number | null }, @Req() req: RequestWithOrganization) {
+    return this.service.setProjectRebate(id, orgId(req), body?.pct ?? null, req.user?.id);
+  }
+
+  @Patch('rebates/supplier')
+  @Permissions('projects:update')
+  setSupplierRebate(@Body() body: { supplierName: string; pct: number | null }, @Req() req: RequestWithOrganization) {
+    return this.service.setSupplierRebate(orgId(req), body?.supplierName || '', body?.pct ?? null, req.user?.id);
+  }
+
+  @Get('rebates/overview')
+  @Permissions('projects:read')
+  rebateOverview(@Req() req: RequestWithOrganization) {
+    return this.service.rebateOverview(orgId(req), req.user?.id);
+  }
+
   // schedule (weekly calendar)
   @Get(':id/schedule')
   @Permissions('projects:read')

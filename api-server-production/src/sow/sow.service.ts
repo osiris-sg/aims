@@ -305,7 +305,7 @@ One scope section per selected module (merge closely-related modules if that rea
 
   async pdf(d: SowData): Promise<{ filename: string; base64: string }> {
     const html = this.renderHtml(d);
-    const buf = await this.pdfGen.generatePdfFromHtml(html);
+    const buf = await this.pdfGen.generatePdfFromHtml(html, { margin: { top: '18mm', right: '18mm', bottom: '18mm', left: '18mm' } });
     return { filename: `AIMS SOW - ${d.customerName}.pdf`, base64: buf.toString('base64') };
   }
 

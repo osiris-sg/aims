@@ -614,6 +614,139 @@ export class ProjectCostingService {
     return { shifted: rows.length };
   }
 
+  // ── supplier rebates (guru 2026-09-16, MANAGEMENT-ONLY) ─────────────────
+  // Suppliers quietly rebate ~10% of invoiced costs back to the firm. Costs
+  // stay booked at FULL value everywhere (designer commission is computed on
+  // full costs and designers never see any of this); the rebate is company
+  // profit shown only to management. Resolution per cost row:
+  // project.rebatePct ?? SupplierRebate[supplier].pct ?? 10.
+  private static readonly DEFAULT_REBATE_PCT = 10;
+  private normSupplier(s: string | null | undefined) {
+    return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  }
+
+  private async assertManagement(organizationId: string, callerUserId?: string | null) {
+    if (!callerUserId) return; // internal/cron callers
+    const roles = await this.prisma.userRole.findMany({
+      where: { userId: callerUserId, organizationId, isActive: true },
+      select: { role: { select: { name: true } } },
+    });
+    const names = roles.map((r) => r.role.name);
+    if (names.length > 0 && names.every((n) => n === 'Designer')) throw new NotFoundException();
+  }
+
+  /** Per-project rebate view: resolved % and rebate per supplier + totals. */
+  async projectRebate(projectId: string, organizationId: string, callerUserId?: string) {
+    await this.assertManagement(organizationId, callerUserId);
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, organizationId },
+      select: { id: true, name: true, rebatePct: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    const costs = await this.prisma.projectCost.findMany({
+      where: { projectId, organizationId, status: 'approved' },
+      select: { supplierName: true, amount: true },
+    });
+    const overrides = await this.prisma.supplierRebate.findMany({ where: { organizationId } });
+    const byName = new Map(overrides.map((o) => [o.supplierName, o.pct]));
+    const rows = new Map<string, { supplierName: string; totalCost: number; pct: number; source: string }>();
+    for (const c of costs) {
+      const key = this.normSupplier(c.supplierName) || '(no supplier)';
+      let row = rows.get(key);
+      if (!row) {
+        const supplierPct = byName.get(key);
+        const pct = project.rebatePct ?? supplierPct ?? ProjectCostingService.DEFAULT_REBATE_PCT;
+        const source = project.rebatePct != null ? 'project' : supplierPct != null ? 'supplier' : 'default';
+        row = { supplierName: c.supplierName || '(no supplier)', totalCost: 0, pct, source };
+        rows.set(key, row);
+      }
+      row.totalCost += c.amount;
+    }
+    const suppliers = [...rows.values()]
+      .map((r) => ({ ...r, totalCost: ROUND2(r.totalCost), rebate: ROUND2((r.totalCost * r.pct) / 100) }))
+      .sort((a, b) => b.totalCost - a.totalCost);
+    const totalCost = ROUND2(suppliers.reduce((s, r) => s + r.totalCost, 0));
+    const totalRebate = ROUND2(suppliers.reduce((s, r) => s + r.rebate, 0));
+    return {
+      projectId: project.id,
+      projectRebatePct: project.rebatePct,
+      defaultPct: ProjectCostingService.DEFAULT_REBATE_PCT,
+      suppliers,
+      totalCost,
+      totalRebate,
+    };
+  }
+
+  async setProjectRebate(projectId: string, organizationId: string, pct: number | null, callerUserId?: string) {
+    await this.assertManagement(organizationId, callerUserId);
+    await this.project(projectId, organizationId);
+    const clean = pct == null || pct === ('' as any) ? null : Math.max(0, Math.min(100, Number(pct)));
+    if (clean != null && !Number.isFinite(clean)) throw new BadRequestException('Rebate % must be a number');
+    await this.prisma.project.update({ where: { id: projectId }, data: { rebatePct: clean } });
+    return this.projectRebate(projectId, organizationId, callerUserId);
+  }
+
+  /** Org-wide per-contractor override — null pct removes the override. */
+  async setSupplierRebate(organizationId: string, supplierName: string, pct: number | null, callerUserId?: string) {
+    await this.assertManagement(organizationId, callerUserId);
+    const key = this.normSupplier(supplierName);
+    if (!key) throw new BadRequestException('Supplier name is required');
+    if (pct == null) {
+      await this.prisma.supplierRebate.deleteMany({ where: { organizationId, supplierName: key } });
+      return { supplierName: key, pct: null };
+    }
+    const clean = Math.max(0, Math.min(100, Number(pct)));
+    if (!Number.isFinite(clean)) throw new BadRequestException('Rebate % must be a number');
+    await this.prisma.supplierRebate.upsert({
+      where: { organizationId_supplierName: { organizationId, supplierName: key } },
+      update: { pct: clean },
+      create: { organizationId, supplierName: key, pct: clean },
+    });
+    return { supplierName: key, pct: clean };
+  }
+
+  /** Dashboard overview: rebate totals across every project (management only). */
+  async rebateOverview(organizationId: string, callerUserId?: string) {
+    await this.assertManagement(organizationId, callerUserId);
+    const projects = await this.prisma.project.findMany({
+      where: { organizationId },
+      select: { id: true, name: true, status: true, rebatePct: true },
+    });
+    const costs = await this.prisma.projectCost.findMany({
+      where: { organizationId, status: 'approved', projectId: { in: projects.map((p) => p.id) } },
+      select: { projectId: true, supplierName: true, amount: true },
+    });
+    const overrides = await this.prisma.supplierRebate.findMany({ where: { organizationId } });
+    const byName = new Map(overrides.map((o) => [o.supplierName, o.pct]));
+    const projById = new Map(projects.map((p) => [p.id, p]));
+    const byProject = new Map<string, { projectId: string; name: string; status: string; rebate: number; cost: number }>();
+    const bySupplier = new Map<string, { supplierName: string; rebate: number; cost: number }>();
+    for (const c of costs) {
+      const pj = projById.get(c.projectId)!;
+      const key = this.normSupplier(c.supplierName) || '(no supplier)';
+      const pct = pj.rebatePct ?? byName.get(key) ?? ProjectCostingService.DEFAULT_REBATE_PCT;
+      const rebate = (c.amount * pct) / 100;
+      const pr = byProject.get(c.projectId) || { projectId: c.projectId, name: pj.name, status: pj.status, rebate: 0, cost: 0 };
+      pr.rebate += rebate;
+      pr.cost += c.amount;
+      byProject.set(c.projectId, pr);
+      const sr = bySupplier.get(key) || { supplierName: c.supplierName || '(no supplier)', rebate: 0, cost: 0 };
+      sr.rebate += rebate;
+      sr.cost += c.amount;
+      bySupplier.set(key, sr);
+    }
+    const projectsOut = [...byProject.values()].map((r) => ({ ...r, rebate: ROUND2(r.rebate), cost: ROUND2(r.cost) })).sort((a, b) => b.rebate - a.rebate);
+    const suppliersOut = [...bySupplier.values()].map((r) => ({ ...r, rebate: ROUND2(r.rebate), cost: ROUND2(r.cost) })).sort((a, b) => b.rebate - a.rebate);
+    return {
+      defaultPct: ProjectCostingService.DEFAULT_REBATE_PCT,
+      totalRebate: ROUND2(projectsOut.reduce((s, r) => s + r.rebate, 0)),
+      ongoingRebate: ROUND2(projectsOut.filter((r) => r.status !== 'completed').reduce((s, r) => s + r.rebate, 0)),
+      completedRebate: ROUND2(projectsOut.filter((r) => r.status === 'completed').reduce((s, r) => s + r.rebate, 0)),
+      byProject: projectsOut.slice(0, 30),
+      bySupplier: suppliersOut.slice(0, 20),
+    };
+  }
+
   // ── natural-language schedule editing (guru 2026-09-14) ────────────────
   // The Schedule tab's voice/typed assistant: the user says "add painting 20
   // to 22 Sept" or "push everything back 2 days" (dictated via the browser's

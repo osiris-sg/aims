@@ -110,6 +110,136 @@ const Cell = ({ children, right, sx, colSpan }: { children?: React.ReactNode; ri
   <TableCell colSpan={colSpan} sx={{ py: 0.75, whiteSpace: "nowrap", textAlign: right ? "right" : "left", fontVariantNumeric: "tabular-nums", ...sx }}>{children}</TableCell>
 );
 
+/** Supplier rebates — MANAGEMENT ONLY. Suppliers rebate ~10% of invoiced
+ *  costs back to the firm; costs stay booked at full value (designer
+ *  commission unaffected) and this extra profit is only visible here. The
+ *  API 404s for designer-only users, so the panel silently doesn't render. */
+function RebatePanel({ projectId, baseProfit }: { projectId: string; baseProfit: number | null }) {
+  const api = useIdProjectApi();
+  const [data, setData] = useState<any>(null);
+  const [hidden, setHidden] = useState(false);
+  const [pctDraft, setPctDraft] = useState("");
+  const [rowDrafts, setRowDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.request<any>(`/projects/${projectId}/rebate`);
+      setData(r);
+      setPctDraft(r.projectRebatePct == null ? "" : String(r.projectRebatePct));
+      setRowDrafts({});
+    } catch {
+      setHidden(true); // designer-only (404) or older server — just hide
+    }
+  }, [api, projectId]);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (hidden || !data) return null;
+
+  const saveProjectPct = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await api.request<any>(`/projects/${projectId}/rebate`, { method: "PATCH", body: JSON.stringify({ pct: pctDraft === "" ? null : Number(pctDraft) }) });
+      setData(r);
+      setPctDraft(r.projectRebatePct == null ? "" : String(r.projectRebatePct));
+      toast.success(r.projectRebatePct == null ? "Project rebate override cleared" : `Project rebate set to ${r.projectRebatePct}%`);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to save");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const saveSupplierPct = async (supplierName: string, raw: string, current: number) => {
+    const v = raw === "" ? null : Number(raw);
+    if (v === current || (v == null && raw === String(current))) return;
+    try {
+      await api.request(`/projects/rebates/supplier`, { method: "PATCH", body: JSON.stringify({ supplierName, pct: v }) });
+      toast.success(v == null ? `${supplierName}: override removed` : `${supplierName}: ${v}% (applies org-wide)`);
+      load();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to save");
+    }
+  };
+
+  const trueProfit = baseProfit != null ? baseProfit + data.totalRebate : null;
+  return (
+    <Box sx={{ mt: 3 }} data-tour="project-rebates">
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1, flexWrap: "wrap", rowGap: 1 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+          Supplier rebates
+        </Typography>
+        <Chip size="small" color="warning" variant="outlined" label="management only" sx={{ height: 20 }} />
+        <Box sx={{ flex: 1 }} />
+        <Tooltip title={`Overrides every supplier's % for THIS project. Blank = per-supplier overrides, else the ${data.defaultPct}% default.`}>
+          <TextField
+            size="small"
+            label="Project rebate %"
+            value={pctDraft}
+            onChange={(e) => setPctDraft(e.target.value)}
+            onBlur={saveProjectPct}
+            onKeyDown={(e) => e.key === "Enter" && saveProjectPct()}
+            type="number"
+            placeholder={`default ${data.defaultPct}`}
+            sx={{ width: 150 }}
+            inputProps={{ step: "0.5", min: 0, max: 100 }}
+          />
+        </Tooltip>
+      </Stack>
+      <Box sx={{ overflowX: "auto", width: "100%" }}>
+        <Table size="small" sx={{ minWidth: 560 }}>
+          <TableHead>
+            <TableRow>
+              <Cell>Supplier</Cell>
+              <Cell right>Approved cost</Cell>
+              <Cell right>Rebate %</Cell>
+              <Cell right>Rebate</Cell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {data.suppliers.map((r: any) => (
+              <TableRow key={r.supplierName}>
+                <Cell sx={{ whiteSpace: "normal" }}>{r.supplierName}</Cell>
+                <Cell right>{money(r.totalCost)}</Cell>
+                <Cell right>
+                  <Tooltip title={data.projectRebatePct != null ? "Project override is active — clear it to edit per supplier" : "Changing this saves the supplier's % ORG-WIDE (all projects)"}>
+                    <TextField
+                      size="small"
+                      variant="standard"
+                      type="number"
+                      disabled={data.projectRebatePct != null}
+                      value={rowDrafts[r.supplierName] ?? String(r.pct)}
+                      onChange={(e) => setRowDrafts((d) => ({ ...d, [r.supplierName]: e.target.value }))}
+                      onBlur={(e) => saveSupplierPct(r.supplierName, e.target.value, r.pct)}
+                      inputProps={{ step: "0.5", min: 0, max: 100, style: { textAlign: "right", width: 52 } }}
+                    />
+                  </Tooltip>
+                  {r.source !== "default" && <Chip size="small" variant="outlined" label={r.source} sx={{ ml: 0.5, height: 16, "& .MuiChip-label": { px: 0.5, fontSize: 9 } }} />}
+                </Cell>
+                <Cell right sx={{ fontWeight: 600, color: "success.main" }}>{money(r.rebate)}</Cell>
+              </TableRow>
+            ))}
+            <TableRow>
+              <Cell sx={{ fontWeight: 800 }}>Total rebate</Cell>
+              <Cell right sx={{ fontWeight: 700 }}>{money(data.totalCost)}</Cell>
+              <TableCell />
+              <Cell right sx={{ fontWeight: 800, color: "success.main" }}>{money(data.totalRebate)}</Cell>
+            </TableRow>
+            {trueProfit != null && (
+              <TableRow>
+                <Cell colSpan={3} sx={{ color: "text.secondary" }}>Profit incl. rebate (P&L profit {money(baseProfit!)} + rebate)</Cell>
+                <Cell right sx={{ fontWeight: 800 }}>{money(trueProfit)}</Cell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Box>
+    </Box>
+  );
+}
+
 export default function IdProjectPage({ id }: { id: string }) {
   const router = useRouter();
   const api = useIdProjectApi();
@@ -449,6 +579,8 @@ export default function IdProjectPage({ id }: { id: string }) {
                 </Box>
               </Box>
             )}
+
+            <RebatePanel projectId={id} baseProfit={data.totals?.profit ?? null} />
           </Box>
         )}
 

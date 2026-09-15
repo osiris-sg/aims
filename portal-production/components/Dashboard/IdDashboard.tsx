@@ -178,6 +178,7 @@ export default function IdDashboard() {
   const router = useRouter();
   const { getToken } = useAuth();
   const [data, setData] = useState<Payload | null>(null);
+  const [rebates, setRebates] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -189,7 +190,19 @@ export default function IdDashboard() {
       const res = await fetch(`${apiBase}/id-projects/dashboard`, { headers });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.message?.message || json?.message || "Failed to load dashboard");
-      setData(json?.data ?? json);
+      const payload = json?.data ?? json;
+      setData(payload);
+      // Supplier rebates — management only; designers (and older servers) 404
+      // and the card simply doesn't render.
+      if (payload?.scope === "all") {
+        fetch(`${apiBase}/projects/rebates/overview`, { headers })
+          .then(async (r) => {
+            if (!r.ok) return;
+            const j = await r.json();
+            setRebates(j?.data ?? j);
+          })
+          .catch(() => null);
+      }
     } catch (e: any) {
       setError(e.message || "Failed to load dashboard");
     }
@@ -353,6 +366,49 @@ export default function IdDashboard() {
               </Box>
             ))}
           </Stack>
+        </Paper>
+      )}
+
+      {/* Supplier rebates (management only — designers never get this data) */}
+      {!self && rebates && rebates.totalRebate > 0 && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, mb: 2.5, overflow: "hidden" }} data-tour="dash-rebates">
+          <Stack direction="row" alignItems="baseline" spacing={1} sx={{ px: 2, pt: 1.5, pb: 0.5 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              Supplier rebates
+            </Typography>
+            <Chip size="small" color="warning" variant="outlined" label="management only" sx={{ height: 20 }} />
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              costs stay at full value — this profit sits outside designer commissions · default {rebates.defaultPct}%
+            </Typography>
+          </Stack>
+          <Grid container spacing={1.5} sx={{ px: 2, pb: 1.5 }}>
+            <Grid item xs={12} md={4}>
+              <Stack spacing={0.25}>
+                <Typography variant="h5" sx={{ fontWeight: 800, color: "success.main", fontVariantNumeric: "tabular-nums" }}>{money(rebates.totalRebate)}</Typography>
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                  total rebate · {money(rebates.ongoingRebate)} on ongoing · {money(rebates.completedRebate)} on completed
+                </Typography>
+              </Stack>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 700, display: "block", mb: 0.25 }}>Top projects</Typography>
+              {rebates.byProject.slice(0, 4).map((p: any) => (
+                <Stack key={p.projectId} direction="row" justifyContent="space-between" sx={{ cursor: "pointer" }} onClick={() => router.push(`/portal/projects/${p.projectId}`)}>
+                  <Typography variant="caption" noWrap sx={{ maxWidth: 220 }}>{p.name}</Typography>
+                  <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums", color: "success.main" }}>{money(p.rebate)}</Typography>
+                </Stack>
+              ))}
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 700, display: "block", mb: 0.25 }}>Top contractors</Typography>
+              {rebates.bySupplier.slice(0, 4).map((s: any) => (
+                <Stack key={s.supplierName} direction="row" justifyContent="space-between">
+                  <Typography variant="caption" noWrap sx={{ maxWidth: 220 }}>{s.supplierName}</Typography>
+                  <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums", color: "success.main" }}>{money(s.rebate)}</Typography>
+                </Stack>
+              ))}
+            </Grid>
+          </Grid>
         </Paper>
       )}
 

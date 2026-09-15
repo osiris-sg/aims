@@ -723,9 +723,21 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     return lead;
   }
 
-  async update(leadId: string, organizationId: string, dto: LeadDto) {
+  async update(leadId: string, organizationId: string, dto: LeadDto, callerUserId?: string) {
     const existing = await this.prisma.lead.findFirst({ where: { id: leadId, organizationId } });
     if (!existing) throw new NotFoundException('Lead not found');
+    // Designer-only users work the funnel, they don't administer it: they may
+    // move THEIR OWN leads through statuses (+ notes), nothing else — no
+    // re-assigning, no editing the lead's captured details (guru 2026-09-16).
+    if (callerUserId && (await this.isPureDesigner(organizationId, callerUserId))) {
+      if (existing.assignedToUserId !== callerUserId) throw new NotFoundException('Lead not found');
+      const allowed: LeadDto = {};
+      if (dto.status !== undefined) allowed.status = dto.status;
+      if (dto.notes !== undefined) allowed.notes = dto.notes;
+      if (dto.quotationId !== undefined) allowed.quotationId = dto.quotationId;
+      if (dto.projectId !== undefined) allowed.projectId = dto.projectId;
+      dto = allowed;
+    }
     if (dto.status && !LEAD_STATUSES.includes(dto.status as any)) throw new BadRequestException('Unknown status');
     // Dead needs evidence: a lead can only be marked dead once the no-reply
     // proof is on file (uploadDeadProof sets both together).
@@ -824,9 +836,12 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     return this.listAttachments(leadId, organizationId);
   }
 
-  async remove(leadId: string, organizationId: string) {
+  async remove(leadId: string, organizationId: string, callerUserId?: string) {
     const existing = await this.prisma.lead.findFirst({ where: { id: leadId, organizationId } });
     if (!existing) throw new NotFoundException('Lead not found');
+    if (callerUserId && (await this.isPureDesigner(organizationId, callerUserId))) {
+      throw new BadRequestException('Only management can delete leads');
+    }
     if (existing.attachmentKey) {
       try {
         await this.s3.deleteFile(existing.attachmentKey);

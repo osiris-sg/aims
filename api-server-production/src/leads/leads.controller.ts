@@ -80,7 +80,7 @@ export class LeadsController {
   @Patch(':id')
   @Permissions('documents:update')
   update(@Param('id') id: string, @Body() body: any, @Req() req: RequestWithOrganization) {
-    return this.service.update(id, orgId(req), body || {});
+    return this.service.update(id, orgId(req), body || {}, (req as any).user?.id);
   }
 
   // Mark dead WITH the mandatory no-reply proof (screenshot/PDF, base64).
@@ -93,6 +93,6 @@ export class LeadsController {
   @Delete(':id')
   @Permissions('documents:update')
   remove(@Param('id') id: string, @Req() req: RequestWithOrganization) {
-    return this.service.remove(id, orgId(req));
+    return this.service.remove(id, orgId(req), (req as any).user?.id);
   }
 }
