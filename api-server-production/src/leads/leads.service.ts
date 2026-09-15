@@ -22,12 +22,14 @@ type LeadDto = Partial<{
   name: string;
   email: string | null;
   phone: string | null;
+  whatsappPhone: string | null;
   phoneVerified: boolean;
   location: string | null;
   propertyType: string | null;
   propertyRooms: string | null;
   propertyStatus: string | null;
   keyCollection: string | null;
+  keyCollectionDate: string | null;
   moveIn: string | null;
   budget: string | null;
   areas: string | null;
@@ -61,6 +63,16 @@ const ATTACH_MAX_IMAGE = 10 * 1024 * 1024; // images + PDF
 const ATTACH_MAX_VIDEO = 100 * 1024 * 1024; // video
 const ATTACH_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'application/pdf': 'pdf', 'video/mp4': 'mp4', 'video/quicktime': 'mov' };
 
+/** Lenient date parse for lead fields ("2027-03-01", "01/03/2027" dd/mm) — null when unreadable. */
+function parseDateLoose(s: string | null | undefined): Date | null {
+  if (!s?.trim()) return null;
+  const t = s.trim();
+  const dm = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // dd/mm/yyyy (SG)
+  const iso = dm ? `${dm[3]}-${dm[2].padStart(2, '0')}-${dm[1].padStart(2, '0')}` : t;
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso + 'T00:00:00+08:00' : iso);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 /** Does this inbound email look like a lead (vs a bill/invoice)? */
 export function looksLikeLeadEmail(fromEmail: string, subject: string | undefined): boolean {
   const s = (subject || '').toLowerCase();
@@ -93,18 +105,38 @@ export class LeadsService {
     const name = grab('First Name') || grab('Name');
     if (!name) return null;
     const phoneRaw = grab('Phone No') || grab('Phone');
+    // "Phone No: 85118680 / WA 89582178 (verified)" — the line can carry TWO
+    // numbers (call + WhatsApp). Split on separators and file each by its
+    // label instead of mashing every digit into one 16-digit "number".
+    let phone: string | null = null;
+    let whatsappPhone: string | null = null;
+    if (phoneRaw) {
+      const parts = phoneRaw
+        .split(/[\/,;|]/)
+        .map((p) => ({ label: p, digits: p.replace(/\D/g, '') }))
+        .filter((p) => p.digits.length >= 8);
+      for (const p of parts) {
+        if (/\bwa\b|whatsapp/i.test(p.label) && !whatsappPhone) whatsappPhone = p.digits;
+        else if (!phone) phone = p.digits;
+        else if (!whatsappPhone) whatsappPhone = p.digits;
+      }
+      if (!phone && whatsappPhone) phone = whatsappPhone;
+      if (whatsappPhone === phone) whatsappPhone = null;
+    }
     // "Remarks for ID:" runs to the end of the message (multi-paragraph).
     const remarks = text.match(/Remarks for ID\s*:\s*([\s\S]+)$/i)?.[1]?.trim() || null;
     return {
       source: 'ezid',
       name,
       email: grab('Email'),
-      phone: phoneRaw ? phoneRaw.replace(/\D/g, '') : null,
+      phone,
+      whatsappPhone,
       phoneVerified: /verified/i.test(phoneRaw || ''),
       propertyType: grab('Property Type'),
       propertyRooms: grab('Property Rooms'),
       propertyStatus: grab('Property Status'),
       keyCollection: grab('Key Collection'),
+      keyCollectionDate: grab('Key Collection Date'),
       budget: grab('Renovation Budget'),
       remarks,
     };
@@ -223,12 +255,14 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         name: dto.name.trim(),
         email: dto.email ?? null,
         phone: dto.phone ?? null,
+        whatsappPhone: dto.whatsappPhone ?? null,
         phoneVerified: dto.phoneVerified ?? false,
         location: dto.location ?? null,
         propertyType: dto.propertyType ?? null,
         propertyRooms: dto.propertyRooms ?? null,
         propertyStatus: dto.propertyStatus ?? null,
         keyCollection: dto.keyCollection ?? null,
+        keyCollectionDate: parseDateLoose(dto.keyCollectionDate),
         moveIn: dto.moveIn ?? null,
         budget: dto.budget ?? null,
         areas: dto.areas ?? null,
@@ -291,6 +325,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         { name: { contains: s, mode: 'insensitive' } },
         { email: { contains: s, mode: 'insensitive' } },
         { phone: { contains: s.replace(/\D/g, '') || s } },
+        { whatsappPhone: { contains: s.replace(/\D/g, '') || s } },
         { location: { contains: s, mode: 'insensitive' } },
         { ref: { contains: s, mode: 'insensitive' } },
       ];
@@ -393,7 +428,8 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       const summary = [
         `🆕 New lead — ${lead.name}`,
         `Source: ${String(lead.source || 'manual').toUpperCase()}${lead.ref ? ` · ${lead.ref}` : ''}`,
-        lead.phone ? `Phone: ${lead.phone}` : null,
+        lead.phone ? `Phone: ${lead.phone}${lead.whatsappPhone && lead.whatsappPhone !== lead.phone ? ` · WA: ${lead.whatsappPhone}` : ''}` : null,
+        lead.keyCollectionDate ? `Key collection: ${new Date(lead.keyCollectionDate).toLocaleDateString('en-SG', { day: '2-digit', month: 'short', year: 'numeric' })}` : null,
         [lead.propertyType, lead.propertyRooms, lead.budget].filter(Boolean).join(' · ') || null,
         lead.location ? `Location: ${lead.location}` : null,
         lead.remarks ? `Remarks: ${String(lead.remarks).slice(0, 200)}` : null,
@@ -500,7 +536,15 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     const digits = String(phone || '').replace(/\D/g, '');
     if (!digits || digits.length < 8) return;
     const lead: any = await this.prisma.lead.findFirst({
-      where: { organizationId, phone: { in: [digits, digits.replace(/^65/, '')] }, status: { in: ['unqualified', 'engaging', 'converted'] }, firstContactedAt: null },
+      where: {
+        organizationId,
+        OR: [
+          { phone: { in: [digits, digits.replace(/^65/, '')] } },
+          { whatsappPhone: { in: [digits, digits.replace(/^65/, '')] } },
+        ],
+        status: { in: ['unqualified', 'engaging', 'converted'] },
+        firstContactedAt: null,
+      },
       orderBy: { receivedAt: 'desc' },
     });
     if (!lead) return;
@@ -543,15 +587,18 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     if (dnum) {
       const brief = [
         `📋 New lead assigned to you — ${lead.name}`,
-        lead.phone ? `Phone: ${lead.phone}` : null,
+        lead.phone ? `Phone: ${lead.phone}${(lead as any).whatsappPhone && (lead as any).whatsappPhone !== lead.phone ? ` · WA: ${(lead as any).whatsappPhone}` : ''}` : null,
         `Source: ${String(lead.source || 'manual').toUpperCase()}`,
         [lead.propertyType, lead.propertyRooms, lead.budget].filter(Boolean).join(' · ') || null,
+        (lead as any).keyCollectionDate ? `Key collection: ${new Date((lead as any).keyCollectionDate).toLocaleDateString('en-SG', { day: '2-digit', month: 'short', year: 'numeric' })}` : null,
         lead.remarks ? `Remarks: ${String(lead.remarks).slice(0, 200)}` : null,
         'Contact them within 24h · details in AIMS → Sales → Leads.',
       ]
         .filter(Boolean)
         .join('\n');
-      const leadNum = String(lead.phone || '').replace(/\D/g, '');
+      // The chat deep-link goes to the WhatsApp-verified number when the lead
+      // gave a separate one; the call number stays in the brief text.
+      const leadNum = String((lead as any).whatsappPhone || lead.phone || '').replace(/\D/g, '');
       if (leadNum) {
         // CTA button deep-links into a WhatsApp chat WITH THE LEAD, prefilled —
         // the designer texts from their own number in one tap.
@@ -603,6 +650,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         source: 'whatsapp',
         name: msg.name?.trim() || digits,
         phone: digits,
+        whatsappPhone: digits, // captured from a WhatsApp chat — it IS the WA number
         phoneVerified: true, // they messaged us from it
         remarks: msg.text?.trim()?.slice(0, 1000) || null,
         notes: line,
@@ -637,8 +685,9 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       where: { id: leadId },
       data: {
         ...Object.fromEntries(
-          ['source', 'ref', 'name', 'email', 'phone', 'location', 'propertyType', 'propertyRooms', 'propertyStatus', 'keyCollection', 'moveIn', 'budget', 'areas', 'designStyle', 'remarks', 'approachNotes', 'floorPlanUrl', 'status', 'assignedToUserId', 'assignedToName', 'quotationId', 'projectId', 'notes'].map((k) => [k, (dto as any)[k] !== undefined ? (dto as any)[k] : undefined]),
+          ['source', 'ref', 'name', 'email', 'phone', 'whatsappPhone', 'location', 'propertyType', 'propertyRooms', 'propertyStatus', 'keyCollection', 'moveIn', 'budget', 'areas', 'designStyle', 'remarks', 'approachNotes', 'floorPlanUrl', 'status', 'assignedToUserId', 'assignedToName', 'quotationId', 'projectId', 'notes'].map((k) => [k, (dto as any)[k] !== undefined ? (dto as any)[k] : undefined]),
         ),
+        keyCollectionDate: dto.keyCollectionDate !== undefined ? parseDateLoose(dto.keyCollectionDate) : undefined,
         assignedAt: assigningNow ? (dto.assignedToUserId ? new Date() : null) : undefined,
         deadAt: dto.status === 'dead' ? new Date() : undefined,
       },

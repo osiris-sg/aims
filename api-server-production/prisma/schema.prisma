@@ -746,12 +746,14 @@ model Lead {
   name                 String
   email                String?
   phone                String?
+  whatsappPhone        String? // WA number when it differs from the call number ("Phone No: 8511 8680 / WA 8958 2178")
   phoneVerified        Boolean   @default(false)
   location             String?
   propertyType         String? // HDB | Resale Private Condo | ...
   propertyRooms        String?
   propertyStatus       String? // New | Resale
   keyCollection        String?
+  keyCollectionDate    DateTime? // "Key Collection Date: 2027-03-01" on EZiD leads
   moveIn               String?
   budget               String?
   areas                String? // areas to renovate

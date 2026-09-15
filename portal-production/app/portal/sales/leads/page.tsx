@@ -51,12 +51,14 @@ type Lead = {
   name: string;
   email: string | null;
   phone: string | null;
+  whatsappPhone: string | null;
   phoneVerified: boolean;
   location: string | null;
   propertyType: string | null;
   propertyRooms: string | null;
   propertyStatus: string | null;
   keyCollection: string | null;
+  keyCollectionDate: string | null;
   moveIn: string | null;
   budget: string | null;
   areas: string | null;
@@ -301,7 +303,7 @@ export default function LeadsPage() {
                 {l.phoneVerified && <Chip size="small" label="verified" color="success" variant="outlined" sx={{ height: 16, "& .MuiChip-label": { px: 0.5, fontSize: 9 } }} />}
               </Stack>
               <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                {[l.phone, l.email].filter(Boolean).join(" · ") || "no contact"}
+                {[l.phone, l.whatsappPhone && l.whatsappPhone !== l.phone ? `WA ${l.whatsappPhone}` : null, l.email].filter(Boolean).join(" · ") || "no contact"}
               </Typography>
             </Box>
           );
@@ -405,10 +407,13 @@ export default function LeadsPage() {
         },
       },
       kebabColumn((l: Lead) => [
-        ...(l.phone
+        ...(l.whatsappPhone || l.phone
           ? [{
               label: "WhatsApp",
-              onClick: () => window.open(`https://wa.me/${l.phone!.startsWith("65") ? l.phone : `65${l.phone}`}`, "_blank", "noopener,noreferrer"),
+              onClick: () => {
+                const n = (l.whatsappPhone || l.phone)!;
+                window.open(`https://wa.me/${n.startsWith("65") ? n : `65${n}`}`, "_blank", "noopener,noreferrer");
+              },
             }]
           : []),
         { label: "Details", onClick: () => setDetail(l) },
@@ -497,11 +502,13 @@ export default function LeadsPage() {
               <Grid container spacing={1}>
                 {[
                   ["Phone", detail.phone ? `${detail.phone}${detail.phoneVerified ? " (verified)" : ""}` : null],
+                  ["WhatsApp", detail.whatsappPhone && detail.whatsappPhone !== detail.phone ? detail.whatsappPhone : null],
                   ["Email", detail.email],
                   ["Location", detail.location],
                   ["Property", [detail.propertyType, detail.propertyRooms, detail.propertyStatus].filter(Boolean).join(" · ")],
                   ["Budget", detail.budget],
                   ["Key collection", detail.keyCollection],
+                  ["Key collection date", detail.keyCollectionDate ? new Date(detail.keyCollectionDate).toLocaleDateString("en-SG", { day: "2-digit", month: "short", year: "numeric" }) : null],
                   ["Move-in", detail.moveIn],
                   ["Areas", detail.areas],
                   ["Design style", detail.designStyle],
@@ -553,8 +560,17 @@ export default function LeadsPage() {
                   Lead PDF
                 </Button>
               )}
-              {detail.phone && (
-                <Button size="small" variant="contained" color="success" startIcon={<WhatsAppIcon />} href={`https://wa.me/${detail.phone.startsWith("65") ? detail.phone : `65${detail.phone}`}`} target="_blank" rel="noreferrer" sx={{ textTransform: "none" }}>
+              {(detail.whatsappPhone || detail.phone) && (
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="success"
+                  startIcon={<WhatsAppIcon />}
+                  href={`https://wa.me/${(detail.whatsappPhone || detail.phone)!.startsWith("65") ? detail.whatsappPhone || detail.phone : `65${detail.whatsappPhone || detail.phone}`}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  sx={{ textTransform: "none" }}
+                >
                   WhatsApp
                 </Button>
               )}

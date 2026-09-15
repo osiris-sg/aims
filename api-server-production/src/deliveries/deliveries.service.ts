@@ -408,6 +408,10 @@ export class DeliveriesService {
     deliveryAddress: string;
     poNumber?: string;
     machineLocation?: string;
+    // Scheduled delivery date — stamped as the DO's document date so the
+    // printed DO never falls back to the editor's "today" default (guru
+    // 2026-09-15: DO202609-0048 printed 15/09 for a 05/09 delivery).
+    scheduledFor?: string | Date | null;
     customer: { id: string; name: string; customerCode: string | null; address: string | null; email: string | null; phone?: string | null; gstRegNo?: string | null } | null;
     // Frozen per-document Attention snapshot (name/phone/email). From the office
     // dialog when it sent one, else derived from the project's first contact.
@@ -428,6 +432,12 @@ export class DeliveriesService {
       return id ? { deliveryItemId: id } : {};
     };
     return {
+      // DO date = scheduled delivery date, stored YYYY-MM-DD in SGT. Deliberately
+      // NOT overwritten at completion: riders often ack days late (0048 was
+      // acked 13/09 for a 05/09 delivery), so the schedule is the truth.
+      ...(params.scheduledFor
+        ? { date: new Date(new Date(params.scheduledFor).getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10) }
+        : {}),
       items: items.flatMap((it, lineIdx) => {
         if (!it.assetId) {
           return [{ description: it.description?.trim() ?? '', quantity: it.quantity, unitPrice: 0, amount: 0, ...diFor(lineIdx, 0) }];
@@ -630,6 +640,7 @@ export class DeliveriesService {
         : null;
       const attention = await this.projectFirstContactAttention(dto.projectId, organizationId);
       const doConfig = this.buildScheduledDoConfig({
+        scheduledFor: dto.scheduledFor,
         items: dto.items,
         assetById,
         projectName: project.name,
@@ -865,6 +876,7 @@ export class DeliveriesService {
             })
           : null;
         const doConfig = this.buildScheduledDoConfig({
+          scheduledFor: dto.scheduledFor,
           items: dto.items ?? [],
           assetById,
           projectName: project?.name ?? '',
