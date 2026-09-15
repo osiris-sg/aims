@@ -346,11 +346,11 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     });
     const byStatus: Record<string, number> = {};
     for (const l of leads) byStatus[l.status] = (byStatus[l.status] || 0) + 1;
-    const perDesigner = new Map<string, { name: string; taken: number; signed: number; dead: number }>();
+    const perDesigner = new Map<string, { userId: string | null; name: string; taken: number; signed: number; dead: number }>();
     for (const l of leads) {
       if (!l.assignedToUserId && !l.assignedToName) continue;
       const key = l.assignedToUserId || l.assignedToName!;
-      const row = perDesigner.get(key) || { name: l.assignedToName || key, taken: 0, signed: 0, dead: 0 };
+      const row = perDesigner.get(key) || { userId: l.assignedToUserId || null, name: l.assignedToName || key, taken: 0, signed: 0, dead: 0 };
       row.taken += 1;
       if (l.status === 'converted') row.signed += 1;
       if (l.status === 'dead') row.dead += 1;

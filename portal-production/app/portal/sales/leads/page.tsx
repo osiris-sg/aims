@@ -242,7 +242,7 @@ export default function LeadsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const q = `page=${page}&limit=${limit}&search=${encodeURIComponent(search)}&status=${filters.status || ""}&source=${filters.source || ""}`;
+      const q = `page=${page}&limit=${limit}&search=${encodeURIComponent(search)}&status=${filters.status || ""}&source=${filters.source || ""}&assignedToUserId=${filters.assignedToUserId || ""}`;
       const [r, s] = await Promise.all([api.request<any>(`/leads?${q}`), api.request<any>(`/leads/stats`).catch(() => null)]);
       setRows(r?.docs || []);
       setTotal(r?.total || 0);
@@ -526,8 +526,9 @@ export default function LeadsPage() {
     () => [
       { type: "select", key: "status", label: "Status", options: [{ value: "", label: "All" }, ...STATUS_OPTIONS.map((s) => ({ value: s.value, label: s.label }))] },
       { type: "select", key: "source", label: "Source", options: [{ value: "", label: "All" }, ...SOURCE_OPTIONS] },
+      { type: "select", key: "assignedToUserId", label: "Designer", options: [{ value: "", label: "All" }, ...designers.map((d) => ({ value: d.id, label: d.name }))] },
     ],
-    [],
+    [designers],
   );
 
   if (!flagsLoading && !isIdQuotationEnabled) return <Alert severity="info" sx={{ m: 3 }}>Leads are available for interior-design organisations.</Alert>;
@@ -536,15 +537,39 @@ export default function LeadsPage() {
     <MainCard>
       {stats?.insights && stats.total > 0 && <LeadInsights stats={stats} />}
       {stats && stats.total > 0 && (
+        // Every chip is a FILTER: click a status or designer to filter the
+        // table to it (click again — or "N leads" — to clear).
         <Stack direction="row" spacing={1} sx={{ mb: 1.5, flexWrap: "wrap", rowGap: 1 }}>
-          <Chip size="small" label={`${stats.total} leads`} />
-          <Chip size="small" color="primary" variant="outlined" label={`${stats.byStatus?.unqualified || 0} unqualified`} />
-          <Chip size="small" color="info" variant="outlined" label={`${stats.byStatus?.engaging || 0} engaging`} />
-          <Chip size="small" color="success" variant="outlined" label={`${stats.byStatus?.converted || 0} converted${stats.convertedPct != null ? ` (${stats.convertedPct.toFixed(0)}%)` : ""}`} />
-          <Chip size="small" color="error" variant="outlined" label={`${stats.byStatus?.dead || 0} dead`} />
+          <Chip
+            size="small"
+            variant={!filters.status && !filters.assignedToUserId ? "filled" : "outlined"}
+            label={`${stats.total} leads`}
+            onClick={() => { setFilters({}); setPage(1); }}
+          />
+          {([
+            ["unqualified", "primary", `${stats.byStatus?.unqualified || 0} unqualified`],
+            ["engaging", "info", `${stats.byStatus?.engaging || 0} engaging`],
+            ["converted", "success", `${stats.byStatus?.converted || 0} converted${stats.convertedPct != null ? ` (${stats.convertedPct.toFixed(0)}%)` : ""}`],
+            ["dead", "error", `${stats.byStatus?.dead || 0} dead`],
+          ] as const).map(([value, color, label]) => (
+            <Chip
+              key={value}
+              size="small"
+              color={color as any}
+              variant={filters.status === value ? "filled" : "outlined"}
+              label={label}
+              onClick={() => { setFilters({ ...filters, status: filters.status === value ? "" : value }); setPage(1); }}
+            />
+          ))}
           {(stats.perDesigner || []).slice(0, 4).map((d: any) => (
-            <Tooltip key={d.name} title={`${d.taken} taken · ${d.signed} signed · ${d.dead} dead`}>
-              <Chip size="small" variant="outlined" label={`${d.name}: ${d.signed}/${d.taken}`} />
+            <Tooltip key={d.userId || d.name} title={`${d.taken} taken · ${d.signed} signed · ${d.dead} dead${d.userId ? " — click to filter" : ""}`}>
+              <Chip
+                size="small"
+                variant={d.userId && filters.assignedToUserId === d.userId ? "filled" : "outlined"}
+                color={d.userId && filters.assignedToUserId === d.userId ? "primary" : "default"}
+                label={`${d.name}: ${d.signed}/${d.taken}`}
+                onClick={d.userId ? () => { setFilters({ ...filters, assignedToUserId: filters.assignedToUserId === d.userId ? "" : d.userId }); setPage(1); } : undefined}
+              />
             </Tooltip>
           ))}
         </Stack>
