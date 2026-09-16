@@ -1958,7 +1958,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
   }
 
   // DO - Delivery Order Layout (same style as TI2)
-  if (documentType === "DO" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER") {
+  // "DELIVERY_ORDER" is the stored long form. It reaches here whenever the
+  // template can't be resolved (so templateVariant never upgrades to "DO"/"RDO")
+  // and the URL supplies the type instead — app/portal/deliveries/page.tsx and
+  // deliveries/[id]/page.tsx hardcode /portal/documents/DELIVERY_ORDER/… for
+  // every run regardless of direction. Without it the document silently falls
+  // through every branch to the priced generic layout at the end of this file —
+  // the same fallthrough that hit getPublicView on the public DO link.
+  if (documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER") {
     // RDO reuses the DO layout with two swaps: the title reads "RETURN DELIVERY
     // ORDER", and the "Delivery To" label becomes "Delivery From" (a return comes
     // FROM the site) with the same person/address value. Preview only for now -
