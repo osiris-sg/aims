@@ -40,9 +40,16 @@ interface ProjectOption {
 // A line the office can collect back: a unit out on rental, OR a description-only
 // (free-typed) deployment that has no unit at all. `key` is the stable id used
 // for selection/basket (inventoryId for units, deploymentId for free-typed).
+// `typed` is a THIRD variant, not a reuse of `freeTyped`: freeTyped REQUIRES a
+// deploymentId (it is a deployment the office picked off the list), and a typed
+// line has none by definition — it is text the office entered, which the backend
+// either matches to an existing ACTIVE deployment or creates one for. Widening
+// freeTyped's deploymentId to optional would lose that distinction at the submit
+// boundary, where the two must go into different payload fields.
 type ReturnLine =
   | { kind: "unit"; key: string; inventoryId: string; sku: string; assetName: string }
-  | { kind: "freeTyped"; key: string; deploymentId: string; description: string };
+  | { kind: "freeTyped"; key: string; deploymentId: string; description: string }
+  | { kind: "typed"; key: string; description: string };
 // A line added to the basket carries its project for the mixed-project note.
 type BasketLine = ReturnLine & { projectId: string; projectName: string };
 
@@ -246,6 +253,30 @@ export default function ScheduleReturnDialog({
 
   const removeFromBasket = (key: string) => setBasket((prev) => prev.filter((b) => b.key !== key));
 
+  // ── free-typed line ──────────────────────────────────────────────────────
+  // Goes STRAIGHT into the basket under the selected project: unlike the picker
+  // rows above it has no id to check, so there is nothing to select. Duplicate
+  // text is allowed on purpose — two "1 unit 60 es DG" lines are a real case
+  // (two of them on site), and the backend pairs each to its own deployment.
+  const [typedText, setTypedText] = useState("");
+  const addTyped = () => {
+    const text = typedText.trim();
+    if (!project || !text) return;
+    // Every typed line in one basket must share a project: the payload carries a
+    // single projectId, and a typed line has no unit to infer one from.
+    const otherProject = basket.find((b) => b.kind === "typed" && b.projectId !== project.id);
+    if (otherProject) {
+      setError("Free-typed lines must all be on one project. Schedule the other project's typed lines separately.");
+      return;
+    }
+    setError(null);
+    setBasket((prev) => [
+      ...prev,
+      { kind: "typed", key: `typed:${project.id}:${text}:${Date.now()}`, description: text, projectId: project.id, projectName: project.name },
+    ]);
+    setTypedText("");
+  };
+
   // Projects represented in the basket — drives the mixed-project note.
   const basketProjects = useMemo(() => new Set(basket.map((b) => b.projectId)), [basket]);
 
@@ -263,6 +294,13 @@ export default function ScheduleReturnDialog({
       const deploymentIds = basket
         .filter((b): b is BasketLine & { kind: "freeTyped" } => b.kind === "freeTyped")
         .map((b) => b.deploymentId);
+      // Typed lines go by TEXT, not id. The backend needs the project to match or
+      // create their deployment, and a typed line carries no unit to infer one
+      // from — so send it explicitly. All typed lines in one basket must share a
+      // project; the Add control below only allows adding under the selected one.
+      const typedBasket = basket.filter((b): b is BasketLine & { kind: "typed" } => b.kind === "typed");
+      const typedLines = typedBasket.map((b) => ({ description: b.description }));
+      const typedProjectId = typedBasket.length ? typedBasket[0].projectId : null;
       const res = await request(
         { path: "/deliveries/scheduled-return", method: "POST" },
         {
@@ -270,6 +308,7 @@ export default function ScheduleReturnDialog({
           customerId: customer.id,
           ...(inventoryIds.length ? { inventoryIds } : {}),
           ...(deploymentIds.length ? { deploymentIds } : {}),
+          ...(typedLines.length ? { typedLines, projectId: typedProjectId } : {}),
           ...(notes.trim() ? { notes: notes.trim() } : {}),
         },
         token,
@@ -361,6 +400,30 @@ export default function ScheduleReturnDialog({
                 </Button>
               </>
             )}
+
+            {/* Free-typed line. Mirrors the outbound "Free type item" control:
+                something on site that has no unit to pick — either it went out
+                as a free-typed line already (the backend reuses that
+                deployment), or it predates tracking (the backend creates one). */}
+            <Box sx={{ mt: 2, pt: 2, borderTop: "1px dashed", borderColor: "divider" }}>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                Not on the list? Add it by description.
+              </Typography>
+              <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  placeholder="e.g. 1 unit 60 es DG"
+                  value={typedText}
+                  onChange={(e) => setTypedText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTyped(); } }}
+                  inputProps={{ maxLength: 500 }}
+                />
+                <Button size="small" variant="outlined" onClick={addTyped} disabled={!typedText.trim()} sx={{ whiteSpace: "nowrap", textTransform: "none" }}>
+                  Add a free-typed item
+                </Button>
+              </Stack>
+            </Box>
           </Box>
         )}
 

@@ -955,7 +955,12 @@ export class DeliveriesService {
   async createScheduledReturn(dto: ScheduleReturnDto, organizationId: string) {
     const inventoryIds = [...new Set(dto.inventoryIds ?? [])];
     const deploymentIds = [...new Set(dto.deploymentIds ?? [])];
-    if (!inventoryIds.length && !deploymentIds.length) {
+    // Free-typed lines arrive as TEXT, not ids. Blank text is dropped here so an
+    // empty box in the dialog never reaches the matcher.
+    const typedLines = (dto.typedLines ?? [])
+      .map((t) => ({ description: (t.description ?? '').trim(), assetClass: t.assetClass }))
+      .filter((t) => t.description.length > 0);
+    if (!inventoryIds.length && !deploymentIds.length && !typedLines.length) {
       throw new BadRequestException('At least one line is required');
     }
 
@@ -1004,6 +1009,114 @@ export class DeliveriesService {
       // free-typed DeliveryItem with the same description on that project. Mirrors
       // outbound (DeliveryItem.assetClass); defaults to EQUIPMENT when none found.
       for (const ft of freeTypedDeployments) {
+        const src = await this.prisma.deliveryItem.findFirst({
+          where: {
+            assetId: null,
+            inventoryId: null,
+            description: ft.description,
+            assetClass: { not: null },
+            delivery: { is: { organizationId, direction: DeliveryDirection.OUTBOUND, ...(ft.projectId ? { projectId: ft.projectId } : {}) } },
+          },
+          orderBy: { delivery: { createdAt: 'desc' } },
+          select: { assetClass: true },
+        });
+        if (src?.assetClass) ft.assetClass = src.assetClass;
+      }
+    }
+
+    // ── FREE-TYPED LINES: match an existing deployment, else create one ─────
+    //
+    // MATCHING. A line matches an ACTIVE description-only deployment on the
+    // project when there is an OPEN assignment with:
+    //   projectId = <project>, inventoryId NULL, assetId NULL, endDate NULL,
+    //   description = <exact trimmed text>, projectDeploymentId NOT NULL
+    // and that deployment is ACTIVE. That is deliberately the SAME predicate
+    // offHireFreeTypedDeployment uses at collect time — if we matched on
+    // anything looser here, the collect would later fail to find what we bound.
+    //
+    // DUPLICATE TEXT ON ONE PROJECT. Candidates are consumed ONE PER LINE,
+    // newest-first: two return lines reading "1 unit 60 es DG" on a project with
+    // two live ones take one each; with only one live, the first reuses it and
+    // the second gets a NEW deployment. Without this, both lines would bind to
+    // the same assignment and the second collect would silently off-hire nothing
+    // (offHireFreeTypedDeployment is best-effort and swallows its own misses).
+    //
+    // CREATED AT SCHEDULE TIME, not collect time. The collect path is
+    // best-effort by design, so a deployment missing there fails INVISIBLY —
+    // the line would complete and billing would never stop. At schedule time we
+    // have the project, the text, and a caller who can see an error.
+    //
+    // deployedDate is left NULL on a created deployment: this is the backfill
+    // case, where the goods went out before they were tracked and the real
+    // delivery date is unknown. now() would assert it was delivered today, on
+    // the same day it is being collected. Existing rows already carry NULL here.
+    if (typedLines.length) {
+      if (!dto.projectId) {
+        throw new BadRequestException('A project is required when adding free-typed return lines');
+      }
+      const proj = await this.prisma.project.findFirst({
+        where: { id: dto.projectId, organizationId, customerId: dto.customerId },
+        select: { id: true },
+      });
+      if (!proj) throw new BadRequestException('Project not found for this customer');
+
+      const candidates = await this.prisma.assignment.findMany({
+        where: {
+          projectId: proj.id,
+          inventoryId: null,
+          assetId: null,
+          endDate: null,
+          projectDeploymentId: { not: null },
+          projectDeployment: { is: { status: DeploymentStatus.ACTIVE, organizationId } },
+        },
+        orderBy: { startDate: 'desc' },
+        select: { id: true, description: true, projectDeploymentId: true },
+      });
+      const usedAssignmentIds = new Set<string>();
+      for (const t of typedLines) {
+        const hit = candidates.find((a) => a.description === t.description && !usedAssignmentIds.has(a.id));
+        if (hit && hit.projectDeploymentId) {
+          usedAssignmentIds.add(hit.id);
+          // Reused: the deployment already exists, nothing is created.
+          freeTypedDeployments.push({
+            id: hit.projectDeploymentId,
+            projectId: proj.id,
+            description: t.description,
+            assetClass: t.assetClass ?? AssetClass.EQUIPMENT,
+          });
+          continue;
+        }
+        // BACKFILL: no live line with this text — mint the deployment + its open
+        // assignment so the collect has something to off-hire. deployedDate NULL.
+        const created = await this.prisma.$transaction(async (tx) => {
+          const agg = await tx.projectDeployment.aggregate({ where: { projectId: proj.id }, _max: { deploymentNumber: true } });
+          const dep = await tx.projectDeployment.create({
+            data: {
+              projectId: proj.id,
+              organizationId,
+              deploymentNumber: (agg._max.deploymentNumber ?? 0) + 1,
+              type: DeploymentType.RENTAL,
+              status: DeploymentStatus.ACTIVE,
+              deployedDate: null,
+              description: t.description,
+            },
+          });
+          await tx.assignment.create({
+            data: { projectId: proj.id, projectDeploymentId: dep.id, description: t.description, startDate: new Date() },
+          });
+          return dep;
+        });
+        freeTypedDeployments.push({
+          id: created.id,
+          projectId: proj.id,
+          description: t.description,
+          assetClass: t.assetClass ?? AssetClass.EQUIPMENT,
+        });
+      }
+      // Recover the class for typed lines that did not carry one, the same way
+      // the deploymentIds path does — from the original outbound free-typed line.
+      for (const ft of freeTypedDeployments) {
+        if (typedLines.some((t) => t.description === ft.description && t.assetClass)) continue;
         const src = await this.prisma.deliveryItem.findFirst({
           where: {
             assetId: null,
