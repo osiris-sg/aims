@@ -24,14 +24,14 @@ import {
 import { Close as CloseIcon, Search as SearchIcon } from "@mui/icons-material";
 
 /**
- * Sale Order picker for the schedule-delivery dialog — same shape as the
+ * Sales Order picker for the schedule-delivery dialog — same shape as the
  * "Locate Customer" dialog (searchable table, click a row to select).
  *
- * A Sale Order is a Document of type SALES_ORDER. In this fleet they are named
+ * A Sales Order is a Document of type SALES_ORDER. In this fleet they are named
  * SO-<customer PO number> with the PO repeated in
  * config.documentInfo.referenceNo as "Customer PO …", so the three columns below
  * are the ONLY populated fields. Date, project and amount are deliberately NOT
- * shown: every one of the 75 existing Sale Orders has them blank, so they would
+ * shown: every one of the 75 existing Sales Orders has them blank, so they would
  * render as a column of dashes.
  *
  * The customer filter is a real need rather than polish — Qingjian entities
@@ -114,7 +114,7 @@ export default function SaleOrderSelectDialog({ open, onClose, rows, loading, on
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
       <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", pb: 1 }}>
         <Typography variant="h6" component="span">
-          Locate Sale Order
+          Locate Sales Order
         </Typography>
         <IconButton onClick={handleClose} size="small" aria-label="Close">
           <CloseIcon />
@@ -128,7 +128,7 @@ export default function SaleOrderSelectDialog({ open, onClose, rows, loading, on
               autoFocus
               fullWidth
               size="small"
-              placeholder="Search by Sale Order No, customer or customer PO"
+              placeholder="Search by Sales Order No, customer or customer PO"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               InputProps={{
@@ -161,7 +161,7 @@ export default function SaleOrderSelectDialog({ open, onClose, rows, loading, on
           <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ ...HEAD_SX, width: "28%" }}>Sale Order No</TableCell>
+                <TableCell sx={{ ...HEAD_SX, width: "28%" }}>Sales Order No</TableCell>
                 <TableCell sx={{ ...HEAD_SX, width: "44%" }}>Customer</TableCell>
                 <TableCell sx={{ ...HEAD_SX, width: "28%" }}>Customer PO</TableCell>
               </TableRow>
@@ -170,7 +170,7 @@ export default function SaleOrderSelectDialog({ open, onClose, rows, loading, on
               {loading ? (
                 <TableRow>
                   <TableCell colSpan={3} align="center" sx={{ py: 4 }}>
-                    <Typography color="text.secondary">Loading Sale Orders…</Typography>
+                    <Typography color="text.secondary">Loading Sales Orders…</Typography>
                   </TableCell>
                 </TableRow>
               ) : filtered.length === 0 ? (
@@ -178,8 +178,8 @@ export default function SaleOrderSelectDialog({ open, onClose, rows, loading, on
                   <TableCell colSpan={3} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">
                       {searchTerm || customerFilter
-                        ? "No Sale Orders match your search"
-                        : "No Sale Orders yet — upload one below"}
+                        ? "No Sales Orders match your search"
+                        : "No Sales Orders yet — upload one below"}
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -219,7 +219,7 @@ export default function SaleOrderSelectDialog({ open, onClose, rows, loading, on
           }}
         >
           <Typography variant="body2" color="text.secondary">
-            Showing {filtered.length} of {rows.length} Sale Orders
+            Showing {filtered.length} of {rows.length} Sales Orders
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center">
             <Typography variant="caption" color="text.secondary">

@@ -7,7 +7,6 @@ import {
   Autocomplete,
   Box,
   Button,
-  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -33,7 +32,6 @@ import SearchIcon from "@mui/icons-material/Search";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import RequestQuoteIcon from "@mui/icons-material/RequestQuote";
 import { request } from "@/helpers/request";
-import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import SaleOrderSelectDialog, { SaleOrderRow, toSaleOrderRow } from "./SaleOrderSelectDialog";
 import DocumentUploadDialog from "@/app/portal/components/DocumentUploadDialog";
 import ProjectContactPicker, { ContactLite, ContactAssignment } from "@/app/portal/projects/components/ProjectContactPicker";
@@ -127,16 +125,6 @@ export default function ScheduleDeliveryDialog({
   editRun?: EditRun | null;
 }) {
   const { getToken } = useAuth();
-  // The link button used to be hidden unless the user held customer-info:create.
-  // That permission sits on Admin + superadmin only, while SCHEDULING a delivery
-  // needs documents:create-basic — which Manager and normal_user also hold. The
-  // gate therefore hid the button from exactly the people it exists for: a
-  // scheduler who opens a project with no contacts and needs the link then and
-  // there. The button is now always shown; the backend still enforces the
-  // permission, and a refusal is surfaced as a readable message (below) instead
-  // of the control silently not existing.
-  const { hasPermission } = useUserPermissions();
-  const canMintCustomerInfo = hasPermission("customer-info", "create");
   const { organization } = useOrganization();
 
   const [rows, setRows] = useState<Row[]>([{ asset: null, description: "", freeTyped: false, quantity: "1", assetClass: DEFAULT_ASSET_CLASS }]);
@@ -144,7 +132,7 @@ export default function ScheduleDeliveryDialog({
   // datetime-local left the time portion effectively uneditable for the office).
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("09:00");
-  // The PO is no longer typed — it comes from a selected Sale Order (a Document
+  // The PO is no longer typed — it comes from a selected Sales Order (a Document
   // of type SALES_ORDER). poNumber stays as the DISPLAY string written to
   // config.poNo; saleOrder carries the pointer written to config.saleOrderId.
   const [poNumber, setPoNumber] = useState("");
@@ -188,8 +176,6 @@ export default function ScheduleDeliveryDialog({
   const [contactCoverage, setContactCoverage] = useState<{ DO: number; INVOICE: number; UNGROUPED: number } | null>(null);
   // Customer-information link for this project, minted from here.
   const [ciLink, setCiLink] = useState<string | null>(null);
-  const [ciBusy, setCiBusy] = useState(false);
-  const [ciReused, setCiReused] = useState(false);
   // The DO's Attention is derived server-side from the project's FIRST contact
   // (primary-first, else earliest-attached) — the office picks contacts via the
   // ProjectContactPicker below, no free-text snapshot here.
@@ -239,7 +225,7 @@ export default function ScheduleDeliveryDialog({
         setScheduleTime("09:00");
       }
       setPoNumber(editRun.document?.poNo ?? "");
-      // Restore the pointer so re-saving an edited run keeps its Sale Order.
+      // Restore the pointer so re-saving an edited run keeps its Sales Order.
       // The run summary carries poNo + saleOrderId; the display columns are
       // filled in when the picker list loads (matched on id).
       setSaleOrder(
@@ -413,12 +399,27 @@ export default function ScheduleDeliveryDialog({
   // banner immediately, without a round-trip.
   useEffect(() => {
     if (!project) return;
-    setContactCoverage({
+    const cov = {
       DO: projectContacts.filter((a) => a.group === "DO").length,
       INVOICE: projectContacts.filter((a) => a.group === "INVOICE").length,
       UNGROUPED: projectContacts.filter((a) => !a.group).length,
-    });
+    };
+    setContactCoverage(cov);
   }, [project, projectContacts]);
+
+  // Resolve the link once per project, and ONLY when a role is actually
+  // missing — a fully-contacted project never touches the endpoint at all.
+  // Keyed on the project id so switching back and forth does not re-resolve.
+  const ciResolvedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    const pid = project?.id;
+    if (!pid || !contactCoverage) return;
+    if (contactCoverage.DO && contactCoverage.INVOICE) return; // nothing to ask for
+    if (ciResolvedForRef.current === pid) return;
+    ciResolvedForRef.current = pid;
+    void resolveCustomerInfoLink(pid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, contactCoverage?.DO, contactCoverage?.INVOICE]);
 
   // Persist the project's contact set (this project already exists, so save now).
   const saveProjectContacts = async (next: ContactAssignment[]) => {
@@ -437,46 +438,57 @@ export default function ScheduleDeliveryDialog({
     }
   };
 
-  // Mint (or reuse) the customer-information link for THIS project, without
-  // leaving the dialog. createRequest keys its reuse lookup on (org, projectId)
-  // and returns an existing outstanding request rather than minting a second, so
-  // calling from here can never produce a competing link — it lands on whatever
-  // the project page or the customer-information dialog already created.
-  const mintCustomerInfoLink = async () => {
-    if (!project || !customer?.id) return;
-    setCiBusy(true);
+  // Resolve the customer-information link for THIS project, automatically.
+  //
+  // READ BEFORE MINTING. GET /customer-info/project/:id is side-effect free and
+  // already returns `liveUnsubmitted` — the outstanding request createRequest
+  // would have reused. Checking it first means opening the dialog on a project
+  // that already has a live link creates NOTHING; only a project that genuinely
+  // has no outstanding link mints one. Without this read, merely browsing
+  // projects in the dropdown would POST on every change.
+  //
+  // What still happens, deliberately: the first time the dialog lands on a
+  // project that is short a role AND has no live link, one CustomerInfoRequest
+  // is created. Re-opening reuses it (createRequest keys reuse on
+  // organizationId + projectId), so it is one row per project, not per open.
+  // A SUBMITTED request is not reused by design — its link is spent — so a
+  // project whose contacts came back incomplete will mint one fresh link, then
+  // reuse that.
+  //
+  // The read needs customer-info:read, which every role holds; only the mint
+  // needs customer-info:create, which Admin and superadmin hold. A refusal is
+  // swallowed: the link simply does not appear, which is the same outcome as
+  // before and better than an error on a dialog the user did not ask to mint on.
+  const resolveCustomerInfoLink = async (projectId: string) => {
+    if (!customer?.id) return;
     try {
       const token = await getToken();
       if (!token) return;
+      const guestUrl = (t: string) => `${window.location.origin}/guest/customer-info/${t}`;
+
+      const view = await request({ path: `/customer-info/project/${projectId}`, method: "GET" }, {}, token);
+      const vdata = view?.data ?? view;
+      const live = vdata?.liveUnsubmitted;
+      if (live?.token) {
+        setCiLink(guestUrl(live.token));
+        return;
+      }
+
       const res = await request(
         { path: "/customer-info", method: "POST" },
-        { customerId: customer.id, projectId: project.id },
+        { customerId: customer.id, projectId },
         token,
       );
       const data = res?.data ?? res;
-      if (res?.success === false || !data?.token) {
-        throw new Error(res?.message ?? "Could not create the link");
-      }
-      // /guest/ prefix — the public form lives at app/guest/customer-info/[token].
-      setCiLink(`${window.location.origin}/guest/customer-info/${data.token}`);
-      setCiReused(!!data.reused);
-    } catch (e: any) {
-      // A refusal here is almost always the customer-info:create permission,
-      // which Manager and normal_user do not hold. Name it, so the scheduler
-      // knows what to ask for rather than retrying a button that cannot work.
-      const msg = String(e?.message ?? "");
-      setError(
-        /403|forbidden|permission/i.test(msg) && !canMintCustomerInfo
-          ? "You do not have permission to create a customer information link — ask an Admin to send it, or to grant you customer-info:create."
-          : msg || "Could not create the customer information link",
-      );
-    } finally {
-      setCiBusy(false);
+      if (res?.success === false || !data?.token) return; // no permission, or refused
+      setCiLink(guestUrl(data.token));
+    } catch {
+      /* non-blocking: no link shown */
     }
   };
 
   // Load every SALES_ORDER document for the org. Deliberately NOT filtered by
-  // status — all 75 existing Sale Orders are `unconfirmed`, so a confirmed-only
+  // status — all 75 existing Sales Orders are `unconfirmed`, so a confirmed-only
   // filter (the one the quotation picker uses) would return nothing. Not
   // filtered by customer either: the picker's own customer dropdown does that
   // client-side, and it needs the full list to build its options.
@@ -500,10 +512,10 @@ export default function ScheduleDeliveryDialog({
       const rows = await loadSaleOrders();
       setSoRows(rows);
       // An edit-mode run restores only the pointer; fill in its display columns
-      // now that the list is here, so the field reads as a real Sale Order.
+      // now that the list is here, so the field reads as a real Sales Order.
       setSaleOrder((cur) => (cur && !cur.customerName ? rows.find((r) => r.id === cur.id) ?? cur : cur));
     } catch (e: any) {
-      setError(e?.message ?? "Couldn't load Sale Orders");
+      setError(e?.message ?? "Couldn't load Sales Orders");
     } finally {
       setSoLoading(false);
     }
@@ -512,7 +524,7 @@ export default function ScheduleDeliveryDialog({
   const selectSaleOrder = (row: SaleOrderRow) => {
     setSaleOrder(row);
     // config.poNo keeps the DISPLAY string. The customer PO is what the DO has
-    // always printed as "Your PO No."; fall back to the Sale Order number when a
+    // always printed as "Your PO No."; fall back to the Sales Order number when a
     // freshly uploaded one has no reference extracted yet.
     setPoNumber(row.customerPo || row.name || "");
     setPoTouched(true);
@@ -521,7 +533,7 @@ export default function ScheduleDeliveryDialog({
   // Extraction and document creation are both fully awaited server-side (POST
   // /document-extraction/extract, then POST /documents/from-extraction), so by
   // the time this fires the Document row EXISTS. Nothing is queued, so the new
-  // Sale Order is immediately selectable — reload the list and select it.
+  // Sales Order is immediately selectable — reload the list and select it.
   const onSaleOrderUploaded = async (created: Array<{ id: string; templateId?: string }>) => {
     if (!created.length) return;
     try {
@@ -571,9 +583,9 @@ export default function ScheduleDeliveryDialog({
   const validRows = rows.filter(
     (r) => (r.freeTyped ? r.description.trim().length > 0 : !!r.asset) && (parseInt(r.quantity, 10) || 0) >= 1,
   );
-  // A Sale Order is REQUIRED to schedule, mirroring projectId: the backend
+  // A Sales Order is REQUIRED to schedule, mirroring projectId: the backend
   // enforces the same rule with @ValidateIf((o) => !o.isDraft). A DRAFT is
-  // deliberately exempt — a job can arrive before its Sale Order does, and the
+  // deliberately exempt — a job can arrive before its Sales Order does, and the
   // office must still be able to park the run rather than lose what they typed.
   const canSubmit =
     !!scheduleDate && !!scheduleTime && !!project && !!saleOrder && validRows.length > 0 && !submitting;
@@ -957,66 +969,27 @@ export default function ScheduleDeliveryDialog({
               showDetails={false}
               label="Project contacts"
             />
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-              The Delivery Order&apos;s Attention uses the Delivery (DO) contact, falling back to the
-              customer&apos;s Main contact, then the first attached.
-            </Typography>
 
-            {/* Coverage — does this project have both roles? Missing either is the
-                cue to ask the customer rather than guess, so the link to the
-                customer information form is offered right here. */}
-            {contactCoverage && (
-              <Box sx={{ mt: 1 }}>
-                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                  <Chip
-                    size="small"
-                    label={contactCoverage.DO ? `DO contact: ${contactCoverage.DO}` : "No DO contact"}
-                    color={contactCoverage.DO ? "success" : "warning"}
-                    variant={contactCoverage.DO ? "filled" : "outlined"}
-                  />
-                  <Chip
-                    size="small"
-                    label={contactCoverage.INVOICE ? `Invoice contact: ${contactCoverage.INVOICE}` : "No Invoice contact"}
-                    color={contactCoverage.INVOICE ? "success" : "warning"}
-                    variant={contactCoverage.INVOICE ? "filled" : "outlined"}
-                  />
-                  {!!contactCoverage.UNGROUPED && (
-                    <Chip size="small" variant="outlined" label={`${contactCoverage.UNGROUPED} with no role`} />
-                  )}
-                </Stack>
-
-                {(!contactCoverage.DO || !contactCoverage.INVOICE) && (
-                  <Box sx={{ mt: 1 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                      Missing a role? Ask the customer to fill them in — the link opens a public form
-                      for this project.
-                    </Typography>
-                    {ciLink ? (
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <TextField
-                          value={ciLink}
-                          size="small"
-                          fullWidth
-                          InputProps={{ readOnly: true }}
-                          onFocus={(e) => e.target.select()}
-                        />
-                        <Button size="small" onClick={() => void navigator.clipboard?.writeText(ciLink)}>
-                          Copy
-                        </Button>
-                      </Stack>
-                    ) : (
-                      <Button size="small" variant="outlined" onClick={() => void mintCustomerInfoLink()} disabled={ciBusy || !customer?.id}>
-                        {ciBusy ? "Creating…" : "Get customer information link"}
-                      </Button>
-                    )}
-                    {ciLink && ciReused && (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-                        This project already had an unused link — reusing it. Anything already sent still works.
-                      </Typography>
-                    )}
-                  </Box>
-                )}
-              </Box>
+            {/* Missing a role -> show the customer-information link outright.
+                No chips, no prose, no button: if the office has to be told the
+                project is short a contact, the useful thing is the link itself,
+                already there to copy. Nothing renders when both roles are
+                present — there is nothing to ask for. */}
+            {contactCoverage && (!contactCoverage.DO || !contactCoverage.INVOICE) && ciLink && (
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+                <TextField
+                  value={ciLink}
+                  size="small"
+                  fullWidth
+                  label="Customer information link"
+                  InputProps={{ readOnly: true }}
+                  InputLabelProps={{ shrink: true }}
+                  onFocus={(e) => e.target.select()}
+                />
+                <Button size="small" onClick={() => void navigator.clipboard?.writeText(ciLink)}>
+                  Copy
+                </Button>
+              </Stack>
             )}
           </Box>
         )}
@@ -1027,11 +1000,11 @@ export default function ScheduleDeliveryDialog({
             a later invoice can walk back to for prices, not just a PO string. */}
         <Divider sx={{ my: 2 }} />
         <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-          Sale Order
+          Sales Order
         </Typography>
         <TextField
-          label="Sale Order"
-          placeholder="No Sale Order selected"
+          label="Sales Order"
+          placeholder="No Sales Order selected"
           value={saleOrder ? `${saleOrder.name}${saleOrder.customerPo ? ` — ${saleOrder.customerPo}` : ""}` : ""}
           onClick={() => void openSaleOrders()}
           onKeyDown={(e) => {
@@ -1051,7 +1024,7 @@ export default function ScheduleDeliveryDialog({
                 {saleOrder ? (
                   <IconButton
                     size="small"
-                    aria-label="Clear the selected Sale Order"
+                    aria-label="Clear the selected Sales Order"
                     onClick={(e) => {
                       e.stopPropagation();
                       setSaleOrder(null);
@@ -1070,19 +1043,22 @@ export default function ScheduleDeliveryDialog({
           InputLabelProps={{ shrink: true }}
           helperText={
             poTouched && !saleOrder
-              ? "Pick a Sale Order — required to schedule. Save as draft if it does not exist yet."
-              : 'The Sale Order\'s customer PO lands on the draft DO as "Your PO No."'
+              ? "Pick a Sales Order — required to schedule. Save as draft if it does not exist yet."
+              : 'The Sales Order\'s customer PO lands on the draft DO as "Your PO No."'
           }
           sx={{ cursor: "pointer", "& .MuiInputBase-input": { cursor: "pointer" } }}
         />
-        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-          <Button size="small" startIcon={<SearchIcon />} onClick={() => void openSaleOrders()}>
-            {saleOrder ? "Change Sale Order" : "Find Sale Order"}
-          </Button>
-          <Button size="small" startIcon={<CloudUploadIcon />} onClick={() => setSoUploadOpen(true)}>
-            Upload Sale Order
-          </Button>
-        </Stack>
+        {/* Upload only. "Find" is gone — the search icon inside the field opens
+            the picker, and the field itself is clickable. Sits tight under the
+            field rather than a row away. */}
+        <Button
+          size="small"
+          startIcon={<CloudUploadIcon />}
+          onClick={() => setSoUploadOpen(true)}
+          sx={{ mt: 0.5, alignSelf: "flex-start" }}
+        >
+          Upload Sales Order
+        </Button>
 
         {/* 3) ADDRESS (auto-filled from the project; freely editable → DO "Deliver To").
             When auto-filled, render the text as clearly-present, editable content
@@ -1222,7 +1198,7 @@ export default function ScheduleDeliveryDialog({
         <Divider sx={{ my: 2 }} />
 
         {/* 5) SCHEDULING (last) — date + time. The PO moved up to sit with the
-            Sale Order picker, directly below the contacts. */}
+            Sales Order picker, directly below the contacts. */}
         <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
           Scheduling
         </Typography>
@@ -1316,7 +1292,7 @@ export default function ScheduleDeliveryDialog({
           </Button>
         </DialogActions>
       </Dialog>
-      {/* Sale Order picker — Locate Customer styling, with Upload in its footer
+      {/* Sales Order picker — Locate Customer styling, with Upload in its footer
           so an office user who cannot find the order can create it in place. */}
       <SaleOrderSelectDialog
         open={soOpen}
@@ -1326,7 +1302,7 @@ export default function ScheduleDeliveryDialog({
         onSelect={selectSaleOrder}
         footerAction={
           <Button size="small" startIcon={<CloudUploadIcon />} onClick={() => { setSoOpen(false); setSoUploadOpen(true); }}>
-            Upload Sale Order
+            Upload Sales Order
           </Button>
         }
       />
@@ -1338,7 +1314,7 @@ export default function ScheduleDeliveryDialog({
         open={soUploadOpen}
         onClose={() => setSoUploadOpen(false)}
         documentType="SALES_ORDER"
-        documentLabel="Sale Order"
+        documentLabel="Sales Order"
         navigateOnSingle={false}
         onCreated={(created) => void onSaleOrderUploaded(created)}
       />
