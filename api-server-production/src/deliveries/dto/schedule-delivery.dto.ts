@@ -131,7 +131,16 @@ export class ScheduleDeliveryDto {
   @IsBoolean()
   isDraft?: boolean;
 
-  @ApiProperty({ required: false, description: "Customer PO number — lands on the draft DO's config.poNo (\"Your PO No.\")." })
+  @ApiProperty({
+    required: false,
+    description:
+      "Sale Order (Document of type SALES_ORDER) this delivery is against. REQUIRED for a real schedule, optional when isDraft — same rule as projectId, so a half-entered run can still be parked. Stored as config.saleOrderId on the draft DO, ALONGSIDE the display string in config.poNo: the pointer is what a later invoice walks back to for the Sale Order's prices, and matching on the PO text has caused repeated problems here. Deliberately NOT a Document column — a hard FK would orphan the 4 legacy free-text poNo rows and be null on 420 of 424 documents; this mirrors how projectId and config.projectName already coexist.",
+  })
+  @ValidateIf((o) => !o.isDraft)
+  @IsUUID()
+  saleOrderId?: string;
+
+  @ApiProperty({ required: false, description: "Customer PO number — lands on the draft DO's config.poNo (\"Your PO No.\"). Now filled from the selected Sale Order's customer PO rather than typed." })
   @IsOptional()
   @IsString()
   poNumber?: string;

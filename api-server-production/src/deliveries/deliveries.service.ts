@@ -428,6 +428,10 @@ export class DeliveriesService {
     projectName: string;
     deliveryAddress: string;
     poNumber?: string;
+    // Pointer to the SALES_ORDER Document this run is against. Stored beside
+    // poNo (the display string) so a later invoice can walk back to the Sale
+    // Order and read its prices instead of matching on the PO text.
+    saleOrderId?: string;
     machineLocation?: string;
     // Scheduled delivery date — stamped as the DO's document date so the
     // printed DO never falls back to the editor's "today" default (guru
@@ -447,7 +451,7 @@ export class DeliveriesService {
     // grouping) instead of guessing by text.
     deliveryItemIdFor?: (lineIdx: number, n: number) => string | undefined;
   }): Record<string, any> {
-    const { items, assetById, projectName, deliveryAddress, poNumber, machineLocation, customer, attention, deliveryItemIdFor } = params;
+    const { items, assetById, projectName, deliveryAddress, poNumber, saleOrderId, machineLocation, customer, attention, deliveryItemIdFor } = params;
     const diFor = (lineIdx: number, n: number) => {
       const id = deliveryItemIdFor?.(lineIdx, n);
       return id ? { deliveryItemId: id } : {};
@@ -478,6 +482,7 @@ export class DeliveriesService {
         }));
       }),
       ...(poNumber ? { poNo: poNumber } : {}),
+      ...(saleOrderId ? { saleOrderId } : {}),
       projectName,
       documentInfo: { projectName },
       // Contact person: the Biofuel DO template reads it from the top-level
@@ -673,6 +678,7 @@ export class DeliveriesService {
         projectName: project.name,
         deliveryAddress,
         poNumber: dto.poNumber,
+        saleOrderId: dto.saleOrderId,
         machineLocation: dto.machineLocation,
         customer,
         attention,
@@ -915,6 +921,7 @@ export class DeliveriesService {
           projectName: project?.name ?? '',
           deliveryAddress,
           poNumber: dto.poNumber,
+          saleOrderId: dto.saleOrderId,
           machineLocation: dto.machineLocation,
           customer: customer
             ? { id: customer.id, name: customer.name, customerCode: customer.customerCode, address: customer.address, email: customer.email }
@@ -956,6 +963,7 @@ export class DeliveriesService {
           projectName: project.name,
           deliveryAddress,
           poNumber: dto.poNumber,
+          saleOrderId: dto.saleOrderId,
           machineLocation: dto.machineLocation,
           customer,
           attention: scheduledAttention,
@@ -964,6 +972,10 @@ export class DeliveriesService {
         // On edit a CLEARED PO / machine location must actually clear on the DO
         // (a plain config merge would keep the old value), so set them explicitly.
         fragment.poNo = dto.poNumber?.trim() ? dto.poNumber.trim() : null;
+        // The pointer moves with the display string — a run repointed at a
+        // different Sale Order must not keep the old id, and one cleared back to
+        // no PO must not keep a dangling pointer.
+        fragment.saleOrderId = dto.saleOrderId ?? null;
         fragment.machineLocation = dto.machineLocation?.trim() ? dto.machineLocation.trim() : null;
         // Same for Attention: set explicitly so a re-derived (or cleared) value
         // replaces the old snapshot rather than merging under it.
@@ -1902,6 +1914,9 @@ export class DeliveriesService {
       ? ((await this.prisma.document.findUnique({ where: { id: runDoc.id }, select: { config: true } }))?.config as any)
       : null;
     const runDocPoNo = runDocCfg?.poNo ?? null;
+    // Pointer to the SALES_ORDER this run is against — the edit dialog restores
+    // its Sale Order selection from this, so re-saving keeps the same order.
+    const runDocSaleOrderId = runDocCfg?.saleOrderId ?? null;
     // Machine location off the same DO config — powers the edit-scheduled prefill.
     const runDocMachineLocation = runDocCfg?.machineLocation ?? null;
     // Draft invoice auto-created from that DO on run completion (sourceDocumentId
@@ -1919,7 +1934,9 @@ export class DeliveriesService {
       : null;
     return {
       ...delivery,
-      document: runDoc ? { ...runDoc, poNo: runDocPoNo, machineLocation: runDocMachineLocation } : null,
+      document: runDoc
+        ? { ...runDoc, poNo: runDocPoNo, saleOrderId: runDocSaleOrderId, machineLocation: runDocMachineLocation }
+        : null,
       invoice,
       items: delivery.items.map((i) => ({
         ...i,
@@ -2070,12 +2087,15 @@ export class DeliveriesService {
       ? await this.prisma.document.findMany({ where: { id: { in: docIds } }, select: { id: true, name: true, config: true } })
       : [];
     const poNoByDoc = new Map(docRows.map((dc) => [dc.id, (dc.config as any)?.poNo ?? null]));
+    const saleOrderIdByDoc = new Map(docRows.map((dc) => [dc.id, (dc.config as any)?.saleOrderId ?? null]));
     const enriched = docs.map((d) => {
       const distinct = [...new Map(d.items.filter((i) => i.document).map((i) => [i.document!.id, i.document!])).values()];
       const runDoc = distinct.length === 1 ? distinct[0] : null;
       return {
         ...d,
-        document: runDoc ? { ...runDoc, poNo: poNoByDoc.get(runDoc.id) ?? null } : null,
+        document: runDoc
+          ? { ...runDoc, poNo: poNoByDoc.get(runDoc.id) ?? null, saleOrderId: saleOrderIdByDoc.get(runDoc.id) ?? null }
+          : null,
         items: d.items.map((i) => ({
           ...i,
           sku: i.inventoryId ? (unitById.get(i.inventoryId)?.sku ?? null) : null,

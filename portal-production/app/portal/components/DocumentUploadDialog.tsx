@@ -35,7 +35,13 @@ interface Props {
   onClose: () => void;
   documentType: string;       // AIMS doc type, e.g. INVOICE, DO, QUOTATION, PO, BILL
   documentLabel: string;      // human label for messaging
-  onCreated?: () => void;     // called after any documents were created (list refresh)
+  onCreated?: (created: Array<{ id: string; templateId?: string }>) => void; // after any documents were created (list refresh / select the new one)
+  // Single-file uploads normally route STRAIGHT into the editor. A caller that
+  // is itself a form — the schedule-delivery dialog — must be able to turn that
+  // off: navigating away mid-schedule throws away everything the office has
+  // entered. With this false the dialog just reports success and closes, and the
+  // caller uses onCreated to pick the new document up.
+  navigateOnSingle?: boolean;
 }
 
 // Map AIMS document types to the extraction service's enum.
@@ -53,7 +59,7 @@ function toExtractionType(aimsType: string): string {
 
 type FileResult = { name: string; ok: boolean; id?: string; templateId?: string; error?: string };
 
-export default function DocumentUploadDialog({ open, onClose, documentType, documentLabel, onCreated }: Props) {
+export default function DocumentUploadDialog({ open, onClose, documentType, documentLabel, onCreated, navigateOnSingle = true }: Props) {
   const router = useRouter();
   const { getToken } = useAuth();
   const { organization } = useOrganization();
@@ -149,12 +155,16 @@ export default function DocumentUploadDialog({ open, onClose, documentType, docu
       }
       const okCount = out.filter((r) => r.ok).length;
       const failCount = out.length - okCount;
-      if (okCount) onCreated?.();
+      if (okCount) {
+        onCreated?.(out.filter((r) => r.ok && r.id).map((r) => ({ id: r.id as string, templateId: r.templateId })));
+      }
 
       if (files.length === 1 && out[0].ok) {
-        // Single file keeps the fast path: straight into the editor.
         toast.success(`${documentLabel} created`);
-        router.push(`/portal/documents/${documentType}/${out[0].templateId}/${out[0].id}`);
+        if (navigateOnSingle) {
+          // Single file keeps the fast path: straight into the editor.
+          router.push(`/portal/documents/${documentType}/${out[0].templateId}/${out[0].id}`);
+        }
         handleCloseAfterRun();
         return;
       }

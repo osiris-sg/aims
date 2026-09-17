@@ -66,6 +66,13 @@ interface Props {
   // cannot carry a role (the project create/edit form posts a plain id list) —
   // rendering the checkboxes there would silently discard whatever was ticked.
   showRoles?: boolean;
+  // Offer the "add a new contact" affordance (the inline Add "<name>" option and
+  // the new-contact form). OFF for the schedule-delivery dialog: contacts there
+  // must arrive through the customer information form so the customer states who
+  // their DO and Invoice people are, rather than the office typing a name in.
+  // The picker itself stays — choosing between two submitted DO contacts, and
+  // correcting a bad submission, are exactly what it is for.
+  allowAddContact?: boolean;
 }
 
 // An in-dropdown "Add '<name>'" row — a synthetic option that is not a real
@@ -73,7 +80,7 @@ interface Props {
 type Option = ContactLite & { __isAdd?: boolean };
 const filter = createFilterOptions<Option>();
 
-export default function ProjectContactPicker({ customerId, value, onChange, disabled, label, showRoles = true }: Props) {
+export default function ProjectContactPicker({ customerId, value, onChange, disabled, label, showRoles = true, allowAddContact = true }: Props) {
   const { getToken } = useAuth();
   const [options, setOptions] = useState<ContactLite[]>([]);
   const [loading, setLoading] = useState(false);
@@ -202,6 +209,7 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
         // mobile and email can be entered before saving.
         filterOptions={(opts, params) => {
           const filtered = filter(opts, params);
+          if (!allowAddContact) return filtered;
           const input = params.inputValue.trim();
           if (input && !opts.some((o) => o.name.toLowerCase() === input.toLowerCase())) {
             filtered.push({ id: `__add__:${input}`, name: input, __isAdd: true });
@@ -235,13 +243,23 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
           <TextField
             {...params}
             label={label ?? "Contact people"}
-            placeholder={customerId ? "Pick a contact, or type to add" : "Choose a customer first"}
+            placeholder={
+            customerId
+              ? allowAddContact
+                ? "Pick a contact, or type to add"
+                : "Pick a contact"
+              : "Choose a customer first"
+          }
             error={!!error}
             helperText={
               error ??
               (customerId
-                ? "Pick from the list, or type a new name and choose Add."
-                : "Pick a customer first, then choose or add contact people.")
+                ? allowAddContact
+                  ? "Pick from the list, or type a new name and choose Add."
+                  : "Pick from the customer's contacts. New people come in through the customer information form."
+                : allowAddContact
+                  ? "Pick a customer first, then choose or add contact people."
+                  : "Pick a customer first, then choose their contact people.")
             }
             InputProps={{
               ...params.InputProps,
@@ -300,7 +318,7 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
       )}
 
       {/* Add a new contact — editable name / mobile / email, all POSTed. */}
-      {customerId &&
+      {allowAddContact && customerId &&
         (addOpen ? (
           <Box sx={{ p: 1.5, border: 1, borderColor: "divider", borderRadius: 1 }}>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>
