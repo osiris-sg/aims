@@ -93,9 +93,14 @@ function LegacyProjectsPage() {
     { id: "siteOffice", accessorKey: "siteOffice", header: "Site Office", cell: ({ row }: { row: any }) => <Typography variant="body2">{row.original.siteOffice?.name ?? "N/A"}</Typography> },
     { id: "itemsRelated", accessorKey: "itemsRelated", header: "Items Related", cell: ({ row }: { row: any }) => <Typography variant="body2">{row.original.itemsRelated ?? 0}</Typography> },
     {
-      // Yes when the project has ANY ProjectContact — the same rows the DO/RDO
-      // Attention is derived from, so "Yes" means a document would actually
-      // find someone to address. Backed by _count on Project.contacts.
+      // COVERAGE, not presence: Yes only when the project has BOTH a DO contact
+      // and an Invoice contact. The old rule counted any ProjectContact, so six
+      // projects whose picker-attached contacts carry no role at all reported
+      // Yes while neither document had a named recipient.
+      //
+      // Two states on purpose. The backend also sends hasDoContact /
+      // hasInvoiceContact / contactCount, so which role is missing can be shown
+      // later without another API change — the column just doesn't say it here.
       id: "hasCustomerContact",
       accessorKey: "hasCustomerContact",
       header: "Customer Contact",

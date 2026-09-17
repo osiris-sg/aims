@@ -141,11 +141,15 @@ export class ProjectsService {
           // are empty under the deployment-centric model, so counting them
           // gave every Biofuel project "0 items".
           documents: { select: { _count: { select: { documentItems: true } } } },
-          // Customer Contact column: does this project have anyone attached?
-          // Counts the SAME ProjectContact rows projectFirstContactAttention
-          // reads for the DO/RDO Attention, so a "yes" means a document would
-          // actually find someone — not merely that a form was submitted.
-          _count: { select: { contacts: true } },
+          // Customer Contact column: is this project covered for BOTH pieces
+          // of paperwork? A plain count cannot answer that — "someone is
+          // attached" and "a DO contact AND an Invoice contact are attached"
+          // are different questions, and the column was answering the first
+          // while the header claimed the second. Prisma's _count takes one
+          // filter per relation and we need two, so the group column is read
+          // raw (a handful of rows per project; 13 in the whole table today)
+          // and folded in JS below.
+          contacts: { select: { group: true } },
         },
       });
 
@@ -196,6 +200,11 @@ export class ProjectsService {
             0,
           );
           const money = moneyByProject.get(project.id) ?? { billed: 0, paid: 0 };
+          // group is 'DO' | 'INVOICE' | null — null being every link the
+          // delivery contact picker attached before roles existed.
+          const contactGroups = ((project as any).contacts ?? []) as Array<{ group: string | null }>;
+          const hasDoContact = contactGroups.some((c) => c.group === 'DO');
+          const hasInvoiceContact = contactGroups.some((c) => c.group === 'INVOICE');
           return {
             id: project.id,
             name: project.name,
@@ -207,9 +216,20 @@ export class ProjectsService {
               ? { id: resolvedCustomer.id, name: resolvedCustomer.name }
               : null,
             itemsRelated: itemCount,
-            // Boolean, not the raw count: the column is yes/no and the number
-            // would invite reading it as "how many contacts should there be".
-            hasCustomerContact: ((project as any)._count?.contacts ?? 0) > 0,
+            // Coverage, not presence. `hasCustomerContact` is TRUE only when the
+            // project can raise BOTH documents with the right person on them —
+            // a role-less contact attached by the delivery picker no longer
+            // counts, because it tells the office nothing about whether a DO or
+            // an invoice will be addressed correctly.
+            //
+            // The two role flags and the raw count ride along so the column can
+            // say WHICH role is missing. "No" on a project that has three people
+            // attached reads as "nobody is attached", which is false and hides
+            // the six projects that are one role-assignment away from correct.
+            hasCustomerContact: hasDoContact && hasInvoiceContact,
+            hasDoContact,
+            hasInvoiceContact,
+            contactCount: contactGroups.length,
             startDate: project.startDate,
             endDate: project.endDate,
             status: project.status,

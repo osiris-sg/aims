@@ -491,18 +491,47 @@ export class CustomerInfoService {
       ...l.customerContact,
     }));
 
+    // MAIN is a CUSTOMER-level fact (CustomerContact.isPrimary), and it is
+    // returned SEPARATELY for exactly that reason: it is not a ProjectContact
+    // and must never be counted as one. It earns its place on the project tab
+    // because it is what the paperwork actually falls back to — with no links
+    // attached, buildReturnHeaderConfig addresses the DO/RDO to the customer's
+    // primary — and that is the case on 126 of 133 projects. Hiding it leaves
+    // the office unable to answer "who will this document be addressed to?".
+    //
+    // `linkedToProject` lets the UI say "also attached below" instead of
+    // rendering the same person twice with no explanation.
+    const mainContact = project.customerId
+      ? await this.prisma.customerContact.findFirst({
+          where: { customerId: project.customerId, isPrimary: true },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, name: true, email: true, phone: true, designation: true, isPrimary: true },
+        })
+      : null;
+
     return {
       projectId: project.id,
       customerId: project.customerId,
       requests,
+      // Null when the customer has no primary contact, or the project has no
+      // customer at all — both render as "no main contact on the customer".
+      customerMain: mainContact
+        ? {
+            ...mainContact,
+            linkedToProject: links.some((l) => l.customerContact.id === mainContact.id),
+          }
+        : null,
       // The link to reuse instead of minting a second one.
       liveUnsubmitted: requests.find((r) => r.status === 'outstanding') ?? null,
       contacts: {
         DO: contacts.filter((c) => c.group === 'DO'),
         INVOICE: contacts.filter((c) => c.group === 'INVOICE'),
-        // Attached by the delivery contact picker before groups existed. Shown
-        // so the office can see everything feeding the Attention, not just what
-        // came through a customer-info submission.
+        // Attached by the delivery contact picker before groups existed. NOT
+        // inert: projectFirstContactAttention's third rung is "earliest attached
+        // link", so on a project with no DO contact one of these IS what lands
+        // on the DO today. Shown as its own group — never folded into DO —
+        // because reclassifying them would rewrite the Attention on already
+        // issued paperwork.
         UNGROUPED: contacts.filter((c) => !c.group),
       },
     };

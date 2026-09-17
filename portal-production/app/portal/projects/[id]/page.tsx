@@ -313,7 +313,35 @@ interface CustomerInfoView {
   requests: CustomerInfoRequestRow[];
   liveUnsubmitted: CustomerInfoRequestRow | null;
   contacts: { DO: CustomerInfoContactRow[]; INVOICE: CustomerInfoContactRow[]; UNGROUPED: CustomerInfoContactRow[] };
+  // CUSTOMER-level, not project-level: CustomerContact.isPrimary. Returned
+  // separately because it is not a ProjectContact — it is the person a DO/RDO
+  // falls back to when the project has nobody attached.
+  customerMain: (Omit<CustomerInfoContactRow, "linkId" | "group"> & { linkedToProject: boolean }) | null;
 }
+
+// One contact row. Shared by the Main block and the three project groups so a
+// person reads identically wherever they appear — the only difference between
+// the sections is the chips and the caption above them.
+const ContactCard = ({
+  contact,
+  chips,
+}: {
+  contact: { name: string; email: string | null; phone: string | null; designation?: string | null };
+  chips?: React.ReactNode;
+}) => (
+  <Box sx={{ p: 1.25, border: 1, borderColor: "divider", borderRadius: 1 }}>
+    <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+      <Typography variant="body2" fontWeight={600}>{contact.name}</Typography>
+      {chips}
+      {contact.designation && (
+        <Typography variant="caption" color="text.secondary">{contact.designation}</Typography>
+      )}
+    </Stack>
+    <Typography variant="caption" color="text.secondary">
+      {[contact.email, contact.phone].filter(Boolean).join(" · ") || "no email or phone"}
+    </Typography>
+  </Box>
+);
 
 // Four states. Submitting now accepts the contacts automatically, so there is
 // no "needs accept" step and no Accept button — a submitted request has already
@@ -1046,18 +1074,51 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
             <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
               Contacts on this project
             </Typography>
-            {ciContactCount === 0 ? (
-              <Typography variant="body2" color="text.secondary">
-                Nobody is attached yet. Accepting a submission attaches them here, and a DO or
-                RDO will then be addressed to the first one.
-              </Typography>
-            ) : (
-              <Stack gap={2}>
-                {([
-                  ["DO", "Delivery Orders"],
-                  ["INVOICE", "Invoices"],
-                  ["UNGROUPED", "Attached from the delivery contact picker"],
-                ] as const).map(([key, heading]) => {
+            <Stack gap={2}>
+              {/* MAIN — the customer's record, not this project's. Shown first
+                  and captioned as such because it is what a DO/RDO is addressed
+                  to when the project has nobody attached, which is the case on
+                  almost every project. It is NOT a project attachment and is
+                  never counted as one. */}
+              {ciView?.customerMain ? (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Main (from the customer record)</Typography>
+                  <Stack gap={0.5} sx={{ mt: 0.5 }}>
+                    <ContactCard
+                      contact={ciView.customerMain}
+                      chips={
+                        <>
+                          <Chip size="small" label="Main" color="primary" variant="outlined" />
+                          {ciView.customerMain.linkedToProject && (
+                            <Chip size="small" label="also attached below" variant="outlined" />
+                          )}
+                        </>
+                      }
+                    />
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                    {ciContactCount === 0
+                      ? "Nobody is attached to this project, so a DO or RDO is addressed to this person."
+                      : "Customer-level. A contact attached to this project below takes precedence on documents."}
+                  </Typography>
+                </Box>
+              ) : null}
+
+              {ciContactCount === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  Nobody is attached to this project yet. Accepting a submission attaches them here,
+                  and a DO or RDO will then be addressed to the first one.
+                </Typography>
+              ) : (
+                ([
+                  ["DO", "Delivery Orders", ""],
+                  ["INVOICE", "Invoices", ""],
+                  [
+                    "UNGROUPED",
+                    "No role yet",
+                    "Attached by the delivery contact picker before roles existed. Still used for the DO Attention when no DO contact is set — assign a role in the picker to make that explicit.",
+                  ],
+                ] as const).map(([key, heading, note]) => {
                   const rows = ciView?.contacts[key] ?? [];
                   if (rows.length === 0) return null;
                   return (
@@ -1065,25 +1126,23 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
                       <Typography variant="caption" color="text.secondary">{heading}</Typography>
                       <Stack gap={0.5} sx={{ mt: 0.5 }}>
                         {rows.map((c) => (
-                          <Box key={c.linkId} sx={{ p: 1.25, border: 1, borderColor: "divider", borderRadius: 1 }}>
-                            <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
-                              <Typography variant="body2" fontWeight={600}>{c.name}</Typography>
-                              {c.isPrimary && <Chip size="small" label="Primary" color="primary" variant="outlined" />}
-                              {c.designation && (
-                                <Typography variant="caption" color="text.secondary">{c.designation}</Typography>
-                              )}
-                            </Stack>
-                            <Typography variant="caption" color="text.secondary">
-                              {[c.email, c.phone].filter(Boolean).join(" · ") || "no email or phone"}
-                            </Typography>
-                          </Box>
+                          <ContactCard
+                            key={c.linkId}
+                            contact={c}
+                            chips={c.isPrimary ? <Chip size="small" label="Main" color="primary" variant="outlined" /> : null}
+                          />
                         ))}
                       </Stack>
+                      {note && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                          {note}
+                        </Typography>
+                      )}
                     </Box>
                   );
-                })}
-              </Stack>
-            )}
+                })
+              )}
+            </Stack>
           </Box>
         )}
 
