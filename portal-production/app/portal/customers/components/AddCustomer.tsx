@@ -36,6 +36,9 @@ const customerSchema = yup.object().shape({
     .array()
     .of(
       yup.object({
+        // Round-tripped so the backend can reconcile by id instead of
+        // delete-all-and-recreate. Absent = a genuinely new contact.
+        id: yup.string().notRequired(),
         name: yup.string().notRequired(),
         phone: yup.string().notRequired(),
         email: yup.string().notRequired(),
@@ -131,7 +134,14 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             setValue("salesmanId", customer.salesmanId || null);
             setValue(
               "contacts",
-              (customer.contacts || []).map((c: { name?: string; phone?: string; email?: string; designation?: string }) => ({
+              // KEEP THE ID. Saving sends these straight back, and the backend
+              // now matches on it to update in place — a contact that arrives
+              // without an id is treated as new, and one whose id vanishes from
+              // the payload is treated as deliberately removed (which cascades
+              // to its ProjectContact links). Dropping the id here would make
+              // every save look like "delete everyone, add strangers".
+              (customer.contacts || []).map((c: { id?: string; name?: string; phone?: string; email?: string; designation?: string }) => ({
+                id: c.id,
                 name: c.name || "",
                 phone: c.phone || "",
                 email: c.email || "",

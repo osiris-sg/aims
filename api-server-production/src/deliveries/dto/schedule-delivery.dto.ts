@@ -7,6 +7,7 @@ import {
   IsEnum,
   IsInt,
   IsISO8601,
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -21,6 +22,18 @@ import { AssetClass } from '@prisma/client';
  * FREE-TYPED line (description only, no assetId — office resolves it later; a
  * rider can never unit-bind to it). Exactly one of assetId/description is used.
  */
+/** One (person, role) project-contact link sent by the scheduling dialog. */
+export class ScheduleDeliveryContactDto {
+  @ApiProperty({ description: 'CustomerContact id.' })
+  @IsUUID()
+  contactId: string;
+
+  @ApiProperty({ required: false, nullable: true, enum: ['DO', 'INVOICE'], description: "Role on this project; null = attached with no role." })
+  @IsOptional()
+  @IsIn(['DO', 'INVOICE', null])
+  group?: 'DO' | 'INVOICE' | null;
+}
+
 export class ScheduleDeliveryItemDto {
   @ApiProperty({ required: false, description: 'Catalog asset (UUID). Omit for a free-typed line.' })
   @IsOptional()
@@ -96,6 +109,18 @@ export class ScheduleDeliveryDto {
   @IsArray()
   @IsUUID('all', { each: true })
   contactIds?: string[];
+
+  @ApiProperty({
+    required: false,
+    type: [ScheduleDeliveryContactDto],
+    description:
+      "Role-aware form of contactIds: one entry per (person, role) link, group 'DO' | 'INVOICE' | null. Takes precedence over contactIds when both are sent. Same timing guarantee — persisted onto the project before the DO's Attention is derived.",
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ScheduleDeliveryContactDto)
+  contacts?: ScheduleDeliveryContactDto[];
 
   @ApiProperty({
     required: false,

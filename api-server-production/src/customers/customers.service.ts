@@ -214,25 +214,70 @@ export class CustomersService {
         data: customerData,
       });
 
-      // When contacts are provided, replace the customer's POC list wholesale
-      // (mirrors the site-office contactDetails replace-on-update pattern).
+      // Reconcile the customer's contact list IN PLACE — match by id, update what
+      // is still there, insert what is new, delete only what the caller genuinely
+      // removed.
+      //
+      // This used to deleteMany({ customerId }) then createMany, which was copied
+      // from the site-office contactDetails pattern — a model with no dependents.
+      // CustomerContact has one: ProjectContact.customerContactId is
+      // `onDelete: Cascade`, so the wholesale delete silently destroyed EVERY
+      // project link for that customer, and the recreated people came back with
+      // fresh uuids that nothing pointed at. Measured against prod at the time:
+      // editing any of 6 customers would have wiped all 13 ProjectContact rows in
+      // the database, across 7 projects — including both accepted DO/INVOICE role
+      // links. Future DOs would then have silently fallen back to the customer's
+      // primary contact for their Attention line.
+      //
+      // A contact the caller sends WITHOUT an id is new. A contact whose id is not
+      // in the payload was removed on purpose, and deleting it still cascades —
+      // that is correct, the person is gone.
       if (contacts) {
-        await this.prisma.customerContact.deleteMany({ where: { customerId: id } });
-        const cleanContacts = contacts.filter(
-          (c) => c.name && c.name.trim() !== '',
+        const cleanContacts = contacts.filter((c) => c.name && c.name.trim() !== '');
+        const existing = await this.prisma.customerContact.findMany({
+          where: { customerId: id },
+          select: { id: true },
+        });
+        const existingIds = new Set(existing.map((c) => c.id));
+        const keptIds = new Set(
+          cleanContacts.map((c) => c.id).filter((cid): cid is string => !!cid && existingIds.has(cid)),
         );
-        if (cleanContacts.length > 0) {
-          await this.prisma.customerContact.createMany({
-            data: cleanContacts.map((c) => ({
-              name: c.name,
-              phone: c.phone ?? null,
-              email: c.email ?? null,
-              designation: c.designation ?? null,
-              isPrimary: !!c.isPrimary,
-              customerId: id,
-            })),
-          });
-        }
+
+        const removedIds = [...existingIds].filter((cid) => !keptIds.has(cid));
+        const toCreate = cleanContacts.filter((c) => !c.id || !existingIds.has(c.id));
+        const toUpdate = cleanContacts.filter((c) => !!c.id && existingIds.has(c.id));
+
+        await this.prisma.$transaction([
+          ...(removedIds.length
+            ? [this.prisma.customerContact.deleteMany({ where: { customerId: id, id: { in: removedIds } } })]
+            : []),
+          ...toUpdate.map((c) =>
+            this.prisma.customerContact.update({
+              where: { id: c.id as string },
+              data: {
+                name: c.name,
+                phone: c.phone ?? null,
+                email: c.email ?? null,
+                designation: c.designation ?? null,
+                isPrimary: !!c.isPrimary,
+              },
+            }),
+          ),
+          ...(toCreate.length
+            ? [
+                this.prisma.customerContact.createMany({
+                  data: toCreate.map((c) => ({
+                    name: c.name,
+                    phone: c.phone ?? null,
+                    email: c.email ?? null,
+                    designation: c.designation ?? null,
+                    isPrimary: !!c.isPrimary,
+                    customerId: id,
+                  })),
+                }),
+              ]
+            : []),
+        ]);
       }
 
       return await this.prisma.customer.findFirst({

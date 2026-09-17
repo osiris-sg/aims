@@ -306,11 +306,26 @@ export class DeliveriesService {
 
   /**
    * Attention snapshot for a DO from the PROJECT's contacts (ProjectContact →
-   * CustomerContact, OSI-84). "First" = the contact flagged primary where one
-   * exists, else the earliest-attached (link createdAt asc). Returns the frozen
-   * `{ name, phoneNumber?, email? }` shape config.attention uses; undefined when
-   * the project has no contacts. Used by both the scheduled DO and the
-   * completion-created DO so the two derive attention identically.
+   * CustomerContact, OSI-84). Returns the frozen `{ name, phoneNumber?, email? }`
+   * shape config.attention uses; undefined when the project has no contacts. Used
+   * by both the scheduled DO and the completion-created DO so the two derive
+   * attention identically.
+   *
+   * ORDER OF PREFERENCE — DO first, then primary, then earliest-attached:
+   *
+   *   1. group === 'DO'   — this person is the delivery contact FOR THIS PROJECT
+   *   2. isPrimary        — the customer's Main contact (person-level flag)
+   *   3. earliest link    — what this resolver did before roles existed
+   *
+   * Deliberately a CHAIN and not a DO-only rule. Six of the seven projects with
+   * contacts carry no role at all (every link the picker attached predates
+   * groups), so a DO-only rule would return undefined for them and silently drop
+   * their Attention down to the customer's primary. The chain leaves all six
+   * exactly as they were.
+   *
+   * TWO DO CONTACTS: earliest-attached wins. The customer can submit several DO
+   * people and the office can add more; the link's createdAt is the tiebreak, so
+   * the Attention only changes when someone deliberately detaches the first.
    */
   private async projectFirstContactAttention(
     projectId: string | null | undefined,
@@ -320,11 +335,17 @@ export class DeliveriesService {
     const links = await this.prisma.projectContact.findMany({
       where: { projectId, project: { is: { organizationId } } },
       orderBy: { createdAt: 'asc' },
-      select: { customerContact: { select: { name: true, phone: true, email: true, isPrimary: true } } },
+      select: {
+        group: true,
+        customerContact: { select: { name: true, phone: true, email: true, isPrimary: true } },
+      },
     });
-    const contacts = links.map((l) => l.customerContact).filter((c): c is NonNullable<typeof c> => !!c?.name);
-    if (contacts.length === 0) return undefined;
-    const chosen = contacts.find((c) => c.isPrimary) ?? contacts[0];
+    const usable = links.filter((l) => !!l.customerContact?.name);
+    if (usable.length === 0) return undefined;
+    const chosen =
+      usable.find((l) => l.group === 'DO')?.customerContact ??
+      usable.find((l) => l.customerContact.isPrimary)?.customerContact ??
+      usable[0].customerContact;
     return {
       name: chosen.name,
       ...(chosen.phone ? { phoneNumber: chosen.phone } : {}),
@@ -532,8 +553,14 @@ export class DeliveriesService {
     // ProjectContact), so the picked contacts land on the DO on the FIRST save
     // even if the dialog's fire-and-forget pick-time PUT hasn't committed (or
     // silently failed). `undefined` contactIds => leave the project's links as-is.
-    if (dto.projectId && dto.contactIds !== undefined) {
-      await this.projectsService.setProjectContacts(dto.projectId, organizationId, dto.contactIds);
+    if (dto.projectId && (dto.contacts !== undefined || dto.contactIds !== undefined)) {
+      // `contacts` is the role-aware form and wins when both are sent; `contactIds`
+      // remains for older clients and lands the people ungrouped, as it always did.
+      const entries =
+        dto.contacts !== undefined
+          ? dto.contacts.map((c) => ({ contactId: c.contactId, group: c.group ?? null }))
+          : (dto.contactIds ?? []).map((contactId) => ({ contactId, group: null }));
+      await this.projectsService.setProjectContacts(dto.projectId, organizationId, entries);
     }
     const customerId = dto.customerId ?? project?.customerId ?? undefined;
     // Delivery address: what the office typed (dto.address) wins; else default to
@@ -795,8 +822,14 @@ export class DeliveriesService {
     if (!project && !willBeDraft) throw new NotFoundException('Project not found in this organization');
     // Persist the picker's selection before this path's DO Attention is derived
     // (a draft promoted here mints its DO now), same as createScheduled.
-    if (dto.projectId && dto.contactIds !== undefined) {
-      await this.projectsService.setProjectContacts(dto.projectId, organizationId, dto.contactIds);
+    if (dto.projectId && (dto.contacts !== undefined || dto.contactIds !== undefined)) {
+      // `contacts` is the role-aware form and wins when both are sent; `contactIds`
+      // remains for older clients and lands the people ungrouped, as it always did.
+      const entries =
+        dto.contacts !== undefined
+          ? dto.contacts.map((c) => ({ contactId: c.contactId, group: c.group ?? null }))
+          : (dto.contactIds ?? []).map((contactId) => ({ contactId, group: null }));
+      await this.projectsService.setProjectContacts(dto.projectId, organizationId, entries);
     }
     const customerId = dto.customerId ?? project?.customerId ?? undefined;
     const deliveryAddress = (dto.address?.trim() || project?.name || '').trim();

@@ -625,19 +625,33 @@ export class CustomerInfoService {
         // same person appearing as BOTH a DO and an INVOICE contact collapses to
         // one link. Last group in sortOrder order wins; the alternative is a
         // schema change to allow two links per person per project.
+        // Keyed on (projectId, customerContactId, GROUP) now that the unique
+        // index includes the role. Before, one person submitted as both a DO and
+        // an INVOICE contact collapsed to a single link whose group was whichever
+        // came last in sortOrder; each role now gets its own row and both stand.
+        //
+        // `source: 'ACCEPT'` stamps ownership explicitly instead of leaving it to
+        // be inferred from the group being non-null — the picker can set a group
+        // itself now, so that inference no longer identifies a writer.
         const link = await tx.projectContact.upsert({
-          where: { projectId_customerContactId: { projectId, customerContactId: personId } },
-          update: { group: c.group },
-          create: { projectId, customerContactId: personId, group: c.group },
+          where: {
+            projectId_customerContactId_group: {
+              projectId,
+              customerContactId: personId,
+              group: c.group,
+            },
+          },
+          update: { source: 'ACCEPT' },
+          create: { projectId, customerContactId: personId, group: c.group, source: 'ACCEPT' },
           select: { id: true },
         });
         keptLinkIds.push(link.id);
         linksCreated++;
       }
 
-      // Detach only rows THIS flow owns (group NOT NULL) that the new set drops.
+      // Detach only rows THIS flow owns (source = 'ACCEPT') that the new set drops.
       const detached = await tx.projectContact.deleteMany({
-        where: { projectId, group: { not: null }, id: { notIn: keptLinkIds } },
+        where: { projectId, source: 'ACCEPT', id: { notIn: keptLinkIds } },
       });
 
       const now = new Date();

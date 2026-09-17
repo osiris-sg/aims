@@ -37,18 +37,27 @@ export class ProjectsController {
     return this.projectsService.getProjectContacts(id, organizationId);
   }
 
-  // Replace the project's contact set. contactIds are CustomerContact ids;
+  // Replace the project's PICKER-owned contact set. `contacts` is the role-aware
+  // shape `[{ contactId, group }]` where group is 'DO' | 'INVOICE' | null;
   // free-typed new people are created via POST /customers/:id/contacts first.
+  //
+  // `contactIds: string[]` is still accepted so an older client (or a cached
+  // bundle mid-deploy) keeps working — those land ungrouped, which is what that
+  // client meant. Both forms are normalised to entries before the service sees
+  // them, so the service has exactly one input shape.
   @Put(':id/contacts')
   @Permissions('projects:update')
   async setProjectContacts(
     @Param('id') id: string,
-    @Body() body: { contactIds: string[] },
+    @Body() body: { contacts?: Array<{ contactId: string; group?: string | null }>; contactIds?: string[] },
     @Req() req: RequestWithOrganization,
   ) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) throw new Error('User is not assigned to any organization');
-    return this.projectsService.setProjectContacts(id, organizationId, body?.contactIds ?? []);
+    const entries = Array.isArray(body?.contacts)
+      ? body.contacts
+      : (body?.contactIds ?? []).map((contactId) => ({ contactId, group: null }));
+    return this.projectsService.setProjectContacts(id, organizationId, entries);
   }
 
   @Post()

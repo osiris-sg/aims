@@ -458,7 +458,7 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
     if (!params?.id || ciBusy) return;
     const existing = ciView?.liveUnsubmitted;
     if (existing) {
-      setCiLink(`${window.location.origin}/customer-info/${existing.token}`);
+      setCiLink(`${window.location.origin}/guest/customer-info/${existing.token}`);
       setCiMsg("A link is already out for this project and has not been submitted yet — reusing it.");
       setTab(6);
       return;
@@ -480,7 +480,7 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
       );
       const data = res?.data ?? res;
       if (res?.success === false || !data?.token) throw new Error(res?.message ?? "Could not create the link");
-      setCiLink(`${window.location.origin}/customer-info/${data.token}`);
+      setCiLink(`${window.location.origin}/guest/customer-info/${data.token}`);
       // createRequest reuses an outstanding link rather than minting a second,
       // so this can come back as a reuse even though the button said "Request".
       setCiMsg(
@@ -1027,7 +1027,7 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
                           <Chip size="small" color="warning" variant="outlined" label="Not mirrored — contact support" />
                         )}
                         {r.status === "outstanding" && r.isLive && (
-                          <Button size="small" onClick={() => setCiLink(`${window.location.origin}/customer-info/${r.token}`)}>
+                          <Button size="small" onClick={() => setCiLink(`${window.location.origin}/guest/customer-info/${r.token}`)}>
                             Show link
                           </Button>
                         )}

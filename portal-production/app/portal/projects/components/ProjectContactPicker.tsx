@@ -5,8 +5,10 @@ import {
   Autocomplete,
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
+  FormControlLabel,
   Grid,
   Stack,
   TextField,
@@ -17,14 +19,24 @@ import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 
 /**
- * OSI-84 contact-people picker. Multi-select DROPDOWN of the chosen customer's
- * existing CustomerContact list. Contact DETAILS are visible and enterable:
- * a new contact is added with editable name, mobile and email (all three POSTed
- * to /customers/:id/contacts so they persist on the CustomerContact); a selected
- * existing contact shows the same fields READ ONLY. Typing a name that isn't on
- * file surfaces an inline "Add '<name>'" row that opens the new-contact form
- * prefilled. Controlled by the parent via `value` (ids) / `onChange`. Gated on a
- * customer: with no customerId it renders disabled with a hint.
+ * OSI-84 contact-people picker, now ROLE-AWARE. Multi-select DROPDOWN of the
+ * chosen customer's existing CustomerContact list. Contact DETAILS are visible
+ * and enterable: a new contact is added with editable name, mobile and email
+ * (all three POSTed to /customers/:id/contacts so they persist on the
+ * CustomerContact); a selected existing contact shows the same fields READ ONLY.
+ * Typing a name that isn't on file surfaces an inline "Add '<name>'" row that
+ * opens the new-contact form prefilled. Gated on a customer: with no customerId
+ * it renders disabled with a hint.
+ *
+ * ROLES. Each selected person carries two independent checkboxes, DO and Invoice,
+ * because a person can be BOTH on the same project — the widened unique index is
+ * (projectId, customerContactId, group), so each role is its own link row. A
+ * person with neither ticked is attached ungrouped, exactly as every link
+ * attached before roles existed. Two people can both be DO contacts; the office
+ * chooses between them, and the DO's Attention takes the earliest-attached.
+ *
+ * `value` is therefore a list of ASSIGNMENTS, not ids — one entry per
+ * (person, role) pair, which is the shape PUT /projects/:id/contacts now takes.
  */
 
 export interface ContactLite {
@@ -36,14 +48,24 @@ export interface ContactLite {
   isPrimary?: boolean;
 }
 
+/** One (person, role) link. group null = attached with no role. */
+export interface ContactAssignment {
+  contactId: string;
+  group: "DO" | "INVOICE" | null;
+}
+
 interface Props {
   customerId: string | null;
-  // Controlled by the selected contact ids (matches the project link + the RHF
-  // form field). The picker resolves ids to display objects from its own fetch.
-  value: string[];
-  onChange: (ids: string[]) => void;
+  // Controlled by the selected assignments. The picker resolves contactIds to
+  // display objects from its own fetch.
+  value: ContactAssignment[];
+  onChange: (next: ContactAssignment[]) => void;
   disabled?: boolean;
   label?: string;
+  // Show the per-person DO / Invoice checkboxes. Off for callers whose save path
+  // cannot carry a role (the project create/edit form posts a plain id list) —
+  // rendering the checkboxes there would silently discard whatever was ticked.
+  showRoles?: boolean;
 }
 
 // An in-dropdown "Add '<name>'" row — a synthetic option that is not a real
@@ -51,7 +73,7 @@ interface Props {
 type Option = ContactLite & { __isAdd?: boolean };
 const filter = createFilterOptions<Option>();
 
-export default function ProjectContactPicker({ customerId, value, onChange, disabled, label }: Props) {
+export default function ProjectContactPicker({ customerId, value, onChange, disabled, label, showRoles = true }: Props) {
   const { getToken } = useAuth();
   const [options, setOptions] = useState<ContactLite[]>([]);
   const [loading, setLoading] = useState(false);
@@ -65,9 +87,34 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
   const [newPhone, setNewPhone] = useState("");
   const [newEmail, setNewEmail] = useState("");
 
-  // Selected objects for the Autocomplete, resolved from ids against the loaded
-  // customer contact list.
-  const selected: Option[] = options.filter((o) => value.includes(o.id));
+  // Distinct PEOPLE currently assigned, in the order they first appear — the
+  // Autocomplete selects people, the checkboxes below assign their roles.
+  const selectedIds = React.useMemo(() => {
+    const seen: string[] = [];
+    for (const a of value) if (!seen.includes(a.contactId)) seen.push(a.contactId);
+    return seen;
+  }, [value]);
+  const selected: Option[] = options.filter((o) => selectedIds.includes(o.id));
+
+  const hasRole = (contactId: string, group: "DO" | "INVOICE") =>
+    value.some((a) => a.contactId === contactId && a.group === group);
+
+  // Ticking a role replaces this person's ungrouped entry (a person is either
+  // ungrouped or has roles, never both — an ungrouped link alongside a DO link
+  // would double-count them in the Attention ordering). Unticking the last role
+  // drops them back to ungrouped rather than detaching them, so the checkbox
+  // never silently removes someone the office deliberately picked.
+  const toggleRole = (contactId: string, group: "DO" | "INVOICE") => {
+    const others = value.filter((a) => a.contactId !== contactId);
+    const mine = value.filter((a) => a.contactId === contactId);
+    const roles = new Set(mine.map((a) => a.group).filter((g): g is "DO" | "INVOICE" => g !== null));
+    if (roles.has(group)) roles.delete(group);
+    else roles.add(group);
+    const rebuilt: ContactAssignment[] = roles.size
+      ? Array.from(roles).map((g) => ({ contactId, group: g }))
+      : [{ contactId, group: null }];
+    onChange([...others, ...rebuilt]);
+  };
 
   // Load the customer's contact list (the customer detail already includes it).
   useEffect(() => {
@@ -125,7 +172,11 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
       const created: ContactLite = res?.data ?? res;
       if (created?.id) {
         setOptions((prev) => [...prev, created]);
-        onChange(value.includes(created.id) ? value : [...value, created.id]);
+        onChange(
+          value.some((a) => a.contactId === created.id)
+            ? value
+            : [...value, { contactId: created.id, group: null }],
+        );
         resetAddForm();
       }
     } catch (e: any) {
@@ -164,7 +215,15 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
             setAddOpen(true);
             return;
           }
-          onChange(newValue.map((c) => c.id));
+          // Adding a person attaches them ungrouped; removing one drops all of
+          // their role entries. Roles already assigned to people who stay are
+          // preserved untouched.
+          const nextIds = newValue.map((c) => c.id);
+          const kept = value.filter((a) => nextIds.includes(a.contactId));
+          const added = nextIds
+            .filter((id) => !value.some((a) => a.contactId === id))
+            .map((contactId) => ({ contactId, group: null as null }));
+          onChange([...kept, ...added]);
         }}
         renderTags={(vals, getTagProps) =>
           vals.map((v, i) => {
@@ -218,6 +277,22 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
                     <TextField label="Email" value={c.email || ""} size="small" fullWidth InputProps={{ readOnly: true }} />
                   </Grid>
                 </Grid>
+                {showRoles && (
+                <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 0.5 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Role on this project:
+                  </Typography>
+                  <FormControlLabel
+                    control={<Checkbox size="small" checked={hasRole(c.id, "DO")} onChange={() => toggleRole(c.id, "DO")} />}
+                    label={<Typography variant="body2">Delivery (DO)</Typography>}
+                  />
+                  <FormControlLabel
+                    control={<Checkbox size="small" checked={hasRole(c.id, "INVOICE")} onChange={() => toggleRole(c.id, "INVOICE")} />}
+                    label={<Typography variant="body2">Invoice</Typography>}
+                  />
+                  {c.isPrimary && <Chip size="small" label="Main" variant="outlined" />}
+                </Stack>
+                )}
               </Box>
             ))}
           </Stack>

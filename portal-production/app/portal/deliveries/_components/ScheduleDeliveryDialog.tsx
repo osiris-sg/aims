@@ -7,6 +7,7 @@ import {
   Autocomplete,
   Box,
   Button,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -29,7 +30,8 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import RequestQuoteIcon from "@mui/icons-material/RequestQuote";
 import { request } from "@/helpers/request";
-import ProjectContactPicker, { ContactLite } from "@/app/portal/projects/components/ProjectContactPicker";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
+import ProjectContactPicker, { ContactLite, ContactAssignment } from "@/app/portal/projects/components/ProjectContactPicker";
 import { useOrganization } from "@hooks/useOrganization";
 import ExtractQuotationDialog from "@/containers/DocumentTemplates/components/ExtractQuotationDialog";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
@@ -119,6 +121,10 @@ export default function ScheduleDeliveryDialog({
   editRun?: EditRun | null;
 }) {
   const { getToken } = useAuth();
+  // The link button mints a CustomerInfoRequest, which the backend gates on
+  // customer-info:create. Hide it rather than let a scheduler click into a 403.
+  const { hasPermission } = useUserPermissions();
+  const canMintCustomerInfo = hasPermission("customer-info", "create");
   const { organization } = useOrganization();
 
   const [rows, setRows] = useState<Row[]>([{ asset: null, description: "", freeTyped: false, quantity: "1", assetClass: DEFAULT_ASSET_CLASS }]);
@@ -154,7 +160,15 @@ export default function ScheduleDeliveryDialog({
   // OSI-84 — the chosen project's contact people (as ids). Loaded when a project
   // is picked; edits are persisted straight to the project (PUT), since the
   // project already exists here.
-  const [projectContactIds, setProjectContactIds] = useState<string[]>([]);
+  const [projectContacts, setProjectContacts] = useState<ContactAssignment[]>([]);
+  // Whether this project has a DO contact and an Invoice contact. Read from
+  // GET /customer-info/project/:id, which already buckets the SAME ProjectContact
+  // rows into { DO, INVOICE, UNGROUPED } — no new endpoint needed.
+  const [contactCoverage, setContactCoverage] = useState<{ DO: number; INVOICE: number; UNGROUPED: number } | null>(null);
+  // Customer-information link for this project, minted from here.
+  const [ciLink, setCiLink] = useState<string | null>(null);
+  const [ciBusy, setCiBusy] = useState(false);
+  const [ciReused, setCiReused] = useState(false);
   // The DO's Attention is derived server-side from the project's FIRST contact
   // (primary-first, else earliest-attached) — the office picks contacts via the
   // ProjectContactPicker below, no free-text snapshot here.
@@ -326,12 +340,15 @@ export default function ScheduleDeliveryDialog({
     };
   }, [customer, getToken]);
 
-  // OSI-84 — load the chosen project's attached contacts (clear when none). The
-  // DO's Attention is derived from the FIRST of these server-side, so the picker
-  // selection is the only contact input.
+  // OSI-84 — load the chosen project's attached contacts (clear when none).
+  // GET /projects/:id/contacts now returns LINKS ({ linkId, group, source,
+  // contact }), so a person holding both a DO and an Invoice link arrives as two
+  // entries and the picker can show both roles ticked.
   useEffect(() => {
     if (!project) {
-      setProjectContactIds([]);
+      setProjectContacts([]);
+      setContactCoverage(null);
+      setCiLink(null);
       return;
     }
     let cancelled = false;
@@ -340,11 +357,18 @@ export default function ScheduleDeliveryDialog({
         const token = await getToken();
         if (!token) return;
         const res = await request({ path: `/projects/${project.id}/contacts`, method: "GET" }, {}, token);
-        const list = (res?.data ?? res) as ContactLite[];
+        const list = (res?.data ?? res) as Array<{ group: string | null; contact: ContactLite }>;
         if (cancelled) return;
-        setProjectContactIds(Array.isArray(list) ? list.map((c) => c.id) : []);
+        setProjectContacts(
+          Array.isArray(list)
+            ? list.map((l) => ({
+                contactId: l.contact.id,
+                group: l.group === "DO" || l.group === "INVOICE" ? l.group : null,
+              }))
+            : [],
+        );
       } catch {
-        if (!cancelled) setProjectContactIds([]);
+        if (!cancelled) setProjectContacts([]);
       }
     })();
     return () => {
@@ -352,20 +376,62 @@ export default function ScheduleDeliveryDialog({
     };
   }, [project, getToken]);
 
+  // Coverage — does this project have a DO contact and an Invoice contact?
+  // Derived from the picker's own assignments so ticking a role updates the
+  // banner immediately, without a round-trip.
+  useEffect(() => {
+    if (!project) return;
+    setContactCoverage({
+      DO: projectContacts.filter((a) => a.group === "DO").length,
+      INVOICE: projectContacts.filter((a) => a.group === "INVOICE").length,
+      UNGROUPED: projectContacts.filter((a) => !a.group).length,
+    });
+  }, [project, projectContacts]);
+
   // Persist the project's contact set (this project already exists, so save now).
-  const saveProjectContacts = async (ids: string[]) => {
-    setProjectContactIds(ids);
+  const saveProjectContacts = async (next: ContactAssignment[]) => {
+    setProjectContacts(next);
     if (!project) return;
     try {
       const token = await getToken();
       if (!token) return;
       await request(
         { path: `/projects/${project.id}/contacts`, method: "PUT" },
-        { contactIds: ids },
+        { contacts: next },
         token,
       );
     } catch {
       /* non-blocking: the picker keeps the selection; a later save can retry */
+    }
+  };
+
+  // Mint (or reuse) the customer-information link for THIS project, without
+  // leaving the dialog. createRequest keys its reuse lookup on (org, projectId)
+  // and returns an existing outstanding request rather than minting a second, so
+  // calling from here can never produce a competing link — it lands on whatever
+  // the project page or the customer-information dialog already created.
+  const mintCustomerInfoLink = async () => {
+    if (!project || !customer?.id) return;
+    setCiBusy(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await request(
+        { path: "/customer-info", method: "POST" },
+        { customerId: customer.id, projectId: project.id },
+        token,
+      );
+      const data = res?.data ?? res;
+      if (res?.success === false || !data?.token) {
+        throw new Error(res?.message ?? "Could not create the link");
+      }
+      // /guest/ prefix — the public form lives at app/guest/customer-info/[token].
+      setCiLink(`${window.location.origin}/guest/customer-info/${data.token}`);
+      setCiReused(!!data.reused);
+    } catch (e: any) {
+      setError(e?.message ?? "Could not create the customer information link");
+    } finally {
+      setCiBusy(false);
     }
   };
 
@@ -656,7 +722,7 @@ export default function ScheduleDeliveryDialog({
           // feedback, but this closes the race where the DO is built before that
           // fire-and-forget save commits. Only with a project (the backend keys
           // ProjectContact on it); untouched, this re-sends the loaded set.
-          ...(project ? { contactIds: projectContactIds } : {}),
+          ...(project ? { contacts: projectContacts } : {}),
         },
         token,
       );
@@ -771,13 +837,73 @@ export default function ScheduleDeliveryDialog({
           <Box sx={{ mb: 2 }}>
             <ProjectContactPicker
               customerId={customer?.id ?? null}
-              value={projectContactIds}
-              onChange={(ids) => void saveProjectContacts(ids)}
+              value={projectContacts}
+              onChange={(next) => void saveProjectContacts(next)}
               label="Project contacts"
             />
             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-              The Delivery Order&apos;s Attention uses the first selected contact.
+              The Delivery Order&apos;s Attention uses the Delivery (DO) contact, falling back to the
+              customer&apos;s Main contact, then the first attached.
             </Typography>
+
+            {/* Coverage — does this project have both roles? Missing either is the
+                cue to ask the customer rather than guess, so the link to the
+                customer information form is offered right here. */}
+            {contactCoverage && (
+              <Box sx={{ mt: 1 }}>
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                  <Chip
+                    size="small"
+                    label={contactCoverage.DO ? `DO contact: ${contactCoverage.DO}` : "No DO contact"}
+                    color={contactCoverage.DO ? "success" : "warning"}
+                    variant={contactCoverage.DO ? "filled" : "outlined"}
+                  />
+                  <Chip
+                    size="small"
+                    label={contactCoverage.INVOICE ? `Invoice contact: ${contactCoverage.INVOICE}` : "No Invoice contact"}
+                    color={contactCoverage.INVOICE ? "success" : "warning"}
+                    variant={contactCoverage.INVOICE ? "filled" : "outlined"}
+                  />
+                  {!!contactCoverage.UNGROUPED && (
+                    <Chip size="small" variant="outlined" label={`${contactCoverage.UNGROUPED} with no role`} />
+                  )}
+                </Stack>
+
+                {(!contactCoverage.DO || !contactCoverage.INVOICE) && (canMintCustomerInfo || ciLink) && (
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                      Missing a role? Ask the customer to fill them in — the link opens a public form
+                      for this project.
+                    </Typography>
+                    {ciLink ? (
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <TextField
+                          value={ciLink}
+                          size="small"
+                          fullWidth
+                          InputProps={{ readOnly: true }}
+                          onFocus={(e) => e.target.select()}
+                        />
+                        <Button size="small" onClick={() => void navigator.clipboard?.writeText(ciLink)}>
+                          Copy
+                        </Button>
+                      </Stack>
+                    ) : (
+                      canMintCustomerInfo && (
+                        <Button size="small" variant="outlined" onClick={() => void mintCustomerInfoLink()} disabled={ciBusy || !customer?.id}>
+                          {ciBusy ? "Creating…" : "Get customer information link"}
+                        </Button>
+                      )
+                    )}
+                    {ciLink && ciReused && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                        This project already had an unused link — reusing it. Anything already sent still works.
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+              </Box>
+            )}
           </Box>
         )}
 

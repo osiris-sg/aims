@@ -168,10 +168,20 @@ export default function AdditionalDetails() {
   return (
     <Stack spacing={3}>
       {/* OSI-84 — contact people for this project (from the customer's list). */}
+      {/* Roles are hidden here: this form saves a plain contactIds list through
+          create/update project, so a ticked DO/Invoice would be dropped on save.
+          Roles are set on the scheduling dialog, which posts the link shape. */}
       <ProjectContactPicker
         customerId={customerId ?? null}
-        value={contactIds}
-        onChange={(ids) => setValue("contactIds", ids, { shouldDirty: true })}
+        value={(contactIds ?? []).map((contactId: string) => ({ contactId, group: null }))}
+        onChange={(next) =>
+          setValue(
+            "contactIds",
+            Array.from(new Set(next.map((a) => a.contactId))),
+            { shouldDirty: true },
+          )
+        }
+        showRoles={false}
         label="Project contacts"
       />
 

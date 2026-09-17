@@ -1328,8 +1328,14 @@ export class ProjectsService {
       }
       // OSI-84 — attach the chosen contact people (validated against the
       // project's customer inside setProjectContacts).
+      // contactIds on the create DTO stay a plain id list — creating a project
+      // has no role UI. They land ungrouped, exactly as before.
       if (createProjectDto.contactIds?.length) {
-        await this.setProjectContacts(project.id, organizationId, createProjectDto.contactIds);
+        await this.setProjectContacts(
+          project.id,
+          organizationId,
+          createProjectDto.contactIds.map((contactId) => ({ contactId, group: null })),
+        );
       }
       return project;
     } catch (error) {
@@ -1410,7 +1416,11 @@ export class ProjectsService {
 
       // OSI-84 — replace the project's contact set only when contactIds is sent.
       if (contactIds !== undefined) {
-        await this.setProjectContacts(id, organizationId, contactIds);
+        await this.setProjectContacts(
+          id,
+          organizationId,
+          contactIds.map((contactId) => ({ contactId, group: null })),
+        );
       }
 
       return project;
@@ -1419,9 +1429,17 @@ export class ProjectsService {
     }
   }
 
-  // OSI-84 — the project's attached contact people (flattened to the
-  // CustomerContact records, ordered by attach time). Powers the form prefill
-  // and the eventual "email every contact after a DO completes" fan-out.
+  // OSI-84 — the project's attached contacts, as LINKS, ordered by attach time.
+  //
+  // Returns one entry PER LINK, not per person: `{ linkId, group, source,
+  // createdAt, contact }`. The same shape customer-info's getProjectView already
+  // returns, deliberately, so the two views of the same rows agree.
+  //
+  // This USED to dedupe by person and drop `group` entirely, which made roles
+  // invisible to its only consumer (the delivery contact picker). Now that one
+  // person can legitimately hold both a DO and an INVOICE link on one project,
+  // collapsing them would hide exactly the distinction the picker exists to show.
+  // Callers that want people, not links, dedupe on `contact.id` themselves.
   async getProjectContacts(projectId: string, organizationId: string) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, organizationId },
@@ -1437,72 +1455,89 @@ export class ProjectsService {
         },
       },
     });
-    // UNIQUE BY PERSON. This returns PEOPLE, not links, and its only consumer is
-    // the delivery contact picker (which maps straight to ids for its selection
-    // state). One person can already hold a DO row and — once the unique
-    // constraint is widened — an INVOICE row on the same project, and the picker
-    // must not then list them twice. Oldest link wins, preserving the createdAt
-    // ordering the picker relies on.
-    const seen = new Set<string>();
     return links
-      .map((l) => l.customerContact)
-      .filter((c) => {
-        if (!c || seen.has(c.id)) return false;
-        seen.add(c.id);
-        return true;
-      });
+      .filter((l) => !!l.customerContact)
+      .map((l) => ({
+        linkId: l.id,
+        group: l.group, // 'DO' | 'INVOICE' | null
+        source: l.source, // 'PICKER' | 'ACCEPT'
+        createdAt: l.createdAt,
+        contact: l.customerContact,
+      }));
   }
 
-  // OSI-84 — replace the project's contact set with contactIds. Each id must be
-  // a CustomerContact of THIS org and (when the project has a customer) of that
-  // same customer, so another customer's people can never be linked. Unknown /
-  // cross-customer ids are dropped rather than throwing (the picker only offers
-  // valid ones; this just hard-guards the write).
-  async setProjectContacts(projectId: string, organizationId: string, contactIds: string[]) {
+  // OSI-84 — replace the project's PICKER-owned contact set.
+  //
+  // Each entry is `{ contactId, group }` where group is 'DO' | 'INVOICE' | null.
+  // Every contactId must be a CustomerContact of THIS org and (when the project
+  // has a customer) of that same customer, so another customer's people can never
+  // be linked. Unknown / cross-customer ids are dropped rather than throwing (the
+  // picker only offers valid ones; this just hard-guards the write).
+  async setProjectContacts(
+    projectId: string,
+    organizationId: string,
+    entries: Array<{ contactId: string; group?: string | null }>,
+  ) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, organizationId },
       select: { id: true, customerId: true },
     });
     if (!project) throw new HttpException('Project not found', HttpStatus.NOT_FOUND);
 
-    const ids = [...new Set((contactIds || []).filter(Boolean))];
-    let validIds: string[] = [];
-    if (ids.length) {
+    // Normalise + dedupe on (contactId, group) — the same key the unique index
+    // uses — so sending a person twice for one role collapses instead of racing
+    // the constraint.
+    const seen = new Set<string>();
+    const wanted: Array<{ contactId: string; group: string | null }> = [];
+    for (const e of entries || []) {
+      const contactId = e?.contactId;
+      if (!contactId) continue;
+      const group = e.group === 'DO' || e.group === 'INVOICE' ? e.group : null;
+      const key = `${contactId}|${group ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      wanted.push({ contactId, group });
+    }
+
+    let valid = wanted;
+    if (wanted.length) {
       const contacts = await this.prisma.customerContact.findMany({
         where: {
-          id: { in: ids },
+          id: { in: [...new Set(wanted.map((w) => w.contactId))] },
           customer: { organizationId },
           ...(project.customerId ? { customerId: project.customerId } : {}),
         },
         select: { id: true },
       });
-      validIds = contacts.map((c) => c.id);
+      const allowed = new Set(contacts.map((c) => c.id));
+      valid = wanted.filter((w) => allowed.has(w.contactId));
     }
 
     // Replace the set atomically — but ONLY the rows this picker owns.
     //
-    // OWNERSHIP: a row with `group` NULL was attached here; a row with a group
-    // ('DO' | 'INVOICE') came from the customer-info ACCEPT path. This used to
-    // deleteMany({ projectId }) — every row — so scheduling a delivery silently
-    // erased the accepted groupings the office had just approved. The accept
-    // path already shows the matching restraint (it only detaches group-set
-    // rows), and this makes the two writers symmetric: each removes what it
-    // created and leaves the other's rows alone.
+    // OWNERSHIP IS `source`, NOT `group`-nullness. It used to be the latter: a
+    // null group meant the picker attached it, a set group meant the customer-info
+    // ACCEPT path did. That inference only held while the picker could not set a
+    // role, and it now can — a picker row with group 'DO' would have been read as
+    // accept-owned and this writer would have refused to clean up after itself,
+    // while accept would have deleted it. `source` records ownership outright, so
+    // the two writers stay symmetric: each removes what it created.
     //
-    // Every ProjectContact in prod today has group NULL, so all of them remain
-    // picker-owned and this changes nothing for existing data.
-    //
-    // Selecting a person who ALREADY holds an accepted (group-set) row is a
-    // no-op: the insert collides on @@unique([projectId, customerContactId])
-    // and skipDuplicates drops it, leaving the accepted row — with its group —
-    // standing. That is the intended outcome; the picker must not silently
-    // demote an accepted contact to ungrouped.
+    // Selecting a person who ALREADY holds an ACCEPT row for the same role is a
+    // no-op: the insert collides on the (projectId, customerContactId, group)
+    // unique index and skipDuplicates drops it, leaving the accepted row standing.
+    // That is intended — the picker must not silently reclaim an accepted contact.
     await this.prisma.$transaction([
-      this.prisma.projectContact.deleteMany({ where: { projectId, group: null } }),
-      ...(validIds.length
+      this.prisma.projectContact.deleteMany({ where: { projectId, source: 'PICKER' } }),
+      ...(valid.length
         ? [
             this.prisma.projectContact.createMany({
-              data: validIds.map((customerContactId) => ({ projectId, customerContactId })),
+              data: valid.map((v) => ({
+                projectId,
+                customerContactId: v.contactId,
+                group: v.group,
+                source: 'PICKER',
+              })),
               skipDuplicates: true,
             }),
           ]

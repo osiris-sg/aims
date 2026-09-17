@@ -1345,13 +1345,38 @@ model ProjectContact {
   // Null means "unclassified, treat as before" — projectFirstContactAttention
   // ignores it entirely, so existing DO/RDO Attention is unaffected.
   group             String?
+  // WHICH WRITER OWNS THIS ROW: 'PICKER' (the delivery contact picker) or
+  // 'ACCEPT' (the customer-info accept path). Each writer replaces only its own
+  // rows and leaves the other's alone.
+  //
+  // This used to be inferred from `group` being null — picker rows had no group,
+  // accept rows always did. That inference dies the moment the picker can set a
+  // role itself, which is exactly what the role-aware picker does, so ownership
+  // is now recorded explicitly instead of guessed.
+  //
+  // Backfilled as: group IS NULL -> 'PICKER', group IS NOT NULL -> 'ACCEPT',
+  // which reproduces the old split exactly (11 PICKER / 2 ACCEPT).
+  source            String   @default("PICKER")
   createdAt         DateTime @default(now())
 
   project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   customerContact CustomerContact @relation(fields: [customerContactId], references: [id], onDelete: Cascade)
 
-  // A contact is attached to a project at most once.
-  @@unique([projectId, customerContactId])
+  // A contact is attached to a project at most once PER ROLE, so one person can
+  // be the DO contact and the Invoice contact on the same project.
+  //
+  // ⚠ SCHEMA DRIFT — READ BEFORE `db:push`. The live index is created BY HAND as:
+  //
+  //     CREATE UNIQUE INDEX "ProjectContact_projectId_customerContactId_group_key"
+  //       ON "ProjectContact" ("projectId","customerContactId","group")
+  //       NULLS NOT DISTINCT;
+  //
+  // Prisma cannot express NULLS NOT DISTINCT on @@unique, so what it generates
+  // from the line below is the PLAIN form, in which Postgres treats every NULL as
+  // distinct — and the picker could then attach the same person twice with no
+  // role, silently, forever. `db:push` will therefore try to replace the hand-made
+  // index with the weaker one. If it does, re-apply the statement above.
+  @@unique([projectId, customerContactId, group])
   @@index([projectId])
   @@index([customerContactId])
 }
