@@ -72,7 +72,10 @@ interface RunDetail {
   customerId: string | null;
   // findById includes both (null until assigned).
   project: { id: string; name: string } | null;
-  customer: { id: string; name: string } | null;
+  // customerCode rides along so the edit dialog's customer box can render
+  // "<name> · <code>" instead of a bare name. `customer: run.customer` forwards
+  // the whole object, so declaring it here is all that was needed.
+  customer: { id: string; name: string; customerCode?: string | null } | null;
   // Derived by the backend: the single distinct DO across linked items, else null.
   // saleOrderId: the pointer to the SALES_ORDER document this run is against,
   // read off the DO's config by findById. It MUST be declared and forwarded —

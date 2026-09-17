@@ -1844,7 +1844,12 @@ export class DeliveriesService {
         },
         // Current drop target — prefills the in-flow assignment picker.
         project: { select: { id: true, name: true } },
-        customer: { select: { id: true, name: true } },
+        // customerCode is needed by the EDIT dialog: its customer field renders
+        // as "<name> · <code>", so without it the box reads as a bare name and
+        // the office cannot tell two similarly-named customers apart. The
+        // dialog already accepts it (EditRun.customer.customerCode) and the run
+        // detail page forwards it — this select was the only thing withholding it.
+        customer: { select: { id: true, name: true, customerCode: true } },
       },
     });
     if (!delivery) throw new NotFoundException('Delivery not found');
