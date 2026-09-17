@@ -5,10 +5,8 @@ import {
   Autocomplete,
   Box,
   Button,
-  Checkbox,
   Chip,
   CircularProgress,
-  FormControlLabel,
   Grid,
   Stack,
   TextField,
@@ -62,10 +60,19 @@ interface Props {
   onChange: (next: ContactAssignment[]) => void;
   disabled?: boolean;
   label?: string;
-  // Show the per-person DO / Invoice checkboxes. Off for callers whose save path
-  // cannot carry a role (the project create/edit form posts a plain id list) —
-  // rendering the checkboxes there would silently discard whatever was ticked.
-  showRoles?: boolean;
+  // Show the read-only "Selected contact details" panel (name / mobile / email).
+  // OFF for the schedule-delivery dialog: contacts there come from the customer
+  // information form and the office is only CHOOSING between them, not reading
+  // or editing their details. The New Project wizard keeps it — it has no
+  // submission to draw from, so the details are the only way to tell two
+  // similarly-named people apart.
+  //
+  // (This replaces the old `showRoles`, which gated per-contact DO/Invoice
+  // checkboxes. Those are gone: the wizard already had them off because its
+  // save path posts a plain id list, and the dialog now shows roles as chips
+  // rather than editing them here. Roles are assigned by the customer on the
+  // information form.)
+  showDetails?: boolean;
   // Offer the "add a new contact" affordance (the inline Add "<name>" option and
   // the new-contact form). OFF for the schedule-delivery dialog: contacts there
   // must arrive through the customer information form so the customer states who
@@ -80,7 +87,7 @@ interface Props {
 type Option = ContactLite & { __isAdd?: boolean };
 const filter = createFilterOptions<Option>();
 
-export default function ProjectContactPicker({ customerId, value, onChange, disabled, label, showRoles = true, allowAddContact = true }: Props) {
+export default function ProjectContactPicker({ customerId, value, onChange, disabled, label, showDetails = true, allowAddContact = true }: Props) {
   const { getToken } = useAuth();
   const [options, setOptions] = useState<ContactLite[]>([]);
   const [loading, setLoading] = useState(false);
@@ -103,24 +110,47 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
   }, [value]);
   const selected: Option[] = options.filter((o) => selectedIds.includes(o.id));
 
-  const hasRole = (contactId: string, group: "DO" | "INVOICE") =>
-    value.some((a) => a.contactId === contactId && a.group === group);
+  // The roles this person holds ON THIS PROJECT, read off `value` (the project
+  // links). The Autocomplete's own options come from GET /customers/:id, which
+  // carries no role information — so the chips must be derived here, not from
+  // the option. A person can legitimately hold BOTH (the unique index is
+  // (projectId, customerContactId, group)), so this returns a list.
+  const rolesFor = (contactId: string): Array<"DO" | "INVOICE"> => {
+    const out: Array<"DO" | "INVOICE"> = [];
+    for (const a of value) {
+      if (a.contactId !== contactId) continue;
+      if ((a.group === "DO" || a.group === "INVOICE") && !out.includes(a.group)) out.push(a.group);
+    }
+    return out;
+  };
 
-  // Ticking a role replaces this person's ungrouped entry (a person is either
-  // ungrouped or has roles, never both — an ungrouped link alongside a DO link
-  // would double-count them in the Attention ordering). Unticking the last role
-  // drops them back to ungrouped rather than detaching them, so the checkbox
-  // never silently removes someone the office deliberately picked.
-  const toggleRole = (contactId: string, group: "DO" | "INVOICE") => {
-    const others = value.filter((a) => a.contactId !== contactId);
-    const mine = value.filter((a) => a.contactId === contactId);
-    const roles = new Set(mine.map((a) => a.group).filter((g): g is "DO" | "INVOICE" => g !== null));
-    if (roles.has(group)) roles.delete(group);
-    else roles.add(group);
-    const rebuilt: ContactAssignment[] = roles.size
-      ? Array.from(roles).map((g) => ({ contactId, group: g }))
-      : [{ contactId, group: null }];
-    onChange([...others, ...rebuilt]);
+  // One chip per role, plus "Main" when the person is the customer's primary.
+  // NOTHING is rendered for a contact with no role: eleven of the thirteen
+  // project links in production are role-less, so a "No role" chip would fire on
+  // nearly every row and read as an error rather than information. What the
+  // office needs to know when a project has no roles at all — that it has none —
+  // is already said once, plainly, by the coverage chips above the picker.
+  // "Main" matters because it is what the DO's Attention falls back to.
+  const roleChips = (c: ContactLite) => {
+    const roles = rolesFor(c.id);
+    if (!roles.length && !c.isPrimary) return null;
+    return (
+      <>
+        {roles.map((r) => (
+          <Chip
+            key={r}
+            size="small"
+            label={r === "DO" ? "DO" : "Invoice"}
+            color={r === "DO" ? "primary" : "default"}
+            variant="outlined"
+            sx={{ height: 20, fontSize: "0.7rem" }}
+          />
+        ))}
+        {c.isPrimary && (
+          <Chip key="main" size="small" label="Main" variant="outlined" sx={{ height: 20, fontSize: "0.7rem" }} />
+        )}
+      </>
+    );
   };
 
   // Load the customer's contact list (the customer detail already includes it).
@@ -204,6 +234,27 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
         getOptionLabel={(o) => (o.__isAdd ? `Add "${o.name}"` : `${o.name}${o.designation ? ` (${o.designation})` : ""}`)}
         isOptionEqualToValue={(a, b) => a.id === b.id}
         filterSelectedOptions
+        // Name + role chips on each row, so DO and Invoice are distinguishable
+        // without opening anything. getOptionLabel stays plain text — it feeds
+        // the search filter and the input value, which must not contain markup.
+        renderOption={(props, o) => {
+          const { key, ...liProps } = props as React.HTMLAttributes<HTMLLIElement> & { key?: string };
+          return (
+            <li key={key ?? o.id} {...liProps}>
+              <Stack direction="row" spacing={0.75} alignItems="center" sx={{ width: "100%" }}>
+                <Typography variant="body2" sx={{ flex: 1 }}>
+                  {o.__isAdd ? `Add "${o.name}"` : o.name}
+                  {!o.__isAdd && o.designation ? (
+                    <Typography component="span" variant="caption" color="text.secondary">
+                      {` (${o.designation})`}
+                    </Typography>
+                  ) : null}
+                </Typography>
+                {!o.__isAdd && roleChips(o)}
+              </Stack>
+            </li>
+          );
+        }}
         // Surface an inline "Add '<name>'" row when the typed text matches no
         // existing contact — picking it OPENS the new-contact form prefilled so
         // mobile and email can be entered before saving.
@@ -233,10 +284,25 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
             .map((contactId) => ({ contactId, group: null as null }));
           onChange([...kept, ...added]);
         }}
+        // The tag carries the role, not just the name — once a contact is
+        // selected it leaves the dropdown (filterSelectedOptions), so the tag is
+        // the ONLY place the office can still see whether this is the DO or the
+        // Invoice person. A group header in the list would vanish at exactly the
+        // moment it became useful.
         renderTags={(vals, getTagProps) =>
           vals.map((v, i) => {
             const { key, ...chipProps } = getTagProps({ index: i });
-            return <Chip key={v.id} label={v.name} {...chipProps} />;
+            const roles = rolesFor(v.id);
+            const suffix = roles.length ? ` · ${roles.map((r) => (r === "DO" ? "DO" : "Invoice")).join(" + ")}` : "";
+            return (
+              <Chip
+                key={v.id}
+                label={`${v.name}${suffix}`}
+                color={roles.includes("DO") ? "primary" : "default"}
+                variant={roles.length ? "filled" : "outlined"}
+                {...chipProps}
+              />
+            );
           })
         }
         renderInput={(params) => (
@@ -275,8 +341,10 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
       />
 
       {/* Selected contacts — details shown READ ONLY (they persist on the
-          CustomerContact; edit them from the customer's page). */}
-      {selected.length > 0 && (
+          CustomerContact; edit them from the customer's page). Hidden when
+          showDetails is false: the scheduling dialog is a CHOOSING surface, not
+          an editing one, and the role now reads off the chips in the field. */}
+      {showDetails && selected.length > 0 && (
         <Box>
           <Typography variant="caption" color="text.secondary">
             Selected contact details
@@ -295,22 +363,6 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
                     <TextField label="Email" value={c.email || ""} size="small" fullWidth InputProps={{ readOnly: true }} />
                   </Grid>
                 </Grid>
-                {showRoles && (
-                <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 0.5 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Role on this project:
-                  </Typography>
-                  <FormControlLabel
-                    control={<Checkbox size="small" checked={hasRole(c.id, "DO")} onChange={() => toggleRole(c.id, "DO")} />}
-                    label={<Typography variant="body2">Delivery (DO)</Typography>}
-                  />
-                  <FormControlLabel
-                    control={<Checkbox size="small" checked={hasRole(c.id, "INVOICE")} onChange={() => toggleRole(c.id, "INVOICE")} />}
-                    label={<Typography variant="body2">Invoice</Typography>}
-                  />
-                  {c.isPrimary && <Chip size="small" label="Main" variant="outlined" />}
-                </Stack>
-                )}
               </Box>
             ))}
           </Stack>

@@ -941,16 +941,20 @@ export default function ScheduleDeliveryDialog({
             DO's Attention uses the FIRST selected contact (primary-first). */}
         {project && (
           <Box sx={{ mb: 2 }}>
-            {/* allowAddContact={false}: contacts arrive through the customer
-                information form, not by the office typing them in. The PICKER
-                stays — it is how the office chooses between two submitted DO
-                contacts and corrects a bad submission, which otherwise needs a
-                whole new link. Only the "add a new contact" affordance goes. */}
+            {/* A CHOOSING surface, not an editing one. Contacts arrive through
+                the customer information form, so this dialog neither creates
+                them (allowAddContact) nor shows their details (showDetails) nor
+                assigns their roles. The PICKER stays — it is how the office
+                chooses between two submitted DO contacts and corrects a bad
+                submission, which otherwise needs a whole new link. The role
+                rides on each chip so DO and Invoice are tellable apart at a
+                glance. */}
             <ProjectContactPicker
               customerId={customer?.id ?? null}
               value={projectContacts}
               onChange={(next) => void saveProjectContacts(next)}
               allowAddContact={false}
+              showDetails={false}
               label="Project contacts"
             />
             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>

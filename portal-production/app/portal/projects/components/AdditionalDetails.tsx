@@ -168,9 +168,12 @@ export default function AdditionalDetails() {
   return (
     <Stack spacing={3}>
       {/* OSI-84 — contact people for this project (from the customer's list). */}
-      {/* Roles are hidden here: this form saves a plain contactIds list through
-          create/update project, so a ticked DO/Invoice would be dropped on save.
-          Roles are set on the scheduling dialog, which posts the link shape. */}
+      {/* The wizard keeps the read-only detail fields (showDetails defaults to
+          true) and the add-contact affordance: a brand-new project has no
+          customer-information submission to draw from, so this is where its
+          first contacts come from and the details are the only way to tell two
+          similarly-named people apart. Roles are not settable here — this form
+          saves a plain contactIds list, so a role would be dropped on save. */}
       <ProjectContactPicker
         customerId={customerId ?? null}
         value={(contactIds ?? []).map((contactId: string) => ({ contactId, group: null }))}
@@ -181,7 +184,6 @@ export default function AdditionalDetails() {
             { shouldDirty: true },
           )
         }
-        showRoles={false}
         label="Project contacts"
       />
 
