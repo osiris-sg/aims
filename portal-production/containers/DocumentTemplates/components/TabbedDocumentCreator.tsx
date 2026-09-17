@@ -236,6 +236,38 @@ interface DocumentCreatorProps {
   initialPreviewMode?: boolean;
 }
 
+/**
+ * Customer.address -> the Bill To block, one component per line.
+ *
+ * Addresses are stored as ONE comma-separated string ("55 Sungei Kadut Loop,
+ * Singapore 729498, Attn: Ms Karen Heah") — zero of the 196 addresses in
+ * production contain a newline — while every Bill To renderer uses
+ * `whiteSpace: "pre-line"`. So the renderer has always been ready for lines;
+ * only the stored value had none, and it printed as one wrapping paragraph.
+ *
+ * SPLITS ONLY. It never appends. 41% of addresses already end with their own
+ * "Attn:" line, and adding a second is exactly how BI202609066 came to print
+ * "Attn: Accounts Dept." twice. It also never prefixes the customer NAME: every
+ * branch renders the name separately, bold, in its own <Typography> directly
+ * above this block, so a name here would print it twice.
+ *
+ * Empty segments are dropped, which is what makes a double comma safe —
+ * "47 Kallang Pudding Rd,, #12-01" yields two lines, not a blank one between
+ * them. (The hand-made billTo on QJI-GCC's invoice has exactly that stray blank
+ * line, from someone doing this by hand.)
+ *
+ * An address using a separator other than a comma — TANGLIN's
+ * "217 UPPER BUKIT TIMAH ROAD · SINGAPORE 588185" — comes back as one line.
+ * That is deliberate: splitting what is not there would be guessing.
+ */
+export function addressToBillTo(address?: string | null): string {
+  return String(address ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
 export default function TabbedDocumentCreator({
   documentType,
   actualDocumentType,
@@ -1367,9 +1399,25 @@ export default function TabbedDocumentCreator({
   }, [formData.customer?.id, projects]);
 
   // Fill in customer details from customers list if missing
+  // SEED ONCE PER CUSTOMER. The effect below both READS these fields (they are
+  // in its dependency list, and `needsUpdate` is computed from them) and WRITES
+  // them — so clearing one re-triggered the effect, which immediately refilled
+  // it. Emptying the Contact field on a Tenda invoice snapped straight back to
+  // 6222 6666, the customer's master phone, and the field could not be left
+  // blank at all. Same loop for customer address and customer code.
+  //
+  // This ref records which customer has already been seeded, so the fill runs
+  // on the FIRST sight of a customer (a freshly loaded document with gaps, or a
+  // newly picked customer) and never again for that customer. A deliberate
+  // clear then sticks. Picking a different customer seeds that one afresh.
+  const seededCustomerRef = useRef<string | null>(null);
+
   useEffect(() => {
     // Only run if we have a customer ID and customers list is loaded
     if (formData.customer?.id && customers?.length > 0) {
+      // Already seeded for this customer — the user owns these fields now,
+      // including the right to empty them.
+      if (seededCustomerRef.current === formData.customer.id) return;
       const customer = customers.find((c: any) => c.id === formData.customer.id);
       if (customer) {
         // Seed documentInfo.contact from the customer's phone when it's empty
@@ -1380,6 +1428,9 @@ export default function TabbedDocumentCreator({
           !formData.customer?.address ||
           !formData.customer?.customerCode ||
           contactNeedsSeed;
+        // Stamp BEFORE the write: whether or not there was a gap to fill, this
+        // customer has now been seen, so nothing may re-seed it later.
+        seededCustomerRef.current = formData.customer.id;
         if (needsUpdate) {
           console.log('Filling in missing customer details from customers list:', customer);
           setFormDataState((prev: any) => ({
@@ -1402,16 +1453,24 @@ export default function TabbedDocumentCreator({
             // through the Locate Customer dialog. The `prev.billTo ||` guard is
             // what keeps it from clobbering a deliberately hand-edited block;
             // only an explicit customer swap is allowed to overwrite one.
-            billTo: prev.billTo || customer.address || "",
+            billTo: prev.billTo || addressToBillTo(customer.address),
           }));
         }
       }
     }
   }, [customers, formData.customer?.id, formData.customer?.address, formData.customer?.customerCode, formData.documentInfo?.contact]);
 
-  // Fill in company details from organization if missing
+  // Fill in company details from organization if missing.
+  // Same seed-once guard as the customer effect above, for the same reason: this
+  // reads formData.company?.gstRegNo as its trigger and writes it, so clearing
+  // the GST number refilled it — and dragged company name, address and phone
+  // back with it.
+  const seededCompanyRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (organization && !formData.company?.gstRegNo) {
+      if (seededCompanyRef.current === (organization.id ?? "org")) return;
+      seededCompanyRef.current = organization.id ?? "org";
       console.log('Filling in company gstRegNo from organization:', organization.registrationNumber);
       setFormDataState((prev: any) => ({
         ...prev,
@@ -7742,7 +7801,7 @@ export default function TabbedDocumentCreator({
               // An empty address writes "", which is correct: the renderers then
               // fall through to customerAddress, and the fill-if-empty effect
               // below has nothing better to offer either.
-              billTo: customer.address || "",
+              billTo: addressToBillTo(customer.address),
               documentInfo: {
                 ...formData.documentInfo,
                 ...(salesmanCode ? { salesPerson: salesmanCode } : {}),
