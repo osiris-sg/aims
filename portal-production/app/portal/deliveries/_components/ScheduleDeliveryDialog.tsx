@@ -960,14 +960,22 @@ export default function ScheduleDeliveryDialog({
                 chooses between two submitted DO contacts and corrects a bad
                 submission, which otherwise needs a whole new link. The role
                 rides on each chip so DO and Invoice are tellable apart at a
-                glance. */}
+                glance.
+
+                roleView="DELIVERY" narrows the VIEW to the people a delivery is
+                about — the DO contacts, or everything ungrouped on a project
+                that has no roles — using the same fallback the DO's Attention
+                resolver uses. It does NOT narrow what is saved: hidden links
+                ride back out through onChange, because this dialog's save
+                replaces the project's whole picker-owned set. */}
             <ProjectContactPicker
               customerId={customer?.id ?? null}
               value={projectContacts}
               onChange={(next) => void saveProjectContacts(next)}
               allowAddContact={false}
               showDetails={false}
-              label="Project contacts"
+              roleView="DELIVERY"
+              label="Delivery contacts"
             />
 
             {/* Missing a role -> show the customer-information link outright.

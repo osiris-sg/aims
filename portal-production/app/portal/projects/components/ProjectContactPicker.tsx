@@ -80,6 +80,17 @@ interface Props {
   // The picker itself stays — choosing between two submitted DO contacts, and
   // correcting a bad submission, are exactly what it is for.
   allowAddContact?: boolean;
+  // Which links to DISPLAY. "ALL" shows every link on the project. "DELIVERY"
+  // shows the people a delivery is actually about, using the SAME fallback the
+  // DO's Attention resolver uses: the DO contacts where any exists, otherwise
+  // everything ungrouped.
+  //
+  // DISPLAY ONLY. It never changes what is saved. The save path replaces the
+  // whole PICKER-owned set for the project, so anything filtered out of view
+  // MUST still travel in `value` and back out through `onChange` — see
+  // `hiddenAssignments` below. Filtering the payload instead would delete the
+  // hidden links the moment the office pressed save.
+  roleView?: "ALL" | "DELIVERY";
 }
 
 // An in-dropdown "Add '<name>'" row — a synthetic option that is not a real
@@ -87,7 +98,7 @@ interface Props {
 type Option = ContactLite & { __isAdd?: boolean };
 const filter = createFilterOptions<Option>();
 
-export default function ProjectContactPicker({ customerId, value, onChange, disabled, label, showDetails = true, allowAddContact = true }: Props) {
+export default function ProjectContactPicker({ customerId, value, onChange, disabled, label, showDetails = true, allowAddContact = true, roleView = "ALL" }: Props) {
   const { getToken } = useAuth();
   const [options, setOptions] = useState<ContactLite[]>([]);
   const [loading, setLoading] = useState(false);
@@ -101,13 +112,35 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
   const [newPhone, setNewPhone] = useState("");
   const [newEmail, setNewEmail] = useState("");
 
-  // Distinct PEOPLE currently assigned, in the order they first appear — the
-  // Autocomplete selects people, the checkboxes below assign their roles.
+  // ── WHAT IS DISPLAYED vs WHAT IS SAVED ──────────────────────────────────────
+  // The rule mirrors projectFirstContactAttention exactly: prefer group 'DO',
+  // and fall through to the ungrouped links when the project has no DO at all.
+  // Deliberately a fallback and not a DO-only filter: six of the seven projects
+  // with contacts carry no role whatsoever, so a strict filter would show them
+  // as having nobody — and, because the save replaces the picker-owned set,
+  // pressing save would then DELETE every one of those links.
+  const hasDoLink = value.some((a) => a.group === "DO");
+  const isDisplayed = React.useCallback(
+    (a: ContactAssignment) => {
+      if (roleView !== "DELIVERY") return true;
+      return hasDoLink ? a.group === "DO" : a.group === null;
+    },
+    [roleView, hasDoLink],
+  );
+
+  // Everything the filter hides. These are carried through UNCHANGED on every
+  // onChange, so the payload the dialog PUTs still contains them and the
+  // replace-the-set save leaves them standing. This is the whole safety
+  // mechanism: the picker narrows the VIEW, never the value.
+  const hiddenAssignments = React.useMemo(() => value.filter((a) => !isDisplayed(a)), [value, isDisplayed]);
+  const visibleAssignments = React.useMemo(() => value.filter((a) => isDisplayed(a)), [value, isDisplayed]);
+
+  // Distinct PEOPLE among the VISIBLE links, in the order they first appear.
   const selectedIds = React.useMemo(() => {
     const seen: string[] = [];
-    for (const a of value) if (!seen.includes(a.contactId)) seen.push(a.contactId);
+    for (const a of visibleAssignments) if (!seen.includes(a.contactId)) seen.push(a.contactId);
     return seen;
-  }, [value]);
+  }, [visibleAssignments]);
   const selected: Option[] = options.filter((o) => selectedIds.includes(o.id));
 
   // The roles this person holds ON THIS PROJECT, read off `value` (the project
@@ -212,7 +245,7 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
         onChange(
           value.some((a) => a.contactId === created.id)
             ? value
-            : [...value, { contactId: created.id, group: null }],
+            : [...value, { contactId: created.id, group: roleView === "DELIVERY" && hasDoLink ? "DO" : null }],
         );
         resetAddForm();
       }
@@ -274,15 +307,23 @@ export default function ProjectContactPicker({ customerId, value, onChange, disa
             setAddOpen(true);
             return;
           }
-          // Adding a person attaches them ungrouped; removing one drops all of
-          // their role entries. Roles already assigned to people who stay are
-          // preserved untouched.
+          // The Autocomplete only ever knows about the VISIBLE links, so this
+          // reconciles the visible set and then puts the hidden ones back
+          // untouched. Without that re-emit, the dialog would PUT a payload
+          // missing them and the replace-the-set save would delete them — e.g.
+          // 18 Holland Drive's Invoice contact, which a delivery never shows.
           const nextIds = newValue.map((c) => c.id);
-          const kept = value.filter((a) => nextIds.includes(a.contactId));
+          const keptVisible = visibleAssignments.filter((a) => nextIds.includes(a.contactId));
+          // A person added on a DELIVERY view lands as a DO contact when the
+          // project is already DO-organised — otherwise the fallback would hide
+          // them the instant they were added. On a project with no roles they
+          // land ungrouped, matching everyone else there.
+          const addGroup: "DO" | null = roleView === "DELIVERY" && hasDoLink ? "DO" : null;
           const added = nextIds
-            .filter((id) => !value.some((a) => a.contactId === id))
-            .map((contactId) => ({ contactId, group: null as null }));
-          onChange([...kept, ...added]);
+            .filter((id) => !visibleAssignments.some((a) => a.contactId === id))
+            .filter((id) => !hiddenAssignments.some((a) => a.contactId === id && a.group === addGroup))
+            .map((contactId) => ({ contactId, group: addGroup }));
+          onChange([...hiddenAssignments, ...keptVisible, ...added]);
         }}
         // The tag carries the role, not just the name — once a contact is
         // selected it leaves the dropdown (filterSelectedOptions), so the tag is

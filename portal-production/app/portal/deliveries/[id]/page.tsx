@@ -74,7 +74,12 @@ interface RunDetail {
   project: { id: string; name: string } | null;
   customer: { id: string; name: string } | null;
   // Derived by the backend: the single distinct DO across linked items, else null.
-  document: { id: string; name: string | null; type: string; status: string; poNo?: string | null; machineLocation?: string | null } | null;
+  // saleOrderId: the pointer to the SALES_ORDER document this run is against,
+  // read off the DO's config by findById. It MUST be declared and forwarded —
+  // the edit dialog restores its Sales Order selection from it, and scheduling
+  // now requires one, so dropping it forces the office to re-pick before they
+  // can save an edit.
+  document: { id: string; name: string | null; type: string; status: string; poNo?: string | null; saleOrderId?: string | null; machineLocation?: string | null } | null;
   items: Array<{
     id: string;
     quantity: number;
@@ -709,7 +714,13 @@ export default function DeliveryDetailPage() {
           project: run.project,
           siteAddress: run.siteAddress,
           scheduledFor: run.scheduledFor,
-          document: run.document ? { poNo: run.document.poNo, machineLocation: run.document.machineLocation } : null,
+          document: run.document
+            ? {
+                poNo: run.document.poNo,
+                saleOrderId: run.document.saleOrderId,
+                machineLocation: run.document.machineLocation,
+              }
+            : null,
           items: run.items.map((i) => ({ asset: i.asset, quantity: i.quantity, description: i.description, assetClass: i.assetClass })),
         }}
       />
