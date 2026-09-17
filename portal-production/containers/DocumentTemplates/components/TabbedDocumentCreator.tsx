@@ -1394,7 +1394,14 @@ export default function TabbedDocumentCreator({
               ...prev.documentInfo,
               contact: prev.documentInfo?.contact || customer.phone || "",
             },
-            // Also set billTo if it's empty
+            // Fill billTo only when it is EMPTY. Still load-bearing after the
+            // swap handler learned to overwrite it: this effect covers the paths
+            // where no swap happens — opening an older document saved before
+            // billTo was populated, and the prefill flows (quotation extract,
+            // DO -> invoice) that set formData.customer directly without going
+            // through the Locate Customer dialog. The `prev.billTo ||` guard is
+            // what keeps it from clobbering a deliberately hand-edited block;
+            // only an explicit customer swap is allowed to overwrite one.
             billTo: prev.billTo || customer.address || "",
           }));
         }
@@ -7713,6 +7720,29 @@ export default function TabbedDocumentCreator({
                 customerCode: customer.customerCode || "",
                 gstRegNo: (customer as any).gstRegNo || "",
               },
+              // BILL TO FOLLOWS THE CUSTOMER. Every renderer prefers billTo over
+              // customerAddress —
+              //   {data.billTo || data.customer?.address || data.customerAddress}
+              // in all ten CleanDocumentPreview branches and in the server-side
+              // PDF (document-html/invoice.ts) — so a billTo left behind by the
+              // previous customer keeps printing their name and address while
+              // every other field shows the new one. BI202609066 sat with
+              // "Sunpower Grand Holdings" over a Tenda invoice for exactly this
+              // reason, and it is invisible in the header fields: you only catch
+              // it by reading the rendered Bill To block.
+              //
+              // Written as the address is STORED on the Customer record, with no
+              // decoration — no name line, no appended "Attn:". 80 of 196
+              // customer addresses (41%) already end with their own Attn line,
+              // and appending another is how BI202609066 ended up printing
+              // "Attn: Accounts Dept." twice. The three backend writers
+              // (ingestion, sow, api-v1) all do plain `billTo: customer.address`;
+              // this matches them.
+              //
+              // An empty address writes "", which is correct: the renderers then
+              // fall through to customerAddress, and the fill-if-empty effect
+              // below has nothing better to offer either.
+              billTo: customer.address || "",
               documentInfo: {
                 ...formData.documentInfo,
                 ...(salesmanCode ? { salesPerson: salesmanCode } : {}),
