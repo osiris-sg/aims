@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { ActionLogService } from '../action-log/action-log.service';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
+import { resolveTier } from '../common/role-tier';
 import { S3Service } from '../common/services/s3.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UsersService } from '../users/users.service';
@@ -318,7 +319,13 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     if (opts.source) where.source = opts.source;
     if (opts.assignedToUserId) where.assignedToUserId = opts.assignedToUserId;
     // Designers only see their assigned leads.
-    if (await this.isPureDesigner(organizationId, opts.callerUserId)) where.assignedToUserId = opts.callerUserId;
+    // Hierarchy scoping: designers see their own leads; a Junior Manager sees
+    // the leads GIVEN to them or their team; senior/master see everything.
+    {
+      const scope = await resolveTier(this.prisma, organizationId, opts.callerUserId);
+      if (scope.tier === 'designer') where.assignedToUserId = opts.callerUserId;
+      else if (scope.tier === 'junior') where.assignedToUserId = { in: scope.teamUserIds || [opts.callerUserId] };
+    }
     if (opts.search?.trim()) {
       const s = opts.search.trim();
       where.OR = [
@@ -339,9 +346,14 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
 
   /** Funnel stats + per-designer conversion (the owners' ratios). */
   async stats(organizationId: string, callerUserId?: string) {
-    const selfOnly = await this.isPureDesigner(organizationId, callerUserId);
+    const scope = await resolveTier(this.prisma, organizationId, callerUserId);
+    const selfOnly = scope.tier === 'designer';
     const leads = await this.prisma.lead.findMany({
-      where: { organizationId, ...(selfOnly ? { assignedToUserId: callerUserId } : {}) },
+      where: {
+        organizationId,
+        ...(selfOnly ? { assignedToUserId: callerUserId } : {}),
+        ...(scope.tier === 'junior' ? { assignedToUserId: { in: scope.teamUserIds || [] } } : {}),
+      },
       select: { status: true, source: true, assignedToUserId: true, assignedToName: true, receivedAt: true, firstContactedAt: true },
     });
     const byStatus: Record<string, number> = {};
@@ -360,7 +372,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     // from and how each channel performs. Designer-only callers get null —
     // the panel is a management view.
     let insights: any = null;
-    if (!selfOnly) {
+    if (scope.tier === 'master' || scope.tier === 'senior') {
       const bySrc = new Map<string, { source: string; total: number; open: number; converted: number; dead: number }>();
       for (const l of leads) {
         const key = (l.source || 'manual').toLowerCase();
@@ -421,6 +433,9 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       deadPct: leads.length ? ((byStatus['dead'] || 0) / leads.length) * 100 : null,
       perDesigner: [...perDesigner.values()].sort((a, b) => b.taken - a.taken),
       insights,
+      // Lets the portal scope the assign picker: juniors may only hand leads
+      // to their own team (the server rejects the rest anyway).
+      viewer: { tier: scope.tier, teamUserIds: scope.tier === 'junior' ? scope.teamUserIds || [] : null },
     };
   }
 
@@ -786,17 +801,28 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
   async update(leadId: string, organizationId: string, dto: LeadDto, callerUserId?: string) {
     const existing = await this.prisma.lead.findFirst({ where: { id: leadId, organizationId } });
     if (!existing) throw new NotFoundException('Lead not found');
-    // Designer-only users work the funnel, they don't administer it: they may
-    // move THEIR OWN leads through statuses (+ notes), nothing else — no
-    // re-assigning, no editing the lead's captured details (guru 2026-09-16).
-    if (callerUserId && (await this.isPureDesigner(organizationId, callerUserId))) {
-      if (existing.assignedToUserId !== callerUserId) throw new NotFoundException('Lead not found');
-      const allowed: LeadDto = {};
-      if (dto.status !== undefined) allowed.status = dto.status;
-      if (dto.notes !== undefined) allowed.notes = dto.notes;
-      if (dto.quotationId !== undefined) allowed.quotationId = dto.quotationId;
-      if (dto.projectId !== undefined) allowed.projectId = dto.projectId;
-      dto = allowed;
+    // Hierarchy guard (guru 2026-09-19):
+    //  designer — may move THEIR OWN leads through statuses (+ notes) only.
+    //  junior   — works only leads given to them/their team, and may assign
+    //             ONLY to members of their own team.
+    //  senior/master — unrestricted.
+    if (callerUserId) {
+      const scope = await resolveTier(this.prisma, organizationId, callerUserId);
+      if (scope.tier === 'designer') {
+        if (existing.assignedToUserId !== callerUserId) throw new NotFoundException('Lead not found');
+        const allowed: LeadDto = {};
+        if (dto.status !== undefined) allowed.status = dto.status;
+        if (dto.notes !== undefined) allowed.notes = dto.notes;
+        if (dto.quotationId !== undefined) allowed.quotationId = dto.quotationId;
+        if (dto.projectId !== undefined) allowed.projectId = dto.projectId;
+        dto = allowed;
+      } else if (scope.tier === 'junior') {
+        const team = scope.teamUserIds || [callerUserId];
+        if (!existing.assignedToUserId || !team.includes(existing.assignedToUserId)) throw new NotFoundException('Lead not found');
+        if (dto.assignedToUserId !== undefined && dto.assignedToUserId && !team.includes(dto.assignedToUserId)) {
+          throw new BadRequestException('You can only assign leads to members of your team');
+        }
+      }
     }
     if (dto.status && !LEAD_STATUSES.includes(dto.status as any)) throw new BadRequestException('Unknown status');
     // Dead needs evidence: a lead can only be marked dead once the no-reply
@@ -846,10 +872,12 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
   async getOne(leadId: string, organizationId: string, callerUserId?: string) {
     const lead = await this.prisma.lead.findFirst({ where: { id: leadId, organizationId } });
     if (!lead) throw new NotFoundException('Lead not found');
-    // Designer-only users see only THEIR leads — someone else's id (guessed or
-    // leaked) 404s, same as the list scoping.
-    if (callerUserId && (await this.isPureDesigner(organizationId, callerUserId)) && lead.assignedToUserId !== callerUserId) {
-      throw new NotFoundException('Lead not found');
+    // Same row-scoping as the list: designers see only THEIR leads, juniors
+    // only their team's — a guessed/leaked id 404s.
+    if (callerUserId) {
+      const scope = await resolveTier(this.prisma, organizationId, callerUserId);
+      if (scope.tier === 'designer' && lead.assignedToUserId !== callerUserId) throw new NotFoundException('Lead not found');
+      if (scope.tier === 'junior' && (!lead.assignedToUserId || !(scope.teamUserIds || []).includes(lead.assignedToUserId))) throw new NotFoundException('Lead not found');
     }
     const attachments = await this.listAttachments(leadId, organizationId);
     return { ...lead, attachments };
@@ -904,8 +932,9 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
   async remove(leadId: string, organizationId: string, callerUserId?: string) {
     const existing = await this.prisma.lead.findFirst({ where: { id: leadId, organizationId } });
     if (!existing) throw new NotFoundException('Lead not found');
-    if (callerUserId && (await this.isPureDesigner(organizationId, callerUserId))) {
-      throw new BadRequestException('Only management can delete leads');
+    if (callerUserId) {
+      const scope = await resolveTier(this.prisma, organizationId, callerUserId);
+      if (scope.tier === 'designer' || scope.tier === 'junior') throw new BadRequestException('Only management can delete leads');
     }
     if (existing.attachmentKey) {
       try {

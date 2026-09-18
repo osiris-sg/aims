@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { Cron } from '@nestjs/schedule';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
+import { resolveTier } from '../common/role-tier';
 import { S3Service } from '../common/services/s3.service';
 import { ActionLogService } from '../action-log/action-log.service';
 import { BillsService } from '../bills/bills.service';
@@ -662,12 +663,10 @@ export class ProjectCostingService {
 
   private async assertManagement(organizationId: string, callerUserId?: string | null) {
     if (!callerUserId) return; // internal/cron callers
-    const roles = await this.prisma.userRole.findMany({
-      where: { userId: callerUserId, organizationId, isActive: true },
-      select: { role: { select: { name: true } } },
-    });
-    const names = roles.map((r) => r.role.name);
-    if (names.length > 0 && names.every((n) => n === 'Designer')) throw new NotFoundException();
+    const scope = await resolveTier(this.prisma, organizationId, callerUserId);
+    // Master + Senior Manager only — juniors and designers get a plain 404
+    // (rebates and project deletion are above the junior tier).
+    if (scope.tier === 'designer' || scope.tier === 'junior') throw new NotFoundException();
   }
 
   /** Per-project rebate view: resolved % and rebate per supplier + totals. */
@@ -1200,18 +1199,14 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
    */
   async idDashboard(organizationId: string, callerUserId?: string) {
     const year = new Date().getFullYear();
-    let scope: 'self' | 'all' = 'all';
-    if (callerUserId) {
-      const roles = await this.prisma.userRole.findMany({
-        where: { userId: callerUserId, organizationId, isActive: true },
-        select: { role: { select: { name: true } } },
-      });
-      const names = roles.map((r) => r.role.name);
-      if (names.length > 0 && names.every((n) => n === 'Designer')) scope = 'self';
-    }
+    let scope: 'self' | 'team' | 'all' = 'all';
+    const tierScope = await resolveTier(this.prisma, organizationId, callerUserId);
+    if (tierScope.tier === 'designer') scope = 'self';
+    else if (tierScope.tier === 'junior') scope = 'team';
 
     const projWhere: any = { organizationId };
     if (scope === 'self') projWhere.designerUserId = callerUserId;
+    else if (scope === 'team') projWhere.designerUserId = { in: tierScope.teamUserIds || [callerUserId] };
     const projects = await this.prisma.project.findMany({
       where: projWhere,
       select: {
@@ -1225,6 +1220,7 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
 
     const leadWhere: any = { organizationId };
     if (scope === 'self') leadWhere.assignedToUserId = callerUserId;
+    else if (scope === 'team') leadWhere.assignedToUserId = { in: tierScope.teamUserIds || [] };
     const leads = await this.prisma.lead.findMany({
       where: leadWhere,
       select: { id: true, name: true, status: true, assignedToUserId: true, assignedToName: true, source: true, phone: true, firstContactDeadline: true, receivedAt: true, projectId: true },
@@ -1332,7 +1328,20 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
       .filter((p: any) => typeof p.description === 'string' && p.description.trim())
       .map((p: any) => ({ projectId: p.id, projectName: p.name, stage: p.stage, note: p.description.trim() }));
 
-    return { scope, year, designers, totals, myLeads, schedule, reviewNotes, holidays: SG_PUBLIC_HOLIDAYS, holidaysMy: MY_PUBLIC_HOLIDAYS };
+    // Junior Manager: the TEAM bubble — team revenue vs the team target,
+    // separate from the leader's personal numbers (guru 2026-09-19).
+    const team =
+      scope === 'team'
+        ? {
+            name: tierScope.teamName || 'My team',
+            target: tierScope.teamTarget,
+            revenueYtd: totals.revenueYtd,
+            projectedProfit: totals.projectedProfit,
+            members: (tierScope.teamUserIds || []).length,
+          }
+        : null;
+
+    return { scope, year, designers, totals, myLeads, schedule, reviewNotes, team, holidays: SG_PUBLIC_HOLIDAYS, holidaysMy: MY_PUBLIC_HOLIDAYS };
   }
 
   // ── Lead → Project → Quotation (CIEL 09-01) ───────────────────────
@@ -1481,14 +1490,9 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
     // (Management, superadmin, admin…) — or with no org roles at all
     // (osirisadmin bypass) — sees everything.
     if (opts.callerUserId) {
-      const roles = await this.prisma.userRole.findMany({
-        where: { userId: opts.callerUserId, organizationId, isActive: true },
-        select: { role: { select: { name: true } } },
-      });
-      const names = roles.map((r) => r.role.name);
-      if (names.length > 0 && names.every((n) => n === 'Designer')) {
-        where.designerUserId = opts.callerUserId;
-      }
+      const scope = await resolveTier(this.prisma, organizationId, opts.callerUserId);
+      if (scope.tier === 'designer') where.designerUserId = opts.callerUserId;
+      else if (scope.tier === 'junior') where.designerUserId = { in: scope.teamUserIds || [opts.callerUserId] };
     }
     if (opts.stage) where.stage = opts.stage;
     if (opts.designer) where.designer = { contains: opts.designer, mode: 'insensitive' };

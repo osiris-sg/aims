@@ -1,5 +1,6 @@
 import { CanActivate, ExecutionContext, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { resolveTier } from '../common/role-tier';
 
 /**
  * Row-level scope for Designer-only users (CIEL 09-14): they may only touch
@@ -21,19 +22,17 @@ export class DesignerProjectScopeGuard implements CanActivate {
     const organizationId: string | undefined = req.userOrganization?.id;
     if (!userId || !organizationId || req.isOsirisAdmin) return true;
 
-    const roles = await this.prisma.userRole.findMany({
-      where: { userId, organizationId, isActive: true },
-      select: { role: { select: { name: true } } },
-    });
-    const names = roles.map((r) => r.role.name);
-    if (!(names.length > 0 && names.every((n) => n === 'Designer'))) return true;
+    const scope = await resolveTier(this.prisma, organizationId, userId);
+    if (scope.tier === 'master' || scope.tier === 'senior') return true;
 
     const projectId = await this.resolveProjectId(req.params || {}, organizationId);
     if (!projectId) return true; // not a project-scoped route
 
     const p = await this.prisma.project.findFirst({ where: { id: projectId, organizationId }, select: { designerUserId: true } });
     if (!p) return true; // let the handler 404 with its own message
-    if (p.designerUserId === userId) return true;
+    // Designer: their own projects. Junior Manager: their team's projects.
+    if (scope.tier === 'designer' && p.designerUserId === userId) return true;
+    if (scope.tier === 'junior' && p.designerUserId && (scope.teamUserIds || []).includes(p.designerUserId)) return true;
     throw new NotFoundException('Project not found'); // no existence leak
   }
 

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/common/prisma.service';
 import { MODULE_CATALOG } from 'src/configuration/module-catalog';
+import { tierOfRoleNames } from 'src/common/role-tier';
 
 export interface EmitNotificationParams {
   organizationId: string;
@@ -123,9 +124,14 @@ export class NotificationsService {
       list.push({ name: r.role.name, allowedModules: (r.role as any).allowedModules || [] });
       rolesByUser.set(r.userId, list);
     }
-    const designerOnly = (userId: string) => {
+    // Designers AND Junior Managers are personally-addressed-only tiers:
+    // org-wide traffic goes to master/senior; a lead assigned TO a junior
+    // reaches them via forUserId (hierarchy access, guru 2026-09-19).
+    const scopedTier = (userId: string) => {
       const roles = rolesByUser.get(userId) || [];
-      return roles.length > 0 && roles.every((r) => r.name === 'Designer');
+      if (roles.length === 0) return false;
+      const tier = tierOfRoleNames(roles.map((r) => r.name));
+      return tier === 'designer' || tier === 'junior';
     };
     const requiredModule = this.moduleForLink(linkUrl);
     const moduleAllowed = (userId: string) => {
@@ -136,7 +142,7 @@ export class NotificationsService {
       return roles.flatMap((r) => r.allowedModules).includes(requiredModule);
     };
     const base = [...new Set([...orgReaders, ...osirisAdmins].map((r) => r.userId))].filter(
-      (u) => u === forUserId || (!designerOnly(u) && moduleAllowed(u)),
+      (u) => u === forUserId || (!scopedTier(u) && moduleAllowed(u)),
     );
     if (forUserId && !base.includes(forUserId)) base.push(forUserId);
     return base;

@@ -9,8 +9,11 @@ import EditUser from "./EditUser";
 import { useGetUsers } from "../hooks/useGetUser";
 import useAddRoleStates from "../hooks/useAddUser";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
+import TeamsPanel from "./TeamsPanel";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 export default function Users() {
+  const { isIdQuotationEnabled } = useOrganizationFeatures();
   const { columns, handleEditUser, editUserOpen, selectedUser, handleCloseEditUser, userToDelete, isDeleteInProgress, confirmDeleteUser, cancelDelete } = useUserTableHeader();
 
   const { users, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshUsers } = useGetUsers();
@@ -54,6 +57,8 @@ export default function Users() {
         pageCount={users.totalPagesCount}
         totalDocs={users.totalDocuments}
       />
+
+      {isIdQuotationEnabled && <TeamsPanel />}
 
       <AddUser open={openDrawer} onClose={onCloseClick} onUserCreated={refreshUsers} />
 

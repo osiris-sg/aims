@@ -22,6 +22,7 @@ import { PublicSignModule } from './public-sign/public-sign.module';
 import { TempSignatureModule } from './temp-signature/temp-signature.module';
 import { PushModule } from './push/push.module';
 import { ProjectCostingModule } from './project-costing/project-costing.module';
+import { TeamsModule } from './teams/teams.module';
 import { LeadsModule } from './leads/leads.module';
 import { CustomerInfoModule } from './customer-info/customer-info.module';
 import { PublicApiModule } from './public-api/public-api.module';
@@ -139,6 +140,7 @@ import { ActionLogInterceptor } from './action-log/action-log.interceptor';
     TempSignatureModule, // TEMPORARY — remove after backfill
     PushModule,
     ProjectCostingModule,
+    TeamsModule,
     LeadsModule,
     CustomerInfoModule,
     PublicApiModule,

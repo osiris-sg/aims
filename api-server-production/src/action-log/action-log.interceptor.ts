@@ -57,6 +57,8 @@ const VERB_ACTIONS: Record<string, string> = {
   // Document attachments: POST :id/attachments = ATTACH, :id/attachments/remove = DETACH
   // (the trailing segment wins, so "remove" must map before generic fallbacks).
   attachments: 'ATTACH', remove: 'DETACH',
+  // Teams (hierarchy access): POST /teams/:id/members replaces the member set.
+  members: 'UPDATE',
   update: 'UPDATE', create: 'CREATE', delete: 'DELETE',
 };
 

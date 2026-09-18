@@ -27,7 +27,8 @@ type Row = {
   leads: { open: number; converted: number; dead: number };
 };
 type Payload = {
-  scope: "self" | "all"; year: number; designers: Row[];
+  scope: "self" | "team" | "all"; year: number; designers: Row[];
+  team?: { name: string; target: number | null; revenueYtd: number; projectedProfit: number; members: number } | null;
   totals: { ongoing: number; done: number; revenueYtd: number; target: number | null; projectedProfit: number; earnings: number };
   myLeads: Array<{ id: string; name: string; status: string; source: string; phone: string | null; assignedToName: string | null; firstContactDeadline: string | null; receivedAt: string }>;
   schedule: Array<{ id: string; projectId: string; projectName: string; designer: string | null; label: string; kind: string; startDate: string; endDate: string }>;
@@ -176,7 +177,7 @@ function ScheduleOverview({ schedule, holidays, holidaysMy, self }: { schedule: 
 
 export default function IdDashboard() {
   const router = useRouter();
-  const { getToken } = useAuth();
+  const { getToken, userId } = useAuth();
   const [data, setData] = useState<Payload | null>(null);
   const [rebates, setRebates] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -229,6 +230,9 @@ export default function IdDashboard() {
   const self = data.scope === "self";
   const me = self ? data.designers[0] : null;
   const t = self && me ? me : data.totals;
+  // Managers/leaders also sell — split THEIR personal numbers out of the
+  // org/team overall (guru 2026-09-19: "segregate overall vs my own revenue").
+  const myRow = !self ? data.designers.find((r) => r.userId && r.userId === userId) || null : null;
   const deadlinePassed = (d: string | null) => d && new Date(d).getTime() < Date.now();
 
   return (
@@ -236,10 +240,10 @@ export default function IdDashboard() {
       <Stack direction="row" alignItems="center" sx={{ mb: 2.5 }}>
         <Box sx={{ flex: 1 }}>
           <Typography variant="h4" sx={{ fontWeight: 800 }}>
-            {self ? "My dashboard" : "Dashboard"}
+            {self ? "My dashboard" : data.scope === "team" ? `${data.team?.name || "Team"} dashboard` : "Dashboard"}
           </Typography>
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            {data.year} · {self ? "your projects and leads" : "all designers"}
+            {data.year} · {self ? "your projects and leads" : data.scope === "team" ? `your team (${data.team?.members || 0} members)` : "all designers"}
           </Typography>
         </Box>
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => router.push("/portal/projects?new=1")} sx={{ textTransform: "none" }} data-tour="dash-create-project">
@@ -263,7 +267,7 @@ export default function IdDashboard() {
               t.target
                 ? self
                   ? `target ${money(t.target)}`
-                  : `target ${money(t.target)} · ${data.designers.filter((r) => r.target != null).length} designers combined`
+                  : `target ${money(t.target)} · ${data.designers.filter((r) => r.target != null).length} designers combined${myRow ? ` · you: ${money(myRow.revenueYtd)}` : ""}`
                 : "no target set"
             }
             color={t.target && t.revenueYtd >= t.target ? "success.main" : undefined}
@@ -277,18 +281,81 @@ export default function IdDashboard() {
         </Grid>
       </Grid>
 
-      {t.target != null && (
-        <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2, mb: 2.5 }}>
-          <Stack direction="row" alignItems="center" spacing={2}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
-              {data.year} target{self ? "" : " (all designers)"}
-            </Typography>
-            <Box sx={{ flex: 1 }}>
-              <LinearProgress variant="determinate" value={Math.min(100, (t.revenueYtd / t.target) * 100)} sx={{ height: 10, borderRadius: 5 }} color={t.revenueYtd >= t.target ? "success" : "primary"} />
+      {/* Junior Manager: the TEAM bubble — team revenue vs the TEAM target,
+          separate from personal numbers (hierarchy access, guru 2026-09-19). */}
+      {data.scope === "team" && data.team && (
+        <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2, mb: 2.5, borderColor: "primary.main" }} data-tour="dash-team-bubble">
+          <Stack direction="row" alignItems="center" spacing={2} flexWrap="wrap" useFlexGap>
+            <Box>
+              <Typography variant="overline" sx={{ color: "text.secondary", lineHeight: 1.4 }}>
+                Team revenue {data.year}
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
+                {money(data.team.revenueYtd)}
+              </Typography>
             </Box>
-            <Typography variant="body2" sx={{ fontWeight: 700, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
-              {money(t.revenueYtd)} / {money(t.target)}
-            </Typography>
+            <Box sx={{ flex: 1, minWidth: 220 }}>
+              {data.team.target ? (
+                <>
+                  <LinearProgress variant="determinate" value={Math.min(100, (data.team.revenueYtd / data.team.target) * 100)} sx={{ height: 10, borderRadius: 5 }} color={data.team.revenueYtd >= data.team.target ? "success" : "primary"} />
+                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                    team target {money(data.team.target)} · {Math.min(100, (data.team.revenueYtd / data.team.target) * 100).toFixed(0)}%
+                  </Typography>
+                </>
+              ) : (
+                <Typography variant="caption" sx={{ color: "text.disabled" }}>
+                  no team target set — ask management to set it in User Management → Teams
+                </Typography>
+              )}
+            </Box>
+            <Box sx={{ textAlign: "right" }}>
+              <Typography variant="overline" sx={{ color: "text.secondary", lineHeight: 1.4 }}>
+                Team projected profit
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
+                {money(data.team.projectedProfit)}
+              </Typography>
+            </Box>
+          </Stack>
+        </Paper>
+      )}
+
+      {(t.target != null || myRow) && (
+        <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2, mb: 2.5 }}>
+          <Stack spacing={1.25}>
+            {t.target != null && (
+              <Stack direction="row" alignItems="center" spacing={2}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, whiteSpace: "nowrap", minWidth: 170 }}>
+                  {data.year} target{self ? "" : data.scope === "team" ? " (team)" : " (all designers)"}
+                </Typography>
+                <Box sx={{ flex: 1 }}>
+                  <LinearProgress variant="determinate" value={Math.min(100, (t.revenueYtd / t.target) * 100)} sx={{ height: 10, borderRadius: 5 }} color={t.revenueYtd >= t.target ? "success" : "primary"} />
+                </Box>
+                <Typography variant="body2" sx={{ fontWeight: 700, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                  {money(t.revenueYtd)} / {money(t.target)}
+                </Typography>
+              </Stack>
+            )}
+            {/* The viewer's OWN book, separated from the overall number above. */}
+            {myRow && (
+              <Stack direction="row" alignItems="center" spacing={2}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, whiteSpace: "nowrap", minWidth: 170, color: "text.secondary" }}>
+                  {data.year} target (me)
+                </Typography>
+                <Box sx={{ flex: 1 }}>
+                  {myRow.target ? (
+                    <LinearProgress variant="determinate" value={Math.min(100, (myRow.revenueYtd / myRow.target) * 100)} sx={{ height: 10, borderRadius: 5 }} color={myRow.revenueYtd >= myRow.target ? "success" : "warning"} />
+                  ) : (
+                    <Typography variant="caption" sx={{ color: "text.disabled" }}>
+                      no personal target set — User Management → Edit user → Yearly Sales Target
+                    </Typography>
+                  )}
+                </Box>
+                <Typography variant="body2" sx={{ fontWeight: 700, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", color: "text.secondary" }}>
+                  {money(myRow.revenueYtd)}{myRow.target ? ` / ${money(myRow.target)}` : ""}
+                </Typography>
+              </Stack>
+            )}
           </Stack>
         </Paper>
       )}
@@ -300,7 +367,7 @@ export default function IdDashboard() {
       {!self && (
         <Paper variant="outlined" sx={{ borderRadius: 2, mb: 2.5, overflow: "hidden" }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 700, px: 2, pt: 1.5, pb: 0.5 }}>
-            Designers
+            {data.scope === "team" ? "My team" : "Designers"}
           </Typography>
           <Box sx={{ overflowX: "auto" }}>
             <Table size="small" sx={{ minWidth: 860 }}>

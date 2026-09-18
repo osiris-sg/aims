@@ -263,6 +263,13 @@ export default function LeadsPage() {
   useEffect(() => {
     api.listOrgUsers().then(setDesigners).catch(() => {});
   }, [api]);
+  // Junior Managers may only assign within their own team — trim the picker
+  // to the team the server reports (it rejects out-of-team assigns anyway).
+  const teamUserIds: string[] | null = stats?.viewer?.teamUserIds || null;
+  const assignableDesigners = useMemo(
+    () => (teamUserIds ? designers.filter((d) => teamUserIds.includes(d.id)) : designers),
+    [designers, teamUserIds]
+  );
 
   const patch = async (id: string, body: any) => {
     try {
@@ -455,7 +462,7 @@ export default function LeadsPage() {
               ) : (
                 <Autocomplete
                   size="small"
-                  options={designers}
+                  options={assignableDesigners}
                   getOptionLabel={(o: any) => o.name}
                   value={designers.find((d) => d.id === l.assignedToUserId) || (l.assignedToName ? ({ id: "", name: l.assignedToName } as any) : null)}
                   isOptionEqualToValue={(a: any, b: any) => a?.id === b?.id}
@@ -525,7 +532,7 @@ export default function LeadsPage() {
             ]),
       ]),
     ],
-    [designers, busy, router, designerOnly],
+    [designers, assignableDesigners, busy, router, designerOnly],
   );
 
   const filterConfig: FilterField[] = useMemo(
