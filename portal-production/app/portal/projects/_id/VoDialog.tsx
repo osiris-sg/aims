@@ -23,6 +23,28 @@ type VoLine = { id: string; description: string; amount: number | null; complime
 const newId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 const sum = (list: VoLine[]) => list.reduce((s, l) => s + (l.complimentary ? 0 : Number(l.amount) || 0), 0);
 
+/** Lets decimals be typed freely: string draft while focused, number committed live. */
+function VoAmountField({ value, disabled, onCommit, placeholder }: { value: number | null; disabled?: boolean; onCommit: (n: number | null) => void; placeholder?: string }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <TextField
+      size="small"
+      placeholder={placeholder}
+      value={draft ?? (value ?? "")}
+      disabled={disabled}
+      onFocus={() => setDraft(value == null ? "" : String(value))}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (!/^-?[0-9]*\.?[0-9]*$/.test(v)) return;
+        setDraft(v);
+        onCommit(v === "" || v === "-" ? null : Number(v) || 0);
+      }}
+      onBlur={() => setDraft(null)}
+      inputProps={{ inputMode: "decimal", style: { textAlign: "right", width: 84 } }}
+    />
+  );
+}
+
 function LineList({ title, lines, readOnly, onChange }: { title: string; lines: VoLine[]; readOnly: boolean; onChange: (next: VoLine[]) => void }) {
   return (
     <Box sx={{ mb: 2 }}>
@@ -41,14 +63,7 @@ function LineList({ title, lines, readOnly, onChange }: { title: string; lines: 
               {i + 1}
             </Typography>
             <TextField size="small" fullWidth multiline minRows={1} placeholder="Describe the change…" value={l.description} disabled={readOnly} onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, description: e.target.value } : x)))} />
-            <TextField
-              size="small"
-              placeholder="0.00"
-              value={l.complimentary ? "" : l.amount ?? ""}
-              disabled={readOnly || l.complimentary}
-              onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, amount: e.target.value === "" ? null : Number(e.target.value) || 0 } : x)))}
-              inputProps={{ inputMode: "decimal", style: { textAlign: "right", width: 84 } }}
-            />
+            <VoAmountField placeholder="0.00" value={l.complimentary ? null : l.amount ?? null} disabled={readOnly || l.complimentary} onCommit={(n) => onChange(lines.map((x) => (x.id === l.id ? { ...x, amount: n } : x)))} />
             <Tooltip title="Complimentary (no charge)">
               <Checkbox size="small" checked={l.complimentary} disabled={readOnly} onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, complimentary: e.target.checked, amount: e.target.checked ? null : x.amount } : x)))} sx={{ mt: 0.25 }} />
             </Tooltip>

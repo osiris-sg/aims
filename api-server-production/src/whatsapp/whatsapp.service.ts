@@ -1466,6 +1466,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             .catch(() => null); // Unique waMessageId → webhook redelivery, already stored.
           // A message to/from this number may be a lead's thread — mark contacted.
           if (message.from) this.leads.markLeadContacted(connection.organizationId, message.from).catch(() => null);
+          // If this is the org's notify number replying, its 24h window just
+          // opened — re-send any assign cards that couldn't deliver earlier.
+          if (message.from) this.leads.rebroadcastPending(connection.organizationId, message.from).catch(() => null);
 
           // Operator routing: if the sender is a linked AIMS staff member, this
           // number is their command line — hand the message to the Operator

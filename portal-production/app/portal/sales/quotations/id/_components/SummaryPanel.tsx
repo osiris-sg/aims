@@ -3,7 +3,7 @@
 // Sticky totals: Total → Professional Design Fee → named discounts → Grand
 // Total. Internal view adds total cost, margin and the guardrail status.
 
-import React from "react";
+import React, { useState } from "react";
 import { Alert, Box, Button, Divider, IconButton, InputAdornment, Paper, Stack, TextField, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
@@ -31,11 +31,34 @@ const Row = ({ label, value, strong, muted }: { label: React.ReactNode; value: R
   </Stack>
 );
 
+/** Numeric field that lets the user TYPE freely (decimals included): keeps a
+ *  local string draft while focused and commits the parsed number live, so
+ *  "73." doesn't collapse to "73" mid-keystroke. */
+function DecimalField({ value, onCommit, disabled, width, startAdornment, endAdornment }: { value: number; onCommit: (n: number) => void; disabled?: boolean; width: number; startAdornment?: React.ReactNode; endAdornment?: React.ReactNode }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <TextField
+      size="small"
+      value={draft ?? (value || "")}
+      disabled={disabled}
+      onFocus={() => setDraft(value ? String(value) : "")}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (!/^[0-9]*\.?[0-9]*$/.test(v)) return;
+        setDraft(v);
+        onCommit(v === "" ? 0 : Math.max(0, Number(v) || 0));
+      }}
+      onBlur={() => setDraft(null)}
+      inputProps={{ inputMode: "decimal", style: { textAlign: "right", width, padding: "4px 6px" } }}
+      InputProps={{ ...(startAdornment ? { startAdornment } : {}), ...(endAdornment ? { endAdornment } : {}) }}
+    />
+  );
+}
+
 export default function SummaryPanel({ quote, internalView, readOnly, onChange, onEditTerms, onJumpToItem }: Props) {
   const t = quoteTotals(quote);
   const floor = quote.settings.marginFloorPct;
 
-  const setFee = (v: string) => onChange({ ...quote, summary: { ...quote.summary, designFeePct: Math.max(0, Number(v) || 0) } });
   const setDiscount = (id: string, patch: Partial<{ label: string; amount: number }>) =>
     onChange({ ...quote, summary: { ...quote.summary, discounts: quote.summary.discounts.map((d) => (d.id === id ? { ...d, ...patch } : d)) } });
 
@@ -48,14 +71,7 @@ export default function SummaryPanel({ quote, internalView, readOnly, onChange, 
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 0.5 }}>
         <Stack direction="row" spacing={0.75} alignItems="center">
           <Typography variant="body2">Professional Design Fee</Typography>
-          <TextField
-            size="small"
-            value={quote.summary.designFeePct}
-            onChange={(e) => setFee(e.target.value)}
-            disabled={readOnly}
-            inputProps={{ inputMode: "decimal", style: { textAlign: "right", width: 34, padding: "4px 6px" } }}
-            InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
-          />
+          <DecimalField value={quote.summary.designFeePct} onCommit={(n) => onChange({ ...quote, summary: { ...quote.summary, designFeePct: n } })} disabled={readOnly} width={34} endAdornment={<InputAdornment position="end">%</InputAdornment>} />
         </Stack>
         <Typography variant="body2" sx={{ fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>
           {money(t.designFee)}
@@ -64,14 +80,7 @@ export default function SummaryPanel({ quote, internalView, readOnly, onChange, 
       {quote.summary.discounts.map((d) => (
         <Stack key={d.id} direction="row" spacing={0.75} alignItems="center" sx={{ py: 0.5 }}>
           <TextField size="small" fullWidth placeholder="Discount label" value={d.label} disabled={readOnly} onChange={(e) => setDiscount(d.id, { label: e.target.value })} inputProps={{ style: { padding: "4px 8px", fontSize: 13 } }} />
-          <TextField
-            size="small"
-            value={d.amount || ""}
-            disabled={readOnly}
-            onChange={(e) => setDiscount(d.id, { amount: Number(e.target.value) || 0 })}
-            inputProps={{ inputMode: "decimal", style: { textAlign: "right", width: 78, padding: "4px 6px" } }}
-            InputProps={{ startAdornment: <InputAdornment position="start">−$</InputAdornment> }}
-          />
+          <DecimalField value={d.amount} onCommit={(n) => setDiscount(d.id, { amount: n })} disabled={readOnly} width={78} startAdornment={<InputAdornment position="start">−$</InputAdornment>} />
           {!readOnly && (
             <IconButton size="small" onClick={() => onChange({ ...quote, summary: { ...quote.summary, discounts: quote.summary.discounts.filter((x) => x.id !== d.id) } })} sx={{ color: "text.disabled" }}>
               <DeleteIcon sx={{ fontSize: 16 }} />

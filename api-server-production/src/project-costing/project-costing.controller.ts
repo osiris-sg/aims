@@ -59,6 +59,15 @@ export class IdProjectsListController {
     return this.service.idDashboard(orgId(req), req.user?.id);
   }
 
+  // Management-only delete (guru 2026-09-19): removes the project + its
+  // costing data; linked documents/leads are unlinked, not deleted. Designer-
+  // only callers get 404 (service check).
+  @Delete(':id')
+  @Permissions('projects:update')
+  remove(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    return this.service.deleteIdProject(id, orgId(req), req.user?.id);
+  }
+
   // Lead → Project → Quotation (CIEL 09-01): create a project from an
   // assigned lead, a referral, or the designer's own client — before any
   // quotation exists.

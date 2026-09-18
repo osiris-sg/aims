@@ -901,11 +901,29 @@ model OrganizationMemberProfile {
   commissionPct  Float? // default share of project profit for this designer
   yearlySalesTarget Float? // manager-set sales target (contract value signed per year)
   signatureImage String? // saved signature (PNG data URL) for one-tap counter-signing
+  teamId         String? // hierarchy (CIEL 09-19): the Team this member belongs to
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@unique([organizationId, userId])
   @@index([whatsappNumber])
+  @@index([organizationId, teamId])
+}
+
+// Sales team (hierarchy access, CIEL 09-19): a Junior Manager leads a team of
+// designers. The leader assigns leads WITHIN the team, sees the team's
+// projects, and tracks a TEAM yearly target alongside their personal one.
+model Team {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  leaderUserId   String? // Clerk user id of the Junior Manager leading it
+  yearlyTarget   Float? // team sales target (contract value signed per year)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
 }
 
 // Project schedule (interior-design projects): one row per activity on the

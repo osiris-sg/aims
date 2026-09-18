@@ -614,6 +614,41 @@ export class ProjectCostingService {
     return { shifted: rows.length };
   }
 
+  // ── delete project (guru 2026-09-19, MANAGEMENT-ONLY) ───────────────────
+  // Removes an ID project and its costing data (milestones, costs, schedule,
+  // quest, share links — cascades or explicit deletes). Linked documents and
+  // leads are UNLINKED, never deleted, so the quotation itself survives.
+  // Blocked when the project carries rental/ops records (deployments,
+  // assignments, deliveries) — those aren't ID-project test data.
+  async deleteIdProject(projectId: string, organizationId: string, callerUserId?: string) {
+    await this.assertManagement(organizationId, callerUserId);
+    const project = await this.prisma.project.findFirst({ where: { id: projectId, organizationId }, select: { id: true, name: true } });
+    if (!project) throw new NotFoundException('Project not found');
+    const [deployments, assignments, deliveries] = await Promise.all([
+      this.prisma.projectDeployment.count({ where: { projectId } }),
+      this.prisma.assignment.count({ where: { projectId } }),
+      this.prisma.delivery.count({ where: { projectId } }).catch(() => 0),
+    ]);
+    if (deployments || assignments || deliveries) {
+      throw new BadRequestException('This project has deployments/assignments/deliveries — remove those first');
+    }
+    await this.prisma.$transaction([
+      this.prisma.document.updateMany({ where: { projectId, organizationId }, data: { projectId: null } }),
+      this.prisma.lead.updateMany({ where: { projectId, organizationId }, data: { projectId: null } }),
+      this.prisma.projectQuestStep.deleteMany({ where: { projectId, organizationId } }),
+      this.prisma.questMediaRequest.deleteMany({ where: { projectId, organizationId } }),
+      this.prisma.projectContact.deleteMany({ where: { projectId } }),
+      // milestones / costs / schedule items / share links cascade on the FK.
+      this.prisma.project.delete({ where: { id: projectId } }),
+    ]);
+    this.actionLog.system('id-project-delete', 'DELETE', 'projects', {
+      organizationId,
+      resourceId: projectId,
+      details: { name: project.name, by: callerUserId || 'system' },
+    });
+    return { ok: true, name: project.name };
+  }
+
   // ── supplier rebates (guru 2026-09-16, MANAGEMENT-ONLY) ─────────────────
   // Suppliers quietly rebate ~10% of invoiced costs back to the firm. Costs
   // stay booked at FULL value everywhere (designer commission is computed on
@@ -1028,18 +1063,39 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
   }
 
   private async mediaWaSend(line: { organizationId: string; phoneNumberId: string; accessToken: string }, to: string, text: string) {
-    const res = await fetch(`https://graph.facebook.com/v23.0/${line.phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${line.accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: text } }),
-    });
-    const json: any = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json?.error?.message || `WhatsApp send failed (${res.status})`);
-    await this.prisma.whatsAppMessage
-      .create({
-        data: { organizationId: line.organizationId, direction: 'OUTBOUND', counterparty: to, phoneNumberId: line.phoneNumberId, waMessageId: json?.messages?.[0]?.id || null, body: text, status: 'sent', payload: { type: 'text' } as any },
-      })
-      .catch(() => null);
+    const post = async (payload: Record<string, any>, logBody: string) => {
+      const res = await fetch(`https://graph.facebook.com/v23.0/${line.phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${line.accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messaging_product: 'whatsapp', to, ...payload }),
+      });
+      const json: any = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error?.message || `WhatsApp send failed (${res.status})`);
+      await this.prisma.whatsAppMessage
+        .create({
+          data: { organizationId: line.organizationId, direction: 'OUTBOUND', counterparty: to, phoneNumberId: line.phoneNumberId, waMessageId: json?.messages?.[0]?.id || null, body: logBody, status: 'sent', payload: payload as any },
+        })
+        .catch(() => null);
+    };
+    try {
+      await post({ type: 'text', text: { body: text } }, text);
+    } catch (e) {
+      // Closed 24h window → deliver through the approved utility template
+      // instead (lands any time); the designer replying re-opens the window.
+      if (!/re-?engagement|131047/i.test((e as Error).message || '')) throw e;
+      const templateName = process.env.WHATSAPP_NOTIFY_TEMPLATE || 'aims_notify';
+      await post(
+        {
+          type: 'template',
+          template: {
+            name: templateName,
+            language: { code: 'en' },
+            components: [{ type: 'body', parameters: [{ type: 'text', text: text.replace(/\n/g, ' · ').slice(0, 900) }] }],
+          },
+        },
+        `[template] ${text}`.slice(0, 1000),
+      );
+    }
   }
 
   /** 01:00 UTC = 09:00 SGT — same hour the keep-alive template lands, so the 24h window is open. */

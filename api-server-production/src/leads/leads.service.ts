@@ -529,28 +529,46 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     } catch (e) {
       const msg = (e as Error).message || '';
       this.logger.warn(`Lead assignment broadcast failed for ${lead?.id}: ${msg}`);
-      // Closed 24h window → nudge with the pre-approved template (deliverable
-      // any time); one reply/tap to it reopens the window for the real list.
+      // Closed 24h window → deliver the LEAD ALERT ITSELF through the
+      // approved utility template (lands any time); the reply re-opens the
+      // window and the webhook then re-sends the interactive assign card
+      // (rebroadcastPending).
       if (/re-?engagement|131047/i.test(msg)) {
         try {
           const cfg: any = await this.prisma.whatsAppAgentConfig.findUnique({ where: { organizationId: lead.organizationId } });
           const to = String(cfg?.notifyNumber || '').replace(/\D/g, '');
           const line = await this.agentLine(lead.organizationId);
-          if (to && line) await this.sendKeepAliveTemplate(line, to);
-        } catch {
-          /* best-effort */
+          if (to && line) {
+            await this.sendNotifyTemplate(
+              line,
+              to,
+              `New lead — ${lead.name} (${String(lead.source || 'manual').toUpperCase()})${lead.phone ? ` · ${lead.phone}` : ''}${[lead.propertyType, lead.budget].filter(Boolean).length ? ` · ${[lead.propertyType, lead.budget].filter(Boolean).join(' · ')}` : ''}. Reply to get the assign list.`,
+            );
+          }
+        } catch (e2) {
+          this.logger.warn(`Notify-template fallback failed for ${lead?.id}: ${(e2 as Error).message}`);
         }
       }
     }
   }
 
-  private async sendKeepAliveTemplate(line: { organizationId: string; phoneNumberId: string; accessToken: string }, to: string) {
-    const templateName = process.env.WHATSAPP_KEEPALIVE_TEMPLATE || 'hello_world';
+  /** Deliver TEXT through the approved utility template — lands even when the
+   *  24h window is closed (hello_world only works from Meta test numbers).
+   *  The recipient replying re-opens the window for the interactive cards. */
+  private async sendNotifyTemplate(line: { organizationId: string; phoneNumberId: string; accessToken: string }, to: string, text: string) {
+    const templateName = process.env.WHATSAPP_NOTIFY_TEMPLATE || 'aims_notify';
     await this.waSend(
       line,
       to,
-      { type: 'template', template: { name: templateName, language: { code: 'en_US' } } },
-      `keep-alive template (${templateName}) — reply to open the 24h window`,
+      {
+        type: 'template',
+        template: {
+          name: templateName,
+          language: { code: 'en' },
+          components: [{ type: 'body', parameters: [{ type: 'text', text: text.replace(/\n/g, ' · ').slice(0, 900) }] }],
+        },
+      },
+      `[template] ${text}`.slice(0, 1000),
     );
   }
 
@@ -576,12 +594,54 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         }
         let sent = 0;
         for (const to of targets) {
-          await this.sendKeepAliveTemplate(line, to).then(() => sent++).catch((e) => this.logger.warn(`keep-alive to ${to} failed: ${e.message}`));
+          await this.sendNotifyTemplate(line, to, 'Good morning! Daily check-in from AIMS. Reply anything to keep this channel active for instant lead cards and schedule requests.')
+            .then(() => sent++)
+            .catch((e) => this.logger.warn(`keep-alive to ${to} failed: ${e.message}`));
         }
         this.actionLog.system('whatsapp-keepalive', 'SEND', 'whatsapp', { organizationId: cfg.organizationId, details: { targets: targets.size, sent } });
       } catch (e) {
         this.logger.warn(`keep-alive for org ${cfg.organizationId} failed: ${(e as Error).message}`);
       }
+    }
+  }
+
+  /**
+   * The notify number just messaged the agent line — their 24h window is now
+   * OPEN, so re-send the interactive assign card for any recent lead that is
+   * still unassigned and whose card never got through (the template fallback
+   * told them to reply for exactly this).
+   */
+  async rebroadcastPending(organizationId: string, from: string) {
+    try {
+      const digits = String(from || '').replace(/\D/g, '');
+      if (!digits) return;
+      const cfg: any = await this.prisma.whatsAppAgentConfig.findUnique({ where: { organizationId } });
+      const notify = String(cfg?.notifyNumber || '').replace(/\D/g, '');
+      if (!notify || notify !== digits) return;
+      const leads = await this.prisma.lead.findMany({
+        where: { organizationId, status: 'unqualified', assignedToUserId: null, receivedAt: { gte: new Date(Date.now() - 7 * 86400000) } },
+        orderBy: { receivedAt: 'desc' },
+        take: 3,
+      });
+      for (const lead of leads) {
+        // Skip if the INTERACTIVE card for this lead already went through
+        // recently — the 🆕 prefix distinguishes it from the template
+        // fallback text ("[template] New lead — …"), which must NOT count.
+        const recent = await this.prisma.whatsAppMessage.findFirst({
+          where: {
+            direction: 'OUTBOUND',
+            counterparty: notify,
+            status: { notIn: ['failed'] },
+            createdAt: { gte: new Date(Date.now() - 24 * 3600000) },
+            body: { contains: `🆕 New lead — ${lead.name}` },
+          },
+          select: { id: true },
+        });
+        if (recent) continue;
+        await this.leadAssignBroadcast(lead);
+      }
+    } catch (e) {
+      this.logger.warn(`rebroadcastPending failed for ${organizationId}: ${(e as Error).message}`);
     }
   }
 

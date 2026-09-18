@@ -8,6 +8,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography } from "@mui/material";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { kebabColumn } from "@/components/RowKebab";
+import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import type { FilterField } from "@/components/FilterDrawer";
 import { toast } from "react-toastify";
 import { STAGE_LABEL, fmtDate, money, pct, useIdProjectApi } from "./api";
@@ -24,6 +27,12 @@ const STAGE_COLOR: Record<string, "default" | "primary" | "info" | "warning" | "
 export default function IdProjectList() {
   const router = useRouter();
   const api = useIdProjectApi();
+  // Management ("Director") only — designers can't delete projects; the
+  // backend enforces the same (designer-only callers 404).
+  const { userRoles } = useUserPermissions();
+  const canDelete = !(userRoles.length > 0 && userRoles.every((r: any) => r?.name === "Designer"));
+  const [toDelete, setToDelete] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
   const [rows, setRows] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -136,8 +145,16 @@ export default function IdProjectList() {
         ),
       },
       { id: "started", header: "Started", cell: ({ row }: any) => <Typography variant="body2">{fmtDate(row.original.startDate || row.original.createdAt)}</Typography> },
+      ...(canDelete
+        ? [
+            kebabColumn((r: any) => [
+              { label: "Open", onClick: () => router.push(`/portal/projects/${r.id}`) },
+              { label: "Delete project", destructive: true, onClick: () => setToDelete(r) },
+            ]),
+          ]
+        : []),
     ],
-    [],
+    [canDelete, router],
   );
 
   const filterConfig: FilterField[] = useMemo(
@@ -211,6 +228,25 @@ export default function IdProjectList() {
           </Button>
         </DialogActions>
       </Dialog>
+      <DeleteItemDialogNoConfirm
+        open={!!toDelete}
+        onCancel={() => setToDelete(null)}
+        loading={deleting}
+        onConfirm={async () => {
+          if (!toDelete) return;
+          setDeleting(true);
+          try {
+            await api.request(`/id-projects/${toDelete.id}`, { method: "DELETE" });
+            toast.success(`Project deleted — its quotation and lead were kept and unlinked`);
+            setToDelete(null);
+            load();
+          } catch (e: any) {
+            toast.error(e.message || "Delete failed");
+          } finally {
+            setDeleting(false);
+          }
+        }}
+      />
     </MainCard>
   );
 }
