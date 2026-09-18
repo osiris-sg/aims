@@ -68,6 +68,20 @@ export class PublicSignController {
     return this.service.revokeForDocument(id, orgId(req));
   }
 
+  // Client cancelled after signing: strip the signature, back to draft — the
+  // allocated contract number is kept and reused on re-sign.
+  @Post('documents/:id/revert-signature')
+  @Permissions('documents:update')
+  @ApiOperation({ summary: 'Revert the client signature (quotation back to draft, contract number kept)' })
+  revertSignature(@Param('id') id: string, @Req() req: any) {
+    const u: any = req.user || {};
+    return this.service.revertClientSignature(id, orgId(req), {
+      id: u.id,
+      name: [u.firstName, u.lastName].filter(Boolean).join(' ') || undefined,
+      email: u.emailAddresses?.[0]?.emailAddress,
+    });
+  }
+
   @Public()
   @Get('public/sign/:token')
   @ApiOperation({ summary: 'Public: quotation to sign (by token)' })

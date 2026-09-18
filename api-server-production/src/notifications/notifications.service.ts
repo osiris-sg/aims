@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/common/prisma.service';
+import { MODULE_CATALOG } from 'src/configuration/module-catalog';
 
 export interface EmitNotificationParams {
   organizationId: string;
@@ -9,6 +10,9 @@ export interface EmitNotificationParams {
   entityType?: string | null;
   entityId?: string | null;
   linkUrl?: string | null;
+  /** The user this notification is ABOUT (e.g. the designer a lead was
+   *  assigned to). They receive it even if they are designer-only. */
+  forUserId?: string | null;
 }
 
 /**
@@ -37,7 +41,7 @@ export class NotificationsService {
    */
   async emit(params: EmitNotificationParams): Promise<void> {
     try {
-      const recipients = await this.resolveRecipients(params.organizationId);
+      const recipients = await this.resolveRecipients(params.organizationId, params.forUserId ?? null, params.linkUrl ?? null);
       if (!recipients.length) return;
       await this.prisma.notification.createMany({
         data: recipients.map((userId) => ({
@@ -69,8 +73,24 @@ export class NotificationsService {
    *    completing a test delivery viewing-as the org — would never see the bell,
    *    even though the org's own staff do. Per-user read state is preserved.
    */
-  private async resolveRecipients(organizationId: string): Promise<string[]> {
-    const [orgReaders, osirisAdmins] = await Promise.all([
+  /** The module a portal link belongs to, by longest route-prefix match
+   *  against MODULE_CATALOG (e.g. /portal/sales/leads → SALES). null when the
+   *  link matches no module (or there is no link) — then no module gate. */
+  private moduleForLink(linkUrl: string | null): string | null {
+    if (!linkUrl) return null;
+    let best: { code: string; len: number } | null = null;
+    for (const m of MODULE_CATALOG) {
+      const route = (m as any).config?.route;
+      if (!route || route === '/portal') continue; // dashboard prefix matches everything
+      if (linkUrl === route || linkUrl.startsWith(route + '/')) {
+        if (!best || route.length > best.len) best = { code: m.moduleCode, len: route.length };
+      }
+    }
+    return best?.code || null;
+  }
+
+  private async resolveRecipients(organizationId: string, forUserId: string | null = null, linkUrl: string | null = null): Promise<string[]> {
+    const [orgReaders, osirisAdmins, allRoles] = await Promise.all([
       this.prisma.userRole.findMany({
         where: {
           organizationId,
@@ -83,8 +103,43 @@ export class NotificationsService {
         where: { isActive: true, role: { name: 'osirisadmin' } },
         select: { userId: true },
       }),
+      this.prisma.userRole.findMany({
+        where: { organizationId, isActive: true },
+        select: { userId: true, role: { select: { name: true, allowedModules: true } } },
+      }),
     ]);
-    return [...new Set([...orgReaders, ...osirisAdmins].map((r) => r.userId))];
+    // A user only receives notifications they are ALLOWED TO SEE
+    // (guru 2026-09-19, all orgs):
+    //  1. Designer-only users get ONLY notifications addressed to them
+    //     (forUserId) — org-wide "master control" traffic stays with management.
+    //  2. Everyone else is additionally gated by their roles' allowedModules:
+    //     a notification linking into a module their sidebar hides (e.g. a
+    //     projects alert for a role without PROJECTS) is not delivered.
+    //     Same semantics as the sidebar: no roles or any role with an empty
+    //     allowedModules list = every module.
+    const rolesByUser = new Map<string, Array<{ name: string; allowedModules: string[] }>>();
+    for (const r of allRoles) {
+      const list = rolesByUser.get(r.userId) || [];
+      list.push({ name: r.role.name, allowedModules: (r.role as any).allowedModules || [] });
+      rolesByUser.set(r.userId, list);
+    }
+    const designerOnly = (userId: string) => {
+      const roles = rolesByUser.get(userId) || [];
+      return roles.length > 0 && roles.every((r) => r.name === 'Designer');
+    };
+    const requiredModule = this.moduleForLink(linkUrl);
+    const moduleAllowed = (userId: string) => {
+      if (!requiredModule) return true;
+      const roles = rolesByUser.get(userId) || [];
+      if (roles.length === 0) return true; // e.g. osirisadmin with no org roles
+      if (roles.some((r) => r.allowedModules.length === 0)) return true;
+      return roles.flatMap((r) => r.allowedModules).includes(requiredModule);
+    };
+    const base = [...new Set([...orgReaders, ...osirisAdmins].map((r) => r.userId))].filter(
+      (u) => u === forUserId || (!designerOnly(u) && moduleAllowed(u)),
+    );
+    if (forUserId && !base.includes(forUserId)) base.push(forUserId);
+    return base;
   }
 
   /** The caller's own notifications in the active org, newest first, + unread count. */

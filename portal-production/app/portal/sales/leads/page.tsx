@@ -106,10 +106,14 @@ const SOURCE_OPTIONS = [
   { value: "ezid", label: "EZiD" },
   { value: "network", label: "Network" },
   { value: "manual", label: "Manual" },
+  { value: "referral", label: "Referral" },
   { value: "fb", label: "Facebook" },
   { value: "ig", label: "Instagram" },
 ];
-const MANUAL_SOURCES = ["manual", "fb", "ig"];
+// Sources a user can pick when keying/editing a lead by hand (email sources
+// stay ingestion-only).
+const MANUAL_SOURCE_OPTIONS = SOURCE_OPTIONS.filter((s) => ["manual", "referral", "fb", "ig"].includes(s.value));
+const MANUAL_SOURCES = ["manual", "referral", "fb", "ig"];
 const isManualSource = (s: string) => MANUAL_SOURCES.includes(s);
 
 // Attachment upload — mirrors the server-side allow-list + size caps
@@ -137,8 +141,8 @@ const readAsDataURL = (f: File) =>
 // Manager-only lead insights (guru 2026-09-16): where the leads come from and
 // how each channel performs. Designers never receive `insights` from the API,
 // so the panel simply doesn't render for them.
-const SRC_LABEL: Record<string, string> = { ezid: "EZiD", network: "Network SG", whatsapp: "WhatsApp", manual: "Manual", fb: "Facebook", ig: "Instagram" };
-const SRC_COLOR: Record<string, string> = { ezid: "primary.main", network: "warning.main", whatsapp: "success.main", manual: "text.disabled", fb: "info.main", ig: "secondary.main" };
+const SRC_LABEL: Record<string, string> = { ezid: "EZiD", network: "Network SG", whatsapp: "WhatsApp", manual: "Manual", referral: "Referral", fb: "Facebook", ig: "Instagram" };
+const SRC_COLOR: Record<string, string> = { ezid: "primary.main", network: "warning.main", whatsapp: "success.main", manual: "text.disabled", referral: "error.main", fb: "info.main", ig: "secondary.main" };
 
 function LeadInsights({ stats }: { stats: any }) {
   const ins = stats.insights;
@@ -233,7 +237,7 @@ export default function LeadsPage() {
   const [busy, setBusy] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [deadFor, setDeadFor] = useState<Lead | null>(null);
-  const [manual, setManual] = useState({ name: "", phone: "", email: "", propertyType: "", budget: "", keyCollection: "", remarks: "" });
+  const [manual, setManual] = useState({ name: "", phone: "", email: "", propertyType: "", budget: "", keyCollection: "", remarks: "", source: "manual" });
   const [attachments, setAttachments] = useState<LeadAttachment[]>([]);
   const [attBusy, setAttBusy] = useState(false);
   const [editFor, setEditFor] = useState<Lead | null>(null);
@@ -360,7 +364,9 @@ export default function LeadsPage() {
   const convertLeadToProject = async (lead: Lead) => {
     setBusy(true);
     try {
-      const r = await api.request<{ projectId: string; name: string; created: boolean }>(`/id-projects`, { method: "POST", body: JSON.stringify({ leadId: lead.id, source: "lead" }) });
+      // A referral lead converts into a REFERRAL project (commission rules may
+      // differ, e.g. SK's 60%); every other source stays "lead".
+      const r = await api.request<{ projectId: string; name: string; created: boolean }>(`/id-projects`, { method: "POST", body: JSON.stringify({ leadId: lead.id, source: lead.source === "referral" ? "referral" : "lead" }) });
       toast.success(r.created ? `Project "${r.name}" created — raise the quotation from the project page` : `Lead already has project "${r.name}"`);
       router.push(`/portal/projects/${r.projectId}`);
     } catch (e: any) {
@@ -594,7 +600,7 @@ export default function LeadsPage() {
         totalDocs={total}
         buttonName="New lead"
         onAddClick={() => {
-          setManual({ name: "", phone: "", email: "", propertyType: "", budget: "", keyCollection: "", remarks: "" });
+          setManual({ name: "", phone: "", email: "", propertyType: "", budget: "", keyCollection: "", remarks: "", source: "manual" });
           setManualOpen(true);
         }}
       />
@@ -821,6 +827,13 @@ export default function LeadsPage() {
             <Grid item xs={6}>
               <TextField label="Est. key collection" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={manual.keyCollection} onChange={(e) => setManual({ ...manual, keyCollection: e.target.value })} />
             </Grid>
+            <Grid item xs={6}>
+              <TextField label="Source" select size="small" fullWidth value={manual.source} onChange={(e) => setManual({ ...manual, source: e.target.value })}>
+                {MANUAL_SOURCE_OPTIONS.map((o) => (
+                  <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+                ))}
+              </TextField>
+            </Grid>
             <Grid item xs={12}>
               <TextField label="Remarks" size="small" fullWidth multiline minRows={2} value={manual.remarks} onChange={(e) => setManual({ ...manual, remarks: e.target.value })} />
             </Grid>
@@ -834,7 +847,7 @@ export default function LeadsPage() {
             onClick={async () => {
               setBusy(true);
               try {
-                await api.request(`/leads`, { method: "POST", body: JSON.stringify({ ...manual, phone: manual.phone.replace(/\D/g, "") || null, keyCollection: manual.keyCollection || null, source: "manual" }) });
+                await api.request(`/leads`, { method: "POST", body: JSON.stringify({ ...manual, phone: manual.phone.replace(/\D/g, "") || null, keyCollection: manual.keyCollection || null, source: manual.source || "manual" }) });
                 setManualOpen(false);
                 load();
               } catch (e: any) {

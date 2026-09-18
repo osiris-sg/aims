@@ -41,6 +41,7 @@ export const SOW_MODULES: Array<{ key: string; name: string; seed: string }> = [
 export interface SowData {
   customerName: string;
   customerUen?: string;
+  customerAddress?: string;
   effectiveDate: string; // dd-mm-yyyy
   author?: string;
   versionDescription?: string;
@@ -172,7 +173,7 @@ One scope section per selected module (merge closely-related modules if that rea
     const ul = (items?: string[]) => (items?.length ? `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>` : '');
     const logo = `<div class="logo"><img src="${OSIRIS_LOGO_DATA_URI}" alt="OSIRIS" /></div>`;
     const footer = `<div class="foot">Osiris Technology Pte. Ltd.<br/>UEN ${OSIRIS_UEN}</div>`;
-    const custFull = `${esc(d.customerName)}${d.customerUen ? ` (UEN ${esc(d.customerUen)})` : ''}`;
+    const custFull = `${esc(d.customerName)}${d.customerUen ? ` (UEN ${esc(d.customerUen)})` : ''}${d.customerAddress ? `<br/><span style=\"font-weight:400;\">${esc(d.customerAddress)}</span>` : ''}`;
 
     const feesRows = (d.fees || [])
       .map((f) => `<tr><td>${esc(f.item)}</td><td>${esc(f.description)}</td><td>${esc(f.fee)}</td></tr>`)

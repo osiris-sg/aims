@@ -238,6 +238,57 @@ export class PublicSignService {
   }
 
   /**
+   * The client changed their mind after signing (guru 2026-09-19): remove the
+   * client signature and un-confirm the quotation so it can be edited and
+   * re-signed. The allocated CONTRACT NUMBER is deliberately KEPT — sign()
+   * only allocates when the document has no name, so a re-sign reuses the
+   * same CI number. The linked project is left in place (it may already hold
+   * a schedule/costs); the who-signed-when trail goes to the document history.
+   */
+  async revertClientSignature(documentId: string, organizationId: string, actor?: { id?: string; name?: string; email?: string }) {
+    const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId } });
+    if (!doc) throw new NotFoundException('Quotation not found');
+    const cfg: any = doc.config || {};
+    if (!cfg.clientSignature && doc.status !== 'confirmed') throw new BadRequestException('This quotation has no client signature to revert');
+    const prevSig: any = cfg.clientSignature || null;
+
+    const { clientSignature: _c, ...cfgRest } = cfg;
+    const quote = cfgRest.quote ? { ...cfgRest.quote } : null;
+    if (quote) delete (quote as any).clientSignature;
+    const cfgOut: any = { ...cfgRest, ...(quote ? { quote } : {}) };
+
+    await this.prisma.$transaction([
+      this.prisma.document.update({
+        where: { id: doc.id },
+        data: { status: 'unconfirmed', config: cfgOut, version: { increment: 1 } },
+      }),
+      // Clear the signed link(s) so a fresh link can be minted; the audit of
+      // who signed lives in the history entry below, not the link row.
+      this.prisma.documentSignLink.updateMany({
+        where: { documentId: doc.id, signedAt: { not: null } },
+        data: { revokedAt: new Date(), signedAt: null, signerName: null },
+      }),
+      this.prisma.auditLog.create({
+        data: {
+          userId: actor?.id || 'system',
+          userName: actor?.name || null,
+          userEmail: actor?.email || null,
+          action: 'STATUS_CHANGED',
+          resource: 'document',
+          resourceId: doc.id,
+          resourceName: doc.name,
+          organizationId,
+          details: {
+            detail: `Client signature reverted — quotation back to draft (client cancelled).${prevSig ? ` Was signed by ${prevSig.name} on ${prevSig.signedAt}.` : ''} Contract number ${doc.name || '(none)'} kept.`,
+          },
+        },
+      }),
+    ]);
+    this.logger.log(`quotation ${doc.name || doc.id} client signature reverted by ${actor?.name || actor?.id || 'system'}`);
+    return { ok: true, name: doc.name };
+  }
+
+  /**
    * Client signs: store the signature on the document, confirm it, create or
    * link the project, notify the office. All-or-nothing on the document row.
    */

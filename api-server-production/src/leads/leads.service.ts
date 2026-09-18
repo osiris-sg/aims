@@ -53,8 +53,8 @@ export const LEAD_STATUSES = ['unqualified', 'engaging', 'dead', 'converted'] as
 
 // All recognised sources. ezid | network are set ONLY by the email-ingestion
 // path; manual | fb | ig are the human-entered ones a UI edit may set.
-export const LEAD_SOURCES = ['ezid', 'network', 'manual', 'fb', 'ig'] as const;
-export const MANUAL_SOURCES = ['manual', 'fb', 'ig'] as const;
+export const LEAD_SOURCES = ['ezid', 'network', 'manual', 'referral', 'fb', 'ig', 'whatsapp'] as const;
+export const MANUAL_SOURCES = ['manual', 'referral', 'fb', 'ig'] as const;
 const isManualSource = (s: string | null | undefined) => MANUAL_SOURCES.includes(s as any);
 
 // Lead attachment validation (this endpoint validates, unlike /uploads/image).
@@ -681,7 +681,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       }
     }
     await this.notifications
-      .emit({ organizationId: lead.organizationId, kind: 'lead_assigned', title: `Lead ${lead.name} → ${name}`, body: 'Assigned via WhatsApp' })
+      .emit({ organizationId: lead.organizationId, kind: 'lead_assigned', title: `Lead ${lead.name} → ${name}`, body: 'Assigned via WhatsApp', forUserId: userId })
       .catch(() => null);
   }
 
@@ -783,9 +783,14 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
   }
 
   /** Lead + its attachments (the detail response). */
-  async getOne(leadId: string, organizationId: string) {
+  async getOne(leadId: string, organizationId: string, callerUserId?: string) {
     const lead = await this.prisma.lead.findFirst({ where: { id: leadId, organizationId } });
     if (!lead) throw new NotFoundException('Lead not found');
+    // Designer-only users see only THEIR leads — someone else's id (guessed or
+    // leaked) 404s, same as the list scoping.
+    if (callerUserId && (await this.isPureDesigner(organizationId, callerUserId)) && lead.assignedToUserId !== callerUserId) {
+      throw new NotFoundException('Lead not found');
+    }
     const attachments = await this.listAttachments(leadId, organizationId);
     return { ...lead, attachments };
   }

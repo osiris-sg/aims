@@ -14,6 +14,7 @@ import MoreVertIcon from "@mui/icons-material/MoreVert";
 import LibraryBooksIcon from "@mui/icons-material/LibraryBooksOutlined";
 import WarningAmberIcon from "@mui/icons-material/WarningAmberRounded";
 import NotesIcon from "@mui/icons-material/NotesOutlined";
+import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import type { PricingMode, QuoteArea, QuoteInclude, QuoteItem, QuoteSection } from "../_lib/types";
 import { AREA_SUGGESTIONS, UOM_OPTIONS, emptyArea, emptyItem } from "../_lib/defaults";
 import { hasPlaceholders, itemAmount, itemCost, itemMarginPct, money, newId, pct, priceFromCost, sectionTotals } from "../_lib/math";
@@ -39,6 +40,10 @@ interface Props {
 // everything lines up. Internal view appends Cost + Margin.
 const gridCols = (internal: boolean) => `30px 36px minmax(280px,1fr) 84px 96px 150px 132px${internal ? " 124px 96px" : ""} 40px`;
 const MIN_W = (internal: boolean) => (internal ? 1150 : 930);
+
+// The line being dragged (drag-and-drop reorder, guru 2026-09-19). Module
+// scoped because HTML5 dataTransfer is unreadable during dragover.
+let draggingItemId: string | null = null;
 
 const numOrNull = (v: string): number | null => {
   if (v === "" || v == null) return null;
@@ -148,8 +153,10 @@ const IncludeRow = memo(function IncludeRow({ inc, internalView, readOnly, onCha
   );
 });
 
-const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidelinePct, floorPct, selected, onToggleSelect, onChange, onUnbundle }: { item: QuoteItem; no: number; internalView: boolean; readOnly: boolean; guidelinePct: number; floorPct: number; selected: boolean; onToggleSelect: (itemId: string, shift: boolean) => void; onChange: (n: QuoteItem) => void; onUnbundle: () => void }) {
+const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidelinePct, floorPct, selected, onToggleSelect, onChange, onUnbundle, onDropBefore }: { item: QuoteItem; no: number; internalView: boolean; readOnly: boolean; guidelinePct: number; floorPct: number; selected: boolean; onToggleSelect: (itemId: string, shift: boolean) => void; onChange: (n: QuoteItem) => void; onUnbundle: () => void; onDropBefore?: (dragId: string) => void }) {
   const [showComponents, setShowComponents] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const amount = itemAmount(item);
   const cost = itemCost(item);
   const margin = itemMarginPct(item);
@@ -166,14 +173,56 @@ const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidel
   };
 
   return (
-    <Box sx={{ borderTop: 1, borderColor: "divider", py: 0.75, bgcolor: selected ? "action.selected" : low ? (t) => (t.palette.mode === "dark" ? "rgba(255,167,38,0.07)" : "rgba(255,167,38,0.09)") : "transparent" }}>
+    <Box
+      onDragOver={(e) => {
+        if (!draggingItemId || draggingItemId === item.id || readOnly) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        if (!draggingItemId || draggingItemId === item.id) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setDragOver(false);
+        onDropBefore?.(draggingItemId);
+        draggingItemId = null;
+      }}
+      sx={{ borderTop: dragOver ? 2 : 1, borderColor: dragOver ? "primary.main" : "divider", py: 0.75, opacity: dragging ? 0.4 : 1, bgcolor: selected ? "action.selected" : low ? (t) => (t.palette.mode === "dark" ? "rgba(255,167,38,0.07)" : "rgba(255,167,38,0.09)") : "transparent" }}
+    >
       <Box sx={{ display: "grid", gridTemplateColumns: gridCols(internalView), columnGap: 1, alignItems: "start", px: 1, minWidth: MIN_W(internalView) }}>
         <Cell sx={{ pt: 0.25 }}>
           {!readOnly && (
             <Checkbox size="small" checked={selected} onClick={(e) => onToggleSelect(item.id, (e as React.MouseEvent).shiftKey)} sx={{ p: 0.5 }} inputProps={{ "aria-label": "Select line" }} />
           )}
         </Cell>
-        <Cell sx={{ textAlign: "right", color: "text.secondary", pt: 1, fontVariantNumeric: "tabular-nums" }}>{no}</Cell>
+        <Cell sx={{ pt: 0.75 }}>
+          <Stack direction="row" alignItems="center" justifyContent="flex-end" spacing={0}>
+            {!readOnly && (
+              <Tooltip title="Drag to reorder — drop on another line or area">
+                <Box
+                  component="span"
+                  draggable
+                  onDragStart={(e: React.DragEvent) => {
+                    draggingItemId = item.id;
+                    setDragging(true);
+                    e.dataTransfer.effectAllowed = "move";
+                    try { e.dataTransfer.setData("text/plain", item.id); } catch { /* ignore */ }
+                  }}
+                  onDragEnd={() => {
+                    draggingItemId = null;
+                    setDragging(false);
+                  }}
+                  sx={{ cursor: "grab", display: "inline-flex", color: "text.disabled", "&:hover": { color: "text.secondary" }, "&:active": { cursor: "grabbing" } }}
+                >
+                  <DragIndicatorIcon sx={{ fontSize: 16 }} />
+                </Box>
+              </Tooltip>
+            )}
+            <Typography variant="body2" sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>{no}</Typography>
+          </Stack>
+        </Cell>
         <Cell>
           <TextField
             multiline
@@ -297,13 +346,26 @@ const ItemRow = memo(function ItemRow({ item, no, internalView, readOnly, guidel
   );
 });
 
-function AreaBlock({ area, startNo, canRemove, internalView, readOnly, guidelinePct, floorPct, selectedIds, onToggleSelect, onChange, onRemove, onOpenLibrary }: { area: QuoteArea; startNo: number; canRemove: boolean; internalView: boolean; readOnly: boolean; guidelinePct: number; floorPct: number; selectedIds: Set<string>; onToggleSelect: (itemId: string, shift: boolean) => void; onChange: (a: QuoteArea) => void; onRemove: () => void; onOpenLibrary: () => void }) {
+function AreaBlock({ area, startNo, canRemove, internalView, readOnly, guidelinePct, floorPct, selectedIds, onToggleSelect, onChange, onRemove, onOpenLibrary, onMoveItem }: { area: QuoteArea; startNo: number; canRemove: boolean; internalView: boolean; readOnly: boolean; guidelinePct: number; floorPct: number; selectedIds: Set<string>; onToggleSelect: (itemId: string, shift: boolean) => void; onChange: (a: QuoteArea) => void; onRemove: () => void; onOpenLibrary: () => void; onMoveItem: (itemId: string, beforeItemId: string | null) => void }) {
   const setItem = (n: QuoteItem) => onChange({ ...area, items: area.items.map((x) => (x.id === n.id ? n : x)) });
   // New lines always append at the END of the area so numbering stays in
   // sequence (CIEL 09-01 — "add item must insert in the correct sequence").
   const addLine = () => onChange({ ...area, items: [...area.items, emptyItem()] });
   return (
-    <Box sx={{ minWidth: MIN_W(internalView) }}>
+    <Box
+      sx={{ minWidth: MIN_W(internalView) }}
+      // Dropping anywhere in the area that is not a specific line appends the
+      // dragged item at the END of this area (also how an empty area accepts).
+      onDragOver={(e) => {
+        if (draggingItemId && !readOnly) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        if (!draggingItemId || readOnly) return;
+        e.preventDefault();
+        onMoveItem(draggingItemId, null);
+        draggingItemId = null;
+      }}
+    >
       {/* Area / room heading row */}
       <Stack direction="row" spacing={1} alignItems="center" sx={{ px: 1, pt: 1.25, pb: 0.5 }}>
         <Autocomplete
@@ -342,7 +404,7 @@ function AreaBlock({ area, startNo, canRemove, internalView, readOnly, guideline
         </Typography>
       )}
       {area.items.map((it, i) => (
-        <ItemRow key={it.id} item={it} no={startNo + i} internalView={internalView} readOnly={readOnly} guidelinePct={guidelinePct} floorPct={floorPct} selected={selectedIds.has(it.id)} onToggleSelect={onToggleSelect} onChange={setItem} onUnbundle={() => onChange({ ...area, items: area.items.flatMap((x) => (x.id === it.id ? (x.components && x.components.length ? x.components : [x]) : [x])) })} />
+        <ItemRow key={it.id} item={it} no={startNo + i} internalView={internalView} readOnly={readOnly} guidelinePct={guidelinePct} floorPct={floorPct} selected={selectedIds.has(it.id)} onToggleSelect={onToggleSelect} onChange={setItem} onUnbundle={() => onChange({ ...area, items: area.items.flatMap((x) => (x.id === it.id ? (x.components && x.components.length ? x.components : [x]) : [x])) })} onDropBefore={(dragId) => onMoveItem(dragId, it.id)} />
       ))}
     </Box>
   );
@@ -350,6 +412,31 @@ function AreaBlock({ area, startNo, canRemove, internalView, readOnly, guideline
 
 export default function SectionCard({ section, internalView, readOnly, guidelinePct, floorPct, active, selectedIds, onToggleSelect, onChange, onRemove, onOpenLibrary, onFocus }: Props) {
   const [menu, setMenu] = useState<null | HTMLElement>(null);
+
+  // Drag-and-drop reorder: move a line before another line (or to the end of
+  // an area when beforeItemId is null). Works across areas within the section;
+  // numbering re-derives from the new order.
+  const moveItem = (itemId: string, toAreaId: string, beforeItemId: string | null) => {
+    let moved: QuoteItem | undefined;
+    const stripped = section.areas.map((a) => {
+      const idx = a.items.findIndex((i) => i.id === itemId);
+      if (idx < 0) return a;
+      moved = a.items[idx];
+      return { ...a, items: a.items.filter((i) => i.id !== itemId) };
+    });
+    if (!moved) return;
+    onChange({
+      ...section,
+      areas: stripped.map((a) => {
+        if (a.id !== toAreaId) return a;
+        const items = [...a.items];
+        const at = beforeItemId ? items.findIndex((i) => i.id === beforeItemId) : -1;
+        if (at >= 0) items.splice(at, 0, moved!);
+        else items.push(moved!);
+        return { ...a, items };
+      }),
+    });
+  };
   const t = sectionTotals(section);
   let running = 0;
   const areaStarts = section.areas.map((a) => {
@@ -405,7 +492,7 @@ export default function SectionCard({ section, internalView, readOnly, guideline
       <Box sx={{ overflowX: "auto", px: 1, pt: 1.5 }}>
         <HeaderRow internal={internalView} />
         {section.areas.map((a, i) => (
-          <AreaBlock key={a.id} area={a} startNo={areaStarts[i]} canRemove={section.areas.length > 1} internalView={internalView} readOnly={readOnly} guidelinePct={guidelinePct} floorPct={floorPct} selectedIds={selectedIds} onToggleSelect={onToggleSelect} onChange={(n) => onChange({ ...section, areas: section.areas.map((x) => (x.id === n.id ? n : x)) })} onRemove={() => onChange({ ...section, areas: section.areas.filter((x) => x.id !== a.id) })} onOpenLibrary={() => onOpenLibrary(a.id)} />
+          <AreaBlock key={a.id} area={a} startNo={areaStarts[i]} canRemove={section.areas.length > 1} internalView={internalView} readOnly={readOnly} guidelinePct={guidelinePct} floorPct={floorPct} selectedIds={selectedIds} onToggleSelect={onToggleSelect} onChange={(n) => onChange({ ...section, areas: section.areas.map((x) => (x.id === n.id ? n : x)) })} onRemove={() => onChange({ ...section, areas: section.areas.filter((x) => x.id !== a.id) })} onOpenLibrary={() => onOpenLibrary(a.id)} onMoveItem={(itemId, beforeItemId) => moveItem(itemId, a.id, beforeItemId)} />
         ))}
       </Box>
 

@@ -50,7 +50,7 @@ export class LeadsController {
   @Get(':id')
   @Permissions('documents:read')
   getOne(@Param('id') id: string, @Req() req: RequestWithOrganization) {
-    return this.service.getOne(id, orgId(req));
+    return this.service.getOne(id, orgId(req), (req as any).user?.id);
   }
 
   @Post()

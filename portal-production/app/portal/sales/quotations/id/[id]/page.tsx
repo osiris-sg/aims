@@ -53,6 +53,8 @@ export default function IdQuotationEditorPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [customer, setCustomer] = useState<any | null>(null);
   const [signOpen, setSignOpen] = useState(false);
+  const [revertOpen, setRevertOpen] = useState(false);
+  const [reverting, setReverting] = useState(false);
   const [designerSignOpen, setDesignerSignOpen] = useState(false);
   const [signedBy, setSignedBy] = useState<{ name: string | null; signedAt: string } | null>(null);
   const [project, setProject] = useState<{ id: string; name: string } | null>(null);
@@ -515,6 +517,7 @@ export default function IdQuotationEditorPage() {
         designerSigned={designerSigned}
         onDesignerSign={signedBy && !designerSigned ? () => setDesignerSignOpen(true) : undefined}
         signedBy={signedBy}
+        onRevertSignature={signedBy ? () => setRevertOpen(true) : undefined}
         project={project}
         onOpenProject={() => project && router.push(`/portal/projects/${project.id}`)}
       />
@@ -653,6 +656,42 @@ export default function IdQuotationEditorPage() {
       />
 
       <PreviewDialog open={previewOpen} documentId={doc.id} revision={previewRev} onClose={() => setPreviewOpen(false)} />
+
+      {/* Client cancelled after signing → strip the signature, back to draft.
+          The contract number is KEPT and reused when they re-sign. */}
+      <Dialog open={revertOpen} onClose={() => !reverting && setRevertOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Revert client signature?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            This removes {signedBy?.name || "the client"}&apos;s signature and puts the quotation back to DRAFT so it can be edited and re-signed.
+            The contract number {doc.name ? <b>{doc.name}</b> : null} stays with this quotation. The linked project is not touched.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRevertOpen(false)} disabled={reverting} sx={{ textTransform: "none" }}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            disabled={reverting}
+            onClick={async () => {
+              setReverting(true);
+              try {
+                await api.revertSignature(doc.id);
+                toast.success("Signature reverted — quotation is back to draft, contract number kept");
+                window.location.reload();
+              } catch (e: any) {
+                toast.error(e.message || "Failed to revert");
+                setReverting(false);
+              }
+            }}
+            sx={{ textTransform: "none" }}
+          >
+            {reverting ? "Reverting…" : "Revert signature"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <SignLinkDialog
         open={signOpen}

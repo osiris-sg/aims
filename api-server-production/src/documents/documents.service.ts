@@ -6081,6 +6081,9 @@ export class DocumentsService {
       entityType: 'document',
       entityId: document.id,
       linkUrl: `/portal/sales/quotations/id/${document.id}`,
+      // Management + the quotation's own designer (designer-only users get
+      // ONLY notifications addressed to them).
+      forUserId: cfg?.designerUserId || cfg?.quote?.header?.designerUserId || null,
     });
     return { ok: true };
   }

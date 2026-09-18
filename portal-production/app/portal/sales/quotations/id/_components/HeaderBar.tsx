@@ -35,6 +35,8 @@ interface Props {
   designerSigned?: boolean;
   onDesignerSign?: () => void;
   signedBy?: { name: string | null; signedAt: string } | null;
+  /** Client cancelled after signing — reverts to draft, contract number kept. */
+  onRevertSignature?: () => void;
   project?: { id: string; name: string } | null;
   onOpenProject?: () => void;
 }
@@ -48,7 +50,7 @@ const SAVE_LABEL: Record<SaveState, { text: string; icon: React.ReactNode; color
   conflict: { text: "Updated elsewhere — reload", icon: <ErrorOutlineIcon fontSize="small" />, color: "error.main" },
 };
 
-export default function HeaderBar({ number, clientName, status, saveState, internalView, onInternalView, readOnly, onBack, onPreview, onConfirm, onSaveNow, onToggleRail, onSendForSignature, canUndo, onUndo, designerSigned, onDesignerSign, signedBy, project, onOpenProject }: Props) {
+export default function HeaderBar({ number, clientName, status, saveState, internalView, onInternalView, readOnly, onBack, onPreview, onConfirm, onSaveNow, onToggleRail, onSendForSignature, canUndo, onUndo, designerSigned, onDesignerSign, signedBy, onRevertSignature, project, onOpenProject }: Props) {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down("md"));
   const save = SAVE_LABEL[saveState];
@@ -91,6 +93,11 @@ export default function HeaderBar({ number, clientName, status, saveState, inter
           </Typography>
           {signedBy && (
             <Chip size="small" color="success" variant="outlined" icon={<DrawIcon />} label={`Signed by ${signedBy.name || clientName} · ${new Date(signedBy.signedAt).toLocaleDateString("en-SG", { day: "2-digit", month: "short" })}`} sx={{ height: 20, "& .MuiChip-label": { fontSize: 11 } }} />
+          )}
+          {signedBy && onRevertSignature && (
+            <Tooltip title="Client cancelled? Remove the signature and put the quotation back to draft — the contract number stays.">
+              <Chip size="small" variant="outlined" color="warning" label="Revert signature" onClick={onRevertSignature} sx={{ height: 20, "& .MuiChip-label": { fontSize: 11 } }} />
+            </Tooltip>
           )}
           {project && (
             <Chip size="small" variant="outlined" icon={<AccountTreeIcon />} label={project.name} onClick={onOpenProject} sx={{ height: 20, maxWidth: 260, "& .MuiChip-label": { fontSize: 11 } }} />
