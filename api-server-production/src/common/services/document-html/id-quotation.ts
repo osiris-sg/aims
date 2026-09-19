@@ -90,9 +90,41 @@ const CSS = `
 
 const isNum = (v: any): v is number => typeof v === 'number' && isFinite(v);
 
-function amountCell(mode: string | null | undefined, amount: number | null | undefined): string {
-  if (mode === 'inclusive') return '<span class="word">Inclusive</span>';
-  if (mode === 'complimentary') return '<span class="word">Complimentary</span>';
+// ── Chinese print mode (guru 2026-09-19: EN/中文 toggle on the quotation) ──
+// Static chrome translates from this dictionary; free text (descriptions,
+// section titles, terms…) comes from config.quoteZh — a { english: chinese }
+// map filled once by POST /documents/:id/translate (AI, cached on the doc).
+// A string with no cached translation falls back to English, so a fresh edit
+// is never mistranslated — it just shows untranslated until re-translated.
+const ZH: Record<string, string> = {
+  'RE: Letter of Intent & Appointment for Renovation Works at the below mentioned new address':
+    '关于：下述新地址装修工程之意向书及委托书',
+  Client: '客户', 'NRIC No': '身份证号码', Address: '地址', Contact: '联系方式',
+  'Contract Number': '合同编号', 'Agreement Date': '签约日期', Remarks: '备注',
+  Designer: '设计师', 'Payment Terms': '付款条款', 'As Mentioned Below': '如下所述',
+  Description: '项目说明', Quantity: '数量', 'Amount (S$)': '金额 (S$)',
+  'Sub Total': '小计', 'Total Amount': '总金额', 'Professional Design Fee': '专业设计费',
+  Discount: '折扣', 'Grand Total': '总计',
+  'GENERAL TERMS & CONDITIONS (without prejudice)': '一般条款与条件（不影响权利）',
+  'Payment Terms for Renovation contract': '装修合同付款条款',
+  'Agreed & accepted by client': '客户同意并接受', 'Prepared by': '拟定人',
+  'Date:': '日期：', Director: '董事', '(signed electronically)': '（电子签名）',
+  Inclusive: '包含', Complimentary: '赠送',
+};
+
+type Lang = 'en' | 'zh';
+/** Static label. */
+const L = (lang: Lang, en: string) => (lang === 'zh' ? ZH[en] || en : en);
+/** Free text via the cached AI map. */
+const makeFree = (lang: Lang, map: Record<string, string>) => (text: string | null | undefined): string => {
+  const t = String(text ?? '');
+  if (lang !== 'zh' || !t.trim()) return t;
+  return map[t] || map[t.trim()] || t;
+};
+
+function amountCell(mode: string | null | undefined, amount: number | null | undefined, lang: Lang = 'en'): string {
+  if (mode === 'inclusive') return `<span class="word">${L(lang, 'Inclusive')}</span>`;
+  if (mode === 'complimentary') return `<span class="word">${L(lang, 'Complimentary')}</span>`;
   return isNum(amount) ? money(amount) : '';
 }
 
@@ -129,11 +161,13 @@ export function idQuoteTotals(quote: Quote) {
   return { sectionTotals, total, feePct, designFee, discounts, discountTotal, grand };
 }
 
-export function renderIdQuotationBody(data: any, organization: any): string {
+export function renderIdQuotationBody(data: any, organization: any, lang: Lang = 'en'): string {
   const quote: Quote = data?.quote || {};
   const h = quote.header || {};
   const org = organization || {};
   const t = idQuoteTotals(quote);
+  const zhMap: Record<string, string> = (data?.quoteZh || data?.config?.quoteZh || {}) as any;
+  const fx = makeFree(lang, zhMap);
   const docNumber = h.contractNo || data?.documentInfo?.documentNumber || data?.name || '';
 
   // NOTE: this template is only reached by orgs with enableIdQuotation, which
@@ -152,20 +186,20 @@ export function renderIdQuotationBody(data: any, organization: any): string {
 
   const row = (k: string, v: any) => `<div class="row"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(v ?? '') || '&nbsp;'}</span></div>`;
   const header = `
-  <h1>${escapeHtml(h.title || 'RE: Letter of Intent & Appointment for Renovation Works at the below mentioned new address')}</h1>
+  <h1>${escapeHtml(h.title ? fx(h.title) : L(lang, 'RE: Letter of Intent & Appointment for Renovation Works at the below mentioned new address'))}</h1>
   <div class="hdr">
     <div>
-      ${row('Client', h.clientName)}
-      ${row('NRIC No', h.nric || '-')}
-      ${row('Address', h.address)}
-      ${row('Contact', h.contact)}
+      ${row(L(lang, 'Client'), h.clientName)}
+      ${row(L(lang, 'NRIC No'), h.nric || '-')}
+      ${row(L(lang, 'Address'), h.address)}
+      ${row(L(lang, 'Contact'), h.contact)}
     </div>
     <div>
-      ${row('Contract Number', docNumber)}
-      ${row('Agreement Date', h.agreementDate ? formatDate(h.agreementDate) : '')}
-      ${row('Remarks', h.remarks)}
-      ${row('Designer', h.designer)}
-      ${row('Payment Terms', h.paymentTerms || 'As Mentioned Below')}
+      ${row(L(lang, 'Contract Number'), docNumber)}
+      ${row(L(lang, 'Agreement Date'), h.agreementDate ? formatDate(h.agreementDate) : '')}
+      ${row(L(lang, 'Remarks'), fx(h.remarks))}
+      ${row(L(lang, 'Designer'), h.designer)}
+      ${row(L(lang, 'Payment Terms'), h.paymentTerms ? fx(h.paymentTerms) : L(lang, 'As Mentioned Below'))}
     </div>
   </div>`;
 
@@ -173,41 +207,41 @@ export function renderIdQuotationBody(data: any, organization: any): string {
   const rows: string[] = [];
   (quote.sections || []).forEach((s, si) => {
     rows.push(
-      `<tr class="section"><td colspan="4"><span class="letter">${escapeHtml(s.letter || '')}</span>${escapeHtml(s.title || '')}</td></tr>`,
+      `<tr class="section"><td colspan="4"><span class="letter">${escapeHtml(s.letter || '')}</span>${escapeHtml(fx(s.title))}</td></tr>`,
     );
-    for (const n of s.notes || []) rows.push(`<tr class="note"><td></td><td colspan="3">* ${escapeHtml(n)}</td></tr>`);
+    for (const n of s.notes || []) rows.push(`<tr class="note"><td></td><td colspan="3">* ${escapeHtml(fx(n))}</td></tr>`);
     let no = 0;
     for (const a of s.areas || []) {
-      if (a.name && a.name !== 'General') rows.push(`<tr class="area"><td></td><td colspan="3">${escapeHtml(a.name)}</td></tr>`);
+      if (a.name && a.name !== 'General') rows.push(`<tr class="area"><td></td><td colspan="3">${escapeHtml(fx(a.name))}</td></tr>`);
       for (const it of a.items || []) {
         no += 1;
         rows.push(
-          `<tr class="item"><td class="no">${no}</td><td class="desc">${escapeHtml(it.description || '')}</td><td class="qty">${escapeHtml(qtyText(it.qty, it.uom))}</td><td class="amt">${amountCell(it.pricingMode, it.amount)}</td></tr>`,
+          `<tr class="item"><td class="no">${no}</td><td class="desc">${escapeHtml(fx(it.description))}</td><td class="qty">${escapeHtml(qtyText(it.qty, it.uom))}</td><td class="amt">${amountCell(it.pricingMode, it.amount, lang)}</td></tr>`,
         );
         for (const inc of it.includes || []) {
-          const incAmt = inc.pricingMode === 'priced' ? amountCell('priced', inc.amount) : inc.pricingMode === 'inclusive' ? amountCell('inclusive', null) : '';
+          const incAmt = inc.pricingMode === 'priced' ? amountCell('priced', inc.amount, lang) : inc.pricingMode === 'inclusive' ? amountCell('inclusive', null, lang) : '';
           rows.push(
-            `<tr class="inc"><td></td><td class="desc">${escapeHtml(inc.text || '')}</td><td class="qty">${inc.qty != null && inc.qty !== 1 ? escapeHtml(String(inc.qty)) : ''}</td><td class="amt">${incAmt}</td></tr>`,
+            `<tr class="inc"><td></td><td class="desc">${escapeHtml(fx(inc.text))}</td><td class="qty">${inc.qty != null && inc.qty !== 1 ? escapeHtml(String(inc.qty)) : ''}</td><td class="amt">${incAmt}</td></tr>`,
           );
         }
       }
     }
-    rows.push(`<tr class="subtotal"><td></td><td colspan="2" class="lbl">Sub Total — ${escapeHtml(s.title || '')}</td><td class="amt">${money(t.sectionTotals[si] || 0)}</td></tr>`);
+    rows.push(`<tr class="subtotal"><td></td><td colspan="2" class="lbl">${L(lang, 'Sub Total')} — ${escapeHtml(fx(s.title))}</td><td class="amt">${money(t.sectionTotals[si] || 0)}</td></tr>`);
   });
 
   const table = `
   <table class="lines">
-    <thead><tr><th style="text-align:right;">#</th><th>Description</th><th style="text-align:center;">Quantity</th><th style="text-align:right;">Amount (S$)</th></tr></thead>
+    <thead><tr><th style="text-align:right;">#</th><th>${L(lang, 'Description')}</th><th style="text-align:center;">${L(lang, 'Quantity')}</th><th style="text-align:right;">${L(lang, 'Amount (S$)')}</th></tr></thead>
     <tbody>${rows.join('')}</tbody>
   </table>`;
 
   // ── totals ──────────────────────────────────────────────────────────────
   const totals = `
   <div class="totals"><table>
-    <tr><td>Total Amount</td><td class="v">${money(t.total)}</td></tr>
-    ${t.feePct > 0 ? `<tr><td>Professional Design Fee ${escapeHtml(String(t.feePct))}%</td><td class="v">${money(t.designFee)}</td></tr>` : ''}
-    ${t.discounts.map((d) => `<tr><td>${escapeHtml(d.label || 'Discount')}</td><td class="v">(${money(Number(d.amount))})</td></tr>`).join('')}
-    <tr class="grand"><td>Grand Total</td><td class="v">S$ ${money(t.grand)}</td></tr>
+    <tr><td>${L(lang, 'Total Amount')}</td><td class="v">${money(t.total)}</td></tr>
+    ${t.feePct > 0 ? `<tr><td>${L(lang, 'Professional Design Fee')} ${escapeHtml(String(t.feePct))}%</td><td class="v">${money(t.designFee)}</td></tr>` : ''}
+    ${t.discounts.map((d) => `<tr><td>${escapeHtml(d.label ? fx(d.label) : L(lang, 'Discount'))}</td><td class="v">(${money(Number(d.amount))})</td></tr>`).join('')}
+    <tr class="grand"><td>${L(lang, 'Grand Total')}</td><td class="v">S$ ${money(t.grand)}</td></tr>
   </table></div>`;
 
   // ── terms ───────────────────────────────────────────────────────────────
@@ -217,9 +251,9 @@ export function renderIdQuotationBody(data: any, organization: any): string {
     pay.length || clauses.length
       ? `
   <div class="terms">
-    <h2>GENERAL TERMS &amp; CONDITIONS (without prejudice)</h2>
-    ${pay.length ? `<h3>Payment Terms for Renovation contract</h3><div class="pay">${pay.map((p) => `<div>${escapeHtml(p)}</div>`).join('')}</div>` : ''}
-    ${clauses.length ? `<ol>${clauses.map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ol>` : ''}
+    <h2>${lang === 'zh' ? escapeHtml(ZH['GENERAL TERMS & CONDITIONS (without prejudice)']) : 'GENERAL TERMS &amp; CONDITIONS (without prejudice)'}</h2>
+    ${pay.length ? `<h3>${L(lang, 'Payment Terms for Renovation contract')}</h3><div class="pay">${pay.map((p) => `<div>${escapeHtml(fx(p))}</div>`).join('')}</div>` : ''}
+    ${clauses.length ? `<ol>${clauses.map((c) => `<li>${escapeHtml(fx(c))}</li>`).join('')}</ol>` : ''}
   </div>`
       : '';
 
@@ -230,21 +264,21 @@ export function renderIdQuotationBody(data: any, organization: any): string {
   const signedOn = cs?.signedAt ? formatDate(cs.signedAt) : '';
   const clientBlock = cs
     ? `${safeImg ? `<img src="${safeImg}" alt="signature" style="max-height:56px;max-width:220px;display:block;margin-bottom:2px;" />` : ''}
-       <div class="line">Agreed &amp; accepted by client</div>
-       <b>${escapeHtml(cs.name || h.clientName || '')}</b><br/>Date: ${escapeHtml(signedOn)} <span style="color:#666;font-size:10.5px;">(signed electronically)</span>`
-    : `<div class="line">Agreed &amp; accepted by client</div>
-       ${escapeHtml(h.clientName || '')}<br/>Date: ______________________`;
+       <div class="line">${L(lang, 'Agreed & accepted by client')}</div>
+       <b>${escapeHtml(cs.name || h.clientName || '')}</b><br/>${L(lang, 'Date:')} ${escapeHtml(signedOn)} <span style="color:#666;font-size:10.5px;">${L(lang, '(signed electronically)')}</span>`
+    : `<div class="line">${L(lang, 'Agreed & accepted by client')}</div>
+       ${escapeHtml(h.clientName || '')}<br/>${L(lang, 'Date:')} ______________________`;
 
   const ds: any = data?.designerSignature || quote?.designerSignature || null;
   const dsImg = ds?.image && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(ds.image) ? ds.image : null;
   const preparedBlock = ds
     ? `${dsImg ? `<img src="${dsImg}" alt="signature" style="max-height:56px;max-width:220px;display:block;margin-bottom:2px;" />` : ''}
-       <div class="line">Prepared by</div>
+       <div class="line">${L(lang, 'Prepared by')}</div>
        <b>${escapeHtml(ds.name || h.designer || '')}</b>${h.designerPhone ? `<br/>${escapeHtml(h.designerPhone)}` : ''}<br/>
-       ${escapeHtml(org.name || '')}<br/>Date: ${ds.signedAt ? escapeHtml(formatDate(ds.signedAt)) : ''}`
-    : `<div class="line">Prepared by</div>
+       ${escapeHtml(org.name || '')}<br/>${L(lang, 'Date:')} ${ds.signedAt ? escapeHtml(formatDate(ds.signedAt)) : ''}`
+    : `<div class="line">${L(lang, 'Prepared by')}</div>
       <b>${escapeHtml(h.designer || '')}</b>${h.designerPhone ? `<br/>${escapeHtml(h.designerPhone)}` : ''}<br/>
-      ${escapeHtml(org.name || '')}<br/>Director`;
+      ${escapeHtml(org.name || '')}<br/>${L(lang, 'Director')}`;
 
   const sign = `
   <div class="sign">
@@ -256,5 +290,11 @@ export function renderIdQuotationBody(data: any, organization: any): string {
     </div>
   </div>`;
 
-  return `${CSS}<div class="idq">${brand}${header}${table}${totals}${sign}${terms}</div>`;
+  // Chinese glyphs: the PDF box (Puppeteer on Render) has no CJK system font,
+  // so zh mode pulls Noto Sans SC — the browser preview uses it too.
+  const zhFont =
+    lang === 'zh'
+      ? `<style>@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;700&display=swap'); .idq { font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif; }</style>`
+      : '';
+  return `${CSS}${zhFont}<div class="idq">${brand}${header}${table}${totals}${sign}${terms}</div>`;
 }

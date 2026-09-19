@@ -59,6 +59,8 @@ const VERB_ACTIONS: Record<string, string> = {
   attachments: 'ATTACH', remove: 'DETACH',
   // Teams (hierarchy access): POST /teams/:id/members replaces the member set.
   members: 'UPDATE',
+  // ID quotation Chinese mode: POST :id/translate fills the cached zh map.
+  translate: 'UPDATE',
   update: 'UPDATE', create: 'CREATE', delete: 'DELETE',
 };
 

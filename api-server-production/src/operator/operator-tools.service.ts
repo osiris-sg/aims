@@ -378,6 +378,31 @@ export class OperatorToolsService {
       },
 
       {
+        name: 'translate_quotation',
+        description:
+          'Translate an ID quotation to Simplified Chinese (中文). AI-translates every free-text line once and caches it on the document; afterwards the portal preview and the client sign link can toggle English/中文. Safe to re-run — only new/edited lines are translated again.',
+        permissions: ['documents:update'],
+        input_schema: {
+          type: 'object',
+          properties: { documentId: { type: 'string' } },
+          required: ['documentId'],
+        },
+        run: async (ctx, { documentId }) => {
+          try {
+            const r = await this.documents.translateIdQuotation(documentId, ctx.organizationId);
+            return {
+              result: {
+                ...r,
+                note: 'Done — the client preview and the sign link now offer an English/中文 toggle for this quotation.',
+              },
+            };
+          } catch (e: any) {
+            return { result: { error: e?.message || 'Translation failed' } };
+          }
+        },
+      },
+
+      {
         name: 'confirm_document',
         description:
           'Finalize a DRAFT document (quotation, DO, etc). This is irreversible and locks the document. Requires the user to have explicitly confirmed.',

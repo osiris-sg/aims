@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Delete, Req, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query, Delete, Req, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
 import { DocumentsService, DocumentActor } from './documents.service';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
@@ -175,12 +175,24 @@ export class DocumentsController {
   // — the ID quotation editor shows it in an iframe so preview === PDF.
   @Get(':id/html')
   @Permissions('documents:read-one')
-  async getHtml(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+  async getHtml(@Param('id') id: string, @Req() req: RequestWithOrganization, @Query('lang') lang?: string) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }
-    return await this.documentsService.renderDocumentHtml(id, organizationId);
+    return await this.documentsService.renderDocumentHtml(id, organizationId, lang);
+  }
+
+  // ID quotation → Chinese: AI-translates the quote's free text once and
+  // caches it on the document (config.quoteZh); then /html?lang=zh renders it.
+  @Post(':id/translate')
+  @Permissions('documents:update')
+  async translate(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.translateIdQuotation(id, organizationId);
   }
 
   // Margin guardrail breach (ID quotations): the editor calls this when a

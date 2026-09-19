@@ -38,10 +38,14 @@ export function isPortedType(type: string): boolean {
  */
 export function renderDocumentHtml(type: string, data: any, organization?: any): string | null {
   const t = String(type || '').toUpperCase();
+  // Print language (ID quotation only for now): 'zh' renders the Chinese
+  // version — static labels from the built-in dictionary, free text from the
+  // document's cached config.quoteZh translation map.
+  const lang: 'en' | 'zh' = data?.lang === 'zh' ? 'zh' : 'en';
   if (QUOTATION_TYPES.includes(t)) {
     const org = organization || data?.organization || data?.company || {};
     if (isIdQuotation(data)) {
-      return pageShell(renderIdQuotationBody({ ...(data || {}), quote: data?.quote || data?.config?.quote }, org));
+      return pageShell(renderIdQuotationBody({ ...(data || {}), quote: data?.quote || data?.config?.quote }, org, lang));
     }
     return pageShell(renderQuotationBody(data || {}, org));
   }

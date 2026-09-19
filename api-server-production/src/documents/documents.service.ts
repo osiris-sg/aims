@@ -6027,7 +6027,7 @@ export class DocumentsService {
    * document renderer. Used by GET /documents/:id/html so the ID quotation
    * editor's preview iframe shows exactly what the PDF will contain.
    */
-  async renderDocumentHtml(documentId: string, organizationId: string): Promise<{ html: string; name: string | null; type: string }> {
+  async renderDocumentHtml(documentId: string, organizationId: string, lang?: string): Promise<{ html: string; name: string | null; type: string }> {
     const document = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
       include: { organization: true },
@@ -6039,6 +6039,7 @@ export class DocumentsService {
     const isQuotation = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(document.type).toUpperCase());
     const html = this.pdfGeneratorService.generateInvoiceHtml({
       documentType: document.type,
+      lang: lang === 'zh' ? 'zh' : 'en',
       ...config,
       name: document.name,
       organization: document.organization,
@@ -6050,6 +6051,89 @@ export class DocumentsService {
       isQuotation,
     });
     return { html, name: document.name, type: document.type };
+  }
+
+  /**
+   * ID quotation Chinese print mode (guru 2026-09-19): collect every free-text
+   * string in config.quote, AI-translate the ones not yet in config.quoteZh
+   * ({ english: chinese } map) and cache the merged map on the document. Keyed
+   * by the exact English string, so an edited line simply drops out of the
+   * cache and gets translated on the next call — nothing is ever stale.
+   */
+  async translateIdQuotation(documentId: string, organizationId: string) {
+    const document = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, config: true },
+    });
+    if (!document) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    const cfg: any = document.config || {};
+    const quote: any = cfg.quote;
+    if (!quote) throw new HttpException('Not an ID quotation', HttpStatus.BAD_REQUEST);
+
+    const texts = new Set<string>();
+    const add = (v: any) => {
+      const t = String(v ?? '').trim();
+      if (t) texts.add(t);
+    };
+    add(quote.header?.title);
+    add(quote.header?.remarks);
+    add(quote.header?.paymentTerms);
+    for (const s of quote.sections || []) {
+      add(s.title);
+      for (const n of s.notes || []) add(n);
+      for (const a of s.areas || []) {
+        if (a.name && a.name !== 'General') add(a.name);
+        for (const it of a.items || []) {
+          add(it.description);
+          for (const inc of it.includes || []) add(inc.text);
+        }
+      }
+    }
+    for (const d of quote.summary?.discounts || []) add(d.label);
+    for (const pTerm of quote.terms?.paymentTerms || []) add(pTerm);
+    for (const c of quote.terms?.clauses || []) add(c);
+
+    const existing: Record<string, string> = cfg.quoteZh || {};
+    const missing = [...texts].filter((t) => !existing[t]);
+    if (!missing.length) return { translated: 0, cached: texts.size };
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new HttpException('Translation is not configured (no AI key)', HttpStatus.SERVICE_UNAVAILABLE);
+    const Anthropic = (await import('@anthropic-ai/sdk')).default;
+    const client = new Anthropic({ apiKey });
+    const res = await client.messages.create({
+      model: 'claude-sonnet-5',
+      max_tokens: 8000,
+      system:
+        'You translate interior-design renovation quotation lines from English to Simplified Chinese for a Singapore ID firm. ' +
+        'Keep trade terms natural (木工 carpentry, 泥水 masonry, 防水 waterproofing, 人造石 quartz, 油漆 painting…), keep numbers, ' +
+        'measurements, model codes and brand names EXACTLY as-is, and keep the register formal and contract-like. ' +
+        'Input is a JSON array of strings; reply with ONLY a JSON array of the translations in the SAME order and length.',
+      messages: [{ role: 'user', content: JSON.stringify(missing) }],
+    });
+    const raw = res.content
+      .filter((b: any) => b.type === 'text')
+      .map((b: any) => b.text)
+      .join('');
+    let out: string[];
+    try {
+      const jsonStart = raw.indexOf('[');
+      out = JSON.parse(raw.slice(jsonStart, raw.lastIndexOf(']') + 1));
+    } catch {
+      throw new HttpException('Translation failed — could not parse AI output', HttpStatus.BAD_GATEWAY);
+    }
+    if (!Array.isArray(out) || out.length !== missing.length) {
+      throw new HttpException('Translation failed — response length mismatch', HttpStatus.BAD_GATEWAY);
+    }
+    const merged = { ...existing };
+    missing.forEach((src, i) => {
+      if (typeof out[i] === 'string' && out[i].trim()) merged[src] = out[i].trim();
+    });
+    await this.prisma.document.update({
+      where: { id: documentId },
+      data: { config: { ...cfg, quoteZh: merged } },
+    });
+    return { translated: missing.length, cached: texts.size - missing.length };
   }
 
   /**

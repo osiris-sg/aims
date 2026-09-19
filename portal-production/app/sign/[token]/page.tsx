@@ -12,6 +12,28 @@ import { Alert, Box, Button, Checkbox, CircularProgress, Container, FormControlL
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DownloadIcon from "@mui/icons-material/Download";
 import SignatureCanvas from "react-signature-canvas";
+import { ToggleButton, ToggleButtonGroup } from "@mui/material";
+
+// The document itself re-renders server-side per language; these are the few
+// sign-panel strings around it (English quotation stays the signed original —
+// the 中文 view is a courtesy rendering for the client to read).
+const T: Record<string, { en: string; zh: string }> = {
+  accept: { en: "Accept this quotation", zh: "接受此报价单" },
+  grand: { en: "Grand total", zh: "总计" },
+  signBelow: {
+    en: "Sign below to accept the works and the General Terms & Conditions on the last page.",
+    zh: "请在下方签名，以接受本工程及最后一页的一般条款与条件。",
+  },
+  fullName: { en: "Your full name", zh: "您的全名" },
+  draw: { en: "Draw your signature", zh: "请在此签名" },
+  clear: { en: "Clear", zh: "清除" },
+  agree: {
+    en: "I have read and agree to the quotation and the General Terms & Conditions.",
+    zh: "本人已阅读并同意本报价单及一般条款与条件。",
+  },
+  sign: { en: "Sign & accept", zh: "签名并接受" },
+  submitting: { en: "Submitting…", zh: "提交中…" },
+};
 
 type Payload = {
   state: "active" | "signed" | "revoked" | "expired" | "notfound";
@@ -32,6 +54,8 @@ export default function PublicSignPage() {
   const base = process.env.NEXT_PUBLIC_BACKEND_API_URL;
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lang, setLang] = useState<"en" | "zh">("en");
+  const t = (k: keyof typeof T) => T[k][lang];
   const [name, setName] = useState("");
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -49,17 +73,17 @@ export default function PublicSignPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${base}/public/sign/${token}`);
+        const res = await fetch(`${base}/public/sign/${token}?lang=${lang}`);
         const json = await res.json();
         if (!res.ok) throw new Error(json?.message || "This link is not valid");
         const p: Payload = json?.data ?? json;
         setData(p);
-        setName(p.document?.clientName || "");
+        setName((prev) => prev || p.document?.clientName || "");
       } catch (e: any) {
         setError(e.message || "This link is not valid");
       }
     })();
-  }, [base, token]);
+  }, [base, token, lang]);
 
   useEffect(() => {
     // Logical width tracks the container EXACTLY (no 640 cap, no -2) so the
@@ -128,7 +152,7 @@ export default function PublicSignPage() {
       const r = json?.data ?? json;
       setDone({ signedAt: r.signedAt });
       // Refresh so the rendered document shows the signature + PDF link.
-      const again = await fetch(`${base}/public/sign/${token}`);
+      const again = await fetch(`${base}/public/sign/${token}?lang=${lang}`);
       const j2 = await again.json();
       setData(j2?.data ?? j2);
     } catch (e: any) {
@@ -158,6 +182,10 @@ export default function PublicSignPage() {
     <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 3 }}>
       {org.logo ? <img src={org.logo} alt={org.name} style={{ maxHeight: 44, maxWidth: 180, objectFit: "contain" }} /> : <Typography variant="h6" sx={{ fontWeight: 800 }}>{org.name}</Typography>}
       <Box sx={{ flex: 1 }} />
+      <ToggleButtonGroup size="small" exclusive value={lang} onChange={(_, v) => v && setLang(v)} sx={{ bgcolor: "#fff" }}>
+        <ToggleButton value="en" sx={{ px: 1.25, py: 0.25, textTransform: "none" }}>English</ToggleButton>
+        <ToggleButton value="zh" sx={{ px: 1.25, py: 0.25, textTransform: "none" }}>中文</ToggleButton>
+      </ToggleButtonGroup>
       <Box sx={{ textAlign: "right" }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
           Quotation {d.number}
@@ -212,15 +240,15 @@ export default function PublicSignPage() {
       {!signed && (
         <Paper elevation={0} sx={{ border: "1px solid #ddd", borderRadius: 2, p: { xs: 2, md: 3 }, bgcolor: "#fff" }}>
           <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
-            Accept this quotation
+            {t("accept")}
           </Typography>
           <Typography variant="body2" sx={{ color: "#555", mb: 2 }}>
-            Grand total <b>{d.currency} {money(d.grandTotal)}</b>. Sign below to accept the works and the General Terms &amp; Conditions on the last page.
+            {t("grand")} <b>{d.currency} {money(d.grandTotal)}</b>. {t("signBelow")}
             {data.expiresAt ? ` This link is valid until ${fmtDate(data.expiresAt)}.` : ""}
           </Typography>
-          <TextField label="Your full name" fullWidth size="small" value={name} onChange={(e) => setName(e.target.value)} sx={{ mb: 2 }} />
+          <TextField label={t("fullName")} fullWidth size="small" value={name} onChange={(e) => setName(e.target.value)} sx={{ mb: 2 }} />
           <Typography variant="caption" sx={{ color: "#555" }}>
-            Draw your signature
+            {t("draw")}
           </Typography>
           <Box ref={padRef} sx={{ border: "1px dashed #bbb", borderRadius: 1.5, bgcolor: "#fafafa", mb: 1, position: "relative", touchAction: "none" }}>
             <SignatureCanvas
@@ -245,17 +273,17 @@ export default function PublicSignPage() {
               }}
               sx={{ position: "absolute", right: 6, top: 6, textTransform: "none", color: "#666" }}
             >
-              Clear
+              {t("clear")}
             </Button>
           </Box>
-          <FormControlLabel control={<Checkbox checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />} label={<Typography variant="body2">I have read and agree to the quotation and the General Terms &amp; Conditions.</Typography>} sx={{ mb: 1.5, alignItems: "flex-start", "& .MuiCheckbox-root": { pt: 0.25 } }} />
+          <FormControlLabel control={<Checkbox checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />} label={<Typography variant="body2">{t("agree")}</Typography>} sx={{ mb: 1.5, alignItems: "flex-start", "& .MuiCheckbox-root": { pt: 0.25 } }} />
           {error && (
             <Alert severity="error" sx={{ mb: 1.5 }}>
               {error}
             </Alert>
           )}
           <Button variant="contained" size="large" disabled={submitting || !name.trim() || !agreed || sigEmpty} onClick={submit} sx={{ textTransform: "none", bgcolor: "#111", "&:hover": { bgcolor: "#333" } }}>
-            {submitting ? "Submitting…" : "Sign & accept"}
+            {submitting ? t("submitting") : t("sign")}
           </Button>
           <Typography variant="caption" sx={{ display: "block", color: "#777", mt: 1.5 }}>
             By signing you agree that this electronic signature is the legal equivalent of your handwritten signature on this agreement. Your name, signature, time and IP address are recorded.

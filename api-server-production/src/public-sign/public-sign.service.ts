@@ -201,7 +201,7 @@ export class PublicSignService {
   }
 
   /** Public payload: state + a safe summary + the rendered quotation HTML. */
-  async getByToken(token: string) {
+  async getByToken(token: string, lang?: string) {
     const { link, state } = await this.resolve(token);
     if (!link) throw new NotFoundException();
     const doc = link.document;
@@ -225,7 +225,7 @@ export class PublicSignService {
       signerName: link.signerName,
     };
     if (state === 'revoked' || state === 'expired') return base;
-    const { html } = await this.documents.renderDocumentHtml(doc.id, doc.organizationId);
+    const { html } = await this.documents.renderDocumentHtml(doc.id, doc.organizationId, lang);
     let pdfUrl: string | null = null;
     if (state === 'signed') {
       try {
