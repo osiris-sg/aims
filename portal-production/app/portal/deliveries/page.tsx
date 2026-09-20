@@ -158,8 +158,18 @@ export default function DeliveriesQueuePage() {
         const token = await getToken();
         if (!token) return;
         const res = await request({ path: `/documents/${docId}`, method: "GET" }, {}, token);
-        const templateId = (res?.data ?? res)?.documentTemplateId;
-        if (templateId) router.push(`/portal/documents/DELIVERY_ORDER/${templateId}/${docId}`);
+        const doc = res?.data ?? res;
+        const templateId = doc?.documentTemplateId;
+        // Fall back to the plain document route rather than doing nothing. The
+        // old `if (templateId)` made an unresolvable template look like a dead
+        // chip — it was wired, it just silently went nowhere.
+        // The type is read off the document too: an ad-hoc DO is DELIVERY_ORDER,
+        // but hard-coding it would mis-route anything else linked to a run.
+        router.push(
+          templateId
+            ? `/portal/documents/${doc?.type ?? "DELIVERY_ORDER"}/${templateId}/${docId}`
+            : `/portal/documents/${docId}`,
+        );
       } catch {
         /* non-fatal: leave the user on the list */
       }
@@ -321,6 +331,7 @@ export default function DeliveriesQueuePage() {
                               color="success"
                               clickable
                               label={d.name ?? "linked"}
+                              title="Open this delivery order"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 void openDocument(d.id);

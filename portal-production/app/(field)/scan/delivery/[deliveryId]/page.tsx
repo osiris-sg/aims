@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
   Alert,
@@ -99,6 +99,10 @@ interface Run {
   // Set = the office scheduled this run, which is what turns on the one-pass
   // walk-through. An ad-hoc run (null) keeps the free-order basket behaviour.
   scheduledFor?: string | null;
+  // AD_HOC = a rider started this run from a scan with no scheduled run to join.
+  // It gates the hand-off flip: an ad-hoc run has no project, so its units must
+  // stay `reserved` until the office attaches one. See adHocRun below.
+  origin?: "SCHEDULED" | "AD_HOC";
   riderName: string | null;
   siteAddress: string | null;
   startedAt: string;
@@ -139,7 +143,11 @@ export default function DeliveryBasketPage() {
   const router = useRouter();
   const { getToken } = useAuth();
   const nfc = useNfcScan();
+  const searchParams = useSearchParams();
   const deliveryId = params?.deliveryId as string;
+  // Set when the AD-HOC two-button page sent the rider here to add more units.
+  // It turns on the "Done adding" button that takes them back to finish.
+  const returnToAdHoc = searchParams?.get("returnTo") === "adhoc";
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -669,6 +677,33 @@ export default function DeliveryBasketPage() {
       }
       return;
     }
+    // AD-HOC: same shape, different endpoint. /adhoc-ack makes every item
+    // delivered and writes the same unsigned DO_ACK proof, but WITHOUT the
+    // reserved -> rental hand-off flip, because there is no project to deploy
+    // against yet. Using /ack-all here would leave a rental unit with no
+    // ProjectDeployment behind it (run #30). The office flips it later via
+    // Attach project, which creates the deployment in the same act.
+    if (run.origin === "AD_HOC") {
+      setBusy(true);
+      setActionMsg(null);
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const res = await request({ path: `/deliveries/${run.id}/adhoc-ack`, method: "POST" }, {}, token);
+        if (res?.success === false) throw new Error(res?.message ?? "Could not start the delivery");
+        const fresh = await fetchRun();
+        if (fresh && fresh.status === "delivered") {
+          router.push(`/scan/delivery/${run.id}/finalize`);
+          return;
+        }
+        if (fresh) setRun(fresh);
+      } catch (e: any) {
+        setActionMsg(e?.message ?? "Could not start the delivery");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     // OUTBOUND (2026-08 signature-at-end): mark every delivering item delivered
     // (delivering -> not_installed) with NO signature. ack-all writes an unsigned
     // proof MSR per item. The single customer signature is captured later at
@@ -769,6 +804,13 @@ export default function DeliveryBasketPage() {
       : orderedItems.findIndex((it) => it.id === walkItem.id) + 1
     : 0;
   const isReturnRun = run.direction === "RETURN";
+  // AD-HOC RUNS NEVER TAKE THE HAND-OFF FLIP HERE. Both of this page's end
+  // paths (bulkEnd -> /ack-all and endItemDelivery -> /units/:id/deliver) run
+  // advanceDeliveryItem('ack'), which moves the unit reserved -> rental. On an
+  // ad-hoc run there is no project and so no ProjectDeployment to stand behind
+  // a rental unit — that is the run #30 defect. bulkEnd routes to /adhoc-ack
+  // instead, and the per-item End is hidden so the run ends in one act.
+  const adHocRun = run.origin === "AD_HOC" && !isReturnRun;
   const scheduledSummary = (() => {
     if (unboundSlots.length === 0) return [] as Array<{ assetId: string; label: string; scheduled: number; delivered: number; remaining: number }>;
     const byAsset = new Map<string, { label: string; remaining: number; delivered: number }>();
@@ -922,7 +964,7 @@ export default function DeliveryBasketPage() {
               )}
               {/* Free-typed line already started -> End marks it delivered with no
                   signature (captured at Finalize), by DeliveryItem.id. */}
-              {!walkItem.inventoryId && !walkItem.assetId && walkItem.deliveryStatus === "delivering" && (
+              {!walkItem.inventoryId && !walkItem.assetId && walkItem.deliveryStatus === "delivering" && !adHocRun && (
                 <Button
                   variant="contained"
                   size="large"
@@ -951,7 +993,11 @@ export default function DeliveryBasketPage() {
                   {isReturnRun ? "Start Return" : "Start Delivery"}
                 </Button>
               )}
-              {walkItem.inventoryId && walkItem.deliveryStatus === "delivering" && (
+              {/* AD-HOC: no per-unit End. /units/:id/deliver does the reserved ->
+                  rental flip, which must not happen before a project exists. An
+                  ad-hoc run ends in ONE act via the End Delivery button below
+                  (-> /adhoc-ack), so this per-item button is simply not offered. */}
+              {walkItem.inventoryId && walkItem.deliveryStatus === "delivering" && !adHocRun && (
                 isReturnRun ? (
                   <Button
                     variant="contained"
@@ -1161,7 +1207,7 @@ export default function DeliveryBasketPage() {
       {/* Single End action for the WHOLE box: a unit lead captures one signature/
           photo/GPS and ack-all fans it across every delivering item (free-typed
           included). Shown while anything is still delivering. */}
-      {deliveringItems.length >= 1 && (
+      {deliveringItems.length >= 1 && !returnToAdHoc && (
         <Button
           fullWidth
           variant="contained"
@@ -1171,6 +1217,23 @@ export default function DeliveryBasketPage() {
           sx={{ mt: 1.5, minHeight: 44 }}
         >
           {isReturnRun ? "End Return" : "End Delivery"}
+        </Button>
+      )}
+
+      {/* Sent here by the ad-hoc two-button page to add more units. Finishing is
+          that page's job, not this one's, so End Delivery is replaced by a way
+          back — otherwise the rider has two different buttons that both end the
+          run and no obvious route to the page they came from. */}
+      {returnToAdHoc && (
+        <Button
+          fullWidth
+          variant="contained"
+          startIcon={<LocalShippingIcon />}
+          onClick={() => router.push(`/scan/delivery/${run.id}/adhoc`)}
+          disabled={busy}
+          sx={{ mt: 1.5, minHeight: 48 }}
+        >
+          Done adding — back to delivery
         </Button>
       )}
       </Box>

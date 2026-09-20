@@ -312,6 +312,33 @@ export default function DeliveryDetailPage() {
     }
   };
 
+  // Open a DO in the document editor. The run summary carries the document's id
+  // and name but NOT its template id, and the editor route needs one, so resolve
+  // it via GET /documents/:id first — the same two-step the Create-DO flow below
+  // already does. Falls back to the plain document route when the template can't
+  // be resolved, so the chip always goes somewhere rather than silently doing
+  // nothing.
+  const openDocument = useCallback(
+    async (docId: string) => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request({ path: `/documents/${docId}`, method: "GET" }, {}, token);
+        const doc = res?.data ?? res;
+        const templateId = doc?.documentTemplateId;
+        const type = doc?.type ?? "DELIVERY_ORDER";
+        router.push(
+          templateId
+            ? `/portal/documents/${type}/${templateId}/${docId}`
+            : `/portal/documents/${docId}`,
+        );
+      } catch {
+        /* non-fatal: leave the user on the run */
+      }
+    },
+    [getToken, router],
+  );
+
   const doCreateDo = async () => {
     setActing(true);
     setActionError(null);
@@ -617,7 +644,18 @@ export default function DeliveryDetailPage() {
                   </TableCell>
                   <TableCell>
                     {it.document ? (
-                      <Chip size="small" variant="outlined" color="success" label={it.document.name ?? it.document.id} />
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        color="success"
+                        clickable
+                        label={it.document.name ?? it.document.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void openDocument(it.document!.id);
+                        }}
+                        title="Open this delivery order"
+                      />
                     ) : (
                       <Typography variant="body2" color="text.secondary">—</Typography>
                     )}

@@ -2105,8 +2105,13 @@ export class DeliveriesService {
     const adHocRunIds = docs.filter((d) => d.origin === DeliveryOrigin.AD_HOC).map((d) => d.id);
     const [docRows, photoRows] = await Promise.all([
       docIds.length
-        ? this.prisma.document.findMany({ where: { id: { in: docIds } }, select: { id: true, name: true, config: true } })
-        : Promise.resolve([] as Array<{ id: string; name: string | null; config: unknown }>),
+        ? this.prisma.document.findMany({
+            where: { id: { in: docIds } },
+            // projectId is a real column on Document; the office sets it when it
+            // fills the DO in. It is read by the `missing` derivation below.
+            select: { id: true, name: true, config: true, projectId: true },
+          })
+        : Promise.resolve([] as Array<{ id: string; name: string | null; config: unknown; projectId: string | null }>),
       adHocRunIds.length
         ? this.prisma.maintenanceServiceReport.findMany({
             where: { deliveryId: { in: adHocRunIds }, kind: { in: ['DO_START', 'DO_ACK', 'DO_INSTALL'] } },
@@ -2116,6 +2121,17 @@ export class DeliveriesService {
     ]);
     const poNoByDoc = new Map(docRows.map((dc) => [dc.id, (dc.config as any)?.poNo ?? null]));
     const saleOrderIdByDoc = new Map(docRows.map((dc) => [dc.id, (dc.config as any)?.saleOrderId ?? null]));
+    // Customer and project AS THE DOCUMENT HAS THEM. The office fills an ad-hoc
+    // run in by editing its DO, so these are where the answer actually lands;
+    // the run's own scalars stay null unless the Attach-project path was used.
+    // Both keys are checked because the editor writes the column while the
+    // headless create path writes config.
+    const custIdByDoc = new Map(
+      docRows.map((dc) => [dc.id, (dc.config as any)?.customerId ?? null]),
+    );
+    const projIdByDoc = new Map(
+      docRows.map((dc) => [dc.id, dc.projectId ?? (dc.config as any)?.projectId ?? null]),
+    );
     const photoCountByRun = new Map<string, number>();
     for (const r of photoRows) {
       if (!r.deliveryId) continue;
@@ -2132,6 +2148,19 @@ export class DeliveriesService {
       // a customer already chosen, so flagging it says nothing; null here means
       // "not applicable" and the list renders a dash rather than an empty cell.
       //
+      // EACH SIGNAL READS EITHER RECORD, DOCUMENT FIRST. An ad-hoc run has no
+      // project or customer BY DESIGN — the office supplies them afterwards, and
+      // it does that on the DO. Reading only Delivery.projectId/.customerId (as
+      // this did) meant those two chips could never clear for the office's
+      // actual workflow, while PO cleared because it already read the document.
+      // They are satisfied by a value on EITHER record so the chips are honest
+      // whichever path the office took:
+      //   - editing the DO  -> the document carries it, the run stays null
+      //   - Attach project  -> the run carries it (and a real ProjectDeployment
+      //                        is created, which editing the DO does NOT do)
+      // Note this makes the chip clear, not the data correct: only the
+      // Attach-project path builds the deployment behind a deployed unit.
+      //
       // QUOTATION IS NOT CHECKED. Nothing records which quotation a DO came
       // from: the extract-from-quotation flow copies the lines across and
       // discards the quotation, and ScheduleDeliveryDto has no field for one.
@@ -2145,8 +2174,8 @@ export class DeliveriesService {
         d.origin === DeliveryOrigin.AD_HOC
           ? [
               ...(!runDoc || !(poNoByDoc.get(runDoc.id) ?? null) ? ['PO'] : []),
-              ...(!d.customerId ? ['customer'] : []),
-              ...(!d.projectId ? ['project'] : []),
+              ...(!d.customerId && !(runDoc && custIdByDoc.get(runDoc.id)) ? ['customer'] : []),
+              ...(!d.projectId && !(runDoc && projIdByDoc.get(runDoc.id)) ? ['project'] : []),
               ...(!(photoCountByRun.get(d.id) ?? 0) ? ['photos'] : []),
             ]
           : null;

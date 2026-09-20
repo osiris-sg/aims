@@ -17,9 +17,16 @@ import { request } from "@/helpers/request";
  * a DO_START report, GPS is running and the unit is reserved. Nothing is created
  * here — this only offers the two ways forward.
  *
- *   SCAN MORE ITEMS → /scan, the existing scan + serial entry. Each unit the
- *   rider starts from there joins THIS run (the backend's join-on-scan), and
- *   they come back to this screen to add another or finish.
+ *   SCAN MORE ITEMS → the RUN BASKET for this delivery, /scan/delivery/:id.
+ *   That is the run-first entry point and it already does exactly this job:
+ *   inline NFC or manual serial resolve, a MANDATORY condition-photo step, then
+ *   POST /deliveries/:id/items + DO_START — all bound to THIS run. It is passed
+ *   ?returnTo=adhoc so the basket offers a "Done adding" button back to here.
+ *
+ *   It used to push to bare /scan. That had no run id at all, so the second unit
+ *   started its own standalone run and never joined this one — a two-unit drop
+ *   finished as a one-item DO. There is no join-on-scan on that route; the
+ *   basket is the mechanism, so it is reused rather than rebuilt.
  *
  *   START DELIVERY → POST /deliveries/:id/adhoc-ack, which marks every item
  *   delivered WITHOUT the hand-off stock flip (the unit must stay reserved —
@@ -58,6 +65,19 @@ export default function AdHocDeliveryPage() {
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  // Re-read whenever the tab regains focus. The rider leaves for the basket to
+  // add units and comes back; without this the item list below would still show
+  // the run as it was before they added anything.
+  useEffect(() => {
+    const onFocus = () => void load();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
   }, [load]);
 
   const startDelivery = async () => {
@@ -136,7 +156,7 @@ export default function AdHocDeliveryPage() {
         <Button
           variant="outlined"
           startIcon={<QrCodeScannerIcon />}
-          onClick={() => router.push("/scan")}
+          onClick={() => router.push(`/scan/delivery/${deliveryId}?returnTo=adhoc`)}
           fullWidth
           sx={{ minHeight: 52 }}
           disabled={busy}
