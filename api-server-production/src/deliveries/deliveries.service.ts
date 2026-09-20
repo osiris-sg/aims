@@ -2099,29 +2099,23 @@ export class DeliveriesService {
     // and customer are scalars on the run; PO and quotation live in the same
     // `config` blob this already fetches). Photos are the only extra, and they
     // are fetched for the whole page at once — no N+1.
-    const runIds = docs.map((d) => d.id);
+    // Only AD_HOC runs get a `missing` list, so only they need the photo count.
+    // A scheduled run's gaps are the office's normal workflow, not an exception
+    // worth flagging on every row.
+    const adHocRunIds = docs.filter((d) => d.origin === DeliveryOrigin.AD_HOC).map((d) => d.id);
     const [docRows, photoRows] = await Promise.all([
       docIds.length
         ? this.prisma.document.findMany({ where: { id: { in: docIds } }, select: { id: true, name: true, config: true } })
         : Promise.resolve([] as Array<{ id: string; name: string | null; config: unknown }>),
-      runIds.length
+      adHocRunIds.length
         ? this.prisma.maintenanceServiceReport.findMany({
-            where: { deliveryId: { in: runIds }, kind: { in: ['DO_START', 'DO_ACK', 'DO_INSTALL'] } },
+            where: { deliveryId: { in: adHocRunIds }, kind: { in: ['DO_START', 'DO_ACK', 'DO_INSTALL'] } },
             select: { deliveryId: true, photos: true },
           })
         : Promise.resolve([] as Array<{ deliveryId: string | null; photos: string[] }>),
     ]);
     const poNoByDoc = new Map(docRows.map((dc) => [dc.id, (dc.config as any)?.poNo ?? null]));
     const saleOrderIdByDoc = new Map(docRows.map((dc) => [dc.id, (dc.config as any)?.saleOrderId ?? null]));
-    // A quotation may be recorded either as the source document or as a plain
-    // config key, depending on which flow created the DO.
-    const quotationByDoc = new Map(
-      docRows.map((dc) => {
-        const cfg = (dc.config as any) ?? {};
-        const isQuote = String(cfg.sourceDocumentType ?? '').toUpperCase().includes('QUOT');
-        return [dc.id, (isQuote ? cfg.sourceDocumentNumber ?? cfg.sourceDocumentId : null) ?? cfg.quotationId ?? cfg.quotationNo ?? null];
-      }),
-    );
     const photoCountByRun = new Map<string, number>();
     for (const r of photoRows) {
       if (!r.deliveryId) continue;
@@ -2130,15 +2124,32 @@ export class DeliveriesService {
     const enriched = docs.map((d) => {
       const distinct = [...new Map(d.items.filter((i) => i.document).map((i) => [i.document!.id, i.document!])).values()];
       const runDoc = distinct.length === 1 ? distinct[0] : null;
-      // What the office still has to supply before this DO can be priced and
-      // confirmed. Derived, not stored — it changes as the office fills things
-      // in, so persisting it would immediately go stale.
-      const missing: string[] = [];
-      if (!runDoc || !(poNoByDoc.get(runDoc.id) ?? null)) missing.push('PO');
-      if (!runDoc || !(quotationByDoc.get(runDoc.id) ?? null)) missing.push('quotation');
-      if (!d.customerId) missing.push('customer');
-      if (!d.projectId) missing.push('project');
-      if (!(photoCountByRun.get(d.id) ?? 0)) missing.push('photos');
+      // What the office still has to supply on an AD-HOC run before its DO can
+      // be priced and confirmed. Derived, not stored — it changes as the office
+      // fills things in, so persisting it would go stale immediately.
+      //
+      // AD_HOC ONLY. A scheduled run is created by the office with a project and
+      // a customer already chosen, so flagging it says nothing; null here means
+      // "not applicable" and the list renders a dash rather than an empty cell.
+      //
+      // QUOTATION IS NOT CHECKED. Nothing records which quotation a DO came
+      // from: the extract-from-quotation flow copies the lines across and
+      // discards the quotation, and ScheduleDeliveryDto has no field for one.
+      // Measured over 364 Biofuel DOs, exactly ONE carries
+      // sourceDocumentType 'QUOTATION' and none carries quotationId — so the
+      // check flagged 100% of runs, including correct ones, and a value that is
+      // always "missing" carries no information. Re-add it only once the extract
+      // records a pointer (the keys the DO -> invoice path already uses:
+      // sourceDocumentId / sourceDocumentType / sourceDocumentNumber).
+      const missing: string[] | null =
+        d.origin === DeliveryOrigin.AD_HOC
+          ? [
+              ...(!runDoc || !(poNoByDoc.get(runDoc.id) ?? null) ? ['PO'] : []),
+              ...(!d.customerId ? ['customer'] : []),
+              ...(!d.projectId ? ['project'] : []),
+              ...(!(photoCountByRun.get(d.id) ?? 0) ? ['photos'] : []),
+            ]
+          : null;
       return {
         ...d,
         // `origin` rides through from the row; the list keys its Ad-hoc column

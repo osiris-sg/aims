@@ -71,10 +71,12 @@ interface DeliveryRow {
   // already holds project-less runs that are a mix of stranded scans, genuine
   // deliveries and empty office drafts, so the null says nothing about origin.
   origin?: "SCHEDULED" | "AD_HOC";
-  // What the office still has to supply before the DO can be priced and
-  // confirmed: any of PO, quotation, customer, project, photos. Derived by the
-  // list query from rows it already fetches, plus one batched photo lookup.
-  missing?: string[];
+  // What the office still has to supply on an AD-HOC run: any of PO, customer,
+  // project, photos. NULL on a scheduled run, meaning "not applicable" — the
+  // office chose its project and customer up front, so there is nothing to flag.
+  // Quotation is deliberately absent: nothing records which quotation a DO came
+  // from, so checking it flagged every run including correct ones.
+  missing?: string[] | null;
 }
 
 const STATUS_CHIP: Record<RunStatus, { label: string; color: "warning" | "info" | "success" | "default" | "primary" }> = {
@@ -339,9 +341,12 @@ export default function DeliveriesQueuePage() {
                         <Typography variant="caption" color="text.disabled">—</Typography>
                       )}
                     </TableCell>
-                    {/* What the office still owes this DO. Nothing missing shows
-                        a tick rather than an empty cell, so a complete run reads
-                        as complete rather than as unloaded data. */}
+                    {/* What the office still owes this DO — AD-HOC runs only.
+                        A dash (not a blank cell) on a scheduled run: blank reads
+                        as "not loaded yet", a dash reads as "nothing to say
+                        here", and it matches how this table already renders an
+                        absent rider. Nothing missing shows a tick, so a complete
+                        ad-hoc run reads as complete rather than as no data. */}
                     <TableCell>
                       {!r.missing ? (
                         <Typography variant="caption" color="text.disabled">—</Typography>
