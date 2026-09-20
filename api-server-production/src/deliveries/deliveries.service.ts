@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { AssetClass, DeliveryDirection, DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
+import { AssetClass, DeliveryDirection, DeliveryOrigin, DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { isUnconfirmedDoc } from 'src/common/doc-status';
 import { resolveLineAssetClass, minPhotosForAssetClass } from 'src/common/asset-class';
@@ -1583,6 +1583,12 @@ export class DeliveriesService {
             organizationId,
             deliveryNumber,
             direction: isReturn ? DeliveryDirection.RETURN : DeliveryDirection.OUTBOUND,
+            // AD_HOC: this run is born from a rider's scan, not from an office
+            // schedule. Most of these are throwaway — the assign step MERGES the
+            // run into a chosen scheduled run and discards it — but the ones that
+            // survive are exactly the ad-hoc deliveries, and they must complete
+            // down the third branch (DO created, stock NOT deducted).
+            origin: DeliveryOrigin.AD_HOC,
             riderUserId,
             riderName: dto.riderName,
             projectId: dto.projectId,
@@ -2088,16 +2094,56 @@ export class DeliveriesService {
     const docIds = [
       ...new Set(docs.flatMap((d) => d.items.map((i) => i.documentId).filter((v): v is string => !!v))),
     ];
-    const docRows = docIds.length
-      ? await this.prisma.document.findMany({ where: { id: { in: docIds } }, select: { id: true, name: true, config: true } })
-      : [];
+    // ONE batched read for the page's documents, and ONE for its proof photos.
+    // Four of the five "missing" signals come from rows already in hand (project
+    // and customer are scalars on the run; PO and quotation live in the same
+    // `config` blob this already fetches). Photos are the only extra, and they
+    // are fetched for the whole page at once — no N+1.
+    const runIds = docs.map((d) => d.id);
+    const [docRows, photoRows] = await Promise.all([
+      docIds.length
+        ? this.prisma.document.findMany({ where: { id: { in: docIds } }, select: { id: true, name: true, config: true } })
+        : Promise.resolve([] as Array<{ id: string; name: string | null; config: unknown }>),
+      runIds.length
+        ? this.prisma.maintenanceServiceReport.findMany({
+            where: { deliveryId: { in: runIds }, kind: { in: ['DO_START', 'DO_ACK', 'DO_INSTALL'] } },
+            select: { deliveryId: true, photos: true },
+          })
+        : Promise.resolve([] as Array<{ deliveryId: string | null; photos: string[] }>),
+    ]);
     const poNoByDoc = new Map(docRows.map((dc) => [dc.id, (dc.config as any)?.poNo ?? null]));
     const saleOrderIdByDoc = new Map(docRows.map((dc) => [dc.id, (dc.config as any)?.saleOrderId ?? null]));
+    // A quotation may be recorded either as the source document or as a plain
+    // config key, depending on which flow created the DO.
+    const quotationByDoc = new Map(
+      docRows.map((dc) => {
+        const cfg = (dc.config as any) ?? {};
+        const isQuote = String(cfg.sourceDocumentType ?? '').toUpperCase().includes('QUOT');
+        return [dc.id, (isQuote ? cfg.sourceDocumentNumber ?? cfg.sourceDocumentId : null) ?? cfg.quotationId ?? cfg.quotationNo ?? null];
+      }),
+    );
+    const photoCountByRun = new Map<string, number>();
+    for (const r of photoRows) {
+      if (!r.deliveryId) continue;
+      photoCountByRun.set(r.deliveryId, (photoCountByRun.get(r.deliveryId) ?? 0) + (r.photos?.length ?? 0));
+    }
     const enriched = docs.map((d) => {
       const distinct = [...new Map(d.items.filter((i) => i.document).map((i) => [i.document!.id, i.document!])).values()];
       const runDoc = distinct.length === 1 ? distinct[0] : null;
+      // What the office still has to supply before this DO can be priced and
+      // confirmed. Derived, not stored — it changes as the office fills things
+      // in, so persisting it would immediately go stale.
+      const missing: string[] = [];
+      if (!runDoc || !(poNoByDoc.get(runDoc.id) ?? null)) missing.push('PO');
+      if (!runDoc || !(quotationByDoc.get(runDoc.id) ?? null)) missing.push('quotation');
+      if (!d.customerId) missing.push('customer');
+      if (!d.projectId) missing.push('project');
+      if (!(photoCountByRun.get(d.id) ?? 0)) missing.push('photos');
       return {
         ...d,
+        // `origin` rides through from the row; the list keys its Ad-hoc column
+        // off it rather than inferring from a null project.
+        missing,
         document: runDoc
           ? { ...runDoc, poNo: poNoByDoc.get(runDoc.id) ?? null, saleOrderId: saleOrderIdByDoc.get(runDoc.id) ?? null }
           : null,
@@ -2206,6 +2252,216 @@ export class DeliveriesService {
   }
 
   /**
+   * OFFICE: attach a project to a completed AD-HOC run.
+   *
+   * This is the second half of the ad-hoc flow — the half the rider cannot do.
+   * The run delivered real units to a real place, but with no project there was
+   * nothing to deploy against, so the units were left `reserved` rather than
+   * deducted. This closes that.
+   *
+   * ORDER MATTERS, and it is: VALIDATE → set projectId (+customerId) →
+   * fieldDeploy per unit. The deploy is last because it is the only irreversible
+   * step: fieldDeploy creates a ProjectDeployment + Assignment AND flips the
+   * unit reserved → rental in the same transaction. Doing it before the run is
+   * pointed at the project would leave a deployment orphaned from its run if a
+   * later step failed. Validation is first so a wrong project never gets as far
+   * as writing anything.
+   *
+   * fieldDeploy is called WITHOUT deferStatusFlip, so it performs the stock flip
+   * that createDoOnAdHocCompletion deliberately skipped. commitLinkedDeliveryItems
+   * is NOT called: that is the DO-confirm path (it stamps DocumentItems and moves
+   * the DO to delivered_installed). The DO stays a draft for the office to price
+   * and confirm; attaching a project is about the deployment, not the document.
+   *
+   * ABORTS on:
+   *   • a run that is not AD_HOC — the scheduled path deducts at completion
+   *   • a run that ALREADY has a project — re-pointing would strand the first
+   *     project's deployments; detach is a separate, deliberate act
+   *   • a project belonging to a DIFFERENT customer than the run's, when the run
+   *     has one — silently re-billing another customer is the worst outcome here
+   *   • a unit that is no longer `reserved` — something else has claimed it
+   *     (sold, already deployed, released back to stock), and deploying it would
+   *     double-count. Reported per unit rather than swallowed.
+   */
+  async attachProjectToAdHocRun(
+    deliveryId: string,
+    projectId: string,
+    organizationId: string,
+  ) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: {
+        id: true, deliveryNumber: true, origin: true, projectId: true, customerId: true, direction: true,
+        items: { select: { id: true, assetId: true, inventoryId: true, description: true } },
+      },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.origin !== DeliveryOrigin.AD_HOC) {
+      throw new BadRequestException('Only an ad-hoc run needs a project attached — a scheduled run already has one');
+    }
+    if (run.direction === DeliveryDirection.RETURN) {
+      throw new BadRequestException('A return cannot have a project attached this way');
+    }
+    if (run.projectId) {
+      throw new BadRequestException('This run already has a project. Detach it first if it is wrong.');
+    }
+
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, organizationId },
+      select: { id: true, name: true, customerId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found in this organization');
+
+    // The run's customer wins when it has one; otherwise the project supplies it.
+    // A mismatch is a hard stop — attaching would re-point the delivery at a
+    // different payer.
+    if (run.customerId && project.customerId && run.customerId !== project.customerId) {
+      throw new BadRequestException(
+        'That project belongs to a different customer than this delivery. Pick a project on the same customer.',
+      );
+    }
+    const customerId = run.customerId ?? project.customerId ?? null;
+
+    // Every unit must still be OURS to deploy.
+    const unitIds = run.items.map((i) => i.inventoryId).filter((v): v is string => !!v);
+    if (unitIds.length) {
+      const units = await this.prisma.inventory.findMany({
+        where: { id: { in: unitIds }, organizationId },
+        select: { id: true, sku: true, status: true },
+      });
+      const notReserved = units.filter((u) => u.status !== InventoryStatus.reserved);
+      if (notReserved.length) {
+        throw new BadRequestException(
+          `These units are no longer reserved for this run: ${notReserved
+            .map((u) => `${u.sku} (${u.status})`)
+            .join(', ')}. Resolve them before attaching a project.`,
+        );
+      }
+    }
+
+    // 1. point the run at the project (and its customer)
+    await this.prisma.delivery.update({
+      where: { id: deliveryId },
+      data: { projectId, ...(customerId ? { customerId } : {}) },
+    });
+
+    // 2. deploy each line. Unit-backed lines create a ProjectDeployment +
+    //    Assignment and flip reserved → rental. Free-typed lines deploy by
+    //    description so they can be off-hired on a later return, mirroring the
+    //    scheduled path. fieldDeploy is idempotent (already_on_project).
+    const deployed: string[] = [];
+    for (const it of run.items) {
+      try {
+        if (it.inventoryId && it.assetId) {
+          await this.projectsService.fieldDeploy(projectId, organizationId, {
+            inventoryId: it.inventoryId,
+            assetId: it.assetId,
+            // NO deferStatusFlip: this is where the skipped deduction happens.
+          });
+        } else if (it.description?.trim()) {
+          await this.projectsService.fieldDeploy(projectId, organizationId, {
+            description: it.description.trim(),
+          });
+        } else {
+          continue;
+        }
+        deployed.push(it.id);
+      } catch (err: any) {
+        this.logger.error(
+          `attachProjectToAdHocRun: fieldDeploy failed for item ${it.id} on delivery ${deliveryId}: ${err?.message}`,
+        );
+        throw new BadRequestException(
+          `Could not deploy one of the items onto ${project.name}: ${err?.message ?? 'unknown error'}`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `Delivery #${run.deliveryNumber} (AD_HOC): attached project ${project.name}, deployed ${deployed.length} item(s), stock deducted`,
+    );
+    return this.findById(deliveryId, organizationId);
+  }
+
+  /**
+   * AD-HOC ACK — mark every still-undelivered item on an ad-hoc run delivered,
+   * WITHOUT the hand-off stock flip.
+   *
+   * It deliberately does NOT reuse advanceDeliveryItem('ack'): that method's
+   * ack branch flips the unit reserved → rental/sold ("at ACK the unit has been
+   * handed over"), which is precisely what must not happen here. An ad-hoc run
+   * has no project, so a flip would leave a unit on rental with no
+   * ProjectDeployment behind it — run #30, exactly. The unit stays `reserved`
+   * until the office attaches a project.
+   *
+   * What it DOES copy from that path is the status transition itself
+   * (delivering/not_delivered → not_installed + deliveredAt) and a bare unsigned
+   * DO_ACK proof per unit-backed item, because finalizeRun stamps the single
+   * customer signature across exactly those rows. Without the DO_ACK there is
+   * nothing for the signature to land on and the DO would render unsigned.
+   *
+   * Idempotent: only rows below not_installed move, and the proof is created
+   * only where one does not already exist.
+   */
+  async ackAdHocRun(deliveryId: string, organizationId: string, technicianUserId: string) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { id: true, status: true, direction: true, origin: true, items: { select: { id: true, assetId: true, inventoryId: true, deliveryStatus: true } } },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.direction === DeliveryDirection.RETURN) {
+      throw new BadRequestException('Returns are collected per unit, not acked in bulk');
+    }
+    if (run.origin !== DeliveryOrigin.AD_HOC) {
+      throw new BadRequestException('Only an ad-hoc run can be acknowledged this way');
+    }
+    if (run.status === 'completed') throw new BadRequestException('This delivery is already finalized');
+    if (run.items.length === 0) throw new BadRequestException('Add at least one item before delivering');
+
+    const now = new Date();
+    const pending = run.items.filter(
+      (i) => i.deliveryStatus === DeliveryStatus.not_delivered || i.deliveryStatus === DeliveryStatus.delivering,
+    );
+
+    await this.prisma.deliveryItem.updateMany({
+      where: { deliveryId, deliveryStatus: { in: [DeliveryStatus.not_delivered, DeliveryStatus.delivering] } },
+      data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now, skippedAt: null },
+    });
+
+    // One unsigned DO_ACK per unit-backed item for finalizeRun's signature to
+    // stamp. Free-typed lines carry no unit; the run-level DO_INSTALL (or the
+    // DO_START already on the run) covers their proof, same as the walk does.
+    for (const it of pending) {
+      if (!it.inventoryId) continue;
+      const already = await this.prisma.maintenanceServiceReport.findFirst({
+        where: { deliveryId, inventoryId: it.inventoryId, kind: 'DO_ACK' },
+        select: { id: true },
+      });
+      if (already) continue;
+      await this.prisma.maintenanceServiceReport.create({
+        data: {
+          organizationId,
+          technicianUserId,
+          assetId: it.assetId,
+          inventoryId: it.inventoryId,
+          deliveryId,
+          deliveryItemId: it.id,
+          kind: 'DO_ACK',
+          // 'draft' = unsigned, matching the walk's own bare proof rows.
+          // finalizeRun stamps `status: { not: 'completed' }` → completed, so
+          // this is exactly what the signature looks for.
+          status: 'draft',
+          description: 'Delivered (ad-hoc)',
+        },
+      });
+    }
+
+    // Folds the run to `delivered`, which is the ONLY state finalizeRun accepts.
+    // The signature page then sees a normal delivered run and needs no branch.
+    await this.recomputeRunStatus(deliveryId, organizationId);
+    return this.prisma.delivery.findUnique({ where: { id: deliveryId } });
+  }
+
+  /**
    * Fold the item states into the run status: all completed → completed
    * (stamping completedAt once); all ≥ not_installed → delivered; else
    * in_progress. Item states only ever advance, so the fold is monotonic —
@@ -2218,6 +2474,7 @@ export class DeliveriesService {
         id: true,
         status: true,
         direction: true,
+        origin: true,
         completedAt: true,
         items: { select: { deliveryStatus: true } },
       },
@@ -2284,6 +2541,11 @@ export class DeliveriesService {
           });
           if (linkedItem?.documentId) {
             await this.commitScheduledRunOnCompletion(deliveryId, organizationId, linkedItem.documentId);
+          } else if (delivery.origin === DeliveryOrigin.AD_HOC) {
+            // THIRD BRANCH — unlinked AND ad-hoc. Creates the DO and stops.
+            // No commit (the unit stays reserved) and no invoice (there is no
+            // customer, project, PO or quotation to price against).
+            await this.createDoOnAdHocCompletion(deliveryId, organizationId);
           } else {
             await this.autoCreateDoOnRunCompletion(deliveryId, organizationId);
           }
@@ -2386,6 +2648,58 @@ export class DeliveriesService {
    * must not roll back. The field result panel derives what actually happened
    * from persisted state (findById returns the DO + the draft invoice).
    */
+  /**
+   * AD-HOC COMPLETION — the third branch.
+   *
+   * Creates the DO and stops. Deliberately does NOT do the two things
+   * autoCreateDoOnRunCompletion does after creating it:
+   *
+   *   • commitLinkedDeliveryItems — that is the STOCK DEDUCTION. An ad-hoc run
+   *     has no project, so deducting would leave the unit on rental with no
+   *     ProjectDeployment behind it (run #30). The unit stays `reserved` until
+   *     the office attaches a project, which is when fieldDeploy creates the
+   *     deployment AND flips the stock.
+   *   • maybeCompleteDeliveryOrderAndInvoice — no customer, project, PO or
+   *     quotation exists yet, so a draft invoice would be unpriceable noise in
+   *     the posting queue.
+   *
+   * It DOES stamp the proof MSRs with the new documentId. createDoFromDelivery
+   * links the run's items but does not touch the MSR rows, so without this the
+   * condition photos and the customer signature never surface on the DO — the
+   * exact failure the born-linked scheduled path hit twice before.
+   *
+   * The result is a DRAFT DO with a REAL number carrying items, photos and the
+   * signature, and nothing else.
+   *
+   * Best-effort: every failure is logged, never thrown — the rider's completion
+   * must not roll back.
+   */
+  private async createDoOnAdHocCompletion(deliveryId: string, organizationId: string) {
+    try {
+      const delivery = await this.prisma.delivery.findFirst({
+        where: { id: deliveryId, organizationId },
+        select: { id: true, deliveryNumber: true, items: { select: { documentId: true } } },
+      });
+      if (!delivery || delivery.items.length === 0) return;
+      if (delivery.items.some((i) => i.documentId)) return; // already linked — nothing to create
+
+      const created = await this.createDoFromDelivery(deliveryId, organizationId);
+      const doId = (created as { createdDocumentId?: string })?.createdDocumentId;
+      if (!doId) return;
+
+      await this.stampProofMsrDocumentIds(deliveryId, organizationId);
+
+      this.logger.log(
+        `Delivery #${delivery.deliveryNumber} (AD_HOC): created DO ${doId} — stock NOT deducted, no invoice`,
+      );
+    } catch (err: any) {
+      this.logger.error(
+        `createDoOnAdHocCompletion failed for delivery ${deliveryId}: ${err?.message}`,
+        err?.stack,
+      );
+    }
+  }
+
   private async autoCreateDoOnRunCompletion(deliveryId: string, organizationId: string) {
     try {
       const delivery = await this.prisma.delivery.findFirst({

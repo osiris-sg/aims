@@ -426,6 +426,22 @@ export default function StartDeliveryPage() {
                 Refresh
               </Button>
             </Alert>
+          ) : null}
+
+          {/* AD-HOC ESCAPE HATCH. The run already exists, is numbered, holds this
+              unit and its condition photos, and the unit is reserved — the only
+              thing missing was somewhere to go. This takes the rider to the
+              ad-hoc screen instead of stranding them behind Refresh. Shown
+              whenever there is no scheduled run to join. */}
+          {!runsLoading && !runsError && scheduledRuns.length === 0 && runId ? (
+            <Button
+              variant="contained"
+              onClick={() => router.push(`/scan/delivery/${runId}/adhoc`)}
+              fullWidth
+              sx={{ minHeight: 52 }}
+            >
+              Start New Delivery
+            </Button>
           ) : (
             <Stack spacing={1.25}>
               {scheduledRuns.map((run) => {

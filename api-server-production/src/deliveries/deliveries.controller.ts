@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
@@ -228,6 +228,33 @@ export class DeliveriesController {
   // valid once every item is delivered or skipped (run status `delivered`);
   // stamps the one signature across the per-item proof MSRs, completes the run,
   // and fires the DO commit + invoice. The signature moved here from per-item ack.
+
+  // AD-HOC: mark every item delivered WITHOUT the hand-off stock flip, so the
+  // run folds to `delivered` and the normal signature page can finalize it.
+  // The rider's permission set, same as every other field write.
+  @Post(':id/adhoc-ack')
+  @Permissions('maintenance-reports:create')
+  adhocAck(@Param('id') id: string, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    const riderUserId = req.user?.id;
+    if (!riderUserId) throw new Error('User not authenticated');
+    return this.service.ackAdHocRun(id, org.id, riderUserId);
+  }
+
+  // OFFICE: attach a project to a completed ad-hoc run — creates the deployment
+  // and performs the stock deduction that completion deliberately skipped.
+  // Office permission, not the rider's.
+  @Post(':id/attach-project')
+  @Permissions('projects:update')
+  attachProject(
+    @Param('id') id: string,
+    @Body() body: { projectId: string },
+    @UserOrganization() org: { id: string },
+  ) {
+    if (!body?.projectId) throw new BadRequestException('projectId is required');
+    return this.service.attachProjectToAdHocRun(id, body.projectId, org.id);
+  }
+
+  // END-OF-RUN SIGNATURE (outbound). Valid once every item is delivered.
   @Post(':id/finalize')
   @Permissions('maintenance-reports:create')
   finalize(

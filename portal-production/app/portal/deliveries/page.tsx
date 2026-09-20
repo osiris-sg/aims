@@ -67,6 +67,14 @@ interface DeliveryRow {
   }>;
   project: { id: string; name: string } | null;
   customer: { id: string; name: string } | null;
+  // Explicit, set at creation — NOT inferred from a null project. Production
+  // already holds project-less runs that are a mix of stranded scans, genuine
+  // deliveries and empty office drafts, so the null says nothing about origin.
+  origin?: "SCHEDULED" | "AD_HOC";
+  // What the office still has to supply before the DO can be priced and
+  // confirmed: any of PO, quotation, customer, project, photos. Derived by the
+  // list query from rows it already fetches, plus one batched photo lookup.
+  missing?: string[];
 }
 
 const STATUS_CHIP: Record<RunStatus, { label: string; color: "warning" | "info" | "success" | "default" | "primary" }> = {
@@ -252,6 +260,8 @@ export default function DeliveriesQueuePage() {
                     return would otherwise show a bare dash exactly like an
                     unlinked delivery. */}
                 <TableCell>Type / Linked DO</TableCell>
+                <TableCell align="center">Ad-hoc</TableCell>
+                <TableCell>Missing</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Rider</TableCell>
                 <TableCell>Project / Customer / Site</TableCell>
@@ -320,6 +330,30 @@ export default function DeliveriesQueuePage() {
                           <Chip size="small" variant="outlined" color="success" label={`${distinct.length} DOs`} />
                         );
                       })()}
+                    </TableCell>
+                    {/* Ad-hoc — keyed off the explicit origin field. */}
+                    <TableCell align="center">
+                      {r.origin === "AD_HOC" ? (
+                        <Chip size="small" label="Ad-hoc" color="warning" variant="outlined" />
+                      ) : (
+                        <Typography variant="caption" color="text.disabled">—</Typography>
+                      )}
+                    </TableCell>
+                    {/* What the office still owes this DO. Nothing missing shows
+                        a tick rather than an empty cell, so a complete run reads
+                        as complete rather than as unloaded data. */}
+                    <TableCell>
+                      {!r.missing ? (
+                        <Typography variant="caption" color="text.disabled">—</Typography>
+                      ) : r.missing.length === 0 ? (
+                        <Chip size="small" label="Complete" color="success" variant="outlined" />
+                      ) : (
+                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                          {r.missing.map((m) => (
+                            <Chip key={m} size="small" label={m} color="warning" variant="outlined" sx={{ height: 20, fontSize: "0.7rem" }} />
+                          ))}
+                        </Stack>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Chip size="small" label={chip.label} color={chip.color} />

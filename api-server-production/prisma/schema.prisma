@@ -2938,6 +2938,16 @@ enum DeliveryDirection {
   RETURN // reverse delivery: rental stock comes BACK from a project (rental → instock)
 }
 
+/// Where a delivery run CAME FROM. An enum rather than an `isAdHoc` boolean
+/// because a third kind is plausible (a customer-initiated or API-created run),
+/// and two booleans encoding three states leaves an impossible fourth. The
+/// codebase already models this shape with enums — DeliveryDirection,
+/// DeploymentType, DeliveryRunStatus.
+enum DeliveryOrigin {
+  SCHEDULED // the office scheduled it up front (the default, and every pre-existing row)
+  AD_HOC // a rider started it from a scan with no scheduled run to join
+}
+
 model Delivery {
   id             String            @id @default(uuid()) @db.Uuid
   organizationId String
@@ -2968,6 +2978,17 @@ model Delivery {
   // than a DeliveryRunStatus value on purpose: adding an enum value means
   // ALTER TYPE ADD VALUE, which has stopped backend deploys before.
   isDraft        Boolean           @default(false)
+  /// AD_HOC marks a run a rider started from a scan with no scheduled run to
+  /// join. Set at CREATION only — existing rows keep the SCHEDULED default, so
+  /// nothing is reclassified. Deliberately not inferred from `projectId IS
+  /// NULL`: production already holds project-less runs that are a mix of
+  /// stranded scans, genuine deliveries (one with a customer AND an address)
+  /// and empty office drafts, so the null tells you nothing about origin.
+  ///
+  /// An AD_HOC run completes down a third path: its DO is created but NOT
+  /// committed, so the unit stays `reserved` until the office attaches a
+  /// project and the deployment is created.
+  origin         DeliveryOrigin    @default(SCHEDULED)
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may

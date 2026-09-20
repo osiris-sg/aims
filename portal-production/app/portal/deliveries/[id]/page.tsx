@@ -19,6 +19,7 @@ import {
   FormControlLabel,
   List,
   ListItemButton,
+  MenuItem,
   ListItemText,
   Paper,
   Stack,
@@ -28,6 +29,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
@@ -62,6 +64,9 @@ interface RunDetail {
   deliveryNumber: number;
   status: RunStatus;
   direction?: "OUTBOUND" | "RETURN";
+  // AD_HOC runs complete without deducting stock — their units sit `reserved`
+  // until the office attaches a project here.
+  origin?: "SCHEDULED" | "AD_HOC";
   riderName: string | null;
   siteAddress: string | null;
   notes: string | null;
@@ -176,6 +181,62 @@ export default function DeliveryDetailPage() {
   const [showAllDos, setShowAllDos] = useState(false);
   // Edit a still-scheduled DELIVERY run (same form, prefilled).
   const [editOpen, setEditOpen] = useState(false);
+  // Attach-project (ad-hoc runs only).
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [attachProjects, setAttachProjects] = useState<Array<{ id: string; name: string; customerId: string | null }>>([]);
+  const [attachProjectId, setAttachProjectId] = useState("");
+  const [attaching, setAttaching] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
+
+  // Load the org's projects when the dialog opens. Scoped to the run's customer
+  // when it has one — the backend refuses a cross-customer project, so offering
+  // them would only invite the error.
+  useEffect(() => {
+    if (!attachOpen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request(
+          { path: "/projects", method: "POST" },
+          { page: 1, limit: 500, ...(run?.customer?.id ? { filters: { customerId: run.customer.id } } : {}) },
+          token,
+        );
+        const body = res?.data ?? res;
+        const list = Array.isArray(body?.docs) ? body.docs : Array.isArray(body) ? body : [];
+        if (!cancelled) {
+          setAttachProjects(list.map((p: any) => ({ id: p.id, name: p.name, customerId: p.customerId ?? p.customer?.id ?? null })));
+        }
+      } catch {
+        if (!cancelled) setAttachProjects([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [attachOpen, run?.customer?.id, getToken]);
+
+  const doAttachProject = async () => {
+    if (!attachProjectId || attaching) return;
+    setAttaching(true);
+    setAttachError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: `/deliveries/${run?.id}/attach-project`, method: "POST" },
+        { projectId: attachProjectId },
+        token,
+      );
+      if (res?.success === false) throw new Error(res?.message ?? "Could not attach the project");
+      setAttachOpen(false);
+      setAttachProjectId("");
+      await load();
+    } catch (e: any) {
+      setAttachError(e?.message ?? "Could not attach the project");
+    } finally {
+      setAttaching(false);
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -389,11 +450,25 @@ export default function DeliveryDetailPage() {
         ) : (
           <Chip size="small" variant="outlined" color="success" label={`Linked: ${distinctDocs.length} DOs`} />
         )}
+        {run.origin === "AD_HOC" && <Chip size="small" color="warning" variant="outlined" label="Ad-hoc" />}
         {run.status === "scheduled" && run.direction !== "RETURN" && (
           <>
             <Box sx={{ flex: 1 }} />
             <Button size="small" variant="outlined" onClick={() => setEditOpen(true)}>
               Edit
+            </Button>
+          </>
+        )}
+        {/* The second half of the ad-hoc flow, and the only place it exists. The
+            run delivered real units with no project, so they were left reserved
+            rather than deducted. Attaching a project creates the deployment and
+            performs that deduction. Offered only while the run still has no
+            project — re-pointing one is a separate, deliberate act. */}
+        {run.origin === "AD_HOC" && run.direction !== "RETURN" && !run.project && (
+          <>
+            <Box sx={{ flex: 1 }} />
+            <Button size="small" variant="contained" onClick={() => setAttachOpen(true)}>
+              Attach project
             </Button>
           </>
         )}
@@ -704,6 +779,44 @@ export default function DeliveryDetailPage() {
 
       {/* Edit a still-scheduled delivery: the same form, prefilled (the backend
           rejects the PATCH if a rider has since started). */}
+      {/* Attach a project to an ad-hoc run. The backend does the ordering and
+          the aborting — this only picks the project. */}
+      <Dialog open={attachOpen} onClose={() => !attaching && setAttachOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Attach a project</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            This delivery went out without a project, so its units are still reserved rather than
+            deployed. Attaching a project creates the deployment and deducts the stock.
+          </Typography>
+          {attachError && <Alert severity="error" sx={{ mb: 2 }}>{attachError}</Alert>}
+          <TextField
+            select
+            fullWidth
+            size="small"
+            label="Project"
+            value={attachProjectId}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAttachProjectId(e.target.value)}
+            disabled={attaching}
+          >
+            {attachProjects.length === 0 ? (
+              <MenuItem value="" disabled>
+                No projects found{run?.customer?.name ? ` for ${run.customer.name}` : ""}
+              </MenuItem>
+            ) : (
+              attachProjects.map((p) => (
+                <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+              ))
+            )}
+          </TextField>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAttachOpen(false)} disabled={attaching}>Cancel</Button>
+          <Button variant="contained" onClick={() => void doAttachProject()} disabled={attaching || !attachProjectId}>
+            {attaching ? <CircularProgress size={18} /> : "Attach"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <ScheduleDeliveryDialog
         open={editOpen}
         onClose={() => setEditOpen(false)}
