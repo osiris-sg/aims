@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { PrismaService } from 'src/common/prisma.service';
 import { DocumentsModule } from '../documents/documents.module';
 import { ProjectsModule } from '../projects/projects.module';
@@ -12,7 +12,9 @@ import { DeliveriesService } from './deliveries.service';
   // in-flow assign step delegates to fieldDeploy (no duplicated assign logic).
   // NotificationsModule exports NotificationsService — RDO_READY on return
   // completion (the DO/invoice bells fire from DocumentsService).
-  imports: [DocumentsModule, ProjectsModule, NotificationsModule],
+  // DocumentsModule is forwardRef'd because it now imports THIS module back
+  // (the DO -> ad-hoc-run project hand-off).
+  imports: [forwardRef(() => DocumentsModule), ProjectsModule, NotificationsModule],
   controllers: [DeliveriesController],
   providers: [DeliveriesService, PrismaService],
   // Exported so MaintenanceReportsService can bridge standalone-run MSRs

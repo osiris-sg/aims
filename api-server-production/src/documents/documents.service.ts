@@ -1,4 +1,5 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable, forwardRef } from '@nestjs/common';
+import { DeliveriesService } from '../deliveries/deliveries.service';
 import { randomUUID } from 'crypto';
 import AdmZip = require('adm-zip');
 import { UpdateDocumentDto } from './dto/update-document.dto';
@@ -47,6 +48,10 @@ export class DocumentsService {
     private auditService: AuditService,
     private accountMemory: AccountMemoryService,
     private notifications: NotificationsService,
+    // Lazy: DeliveriesModule imports DocumentsModule, so this closes a cycle.
+    // Used ONLY for the ad-hoc project hand-off in updateDocument.
+    @Inject(forwardRef(() => DeliveriesService))
+    private deliveriesService: DeliveriesService,
   ) {}
 
   /**
@@ -1073,6 +1078,10 @@ export class DocumentsService {
       // legacy config.projectId for backwards-compat with older callers.
       const projectId =
         (dto as any).projectId ?? configAsPlainObject?.projectId ?? null;
+      // Non-fatal outcome of the ad-hoc project hand-off below, surfaced on the
+      // response so the office sees WHY the units were not deployed instead of
+      // the save looking clean. Null when there was nothing to do.
+      let adHocWarning: string | null = null;
       console.log('Project ID resolved:', projectId, 'Type:', typeof projectId);
       console.log('dto', dto);
 
@@ -1632,6 +1641,39 @@ export class DocumentsService {
       // project's site office for UUID-shaped text). Projects manage their own
       // siteOfficeId/startDate via the projects module.
 
+      // ── AD-HOC RUN: HAND THE PROJECT TO THE DELIVERY ──────────────────────
+      //
+      // Setting a project on a DO that belongs to an AD-HOC delivery run used to
+      // go nowhere useful. The run kept projectId null, no ProjectDeployment was
+      // created, and the two blocks below still flipped every unit to `rental`
+      // and wrote a bare Assignment — a unit on rental holding nothing. That is
+      // run #30's shape, and it is exactly what the ad-hoc flow exists to avoid.
+      //
+      // So delegate. attachProjectToAdHocRun is the ONE place that knows how to
+      // do this properly: it points the run at the project, derives the customer,
+      // and calls projectsService.fieldDeploy per line, which creates the
+      // ProjectDeployment + Assignment and performs the reserved -> rental flip
+      // as one act. Copying projectId onto the run instead would reproduce the
+      // half state in a second record.
+      //
+      // ORDER MATTERS: this runs BEFORE the inventory-status block below. That
+      // block flips DO units to `rental` unconditionally, and attach refuses a
+      // run whose units are no longer `reserved` — so running it afterwards
+      // would make the hand-off fail 100% of the time on the very documents it
+      // is meant to serve. Afterwards both blocks are no-ops for these units:
+      // they are already rental, and fieldDeploy's Assignment already exists.
+      //
+      // AD_HOC ONLY. A scheduled run is born with its project and its DO is
+      // committed by commitScheduledRunOnCompletion; attach rejects it outright.
+      // The guard is here as well so the common case costs one indexed read.
+      const adHocAttach = await this.tryAttachProjectToAdHocRun(
+        updatedDocument.id,
+        projectId,
+        organizationId,
+        dto.type,
+      );
+      if (adHocAttach) adHocWarning = adHocAttach;
+
       // If config.items exists and is an array, handle inventory/timeline logic (for DO, RDO, etc.)
       // Exclude invoice types (TI, TI2, INVOICE), quotations (QO1, QUOTATION, QT, QO), service reports (MSR), and Purchase Orders (PO) from inventory status validation
       // Note: PO is handled separately above with receivedQty logic
@@ -1963,9 +2005,72 @@ export class DocumentsService {
         );
       }
 
-      return updatedDocument;
+      // The save itself succeeded. If the ad-hoc hand-off could not run, say so
+      // ON THE RESPONSE rather than throwing: the office asked to save a
+      // document, and failing the whole save would throw away their pricing and
+      // PO to report a delivery-side precondition. Silence is the worse option
+      // though — that is how the half state hid in the first place.
+      return adHocWarning ? { ...updatedDocument, adHocAttachWarning: adHocWarning } : updatedDocument;
     } catch (error) {
       throw new HttpException(`Update failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  /**
+   * Hand a DO's newly-set project to the AD-HOC delivery run behind it.
+   *
+   * Returns null when there was nothing to do (not a DO, no project, the
+   * document is not on an ad-hoc run, or that run already has a project), or a
+   * human-readable reason when the attach was attempted and REFUSED.
+   *
+   * It never throws. Every refusal attachProjectToAdHocRun raises is a
+   * delivery-side precondition — a unit no longer reserved, a project on a
+   * different customer, a run already pointed somewhere — and none of them is a
+   * reason to reject the document the office is saving. They come back as a
+   * warning the editor shows.
+   *
+   * The link from Document back to Delivery is DeliveryItem.documentId (per-item
+   * linking; Delivery.documentId is frozen legacy and deliberately not read).
+   * One indexed lookup gives the run and its origin.
+   */
+  private async tryAttachProjectToAdHocRun(
+    documentId: string,
+    projectId: string | null,
+    organizationId: string,
+    dtoType: string,
+  ): Promise<string | null> {
+    if (!projectId) return null;
+    // Outbound delivery orders only. A return (RDO) off-hires rather than
+    // deploys, and every other type has no delivery run behind it.
+    if (!['DO', 'DELIVERY_ORDER'].includes(dtoType)) return null;
+
+    try {
+      const link = await this.prisma.deliveryItem.findFirst({
+        where: { documentId },
+        select: {
+          delivery: {
+            select: { id: true, deliveryNumber: true, origin: true, projectId: true, direction: true },
+          },
+        },
+      });
+      const run = link?.delivery;
+      if (!run) return null;
+      // AD_HOC ONLY, and only while the run is still unassigned. A scheduled run
+      // was created with its project already chosen and its DO is committed by
+      // commitScheduledRunOnCompletion — attach rejects it, and re-pointing a
+      // run that already has a project is a deliberate act, not a side effect of
+      // saving a document.
+      if (run.origin !== 'AD_HOC' || run.direction === 'RETURN' || run.projectId) return null;
+
+      await this.deliveriesService.attachProjectToAdHocRun(run.id, projectId, organizationId);
+      console.log(
+        `updateDocument: handed project ${projectId} to ad-hoc delivery #${run.deliveryNumber} (${run.id})`,
+      );
+      return null;
+    } catch (err: any) {
+      const reason = err?.response?.message ?? err?.message ?? 'unknown error';
+      console.warn(`tryAttachProjectToAdHocRun failed for document ${documentId}: ${reason}`);
+      return `The document saved, but its delivery run could not be put on this project: ${reason}`;
     }
   }
 

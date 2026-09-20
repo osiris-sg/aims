@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { DocumentsController } from './documents.controller';
 import { PrismaService } from 'src/common/prisma.service';
@@ -11,9 +11,14 @@ import { DocumentTemplatesModule } from '../documentTemplates/documentTemplates.
 import { AccountMemoryModule } from '../account-memory/account-memory.module';
 import { DocumentNumberingModule } from '../document-numbering/document-numbering.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { DeliveriesModule } from '../deliveries/deliveries.module';
 
 @Module({
-  imports: [CommonModule, PriceHistoryModule, EmailModule, JournalModule, OrdersModule, DocumentTemplatesModule, DocumentNumberingModule, AccountMemoryModule, NotificationsModule],
+    // forwardRef(DeliveriesModule): saving a project onto a DO that belongs to an
+  // AD-HOC run hands off to DeliveriesService.attachProjectToAdHocRun rather
+  // than half-doing the same work here. DeliveriesModule already imports this
+  // module, so the reference has to be lazy on BOTH sides.
+  imports: [CommonModule, PriceHistoryModule, EmailModule, JournalModule, OrdersModule, DocumentTemplatesModule, DocumentNumberingModule, AccountMemoryModule, NotificationsModule, forwardRef(() => DeliveriesModule)],
   controllers: [DocumentsController],
   providers: [DocumentsService, PrismaService],
   // Exported so MaintenanceReportsModule can call createBasicDocument when

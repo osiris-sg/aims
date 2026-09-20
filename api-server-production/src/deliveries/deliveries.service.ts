@@ -2129,9 +2129,13 @@ export class DeliveriesService {
     const custIdByDoc = new Map(
       docRows.map((dc) => [dc.id, (dc.config as any)?.customerId ?? null]),
     );
+    // Built but intentionally NOT read by `missing` — see the PROJECT note in
+    // the derivation below. Kept because it is the exact value the DO -> run
+    // hand-off acts on, and a future reader will ask.
     const projIdByDoc = new Map(
       docRows.map((dc) => [dc.id, dc.projectId ?? (dc.config as any)?.projectId ?? null]),
     );
+    void projIdByDoc;
     const photoCountByRun = new Map<string, number>();
     for (const r of photoRows) {
       if (!r.deliveryId) continue;
@@ -2153,13 +2157,22 @@ export class DeliveriesService {
       // it does that on the DO. Reading only Delivery.projectId/.customerId (as
       // this did) meant those two chips could never clear for the office's
       // actual workflow, while PO cleared because it already read the document.
-      // They are satisfied by a value on EITHER record so the chips are honest
-      // whichever path the office took:
-      //   - editing the DO  -> the document carries it, the run stays null
-      //   - Attach project  -> the run carries it (and a real ProjectDeployment
-      //                        is created, which editing the DO does NOT do)
-      // Note this makes the chip clear, not the data correct: only the
-      // Attach-project path builds the deployment behind a deployed unit.
+      // CUSTOMER reads either record. A customer on the DO genuinely is the
+      // answer — it is what the invoice bills — and nothing has to be built
+      // behind it, so the document carrying it is enough.
+      //
+      // PROJECT READS THE RUN ONLY, deliberately. Delivery.projectId is now set
+      // by the hand-off in documents.service.updateDocument, which routes a
+      // project saved on an ad-hoc DO through attachProjectToAdHocRun and so
+      // creates the ProjectDeployment behind it. That makes the run's own scalar
+      // the honest signal again:
+      //   - hand-off succeeded -> run.projectId set, deployment exists, chip clears
+      //   - hand-off REFUSED   -> run.projectId null, chip STAYS LIT
+      // Reading the document here too would clear the chip in the refused case,
+      // which is the half state (unit on rental holding nothing) wearing a
+      // resolved badge. The whole point of the chip is to catch that.
+      // `projIdByDoc` is still built above — it is the value the hand-off acts
+      // on, and keeping it named here documents why it is NOT read.
       //
       // QUOTATION IS NOT CHECKED. Nothing records which quotation a DO came
       // from: the extract-from-quotation flow copies the lines across and
@@ -2175,7 +2188,7 @@ export class DeliveriesService {
           ? [
               ...(!runDoc || !(poNoByDoc.get(runDoc.id) ?? null) ? ['PO'] : []),
               ...(!d.customerId && !(runDoc && custIdByDoc.get(runDoc.id)) ? ['customer'] : []),
-              ...(!d.projectId && !(runDoc && projIdByDoc.get(runDoc.id)) ? ['project'] : []),
+              ...(!d.projectId ? ['project'] : []),
               ...(!(photoCountByRun.get(d.id) ?? 0) ? ['photos'] : []),
             ]
           : null;
