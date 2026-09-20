@@ -17,6 +17,7 @@ import { InventoriesService } from '../inventories/inventories.service';
 import { ProjectsService } from '../projects/projects.service';
 import { ProjectCostingService } from '../project-costing/project-costing.service';
 import { RevenueItemsService } from '../revenue-items/revenue-items.service';
+import { MarketingService } from '../marketing/marketing.service';
 import { S3Service } from '../common/services/s3.service';
 import { OperatorAuthService } from './operator-auth.service';
 import { OperatorContext, PendingAction } from './operator.types';
@@ -64,6 +65,7 @@ export class OperatorToolsService {
     private readonly projects: ProjectsService,
     private readonly costing: ProjectCostingService,
     private readonly revenueItems: RevenueItemsService,
+    private readonly marketing: MarketingService,
     private readonly s3: S3Service,
     private readonly auth: OperatorAuthService,
   ) {}
@@ -398,6 +400,32 @@ export class OperatorToolsService {
             };
           } catch (e: any) {
             return { result: { error: e?.message || 'Translation failed' } };
+          }
+        },
+      },
+
+      {
+        name: 'ad_performance',
+        description:
+          'Meta ads performance for this org (management only): spend, CPC, CPL, true CPL from AIMS leads, signed contract value and ROAS, per month and per campaign. Needs the org to have a connected ad account (CRM → Marketing).',
+        permissions: ['whatsapp:read'],
+        input_schema: {
+          type: 'object',
+          properties: { months: { type: 'number', description: 'How many months back (default 6)' } },
+        },
+        run: async (ctx, { months }) => {
+          try {
+            const o = await this.marketing.overview(ctx.organizationId, months || 6, ctx.clerkUserId);
+            if (!o.connection?.connected) return { result: { error: 'No ad account connected — connect it in CRM → Marketing first.' } };
+            return {
+              result: {
+                totals: o.totals,
+                monthly: o.monthly.map((m: any) => ({ month: m.month, spend: m.spend, cpc: m.cpc, cpl: m.cpl, trueCpl: m.trueCpl, signed: m.converted, roas: m.roas })),
+                topCampaigns: o.campaigns.slice(0, 5).map((c: any) => ({ name: c.name, spend: c.spend, cpc: c.cpc, cpl: c.cpl, avgWatchSec: c.avgWatchSec })),
+              },
+            };
+          } catch (e: any) {
+            return { result: { error: e?.message || 'Could not load ad performance' } };
           }
         },
       },

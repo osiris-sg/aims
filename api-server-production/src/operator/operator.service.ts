@@ -117,11 +117,7 @@ export class OperatorService {
       } else if (resolved.reason === 'no-org') {
         await adapter.sendText(msg.chatId, 'Your AIMS account is not assigned to any organization yet.');
       } else if (resolved.reason === 'needs-org-choice') {
-        await adapter.sendButtons(
-          msg.chatId,
-          'Which organization should I work in?',
-          (resolved.options ?? []).slice(0, 6).map((o) => ({ label: o.name, data: `org:${o.id}` })),
-        );
+        await this.presentOrgPicker(adapter, msg.chatId, resolved.options ?? []);
       }
       return;
     }
@@ -161,20 +157,28 @@ export class OperatorService {
     if (/^\/(start|help)\b/i.test(text)) {
       await adapter.sendText(
         msg.chatId,
-        `You're linked to ${ctx.organizationName}.\n\nAsk me things like:\n• "create a quotation for Acme, 2 fan coil units and 8 hours install"\n• "show me the last 5 quotations"\n• "what's QO2026-001?"\n\nI'll always show you a preview and ask before finalising anything.`,
+        `You're linked to ${ctx.organizationName}.\n\nAsk me things like:\n• "create a quotation for Acme, 2 fan coil units and 8 hours install"\n• "show me the last 5 quotations"\n• "what's QO2026-001?"\n\nI'll always show you a preview and ask before finalising anything.\n\nSend /org to switch organization.`,
       );
       return;
     }
-    if (/^\/org\b/i.test(text)) {
-      const memberships = await this.prisma.userOrganization.findMany({
-        where: { userId: ctx.clerkUserId, isActive: true },
-        select: { organization: { select: { id: true, name: true } } },
-      });
-      await adapter.sendButtons(
-        msg.chatId,
-        `Currently: ${ctx.organizationName}. Switch to:`,
-        memberships.slice(0, 6).map((m) => ({ label: m.organization!.name, data: `org:${m.organization!.id}` })),
-      );
+    if (/^\/orgs?\b/i.test(text) || /^(switch|change) org/i.test(text)) {
+      // Everything after the command is a name filter, so a long org list stays
+      // reachable on channels that cap the picker at a handful of rows.
+      const query = text.replace(/^\/orgs?\b/i, '').replace(/^(switch|change) org/i, '').trim();
+      const options = await this.auth.listOrgOptions(ctx, query);
+      if (!options.length) {
+        await adapter.sendText(
+          msg.chatId,
+          query ? `No organization matches "${query}".` : 'You are not a member of any organization.',
+        );
+        return;
+      }
+      if (options.length === 1 && query) {
+        // An unambiguous name: just switch, no tapping needed.
+        await this.switchOrg(ctx, adapter, msg, options[0].id);
+        return;
+      }
+      await this.presentOrgPicker(adapter, msg.chatId, options, ctx.organizationName);
       return;
     }
 
@@ -492,6 +496,54 @@ export class OperatorService {
 
   // ── Confirmation handling ─────────────────────────────────────────────────
 
+  /**
+   * Render the org picker. WhatsApp reply buttons cap at THREE (the adapter
+   * silently drops the rest), so anything larger goes out as a tappable list,
+   * which holds ten. Beyond that, `/org <name>` narrows it.
+   */
+  private async presentOrgPicker(
+    adapter: ChannelAdapter,
+    chatId: string,
+    options: Array<{ id: string; name: string }>,
+    currentName?: string,
+  ): Promise<void> {
+    const prompt = currentName
+      ? `Currently working in ${currentName}. Switch to:`
+      : 'Which organization should I work in?';
+    if (options.length > 3 && adapter.sendList) {
+      await adapter.sendList(
+        chatId,
+        options.length > 10
+          ? `${prompt}\n\nShowing the first 10. Send "/org <name>" to narrow it down.`
+          : prompt,
+        'Choose org',
+        options.slice(0, 10).map((o) => ({ id: `org:${o.id}`, title: o.name })),
+      );
+      return;
+    }
+    await adapter.sendButtons(
+      chatId,
+      prompt,
+      options.slice(0, 3).map((o) => ({ label: o.name, data: `org:${o.id}` })),
+    );
+  }
+
+  /** Persist the chosen org for this sender and confirm it. */
+  private async switchOrg(
+    ctx: OperatorContext,
+    adapter: ChannelAdapter,
+    msg: InboundMessage,
+    organizationId: string,
+  ): Promise<void> {
+    const org = await this.auth.canUseOrg(ctx, organizationId);
+    if (!org) {
+      await adapter.sendText(msg.chatId, "You don't have access to that organization.");
+      return;
+    }
+    await this.auth.setOrganization(msg.channel, msg.channelUserId, org.id);
+    await adapter.sendText(msg.chatId, `✅ Now working in ${org.name}. Everything I do next applies to this org.`);
+  }
+
   private async handleCallback(
     ctx: OperatorContext,
     adapter: ChannelAdapter,
@@ -499,17 +551,7 @@ export class OperatorService {
     data: string,
   ): Promise<void> {
     if (data.startsWith('org:')) {
-      const orgId = data.slice(4);
-      const allowed = await this.prisma.userOrganization.findFirst({
-        where: { userId: ctx.clerkUserId, organizationId: orgId, isActive: true },
-        select: { organization: { select: { name: true } } },
-      });
-      if (!allowed) {
-        await adapter.sendText(msg.chatId, "You're not a member of that organization.");
-        return;
-      }
-      await this.auth.setOrganization(msg.channel, msg.channelUserId, orgId);
-      await adapter.sendText(msg.chatId, `Now working in ${allowed.organization!.name}.`);
+      await this.switchOrg(ctx, adapter, msg, data.slice(4));
       return;
     }
 

@@ -214,6 +214,50 @@ export class OperatorAuthService {
     };
   }
 
+  /**
+   * Orgs this user may operate in, for the /org picker.
+   *
+   * osirisadmin bypasses membership rows entirely (same cross-org rule as
+   * ClerkAuthGuard), so listing only UserOrganization would show them a short
+   * or empty list while they can in fact work anywhere. `query` filters by
+   * name so a long list stays reachable when the channel caps the picker.
+   */
+  async listOrgOptions(
+    ctx: { clerkUserId: string; isOsirisAdmin: boolean },
+    query?: string,
+  ): Promise<Array<{ id: string; name: string }>> {
+    const where = query?.trim() ? { name: { contains: query.trim(), mode: 'insensitive' as const } } : {};
+    if (ctx.isOsirisAdmin) {
+      return this.prisma.organization.findMany({
+        where,
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+        take: 50,
+      });
+    }
+    const memberships = await this.prisma.userOrganization.findMany({
+      where: { userId: ctx.clerkUserId, isActive: true, organization: where },
+      select: { organization: { select: { id: true, name: true } } },
+      take: 50,
+    });
+    return memberships
+      .map((m) => m.organization)
+      .filter(Boolean)
+      .sort((a, b) => a!.name.localeCompare(b!.name)) as Array<{ id: string; name: string }>;
+  }
+
+  /** May this user operate in that org? Mirrors listOrgOptions' rules. */
+  async canUseOrg(ctx: { clerkUserId: string; isOsirisAdmin: boolean }, organizationId: string) {
+    if (ctx.isOsirisAdmin) {
+      return this.prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true, name: true } });
+    }
+    const membership = await this.prisma.userOrganization.findFirst({
+      where: { userId: ctx.clerkUserId, organizationId, isActive: true },
+      select: { organization: { select: { id: true, name: true } } },
+    });
+    return membership?.organization ?? null;
+  }
+
   async setOrganization(channel: OperatorChannel, channelUserId: string, organizationId: string) {
     const existing = await this.prisma.operatorIdentity.findUnique({
       where: { channel_channelUserId: { channel, channelUserId } },
