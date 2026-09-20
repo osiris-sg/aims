@@ -61,6 +61,8 @@ const VERB_ACTIONS: Record<string, string> = {
   members: 'UPDATE',
   // ID quotation Chinese mode: POST :id/translate fills the cached zh map.
   translate: 'UPDATE',
+  // Marketing (Meta ads): connect/disconnect the ad account, pull insights.
+  connect: 'UPDATE', disconnect: 'UPDATE', sync: 'SYNC',
   update: 'UPDATE', create: 'CREATE', delete: 'DELETE',
 };
 

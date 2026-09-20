@@ -1134,6 +1134,89 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * DM Denzel a captured appointment with Confirm / Cancel buttons.
+   *
+   * Confirm is an acknowledgement (the reminder is already armed); Cancel
+   * disarms it so it is never posted into the group. Same Cloud API path as
+   * the approval prompt, so it needs Denzel's 24h window open; the bridge
+   * falls back to a plain DM when it does not go through.
+   */
+  async sendAppointmentPrompt(
+    organizationId: string,
+    id: string,
+    opts: { to?: string; text?: string } = {},
+  ): Promise<{ ok: boolean; error?: string }> {
+    const appt = await this.prisma.whatsAppAppointment.findFirst({ where: { id, organizationId } });
+    if (!appt) throw new NotFoundException('Appointment not found');
+    let to = (opts.to || '').replace(/\D/g, '');
+    if (!to) {
+      const config = await this.prisma.whatsAppAgentConfig.findUnique({
+        where: { organizationId },
+        select: { ownerNotifyNumber: true },
+      });
+      to = (config?.ownerNotifyNumber || '').replace(/\D/g, '');
+    }
+    if (!to) return { ok: false, error: 'no owner number configured' };
+
+    const text = opts.text || `Noted: ${appt.topic || 'appointment'}`;
+    const payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text: text.slice(0, 1024) },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: `apptok:${appt.id}`.slice(0, 256), title: '\u2705 Confirm' } },
+            { type: 'reply', reply: { id: `apptno:${appt.id}`.slice(0, 256), title: '\u274C Cancel' } },
+          ],
+        },
+      },
+    };
+    try {
+      await this.dispatch(organizationId, payload, { body: text });
+      return { ok: true };
+    } catch (e: any) {
+      this.logger.warn(`Appointment buttons failed for ${id}: ${e.message}`);
+      return { ok: false, error: e.message };
+    }
+  }
+
+  /**
+   * A tapped Confirm/Cancel on an appointment prompt. Cancel sets the reminder
+   * to CANCELLED, which dueGroupReminders() filters out, so it never posts.
+   */
+  private async handleAppointmentButton(organizationId: string, replyId: string, from: string) {
+    const m = replyId.match(/^appt(ok|no):(.+)$/);
+    if (!m) return false;
+    const [, verb, id] = m;
+    const appt = await this.prisma.whatsAppAppointment.findFirst({ where: { id, organizationId } });
+    if (!appt) {
+      await this.sendText(organizationId, { to: from, body: `That appointment is no longer on file.` }).catch(() => null);
+      return true;
+    }
+    if (verb === 'no') {
+      if (appt.reminderStatus === 'SENT') {
+        await this.sendText(organizationId, {
+          to: from,
+          body: `That reminder already went out, so I cannot pull it back.`,
+        }).catch(() => null);
+        return true;
+      }
+      await this.prisma.whatsAppAppointment.update({ where: { id }, data: { reminderStatus: 'CANCELLED' } });
+      await this.sendText(organizationId, {
+        to: from,
+        body: `\uD83D\uDEAB Cancelled. I will not send that reminder.`,
+      }).catch(() => null);
+    } else {
+      await this.sendText(organizationId, { to: from, body: `\uD83D\uDC4D Noted, the reminder is set.` }).catch(() => null);
+    }
+    return true;
+  }
+
+  /**
    * DM Denzel a held draft with real tappable Approve/Discard buttons.
    *
    * The bridge (a linked device) cannot send interactive messages, but the PA's
@@ -1483,6 +1566,12 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             await this.leads
               .handleAssignTap(tapped, from, { organizationId: connection.organizationId, phoneNumberId: connection.phoneNumberId, accessToken: connection.accessToken })
               .catch((e) => this.logger.error(`Lead assign tap failed: ${e.message}`));
+            continue;
+          }
+          if (from && tapped && /^appt(ok|no):/.test(tapped)) {
+            await this.handleAppointmentButton(connection.organizationId, tapped, from).catch((e) =>
+              this.logger.error(`Appointment button failed: ${e.message}`),
+            );
             continue;
           }
           if (from && tapped && /^grp(ok|no):/.test(tapped)) {

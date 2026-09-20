@@ -3231,3 +3231,53 @@ model WhatsAppAppointment {
   @@index([organizationId, groupId])
   @@index([reminderStatus, remindAt])
 }
+
+// ── Meta ads insights (CRM → Marketing, guru 2026-09-21) ──────────────────
+// Per-org connection to a Meta ad account (system-user token shared by the
+// client via Business Manager partner access). Read-only: ads_read insights.
+model AdAccountConnection {
+  id             String    @id @default(uuid())
+  organizationId String    @unique
+  adAccountId    String // "act_…"
+  accessToken    String // system-user token, never echoed to the portal
+  accountName    String?
+  currency       String?
+  status         String    @default("CONNECTED") // CONNECTED | ERROR | DISCONNECTED
+  lastError      String?
+  lastSyncAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+// One row per ad per day (Meta insights level=ad, time_increment=1) — daily
+// grain is what lets spend/CPC/CPL/ROAS trend over time. Campaign/adset
+// rollups are aggregated at query time from these rows.
+model AdInsight {
+  id             String   @id @default(uuid())
+  organizationId String
+  date           DateTime // the insight day (UTC midnight)
+  campaignId     String?
+  campaignName   String?
+  adsetId        String?
+  adsetName      String?
+  adId           String
+  adName         String?
+  spend          Float    @default(0)
+  impressions    Int      @default(0)
+  clicks         Int      @default(0)
+  linkClicks     Int      @default(0)
+  metaLeads      Int      @default(0) // Meta-reported lead actions
+  thruplays      Int      @default(0)
+  videoAvgSec    Float? // average watch time (seconds)
+  videoP25       Int      @default(0)
+  videoP50       Int      @default(0)
+  videoP75       Int      @default(0)
+  videoP100      Int      @default(0)
+  raw            Json? // full actions payload for future metrics
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, date, adId])
+  @@index([organizationId, date])
+  @@index([organizationId, campaignId])
+}

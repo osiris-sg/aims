@@ -85,7 +85,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
 
@@ -212,7 +212,10 @@ export default function DynamicSidebarContent() {
       if (!Array.isArray(subMenus)) return m;
       const filtered = subMenus.filter((s: any) => {
         if (typeof s === 'object' && s?.adminOnly && !isAdminUser) return false;
-        return !hide?.includes(typeof s === 'string' ? s : s?.key);
+        const key = typeof s === 'string' ? s : s?.key;
+        // CRM → Marketing rides on the enableAdsInsights org flag.
+        if (key === 'marketing' && m.moduleCode === 'CRM' && !isAdsInsightsEnabled) return false;
+        return !hide?.includes(key);
       });
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
     })

@@ -79,6 +79,10 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Default ON for every org, new and existing (guru, 2026-08-23) — an org
   // only loses the tab if an admin explicitly switches it off.
   enableActionLog: true,
+  // CRM → Marketing: Meta ads insights dashboard (spend/CPC/CPL/watch time,
+  // true CPL + ROAS from AIMS leads & signed contracts). Needs a connected
+  // Meta ad account (system-user token). Default OFF.
+  enableAdsInsights: false,
   // Interior-design quotation editor (CIEL INTERIOR, 2026-08): Sales →
   // Quotation opens the sectioned ID editor (trade sections → areas → work
   // items with includes, internal cost/margin + guardrails, Letter-of-Intent
@@ -157,5 +161,6 @@ export function useOrganizationFeatures() {
     isXeroDocSyncEnabled: features.enableXeroDocSync ?? false,
     isLegacyAccountingUxEnabled: features.enableLegacyAccountingUx ?? false,
     isIdQuotationEnabled: features.enableIdQuotation ?? false,
+    isAdsInsightsEnabled: features.enableAdsInsights ?? false,
   };
 }

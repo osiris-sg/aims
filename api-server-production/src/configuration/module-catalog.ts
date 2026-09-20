@@ -191,6 +191,7 @@ export const MODULE_CATALOG: CatalogModule[] = [
       route: '/portal/crm',
       subMenus: [
         { key: 'whatsapp', label: 'WhatsApp' },
+        { key: 'marketing', label: 'Marketing' },
         { key: 'contacts', label: 'Contacts' },
         { key: 'agent', label: 'AI Agent' },
         { key: 'suggestions', label: 'Suggestions' },

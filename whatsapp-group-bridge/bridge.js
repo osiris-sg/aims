@@ -432,12 +432,30 @@ async function captureAppointment(msg, chatId, group, clientName) {
       timeZone: 'Asia/Singapore',
     });
     console.log(`   📅 appointment ${appt.updated ? 'updated' : 'captured'} ${appt.id} (${when})`);
-    await dmDenzel(
+    const summary =
       `📅 ${appt.updated ? 'Updated' : 'Noted'}: ${appt.topic || 'appointment'}${appt.venue ? ` at ${appt.venue}` : ''}\n` +
-        `${when}${appt.tentative ? ' (tentative)' : ''}\n` +
-        `Chat: ${group?.name || chatId}\n\n` +
-        `I'll remind ${clientName || 'them'} in the group on ${remind} 🙏🏻`,
-    );
+      `${when}${appt.tentative ? ' (tentative)' : ''}\n` +
+      `Chat: ${group?.name || chatId}\n\n` +
+      `I'll remind ${clientName || 'them'} in the group on ${remind} 🙏🏻`;
+    // Confirm/Cancel buttons can only come from the Cloud API number, so ask
+    // AIMS to send it. Cancel disarms the reminder before it ever posts.
+    let buttoned = false;
+    for (const number of DENZEL_NUMBERS) {
+      try {
+        const res = await callBridgeApi(`/whatsapp/group-appointment/${appt.id}/notify`, {
+          body: { organizationId: ORG_ID, to: number, text: summary },
+        });
+        if (res?.ok) {
+          buttoned = true;
+          console.log(`   🔘 appointment buttons sent to ${number}`);
+        } else {
+          console.log(`   ↷ appointment buttons unavailable for ${number} (${res?.error || 'unknown'})`);
+        }
+      } catch (e) {
+        console.error(`   ✖ appointment prompt to ${number} failed:`, e && e.message ? e.message : e);
+      }
+    }
+    if (!buttoned) await dmDenzel(summary);
     return true;
   } catch (e) {
     console.error('   ✖ appointment capture failed:', e && e.message ? e.message : e);

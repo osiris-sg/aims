@@ -303,6 +303,19 @@ export class WhatsAppController {
   }
 
   @Public()
+  @Post('group-appointment/:id/notify')
+  @ApiOperation({ summary: 'Group bridge: DM the owner a captured appointment with Confirm/Cancel buttons' })
+  async notifyAppointment(
+    @Req() req: RequestWithOrganization,
+    @Param('id') id: string,
+    @Body() body: { organizationId: string; to?: string; text?: string },
+  ) {
+    this.assertBridgeToken(req);
+    if (!body?.organizationId) throw new BadRequestException('organizationId is required');
+    return this.service.sendAppointmentPrompt(body.organizationId, id, body);
+  }
+
+  @Public()
   @Post('group-approval/:id/notify')
   @ApiOperation({ summary: 'Group bridge: DM the owner a held draft with tappable Approve/Discard buttons' })
   async notifyGroupApproval(
