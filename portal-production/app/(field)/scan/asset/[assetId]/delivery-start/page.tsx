@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { Alert, Box, Button, CircularProgress, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Divider, Stack, TextField, Typography } from "@mui/material";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -428,21 +428,7 @@ export default function StartDeliveryPage() {
             </Alert>
           ) : null}
 
-          {/* AD-HOC ESCAPE HATCH. The run already exists, is numbered, holds this
-              unit and its condition photos, and the unit is reserved — the only
-              thing missing was somewhere to go. This takes the rider to the
-              ad-hoc screen instead of stranding them behind Refresh. Shown
-              whenever there is no scheduled run to join. */}
-          {!runsLoading && !runsError && scheduledRuns.length === 0 && runId ? (
-            <Button
-              variant="contained"
-              onClick={() => router.push(`/scan/delivery/${runId}/adhoc`)}
-              fullWidth
-              sx={{ minHeight: 52 }}
-            >
-              Start New Delivery
-            </Button>
-          ) : (
+          {scheduledRuns.length > 0 && !runsLoading && !runsError && (
             <Stack spacing={1.25}>
               {scheduledRuns.map((run) => {
                 const selected = selectedRunId === run.id;
@@ -502,6 +488,50 @@ export default function StartDeliveryPage() {
             >
               {assigning ? <CircularProgress size={20} color="inherit" /> : "Assign & continue"}
             </Button>
+          )}
+
+          {/* AD-HOC ESCAPE HATCH. The run already exists, is numbered, holds this
+              unit and its condition photos, and the unit is reserved — the only
+              thing missing was somewhere to go.
+
+              It must show whether or not the office scheduled anything, because a
+              rider doing an ad-hoc drop on a day with other runs on the board is
+              the COMMON case, not the edge one. It sits BELOW "Assign & continue",
+              under its own divider, so it reads as the alternative to the whole
+              picker rather than as one more run in the list — and outlined, so it
+              does not compete with the primary action. With no runs to pick there
+              is no primary action to compete with, so it goes contained there.
+
+              This routes on `runId` — the run THIS unit already belongs to — never
+              on `selectedRunId`, so a highlighted card cannot leak into the ad-hoc
+              run. The highlight is cleared on the way out regardless. */}
+          {!runsLoading && !runsError && runId && (
+            <>
+              {scheduledRuns.length > 0 && (
+                <Divider sx={{ "&::before, &::after": { borderColor: "divider" } }}>
+                  <Typography variant="caption" color="text.secondary">
+                    or
+                  </Typography>
+                </Divider>
+              )}
+              <Button
+                variant={scheduledRuns.length > 0 ? "outlined" : "contained"}
+                onClick={() => {
+                  setSelectedRunId(null);
+                  router.push(`/scan/delivery/${runId}/adhoc`);
+                }}
+                disabled={assigning}
+                fullWidth
+                sx={{ minHeight: 52 }}
+              >
+                Start New Delivery
+              </Button>
+              {scheduledRuns.length > 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center", mt: -1 }}>
+                  None of these? Start a delivery the office has not scheduled.
+                </Typography>
+              )}
+            </>
           )}
         </Box>
       </Box>
