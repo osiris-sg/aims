@@ -117,7 +117,18 @@ export class MaintenanceReportsService {
     // needs 1. The rule is DIRECTION-BLIND on purpose — a return is captured to
     // the same standard as the outbound run so the two sets can be compared
     // before and after the hire.
-    if (effectiveKind === 'DO_START' && dto.deliveryId && !dto.documentId) {
+    //
+    // deferPhotos is the ONE opt-out, and it is deliberately explicit rather
+    // than inferred. The scan flow now reaches the assign page before any photo
+    // is taken, so the report must exist first (GPS pings FK to it, the route
+    // keys on its id, the Timeline reads its createdAt) and the photos arrive
+    // afterwards — appended onto this very report by the scheduled path, or
+    // never, for an ad-hoc run.
+    //
+    // ⚠️ This WEAKENS a server-side invariant: with the flag set, "photos before
+    // the unit moves" is enforced by the client alone. Every caller that does
+    // not pass it keeps the hard rule.
+    if (effectiveKind === 'DO_START' && dto.deliveryId && !dto.documentId && !dto.deferPhotos) {
       const photoCount = dto.photos?.length ?? 0;
       const required = minPhotosForAssetClass(asset.assetClass);
       if (photoCount < required) {
