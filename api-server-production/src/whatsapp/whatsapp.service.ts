@@ -1134,10 +1134,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * DM Denzel a captured appointment with Confirm / Cancel buttons.
+   * DM Denzel a captured appointment with a Cancel button.
    *
-   * Confirm is an acknowledgement (the reminder is already armed); Cancel
-   * disarms it so it is never posted into the group. Same Cloud API path as
+   * One button, Cancel, which disarms the reminder so it is never posted into
+   * the group. Saying nothing is consent. Same Cloud API path as
    * the approval prompt, so it needs Denzel's 24h window open; the bridge
    * falls back to a plain DM when it does not go through.
    */
@@ -1168,9 +1168,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         type: 'button',
         body: { text: text.slice(0, 1024) },
         action: {
+          // Cancel only: no news is consent (guru 2026-09-21). A Confirm button
+          // would just be a tap that changes nothing, since the reminder is
+          // armed the moment the appointment is captured.
           buttons: [
-            { type: 'reply', reply: { id: `apptok:${appt.id}`.slice(0, 256), title: '\u2705 Confirm' } },
-            { type: 'reply', reply: { id: `apptno:${appt.id}`.slice(0, 256), title: '\u274C Cancel' } },
+            { type: 'reply', reply: { id: `apptno:${appt.id}`.slice(0, 256), title: '\u274C Cancel reminder' } },
           ],
         },
       },
@@ -1185,8 +1187,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * A tapped Confirm/Cancel on an appointment prompt. Cancel sets the reminder
-   * to CANCELLED, which dueGroupReminders() filters out, so it never posts.
+   * A tapped Cancel on an appointment prompt: sets the reminder to CANCELLED,
+   * which dueGroupReminders() filters out, so it never posts. `apptok` is still
+   * matched so taps on prompts sent before the Confirm button was dropped are
+   * acknowledged rather than ignored.
    */
   private async handleAppointmentButton(organizationId: string, replyId: string, from: string) {
     const m = replyId.match(/^appt(ok|no):(.+)$/);
@@ -1211,7 +1215,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         body: `\uD83D\uDEAB Cancelled. I will not send that reminder.`,
       }).catch(() => null);
     } else {
-      await this.sendText(organizationId, { to: from, body: `\uD83D\uDC4D Noted, the reminder is set.` }).catch(() => null);
+      await this.sendText(organizationId, { to: from, body: `\uD83D\uDC4D Noted, the reminder stands.` }).catch(() => null);
     }
     return true;
   }
