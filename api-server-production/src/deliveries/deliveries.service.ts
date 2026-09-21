@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, forwardRef } from '@nestjs/common';
 import { AssetClass, DeliveryDirection, DeliveryOrigin, DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { isUnconfirmedDoc } from 'src/common/doc-status';
@@ -36,7 +36,11 @@ export class DeliveriesService {
 
   constructor(
     private readonly prisma: PrismaService,
+    // Both lazy — DeliveriesModule forwardRefs both of these modules, so their
+    // injection tokens must be deferred to match.
+    @Inject(forwardRef(() => DocumentsService))
     private readonly documentsService: DocumentsService,
+    @Inject(forwardRef(() => ProjectsService))
     private readonly projectsService: ProjectsService,
     private readonly notifications: NotificationsService,
     private readonly push: PushService,

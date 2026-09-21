@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable, forwardRef } from '@nestjs/common';
 import { PrismaService } from 'src/common/prisma.service';
 import { DocumentsService } from 'src/documents/documents.service';
 import { CreateProjectDto } from './dto/create-project.dto';
@@ -55,6 +55,11 @@ function deploymentName(deploymentNumber: number | null | undefined): string {
 export class ProjectsService {
   constructor(
     private prisma: PrismaService,
+    // Lazy: ProjectsModule imports DocumentsModule through a forwardRef because
+    // the two sit on a cycle. The module-level forwardRef alone is NOT enough —
+    // the injection token has to be deferred too, or Nest resolves `undefined`
+    // here instead of at the module boundary.
+    @Inject(forwardRef(() => DocumentsService))
     private readonly documentsService: DocumentsService,
   ) {}
 
