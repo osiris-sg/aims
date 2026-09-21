@@ -336,6 +336,22 @@ function groupDeliveryLines(raw: any[], isReturn = false): any[] {
       .filter(Boolean);
     const qty = run.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
     const amount = run.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    // PER-UNIT PROOF PHOTOS SURVIVE THE MERGE.
+    //
+    // The spread below keeps run[0] only, so `proofPhotos` used to come from the
+    // first unit alone and every other unit's condition photos were dropped
+    // before render — DO202609-0057 showed 4 of its 8. `serialNumbers` was
+    // already re-collected across the run; this is the same treatment for
+    // photos, kept as ONE GROUP PER UNIT rather than one flat array, because a
+    // unit's condition photos are its own evidence and a merged strip makes them
+    // unattributable. Each group carries the serial it belongs to so the strip
+    // can label it. Lines with no photos contribute nothing.
+    const proofGroups = run
+      .map((r) => ({
+        serial: (Array.isArray(r.serialNumbers) ? r.serialNumbers : []).filter(Boolean)[0] ?? null,
+        photos: Array.isArray(r.proofPhotos) ? r.proofPhotos.filter(Boolean) : [],
+      }))
+      .filter((g) => g.photos.length > 0);
     // MODEL: prefer an explicit `model` on the line, else skuKey.
     //
     // There is NO Asset.model column and no `model` field on any stored line —
@@ -367,7 +383,18 @@ function groupDeliveryLines(raw: any[], isReturn = false): any[] {
     if (model && !DESCRIPTION_HAS_MODEL.test(name)) lines.push(`Model: ${model}`);
     if (year != null) lines.push(`Year: ${year}`);
     if (!DESCRIPTION_HAS_SERIAL.test(name)) for (const s of serials) lines.push(`S/No.: ${s}`);
-    out.push({ ...run[0], quantity: qty, amount, serialNumbers: serials, description: lines.join("\n") });
+    out.push({
+      ...run[0],
+      quantity: qty,
+      amount,
+      serialNumbers: serials,
+      description: lines.join("\n"),
+      // Flat list kept for anything still reading item.proofPhotos (the
+      // hasProofPhotos probe, the zoom lightbox); proofGroups is what the strip
+      // renders. Both are the WHOLE run now, not just run[0].
+      proofPhotos: proofGroups.flatMap((g) => g.photos),
+      proofGroups,
+    });
     i = j;
   }
   return out;
@@ -2065,7 +2092,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     // "Click photos to view" hint AND how much of the table→Timeline gap it eats
     // (see photoHint below). Reads item.proofPhotos exactly as the table does.
     const hasProofPhotos = items.some(
-      (it: any) => Array.isArray(it.proofPhotos) && it.proofPhotos.length > 0,
+      (it: any) =>
+        (Array.isArray(it.proofPhotos) && it.proofPhotos.length > 0) ||
+        (Array.isArray(it.proofGroups) && it.proofGroups.some((g: any) => g?.photos?.length > 0)),
     );
     // Screen-only caption that the inline proof photos enlarge on click.
     // Rendered directly ABOVE the item table so it reads as a label for the
@@ -2457,14 +2486,40 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                         <TableCell sx={{ textAlign: "center" }}>{index + 1}.</TableCell>
                         <TableCell>
                           <DescriptionText text={item.description || ""} sx={{ fontWeight: 500 }} />
-                          {Array.isArray(item.proofPhotos) && item.proofPhotos.length > 0 && (
-                            <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "nowrap" }}>
-                              {item.proofPhotos.slice(0, 4).map((key: string, photoIdx: number) => (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img key={key} src={resolvePhotoSrc(key)} alt="" onClick={() => openZoom(item.proofPhotos, photoIdx)} style={{ width: "23%", aspectRatio: "4 / 3", objectFit: "cover", border: "1px solid #ccc", cursor: "pointer" }} />
-                              ))}
-                            </Box>
-                          )}
+                          {/* ONE STRIP PER UNIT, labelled by serial.
+                              A merged line stands for N units, and each unit's
+                              condition photos are separate evidence — a single
+                              shared strip cannot say which unit a photo is of.
+                              The serial caption is omitted on an unmerged line
+                              (one group, and the description already names it).
+                              The 4-photo cap is PER STRIP, matching the guided
+                              capture sequence, so an 8-photo two-unit line now
+                              shows all 8 as 4 + 4 instead of silently 4. */}
+                          {(() => {
+                            const groups: Array<{ serial: string | null; photos: string[] }> =
+                              Array.isArray(item.proofGroups) && item.proofGroups.length > 0
+                                ? item.proofGroups
+                                : Array.isArray(item.proofPhotos) && item.proofPhotos.length > 0
+                                  ? [{ serial: null, photos: item.proofPhotos }]
+                                  : [];
+                            if (groups.length === 0) return null;
+                            const labelled = groups.length > 1;
+                            return groups.map((g, gi) => (
+                              <Box key={g.serial ?? gi} sx={{ mt: 0.5 }}>
+                                {labelled && g.serial && (
+                                  <Typography sx={{ fontSize: "0.6875rem", color: "#666", lineHeight: 1.4 }}>
+                                    {g.serial}
+                                  </Typography>
+                                )}
+                                <Box sx={{ display: "flex", gap: 0.5, mt: labelled && g.serial ? 0.25 : 0, flexWrap: "nowrap" }}>
+                                  {g.photos.slice(0, 4).map((key: string, photoIdx: number) => (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img key={key} src={resolvePhotoSrc(key)} alt="" onClick={() => openZoom(g.photos, photoIdx)} style={{ width: "23%", aspectRatio: "4 / 3", objectFit: "cover", border: "1px solid #ccc", cursor: "pointer" }} />
+                                  ))}
+                                </Box>
+                              </Box>
+                            ));
+                          })()}
                         </TableCell>
                         <TableCell sx={{ textAlign: "center" }}>
                           {item.quantity ?? ""}{item.uom ? ` ${item.uom}` : ""}

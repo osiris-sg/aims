@@ -137,6 +137,17 @@ export class PublicDocumentService {
       }
       const name = run[0].description || '';
       const serials = run.flatMap((r) => (Array.isArray(r.serialNumbers) ? r.serialNumbers : [])).filter(Boolean);
+      // PER-UNIT PROOF PHOTOS SURVIVE THE MERGE — see the same block in the
+      // portal's CleanDocumentPreview. This copy matters because the guest page
+      // renders items ALREADY MERGED HERE, so dropping them server-side hides
+      // them from the customer's share link with no way for the client to
+      // recover them.
+      const proofGroups = run
+        .map((r) => ({
+          serial: (Array.isArray(r.serialNumbers) ? r.serialNumbers : []).filter(Boolean)[0] ?? null,
+          photos: Array.isArray(r.proofPhotos) ? r.proofPhotos.filter(Boolean) : [],
+        }))
+        .filter((g) => g.photos.length > 0);
       const qty = run.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
       const model = run[0].model || run[0].skuKey || '';
       const verb = isReturn ? 'Return' : run.some((r) => r.deploymentType === 'SALE') ? 'Sale' : 'Rental';
@@ -146,7 +157,14 @@ export class PublicDocumentService {
       if (model && !DESCRIPTION_HAS_MODEL.test(name)) lines.push(`Model: ${model}`);
       if (year != null) lines.push(`Year: ${year}`);
       if (!DESCRIPTION_HAS_SERIAL.test(name)) for (const s of serials) lines.push(`S/No.: ${s}`);
-      out.push({ ...run[0], quantity: qty, serialNumbers: serials, description: lines.join('\n') });
+      out.push({
+        ...run[0],
+        quantity: qty,
+        serialNumbers: serials,
+        description: lines.join('\n'),
+        proofPhotos: proofGroups.flatMap((g) => g.photos),
+        proofGroups,
+      });
       i = j;
     }
     return out;
@@ -178,7 +196,10 @@ export class PublicDocumentService {
     // (deliveries.service sets deliveryGroup = assetId). The "Model … S/No …"
     // grouping is done SERVER-SIDE in groupDeliveryLinesForPublic (before this
     // sanitise) and baked into `description`, so no asset id ever ships.
-    const ITEM_KEEP = ['id', 'sku', 'skuKey', 'itemCode', 'description', 'quantity', 'uom', 'remarks', 'serialNumbers', 'proofPhotos'];
+    // proofGroups rides alongside proofPhotos: it is the per-unit split the
+    // preview's photo strip renders. It carries only serials + photo keys —
+    // no asset ids — so it is safe to ship publicly.
+    const ITEM_KEEP = ['id', 'sku', 'skuKey', 'itemCode', 'description', 'quantity', 'uom', 'remarks', 'serialNumbers', 'proofPhotos', 'proofGroups'];
     if (Array.isArray(cfg.items)) {
       cfg.items = cfg.items.map((it: any) => {
         const out: any = {};

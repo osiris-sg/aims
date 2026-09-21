@@ -121,7 +121,22 @@ export class PdfGeneratorService {
       if (model && !DESCRIPTION_HAS_MODEL.test(name)) lines.push(`Model: ${model}`);
       if (year != null) lines.push(`Year: ${year}`);
       if (!DESCRIPTION_HAS_SERIAL.test(name)) for (const s of serials) lines.push(`S/No.: ${s}`);
-      out.push({ ...run[0], quantity: qty, amount, serialNumbers: serials, description: lines.join('\n') });
+      // This renderer draws no photos today. The groups are carried anyway so
+      // that adding a photo strip to the PDF later cannot silently reintroduce
+      // the run[0]-only loss the portal copy just fixed.
+      out.push({
+        ...run[0],
+        quantity: qty,
+        amount,
+        serialNumbers: serials,
+        description: lines.join('\n'),
+        proofGroups: run
+          .map((r) => ({
+            serial: (Array.isArray(r.serialNumbers) ? r.serialNumbers : []).filter(Boolean)[0] ?? null,
+            photos: Array.isArray(r.proofPhotos) ? r.proofPhotos.filter(Boolean) : [],
+          }))
+          .filter((g) => g.photos.length > 0),
+      });
       i = j;
     }
     return out;

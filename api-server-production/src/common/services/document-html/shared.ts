@@ -186,7 +186,20 @@ export function groupDeliveryLines(raw: any[]): any[] {
       model && !DESCRIPTION_HAS_MODEL.test(rawDesc) ? `Model: ${model}` : '',
       ...(DESCRIPTION_HAS_SERIAL.test(rawDesc) ? [] : serials.map((s: any) => `S/No.: ${s}`)),
     ].filter(Boolean);
-    out.push({ ...first, description: lines.join('\n'), quantity: qty, amount });
+    // No photo strip in this renderer either; groups carried for the same
+    // reason as pdf-generator.service.ts.
+    out.push({
+      ...first,
+      description: lines.join('\n'),
+      quantity: qty,
+      amount,
+      proofGroups: members
+        .map((m) => ({
+          serial: (Array.isArray(m.serialNumbers) ? m.serialNumbers : []).filter(Boolean)[0] ?? null,
+          photos: Array.isArray(m.proofPhotos) ? m.proofPhotos.filter(Boolean) : [],
+        }))
+        .filter((g) => g.photos.length > 0),
+    });
   }
   return out;
 }

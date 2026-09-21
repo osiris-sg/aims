@@ -114,6 +114,9 @@ interface RunDetail {
     latitude: number | null;
     longitude: number | null;
     technicianName: string | null;
+    // findById selects this already — it was simply never declared here, so the
+    // page could not tell one unit's proof from another's.
+    inventoryId: string | null;
     createdAt: string;
   }>;
 }
@@ -148,6 +151,47 @@ const KIND_LABEL: Record<string, string> = {
   DO_ACK: "Delivery Acknowledged",
   DO_INSTALL: "Installation Completed",
 };
+
+/**
+ * Group the run's proof reports into ONE CARD PER KIND.
+ *
+ * A run with N units writes N DO_START rows and N DO_ACK rows, so the office saw
+ * "Delivery Started" twice and "Delivery Acknowledged" twice, the latter pair
+ * carrying the same signature — four cards describing two events.
+ *
+ * The signature is collapsed ONLY WHEN IT IS GENUINELY SHARED. Acknowledgements
+ * really can differ per unit: on RDO202609-001 one unit was signed by a named
+ * recipient and the other was never signed at all, 45 minutes apart. Showing one
+ * signature there would hide a unit that went out unacknowledged. So a group
+ * renders a single signature block when every signed member agrees on
+ * signature + signedAt + signedByName, and per-unit blocks when they do not.
+ */
+type ProofReport = RunDetail["reports"][number];
+function groupProofReports(reports: ProofReport[]): Array<{
+  kind: string;
+  members: ProofReport[];
+  sharedSignature: ProofReport | null;
+}> {
+  const byKind = new Map<string, ProofReport[]>();
+  for (const r of reports) {
+    const list = byKind.get(r.kind);
+    if (list) list.push(r);
+    else byKind.set(r.kind, [r]);
+  }
+  // Array.from rather than spread: the tsconfig target predates downlevel
+  // iteration of a Map iterator.
+  return Array.from(byKind.entries()).map(([kind, members]: [string, ProofReport[]]) => {
+    const signed = members.filter((m) => m.signature);
+    // Shared only if EVERY member is signed and all three fields agree. A group
+    // where some units are unsigned is deliberately not collapsed — the absence
+    // is the information.
+    const allSigned = signed.length === members.length && signed.length > 0;
+    const key = (m: ProofReport) => `${m.signature}|${m.signedAt ?? ""}|${m.signedByName ?? ""}`;
+    const sharedSignature =
+      allSigned && new Set(signed.map(key)).size === 1 ? signed[0] : null;
+    return { kind, members, sharedSignature };
+  });
+}
 
 const fmtDateTime = (d: string | null) =>
   d ? new Date(d).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
@@ -677,95 +721,134 @@ export default function DeliveryDetailPage() {
         </Paper>
       ) : (
         <Stack spacing={2} sx={{ mb: 3 }}>
-          {run.reports.map((r) => (
-            <Paper key={r.id} variant="outlined" sx={{ p: 2 }}>
-              <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" sx={{ mb: 1 }}>
-                <Typography variant="subtitle2" fontWeight={700}>
-                  {KIND_LABEL[r.kind] ?? r.kind}
-                </Typography>
-                <Chip size="small" variant="outlined" label={r.status === "completed" ? "Signed" : "Unsigned"} color={r.status === "completed" ? "success" : "default"} />
-                <Typography variant="caption" color="text.secondary">
-                  {fmtDateTime(r.createdAt)}{r.technicianName ? ` · ${r.technicianName}` : ""}
-                </Typography>
-                {r.latitude != null && r.longitude != null && (
-                  <Button
+          {groupProofReports(run.reports).map((group) => {
+            // Serial for a member, resolved off the run's items (reports carry
+            // inventoryId; items carry the sku). Falls back to the description,
+            // then to nothing — a free-typed line has no unit.
+            const serialFor = (r: ProofReport) =>
+              (r.inventoryId
+                ? run.items.find((it) => it.inventory?.id === r.inventoryId)?.inventory?.sku
+                : null) ?? null;
+            const first = group.members[0];
+            const anySigned = group.members.some((m) => m.signature);
+            return (
+              <Paper key={group.kind} variant="outlined" sx={{ p: 2 }}>
+                <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" sx={{ mb: 1 }}>
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    {KIND_LABEL[group.kind] ?? group.kind}
+                  </Typography>
+                  <Chip
                     size="small"
-                    startIcon={<PlaceIcon />}
-                    href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`}
-                    target="_blank"
-                    sx={{ textTransform: "none" }}
-                  >
-                    {r.latitude.toFixed(5)}, {r.longitude.toFixed(5)}
-                  </Button>
-                )}
-              </Stack>
-              {r.description && (
-                <Typography variant="body2" sx={{ mb: 1 }}>{r.description}</Typography>
-              )}
-              {r.photos.length > 0 && (
-                <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: "wrap", gap: 1 }}>
-                  {r.photos.map((k) => {
-                    const src = imgSrc(k);
-                    // Only S3-hosted keys can go through next/image's optimizer
-                    // (resized thumbnail); data: / other URLs fall back to a
-                    // plain lazy <img>. Full-size raw src stays behind the link.
-                    const optimizable = src.startsWith(RESOURCE_URL);
+                    variant="outlined"
+                    label={anySigned ? "Signed" : "Unsigned"}
+                    color={anySigned ? "success" : "default"}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    {fmtDateTime(first.createdAt)}
+                    {first.technicianName ? ` · ${first.technicianName}` : ""}
+                    {group.members.length > 1 ? ` · ${group.members.length} units` : ""}
+                  </Typography>
+                </Stack>
+
+                {/* ONE ROW PER UNIT. Each unit's photos, GPS and (when they
+                    differ) signature stay attached to the serial they belong to,
+                    instead of becoming an undifferentiated wall of cards. */}
+                <Stack spacing={1.5} divider={group.members.length > 1 ? <Divider flexItem /> : undefined}>
+                  {group.members.map((r) => {
+                    const serial = serialFor(r);
                     return (
-                      <Box
-                        key={k}
-                        component="a"
-                        href={src}
-                        target="_blank"
-                        sx={{
-                          display: "block",
-                          width: 120,
-                          height: 120,
-                          borderRadius: 1,
-                          overflow: "hidden",
-                          border: "1px solid",
-                          borderColor: "divider",
-                        }}
-                      >
-                        {optimizable ? (
-                          <Image
-                            src={src}
-                            alt="Delivery photo"
-                            width={120}
-                            height={120}
-                            loading="lazy"
-                            decoding="async"
-                            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                          />
-                        ) : (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={src}
-                            alt="Delivery photo"
-                            loading="lazy"
-                            decoding="async"
-                            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                          />
+                      <Box key={r.id}>
+                        {group.members.length > 1 && (
+                          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }} flexWrap="wrap">
+                            <Typography variant="caption" fontWeight={700}>
+                              {serial ?? r.description ?? "Item"}
+                            </Typography>
+                            {r.signature ? null : (
+                              <Chip size="small" variant="outlined" label="Not signed" color="warning" sx={{ height: 18, fontSize: "0.65rem" }} />
+                            )}
+                            {r.latitude != null && r.longitude != null && (
+                              <Button
+                                size="small"
+                                startIcon={<PlaceIcon />}
+                                href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`}
+                                target="_blank"
+                                sx={{ textTransform: "none", py: 0 }}
+                              >
+                                {r.latitude.toFixed(5)}, {r.longitude.toFixed(5)}
+                              </Button>
+                            )}
+                          </Stack>
+                        )}
+                        {group.members.length === 1 && r.latitude != null && r.longitude != null && (
+                          <Button
+                            size="small"
+                            startIcon={<PlaceIcon />}
+                            href={`https://www.google.com/maps?q=${r.latitude},${r.longitude}`}
+                            target="_blank"
+                            sx={{ textTransform: "none", mb: 0.5 }}
+                          >
+                            {r.latitude.toFixed(5)}, {r.longitude.toFixed(5)}
+                          </Button>
+                        )}
+                        {r.description && group.members.length === 1 && (
+                          <Typography variant="body2" sx={{ mb: 1 }}>{r.description}</Typography>
+                        )}
+                        {r.photos.length > 0 && (
+                          <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: "wrap", gap: 1 }}>
+                            {r.photos.map((k) => {
+                              const src = imgSrc(k);
+                              const optimizable = src.startsWith(RESOURCE_URL);
+                              return (
+                                <Box
+                                  key={k}
+                                  component="a"
+                                  href={src}
+                                  target="_blank"
+                                  sx={{ display: "block", width: 120, height: 120, borderRadius: 1, overflow: "hidden", border: "1px solid", borderColor: "divider" }}
+                                >
+                                  {optimizable ? (
+                                    <Image src={src} alt="Delivery photo" width={120} height={120} loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                                  ) : (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={src} alt="Delivery photo" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                                  )}
+                                </Box>
+                              );
+                            })}
+                          </Stack>
+                        )}
+                        {/* Per-unit signature ONLY when the group's signatures
+                            genuinely differ. When they are identical the shared
+                            block below renders it once. */}
+                        {!group.sharedSignature && r.signature && (
+                          <Box sx={{ mt: 1 }}>
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              Signed by {r.signedByName ?? "—"}{r.signedAt ? ` · ${fmtDateTime(r.signedAt)}` : ""}
+                            </Typography>
+                            <Box component="img" src={imgSrc(r.signature)} alt="Signature" sx={{ maxWidth: 260, maxHeight: 110, mt: 0.5, border: "1px solid", borderColor: "divider", borderRadius: 1, bgcolor: "#fff", p: 0.5 }} />
+                          </Box>
                         )}
                       </Box>
                     );
                   })}
                 </Stack>
-              )}
-              {r.signature && (
-                <Box sx={{ mt: 1 }}>
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Signed by {r.signedByName ?? "—"}{r.signedAt ? ` · ${fmtDateTime(r.signedAt)}` : ""}
-                  </Typography>
-                  <Box
-                    component="img"
-                    src={imgSrc(r.signature)}
-                    alt="Signature"
-                    sx={{ maxWidth: 260, maxHeight: 110, mt: 0.5, border: "1px solid", borderColor: "divider", borderRadius: 1, bgcolor: "#fff", p: 0.5 }}
-                  />
-                </Box>
-              )}
-            </Paper>
-          ))}
+
+                {/* One signature for the whole group — the ad-hoc and
+                    signature-at-end flows capture exactly one and fan it across
+                    every unit, so repeating it per unit said nothing. */}
+                {group.sharedSignature && (
+                  <Box sx={{ mt: 1.5 }}>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Signed by {group.sharedSignature.signedByName ?? "—"}
+                      {group.sharedSignature.signedAt ? ` · ${fmtDateTime(group.sharedSignature.signedAt)}` : ""}
+                      {group.members.length > 1 ? " · covers every item above" : ""}
+                    </Typography>
+                    <Box component="img" src={imgSrc(group.sharedSignature.signature!)} alt="Signature" sx={{ maxWidth: 260, maxHeight: 110, mt: 0.5, border: "1px solid", borderColor: "divider", borderRadius: 1, bgcolor: "#fff", p: 0.5 }} />
+                  </Box>
+                )}
+              </Paper>
+            );
+          })}
         </Stack>
       )}
 

@@ -28,8 +28,8 @@ import { request } from "@/helpers/request";
  *   finished as a one-item DO. There is no join-on-scan on that route; the
  *   basket is the mechanism, so it is reused rather than rebuilt.
  *
- *   START DELIVERY → POST /deliveries/:id/adhoc-ack, which marks every item
- *   delivered WITHOUT the hand-off stock flip (the unit must stay reserved —
+ *   ACKNOWLEDGE DELIVERY → POST /deliveries/:id/adhoc-ack, which marks every
+ *   item delivered WITHOUT the hand-off stock flip (the unit must stay reserved —
  *   there is no project to deploy against), folding the run to `delivered`.
  *   Then the NORMAL signature page, which now sees an ordinary delivered run
  *   and needs no ad-hoc branch of its own.
@@ -80,7 +80,12 @@ export default function AdHocDeliveryPage() {
     };
   }, [load]);
 
-  const startDelivery = async () => {
+  // NAMED FOR WHAT IT DOES. This does not start anything — the delivery started
+  // when the first unit was scanned. It acknowledges every item and goes to the
+  // signature page, and the proof row it writes is a DO_ACK, shown in the office
+  // as "Delivery Acknowledged". The button used to read "Start Delivery", which
+  // described a step that had already happened two screens earlier.
+  const acknowledgeDelivery = async () => {
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -88,11 +93,11 @@ export default function AdHocDeliveryPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request({ path: `/deliveries/${deliveryId}/adhoc-ack`, method: "POST" }, {}, token);
-      if (res?.success === false) throw new Error(res?.message ?? "Could not start the delivery");
+      if (res?.success === false) throw new Error(res?.message ?? "Could not acknowledge the delivery");
       // The run is now `delivered` — the ordinary signature page takes it from here.
       router.push(`/scan/delivery/${deliveryId}/finalize`);
     } catch (e: any) {
-      setError(e?.message ?? "Could not start the delivery");
+      setError(e?.message ?? "Could not acknowledge the delivery");
       setBusy(false);
     }
   };
@@ -165,12 +170,12 @@ export default function AdHocDeliveryPage() {
         </Button>
         <Button
           variant="contained"
-          onClick={() => void startDelivery()}
+          onClick={() => void acknowledgeDelivery()}
           fullWidth
           sx={{ minHeight: 52 }}
           disabled={busy || items.length === 0}
         >
-          {busy ? "Starting…" : "Start Delivery"}
+          {busy ? "Acknowledging…" : "Acknowledge Delivery"}
         </Button>
       </Stack>
 
