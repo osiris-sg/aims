@@ -2112,9 +2112,17 @@ export class DeliveriesService {
     // customer site is never stranded over an upload), so a scheduled run can
     // now reach the office with no evidence and nothing would have said so.
     const photoRunIds = docs.map((d) => d.id);
-    const adHocRunIds = docs.filter((d) => d.origin === DeliveryOrigin.AD_HOC).map((d) => d.id);
-    void adHocRunIds;
-    const [docRows, photoRows] = await Promise.all([
+    // QUOTATION is an AD-HOC-only check, so only ad-hoc runs' projects are
+    // looked up. Distinct project ids across the page — one batched read for the
+    // whole list, never per row.
+    const adHocProjectIds = [
+      ...new Set(
+        docs
+          .filter((d) => d.origin === DeliveryOrigin.AD_HOC && d.projectId)
+          .map((d) => d.projectId as string),
+      ),
+    ];
+    const [docRows, photoRows, quotationRows] = await Promise.all([
       docIds.length
         ? this.prisma.document.findMany({
             where: { id: { in: docIds } },
@@ -2129,7 +2137,37 @@ export class DeliveriesService {
             select: { deliveryId: true, photos: true },
           })
         : Promise.resolve([] as Array<{ deliveryId: string | null; photos: string[] }>),
+      // Quotations linked to those projects by the projectId COLUMN — the only
+      // pointer that exists. config.projectName is empty on every unlinked
+      // quotation in production, so there is no text fallback to attempt.
+      //
+      // ANY quotation counts, draft included: a draft still means one was raised
+      // for this project, which is what the check asks.
+      //
+      // NO STATUS FILTER. The intent was "any non-cancelled quotation", but
+      // DocumentStatus has no `cancelled` member at all (draft, unconfirmed,
+      // confirmed, pending_delivery, delivered_not_installed,
+      // delivered_installed, pending_payment, paid, pending_return, returned) —
+      // a document is removed rather than cancelled. So the exclusion is
+      // unrepresentable AND vacuous, and filtering on it would only mislead the
+      // next reader into thinking cancelled quotations are being skipped.
+      //
+      // Every quotation type variant is matched (QUOTATION is canonical;
+      // QO/QO1/QO2/QT are the legacy aliases this codebase still carries).
+      adHocProjectIds.length
+        ? this.prisma.document.findMany({
+            where: {
+              organizationId,
+              type: { in: ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'] },
+              projectId: { in: adHocProjectIds },
+            },
+            select: { projectId: true },
+          })
+        : Promise.resolve([] as Array<{ projectId: string | null }>),
     ]);
+    const projectsWithQuotation = new Set(
+      quotationRows.map((r) => r.projectId).filter((v): v is string => !!v),
+    );
     const poNoByDoc = new Map(docRows.map((dc) => [dc.id, (dc.config as any)?.poNo ?? null]));
     const saleOrderIdByDoc = new Map(docRows.map((dc) => [dc.id, (dc.config as any)?.saleOrderId ?? null]));
     // Customer and project AS THE DOCUMENT HAS THEM. The office fills an ad-hoc
@@ -2185,15 +2223,10 @@ export class DeliveriesService {
       // `projIdByDoc` is still built above — it is the value the hand-off acts
       // on, and keeping it named here documents why it is NOT read.
       //
-      // QUOTATION IS NOT CHECKED. Nothing records which quotation a DO came
-      // from: the extract-from-quotation flow copies the lines across and
-      // discards the quotation, and ScheduleDeliveryDto has no field for one.
-      // Measured over 364 Biofuel DOs, exactly ONE carries
-      // sourceDocumentType 'QUOTATION' and none carries quotationId — so the
-      // check flagged 100% of runs, including correct ones, and a value that is
-      // always "missing" carries no information. Re-add it only once the extract
-      // records a pointer (the keys the DO -> invoice path already uses:
-      // sourceDocumentId / sourceDocumentType / sourceDocumentNumber).
+      // QUOTATION is checked at the PROJECT level (see the note on the check
+      // itself below). The old DOCUMENT-level attempt was removed because a DO
+      // carries no pointer back to a quotation — it flagged all 364 Biofuel DOs,
+      // and a signal that is always on carries no information.
       const noPhotos = !(photoCountByRun.get(d.id) ?? 0);
       const missing: string[] | null =
         d.origin === DeliveryOrigin.AD_HOC
@@ -2201,6 +2234,27 @@ export class DeliveriesService {
               ...(!runDoc || !(poNoByDoc.get(runDoc.id) ?? null) ? ['PO'] : []),
               ...(!d.customerId && !(runDoc && custIdByDoc.get(runDoc.id)) ? ['customer'] : []),
               ...(!d.projectId ? ['project'] : []),
+              // QUOTATION: does the run's PROJECT have one linked to it?
+              //
+              // SUPPRESSED WHEN THERE IS NO PROJECT — there is nothing to look
+              // on, and `project` is already flagged on the same row, so adding
+              // QUOTATION there would be two chips for one gap.
+              //
+              // Checked at the PROJECT level, not the document level. A DO
+              // carries no pointer back to a quotation (applyQuotation copies
+              // the lines across and discards the source), so the earlier
+              // document-level attempt flagged every DO in the org. The project
+              // is the link that actually exists — Document.projectId, set by
+              // the quotation editor's picker.
+              //
+              // ⚠️ Linkage is thin in production: 14 of 63 Biofuel quotations
+              // carry a projectId, and 91 of 104 projects have no quotation at
+              // all. AD-HOC scoping is what keeps this honest — a scheduled
+              // run's paperwork is the office's normal workflow, and flagging it
+              // would light up 17 of 19 project-bearing runs and drown the
+              // PHOTOS signal. Revisit the scope only once quotations are linked
+              // at creation as a matter of course.
+              ...(d.projectId && !projectsWithQuotation.has(d.projectId) ? ['quotation'] : []),
               ...(noPhotos ? ['photos'] : []),
             ]
           : // SCHEDULED: photos ONLY, and only once a rider has actually started.
