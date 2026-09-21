@@ -1398,7 +1398,7 @@ export class OperatorToolsService {
       {
         name: 'schedule_delivery',
         description:
-          'Schedule a REAL delivery run (the Deliveries module): creates the run plus a pending DO that claims its number on confirmation. Use this whenever the user says schedule/deliver/send equipment on a date. Items carry NO prices. A LIVE run needs all of: customer, project, the Sale Order (QO/PO) it is against, items, and the date/time — call find_sales_order first. Anything missing and it is saved as a DRAFT for the office to finish instead, which is safe but not a booked delivery, so ASK the user for the Sale Order rather than silently parking it.',
+          'Schedule a REAL delivery run (the Deliveries module): creates the run plus a pending DO that claims its number on confirmation. Use this whenever the user says schedule/deliver/send equipment on a date. Items carry NO prices. A LIVE run needs: customer, project, items, the date/time, AND at least one of a Sale Order or a quotation (some jobs have one, some the other, never neither) — call find_sales_order to see what exists. A Sale Order is passed as saleOrderId; a quotation counts automatically when it sits on the project. Anything missing and it is saved as a DRAFT for the office to finish, which is safe but NOT a booked delivery, so tell the user what is missing rather than silently parking it.',
         permissions: ['documents:create-basic'],
         input_schema: {
           type: 'object',
@@ -1452,7 +1452,29 @@ export class OperatorToolsService {
             });
             if (!saleOrder) return { result: { error: 'That Sale Order was not found in this organization. Use find_sales_order to get its id.' } };
           }
-          const missing = [!projectId && 'a project', !saleOrder && 'a Sale Order (QO/PO)'].filter(Boolean);
+          // Either a Sale Order OR a quotation, never both required (guru
+          // 2026-09-22: "some wont have order some wont have quotation but must
+          // have at least 1"). They are linked differently: the order is a
+          // pointer on the run (config.saleOrderId), while a DO carries NO
+          // pointer back to a quotation — applyQuotation copies the lines and
+          // discards the source — so a quotation counts when it hangs off the
+          // run's PROJECT. Same rule the Deliveries "missing" chips use.
+          let quotation: { id: string; name: string } | null = null;
+          if (!saleOrder && projectId) {
+            quotation = await this.prisma.document.findFirst({
+              where: {
+                organizationId: ctx.organizationId,
+                projectId,
+                type: { in: ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'] },
+              },
+              orderBy: { createdAt: 'desc' },
+              select: { id: true, name: true },
+            });
+          }
+          const missing = [
+            !projectId && 'a project',
+            !saleOrder && !quotation && 'a Sale Order or a quotation',
+          ].filter(Boolean);
           const isDraft = missing.length > 0;
           const dto: any = {
             isDraft,
@@ -1484,7 +1506,7 @@ export class OperatorToolsService {
               `Delivery for ${customer.name} on ${whenText}\n` +
               `${lines.join('\n')}\n` +
               `Project: ${projectName || '(none)'}\n` +
-              `Order: ${saleOrder?.name || '(none)'}\n` +
+              `Order: ${saleOrder ? saleOrder.name : quotation ? `${quotation.name} (quotation on the project)` : '(none)'}\n` +
               `Site: ${dto.siteAddress || '(none on file)'}` +
               (isDraft
                 ? `\n\nMissing ${missing.join(' and ')}, so this saves as a DRAFT for the office to finish rather than a live run.`
@@ -1498,6 +1520,7 @@ export class OperatorToolsService {
               customer: customer.name,
               project: projectName || null,
               saleOrder: saleOrder?.name || null,
+              quotationOnProject: quotation?.name || null,
               scheduledFor: whenText,
               items: dto.items.length,
               status: isDraft ? `will save as a DRAFT schedule (missing ${missing.join(' and ')})` : 'will be scheduled',
@@ -1510,7 +1533,7 @@ export class OperatorToolsService {
       {
         name: 'find_sales_order',
         description:
-          "Find the Sale Orders (SALES_ORDER documents) a delivery can be scheduled against. Narrow by customerId and/or a number fragment ('SO2026', 'PO2512032'). Returns id, number, date and line count — pass the id to schedule_delivery as saleOrderId. Quotation-derived orders are included; a delivery is always against one of these.",
+          "Find the Sale Orders AND quotations a delivery can be scheduled against — a live run needs at least one of the two. Narrow by project, customer name, or a number fragment ('SO2026', 'QO2026', 'PO2512032'). Each result says kind:'order' or kind:'quotation'. Pass an ORDER's id to schedule_delivery as saleOrderId. A QUOTATION cannot be attached to the run directly (a DO carries no pointer back to one); it counts automatically when it sits on the run's project, which is what projectId in the results tells you.",
         permissions: ['documents:read'],
         input_schema: {
           type: 'object',
@@ -1525,13 +1548,15 @@ export class OperatorToolsService {
           const docs = await this.prisma.document.findMany({
             where: {
               organizationId: ctx.organizationId,
-              type: 'SALES_ORDER',
+              // QUOTATION is canonical; QO/QO1/QO2/QT are legacy aliases this
+              // codebase still carries.
+              type: { in: ['SALES_ORDER', 'QUOTATION', 'QO', 'QO1', 'QO2', 'QT'] },
               ...(args.projectId ? { projectId: String(args.projectId) } : {}),
               ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
             },
             orderBy: { createdAt: 'desc' },
             take: 25,
-            select: { id: true, name: true, createdAt: true, config: true, projectId: true },
+            select: { id: true, name: true, type: true, createdAt: true, config: true, projectId: true },
           });
           // The customer lives inside config (Document has no customerId column),
           // so it is filtered here rather than in the query.
@@ -1547,6 +1572,7 @@ export class OperatorToolsService {
             result: matched.slice(0, 10).map((d: any) => ({
               id: d.id,
               number: d.name,
+              kind: d.type === 'SALES_ORDER' ? 'order' : 'quotation',
               date: d.createdAt?.toISOString?.().slice(0, 10),
               customer: customerOf(d) || null,
               projectId: d.projectId,
