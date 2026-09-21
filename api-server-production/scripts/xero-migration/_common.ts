@@ -136,6 +136,14 @@ function getTokenClient(): PrismaClient {
 
 export async function getXeroTokens(_dataPrisma: PrismaClient, organizationId: string): Promise<XeroTokens> {
   const prisma = getTokenClient();
+  // Neon's 5432 pooler intermittently refuses fresh connections (bit the
+  // nightly chain 2026-09-17 and -21) — retry the first touch a few times.
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try { await prisma.$queryRaw`SELECT 1`; break; } catch (e) {
+      if (attempt === 4) throw e;
+      await new Promise((r) => setTimeout(r, attempt * 5000));
+    }
+  }
   const conn = await prisma.xeroConnection.findUnique({ where: { organizationId } });
   if (!conn) throw new Error(`No XeroConnection for org ${organizationId}. Connect at /xero/connect first.`);
 
