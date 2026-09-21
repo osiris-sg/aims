@@ -144,6 +144,66 @@ const readAsDataURL = (f: File) =>
 // Manager-only lead insights (guru 2026-09-16): where the leads come from and
 // how each channel performs. Designers never receive `insights` from the API,
 // so the panel simply doesn't render for them.
+// Country codes for the phone fields (guru 2026-09-21). Storage convention:
+// +65 numbers are kept as bare 8-digit locals (everything downstream adds 65),
+// any other code is stored WITH its prefix so wa.me links dial correctly.
+const PHONE_CCS = [
+  { code: "65", label: "🇸🇬 +65" },
+  { code: "60", label: "🇲🇾 +60" },
+  { code: "62", label: "🇮🇩 +62" },
+  { code: "63", label: "🇵🇭 +63" },
+  { code: "66", label: "🇹🇭 +66" },
+  { code: "86", label: "🇨🇳 +86" },
+  { code: "91", label: "🇮🇳 +91" },
+];
+const splitCc = (v: string): { cc: string; local: string } => {
+  const d = String(v || "").replace(/\D/g, "");
+  if (d.startsWith("65") && d.length > 8) return { cc: "65", local: d.slice(2) };
+  const hit = PHONE_CCS.find((c) => c.code !== "65" && d.startsWith(c.code) && d.length > 8);
+  return hit ? { cc: hit.code, local: d.slice(hit.code.length) } : { cc: "65", local: d };
+};
+const joinCc = (cc: string, local: string) => {
+  const d = local.replace(/\D/g, "");
+  return d ? (cc === "65" ? d : cc + d) : "";
+};
+
+function PhoneInput({ label, value, onChange, onRemove }: { label: string; value: string; onChange: (v: string) => void; onRemove?: () => void }) {
+  const { cc, local } = splitCc(value);
+  return (
+    <TextField
+      label={label}
+      size="small"
+      fullWidth
+      value={local}
+      onChange={(e) => onChange(joinCc(cc, e.target.value))}
+      InputProps={{
+        startAdornment: (
+          <TextField
+            select
+            variant="standard"
+            value={cc}
+            onChange={(e) => onChange(joinCc(e.target.value, local))}
+            InputProps={{ disableUnderline: true }}
+            sx={{ mr: 0.75, minWidth: 74, "& .MuiSelect-select": { fontSize: 13, py: 0.25 } }}
+          >
+            {PHONE_CCS.map((c) => (
+              <MenuItem key={c.code} value={c.code}>{c.label}</MenuItem>
+            ))}
+          </TextField>
+        ),
+        endAdornment: onRemove ? (
+          <IconButton size="small" onClick={onRemove} aria-label="Remove number">
+            <CloseIcon fontSize="inherit" />
+          </IconButton>
+        ) : undefined,
+      }}
+    />
+  );
+}
+
+/** wa.me-ready number: locals get 65, anything already carrying a code passes through. */
+const waNumber = (n: string) => (n.startsWith("65") || n.length > 8 ? n : `65${n}`);
+
 /** Every distinct number on a lead, WA-preferred first (leads can hold any count). */
 const leadNumbers = (l: { phone?: string | null; whatsappPhone?: string | null; phones?: string[] | null }): string[] =>
   Array.from(new Set([l.whatsappPhone, l.phone, ...(l.phones || [])].map((v) => String(v || "").replace(/\D/g, "")).filter(Boolean)));
@@ -525,7 +585,7 @@ export default function LeadsPage() {
         ...leadNumbers(l).map((n, i, arr) => ({
           label: arr.length > 1 ? `WhatsApp ${n}` : "WhatsApp",
           onClick: () => {
-            window.open(`https://wa.me/${n.startsWith("65") ? n : `65${n}`}`, "_blank", "noopener,noreferrer");
+            window.open(`https://wa.me/${waNumber(n)}`, "_blank", "noopener,noreferrer");
           },
         })),
         { label: "Details", onClick: () => setDetail(l) },
@@ -711,7 +771,7 @@ export default function LeadsPage() {
                   variant="contained"
                   color="success"
                   startIcon={<WhatsAppIcon />}
-                  href={`https://wa.me/${n.startsWith("65") ? n : `65${n}`}`}
+                  href={`https://wa.me/${waNumber(n)}`}
                   target="_blank"
                   rel="noreferrer"
                   sx={{ textTransform: "none" }}
@@ -834,20 +894,11 @@ export default function LeadsPage() {
             </Grid>
             {manual.phones.map((ph, i) => (
               <Grid item xs={6} key={i}>
-                <TextField
+                <PhoneInput
                   label={i === 0 ? "Phone" : `Phone ${i + 1}`}
-                  size="small"
-                  fullWidth
                   value={ph}
-                  onChange={(e) => setManual({ ...manual, phones: manual.phones.map((v, j) => (j === i ? e.target.value : v)) })}
-                  InputProps={{
-                    endAdornment:
-                      i > 0 ? (
-                        <IconButton size="small" onClick={() => setManual({ ...manual, phones: manual.phones.filter((_, j) => j !== i) })} aria-label="Remove number">
-                          <CloseIcon fontSize="inherit" />
-                        </IconButton>
-                      ) : undefined,
-                  }}
+                  onChange={(v) => setManual({ ...manual, phones: manual.phones.map((x, j) => (j === i ? v : x)) })}
+                  onRemove={i > 0 ? () => setManual({ ...manual, phones: manual.phones.filter((_, j) => j !== i) }) : undefined}
                 />
               </Grid>
             ))}
@@ -936,25 +987,21 @@ export default function LeadsPage() {
                   ))}
                 </TextField>
               </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField label="Ref" size="small" fullWidth value={edit.ref} onChange={(e) => setEdit({ ...edit, ref: e.target.value })} />
-              </Grid>
+              {/* Ref = the lead provider's reference (e.g. NSG-2026-2160) used
+                  for replacement claims — meaningless for manual leads, so it
+                  only shows when the lead came from a provider or has one. */}
+              {(editFor.ref || !isManualSource(editFor.source)) && (
+                <Grid item xs={12} sm={6}>
+                  <TextField label="Provider ref" size="small" fullWidth value={edit.ref} onChange={(e) => setEdit({ ...edit, ref: e.target.value })} helperText="Lead provider's reference no. (EZiD / Network) — used for replacement claims" />
+                </Grid>
+              )}
               {(edit.phones as string[]).map((ph: string, i: number) => (
                 <Grid item xs={12} sm={6} key={i}>
-                  <TextField
+                  <PhoneInput
                     label={i === 0 ? "Phone" : `Phone ${i + 1}`}
-                    size="small"
-                    fullWidth
                     value={ph}
-                    onChange={(e) => setEdit({ ...edit, phones: edit.phones.map((v: string, j: number) => (j === i ? e.target.value : v)) })}
-                    InputProps={{
-                      endAdornment:
-                        i > 0 ? (
-                          <IconButton size="small" onClick={() => setEdit({ ...edit, phones: edit.phones.filter((_: string, j: number) => j !== i) })} aria-label="Remove number">
-                            <CloseIcon fontSize="inherit" />
-                          </IconButton>
-                        ) : undefined,
-                    }}
+                    onChange={(v) => setEdit({ ...edit, phones: edit.phones.map((x: string, j: number) => (j === i ? v : x)) })}
+                    onRemove={i > 0 ? () => setEdit({ ...edit, phones: edit.phones.filter((_: string, j: number) => j !== i) }) : undefined}
                   />
                 </Grid>
               ))}
