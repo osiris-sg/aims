@@ -5217,9 +5217,37 @@ export class DocumentsService {
         ? await this.generateSequentialDocumentName(organizationId, doc.type, doc.documentTemplateId, doc.config, new Date())
         : undefined;
 
+    // THE NUMBER LIVES IN MORE THAN ONE PLACE. Renaming only Document.name left
+    // config.documentNumber on the placeholder, and the editor reads
+    //   documentInfo.documentNumber || config.documentNumber || name
+    // so the list showed the claimed number while the DO page still showed
+    // "DO-PENDING-NN" — the same document disagreeing with itself.
+    // (DO202609-0062 and -0063 both shipped in that state.)
+    //
+    // Only DOs built by the schedule dialog carry config.documentNumber at all,
+    // which is why this stayed invisible on the 354 DOs that have no such key.
+    // jsonb_set is NOT used: writing the whole config back would race a
+    // concurrent editor save, so the two nested keys are patched in place and
+    // only when they already exist — a DO without them keeps its shape.
+    const cfg = (doc?.config ?? null) as Record<string, any> | null;
+    const renamedConfig = realName && cfg
+      ? {
+          ...cfg,
+          ...(cfg.documentNumber !== undefined ? { documentNumber: realName } : {}),
+          ...(cfg.documentInfo && typeof cfg.documentInfo === 'object'
+            && (cfg.documentInfo as any).documentNumber !== undefined
+            ? { documentInfo: { ...(cfg.documentInfo as any), documentNumber: realName } }
+            : {}),
+        }
+      : undefined;
+
     await this.prisma.document.update({
       where: { id: documentId },
-      data: { status: DocumentStatus.delivered_installed, ...(realName ? { name: realName } : {}) },
+      data: {
+        status: DocumentStatus.delivered_installed,
+        ...(realName ? { name: realName } : {}),
+        ...(renamedConfig ? { config: renamedConfig } : {}),
+      },
     });
 
     // Notify the office that a DO is ready (best-effort; idempotent via the
