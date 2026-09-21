@@ -1398,7 +1398,7 @@ export class OperatorToolsService {
       {
         name: 'schedule_delivery',
         description:
-          'Schedule a REAL delivery run (the Deliveries module): items, target date, site — creates the run plus a pending DO that claims its number on confirmation. Use this whenever the user says schedule/deliver/send equipment on a date. Items carry NO prices. If the customer has no project, the run is saved as a DRAFT schedule for the office to finish.',
+          'Schedule a REAL delivery run (the Deliveries module): creates the run plus a pending DO that claims its number on confirmation. Use this whenever the user says schedule/deliver/send equipment on a date. Items carry NO prices. A LIVE run needs all of: customer, project, the Sale Order (QO/PO) it is against, items, and the date/time — call find_sales_order first. Anything missing and it is saved as a DRAFT for the office to finish instead, which is safe but not a booked delivery, so ASK the user for the Sale Order rather than silently parking it.',
         permissions: ['documents:create-basic'],
         input_schema: {
           type: 'object',
@@ -1419,6 +1419,8 @@ export class OperatorToolsService {
                 required: ['quantity'],
               },
             },
+            saleOrderId: { type: 'string', description: 'The SALES_ORDER document id this delivery is against, from find_sales_order. REQUIRED for a live run.' },
+            poNumber: { type: 'string', description: "Optional display text for the DO, e.g. 'PO2512032'. Defaults to the Sale Order's number." },
             notes: { type: 'string' },
           },
           required: ['customerId', 'scheduledFor', 'items'],
@@ -1427,11 +1429,31 @@ export class OperatorToolsService {
           const customer = await this.prisma.customer.findFirst({ where: { id: args.customerId, organizationId: ctx.organizationId }, select: { id: true, name: true, address: true } });
           if (!customer) return { result: { error: 'Customer not found in this organization' } };
           let projectId: string | undefined = args.projectId;
+          let projectName: string | undefined;
           if (!projectId) {
             const proj = await this.prisma.project.findFirst({ where: { organizationId: ctx.organizationId, customerId: customer.id }, orderBy: { createdAt: 'desc' }, select: { id: true, name: true } });
             projectId = proj?.id;
+            projectName = proj?.name;
+          } else {
+            const proj = await this.prisma.project.findFirst({ where: { id: projectId, organizationId: ctx.organizationId }, select: { name: true } });
+            projectName = proj?.name;
           }
-          const isDraft = !projectId;
+          // A real schedule needs BOTH a project and the Sale Order/quotation it
+          // is against — ScheduleDeliveryDto marks each @ValidateIf(!isDraft).
+          // This tool calls the service directly, so class-validator never runs
+          // and a missing saleOrderId would sail through as a "real" run the
+          // API itself would have rejected. Park it as a DRAFT instead: the
+          // office finishes it in Deliveries, and nothing invalid is created.
+          let saleOrder: { id: string; name: string } | null = null;
+          if (args.saleOrderId) {
+            saleOrder = await this.prisma.document.findFirst({
+              where: { id: args.saleOrderId, organizationId: ctx.organizationId, type: 'SALES_ORDER' },
+              select: { id: true, name: true },
+            });
+            if (!saleOrder) return { result: { error: 'That Sale Order was not found in this organization. Use find_sales_order to get its id.' } };
+          }
+          const missing = [!projectId && 'a project', !saleOrder && 'a Sale Order (QO/PO)'].filter(Boolean);
+          const isDraft = missing.length > 0;
           const dto: any = {
             isDraft,
             projectId,
@@ -1439,6 +1461,7 @@ export class OperatorToolsService {
             scheduledFor: args.scheduledFor,
             siteAddress: args.siteAddress || customer.address || undefined,
             notes: args.notes,
+            ...(saleOrder ? { saleOrderId: saleOrder.id, poNumber: args.poNumber || saleOrder.name } : {}),
             items: (args.items || []).map((it: any) => ({ assetId: it.assetId || undefined, description: it.assetId ? undefined : it.description, quantity: Number(it.quantity) || 1 })),
           };
           // Held for confirmation rather than created outright. A delivery run
@@ -1460,8 +1483,12 @@ export class OperatorToolsService {
             summary:
               `Delivery for ${customer.name} on ${whenText}\n` +
               `${lines.join('\n')}\n` +
+              `Project: ${projectName || '(none)'}\n` +
+              `Order: ${saleOrder?.name || '(none)'}\n` +
               `Site: ${dto.siteAddress || '(none on file)'}` +
-              (isDraft ? `\n\nNo project found for this customer, so it saves as a DRAFT for the office to finish.` : ''),
+              (isDraft
+                ? `\n\nMissing ${missing.join(' and ')}, so this saves as a DRAFT for the office to finish rather than a live run.`
+                : ''),
             args: { dto, customerName: customer.name, isDraft },
             createdAt: new Date().toISOString(),
           };
@@ -1469,11 +1496,65 @@ export class OperatorToolsService {
             result: {
               needsConfirmation: true,
               customer: customer.name,
+              project: projectName || null,
+              saleOrder: saleOrder?.name || null,
               scheduledFor: whenText,
               items: dto.items.length,
-              status: isDraft ? 'will save as a DRAFT schedule (no project found)' : 'will be scheduled',
+              status: isDraft ? `will save as a DRAFT schedule (missing ${missing.join(' and ')})` : 'will be scheduled',
             },
             pending,
+          };
+        },
+      },
+
+      {
+        name: 'find_sales_order',
+        description:
+          "Find the Sale Orders (SALES_ORDER documents) a delivery can be scheduled against. Narrow by customerId and/or a number fragment ('SO2026', 'PO2512032'). Returns id, number, date and line count — pass the id to schedule_delivery as saleOrderId. Quotation-derived orders are included; a delivery is always against one of these.",
+        permissions: ['documents:read'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            projectId: { type: 'string', description: 'Restrict to one project.' },
+            customerName: { type: 'string', description: "Restrict to orders whose stored customer matches, e.g. 'Tenda'." },
+            query: { type: 'string', description: 'Part of the order number or reference, e.g. "SO2026" or "PO2512032".' },
+          },
+        },
+        run: async (ctx, args) => {
+          const q = String(args.query || '').trim();
+          const docs = await this.prisma.document.findMany({
+            where: {
+              organizationId: ctx.organizationId,
+              type: 'SALES_ORDER',
+              ...(args.projectId ? { projectId: String(args.projectId) } : {}),
+              ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 25,
+            select: { id: true, name: true, createdAt: true, config: true, projectId: true },
+          });
+          // The customer lives inside config (Document has no customerId column),
+          // so it is filtered here rather than in the query.
+          const wanted = String(args.customerName || '').trim().toLowerCase();
+          const customerOf = (d: any) => {
+            const c = d.config?.customer;
+            return String(typeof c === 'string' ? c : c?.name || c?.customerName || '');
+          };
+          const matched = wanted
+            ? docs.filter((d: any) => customerOf(d).toLowerCase().includes(wanted))
+            : docs;
+          return {
+            result: matched.slice(0, 10).map((d: any) => ({
+              id: d.id,
+              number: d.name,
+              date: d.createdAt?.toISOString?.().slice(0, 10),
+              customer: customerOf(d) || null,
+              projectId: d.projectId,
+              // Lines are usually free text with no codes, so show them: it is
+              // how the user recognises which order they meant.
+              lines: (d.config?.items || []).slice(0, 4).map((it: any) => String(it.description || '').slice(0, 70)),
+              lineCount: (d.config?.items || []).length,
+            })),
           };
         },
       },
