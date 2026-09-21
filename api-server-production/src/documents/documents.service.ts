@@ -5277,8 +5277,53 @@ export class DocumentsService {
     // + a fresh date. The DO is a GOODS document (lines are 0); the INVOICE
     // prices its own lines from the asset here (rate x quantity, no duration),
     // so an unpriced DO no longer yields an unpriced invoice.
+    // STRIP THE DO'S OWN IDENTITY BEFORE SPREADING.
+    //
+    // The spread carries the DO's config forward so the invoice inherits the
+    // customer, PO, addresses and lines. It was also carrying keys that identify
+    // the DO ITSELF rather than describing the delivery — and `documentNumber`
+    // is the damaging one: createBasicDocument honours an inherited
+    // documentNumber over the number it just allocated, so an invoice raised
+    // from a still-placeholder DO was NAMED "DO-PENDING-NN" while its own
+    // freshly claimed INVOICE serial was burned unused. That happened on
+    // DO202609-0062 -> invoice 9215c14f.
+    //
+    // This is the SECOND time the spread has carried something it should not
+    // (the first was saleOrderId's siblings), so the exclusion is an explicit,
+    // named list rather than a single delete — the next key to go wrong should
+    // be added here, not patched downstream.
+    //
+    // What is stripped and why:
+    //   documentNumber  the DO's own number — the invoice must use its own
+    //   savedAt/savedBy        who last saved the DO, not the invoice
+    //   lastUsedAt/lastUsedBy  same, the editor's provenance stamp
+    //   confirmedAt            when the DO was confirmed, meaningless here
+    //   stockDeducted          a DO-only flag; an invoice deducts nothing
+    //   signature/signedAt/signedByName  the DELIVERY signature. An invoice
+    //                          must never inherit the customer's proof-of-
+    //                          delivery signature as if it were an approval.
+    //   dueDate                the DO's date, not an invoice payment term —
+    //                          left to the invoice's own defaults.
+    // `date` is overwritten below rather than stripped (it is always set).
+    // sourceDocument* are deliberately RE-SET below, not inherited: on the DO
+    // they are empty strings pointing at nothing.
+    const {
+      documentNumber: _doNumber,
+      savedAt: _savedAt,
+      savedBy: _savedBy,
+      lastUsedAt: _lastUsedAt,
+      lastUsedBy: _lastUsedBy,
+      confirmedAt: _confirmedAt,
+      stockDeducted: _stockDeducted,
+      signature: _signature,
+      signedAt: _signedAt,
+      signedByName: _signedByName,
+      dueDate: _dueDate,
+      ...doConfigForInvoice
+    } = (doConfig ?? {}) as Record<string, unknown>;
+
     const invoiceConfig = {
-      ...doConfig,
+      ...doConfigForInvoice,
       items: await this.priceInvoiceLinesFromAsset(Array.isArray(doConfig.items) ? doConfig.items : [], organizationId),
       date: new Date().toISOString(),
       sourceDocumentId: documentId,
