@@ -205,8 +205,8 @@ export default function AccountsDefinitionTab({
         <Grid2 container spacing={2}>
           {CONTROL_ACCOUNTS.map((c) => (
             <Grid2 key={c.key} size={{ xs: 12, md: 6 }}>
-              <Stack direction="row" gap={1} alignItems="center">
-                <Typography sx={{ width: 240, fontSize: 14 }}>{c.label}</Typography>
+              <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+                <Typography sx={{ width: { xs: "100%", sm: 240 }, fontSize: 14 }}>{c.label}</Typography>
                 <TextField
                   size="small"
                   placeholder="e.g. CA001"
@@ -230,7 +230,7 @@ export default function AccountsDefinitionTab({
 
       {/* ---------- Chart of Accounts List ---------- */}
       <Box>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" useFlexGap sx={{ mb: 2, flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
           <Box>
             <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "primary.main" }}>
               Chart of Accounts
@@ -239,7 +239,7 @@ export default function AccountsDefinitionTab({
               {accounts.length} account{accounts.length === 1 ? "" : "s"} defined
             </Typography>
           </Box>
-          <Stack direction="row" gap={1} alignItems="center">
+          <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
             <FormControlLabel
               control={<Switch size="small" checked={showInactive} onChange={(_, v) => setShowInactive(v)} />}
               label="Show inactive"
@@ -255,8 +255,8 @@ export default function AccountsDefinitionTab({
           </Stack>
         </Stack>
 
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small">
+        <TableContainer component={Paper} variant="outlined" sx={{ overflowX: "auto" }}>
+          <Table size="small" sx={{ minWidth: 640 }}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ fontWeight: 600 }}>Code</TableCell>
@@ -340,8 +340,8 @@ function RangeRow({
 }) {
   return (
     <Grid2 size={{ xs: 12, md: 6 }}>
-      <Stack direction="row" gap={1} alignItems="center">
-        <Typography sx={{ width: 240, fontSize: 14 }}>{label}</Typography>
+      <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+        <Typography sx={{ width: { xs: "100%", sm: 240 }, fontSize: 14 }}>{label}</Typography>
         <TextField
           size="small"
           placeholder="From"

@@ -264,7 +264,24 @@ export default function RecordPaymentDialog({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      // Phone: recording a payment is a common on-the-go action, so the form
+      // fills the screen instead of a cramped centred card.
+      PaperProps={{
+        sx: {
+          m: { xs: 0, sm: 4 },
+          width: { xs: "100%", sm: "auto" },
+          maxWidth: { xs: "100%", sm: undefined },
+          borderRadius: { xs: 0, sm: 1 },
+          minHeight: { xs: "100%", sm: "auto" },
+          maxHeight: { xs: "100%", sm: "calc(100% - 64px)" },
+        },
+      }}
+    >
       <DialogTitle>
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>

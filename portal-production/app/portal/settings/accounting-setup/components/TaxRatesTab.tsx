@@ -113,7 +113,7 @@ export default function TaxRatesTab() {
 
   return (
     <Box sx={{ maxWidth: 900 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 2 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" useFlexGap sx={{ mb: 2, flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
         <Box>
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>GST tax codes</Typography>
           <Typography variant="caption" color="text.secondary">
@@ -124,8 +124,8 @@ export default function TaxRatesTab() {
         <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setAdding(true)}>Add code</Button>
       </Stack>
 
-      <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-        <Table size="small">
+      <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, overflowX: "auto" }}>
+        <Table size="small" sx={{ minWidth: 700 }}>
           <TableHead>
             <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
               <TableCell sx={{ fontWeight: 700, width: 70 }}>Code</TableCell>

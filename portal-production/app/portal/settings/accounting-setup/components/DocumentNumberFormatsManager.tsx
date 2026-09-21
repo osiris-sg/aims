@@ -233,7 +233,7 @@ export default function DocumentNumberFormatsManager() {
 
   return (
     <Box>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" useFlexGap sx={{ mb: 1, flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
         <Box>
           <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Document number sequences</Typography>
           <Typography variant="caption" sx={{ color: "text.secondary" }}>
@@ -250,8 +250,8 @@ export default function DocumentNumberFormatsManager() {
           <Typography variant="body2">No custom formats yet — documents use the default numbering. Add a variant to customise.</Typography>
         </Paper>
       ) : (
-        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-          <Table size="small">
+        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, overflowX: "auto" }}>
+          <Table size="small" sx={{ minWidth: 700 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
                 <TableCell sx={{ fontWeight: 700 }}>Document type</TableCell>
@@ -295,7 +295,7 @@ export default function DocumentNumberFormatsManager() {
         <DialogTitle>{editing ? "Edit variant" : "Add numbering variant"}</DialogTitle>
         <DialogContent dividers>
           <Stack gap={2} sx={{ mt: 0.5 }}>
-            <Stack direction="row" gap={2}>
+            <Stack direction={{ xs: "column", sm: "row" }} gap={2}>
               <TextField select label="Document type" size="small" fullWidth value={documentType} disabled={applyAll} helperText={applyAll ? "Applies to every type" : undefined} onChange={(e) => setDocumentType(e.target.value)}>
                 {NUMBERING_DOC_TYPES.map((d) => (<MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>))}
               </TextField>
@@ -386,7 +386,7 @@ export default function DocumentNumberFormatsManager() {
               <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{preview || "—"}</Typography>
             </Box>
 
-            <Stack direction="row" gap={2} alignItems="center">
+            <Stack direction="row" gap={2} alignItems="center" flexWrap="wrap">
               <TextField select label="Reset number" size="small" sx={{ width: 160 }} value={resetPolicy} onChange={(e) => setResetPolicy(e.target.value)}>
                 {RESETS.map((r) => (<MenuItem key={r.value} value={r.value}>{r.label}</MenuItem>))}
               </TextField>

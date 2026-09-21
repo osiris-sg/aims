@@ -237,7 +237,7 @@ export default function IdDashboard() {
 
   return (
     <MainCard>
-      <Stack direction="row" alignItems="center" sx={{ mb: 2.5 }}>
+      <Stack direction="row" alignItems="center" useFlexGap sx={{ mb: 2.5, flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
         <Box sx={{ flex: 1 }}>
           <Typography variant="h4" sx={{ fontWeight: 800 }}>
             {self ? "My dashboard" : data.scope === "team" ? `${data.team?.name || "Team"} dashboard` : "Dashboard"}
@@ -324,11 +324,12 @@ export default function IdDashboard() {
         <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2, mb: 2.5 }}>
           <Stack spacing={1.25}>
             {t.target != null && (
-              <Stack direction="row" alignItems="center" spacing={2}>
+              // Phone: label / bar / numbers wrap instead of crushing the bar
+              <Stack direction="row" alignItems="center" spacing={2} sx={{ flexWrap: { xs: "wrap", sm: "nowrap" }, rowGap: 0.5 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 700, whiteSpace: "nowrap", minWidth: 170 }}>
                   {data.year} target{self ? "" : data.scope === "team" ? " (team)" : " (all designers)"}
                 </Typography>
-                <Box sx={{ flex: 1 }}>
+                <Box sx={{ flex: 1, minWidth: 120 }}>
                   <LinearProgress variant="determinate" value={Math.min(100, (t.revenueYtd / t.target) * 100)} sx={{ height: 10, borderRadius: 5 }} color={t.revenueYtd >= t.target ? "success" : "primary"} />
                 </Box>
                 <Typography variant="body2" sx={{ fontWeight: 700, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
@@ -338,11 +339,11 @@ export default function IdDashboard() {
             )}
             {/* The viewer's OWN book, separated from the overall number above. */}
             {myRow && (
-              <Stack direction="row" alignItems="center" spacing={2}>
+              <Stack direction="row" alignItems="center" spacing={2} sx={{ flexWrap: { xs: "wrap", sm: "nowrap" }, rowGap: 0.5 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 700, whiteSpace: "nowrap", minWidth: 170, color: "text.secondary" }}>
                   {data.year} target (me)
                 </Typography>
-                <Box sx={{ flex: 1 }}>
+                <Box sx={{ flex: 1, minWidth: 120 }}>
                   {myRow.target ? (
                     <LinearProgress variant="determinate" value={Math.min(100, (myRow.revenueYtd / myRow.target) * 100)} sx={{ height: 10, borderRadius: 5 }} color={myRow.revenueYtd >= myRow.target ? "success" : "warning"} />
                   ) : (

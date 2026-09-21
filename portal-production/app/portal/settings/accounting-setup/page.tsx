@@ -36,7 +36,7 @@ interface TabPanelProps {
 function TabPanel({ children, value, index }: TabPanelProps) {
   return (
     <div role="tabpanel" hidden={value !== index}>
-      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
+      {value === index && <Box sx={{ p: { xs: 1.5, md: 3 } }}>{children}</Box>}
     </div>
   );
 }
@@ -142,7 +142,7 @@ export default function AccountingSetupPage() {
   };
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="h5" sx={{ fontWeight: 700 }}>
         Accounting Setup
       </Typography>
@@ -153,7 +153,7 @@ export default function AccountingSetupPage() {
 
       <Paper sx={{ width: "100%" }}>
         <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
-          <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
+          <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} variant="scrollable" scrollButtons="auto">
             <Tab icon={<SettingsIcon />} iconPosition="start" label="Default Settings" />
             <Tab icon={<AccountBalanceIcon />} iconPosition="start" label="Financial Settings" />
             <Tab icon={<PercentIcon />} iconPosition="start" label="Tax Rates" />

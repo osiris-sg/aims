@@ -275,7 +275,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
 
   return (
     <MainCard>
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: { xs: 1.5, md: 3 } }}>
         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
           <Box component="span" sx={{ cursor: "pointer" }} onClick={() => router.push(ROUTES.ASSETS)}>
             <strong>{asset.isTracked !== false ? "Asset" : "Product"}</strong>

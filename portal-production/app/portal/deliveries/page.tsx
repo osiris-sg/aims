@@ -213,8 +213,9 @@ export default function DeliveriesQueuePage() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 0.5 }}>
+    <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3 }}>
+      {/* Phone: title + schedule buttons wrap instead of clipping */}
+      <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 0.5, flexWrap: { xs: "wrap", md: "nowrap" }, rowGap: 1 }}>
         <LocalShippingIcon color="primary" />
         <Typography variant="h5" fontWeight={700}>
           Deliveries
@@ -261,7 +262,7 @@ export default function DeliveriesQueuePage() {
         </Paper>
       ) : (
         <TableContainer component={Paper} variant="outlined">
-          <Table size="small">
+          <Table size="small" sx={{ minWidth: 900 }}>
             <TableHead>
               <TableRow>
                 <TableCell>#</TableCell>

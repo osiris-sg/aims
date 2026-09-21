@@ -82,8 +82,8 @@ export default function BudgetVsActualPage() {
     .slice(0, 3);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={1}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>
             Budget vs Actual — {year}
@@ -92,7 +92,7 @@ export default function BudgetVsActualPage() {
             Posted P&L activity compared to your stored budget.
           </Typography>
         </Box>
-        <Stack direction="row" gap={1}>
+        <Stack direction="row" gap={1} flexWrap="wrap">
           <TextField
             select
             size="small"
@@ -123,7 +123,8 @@ export default function BudgetVsActualPage() {
         </Stack>
       </Stack>
 
-      <Stack direction="row" gap={2}>
+      {/* Phone: stat cards wrap */}
+      <Stack direction="row" gap={2} flexWrap="wrap">
         <Stat label="Total budget" value={fmt(totals.budget)} />
         <Stat label="Total actual" value={fmt(totals.actual)} />
         <Stat

@@ -127,7 +127,7 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
       onClose={onClose}
       PaperProps={{
         sx: {
-          width: 500,
+          width: { xs: "100%", sm: 500 },
           backgroundColor: "#ffffff",
           boxShadow: "0 8px 32px rgba(0, 0, 0, 0.12)",
         },

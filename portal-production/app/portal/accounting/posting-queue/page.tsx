@@ -249,8 +249,8 @@ export default function PostingQueuePage() {
   };
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>
             Posting Queue
@@ -274,7 +274,8 @@ export default function PostingQueuePage() {
         </Paper>
       ) : (
         <TableContainer component={Paper} variant="outlined">
-          <Table size="small">
+          {/* Phone: table scrolls inside its container */}
+          <Table size="small" sx={{ minWidth: 860 }}>
             <TableHead>
               <TableRow>
                 <TableCell padding="checkbox">
@@ -357,7 +358,7 @@ export default function PostingQueuePage() {
       {selected.size > 0 && (
         <Paper
           variant="outlined"
-          sx={{ position: "sticky", bottom: 16, p: 1.5, display: "flex", alignItems: "center", gap: 2, borderColor: "primary.main" }}
+          sx={{ position: "sticky", bottom: 16, p: 1.5, display: "flex", alignItems: "center", gap: { xs: 1, md: 2 }, flexWrap: "wrap", borderColor: "primary.main" }}
         >
           <Typography sx={{ fontWeight: 600 }}>{selected.size} selected</Typography>
           <Box sx={{ flex: 1 }} />

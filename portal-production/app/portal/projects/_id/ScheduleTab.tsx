@@ -279,7 +279,23 @@ export default function ScheduleTab({ projectId }: { projectId: string }) {
 
       <AddActivitiesDialog open={addOpen} sequence={data.sequence} projectId={projectId} onClose={() => setAddOpen(false)} onAdded={load} />
 
-      <Dialog open={printOpen} onClose={() => setPrintOpen(false)} fullWidth maxWidth="lg" PaperProps={{ sx: { borderRadius: 2, height: "90vh" } }}>
+      <Dialog
+        open={printOpen}
+        onClose={() => setPrintOpen(false)}
+        fullWidth
+        maxWidth="lg"
+        // Phone: the client schedule preview fills the screen.
+        PaperProps={{
+          sx: {
+            borderRadius: { xs: 0, sm: 2 },
+            height: { xs: "100%", sm: "90vh" },
+            m: { xs: 0, sm: 4 },
+            width: { xs: "100%", sm: "auto" },
+            maxWidth: { xs: "100%", sm: undefined },
+            maxHeight: { xs: "100%", sm: "calc(100% - 64px)" },
+          },
+        }}
+      >
         <DialogTitle sx={{ py: 1.5 }}>Client schedule</DialogTitle>
         <DialogContent sx={{ p: 0, bgcolor: "#e9e9e9" }}>
           {printHtml ? <iframe id="idq-schedule-frame" title="Schedule" srcDoc={printHtml} sandbox="allow-same-origin allow-modals" style={{ width: "100%", height: "100%", border: 0, background: "#fff" }} /> : <Box sx={{ display: "flex", justifyContent: "center", pt: 8 }}><CircularProgress /></Box>}
@@ -656,7 +672,7 @@ function AddOnDateDialog({ range, sequence, busy, onClose, onAdd }: { range: { s
             onInputChange={(_, v) => setLabel(v)}
             renderInput={(p) => <TextField {...p} autoFocus size="small" label="Activity" placeholder="Pick from the sequence or type your own" />}
           />
-          <Stack direction="row" spacing={1}>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: { xs: "wrap", sm: "nowrap" }, rowGap: 1 }}>
             <TextField select size="small" label="Type" value={kind} onChange={(e) => setKind(e.target.value)} sx={{ minWidth: 130 }}>
               <MenuItem value="work">Work</MenuItem>
               <MenuItem value="note">Reminder (red)</MenuItem>
@@ -860,7 +876,7 @@ function AddActivitiesDialog({ open, sequence, projectId, onClose, onAdded }: { 
           <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
             Dates
           </Typography>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1, flexWrap: { xs: "wrap", sm: "nowrap" }, rowGap: 1 }}>
             <TextField label="From" type="date" size="small" InputLabelProps={{ shrink: true }} value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} />
             <TextField label="To" type="date" size="small" InputLabelProps={{ shrink: true }} value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} />
             <Button size="small" variant="outlined" onClick={applyRange} disabled={!labels.length} sx={{ textTransform: "none", whiteSpace: "nowrap" }}>

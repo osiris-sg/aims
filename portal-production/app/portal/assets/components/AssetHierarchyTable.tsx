@@ -200,6 +200,8 @@ const AssetHierarchyTable: React.FC<AssetHierarchyTableProps> = ({ assets, categ
           justifyContent: "space-between",
           alignItems: "center",
           mb: 2,
+          flexWrap: { xs: "wrap", md: "nowrap" },
+          gap: 1,
         }}
       >
         <Typography variant="h6">Asset Hierarchy</Typography>
@@ -216,7 +218,9 @@ const AssetHierarchyTable: React.FC<AssetHierarchyTableProps> = ({ assets, categ
         </Button>
       </Box>
 
-      <Table>
+      {/* Phone: hierarchy table scrolls inside its own container */}
+      <Box sx={{ overflowX: "auto" }}>
+      <Table sx={{ minWidth: 700 }}>
         <TableHead>
           <TableRow>
             <TableCell>Asset Name</TableCell>
@@ -264,6 +268,7 @@ const AssetHierarchyTable: React.FC<AssetHierarchyTableProps> = ({ assets, categ
           )}
         </TableBody>
       </Table>
+      </Box>
 
       {/* Add Part Drawer */}
       {targetParentAsset && (

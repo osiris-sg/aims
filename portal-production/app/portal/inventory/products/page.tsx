@@ -192,7 +192,7 @@ export default function ProductsPage() {
 
   return (
     <MainCard>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2, flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
         <Typography variant="h6">Products</Typography>
         <ToggleButtonGroup value={viewMode} exclusive onChange={(_, newView) => newView && setViewMode(newView)} aria-label="view mode">
           <ToggleButton value="table" aria-label="table view">

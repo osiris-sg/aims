@@ -395,7 +395,7 @@ export default function ImportInvoices() {
   const isPending = currentInvoice?.review_status === "pending" || currentInvoice?.review_status === "skipped";
 
   return (
-    <Box sx={{ p: 4, width: "100%" }}>
+    <Box sx={{ p: { xs: 1.5, md: 4 }, width: "100%" }}>
       {/* Header */}
       <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
         Xero Invoice Import
@@ -406,7 +406,7 @@ export default function ImportInvoices() {
 
       {/* Stats Cards */}
       {stats && (
-        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 2, mb: 3 }}>
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, 1fr)", sm: "repeat(3, 1fr)", md: "repeat(5, 1fr)" }, gap: 2, mb: 3 }}>
           <StatCard label="Total" value={stats.total} color="#1976d2" />
           <StatCard label="Pending" value={stats.pending} color="#ed6c02" />
           <StatCard label="Confirmed" value={stats.confirmed} color="#2e7d32" />
@@ -434,7 +434,7 @@ export default function ImportInvoices() {
 
       {/* Invoice Navigator */}
       {invoices.length > 0 && (
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2, flexWrap: { xs: "wrap", md: "nowrap" } }}>
           <IconButton
             onClick={() => {
               if (currentIndex > 0) {
@@ -470,7 +470,7 @@ export default function ImportInvoices() {
           {/* Search by invoice number or customer */}
           <TextField
             size="small"
-            sx={{ width: 300 }}
+            sx={{ width: { xs: "100%", sm: 300 } }}
             label="Search invoice or customer (press Enter)"
             placeholder="e.g. BI202509041"
             defaultValue={search}
@@ -505,7 +505,7 @@ export default function ImportInvoices() {
       {currentInvoice && !formState ? (
         <Card sx={{ mb: 3 }}>
           <CardContent>
-            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 2 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 2, flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
               <Box>
                 <Typography variant="h5" sx={{ fontWeight: 700 }}>{currentInvoice.invoice_number}</Typography>
                 <Typography variant="body2" color="text.secondary">
@@ -518,7 +518,7 @@ export default function ImportInvoices() {
               </Box>
             </Box>
 
-            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 2, mb: 2 }}>
+            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "1fr 1fr 1fr 1fr" }, gap: 2, mb: 2 }}>
               <Box><Typography variant="caption" color="text.secondary">Customer</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>{currentInvoice.customer}</Typography></Box>
               <Box><Typography variant="caption" color="text.secondary">Gross</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>${currentInvoice.gross?.toLocaleString("en-SG", { minimumFractionDigits: 2 })}</Typography></Box>
               <Box><Typography variant="caption" color="text.secondary">Balance</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>${currentInvoice.balance?.toLocaleString("en-SG", { minimumFractionDigits: 2 })}</Typography></Box>
@@ -547,7 +547,7 @@ export default function ImportInvoices() {
         <Card sx={{ mb: 3 }}>
           <CardContent>
             {/* ─── Invoice Header ─── */}
-            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 3 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 3, flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
               <Box>
                 <Typography variant="h5" sx={{ fontWeight: 700 }}>
                   {currentInvoice.invoice_number}
@@ -747,7 +747,7 @@ export default function ImportInvoices() {
                         {li.description.split("\n")[0]}
                       </Typography>
                     </Tooltip>
-                    <Box sx={{ display: "flex", gap: 3, alignItems: "center" }}>
+                    <Box sx={{ display: "flex", gap: { xs: 1.5, md: 3 }, alignItems: "center", flexWrap: "wrap" }}>
                       <Typography variant="caption" color="text.secondary">
                         Qty:{" "}
                         {isPending ? (
@@ -1007,7 +1007,7 @@ export default function ImportInvoices() {
 
             {/* ─── Action Buttons ─── */}
             {isPending && (
-              <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end", mt: 3, pt: 2, borderTop: 1, borderColor: "divider" }}>
+              <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end", mt: 3, pt: 2, borderTop: 1, borderColor: "divider", flexWrap: { xs: "wrap", md: "nowrap" } }}>
                 <Button variant="outlined" color="inherit" startIcon={<SkipNextIcon />} onClick={handleSkip}>
                   Skip
                 </Button>

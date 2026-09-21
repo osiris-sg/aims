@@ -148,7 +148,7 @@ export default function ApiKeysTab({ organizationId }: { organizationId: string 
 
   return (
     <Box>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2, flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
         <Box>
           <Typography variant="h6">External API Keys</Typography>
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
@@ -173,8 +173,8 @@ export default function ApiKeysTab({ organizationId }: { organizationId: string 
       ) : rows.length === 0 ? (
         <Alert severity="info">No API keys yet — generate one to let an external app create documents.</Alert>
       ) : (
-        <TableContainer sx={{ border: "1px solid var(--table-grid)", borderRadius: 1 }}>
-          <Table size="small">
+        <TableContainer sx={{ border: "1px solid var(--table-grid)", borderRadius: 1, overflowX: "auto" }}>
+          <Table size="small" sx={{ minWidth: 760 }}>
             <TableHead>
               <TableRow>
                 <TableCell>Name</TableCell>

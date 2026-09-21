@@ -251,9 +251,9 @@ export default function PriceHistoryReportPage() {
   ], []);
 
   return (
-    <Box sx={{ p: 3 }}>
-      {/* Header */}
-      <Box sx={{ mb: 3, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 } }}>
+      {/* Header — Phone: title + buttons wrap */}
+      <Box sx={{ mb: 3, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 1 }}>
         <Box>
           <Typography variant="h4" sx={{ fontWeight: 600 }}>
             Price History Report
@@ -327,7 +327,7 @@ export default function PriceHistoryReportPage() {
             />
           </Grid2>
           <Grid2 size={{ xs: 12 }}>
-            <Box sx={{ display: "flex", gap: 2 }}>
+            <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
               <Button
                 variant="contained"
                 startIcon={<SearchIcon />}

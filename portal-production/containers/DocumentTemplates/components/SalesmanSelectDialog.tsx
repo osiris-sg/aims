@@ -97,8 +97,13 @@ export default function SalesmanSelectDialog({
       fullWidth
       PaperProps={{
         sx: {
-          minHeight: "50vh",
-          maxHeight: "70vh",
+          // Phone: fill the screen rather than a cramped centred card.
+          m: { xs: 0, sm: 4 },
+          width: { xs: "100%", sm: "auto" },
+          maxWidth: { xs: "100%", sm: undefined },
+          borderRadius: { xs: 0, sm: 1 },
+          minHeight: { xs: "100%", sm: "50vh" },
+          maxHeight: { xs: "100%", sm: "70vh" },
         },
       }}
     >

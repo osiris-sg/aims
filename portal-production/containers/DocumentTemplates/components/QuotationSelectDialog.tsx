@@ -78,7 +78,23 @@ export default function QuotationSelectDialog({
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="md"
+      fullWidth
+      // Phone: fill the screen — the quotation list needs the width.
+      PaperProps={{
+        sx: {
+          m: { xs: 0, sm: 4 },
+          width: { xs: "100%", sm: "auto" },
+          maxWidth: { xs: "100%", sm: undefined },
+          borderRadius: { xs: 0, sm: 1 },
+          minHeight: { xs: "100%", sm: "auto" },
+          maxHeight: { xs: "100%", sm: "calc(100% - 64px)" },
+        },
+      }}
+    >
       <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", bgcolor: "#000", color: "#fff" }}>
         Select Quotation
         <IconButton size="small" onClick={handleClose} sx={{ color: "#fff" }}>

@@ -189,7 +189,7 @@ export default function SowBuilderPage() {
     );
 
   return (
-    <Box sx={{ p: 3, maxWidth: 1200, mx: "auto" }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1200, mx: "auto" }}>
       <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 0.5 }}>
         <Typography variant="h5" sx={{ fontWeight: 800 }}>SOW Builder</Typography>
         <Chip size="small" label="Osiris internal" color="warning" variant="outlined" />
@@ -273,7 +273,7 @@ export default function SowBuilderPage() {
         <Paper variant="outlined" sx={{ p: 2.5 }}>
           <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ sm: "center" }} spacing={1} sx={{ mb: 2 }}>
             <Typography variant="h6" sx={{ fontWeight: 800 }}>Draft SOW — {sow.customerName}</Typography>
-            <Stack direction="row" spacing={1}>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: { xs: "wrap", md: "nowrap" } }}>
               <Button variant="outlined" startIcon={downloading ? <CircularProgress size={14} /> : <DownloadIcon />} disabled={downloading} onClick={downloadPdf} sx={{ textTransform: "none" }}>
                 Download PDF
               </Button>

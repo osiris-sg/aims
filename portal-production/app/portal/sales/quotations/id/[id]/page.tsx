@@ -589,7 +589,7 @@ export default function IdQuotationEditorPage() {
       </Box>
 
       {selected.size > 0 && !readOnly && (
-        <Paper elevation={8} sx={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 30, px: 2, py: 1, borderRadius: 3, display: "flex", gap: 1.5, alignItems: "center" }}>
+        <Paper elevation={8} sx={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 30, px: 2, py: 1, borderRadius: 3, display: "flex", gap: { xs: 0.75, md: 1.5 }, alignItems: "center", flexWrap: { xs: "wrap", md: "nowrap" }, justifyContent: "center", maxWidth: "calc(100vw - 16px)" }}>
           <Typography variant="body2" sx={{ fontWeight: 700 }}>
             {selected.size} selected
           </Typography>

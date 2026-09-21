@@ -128,8 +128,14 @@ export default function CustomerSelectDialog({
       fullWidth
       PaperProps={{
         sx: {
-          minHeight: "60vh",
-          maxHeight: "80vh",
+          // Phone: the picker fills the screen (a centred sm dialog leaves the
+          // search + result rows unusably cramped at 390px).
+          m: { xs: 0, sm: 4 },
+          width: { xs: "100%", sm: "auto" },
+          maxWidth: { xs: "100%", sm: undefined },
+          borderRadius: { xs: 0, sm: 1 },
+          minHeight: { xs: "100%", sm: "60vh" },
+          maxHeight: { xs: "100%", sm: "80vh" },
         },
       }}
     >

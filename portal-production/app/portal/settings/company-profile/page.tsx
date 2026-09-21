@@ -255,7 +255,7 @@ export default function OrganizationSettingsPage() {
   ];
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="h5" sx={{ fontWeight: 700 }}>
         Company Profile
       </Typography>
@@ -314,7 +314,7 @@ export default function OrganizationSettingsPage() {
               <FormInputBox control={control} name="bankAccountNumber" label="Account Number" placeHolder="Enter account number" />
               <FormInputBox control={control} name="bankName" label="Bank Name" placeHolder="Enter bank name" />
               <FormInputBox control={control} name="bankSwiftCode" label="SWIFT/BIC Code" placeHolder="Enter SWIFT/BIC code" />
-              <Box sx={{ display: "flex", gap: 2 }}>
+              <Box sx={{ display: "flex", gap: 2, flexDirection: { xs: "column", sm: "row" } }}>
                 <Box sx={{ flex: 1 }}>
                   <FormInputBox control={control} name="bankBranchCode" label="Branch Code" placeHolder="Enter branch code" />
                 </Box>
@@ -346,7 +346,7 @@ export default function OrganizationSettingsPage() {
                       <TextField size="small" fullWidth label="Account Number" value={b.accountNumber || ""} onChange={(e) => setBankField(i, "accountNumber", e.target.value)} />
                       <TextField size="small" fullWidth label="Bank Name" value={b.bankName || ""} onChange={(e) => setBankField(i, "bankName", e.target.value)} />
                       <TextField size="small" fullWidth label="SWIFT/BIC Code" value={b.swiftCode || ""} onChange={(e) => setBankField(i, "swiftCode", e.target.value)} />
-                      <Box sx={{ display: "flex", gap: 2 }}>
+                      <Box sx={{ display: "flex", gap: 2, flexDirection: { xs: "column", sm: "row" } }}>
                         <TextField size="small" sx={{ flex: 1 }} label="Branch Code" value={b.branchCode || ""} onChange={(e) => setBankField(i, "branchCode", e.target.value)} />
                         <TextField size="small" sx={{ flex: 1 }} label="Bank Code" value={b.bankCode || ""} onChange={(e) => setBankField(i, "bankCode", e.target.value)} />
                         <TextField size="small" sx={{ flex: 1 }} label="Currency Code" value={b.currencyCode || ""} onChange={(e) => setBankField(i, "currencyCode", e.target.value)} />

@@ -195,7 +195,7 @@ export default function XeroIntegrationPage() {
   }, [mappings, search, filter]);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       <Box>
         <Typography variant="h5" sx={{ fontWeight: 700 }}>
           Xero Integration
@@ -328,7 +328,8 @@ export default function XeroIntegrationPage() {
           </Paper>
 
           <TableContainer component={Paper} variant="outlined">
-            <Table size="small" stickyHeader>
+            {/* Phone: mappings table scrolls inside its container */}
+            <Table size="small" stickyHeader sx={{ minWidth: 900 }}>
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 700, width: 130 }}>Xero code</TableCell>
@@ -429,7 +430,9 @@ export default function XeroIntegrationPage() {
                 None yet.
               </Typography>
             ) : (
-              <Table size="small" sx={{ mt: 1 }}>
+              // Phone: runs table scrolls inside its own box
+              <Box sx={{ overflowX: "auto" }}>
+              <Table size="small" sx={{ mt: 1, minWidth: 640 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem" }}>Started</TableCell>
@@ -473,6 +476,7 @@ export default function XeroIntegrationPage() {
                   ))}
                 </TableBody>
               </Table>
+              </Box>
             )}
           </Paper>
         </>

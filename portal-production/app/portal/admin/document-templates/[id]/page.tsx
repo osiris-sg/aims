@@ -61,9 +61,9 @@ export default function DocumentTemplateDetailPage() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 } }}>
       {/* Header */}
-      <Box sx={{ display: "flex", alignItems: "center", mb: 3, gap: 2 }}>
+      <Box sx={{ display: "flex", alignItems: "center", mb: 3, gap: 2, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <IconButton onClick={() => router.push("/portal/admin/document-templates")}>
           <ArrowBackIcon />
         </IconButton>

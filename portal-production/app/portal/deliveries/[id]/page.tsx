@@ -503,7 +503,7 @@ export default function DeliveryDetailPage() {
     });
 
   return (
-    <Box sx={{ p: 3, maxWidth: 1100 }}>
+    <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1100 }}>
       <Button startIcon={<ArrowBackIcon />} size="small" sx={{ mb: 1.5 }} onClick={() => router.push("/portal/deliveries")}>
         Deliveries
       </Button>
@@ -607,7 +607,7 @@ export default function DeliveryDetailPage() {
         Items ({run.items.length})
       </Typography>
       <TableContainer component={Paper} variant="outlined" sx={{ mb: 3 }}>
-        <Table size="small">
+        <Table size="small" sx={{ minWidth: 760 }}>
           <TableHead>
             <TableRow>
               {hasUnlinked && (

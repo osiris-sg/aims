@@ -79,7 +79,7 @@ export default function TrialBalancePage() {
   }, [data, filter]);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>
@@ -135,7 +135,8 @@ export default function TrialBalancePage() {
       </Paper>
 
       <TableContainer component={Paper} variant="outlined">
-        <Table size="small" stickyHeader>
+        {/* Phone: table scrolls inside its container */}
+        <Table size="small" stickyHeader sx={{ minWidth: 720 }}>
           <TableHead>
             <TableRow>
               <TableCell sx={{ fontWeight: 700, width: 120 }}>Code</TableCell>

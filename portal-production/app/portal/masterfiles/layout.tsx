@@ -34,7 +34,7 @@ export default function MasterFilesLayout({ children }: { children: React.ReactN
     "/portal/masterfiles/customers";
 
   return (
-    <Box sx={{ p: 8, minHeight: "100%", width: "100%", display: "flex", flexDirection: "column" }}>
+    <Box sx={{ p: { xs: 2, md: 8 }, minHeight: "100%", width: "100%", display: "flex", flexDirection: "column" }}>
       <Box sx={{ mb: 3, borderBottom: 1, borderColor: "divider", pb: 2 }}>
         <Typography variant="h4" sx={{ fontWeight: "bold", color: "primary.main" }}>
           Master Files

@@ -5352,7 +5352,13 @@ export class DocumentsService {
 
     const invoiceConfig = {
       ...doConfigForInvoice,
-      items: await this.priceInvoiceLinesFromAsset(Array.isArray(doConfig.items) ? doConfig.items : [], organizationId),
+      items: await this.priceInvoiceLinesFromAsset(Array.isArray(doConfig.items) ? doConfig.items : [], organizationId, {
+        saleOrderId: doConfig.saleOrderId,
+        // A DO extracted from a quotation carries its source — the quote's
+        // agreed prices back the invoice when no Sales Order is attached.
+        sourceDocumentId: doConfig.sourceDocumentId,
+        sourceDocumentType: doConfig.sourceDocumentType,
+      }),
       date: new Date().toISOString(),
       sourceDocumentId: documentId,
       sourceDocumentNumber: doDoc.name ?? undefined,
@@ -5397,8 +5403,58 @@ export class DocumentsService {
    * office to fill on the still-editable DRAFT. Non-goods lines (remarks, no
    * asset/unit) are left untouched. The DO's own lines stay 0 (goods-only).
    */
-  private async priceInvoiceLinesFromAsset(items: any[], organizationId: string): Promise<any[]> {
+  private async priceInvoiceLinesFromAsset(
+    items: any[],
+    organizationId: string,
+    links?: { saleOrderId?: string; sourceDocumentId?: string; sourceDocumentType?: string },
+  ): Promise<any[]> {
     if (!items.length) return items;
+    const saleOrderId = links?.saleOrderId;
+    // Sales Order agreed prices — HIGHEST priority source (2026-09-22, per the
+    // SO→invoice pricing handoff). Rules, deliberately strict:
+    //   • match invoice line → SO line on itemCode (= Asset.skuKey), exact,
+    //     case-insensitive, trimmed — NEVER on description;
+    //   • a code that appears on more than one SO line is AMBIGUOUS → skipped;
+    //   • take unitPrice and recompute — never copy the SO's amount (the two
+    //     sides disagree about what quantity counts: months vs units);
+    //   • no SO line for an item → fall through to the asset price, not to 0.
+    const buildCodeMap = (doc: { config: any } | null): Map<string, any> => {
+      const map = new Map<string, any>();
+      const lines: any[] = Array.isArray((doc?.config as any)?.items) ? (doc!.config as any).items : [];
+      const seen = new Map<string, number>();
+      for (const line of lines) {
+        const code = String(line?.itemCode ?? '').trim().toLowerCase();
+        if (!code) continue;
+        seen.set(code, (seen.get(code) || 0) + 1);
+      }
+      for (const line of lines) {
+        const code = String(line?.itemCode ?? '').trim().toLowerCase();
+        if (!code || seen.get(code)! > 1) continue; // ambiguous → unusable
+        if (line?.unitPrice == null || isNaN(Number(line.unitPrice))) continue;
+        map.set(code, line);
+      }
+      return map;
+    };
+    // Sales Order beats Quotation beats asset (guru 2026-09-22). The attached
+    // doc id is accepted as either type — the schedule dialog may attach a
+    // quotation; type decides which tier its prices land in.
+    let soLineByCode = new Map<string, any>();
+    let qoLineByCode = new Map<string, any>();
+    if (saleOrderId) {
+      const attached = await this.prisma.document.findFirst({
+        where: { id: saleOrderId, organizationId, type: { in: ['SALES_ORDER', 'QUOTATION'] } },
+        select: { type: true, config: true },
+      });
+      if (attached?.type === 'SALES_ORDER') soLineByCode = buildCodeMap(attached);
+      else if (attached) qoLineByCode = buildCodeMap(attached);
+    }
+    if (qoLineByCode.size === 0 && links?.sourceDocumentId && String(links.sourceDocumentType || '').toUpperCase().includes('QUOTATION')) {
+      const qo = await this.prisma.document.findFirst({
+        where: { id: links.sourceDocumentId, organizationId, type: 'QUOTATION' },
+        select: { type: true, config: true },
+      });
+      if (qo) qoLineByCode = buildCodeMap(qo);
+    }
     const unitIds = [...new Set(items.map((i) => i.inventoryItemId).filter((v): v is string => !!v))];
     const units = unitIds.length
       ? await this.prisma.inventory.findMany({ where: { id: { in: unitIds } }, select: { id: true, assetId: true } })
@@ -5458,6 +5514,20 @@ export class DocumentsService {
     };
 
     return items.map((it) => {
+      const qty = Number(it.quantity) || 1;
+      // 1) Sales Order agreed price — wins when the line's code matches
+      //    exactly one priced SO line.
+      const lineCode = String(it.skuKey ?? it.itemCode ?? '').trim().toLowerCase();
+      const agreed = lineCode ? soLineByCode.get(lineCode) ?? qoLineByCode.get(lineCode) : undefined;
+      if (agreed) {
+        const unitPrice = Number(agreed.unitPrice);
+        const amount = Math.round(unitPrice * qty * 100) / 100;
+        // recompute from unitPrice — the source doc's own amount counts a
+        // different quantity (e.g. months of hire vs units delivered).
+        const pricedFrom = soLineByCode.has(lineCode) ? 'SALES_ORDER' : 'QUOTATION';
+        return { ...it, unitPrice, price: unitPrice, amount, pricedFrom };
+      }
+      // 2) Asset price (today's behaviour).
       const assetId: string | null = it.assetId || (it.inventoryItemId ? unitAsset.get(it.inventoryItemId) ?? null : null);
       const asset = assetId ? assetById.get(assetId) : null;
       if (!asset) return it; // non-goods / unresolved → leave as-is (0)
@@ -5468,9 +5538,8 @@ export class DocumentsService {
             ? asset.price
             : 0
           : rentalRate(asset.customPrices) ?? 0;
-      const qty = Number(it.quantity) || 1;
       const amount = Math.round(unitPrice * qty * 100) / 100;
-      return { ...it, unitPrice, price: unitPrice, amount };
+      return { ...it, unitPrice, price: unitPrice, amount, ...(unitPrice ? { pricedFrom: 'ASSET' } : {}) };
     });
   }
 

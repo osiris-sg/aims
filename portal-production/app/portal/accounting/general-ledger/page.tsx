@@ -260,7 +260,7 @@ export default function GeneralLedgerPage() {
   };
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       {/* Header */}
       <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1}>
         <Box>
@@ -319,7 +319,8 @@ export default function GeneralLedgerPage() {
       {/* Account table — single scroll, grouped by type with subtotals */}
       <Paper variant="outlined" sx={{ overflow: "hidden" }}>
         <TableContainer sx={{ maxHeight: "calc(100vh - 380px)" }}>
-          <Table size="small" stickyHeader>
+          {/* Phone: table scrolls inside its container */}
+          <Table size="small" stickyHeader sx={{ minWidth: 560 }}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ fontWeight: 700, width: 120 }}>Account</TableCell>
@@ -456,7 +457,7 @@ function DrilldownDialog({ account, onClose, from, to }: { account: Account | nu
                   <Typography variant="body2"><strong>Closing:</strong> {fmtKpi(data.closingBalance)}</Typography>
                 </Stack>
                 <TableContainer component={Paper} variant="outlined">
-                  <Table size="small">
+                  <Table size="small" sx={{ minWidth: 760 }}>
                     <TableHead>
                       <TableRow>
                         <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>

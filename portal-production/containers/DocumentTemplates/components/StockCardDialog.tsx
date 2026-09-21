@@ -251,8 +251,13 @@ export default function StockCardDialog({
       fullWidth
       PaperProps={{
         sx: {
-          minHeight: "70vh",
-          maxHeight: "85vh",
+          // Phone: fill the screen — this picker carries a table.
+          m: { xs: 0, sm: 4 },
+          width: { xs: "100%", sm: "auto" },
+          maxWidth: { xs: "100%", sm: undefined },
+          borderRadius: { xs: 0, sm: 1 },
+          minHeight: { xs: "100%", sm: "70vh" },
+          maxHeight: { xs: "100%", sm: "85vh" },
         },
       }}
     >

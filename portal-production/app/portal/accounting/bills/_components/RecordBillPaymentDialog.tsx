@@ -139,7 +139,23 @@ export default function RecordBillPaymentDialog({ open, onClose, onSuccess, bill
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      // Phone: the payment form fills the screen rather than a cramped card.
+      PaperProps={{
+        sx: {
+          m: { xs: 0, sm: 4 },
+          width: { xs: "100%", sm: "auto" },
+          maxWidth: { xs: "100%", sm: undefined },
+          borderRadius: { xs: 0, sm: 1 },
+          minHeight: { xs: "100%", sm: "auto" },
+          maxHeight: { xs: "100%", sm: "calc(100% - 64px)" },
+        },
+      }}
+    >
       <DialogTitle>
         <Stack direction="row" alignItems="center" gap={1}>
           <PaymentIcon color="primary" />

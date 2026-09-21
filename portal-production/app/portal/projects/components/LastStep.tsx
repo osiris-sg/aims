@@ -52,7 +52,7 @@ export default function LastStep() {
         <Typography variant="h6" gutterBottom>
           Assignments
         </Typography>
-        <Table size="small">
+        <Table size="small" sx={{ minWidth: 480 }}>
           <TableHead>
             <TableRow>
               <TableCell>SKU Key</TableCell>

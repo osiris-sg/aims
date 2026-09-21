@@ -195,7 +195,7 @@ export default function RecurringPage() {
   ], [runningId]);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       <PageTable
         onRowClick={(t: Template) => { setEditing(t); setEditorOpen(true); }}
         columns={columns}

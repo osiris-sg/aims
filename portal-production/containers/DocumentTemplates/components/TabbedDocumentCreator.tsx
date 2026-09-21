@@ -3816,13 +3816,15 @@ export default function TabbedDocumentCreator({
       <Box
         sx={{
           py: 0.5,
-          px: 2,
+          px: { xs: 1, md: 2 },
           borderBottom: 1,
           borderColor: "divider",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          gap: 2,
+          gap: { xs: 0.75, md: 2 },
+          // Phone: actions wrap onto a second row instead of clipping off-screen.
+          flexWrap: { xs: "wrap", md: "nowrap" },
           bgcolor: "background.paper",
           // Uniform-height action row — every button & icon-button matches.
           "& .MuiButton-root": {
@@ -3855,7 +3857,9 @@ export default function TabbedDocumentCreator({
               : formData.documentInfo?.documentNumber || formData.name || `${getDocumentTitle()} - New`}
           </Typography>
         </Box>
-        <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexShrink: 0, flexWrap: "nowrap" }}>
+        {/* Phone: the cluster must be allowed to shrink (flexShrink 0 sized it to
+    full content width, so flexWrap never engaged and buttons ran off-screen). */}
+<Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexShrink: { xs: 1, md: 0 }, minWidth: 0, flexWrap: { xs: "wrap", md: "nowrap" }, justifyContent: { xs: "flex-end", md: "initial" } }}>
           {/* Prev/Next document navigation — compact icon arrows */}
           {(onPrevious || onNext) && (
             <>
@@ -4371,7 +4375,10 @@ export default function TabbedDocumentCreator({
         {/* Main Content Area — confirmed documents render the SAME form,
             shielded read-only until the Edit unlock (guru 2026-09-09). */}
         {!previewMode ? (
-          <Box sx={{ flex: 1, overflow: "visible", position: "relative", display: "flex", flexDirection: "column" }}>
+          // Phone: minWidth 0 lets this column shrink to the viewport — with the
+          // flex default (min-width:auto) the items grid's 720px min-content
+          // blew the whole editor out to ~754px wide.
+          <Box sx={{ flex: 1, minWidth: 0, overflow: "visible", position: "relative", display: "flex", flexDirection: "column" }}>
             {/* Template Settings Toggle Button */}
             {isTemplateEditMode && (
               <IconButton
@@ -4395,8 +4402,11 @@ export default function TabbedDocumentCreator({
                 display: "flex",
                 justifyContent: "flex-end",
                 alignItems: "center",
-                gap: 4,
-                px: 2,
+                // Phone: the three tracking chips wrap instead of forcing a
+                // 750px-wide nowrap strip that widened the whole page.
+                flexWrap: { xs: "wrap", md: "nowrap" },
+                gap: { xs: 1.5, md: 4 },
+                px: { xs: 1, md: 2 },
                 py: 0.75,
                 bgcolor: "surfaceTones.low",
                 borderBottom: 1,
@@ -5381,7 +5391,11 @@ export default function TabbedDocumentCreator({
                     <Box sx={{ display: "flex", flexDirection: "column" }}>
                       <TableContainer
                         sx={{
-                          overflow: "visible",
+                          // Phone: the items grid scrolls sideways inside its own
+                          // container (fixed-layout columns are unusable squeezed
+                          // into 390px). Desktop keeps overflow visible so row
+                          // popovers/autocomplete aren't clipped.
+                          overflow: { xs: "auto", md: "visible" },
                           // Xero-style bordered grid container
                           border: `1px solid ${TABLE_GRID_COLOR}`,
                           borderRadius: 1,
@@ -5390,6 +5404,7 @@ export default function TabbedDocumentCreator({
                         <Table
                           sx={{
                             tableLayout: 'fixed',
+                            minWidth: { xs: 720, md: 0 },
                             // Tighten body-cell padding so rows sit at ~36px like
                             // Xero. The TableHead sx below still owns its own
                             // typography rules; this rule only sets padding.
@@ -6530,7 +6545,18 @@ export default function TabbedDocumentCreator({
           </Box>
         ) : (
           // PREVIEW MODE - Show clean document layout
-          <Box sx={{ flex: 1, overflow: "auto", p: 2, bgcolor: "grey.100" }}>
+          // Phone: the A4 paper (~794px) is zoomed down to fit the screen
+          // instead of forcing sideways panning; print keeps full scale.
+          <Box
+            sx={{
+              flex: 1,
+              overflow: "auto",
+              p: { xs: 1, md: 2 },
+              bgcolor: "grey.100",
+              "& > div": { zoom: { xs: 0.46, sm: 0.75, md: 1 } },
+              "@media print": { "& > div": { zoom: 1 } },
+            }}
+          >
             <div ref={printContentRef}>
               <CleanDocumentPreview
                 documentType={documentType}

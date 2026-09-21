@@ -467,8 +467,8 @@ export default function SlimOrderDetail({ params }: { params: { id: string } }) 
       <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
         Items ({visibleItems.length})
       </Typography>
-      <TableContainer sx={{ mb: 1 }}>
-        <Table size="small">
+      <TableContainer sx={{ mb: 1, overflowX: "auto" }}>
+        <Table size="small" sx={{ minWidth: 640 }}>
           <TableHead>
             <TableRow>
               <TableCell sx={{ width: 40, p: 0 }}>

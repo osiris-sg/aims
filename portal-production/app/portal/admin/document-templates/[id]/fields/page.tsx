@@ -406,9 +406,9 @@ export default function FieldEditorPage() {
   const currentTab = tabs[activeTab];
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 } }}>
       {/* Header */}
-      <Box sx={{ display: "flex", alignItems: "center", mb: 3, gap: 2 }}>
+      <Box sx={{ display: "flex", alignItems: "center", mb: 3, gap: { xs: 1, md: 2 }, flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <IconButton onClick={() => router.push(`/portal/admin/document-templates/${id}`)}>
           <ArrowBackIcon />
         </IconButton>
@@ -450,8 +450,8 @@ export default function FieldEditorPage() {
         <Grid item xs={12}>
           <Card>
             <CardContent>
-              <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
-                <Tabs value={activeTab} onChange={handleTabChange} sx={{ flex: 1 }}>
+              <Box sx={{ display: "flex", alignItems: "center", mb: 2, flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
+                <Tabs value={activeTab} onChange={handleTabChange} variant="scrollable" scrollButtons="auto" sx={{ flex: 1, minWidth: 0 }}>
                   {tabs.map((tab, index) => (
                     <Tab
                       key={tab.tabId}
@@ -481,7 +481,7 @@ export default function FieldEditorPage() {
               </Box>
 
               {currentTab && (
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2, flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
                   <Typography variant="subtitle2" color="text.secondary">
                     Tab: {currentTab.tabLabel} ({currentTab.tabId})
                   </Typography>

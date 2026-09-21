@@ -354,7 +354,7 @@ function ReportsInner({
             bgcolor: "background.paper",
             borderBottom: 1,
             borderColor: "divider",
-            px: 3,
+            px: { xs: 1.5, md: 3 },
             py: 1.5,
             display: "flex",
             alignItems: "center",
@@ -407,7 +407,7 @@ function ReportsInner({
   const hasAnyMatch = favouriteReports.length > 0 || Array.from(grouped.values()).some((g) => g.length > 0);
 
   return (
-    <Box sx={{ px: 3, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
+    <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 3, flexWrap: "wrap", gap: 2 }}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>

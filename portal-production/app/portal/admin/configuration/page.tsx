@@ -154,7 +154,7 @@ function TabPanel(props: TabPanelProps) {
   const { children, value, index, ...other } = props;
   return (
     <div role="tabpanel" hidden={value !== index} {...other}>
-      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
+      {value === index && <Box sx={{ p: { xs: 1.5, md: 3 } }}>{children}</Box>}
     </div>
   );
 }
@@ -407,14 +407,14 @@ export default function ConfigurationAdminPage() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 } }}>
       <Typography variant="h4" sx={{ mb: 3, fontWeight: 700 }}>
         Organization Configuration
       </Typography>
 
       <Paper sx={{ width: "100%" }}>
         <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
-          <Tabs value={tabValue} onChange={handleTabChange}>
+          <Tabs value={tabValue} onChange={handleTabChange} variant="scrollable" scrollButtons="auto">
             <Tab icon={<ModuleIcon />} label="Modules" />
             <Tab icon={<FieldsIcon />} label="Custom Fields" />
             <Tab icon={<ThemeIcon />} label="UI Configuration" />
@@ -424,9 +424,9 @@ export default function ConfigurationAdminPage() {
 
         {/* MODULES TAB */}
         <TabPanel value={tabValue} index={0}>
-          <Box sx={{ mb: 2, display: "flex", justifyContent: "space-between" }}>
+          <Box sx={{ mb: 2, display: "flex", justifyContent: "space-between", flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
             <Typography variant="h6">Module Management</Typography>
-            <Box>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
               {modules.length === 0 && (
                 <Button
                   variant="contained"
@@ -447,8 +447,8 @@ export default function ConfigurationAdminPage() {
             </Box>
           </Box>
 
-          <TableContainer>
-            <Table>
+          <TableContainer sx={{ overflowX: "auto" }}>
+            <Table sx={{ minWidth: 720 }}>
               <TableHead>
                 <TableRow>
                   <TableCell>Module Code</TableCell>
@@ -509,7 +509,7 @@ export default function ConfigurationAdminPage() {
 
         {/* CUSTOM FIELDS TAB */}
         <TabPanel value={tabValue} index={1}>
-          <Box sx={{ mb: 2, display: "flex", justifyContent: "space-between" }}>
+          <Box sx={{ mb: 2, display: "flex", justifyContent: "space-between", flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
             <FormControl sx={{ minWidth: 200 }}>
               <InputLabel>Entity Type</InputLabel>
               <Select
@@ -548,8 +548,8 @@ export default function ConfigurationAdminPage() {
             </Button>
           </Box>
 
-          <TableContainer>
-            <Table>
+          <TableContainer sx={{ overflowX: "auto" }}>
+            <Table sx={{ minWidth: 720 }}>
               <TableHead>
                 <TableRow>
                   <TableCell>Field Name</TableCell>

@@ -19,6 +19,8 @@ import {
   Stack,
   TextField,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import {
   ASSET_CLASS_OPTIONS,
@@ -126,6 +128,9 @@ export default function ScheduleDeliveryDialog({
 }) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
+  const theme = useTheme();
+  // Phone: this long form goes full-screen below sm
+  const fullScreenDialog = useMediaQuery(theme.breakpoints.down("sm"));
 
   const [rows, setRows] = useState<Row[]>([{ asset: null, description: "", freeTyped: false, quantity: "1", assetClass: DEFAULT_ASSET_CLASS }]);
   // Date + time are held separately so BOTH are independently settable (a single
@@ -868,6 +873,7 @@ export default function ScheduleDeliveryDialog({
       }}
       fullWidth
       maxWidth="sm"
+      fullScreen={fullScreenDialog}
     >
       <DialogTitle>{editRun ? "Edit scheduled delivery" : "Schedule a delivery"}</DialogTitle>
       <DialogContent dividers>
@@ -1123,7 +1129,8 @@ export default function ScheduleDeliveryDialog({
         </Typography>
         <Stack spacing={1.5} sx={{ mb: 1 }}>
           {rows.map((row, i) => (
-            <Stack key={i} direction="row" spacing={1} alignItems="flex-start">
+            // Phone: qty/type fields wrap under the product picker instead of clipping
+            <Stack key={i} direction="row" spacing={1} alignItems="flex-start" sx={{ flexWrap: { xs: "wrap", sm: "nowrap" }, rowGap: 1 }}>
               {row.freeTyped ? (
                 // Free-typed line: a description (no catalog product). Carries to the
                 // DO as a plain line; a rider can never unit-bind to it.
@@ -1210,7 +1217,7 @@ export default function ScheduleDeliveryDialog({
         <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
           Scheduling
         </Typography>
-        <Stack direction="row" spacing={1.5}>
+        <Stack direction="row" spacing={1.5} sx={{ flexWrap: { xs: "wrap", sm: "nowrap" }, rowGap: 1.5 }}>
           {/* MUI DatePicker (Popper) instead of a native date input: its calendar
               flips above the field when there is no room below, so it stays fully
               clickable even though this field sits low in the form. */}

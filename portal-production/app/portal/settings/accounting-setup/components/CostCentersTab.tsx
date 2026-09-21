@@ -94,7 +94,7 @@ export default function CostCentersTab() {
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" useFlexGap sx={{ flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
         <Box>
           <Typography variant="h6" sx={{ fontWeight: 700 }}>
             Cost Centers
@@ -121,8 +121,8 @@ export default function CostCentersTab() {
         </Stack>
       </Stack>
 
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
+      <TableContainer component={Paper} variant="outlined" sx={{ overflowX: "auto" }}>
+        <Table size="small" sx={{ minWidth: 640 }}>
           <TableHead>
             <TableRow>
               <TableCell sx={{ fontWeight: 700, width: 80 }}>Active</TableCell>

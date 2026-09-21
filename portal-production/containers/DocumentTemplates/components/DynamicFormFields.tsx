@@ -1202,7 +1202,8 @@ export default function DynamicFormFields({
       sx={{ display: 'flex', alignItems: 'center', gap: 1, borderBottom: 1, borderColor: 'divider' }}
     >
       <Typography sx={leftLabelSx}>{contactField!.displayLabel}</Typography>
-      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+      {/* Phone: the attention trio + Terms wrap instead of clipping. */}
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 1, flexWrap: { xs: 'wrap', md: 'nowrap' } }}>
         {/* Placeholders, not floating labels — inputSx strips the notched
             outline, so a shrunk MUI label renders detached above the box. */}
         <TextField
@@ -1241,11 +1242,14 @@ export default function DynamicFormFields({
   );
 
   return (
-    <Box sx={{ display: 'flex', gap: 2 }}>
+    // Phone: the fields column and the totals column stack instead of
+    // squeezing side-by-side (the 300px totals panel pushed fields off-screen).
+    <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', md: 'row' } }}>
       {/* Left Column - Form Fields */}
       <Box
         sx={{
           flex: 1,
+          minWidth: 0,
           border: 1,
           borderColor: 'divider',
           borderRadius: 1.25,
@@ -1272,7 +1276,8 @@ export default function DynamicFormFields({
       {/* Right Column - Summary/Totals */}
       <Box
         sx={{
-          minWidth: 300,
+          minWidth: { xs: 0, md: 300 },
+          width: { xs: '100%', md: 'auto' },
           border: 1,
           borderColor: 'divider',
           borderRadius: 1.25,

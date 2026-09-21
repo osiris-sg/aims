@@ -274,7 +274,23 @@ export default function PaymentsPage() {
       </Paper>
 
       {/* Record Payment Dialog */}
-      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
+      <Dialog
+        open={openDialog}
+        onClose={handleCloseDialog}
+        maxWidth="md"
+        fullWidth
+        // Phone: the record-payment form fills the screen.
+        PaperProps={{
+          sx: {
+            m: { xs: 0, sm: 4 },
+            width: { xs: "100%", sm: "auto" },
+            maxWidth: { xs: "100%", sm: undefined },
+            borderRadius: { xs: 0, sm: 1 },
+            minHeight: { xs: "100%", sm: "auto" },
+            maxHeight: { xs: "100%", sm: "calc(100% - 64px)" },
+          },
+        }}
+      >
         <DialogTitle>Record Payment</DialogTitle>
         <DialogContent>
           {error && (

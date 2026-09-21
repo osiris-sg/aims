@@ -72,7 +72,7 @@ export default function CashFlowPage() {
   }, [load]);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       <Box className="no-print">
         <Typography variant="h5" sx={{ fontWeight: 700 }}>
           Cash Flow Statement
@@ -117,12 +117,14 @@ export default function CashFlowPage() {
       )}
 
       {!loading && data && (
-        <Box sx={{ display: "flex", justifyContent: "center", py: 1 }}>
+        // Phone: the A4 sheet scrolls inside this container, page body doesn't
+        <Box sx={{ display: "flex", justifyContent: { xs: "flex-start", md: "center" }, py: 1, overflowX: "auto" }}>
           <Paper
             data-print-paper
             elevation={2}
             sx={{
               width: "210mm",
+              flexShrink: 0,
               minHeight: "297mm",
               p: "20mm",
               backgroundColor: "white",

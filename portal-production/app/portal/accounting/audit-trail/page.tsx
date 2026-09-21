@@ -237,10 +237,10 @@ export default function AuditTrailPage() {
   ], []);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       {pinnedJournalNumbers && (
         <Paper variant="outlined" sx={{ p: 1.5, bgcolor: (t) => t.palette.warning.light + "22", borderColor: "warning.main" }}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2} flexWrap="wrap">
             <Typography variant="body2">
               Filtered to <strong>{pinnedJournalNumbers.size}</strong> journal{pinnedJournalNumbers.size === 1 ? "" : "s"} from
               the Hub action queue: <code>{Array.from(pinnedJournalNumbers).join(", ")}</code>
@@ -362,7 +362,8 @@ function EntryDialog({ entry, onClose }: { entry: JournalEntry | null; onClose: 
               {entry.description && <Typography variant="body2"><strong>Description:</strong> {entry.description}</Typography>}
             </Stack>
             <TableContainer component={Paper} variant="outlined">
-              <Table size="small">
+              {/* Phone: table scrolls inside its container */}
+              <Table size="small" sx={{ minWidth: 560 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>#</TableCell>

@@ -54,7 +54,10 @@ function ContactTable({ title, rows }: { title: string; rows: CustomerInfoContac
           No contacts collected yet.
         </Typography>
       ) : (
-        <Table size="small">
+        // Phone: name/email/phone together exceed 390px, so the table scrolls
+        // inside its own box instead of widening the page.
+        <Box sx={{ overflowX: "auto" }}>
+        <Table size="small" sx={{ minWidth: { xs: 420, md: 0 } }}>
           <TableHead>
             <TableRow>
               <TableCell>Name</TableCell>
@@ -72,6 +75,7 @@ function ContactTable({ title, rows }: { title: string; rows: CustomerInfoContac
             ))}
           </TableBody>
         </Table>
+        </Box>
       )}
     </Box>
   );

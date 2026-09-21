@@ -131,7 +131,7 @@ export default function SupplierStatementPage() {
   ], []);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       <Box>
         <Typography variant="h5" sx={{ fontWeight: 700 }}>Supplier Statement of Account</Typography>
         <Typography variant="body2" color="text.secondary">
@@ -144,7 +144,7 @@ export default function SupplierStatementPage() {
           {/* Searchable — supplier lists run long; plain select was unusable. */}
           <Autocomplete
             size="small"
-            sx={{ minWidth: 320 }}
+            sx={{ minWidth: { xs: "100%", sm: 320 } }}
             options={suppliers}
             getOptionLabel={(s: any) => s?.name ?? ""}
             isOptionEqualToValue={(o: any, v: any) => o.id === v.id}
@@ -177,7 +177,7 @@ export default function SupplierStatementPage() {
                 <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{data.supplier.name}</Typography>
                 {data.supplier.address && <Typography variant="caption" color="text.secondary">{data.supplier.address}</Typography>}
               </Box>
-              <Stack direction="row" gap={3}>
+              <Stack direction="row" gap={3} flexWrap="wrap">
                 <Box><Typography variant="caption" color="text.secondary">Opening</Typography>
                   <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{fmt(data.summary.openingBalance)}</Typography></Box>
                 <Box><Typography variant="caption" color="text.secondary">Bills</Typography>

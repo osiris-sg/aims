@@ -93,14 +93,14 @@ export default function SalesByCustomerPage() {
   ], []);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       <Box>
         <Typography variant="h5" sx={{ fontWeight: 700 }}>Sales by Customer</Typography>
         <Typography variant="body2" color="text.secondary">Total invoiced + paid + outstanding per customer.</Typography>
       </Box>
 
       <Paper variant="outlined" sx={{ p: 2 }}>
-        <Stack direction="row" gap={2} alignItems="flex-end">
+        <Stack direction="row" gap={2} alignItems="flex-end" flexWrap="wrap">
           <TextField size="small" type="date" label="From" InputLabelProps={{ shrink: true }} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           <TextField size="small" type="date" label="To" InputLabelProps={{ shrink: true }} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
           <Button variant="contained" onClick={run} disabled={loading}>
@@ -114,7 +114,7 @@ export default function SalesByCustomerPage() {
       {data && (
         <>
           <Paper variant="outlined" sx={{ p: 2 }}>
-            <Stack direction="row" gap={4}>
+            <Stack direction="row" gap={4} flexWrap="wrap">
               <Box><Typography variant="caption" color="text.secondary">Invoices</Typography>
                 <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{data.totals.invoiceCount}</Typography></Box>
               <Box><Typography variant="caption" color="text.secondary">Total Sales</Typography>

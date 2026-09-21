@@ -295,7 +295,23 @@ ${orgName}`;
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="md"
+      fullWidth
+      // Phone: the compose form (recipients, subject, body) needs the screen.
+      PaperProps={{
+        sx: {
+          m: { xs: 0, sm: 4 },
+          width: { xs: "100%", sm: "auto" },
+          maxWidth: { xs: "100%", sm: undefined },
+          borderRadius: { xs: 0, sm: 1 },
+          minHeight: { xs: "100%", sm: "auto" },
+          maxHeight: { xs: "100%", sm: "calc(100% - 64px)" },
+        },
+      }}
+    >
       <DialogTitle>
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Typography variant="h6">{previewOnly ? `Email Preview — ${docLabel}` : `Send ${docLabel} Email`}</Typography>

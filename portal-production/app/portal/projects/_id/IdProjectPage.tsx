@@ -345,7 +345,8 @@ export default function IdProjectPage({ id }: { id: string }) {
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: { xs: 1.5, md: 2 }, py: { xs: 1.5, md: 2 } }}>
       {/* ── header ─────────────────────────────────────────────────────── */}
-      <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ mb: 2 }}>
+      {/* Phone: stage/designer controls wrap under the title */}
+      <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ mb: 2, flexWrap: { xs: "wrap", lg: "nowrap" }, rowGap: 1 }}>
         <IconButton size="small" onClick={() => router.push("/portal/projects")} sx={{ mt: 0.5 }}>
           <ArrowBackIcon />
         </IconButton>
@@ -366,7 +367,7 @@ export default function IdProjectPage({ id }: { id: string }) {
             {p.client.nric ? ` · NRIC ${p.client.nric}` : ""}
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: { xs: "wrap", md: "nowrap" }, rowGap: 1 }}>
           <TextField
             select
             size="small"
@@ -442,7 +443,7 @@ export default function IdProjectPage({ id }: { id: string }) {
         {/* ── Costing ───────────────────────────────────────────────── */}
         {tab === 0 && (
           <Box sx={{ p: 2, width: "100%", minWidth: 0 }}>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5, flexWrap: { xs: "wrap", md: "nowrap" }, rowGap: 1 }}>
               <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                 Subcontractor & supplier costs
               </Typography>
@@ -587,7 +588,7 @@ export default function IdProjectPage({ id }: { id: string }) {
         {/* ── Payments ─────────────────────────────────────────────── */}
         {tab === 1 && (
           <Box sx={{ p: 2, width: "100%", minWidth: 0 }}>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5, flexWrap: { xs: "wrap", md: "nowrap" }, rowGap: 1 }}>
               <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                 Progressive payments
               </Typography>
@@ -659,7 +660,9 @@ export default function IdProjectPage({ id }: { id: string }) {
                 <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
                   Variation orders
                 </Typography>
-                <Table size="small">
+                {/* Phone: VO table scrolls sideways in its own container */}
+                <Box sx={{ overflowX: "auto", width: "100%" }}>
+                <Table size="small" sx={{ minWidth: 560 }}>
                   <TableHead>
                     <TableRow>
                       <Cell>VO</Cell>
@@ -689,6 +692,7 @@ export default function IdProjectPage({ id }: { id: string }) {
                     ))}
                   </TableBody>
                 </Table>
+                </Box>
               </Paper>
             )}
             <Box sx={{ overflowX: "auto", width: "100%" }}>
@@ -914,7 +918,9 @@ export default function IdProjectPage({ id }: { id: string }) {
         {/* ── Documents ────────────────────────────────────────────── */}
         {tab === 4 && (
           <Box sx={{ p: 2, width: "100%", minWidth: 0 }}>
-            <Table size="small">
+            {/* Phone: documents table scrolls sideways in its own container */}
+            <Box sx={{ overflowX: "auto", width: "100%" }}>
+            <Table size="small" sx={{ minWidth: 640 }}>
               <TableHead>
                 <TableRow>
                   <Cell>Document</Cell>
@@ -976,6 +982,7 @@ export default function IdProjectPage({ id }: { id: string }) {
                 )}
               </TableBody>
             </Table>
+            </Box>
           </Box>
         )}
 

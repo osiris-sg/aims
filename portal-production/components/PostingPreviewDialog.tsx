@@ -160,8 +160,10 @@ export default function PostingPreviewDialog({
               </Alert>
             )}
 
-            <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden" }}>
-              <Table size="small">
+            {/* Phone: the debit/credit grid scrolls sideways rather than being
+                clipped by overflow:hidden (the Account column alone is 300px). */}
+            <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden", overflowX: "auto" }}>
+              <Table size="small" sx={{ minWidth: { xs: 520, md: 0 } }}>
                 <TableHead>
                   <TableRow sx={{ bgcolor: (t: any) => alpha(t.palette.text.primary, 0.03) }}>
                     <TableCell sx={{ fontWeight: 700, width: 300 }}>Account</TableCell>

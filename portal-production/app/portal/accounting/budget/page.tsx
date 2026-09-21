@@ -147,8 +147,8 @@ export default function BudgetPage() {
   };
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={1}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>
             Budget — {year}
@@ -157,7 +157,7 @@ export default function BudgetPage() {
             Enter your monthly target per P&L account. Compared to actuals in the Reports tab.
           </Typography>
         </Box>
-        <Stack direction="row" gap={1}>
+        <Stack direction="row" gap={1} flexWrap="wrap">
           <TextField
             select
             size="small"
@@ -191,13 +191,13 @@ export default function BudgetPage() {
       </Stack>
 
       <Paper variant="outlined" sx={{ p: 1.5 }}>
-        <Stack direction="row" alignItems="center" gap={2}>
+        <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap">
           <TextField
             size="small"
             placeholder="Find by code or name"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            sx={{ minWidth: 280 }}
+            sx={{ minWidth: { xs: "100%", sm: 280 } }}
             InputProps={{
               startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
             }}

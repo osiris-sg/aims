@@ -20,6 +20,8 @@ import {
   Stack,
   TextField,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { request } from "@/helpers/request";
@@ -73,6 +75,9 @@ export default function ScheduleReturnDialog({
   onCreated: () => void;
 }) {
   const { getToken } = useAuth();
+  const theme = useTheme();
+  // Phone: this long form goes full-screen below sm
+  const fullScreenDialog = useMediaQuery(theme.breakpoints.down("sm"));
 
   const [customerOptions, setCustomerOptions] = useState<CustomerOption[]>([]);
   const [customer, setCustomer] = useState<CustomerOption | null>(null);
@@ -336,6 +341,7 @@ export default function ScheduleReturnDialog({
       }}
       fullWidth
       maxWidth="sm"
+      fullScreen={fullScreenDialog}
     >
       <DialogTitle>Schedule a return</DialogTitle>
       <DialogContent dividers>
@@ -409,7 +415,7 @@ export default function ScheduleReturnDialog({
               <Typography variant="caption" sx={{ color: "text.secondary" }}>
                 Not on the list? Add it by description.
               </Typography>
-              <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+              <Stack direction="row" spacing={1} sx={{ mt: 0.5, flexWrap: { xs: "wrap", sm: "nowrap" }, rowGap: 1 }}>
                 <TextField
                   size="small"
                   fullWidth

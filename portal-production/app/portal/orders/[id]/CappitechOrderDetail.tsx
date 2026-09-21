@@ -759,8 +759,9 @@ export function CappitechOrderDetail({ params }: { params: { id: string } }) {
           />
         ))}
       </Tabs>
-      <TableContainer sx={{ mb: 1 }}>
-        <Table size="small">
+      {/* Phone: 11-13 columns scroll inside the container */}
+      <TableContainer sx={{ mb: 1, overflowX: "auto" }}>
+        <Table size="small" sx={{ minWidth: 900 }}>
           <TableHead>
             <TableRow>
               <TableCell sx={{ width: 40, p: 0 }}>
@@ -951,8 +952,8 @@ export function CappitechOrderDetail({ params }: { params: { id: string } }) {
         </Box>
       )}
 
-      {/* Action buttons */}
-      <Stack direction="row" spacing={1} sx={{ mb: 3 }}>
+      {/* Action buttons — Phone: wrap instead of clipping */}
+      <Stack direction="row" spacing={1} sx={{ mb: 3, flexWrap: { xs: "wrap", md: "nowrap" }, rowGap: 1 }}>
         <Typography variant="body2" sx={{ alignSelf: "center", mr: 1 }}>
           {selected.length} selected →
         </Typography>

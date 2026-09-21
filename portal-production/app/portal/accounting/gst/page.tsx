@@ -158,7 +158,7 @@ export default function GstPage() {
   const summary = data?.summary;
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       {/* Page title */}
       <Box>
         <Typography variant="h5" sx={{ fontWeight: 700 }}>
@@ -312,7 +312,8 @@ export default function GstPage() {
 
       {/* Details table */}
       <TableContainer component={Paper} variant="outlined">
-        <Table size="small" stickyHeader>
+        {/* Phone: table scrolls inside its container */}
+        <Table size="small" stickyHeader sx={{ minWidth: 820 }}>
           <TableHead>
             <TableRow>
               <TableCell sx={{ fontWeight: 700 }}>Document</TableCell>

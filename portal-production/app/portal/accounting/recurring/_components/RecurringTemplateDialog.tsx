@@ -23,6 +23,7 @@ import {
   Tooltip,
   Typography,
   alpha,
+  useMediaQuery,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -78,6 +79,8 @@ export default function RecurringTemplateDialog({
   onSaved: () => void;
 }) {
   const { request } = useAccountingApi();
+  // Phone: this template form is large — full-screen below sm
+  const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
@@ -180,7 +183,7 @@ export default function RecurringTemplateDialog({
   };
 
   return (
-    <Dialog open={open} onClose={() => !saving && onClose()} fullWidth maxWidth="lg">
+    <Dialog open={open} onClose={() => !saving && onClose()} fullWidth maxWidth="lg" fullScreen={phoneDialog}>
       <DialogTitle>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Typography variant="h6" sx={{ fontWeight: 700 }}>
@@ -258,8 +261,9 @@ export default function RecurringTemplateDialog({
           />
         </Box>
 
-        <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden" }}>
-          <Table size="small">
+        {/* Phone: lines table scrolls inside its container */}
+        <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflowX: "auto" }}>
+          <Table size="small" sx={{ minWidth: 760 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
                 <TableCell sx={{ fontWeight: 700, width: 40 }}>#</TableCell>

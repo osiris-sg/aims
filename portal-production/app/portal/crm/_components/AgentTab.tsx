@@ -259,7 +259,7 @@ export default function AgentTab() {
           <Alert severity="info">No training pairs yet — the AI will refuse to auto-send until it has examples.</Alert>
         ) : (
           <TableContainer sx={{ overflowX: "auto" }}>
-            <Table size="small">
+            <Table size="small" sx={{ minWidth: 480 }}>
               <TableHead>
                 <TableRow>
                   <TableCell>Customer message</TableCell>

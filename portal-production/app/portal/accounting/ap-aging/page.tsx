@@ -77,7 +77,7 @@ export default function APAgingPage() {
   }, [suppliers, search]);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       <Box>
         <Typography variant="h5" sx={{ fontWeight: 700 }}>
           AP Aging Report
@@ -133,7 +133,7 @@ export default function APAgingPage() {
             label="Locate supplier"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            sx={{ minWidth: 280 }}
+            sx={{ minWidth: { xs: "100%", sm: 280 } }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -161,7 +161,8 @@ export default function APAgingPage() {
       </Paper>
 
       <TableContainer component={Paper} variant="outlined">
-        <Table size="small" stickyHeader>
+        {/* Phone: table scrolls inside its container */}
+        <Table size="small" stickyHeader sx={{ minWidth: 820 }}>
           <TableHead>
             <TableRow>
               <TableCell sx={{ fontWeight: 700 }}>Supplier</TableCell>

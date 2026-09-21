@@ -104,8 +104,8 @@ export default function AdminUploadsPage() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 } }}>
+      <Stack direction="row" alignItems="center" spacing={2} useFlexGap sx={{ mb: 2, flexWrap: { xs: "wrap", md: "nowrap" }, gap: { xs: 1, md: 2 } }}>
         <Typography variant="h5" fontWeight={700} sx={{ flex: 1 }}>
           Uploads log
         </Typography>
@@ -138,7 +138,7 @@ export default function AdminUploadsPage() {
         </Typography>
       ) : (
         <TableContainer component={Paper} variant="outlined" sx={{ overflowX: "auto" }}>
-          <Table size="small">
+          <Table size="small" sx={{ minWidth: 760 }}>
             <TableHead>
               <TableRow>
                 <TableCell>When</TableCell>

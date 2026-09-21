@@ -246,7 +246,7 @@ export default function CrmScheduledPage() {
   );
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3 }}>
       <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
         <Schedule color="primary" fontSize="large" />
         <Box>

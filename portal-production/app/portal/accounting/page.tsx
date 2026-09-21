@@ -109,9 +109,9 @@ export default function AccountingHubPage() {
   const kpis = hub.kpis;
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2.5 }}>
       {/* Header */}
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={1}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>
             Finance Hub

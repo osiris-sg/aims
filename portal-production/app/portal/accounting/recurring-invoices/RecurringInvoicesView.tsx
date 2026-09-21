@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   IconButton, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell, TableContainer, TableSortLabel,
-  TableHead, TableRow, TextField, Tooltip, Typography, alpha,
+  TableHead, TableRow, TextField, Tooltip, Typography, alpha, useMediaQuery,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import { RowKebab } from "@/components/RowKebab";
@@ -136,6 +136,8 @@ const blank = { name: "", customerId: "", documentTemplateId: "", numberFormatId
 
 export default function RecurringInvoicesView() {
   const { request } = useAccountingApi();
+  // Phone: the editor dialog goes full-screen below sm
+  const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
   const { customers } = useGetCustomers();
   const searchParams = useSearchParams();
   const [items, setItems] = useState<Template[]>([]);
@@ -445,8 +447,8 @@ export default function RecurringInvoicesView() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 } }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2, flexWrap: "wrap", gap: 1 }}>
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 700 }}>Recurring Invoices</Typography>
           <Typography variant="body2" color="text.secondary">Generate an invoice on a schedule — as a draft for review (default) or fully automatic (confirm + email). Text tokens (e.g. <code>{"{MONTH YEAR}"}</code>) update each period. Create one from a confirmed invoice via its Confirm menu.</Typography>
@@ -463,7 +465,8 @@ export default function RecurringInvoicesView() {
         </Paper>
       ) : (
         <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-          <Table size="small">
+          {/* Phone: table scrolls inside its container */}
+          <Table size="small" sx={{ minWidth: 860 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
                 <TableCell sx={{ fontWeight: 700 }}><TableSortLabel active={sortCol === "code"} direction={sortCol === "code" ? sortDir : "asc"} onClick={() => requestSort("code")}>ID</TableSortLabel></TableCell>
@@ -527,7 +530,7 @@ export default function RecurringInvoicesView() {
         </TableContainer>
       )}
 
-      <Dialog open={open} onClose={() => !saving && setOpen(false)} fullWidth maxWidth="md">
+      <Dialog open={open} onClose={() => !saving && setOpen(false)} fullWidth maxWidth="md" fullScreen={phoneDialog}>
         <DialogTitle>{editing ? "Edit recurring invoice" : "New recurring invoice"}</DialogTitle>
         <DialogContent dividers>
           <Stack gap={2} sx={{ mt: 0.5 }}>
@@ -599,7 +602,8 @@ export default function RecurringInvoicesView() {
                 ))}
               </Stack>
               <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, mt: 1 }}>
-                <Table size="small">
+                {/* Phone: line-items table scrolls inside its container */}
+                <Table size="small" sx={{ minWidth: 640 }}>
                   <TableHead><TableRow>
                     <TableCell>Description</TableCell><TableCell align="right" sx={{ width: 80 }}>Qty</TableCell>
                     <TableCell align="right" sx={{ width: 110 }}>Unit price</TableCell><TableCell sx={{ width: 200 }}>Account</TableCell><TableCell />
@@ -716,7 +720,7 @@ export default function RecurringInvoicesView() {
 
       {/* Live preview of the NEXT generated invoice: tokens resolved against
           the form's next-run date + {NTH} counter (guru 2026-08-27). */}
-      <Dialog open={previewOpen} onClose={() => setPreviewOpen(false)} fullWidth maxWidth="lg">
+      <Dialog open={previewOpen} onClose={() => setPreviewOpen(false)} fullWidth maxWidth="lg" fullScreen={phoneDialog}>
         <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           Preview — next run ({previewDate.toLocaleDateString("en-SG")})
           <IconButton size="small" onClick={() => setPreviewOpen(false)}><CloseIcon fontSize="small" /></IconButton>

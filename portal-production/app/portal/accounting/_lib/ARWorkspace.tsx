@@ -29,6 +29,7 @@ import {
   Tooltip,
   Typography,
   alpha,
+  useMediaQuery,
 } from "@mui/material";
 import AssessmentOutlinedIcon from "@mui/icons-material/AssessmentOutlined";
 import CloseIcon from "@mui/icons-material/Close";
@@ -86,6 +87,8 @@ type SoaTx = {
 export default function ARWorkspace() {
   const router = useRouter();
   const { request } = useAccountingApi();
+  // Phone: the debtor-ledger dialog goes full-screen below sm
+  const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
 
   const [cutOff, setCutOff] = useState(todayISO());
   const [search, setSearch] = useState("");
@@ -228,8 +231,8 @@ export default function ARWorkspace() {
   // Debtor ledger — opens as a LARGE DIALOG over the balances list instead of
   // swapping the page away (guru 2026-07-31).
   const debtorDialog = (
-    <Dialog open={!!selected} onClose={() => setSelected(null)} fullWidth maxWidth="lg">
-      <DialogContent sx={{ p: 3 }}>
+    <Dialog open={!!selected} onClose={() => setSelected(null)} fullWidth maxWidth="lg" fullScreen={phoneDialog}>
+      <DialogContent sx={{ p: { xs: 1.5, md: 3 } }}>
         {selected && (
           <>
         <Stack direction="row" alignItems="center" gap={1.5} sx={{ mb: 2, flexWrap: "wrap" }}>
@@ -290,7 +293,9 @@ export default function ARWorkspace() {
           </Box>
         ) : (
           <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: "55vh" }}>
+            {/* Phone: ledger table scrolls inside its container */}
             <Table size="small" stickyHeader sx={(t) => ({
+              minWidth: 700,
               "& tbody td": {
                 py: 0.5,
                 borderBottom: `1px solid ${t.palette.mode === "dark" ? "rgba(255,255,255,0.32)" : "rgba(0,0,0,0.32)"}`,
@@ -368,7 +373,7 @@ export default function ARWorkspace() {
   return (
     // Same page frame as the other accounting pages (e.g. Bills): padded and
     // width-capped instead of edge-to-edge.
-    <Box sx={{ px: 3, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
+    <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
       <Stack direction={{ xs: "column", md: "row" }} gap={1.5} sx={{ mb: 2 }}>
         {card("Sales (month)", sales)}
         {card("Receivables", grandTotal)}
@@ -390,7 +395,7 @@ export default function ARWorkspace() {
           placeholder="Locate by name or code…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          sx={{ minWidth: 280 }}
+          sx={{ minWidth: { xs: "100%", sm: 280 } }}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -445,7 +450,9 @@ export default function ARWorkspace() {
       ) : (
         <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: "58vh" }}>
           {/* Tight rows + dashed separators (guru 2026-07-28). */}
+          {/* Phone: balances table scrolls inside its container */}
           <Table size="small" stickyHeader sx={(t) => ({
+              minWidth: 700,
               "& tbody td": {
                 py: 0.5,
                 borderBottom: `1px solid ${t.palette.mode === "dark" ? "rgba(255,255,255,0.32)" : "rgba(0,0,0,0.32)"}`,

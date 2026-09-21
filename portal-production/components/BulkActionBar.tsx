@@ -46,8 +46,12 @@ export default function BulkActionBar({ count, actions, onClear, noun = "selecte
         py: 1,
         borderRadius: 3,
         display: "flex",
-        gap: 1.5,
+        gap: { xs: 0.75, md: 1.5 },
         alignItems: "center",
+        // Phone: actions wrap inside the pill instead of clipping off-screen
+        flexWrap: { xs: "wrap", md: "nowrap" },
+        justifyContent: "center",
+        maxWidth: "calc(100vw - 16px)",
       }}
     >
       <Typography variant="body2" sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>

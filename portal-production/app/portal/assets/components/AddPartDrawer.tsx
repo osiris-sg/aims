@@ -138,7 +138,7 @@ const AddPartDrawer: React.FC<AddPartDrawerProps> = ({ open, onClose, parentAsse
       open={open}
       onClose={handleClose}
       PaperProps={{
-        sx: { width: 480, p: 0 },
+        sx: { width: { xs: "100%", sm: 480 }, p: 0 },
       }}
     >
       <Box sx={{ p: 3, height: "100%", display: "flex", flexDirection: "column" }}>

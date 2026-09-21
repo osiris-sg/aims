@@ -34,8 +34,8 @@ export default function AddAssetPage() {
           gap: "var(--double-gap)",
           maxWidth: "1200px",
           mx: "auto",
-          px: 3,
-          pt: 8,
+          px: { xs: 1.5, md: 3 },
+          pt: { xs: 3, md: 8 },
         }}
       >
         <Stack direction="row" spacing="var(--default-gap)" alignItems="center">

@@ -122,7 +122,23 @@ export default function CostDialog({ open, projectId, sections, editing, onClose
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" PaperProps={{ sx: { borderRadius: 2 } }}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullWidth
+      maxWidth="sm"
+      // Phone: costs get entered on site, so the form fills the screen.
+      PaperProps={{
+        sx: {
+          borderRadius: { xs: 0, sm: 2 },
+          m: { xs: 0, sm: 4 },
+          width: { xs: "100%", sm: "auto" },
+          maxWidth: { xs: "100%", sm: undefined },
+          minHeight: { xs: "100%", sm: "auto" },
+          maxHeight: { xs: "100%", sm: "calc(100% - 64px)" },
+        },
+      }}
+    >
       <DialogTitle>{editing ? "Edit cost" : "Add cost"}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={1.5}>

@@ -29,6 +29,7 @@ import {
   TextField,
   Typography,
   alpha,
+  useMediaQuery,
 } from "@mui/material";
 import AssessmentOutlinedIcon from "@mui/icons-material/AssessmentOutlined";
 import CloseIcon from "@mui/icons-material/Close";
@@ -84,6 +85,8 @@ type LedgerTx = {
 export default function APWorkspace() {
   const router = useRouter();
   const { request } = useAccountingApi();
+  // Phone: the creditor-ledger dialog goes full-screen below sm
+  const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
 
   const [cutOff, setCutOff] = useState(todayISO());
   const [search, setSearch] = useState("");
@@ -215,8 +218,8 @@ export default function APWorkspace() {
   // Drill-in: creditor transaction history (large dialog, like AR)
   // =====================================================================
   const creditorDialog = (
-    <Dialog open={!!selected} onClose={() => setSelected(null)} fullWidth maxWidth="lg">
-      <DialogContent sx={{ p: 3 }}>
+    <Dialog open={!!selected} onClose={() => setSelected(null)} fullWidth maxWidth="lg" fullScreen={phoneDialog}>
+      <DialogContent sx={{ p: { xs: 1.5, md: 3 } }}>
         {selected && (
           <>
             <Stack direction="row" alignItems="center" gap={1.5} sx={{ mb: 2, flexWrap: "wrap" }}>
@@ -273,7 +276,8 @@ export default function APWorkspace() {
               </Box>
             ) : (
               <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: "55vh" }}>
-                <Table size="small" stickyHeader sx={tightRowsSx}>
+                {/* Phone: ledger table scrolls inside its container */}
+                <Table size="small" stickyHeader sx={[{ minWidth: 700 }, tightRowsSx]}>
                   <TableHead>
                     <TableRow>
                       <TableCell sx={headCellSx}>Reference</TableCell>
@@ -344,7 +348,7 @@ export default function APWorkspace() {
   // Landing: supplier balances
   // =====================================================================
   return (
-    <Box sx={{ px: 3, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
+    <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
       <Stack direction={{ xs: "column", md: "row" }} gap={1.5} sx={{ mb: 2 }}>
         {card("Purchases (month)", purchases)}
         {card("Payables", grandTotal)}
@@ -366,7 +370,7 @@ export default function APWorkspace() {
           placeholder="Locate by name or code…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          sx={{ minWidth: 280 }}
+          sx={{ minWidth: { xs: "100%", sm: 280 } }}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -403,7 +407,8 @@ export default function APWorkspace() {
         </Box>
       ) : (
         <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: "58vh" }}>
-          <Table size="small" stickyHeader sx={tightRowsSx}>
+          {/* Phone: balances table scrolls inside its container */}
+          <Table size="small" stickyHeader sx={[{ minWidth: 700 }, tightRowsSx]}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ ...headCellSx, width: 130 }}>Supplier Code</TableCell>

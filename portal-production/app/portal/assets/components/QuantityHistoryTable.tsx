@@ -108,8 +108,8 @@ export default function QuantityHistoryTable({ assetId }: QuantityHistoryTablePr
         </Box>
       ) : (
         <>
-          <TableContainer>
-            <Table size="small">
+          <TableContainer sx={{ overflowX: "auto" }}>
+            <Table size="small" sx={{ minWidth: 640 }}>
               <TableHead>
                 <TableRow>
                   <TableCell>Date</TableCell>

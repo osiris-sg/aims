@@ -714,7 +714,7 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
 
   return (
     <MainCard>
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3 }}>
         {/* Breadcrumb */}
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           <Box component="span" sx={{ cursor: "pointer" }} onClick={() => router.push(ROUTES.PROJECTS)}>
@@ -759,8 +759,8 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
             )}
           </Box>
 
-          {/* Money summary */}
-          <Stack direction="row" gap={2} sx={{ flexShrink: 0 }}>
+          {/* Money summary — Phone: stat cards wrap */}
+          <Stack direction="row" gap={2} sx={{ flexShrink: 0, flexWrap: { xs: "wrap", md: "nowrap" } }}>
             <SummaryStat label="Total Billed" value={fmtMoney(project.totals.billed)} />
             <SummaryStat label="Paid" value={fmtMoney(project.totals.paid)} accent="success.main" />
             <SummaryStat label="Outstanding" value={fmtMoney(project.totals.outstanding)} accent="warning.main" />
@@ -776,8 +776,9 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
 
         <Divider sx={{ my: 2 }} />
 
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-          <Tabs value={tab} onChange={(_, v) => setTab(v)}>
+        {/* Phone: tabs scroll and the action buttons wrap below them */}
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1, flexWrap: { xs: "wrap", lg: "nowrap" }, rowGap: 1 }}>
+          <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile sx={{ maxWidth: "100%" }}>
             <Tab label={`Active on Site (${active.length})`} />
             <Tab label={`Past Deployments (${past.length})`} />
             <Tab label={`Sales & Services (${project.standaloneDocs.length + serviceOnlyDeployments.length})`} />
@@ -1598,7 +1599,7 @@ function DeploymentCard({
           </Stack>
         </Box>
 
-        <Stack direction="row" gap={2} alignItems="center" sx={{ flexShrink: 0 }}>
+        <Stack direction="row" gap={2} alignItems="center" sx={{ flexShrink: 0, flexWrap: { xs: "wrap", md: "nowrap" } }}>
           <Box sx={{ textAlign: "right" }}>
             <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", letterSpacing: 0.5 }}>
               Billed
@@ -1611,7 +1612,7 @@ function DeploymentCard({
             </Typography>
           </Box>
 
-          <Stack direction="row" gap={0.5} alignItems="center">
+          <Stack direction="row" gap={0.5} alignItems="center" sx={{ flexWrap: { xs: "wrap", md: "nowrap" } }}>
             {onAttachDoc && (
               <Tooltip title="Attach a delivery order to this deployment">
                 <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={onAttachDoc}>

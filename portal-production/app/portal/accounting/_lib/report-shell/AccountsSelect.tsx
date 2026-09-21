@@ -52,7 +52,7 @@ export default function AccountsSelect({
       />
       <Menu
         anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}
-        slotProps={{ paper: { sx: { width: 360, maxHeight: 440 } } }}
+        slotProps={{ paper: { sx: { width: 360, maxWidth: "calc(100vw - 32px)", maxHeight: 440 } } }}
       >
         <Box sx={{ px: 1.5, py: 1 }} onKeyDown={(e) => e.stopPropagation()}>
           <TextField

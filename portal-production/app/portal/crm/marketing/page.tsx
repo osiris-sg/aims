@@ -226,11 +226,12 @@ export default function MarketingPage() {
             </Typography>
             <Stack spacing={1}>
               {data.monthly.map((r) => (
-                <Stack key={r.month} direction="row" alignItems="center" spacing={1.5}>
+                // Phone: fixed-width number captions wrap under the bar instead of overflowing
+                <Stack key={r.month} direction="row" alignItems="center" spacing={1.5} sx={{ flexWrap: { xs: "wrap", md: "nowrap" }, rowGap: 0.25 }}>
                   <Typography variant="caption" sx={{ width: 52, color: "text.secondary", flexShrink: 0 }}>
                     {monthLabel(r.month)}
                   </Typography>
-                  <Box sx={{ flex: 1, minWidth: 100 }}>
+                  <Box sx={{ flex: 1, minWidth: { xs: 80, md: 100 } }}>
                     <Box sx={{ height: 14, borderRadius: 1, bgcolor: "primary.main", opacity: 0.85, width: `${Math.max(2, (r.spend / maxSpend) * 100)}%` }} />
                   </Box>
                   <Typography variant="caption" sx={{ width: 90, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
@@ -256,7 +257,7 @@ export default function MarketingPage() {
               Campaigns
             </Typography>
             <Box sx={{ overflowX: "auto" }}>
-              <Table size="small">
+              <Table size="small" sx={{ minWidth: 820 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Campaign</TableCell>
@@ -305,7 +306,7 @@ export default function MarketingPage() {
               </Typography>
             </Typography>
             <Box sx={{ overflowX: "auto" }}>
-              <Table size="small">
+              <Table size="small" sx={{ minWidth: 900 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Ad</TableCell>

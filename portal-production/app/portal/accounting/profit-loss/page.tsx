@@ -150,7 +150,7 @@ export default function ProfitLossPage() {
   }, [cutOffDate, request]);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       {/* Page title — hidden on print */}
       <Box className="no-print">
         <Typography variant="h5" sx={{ fontWeight: 700 }}>
@@ -221,7 +221,7 @@ export default function ProfitLossPage() {
               </Box>
             )}
           </Stack>
-          <Stack direction="row" gap={1}>
+          <Stack direction="row" gap={1} flexWrap="wrap">
             <Button
               size="small"
               variant="outlined"
@@ -246,7 +246,7 @@ export default function ProfitLossPage() {
               Year-End Close
             </Button>
           </Stack>
-          <Stack direction="row" gap={1}>
+          <Stack direction="row" gap={1} flexWrap="wrap">
             <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
               Refresh
             </Button>
@@ -330,12 +330,14 @@ export default function ProfitLossPage() {
 // White A4-sized paper that frames the printable report content
 function PaperSheet({ children }: { children: React.ReactNode }) {
   return (
-    <Box sx={{ display: "flex", justifyContent: "center", py: 1 }}>
+    // Phone: the A4 sheet scrolls inside this container, page body doesn't
+    <Box sx={{ display: "flex", justifyContent: { xs: "flex-start", md: "center" }, py: 1, overflowX: "auto" }}>
       <Paper
         data-print-paper
         elevation={2}
         sx={{
           width: "210mm",
+          flexShrink: 0,
           minHeight: "297mm",
           p: "20mm",
           backgroundColor: "white",

@@ -89,7 +89,7 @@ export default function DocumentTemplates() {
 
   return (
     <AdminCard>
-      <Box sx={{ mb: 2, display: "flex", gap: 2, justifyContent: "flex-end" }}>
+      <Box sx={{ mb: 2, display: "flex", gap: { xs: 1, md: 2 }, justifyContent: "flex-end", flexWrap: { xs: "wrap", md: "nowrap" } }}>
         <Button
           variant="outlined"
           startIcon={<RefreshIcon />}

@@ -23,6 +23,7 @@ import {
   Tooltip,
   Typography,
   alpha,
+  useMediaQuery,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -76,6 +77,8 @@ export default function JournalEntryDialog({
   onCreated?: () => void;
 }) {
   const { request } = useAccountingApi();
+  // Phone: this entry form is large — full-screen below sm
+  const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [saving, setSaving] = useState<"draft" | "post" | null>(null);
@@ -193,7 +196,7 @@ export default function JournalEntryDialog({
   };
 
   return (
-    <Dialog open={open} onClose={() => !saving && onClose()} fullWidth maxWidth="lg">
+    <Dialog open={open} onClose={() => !saving && onClose()} fullWidth maxWidth="lg" fullScreen={phoneDialog}>
       <DialogTitle>
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Typography variant="h6" sx={{ fontWeight: 700 }}>
@@ -258,8 +261,9 @@ export default function JournalEntryDialog({
         </Box>
 
         {/* Lines table */}
-        <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden" }}>
-          <Table size="small">
+        {/* Phone: lines table scrolls inside its container */}
+        <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflowX: "auto" }}>
+          <Table size="small" sx={{ minWidth: 760 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
                 <TableCell sx={{ fontWeight: 700, width: 40 }}>#</TableCell>
@@ -359,7 +363,7 @@ export default function JournalEntryDialog({
           </Table>
         </Box>
 
-        <Stack direction="row" alignItems="center" gap={2} sx={{ mt: 1.5 }}>
+        <Stack direction="row" alignItems="center" gap={2} sx={{ mt: 1.5, flexWrap: "wrap" }}>
           <Button startIcon={<AddIcon />} size="small" onClick={addLine} disabled={!!saving}>
             Add line
           </Button>

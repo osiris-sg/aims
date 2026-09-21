@@ -44,6 +44,8 @@ import {
   AccordionSummary,
   AccordionDetails,
   Tooltip,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import {
   Edit as EditIcon,
@@ -236,13 +238,16 @@ function TabPanel(props: TabPanelProps) {
   const { children, value, index, ...other } = props;
   return (
     <div role="tabpanel" hidden={value !== index} {...other}>
-      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
+      {value === index && <Box sx={{ p: { xs: 1.5, md: 3 } }}>{children}</Box>}
     </div>
   );
 }
 
 export default function OrganizationDetailPage() {
   const router = useRouter();
+  const theme = useTheme();
+  // Phone: content-heavy dialogs go full-screen below sm
+  const phoneDialogs = useMediaQuery(theme.breakpoints.down("sm"));
   const params = useParams();
   const { getToken } = useAuth();
   const organizationId = params.id as string;
@@ -1031,8 +1036,8 @@ export default function OrganizationDetailPage() {
   return (
     <Box>
       {/* Header */}
-      <Box sx={{ mb: 3, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+      <Box sx={{ mb: 3, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: { xs: "wrap", md: "nowrap" }, gap: { xs: 1, md: 0 } }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
           <IconButton onClick={() => router.push("/portal/admin")}>
             <ArrowBackIcon />
           </IconButton>
@@ -1137,9 +1142,9 @@ export default function OrganizationDetailPage() {
 
         {/* MODULES TAB */}
         <TabPanel value={tabValue} index={0}>
-          <Box sx={{ mb: 2, display: "flex", justifyContent: "space-between" }}>
+          <Box sx={{ mb: 2, display: "flex", justifyContent: "space-between", flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
             <Typography variant="h6">Module Management</Typography>
-            <Box>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
               {(!organization.modules || organization.modules.length === 0) && (
                 <Button
                   variant="contained"
@@ -1162,8 +1167,8 @@ export default function OrganizationDetailPage() {
             </Box>
           </Box>
 
-          <TableContainer>
-            <Table>
+          <TableContainer sx={{ overflowX: "auto" }}>
+            <Table sx={{ minWidth: 720 }}>
               <TableHead>
                 <TableRow>
                   <TableCell>Module Code</TableCell>
@@ -1231,7 +1236,7 @@ export default function OrganizationDetailPage() {
 
         {/* CUSTOM FIELDS TAB */}
         <TabPanel value={tabValue} index={1}>
-          <Box sx={{ mb: 2, display: "flex", justifyContent: "space-between" }}>
+          <Box sx={{ mb: 2, display: "flex", justifyContent: "space-between", flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
             <FormControl sx={{ minWidth: 200 }}>
               <InputLabel>Entity Type</InputLabel>
               <Select
@@ -1270,8 +1275,8 @@ export default function OrganizationDetailPage() {
             </Button>
           </Box>
 
-          <TableContainer>
-            <Table>
+          <TableContainer sx={{ overflowX: "auto" }}>
+            <Table sx={{ minWidth: 720 }}>
               <TableHead>
                 <TableRow>
                   <TableCell>Field Name</TableCell>
@@ -1332,7 +1337,7 @@ export default function OrganizationDetailPage() {
 
         {/* DOCUMENTS TAB */}
         <TabPanel value={tabValue} index={2}>
-          <Box sx={{ mb: 2, display: "flex", justifyContent: "space-between" }}>
+          <Box sx={{ mb: 2, display: "flex", justifyContent: "space-between", flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
             <Typography variant="h6">Document Types Management</Typography>
             <Button
               variant="contained"
@@ -1347,8 +1352,8 @@ export default function OrganizationDetailPage() {
             Enable or disable document types that will be available in the Templates page for this organization. Click "Manage Templates" to view and manage template designs for each type.
           </Alert>
 
-          <TableContainer>
-            <Table>
+          <TableContainer sx={{ overflowX: "auto" }}>
+            <Table sx={{ minWidth: 720 }}>
               <TableHead>
                 <TableRow>
                   <TableCell>Document Type Code</TableCell>
@@ -1903,7 +1908,7 @@ export default function OrganizationDetailPage() {
       </Dialog>
 
       {/* CUSTOM FIELD DIALOG */}
-      <Dialog open={fieldDialogOpen} onClose={() => setFieldDialogOpen(false)} maxWidth="md" fullWidth>
+      <Dialog open={fieldDialogOpen} onClose={() => setFieldDialogOpen(false)} maxWidth="md" fullWidth fullScreen={phoneDialogs}>
         <DialogTitle>{editingField ? "Edit Custom Field" : "Create Custom Field"}</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
@@ -2013,7 +2018,7 @@ export default function OrganizationDetailPage() {
       </Dialog>
 
       {/* TEMPLATE MANAGEMENT DIALOG */}
-      <Dialog open={templateDialogOpen} onClose={() => setTemplateDialogOpen(false)} maxWidth="lg" fullWidth>
+      <Dialog open={templateDialogOpen} onClose={() => setTemplateDialogOpen(false)} maxWidth="lg" fullWidth fullScreen={phoneDialogs}>
         <DialogTitle>
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Typography variant="h6">
@@ -2194,6 +2199,7 @@ export default function OrganizationDetailPage() {
         onClose={() => setPreviewTemplate(null)}
         maxWidth="lg"
         fullWidth
+        fullScreen={phoneDialogs}
       >
         <DialogTitle>
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>

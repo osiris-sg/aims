@@ -126,15 +126,15 @@ function EquipmentSection({ revenueAccounts, authedFetch }: { revenueAccounts: a
 
   return (
     <Box>
-      <Stack direction="row" gap={1.5} alignItems="center" sx={{ mb: 1.5 }}>
-        <TextField size="small" placeholder="Search products…" value={q} onChange={(e) => setQ(e.target.value)} sx={{ minWidth: 280 }} InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ color: "text.secondary", mr: 1 }} /> }} />
+      <Stack direction="row" gap={1.5} alignItems="center" flexWrap="wrap" sx={{ mb: 1.5 }}>
+        <TextField size="small" placeholder="Search products…" value={q} onChange={(e) => setQ(e.target.value)} sx={{ minWidth: { xs: "100%", sm: 280 } }} InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ color: "text.secondary", mr: 1 }} /> }} />
         <Typography variant="caption" sx={{ color: "text.secondary" }}>{mapped} of {assets.length} products mapped</Typography>
       </Stack>
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", p: 5 }}><CircularProgress /></Box>
       ) : (
-        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: 520 }}>
-          <Table size="small" stickyHeader>
+        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: 520, overflowX: "auto" }}>
+          <Table size="small" stickyHeader sx={{ minWidth: 700 }}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ fontWeight: 700 }}>Product</TableCell>
@@ -244,9 +244,9 @@ function ServicesSection({ revenueAccounts, authedFetch }: { revenueAccounts: an
 
   return (
     <Box>
-      <Stack direction="row" gap={1.5} alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
-        <Stack direction="row" gap={1.5} alignItems="center">
-          <TextField size="small" placeholder="Search services…" value={q} onChange={(e) => setQ(e.target.value)} sx={{ minWidth: 280 }} InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ color: "text.secondary", mr: 1 }} /> }} />
+      <Stack direction="row" gap={1.5} alignItems="center" justifyContent="space-between" flexWrap="wrap" sx={{ mb: 1.5 }}>
+        <Stack direction="row" gap={1.5} alignItems="center" flexWrap="wrap">
+          <TextField size="small" placeholder="Search services…" value={q} onChange={(e) => setQ(e.target.value)} sx={{ minWidth: { xs: "100%", sm: 280 } }} InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ color: "text.secondary", mr: 1 }} /> }} />
           <Typography variant="caption" sx={{ color: "text.secondary" }}>{filtered.length} of {items.length} services</Typography>
         </Stack>
         <Button startIcon={<AddIcon />} variant="contained" onClick={openNew}>Add service</Button>
@@ -259,8 +259,8 @@ function ServicesSection({ revenueAccounts, authedFetch }: { revenueAccounts: an
           <Button startIcon={<AddIcon />} variant="outlined" onClick={openNew}>Add your first service</Button>
         </Paper>
       ) : (
-        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-          <Table size="small">
+        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, overflowX: "auto" }}>
+          <Table size="small" sx={{ minWidth: 700 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: (t) => alpha(t.palette.text.primary, 0.03) }}>
                 <TableCell sx={{ fontWeight: 700, width: 100 }}>Code</TableCell>

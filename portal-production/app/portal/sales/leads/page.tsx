@@ -28,6 +28,8 @@ import {
   TextField,
   Tooltip,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
@@ -239,13 +241,14 @@ function LeadInsights({ stats }: { stats: any }) {
           <Stack spacing={1}>
             {ins.bySource.map((s: any) => (
               <Box key={s.source}>
-                <Stack direction="row" alignItems="center" spacing={1}>
+                {/* Phone: stats caption wraps under the bar instead of squeezing it out */}
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ flexWrap: { xs: "wrap", md: "nowrap" }, rowGap: 0.25 }}>
                   <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: SRC_COLOR[s.source] || "text.disabled", flexShrink: 0 }} />
                   <Typography variant="body2" sx={{ fontWeight: 600, minWidth: 92 }}>{SRC_LABEL[s.source] || s.source}</Typography>
-                  <Box sx={{ flex: 1 }}>
+                  <Box sx={{ flex: 1, minWidth: { xs: 80, md: 0 } }}>
                     <LinearProgress variant="determinate" value={s.share} sx={{ height: 8, borderRadius: 4, "& .MuiLinearProgress-bar": { bgcolor: SRC_COLOR[s.source] || "text.disabled" }, bgcolor: "action.hover" }} />
                   </Box>
-                  <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums", minWidth: 148, textAlign: "right", color: "text.secondary" }}>
+                  <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums", minWidth: { xs: 0, md: 148 }, textAlign: "right", color: "text.secondary" }}>
                     {s.total} · {s.share.toFixed(0)}% share · {s.converted} signed ({s.convertedPct.toFixed(0)}%){s.dead ? ` · ${s.dead} dead` : ""}
                   </Typography>
                 </Stack>
@@ -283,6 +286,9 @@ function LeadInsights({ stats }: { stats: any }) {
 export default function LeadsPage() {
   const router = useRouter();
   const api = useIdQuoteApi();
+  const theme = useTheme();
+  // Phone: content-heavy dialogs go full-screen below sm
+  const fullScreenDialog = useMediaQuery(theme.breakpoints.down("sm"));
   const { organization } = useOrganization();
   const { isIdQuotationEnabled, isLoading: flagsLoading } = useOrganizationFeatures();
   // A user whose ONLY role is Designer works the funnel read-mostly: status
@@ -885,7 +891,7 @@ export default function LeadsPage() {
       </Dialog>
 
       {/* manual lead */}
-      <Dialog open={manualOpen} onClose={() => setManualOpen(false)} fullWidth maxWidth="sm" PaperProps={{ sx: { borderRadius: 2 } }}>
+      <Dialog open={manualOpen} onClose={() => setManualOpen(false)} fullWidth maxWidth="sm" fullScreen={fullScreenDialog} PaperProps={{ sx: { borderRadius: { sm: 2 } } }}>
         <DialogTitle>New lead</DialogTitle>
         <DialogContent dividers>
           <Grid container spacing={1.5}>
@@ -893,7 +899,7 @@ export default function LeadsPage() {
               <TextField label="Name" size="small" fullWidth value={manual.name} onChange={(e) => setManual({ ...manual, name: e.target.value })} />
             </Grid>
             {manual.phones.map((ph, i) => (
-              <Grid item xs={6} key={i}>
+              <Grid item xs={12} sm={6} key={i}>
                 <PhoneInput
                   label={i === 0 ? "Phone" : `Phone ${i + 1}`}
                   value={ph}
@@ -902,7 +908,7 @@ export default function LeadsPage() {
                 />
               </Grid>
             ))}
-            <Grid item xs={6} sx={{ display: "flex", alignItems: "center" }}>
+            <Grid item xs={12} sm={6} sx={{ display: "flex", alignItems: "center" }}>
               <Button size="small" startIcon={<AddIcon />} onClick={() => setManual({ ...manual, phones: [...manual.phones, ""] })} sx={{ textTransform: "none" }}>
                 Add number
               </Button>
@@ -910,19 +916,19 @@ export default function LeadsPage() {
                 the client can be WhatsApped on any of them
               </Typography>
             </Grid>
-            <Grid item xs={6}>
+            <Grid item xs={12} sm={6}>
               <TextField label="Email" size="small" fullWidth value={manual.email} onChange={(e) => setManual({ ...manual, email: e.target.value })} />
             </Grid>
-            <Grid item xs={6}>
+            <Grid item xs={12} sm={6}>
               <TextField label="Property type" size="small" fullWidth value={manual.propertyType} onChange={(e) => setManual({ ...manual, propertyType: e.target.value })} />
             </Grid>
-            <Grid item xs={6}>
+            <Grid item xs={12} sm={6}>
               <TextField label="Budget" size="small" fullWidth value={manual.budget} onChange={(e) => setManual({ ...manual, budget: e.target.value })} />
             </Grid>
-            <Grid item xs={6}>
+            <Grid item xs={12} sm={6}>
               <TextField label="Est. key collection" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={manual.keyCollection} onChange={(e) => setManual({ ...manual, keyCollection: e.target.value })} />
             </Grid>
-            <Grid item xs={6}>
+            <Grid item xs={12} sm={6}>
               <TextField label="Source" select size="small" fullWidth value={manual.source} onChange={(e) => setManual({ ...manual, source: e.target.value })}>
                 {MANUAL_SOURCE_OPTIONS.map((o) => (
                   <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
@@ -961,7 +967,7 @@ export default function LeadsPage() {
       </Dialog>
 
       {/* edit lead — every whitelisted human-set field; available in any status */}
-      <Dialog open={!!editFor} onClose={() => setEditFor(null)} fullWidth maxWidth="sm" PaperProps={{ sx: { borderRadius: 2 } }}>
+      <Dialog open={!!editFor} onClose={() => setEditFor(null)} fullWidth maxWidth="sm" fullScreen={fullScreenDialog} PaperProps={{ sx: { borderRadius: { sm: 2 } } }}>
         <DialogTitle>Edit lead</DialogTitle>
         <DialogContent dividers>
           {edit && editFor && (

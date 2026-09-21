@@ -217,8 +217,9 @@ export default function StockCardPage() {
       </Box>
 
       {/* Results Table */}
-      <TableContainer component={Paper} elevation={0} sx={{ maxHeight: "calc(100vh - 400px)" }}>
-        <Table stickyHeader size="small">
+      {/* Phone: 6-7 columns scroll inside the container instead of crushing the page */}
+      <TableContainer component={Paper} elevation={0} sx={{ maxHeight: "calc(100vh - 400px)", overflowX: "auto" }}>
+        <Table stickyHeader size="small" sx={{ minWidth: 720 }}>
           <TableHead>
             <TableRow>
               <TableCell sx={{ width: "15%" }}>Code</TableCell>

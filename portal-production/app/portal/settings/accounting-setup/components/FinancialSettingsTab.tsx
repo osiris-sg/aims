@@ -162,7 +162,7 @@ export default function FinancialSettingsTab({
       >
         <Stack gap={1}>
           {rates.map((r, i) => (
-            <Stack key={i} direction="row" gap={1.5} alignItems="center">
+            <Stack key={i} direction="row" gap={1.5} alignItems="center" flexWrap="wrap">
               <TextField
                 size="small" label="Currency" value={r.code} sx={{ width: 120 }}
                 onChange={(e) => setRates((rs) => rs.map((x, xi) => (xi === i ? { ...x, code: e.target.value.toUpperCase() } : x)))}

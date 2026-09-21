@@ -326,7 +326,7 @@ export default function BillsPage() {
   ], [request, isXeroDocSyncEnabled]);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       {/* Back to the Accounts Payable workspace (guru 2026-08-01). */}
       <Box>
         <Button
@@ -338,8 +338,8 @@ export default function BillsPage() {
           Accounts Payable
         </Button>
       </Box>
-      {/* KPI row */}
-      <Stack direction="row" gap={2}>
+      {/* KPI row — Phone: cards wrap */}
+      <Stack direction="row" gap={2} flexWrap="wrap">
         <Paper variant="outlined" sx={{ p: 1.5, minWidth: 180 }}>
           <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", fontWeight: 700, fontSize: "0.65rem" }}>Visible invoices</Typography>
           <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.125rem", mt: 0.25 }}>{visible.length}</Typography>
@@ -359,6 +359,8 @@ export default function BillsPage() {
         <Tabs
           value={tab}
           onChange={(_, v) => setTab(v)}
+          variant="scrollable"
+          allowScrollButtonsMobile
           sx={{ px: 1, minHeight: 40, "& .MuiTab-root": { minHeight: 40, textTransform: "none", fontWeight: 600 } }}
         >
           <Tab value="all" label={<TabLabel text="All" count={counts.all} />} />

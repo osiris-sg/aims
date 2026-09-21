@@ -27,6 +27,7 @@ import {
   Tooltip,
   Typography,
   alpha,
+  useMediaQuery,
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
@@ -104,6 +105,8 @@ const fmt = (n: number) =>
 
 export default function BankReconciliationPage() {
   const { request } = useAccountingApi();
+  // Phone: large dialogs go full-screen below sm
+  const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [bankAccountId, setBankAccountId] = useState<string | null>(null);
   const [imports, setImports] = useState<ImportRow[]>([]);
@@ -555,7 +558,7 @@ export default function BankReconciliationPage() {
   ], []);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       <Box>
         <Typography variant="h5" sx={{ fontWeight: 700 }}>
           Bank Reconciliation
@@ -577,7 +580,7 @@ export default function BankReconciliationPage() {
               setBankAccountId(e.target.value || null);
               setActiveImportId(null);
             }}
-            sx={{ minWidth: 280 }}
+            sx={{ minWidth: { xs: "100%", sm: 280 } }}
           >
             {accounts.length === 0 && <MenuItem disabled>No bank accounts in chart</MenuItem>}
             {accounts.map((a) => (
@@ -707,7 +710,7 @@ export default function BankReconciliationPage() {
 
       {/* Status chip strip — click to filter the table (click again / All to clear). */}
       {activeImport && (
-        <Stack direction="row" gap={1}>
+        <Stack direction="row" gap={1} flexWrap="wrap">
           {([
             { key: null, label: `All ${counts.all}`, color: undefined },
             { key: "PENDING", label: `Pending ${counts.PENDING}`, color: "warning" },
@@ -821,7 +824,7 @@ export default function BankReconciliationPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={!!matchLine} onClose={() => setMatchLine(null)} fullWidth maxWidth="lg">
+      <Dialog open={!!matchLine} onClose={() => setMatchLine(null)} fullWidth maxWidth="lg" fullScreen={phoneDialog}>
         <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Box>
             Find match
@@ -868,7 +871,9 @@ export default function BankReconciliationPage() {
             </Typography>
           ) : (
             <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: "55vh", borderRadius: 1.5 }}>
+              {/* Phone: candidate table scrolls inside its container */}
               <Table size="small" stickyHeader sx={(t) => ({
+                minWidth: 760,
                 "& tbody td": { py: 0.5, borderBottom: `1px solid ${t.palette.mode === "dark" ? "rgba(255,255,255,0.32)" : "rgba(0,0,0,0.32)"}` },
               })}>
                 <TableHead>
@@ -974,7 +979,7 @@ export default function BankReconciliationPage() {
       {/* Reconciled transaction details (guru 2026-08-03, Xero concept): the
           statement line beside exactly what it reconciled to — document,
           contact and the journal's double entry — with Remove & Redo. */}
-      <Dialog open={!!detail} onClose={() => setDetail(null)} fullWidth maxWidth="md">
+      <Dialog open={!!detail} onClose={() => setDetail(null)} fullWidth maxWidth="md" fullScreen={phoneDialog}>
         <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           Reconciliation details
           <IconButton size="small" onClick={() => setDetail(null)}>
@@ -1251,6 +1256,8 @@ function CsvImportDialog({
   const [balanceCol, setBalanceCol] = useState<number | "">("");
   const [filename, setFilename] = useState("");
   const [busy, setBusy] = useState(false);
+  // Phone: this mapping dialog is large — go full-screen below sm
+  const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
 
   useEffect(() => {
     if (!open) {
@@ -1314,7 +1321,7 @@ function CsvImportDialog({
     .slice(0, 4);
 
   return (
-    <Dialog open={open} onClose={() => !busy && onClose()} fullWidth maxWidth="md">
+    <Dialog open={open} onClose={() => !busy && onClose()} fullWidth maxWidth="md" fullScreen={phoneDialog}>
       <DialogTitle>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Typography variant="h6" sx={{ fontWeight: 700 }}>Import CSV statement</Typography>
@@ -1375,7 +1382,7 @@ function CsvImportDialog({
               </Box>
             </Box>
           )}
-          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 1.5 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "1fr 1fr 1fr 1fr" }, gap: 1.5 }}>
             <TextField label="Skip header rows" type="number" size="small" value={skipRows} onChange={(e) => setSkipRows(parseInt(e.target.value) || 0)} disabled={busy} />
             <TextField label="Delimiter" size="small" value={delimiter} onChange={(e) => setDelimiter(e.target.value)} disabled={busy} />
             <TextField label="Date col #" type="number" size="small" value={dateCol} onChange={(e) => setDateCol(parseInt(e.target.value) || 0)} disabled={busy} />

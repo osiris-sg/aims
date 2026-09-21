@@ -313,7 +313,7 @@ export default function EmailIngestionTab({ organizationId }: { organizationId: 
   return (
     <Box>
       {/* Header: title + master switch */}
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1, flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
         <Box>
           <Typography variant="h6">Email Ingestion</Typography>
           <Typography variant="body2" color="text.secondary">
@@ -599,8 +599,8 @@ export default function EmailIngestionTab({ organizationId }: { organizationId: 
           Refresh
         </Button>
       </Box>
-      <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>
-        <Table size="small">
+      <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflowX: "auto" }}>
+        <Table size="small" sx={{ minWidth: 720 }}>
           <TableHead>
             <TableRow>
               <TableCell>Time</TableCell>

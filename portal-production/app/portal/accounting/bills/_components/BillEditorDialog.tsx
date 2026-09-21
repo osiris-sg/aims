@@ -24,6 +24,7 @@ import {
   Tooltip,
   Typography,
   alpha,
+  useMediaQuery,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -135,6 +136,8 @@ export default function BillEditorDialog({
   kind?: "SIN" | "SPR";
 }) {
   const { request } = useAccountingApi();
+  // Phone: this editor is large — full-screen below sm
+  const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
   const { getToken } = useAuth();
   const { isXeroDocSyncEnabled } = useOrganizationFeatures();
   // Editing keeps the bill's stored kind; new entries take the chooser's pick.
@@ -786,7 +789,7 @@ export default function BillEditorDialog({
   };
 
   return (
-    <Dialog open={open} onClose={requestClose} fullWidth maxWidth="lg">
+    <Dialog open={open} onClose={requestClose} fullWidth maxWidth="lg" fullScreen={phoneDialog}>
       <DialogTitle>
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Stack direction="row" gap={1.5} alignItems="center">
@@ -1034,8 +1037,9 @@ export default function BillEditorDialog({
         </Box>
 
         {/* Lines */}
-        <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden" }}>
-          <Table size="small">
+        {/* Phone: line-items table scrolls inside its container */}
+        <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflowX: "auto" }}>
+          <Table size="small" sx={{ minWidth: 760 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: (t: any) => alpha(t.palette.text.primary, 0.03) }}>
                 <TableCell sx={{ fontWeight: 700, width: 40 }}>#</TableCell>
@@ -1131,7 +1135,7 @@ export default function BillEditorDialog({
           </Table>
         </Box>
 
-        <Stack direction="row" alignItems="center" gap={2} sx={{ mt: 1.5 }}>
+        <Stack direction="row" alignItems="center" gap={2} sx={{ mt: 1.5, flexWrap: "wrap" }}>
           <Button startIcon={<AddIcon />} size="small" onClick={() => setLines((r) => [...r, newLine()])} disabled={isReadOnly}>
             Add line
           </Button>

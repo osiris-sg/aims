@@ -361,8 +361,8 @@ function ReportBody({ result, onOpenOrder }: { result: VerifyResult; onOpenOrder
 
 function ItemsTable({ lines }: { lines: LineRow[] }) {
   return (
-    <TableContainer>
-      <Table size="small">
+    <TableContainer sx={{ overflowX: "auto" }}>
+      <Table size="small" sx={{ minWidth: 720 }}>
         <TableHead>
           <TableRow>
             <TableCell>Code</TableCell>
@@ -442,7 +442,7 @@ function TotalsView({ details }: { details: any }) {
 
 function PointsView({ details }: { details: any }) {
   return (
-    <Stack direction="row" spacing={3} sx={{ pl: 1 }}>
+    <Stack direction="row" spacing={3} sx={{ pl: 1, flexWrap: { xs: "wrap", sm: "nowrap" }, rowGap: 0.5 }}>
       <Typography variant="body2"><b>PO total points:</b> {details?.po ?? "—"}</Typography>
       <Typography variant="body2"><b>Supplier issued:</b> {details?.supplier ?? "—"}</Typography>
       <Typography variant="body2" color={Math.abs(Number(details?.diff || 0)) > 0.5 ? "error.main" : "text.secondary"}>
@@ -463,8 +463,8 @@ function ExtractedFallback({ extracted }: { extracted: any }) {
         PO ref on doc: {extracted?.customerPoNumber || "—"}
       </Typography>
       <Box sx={{ mt: 1 }}>
-        <TableContainer>
-          <Table size="small">
+        <TableContainer sx={{ overflowX: "auto" }}>
+          <Table size="small" sx={{ minWidth: 560 }}>
             <TableHead>
               <TableRow>
                 <TableCell>Code</TableCell>

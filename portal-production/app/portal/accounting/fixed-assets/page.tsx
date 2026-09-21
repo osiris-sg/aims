@@ -199,8 +199,9 @@ export default function FixedAssetsPage() {
   ], []);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" gap={2}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
+      {/* Phone: stat cards wrap onto extra rows */}
+      <Stack direction="row" gap={2} flexWrap="wrap">
         <Paper variant="outlined" sx={{ p: 1.5, minWidth: 160 }}>
           <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", fontWeight: 700, fontSize: "0.65rem" }}>
             Active assets
@@ -340,7 +341,23 @@ function FAEditor({
   };
 
   return (
-    <Dialog open={open} onClose={() => !saving && onClose()} fullWidth maxWidth="md">
+    <Dialog
+      open={open}
+      onClose={() => !saving && onClose()}
+      fullWidth
+      maxWidth="md"
+      // Phone: the asset form fills the screen.
+      PaperProps={{
+        sx: {
+          m: { xs: 0, sm: 4 },
+          width: { xs: "100%", sm: "auto" },
+          maxWidth: { xs: "100%", sm: undefined },
+          borderRadius: { xs: 0, sm: 1 },
+          minHeight: { xs: "100%", sm: "auto" },
+          maxHeight: { xs: "100%", sm: "calc(100% - 64px)" },
+        },
+      }}
+    >
       <DialogTitle>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Typography variant="h6" sx={{ fontWeight: 700 }}>

@@ -9,7 +9,7 @@ import AgentTab from "../_components/AgentTab";
 
 export default function CrmAgentPage() {
   return (
-    <Box sx={{ p: 3, maxWidth: 1100, mx: "auto" }}>
+    <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1100, mx: "auto" }}>
       <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 3 }}>
         <Psychology color="primary" fontSize="large" />
         <Box>

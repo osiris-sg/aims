@@ -96,7 +96,7 @@ export default function ARAgingPage() {
   }, [customers, search]);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       <Box>
         <Typography variant="h5" sx={{ fontWeight: 700 }}>
           AR Aging Report
@@ -154,7 +154,7 @@ export default function ARAgingPage() {
             label="Locate customer"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            sx={{ minWidth: 280 }}
+            sx={{ minWidth: { xs: "100%", sm: 280 } }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -183,7 +183,8 @@ export default function ARAgingPage() {
 
       {/* Customer table */}
       <TableContainer component={Paper} variant="outlined">
-        <Table size="small" stickyHeader>
+        {/* Phone: table scrolls inside its container */}
+        <Table size="small" stickyHeader sx={{ minWidth: 860 }}>
           <TableHead>
             <TableRow>
               <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>

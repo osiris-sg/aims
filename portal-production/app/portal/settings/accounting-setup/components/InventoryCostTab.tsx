@@ -191,7 +191,7 @@ export default function InventoryCostTab() {
             placeholder="Find by SKU or name"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            sx={{ minWidth: 280 }}
+            sx={{ minWidth: { xs: "100%", sm: 280 } }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -220,8 +220,8 @@ export default function InventoryCostTab() {
       </Paper>
 
       {/* Grid */}
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small" stickyHeader>
+      <TableContainer component={Paper} variant="outlined" sx={{ overflowX: "auto" }}>
+        <Table size="small" stickyHeader sx={{ minWidth: 700 }}>
           <TableHead>
             <TableRow>
               <TableCell sx={{ fontWeight: 700, width: 140 }}>SKU</TableCell>

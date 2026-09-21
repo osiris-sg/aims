@@ -238,7 +238,7 @@ export default function StatementOfAccountPage() {
   ], []);
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: { xs: 1.5, md: 3 } }}>
       <Typography variant="h4" sx={{ mb: 3 }}>
         Statement of Account
       </Typography>
@@ -319,7 +319,8 @@ export default function StatementOfAccountPage() {
         <Paper sx={{ p: 3 }} className="print-area">
           {/* Header Section */}
           <Box sx={{ mb: 4 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 2 }}>
+            {/* Phone: title + action buttons wrap */}
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', mb: 2, flexWrap: 'wrap', gap: 1 }}>
               <Box>
                 <Typography variant="h5" gutterBottom>
                   STATEMENT OF ACCOUNT

@@ -74,8 +74,8 @@ export default function ReportShell({
               content share the same centred column (guru 2026-07-27: reports
               read like Xero's — compact centred card, columns close together,
               not stretched across the whole screen). */}
-          <Box sx={{ px: 3, py: 2, maxWidth: 1140, mx: "auto", width: "100%" }}>
-            <Stack direction="row" flexWrap="wrap" alignItems="flex-end" sx={{ gap: 2 }}>
+          <Box sx={{ px: { xs: 1.5, md: 3 }, py: 2, maxWidth: 1140, mx: "auto", width: "100%" }}>
+            <Stack direction="row" flexWrap="wrap" alignItems="flex-end" sx={{ gap: { xs: 1.5, md: 2 } }}>
               {filters}
               <Button
                 variant="contained"
@@ -90,28 +90,29 @@ export default function ReportShell({
           </Box>
 
           {/* Report card */}
-          <Box sx={{ px: 3, pb: 3, flex: 1, maxWidth: 1140, mx: "auto", width: "100%" }}>
+          <Box sx={{ px: { xs: 1.5, md: 3 }, pb: 3, flex: 1, maxWidth: 1140, mx: "auto", width: "100%" }}>
             <Box sx={{
               bgcolor: "background.paper",
               border: (t) => `1px solid ${t.palette.divider}`,
               borderRadius: 1.5,
-              p: 3,
+              p: { xs: 1.5, md: 3 },
               overflowX: "auto",
             }}>
-              <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1 }}>
+              {/* Phone: title + search wrap onto two rows instead of clipping */}
+              <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1, flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
                 <Box>
                   <Typography variant="h6" sx={{ fontWeight: 700 }}>{title}</Typography>
                   {(headerLines || []).map((l) => (
                     <Typography key={l} variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>{l}</Typography>
                   ))}
                 </Box>
-                <Stack direction="row" gap={1} alignItems="center">
+                <Stack direction="row" gap={1} alignItems="center" sx={{ flexWrap: "wrap", minWidth: { xs: "100%", sm: 0 } }}>
                   <TextField
                     size="small"
                     placeholder="Search report…"
                     value={reportSearch}
                     onChange={(e) => setReportSearch(e.target.value)}
-                    sx={{ width: 220, displayPrint: "none" }}
+                    sx={{ width: { xs: "100%", sm: 220 }, displayPrint: "none" }}
                     InputProps={{
                       startAdornment: (
                         <InputAdornment position="start">
@@ -132,8 +133,9 @@ export default function ReportShell({
           {/* Footer bar */}
           <Box sx={{
             borderTop: (t) => `1px solid ${t.palette.divider}`,
-            px: 3, py: 1,
+            px: { xs: 1.5, md: 3 }, py: 1,
             display: "flex", alignItems: "center", justifyContent: "space-between",
+            flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1,
             position: "sticky", bottom: 0,
             bgcolor: "background.paper",
           }}>
