@@ -292,7 +292,7 @@ export class OperatorToolsService {
       {
         name: 'find_item',
         description:
-          'Search products/assets by name, SKU or description. Returns the item id and list price. Required to add a stock line to a document.',
+          'Search products/assets by name, SKU or description. Every word must match, so spacing and punctuation do not matter ("lion 250" finds "LION-250"). Returns the item id and list price. Required to add a stock line to a document.',
         permissions: ['assets:read'],
         input_schema: {
           type: 'object',
@@ -300,10 +300,36 @@ export class OperatorToolsService {
           required: ['query'],
         },
         run: async (ctx, { query }) => {
-          const res: any = await this.assets.getAssets({ page: 1, limit: 5, search: query } as any, ctx.organizationId);
-          const docs = res?.docs ?? [];
+          // getAssets() matches the WHOLE phrase as one literal substring, which
+          // is fine for a search box but wrong here: people type product names
+          // loosely, so "Lion 250" missed "LION-250" and the agent could not
+          // tell "not in the system" from "spelled differently". Require every
+          // WORD instead, then rank whole-phrase hits first.
+          const phrase = String(query || '').trim();
+          const words = phrase.split(/\s+/).filter(Boolean);
+          if (!words.length) return { result: [] };
+          const docs = await this.prisma.asset.findMany({
+            where: {
+              organizationId: ctx.organizationId,
+              deletedAt: null,
+              AND: words.map((word) => ({
+                OR: [
+                  { name: { contains: word, mode: 'insensitive' as const } },
+                  { skuKey: { contains: word, mode: 'insensitive' as const } },
+                  { description: { contains: word, mode: 'insensitive' as const } },
+                ],
+              })),
+            },
+            select: { id: true, name: true, skuKey: true, description: true, price: true, uom: true },
+            take: 8,
+          });
+          const hasPhrase = (a: any) =>
+            [a.name, a.skuKey, a.description].some((f) =>
+              String(f || '').toLowerCase().includes(phrase.toLowerCase()),
+            );
+          const ranked = [...docs].sort((a, b) => Number(hasPhrase(b)) - Number(hasPhrase(a)));
           return {
-            result: docs.map((a: any) => ({
+            result: ranked.slice(0, 5).map((a: any) => ({
               id: a.id, // used as items[].inventoryItemId (Asset id — products mode)
               name: a.name,
               skuKey: a.skuKey,
