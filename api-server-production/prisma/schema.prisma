@@ -748,6 +748,10 @@ model Lead {
   email                String?
   phone                String?
   whatsappPhone        String? // WA number when it differs from the call number ("Phone No: 8511 8680 / WA 8958 2178")
+  // ALL the lead's numbers, normalized digits, in entry order (guru 2026-09-21:
+  // "he can continue to add multiple"). phone/whatsappPhone mirror the first
+  // two for the older single-number code paths.
+  phones               String[] @default([])
   phoneVerified        Boolean   @default(false)
   location             String?
   propertyType         String? // HDB | Resale Private Condo | ...

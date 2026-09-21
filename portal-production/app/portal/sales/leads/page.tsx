@@ -33,6 +33,8 @@ import {
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import DescriptionIcon from "@mui/icons-material/DescriptionOutlined";
 import EditIcon from "@mui/icons-material/EditOutlined";
+import AddIcon from "@mui/icons-material/Add";
+import CloseIcon from "@mui/icons-material/Close";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import moment from "moment";
 import { toast } from "react-toastify";
@@ -54,6 +56,7 @@ type Lead = {
   email: string | null;
   phone: string | null;
   whatsappPhone: string | null;
+  phones?: string[] | null;
   phoneVerified: boolean;
   location: string | null;
   propertyType: string | null;
@@ -141,6 +144,10 @@ const readAsDataURL = (f: File) =>
 // Manager-only lead insights (guru 2026-09-16): where the leads come from and
 // how each channel performs. Designers never receive `insights` from the API,
 // so the panel simply doesn't render for them.
+/** Every distinct number on a lead, WA-preferred first (leads can hold any count). */
+const leadNumbers = (l: { phone?: string | null; whatsappPhone?: string | null; phones?: string[] | null }): string[] =>
+  Array.from(new Set([l.whatsappPhone, l.phone, ...(l.phones || [])].map((v) => String(v || "").replace(/\D/g, "")).filter(Boolean)));
+
 const SRC_LABEL: Record<string, string> = { ezid: "EZiD", network: "Network SG", whatsapp: "WhatsApp", manual: "Manual", referral: "Referral", fb: "Facebook", ig: "Instagram" };
 const SRC_COLOR: Record<string, string> = { ezid: "primary.main", network: "warning.main", whatsapp: "success.main", manual: "text.disabled", referral: "error.main", fb: "info.main", ig: "secondary.main" };
 
@@ -237,7 +244,7 @@ export default function LeadsPage() {
   const [busy, setBusy] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [deadFor, setDeadFor] = useState<Lead | null>(null);
-  const [manual, setManual] = useState({ name: "", phone: "", email: "", propertyType: "", budget: "", keyCollection: "", remarks: "", source: "manual" });
+  const [manual, setManual] = useState<{ name: string; phones: string[]; email: string; propertyType: string; budget: string; keyCollection: string; remarks: string; source: string }>({ name: "", phones: [""], email: "", propertyType: "", budget: "", keyCollection: "", remarks: "", source: "manual" });
   const [attachments, setAttachments] = useState<LeadAttachment[]>([]);
   const [attBusy, setAttBusy] = useState(false);
   const [editFor, setEditFor] = useState<Lead | null>(null);
@@ -332,7 +339,7 @@ export default function LeadsPage() {
 
   const openEdit = (l: Lead) => {
     setEdit({
-      ref: l.ref || "", name: l.name || "", email: l.email || "", phone: l.phone || "", location: l.location || "",
+      ref: l.ref || "", name: l.name || "", email: l.email || "", phones: (leadNumbers(l).length ? leadNumbers(l) : [""]) as string[], location: l.location || "",
       propertyType: l.propertyType || "", propertyRooms: l.propertyRooms || "", propertyStatus: l.propertyStatus || "",
       keyCollection: l.keyCollection || "", moveIn: l.moveIn || "", budget: l.budget || "", areas: l.areas || "",
       designStyle: l.designStyle || "", remarks: l.remarks || "", approachNotes: l.approachNotes || "", notes: l.notes || "",
@@ -346,6 +353,12 @@ export default function LeadsPage() {
     setBusy(true);
     try {
       const payload: any = { ...edit, name: edit.name.trim() };
+      // Normalize the number list and keep the legacy phone/whatsappPhone
+      // mirrors (first/second) in step for older code paths.
+      const phones = Array.from(new Set((edit.phones as string[]).map((v) => v.replace(/\D/g, "")).filter(Boolean)));
+      payload.phones = phones;
+      payload.phone = phones[0] || null;
+      payload.whatsappPhone = phones[1] || null;
       // Source is only editable on a manual-ish lead; never send it for an
       // email-ingested lead (the server rejects it too).
       if (!isManualSource(editFor.source)) delete payload.source;
@@ -398,7 +411,7 @@ export default function LeadsPage() {
                 {l.phoneVerified && <Chip size="small" label="verified" color="success" variant="outlined" sx={{ height: 16, "& .MuiChip-label": { px: 0.5, fontSize: 9 } }} />}
               </Stack>
               <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                {[l.phone, l.whatsappPhone && l.whatsappPhone !== l.phone ? `WA ${l.whatsappPhone}` : null, l.email].filter(Boolean).join(" · ") || "no contact"}
+                {[...leadNumbers(l), l.email].filter(Boolean).join(" · ") || "no contact"}
               </Typography>
             </Box>
           );
@@ -507,15 +520,14 @@ export default function LeadsPage() {
         },
       },
       kebabColumn((l: Lead) => [
-        ...(l.whatsappPhone || l.phone
-          ? [{
-              label: "WhatsApp",
-              onClick: () => {
-                const n = (l.whatsappPhone || l.phone)!;
-                window.open(`https://wa.me/${n.startsWith("65") ? n : `65${n}`}`, "_blank", "noopener,noreferrer");
-              },
-            }]
-          : []),
+        // One entry per distinct number — a lead can hold any count and the
+        // client can be WhatsApped on any of them (guru 2026-09-21).
+        ...leadNumbers(l).map((n, i, arr) => ({
+          label: arr.length > 1 ? `WhatsApp ${n}` : "WhatsApp",
+          onClick: () => {
+            window.open(`https://wa.me/${n.startsWith("65") ? n : `65${n}`}`, "_blank", "noopener,noreferrer");
+          },
+        })),
         { label: "Details", onClick: () => setDetail(l) },
         ...(l.projectId
           ? [{ label: "Open project", onClick: () => router.push(`/portal/projects/${l.projectId}`) }]
@@ -607,7 +619,7 @@ export default function LeadsPage() {
         totalDocs={total}
         buttonName="New lead"
         onAddClick={() => {
-          setManual({ name: "", phone: "", email: "", propertyType: "", budget: "", keyCollection: "", remarks: "", source: "manual" });
+          setManual({ name: "", phones: [""], email: "", propertyType: "", budget: "", keyCollection: "", remarks: "", source: "manual" });
           setManualOpen(true);
         }}
       />
@@ -634,7 +646,7 @@ export default function LeadsPage() {
               <Grid container spacing={1}>
                 {[
                   ["Phone", detail.phone ? `${detail.phone}${detail.phoneVerified ? " (verified)" : ""}` : null],
-                  ["WhatsApp", detail.whatsappPhone && detail.whatsappPhone !== detail.phone ? detail.whatsappPhone : null],
+                  ["Other numbers", leadNumbers(detail).slice(1).join(" · ") || null],
                   ["Email", detail.email],
                   ["Location", detail.location],
                   ["Property", [detail.propertyType, detail.propertyRooms, detail.propertyStatus].filter(Boolean).join(" · ")],
@@ -692,20 +704,21 @@ export default function LeadsPage() {
                   Lead PDF
                 </Button>
               )}
-              {(detail.whatsappPhone || detail.phone) && (
+              {leadNumbers(detail).map((n, i, arr) => (
                 <Button
+                  key={n}
                   size="small"
                   variant="contained"
                   color="success"
                   startIcon={<WhatsAppIcon />}
-                  href={`https://wa.me/${(detail.whatsappPhone || detail.phone)!.startsWith("65") ? detail.whatsappPhone || detail.phone : `65${detail.whatsappPhone || detail.phone}`}`}
+                  href={`https://wa.me/${n.startsWith("65") ? n : `65${n}`}`}
                   target="_blank"
                   rel="noreferrer"
                   sx={{ textTransform: "none" }}
                 >
-                  WhatsApp
+                  {arr.length > 1 ? `WhatsApp ${n}` : "WhatsApp"}
                 </Button>
-              )}
+              ))}
               {!detail.projectId && !detail.quotationId && (
                 <Button size="small" variant="contained" disabled={busy} onClick={() => convertLeadToProject(detail)} sx={{ textTransform: "none" }}>
                   Create project
@@ -819,8 +832,32 @@ export default function LeadsPage() {
             <Grid item xs={12}>
               <TextField label="Name" size="small" fullWidth value={manual.name} onChange={(e) => setManual({ ...manual, name: e.target.value })} />
             </Grid>
-            <Grid item xs={6}>
-              <TextField label="Phone" size="small" fullWidth value={manual.phone} onChange={(e) => setManual({ ...manual, phone: e.target.value })} />
+            {manual.phones.map((ph, i) => (
+              <Grid item xs={6} key={i}>
+                <TextField
+                  label={i === 0 ? "Phone" : `Phone ${i + 1}`}
+                  size="small"
+                  fullWidth
+                  value={ph}
+                  onChange={(e) => setManual({ ...manual, phones: manual.phones.map((v, j) => (j === i ? e.target.value : v)) })}
+                  InputProps={{
+                    endAdornment:
+                      i > 0 ? (
+                        <IconButton size="small" onClick={() => setManual({ ...manual, phones: manual.phones.filter((_, j) => j !== i) })} aria-label="Remove number">
+                          <CloseIcon fontSize="inherit" />
+                        </IconButton>
+                      ) : undefined,
+                  }}
+                />
+              </Grid>
+            ))}
+            <Grid item xs={6} sx={{ display: "flex", alignItems: "center" }}>
+              <Button size="small" startIcon={<AddIcon />} onClick={() => setManual({ ...manual, phones: [...manual.phones, ""] })} sx={{ textTransform: "none" }}>
+                Add number
+              </Button>
+              <Typography variant="caption" sx={{ color: "text.secondary", ml: 1 }}>
+                the client can be WhatsApped on any of them
+              </Typography>
             </Grid>
             <Grid item xs={6}>
               <TextField label="Email" size="small" fullWidth value={manual.email} onChange={(e) => setManual({ ...manual, email: e.target.value })} />
@@ -854,7 +891,10 @@ export default function LeadsPage() {
             onClick={async () => {
               setBusy(true);
               try {
-                await api.request(`/leads`, { method: "POST", body: JSON.stringify({ ...manual, phone: manual.phone.replace(/\D/g, "") || null, keyCollection: manual.keyCollection || null, source: manual.source || "manual" }) });
+                await api.request(`/leads`, { method: "POST", body: JSON.stringify((() => {
+                  const phones = Array.from(new Set(manual.phones.map((v) => v.replace(/\D/g, "")).filter(Boolean)));
+                  return { ...manual, phones, phone: phones[0] || null, whatsappPhone: phones[1] || null, keyCollection: manual.keyCollection || null, source: manual.source || "manual" };
+                })()) });
                 setManualOpen(false);
                 load();
               } catch (e: any) {
@@ -899,8 +939,29 @@ export default function LeadsPage() {
               <Grid item xs={12} sm={6}>
                 <TextField label="Ref" size="small" fullWidth value={edit.ref} onChange={(e) => setEdit({ ...edit, ref: e.target.value })} />
               </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField label="Phone" size="small" fullWidth value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} />
+              {(edit.phones as string[]).map((ph: string, i: number) => (
+                <Grid item xs={12} sm={6} key={i}>
+                  <TextField
+                    label={i === 0 ? "Phone" : `Phone ${i + 1}`}
+                    size="small"
+                    fullWidth
+                    value={ph}
+                    onChange={(e) => setEdit({ ...edit, phones: edit.phones.map((v: string, j: number) => (j === i ? e.target.value : v)) })}
+                    InputProps={{
+                      endAdornment:
+                        i > 0 ? (
+                          <IconButton size="small" onClick={() => setEdit({ ...edit, phones: edit.phones.filter((_: string, j: number) => j !== i) })} aria-label="Remove number">
+                            <CloseIcon fontSize="inherit" />
+                          </IconButton>
+                        ) : undefined,
+                    }}
+                  />
+                </Grid>
+              ))}
+              <Grid item xs={12} sm={6} sx={{ display: "flex", alignItems: "center" }}>
+                <Button size="small" startIcon={<AddIcon />} onClick={() => setEdit({ ...edit, phones: [...edit.phones, ""] })} sx={{ textTransform: "none" }}>
+                  Add number
+                </Button>
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField label="Email" size="small" fullWidth value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} />

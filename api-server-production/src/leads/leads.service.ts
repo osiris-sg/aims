@@ -248,6 +248,10 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
 
   async create(organizationId: string, dto: LeadDto & { emailFrom?: string | null; emailSubject?: string | null; receivedAt?: Date; firstContactDeadline?: Date | null; replacementDeadline?: Date | null; attachmentUrl?: string | null; attachmentKey?: string | null }) {
     if (!dto.name?.trim()) throw new BadRequestException('Lead name is required');
+    // A lead can carry ANY number of phone numbers (guru 2026-09-21). `phones`
+    // is canonical (normalized digits, deduped, entry order); phone /
+    // whatsappPhone mirror the first two so single-number code keeps working.
+    const phones = [...new Set([dto.phone, dto.whatsappPhone, ...((dto as any).phones || [])].map((v: any) => String(v || '').replace(/\D/g, '')).filter(Boolean))];
     const lead = await this.prisma.lead.create({
       data: {
         organizationId,
@@ -255,8 +259,9 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         ref: dto.ref ?? null,
         name: dto.name.trim(),
         email: dto.email ?? null,
-        phone: dto.phone ?? null,
-        whatsappPhone: dto.whatsappPhone ?? null,
+        phone: dto.phone ?? phones[0] ?? null,
+        whatsappPhone: dto.whatsappPhone ?? phones[1] ?? null,
+        phones,
         phoneVerified: dto.phoneVerified ?? false,
         location: dto.location ?? null,
         propertyType: dto.propertyType ?? null,
@@ -333,6 +338,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         { email: { contains: s, mode: 'insensitive' } },
         { phone: { contains: s.replace(/\D/g, '') || s } },
         { whatsappPhone: { contains: s.replace(/\D/g, '') || s } },
+        ...(s.replace(/\D/g, '') ? [{ phones: { has: s.replace(/\D/g, '') } }] : []),
         { location: { contains: s, mode: 'insensitive' } },
         { ref: { contains: s, mode: 'insensitive' } },
       ];
@@ -502,7 +508,10 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       const summary = [
         `🆕 New lead — ${lead.name}`,
         `Source: ${String(lead.source || 'manual').toUpperCase()}${lead.ref ? ` · ${lead.ref}` : ''}`,
-        lead.phone ? `Phone: ${lead.phone}${lead.whatsappPhone && lead.whatsappPhone !== lead.phone ? ` · WA: ${lead.whatsappPhone}` : ''}` : null,
+        (() => {
+          const nums = [...new Set([lead.phone, lead.whatsappPhone, ...(((lead as any).phones || []) as string[])].map((v: any) => String(v || '').replace(/\D/g, '')).filter(Boolean))];
+          return nums.length ? `Phone: ${nums.join(' / ')}` : null;
+        })(),
         lead.keyCollectionDate ? `Key collection: ${new Date(lead.keyCollectionDate).toLocaleDateString('en-SG', { day: '2-digit', month: 'short', year: 'numeric' })}` : null,
         [lead.propertyType, lead.propertyRooms, lead.budget].filter(Boolean).join(' · ') || null,
         lead.location ? `Location: ${lead.location}` : null,
@@ -675,6 +684,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         OR: [
           { phone: { in: [digits, digits.replace(/^65/, '')] } },
           { whatsappPhone: { in: [digits, digits.replace(/^65/, '')] } },
+          { phones: { hasSome: [digits, digits.replace(/^65/, '')] } },
         ],
         status: { in: ['unqualified', 'engaging', 'converted'] },
         firstContactedAt: null,
@@ -721,7 +731,10 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     if (dnum) {
       const brief = [
         `📋 New lead assigned to you — ${lead.name}`,
-        lead.phone ? `Phone: ${lead.phone}${(lead as any).whatsappPhone && (lead as any).whatsappPhone !== lead.phone ? ` · WA: ${(lead as any).whatsappPhone}` : ''}` : null,
+        (() => {
+          const nums = [...new Set([lead.phone, (lead as any).whatsappPhone, ...(((lead as any).phones || []) as string[])].map((v) => String(v || '').replace(/\D/g, '')).filter(Boolean))];
+          return nums.length ? `Phone: ${nums.join(' / ')}` : null;
+        })(),
         `Source: ${String(lead.source || 'manual').toUpperCase()}`,
         [lead.propertyType, lead.propertyRooms, lead.budget].filter(Boolean).join(' · ') || null,
         (lead as any).keyCollectionDate ? `Key collection: ${new Date((lead as any).keyCollectionDate).toLocaleDateString('en-SG', { day: '2-digit', month: 'short', year: 'numeric' })}` : null,
@@ -731,13 +744,23 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         .filter(Boolean)
         .join('\n');
       // The chat deep-link goes to the WhatsApp-verified number when the lead
-      // gave a separate one; the call number stays in the brief text.
-      const leadNum = String((lead as any).whatsappPhone || lead.phone || '').replace(/\D/g, '');
+      // gave a separate one; a lead can hold ANY number of numbers — the CTA
+      // button opens the first (WA-preferred) and every other number rides in
+      // the body as its own tappable wa.me link (Meta's cta_url only permits a
+      // single URL button).
+      const normNum = (v: any) => String(v || '').replace(/\D/g, '');
+      const withCc = (n: string) => (n.startsWith('65') || n.length > 8 ? n : '65' + n);
+      const allNums = [...new Set([normNum((lead as any).whatsappPhone), normNum(lead.phone), ...(((lead as any).phones || []) as string[]).map(normNum)].filter(Boolean))];
+      const leadNum = allNums[0] || '';
+      const extraNums = allNums.slice(1);
       if (leadNum) {
         // CTA button deep-links into a WhatsApp chat WITH THE LEAD, prefilled —
         // the designer texts from their own number in one tap.
         const intro = `Hi ${lead.name?.split(' ')[0] || ''}, this is ${d?.name || 'your designer'} from CIEL Interior — thanks for your enquiry! When would be a good time to chat about your renovation?`;
-        const waUrl = `https://wa.me/${leadNum.startsWith('65') || leadNum.length > 8 ? leadNum : '65' + leadNum}?text=${encodeURIComponent(intro)}`;
+        const waUrl = `https://wa.me/${withCc(leadNum)}?text=${encodeURIComponent(intro)}`;
+        const body = extraNums.length
+          ? `${brief}\n\n${extraNums.map((n, i) => `📱 Number ${i + 2}: https://wa.me/${withCc(n)}`).join('\n')}`
+          : brief;
         await this.waSend(
           line,
           dnum,
@@ -745,11 +768,11 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
             type: 'interactive',
             interactive: {
               type: 'cta_url',
-              body: { text: brief.slice(0, 1024) },
+              body: { text: body.slice(0, 1024) },
               action: { name: 'cta_url', parameters: { display_text: '💬 Message the lead', url: waUrl } },
             },
           },
-          brief,
+          body,
         ).catch((e) => this.logger.warn(`Designer notify failed: ${e.message}`));
       } else {
         await this.waSend(line, dnum, { type: 'text', text: { body: brief } }, brief).catch((e) => this.logger.warn(`Designer notify failed: ${e.message}`));
@@ -842,7 +865,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       where: { id: leadId },
       data: {
         ...Object.fromEntries(
-          ['source', 'ref', 'name', 'email', 'phone', 'whatsappPhone', 'location', 'propertyType', 'propertyRooms', 'propertyStatus', 'keyCollection', 'moveIn', 'budget', 'areas', 'designStyle', 'remarks', 'approachNotes', 'floorPlanUrl', 'status', 'assignedToUserId', 'assignedToName', 'quotationId', 'projectId', 'notes'].map((k) => [k, (dto as any)[k] !== undefined ? (dto as any)[k] : undefined]),
+          ['source', 'ref', 'name', 'email', 'phone', 'whatsappPhone', 'phones', 'location', 'propertyType', 'propertyRooms', 'propertyStatus', 'keyCollection', 'moveIn', 'budget', 'areas', 'designStyle', 'remarks', 'approachNotes', 'floorPlanUrl', 'status', 'assignedToUserId', 'assignedToName', 'quotationId', 'projectId', 'notes'].map((k) => [k, (dto as any)[k] !== undefined ? (dto as any)[k] : undefined]),
         ),
         keyCollectionDate: dto.keyCollectionDate !== undefined ? parseDateLoose(dto.keyCollectionDate) : undefined,
         assignedAt: assigningNow ? (dto.assignedToUserId ? new Date() : null) : undefined,
