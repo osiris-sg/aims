@@ -2,7 +2,7 @@
 "use client";
 import React, { useMemo } from "react";
 import { useReactTable, getCoreRowModel, getPaginationRowModel, getSortedRowModel, flexRender, ExpandedState, getExpandedRowModel, SortingState, RowSelectionState } from "@tanstack/react-table";
-import { Checkbox, Table as MuiTable, Skeleton, useTheme, useMediaQuery, Box } from "@mui/material";
+import { Checkbox, Table as MuiTable, Skeleton, useTheme, useMediaQuery, Box, Paper, Stack, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
@@ -45,6 +45,11 @@ export default function Table(props: Props) {
   // Mobile responsiveness
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  // PHONES ONLY (<600px): the table is replaced by one card per row. A wide
+  // table squeezed into 390px clipped its cells mid-word and hid every column
+  // past the third behind a sideways scroll nobody discovers (guru 2026-09-22).
+  // Tablets keep the real table — they have the width for it.
+  const isPhone = useMediaQuery(theme.breakpoints.down("sm"));
 
   const [expanded, setExpanded] = React.useState<ExpandedState>(() => {
     if (!subRowAccessor) return {};
@@ -129,6 +134,107 @@ export default function Table(props: Props) {
       onRowSelect(selectedRows);
     }
   }, [rowSelection, onRowSelect, table]);
+
+  if (isPhone) {
+    // Phone card list. Cells are rendered with the SAME column definitions as
+    // the table (flexRender), so chips, links and formatting stay identical —
+    // only the arrangement changes: the first content column becomes the card
+    // title, the rest become label/value lines that wrap instead of clipping.
+    const headerLabel = (col: any) => {
+      const h = col.columnDef.header;
+      return typeof h === "string" ? h : "";
+    };
+    // "Chrome" columns carry no header text — the selection checkbox and the
+    // kebab. They belong on the card's top row, never as labelled lines (both
+    // have an empty header, so they can't be told apart by id alone: a leading
+    // one is the checkbox, the rest are actions).
+    const classify = (cells: any[]) => {
+      const isChrome = (c: any) => headerLabel(c.column) === "";
+      const leading = cells.length && isChrome(cells[0]) ? cells[0] : undefined;
+      const trailing = cells.filter((c) => c !== leading && isChrome(c));
+      const content = cells.filter((c) => c !== leading && !trailing.includes(c));
+      return { select: leading, actions: trailing, content };
+    };
+
+    return (
+      <Stack spacing={1.25} sx={{ width: "100%" }}>
+        {loading
+          ? [1, 2, 3].map((i) => (
+              <Paper key={`loading-card-${i}`} variant="outlined" sx={{ p: 1.5 }}>
+                <Skeleton variant="text" width="60%" />
+                <Skeleton variant="text" width="40%" />
+                <Skeleton variant="text" width="80%" />
+              </Paper>
+            ))
+          : table.getRowModel().rows.map((row: any) => {
+              const { id } = row.original;
+              const { select, actions, content } = classify(row.getVisibleCells());
+              const [title, ...rest] = content;
+              return (
+                <Paper
+                  key={row.id}
+                  variant="outlined"
+                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  sx={{ p: 1.5, position: "relative", ...(onRowClick ? { cursor: "pointer" } : {}) }}
+                >
+                  {rowHref && (
+                    // Same stretched real <a> as the table rows, so long-press /
+                    // "open in new tab" works on a phone too.
+                    <a
+                      href={rowHref(row.original)}
+                      draggable={false}
+                      aria-label="Open record"
+                      onClick={(e: React.MouseEvent) => {
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (onRowClick) onRowClick(row.original);
+                      }}
+                      style={{ position: "absolute", inset: 0, zIndex: 0 }}
+                    />
+                  )}
+                  <Box sx={{ position: "relative", zIndex: 1, "& .MuiButtonBase-root, & .MuiInputBase-root, & a": { position: "relative", zIndex: 1 } }}>
+                    <Stack direction="row" alignItems="flex-start" spacing={1}>
+                      {select && <Box onClick={(e) => e.stopPropagation()}>{flexRender(select.column.columnDef.cell, select.getContext())}</Box>}
+                      <Box sx={{ flex: 1, minWidth: 0, fontWeight: 600 }}>
+                        {id === loadingTableRowId ? <Skeleton variant="text" /> : title && flexRender(title.column.columnDef.cell, title.getContext())}
+                      </Box>
+                      {actions.map((a: any) => (
+                        <Box key={a.id} onClick={(e) => e.stopPropagation()}>
+                          {flexRender(a.column.columnDef.cell, a.getContext())}
+                        </Box>
+                      ))}
+                    </Stack>
+
+                    {id === loadingTableRowId ? (
+                      <Skeleton variant="text" />
+                    ) : (
+                      rest.map((cell: any) => (
+                        <Stack
+                          key={cell.id}
+                          direction="row"
+                          spacing={1}
+                          sx={{ mt: 0.75, alignItems: "flex-start", minWidth: 0 }}
+                        >
+                          <Typography
+                            variant="caption"
+                            sx={{ color: "text.secondary", minWidth: 96, flexShrink: 0, pt: 0.25 }}
+                          >
+                            {headerLabel(cell.column)}
+                          </Typography>
+                          <Box sx={{ flex: 1, minWidth: 0, fontSize: "0.8125rem", wordBreak: "break-word" }}>
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </Box>
+                        </Stack>
+                      ))
+                    )}
+                  </Box>
+                </Paper>
+              );
+            })}
+      </Stack>
+    );
+  }
 
   return (
     <Box

@@ -212,6 +212,81 @@ export default function DeliveriesQueuePage() {
     }
   };
 
+  // Cell bodies shared by the desktop table and the phone card list below, so
+  // the two views can never drift apart.
+  const linkedDoNode = (r: DeliveryRow) => {
+    const items = r.items ?? [];
+    const linked = items.filter((i) => i.documentId);
+    if (linked.length === 0) {
+      return <Typography variant="body2" color="text.secondary">—</Typography>;
+    }
+    if (linked.length < items.length) {
+      return <Chip size="small" variant="outlined" color="warning" label={`${linked.length} of ${items.length} linked`} />;
+    }
+    const distinct = Array.from(new Map(linked.filter((i) => i.document).map((i) => [i.document!.id, i.document!])).values());
+    // Single DO → a clickable chip that opens the document; multiple
+    // distinct DOs → a plain count (open individual ones from the run).
+    if (distinct.length === 1) {
+      const d = distinct[0];
+      return (
+        <Chip
+          size="small"
+          variant="outlined"
+          color="success"
+          clickable
+          label={d.name ?? "linked"}
+          title="Open this delivery order"
+          onClick={(e) => {
+            e.stopPropagation();
+            void openDocument(d.id);
+          }}
+        />
+      );
+    }
+    return <Chip size="small" variant="outlined" color="success" label={`${distinct.length} DOs`} />;
+  };
+
+  // What the office still owes this DO — AD-HOC runs only. A dash (not a blank
+  // cell) on a scheduled run: blank reads as "not loaded yet", a dash reads as
+  // "nothing to say here". Nothing missing shows a tick, so a complete ad-hoc
+  // run reads as complete rather than as no data.
+  const missingNode = (r: DeliveryRow) => {
+    if (!r.missing) return <Typography variant="caption" color="text.disabled">—</Typography>;
+    if (r.missing.length === 0) return <Chip size="small" label="Complete" color="success" variant="outlined" />;
+    return (
+      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+        {r.missing.map((m) => (
+          <Chip key={m} size="small" label={m} color="warning" variant="outlined" sx={{ height: 20, fontSize: "0.7rem" }} />
+        ))}
+      </Stack>
+    );
+  };
+
+  const kebabNode = (r: DeliveryRow) => {
+    const { canCancel, canDelete } = rowActions(r);
+    // A committed run (delivered / completed / cancelled) offers neither action.
+    if (!canCancel && !canDelete) return <Typography variant="body2" color="text.secondary">—</Typography>;
+    return (
+      <IconButton
+        size="small"
+        aria-label="Run actions"
+        onClick={(e) => {
+          e.stopPropagation();
+          setMenu({ pos: { left: e.clientX, top: e.clientY }, row: r });
+        }}
+      >
+        <MoreVertIcon fontSize="small" />
+      </IconButton>
+    );
+  };
+
+  const statusChipOf = (r: DeliveryRow) =>
+    // A draft is not a live schedule: no rider can see or claim it, and it has
+    // no DO yet, so it must not read as "Scheduled".
+    r.isDraft
+      ? { label: "Draft", color: "default" as const }
+      : STATUS_CHIP[r.status] ?? { label: r.status, color: "default" as const };
+
   return (
     <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3 }}>
       {/* Phone: title + schedule buttons wrap instead of clipping */}
@@ -261,7 +336,93 @@ export default function DeliveriesQueuePage() {
           </Typography>
         </Paper>
       ) : (
-        <TableContainer component={Paper} variant="outlined">
+        <>
+        {/* Phone: one card per run. A 12-column table squeezed into 390px
+            clipped its chips mid-word and hid everything past "Missing" behind
+            a sideways scroll nobody discovers (guru 2026-09-22). */}
+        <Stack spacing={1.25} sx={{ display: { xs: "flex", md: "none" } }}>
+          {rows.map((r) => {
+            const chip = statusChipOf(r);
+            return (
+              <Paper
+                key={r.id}
+                variant="outlined"
+                onClick={() => router.push(`/portal/deliveries/${r.id}`)}
+                sx={{ p: 1.5, cursor: "pointer" }}
+              >
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                  <Typography sx={{ fontFamily: "monospace", fontWeight: 700 }}>#{r.deliveryNumber}</Typography>
+                  <Chip size="small" label={chip.label} color={chip.color} />
+                  <Box sx={{ flex: 1 }} />
+                  <Box onClick={(e) => e.stopPropagation()}>{kebabNode(r)}</Box>
+                </Stack>
+
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {r.project?.name ?? r.customer?.name ?? r.siteAddress ?? "—"}
+                </Typography>
+                {r.project && r.customer && (
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    {r.customer.name}
+                  </Typography>
+                )}
+
+                <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    color={r.direction === "RETURN" ? "secondary" : "default"}
+                    label={r.direction === "RETURN" ? "Return" : "Delivery"}
+                  />
+                  {linkedDoNode(r)}
+                  {r.origin === "AD_HOC" && <Chip size="small" label="Ad-hoc" color="warning" variant="outlined" />}
+                </Stack>
+
+                {r.missing && r.missing.length > 0 && (
+                  <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="text.secondary">Missing:</Typography>
+                    {missingNode(r)}
+                  </Stack>
+                )}
+
+                <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Rider: {r.riderName ?? "—"}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Items: {r.items?.length ?? 0}
+                  </Typography>
+                </Stack>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Scheduled: {fmtDateTime(r.scheduledFor)}
+                </Typography>
+                {r.startedAt && (
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Started: {fmtDateTime(r.startedAt)}
+                  </Typography>
+                )}
+                {r.completedAt && (
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Completed: {fmtDateTime(r.completedAt)}
+                  </Typography>
+                )}
+              </Paper>
+            );
+          })}
+          <TablePagination
+            component="div"
+            count={total}
+            page={page}
+            onPageChange={(_, p) => setPage(p)}
+            rowsPerPage={limit}
+            onRowsPerPageChange={(e) => {
+              setLimit(parseInt(e.target.value, 10));
+              setPage(0);
+            }}
+            rowsPerPageOptions={[10, 20, 50]}
+          />
+        </Stack>
+
+        <TableContainer component={Paper} variant="outlined" sx={{ display: { xs: "none", md: "block" } }}>
           <Table size="small" sx={{ minWidth: 900 }}>
             <TableHead>
               <TableRow>
@@ -287,11 +448,7 @@ export default function DeliveriesQueuePage() {
             </TableHead>
             <TableBody>
               {rows.map((r) => {
-                // A draft is not a live schedule: no rider can see or claim it,
-                // and it has no DO yet, so it must not read as "Scheduled".
-                const chip = r.isDraft
-                  ? { label: "Draft", color: "default" as const }
-                  : STATUS_CHIP[r.status] ?? { label: r.status, color: "default" as const };
+                const chip = statusChipOf(r);
                 return (
                   <TableRow
                     key={r.id}
@@ -309,41 +466,7 @@ export default function DeliveriesQueuePage() {
                         sx={{ mb: 0.5 }}
                       />
                       <Box />
-                      {(() => {
-                        const items = r.items ?? [];
-                        const linked = items.filter((i) => i.documentId);
-                        if (linked.length === 0) {
-                          return <Typography variant="body2" color="text.secondary">—</Typography>;
-                        }
-                        if (linked.length < items.length) {
-                          return (
-                            <Chip size="small" variant="outlined" color="warning" label={`${linked.length} of ${items.length} linked`} />
-                          );
-                        }
-                        const distinct = Array.from(new Map(linked.filter((i) => i.document).map((i) => [i.document!.id, i.document!])).values());
-                        // Single DO → a clickable chip that opens the document; multiple
-                        // distinct DOs → a plain count (open individual ones from the run).
-                        if (distinct.length === 1) {
-                          const d = distinct[0];
-                          return (
-                            <Chip
-                              size="small"
-                              variant="outlined"
-                              color="success"
-                              clickable
-                              label={d.name ?? "linked"}
-                              title="Open this delivery order"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void openDocument(d.id);
-                              }}
-                            />
-                          );
-                        }
-                        return (
-                          <Chip size="small" variant="outlined" color="success" label={`${distinct.length} DOs`} />
-                        );
-                      })()}
+                      {linkedDoNode(r)}
                     </TableCell>
                     {/* Ad-hoc — keyed off the explicit origin field. */}
                     <TableCell align="center">
@@ -353,25 +476,7 @@ export default function DeliveriesQueuePage() {
                         <Typography variant="caption" color="text.disabled">—</Typography>
                       )}
                     </TableCell>
-                    {/* What the office still owes this DO — AD-HOC runs only.
-                        A dash (not a blank cell) on a scheduled run: blank reads
-                        as "not loaded yet", a dash reads as "nothing to say
-                        here", and it matches how this table already renders an
-                        absent rider. Nothing missing shows a tick, so a complete
-                        ad-hoc run reads as complete rather than as no data. */}
-                    <TableCell>
-                      {!r.missing ? (
-                        <Typography variant="caption" color="text.disabled">—</Typography>
-                      ) : r.missing.length === 0 ? (
-                        <Chip size="small" label="Complete" color="success" variant="outlined" />
-                      ) : (
-                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                          {r.missing.map((m) => (
-                            <Chip key={m} size="small" label={m} color="warning" variant="outlined" sx={{ height: 20, fontSize: "0.7rem" }} />
-                          ))}
-                        </Stack>
-                      )}
-                    </TableCell>
+                    <TableCell>{missingNode(r)}</TableCell>
                     <TableCell>
                       <Chip size="small" label={chip.label} color={chip.color} />
                     </TableCell>
@@ -391,26 +496,7 @@ export default function DeliveriesQueuePage() {
                     <TableCell>{fmtDateTime(r.startedAt)}</TableCell>
                     <TableCell>{fmtDateTime(r.completedAt)}</TableCell>
                     <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                      {(() => {
-                        const { canCancel, canDelete } = rowActions(r);
-                        if (!canCancel && !canDelete) {
-                          // A committed run (delivered / completed / cancelled) offers
-                          // neither action.
-                          return <Typography variant="body2" color="text.secondary">—</Typography>;
-                        }
-                        return (
-                          <IconButton
-                            size="small"
-                            aria-label="Run actions"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setMenu({ pos: { left: e.clientX, top: e.clientY }, row: r });
-                            }}
-                          >
-                            <MoreVertIcon fontSize="small" />
-                          </IconButton>
-                        );
-                      })()}
+                      {kebabNode(r)}
                     </TableCell>
                   </TableRow>
                 );
@@ -430,6 +516,7 @@ export default function DeliveriesQueuePage() {
             rowsPerPageOptions={[10, 20, 50]}
           />
         </TableContainer>
+        </>
       )}
 
       <Menu anchorReference="anchorPosition" anchorPosition={menu?.pos} open={!!menu} onClose={() => setMenu(null)}>
