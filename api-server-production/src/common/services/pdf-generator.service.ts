@@ -1,11 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
 import { renderDocumentHtml } from './document-html';
-import {
-  DESCRIPTION_HAS_MODEL,
-  DESCRIPTION_HAS_SERIAL,
-  isOfficeWrittenDescription,
-} from './document-html/shared';
+import { DESCRIPTION_HAS_MODEL, DESCRIPTION_HAS_SERIAL } from './document-html/shared';
 
 @Injectable()
 export class PdfGeneratorService {
@@ -112,14 +108,6 @@ export class PdfGeneratorService {
         j++;
       }
       const name = run[0].description || '';
-      // HAND-WRITTEN: emit the run VERBATIM — no merge, no decoration. See the
-      // guards in document-html/shared.ts. This is the PDF the customer gets,
-      // so a garbled line here goes out of the building.
-      if (isOfficeWrittenDescription(name)) {
-        for (const mem of run) out.push(mem);
-        i = j;
-        continue;
-      }
       const serials = run
         .flatMap((r) => (Array.isArray(r.serialNumbers) ? r.serialNumbers : []))
         .filter(Boolean);

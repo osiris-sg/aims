@@ -292,6 +292,11 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
  * deliberately — the block is what the office wants on a correctly generated
  * invoice line; what it must not do is decorate a line the office rewrote.
  *
+ * THE PREFIX IS ALWAYS WANTED. "Rental of N unit(s) of …" carries the quantity
+ * and the verb, which nothing else on the row shows, so it is emitted even when
+ * the office has rewritten the description. Only the APPENDED Model and S/No.
+ * rows are conditional — see the per-row guards below.
+ *
  * ⚠️ DRIFT: there are FOUR copies of this logic. This one, plus three on the
  * server which produce the customer's PDF and the public share link:
  *   api-server-production/src/common/services/pdf-generator.service.ts
@@ -303,15 +308,8 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
  * now share the guards exported from document-html/shared.ts, and the constants
  * below are a byte-identical local mirror of those. CHANGE ALL FOUR TOGETHER.
  */
-const DESCRIPTION_HAS_HTML =
-  /<(?:br|div|p|span|strong|em|b|i|u|ul|ol|li|table|tbody|tr|td|th|h[1-6]|font)\b[^>]*>/i;
 const DESCRIPTION_HAS_MODEL = /Model\s*:/i;
 const DESCRIPTION_HAS_SERIAL = /S\s*\/\s*No\.?\s*:/i;
-
-/** True when the office hand-wrote this description (it carries markup). */
-function isOfficeWrittenDescription(description: unknown): boolean {
-  return DESCRIPTION_HAS_HTML.test(String(description ?? ""));
-}
 
 function groupDeliveryLines(raw: any[], isReturn = false): any[] {
   if (!Array.isArray(raw) || raw.length === 0) return raw;
@@ -333,22 +331,6 @@ function groupDeliveryLines(raw: any[], isReturn = false): any[] {
       j++;
     }
     const name = run[0].description || "";
-    // HAND-WRITTEN: emit the run's lines VERBATIM — no merge, no decoration.
-    //
-    // The wrap assumes `description` is the bare asset name the generator wrote.
-    // Once the office rewrites it, wrapping yields "Rental of 1 unit of 1)
-    // Rental of one unit FIREFLY 4200<div>Model: FIREFLY4200</div>…" plus a
-    // duplicate Model row (showing the catalogue key "AIS") and a duplicate
-    // S/No. row — BI202609093 and DO202609-0045 today.
-    //
-    // Passing the run through rather than merging it is deliberate: a merge
-    // keeps only run[0]'s description and would silently drop what the office
-    // typed on lines 2..N. Un-merged, the totals need no adjustment either.
-    if (isOfficeWrittenDescription(name)) {
-      for (const mem of run) out.push(mem);
-      i = j;
-      continue;
-    }
     const serials = run
       .flatMap((r) => (Array.isArray(r.serialNumbers) ? r.serialNumbers : []))
       .filter(Boolean);
@@ -376,9 +358,12 @@ function groupDeliveryLines(raw: any[], isReturn = false): any[] {
     const year =
       years.length === run.length && new Set(years).size === 1 ? years[0] : null;
     const lines = [`${verb} of ${qty} unit${qty === 1 ? "" : "s"} of ${name}`];
-    // Per-row backstop for a hand-written description in PLAIN text (no markup,
-    // so the HTML guard above let it through): never append a row the office has
-    // already written itself.
+    // Never append a row the office has already written into the description.
+    // BI202609093 ends "<div>S/No.: AIS2026035</div>" and was still getting
+    // "Model: AIS" (the catalogue key, not the model) plus a second identical
+    // S/No. row bolted underneath. The probes match inside markup and in plain
+    // text alike, so this one pair covers both the editor's rich text and a
+    // hand-typed description like DO202609-0045's "LION250\nS/No.: MG20260168".
     if (model && !DESCRIPTION_HAS_MODEL.test(name)) lines.push(`Model: ${model}`);
     if (year != null) lines.push(`Year: ${year}`);
     if (!DESCRIPTION_HAS_SERIAL.test(name)) for (const s of serials) lines.push(`S/No.: ${s}`);

@@ -10,7 +10,6 @@ import { PrismaService } from '../common/prisma.service';
 import {
   DESCRIPTION_HAS_MODEL,
   DESCRIPTION_HAS_SERIAL,
-  isOfficeWrittenDescription,
 } from '../common/services/document-html/shared';
 import { DocumentsService } from '../documents/documents.service';
 
@@ -137,17 +136,6 @@ export class PublicDocumentService {
         j++;
       }
       const name = run[0].description || '';
-      // HAND-WRITTEN: emit the run VERBATIM — no merge, no decoration. See the
-      // guards in common/services/document-html/shared.ts.
-      //
-      // NOTE for this copy specifically: sanitizeConfigForPublic below strips
-      // `deliveryGroup` on the way out (it is the real Asset id), so passing the
-      // run through here does NOT leak it — the sanitiser still runs.
-      if (isOfficeWrittenDescription(name)) {
-        for (const mem of run) out.push(mem);
-        i = j;
-        continue;
-      }
       const serials = run.flatMap((r) => (Array.isArray(r.serialNumbers) ? r.serialNumbers : [])).filter(Boolean);
       const qty = run.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
       const model = run[0].model || run[0].skuKey || '';
