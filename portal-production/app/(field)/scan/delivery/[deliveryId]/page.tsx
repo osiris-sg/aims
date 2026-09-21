@@ -257,6 +257,10 @@ export default function DeliveryBasketPage() {
           deliveryId,
           description: "Delivery started (added to run)",
           photos: photoKeys,
+          // An AD-HOC run adds units with no photos at all, which the server's
+          // per-unit minimum would otherwise reject. The report itself is still
+          // created — GPS pings FK to it and the Timeline reads its createdAt.
+          ...(photoKeys.length === 0 ? { deferPhotos: true } : {}),
         },
         token,
       );
@@ -390,13 +394,28 @@ export default function DeliveryBasketPage() {
   // on the way out so the two sets can be compared before and after the hire.
   // 'photos' mode is an append to an already started unit, so it only needs the
   // one it is adding.
+  //
+  // AD-HOC RUNS TAKE NO CONDITION PHOTOS AT ALL. The whole run is photo-less by
+  // design — the rider went out without a scheduled job and the office backfills
+  // from the DO editor's camera if evidence is needed. 0 here makes the photo
+  // step pass straight through, for every item added to the run ("Scan More
+  // Items" included). A scheduled run is untouched, including the run-first
+  // entry point where the rider picks the run before scanning.
+  //
+  // Read off run.origin, not inferred from a null project: an ad-hoc run gets a
+  // project attached later and must not start demanding photos when it does.
   const requiredPhotos =
-    !pending || pending.mode === "photos" ? 1 : minPhotosForAssetClass(pending.assetClass);
+    run?.origin === "AD_HOC"
+      ? 0
+      : !pending || pending.mode === "photos"
+        ? 1
+        : minPhotosForAssetClass(pending.assetClass);
 
   // Photo confirmed → add (mode 'add') then DO_START; or (mode 'photos') append
   // to the existing DO_START without creating a new report.
   const confirmPending = useCallback(async () => {
     if (!pending) return;
+    // requiredPhotos is 0 on an ad-hoc run, so this never blocks there.
     if (pendingPhotos.length < requiredPhotos) {
       setActionMsg(
         requiredPhotos === 1
@@ -470,6 +489,26 @@ export default function DeliveryBasketPage() {
       setBusy(false);
     }
   }, [pending, pendingPhotos, requiredPhotos, deliveryId, getToken, load, startUnit, run?.status]);
+
+  // AD-HOC: skip the photo screen entirely rather than showing an empty one the
+  // rider has to dismiss. requestAdd/requestStart still park in `pending` (they
+  // are the single funnel for NFC, manual serial and the per-item Start button),
+  // so this confirms it the moment it appears when nothing is required.
+  //
+  // The ref keeps it to one shot per pending item: confirmPending is async and
+  // clears `pending` only at the end, so a re-render mid-flight would otherwise
+  // fire a second POST /items for the same unit.
+  const autoConfirmRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!pending || requiredPhotos > 0) return;
+    const key = `${pending.mode}:${pending.inventoryId}`;
+    if (autoConfirmRef.current === key) return;
+    autoConfirmRef.current = key;
+    void confirmPending();
+  }, [pending, requiredPhotos, confirmPending]);
+  useEffect(() => {
+    if (!pending) autoConfirmRef.current = null;
+  }, [pending]);
 
   // #3 fallback: rider decides installation isn't needed from the basket.
   // Free-typed lines now run the full lifecycle (Start -> photos -> End -> sign)

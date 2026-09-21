@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { Alert, Box, Button, CircularProgress, Divider, Stack, TextField, Typography } from "@mui/material";
@@ -77,6 +77,9 @@ export default function StartDeliveryPage() {
   const [phase, setPhase] = useState<"start" | "photos" | "assign">("start");
   const [runId, setRunId] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
+  // Set when the rider pressed "Assign & continue" but still owes photos: the
+  // photo screen returns straight to doAssign instead of the assign list.
+  const [pendingAssign, setPendingAssign] = useState(false);
   // Open scheduled runs to pick from, loaded when the assign phase opens.
   const [scheduledRuns, setScheduledRuns] = useState<ScheduledRunOption[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
@@ -215,11 +218,33 @@ export default function StartDeliveryPage() {
   // the run to land on.
   const doAssign = async () => {
     if (!runId || !inventoryId || !selectedRunId || assigning) return;
+    // SCHEDULED PATH: photos come AFTER the run is picked. Send the rider to the
+    // photo step first; it returns here (via photosThenAssign) once the required
+    // set is captured. Nothing is posted until then, so backing out of the photo
+    // screen leaves the unit exactly where it was.
+    if (photos.length < requiredPhotos) {
+      setError(null);
+      setPendingAssign(true);
+      setPhase("photos");
+      return;
+    }
     setAssigning(true);
     setError(null);
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
+      // Append this unit's condition photos onto the DO_START created at scan
+      // (which was deliberately left empty). addItemPhotos pushes onto the
+      // EARLIEST DO_START for the unit on this run — the one we just made — so
+      // the merge below carries them over with the report.
+      await request(
+        { path: `/deliveries/${runId}/items/photos`, method: "POST" },
+        { inventoryId, photos: photos.map((p) => p.key) },
+        token,
+      ).catch(() => {
+        /* non-fatal: the unit is started and assigned either way; the office can
+           backfill from the DO editor. Never strand the rider over a photo. */
+      });
       const res = await request(
         { path: `/deliveries/${runId}/assign`, method: "POST" },
         { scheduledRunId: selectedRunId, inventoryId },
@@ -248,9 +273,11 @@ export default function StartDeliveryPage() {
       setError("Standalone delivery needs a specific scanned unit.");
       return;
     }
-    // Standalone runs REQUIRE condition photos per unit — the outbound state
-    // must be evidenced before the unit leaves (backend enforces this too).
-    if (standalone && photos.length < requiredPhotos) {
+    // Condition photos are no longer taken before an OUTBOUND standalone start
+    // (they move to just after the run is picked, or are skipped entirely on an
+    // ad-hoc run), so this gate now applies to RETURNS only — a collection is
+    // still evidenced up front so the before/after sets can be compared.
+    if (standalone && isReturn && photos.length < requiredPhotos) {
       setError(
         requiredPhotos === 1
           ? `A condition photo of the unit is required before starting this ${verb.toLowerCase()}.`
@@ -304,6 +331,20 @@ export default function StartDeliveryPage() {
           kind: "DO_START",
           ...(standalone && deliveryId ? { deliveryId } : { documentId: doId }),
           ...(technicianName ? { technicianName } : {}),
+          // PHOTOS ARE NO LONGER TAKEN BEFORE THIS POINT on a standalone start.
+          // The scan now goes straight to the assign page, so the DO_START is
+          // created EMPTY here and filled in afterwards — by the scheduled path,
+          // which appends the unit's condition photos onto this very report once
+          // the rider has picked a run, or not at all on an ad-hoc run.
+          //
+          // The report still has to exist NOW: GPS pings FK to its id, the route
+          // dialog keys on it, and the Timeline's "Delivery Started" row reads
+          // its createdAt. Creating none would lose all three.
+          //
+          // deferPhotos tells the server to skip its per-unit photo minimum,
+          // which would otherwise 400 this call. A RETURN is unchanged — it
+          // still captures its collection photos up front.
+          ...(standalone && !isReturn ? { deferPhotos: true } : {}),
           ...(photos.length ? { photos: photos.map((p) => p.key) } : {}),
           // Per-photo angle labels, parallel to photos[] (guided capture stamps
           // them; free-form leaves ""). Stored in serviceData.photoAngles so a
@@ -367,6 +408,34 @@ export default function StartDeliveryPage() {
       setSubmitting(false);
     }
   };
+
+  // SCAN GOES STRAIGHT TO ASSIGN (outbound standalone only).
+  //
+  // The rider used to land on a summary screen, take photos, then press Start.
+  // Now the scan itself starts the run: this fires confirm() once, as soon as
+  // the scan context has resolved, so the first thing the rider sees is the
+  // assign page — pick a scheduled run, or start a new delivery.
+  //
+  // What confirm() does is unchanged and still has to happen here: create the
+  // run (which reserves the unit), create the DO_START (now empty), and start
+  // GPS keyed on that report. Only the photo step moved.
+  //
+  // Guarded by a ref, not state: confirm() sets `submitting`, and a re-render
+  // mid-flight must not fire a second run creation (that would reserve a second
+  // unit and strand the first).
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (autoStartedRef.current) return;
+    // Outbound standalone only. A RETURN keeps its photo-first flow, and the
+    // DO-first arm (no `standalone`) keeps its own confirm button.
+    if (!standalone || isReturn) return;
+    // Only from the untouched initial screen, and only once the scanned unit is
+    // known (a standalone start is refused without one).
+    if (!inventoryId || phase !== "start" || submitting) return;
+    autoStartedRef.current = true;
+    void confirm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [standalone, isReturn, inventoryId, phase, submitting]);
 
   // Human date for a scheduled run ("Tue, 26 Aug"), or null when undated.
   const formatScheduledFor = (iso: string | null): string | null => {
@@ -613,13 +682,28 @@ export default function StartDeliveryPage() {
           variant="contained"
           onClick={() => {
             setError(null);
-            setPhase("start");
+            // Came from "Assign & continue" -> go back and finish that, now that
+            // the photos are in hand. Otherwise behave as before.
+            if (pendingAssign && met) {
+              setPendingAssign(false);
+              setPhase("assign");
+              // Let the assign phase paint before the post fires.
+              setTimeout(() => void doAssign(), 0);
+              return;
+            }
+            setPhase(pendingAssign ? "assign" : "start");
           }}
           disabled={uploading}
           fullWidth
           sx={{ py: 1.5, fontSize: "1rem", minHeight: 48 }}
         >
-          {uploading ? "Uploading…" : met ? "Done" : `Back (${photos.length} of ${requiredPhotos})`}
+          {uploading
+            ? "Uploading…"
+            : met
+              ? pendingAssign
+                ? "Done — assign this unit"
+                : "Done"
+              : `Back (${photos.length} of ${requiredPhotos})`}
         </Button>
       </Box>
     );

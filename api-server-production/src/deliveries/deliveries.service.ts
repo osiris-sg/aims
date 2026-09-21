@@ -2103,10 +2103,17 @@ export class DeliveriesService {
     // and customer are scalars on the run; PO and quotation live in the same
     // `config` blob this already fetches). Photos are the only extra, and they
     // are fetched for the whole page at once — no N+1.
-    // Only AD_HOC runs get a `missing` list, so only they need the photo count.
-    // A scheduled run's gaps are the office's normal workflow, not an exception
-    // worth flagging on every row.
+    // PHOTOS ARE COUNTED FOR EVERY RUN, ad-hoc or scheduled.
+    //
+    // They used to be fetched for ad-hoc runs alone, because those were the only
+    // rows that got a `missing` list. That stopped being safe when condition
+    // photos moved to AFTER the rider picks a scheduled run: the append that
+    // carries them onto the DO_START is deliberately non-fatal (a rider at a
+    // customer site is never stranded over an upload), so a scheduled run can
+    // now reach the office with no evidence and nothing would have said so.
+    const photoRunIds = docs.map((d) => d.id);
     const adHocRunIds = docs.filter((d) => d.origin === DeliveryOrigin.AD_HOC).map((d) => d.id);
+    void adHocRunIds;
     const [docRows, photoRows] = await Promise.all([
       docIds.length
         ? this.prisma.document.findMany({
@@ -2116,9 +2123,9 @@ export class DeliveriesService {
             select: { id: true, name: true, config: true, projectId: true },
           })
         : Promise.resolve([] as Array<{ id: string; name: string | null; config: unknown; projectId: string | null }>),
-      adHocRunIds.length
+      photoRunIds.length
         ? this.prisma.maintenanceServiceReport.findMany({
-            where: { deliveryId: { in: adHocRunIds }, kind: { in: ['DO_START', 'DO_ACK', 'DO_INSTALL'] } },
+            where: { deliveryId: { in: photoRunIds }, kind: { in: ['DO_START', 'DO_ACK', 'DO_INSTALL'] } },
             select: { deliveryId: true, photos: true },
           })
         : Promise.resolve([] as Array<{ deliveryId: string | null; photos: string[] }>),
@@ -2187,15 +2194,36 @@ export class DeliveriesService {
       // always "missing" carries no information. Re-add it only once the extract
       // records a pointer (the keys the DO -> invoice path already uses:
       // sourceDocumentId / sourceDocumentType / sourceDocumentNumber).
+      const noPhotos = !(photoCountByRun.get(d.id) ?? 0);
       const missing: string[] | null =
         d.origin === DeliveryOrigin.AD_HOC
           ? [
               ...(!runDoc || !(poNoByDoc.get(runDoc.id) ?? null) ? ['PO'] : []),
               ...(!d.customerId && !(runDoc && custIdByDoc.get(runDoc.id)) ? ['customer'] : []),
               ...(!d.projectId ? ['project'] : []),
-              ...(!(photoCountByRun.get(d.id) ?? 0) ? ['photos'] : []),
+              ...(noPhotos ? ['photos'] : []),
             ]
-          : null;
+          : // SCHEDULED: photos ONLY, and only once a rider has actually started.
+            //
+            // PO, customer and project are the office's own inputs and a
+            // scheduled run has them by construction, so flagging them here says
+            // nothing. Photos are different: they are the rider's job, they are
+            // REQUIRED on a scheduled run, and since the capture moved to after
+            // the run is picked (with a non-fatal append) their absence is a real
+            // failure rather than a workflow stage.
+            //
+            // BUT a run nobody has touched yet has no photos BY DEFINITION —
+            // flagging `scheduled` (and `cancelled`) rows would put a warning on
+            // 5 of the org's 7 photo-less scheduled runs for no reason and teach
+            // the office to ignore the column. Only a started run can be late
+            // with its evidence.
+            //
+            // null rather than [] when nothing is wrong: [] renders a green
+            // "Complete", which would claim all four checks passed when only one
+            // was made. A dash says "nothing to flag here", which is the truth.
+            noPhotos && d.status !== 'scheduled' && d.status !== 'cancelled'
+            ? ['photos']
+            : null;
       return {
         ...d,
         // `origin` rides through from the row; the list keys its Ad-hoc column

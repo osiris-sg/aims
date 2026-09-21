@@ -46,6 +46,14 @@ export class CreateMaintenanceReportDto {
   @IsString({ each: true })
   photoComments?: string[];
 
+  @ApiPropertyOptional({
+    description:
+      'Start this unit WITHOUT condition photos, deferring them to a later step. Set ONLY by the field scan flow, which now reaches the assign page before any photo is taken: a scheduled run captures them straight after the run is picked (appended via POST /deliveries/:id/items/photos onto this same report), and an ad-hoc run captures none at all by design. The report still has to exist up front because GPS pings FK to it, the route dialog keys on its id and the Timeline reads its createdAt. Without this flag a standalone DO_START with too few photos is rejected, which is the behaviour every other caller keeps.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  deferPhotos?: boolean;
+
   @ApiPropertyOptional({ description: 'S3 keys of proof-of-service photos.' })
   @IsOptional()
   @IsArray()
