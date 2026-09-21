@@ -1497,9 +1497,21 @@ export class OperatorToolsService {
                 weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
                 timeZone: 'Asia/Singapore',
               });
-          const lines = (args.items || []).map(
-            (it: any) => `${Number(it.quantity) || 1} x ${it.description || it.assetName || 'item'}`,
-          );
+          // Catalogue lines arrive as an assetId with no text, so the summary
+          // said "1 x item" and the user could not tell WHAT was being sent.
+          // Resolve the names for the confirmation card.
+          const assetIds = (args.items || []).map((it: any) => it.assetId).filter(Boolean);
+          const namedAssets = assetIds.length
+            ? await this.prisma.asset.findMany({
+                where: { id: { in: assetIds }, organizationId: ctx.organizationId },
+                select: { id: true, name: true, skuKey: true },
+              })
+            : [];
+          const nameById = new Map(namedAssets.map((a) => [a.id, a.skuKey ? `${a.name} (${a.skuKey})` : a.name]));
+          const lines = (args.items || []).map((it: any) => {
+            const what = (it.assetId && nameById.get(it.assetId)) || it.description || 'item';
+            return `${Number(it.quantity) || 1} x ${what}`;
+          });
           const pending: PendingAction = {
             kind: 'schedule_delivery',
             summary:
@@ -1527,6 +1539,29 @@ export class OperatorToolsService {
             },
             pending,
           };
+        },
+      },
+
+      {
+        name: 'ask_choice',
+        description:
+          "Ask the user to pick between options, shown as tappable buttons. USE THIS INSTEAD of writing choices out as '1. ... 2. ...' in your reply — tapping beats typing. Max 3 options, each at most 20 characters (the channel's limit), so keep them terse ('Use SO202609-0002', 'Upload the PO', 'Save as draft'). Their tap comes back as the next message. Do not use it for a straight yes/no on an action you are about to take — those already get their own Confirm button.",
+        permissions: [],
+        input_schema: {
+          type: 'object',
+          properties: {
+            question: { type: 'string', description: 'One short line. State the gap, not the background.' },
+            options: { type: 'array', items: { type: 'string' }, description: 'Up to 3 short labels, <=20 chars each.' },
+          },
+          required: ['question', 'options'],
+        },
+        run: async (_ctx, args) => {
+          const options = (args.options || []).map((o: any) => String(o)).filter(Boolean).slice(0, 3);
+          if (options.length < 2) return { result: { error: 'Give at least 2 options, or just ask in your reply.' } };
+          return {
+            result: { shown: true },
+            choice: { question: String(args.question || 'Which one?'), options },
+          } as any;
         },
       },
 

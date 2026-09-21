@@ -62,6 +62,10 @@ const TOOL_STATUS: Record<string, string> = {
   add_project_cost: '🧾 Recording the project cost...',
   edit_schedule: '🗓 Updating the schedule...',
   import_price_list: '📚 Adding the price list to the Work Library...',
+  schedule_delivery: '🚚 Preparing the delivery...',
+  find_sales_order: '🔎 Looking for the order or quotation...',
+  api_write: '⚙️ Preparing the change...',
+  ask_choice: '',
 };
 
 @Injectable()
@@ -344,6 +348,7 @@ export class OperatorService {
     ];
     const toolDefs = this.tools.definitions(ctx);
     let pendingFromTools: PendingAction | null = null;
+    let choiceFromTools: { question: string; options: string[] } | null = null;
 
     // Live progress: one status message that gets edited as work moves along,
     // plus the native typing indicator. Cleared before the final reply.
@@ -402,6 +407,7 @@ export class OperatorService {
           );
         }
         if (outcome.pending) pendingFromTools = outcome.pending;
+        if ((outcome as any).choice) choiceFromTools = (outcome as any).choice;
         results.push({
           type: 'tool_result',
           tool_use_id: use.id,
@@ -410,13 +416,15 @@ export class OperatorService {
           // stop so it doesn't loop calling the tool or re-ask in its own words.
           content: outcome.pending
             ? 'A Confirm/Cancel button has been shown to the user. STOP now: do not call this tool again, do not ask for confirmation yourself, and do not say it is done. The system will finalize it when the user taps Confirm.'
-            : JSON.stringify(outcome.result ?? {}).slice(0, 6000),
+            : (outcome as any).choice
+              ? 'The buttons have been shown to the user. STOP now and say nothing further: their tap arrives as the next message.'
+              : JSON.stringify(outcome.result ?? {}).slice(0, 6000),
         });
       }
       messages.push({ role: 'user', content: results });
       // A confirmation is now pending — end the model loop and wait for the
       // user's decision rather than letting the model reason further.
-      if (pendingFromTools) break;
+      if (pendingFromTools || choiceFromTools) break;
       await showStatus('💭 Thinking...');
     }
 
@@ -426,6 +434,14 @@ export class OperatorService {
     session.history = this.trimHistory(messages) as SessionState['history'];
     session.pendingAction = pendingFromTools;
     await this.saveSession(msg.channel, msg.channelUserId, session);
+
+    if (choiceFromTools) {
+      await adapter.sendButtons(
+        msg.chatId,
+        choiceFromTools.question,
+        choiceFromTools.options.slice(0, 3).map((o: string) => ({ label: o.slice(0, 20), data: `choice:${o}` })),
+      );
+    }
 
     if (pendingFromTools) {
       await adapter.sendButtons(msg.chatId, `${pendingFromTools.summary}\n\nConfirm?`, [
@@ -475,8 +491,16 @@ export class OperatorService {
     const perms = ctx.isOsirisAdmin
       ? 'all permissions (admin)'
       : ctx.roles.flatMap((r) => r.permissions.map((p) => `${p.resource}:${p.action}`)).join(', ') || 'none';
+    // Without this the model dates "tomorrow" from its training data — a real
+    // schedule came back as 2 Sept when the user meant the 23rd.
+    const now = new Date();
+    const fmt = (d: Date) =>
+      d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Singapore' });
+    const iso = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
+    const tomorrow = new Date(now.getTime() + 86400_000);
     return [
       `You are the AIMS Operator, an assistant that performs real work inside the AIMS business system on behalf of staff, over chat.`,
+      `TODAY is ${fmt(now)} (${iso(now)}) in Singapore time. TOMORROW is ${fmt(tomorrow)} (${iso(tomorrow)}). Work out every relative date ("tomorrow", "next Tuesday", "end of the month") from these, never from memory, and always send dates as ISO-8601 with the +08:00 offset.`,
       `You are acting as ${ctx.actor.name || 'a staff user'} in the organization "${ctx.organizationName}". Their permissions: ${perms}.`,
       `Everything you do is scoped to this organization only.`,
       ``,
@@ -488,6 +512,7 @@ export class OperatorService {
       `5. Keep replies short and plain, because this is a chat app. No markdown tables, no headings. Use the document number when referring to a document.`,
       `6. If a tool returns an error, tell the user plainly what went wrong and what you need from them.`,
       `7. If the user refers to something loosely ("send it again", "that quotation", "the last one") and it isn't in this conversation, DON'T ask them to repeat themselves. Call list_recent_documents and act on the most recent matching document. Only ask when there is genuine ambiguity (e.g. several plausible matches).`,
+      `7b. BE SHORT (guru 2026-09-22: "always short and sweet, get to the point"). Lead with the answer or the gap, never a paragraph of preamble. When something is missing, say which field is missing in a few words and stop; do not explain the consequences at length or restate what the user just told you. When you need the user to pick between options, DO NOT write them out as "1. ... 2. ..." — call ask_choice and they tap a button. Offer to take an upload when a document would fill the gap.`,
       `8. PUNCTUATION: never use em dashes or en dashes ("—", "–") in your replies OR in any text you write into a document (line item descriptions, notes, terms). Use a comma, a full stop, a colon or brackets instead. Ordinary hyphens inside words (e.g. "Fan-Coil") are fine.`,
       `9. FULL DASHBOARD ACCESS: you can read ANYTHING the user's web dashboard shows, even without a dedicated tool. When asked about commissions, earnings, targets, dashboards, reports, schedules, quests, leads or any other screen's numbers: call api_docs with keywords to find the right GET endpoint, then api_get to fetch it (their permissions are enforced automatically). Examples: designer commissions/revenue live at /id-projects/dashboard; a project's P&L incl. commission at /projects/<id>/costing. NEVER answer "I don't have a tool for that" before trying api_docs.`,
       `10. CHANGING THINGS WITHOUT A DEDICATED TOOL: if no tool covers an action the user wants, do NOT invent one out of a tool that looks close (that is how a delivery schedule became a priced document). Search api_docs for the POST/PATCH/PUT endpoint, build the body from the {field*:type} list it returns, then call api_write with a plain-English summary of what will change. It does not fire immediately: the user sees your summary and taps Confirm. If the call comes back with a validation error, read the field names in it and fix the body rather than giving up. Money and irreversible actions (confirming invoices, posting bills, recording payments, deleting) are blocked there by design, so use their dedicated tools.`,
@@ -551,6 +576,15 @@ export class OperatorService {
     msg: InboundMessage,
     data: string,
   ): Promise<void> {
+    if (data.startsWith('choice:')) {
+      // The label the user tapped re-enters as ordinary text, so the model
+      // picks up exactly where it left off with no special-casing.
+      const picked = data.slice('choice:'.length);
+      const choiceSession = await this.loadSession(msg.channel, msg.channelUserId);
+      await this.runAgent(ctx, adapter, { ...msg, text: picked, callbackData: undefined }, choiceSession, picked);
+      return;
+    }
+
     if (data.startsWith('org:')) {
       await this.switchOrg(ctx, adapter, msg, data.slice(4));
       return;
