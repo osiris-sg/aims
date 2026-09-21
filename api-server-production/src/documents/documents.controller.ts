@@ -244,6 +244,38 @@ export class DocumentsController {
     return await this.documentsService.linkProjectToDocument(id, body.projectId, organizationId, actorFromReq(req));
   }
 
+  /**
+   * BACKFILL FIELD CONDITION PHOTOS onto one line of a DO/RDO.
+   *
+   * Some lines have no photos because the rider did not use the app at the time.
+   * This lets the office add them afterwards from the edit-DO page. They are
+   * stored EXACTLY as field photos are — same DO_START report, same shape, no
+   * marker — so nothing downstream can tell the difference.
+   *
+   * The line is addressed by whatever identifies it: deliveryItemId (exact, and
+   * the only tie a free-typed line has), else inventoryItemId, else the line's
+   * description. Same precedence the read-time enrichment uses.
+   */
+  @Post(':id/item-photos')
+  @Permissions('documents:update')
+  async addItemPhotos(
+    @Param('id') id: string,
+    @Body()
+    body: { deliveryItemId?: string | null; inventoryItemId?: string | null; description?: string | null; photos: string[] },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    if (!Array.isArray(body?.photos) || body.photos.length === 0) {
+      throw new HttpException('photos must be a non-empty array of S3 keys', HttpStatus.BAD_REQUEST);
+    }
+    const actor = actorFromReq(req);
+    return await this.documentsService.addFieldPhotosToDocumentLine(id, organizationId, body, {
+      userId: (req as any)?.user?.id ?? null,
+      name: actor?.name ?? null,
+    });
+  }
+
   // --- Concurrent-edit lock (presence) ---------------------------------------
   // Claim/refresh the edit lock when opening a document in the editor. Returns
   // the lock state so the client can decide: edit, go read-only, or offer

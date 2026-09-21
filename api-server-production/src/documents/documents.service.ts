@@ -2075,6 +2075,148 @@ export class DocumentsService {
   }
 
   /**
+   * BACKFILL FIELD CONDITION PHOTOS onto one line of a DO/RDO.
+   *
+   * The office adds photos a rider never took. They must be INDISTINGUISHABLE
+   * from field photos downstream, so they go where field photos go: the line's
+   * DO_START MaintenanceServiceReport, in its `photos` array. No flag, no
+   * separate table, no marker. The read-time enrichment in getById, the four
+   * renderers' photo strips, the run-detail proof cards and the public share
+   * link then all pick them up with no changes at all.
+   *
+   * APPEND, DON'T DUPLICATE — mirroring the field app. Its own late-photo path
+   * (deliveries.service.addItemPhotos) pushes onto the EARLIEST existing
+   * DO_START and refuses when there is none. This does the same, except that
+   * "there is none" is exactly the case being fixed, so it creates one instead.
+   *
+   * THE ROW MUST CARRY documentId. getById reads photos through the
+   * `maintenanceReports` RELATION, which is keyed on documentId — a row with
+   * only deliveryId set is invisible to the preview. Field rows get theirs
+   * stamped at completion by stampProofMsrDocumentIds; a backfilled row sets it
+   * directly, which is also what makes this work on a DO-first document that has
+   * no delivery run behind it at all (deliveryId stays null, exactly as the
+   * schema's "DO-first rows keep documentId" comment describes).
+   *
+   * Line addressing follows the same precedence as the enrichment:
+   * deliveryItemId (exact — and the ONLY tie a free-typed line has), then
+   * inventoryItemId, then description.
+   */
+  async addFieldPhotosToDocumentLine(
+    documentId: string,
+    organizationId: string,
+    body: { deliveryItemId?: string | null; inventoryItemId?: string | null; description?: string | null; photos: string[] },
+    actor: { userId: string | null; name: string | null },
+  ) {
+    const keys = (body.photos ?? []).map((k) => String(k ?? '').trim()).filter(Boolean);
+    if (!keys.length) throw new HttpException('No photos to add', HttpStatus.BAD_REQUEST);
+
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, type: true, status: true, config: true },
+    });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    // Delivery documents only — condition photos have no meaning on an invoice
+    // or a quotation, and DO_START rows on other types would pollute the
+    // proof-of-delivery section of whatever document they landed on.
+    if (!['DO', 'DELIVERY_ORDER', 'RDO', 'RETURN_DELIVERY_ORDER'].includes(String(doc.type))) {
+      throw new HttpException('Condition photos can only be added to a delivery order', HttpStatus.BAD_REQUEST);
+    }
+    // Confirmed is fine — a photo is evidence, not a commercial term, and the
+    // real-world case (the rider did not use the app) usually surfaces after the
+    // DO has been confirmed and sent. Only a cancelled document is refused.
+    if (String(doc.status) === 'cancelled') {
+      throw new HttpException('This document is cancelled', HttpStatus.BAD_REQUEST);
+    }
+
+    const norm = (v: any) => String(v ?? '').trim().toLowerCase();
+    const lines: any[] = Array.isArray((doc.config as any)?.items) ? (doc.config as any).items : [];
+    const line = lines.find((l) =>
+      body.deliveryItemId
+        ? l.deliveryItemId === body.deliveryItemId
+        : body.inventoryItemId
+          ? l.inventoryItemId === body.inventoryItemId
+          : body.description
+            ? norm(l.description) === norm(body.description)
+            : false,
+    );
+    if (!line) throw new HttpException('That line is not on this document', HttpStatus.NOT_FOUND);
+
+    const deliveryItemId: string | null = line.deliveryItemId ?? body.deliveryItemId ?? null;
+    const inventoryId: string | null = line.inventoryItemId ?? body.inventoryItemId ?? null;
+
+    // The line's existing DO_START, if the rider ever started it. Scoped to THIS
+    // document, then narrowed to the line the same way the enrichment does.
+    // Earliest wins, matching the field app's `orderBy: createdAt asc`.
+    const candidates = await this.prisma.maintenanceServiceReport.findMany({
+      where: { documentId, organizationId, kind: 'DO_START' as any },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, deliveryItemId: true, inventoryId: true, description: true, photos: true },
+    });
+    const existing =
+      (deliveryItemId ? candidates.find((r) => r.deliveryItemId === deliveryItemId) : null) ??
+      (inventoryId ? candidates.find((r) => r.inventoryId === inventoryId) : null) ??
+      (!deliveryItemId && !inventoryId && line.description
+        ? candidates.find((r) => !r.inventoryId && norm(String(r.description ?? '').replace(/^(delivery|return) started:\s*/i, '')) === norm(line.description))
+        : null) ??
+      null;
+
+    if (existing) {
+      const updated = await this.prisma.maintenanceServiceReport.update({
+        where: { id: existing.id },
+        data: { photos: { push: keys } },
+        select: { id: true, photos: true },
+      });
+      return { reportId: updated.id, added: keys.length, total: updated.photos.length, created: false };
+    }
+
+    // No DO_START for this line — create one in the field's exact shape. The
+    // run, when there is one, comes off the line's DeliveryItem so the row sits
+    // on the same delivery a field row would have.
+    let deliveryId: string | null = null;
+    let assetId: string | null = line.assetId ?? null;
+    if (deliveryItemId) {
+      const di = await this.prisma.deliveryItem.findFirst({
+        where: { id: deliveryItemId },
+        select: { deliveryId: true, assetId: true, delivery: { select: { organizationId: true, direction: true } } },
+      });
+      if (di && di.delivery?.organizationId === organizationId) {
+        deliveryId = di.deliveryId;
+        assetId = assetId ?? di.assetId ?? null;
+      }
+    }
+    if (!assetId && inventoryId) {
+      const unit = await this.prisma.inventory.findFirst({
+        where: { id: inventoryId, organizationId },
+        select: { assetId: true },
+      });
+      assetId = unit?.assetId ?? null;
+    }
+    const isReturn = ['RDO', 'RETURN_DELIVERY_ORDER'].includes(String(doc.type));
+
+    const created = await this.prisma.maintenanceServiceReport.create({
+      data: {
+        organizationId,
+        // The office user stands in for the technician, exactly as they would if
+        // they had been the one holding the phone. No separate actor kind: the
+        // whole point is that the row is shaped like any other DO_START.
+        technicianUserId: actor.userId ?? 'office',
+        ...(actor.name ? { technicianName: actor.name } : {}),
+        kind: 'DO_START' as any,
+        status: 'draft' as any, // DO_START is unsigned proof
+        documentId,
+        ...(deliveryId ? { deliveryId } : {}),
+        ...(deliveryItemId ? { deliveryItemId } : {}),
+        ...(inventoryId ? { inventoryId } : {}),
+        ...(assetId ? { assetId } : {}),
+        description: `${isReturn ? 'Return started' : 'Delivery started'}: ${line.description ?? 'line'}`,
+        photos: keys,
+      },
+      select: { id: true, photos: true },
+    });
+    return { reportId: created.id, added: keys.length, total: created.photos.length, created: true };
+  }
+
+  /**
    * Attach, move, or detach a quotation or delivery-order document's Project link.
    * - projectId = "<uuid>" : link / re-link (overwrite if already linked).
    * - projectId = null     : unlink (set Document.projectId to null).

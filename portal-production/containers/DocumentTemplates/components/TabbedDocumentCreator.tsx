@@ -116,6 +116,8 @@ import RecordPaymentDialog from "@/app/portal/invoices/components/RecordPaymentD
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useReactToPrint } from "react-to-print";
 import { request } from "@/helpers/request";
+import { uploadImage } from "@/helpers/imageUploader";
+import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
 import { useDocumentLock } from "@/app/portal/hooks/useDocumentLock";
 import { toast } from "react-toastify";
 import { useForm, Controller } from "react-hook-form";
@@ -546,6 +548,100 @@ export default function TabbedDocumentCreator({
   // render branch matches BOTH: the editor tracks reality rather than relying on
   // the list to hand it a normalised variant.
   const isRDO = documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
+
+  // ── BACKFILL FIELD CONDITION PHOTOS (delivery documents only) ───────────────
+  //
+  // Some lines have no photos because the rider did not use the app at the time.
+  // This adds them afterwards, PER LINE, and stores them exactly where field
+  // photos live — the line's DO_START report — so nothing downstream can tell
+  // the difference. The backend does the append-or-create; this only picks files,
+  // uploads them and refreshes.
+  //
+  // Per UNIT by construction: the editor renders config.items RAW (one row per
+  // unit). The "Rental of N units of…" merge is a render-time concern in the
+  // preview's groupDeliveryLines, so a row here always addresses one unit and
+  // the photos land in that unit's own strip.
+  const canBackfillPhotos = (isDeliveryOrder || isRDO) && !!(existingData?.id || documentId);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const [photoTargetItemId, setPhotoTargetItemId] = useState<any>(null);
+  const [photoBusyItemId, setPhotoBusyItemId] = useState<any>(null);
+
+  const openPhotoPicker = (itemId: any) => {
+    setPhotoTargetItemId(itemId);
+    if (photoInputRef.current) {
+      photoInputRef.current.value = ""; // re-picking the same file must refire onChange
+      photoInputRef.current.click();
+    }
+  };
+
+  const onPhotoFilesChosen = async (files: FileList | null) => {
+    const itemId = photoTargetItemId;
+    setPhotoTargetItemId(null);
+    if (!files || files.length === 0 || itemId == null) return;
+    const docId = (existingData?.id || documentId) as string;
+    const item = items.find((it: any) => it.id === itemId);
+    if (!item) return;
+    // A line with no deliveryItemId, no unit AND no description cannot be
+    // addressed unambiguously, so it is never offered the control (see below) —
+    // this is the belt-and-braces half of that.
+    if (!item.deliveryItemId && !item.inventoryItemId && !item.description) {
+      toast.error("This line cannot be matched to a photo record.");
+      return;
+    }
+    // Client-side courtesy only: POST /uploads/image validates neither type nor
+    // size. Real enforcement belongs on that endpoint, which every upload in the
+    // product shares.
+    const MAX_BYTES = 15 * 1024 * 1024;
+    const chosen = Array.from(files);
+    const tooBig = chosen.filter((f) => f.size > MAX_BYTES);
+    if (tooBig.length) {
+      toast.error(`${tooBig.length} file(s) are larger than 15MB and were skipped.`);
+    }
+    const usable = chosen.filter((f) => f.size <= MAX_BYTES && f.type.startsWith("image/"));
+    if (!usable.length) {
+      toast.error("No usable image files were selected.");
+      return;
+    }
+    setPhotoBusyItemId(itemId);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      // Same S3 path the field app uses. "do-start" mirrors the folder a rider's
+      // condition photos go to, so the keys are indistinguishable too.
+      const keys = (
+        await Promise.all(usable.map((file) => uploadImage({ blob: file, folderName: "do-start", token })))
+      ).filter(Boolean);
+      if (!keys.length) throw new Error("Upload failed");
+      const res = await request(
+        { path: `/documents/${docId}/item-photos`, method: "POST" },
+        {
+          ...(item.deliveryItemId ? { deliveryItemId: item.deliveryItemId } : {}),
+          ...(item.inventoryItemId ? { inventoryItemId: item.inventoryItemId } : {}),
+          ...(item.description ? { description: item.description } : {}),
+          photos: keys,
+        },
+        token,
+      );
+      if (res?.success === false) throw new Error(res?.message ?? "Could not add the photos");
+      const data = res?.data ?? res;
+      // Reflect immediately so the line's strip updates without a reload. The
+      // authoritative list comes back from getById on the next open.
+      setItemsState((prev: any[]) =>
+        prev.map((it: any) =>
+          it.id === itemId
+            ? { ...it, proofPhotos: [...(Array.isArray(it.proofPhotos) ? it.proofPhotos : []), ...keys] }
+            : it,
+        ),
+      );
+      toast.success(
+        `${keys.length} photo${keys.length === 1 ? "" : "s"} added${data?.total ? ` (${data.total} on this line)` : ""}`,
+      );
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not add the photos");
+    } finally {
+      setPhotoBusyItemId(null);
+    }
+  };
   // Official Receipt (legacy accounting UX): the receipt lives in this editor
   // like any document — its own field rows + the Offset Transactions grid in
   // place of the items table. Saves route to PUT /receipts (page onSave).
@@ -6041,6 +6137,40 @@ export default function TabbedDocumentCreator({
                                 </>
                               )}
                               <TableCell align="center">
+                                {/* Backfill condition photos for THIS line. Offered
+                                    only on a saved delivery document, and only for a
+                                    line that can actually be addressed (an exact
+                                    deliveryItemId / unit, or at minimum a description
+                                    for the free-typed fallback). */}
+                                {canBackfillPhotos &&
+                                  (item.deliveryItemId || item.inventoryItemId || item.description) && (
+                                    <Tooltip
+                                      title={
+                                        Array.isArray(item.proofPhotos) && item.proofPhotos.length > 0
+                                          ? `Add condition photos (${item.proofPhotos.length} on this line)`
+                                          : "Add condition photos"
+                                      }
+                                    >
+                                      <span>
+                                        <IconButton
+                                          size="small"
+                                          onClick={() => openPhotoPicker(item.id)}
+                                          disabled={photoBusyItemId != null}
+                                          color={
+                                            Array.isArray(item.proofPhotos) && item.proofPhotos.length > 0
+                                              ? "success"
+                                              : "default"
+                                          }
+                                        >
+                                          {photoBusyItemId === item.id ? (
+                                            <CircularProgress size={16} />
+                                          ) : (
+                                            <AddAPhotoIcon fontSize="small" />
+                                          )}
+                                        </IconButton>
+                                      </span>
+                                    </Tooltip>
+                                  )}
                                 <IconButton
                                   size="small"
                                   onClick={() => deleteItem(item.id)}
@@ -6054,6 +6184,20 @@ export default function TabbedDocumentCreator({
                         </TableBody>
                       </Table>
                       </TableContainer>
+                      {/* ONE hidden picker for the whole table — the row button
+                          records which line it is for. multiple: a guided capture
+                          is four shots, so the office backfilling one usually has
+                          several at once. */}
+                      {canBackfillPhotos && (
+                        <input
+                          ref={photoInputRef}
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          style={{ display: "none" }}
+                          onChange={(e) => void onPhotoFilesChosen(e.target.files)}
+                        />
+                      )}
                     </Box>
 
                     {/* Sticky action row at the bottom — Add Item / Add Service
