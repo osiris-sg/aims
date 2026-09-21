@@ -1,3 +1,4 @@
+import { DeliveriesService } from '../deliveries/deliveries.service';
 import { Injectable, Logger } from '@nestjs/common';
 import type Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
@@ -43,6 +44,32 @@ interface ToolDef {
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
+/**
+ * Endpoints api_write must never reach: they post journals, move money, change
+ * who can log in, or cannot be undone. Each has a dedicated tool with its own
+ * preview and wording, and a hand-built body is not the way in. DELETE is
+ * already excluded by the method whitelist; these catch the POST/PATCH verbs
+ * that are just as final.
+ */
+const BLOCKED_WRITE_PATHS: RegExp[] = [
+  /\/payments(\/|$)/i,
+  /\/receipts(\/|$)/i,
+  /\/journal(\/|$)/i,
+  /\/bank-rec(\/|$)/i,
+  /\/close(\/|$)/i,
+  /\/posting-queue(\/|$)/i,
+  /\/confirm(\/|$)/i,
+  /\/post(\/|$)/i,
+  /\/void(\/|$)/i,
+  /\/delete(\/|$)/i,
+  /\/organizations(\/|$)/i, // org + feature-flag changes stay an admin action
+  /\/users(\/|$)/i,
+  /\/roles(\/|$)/i,
+  /\/permissions(\/|$)/i,
+  /\/api-keys(\/|$)/i,
+  /\/operator\/(link|identities)(\/|$)/i, // no self-granting a new identity
+];
+
 @Injectable()
 export class OperatorToolsService {
   private readonly logger = new Logger(OperatorToolsService.name);
@@ -66,6 +93,7 @@ export class OperatorToolsService {
     private readonly costing: ProjectCostingService,
     private readonly revenueItems: RevenueItemsService,
     private readonly marketing: MarketingService,
+    private readonly deliveries: DeliveriesService,
     private readonly s3: S3Service,
     private readonly auth: OperatorAuthService,
   ) {}
@@ -1029,7 +1057,7 @@ export class OperatorToolsService {
       {
         name: 'api_docs',
         description:
-          "Search the FULL AIMS REST API — every read endpoint the web dashboard itself uses. Use this whenever the user asks for something no dedicated tool covers (commissions, designer earnings, dashboards, reports, schedules, quests, leads, budgets, any screen's data): search here first, then fetch the matching endpoint with api_get. Returns 'GET <path> — <what it serves>' lines matching your query.",
+          "Search the FULL AIMS REST API — every endpoint the web dashboard itself uses, reads AND writes. Use this whenever the user asks for something no dedicated tool covers (commissions, dashboards, reports, schedules, quests, leads, budgets, any screen's data or action): search here first, then api_get to read or api_write to change. Returns '<METHOD> <path> — <what it does> {field*:type}' lines ('*' = required; the body shape is shown when the endpoint documents one).",
         permissions: [],
         input_schema: {
           type: 'object',
@@ -1092,6 +1120,53 @@ export class OperatorToolsService {
           const truncated = out.length > 14000;
           if (truncated) out = out.slice(0, 14000);
           return { result: { path, data: truncated ? out + '…[truncated — ask for a narrower endpoint or add query filters]' : body } };
+        },
+      },
+
+      {
+        name: 'api_write',
+        description:
+          "Call any POST/PATCH/PUT endpoint of the AIMS API as this user, for actions no dedicated tool covers. Find the path AND its body fields with api_docs first. NEVER fires immediately: it returns a summary the user must confirm, so always tell them what you are about to do. Their permissions are enforced. Money and irreversible actions (confirming invoices, posting bills, recording payments, deleting) are BLOCKED here on purpose — use the dedicated tools for those.",
+        permissions: [],
+        input_schema: {
+          type: 'object',
+          properties: {
+            method: { type: 'string', description: 'POST, PATCH or PUT' },
+            path: { type: 'string', description: "Absolute API path starting with /, e.g. '/projects/<id>/schedule'. Replace any {param} with a real id." },
+            body: { type: 'object', description: 'JSON request body, built from the field list api_docs returned.' },
+            summary: { type: 'string', description: 'One plain sentence telling the user what this will change, shown to them before it runs.' },
+          },
+          required: ['method', 'path', 'summary'],
+        },
+        run: async (ctx, args) => {
+          const method = String(args.method || '').toUpperCase();
+          if (!['POST', 'PATCH', 'PUT'].includes(method)) {
+            return { result: { error: 'method must be POST, PATCH or PUT.' } };
+          }
+          const path = String(args.path || '');
+          if (!path.startsWith('/') || path.includes('..') || /:\/\//.test(path)) {
+            return { result: { error: 'Path must be an absolute API path like /projects/<id>/schedule' } };
+          }
+          if (/\{[^}]+\}/.test(path)) {
+            return { result: { error: 'Replace the {param} placeholders with real ids first.' } };
+          }
+          if (BLOCKED_WRITE_PATHS.some((re) => re.test(path))) {
+            return {
+              result: {
+                error:
+                  'That endpoint moves money or is irreversible, so it is not reachable this way. Use the dedicated tool (confirm_invoice, post_bill, record_payment) instead.',
+              },
+            };
+          }
+          // Held, never executed here. The user taps Confirm and runPending()
+          // makes the call — same gate every risky tool already uses.
+          const pending: PendingAction = {
+            kind: 'api_write',
+            summary: String(args.summary || `${method} ${path}`),
+            args: { method, path, body: args.body || {} },
+            createdAt: new Date().toISOString(),
+          };
+          return { result: { needsConfirmation: true, willCall: `${method} ${path}`, summary: pending.summary }, pending };
         },
       },
 
@@ -1321,9 +1396,68 @@ export class OperatorToolsService {
 
       // ── Other document types ───────────────────────────────────────────────
       {
+        name: 'schedule_delivery',
+        description:
+          'Schedule a REAL delivery run (the Deliveries module): items, target date, site — creates the run plus a pending DO that claims its number on confirmation. Use this whenever the user says schedule/deliver/send equipment on a date. Items carry NO prices. If the customer has no project, the run is saved as a DRAFT schedule for the office to finish.',
+        permissions: ['documents:create-basic'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            customerId: { type: 'string' },
+            projectId: { type: 'string', description: 'Optional — resolved from the customer\'s most recent project when omitted.' },
+            scheduledFor: { type: 'string', description: 'ISO date/time of the delivery, e.g. 2026-09-23T09:00:00+08:00' },
+            siteAddress: { type: 'string' },
+            items: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  assetId: { type: 'string', description: 'Catalog asset id from find_item' },
+                  description: { type: 'string', description: 'Free-typed line when no assetId' },
+                  quantity: { type: 'number' },
+                },
+                required: ['quantity'],
+              },
+            },
+            notes: { type: 'string' },
+          },
+          required: ['customerId', 'scheduledFor', 'items'],
+        },
+        run: async (ctx, args) => {
+          const customer = await this.prisma.customer.findFirst({ where: { id: args.customerId, organizationId: ctx.organizationId }, select: { id: true, name: true, address: true } });
+          if (!customer) return { result: { error: 'Customer not found in this organization' } };
+          let projectId: string | undefined = args.projectId;
+          if (!projectId) {
+            const proj = await this.prisma.project.findFirst({ where: { organizationId: ctx.organizationId, customerId: customer.id }, orderBy: { createdAt: 'desc' }, select: { id: true, name: true } });
+            projectId = proj?.id;
+          }
+          const isDraft = !projectId;
+          const dto: any = {
+            isDraft,
+            projectId,
+            customerId: customer.id,
+            scheduledFor: args.scheduledFor,
+            siteAddress: args.siteAddress || customer.address || undefined,
+            notes: args.notes,
+            items: (args.items || []).map((it: any) => ({ assetId: it.assetId || undefined, description: it.assetId ? undefined : it.description, quantity: Number(it.quantity) || 1 })),
+          };
+          const run: any = await this.deliveries.createScheduled(dto, ctx.organizationId);
+          return {
+            result: {
+              deliveryNumber: run?.deliveryNumber ?? run?.id,
+              status: isDraft ? 'DRAFT schedule (no project found — office must assign one in Deliveries before it goes live)' : 'scheduled',
+              scheduledFor: args.scheduledFor,
+              customer: customer.name,
+              items: dto.items.length,
+            },
+          };
+        },
+      },
+
+      {
         name: 'create_delivery_order',
         description:
-          'Create a DRAFT delivery order (DO) for a customer, usually from a confirmed quotation. Same line item format as create_quotation.',
+          'Create a DRAFT delivery order DOCUMENT only (no delivery run, no rider, no date). For "schedule/send/deliver tomorrow" requests ALWAYS use schedule_delivery instead. Rental DOs carry quantities, not prices — omit unitPrice unless the user gave one.',
         permissions: ['documents:create-basic'],
         input_schema: {
           type: 'object',
@@ -1836,6 +1970,33 @@ export class OperatorToolsService {
     return names.length > 0 && names.every((n) => n === 'Designer');
   }
 
+  /** Signed loopback call to our own API, as this user, in this org. */
+  private async selfCall(ctx: OperatorContext, method: string, path: string, body?: any) {
+    const secret = process.env.INTERNAL_API_SECRET;
+    if (!secret) throw new Error('Internal API access is not configured on this server (INTERNAL_API_SECRET missing).');
+    const ts = Date.now();
+    const crypto = require('crypto');
+    const sig = crypto.createHmac('sha256', secret).update(`${ctx.clerkUserId}.${ts}`).digest('hex');
+    const port = process.env.PORT || 4040;
+    const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+      method,
+      headers: {
+        'x-operator-internal': `${ctx.clerkUserId}.${ts}.${sig}`,
+        'x-active-org-id': ctx.organizationId,
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    const text = await res.text();
+    let parsed: any = text;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      /* non-JSON stays as text */
+    }
+    return { ok: res.ok, status: res.status, body: parsed, text };
+  }
+
   /** Condensed GET-endpoint catalog from the server's own Swagger doc (the
    *  full dashboard API), cached for an hour — feeds the api_docs tool. */
   private apiCatalogCache: { at: number; lines: string[] } | null = null;
@@ -1843,13 +2004,31 @@ export class OperatorToolsService {
     if (this.apiCatalogCache && Date.now() - this.apiCatalogCache.at < 3600_000) return this.apiCatalogCache.lines;
     const port = process.env.PORT || 4040;
     const doc: any = await (await fetch(`http://127.0.0.1:${port}/api-json`)).json();
+    const schemas = doc?.components?.schemas || {};
+    // Flatten a DTO $ref into "field:type, field:type" so the agent can build a
+    // body without a second round-trip. Only ~26% of write endpoints document
+    // one; the rest fall back to the 400 validation message on a failed try.
+    const fieldsOf = (op: any): string => {
+      const sch = op?.requestBody?.content?.['application/json']?.schema;
+      const ref = sch?.$ref || sch?.items?.$ref;
+      const def = ref ? schemas[String(ref).split('/').pop()!] : sch;
+      const props = def?.properties;
+      if (!props) return '';
+      const req: string[] = def?.required || [];
+      const parts = Object.entries<any>(props)
+        .slice(0, 25)
+        .map(([k, v]) => `${k}${req.includes(k) ? '*' : ''}:${v?.type || v?.$ref?.split('/').pop() || 'any'}`);
+      return parts.length ? ` {${parts.join(', ')}}` : '';
+    };
     const lines: string[] = [];
     for (const [path, methods] of Object.entries<any>(doc?.paths || {})) {
       for (const [m, op] of Object.entries<any>(methods || {})) {
-        if (m.toLowerCase() !== 'get') continue;
+        const method = m.toUpperCase();
+        if (!['GET', 'POST', 'PATCH', 'PUT'].includes(method)) continue;
         const summary = op?.summary || '';
         const tag = op?.tags?.[0] || '';
-        lines.push(`GET ${path}${summary ? ` — ${summary}` : ''}${tag ? ` [${tag}]` : ''}`);
+        const body = method === 'GET' ? '' : fieldsOf(op);
+        lines.push(`${method} ${path}${summary ? ` — ${summary}` : ''}${tag ? ` [${tag}]` : ''}${body}`);
       }
     }
     this.apiCatalogCache = { at: Date.now(), lines };
@@ -1857,6 +2036,27 @@ export class OperatorToolsService {
   }
 
   async runPending(ctx: OperatorContext, pending: PendingAction): Promise<{ ok: boolean; message: string }> {
+    if (pending.kind === 'api_write') {
+      const { method, path, body } = pending.args || {};
+      // Re-check the denylist here too: the pending action is held in session
+      // state between the tool call and the tap, so the gate must sit on the
+      // side that actually performs the call, not only where it was drafted.
+      if (BLOCKED_WRITE_PATHS.some((re) => re.test(String(path)))) {
+        return { ok: false, message: 'That endpoint is not reachable this way. Use the dedicated tool for it.' };
+      }
+      const res = await this.selfCall(ctx, method, path, body);
+      if (!res.ok) {
+        // class-validator returns field-level messages, which is the agent's
+        // feedback loop on endpoints that do not document a body schema.
+        const detail = Array.isArray(res.body?.message)
+          ? res.body.message.join('; ')
+          : res.body?.message || String(res.text || '').slice(0, 300);
+        return { ok: false, message: `That didn't go through (${res.status}): ${detail}` };
+      }
+      this.log(ctx, 'UPDATED', 'api', undefined, String(path), `${method} ${path} via Operator (${ctx.channel})`);
+      return { ok: true, message: `✅ Done. ${pending.summary}` };
+    }
+
     if (pending.kind === 'post_bill') {
       const bill = await this.prisma.document.findFirst({
         where: { id: pending.documentId!, organizationId: ctx.organizationId, type: 'BILL' },
