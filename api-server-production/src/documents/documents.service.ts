@@ -2169,28 +2169,73 @@ export class DocumentsService {
       return { reportId: updated.id, added: keys.length, total: updated.photos.length, created: false };
     }
 
-    // No DO_START for this line — create one in the field's exact shape. The
-    // run, when there is one, comes off the line's DeliveryItem so the row sits
-    // on the same delivery a field row would have.
-    let deliveryId: string | null = null;
-    let assetId: string | null = line.assetId ?? null;
-    if (deliveryItemId) {
-      const di = await this.prisma.deliveryItem.findFirst({
-        where: { id: deliveryItemId },
-        select: { deliveryId: true, assetId: true, delivery: { select: { organizationId: true, direction: true } } },
-      });
-      if (di && di.delivery?.organizationId === organizationId) {
-        deliveryId = di.deliveryId;
-        assetId = assetId ?? di.assetId ?? null;
-      }
+    // No DO_START for this line — create one in the field's exact shape.
+    //
+    // EVERY FK IS VERIFIED BEFORE IT IS WRITTEN. A DO config line is a SNAPSHOT:
+    // it keeps whatever ids were true when it was built, and those rows can go
+    // away underneath it. updateScheduled regenerates a run's DeliveryItems
+    // (delete + recreate, so the same unit gets a NEW id), and cleanup scripts
+    // have deleted DeliveryItems while documents kept pointing at them. 4 of the
+    // 27 lines carrying a deliveryItemId org-wide are already stale this way.
+    //
+    // Writing a stale id straight through is what produced
+    //   Foreign key constraint violated: MaintenanceServiceReport_deliveryItemId_fkey
+    // on DO-PENDING-02's LION250 line, whose stored deliveryItemId
+    // (c9694427…) no longer exists while the unit is very much alive on a
+    // NEWER DeliveryItem for the same run.
+    //
+    // Every one of these columns is NULLABLE, so a missing row becomes null
+    // rather than a 500. Nothing is lost by that: the getById enrichment matches
+    // photos to lines by deliveryItemId → inventoryItemId → serial →
+    // description, so a null deliveryItemId simply falls through to the next
+    // rung. A line whose unit still exists (the common case, and DO-PENDING-02's
+    // case) keeps matching exactly.
+    const verifiedDeliveryItem = deliveryItemId
+      ? await this.prisma.deliveryItem.findFirst({
+          where: { id: deliveryItemId },
+          select: { id: true, deliveryId: true, assetId: true, delivery: { select: { organizationId: true } } },
+        })
+      : null;
+    // Org-scoped too: an id that exists but belongs to another tenant must not
+    // be written any more than one that does not exist at all.
+    const safeDeliveryItem =
+      verifiedDeliveryItem && verifiedDeliveryItem.delivery?.organizationId === organizationId
+        ? verifiedDeliveryItem
+        : null;
+    if (deliveryItemId && !safeDeliveryItem) {
+      console.warn(
+        `addFieldPhotosToDocumentLine: document ${documentId} line carries a stale deliveryItemId ${deliveryItemId} — writing null and relying on the inventoryId/serial/description fallbacks`,
+      );
     }
-    if (!assetId && inventoryId) {
-      const unit = await this.prisma.inventory.findFirst({
-        where: { id: inventoryId, organizationId },
-        select: { assetId: true },
-      });
-      assetId = unit?.assetId ?? null;
+
+    const safeInventory = inventoryId
+      ? await this.prisma.inventory.findFirst({ where: { id: inventoryId, organizationId }, select: { id: true, assetId: true } })
+      : null;
+    if (inventoryId && !safeInventory) {
+      console.warn(`addFieldPhotosToDocumentLine: document ${documentId} line carries a stale inventoryItemId ${inventoryId} — writing null`);
     }
+
+    // Asset: the line's own, else the verified DeliveryItem's, else the verified
+    // unit's — and then confirmed to exist in this org before it is written.
+    const assetCandidate: string | null =
+      (line.assetId ?? null) || safeDeliveryItem?.assetId || safeInventory?.assetId || null;
+    const safeAsset = assetCandidate
+      ? await this.prisma.asset.findFirst({ where: { id: assetCandidate, organizationId }, select: { id: true } })
+      : null;
+    if (assetCandidate && !safeAsset) {
+      console.warn(`addFieldPhotosToDocumentLine: document ${documentId} line carries a stale assetId ${assetCandidate} — writing null`);
+    }
+
+    // deliveryId only ever comes from a VERIFIED DeliveryItem, so it cannot be
+    // stale independently — but it is read back off the run to be certain the
+    // delivery itself still exists.
+    const safeDelivery = safeDeliveryItem?.deliveryId
+      ? await this.prisma.delivery.findFirst({
+          where: { id: safeDeliveryItem.deliveryId, organizationId },
+          select: { id: true },
+        })
+      : null;
+
     const isReturn = ['RDO', 'RETURN_DELIVERY_ORDER'].includes(String(doc.type));
 
     const created = await this.prisma.maintenanceServiceReport.create({
@@ -2204,10 +2249,12 @@ export class DocumentsService {
         kind: 'DO_START' as any,
         status: 'draft' as any, // DO_START is unsigned proof
         documentId,
-        ...(deliveryId ? { deliveryId } : {}),
-        ...(deliveryItemId ? { deliveryItemId } : {}),
-        ...(inventoryId ? { inventoryId } : {}),
-        ...(assetId ? { assetId } : {}),
+        // Only verified ids reach the insert; anything stale is simply omitted
+        // (the column defaults to null).
+        ...(safeDelivery ? { deliveryId: safeDelivery.id } : {}),
+        ...(safeDeliveryItem ? { deliveryItemId: safeDeliveryItem.id } : {}),
+        ...(safeInventory ? { inventoryId: safeInventory.id } : {}),
+        ...(safeAsset ? { assetId: safeAsset.id } : {}),
         description: `${isReturn ? 'Return started' : 'Delivery started'}: ${line.description ?? 'line'}`,
         photos: keys,
       },
