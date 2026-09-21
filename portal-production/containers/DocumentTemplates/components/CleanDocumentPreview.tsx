@@ -2065,10 +2065,19 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     const deliveryEndedAt = ackTimes.length ? new Date(Math.max(...ackTimes)) : null;
     const sameCalendarDay = (a: Date, b: Date) =>
       a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-    // Time only when the event fell on the scheduled day; otherwise date + time,
+    // BIOFUEL: always date + time. Every other org keeps the original rule —
+    // time only when the event fell on the scheduled day, date + time otherwise,
     // so a run that slipped to a different day is unambiguous.
+    //
+    // The rule is good but it hides the date exactly when the run went to plan,
+    // which is the common case: on DO202609-0062 the Timeline read "1:00 pm" /
+    // "2:00 pm" with the day nowhere in the block. The document header carries
+    // the date, but on a printed DO the customer reads the Timeline as the
+    // record of when the equipment actually moved, and a bare time is not a
+    // record. Scoped to Biofuel because it is their replica layout and their
+    // paper convention; changing it for every org is a different decision.
     const tlTimeValue = (d: Date) =>
-      scheduledAt && !Number.isNaN(scheduledAt.getTime()) && sameCalendarDay(d, scheduledAt)
+      !isBiofuel && scheduledAt && !Number.isNaN(scheduledAt.getTime()) && sameCalendarDay(d, scheduledAt)
         ? d.toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit", hour12: true })
         : d.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
     // Timeline block (receipt style): a bold, letter-spaced "TIMELINE" heading
