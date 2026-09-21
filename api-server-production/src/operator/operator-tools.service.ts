@@ -1441,15 +1441,39 @@ export class OperatorToolsService {
             notes: args.notes,
             items: (args.items || []).map((it: any) => ({ assetId: it.assetId || undefined, description: it.assetId ? undefined : it.description, quantity: Number(it.quantity) || 1 })),
           };
-          const run: any = await this.deliveries.createScheduled(dto, ctx.organizationId);
+          // Held for confirmation rather than created outright. A delivery run
+          // books a date against a real customer, and this is the tool that
+          // already mis-fired once, so the user sees what was resolved for them
+          // (project, site address, draft-or-live) before it exists.
+          const when = new Date(args.scheduledFor);
+          const whenText = isNaN(when.getTime())
+            ? String(args.scheduledFor)
+            : when.toLocaleString('en-GB', {
+                weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+                timeZone: 'Asia/Singapore',
+              });
+          const lines = (args.items || []).map(
+            (it: any) => `${Number(it.quantity) || 1} x ${it.description || it.assetName || 'item'}`,
+          );
+          const pending: PendingAction = {
+            kind: 'schedule_delivery',
+            summary:
+              `Delivery for ${customer.name} on ${whenText}\n` +
+              `${lines.join('\n')}\n` +
+              `Site: ${dto.siteAddress || '(none on file)'}` +
+              (isDraft ? `\n\nNo project found for this customer, so it saves as a DRAFT for the office to finish.` : ''),
+            args: { dto, customerName: customer.name, isDraft },
+            createdAt: new Date().toISOString(),
+          };
           return {
             result: {
-              deliveryNumber: run?.deliveryNumber ?? run?.id,
-              status: isDraft ? 'DRAFT schedule (no project found — office must assign one in Deliveries before it goes live)' : 'scheduled',
-              scheduledFor: args.scheduledFor,
+              needsConfirmation: true,
               customer: customer.name,
+              scheduledFor: whenText,
               items: dto.items.length,
+              status: isDraft ? 'will save as a DRAFT schedule (no project found)' : 'will be scheduled',
             },
+            pending,
           };
         },
       },
@@ -2036,6 +2060,19 @@ export class OperatorToolsService {
   }
 
   async runPending(ctx: OperatorContext, pending: PendingAction): Promise<{ ok: boolean; message: string }> {
+    if (pending.kind === 'schedule_delivery') {
+      const { dto, customerName, isDraft } = pending.args || {};
+      const run: any = await this.deliveries.createScheduled(dto, ctx.organizationId);
+      const ref = run?.deliveryNumber ?? run?.id;
+      this.log(ctx, 'CREATED', 'delivery', run?.id, ref, `Delivery scheduled via Operator (${ctx.channel})`);
+      return {
+        ok: true,
+        message: isDraft
+          ? `✅ Saved as a DRAFT schedule for ${customerName} (${ref}). The office needs to assign a project in Deliveries before it goes live.`
+          : `✅ Delivery ${ref} scheduled for ${customerName}.`,
+      };
+    }
+
     if (pending.kind === 'api_write') {
       const { method, path, body } = pending.args || {};
       // Re-check the denylist here too: the pending action is held in session

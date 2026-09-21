@@ -101,6 +101,7 @@ export interface PendingAction {
     | 'add_project_cost'
     | 'edit_schedule'
     | 'import_price_list'
+    | 'schedule_delivery'
     | 'api_write';
   documentId?: string;
   documentType?: string;
