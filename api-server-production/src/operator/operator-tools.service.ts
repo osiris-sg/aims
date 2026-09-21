@@ -1398,7 +1398,7 @@ export class OperatorToolsService {
       {
         name: 'schedule_delivery',
         description:
-          'Schedule a REAL delivery run (the Deliveries module): creates the run plus a pending DO that claims its number on confirmation. Use this whenever the user says schedule/deliver/send equipment on a date. Items carry NO prices. A LIVE run needs: customer, project, items, the date/time, AND at least one of a Sale Order or a quotation (some jobs have one, some the other, never neither) — call find_sales_order to see what exists. A Sale Order is passed as saleOrderId; a quotation counts automatically when it sits on the project. Anything missing and it is saved as a DRAFT for the office to finish, which is safe but NOT a booked delivery, so tell the user what is missing rather than silently parking it.',
+          'Schedule a REAL delivery run (the Deliveries module): creates the run plus a pending DO that claims its number on confirmation. Use this whenever the user says schedule/deliver/send equipment on a date. Items carry NO prices. A LIVE run needs: customer, project, items, the date/time, AND a sale order or quotation — pass it as saleOrderId, or as saleOrderNumber when the user just says the number ("use QO202609-0055"); a quotation already sitting on the project also counts. If it is missing, DO NOT just park the run: say what is missing in one line and use ask_choice to offer [Send the PO/QO no.] [Upload the PO] [Save as draft] so they can fill it in BEFORE confirming. Only save a draft when they pick that.',
         permissions: ['documents:create-basic'],
         input_schema: {
           type: 'object',
@@ -1419,7 +1419,8 @@ export class OperatorToolsService {
                 required: ['quantity'],
               },
             },
-            saleOrderId: { type: 'string', description: 'The SALES_ORDER document id this delivery is against, from find_sales_order. REQUIRED for a live run.' },
+            saleOrderId: { type: 'string', description: 'Id of the sale order OR quotation this delivery is against, from find_sales_order. One of this or saleOrderNumber is REQUIRED for a live run.' },
+            saleOrderNumber: { type: 'string', description: "The order/quotation NUMBER when the user just says it, e.g. 'QO202609-0055' or 'SO202609-0002'. Resolved for you, so no lookup needed first." },
             poNumber: { type: 'string', description: "Optional display text for the DO, e.g. 'PO2512032'. Defaults to the Sale Order's number." },
             notes: { type: 'string' },
           },
@@ -1444,13 +1445,31 @@ export class OperatorToolsService {
           // and a missing saleOrderId would sail through as a "real" run the
           // API itself would have rejected. Park it as a DRAFT instead: the
           // office finishes it in Deliveries, and nothing invalid is created.
-          let saleOrder: { id: string; name: string } | null = null;
-          if (args.saleOrderId) {
+          // Either type is accepted: the invoice pricer takes the attached id
+          // as a SALES_ORDER or a QUOTATION and decides which tier its prices
+          // land in (documents.service.ts:5440). Resolving by NUMBER too means
+          // "use QO202609-0055" works without a lookup round-trip.
+          const ORDER_TYPES = ['SALES_ORDER', 'QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
+          let saleOrder: { id: string; name: string; type: string } | null = null;
+          if (args.saleOrderId || args.saleOrderNumber) {
             saleOrder = await this.prisma.document.findFirst({
-              where: { id: args.saleOrderId, organizationId: ctx.organizationId, type: 'SALES_ORDER' },
-              select: { id: true, name: true },
+              where: {
+                organizationId: ctx.organizationId,
+                type: { in: ORDER_TYPES },
+                ...(args.saleOrderId
+                  ? { id: String(args.saleOrderId) }
+                  : { name: { contains: String(args.saleOrderNumber).trim(), mode: 'insensitive' as const } }),
+              },
+              orderBy: { createdAt: 'desc' },
+              select: { id: true, name: true, type: true },
             });
-            if (!saleOrder) return { result: { error: 'That Sale Order was not found in this organization. Use find_sales_order to get its id.' } };
+            if (!saleOrder) {
+              return {
+                result: {
+                  error: `No sale order or quotation matching "${args.saleOrderNumber || args.saleOrderId}" in this organization. Use find_sales_order to see what exists.`,
+                },
+              };
+            }
           }
           // Either a Sale Order OR a quotation, never both required (guru
           // 2026-09-22: "some wont have order some wont have quotation but must
@@ -1507,7 +1526,14 @@ export class OperatorToolsService {
                 select: { id: true, name: true, skuKey: true },
               })
             : [];
-          const nameById = new Map(namedAssets.map((a) => [a.id, a.skuKey ? `${a.name} (${a.skuKey})` : a.name]));
+          const label = (a: { name: string; skuKey: string | null }) => {
+            const code = (a.skuKey || '').trim();
+            // "LION250 (LION250)" reads as a bug. Only show the code when it
+            // adds something the name does not already say.
+            if (!code || a.name.replace(/\s+/g, '').toLowerCase() === code.replace(/\s+/g, '').toLowerCase()) return a.name;
+            return `${a.name} (${code})`;
+          };
+          const nameById = new Map(namedAssets.map((a) => [a.id, label(a)]));
           const lines = (args.items || []).map((it: any) => {
             const what = (it.assetId && nameById.get(it.assetId)) || it.description || 'item';
             return `${Number(it.quantity) || 1} x ${what}`;
@@ -1518,11 +1544,9 @@ export class OperatorToolsService {
               `Delivery for ${customer.name} on ${whenText}\n` +
               `${lines.join('\n')}\n` +
               `Project: ${projectName || '(none)'}\n` +
-              `Order: ${saleOrder ? saleOrder.name : quotation ? `${quotation.name} (quotation on the project)` : '(none)'}\n` +
+              `Order: ${saleOrder ? `${saleOrder.name}${saleOrder.type === 'SALES_ORDER' ? '' : ' (quotation)'}` : quotation ? `${quotation.name} (quotation on the project)` : '(none)'}\n` +
               `Site: ${dto.siteAddress || '(none on file)'}` +
-              (isDraft
-                ? `\n\nMissing ${missing.join(' and ')}, so this saves as a DRAFT for the office to finish rather than a live run.`
-                : ''),
+              (isDraft ? `\n\nMissing ${missing.join(' and ')}. Confirming saves it as a DRAFT, not a booked run.` : ''),
             args: { dto, customerName: customer.name, isDraft },
             createdAt: new Date().toISOString(),
           };
