@@ -214,6 +214,43 @@ export class OperatorService {
     session: SessionState,
     up: OperatorContext['upload'] | null,
   ): Promise<void> {
+    // A delivery held for want of its order? Then this upload IS that order.
+    // Registering it here is the whole point: the gap was named, the file was
+    // sent, the run is filled in — no extra step asked of the user.
+    const held = session.pendingAction;
+    if (up && held?.kind === 'schedule_delivery' && !held.args?.dto?.saleOrderId) {
+      const dto = held.args!.dto;
+      const so = await this.tools
+        .createSaleOrderFromUpload(ctx, up, held.args!.customerName, dto.projectId)
+        .catch(() => null);
+      if (so) {
+        dto.saleOrderId = so.id;
+        dto.poNumber = dto.poNumber || so.name;
+        // With the order attached, a run that was a draft only for want of one
+        // becomes a real booking — provided it still has its project.
+        const nowLive = !!dto.projectId;
+        dto.isDraft = !nowLive;
+        held.args!.isDraft = !nowLive;
+        held.summary = held.summary
+          .replace(/^Order: \(none\)$/m, `Order: ${so.name}`)
+          .replace(/\n\nMissing [^\n]*$/, '');
+        if (!nowLive) held.summary += `\n\nStill missing a project, so this saves as a DRAFT.`;
+        session.pendingAction = held;
+        session.pendingUpload = null;
+        await this.saveSession(msg.channel, msg.channelUserId, session);
+        await adapter.sendButtons(msg.chatId, `${held.summary}\n\nConfirm?`, [
+          { label: '✅ Confirm', data: `confirm:${held.documentId ?? 'pending'}` },
+          { label: '❌ Cancel', data: 'cancel' },
+        ]);
+        return;
+      }
+      await adapter.sendText(
+        msg.chatId,
+        "I couldn't read that as an order. Send the PO or quotation number instead and I'll attach it.",
+      );
+      return;
+    }
+
     const e = up?.extracted;
     if (!up || e?.amount == null) {
       // Keep the stored file around — the next message may name what it really

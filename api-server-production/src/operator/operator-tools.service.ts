@@ -148,6 +148,45 @@ export class OperatorToolsService {
     };
   }
 
+  /**
+   * Turn an uploaded PO/quotation into a SALES_ORDER so a held delivery run can
+   * point at it. Lines keep whatever the extractor found (description/qty/price)
+   * — a free-text line is still a valid Sale Order line here, and coded ones
+   * are what a later invoice prices from.
+   */
+  async createSaleOrderFromUpload(
+    ctx: OperatorContext,
+    up: NonNullable<OperatorContext['upload']>,
+    customerName?: string,
+    projectId?: string,
+  ): Promise<{ id: string; name: string } | null> {
+    const template = await this.templates.getDocumentTemplateByType('SALES_ORDER', ctx.organizationId).catch(() => null);
+    if (!template?.id) return null;
+    const e: any = up.extracted || {};
+    const items = (up.lines || []).map((l: any, i: number) => ({
+      id: i + 1,
+      description: String(l.description || '').trim(),
+      quantity: Number(l.quantity) || 1,
+      ...(Number(l.unitPrice) ? { unitPrice: Number(l.unitPrice) } : {}),
+      ...(Number(l.amount) ? { amount: Number(l.amount) } : {}),
+      ...(l.itemCode ? { itemCode: String(l.itemCode) } : {}),
+    }));
+    const config: any = {
+      customer: customerName || e.supplierName || undefined,
+      referenceNo: e.invoiceNo || undefined,
+      date: e.date || new Date().toISOString(),
+      items: items.length ? items : [{ id: 1, description: e.description || up.filename || 'Uploaded order', quantity: 1 }],
+      ...(e.amount ? { nettTotal: e.amount } : {}),
+      ...(up.attachmentUrl ? { sourceFileUrl: up.attachmentUrl } : {}),
+    };
+    const created: any = await this.documents
+      .createBasicDocument(template.id, 'SALES_ORDER', ctx.organizationId, config, projectId, ctx.actor as any)
+      .catch(() => null);
+    if (!created?.id) return null;
+    this.log(ctx, 'CREATED', 'document', created.id, created.name, `Sale Order from an uploaded PO via Operator (${ctx.channel})`);
+    return { id: created.id, name: created.name };
+  }
+
   /** Projects with their site address — for matching an uploaded invoice's
    *  site/project address to the right project. */
   async listProjectsForMatch(organizationId: string): Promise<Array<{ id: string; name: string; address: string | null; customer: string | null }>> {
@@ -1398,7 +1437,7 @@ export class OperatorToolsService {
       {
         name: 'schedule_delivery',
         description:
-          'Schedule a REAL delivery run (the Deliveries module): creates the run plus a pending DO that claims its number on confirmation. Use this whenever the user says schedule/deliver/send equipment on a date. Items carry NO prices. A LIVE run needs: customer, project, items, the date/time, AND a sale order or quotation — pass it as saleOrderId, or as saleOrderNumber when the user just says the number ("use QO202609-0055"); a quotation already sitting on the project also counts. If it is missing, DO NOT just park the run: say what is missing in one line and use ask_choice to offer [Send the PO/QO no.] [Upload the PO] [Save as draft] so they can fill it in BEFORE confirming. Only save a draft when they pick that.',
+          'Schedule a REAL delivery run (the Deliveries module): creates the run plus a pending DO that claims its number on confirmation. Use this whenever the user says schedule/deliver/send equipment on a date. Items carry NO prices. A LIVE run needs: customer, project, items, the date/time, AND a sale order or quotation — pass it as saleOrderId, or as saleOrderNumber when the user just says the number ("use QO202609-0055"); a quotation already sitting on the project also counts. When it is missing, say so in ONE short line and add that they can send the number or upload the PO. Do not offer buttons for this and do not lecture about drafts: they can simply reply with the number or send the file, and it is registered onto the held run automatically.',
         permissions: ['documents:create-basic'],
         input_schema: {
           type: 'object',
