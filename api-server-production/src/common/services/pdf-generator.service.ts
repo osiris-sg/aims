@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
 import { renderDocumentHtml } from './document-html';
+import {
+  DESCRIPTION_HAS_MODEL,
+  DESCRIPTION_HAS_SERIAL,
+  isOfficeWrittenDescription,
+} from './document-html/shared';
 
 @Injectable()
 export class PdfGeneratorService {
@@ -106,20 +111,28 @@ export class PdfGeneratorService {
         run.push(raw[j]);
         j++;
       }
+      const name = run[0].description || '';
+      // HAND-WRITTEN: emit the run VERBATIM — no merge, no decoration. See the
+      // guards in document-html/shared.ts. This is the PDF the customer gets,
+      // so a garbled line here goes out of the building.
+      if (isOfficeWrittenDescription(name)) {
+        for (const mem of run) out.push(mem);
+        i = j;
+        continue;
+      }
       const serials = run
         .flatMap((r) => (Array.isArray(r.serialNumbers) ? r.serialNumbers : []))
         .filter(Boolean);
       const qty = run.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
       const amount = run.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-      const name = run[0].description || '';
-      const model = run[0].skuKey || '';
+      const model = run[0].model || run[0].skuKey || '';
       const verb = run.some((r) => r.deploymentType === 'SALE') ? 'Sale' : 'Rental';
       const years = run.map((r) => r.year).filter((y) => y != null);
       const year = years.length === run.length && new Set(years).size === 1 ? years[0] : null;
       const lines = [`${verb} of ${qty} unit${qty === 1 ? '' : 's'} of ${name}`];
-      if (model) lines.push(`Model: ${model}`);
+      if (model && !DESCRIPTION_HAS_MODEL.test(name)) lines.push(`Model: ${model}`);
       if (year != null) lines.push(`Year: ${year}`);
-      for (const s of serials) lines.push(`S/No.: ${s}`);
+      if (!DESCRIPTION_HAS_SERIAL.test(name)) for (const s of serials) lines.push(`S/No.: ${s}`);
       out.push({ ...run[0], quantity: qty, amount, serialNumbers: serials, description: lines.join('\n') });
       i = j;
     }

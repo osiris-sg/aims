@@ -283,7 +283,36 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
  * other document (and every hand-made DO) passes through byte-identical, so this
  * cannot alter non-delivery line displays. Merged qty/amount are summed so
  * totals are preserved.
+ *
+ * ⚠️ NOT GATED ON DOCUMENT TYPE. `documentType` selects the verb only; the sole
+ * trigger is a line carrying `deliveryGroup`. That marker reaches INVOICES too,
+ * because createInvoiceFromDeliveryOrder spreads the DO's config forward
+ * ({...doConfig}) and priceInvoiceLinesFromAsset returns {...it, …}. So a
+ * DO-shaped rendering rule runs on the invoice raised from that DO. Left as-is
+ * deliberately — the block is what the office wants on a correctly generated
+ * invoice line; what it must not do is decorate a line the office rewrote.
+ *
+ * ⚠️ DRIFT: there are FOUR copies of this logic. This one, plus three on the
+ * server which produce the customer's PDF and the public share link:
+ *   api-server-production/src/common/services/pdf-generator.service.ts
+ *   api-server-production/src/common/services/document-html/shared.ts
+ *   api-server-production/src/public-document/public-document.service.ts
+ * They have ALREADY drifted (shared.ts hardcodes "Rental" and emits no Year;
+ * pdf-generator ignores isReturn). The portal cannot import from the API — they
+ * are separate deployables with no shared package — so the three server copies
+ * now share the guards exported from document-html/shared.ts, and the constants
+ * below are a byte-identical local mirror of those. CHANGE ALL FOUR TOGETHER.
  */
+const DESCRIPTION_HAS_HTML =
+  /<(?:br|div|p|span|strong|em|b|i|u|ul|ol|li|table|tbody|tr|td|th|h[1-6]|font)\b[^>]*>/i;
+const DESCRIPTION_HAS_MODEL = /Model\s*:/i;
+const DESCRIPTION_HAS_SERIAL = /S\s*\/\s*No\.?\s*:/i;
+
+/** True when the office hand-wrote this description (it carries markup). */
+function isOfficeWrittenDescription(description: unknown): boolean {
+  return DESCRIPTION_HAS_HTML.test(String(description ?? ""));
+}
+
 function groupDeliveryLines(raw: any[], isReturn = false): any[] {
   if (!Array.isArray(raw) || raw.length === 0) return raw;
   const out: any[] = [];
@@ -303,13 +332,39 @@ function groupDeliveryLines(raw: any[], isReturn = false): any[] {
       run.push(raw[j]);
       j++;
     }
+    const name = run[0].description || "";
+    // HAND-WRITTEN: emit the run's lines VERBATIM — no merge, no decoration.
+    //
+    // The wrap assumes `description` is the bare asset name the generator wrote.
+    // Once the office rewrites it, wrapping yields "Rental of 1 unit of 1)
+    // Rental of one unit FIREFLY 4200<div>Model: FIREFLY4200</div>…" plus a
+    // duplicate Model row (showing the catalogue key "AIS") and a duplicate
+    // S/No. row — BI202609093 and DO202609-0045 today.
+    //
+    // Passing the run through rather than merging it is deliberate: a merge
+    // keeps only run[0]'s description and would silently drop what the office
+    // typed on lines 2..N. Un-merged, the totals need no adjustment either.
+    if (isOfficeWrittenDescription(name)) {
+      for (const mem of run) out.push(mem);
+      i = j;
+      continue;
+    }
     const serials = run
       .flatMap((r) => (Array.isArray(r.serialNumbers) ? r.serialNumbers : []))
       .filter(Boolean);
     const qty = run.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
     const amount = run.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-    const name = run[0].description || "";
-    const model = run[0].skuKey || "";
+    // MODEL: prefer an explicit `model` on the line, else skuKey.
+    //
+    // There is NO Asset.model column and no `model` field on any stored line —
+    // skuKey ("AIS") is a catalogue key and Asset.name ("FIREFLY 4200") is the
+    // closest thing to a model, but on a GENERATED line Asset.name is already
+    // the description, so reading it here would print the name twice AND would
+    // rewrite correct existing output ("Model: SIDS" -> "Model: Silt Imagery
+    // Detection System"). So this reads a `model` field the writer does not yet
+    // emit — a no-op today, and the hook for fixing it at the source in
+    // deliveries.service.ts rather than guessing at render time.
+    const model = run[0].model || run[0].skuKey || "";
     // Verb: a RETURN document is a collection, so it reads "Return of…". On an
     // outbound delivery the verb reflects the units' commercial intent
     // (ProjectDeployment.type) — any SALE in the group shows "Sale of…",
@@ -321,9 +376,12 @@ function groupDeliveryLines(raw: any[], isReturn = false): any[] {
     const year =
       years.length === run.length && new Set(years).size === 1 ? years[0] : null;
     const lines = [`${verb} of ${qty} unit${qty === 1 ? "" : "s"} of ${name}`];
-    if (model) lines.push(`Model: ${model}`);
+    // Per-row backstop for a hand-written description in PLAIN text (no markup,
+    // so the HTML guard above let it through): never append a row the office has
+    // already written itself.
+    if (model && !DESCRIPTION_HAS_MODEL.test(name)) lines.push(`Model: ${model}`);
     if (year != null) lines.push(`Year: ${year}`);
-    for (const s of serials) lines.push(`S/No.: ${s}`);
+    if (!DESCRIPTION_HAS_SERIAL.test(name)) for (const s of serials) lines.push(`S/No.: ${s}`);
     out.push({ ...run[0], quantity: qty, amount, serialNumbers: serials, description: lines.join("\n") });
     i = j;
   }

@@ -7,6 +7,11 @@ import {
 } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
+import {
+  DESCRIPTION_HAS_MODEL,
+  DESCRIPTION_HAS_SERIAL,
+  isOfficeWrittenDescription,
+} from '../common/services/document-html/shared';
 import { DocumentsService } from '../documents/documents.service';
 
 // Only delivery orders (outbound + return) get a view-only link.
@@ -131,17 +136,28 @@ export class PublicDocumentService {
         run.push(raw[j]);
         j++;
       }
+      const name = run[0].description || '';
+      // HAND-WRITTEN: emit the run VERBATIM — no merge, no decoration. See the
+      // guards in common/services/document-html/shared.ts.
+      //
+      // NOTE for this copy specifically: sanitizeConfigForPublic below strips
+      // `deliveryGroup` on the way out (it is the real Asset id), so passing the
+      // run through here does NOT leak it — the sanitiser still runs.
+      if (isOfficeWrittenDescription(name)) {
+        for (const mem of run) out.push(mem);
+        i = j;
+        continue;
+      }
       const serials = run.flatMap((r) => (Array.isArray(r.serialNumbers) ? r.serialNumbers : [])).filter(Boolean);
       const qty = run.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
-      const name = run[0].description || '';
-      const model = run[0].skuKey || '';
+      const model = run[0].model || run[0].skuKey || '';
       const verb = isReturn ? 'Return' : run.some((r) => r.deploymentType === 'SALE') ? 'Sale' : 'Rental';
       const years = run.map((r) => r.year).filter((y) => y != null);
       const year = years.length === run.length && new Set(years).size === 1 ? years[0] : null;
       const lines = [`${verb} of ${qty} unit${qty === 1 ? '' : 's'} of ${name}`];
-      if (model) lines.push(`Model: ${model}`);
+      if (model && !DESCRIPTION_HAS_MODEL.test(name)) lines.push(`Model: ${model}`);
       if (year != null) lines.push(`Year: ${year}`);
-      for (const s of serials) lines.push(`S/No.: ${s}`);
+      if (!DESCRIPTION_HAS_SERIAL.test(name)) for (const s of serials) lines.push(`S/No.: ${s}`);
       out.push({ ...run[0], quantity: qty, serialNumbers: serials, description: lines.join('\n') });
       i = j;
     }

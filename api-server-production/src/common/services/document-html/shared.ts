@@ -128,6 +128,38 @@ export function makeDi(data: any) {
   };
 }
 
+/**
+ * ── LINE-DECORATION GUARDS (shared by all three server renderers) ───────────
+ *
+ * groupDeliveryLines rewrites a grouped line's description into the office's
+ * "Rental of N units of {name} / Model: … / S/No.: …" block. That is only
+ * correct when the description is the one the GENERATOR wrote — the bare asset
+ * name. When the office has rewritten it by hand, wrapping produces a garbled,
+ * duplicated line: "Rental of 1 unit of 1) Rental of one unit FIREFLY 4200
+ * <div>Model: FIREFLY4200</div>…" followed by a second Model row and a second
+ * S/No. row (BI202609093, DO202609-0045).
+ *
+ * The tell is HTML. Generated descriptions are plain asset names — not one of
+ * them contains markup — while the editor stores rich text, so any tag means a
+ * human typed it. The MODEL/SERIAL probes are the weaker backstop for a
+ * hand-written description in plain text, applied per-row rather than to the
+ * whole wrap.
+ *
+ * Exported so pdf-generator.service.ts and public-document.service.ts use these
+ * exact expressions rather than three drifting copies. The portal has a
+ * byte-identical local copy in CleanDocumentPreview.tsx — it is a separate
+ * deployable and cannot import from here. See the DRIFT note on that copy.
+ */
+export const DESCRIPTION_HAS_HTML =
+  /<(?:br|div|p|span|strong|em|b|i|u|ul|ol|li|table|tbody|tr|td|th|h[1-6]|font)\b[^>]*>/i;
+export const DESCRIPTION_HAS_MODEL = /Model\s*:/i;
+export const DESCRIPTION_HAS_SERIAL = /S\s*\/\s*No\.?\s*:/i;
+
+/** True when the office hand-wrote this description (it carries markup). */
+export function isOfficeWrittenDescription(description: unknown): boolean {
+  return DESCRIPTION_HAS_HTML.test(String(description ?? ''));
+}
+
 /** Portal groupDeliveryLines: collapse consecutive lines sharing a deliveryGroup. */
 export function groupDeliveryLines(raw: any[]): any[] {
   if (!Array.isArray(raw)) return [];
@@ -147,13 +179,26 @@ export function groupDeliveryLines(raw: any[]): any[] {
       i++;
     }
     const first = members[0];
+    const rawDesc = String(first.description ?? first.name ?? '');
+    // HAND-WRITTEN: emit the run's lines VERBATIM — no merge, no decoration.
+    // Passing them through rather than merging keeps every line the office typed
+    // (a merge would discard all but the first) and preserves the totals for
+    // free, since nothing is combined.
+    if (isOfficeWrittenDescription(rawDesc)) {
+      for (const mem of members) out.push(mem);
+      continue;
+    }
     const qty = members.reduce((s, m) => s + (Number(m.quantity) || 0), 0);
     const amount = members.reduce((s, m) => s + (Number(m.amount) || 0), 0);
     const serials = members.flatMap((m) => (Array.isArray(m.serialNumbers) ? m.serialNumbers : []));
+    // `model` is an explicit field when the writer supplies one; skuKey is the
+    // fallback. See the MODEL note in CleanDocumentPreview.tsx — there is no
+    // Asset.model column, so skuKey is all the stored data offers today.
+    const model = first.model || first.skuKey || '';
     const lines = [
-      `Rental of ${qty} unit${qty === 1 ? '' : 's'} of ${first.description || first.name || ''}`,
-      first.skuKey ? `Model: ${first.skuKey}` : '',
-      ...serials.map((s: any) => `S/No.: ${s}`),
+      `Rental of ${qty} unit${qty === 1 ? '' : 's'} of ${rawDesc}`,
+      model && !DESCRIPTION_HAS_MODEL.test(rawDesc) ? `Model: ${model}` : '',
+      ...(DESCRIPTION_HAS_SERIAL.test(rawDesc) ? [] : serials.map((s: any) => `S/No.: ${s}`)),
     ].filter(Boolean);
     out.push({ ...first, description: lines.join('\n'), quantity: qty, amount });
   }
