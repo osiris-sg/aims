@@ -67,16 +67,20 @@ import {
  *     1. Header   2. Checklist (30 items)   3. Remarks + times
  *     4. Technician signature   5. Client signature   6. Payment
  *
- *   ESS_V1 — air-cooled energy-storage inspection, 5 extra steps between
+ *   ESS_V1 — air-cooled energy-storage inspection, 6 extra steps between
  *   the header and the remarks:
- *     1. Header (+ equipment id, site, inspection type, rated power/capacity)
- *     2. Summary (pre-inspection status, overall conclusion, remarks)
- *     3. Detailed record (8 categories, each sub-item Pass/Fail + remark,
+ *     1. Header — the SAME generic header GENERIC shows, unchanged
+ *     2. ESS inspection header — fixed equipment text (read-only) + site,
+ *        inspection date/type, rated power/capacity. Its own screen rather
+ *        than a second half of step 1, which made that one screen twice as
+ *        long as any other in the flow.
+ *     3. Summary (pre-inspection status, overall conclusion, remarks)
+ *     4. Detailed record (8 categories, each sub-item Pass/Fail + remark,
  *        plus the measured readings)
- *     4. Defects (description / risk / corrective action / status + totals)
- *     5. Power-on tests (4 items, OK/NG + remark)
- *     6. Recommendations + next maintenance date + final conclusion
- *     7–10. Remarks, signatures, payment — identical to GENERIC.
+ *     5. Defects (description / risk / corrective action / status + totals)
+ *     6. Power-on tests (4 items, OK/NG + remark)
+ *     7. Recommendations + next maintenance date + final conclusion
+ *     8–11. Remarks, signatures, payment — identical to GENERIC.
  *
  * SIGNATURES ARE UNCHANGED IN BOTH. Two pads: technician and customer. The
  * ESS reference asks for an inspector AND a reviewer signature; here the
@@ -129,6 +133,7 @@ const GENERIC_STEPS = [
 
 const ESS_STEPS = [
   "Header",
+  "ESS inspection header",
   "Summary",
   "Detailed record",
   "Defects",
@@ -295,6 +300,19 @@ export default function NewServiceReportPage() {
 
   const model = ctx?.asset?.name ?? "";
   const serial = ctx?.inventory?.serialNumber ?? ctx?.inventory?.sku ?? "";
+
+  // Equipment ID is the SCANNED UNIT'S SKU — the house identity for a unit
+  // (serialNumber is null on every LION unit in production). SKU is preferred
+  // here, the reverse of the generic `serial` field above: that one is labelled
+  // "Serial No" and keeps its existing precedence.
+  //
+  // The form CAN be opened on an asset with no unit — `ScanContext.inventory`
+  // is nullable and /service/new omits inventoryId when the scan resolved no
+  // unit — and then nothing is known to prefill. Locking the field in that case
+  // would leave it blank with no way to fill it, so it stays editable there.
+  const scannedEquipmentId = ctx?.inventory?.sku ?? ctx?.inventory?.serialNumber ?? "";
+  const equipmentIdLocked = Boolean(scannedEquipmentId);
+  const equipmentIdValue = equipmentIdLocked ? scannedEquipmentId : essEquipmentId;
 
   // TEMPLATE RESOLUTION — once, here, from the asset name. Everything else in
   // this file reads `templateId`; nothing re-derives it. Until the scan context
@@ -521,7 +539,7 @@ export default function NewServiceReportPage() {
       const essPayload: EssServiceData | null = isEss
         ? {
             header: {
-              equipmentId: essEquipmentId.trim() || serial || null,
+              equipmentId: equipmentIdValue.trim() || null,
               site: essSite.trim() || jobLocation.trim() || null,
               inspectionDate: essInspectionDate || null,
               inspectionType: essInspectionType || null,
@@ -690,8 +708,6 @@ export default function NewServiceReportPage() {
         fullWidth
         helperText="Optional"
       />
-
-      {isEss && renderEssHeaderExtras()}
     </Stack>
   );
 
@@ -730,24 +746,62 @@ export default function NewServiceReportPage() {
     </ToggleButtonGroup>
   );
 
-  const renderEssHeaderExtras = () => (
-    <>
-      <Divider textAlign="left" sx={{ pt: 1 }}>
-        <Typography variant="caption" color="text.secondary">Energy storage inspection</Typography>
-      </Divider>
-      {ESS_HEADER_FIXED.map((f) => (
-        <Box key={f.label}>
-          <Typography variant="caption" color="text.secondary">{f.label}</Typography>
-          <Typography variant="body2">{f.value}</Typography>
-        </Box>
-      ))}
+  /**
+   * Read-only field, styled as an ordinary input rather than a disabled one.
+   *
+   * `disabled` greys the text out and drops it from the tab order, which reads
+   * as "this is broken/unavailable" — but these values are the certified
+   * reference text the report is issued against, so they need to be as legible
+   * as anything the technician types. `readOnly` keeps the field looking like
+   * its editable neighbours while refusing input, which is what makes the step
+   * read as one consistent form.
+   */
+  const renderFixedField = (label: string, value: string) => (
+    <TextField
+      key={label}
+      label={label}
+      value={value}
+      InputProps={{ readOnly: true }}
+      // Long reference strings wrap instead of scrolling out of a one-line
+      // input. The threshold is the point where the value stops fitting a
+      // phone-width field; short values stay single-line so the step does not
+      // become a wall of boxes.
+      multiline={value.length > 48}
+      fullWidth
+    />
+  );
+
+  /**
+   * ESS inspection header — its own step (2 of 11).
+   *
+   * The four fixed rows come from ESS_HEADER_FIXED in the shared catalogue and
+   * are printed, never captured: they describe the class of equipment the
+   * report is issued against, not this unit.
+   */
+  const renderEssHeaderStep = () => (
+    <Stack spacing={2}>
+      <Typography variant="body2" color="text.secondary">
+        Equipment details are fixed for this report type. Fill in the site and
+        inspection details below.
+      </Typography>
+
+      {ESS_HEADER_FIXED.map((f) => renderFixedField(f.label, f.value))}
+
       <TextField
         label="Equipment ID"
-        value={essEquipmentId}
-        onChange={(e) => setEssEquipmentId(e.target.value)}
+        value={equipmentIdValue}
+        onChange={(e) => !equipmentIdLocked && setEssEquipmentId(e.target.value)}
+        InputProps={{ readOnly: equipmentIdLocked }}
         fullWidth
-        helperText={serial ? `Scanned unit: ${serial}` : " "}
+        helperText={
+          equipmentIdLocked
+            ? "From the scanned unit"
+            : "No unit was scanned — enter the equipment ID"
+        }
       />
+
+      <Divider />
+
       <TextField label="Site" value={essSite} onChange={(e) => setEssSite(e.target.value)} fullWidth />
       <TextField
         label="Inspection Date"
@@ -786,17 +840,12 @@ export default function NewServiceReportPage() {
           fullWidth
         />
       </Stack>
-    </>
+    </Stack>
   );
 
   const renderEssSummaryStep = () => (
     <Stack spacing={2}>
-      {ESS_SUMMARY_FIXED.map((f) => (
-        <Box key={f.label}>
-          <Typography variant="caption" color="text.secondary">{f.label}</Typography>
-          <Typography variant="body2">{f.value}</Typography>
-        </Box>
-      ))}
+      {ESS_SUMMARY_FIXED.map((f) => renderFixedField(f.label, f.value))}
       <Divider />
       <TextField
         select
@@ -1394,6 +1443,7 @@ export default function NewServiceReportPage() {
       <Divider />
 
       {stepName === "Header" && renderHeaderStep()}
+      {stepName === "ESS inspection header" && renderEssHeaderStep()}
       {stepName === "Checklist" && renderChecklistStep()}
       {stepName === "Summary" && renderEssSummaryStep()}
       {stepName === "Detailed record" && renderEssDetailStep()}
