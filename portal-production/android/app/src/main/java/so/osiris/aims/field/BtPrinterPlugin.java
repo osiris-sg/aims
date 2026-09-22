@@ -27,8 +27,10 @@ import java.util.UUID;
  *
  *   listBonded() → [{name, mac}]   (pairing itself happens in Android Settings)
  *   connect(mac)                    RFCOMM socket on the standard SPP UUID
- *   write(base64)                   CHUNKED ~512B with small delays — SPP
- *                                   printers overrun on large single writes
+ *   write(base64, drainMs?)         CHUNKED ~512B — SPP printers overrun on
+ *                                   large single writes. drainMs overrides the
+ *                                   post-write settle (A4 raster bands pass 0;
+ *                                   omitted = the historic 600ms)
  *   disconnect()
  *
  * All socket work runs off the WebView thread. BLUETOOTH_CONNECT is requested
@@ -170,6 +172,16 @@ public class BtPrinterPlugin extends Plugin {
     public void write(PluginCall call) {
         String base64 = call.getString("base64");
         if (base64 == null) { call.reject("base64 is required"); return; }
+        // Per-write drain override (A4 raster path). A page is sent as a run of
+        // banded GS v 0 commands; paying the full DRAIN_DELAY_MS after EVERY
+        // band would add ~6s of pure sleeping to a 10-band page for no benefit,
+        // because each band is a complete command and the next one re-syncs the
+        // printer anyway. Bands pass 0; the last write of the job passes a real
+        // drain so the trailing feed is not cut off by disconnect().
+        //
+        // Defaulted to DRAIN_DELAY_MS so every existing caller — and the whole
+        // 58mm receipt path — behaves exactly as before.
+        final int drainMs = Math.max(0, call.getInt("drainMs", DRAIN_DELAY_MS));
         new Thread(() -> {
             try {
                 if (out == null) { call.reject("Not connected — call connect(mac) first"); return; }
@@ -192,7 +204,7 @@ public class BtPrinterPlugin extends Plugin {
                 // right after this resolves, and socket.close() would otherwise
                 // cut any bytes still in flight (recipient name + trailing feed).
                 out.flush();
-                Thread.sleep(DRAIN_DELAY_MS);
+                if (drainMs > 0) Thread.sleep(drainMs);
                 call.resolve();
             } catch (Exception e) {
                 call.reject("Write failed: " + e.getMessage());

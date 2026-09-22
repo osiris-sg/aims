@@ -12,12 +12,22 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
  *
  * Pairing happens in Android Settings (normal for SPP); we only ever list
  * already-bonded devices and remember the chosen one in localStorage.
+ *
+ * SCOPE NOTE (2026-09): the 58mm TEXT receipt below — buildDeliveryReceipt and
+ * its ESC/POS helpers — is RETAINED ON PURPOSE but is no longer reachable from
+ * the Print DO button, which now prints the real A4 document as a raster (see
+ * a4Print.ts). Keep it: it is the only code that can drive a 58mm roll printer,
+ * and the A4 unit is a different machine, not a replacement.
  */
 
 interface BtPrinterPlugin {
   listBonded(): Promise<{ devices: Array<{ name: string; mac: string }> }>;
   connect(options: { mac: string }): Promise<void>;
-  write(options: { base64: string }): Promise<void>;
+  // `drainMs` overrides the plugin's post-write settle. It is OPTIONAL and
+  // additive: an APK built before it existed simply ignores the extra key and
+  // keeps its built-in 600ms, so A4 printing still works on today's installed
+  // app — just slower, since every band pays the full drain.
+  write(options: { base64: string; drainMs?: number }): Promise<void>;
   disconnect(): Promise<void>;
 }
 
@@ -52,6 +62,17 @@ export const savePrinter = (p: SavedPrinter) => {
 };
 
 export const listBondedDevices = async () => (await BtPrinter.listBonded()).devices;
+
+// Chunked so a large raster page does not blow the argument limit of
+// String.fromCharCode.apply on a ~500 KB array.
+const toBase64 = (bytes: Uint8Array): string => {
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)));
+  }
+  return btoa(bin);
+};
 
 // ── ESC/POS assembly ─────────────────────────────────────────────────────────
 const ESC = 0x1b;
@@ -265,14 +286,37 @@ export async function buildDeliveryReceipt(d: DeliveryReceiptData): Promise<Uint
 }
 
 // ── transport ────────────────────────────────────────────────────────────────
-const toBase64 = (bytes: Uint8Array): string => {
-  let bin = "";
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)));
+
+/**
+ * Hold ONE connection open across many writes.
+ *
+ * The A4 raster path sends a page as a run of banded GS v 0 commands and must
+ * not reconnect between them: connect() re-runs the plugin's buffer clear,
+ * which would discard the tail of the band already in flight. `printBytes`
+ * below stays as it is for the 58mm receipt — a single write, connect to
+ * disconnect.
+ *
+ * `send` takes raw bytes and an optional per-write drain. Bands pass
+ * drainMs: 0 (the next band is a fresh command, so there is nothing to settle);
+ * the final write passes a real drain so the trailing feed is not cut off by
+ * the disconnect.
+ */
+export async function openPrinter<T>(
+  printer: SavedPrinter,
+  body: (send: (bytes: Uint8Array, opts?: { drainMs?: number }) => Promise<void>) => Promise<T>,
+): Promise<T> {
+  await BtPrinter.connect({ mac: printer.mac });
+  try {
+    return await body(async (bytes, opts) => {
+      await BtPrinter.write({
+        base64: toBase64(bytes),
+        ...(opts?.drainMs !== undefined ? { drainMs: opts.drainMs } : {}),
+      });
+    });
+  } finally {
+    await BtPrinter.disconnect().catch(() => undefined);
   }
-  return btoa(bin);
-};
+}
 
 /** Connect to the saved (or given) printer, send, disconnect. Throws on failure. */
 export async function printBytes(bytes: Uint8Array, printer?: SavedPrinter): Promise<void> {

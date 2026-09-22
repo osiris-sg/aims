@@ -24,6 +24,7 @@ import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PrintIcon from "@mui/icons-material/Print";
+import LinearProgress from "@mui/material/LinearProgress";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
@@ -33,13 +34,12 @@ import {
   isPrinterAvailable,
   getSavedPrinter,
   savePrinter,
-  listBondedDevices,
-  buildDeliveryReceipt,
   formatUnitLabel,
-  printBytes,
   type SavedPrinter,
 } from "../../../../lib/btPrinter";
-import { Tooltip, List, ListItemButton, ListItemText } from "@mui/material";
+import PrinterPickerDialog from "../../../../components/PrinterPickerDialog";
+import { useDoA4Print } from "../../../../components/DoA4Print";
+import { Tooltip } from "@mui/material";
 
 interface CustomerOption {
   id: string;
@@ -118,6 +118,7 @@ export default function AfterAckPage() {
   const sigRef = useRef<SignaturePadHandle>(null);
   // Receipt data retained from the mount fetch (no new requests) + printing UI.
   const [runMeta, setRunMeta] = useState<{ deliveryNumber: number | null; siteAddress: string | null }>({ deliveryNumber: null, siteAddress: null });
+  const [printableDoId, setPrintableDoId] = useState<string | null>(null);
   const [ackGps, setAckGps] = useState<{ latitude: number; longitude: number } | null>(null);
   // FAN-OUT (bulk "Deliver all"): the rider runs this ONE flow for a lead unit
   // and the same proof is applied to every other unit still delivering. No
@@ -127,7 +128,6 @@ export default function AfterAckPage() {
   // carry the same evidence.
   const [ackPhotos, setAckPhotos] = useState<string[]>([]);
   const [printerDialogOpen, setPrinterDialogOpen] = useState(false);
-  const [bondedDevices, setBondedDevices] = useState<SavedPrinter[] | null>(null);
   const [printing, setPrinting] = useState(false);
   const [printMsg, setPrintMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -194,6 +194,15 @@ export default function AfterAckPage() {
         );
         // Receipt data — already in this payload, just retained.
         setRunMeta({ deliveryNumber: run?.deliveryNumber ?? null, siteAddress: run?.siteAddress ?? null });
+        // The DO this run delivers, and the A4 print IS that document. The API
+        // already derives a run-level `document` — "exactly one distinct DO
+        // across linked items" — so prefer it: on a run that somehow spans two
+        // DOs it is deliberately null, and printing one of them arbitrarily
+        // would hand the customer the wrong paperwork. Fall back to the first
+        // linked item only when the run-level field is absent from the payload.
+        setPrintableDoId(
+          run?.document?.id ?? (run?.items ?? []).find((i: any) => i.document?.id)?.document?.id ?? null,
+        );
         const runIsReturn = run?.direction === "RETURN";
         setIsReturn(runIsReturn);
         if (runIsReturn) {
@@ -575,38 +584,30 @@ export default function AfterAckPage() {
     }
   };
 
-  // ── Bluetooth receipt printing (native shell only) ────────────────────────
+  // ── Bluetooth A4 printing (native shell only) ─────────────────────────────
+  // Prints the REAL delivery order — the same A4 render the portal's Print/PDF
+  // uses — as ESC/POS raster. The 58mm text receipt is still in btPrinter.ts but
+  // is no longer reachable from this button.
+  const { surface: printSurface, printDo, progress: printProgress } = useDoA4Print();
+
   const doPrint = async (device?: SavedPrinter) => {
+    if (!printableDoId) {
+      setPrintMsg({ ok: false, text: "This run has no delivery order linked to it yet, so there is nothing to print." });
+      return;
+    }
     const target = device ?? getSavedPrinter();
     if (!target) {
-      // First print on this phone: pick from already-bonded devices
-      // (pairing itself happens in Android Settings — normal for SPP).
+      // First print on this phone: pick from already-bonded devices (pairing
+      // itself happens in Android Settings — normal for SPP), and confirm the
+      // dot width while we are there.
       setPrintMsg(null);
       setPrinterDialogOpen(true);
-      setBondedDevices(null);
-      try {
-        setBondedDevices(await listBondedDevices());
-      } catch (e: any) {
-        setPrintMsg({ ok: false, text: e?.message ?? "Could not list Bluetooth devices" });
-      }
       return;
     }
     setPrinting(true);
     setPrintMsg(null);
     try {
-      const bytes = await buildDeliveryReceipt({
-        deliveryNumber: runMeta.deliveryNumber ?? "—",
-        items: receiptItems.length ? receiptItems : [{ label: unitLabel ?? "Unit" }],
-        customer: assignedSummary?.customer ?? selectedCustomer?.name ?? null,
-        project: assignedSummary?.project ?? null,
-        siteAddress: runMeta.siteAddress,
-        gps: ackGps,
-        dateLabel: new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
-        installNeeded: installChoice === "yes",
-        signatureDataUrl: signature,
-        recipientName: signedByName,
-      });
-      await printBytes(bytes, target);
+      await printDo(printableDoId, target);
       setPrintMsg({ ok: true, text: `Printed on ${target.name}` });
     } catch (e: any) {
       setPrintMsg({ ok: false, text: e?.message ?? "Print failed — check the printer is on and in range" });
@@ -670,6 +671,20 @@ export default function AfterAckPage() {
             </span>
           </Tooltip>
         )}
+        {/* A full A4 page is a large transfer over SPP — keep the rider informed. */}
+        {printing && (
+          <Box sx={{ width: "100%", maxWidth: 360 }}>
+            <LinearProgress
+              variant={printProgress ? "determinate" : "indeterminate"}
+              value={printProgress ? Math.round(printProgress.fraction * 100) : undefined}
+            />
+            <Typography variant="caption" color="text.secondary">
+              {printProgress?.label ?? "Preparing…"}
+              {printProgress ? ` ${Math.round(printProgress.fraction * 100)}%` : ""}
+            </Typography>
+          </Box>
+        )}
+
         {printMsg && (
           <Alert
             severity={printMsg.ok ? "success" : "error"}
@@ -689,42 +704,19 @@ export default function AfterAckPage() {
 
         {/* First-print device picker: bonded devices only; pairing lives in
             Android Settings. Remembered per phone in localStorage. */}
-        <Dialog open={printerDialogOpen} onClose={() => !printing && setPrinterDialogOpen(false)} fullWidth maxWidth="xs">
-          <DialogTitle>Choose printer</DialogTitle>
-          <DialogContent>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-              Showing devices already paired in Android Settings. Pair the
-              printer there first if it isn&apos;t listed.
-            </Typography>
-            {!bondedDevices ? (
-              <Box sx={{ display: "flex", justifyContent: "center", py: 3 }}>
-                <CircularProgress size={26} />
-              </Box>
-            ) : bondedDevices.length === 0 ? (
-              <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-                No paired Bluetooth devices found.
-              </Typography>
-            ) : (
-              <List dense>
-                {bondedDevices.map((d) => (
-                  <ListItemButton
-                    key={d.mac}
-                    onClick={() => {
-                      savePrinter(d);
-                      setPrinterDialogOpen(false);
-                      void doPrint(d);
-                    }}
-                  >
-                    <ListItemText primary={d.name} secondary={d.mac} />
-                  </ListItemButton>
-                ))}
-              </List>
-            )}
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setPrinterDialogOpen(false)}>Cancel</Button>
-          </DialogActions>
-        </Dialog>
+        <PrinterPickerDialog
+          open={printerDialogOpen}
+          busy={printing}
+          onClose={() => setPrinterDialogOpen(false)}
+          onPick={(d) => {
+            savePrinter(d);
+            setPrinterDialogOpen(false);
+            void doPrint(d);
+          }}
+        />
+
+        {/* Offscreen A4 render — nothing visible. */}
+        {printSurface}
         <Button
           variant="contained"
           onClick={() => router.replace(`/scan/delivery/${deliveryId}`)}
