@@ -3,6 +3,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
+import CloseIcon from "@mui/icons-material/Close";
+import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import SignatureCanvas from "react-signature-canvas";
 import {
   Alert,
@@ -14,6 +16,7 @@ import {
   Divider,
   FormControlLabel,
   Grid,
+  IconButton,
   LinearProgress,
   MenuItem,
   Stack,
@@ -33,12 +36,8 @@ import {
   ESS_POWER_ON_TESTS,
   ESS_PRE_STATUSES,
   ESS_RISK_LEVELS,
-  ESS_SUMMARY_FIXED,
-  ESS_SUMMARY_REMARKS_DEFAULT,
-  ESS_FINAL_CONCLUSION_DEFAULT,
   ESS_HEADER_FIXED,
   essDefectSummary,
-  essRecommendations,
   GENERIC_CHECKLIST,
   TEMPLATE_LABELS,
   TEMPLATE_VERSIONS,
@@ -67,20 +66,23 @@ import {
  *     1. Header   2. Checklist (30 items)   3. Remarks + times
  *     4. Technician signature   5. Client signature   6. Payment
  *
- *   ESS_V1 — air-cooled energy-storage inspection, 6 extra steps between
- *   the header and the remarks:
- *     1. Header — the SAME generic header GENERIC shows, unchanged
+ *   ESS_V1 — air-cooled energy-storage inspection, 4 extra steps around
+ *   the generic ones:
+ *     1. Header — the SAME generic header GENERIC shows, unchanged. This is
+ *        also where an ESS report's Next Service Date is captured; ESS has no
+ *        separate "next maintenance date" of its own.
  *     2. ESS inspection header — fixed equipment text (read-only) + site,
- *        inspection date/type, rated power/capacity. Its own screen rather
- *        than a second half of step 1, which made that one screen twice as
- *        long as any other in the flow.
- *     3. Summary (pre-inspection status, overall conclusion, remarks)
- *     4. Detailed record (8 categories, each sub-item Pass/Fail + remark,
+ *        inspection date/type, rated power/capacity
+ *     3. Detailed record (8 categories, each sub-item Pass/Fail + remark,
  *        plus the measured readings)
- *     5. Defects (description / risk / corrective action / status + totals)
- *     6. Power-on tests (4 items, OK/NG + remark)
- *     7. Recommendations + next maintenance date + final conclusion
- *     8–11. Remarks, signatures, payment — identical to GENERIC.
+ *     4. Defects (description / risk / corrective action / status + per-row
+ *        photos + derived totals)
+ *     5. Power-on tests (4 items, OK/NG + remark)
+ *     6. Remarks & Time — as GENERIC
+ *     7. Conclusion (pre-inspection status + overall conclusion) — asked LAST,
+ *        immediately before the signatures, because it is the technician's
+ *        verdict on work they have by then actually done
+ *     8–10. Signatures, payment — identical to GENERIC.
  *
  * SIGNATURES ARE UNCHANGED IN BOTH. Two pads: technician and customer. The
  * ESS reference asks for an inspector AND a reviewer signature; here the
@@ -93,6 +95,10 @@ import {
  *     serviceData + client signature key + signedByName), assigning the
  *     next per-org reportNumber server-side.
  */
+
+// Same prefix the office portal renders S3 keys with.
+const RESOURCE_URL =
+  process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
 
 const FIELD_BUTTON_SX = {
   py: 1.5,
@@ -134,12 +140,11 @@ const GENERIC_STEPS = [
 const ESS_STEPS = [
   "Header",
   "ESS inspection header",
-  "Summary",
   "Detailed record",
   "Defects",
   "Power-on tests",
-  "Recommendations",
   "Remarks & Time",
+  "Conclusion",
   "Service signature",
   "Client signature",
   "Payment",
@@ -201,13 +206,13 @@ export default function NewServiceReportPage() {
   const [essRatedCapacityKwh, setEssRatedCapacityKwh] = useState("");
   const [essPreStatus, setEssPreStatus] = useState<string>(ESS_PRE_STATUSES[0]);
   const [essConclusion, setEssConclusion] = useState<string>(ESS_CONCLUSIONS[0]);
-  const [essSummaryRemarks, setEssSummaryRemarks] = useState(ESS_SUMMARY_REMARKS_DEFAULT);
   const [essItems, setEssItems] = useState<Record<string, EssItemResult>>({});
   const [essMeasures, setEssMeasures] = useState<Record<string, EssMeasureResult>>({});
   const [essDefects, setEssDefects] = useState<EssDefectRow[]>([]);
+  // Index of the defect row currently uploading, so only that row shows a
+  // spinner and only its Add-photo button disables.
+  const [defectUploading, setDefectUploading] = useState<number | null>(null);
   const [essPowerOn, setEssPowerOn] = useState<Record<string, EssPowerOnResult>>({});
-  const [essNextMaintenanceDate, setEssNextMaintenanceDate] = useState("");
-  const [essFinalConclusion, setEssFinalConclusion] = useState(ESS_FINAL_CONCLUSION_DEFAULT);
 
   // Page 4 + 5 signatures — captured as dataURL when the tech taps Next/Submit.
   // We hold the dataURL across step changes so the canvas can unmount safely;
@@ -422,6 +427,56 @@ export default function NewServiceReportPage() {
   const updateDefect = (idx: number, patch: Partial<EssDefectRow>) =>
     setEssDefects((prev) => prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
 
+  /**
+   * Attach photos to ONE defect row.
+   *
+   * Same path as the signatures — `uploadImage` → POST /uploads/image → the
+   * `maintenance-reports` S3 folder — so the office portal renders them off
+   * the existing NEXT_PUBLIC_RESOURCE_URL prefix with no new plumbing. Only
+   * the returned KEY is stored on the row; the bytes never ride in
+   * serviceData.
+   *
+   * Uploads happen here rather than at submit so a failure surfaces while the
+   * technician is still looking at the defect, and so the submit step stays a
+   * single POST. The trade-off is deliberate: a report abandoned after an
+   * upload leaves an orphaned S3 object, which is the same thing the
+   * signature flow already does.
+   */
+  const addDefectPhotos = async (idx: number, files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setDefectUploading(idx);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const keys = await Promise.all(
+        Array.from(files).map((file) =>
+          uploadImage({ blob: file, folderName: "maintenance-reports", token }),
+        ),
+      );
+      // uploadImage swallows its own failures and returns "" — drop those
+      // rather than storing an empty key that renders as a broken image.
+      const good = keys.filter((k): k is string => Boolean(k));
+      if (good.length === 0) throw new Error("Photo upload failed");
+      if (good.length < keys.length) {
+        setError(`${keys.length - good.length} photo(s) failed to upload and were skipped`);
+      }
+      setEssDefects((prev) =>
+        prev.map((d, i) => (i === idx ? { ...d, photos: [...(d.photos ?? []), ...good] } : d)),
+      );
+    } catch (e: any) {
+      setError(e?.message ?? "Photo upload failed");
+    } finally {
+      setDefectUploading(null);
+    }
+  };
+
+  /** Detach a photo from a defect row. The S3 object is left in place. */
+  const removeDefectPhoto = (idx: number, key: string) =>
+    setEssDefects((prev) =>
+      prev.map((d, i) => (i === idx ? { ...d, photos: (d.photos ?? []).filter((k) => k !== key) } : d)),
+    );
+
   // Totals are DERIVED from the rows, never typed. A hand-entered total that
   // disagrees with the table is the classic way these reports go wrong.
   const defectTotals = useMemo(
@@ -549,15 +604,12 @@ export default function NewServiceReportPage() {
             summary: {
               preStatus: essPreStatus || null,
               conclusion: essConclusion || null,
-              remarks: essSummaryRemarks.trim() || null,
             },
             items: essItems,
             measures: essMeasures,
             defects: essDefects,
             defectTotals,
             powerOn: essPowerOn,
-            nextMaintenanceDate: essNextMaintenanceDate || null,
-            finalConclusion: essFinalConclusion.trim() || null,
           }
         : null;
 
@@ -843,10 +895,19 @@ export default function NewServiceReportPage() {
     </Stack>
   );
 
-  const renderEssSummaryStep = () => (
+  /**
+   * Conclusion — the last thing asked before the signatures.
+   *
+   * These two were the top of a "Summary" step that also carried fixed
+   * Scope/Methods boilerplate and a prefilled remarks blob. The boilerplate is
+   * gone; what is left is the technician's own verdict, which belongs after
+   * the inspection rather than before it.
+   */
+  const renderEssConclusionStep = () => (
     <Stack spacing={2}>
-      {ESS_SUMMARY_FIXED.map((f) => renderFixedField(f.label, f.value))}
-      <Divider />
+      <Typography variant="body2" color="text.secondary">
+        Record the state you found the system in, and your overall verdict.
+      </Typography>
       <TextField
         select
         label="Pre-inspection status"
@@ -869,14 +930,6 @@ export default function NewServiceReportPage() {
           <MenuItem key={t} value={t}>{t}</MenuItem>
         ))}
       </TextField>
-      <TextField
-        label="Summary remarks"
-        multiline
-        minRows={3}
-        value={essSummaryRemarks}
-        onChange={(e) => setEssSummaryRemarks(e.target.value)}
-        fullWidth
-      />
     </Stack>
   );
 
@@ -1083,13 +1136,77 @@ export default function NewServiceReportPage() {
               fullWidth
               multiline
             />
-            <Button
-              size="small"
-              color="error"
-              onClick={() => setEssDefects((prev) => prev.filter((_, j) => j !== i))}
-            >
-              Remove
-            </Button>
+
+            {/* Photos for THIS defect. Any number; each removable before
+                submit. `capture` is omitted deliberately so the technician can
+                pick an existing shot as well as take a new one. */}
+            {(d.photos ?? []).length > 0 && (
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {(d.photos ?? []).map((key) => (
+                  <Box key={key} sx={{ position: "relative" }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`${RESOURCE_URL}${key}`}
+                      alt="Defect"
+                      style={{
+                        width: 84,
+                        height: 84,
+                        objectFit: "cover",
+                        borderRadius: 4,
+                        border: "1px solid rgba(0,0,0,0.2)",
+                      }}
+                    />
+                    <IconButton
+                      size="small"
+                      aria-label="Remove photo"
+                      onClick={() => removeDefectPhoto(i, key)}
+                      sx={{
+                        position: "absolute",
+                        top: -6,
+                        right: -6,
+                        bgcolor: "background.paper",
+                        border: "1px solid",
+                        borderColor: "divider",
+                        "&:hover": { bgcolor: "error.main", color: "#fff" },
+                      }}
+                    >
+                      <CloseIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Box>
+                ))}
+              </Stack>
+            )}
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Button
+                component="label"
+                size="small"
+                variant="outlined"
+                startIcon={<PhotoCameraIcon />}
+                disabled={defectUploading !== null}
+              >
+                {defectUploading === i ? "Uploading…" : "Add photo"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    void addDefectPhotos(i, e.target.files);
+                    // Reset so picking the SAME file twice still fires change.
+                    e.target.value = "";
+                  }}
+                />
+              </Button>
+              {defectUploading === i && <CircularProgress size={18} />}
+              <Box sx={{ flex: 1 }} />
+              <Button
+                size="small"
+                color="error"
+                onClick={() => setEssDefects((prev) => prev.filter((_, j) => j !== i))}
+              >
+                Remove defect
+              </Button>
+            </Stack>
           </Stack>
         </Box>
       ))}
@@ -1098,7 +1215,7 @@ export default function NewServiceReportPage() {
         onClick={() =>
           setEssDefects((prev) => [
             ...prev,
-            { description: "", riskLevel: "Minor", correctiveAction: "", status: "Open" },
+            { description: "", riskLevel: "Minor", correctiveAction: "", status: "Open", photos: [] },
           ])
         }
         sx={FIELD_BUTTON_SX}
@@ -1140,40 +1257,6 @@ export default function NewServiceReportPage() {
           </Box>
         );
       })}
-    </Stack>
-  );
-
-  const renderEssRecommendationsStep = () => (
-    <Stack spacing={2}>
-      <Box>
-        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
-          Recommendations
-        </Typography>
-        <Box component="ol" sx={{ pl: 2.5, m: 0 }}>
-          {essRecommendations(essNextMaintenanceDate).map((r, i) => (
-            <Typography component="li" variant="body2" key={i} sx={{ mb: 0.5 }}>
-              {r}
-            </Typography>
-          ))}
-        </Box>
-      </Box>
-      <TextField
-        label="Next maintenance date"
-        type="date"
-        value={essNextMaintenanceDate}
-        onChange={(e) => setEssNextMaintenanceDate(e.target.value)}
-        InputLabelProps={{ shrink: true }}
-        fullWidth
-      />
-      <TextField
-        label="Final conclusion"
-        multiline
-        minRows={4}
-        value={essFinalConclusion}
-        onChange={(e) => setEssFinalConclusion(e.target.value)}
-        placeholder="Overall statement on the condition of the system."
-        fullWidth
-      />
     </Stack>
   );
 
@@ -1445,12 +1528,11 @@ export default function NewServiceReportPage() {
       {stepName === "Header" && renderHeaderStep()}
       {stepName === "ESS inspection header" && renderEssHeaderStep()}
       {stepName === "Checklist" && renderChecklistStep()}
-      {stepName === "Summary" && renderEssSummaryStep()}
       {stepName === "Detailed record" && renderEssDetailStep()}
       {stepName === "Defects" && renderEssDefectsStep()}
       {stepName === "Power-on tests" && renderEssPowerOnStep()}
-      {stepName === "Recommendations" && renderEssRecommendationsStep()}
       {stepName === "Remarks & Time" && renderRemarksStep()}
+      {stepName === "Conclusion" && renderEssConclusionStep()}
       {stepName === "Service signature" && renderTechSigStep()}
       {stepName === "Client signature" && renderClientSigStep()}
       {stepName === "Payment" && renderPaymentStep()}

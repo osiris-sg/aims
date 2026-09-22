@@ -13,6 +13,11 @@ import {
   Grid,
   Paper,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
   Typography,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -26,10 +31,8 @@ import {
   ESS_CATEGORIES,
   ESS_POWER_ON_TESTS,
   ESS_HEADER_FIXED,
-  ESS_SUMMARY_FIXED,
   GENERIC_CHECKLIST,
   essDefectSummary,
-  essRecommendations,
   TEMPLATE_LABELS,
   essItemKey,
   isOverridden,
@@ -282,37 +285,12 @@ export default function MaintenanceReportDetailPage() {
             <FieldLabel label="Service Date" value={sd.serviceDate} />
             <FieldLabel label="Next Service Date" value={sd.nextServiceDate} />
           </Grid>
-          {isEss && ess && (
-            <>
-              <Grid item xs={12}><Divider /></Grid>
-              <Grid item xs={12} sm={6}>
-                <FieldLabel label="Equipment ID" value={ess.header?.equipmentId} />
-                <FieldLabel label="Site" value={ess.header?.site} />
-                <FieldLabel label="Inspection Date" value={ess.header?.inspectionDate} />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <FieldLabel label="Inspection Type" value={ess.header?.inspectionType} />
-                <FieldLabel
-                  label="Rated Power"
-                  value={ess.header?.ratedPowerKw != null ? `${ess.header.ratedPowerKw} kW` : null}
-                />
-                <FieldLabel
-                  label="Rated Capacity"
-                  value={ess.header?.ratedCapacityKwh != null ? `${ess.header.ratedCapacityKwh} kWh` : null}
-                />
-              </Grid>
-              {/* Fixed text from the reference — printed, never captured. */}
-              {ESS_HEADER_FIXED.map((f) => (
-                <Grid item xs={12} key={f.label}>
-                  <FieldLabel label={f.label} value={f.value} />
-                </Grid>
-              ))}
-            </>
-          )}
         </Grid>
       </Paper>
 
-      {isEss ? renderEssSections(ess) : (
+      {isEss && renderEssBody(ess)}
+
+      {isEss ? null : (
       <Paper variant="outlined" sx={{ p: 3 }} className="msr-section">
         <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Checklist</Typography>
         <Grid container spacing={0.5}>
@@ -372,6 +350,11 @@ export default function MaintenanceReportDetailPage() {
         </Grid>
       </Paper>
 
+      {/* Conclusion is the LAST thing before the signatures — the same slot
+          the PDF puts it in, after the Remarks/Times block. Splitting body
+          from conclusion is what lets the two renderers agree on order. */}
+      {isEss && renderEssConclusion(ess)}
+
       <Paper variant="outlined" sx={{ p: 3 }} className="msr-section msr-signatures">
         <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Signatures</Typography>
         <Grid container spacing={3}>
@@ -422,14 +405,26 @@ export default function MaintenanceReportDetailPage() {
 }
 
 /**
- * The ESS detailed record, defects, power-on tests and recommendations.
+ * ESS report body — equipment, detailed record, defects, power-on tests.
+ * Laid out as the printed report, not as portal cards.
  *
- * Renders from the STORED payload against the SHARED catalogue: labels come
+ * The office and the customer must be able to hold the screen and the emailed
+ * PDF side by side and see the same document: same section order, same column
+ * headings, same row numbering. So this renders bordered tables rather than the
+ * label/value stacks the generic report uses.
+ *
+ * It renders from the STORED payload against the SHARED catalogue: labels come
  * from the catalogue, verdicts from the row. An item the row has no answer for
  * shows "—" rather than defaulting to Pass — a missing verdict is missing
  * information, not a pass.
+ *
+ * It is still MUI, not a copy of the PDF's HTML: colours come from theme tokens
+ * so the page works in dark mode (the PDF is unconditionally black-on-white,
+ * which is correct for paper and wrong for a themed screen). What the two share
+ * today is the CATALOGUE — labels, categories, thresholds, the defect summary
+ * line — which is where the drift that matters would otherwise happen.
  */
-function renderEssSections(ess: EssServiceData | null) {
+function renderEssBody(ess: EssServiceData | null) {
   if (!ess) {
     return (
       <Paper variant="outlined" sx={{ p: 3 }} className="msr-section">
@@ -440,50 +435,76 @@ function renderEssSections(ess: EssServiceData | null) {
     );
   }
 
-  const measureRow = (m: EssMeasure) => {
-    const r = ess.measures?.[m.key];
-    const overridden = isOverridden(r);
-    const shown =
-      m.kind === "boolean"
-        ? r?.value
-          ? "Yes"
-          : "No"
-        : r?.value === null || r?.value === undefined || r?.value === ""
-          ? "—"
-          : `${r.value}${m.unit ? ` ${m.unit}` : ""}`;
-    return (
-      <Stack
-        key={m.key}
-        direction="row"
-        spacing={1.5}
-        alignItems="center"
-        sx={{
-          py: 0.75,
-          px: 1.25,
-          mt: 0.75,
-          borderRadius: 1,
-          bgcolor: overridden ? "warning.light" : "action.hover",
-        }}
+  // One bordered table, titled, that refuses to split across printed pages.
+  const section = (title: string, body: React.ReactNode, cls = "") => (
+    <Paper variant="outlined" sx={{ p: 0, overflow: "hidden" }} className={`msr-section ${cls}`}>
+      <Typography
+        variant="subtitle2"
+        fontWeight={700}
+        sx={{ px: 2, py: 1.25, bgcolor: "action.hover", borderBottom: 1, borderColor: "divider" }}
       >
-        <Typography variant="body2" sx={{ flex: 1 }}>
-          {m.label}
-          {m.threshold != null && (
-            <Typography component="span" variant="caption" color="text.secondary">
-              {" "}(pass ≤ {m.threshold} {m.unit})
-            </Typography>
-          )}
-        </Typography>
-        <Typography variant="body2" fontWeight={700}>{shown}</Typography>
-        {r?.verdict && (
-          <Chip
-            size="small"
-            label={r.verdict}
-            color={r.verdict === "FAIL" ? "error" : "success"}
-            variant="filled"
-          />
-        )}
-        {overridden && (
-          <Chip size="small" color="warning" label={`overridden — auto ${r?.suggested}`} />
+        {title}
+      </Typography>
+      <Box sx={{ overflowX: "auto" }}>{body}</Box>
+    </Paper>
+  );
+
+  const headSx = { fontWeight: 700, whiteSpace: "nowrap", bgcolor: "action.hover" } as const;
+  const cellSx = { verticalAlign: "top" } as const;
+
+  const verdictCell = (v?: string | null) =>
+    v ? (
+      <Chip size="small" label={v} color={v === "FAIL" || v === "NG" ? "error" : "success"} />
+    ) : (
+      <Typography variant="body2" color="text.disabled">—</Typography>
+    );
+
+  /**
+   * The "Data / Remarks" cell: the reading bound to this row (if any), then
+   * the technician's remark, falling back to the reference's own hint.
+   * An override is stated as an override — showing the chosen verdict alone
+   * would present a Pass on a failing reading with nothing to say a human
+   * decided that.
+   */
+  const dataCell = (measures: EssMeasure[], itemId: number, remark?: string | null, hint?: string) => {
+    const own = measures.filter((m) => m.itemId === itemId);
+    const note = remark || hint;
+    if (own.length === 0 && !note) return <Typography variant="body2" color="text.disabled">—</Typography>;
+    return (
+      <Stack spacing={0.5}>
+        {own.map((m) => {
+          const r = ess.measures?.[m.key];
+          const overridden = isOverridden(r);
+          const shown =
+            m.kind === "boolean"
+              ? r?.value
+                ? "Yes"
+                : "No"
+              : r?.value === null || r?.value === undefined || r?.value === ""
+                ? "—"
+                : `${r.value}${m.unit ? ` ${m.unit}` : ""}`;
+          return (
+            <Stack key={m.key} direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+              <Typography variant="body2" color="text.secondary">{m.label}:</Typography>
+              <Typography variant="body2" fontWeight={700}>{shown}</Typography>
+              {m.threshold != null && (
+                <Typography variant="caption" color="text.secondary">
+                  (pass ≤ {m.threshold} {m.unit})
+                </Typography>
+              )}
+              {overridden && (
+                <Chip size="small" color="warning" label={`overridden — auto ${r?.suggested}`} />
+              )}
+              {overridden && r?.remark && (
+                <Typography variant="caption" color="warning.main">{r.remark}</Typography>
+              )}
+            </Stack>
+          );
+        })}
+        {note && (
+          <Typography variant="body2" color={remark ? "text.primary" : "text.secondary"}>
+            {note}
+          </Typography>
         )}
       </Stack>
     );
@@ -491,150 +512,240 @@ function renderEssSections(ess: EssServiceData | null) {
 
   return (
     <>
-      <Paper variant="outlined" sx={{ p: 3 }} className="msr-section">
-        <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Summary</Typography>
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={6}>
-            <FieldLabel label="Pre-inspection status" value={ess.summary?.preStatus} />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <FieldLabel label="Overall conclusion" value={ess.summary?.conclusion} />
-          </Grid>
-          {ESS_SUMMARY_FIXED.map((f) => (
-            <Grid item xs={12} key={f.label}>
-              <FieldLabel label={f.label} value={f.value} />
-            </Grid>
-          ))}
-          <Grid item xs={12}>
-            <FieldLabel label="Remarks" value={ess.summary?.remarks} />
-          </Grid>
-        </Grid>
-      </Paper>
+      {section(
+        "Equipment",
+        <Table size="small">
+          <TableBody>
+            {ESS_HEADER_FIXED.map((f) => (
+              <TableRow key={f.label}>
+                <TableCell sx={{ ...headSx, width: 200 }}>{f.label}</TableCell>
+                <TableCell sx={cellSx}>{f.value}</TableCell>
+              </TableRow>
+            ))}
+            <TableRow>
+              <TableCell sx={{ ...headSx, width: 200 }}>Equipment ID</TableCell>
+              <TableCell sx={cellSx}>{ess.header?.equipmentId ?? "—"}</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell sx={headSx}>Site</TableCell>
+              <TableCell sx={cellSx}>{ess.header?.site ?? "—"}</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell sx={headSx}>Inspection Date</TableCell>
+              <TableCell sx={cellSx}>{ess.header?.inspectionDate ?? "—"}</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell sx={headSx}>Inspection Type</TableCell>
+              <TableCell sx={cellSx}>{ess.header?.inspectionType ?? "—"}</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell sx={headSx}>Rated Power</TableCell>
+              <TableCell sx={cellSx}>
+                {ess.header?.ratedPowerKw != null ? `${ess.header.ratedPowerKw} kW` : "—"}
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell sx={headSx}>Rated Capacity</TableCell>
+              <TableCell sx={cellSx}>
+                {ess.header?.ratedCapacityKwh != null ? `${ess.header.ratedCapacityKwh} kWh` : "—"}
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>,
+      )}
 
-      <Paper variant="outlined" sx={{ p: 3 }} className="msr-section">
-        <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Detailed record</Typography>
-        <Stack spacing={2.5}>
-          {ESS_CATEGORIES.map((cat) => (
-            <Box key={cat.id} className="msr-category">
-              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
-                {cat.id}. {cat.title}
-              </Typography>
-              {cat.items.map((item) => {
-                const r = ess.items?.[essItemKey(cat.id, item.id)];
-                return (
-                  <Stack
-                    key={item.id}
-                    direction="row"
-                    spacing={1.5}
-                    alignItems="flex-start"
-                    sx={{ py: 0.5, borderBottom: "1px dashed", borderColor: "divider" }}
-                  >
-                    <Typography variant="body2" sx={{ flex: 1 }}>
-                      {cat.id}.{item.id} {item.label}
-                      {r?.remark || item.hint ? (
-                        <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                          {r?.remark || item.hint}
-                        </Typography>
-                      ) : null}
-                      {/* Readings sit on their own row, as the reference does. */}
-                      {(cat.measures ?? []).filter((m) => m.itemId === item.id).map(measureRow)}
+      {section(
+        "Detailed Record",
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ ...headSx, width: 56 }}>No.</TableCell>
+              <TableCell sx={headSx}>Inspection Item</TableCell>
+              <TableCell sx={{ ...headSx, width: 84 }}>Result</TableCell>
+              <TableCell sx={{ ...headSx, width: "34%" }}>Data / Remarks</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {ESS_CATEGORIES.map((cat) => (
+              <React.Fragment key={cat.id}>
+                <TableRow className="msr-category">
+                  <TableCell colSpan={4} sx={{ fontWeight: 700, bgcolor: "action.selected" }}>
+                    {cat.id}. {cat.title}
+                  </TableCell>
+                </TableRow>
+                {cat.items.map((item) => {
+                  const r = ess.items?.[essItemKey(cat.id, item.id)];
+                  return (
+                    <TableRow key={item.id}>
+                      <TableCell sx={{ ...cellSx, color: "text.secondary" }}>
+                        {cat.id}.{item.id}
+                      </TableCell>
+                      <TableCell sx={cellSx}>{item.label}</TableCell>
+                      <TableCell sx={cellSx}>{verdictCell(r?.verdict)}</TableCell>
+                      <TableCell sx={cellSx}>
+                        {dataCell(cat.measures ?? [], item.id, r?.remark, item.hint)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </TableBody>
+        </Table>,
+      )}
+
+      {section(
+        "Defect Tracking",
+        <>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ ...headSx, width: 56 }}>No.</TableCell>
+                <TableCell sx={headSx}>Description</TableCell>
+                <TableCell sx={{ ...headSx, width: 96 }}>Risk Level</TableCell>
+                <TableCell sx={headSx}>Corrective Action</TableCell>
+                <TableCell sx={{ ...headSx, width: 110 }}>Status</TableCell>
+                <TableCell sx={{ ...headSx, width: 170 }}>Photos</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(ess.defects ?? []).length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6}>
+                    <Typography variant="body2" color="text.secondary">
+                      No defects recorded.
                     </Typography>
-                    {r?.verdict ? (
+                  </TableCell>
+                </TableRow>
+              ) : (
+                ess.defects.map((d, i) => (
+                  <TableRow key={i}>
+                    <TableCell sx={{ ...cellSx, color: "text.secondary" }}>{i + 1}</TableCell>
+                    <TableCell sx={cellSx}>{d.description || "—"}</TableCell>
+                    <TableCell sx={cellSx}>
                       <Chip
                         size="small"
-                        label={r.verdict}
-                        color={r.verdict === "FAIL" ? "error" : "success"}
+                        label={d.riskLevel}
+                        color={d.riskLevel === "Major" ? "error" : "warning"}
                       />
+                    </TableCell>
+                    <TableCell sx={cellSx}>{d.correctiveAction || "—"}</TableCell>
+                    <TableCell sx={cellSx}>
+                      <Chip size="small" label={d.status} variant="outlined" />
+                    </TableCell>
+                    <TableCell sx={cellSx}>
+                      {(d.photos ?? []).length === 0 ? (
+                        <Typography variant="body2" color="text.disabled">—</Typography>
+                      ) : (
+                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                          {(d.photos ?? []).map((key) => (
+                            <a
+                              key={key}
+                              href={`${RESOURCE_URL}${key}`}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={`${RESOURCE_URL}${key}`}
+                                alt="Defect"
+                                style={{
+                                  width: 48,
+                                  height: 48,
+                                  objectFit: "cover",
+                                  borderRadius: 3,
+                                  border: "1px solid rgba(128,128,128,0.4)",
+                                }}
+                              />
+                            </a>
+                          ))}
+                        </Stack>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+          <Typography variant="body2" fontWeight={700} sx={{ px: 2, py: 1.25 }}>
+            {essDefectSummary(ess.defectTotals?.major ?? 0, ess.defectTotals?.minor ?? 0)}
+          </Typography>
+        </>,
+        "msr-defects",
+      )}
+
+      {section(
+        "Power-on Tests",
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ ...headSx, width: 56 }}>No.</TableCell>
+              <TableCell sx={headSx}>Test Item</TableCell>
+              <TableCell sx={{ ...headSx, width: 84 }}>Result</TableCell>
+              <TableCell sx={{ ...headSx, width: "34%" }}>Remarks</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {ESS_POWER_ON_TESTS.map((t) => {
+              const r = ess.powerOn?.[String(t.id)];
+              const note = r?.remark || t.hint;
+              return (
+                <TableRow key={t.id}>
+                  <TableCell sx={{ ...cellSx, color: "text.secondary" }}>{t.id}</TableCell>
+                  <TableCell sx={cellSx}>{t.label}</TableCell>
+                  <TableCell sx={cellSx}>{verdictCell(r?.verdict)}</TableCell>
+                  <TableCell sx={cellSx}>
+                    {note ? (
+                      <Typography variant="body2" color={r?.remark ? "text.primary" : "text.secondary"}>
+                        {note}
+                      </Typography>
                     ) : (
                       <Typography variant="body2" color="text.disabled">—</Typography>
                     )}
-                  </Stack>
-                );
-              })}
-              {(cat.measures ?? []).filter((m) => m.itemId == null).map(measureRow)}
-            </Box>
-          ))}
-        </Stack>
-      </Paper>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>,
+        "msr-poweron",
+      )}
 
-      <Paper variant="outlined" sx={{ p: 3 }} className="msr-section msr-defects">
-        <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Defect tracking</Typography>
-        {(ess.defects ?? []).length === 0 ? (
-          <Typography variant="body2" color="text.secondary">No defects recorded.</Typography>
-        ) : (
-          <Stack spacing={1}>
-            {ess.defects.map((d, i) => (
-              <Box key={i} sx={{ p: 1.25, border: "1px solid", borderColor: "divider", borderRadius: 1 }}>
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-                  <Chip
-                    size="small"
-                    label={d.riskLevel}
-                    color={d.riskLevel === "Major" ? "error" : "warning"}
-                  />
-                  <Chip size="small" label={d.status} variant="outlined" />
-                </Stack>
-                <Typography variant="body2" fontWeight={600}>{d.description || "—"}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {d.correctiveAction || "—"}
-                </Typography>
-              </Box>
-            ))}
-          </Stack>
-        )}
-        <Typography variant="body2" fontWeight={600} sx={{ mt: 1.5 }}>
-          {essDefectSummary(ess.defectTotals?.major ?? 0, ess.defectTotals?.minor ?? 0)}
-        </Typography>
-      </Paper>
-
-      <Paper variant="outlined" sx={{ p: 3 }} className="msr-section msr-poweron">
-        <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Power-on tests</Typography>
-        {ESS_POWER_ON_TESTS.map((t) => {
-          const r = ess.powerOn?.[String(t.id)];
-          return (
-            <Stack
-              key={t.id}
-              direction="row"
-              spacing={1.5}
-              alignItems="flex-start"
-              sx={{ py: 0.5, borderBottom: "1px dashed", borderColor: "divider" }}
-            >
-              <Typography variant="body2" sx={{ flex: 1 }}>
-                {t.id}. {t.label}
-                {r?.remark || t.hint ? (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                    {r?.remark || t.hint}
-                  </Typography>
-                ) : null}
-              </Typography>
-              {r?.verdict ? (
-                <Chip size="small" label={r.verdict} color={r.verdict === "NG" ? "error" : "success"} />
-              ) : (
-                <Typography variant="body2" color="text.disabled">—</Typography>
-              )}
-            </Stack>
-          );
-        })}
-      </Paper>
-
-      <Paper variant="outlined" sx={{ p: 3 }} className="msr-section">
-        <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Recommendations</Typography>
-        <Box component="ol" sx={{ pl: 2.5, m: 0 }}>
-          {essRecommendations(ess.nextMaintenanceDate).map((r: string, i: number) => (
-            <Typography component="li" variant="body2" key={i} sx={{ mb: 0.5 }}>{r}</Typography>
-          ))}
-        </Box>
-        <Divider sx={{ my: 2 }} />
-        <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-          Final conclusion
-        </Typography>
-        <Typography
-          variant="body2"
-          sx={{ mt: 0.5, whiteSpace: "pre-wrap", p: 1.5, bgcolor: "action.hover", borderRadius: 1, minHeight: 60 }}
-        >
-          {ess.finalConclusion || "—"}
-        </Typography>
-      </Paper>
     </>
+  );
+}
+
+/**
+ * Pre-inspection Status + Overall Conclusion — rendered immediately above the
+ * signature block, matching `buildEssConclusionHtml` in the PDF builder. Kept
+ * separate from the body for exactly that reason: the generic Remarks/Times
+ * card sits between the two, in both renderers.
+ */
+function renderEssConclusion(ess: EssServiceData | null) {
+  if (!ess) return null;
+  const headSx = { fontWeight: 700, whiteSpace: "nowrap", bgcolor: "action.hover" } as const;
+  return (
+    <Paper variant="outlined" sx={{ p: 0, overflow: "hidden" }} className="msr-section">
+      <Typography
+        variant="subtitle2"
+        fontWeight={700}
+        sx={{ px: 2, py: 1.25, bgcolor: "action.hover", borderBottom: 1, borderColor: "divider" }}
+      >
+        Conclusion
+      </Typography>
+      <Table size="small">
+        <TableBody>
+          <TableRow>
+            <TableCell sx={{ ...headSx, width: 220 }}>Pre-inspection Status</TableCell>
+            <TableCell>{ess.summary?.preStatus ?? "—"}</TableCell>
+          </TableRow>
+          <TableRow>
+            <TableCell sx={headSx}>Overall Conclusion</TableCell>
+            <TableCell>{ess.summary?.conclusion ?? "—"}</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    </Paper>
   );
 }
 

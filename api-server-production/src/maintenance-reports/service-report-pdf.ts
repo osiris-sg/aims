@@ -13,10 +13,8 @@ import {
   ESS_CATEGORIES,
   ESS_POWER_ON_TESTS,
   ESS_HEADER_FIXED,
-  ESS_SUMMARY_FIXED,
   GENERIC_CHECKLIST,
   essDefectSummary,
-  essRecommendations,
   TEMPLATE_LABELS,
   essItemKey,
   isOverridden,
@@ -134,8 +132,8 @@ const ESS_PRINT_CSS = `
     .measure-value { font-weight: 700; }
     .measure-remark { font-size: 9.5px; color: #8a4b00; margin-top: 2px; }
     .hint { color: #666; font-weight: 400; }
-    ol.recs { margin: 0 0 0 16px; font-size: 10.5px; padding-left: 4px; }
-    ol.recs li { margin-bottom: 4px; }
+    .defect-shots { display: flex; flex-wrap: wrap; gap: 3px; }
+    .defect-shot { width: 46px; height: 46px; object-fit: cover; border: 1px solid #999; border-radius: 2px; }
     .fixed-block { border: 1px solid #ccc; background: #fafafa; padding: 5px 7px; margin-bottom: 10px; }
     .fixed-row { font-size: 10px; line-height: 1.45; }
     .fixed-label { font-weight: 700; }
@@ -181,9 +179,29 @@ const essMeasureHtml = (ess: EssServiceData, m: EssMeasure): string => {
 };
 
 /**
- * The ESS body: summary, the eight categories, defects, power-on tests and
- * recommendations. Each block carries a `keep` class so the print CSS can
- * refuse to split it across a page boundary.
+ * Pre-inspection Status + Overall Conclusion.
+ *
+ * Deliberately NOT part of the body: the reference prints the technician's
+ * verdict immediately above the signatures, so it is injected after the
+ * generic Remarks/Times block rather than before it. The field form asks for
+ * it in the same position — last, just before signing.
+ */
+const buildEssConclusionHtml = (ess: EssServiceData | null): string => {
+  const sm = ess?.summary ?? {};
+  return `
+    <div class="keep">
+      <div class="section-title">Conclusion</div>
+      <div class="info-grid">
+        <div class="info-row"><div class="info-label">Pre-inspection Status</div><div class="info-value">${esc(sm.preStatus)}</div></div>
+        <div class="info-row"><div class="info-label">Overall Conclusion</div><div class="info-value">${esc(sm.conclusion)}</div></div>
+      </div>
+    </div>`;
+};
+
+/**
+ * The ESS body: equipment, the eight categories, defects and power-on tests.
+ * Each block carries a `keep` class so the print CSS can refuse to split it
+ * across a page boundary. The conclusion is built separately, above.
  */
 const buildEssBodyHtml = (ess: EssServiceData | null): string => {
   if (!ess) {
@@ -223,16 +241,25 @@ const buildEssBodyHtml = (ess: EssServiceData | null): string => {
 
   const defectRows = (ess.defects ?? []).length
     ? ess.defects
-        .map(
-          (d) => `<tr>
+        .map((d, i) => {
+          // Photos ride as S3 keys on the row. The bucket is publicly readable,
+          // so they inline without signed URLs — same as the signatures above.
+          const shots = (d.photos ?? []).length
+            ? `<div class="defect-shots">${(d.photos ?? [])
+                .map((k) => `<img class="defect-shot" src="${S3_PREFIX}${k}" alt="Defect photo" />`)
+                .join('')}</div>`
+            : '<span class="muted">—</span>';
+          return `<tr>
+            <td class="idx">${i + 1}</td>
             <td>${esc(d.description) || '—'}</td>
             <td class="nowrap">${esc(d.riskLevel)}</td>
             <td>${esc(d.correctiveAction) || '—'}</td>
             <td class="nowrap">${esc(d.status)}</td>
-          </tr>`,
-        )
+            <td>${shots}</td>
+          </tr>`;
+        })
         .join('')
-    : '<tr><td colspan="4" class="muted">No defects recorded.</td></tr>';
+    : '<tr><td colspan="6" class="muted">No defects recorded.</td></tr>';
 
   const powerRows = ESS_POWER_ON_TESTS.map((t) => {
     const r = ess.powerOn?.[String(t.id)];
@@ -246,7 +273,6 @@ const buildEssBodyHtml = (ess: EssServiceData | null): string => {
   }).join('');
 
   const h = ess.header ?? {};
-  const sm = ess.summary ?? {};
 
   return `
     <div class="section-title">Equipment</div>
@@ -262,41 +288,23 @@ const buildEssBodyHtml = (ess: EssServiceData | null): string => {
       ${ESS_HEADER_FIXED.map((f) => `<div class="fixed-row"><span class="fixed-label">${esc(f.label)}:</span> ${esc(f.value)}</div>`).join('')}
     </div>
 
-    <div class="keep">
-      <div class="section-title">Summary</div>
-      <div class="info-grid">
-        <div class="info-row"><div class="info-label">Pre-inspection</div><div class="info-value">${esc(sm.preStatus)}</div></div>
-        <div class="info-row"><div class="info-label">Conclusion</div><div class="info-value">${esc(sm.conclusion)}</div></div>
-      </div>
-      <div class="fixed-block">
-        ${ESS_SUMMARY_FIXED.map((f) => `<div class="fixed-row"><span class="fixed-label">${esc(f.label)}:</span> ${esc(f.value)}</div>`).join('')}
-      </div>
-      <div class="remarks-box">${esc(sm.remarks) || '&nbsp;'}</div>
-    </div>
-
-    <div class="section-title">Detailed record</div>
+    <div class="section-title">Detailed Record</div>
     ${categories}
 
     <div class="keep">
-      <div class="section-title">Defect tracking</div>
+      <div class="section-title">Defect Tracking</div>
       <table class="grid">
-        <thead><tr><th>Description</th><th>Risk</th><th>Corrective action</th><th>Status</th></tr></thead>
+        <thead><tr><th>No.</th><th>Description</th><th>Risk Level</th><th>Corrective Action</th><th>Status</th><th>Photos</th></tr></thead>
         <tbody>${defectRows}</tbody>
       </table>
       <div class="totals"><strong>${esc(essDefectSummary(ess.defectTotals?.major ?? 0, ess.defectTotals?.minor ?? 0))}</strong></div>
     </div>
 
     <div class="keep">
-      <div class="section-title">Power-on tests</div>
+      <div class="section-title">Power-on Tests</div>
       <table class="items"><tbody>${powerRows}</tbody></table>
     </div>
 
-    <div class="keep">
-      <div class="section-title">Recommendations</div>
-      <ol class="recs">${essRecommendations(ess.nextMaintenanceDate).map((r) => `<li>${esc(r)}</li>`).join('')}</ol>
-      <div class="section-title">Final conclusion</div>
-      <div class="remarks-box">${esc(ess.finalConclusion) || '&nbsp;'}</div>
-    </div>
   `;
 };
 
@@ -396,7 +404,7 @@ ${isEss ? ESS_PRINT_CSS : ''}  </style>
       <div><span class="label">Time In:</span>${esc(fmtTime(sd.timeIn))}</div>
       <div><span class="label">Time Out:</span>${esc(fmtTime(sd.timeOut))}</div>
     </div>
-
+${isEss ? buildEssConclusionHtml(sd.ess ?? null) : ''}
     <div class="sig-grid"${isEss ? ' style="grid-template-columns: 1fr 1fr 1fr;"' : ''}>
       <div class="sig-box">
         ${techSigUrl ? `<img class="sig-img" src="${techSigUrl}" alt="Service signature" />` : '<div class="sig-empty">No signature</div>'}

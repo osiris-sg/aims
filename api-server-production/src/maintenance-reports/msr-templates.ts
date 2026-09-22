@@ -102,28 +102,6 @@ export const ESS_HEADER_FIXED: { label: string; value: string }[] = [
   },
 ];
 
-/** Fixed summary rows — printed, never captured. */
-export const ESS_SUMMARY_FIXED: { label: string; value: string }[] = [
-  {
-    label: 'Scope',
-    value:
-      'Battery Rack, BMS, PCS, Air-Cooled Cooling System, HV/LV Power Distribution, Fire Protection System, Grounding System, EMS Monitoring',
-  },
-  {
-    label: 'Methods',
-    value:
-      'Power-off Visual inspection, Comprehensive Dust Removal, terminal tightening, parameter verification, log export, functional check, Power-on Trial Operation',
-  },
-];
-
-/** Prefilled into the summary remarks field; the technician may edit it. */
-export const ESS_SUMMARY_REMARKS_DEFAULT =
-  'All inspection work strictly complies with electrical safety regulations; no safety incidents occurred. Upon completion, energized no-load and low-power trial operations were performed to verify all system functions are normal.';
-
-/** Prefilled into the final conclusion field; the technician may edit it. */
-export const ESS_FINAL_CONCLUSION_DEFAULT =
-  'A comprehensive inspection was performed covering enclosure structure, air-cooling system, battery racks, BMS, PCS, HV/LV distribution, fire monitoring, and grounding – including cleaning, terminal tightening, parameter verification, defect check, and functional power-on validation. No major defects found. All parameters, cooling performance, protection logic, and charge/discharge functions meet standard requirements. The system is in good overall health and is cleared for grid connection and normal operation.';
-
 /**
  * A reading, confirmation or choice attached to a sub-item.
  *
@@ -349,22 +327,6 @@ export function essDefectSummary(major: number, minor: number): string {
   return `Total issues found: ${major + minor} (Major: ${major}, Minor: ${minor}). All rectified and closed.`;
 }
 
-/**
- * The reference's five fixed recommendations. Item 5 carries the next
- * maintenance date, so it is built rather than stored — a renderer that
- * printed a stale date beside live advice would be worse than no date.
- * With no date set it keeps the reference's own `[date field]` placeholder.
- */
-export function essRecommendations(nextMaintenanceDate?: string | null): string[] {
-  return [
-    'Air-cooled energy storage systems are highly sensitive to dust accumulation. It is recommended to inspect and clean air filters every 1–3 months and replace filters every 6 to 12 months, so as to prevent battery overheating and excessive temperature differential caused by blocked air ducts.',
-    'Regularly inspect the operating condition of cooling fans. Conduct aging assessment after 2 years of operation and replace degraded fans in advance to mitigate the risk of cooling system failure.',
-    'During plum rain and high-humidity seasons, prioritize inspection of the cabinet enclosure sealing performance to prevent internal condensation, which may lead to reduced insulation capacity and electrical faults.',
-    'Export background operation logs monthly, and continuously monitor battery voltage differential, cluster temperature differential and equipment alarm trends to enable proactive risk identification and preventive maintenance.',
-    `Next scheduled maintenance date: ${nextMaintenanceDate || '[date field]'}`,
-  ];
-}
-
 export type EssInspectionType = (typeof ESS_INSPECTION_TYPES)[number];
 export type EssPreStatus = (typeof ESS_PRE_STATUSES)[number];
 export type EssConclusion = (typeof ESS_CONCLUSIONS)[number];
@@ -404,6 +366,13 @@ export interface EssDefectRow {
   riskLevel: EssRiskLevel | string;
   correctiveAction: string;
   status: EssDefectStatus | string;
+  /**
+   * S3 keys of photos evidencing THIS defect, uploaded through the same
+   * `/uploads/image` path the signatures use and stored in the same
+   * `maintenance-reports` folder. Optional and absent on older rows — every
+   * renderer must treat a missing array as "no photos", never as an error.
+   */
+  photos?: string[];
 }
 
 export interface EssPowerOnResult {
@@ -421,10 +390,15 @@ export interface EssServiceData {
     ratedPowerKw?: number | null;
     ratedCapacityKwh?: number | null;
   };
+  /**
+   * Captured LAST, on its own step immediately before the signatures — it is
+   * the technician's verdict, so it is asked once the inspection has actually
+   * been done rather than up front. The free-text Scope/Methods/remarks that
+   * used to sit here were fixed boilerplate and are gone.
+   */
   summary: {
     preStatus?: string | null;
     conclusion?: string | null;
-    remarks?: string | null;
   };
   /** `"3.2"` → result. */
   items: Record<string, EssItemResult>;
@@ -434,8 +408,6 @@ export interface EssServiceData {
   defectTotals: { major: number; minor: number };
   /** power-on test id (as a string) → result. */
   powerOn: Record<string, EssPowerOnResult>;
-  nextMaintenanceDate?: string | null;
-  finalConclusion?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
