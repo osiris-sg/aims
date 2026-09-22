@@ -15,22 +15,73 @@ import {
   FormControlLabel,
   Grid,
   LinearProgress,
+  MenuItem,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import {
+  ESS_CATEGORIES,
+  ESS_CONCLUSIONS,
+  ESS_DEFECT_STATUSES,
+  ESS_INSPECTION_TYPES,
+  ESS_POWER_ON_TESTS,
+  ESS_PRE_STATUSES,
+  ESS_RISK_LEVELS,
+  ESS_SUMMARY_FIXED,
+  ESS_SUMMARY_REMARKS_DEFAULT,
+  ESS_FINAL_CONCLUSION_DEFAULT,
+  ESS_HEADER_FIXED,
+  essDefectSummary,
+  essRecommendations,
+  GENERIC_CHECKLIST,
+  TEMPLATE_LABELS,
+  TEMPLATE_VERSIONS,
+  essItemKey,
+  isOverridden,
+  resolveTemplateId,
+  suggestVerdict,
+  type EssDefectRow,
+  type EssItemResult,
+  type EssMeasure,
+  type EssMeasureResult,
+  type EssPowerOnResult,
+  type EssServiceData,
+  type EssVerdict,
+} from "@/lib/msr-templates";
 
 /**
- * Maintenance & Inspection Service Report — 5-page revamped flow.
+ * Maintenance & Inspection Service Report — the field capture flow.
  *
- *   1. Header (customer + auto-filled asset details + dates)
- *   2. Checklist (30 fixed items, optional checkboxes in two columns)
- *   3. Remarks + Time In (captured on mount) / Time Out (set at submit)
- *   4. Field technician signature
- *   5. Client signature + submit
+ * TWO TEMPLATES, ONE WIZARD. The asset decides which form the technician
+ * fills in (`resolveTemplateId` — ESS for any asset NAMED "LION…"), and the
+ * chosen id is stamped into serviceData so every later renderer reads the
+ * form FROM THE ROW instead of re-deriving it from the asset.
+ *
+ *   GENERIC_V1 — unchanged 6-step flow:
+ *     1. Header   2. Checklist (30 items)   3. Remarks + times
+ *     4. Technician signature   5. Client signature   6. Payment
+ *
+ *   ESS_V1 — air-cooled energy-storage inspection, 5 extra steps between
+ *   the header and the remarks:
+ *     1. Header (+ equipment id, site, inspection type, rated power/capacity)
+ *     2. Summary (pre-inspection status, overall conclusion, remarks)
+ *     3. Detailed record (8 categories, each sub-item Pass/Fail + remark,
+ *        plus the measured readings)
+ *     4. Defects (description / risk / corrective action / status + totals)
+ *     5. Power-on tests (4 items, OK/NG + remark)
+ *     6. Recommendations + next maintenance date + final conclusion
+ *     7–10. Remarks, signatures, payment — identical to GENERIC.
+ *
+ * SIGNATURES ARE UNCHANGED IN BOTH. Two pads: technician and customer. The
+ * ESS reference asks for an inspector AND a reviewer signature; here the
+ * field technician is both, so the SAME technician signature and name print
+ * in both slots downstream. There is deliberately no third pad.
  *
  * On submit:
  *   - both signatures are uploaded to S3 (folder `maintenance-reports`)
@@ -58,46 +109,38 @@ interface ScanContext {
   inventory: { id: string; sku: string; serialNumber: string | null } | null;
 }
 
-// Two-column layout of the printed form. Indexes are 1-based and stable —
-// they're what we persist in serviceData.checklist. Items 26–30 are
-// intentionally blank placeholders so the rendered grid matches the paper
-// form's reserved rows.
-const CHECKLIST_ITEMS: { id: number; label: string }[] = [
-  { id: 1, label: "Control panel" },
-  { id: 2, label: "PLC" },
-  { id: 3, label: "HMI" },
-  { id: 4, label: "Power voltage" },
-  { id: 5, label: "Frequency" },
-  { id: 6, label: "Backwash pump" },
-  { id: 7, label: "Submersible pump" },
-  { id: 8, label: "Aerator" },
-  { id: 9, label: "Suction pump" },
-  { id: 10, label: "Air scouring pump" },
-  { id: 11, label: "Turbula pump" },
-  { id: 12, label: "3 way valve" },
-  { id: 13, label: "1 way valve" },
-  { id: 14, label: "Backwash valve" },
-  { id: 15, label: "Discharge valve" },
-  { id: 16, label: "X-flow valve" },
-  { id: 17, label: "Product valve" },
-  { id: 18, label: "Pump relief valve" },
-  { id: 19, label: "Holding tank level sensor" },
-  { id: 20, label: "MBR tank level sensor" },
-  { id: 21, label: "Product tank level sensor" },
-  { id: 22, label: "Filtration pressure" },
-  { id: 23, label: "Backwash pressure" },
-  { id: 24, label: "Electric wire" },
-  { id: 25, label: "Flow rate" },
-  { id: 26, label: "" },
-  { id: 27, label: "" },
-  { id: 28, label: "" },
-  { id: 29, label: "" },
-  { id: 30, label: "" },
-];
+// The 30-item list, the ESS catalogue and the resolution rule all live in
+// ONE place now (see the drift warning in that file). Aliased so the existing
+// GENERIC render code below reads unchanged.
+const CHECKLIST_ITEMS = GENERIC_CHECKLIST;
 
-const STEP_TITLES = ["Header", "Checklist", "Remarks & Time", "Service signature", "Client signature", "Payment"];
-const TOTAL_STEPS = 6;
-type Step = 1 | 2 | 3 | 4 | 5 | 6;
+// Steps are dispatched BY NAME, not by index. GENERIC keeps exactly the six it
+// always had, in the same order; ESS inserts five of its own between Header and
+// Remarks. Nothing downstream hard-codes a step number, so neither list can
+// shift the other.
+const GENERIC_STEPS = [
+  "Header",
+  "Checklist",
+  "Remarks & Time",
+  "Service signature",
+  "Client signature",
+  "Payment",
+] as const;
+
+const ESS_STEPS = [
+  "Header",
+  "Summary",
+  "Detailed record",
+  "Defects",
+  "Power-on tests",
+  "Recommendations",
+  "Remarks & Time",
+  "Service signature",
+  "Client signature",
+  "Payment",
+] as const;
+
+type StepName = (typeof ESS_STEPS)[number] | (typeof GENERIC_STEPS)[number];
 
 const formatDateInput = (d: Date) => d.toISOString().slice(0, 10);
 const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -113,7 +156,7 @@ export default function NewServiceReportPage() {
   const assetId = params?.assetId as string;
   const inventoryId = search?.get("inventoryId") ?? null;
 
-  const [step, setStep] = useState<Step>(1);
+  const [step, setStep] = useState<number>(1);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -141,6 +184,25 @@ export default function NewServiceReportPage() {
 
   // Page 3 state
   const [remarks, setRemarks] = useState("");
+
+  // ── ESS_V1 state ───────────────────────────────────────────────────────────
+  // Inert for GENERIC reports: none of it is read unless the resolved template
+  // is ESS, and none of it is serialised into serviceData either.
+  const [essEquipmentId, setEssEquipmentId] = useState("");
+  const [essSite, setEssSite] = useState("");
+  const [essInspectionDate, setEssInspectionDate] = useState<string>(formatDateInput(new Date()));
+  const [essInspectionType, setEssInspectionType] = useState<string>(ESS_INSPECTION_TYPES[0]);
+  const [essRatedPowerKw, setEssRatedPowerKw] = useState("");
+  const [essRatedCapacityKwh, setEssRatedCapacityKwh] = useState("");
+  const [essPreStatus, setEssPreStatus] = useState<string>(ESS_PRE_STATUSES[0]);
+  const [essConclusion, setEssConclusion] = useState<string>(ESS_CONCLUSIONS[0]);
+  const [essSummaryRemarks, setEssSummaryRemarks] = useState(ESS_SUMMARY_REMARKS_DEFAULT);
+  const [essItems, setEssItems] = useState<Record<string, EssItemResult>>({});
+  const [essMeasures, setEssMeasures] = useState<Record<string, EssMeasureResult>>({});
+  const [essDefects, setEssDefects] = useState<EssDefectRow[]>([]);
+  const [essPowerOn, setEssPowerOn] = useState<Record<string, EssPowerOnResult>>({});
+  const [essNextMaintenanceDate, setEssNextMaintenanceDate] = useState("");
+  const [essFinalConclusion, setEssFinalConclusion] = useState(ESS_FINAL_CONCLUSION_DEFAULT);
 
   // Page 4 + 5 signatures — captured as dataURL when the tech taps Next/Submit.
   // We hold the dataURL across step changes so the canvas can unmount safely;
@@ -234,7 +296,145 @@ export default function NewServiceReportPage() {
   const model = ctx?.asset?.name ?? "";
   const serial = ctx?.inventory?.serialNumber ?? ctx?.inventory?.sku ?? "";
 
+  // TEMPLATE RESOLUTION — once, here, from the asset name. Everything else in
+  // this file reads `templateId`; nothing re-derives it. Until the scan context
+  // has loaded the asset name is "" and this is GENERIC, which is why the whole
+  // form is gated behind `ctxLoading` below.
+  const templateId = useMemo(() => resolveTemplateId(model), [model]);
+  const isEss = templateId === "ESS_V1";
+  const STEPS = isEss ? ESS_STEPS : GENERIC_STEPS;
+  const TOTAL_STEPS = STEPS.length;
+  const stepName: StepName = STEPS[Math.min(step, TOTAL_STEPS) - 1];
+
   const canAdvanceFromHeader = useMemo(() => !!customer && !!serviceDate, [customer, serviceDate]);
+
+  // ── ESS handlers ───────────────────────────────────────────────────────────
+  const setEssItem = (key: string, patch: Partial<EssItemResult>) =>
+    setEssItems((prev) => {
+      const cur = prev[key];
+      return {
+        ...prev,
+        [key]: {
+          verdict: patch.verdict ?? cur?.verdict ?? "PASS",
+          remark: patch.remark ?? cur?.remark ?? null,
+        },
+      };
+    });
+
+  /**
+   * Record a reading and re-derive its suggested verdict.
+   *
+   * The suggestion is recomputed on EVERY keystroke, but the technician's
+   * chosen verdict is only auto-set while they have not overridden it
+   * (`touched` false). Once they disagree with the machine, editing the value
+   * must not quietly drag their verdict back — that would erase the override
+   * the remark is explaining.
+   */
+  const setMeasureValue = (measure: EssMeasure, raw: string | boolean) => {
+    setEssMeasures((prev) => {
+      const current = prev[measure.key];
+      const value =
+        measure.kind === "boolean"
+          ? Boolean(raw)
+          : measure.kind === "choice"
+            ? (raw as string) || null
+            : raw === "" || raw === null
+              ? null
+              : Number(raw);
+      const suggested = suggestVerdict(measure, value);
+      const touched = Boolean(current?.suggested && current?.verdict && current.suggested !== current.verdict);
+      return {
+        ...prev,
+        [measure.key]: {
+          value,
+          unit: measure.unit,
+          threshold: measure.threshold ?? null,
+          suggested,
+          verdict: touched ? (current?.verdict ?? suggested) : suggested,
+          remark: current?.remark ?? null,
+        },
+      };
+    });
+  };
+
+  const setMeasureVerdict = (measure: EssMeasure, verdict: EssVerdict) =>
+    setEssMeasures((prev) => {
+      const cur = prev[measure.key];
+      return {
+        ...prev,
+        [measure.key]: {
+          value: cur?.value ?? null,
+          unit: measure.unit,
+          threshold: measure.threshold ?? null,
+          suggested: cur?.suggested ?? null,
+          verdict,
+          remark: cur?.remark ?? null,
+        },
+      };
+    });
+
+  const setMeasureRemark = (measure: EssMeasure, remark: string) =>
+    setEssMeasures((prev) => {
+      const cur = prev[measure.key];
+      return {
+        ...prev,
+        [measure.key]: {
+          value: cur?.value ?? null,
+          unit: measure.unit,
+          threshold: measure.threshold ?? null,
+          suggested: cur?.suggested ?? null,
+          verdict: cur?.verdict ?? null,
+          remark,
+        },
+      };
+    });
+
+  const setPowerOn = (id: number, patch: Partial<EssPowerOnResult>) =>
+    setEssPowerOn((prev) => {
+      const cur = prev[String(id)];
+      return {
+        ...prev,
+        [String(id)]: {
+          verdict: patch.verdict ?? cur?.verdict ?? "OK",
+          remark: patch.remark ?? cur?.remark ?? null,
+        },
+      };
+    });
+
+  const updateDefect = (idx: number, patch: Partial<EssDefectRow>) =>
+    setEssDefects((prev) => prev.map((d, i) => (i === idx ? { ...d, ...patch } : d)));
+
+  // Totals are DERIVED from the rows, never typed. A hand-entered total that
+  // disagrees with the table is the classic way these reports go wrong.
+  const defectTotals = useMemo(
+    () => ({
+      major: essDefects.filter((d) => d.riskLevel === "Major").length,
+      minor: essDefects.filter((d) => d.riskLevel === "Minor").length,
+    }),
+    [essDefects],
+  );
+
+  // Every sub-item must carry a verdict. Unlike the GENERIC checkboxes (where
+  // unticked legitimately means "not done"), a blank Pass/Fail is not an
+  // answer — it is an unasked question, and the whole point of this form is
+  // that each of the 35 items was looked at.
+  const unansweredItems = useMemo(
+    () =>
+      ESS_CATEGORIES.flatMap((c) => c.items.map((i) => essItemKey(c.id, i.id))).filter(
+        (k) => !essItems[k]?.verdict,
+      ),
+    [essItems],
+  );
+
+  // A verdict that contradicts the computed one must say why.
+  const overridesMissingRemark = useMemo(
+    () =>
+      ESS_CATEGORIES.flatMap((c) => c.measures ?? []).filter((m) => {
+        const r = essMeasures[m.key];
+        return isOverridden(r) && !(r?.remark ?? "").trim();
+      }),
+    [essMeasures],
+  );
 
   const toggleChecked = (id: number) => {
     setChecked((prev) => {
@@ -316,7 +516,40 @@ export default function NewServiceReportPage() {
         user?.primaryEmailAddress?.emailAddress ??
         undefined;
 
+      // The ESS payload. Built only for ESS reports — a GENERIC serviceData is
+      // byte-for-byte what it has always been, plus the two template keys.
+      const essPayload: EssServiceData | null = isEss
+        ? {
+            header: {
+              equipmentId: essEquipmentId.trim() || serial || null,
+              site: essSite.trim() || jobLocation.trim() || null,
+              inspectionDate: essInspectionDate || null,
+              inspectionType: essInspectionType || null,
+              ratedPowerKw: essRatedPowerKw === "" ? null : Number(essRatedPowerKw),
+              ratedCapacityKwh: essRatedCapacityKwh === "" ? null : Number(essRatedCapacityKwh),
+            },
+            summary: {
+              preStatus: essPreStatus || null,
+              conclusion: essConclusion || null,
+              remarks: essSummaryRemarks.trim() || null,
+            },
+            items: essItems,
+            measures: essMeasures,
+            defects: essDefects,
+            defectTotals,
+            powerOn: essPowerOn,
+            nextMaintenanceDate: essNextMaintenanceDate || null,
+            finalConclusion: essFinalConclusion.trim() || null,
+          }
+        : null;
+
       const serviceData = {
+        // STAMPED AT CAPTURE, read by every renderer. Without this an ESS row
+        // is indistinguishable from a GENERIC one and would render as the
+        // 30-item checklist.
+        templateId,
+        templateVersion: TEMPLATE_VERSIONS[templateId],
+        ...(essPayload ? { ess: essPayload } : {}),
         customerId: customer.id,
         customerName: customer.name,
         clientEmail: clientEmail.trim() || customer.email || null,
@@ -456,6 +689,441 @@ export default function NewServiceReportPage() {
         InputLabelProps={{ shrink: true }}
         fullWidth
         helperText="Optional"
+      />
+
+      {isEss && renderEssHeaderExtras()}
+    </Stack>
+  );
+
+  // ── ESS render steps ───────────────────────────────────────────────────────
+
+  const renderVerdictToggle = (
+    value: string | null | undefined,
+    options: readonly string[],
+    onPick: (v: string) => void,
+  ) => (
+    <ToggleButtonGroup
+      exclusive
+      size="small"
+      value={value ?? null}
+      onChange={(_, v) => v && onPick(v)}
+      sx={{ flexShrink: 0 }}
+    >
+      {options.map((o) => (
+        <ToggleButton
+          key={o}
+          value={o}
+          sx={{
+            px: 1.75,
+            py: 0.5,
+            fontWeight: 700,
+            "&.Mui-selected": {
+              bgcolor: o === "FAIL" || o === "NG" ? "error.main" : "success.main",
+              color: "#fff",
+              "&:hover": { bgcolor: o === "FAIL" || o === "NG" ? "error.dark" : "success.dark" },
+            },
+          }}
+        >
+          {o}
+        </ToggleButton>
+      ))}
+    </ToggleButtonGroup>
+  );
+
+  const renderEssHeaderExtras = () => (
+    <>
+      <Divider textAlign="left" sx={{ pt: 1 }}>
+        <Typography variant="caption" color="text.secondary">Energy storage inspection</Typography>
+      </Divider>
+      {ESS_HEADER_FIXED.map((f) => (
+        <Box key={f.label}>
+          <Typography variant="caption" color="text.secondary">{f.label}</Typography>
+          <Typography variant="body2">{f.value}</Typography>
+        </Box>
+      ))}
+      <TextField
+        label="Equipment ID"
+        value={essEquipmentId}
+        onChange={(e) => setEssEquipmentId(e.target.value)}
+        fullWidth
+        helperText={serial ? `Scanned unit: ${serial}` : " "}
+      />
+      <TextField label="Site" value={essSite} onChange={(e) => setEssSite(e.target.value)} fullWidth />
+      <TextField
+        label="Inspection Date"
+        type="date"
+        value={essInspectionDate}
+        onChange={(e) => setEssInspectionDate(e.target.value)}
+        InputLabelProps={{ shrink: true }}
+        fullWidth
+      />
+      <TextField
+        select
+        label="Inspection Type"
+        value={essInspectionType}
+        onChange={(e) => setEssInspectionType(e.target.value)}
+        fullWidth
+      >
+        {ESS_INSPECTION_TYPES.map((t) => (
+          <MenuItem key={t} value={t}>{t}</MenuItem>
+        ))}
+      </TextField>
+      <Stack direction="row" spacing={2}>
+        <TextField
+          label="Rated Power"
+          type="number"
+          value={essRatedPowerKw}
+          onChange={(e) => setEssRatedPowerKw(e.target.value)}
+          InputProps={{ endAdornment: <Typography variant="caption">kW</Typography> }}
+          fullWidth
+        />
+        <TextField
+          label="Rated Capacity"
+          type="number"
+          value={essRatedCapacityKwh}
+          onChange={(e) => setEssRatedCapacityKwh(e.target.value)}
+          InputProps={{ endAdornment: <Typography variant="caption">kWh</Typography> }}
+          fullWidth
+        />
+      </Stack>
+    </>
+  );
+
+  const renderEssSummaryStep = () => (
+    <Stack spacing={2}>
+      {ESS_SUMMARY_FIXED.map((f) => (
+        <Box key={f.label}>
+          <Typography variant="caption" color="text.secondary">{f.label}</Typography>
+          <Typography variant="body2">{f.value}</Typography>
+        </Box>
+      ))}
+      <Divider />
+      <TextField
+        select
+        label="Pre-inspection status"
+        value={essPreStatus}
+        onChange={(e) => setEssPreStatus(e.target.value)}
+        fullWidth
+      >
+        {ESS_PRE_STATUSES.map((t) => (
+          <MenuItem key={t} value={t}>{t}</MenuItem>
+        ))}
+      </TextField>
+      <TextField
+        select
+        label="Overall conclusion"
+        value={essConclusion}
+        onChange={(e) => setEssConclusion(e.target.value)}
+        fullWidth
+      >
+        {ESS_CONCLUSIONS.map((t) => (
+          <MenuItem key={t} value={t}>{t}</MenuItem>
+        ))}
+      </TextField>
+      <TextField
+        label="Summary remarks"
+        multiline
+        minRows={3}
+        value={essSummaryRemarks}
+        onChange={(e) => setEssSummaryRemarks(e.target.value)}
+        fullWidth
+      />
+    </Stack>
+  );
+
+  const renderMeasure = (m: EssMeasure) => {
+    const r = essMeasures[m.key];
+    const overridden = isOverridden(r);
+    return (
+      <Box
+        key={m.key}
+        sx={{
+          p: 1.5,
+          mt: 1,
+          border: "1px solid",
+          borderColor: overridden ? "warning.main" : "divider",
+          borderRadius: 1,
+          bgcolor: "action.hover",
+        }}
+      >
+        {m.kind === "boolean" ? (
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={Boolean(r?.value)}
+                onChange={(e) => setMeasureValue(m, e.target.checked)}
+              />
+            }
+            label={<Typography variant="body2">{m.label}</Typography>}
+          />
+        ) : m.kind === "choice" ? (
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Typography variant="body2" sx={{ flex: 1 }}>{m.label}</Typography>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={typeof r?.value === "string" ? r.value : null}
+              onChange={(_, v) => v && setMeasureValue(m, v)}
+            >
+              {(m.options ?? []).map((o) => (
+                <ToggleButton key={o} value={o} sx={{ px: 1.5, py: 0.5 }}>{o}</ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+          </Stack>
+        ) : (
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <TextField
+              label={m.label}
+              type="number"
+              size="small"
+              value={r?.value === null || r?.value === undefined ? "" : String(r.value)}
+              onChange={(e) => setMeasureValue(m, e.target.value)}
+              InputProps={{
+                endAdornment: m.unit ? <Typography variant="caption">{m.unit}</Typography> : undefined,
+              }}
+              fullWidth
+            />
+            {m.threshold != null && (
+              <Box sx={{ minWidth: 92, textAlign: "right" }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                  Pass ≤ {m.threshold} {m.unit}
+                </Typography>
+                <Typography
+                  variant="caption"
+                  fontWeight={700}
+                  color={
+                    r?.suggested === "FAIL" ? "error.main" : r?.suggested === "PASS" ? "success.main" : "text.disabled"
+                  }
+                >
+                  {r?.suggested ? `Suggests ${r.suggested}` : "No reading"}
+                </Typography>
+              </Box>
+            )}
+          </Stack>
+        )}
+
+        {m.threshold != null && (
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 1.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+              Verdict
+            </Typography>
+            {renderVerdictToggle(r?.verdict, ["PASS", "FAIL"], (v) => setMeasureVerdict(m, v as EssVerdict))}
+          </Stack>
+        )}
+
+        {overridden && (
+          <Box sx={{ mt: 1.5 }}>
+            <Alert severity="warning" sx={{ py: 0, mb: 1 }}>
+              You set {r?.verdict} but the reading suggests {r?.suggested}. A reason is required.
+            </Alert>
+            <TextField
+              label="Reason for override"
+              size="small"
+              value={r?.remark ?? ""}
+              onChange={(e) => setMeasureRemark(m, e.target.value)}
+              fullWidth
+              required
+            />
+          </Box>
+        )}
+      </Box>
+    );
+  };
+
+  const renderEssDetailStep = () => (
+    <Stack spacing={2.5}>
+      <Typography variant="body2" color="text.secondary">
+        Mark every sub-item Pass or Fail. {unansweredItems.length > 0
+          ? `${unansweredItems.length} still unanswered.`
+          : "All items answered."}
+      </Typography>
+      {ESS_CATEGORIES.map((cat) => (
+        <Box key={cat.id}>
+          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
+            {cat.id}. {cat.title}
+          </Typography>
+          <Stack spacing={1}>
+            {cat.items.map((item) => {
+              const key = essItemKey(cat.id, item.id);
+              const r = essItems[key];
+              return (
+                <Box
+                  key={key}
+                  sx={{ p: 1.25, border: "1px solid", borderColor: "divider", borderRadius: 1 }}
+                >
+                  <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                    <Typography variant="body2" sx={{ flex: 1 }}>
+                      {cat.id}.{item.id} {item.label}
+                    </Typography>
+                    {renderVerdictToggle(r?.verdict, ["PASS", "FAIL"], (v) =>
+                      setEssItem(key, { verdict: v as EssVerdict }),
+                    )}
+                  </Stack>
+                  <TextField
+                    placeholder={item.hint ? item.hint : "Remark (optional)"}
+                    size="small"
+                    variant="standard"
+                    value={r?.remark ?? ""}
+                    onChange={(e) => setEssItem(key, { remark: e.target.value })}
+                    fullWidth
+                    sx={{ mt: 0.5 }}
+                    helperText={item.hint ? item.hint : undefined}
+                  />
+                  {/* Readings sit ON their row, the way the reference lays
+                      them out — not in a block at the end of the category. */}
+                  {(cat.measures ?? []).filter((m) => m.itemId === item.id).map(renderMeasure)}
+                </Box>
+              );
+            })}
+          </Stack>
+          {/* Measures with no itemId (none today) would otherwise vanish. */}
+          {(cat.measures ?? []).filter((m) => m.itemId == null).map(renderMeasure)}
+        </Box>
+      ))}
+    </Stack>
+  );
+
+  const renderEssDefectsStep = () => (
+    <Stack spacing={2}>
+      <Typography variant="body2" color="text.secondary">
+        Record every defect found. Totals are counted from the rows below.
+      </Typography>
+      {essDefects.length === 0 && <Alert severity="success">No defects recorded.</Alert>}
+      {essDefects.map((d, i) => (
+        <Box key={i} sx={{ p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: 1 }}>
+          <Stack spacing={1.25}>
+            <TextField
+              label="Description"
+              size="small"
+              value={d.description}
+              onChange={(e) => updateDefect(i, { description: e.target.value })}
+              fullWidth
+              multiline
+            />
+            <Stack direction="row" spacing={1.25}>
+              <TextField
+                select
+                label="Risk level"
+                size="small"
+                value={d.riskLevel}
+                onChange={(e) => updateDefect(i, { riskLevel: e.target.value })}
+                fullWidth
+              >
+                {ESS_RISK_LEVELS.map((r) => (
+                  <MenuItem key={r} value={r}>{r}</MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                label="Status"
+                size="small"
+                value={d.status}
+                onChange={(e) => updateDefect(i, { status: e.target.value })}
+                fullWidth
+              >
+                {ESS_DEFECT_STATUSES.map((r) => (
+                  <MenuItem key={r} value={r}>{r}</MenuItem>
+                ))}
+              </TextField>
+            </Stack>
+            <TextField
+              label="Corrective action"
+              size="small"
+              value={d.correctiveAction}
+              onChange={(e) => updateDefect(i, { correctiveAction: e.target.value })}
+              fullWidth
+              multiline
+            />
+            <Button
+              size="small"
+              color="error"
+              onClick={() => setEssDefects((prev) => prev.filter((_, j) => j !== i))}
+            >
+              Remove
+            </Button>
+          </Stack>
+        </Box>
+      ))}
+      <Button
+        variant="outlined"
+        onClick={() =>
+          setEssDefects((prev) => [
+            ...prev,
+            { description: "", riskLevel: "Minor", correctiveAction: "", status: "Open" },
+          ])
+        }
+        sx={FIELD_BUTTON_SX}
+      >
+        Add defect
+      </Button>
+      <Typography variant="body2" fontWeight={600}>
+        {essDefectSummary(defectTotals.major, defectTotals.minor)}
+      </Typography>
+    </Stack>
+  );
+
+  const renderEssPowerOnStep = () => (
+    <Stack spacing={1.5}>
+      <Typography variant="body2" color="text.secondary">
+        Mark each test OK or NG.
+      </Typography>
+      {ESS_POWER_ON_TESTS.map((t) => {
+        const r = essPowerOn[String(t.id)];
+        return (
+          <Box key={t.id} sx={{ p: 1.25, border: "1px solid", borderColor: "divider", borderRadius: 1 }}>
+            <Stack direction="row" spacing={1.5} alignItems="flex-start">
+              <Typography variant="body2" sx={{ flex: 1 }}>
+                {t.id}. {t.label}
+              </Typography>
+              {renderVerdictToggle(r?.verdict, ["OK", "NG"], (v) =>
+                setPowerOn(t.id, { verdict: v as "OK" | "NG" }),
+              )}
+            </Stack>
+            <TextField
+              placeholder="Remark (optional)"
+              size="small"
+              variant="standard"
+              value={r?.remark ?? ""}
+              onChange={(e) => setPowerOn(t.id, { remark: e.target.value })}
+              fullWidth
+              sx={{ mt: 0.5 }}
+            />
+          </Box>
+        );
+      })}
+    </Stack>
+  );
+
+  const renderEssRecommendationsStep = () => (
+    <Stack spacing={2}>
+      <Box>
+        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
+          Recommendations
+        </Typography>
+        <Box component="ol" sx={{ pl: 2.5, m: 0 }}>
+          {essRecommendations(essNextMaintenanceDate).map((r, i) => (
+            <Typography component="li" variant="body2" key={i} sx={{ mb: 0.5 }}>
+              {r}
+            </Typography>
+          ))}
+        </Box>
+      </Box>
+      <TextField
+        label="Next maintenance date"
+        type="date"
+        value={essNextMaintenanceDate}
+        onChange={(e) => setEssNextMaintenanceDate(e.target.value)}
+        InputLabelProps={{ shrink: true }}
+        fullWidth
+      />
+      <TextField
+        label="Final conclusion"
+        multiline
+        minRows={4}
+        value={essFinalConclusion}
+        onChange={(e) => setEssFinalConclusion(e.target.value)}
+        placeholder="Overall statement on the condition of the system."
+        fullWidth
       />
     </Stack>
   );
@@ -668,23 +1336,25 @@ export default function NewServiceReportPage() {
 
   const onNext = () => {
     setError(null);
-    if (step === 1) {
-      if (!canAdvanceFromHeader) {
-        setError("Pick a company and service date to continue");
-        return;
-      }
-      setStep(2);
-    } else if (step === 2) {
-      setStep(3);
-    } else if (step === 3) {
-      setStep(4);
-    } else if (step === 4) {
-      if (!captureTechSig()) return;
-      setStep(5);
-    } else if (step === 5) {
-      if (!captureClientSig()) return;
-      setStep(6);
+    // Gates hang off the step's NAME, so GENERIC's checks are exactly the ones
+    // it always had and ESS's extra gates can never fire on a GENERIC report.
+    if (stepName === "Header" && !canAdvanceFromHeader) {
+      setError("Pick a company and service date to continue");
+      return;
     }
+    if (stepName === "Detailed record" && unansweredItems.length > 0) {
+      setError(`Mark every item Pass or Fail — ${unansweredItems.length} still unanswered`);
+      return;
+    }
+    if (stepName === "Detailed record" && overridesMissingRemark.length > 0) {
+      setError(
+        `Give a reason for the overridden reading: ${overridesMissingRemark.map((m) => m.label).join(", ")}`,
+      );
+      return;
+    }
+    if (stepName === "Service signature" && !captureTechSig()) return;
+    if (stepName === "Client signature" && !captureClientSig()) return;
+    setStep((v) => Math.min(v + 1, TOTAL_STEPS));
   };
 
   const onBack = () => {
@@ -692,7 +1362,7 @@ export default function NewServiceReportPage() {
     if (step === 1) {
       router.back();
     } else {
-      setStep((s) => (s - 1) as Step);
+      setStep((v) => v - 1);
     }
   };
 
@@ -707,34 +1377,39 @@ export default function NewServiceReportPage() {
   const progressPct = (step / TOTAL_STEPS) * 100;
   const nextDisabled =
     submitting ||
-    (step === 1 && !canAdvanceFromHeader) ||
-    (step === 4 && !techSigDrawn && !techSigDataUrl) ||
-    (step === 5 && !clientSigDrawn && !clientSigDataUrl);
+    (stepName === "Header" && !canAdvanceFromHeader) ||
+    (stepName === "Service signature" && !techSigDrawn && !techSigDataUrl) ||
+    (stepName === "Client signature" && !clientSigDrawn && !clientSigDataUrl);
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5, pb: 6 }}>
       <Box>
-        <Typography variant="h6" fontWeight={700}>Maintenance &amp; Inspection Service Report</Typography>
+        <Typography variant="h6" fontWeight={700}>{TEMPLATE_LABELS[templateId]}</Typography>
         <Typography variant="caption" color="text.secondary">
-          Step {step} of {TOTAL_STEPS} — {STEP_TITLES[step - 1]}
+          Step {step} of {TOTAL_STEPS} — {stepName}
         </Typography>
         <LinearProgress variant="determinate" value={progressPct} sx={{ mt: 1, borderRadius: 1, height: 6 }} />
       </Box>
 
       <Divider />
 
-      {step === 1 && renderHeaderStep()}
-      {step === 2 && renderChecklistStep()}
-      {step === 3 && renderRemarksStep()}
-      {step === 4 && renderTechSigStep()}
-      {step === 5 && renderClientSigStep()}
-      {step === 6 && renderPaymentStep()}
+      {stepName === "Header" && renderHeaderStep()}
+      {stepName === "Checklist" && renderChecklistStep()}
+      {stepName === "Summary" && renderEssSummaryStep()}
+      {stepName === "Detailed record" && renderEssDetailStep()}
+      {stepName === "Defects" && renderEssDefectsStep()}
+      {stepName === "Power-on tests" && renderEssPowerOnStep()}
+      {stepName === "Recommendations" && renderEssRecommendationsStep()}
+      {stepName === "Remarks & Time" && renderRemarksStep()}
+      {stepName === "Service signature" && renderTechSigStep()}
+      {stepName === "Client signature" && renderClientSigStep()}
+      {stepName === "Payment" && renderPaymentStep()}
 
       {error && <Alert severity="error">{error}</Alert>}
 
-      {/* Step 6 supplies its own action buttons (the two payment choices),
-          so the standard Back/Next row hides on that step. */}
-      {step !== 6 && (
+      {/* The Payment step supplies its own action buttons (the two payment
+          choices), so the standard Back/Next row hides there. */}
+      {stepName !== "Payment" && (
         <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
           <Button variant="outlined" onClick={onBack} disabled={submitting} fullWidth sx={FIELD_BUTTON_SX}>
             Back
@@ -750,7 +1425,7 @@ export default function NewServiceReportPage() {
           </Button>
         </Stack>
       )}
-      {step === 6 && (
+      {stepName === "Payment" && (
         <Button
           variant="text"
           onClick={onBack}

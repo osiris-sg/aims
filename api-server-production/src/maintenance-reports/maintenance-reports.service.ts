@@ -11,7 +11,8 @@ import { DeliveriesService } from '../deliveries/deliveries.service';
 import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto';
 import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
 import { CreateLocationPingsDto } from './dto/location-ping.dto';
-import { buildServiceReportHtml } from './service-report-pdf';
+import { buildServiceReportHtml, ESS_PDF_MARGIN } from './service-report-pdf';
+import { templateFor } from './msr-templates';
 import { minPhotosForAssetClass } from 'src/common/asset-class';
 
 @Injectable()
@@ -354,7 +355,17 @@ export class MaintenanceReportsService {
         inventory: report.inventory,
         orgName: report.organization.name,
       });
-      pdfBuffer = await this.pdfGenerator.generatePdfFromHtml(html);
+      // The ESS report runs to ~6 pages and needs a real page inset on EVERY
+      // page. Passing `margin` is the ONLY way to get one: the generator
+      // otherwise appends `@page { margin: 0 }` after this document's style
+      // AND passes margin 0 to page.pdf(), either of which defeats a CSS @page
+      // rule. GENERIC is a single self-padded page and stays on the existing
+      // zero-margin path, so its output is unchanged.
+      const isEssReport = templateFor((sd as any)?.templateId) === 'ESS_V1';
+      pdfBuffer = await this.pdfGenerator.generatePdfFromHtml(
+        html,
+        isEssReport ? { margin: ESS_PDF_MARGIN } : undefined,
+      );
     } catch (err: any) {
       this.logger.error(`MSR ${reportId} PDF generation failed: ${err?.message}`, err?.stack);
       // Continue without attachment — the customer still gets a notification.

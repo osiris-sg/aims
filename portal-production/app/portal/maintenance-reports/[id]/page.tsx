@@ -22,43 +22,26 @@ import CheckBoxOutlineBlankIcon from "@mui/icons-material/CheckBoxOutlineBlank";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import EmailIcon from "@mui/icons-material/Email";
 import { request } from "@/helpers/request";
+import {
+  ESS_CATEGORIES,
+  ESS_POWER_ON_TESTS,
+  ESS_HEADER_FIXED,
+  ESS_SUMMARY_FIXED,
+  GENERIC_CHECKLIST,
+  essDefectSummary,
+  essRecommendations,
+  TEMPLATE_LABELS,
+  essItemKey,
+  isOverridden,
+  templateFor,
+  type EssMeasure,
+  type EssServiceData,
+} from "@/lib/msr-templates";
 
-// Mirror of the printed-form checklist used when the field tech submitted the
-// report. Persisted reports only store the checked index array, so we render
-// labels client-side. If the form labels evolve, historical reports will
-// keep showing the v1 labels — intentional, the indices are stable.
-const CHECKLIST_LABELS: { id: number; label: string }[] = [
-  { id: 1, label: "Control panel" },
-  { id: 2, label: "PLC" },
-  { id: 3, label: "HMI" },
-  { id: 4, label: "Power voltage" },
-  { id: 5, label: "Frequency" },
-  { id: 6, label: "Backwash pump" },
-  { id: 7, label: "Submersible pump" },
-  { id: 8, label: "Aerator" },
-  { id: 9, label: "Suction pump" },
-  { id: 10, label: "Air scouring pump" },
-  { id: 11, label: "Turbula pump" },
-  { id: 12, label: "3 way valve" },
-  { id: 13, label: "1 way valve" },
-  { id: 14, label: "Backwash valve" },
-  { id: 15, label: "Discharge valve" },
-  { id: 16, label: "X-flow valve" },
-  { id: 17, label: "Product valve" },
-  { id: 18, label: "Pump relief valve" },
-  { id: 19, label: "Holding tank level sensor" },
-  { id: 20, label: "MBR tank level sensor" },
-  { id: 21, label: "Product tank level sensor" },
-  { id: 22, label: "Filtration pressure" },
-  { id: 23, label: "Backwash pressure" },
-  { id: 24, label: "Electric wire" },
-  { id: 25, label: "Flow rate" },
-  { id: 26, label: "" },
-  { id: 27, label: "" },
-  { id: 28, label: "" },
-  { id: 29, label: "" },
-  { id: 30, label: "" },
-];
+// Labels come from the SHARED catalogue (see the drift warning there). Which
+// template a report renders under is read from the ROW's stamped templateId,
+// never from its asset — an ESS asset's pre-template reports stay GENERIC.
+const CHECKLIST_LABELS = GENERIC_CHECKLIST;
 
 const RESOURCE_URL =
   process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
@@ -78,6 +61,9 @@ interface ServiceData {
   techSignatureKey?: string | null;
   clientSignatureKey?: string | null;
   clientSignerName?: string | null;
+  templateId?: string | null;
+  templateVersion?: number | null;
+  ess?: EssServiceData | null;
 }
 
 interface MsrDetail {
@@ -198,6 +184,11 @@ export default function MaintenanceReportDetailPage() {
   }
 
   const sd = report.serviceData ?? {};
+  // A row with no stamped id is GENERIC_V1 — that is the entire back-compat
+  // story for reports captured before templates existed.
+  const templateId = templateFor(sd.templateId);
+  const isEss = templateId === "ESS_V1";
+  const ess = sd.ess ?? null;
   const checkedSet = new Set(sd.checklist ?? []);
   const techSigUrl = sd.techSignatureKey ? `${RESOURCE_URL}${sd.techSignatureKey}` : null;
   const clientSigUrl = sd.clientSignatureKey ? `${RESOURCE_URL}${sd.clientSignatureKey}` : null;
@@ -256,7 +247,7 @@ export default function MaintenanceReportDetailPage() {
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 2 }}>
           <Box>
-            <Typography variant="h5" fontWeight={700}>Maintenance &amp; Inspection Service Report</Typography>
+            <Typography variant="h5" fontWeight={700}>{TEMPLATE_LABELS[templateId]}</Typography>
             <Typography variant="body2" color="text.secondary">
               Created {formatDateTime(report.createdAt)}
             </Typography>
@@ -291,10 +282,38 @@ export default function MaintenanceReportDetailPage() {
             <FieldLabel label="Service Date" value={sd.serviceDate} />
             <FieldLabel label="Next Service Date" value={sd.nextServiceDate} />
           </Grid>
+          {isEss && ess && (
+            <>
+              <Grid item xs={12}><Divider /></Grid>
+              <Grid item xs={12} sm={6}>
+                <FieldLabel label="Equipment ID" value={ess.header?.equipmentId} />
+                <FieldLabel label="Site" value={ess.header?.site} />
+                <FieldLabel label="Inspection Date" value={ess.header?.inspectionDate} />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <FieldLabel label="Inspection Type" value={ess.header?.inspectionType} />
+                <FieldLabel
+                  label="Rated Power"
+                  value={ess.header?.ratedPowerKw != null ? `${ess.header.ratedPowerKw} kW` : null}
+                />
+                <FieldLabel
+                  label="Rated Capacity"
+                  value={ess.header?.ratedCapacityKwh != null ? `${ess.header.ratedCapacityKwh} kWh` : null}
+                />
+              </Grid>
+              {/* Fixed text from the reference — printed, never captured. */}
+              {ESS_HEADER_FIXED.map((f) => (
+                <Grid item xs={12} key={f.label}>
+                  <FieldLabel label={f.label} value={f.value} />
+                </Grid>
+              ))}
+            </>
+          )}
         </Grid>
       </Paper>
 
-      <Paper variant="outlined" sx={{ p: 3 }}>
+      {isEss ? renderEssSections(ess) : (
+      <Paper variant="outlined" sx={{ p: 3 }} className="msr-section">
         <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Checklist</Typography>
         <Grid container spacing={0.5}>
           {CHECKLIST_LABELS.map((item) => {
@@ -323,8 +342,9 @@ export default function MaintenanceReportDetailPage() {
           })}
         </Grid>
       </Paper>
+      )}
 
-      <Paper variant="outlined" sx={{ p: 3 }}>
+      <Paper variant="outlined" sx={{ p: 3 }} className="msr-section">
         <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Remarks &amp; Times</Typography>
         <Grid container spacing={2}>
           <Grid item xs={6} sm={3}>
@@ -352,14 +372,25 @@ export default function MaintenanceReportDetailPage() {
         </Grid>
       </Paper>
 
-      <Paper variant="outlined" sx={{ p: 3 }}>
+      <Paper variant="outlined" sx={{ p: 3 }} className="msr-section msr-signatures">
         <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Signatures</Typography>
         <Grid container spacing={3}>
-          <Grid item xs={12} sm={6}>
-            <Typography variant="caption" color="text.secondary">Service By (Technician)</Typography>
+          {/* ESS asks for an inspector AND a reviewer. The field technician is
+              both, so the SAME signature and name print in both slots — there
+              is no third pad and no second signer to chase. */}
+          <Grid item xs={12} sm={isEss ? 4 : 6}>
+            <Typography variant="caption" color="text.secondary">
+              {isEss ? "Inspector (Technician)" : "Service By (Technician)"}
+            </Typography>
             <SignatureBlock url={techSigUrl} name={report.technicianName ?? "—"} />
           </Grid>
-          <Grid item xs={12} sm={6}>
+          {isEss && (
+            <Grid item xs={12} sm={4}>
+              <Typography variant="caption" color="text.secondary">Reviewer (Technician)</Typography>
+              <SignatureBlock url={techSigUrl} name={report.technicianName ?? "—"} />
+            </Grid>
+          )}
+          <Grid item xs={12} sm={isEss ? 4 : 6}>
             <Typography variant="caption" color="text.secondary">Client</Typography>
             <SignatureBlock url={clientSigUrl} name={sd.clientSignerName ?? report.signedByName ?? "—"} />
           </Grid>
@@ -374,9 +405,236 @@ export default function MaintenanceReportDetailPage() {
           aside, nav, header { display: none !important; }
           .MuiDrawer-root { display: none !important; }
           body { background: white !important; }
+          /* An ESS report is ~6 pages. Without these it splits mid-category
+             and straight through the signature row — the same rules the
+             server PDF carries, kept deliberately in step with it. */
+          @page { size: A4; margin: 12mm 12mm 14mm; }
+          .msr-section,
+          .msr-category,
+          .msr-defects,
+          .msr-poweron,
+          .msr-signatures { break-inside: avoid; page-break-inside: avoid; }
+          .msr-signatures { break-before: auto; }
         }
       `}</style>
     </Box>
+  );
+}
+
+/**
+ * The ESS detailed record, defects, power-on tests and recommendations.
+ *
+ * Renders from the STORED payload against the SHARED catalogue: labels come
+ * from the catalogue, verdicts from the row. An item the row has no answer for
+ * shows "—" rather than defaulting to Pass — a missing verdict is missing
+ * information, not a pass.
+ */
+function renderEssSections(ess: EssServiceData | null) {
+  if (!ess) {
+    return (
+      <Paper variant="outlined" sx={{ p: 3 }} className="msr-section">
+        <Alert severity="warning">
+          This report is marked ESS_V1 but carries no inspection data.
+        </Alert>
+      </Paper>
+    );
+  }
+
+  const measureRow = (m: EssMeasure) => {
+    const r = ess.measures?.[m.key];
+    const overridden = isOverridden(r);
+    const shown =
+      m.kind === "boolean"
+        ? r?.value
+          ? "Yes"
+          : "No"
+        : r?.value === null || r?.value === undefined || r?.value === ""
+          ? "—"
+          : `${r.value}${m.unit ? ` ${m.unit}` : ""}`;
+    return (
+      <Stack
+        key={m.key}
+        direction="row"
+        spacing={1.5}
+        alignItems="center"
+        sx={{
+          py: 0.75,
+          px: 1.25,
+          mt: 0.75,
+          borderRadius: 1,
+          bgcolor: overridden ? "warning.light" : "action.hover",
+        }}
+      >
+        <Typography variant="body2" sx={{ flex: 1 }}>
+          {m.label}
+          {m.threshold != null && (
+            <Typography component="span" variant="caption" color="text.secondary">
+              {" "}(pass ≤ {m.threshold} {m.unit})
+            </Typography>
+          )}
+        </Typography>
+        <Typography variant="body2" fontWeight={700}>{shown}</Typography>
+        {r?.verdict && (
+          <Chip
+            size="small"
+            label={r.verdict}
+            color={r.verdict === "FAIL" ? "error" : "success"}
+            variant="filled"
+          />
+        )}
+        {overridden && (
+          <Chip size="small" color="warning" label={`overridden — auto ${r?.suggested}`} />
+        )}
+      </Stack>
+    );
+  };
+
+  return (
+    <>
+      <Paper variant="outlined" sx={{ p: 3 }} className="msr-section">
+        <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Summary</Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={6}>
+            <FieldLabel label="Pre-inspection status" value={ess.summary?.preStatus} />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <FieldLabel label="Overall conclusion" value={ess.summary?.conclusion} />
+          </Grid>
+          {ESS_SUMMARY_FIXED.map((f) => (
+            <Grid item xs={12} key={f.label}>
+              <FieldLabel label={f.label} value={f.value} />
+            </Grid>
+          ))}
+          <Grid item xs={12}>
+            <FieldLabel label="Remarks" value={ess.summary?.remarks} />
+          </Grid>
+        </Grid>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 3 }} className="msr-section">
+        <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Detailed record</Typography>
+        <Stack spacing={2.5}>
+          {ESS_CATEGORIES.map((cat) => (
+            <Box key={cat.id} className="msr-category">
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
+                {cat.id}. {cat.title}
+              </Typography>
+              {cat.items.map((item) => {
+                const r = ess.items?.[essItemKey(cat.id, item.id)];
+                return (
+                  <Stack
+                    key={item.id}
+                    direction="row"
+                    spacing={1.5}
+                    alignItems="flex-start"
+                    sx={{ py: 0.5, borderBottom: "1px dashed", borderColor: "divider" }}
+                  >
+                    <Typography variant="body2" sx={{ flex: 1 }}>
+                      {cat.id}.{item.id} {item.label}
+                      {r?.remark || item.hint ? (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                          {r?.remark || item.hint}
+                        </Typography>
+                      ) : null}
+                      {/* Readings sit on their own row, as the reference does. */}
+                      {(cat.measures ?? []).filter((m) => m.itemId === item.id).map(measureRow)}
+                    </Typography>
+                    {r?.verdict ? (
+                      <Chip
+                        size="small"
+                        label={r.verdict}
+                        color={r.verdict === "FAIL" ? "error" : "success"}
+                      />
+                    ) : (
+                      <Typography variant="body2" color="text.disabled">—</Typography>
+                    )}
+                  </Stack>
+                );
+              })}
+              {(cat.measures ?? []).filter((m) => m.itemId == null).map(measureRow)}
+            </Box>
+          ))}
+        </Stack>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 3 }} className="msr-section msr-defects">
+        <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Defect tracking</Typography>
+        {(ess.defects ?? []).length === 0 ? (
+          <Typography variant="body2" color="text.secondary">No defects recorded.</Typography>
+        ) : (
+          <Stack spacing={1}>
+            {ess.defects.map((d, i) => (
+              <Box key={i} sx={{ p: 1.25, border: "1px solid", borderColor: "divider", borderRadius: 1 }}>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                  <Chip
+                    size="small"
+                    label={d.riskLevel}
+                    color={d.riskLevel === "Major" ? "error" : "warning"}
+                  />
+                  <Chip size="small" label={d.status} variant="outlined" />
+                </Stack>
+                <Typography variant="body2" fontWeight={600}>{d.description || "—"}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {d.correctiveAction || "—"}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+        )}
+        <Typography variant="body2" fontWeight={600} sx={{ mt: 1.5 }}>
+          {essDefectSummary(ess.defectTotals?.major ?? 0, ess.defectTotals?.minor ?? 0)}
+        </Typography>
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 3 }} className="msr-section msr-poweron">
+        <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Power-on tests</Typography>
+        {ESS_POWER_ON_TESTS.map((t) => {
+          const r = ess.powerOn?.[String(t.id)];
+          return (
+            <Stack
+              key={t.id}
+              direction="row"
+              spacing={1.5}
+              alignItems="flex-start"
+              sx={{ py: 0.5, borderBottom: "1px dashed", borderColor: "divider" }}
+            >
+              <Typography variant="body2" sx={{ flex: 1 }}>
+                {t.id}. {t.label}
+                {r?.remark || t.hint ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                    {r?.remark || t.hint}
+                  </Typography>
+                ) : null}
+              </Typography>
+              {r?.verdict ? (
+                <Chip size="small" label={r.verdict} color={r.verdict === "NG" ? "error" : "success"} />
+              ) : (
+                <Typography variant="body2" color="text.disabled">—</Typography>
+              )}
+            </Stack>
+          );
+        })}
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 3 }} className="msr-section">
+        <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>Recommendations</Typography>
+        <Box component="ol" sx={{ pl: 2.5, m: 0 }}>
+          {essRecommendations(ess.nextMaintenanceDate).map((r: string, i: number) => (
+            <Typography component="li" variant="body2" key={i} sx={{ mb: 0.5 }}>{r}</Typography>
+          ))}
+        </Box>
+        <Divider sx={{ my: 2 }} />
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+          Final conclusion
+        </Typography>
+        <Typography
+          variant="body2"
+          sx={{ mt: 0.5, whiteSpace: "pre-wrap", p: 1.5, bgcolor: "action.hover", borderRadius: 1, minHeight: 60 }}
+        >
+          {ess.finalConclusion || "—"}
+        </Typography>
+      </Paper>
+    </>
   );
 }
 
