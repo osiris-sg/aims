@@ -195,6 +195,7 @@ export function renderEssBody(ess: EssServiceData | null) {
             </TableRow>
           </TableBody>
         </Table>,
+        "msr-keep",
       )}
 
       {section(
@@ -208,32 +209,35 @@ export function renderEssBody(ess: EssServiceData | null) {
               <TableCell sx={{ ...headSx, width: "34%" }}>Data / Remarks</TableCell>
             </TableRow>
           </TableHead>
-          <TableBody>
-            {ESS_CATEGORIES.map((cat) => (
-              <React.Fragment key={cat.id}>
-                <TableRow className="msr-category">
-                  <TableCell colSpan={4} sx={{ fontWeight: 700, bgcolor: "action.selected" }}>
-                    {cat.id}. {cat.title}
-                  </TableCell>
-                </TableRow>
-                {cat.items.map((item) => {
-                  const r = ess.items?.[essItemKey(cat.id, item.id)];
-                  return (
-                    <TableRow key={item.id}>
-                      <TableCell sx={{ ...cellSx, color: "text.secondary" }}>
-                        {cat.id}.{item.id}
-                      </TableCell>
-                      <TableCell sx={cellSx}>{item.label}</TableCell>
-                      <TableCell sx={cellSx}>{verdictCell(r?.verdict)}</TableCell>
-                      <TableCell sx={cellSx}>
-                        {dataCell(cat.measures ?? [], item.id, r?.remark, item.hint)}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </React.Fragment>
-            ))}
-          </TableBody>
+          {/* ONE <tbody> PER CATEGORY. Multiple tbody in a table is valid HTML,
+              and it is what gives the printer an atomic unit to keep together:
+              `break-inside: avoid` on a single band ROW protects only that one
+              row, so a category's items could split anywhere. Visually
+              identical on screen — tbody adds no styling of its own. */}
+          {ESS_CATEGORIES.map((cat) => (
+            <TableBody key={cat.id} className="msr-category">
+              <TableRow>
+                <TableCell colSpan={4} sx={{ fontWeight: 700, bgcolor: "action.selected" }}>
+                  {cat.id}. {cat.title}
+                </TableCell>
+              </TableRow>
+              {cat.items.map((item) => {
+                const r = ess.items?.[essItemKey(cat.id, item.id)];
+                return (
+                  <TableRow key={item.id}>
+                    <TableCell sx={{ ...cellSx, color: "text.secondary" }}>
+                      {cat.id}.{item.id}
+                    </TableCell>
+                    <TableCell sx={cellSx}>{item.label}</TableCell>
+                    <TableCell sx={cellSx}>{verdictCell(r?.verdict)}</TableCell>
+                    <TableCell sx={cellSx}>
+                      {dataCell(cat.measures ?? [], item.id, r?.remark, item.hint)}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          ))}
         </Table>,
       )}
 
@@ -368,6 +372,7 @@ export function renderEssBody(ess: EssServiceData | null) {
             </Typography>
           ))}
         </Box>,
+        "msr-keep",
       )}
 
       {section(
@@ -379,6 +384,7 @@ export function renderEssBody(ess: EssServiceData | null) {
             </Typography>
           ))}
         </Box>,
+        "msr-keep",
       )}
     </>
   );
@@ -394,7 +400,7 @@ export function renderEssConclusion(ess: EssServiceData | null) {
   if (!ess) return null;
   const headSx = { fontWeight: 700, whiteSpace: "nowrap", bgcolor: "action.hover" } as const;
   return (
-    <Paper variant="outlined" sx={{ p: 0, overflow: "hidden" }} className="msr-section">
+    <Paper variant="outlined" sx={{ p: 0, overflow: "hidden" }} className="msr-section msr-keep">
       <Typography
         variant="subtitle2"
         fontWeight={700}

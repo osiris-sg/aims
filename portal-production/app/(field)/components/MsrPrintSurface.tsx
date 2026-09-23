@@ -3,6 +3,8 @@
 import React, { useCallback, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Box } from "@mui/material";
+import { ThemeProvider } from "@mui/material/styles";
+import { usePrintDocTheme } from "@/lib/printDocTheme";
 import { request } from "@/helpers/request";
 import { GENERIC_CHECKLIST, TEMPLATE_LABELS, templateFor } from "@/lib/msr-templates";
 import {
@@ -48,9 +50,30 @@ const MSR_PRINT_PAGE_STYLE = `
   }
   @media print {
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; }
-    .msr-section, .msr-category, .msr-defects, .msr-poweron, .msr-signatures {
+
+    /* WHAT WENT WRONG: break-inside:avoid was on .msr-section, which is on
+       EVERY section — including Detailed Record, a 35-row table that cannot fit
+       a page. An unbreakable block taller than a page is simply pushed whole to
+       the next one, which is why page 1 held the header and equipment table and
+       then a large blank. So the big sections are now BREAKABLE, and the units
+       inside them are what is kept whole. */
+
+    /* Each category is its own <tbody> and never splits. */
+    .msr-category { break-inside: avoid; page-break-inside: avoid; }
+
+    /* These are small enough to keep whole, and are worse split than moved. */
+    .msr-defects, .msr-poweron, .msr-signatures, .msr-keep {
       break-inside: avoid; page-break-inside: avoid;
     }
+
+    /* Never strand a heading at the foot of a page. */
+    .msr-section > :first-child { break-after: avoid; page-break-after: avoid; }
+
+    /* A table that does split repeats its column headings on the next page. */
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
+
+    /* Nothing is scaled: the report is multi-page by design. */
   }
 `;
 
@@ -85,6 +108,11 @@ export interface UseMsrPrintResult {
 
 export function useMsrPrint(): UseMsrPrintResult {
   const { getToken } = useAuth();
+  // WHITE PAPER, BLACK TEXT — regardless of the app's theme. Without this the
+  // field app's dark palette is serialised straight into the PDF: black table
+  // bands, white text, dark-mode chips. Only this OFFSCREEN surface is wrapped;
+  // the office page on screen and the app's dark mode are untouched.
+  const docTheme = usePrintDocTheme();
   const holderRef = useRef<HTMLDivElement>(null);
   const [report, setReport] = useState<any | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -112,13 +140,14 @@ export function useMsrPrint(): UseMsrPrintResult {
       try {
         const { node, title } = await prepare(reportId);
         setBusy("Preparing the document…");
+        // NO fit-to-page. A maintenance report — an ESS one especially — is a
+        // genuinely multi-page document: eight categories, 35 items, a defect
+        // table and the reference sections. Shrinking it to one page would make
+        // it unreadable to save a sheet of paper. It BREAKS cleanly instead;
+        // see MSR_PRINT_PAGE_STYLE.
         const html = await serializeNodeToPrintHtml(node, {
           title,
           pageStyle: MSR_PRINT_PAGE_STYLE,
-          // The report has no single sheet element; the offscreen holder IS the
-          // document. A4 less this path's 10mm margin.
-          fitSelector: "[data-msr-sheet]",
-          fitBandMm: 277,
         });
         setBusy("Opening the print dialog…");
         await printHtmlViaSystem(html, title);
@@ -139,8 +168,6 @@ export function useMsrPrint(): UseMsrPrintResult {
         const html = await serializeNodeToPrintHtml(node, {
           title,
           pageStyle: MSR_PRINT_PAGE_STYLE,
-          fitSelector: "[data-msr-sheet]",
-          fitBandMm: 277,
         });
         setBusy("Saving the PDF…");
         return await savePdfViaSystem(html, title);
@@ -160,6 +187,7 @@ export function useMsrPrint(): UseMsrPrintResult {
   const clientSigUrl = sd?.clientSignatureKey ? `${RESOURCE_URL}${sd.clientSignatureKey}` : null;
 
   const surface = (
+    <ThemeProvider theme={docTheme}>
     <Box
       aria-hidden
       sx={{ position: "fixed", left: -100000, top: 0, width: A4_WIDTH_PX, bgcolor: "#fff", pointerEvents: "none", zIndex: -1 }}
@@ -230,6 +258,7 @@ export function useMsrPrint(): UseMsrPrintResult {
         )}
       </div>
     </Box>
+    </ThemeProvider>
   );
 
   return { surface, printReport, downloadReport, busy };

@@ -147,16 +147,6 @@ const ESS_PRINT_CSS = `
 /** Page inset for the multi-page ESS report — see ESS_PRINT_CSS. */
 export const ESS_PDF_MARGIN = { top: '12mm', right: '12mm', bottom: '14mm', left: '12mm' };
 
-/**
- * Fit-to-page target for the SERVICE report PDF.
- *
- * GENERIC only. An ESS report is a genuinely multi-page document — eight
- * categories, 35 items, a defect table and the reference sections — so
- * squeezing it onto one page is neither possible nor wanted; it paginates by
- * design and is left alone.
- */
-export const GENERIC_PDF_FIT = { selector: '[data-print-sheet="msr"]', bandMm: 297 };
-
 /** Pass/Fail (or OK/NG) chip. A missing verdict prints "—", never a Pass. */
 const verdictChip = (v?: string | null): string => {
   if (!v) return '<span class="v-none">—</span>';
@@ -400,7 +390,7 @@ export function buildServiceReportHtml(input: ServiceReportPdfInput): string {
 ${isEss ? ESS_PRINT_CSS : ''}  </style>
 </head>
 <body>
-  <div class="page" data-print-sheet="msr">
+  <div class="page">
     <div class="title-bar">
       <h1>${esc(TEMPLATE_LABELS[templateId].toUpperCase())}</h1>
       <div class="org-line">${esc(input.orgName)}</div>

@@ -11,7 +11,7 @@ import { DeliveriesService } from '../deliveries/deliveries.service';
 import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto';
 import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
 import { CreateLocationPingsDto } from './dto/location-ping.dto';
-import { buildServiceReportHtml, ESS_PDF_MARGIN, GENERIC_PDF_FIT } from './service-report-pdf';
+import { buildServiceReportHtml, ESS_PDF_MARGIN } from './service-report-pdf';
 import { templateFor } from './msr-templates';
 import { minPhotosForAssetClass } from 'src/common/asset-class';
 
@@ -368,14 +368,14 @@ export class MaintenanceReportsService {
       // rule. GENERIC is a single self-padded page and stays on the existing
       // zero-margin path, so its output is unchanged.
       const isEssReport = templateFor((sd as any)?.templateId) === 'ESS_V1';
+      // NO fit-to-page for either template. A maintenance report is multi-page
+      // by design and must BREAK cleanly rather than shrink — the same rule the
+      // field print follows. (This PDF already breaks correctly: each category
+      // is its own `keep cat` block, so there is no oversized unbreakable
+      // section to push whole onto the next page.)
       pdfBuffer = await this.pdfGenerator.generatePdfFromHtml(
         html,
-        isEssReport
-          ? { margin: ESS_PDF_MARGIN }
-          // GENERIC is a one-page form; scale it down rather than let a long
-          // remarks block push a few lines onto a second sheet. ESS paginates
-          // by design and is not fitted — see GENERIC_PDF_FIT.
-          : { fitToPage: GENERIC_PDF_FIT },
+        isEssReport ? { margin: ESS_PDF_MARGIN } : undefined,
       );
     } catch (err: any) {
       this.logger.error(`MSR ${reportId} PDF generation failed: ${err?.message}`, err?.stack);
