@@ -329,28 +329,22 @@ export const ESS_RISK_LEVELS = ['Major', 'Minor'] as const;
 export const ESS_DEFECT_STATUSES = ['Open', 'In progress', 'Closed'] as const;
 
 /**
- * OPERATION & MAINTENANCE RECOMMENDATIONS — the reference's five fixed
- * paragraphs. PRINTED, NEVER CAPTURED: the field form does not ask for these
- * and must not, because they are standing advice about the class of equipment,
- * not an observation about this visit.
+ * OPERATION & MAINTENANCE RECOMMENDATIONS — the reference's fixed paragraphs.
+ * PRINTED, NEVER CAPTURED: the field form does not ask for these and must not,
+ * because they are standing advice about the class of equipment, not an
+ * observation about this visit.
  *
- * Item 5 carries the next maintenance date, so the list is BUILT rather than
- * stored — a stored copy would freeze whatever date was current at capture and
- * then disagree with the report's own Next Service Date after any edit. With no
- * date set it falls back to the reference's own blank rule, which is what the
- * paper form shows when the date has not been agreed yet.
+ * The reference's fifth item was "Next scheduled maintenance date: …". It is
+ * dropped: the report already states Next Service Date in its header, and
+ * repeating it here gave two places to read the same fact — which is how they
+ * come to disagree. Nothing takes a date any more, so this is a constant.
  */
-export const ESS_NEXT_DATE_BLANK = '_____ (Year) _____ (Month) _____ (Day)';
-
-export function essRecommendations(nextServiceDate?: string | null): string[] {
-  return [
-    'Air-cooled energy storage systems are highly sensitive to dust accumulation. It is recommended to inspect and clean air filters every 1–3 months and replace filters every 6 to 12 months, so as to prevent battery overheating and excessive temperature differential caused by blocked air ducts.',
-    'Regularly inspect the operating condition of cooling fans. Conduct aging assessment after 2 years of operation and replace degraded fans in advance to mitigate the risk of cooling system failure.',
-    'During plum rain and high-humidity seasons, prioritize inspection of the cabinet enclosure sealing performance to prevent internal condensation, which may lead to reduced insulation capacity and electrical faults.',
-    'Export background operation logs monthly, and continuously monitor battery voltage differential, cluster temperature differential and equipment alarm trends to enable proactive risk identification and preventive maintenance.',
-    `Next scheduled maintenance date: ${nextServiceDate?.trim() || ESS_NEXT_DATE_BLANK}`,
-  ];
-}
+export const ESS_RECOMMENDATIONS: string[] = [
+  'Air-cooled energy storage systems are highly sensitive to dust accumulation. It is recommended to inspect and clean air filters every 1–3 months and replace filters every 6 to 12 months, so as to prevent battery overheating and excessive temperature differential caused by blocked air ducts.',
+  'Regularly inspect the operating condition of cooling fans. Conduct aging assessment after 2 years of operation and replace degraded fans in advance to mitigate the risk of cooling system failure.',
+  'During plum rain and high-humidity seasons, prioritize inspection of the cabinet enclosure sealing performance to prevent internal condensation, which may lead to reduced insulation capacity and electrical faults.',
+  'Export background operation logs monthly, and continuously monitor battery voltage differential, cluster temperature differential and equipment alarm trends to enable proactive risk identification and preventive maintenance.',
+];
 
 /**
  * FINAL INSPECTION CONCLUSION — the reference's fixed closing paragraphs.

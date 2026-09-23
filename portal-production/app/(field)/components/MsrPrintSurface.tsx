@@ -174,7 +174,7 @@ export function useMsrPrint(): UseMsrPrintResult {
             </Box>
 
             {isEss ? (
-              renderEssBody(report.serviceData?.ess ?? null, sd.nextServiceDate)
+              renderEssBody(report.serviceData?.ess ?? null)
             ) : (
               <Box sx={{ border: 1, borderColor: "divider", p: 2 }} className="msr-section">
                 <strong>Checklist</strong>

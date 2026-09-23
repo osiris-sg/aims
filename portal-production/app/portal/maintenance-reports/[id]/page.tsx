@@ -284,7 +284,7 @@ export default function MaintenanceReportDetailPage() {
         </Grid>
       </Paper>
 
-      {isEss && renderEssBody(ess, sd.nextServiceDate)}
+      {isEss && renderEssBody(ess)}
 
       {isEss ? null : (
       <Paper variant="outlined" sx={{ p: 3 }} className="msr-section">

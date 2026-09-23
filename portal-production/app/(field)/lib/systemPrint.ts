@@ -129,13 +129,78 @@ async function inlineImage(src: string): Promise<string> {
 }
 
 /**
+ * Collect every CSS rule in the document, as text.
+ *
+ * THIS CANNOT READ `style.textContent`. Emotion — which is what MUI compiles
+ * every `sx` prop and `styled()` component into — runs in "speedy" mode
+ * whenever NODE_ENV is not development, and speedy mode inserts rules through
+ * `CSSStyleSheet.insertRule()` instead of appending text:
+ *
+ *     // @emotion/sheet
+ *     this.isSpeedy = options.speedy === undefined ? !isDevelopment : options.speedy;
+ *     …
+ *     if (this.isSpeedy) { sheet.insertRule(rule, sheet.cssRules.length); }
+ *     else               { tag.appendChild(document.createTextNode(rule)); }
+ *
+ * So in a PRODUCTION build those <style> tags are EMPTY: the rules live only in
+ * the CSSOM. Reading textContent returned almost nothing, the serialised
+ * document carried no component CSS, and the PDF came out as unstyled stacked
+ * text with no table borders and no 186mm sheet — while the app's own screen
+ * looked perfect, because there the live CSSOM is still doing the work. In
+ * development the same code took the `createTextNode` branch and looked fine,
+ * which is exactly why this survived testing.
+ *
+ * Reading `sheet.cssRules` is therefore the primary source, with textContent
+ * only as a fallback.
+ *
+ * CROSS-ORIGIN STYLESHEETS: accessing `.cssRules` on a sheet loaded from
+ * another origin throws a SecurityError — the DOM forbids reading rules the
+ * page did not author (it would leak, e.g., :visited state). Google Fonts is
+ * exactly such a sheet. Each sheet is therefore read in its own try/catch and
+ * an unreadable one is SKIPPED rather than allowed to abort the whole
+ * collection; the corresponding <link> is re-emitted into the printed document
+ * instead, so the print WebView fetches it directly and the font still applies.
+ */
+function collectCss(): string {
+  const chunks: string[] = [];
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules: CSSRuleList | null = null;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      // Cross-origin — unreadable by design. The <link> is carried instead.
+      rules = null;
+    }
+    if (rules && rules.length > 0) {
+      chunks.push(Array.from(rules).map((r) => r.cssText).join("\n"));
+      continue;
+    }
+    // Same-origin but empty cssRules, or unreadable: fall back to the tag's own
+    // text. Covers a plain <style> the CSSOM has not parsed, and dev-mode
+    // emotion, which does write text.
+    const node = sheet.ownerNode as HTMLElement | null;
+    const text = node?.textContent ?? "";
+    if (text.trim()) chunks.push(text);
+  }
+  // A <style> tag with no associated sheet (never parsed) has no entry in
+  // document.styleSheets at all — sweep those up too so nothing is missed.
+  for (const tag of Array.from(document.querySelectorAll("style"))) {
+    if (!(tag as HTMLStyleElement).sheet) {
+      const text = tag.textContent ?? "";
+      if (text.trim()) chunks.push(text);
+    }
+  }
+  return chunks.join("\n");
+}
+
+/**
  * Turn a live, rendered node into a self-contained HTML document.
  *
  * Everything the node needs must travel with it: the print WebView loads the
- * string with no access to this page's stylesheets or session. So every
- * same-document <style> is copied (this is where MUI/emotion put the component
- * CSS that shapes the DO), cross-origin font links are carried over as links,
- * and every image is inlined first.
+ * string with no access to this page's stylesheets or session. So every CSS
+ * rule is collected from the CSSOM (see collectCss — NOT from textContent),
+ * cross-origin font links are carried over as links, and every image is
+ * inlined first.
  */
 export async function serializeNodeToPrintHtml(
   node: HTMLElement,
@@ -159,14 +224,10 @@ export async function serializeNodeToPrintHtml(
     }),
   );
 
-  // Component CSS: emotion writes <style> tags into <head>, so copying them
-  // carries the whole MUI cascade the DO depends on.
-  const styles = Array.from(document.querySelectorAll("style"))
-    .map((s) => s.textContent ?? "")
-    .join("\n");
+  const styles = collectCss();
 
-  // Webfonts live on cross-origin <link>s that cannot be read out; carry the
-  // link itself so the print WebView fetches it.
+  // Webfonts live on cross-origin <link>s whose rules cannot be read out (see
+  // collectCss); carry the link itself so the print WebView fetches it.
   const links = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'))
     .map((l) => `<link rel="stylesheet" href="${l.href}">`)
     .join("\n");

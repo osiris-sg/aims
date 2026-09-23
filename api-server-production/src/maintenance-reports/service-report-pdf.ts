@@ -16,7 +16,7 @@ import {
   ESS_HEADER_FIXED,
   GENERIC_CHECKLIST,
   essDefectSummary,
-  essRecommendations,
+  ESS_RECOMMENDATIONS,
   TEMPLATE_LABELS,
   essItemKey,
   isOverridden,
@@ -208,7 +208,7 @@ const buildEssConclusionHtml = (ess: EssServiceData | null): string => {
  * Each block carries a `keep` class so the print CSS can refuse to split it
  * across a page boundary. The conclusion is built separately, above.
  */
-const buildEssBodyHtml = (ess: EssServiceData | null, nextServiceDate?: string | null): string => {
+const buildEssBodyHtml = (ess: EssServiceData | null): string => {
   if (!ess) {
     return '<div class="section-title">Inspection</div><div class="remarks-box">This report is marked ESS_V1 but carries no inspection data.</div>';
   }
@@ -315,7 +315,7 @@ const buildEssBodyHtml = (ess: EssServiceData | null, nextServiceDate?: string |
          statement the office sees, or the two copies say different things. -->
     <div class="keep">
       <div class="section-title">Operation &amp; Maintenance Recommendations</div>
-      <ol class="recs">${essRecommendations(nextServiceDate).map((r) => `<li>${esc(r)}</li>`).join('')}</ol>
+      <ol class="recs">${ESS_RECOMMENDATIONS.map((r) => `<li>${esc(r)}</li>`).join('')}</ol>
     </div>
 
     <div class="keep">
@@ -411,7 +411,7 @@ ${isEss ? ESS_PRINT_CSS : ''}  </style>
     </div>
 
     ${isEss
-      ? buildEssBodyHtml(sd.ess ?? null, sd.nextServiceDate)
+      ? buildEssBodyHtml(sd.ess ?? null)
       : `<div class="section-title">Checklist</div>
     <div class="checklist">${checklistCellsHtml}</div>`}
 

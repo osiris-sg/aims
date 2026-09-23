@@ -21,7 +21,7 @@ import {
   ESS_POWER_ON_TESTS,
   essDefectSummary,
   essItemKey,
-  essRecommendations,
+  ESS_RECOMMENDATIONS,
   isOverridden,
   type EssMeasure,
   type EssServiceData,
@@ -67,7 +67,7 @@ const RESOURCE_URL =
  * today is the CATALOGUE — labels, categories, thresholds, the defect summary
  * line — which is where the drift that matters would otherwise happen.
  */
-export function renderEssBody(ess: EssServiceData | null, nextServiceDate?: string | null) {
+export function renderEssBody(ess: EssServiceData | null) {
   if (!ess) {
     return (
       <Paper variant="outlined" sx={{ p: 3 }} className="msr-section">
@@ -362,7 +362,7 @@ export function renderEssBody(ess: EssServiceData | null, nextServiceDate?: stri
       {section(
         "Operation & Maintenance Recommendations",
         <Box component="ol" sx={{ pl: 4, pr: 2, py: 1.5, m: 0 }}>
-          {essRecommendations(nextServiceDate).map((r, i) => (
+          {ESS_RECOMMENDATIONS.map((r, i) => (
             <Typography component="li" variant="body2" key={i} sx={{ mb: 0.75 }}>
               {r}
             </Typography>
