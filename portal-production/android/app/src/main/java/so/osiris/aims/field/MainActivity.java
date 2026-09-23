@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
         // them up on WebView init.
         registerPlugin(BtPrinterPlugin.class);
         registerPlugin(DeviceCameraPlugin.class);
+        registerPlugin(SystemPrintPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

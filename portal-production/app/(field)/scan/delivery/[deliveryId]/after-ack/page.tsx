@@ -30,14 +30,8 @@ import { uploadImage } from "@/helpers/imageUploader";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
 import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/SignaturePadField";
 import { useBackgroundLocationContext } from "../../../../context/BackgroundLocationContext";
-import {
-  isPrinterAvailable,
-  getSavedPrinter,
-  savePrinter,
-  formatUnitLabel,
-  type SavedPrinter,
-} from "../../../../lib/btPrinter";
-import PrinterPickerDialog from "../../../../components/PrinterPickerDialog";
+import { formatUnitLabel } from "../../../../lib/btPrinter";
+import { isSystemPrintAvailable } from "../../../../lib/systemPrint";
 import { useDoA4Print } from "../../../../components/DoA4Print";
 import { Tooltip } from "@mui/material";
 
@@ -127,7 +121,6 @@ export default function AfterAckPage() {
   // The lead's ack photos, forwarded to the other units so their DO_ACK rows
   // carry the same evidence.
   const [ackPhotos, setAckPhotos] = useState<string[]>([]);
-  const [printerDialogOpen, setPrinterDialogOpen] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [printMsg, setPrintMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -584,33 +577,27 @@ export default function AfterAckPage() {
     }
   };
 
-  // ── Bluetooth A4 printing (native shell only) ─────────────────────────────
-  // Prints the REAL delivery order — the same A4 render the portal's Print/PDF
-  // uses — as ESC/POS raster. The 58mm text receipt is still in btPrinter.ts but
-  // is no longer reachable from this button.
-  const { surface: printSurface, printDo, progress: printProgress } = useDoA4Print();
+  // ── Printing via Android's print system (native shell only) ───────────────
+  // The printer is a 小篆 X1000 — a WiFi colour inkjet — so the Bluetooth
+  // paths cannot reach it. Print DO hands the A4 document to Android's own
+  // print dialog, the same one Chrome uses, and the rider picks the printer
+  // there. The Bluetooth raster and 58mm receipt code stays in the repo.
+  const { surface: printSurface, printDoViaSystem, progress: printProgress } = useDoA4Print();
 
-  const doPrint = async (device?: SavedPrinter) => {
+  const doPrint = async () => {
     if (!printableDoId) {
       setPrintMsg({ ok: false, text: "This run has no delivery order linked to it yet, so there is nothing to print." });
-      return;
-    }
-    const target = device ?? getSavedPrinter();
-    if (!target) {
-      // First print on this phone: pick from already-bonded devices (pairing
-      // itself happens in Android Settings — normal for SPP), and confirm the
-      // dot width while we are there.
-      setPrintMsg(null);
-      setPrinterDialogOpen(true);
       return;
     }
     setPrinting(true);
     setPrintMsg(null);
     try {
-      await printDo(printableDoId, target);
-      setPrintMsg({ ok: true, text: `Printed on ${target.name}` });
+      await printDoViaSystem(printableDoId);
+      // Android owns the dialog from here — printer choice, settings and
+      // cancellation are invisible to us, so claim only the handover.
+      setPrintMsg({ ok: true, text: "Print dialog opened — pick the printer there." });
     } catch (e: any) {
-      setPrintMsg({ ok: false, text: e?.message ?? "Print failed — check the printer is on and in range" });
+      setPrintMsg({ ok: false, text: e?.message ?? "Could not open the print dialog." });
     } finally {
       setPrinting(false);
     }
@@ -649,9 +636,10 @@ export default function AfterAckPage() {
             </>
           )}
         </Typography>
-        {/* Bluetooth receipt printing — native shell only (Classic SPP; Web
-            Bluetooth is BLE-only and can never reach a 58mm SPP printer). */}
-        {isPrinterAvailable() ? (
+        {/* Print DO — native shell only: window.print() does nothing in an
+            Android WebView, so this reaches Android's PrintManager through the
+            native SystemPrint plugin. */}
+        {isSystemPrintAvailable() ? (
           <Button
             variant="outlined"
             startIcon={printing ? <CircularProgress size={18} /> : <PrintIcon />}
@@ -663,7 +651,7 @@ export default function AfterAckPage() {
             {printing ? "Printing…" : "Print DO"}
           </Button>
         ) : (
-          <Tooltip title="Printing needs the AIMS Field app (Bluetooth printer support)">
+          <Tooltip title="Printing needs the AIMS Field app">
             <span style={{ width: "100%", maxWidth: 360 }}>
               <Button variant="outlined" startIcon={<PrintIcon />} disabled fullWidth sx={FIELD_BUTTON_SX}>
                 Print DO
@@ -701,19 +689,6 @@ export default function AfterAckPage() {
             {printMsg.text}
           </Alert>
         )}
-
-        {/* First-print device picker: bonded devices only; pairing lives in
-            Android Settings. Remembered per phone in localStorage. */}
-        <PrinterPickerDialog
-          open={printerDialogOpen}
-          busy={printing}
-          onClose={() => setPrinterDialogOpen(false)}
-          onPick={(d) => {
-            savePrinter(d);
-            setPrinterDialogOpen(false);
-            void doPrint(d);
-          }}
-        />
 
         {/* Offscreen A4 render — nothing visible. */}
         {printSurface}

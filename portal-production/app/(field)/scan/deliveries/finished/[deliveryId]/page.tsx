@@ -8,10 +8,6 @@ import {
   Box,
   Button,
   CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Stack,
   Tooltip,
   Typography,
@@ -21,14 +17,8 @@ import PrintIcon from "@mui/icons-material/Print";
 import LinearProgress from "@mui/material/LinearProgress";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { request } from "@/helpers/request";
-import {
-  isPrinterAvailable,
-  getSavedPrinter,
-  savePrinter,
-  formatUnitLabel,
-  type SavedPrinter,
-} from "../../../../lib/btPrinter";
-import PrinterPickerDialog from "../../../../components/PrinterPickerDialog";
+import { formatUnitLabel } from "../../../../lib/btPrinter";
+import { isSystemPrintAvailable } from "../../../../lib/systemPrint";
 import { useDoA4Print } from "../../../../components/DoA4Print";
 
 /**
@@ -103,7 +93,6 @@ export default function FinishedDeliveryDetailPage() {
   // Printing UI (mirrors the after-ack "done" step).
   const [printing, setPrinting] = useState(false);
   const [printMsg, setPrintMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [printerDialogOpen, setPrinterDialogOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -144,9 +133,10 @@ export default function FinishedDeliveryDetailPage() {
     [run],
   );
 
-  // The A4 raster printer: fetches the DO, renders it offscreen at the printer's
-  // dot width and sends it as banded ESC/POS raster. `surface` must be mounted.
-  const { surface: printSurface, printDo, progress: printProgress } = useDoA4Print();
+  // Print DO goes through ANDROID'S print system now: the printer is a 小篆
+  // X1000, a WiFi colour inkjet, which no Bluetooth path can reach. `surface`
+  // must be mounted — it is the offscreen A4 render being printed.
+  const { surface: printSurface, printDoViaSystem, progress: printProgress } = useDoA4Print();
 
   // The DO this run delivered. The API derives a run-level `document` —
   // "exactly one distinct DO across linked items" — and it is deliberately null
@@ -159,33 +149,26 @@ export default function FinishedDeliveryDetailPage() {
     [run],
   );
 
-  const doPrint = useCallback(
-    async (device?: SavedPrinter) => {
-      if (!run) return;
-      if (!printableDoId) {
-        setPrintMsg({ ok: false, text: "This run has no delivery order linked to it yet, so there is nothing to print." });
-        return;
-      }
-      const target = device ?? getSavedPrinter();
-      if (!target) {
-        // First print on this phone — pick a device (and confirm the dot width).
-        setPrintMsg(null);
-        setPrinterDialogOpen(true);
-        return;
-      }
-      setPrinting(true);
-      setPrintMsg(null);
-      try {
-        await printDo(printableDoId, target);
-        setPrintMsg({ ok: true, text: `Printed on ${target.name}` });
-      } catch (e: any) {
-        setPrintMsg({ ok: false, text: e?.message ?? "Print failed. Check the printer is on and in range." });
-      } finally {
-        setPrinting(false);
-      }
-    },
-    [run, printableDoId, printDo],
-  );
+  const doPrint = useCallback(async () => {
+    if (!run) return;
+    if (!printableDoId) {
+      setPrintMsg({ ok: false, text: "This run has no delivery order linked to it yet, so there is nothing to print." });
+      return;
+    }
+    setPrinting(true);
+    setPrintMsg(null);
+    try {
+      await printDoViaSystem(printableDoId);
+      // The dialog is now Android's. It owns printer choice, settings and
+      // cancellation, and reports none of that back — so this says the handover
+      // happened, not that paper came out.
+      setPrintMsg({ ok: true, text: "Print dialog opened — pick the printer there." });
+    } catch (e: any) {
+      setPrintMsg({ ok: false, text: e?.message ?? "Could not open the print dialog." });
+    } finally {
+      setPrinting(false);
+    }
+  }, [run, printableDoId, printDoViaSystem]);
 
   if (loading) {
     return (
@@ -225,9 +208,10 @@ export default function FinishedDeliveryDetailPage() {
         </Alert>
       )}
 
-      {/* Print DO — native shell only (Classic SPP; Web Bluetooth can't reach a
-          58mm SPP printer), same gate as the live after-ack flow. */}
-      {isPrinterAvailable() ? (
+      {/* Print DO — native shell only: window.print() is a no-op in an Android
+          WebView, so this goes through the native SystemPrint plugin to
+          Android's PrintManager. Same gate as the live after-ack flow. */}
+      {isSystemPrintAvailable() ? (
         <Button
           variant="contained"
           startIcon={printing ? <CircularProgress size={18} /> : <PrintIcon />}
@@ -239,7 +223,7 @@ export default function FinishedDeliveryDetailPage() {
           {printing ? "Printing…" : "Print DO"}
         </Button>
       ) : (
-        <Tooltip title="Printing needs the AIMS Field app (Bluetooth printer support)">
+        <Tooltip title="Printing needs the AIMS Field app">
           <span style={{ width: "100%" }}>
             <Button variant="contained" startIcon={<PrintIcon />} disabled fullWidth sx={FIELD_BUTTON_SX}>
               Print DO
@@ -287,19 +271,6 @@ export default function FinishedDeliveryDetailPage() {
       >
         Back to scan
       </Button>
-
-      {/* First-print device picker: bonded devices only; pairing lives in
-          Android Settings. Remembered per phone in localStorage. */}
-      <PrinterPickerDialog
-        open={printerDialogOpen}
-        busy={printing}
-        onClose={() => setPrinterDialogOpen(false)}
-        onPick={(d) => {
-          savePrinter(d);
-          setPrinterDialogOpen(false);
-          void doPrint(d);
-        }}
-      />
 
       {/* Offscreen A4 render — nothing visible. */}
       {printSurface}

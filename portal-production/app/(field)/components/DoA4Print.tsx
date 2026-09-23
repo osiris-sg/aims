@@ -15,6 +15,11 @@ import {
   type PrintProgress,
 } from "../lib/a4Print";
 import type { SavedPrinter } from "../lib/btPrinter";
+import {
+  DO_PRINT_PAGE_STYLE,
+  printHtmlViaSystem,
+  serializeNodeToPrintHtml,
+} from "../lib/systemPrint";
 
 /**
  * Print the REAL A4 delivery order over Bluetooth.
@@ -66,8 +71,11 @@ async function waitForPaint(node: HTMLElement): Promise<void> {
 export interface UseDoA4PrintResult {
   /** Mount this somewhere in the tree — it renders nothing visible. */
   surface: React.ReactNode;
-  /** Fetch, render, rasterise and send. Rejects with a rider-readable message. */
+  /** BLUETOOTH: fetch, render, rasterise and send over SPP. Currently unused by
+   *  the Print DO button — kept wired for the thermal A4 unit. */
   printDo: (doId: string, printer: SavedPrinter) => Promise<void>;
+  /** ANDROID PRINT DIALOG: what the Print DO button calls. */
+  printDoViaSystem: (doId: string) => Promise<void>;
   progress: PrintProgress | null;
 }
 
@@ -77,6 +85,69 @@ export function useDoA4Print(): UseDoA4PrintResult {
   const holderRef = useRef<HTMLDivElement>(null);
   const [doc, setDoc] = useState<{ data: any; variant: string; reports: any[] } | null>(null);
   const [progress, setProgress] = useState<PrintProgress | null>(null);
+
+  /**
+   * Fetch the DO, render it offscreen and wait until it is safe to capture.
+   * Shared by BOTH print roads so neither can drift from the other, and so the
+   * document on paper is the same one either way.
+   */
+  const prepare = useCallback(
+    async (doId: string): Promise<{ node: HTMLElement; documentNumber: string }> => {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+
+      const res = await request({ path: `/maintenance-reports/do-view/${doId}`, method: "GET" }, {}, token);
+      if (res?.success === false || !res?.data) {
+        throw new Error(res?.message ?? "Delivery order not found");
+      }
+      const { document: docRow, documentNumber, status, maintenanceReports: reports, templateVariant, fieldConfig } = res.data;
+      const formData = transformBackendDataForForm(docRow?.config ?? {}, fieldConfig);
+      formData.name = documentNumber;
+      formData.documentNumber = documentNumber;
+      formData.status = status;
+
+      setDoc({ data: formData, variant: templateVariant || "DO", reports: Array.isArray(reports) ? reports : [] });
+
+      // Let React commit the offscreen render before measuring it.
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      const node = holderRef.current;
+      if (!node) throw new Error("Could not prepare the document for printing");
+      await waitForPaint(node);
+      return { node, documentNumber: documentNumber ?? "Delivery Order" };
+    },
+    [getToken],
+  );
+
+  /**
+   * Print through ANDROID'S OWN print system — the dialog Chrome shows.
+   *
+   * This is the road to the WiFi inkjet: the rider taps Print DO, Android's
+   * dialog opens with the printer list, and they pick the 小篆 X1000. No
+   * Bluetooth pairing, no dot width, no raster.
+   *
+   * The document handed over is the same offscreen CleanDocumentPreview render
+   * the Bluetooth path uses, serialised with the canonical 6mm/186×277mm print
+   * CSS — so the sheet matches the portal's Print/PDF and the guest view.
+   */
+  const printDoViaSystem = useCallback(
+    async (doId: string) => {
+      setProgress({ page: 1, pageCount: 1, fraction: 0, label: "Loading the delivery order…" });
+      try {
+        const { node, documentNumber } = await prepare(doId);
+        setProgress({ page: 1, pageCount: 1, fraction: 0.5, label: "Preparing the document…" });
+        const html = await serializeNodeToPrintHtml(node, {
+          title: documentNumber,
+          pageStyle: DO_PRINT_PAGE_STYLE,
+        });
+        setProgress({ page: 1, pageCount: 1, fraction: 0.9, label: "Opening the print dialog…" });
+        await printHtmlViaSystem(html, documentNumber);
+      } finally {
+        setProgress(null);
+        setDoc(null);
+      }
+    },
+    [prepare],
+  );
 
   const printDo = useCallback(
     async (doId: string, printer: SavedPrinter) => {
@@ -150,5 +221,5 @@ export function useDoA4Print(): UseDoA4PrintResult {
     </Box>
   );
 
-  return { surface, printDo, progress };
+  return { surface, printDo, printDoViaSystem, progress };
 }
