@@ -141,6 +141,9 @@ export function useDoA4Print(): UseDoA4PrintResult {
         const html = await serializeNodeToPrintHtml(node, {
           title: documentNumber,
           pageStyle: DO_PRINT_PAGE_STYLE,
+          // The DO sheet, inside A4 less its own 6mm ring.
+          fitSelector: '[data-print-sheet="do"]',
+          fitBandMm: 285,
         });
         setProgress({ page: 1, pageCount: 1, fraction: 0.9, label: "Opening the print dialog…" });
         await printHtmlViaSystem(html, documentNumber);
@@ -167,6 +170,8 @@ export function useDoA4Print(): UseDoA4PrintResult {
         const html = await serializeNodeToPrintHtml(node, {
           title: documentNumber,
           pageStyle: DO_PRINT_PAGE_STYLE,
+          fitSelector: '[data-print-sheet="do"]',
+          fitBandMm: 285,
         });
         setProgress({ page: 1, pageCount: 1, fraction: 0.9, label: "Saving the PDF…" });
         return await savePdfViaSystem(html, documentNumber);

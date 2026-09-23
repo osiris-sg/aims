@@ -36,6 +36,7 @@ import {
 } from "@mui/material";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import { useReactToPrint } from "react-to-print";
+import { installPrintFit } from "@/lib/printScale";
 import { request } from "@/helpers/request";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 import SignaturePadField, { type SignaturePadHandle } from "@/components/delivery/SignaturePadField";
@@ -254,9 +255,27 @@ export default function PublicDocumentViewPage() {
   // transform, page background and floating button never reach the sheet.
   // There is NO server PDF renderer for DOs (that is OSI-87, out of scope).
   const printContentRef = useRef<HTMLDivElement>(null);
+  // FIT TO PAGE. The sheet is measured as it will PRINT and scaled by exactly
+  // what is needed. @media print only — the on-screen view here is untouched
+  // and stays scrollable, which is the right behaviour for a link a customer
+  // reads on a phone.
+  const printFitCleanup = useRef<(() => void) | null>(null);
   const handleDownloadPdf = useReactToPrint({
     contentRef: printContentRef,
     documentTitle: view?.data?.name || "Delivery Order",
+    onBeforePrint: async () => {
+      if (!printContentRef.current) return;
+      printFitCleanup.current = await installPrintFit(
+        printContentRef.current,
+        '[data-print-sheet="do"]',
+        285,
+        PRINT_PAGE_STYLE,
+      );
+    },
+    onAfterPrint: () => {
+      printFitCleanup.current?.();
+      printFitCleanup.current = null;
+    },
     pageStyle: PRINT_PAGE_STYLE,
   });
 

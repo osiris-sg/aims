@@ -11,7 +11,7 @@ import { DeliveriesService } from '../deliveries/deliveries.service';
 import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto';
 import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
 import { CreateLocationPingsDto } from './dto/location-ping.dto';
-import { buildServiceReportHtml, ESS_PDF_MARGIN } from './service-report-pdf';
+import { buildServiceReportHtml, ESS_PDF_MARGIN, GENERIC_PDF_FIT } from './service-report-pdf';
 import { templateFor } from './msr-templates';
 import { minPhotosForAssetClass } from 'src/common/asset-class';
 
@@ -370,7 +370,12 @@ export class MaintenanceReportsService {
       const isEssReport = templateFor((sd as any)?.templateId) === 'ESS_V1';
       pdfBuffer = await this.pdfGenerator.generatePdfFromHtml(
         html,
-        isEssReport ? { margin: ESS_PDF_MARGIN } : undefined,
+        isEssReport
+          ? { margin: ESS_PDF_MARGIN }
+          // GENERIC is a one-page form; scale it down rather than let a long
+          // remarks block push a few lines onto a second sheet. ESS paginates
+          // by design and is not fitted — see GENERIC_PDF_FIT.
+          : { fitToPage: GENERIC_PDF_FIT },
       );
     } catch (err: any) {
       this.logger.error(`MSR ${reportId} PDF generation failed: ${err?.message}`, err?.stack);

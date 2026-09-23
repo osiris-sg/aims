@@ -1,6 +1,14 @@
 "use client";
 
 import { Capacitor, registerPlugin } from "@capacitor/core";
+import {
+  collectCss,
+  computeFitScale,
+  fitToPageCss,
+  measurePrintHeightMm,
+  PRINT_FIT_CLASS,
+  willStillOverflow,
+} from "@/lib/printScale";
 
 /**
  * Android's own print system — the dialog Chrome shows, reached from inside
@@ -129,71 +137,6 @@ async function inlineImage(src: string): Promise<string> {
 }
 
 /**
- * Collect every CSS rule in the document, as text.
- *
- * THIS CANNOT READ `style.textContent`. Emotion — which is what MUI compiles
- * every `sx` prop and `styled()` component into — runs in "speedy" mode
- * whenever NODE_ENV is not development, and speedy mode inserts rules through
- * `CSSStyleSheet.insertRule()` instead of appending text:
- *
- *     // @emotion/sheet
- *     this.isSpeedy = options.speedy === undefined ? !isDevelopment : options.speedy;
- *     …
- *     if (this.isSpeedy) { sheet.insertRule(rule, sheet.cssRules.length); }
- *     else               { tag.appendChild(document.createTextNode(rule)); }
- *
- * So in a PRODUCTION build those <style> tags are EMPTY: the rules live only in
- * the CSSOM. Reading textContent returned almost nothing, the serialised
- * document carried no component CSS, and the PDF came out as unstyled stacked
- * text with no table borders and no 186mm sheet — while the app's own screen
- * looked perfect, because there the live CSSOM is still doing the work. In
- * development the same code took the `createTextNode` branch and looked fine,
- * which is exactly why this survived testing.
- *
- * Reading `sheet.cssRules` is therefore the primary source, with textContent
- * only as a fallback.
- *
- * CROSS-ORIGIN STYLESHEETS: accessing `.cssRules` on a sheet loaded from
- * another origin throws a SecurityError — the DOM forbids reading rules the
- * page did not author (it would leak, e.g., :visited state). Google Fonts is
- * exactly such a sheet. Each sheet is therefore read in its own try/catch and
- * an unreadable one is SKIPPED rather than allowed to abort the whole
- * collection; the corresponding <link> is re-emitted into the printed document
- * instead, so the print WebView fetches it directly and the font still applies.
- */
-function collectCss(): string {
-  const chunks: string[] = [];
-  for (const sheet of Array.from(document.styleSheets)) {
-    let rules: CSSRuleList | null = null;
-    try {
-      rules = sheet.cssRules;
-    } catch {
-      // Cross-origin — unreadable by design. The <link> is carried instead.
-      rules = null;
-    }
-    if (rules && rules.length > 0) {
-      chunks.push(Array.from(rules).map((r) => r.cssText).join("\n"));
-      continue;
-    }
-    // Same-origin but empty cssRules, or unreadable: fall back to the tag's own
-    // text. Covers a plain <style> the CSSOM has not parsed, and dev-mode
-    // emotion, which does write text.
-    const node = sheet.ownerNode as HTMLElement | null;
-    const text = node?.textContent ?? "";
-    if (text.trim()) chunks.push(text);
-  }
-  // A <style> tag with no associated sheet (never parsed) has no entry in
-  // document.styleSheets at all — sweep those up too so nothing is missed.
-  for (const tag of Array.from(document.querySelectorAll("style"))) {
-    if (!(tag as HTMLStyleElement).sheet) {
-      const text = tag.textContent ?? "";
-      if (text.trim()) chunks.push(text);
-    }
-  }
-  return chunks.join("\n");
-}
-
-/**
  * Turn a live, rendered node into a self-contained HTML document.
  *
  * Everything the node needs must travel with it: the print WebView loads the
@@ -204,7 +147,18 @@ function collectCss(): string {
  */
 export async function serializeNodeToPrintHtml(
   node: HTMLElement,
-  opts: { title: string; pageStyle: string },
+  opts: {
+    title: string;
+    pageStyle: string;
+    /**
+     * The sheet to measure and scale. Omit to skip fit-to-page entirely.
+     * The DO sheet is `[data-print-sheet="do"]`; the maintenance report has no
+     * single sheet element and passes its own wrapper.
+     */
+    fitSelector?: string;
+    /** Printable band in mm — A4 less the page margin this document sets. */
+    fitBandMm?: number;
+  },
 ): Promise<string> {
   const clone = node.cloneNode(true) as HTMLElement;
 
@@ -234,7 +188,7 @@ export async function serializeNodeToPrintHtml(
 
   const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  return `<!DOCTYPE html>
+  const build = (extraCss: string) => `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -245,10 +199,30 @@ ${links}
 <style>
   html, body { margin: 0; padding: 0; background: #fff; }
   ${opts.pageStyle}
-</style>
+</style>${extraCss ? `\n<style>${extraCss}</style>` : ""}
 </head>
-<body>${clone.outerHTML}</body>
+<body><div class="${PRINT_FIT_CLASS}">${clone.outerHTML}</div></body>
 </html>`;
+
+  // FIT TO PAGE. Measure the document as it will PRINT (not as it looks on
+  // screen — see measurePrintHeightMm) and scale only by what is needed. A
+  // sheet that already fits gets scale 1 and no extra CSS at all.
+  if (opts.fitSelector) {
+    const naturalMm = await measurePrintHeightMm(build(""), opts.fitSelector);
+    const scale = computeFitScale(naturalMm, opts.fitBandMm);
+    if (scale < 1) {
+      if (willStillOverflow(naturalMm, opts.fitBandMm)) {
+        // Past the floor: shrinking stops and the document is allowed to run
+        // to a second page. Legible over two pages beats illegible on one.
+        console.warn(
+          `[print] ${opts.title}: ${naturalMm.toFixed(1)}mm of content cannot fit one page ` +
+            `at the ${scale} floor — printing across pages instead.`,
+        );
+      }
+      return build(fitToPageCss(opts.fitSelector, scale, naturalMm));
+    }
+  }
+  return build("");
 }
 
 /**

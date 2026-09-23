@@ -6,13 +6,29 @@ import { DESCRIPTION_HAS_MODEL, DESCRIPTION_HAS_SERIAL } from './document-html/s
 @Injectable()
 export class PdfGeneratorService {
   /**
+   * Smallest scale that still prints legibly (~6.3pt body text). At the floor
+   * the shrinking STOPS and the document spills to a second page — legible
+   * over two pages beats illegible on one, and a visible overflow beats a
+   * silent one.
+   * Mirrors PRINT_SCALE_FLOOR in portal-production/lib/printScale.ts.
+   */
+  private static readonly FIT_SCALE_FLOOR = 0.7;
+
+  /**
    * @param options.margin page margins for the PDF. Omitted = the legacy
    *        zero-margin behaviour (layouts that pad themselves). The ported
    *        portal layouts pass real margins so every page is inset properly.
+   * @param options.fitToPage scale the document down so it fits one page.
+   *        `selector` addresses the sheet, `bandMm` is A4 less this document's
+   *        own page margin. Only ever scales DOWN — a document that already
+   *        fits is rendered untouched.
    */
   async generatePdfFromHtml(
     html: string,
-    options?: { margin?: { top: string; right: string; bottom: string; left: string } },
+    options?: {
+      margin?: { top: string; right: string; bottom: string; left: string };
+      fitToPage?: { selector: string; bandMm: number };
+    },
   ): Promise<Buffer> {
     let browser = null;
 
@@ -51,6 +67,54 @@ export class PdfGeneratorService {
           }
         `,
       });
+
+      // FIT TO PAGE. Measure the sheet as it will PRINT — print media emulated,
+      // so the @media print rules that define its geometry are the ones in
+      // effect — then scale by exactly what is needed.
+      //
+      // The scale is a CSS transform on the sheet inside a fixed-height,
+      // overflow-hidden container — NOT page.pdf({ scale }). Puppeteer's own
+      // scale exists, but the field app cannot use it (Android's
+      // PrintAttributes has no scale field), and two mechanisms that round
+      // differently would drift. One mechanism, one result. See
+      // portal-production/lib/printScale.ts.
+      if (options?.fitToPage) {
+        const { selector, bandMm } = options.fitToPage;
+        await page.emulateMediaType('print');
+        const naturalMm = await page.evaluate((sel) => {
+          const el = document.querySelector(sel) as HTMLElement | null;
+          if (!el) return 0;
+          return (el.getBoundingClientRect().height / 96) * 25.4;
+        }, selector);
+
+        if (naturalMm > bandMm) {
+          const needed = Math.floor((bandMm / naturalMm) * 1000) / 1000;
+          const scale = Math.max(PdfGeneratorService.FIT_SCALE_FLOOR, needed);
+          const scaledMm = (naturalMm * scale).toFixed(2);
+          if (needed < PdfGeneratorService.FIT_SCALE_FLOOR) {
+            console.warn(
+              `[pdf] ${naturalMm.toFixed(1)}mm of content cannot fit one page at the ` +
+                `${PdfGeneratorService.FIT_SCALE_FLOOR} floor — rendering across pages instead.`,
+            );
+          }
+          // The CONTAINER carries the scaled height — a transform alone leaves
+          // the layout box full-size and Chromium still breaks the page. See
+          // portal-production/lib/printScale.ts, where this was measured.
+          await page.evaluate((sel) => {
+            const el = document.querySelector(sel);
+            el?.parentElement?.classList.add('aims-print-fit');
+          }, selector);
+          await page.addStyleTag({
+            content: `@media print {
+              .aims-print-fit { height: ${scaledMm}mm !important; overflow: hidden !important; }
+              .aims-print-fit ${selector} {
+                transform: scale(${scale}) !important;
+                transform-origin: top left !important;
+              }
+            }`,
+          });
+        }
+      }
 
       // Generate PDF with A4 format
       const pdfBuffer = await page.pdf({

@@ -112,7 +112,14 @@ export function useMsrPrint(): UseMsrPrintResult {
       try {
         const { node, title } = await prepare(reportId);
         setBusy("Preparing the document…");
-        const html = await serializeNodeToPrintHtml(node, { title, pageStyle: MSR_PRINT_PAGE_STYLE });
+        const html = await serializeNodeToPrintHtml(node, {
+          title,
+          pageStyle: MSR_PRINT_PAGE_STYLE,
+          // The report has no single sheet element; the offscreen holder IS the
+          // document. A4 less this path's 10mm margin.
+          fitSelector: "[data-msr-sheet]",
+          fitBandMm: 277,
+        });
         setBusy("Opening the print dialog…");
         await printHtmlViaSystem(html, title);
       } finally {
@@ -129,7 +136,12 @@ export function useMsrPrint(): UseMsrPrintResult {
       try {
         const { node, title } = await prepare(reportId);
         setBusy("Preparing the document…");
-        const html = await serializeNodeToPrintHtml(node, { title, pageStyle: MSR_PRINT_PAGE_STYLE });
+        const html = await serializeNodeToPrintHtml(node, {
+          title,
+          pageStyle: MSR_PRINT_PAGE_STYLE,
+          fitSelector: "[data-msr-sheet]",
+          fitBandMm: 277,
+        });
         setBusy("Saving the PDF…");
         return await savePdfViaSystem(html, title);
       } finally {
@@ -152,7 +164,7 @@ export function useMsrPrint(): UseMsrPrintResult {
       aria-hidden
       sx={{ position: "fixed", left: -100000, top: 0, width: A4_WIDTH_PX, bgcolor: "#fff", pointerEvents: "none", zIndex: -1 }}
     >
-      <div ref={holderRef} style={{ width: A4_WIDTH_PX, background: "#fff", padding: 16 }}>
+      <div ref={holderRef} data-msr-sheet style={{ width: A4_WIDTH_PX, background: "#fff", padding: 16 }}>
         {report && (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <Box sx={{ border: 1, borderColor: "divider", p: 2 }} className="msr-section">

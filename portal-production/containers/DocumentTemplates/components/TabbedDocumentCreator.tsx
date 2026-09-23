@@ -115,6 +115,7 @@ import SendInvoiceEmailDialog from "@/app/portal/invoices/components/SendInvoice
 import RecordPaymentDialog from "@/app/portal/invoices/components/RecordPaymentDialog";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useReactToPrint } from "react-to-print";
+import { installPrintFit } from "@/lib/printScale";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
@@ -421,9 +422,27 @@ export default function TabbedDocumentCreator({
     documentType === "DELIVERY_ORDER" ||
     documentType === "RDO" ||
     documentType === "RETURN_DELIVERY_ORDER";
+  // FIT TO PAGE (DO/RDO only). The sheet is measured as it will PRINT and
+  // scaled by exactly what is needed; one that already fits is untouched. The
+  // rule is @media print, so the editor's on-screen preview never changes.
+  // See lib/printScale.ts for why a transform rather than zoom or the print
+  // dialog's own scale.
+  const printFitCleanup = useRef<(() => void) | null>(null);
   const handleBrowserPrint = useReactToPrint({
     contentRef: printContentRef,
     documentTitle: printDocumentTitle,
+    onBeforePrint: async () => {
+      if (!isDoSheet || !printContentRef.current) return;
+      printFitCleanup.current = await installPrintFit(
+        printContentRef.current,
+        '[data-print-sheet="do"]',
+        285,
+      );
+    },
+    onAfterPrint: () => {
+      printFitCleanup.current?.();
+      printFitCleanup.current = null;
+    },
     pageStyle: `
       @page {
         size: A4;
