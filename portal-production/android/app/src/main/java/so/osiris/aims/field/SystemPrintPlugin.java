@@ -10,6 +10,7 @@ import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.print.PageRange;
+import android.print.PdfPrintCallbacks;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
@@ -227,7 +228,9 @@ public class SystemPrintPlugin extends Plugin {
                             // user's Downloads.
                             final File tmp = new File(getContext().getCacheDir(), fileName);
 
-                            adapter.onLayout(null, attrs, null, new PrintDocumentAdapter.LayoutResultCallback() {
+                            // See PdfPrintCallbacks: these two callbacks have package-private
+                            // constructors, so the subclass has to live in android.print.
+                            adapter.onLayout(null, attrs, null, new PdfPrintCallbacks.Layout() {
                                 @Override
                                 public void onLayoutFinished(android.print.PrintDocumentInfo info, boolean changed) {
                                     try {
@@ -235,7 +238,7 @@ public class SystemPrintPlugin extends Plugin {
                                             tmp, ParcelFileDescriptor.MODE_CREATE | ParcelFileDescriptor.MODE_READ_WRITE);
                                         adapter.onWrite(new PageRange[]{ PageRange.ALL_PAGES }, pfd,
                                             new CancellationSignal(),
-                                            new PrintDocumentAdapter.WriteResultCallback() {
+                                            new PdfPrintCallbacks.Write() {
                                                 @Override
                                                 public void onWriteFinished(PageRange[] pages) {
                                                     try { pfd.close(); } catch (Exception ignored) {}
