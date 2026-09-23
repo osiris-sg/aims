@@ -18,6 +18,7 @@ import type { SavedPrinter } from "../lib/btPrinter";
 import {
   DO_PRINT_PAGE_STYLE,
   printHtmlViaSystem,
+  savePdfViaSystem,
   serializeNodeToPrintHtml,
 } from "../lib/systemPrint";
 
@@ -76,6 +77,8 @@ export interface UseDoA4PrintResult {
   printDo: (doId: string, printer: SavedPrinter) => Promise<void>;
   /** ANDROID PRINT DIALOG: what the Print DO button calls. */
   printDoViaSystem: (doId: string) => Promise<void>;
+  /** SAVE TO THE TABLET: what the Download DO button calls. */
+  downloadDo: (doId: string) => Promise<{ uri: string; fileName: string }>;
   progress: PrintProgress | null;
 }
 
@@ -141,6 +144,32 @@ export function useDoA4Print(): UseDoA4PrintResult {
         });
         setProgress({ page: 1, pageCount: 1, fraction: 0.9, label: "Opening the print dialog…" });
         await printHtmlViaSystem(html, documentNumber);
+      } finally {
+        setProgress(null);
+        setDoc(null);
+      }
+    },
+    [prepare],
+  );
+
+  /**
+   * Save the DO as a PDF on the tablet (and offer the share sheet).
+   * Same render, same print CSS, same serialiser as the print path — only the
+   * destination differs, so the saved file is the document that would have
+   * printed.
+   */
+  const downloadDo = useCallback(
+    async (doId: string) => {
+      setProgress({ page: 1, pageCount: 1, fraction: 0, label: "Loading the delivery order…" });
+      try {
+        const { node, documentNumber } = await prepare(doId);
+        setProgress({ page: 1, pageCount: 1, fraction: 0.5, label: "Preparing the document…" });
+        const html = await serializeNodeToPrintHtml(node, {
+          title: documentNumber,
+          pageStyle: DO_PRINT_PAGE_STYLE,
+        });
+        setProgress({ page: 1, pageCount: 1, fraction: 0.9, label: "Saving the PDF…" });
+        return await savePdfViaSystem(html, documentNumber);
       } finally {
         setProgress(null);
         setDoc(null);
@@ -221,5 +250,5 @@ export function useDoA4Print(): UseDoA4PrintResult {
     </Box>
   );
 
-  return { surface, printDo, printDoViaSystem, progress };
+  return { surface, printDo, printDoViaSystem, downloadDo, progress };
 }

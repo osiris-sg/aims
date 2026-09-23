@@ -14,6 +14,7 @@ import {
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PrintIcon from "@mui/icons-material/Print";
+import DownloadIcon from "@mui/icons-material/Download";
 import LinearProgress from "@mui/material/LinearProgress";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { request } from "@/helpers/request";
@@ -136,7 +137,7 @@ export default function FinishedDeliveryDetailPage() {
   // Print DO goes through ANDROID'S print system now: the printer is a 小篆
   // X1000, a WiFi colour inkjet, which no Bluetooth path can reach. `surface`
   // must be mounted — it is the offscreen A4 render being printed.
-  const { surface: printSurface, printDoViaSystem, progress: printProgress } = useDoA4Print();
+  const { surface: printSurface, printDoViaSystem, downloadDo, progress: printProgress } = useDoA4Print();
 
   // The DO this run delivered. The API derives a run-level `document` —
   // "exactly one distinct DO across linked items" — and it is deliberately null
@@ -169,6 +170,28 @@ export default function FinishedDeliveryDetailPage() {
       setPrinting(false);
     }
   }, [run, printableDoId, printDoViaSystem]);
+
+  /**
+   * Download DO — save the PDF to the tablet, then offer the share sheet.
+   * Same render, same print CSS, same serialiser as Print DO; only the
+   * destination differs, so the saved file is the document that would print.
+   */
+  const doDownload = async () => {
+    if (!printableDoId) {
+      setPrintMsg({ ok: false, text: "This run has no delivery order linked to it yet, so there is nothing to download." });
+      return;
+    }
+    setPrinting(true);
+    setPrintMsg(null);
+    try {
+      const saved = await downloadDo(printableDoId);
+      setPrintMsg({ ok: true, text: `Saved to Downloads as ${saved.fileName}` });
+    } catch (e: any) {
+      setPrintMsg({ ok: false, text: e?.message ?? "Could not save the PDF." });
+    } finally {
+      setPrinting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -230,6 +253,23 @@ export default function FinishedDeliveryDetailPage() {
             </Button>
           </span>
         </Tooltip>
+      )}
+
+      {/* Download DO — the X1000 serves its own WiFi hotspot with no internet,
+          so the tablet cannot be on the printer's network and on ours at once.
+          Saving the PDF first lets the rider join that hotspot afterwards and
+          print from the printer's own app. */}
+      {isSystemPrintAvailable() && (
+        <Button
+          variant="outlined"
+          startIcon={<DownloadIcon />}
+          onClick={() => void doDownload()}
+          disabled={printing}
+          fullWidth
+          sx={FIELD_BUTTON_SX}
+        >
+          Download DO
+        </Button>
       )}
 
       {/* A full page is a large transfer over SPP — show the rider it is moving. */}

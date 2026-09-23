@@ -32,12 +32,16 @@ export class MaintenanceReportsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('search') search?: string,
+    // `draft` = awaiting signature (the field app's Ongoing Reports),
+    // `completed` = signed. Omitted keeps the office page's existing "both".
+    @Query('status') status?: string,
   ) {
     return this.service.findAllService(
       org.id,
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 20,
       search,
+      status === 'draft' || status === 'completed' ? status : undefined,
     );
   }
 

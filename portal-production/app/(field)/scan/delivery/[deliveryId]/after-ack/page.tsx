@@ -24,6 +24,7 @@ import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PrintIcon from "@mui/icons-material/Print";
+import DownloadIcon from "@mui/icons-material/Download";
 import LinearProgress from "@mui/material/LinearProgress";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
@@ -582,7 +583,7 @@ export default function AfterAckPage() {
   // paths cannot reach it. Print DO hands the A4 document to Android's own
   // print dialog, the same one Chrome uses, and the rider picks the printer
   // there. The Bluetooth raster and 58mm receipt code stays in the repo.
-  const { surface: printSurface, printDoViaSystem, progress: printProgress } = useDoA4Print();
+  const { surface: printSurface, printDoViaSystem, downloadDo, progress: printProgress } = useDoA4Print();
 
   const doPrint = async () => {
     if (!printableDoId) {
@@ -598,6 +599,28 @@ export default function AfterAckPage() {
       setPrintMsg({ ok: true, text: "Print dialog opened — pick the printer there." });
     } catch (e: any) {
       setPrintMsg({ ok: false, text: e?.message ?? "Could not open the print dialog." });
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+  /**
+   * Download DO — save the PDF to the tablet, then offer the share sheet.
+   * Same render, same print CSS, same serialiser as Print DO; only the
+   * destination differs, so the saved file is the document that would print.
+   */
+  const doDownload = async () => {
+    if (!printableDoId) {
+      setPrintMsg({ ok: false, text: "This run has no delivery order linked to it yet, so there is nothing to download." });
+      return;
+    }
+    setPrinting(true);
+    setPrintMsg(null);
+    try {
+      const saved = await downloadDo(printableDoId);
+      setPrintMsg({ ok: true, text: `Saved to Downloads as ${saved.fileName}` });
+    } catch (e: any) {
+      setPrintMsg({ ok: false, text: e?.message ?? "Could not save the PDF." });
     } finally {
       setPrinting(false);
     }
@@ -658,6 +681,22 @@ export default function AfterAckPage() {
               </Button>
             </span>
           </Tooltip>
+        )}
+
+        {/* Download DO — the printer's WiFi hotspot has no internet, so the
+            rider saves the PDF here and prints it from the printer's own app
+            after joining that network. */}
+        {isSystemPrintAvailable() && (
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={() => void doDownload()}
+            disabled={printing}
+            fullWidth
+            sx={{ ...FIELD_BUTTON_SX, maxWidth: 360 }}
+          >
+            Download DO
+          </Button>
         )}
         {/* A full A4 page is a large transfer over SPP — keep the rider informed. */}
         {printing && (

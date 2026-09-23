@@ -21,6 +21,13 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 interface SystemPrintPlugin {
   isAvailable(): Promise<{ available: boolean }>;
   printHtml(options: { html: string; jobName?: string; baseUrl?: string }): Promise<void>;
+  savePdf(options: {
+    html: string;
+    fileName?: string;
+    baseUrl?: string;
+    /** Open the system share sheet on success. */
+    share?: boolean;
+  }): Promise<{ uri: string; fileName: string }>;
 }
 
 const SystemPrint = registerPlugin<SystemPrintPlugin>("SystemPrint");
@@ -181,6 +188,27 @@ ${links}
 </head>
 <body>${clone.outerHTML}</body>
 </html>`;
+}
+
+/**
+ * Save an already-serialised document to the tablet as a PDF.
+ *
+ * WHY DOWNLOAD EXISTS ALONGSIDE PRINT: the X1000 makes its own WiFi hotspot
+ * with no internet. The tablet cannot be on that hotspot and on the network
+ * that serves this app at the same time, so "print now" is impossible for that
+ * printer — the rider has to take the document with them. Save first, join the
+ * printer's WiFi, print from the printer's own app.
+ *
+ * It lands in the public Downloads collection (Files, Downloads, and every
+ * app's file picker), and `share: true` additionally opens the share sheet so
+ * the printer's app is one tap away instead of a hunt.
+ */
+export async function savePdfViaSystem(
+  html: string,
+  fileName: string,
+  share = true,
+): Promise<{ uri: string; fileName: string }> {
+  return await SystemPrint.savePdf({ html, fileName, share, baseUrl: window.location.origin + "/" });
 }
 
 /** Open Android's print dialog for an already-serialised document. */

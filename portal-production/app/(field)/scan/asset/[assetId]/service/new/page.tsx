@@ -132,9 +132,10 @@ const GENERIC_STEPS = [
   "Header",
   "Checklist",
   "Remarks & Time",
+  "Payment",
+  "Sign or skip",
   "Service signature",
   "Client signature",
-  "Payment",
 ] as const;
 
 const ESS_STEPS = [
@@ -145,9 +146,10 @@ const ESS_STEPS = [
   "Power-on tests",
   "Remarks & Time",
   "Conclusion",
+  "Payment",
+  "Sign or skip",
   "Service signature",
   "Client signature",
-  "Payment",
 ] as const;
 
 type StepName = (typeof ESS_STEPS)[number] | (typeof GENERIC_STEPS)[number];
@@ -209,6 +211,9 @@ export default function NewServiceReportPage() {
   const [essItems, setEssItems] = useState<Record<string, EssItemResult>>({});
   const [essMeasures, setEssMeasures] = useState<Record<string, EssMeasureResult>>({});
   const [essDefects, setEssDefects] = useState<EssDefectRow[]>([]);
+  // Chosen on the Payment step, applied at whichever submit follows — signed or
+  // skipped. It used to BE the submit, which is why it sat last.
+  const [paymentRequired, setPaymentRequired] = useState<boolean | null>(null);
   // Index of the defect row currently uploading, so only that row shows a
   // spinner and only its Add-photo button disables.
   const [defectUploading, setDefectUploading] = useState<number | null>(null);
@@ -543,20 +548,32 @@ export default function NewServiceReportPage() {
     return await res.blob();
   };
 
-  const submit = async (paymentRequired: boolean) => {
+  /**
+   * Submit the report.
+   *
+   * `signed: false` is the Skip path: the report is stored with NO signature,
+   * which leaves `status` at the schema default `draft` server-side — the same
+   * shape a scheduled delivery uses to mean "real, but not finished yet". It
+   * gets its report number as normal (the visit happened; the paper form has a
+   * number) and it deliberately does NOT email the customer: a report whose
+   * "Received in good order by" line is blank must not be sent as though it had
+   * been acknowledged. POST /maintenance-reports/:id/sign completes it later
+   * and sends the email then.
+   */
+  const submit = async (signed: boolean) => {
     if (!customer) {
       setError("Pick a company first");
       setStep(1);
       return;
     }
-    if (!techSigDataUrl) {
+    if (signed && !techSigDataUrl) {
       setError("Service signature is required");
-      setStep(4);
+      setStep((STEPS as readonly StepName[]).indexOf("Service signature") + 1);
       return;
     }
-    if (!clientSigDataUrl) {
+    if (signed && !clientSigDataUrl) {
       setError("Client signature is required");
-      setStep(5);
+      setStep((STEPS as readonly StepName[]).indexOf("Client signature") + 1);
       return;
     }
 
@@ -568,16 +585,23 @@ export default function NewServiceReportPage() {
 
       // Upload both signatures to S3 — same folder as photos so the office
       // portal renders them via the existing NEXT_PUBLIC_RESOURCE_URL prefix.
-      const [techBlob, clientBlob] = await Promise.all([
-        dataUrlToBlob(techSigDataUrl),
-        dataUrlToBlob(clientSigDataUrl),
-      ]);
-      const [techKey, clientKey] = await Promise.all([
-        uploadImage({ blob: techBlob, folderName: "maintenance-reports", token }),
-        uploadImage({ blob: clientBlob, folderName: "maintenance-reports", token }),
-      ]);
-      if (!techKey || !clientKey) {
-        throw new Error("Signature upload failed");
+      // On the Skip path there is nothing to upload and both keys stay null;
+      // the office page and the PDF already render a missing signature as an
+      // empty block rather than failing.
+      let techKey: string | null = null;
+      let clientKey: string | null = null;
+      if (signed) {
+        const [techBlob, clientBlob] = await Promise.all([
+          dataUrlToBlob(techSigDataUrl as string),
+          dataUrlToBlob(clientSigDataUrl as string),
+        ]);
+        [techKey, clientKey] = await Promise.all([
+          uploadImage({ blob: techBlob, folderName: "maintenance-reports", token }),
+          uploadImage({ blob: clientBlob, folderName: "maintenance-reports", token }),
+        ]);
+        if (!techKey || !clientKey) {
+          throw new Error("Signature upload failed");
+        }
       }
 
       const timeOut = new Date();
@@ -634,7 +658,7 @@ export default function NewServiceReportPage() {
         remarks: remarks.trim() || null,
         techSignatureKey: techKey,
         clientSignatureKey: clientKey,
-        clientSignerName: clientSignerName.trim() || null,
+        clientSignerName: signed ? clientSignerName.trim() || null : null,
       };
 
       const res = await request(
@@ -644,9 +668,12 @@ export default function NewServiceReportPage() {
           ...(inventoryId ? { inventoryId } : {}),
           kind: "SERVICE",
           description: remarks.trim() || "Maintenance service report",
-          signature: clientKey,
-          paymentRequired,
-          ...(clientSignerName.trim() ? { signedByName: clientSignerName.trim() } : {}),
+          // Omitting `signature` is what leaves the row at status `draft`
+          // server-side — the create path only flips it to `completed` when a
+          // signature arrives. That is the whole "awaiting signature" state.
+          ...(signed && clientKey ? { signature: clientKey } : {}),
+          paymentRequired: paymentRequired ?? false,
+          ...(signed && clientSignerName.trim() ? { signedByName: clientSignerName.trim() } : {}),
           ...(technicianName ? { technicianName } : {}),
           serviceData,
         },
@@ -656,6 +683,16 @@ export default function NewServiceReportPage() {
         throw new Error(res?.message ?? "Failed to submit report");
       }
 
+      // A SIGNED report goes straight to its print/download screen — the rider
+      // is still standing at the machine and that is when the customer's copy
+      // is wanted. A SKIPPED one has nothing to print (the acknowledgment line
+      // would be blank), so it returns to the normal done screen and waits in
+      // Ongoing reports.
+      const created = res?.data ?? res;
+      if (signed && created?.id) {
+        router.replace(`/scan/reports/${created.id}/print`);
+        return;
+      }
       // Keep inventoryId on the /done URL so "Back to this asset" restores
       // the full scan context in the action chooser.
       const invDoneQuery = inventoryId ? `?inventoryId=${encodeURIComponent(inventoryId)}` : "";
@@ -1438,31 +1475,72 @@ export default function NewServiceReportPage() {
   // Step 6 — payment choice. The two buttons ARE the submit; there's no
   // single "Submit" anywhere on this step. Tapping either kicks off the
   // upload + POST path with the chosen flag.
+  // Payment is now a CHOICE, not the submit. It used to be both, which is why
+  // it sat last; with signing moved to the end it becomes an ordinary step and
+  // the answer is carried to whichever submit follows.
   const renderPaymentStep = () => (
     <Stack spacing={2}>
       <Typography variant="body2" color="text.secondary">
         If payment is required (e.g. faulty equipment), an invoice will be created on the
-        dashboard. Otherwise, a copy of this report will be emailed to the customer.
+        dashboard. Otherwise, a copy of this report is emailed to the customer once it is
+        signed.
       </Typography>
       <Button
-        variant="outlined"
-        onClick={() => submit(false)}
-        disabled={submitting}
+        variant={paymentRequired === false ? "contained" : "outlined"}
+        onClick={() => setPaymentRequired(false)}
         fullWidth
         sx={{ ...FIELD_BUTTON_SX, py: 2.5, fontSize: "1.05rem" }}
       >
-        {submitting ? <CircularProgress size={20} /> : "No Payment Required"}
+        No Payment Required
       </Button>
       <Button
-        variant="contained"
+        variant={paymentRequired === true ? "contained" : "outlined"}
         color="warning"
-        onClick={() => submit(true)}
+        onClick={() => setPaymentRequired(true)}
+        fullWidth
+        sx={{ ...FIELD_BUTTON_SX, py: 2.5, fontSize: "1.05rem" }}
+      >
+        Payment Required
+      </Button>
+    </Stack>
+  );
+
+  /**
+   * Sign now, or skip.
+   *
+   * Skip exists because the person who signs is often not on site when the work
+   * finishes. The report is real either way — it keeps its number and all its
+   * findings — it is simply left awaiting a signature, the same way a scheduled
+   * delivery is a real run that has not been driven yet. The technician picks it
+   * up later from Ongoing Reports and signs it there.
+   */
+  const renderSignGateStep = () => (
+    <Stack spacing={2}>
+      <Typography variant="body2" color="text.secondary">
+        Is the customer here to sign now? If not, the report is saved and stays in
+        Ongoing Reports until someone signs it.
+      </Typography>
+      <Button
+        variant="contained"
+        onClick={() => setStep((v) => Math.min(v + 1, TOTAL_STEPS))}
         disabled={submitting}
         fullWidth
         sx={{ ...FIELD_BUTTON_SX, py: 2.5, fontSize: "1.05rem" }}
       >
-        {submitting ? <CircularProgress size={20} color="inherit" /> : "Payment Required"}
+        Sign now
       </Button>
+      <Button
+        variant="outlined"
+        onClick={() => void submit(false)}
+        disabled={submitting}
+        fullWidth
+        sx={{ ...FIELD_BUTTON_SX, py: 2.5, fontSize: "1.05rem" }}
+      >
+        {submitting ? <CircularProgress size={20} /> : "Skip — sign later"}
+      </Button>
+      <Typography variant="caption" color="text.secondary">
+        A skipped report is not emailed to the customer until it is signed.
+      </Typography>
     </Stack>
   );
 
@@ -1484,8 +1562,18 @@ export default function NewServiceReportPage() {
       );
       return;
     }
+    if (stepName === "Payment" && paymentRequired === null) {
+      setError("Choose whether payment is required");
+      return;
+    }
     if (stepName === "Service signature" && !captureTechSig()) return;
-    if (stepName === "Client signature" && !captureClientSig()) return;
+    // Client signature is the LAST step: capturing it submits, rather than
+    // advancing to a step that no longer exists.
+    if (stepName === "Client signature") {
+      if (!captureClientSig()) return;
+      void submit(true);
+      return;
+    }
     setStep((v) => Math.min(v + 1, TOTAL_STEPS));
   };
 
@@ -1511,7 +1599,8 @@ export default function NewServiceReportPage() {
     submitting ||
     (stepName === "Header" && !canAdvanceFromHeader) ||
     (stepName === "Service signature" && !techSigDrawn && !techSigDataUrl) ||
-    (stepName === "Client signature" && !clientSigDrawn && !clientSigDataUrl);
+    (stepName === "Client signature" && !clientSigDrawn && !clientSigDataUrl) ||
+    (stepName === "Payment" && paymentRequired === null);
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5, pb: 6 }}>
@@ -1536,12 +1625,13 @@ export default function NewServiceReportPage() {
       {stepName === "Service signature" && renderTechSigStep()}
       {stepName === "Client signature" && renderClientSigStep()}
       {stepName === "Payment" && renderPaymentStep()}
+      {stepName === "Sign or skip" && renderSignGateStep()}
 
       {error && <Alert severity="error">{error}</Alert>}
 
-      {/* The Payment step supplies its own action buttons (the two payment
-          choices), so the standard Back/Next row hides there. */}
-      {stepName !== "Payment" && (
+      {/* The Sign-or-skip step supplies its own buttons, so the standard
+          Back/Next row hides there. Payment is now an ordinary step with Next. */}
+      {stepName !== "Sign or skip" && (
         <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
           <Button variant="outlined" onClick={onBack} disabled={submitting} fullWidth sx={FIELD_BUTTON_SX}>
             Back
@@ -1553,11 +1643,11 @@ export default function NewServiceReportPage() {
             fullWidth
             sx={FIELD_BUTTON_SX}
           >
-            Next
+            {stepName === "Client signature" ? (submitting ? "Submitting…" : "Submit") : "Next"}
           </Button>
         </Stack>
       )}
-      {stepName === "Payment" && (
+      {stepName === "Sign or skip" && (
         <Button
           variant="text"
           onClick={onBack}

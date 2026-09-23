@@ -322,6 +322,40 @@ export const ESS_RISK_LEVELS = ['Major', 'Minor'] as const;
 
 export const ESS_DEFECT_STATUSES = ['Open', 'In progress', 'Closed'] as const;
 
+/**
+ * OPERATION & MAINTENANCE RECOMMENDATIONS — the reference's five fixed
+ * paragraphs. PRINTED, NEVER CAPTURED: the field form does not ask for these
+ * and must not, because they are standing advice about the class of equipment,
+ * not an observation about this visit.
+ *
+ * Item 5 carries the next maintenance date, so the list is BUILT rather than
+ * stored — a stored copy would freeze whatever date was current at capture and
+ * then disagree with the report's own Next Service Date after any edit. With no
+ * date set it falls back to the reference's own blank rule, which is what the
+ * paper form shows when the date has not been agreed yet.
+ */
+export const ESS_NEXT_DATE_BLANK = '_____ (Year) _____ (Month) _____ (Day)';
+
+export function essRecommendations(nextServiceDate?: string | null): string[] {
+  return [
+    'Air-cooled energy storage systems are highly sensitive to dust accumulation. It is recommended to inspect and clean air filters every 1–3 months and replace filters every 6 to 12 months, so as to prevent battery overheating and excessive temperature differential caused by blocked air ducts.',
+    'Regularly inspect the operating condition of cooling fans. Conduct aging assessment after 2 years of operation and replace degraded fans in advance to mitigate the risk of cooling system failure.',
+    'During plum rain and high-humidity seasons, prioritize inspection of the cabinet enclosure sealing performance to prevent internal condensation, which may lead to reduced insulation capacity and electrical faults.',
+    'Export background operation logs monthly, and continuously monitor battery voltage differential, cluster temperature differential and equipment alarm trends to enable proactive risk identification and preventive maintenance.',
+    `Next scheduled maintenance date: ${nextServiceDate?.trim() || ESS_NEXT_DATE_BLANK}`,
+  ];
+}
+
+/**
+ * FINAL INSPECTION CONCLUSION — the reference's fixed closing paragraphs.
+ * Printed, never captured, for the same reason as the recommendations: it is
+ * the standing statement the report is issued under, not a free-text field.
+ */
+export const ESS_FINAL_CONCLUSION: string[] = [
+  'A comprehensive inspection was performed covering enclosure structure, air-cooling system, battery racks, BMS, PCS, HV/LV distribution, fire monitoring, and grounding – including cleaning, terminal tightening, parameter verification, defect check, and functional power-on validation.',
+  'All parameters, cooling performance, protection logic, and charge/discharge functions meet standard requirements. The system is in good overall health and is cleared for grid connection and normal operation.',
+];
+
 /** The reference's one-line defect summary. Counts are always derived. */
 export function essDefectSummary(major: number, minor: number): string {
   return `Total issues found: ${major + minor} (Major: ${major}, Minor: ${minor}). All rectified and closed.`;

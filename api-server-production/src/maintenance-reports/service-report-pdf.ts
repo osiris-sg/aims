@@ -12,9 +12,11 @@
 import {
   ESS_CATEGORIES,
   ESS_POWER_ON_TESTS,
+  ESS_FINAL_CONCLUSION,
   ESS_HEADER_FIXED,
   GENERIC_CHECKLIST,
   essDefectSummary,
+  essRecommendations,
   TEMPLATE_LABELS,
   essItemKey,
   isOverridden,
@@ -132,6 +134,9 @@ const ESS_PRINT_CSS = `
     .measure-value { font-weight: 700; }
     .measure-remark { font-size: 9.5px; color: #8a4b00; margin-top: 2px; }
     .hint { color: #666; font-weight: 400; }
+    ol.recs { margin: 0 0 0 16px; font-size: 10.5px; padding-left: 4px; }
+    ol.recs li { margin-bottom: 4px; }
+    p.concl { font-size: 10.5px; margin-bottom: 5px; }
     .defect-shots { display: flex; flex-wrap: wrap; gap: 3px; }
     .defect-shot { width: 46px; height: 46px; object-fit: cover; border: 1px solid #999; border-radius: 2px; }
     .fixed-block { border: 1px solid #ccc; background: #fafafa; padding: 5px 7px; margin-bottom: 10px; }
@@ -203,7 +208,7 @@ const buildEssConclusionHtml = (ess: EssServiceData | null): string => {
  * Each block carries a `keep` class so the print CSS can refuse to split it
  * across a page boundary. The conclusion is built separately, above.
  */
-const buildEssBodyHtml = (ess: EssServiceData | null): string => {
+const buildEssBodyHtml = (ess: EssServiceData | null, nextServiceDate?: string | null): string => {
   if (!ess) {
     return '<div class="section-title">Inspection</div><div class="remarks-box">This report is marked ESS_V1 but carries no inspection data.</div>';
   }
@@ -305,6 +310,18 @@ const buildEssBodyHtml = (ess: EssServiceData | null): string => {
       <table class="items"><tbody>${powerRows}</tbody></table>
     </div>
 
+    <!-- The reference's two standing sections. Printed, never captured — the
+         customer's copy must carry the same advice and the same closing
+         statement the office sees, or the two copies say different things. -->
+    <div class="keep">
+      <div class="section-title">Operation &amp; Maintenance Recommendations</div>
+      <ol class="recs">${essRecommendations(nextServiceDate).map((r) => `<li>${esc(r)}</li>`).join('')}</ol>
+    </div>
+
+    <div class="keep">
+      <div class="section-title">Final Inspection Conclusion</div>
+      ${ESS_FINAL_CONCLUSION.map((para) => `<p class="concl">${esc(para)}</p>`).join('')}
+    </div>
   `;
 };
 
@@ -394,7 +411,7 @@ ${isEss ? ESS_PRINT_CSS : ''}  </style>
     </div>
 
     ${isEss
-      ? buildEssBodyHtml(sd.ess ?? null)
+      ? buildEssBodyHtml(sd.ess ?? null, sd.nextServiceDate)
       : `<div class="section-title">Checklist</div>
     <div class="checklist">${checklistCellsHtml}</div>`}
 

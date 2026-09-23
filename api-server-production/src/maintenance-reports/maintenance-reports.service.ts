@@ -309,7 +309,13 @@ export class MaintenanceReportsService {
     // report PDF to the customer (CC admin). Failures are logged, never
     // propagated — the HTTP response shouldn't fail because Resend is down
     // or puppeteer hiccupped.
-    if (!created.paymentRequired) {
+    //
+    // NOT WHILE UNSIGNED. A report submitted with Skip has no customer
+    // signature yet; `status` is still `draft`. Emailing it would send the
+    // customer a report that says "Received in good order by:" above an empty
+    // line — a document asserting an acknowledgment that has not happened. The
+    // email is deferred to sign(), which fires it once the signature exists.
+    if (!created.paymentRequired && created.status === 'completed') {
       void this.sendReportEmailInBackground(created.id).catch((err) =>
         this.logger.error(`Background MSR email failed for ${created!.id}: ${err?.message}`, err?.stack),
       );
@@ -498,6 +504,23 @@ export class MaintenanceReportsService {
       throw new BadRequestException('Report already signed');
     }
 
+    // Merge the signature images into serviceData. Every renderer reads them
+    // from there, not from the row's `signature` column (which is the gate, and
+    // holds only the customer's). Merged rather than replaced so the sign-later
+    // path cannot drop the findings captured at submit.
+    const existingSd = (report.serviceData as Record<string, unknown> | null) ?? null;
+    const sdPatch =
+      dto.techSignatureKey || dto.clientSignatureKey
+        ? {
+            serviceData: {
+              ...(existingSd ?? {}),
+              ...(dto.techSignatureKey ? { techSignatureKey: dto.techSignatureKey } : {}),
+              ...(dto.clientSignatureKey ? { clientSignatureKey: dto.clientSignatureKey } : {}),
+              ...(dto.signedByName ? { clientSignerName: dto.signedByName } : {}),
+            } as Prisma.InputJsonValue,
+          }
+        : {};
+
     const updated = await this.prisma.maintenanceServiceReport.update({
       where: { id },
       data: {
@@ -505,8 +528,19 @@ export class MaintenanceReportsService {
         signedByName: dto.signedByName,
         signedAt: new Date(),
         status: 'completed',
+        ...sdPatch,
       },
     });
+
+    // A SERVICE report that was submitted unsigned deferred its customer email
+    // (see create()). Now that the signature exists, send it — same conditions
+    // as the signed-at-submit path, so a report reaches the customer exactly
+    // once whichever route it took.
+    if (updated.kind === MaintenanceReportKind.SERVICE && !updated.paymentRequired && updated.reportNumber !== null) {
+      void this.sendReportEmailInBackground(updated.id).catch((err) =>
+        this.logger.error(`Deferred MSR email failed for ${updated.id}: ${err?.message}`, err?.stack),
+      );
+    }
 
     // When an installation acknowledgment is signed, advance the parent DO to
     // delivered_installed. First automated writer of this status; DOs have no
@@ -825,11 +859,16 @@ export class MaintenanceReportsService {
     page = 1,
     limit = 20,
     search?: string,
+    // `draft` = submitted but not yet signed — the field app's "Ongoing
+    // Reports" list. `completed` = signed. Omitted = both, which is what the
+    // office page has always shown.
+    status?: 'draft' | 'completed',
   ) {
     const trimmed = search?.trim();
     const where: Prisma.MaintenanceServiceReportWhereInput = {
       organizationId,
       kind: 'SERVICE',
+      ...(status ? { status } : {}),
     };
 
     if (trimmed) {

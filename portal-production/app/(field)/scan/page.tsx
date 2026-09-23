@@ -8,6 +8,8 @@ import NfcIcon from "@mui/icons-material/Nfc";
 import KeyboardIcon from "@mui/icons-material/Keyboard";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import PrintIcon from "@mui/icons-material/Print";
+import BuildIcon from "@mui/icons-material/Build";
+import DrawIcon from "@mui/icons-material/Draw";
 import EventIcon from "@mui/icons-material/Event";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
@@ -38,6 +40,30 @@ export default function ScanLandingPage() {
   // Open office-scheduled runs, org-wide — drives the "Scheduled deliveries (N)"
   // entry point. Same feed the scheduled page itself uses (no new endpoint).
   const [scheduledCount, setScheduledCount] = useState(0);
+  // Reports submitted with Skip — real reports, awaiting a signature. Counted
+  // the same way the delivery counts are, so the landing screen reads
+  // consistently: a badge only when there is something to act on.
+  const [ongoingReportCount, setOngoingReportCount] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request(
+          { path: "/maintenance-reports?status=draft&limit=1", method: "GET" },
+          {},
+          token,
+        );
+        if (cancelled) return;
+        const total = res?.total ?? res?.data?.total ?? (res?.docs ?? res?.data?.docs ?? []).length ?? 0;
+        setOngoingReportCount(Number(total) || 0);
+      } catch {
+        // Non-fatal: the button simply shows no badge.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [getToken]);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -209,6 +235,32 @@ export default function ScanLandingPage() {
           sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "text.secondary" }}
         >
           Deliveries in progress ({unfinishedCount})
+        </Button>
+      )}
+
+      {/* Maintenance reports. Two entries on purpose: the technician either
+          wants to START one (which needs an asset, so this routes through the
+          serial picker) or FINISH one that is waiting on a signature. Ongoing
+          is the one with a deadline attached, so it carries the count. */}
+      <Button
+        variant="text"
+        size="large"
+        onClick={() => router.push("/scan/reports")}
+        startIcon={<BuildIcon />}
+        sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "text.secondary" }}
+      >
+        Maintenance reports
+      </Button>
+
+      {ongoingReportCount > 0 && (
+        <Button
+          variant="text"
+          size="large"
+          onClick={() => router.push("/scan/reports/ongoing")}
+          startIcon={<DrawIcon />}
+          sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "warning.main" }}
+        >
+          Ongoing reports ({ongoingReportCount})
         </Button>
       )}
 
