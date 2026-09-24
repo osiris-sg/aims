@@ -40,7 +40,11 @@ const alignFor = (col: string): string =>
 
 export function renderQuotationBody(data: any, organization: any): string {
   const di = makeDi(data);
-  const items = groupDeliveryLines(data?.items || []);
+  // Lump-sum members never print. Filtered HERE rather than in the row loop
+  // because the subtotal on the next line sums `items` with NO filter of its
+  // own — the PDF and the guest sign link both render through this function,
+  // so a member that slipped past would double-count on the customer's copy.
+  const items = groupDeliveryLines(data?.items || []).filter((it: any) => !it?.rolledUpInto);
 
   // Totals are derived from the lines, exactly as the portal does.
   const subtotal = items.reduce((s: number, it: any) => s + (Number(it.amount) || 0), 0);

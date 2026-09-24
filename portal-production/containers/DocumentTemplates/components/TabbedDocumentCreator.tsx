@@ -97,7 +97,7 @@ import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields, { headerInputSx } from "./DynamicFormFields";
 import StockCardDialog from "./StockCardDialog";
 import RevenueItemPickerDialog from "./RevenueItemPickerDialog";
-import { resolveQuotationGroup, insertItemGrouped } from "./quotationItemGroups";
+import { resolveQuotationGroup, insertItemGrouped, combineIntoLump, unbundleLump, stackDescriptions } from "./quotationItemGroups";
 import LocateDocumentDialog from "./LocateDocumentDialog";
 import ExtractQuotationDialog from "./ExtractQuotationDialog";
 import ExtractDOToInvoiceDialog from "./ExtractDOToInvoiceDialog";
@@ -551,6 +551,13 @@ export default function TabbedDocumentCreator({
   // Item-tagging: tracks which item ids are checked in the leftmost column.
   // Cleared after a tagging round completes or all rows are deleted.
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
+  // Lump sum: same gate as the section headers it prints under
+  // (enableQuotationItemGroups), never in template-edit mode where `items` are
+  // layout placeholders rather than a real quotation.
+  const [lumpDialogOpen, setLumpDialogOpen] = useState(false);
+  const [lumpDraft, setLumpDraft] = useState<{ quantity: string; uom: string; unitPrice: string; salePrice: string; amount: string; description: string }>(
+    { quantity: "", uom: "", unitPrice: "", salePrice: "", amount: "", description: "" },
+  );
   const toggleItemSelected = (id: number) =>
     setSelectedItemIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
@@ -1912,6 +1919,12 @@ export default function TabbedDocumentCreator({
             (updated.unitPrice == null || updated.unitPrice === "") &&
             (updated.salePrice == null || updated.salePrice === "");
           const gross = qty * unit;
+          // A LUMP SUM's amount is the agreed figure the office typed. qty and
+          // the rate are shown on the same row but deliberately do not multiply
+          // out to it (the reference quotes qty 2 for members of 1, 3 and 1), so
+          // editing either must not overwrite the amount. Editing `amount`
+          // itself still lands, through the spread above.
+          if (updated.lumpId) return updated;
           updated.amount = isEmptyLine
             ? ""
             : updated.discountType === "amount"
@@ -1923,6 +1936,46 @@ export default function TabbedDocumentCreator({
       });
       return newItems;
     });
+  };
+
+  // ─── Lump sum ───────────────────────────────────────────────────────────
+  // Tick several rows, give them ONE price, print them as one line. The rows
+  // are not destroyed: each keeps its itemCode and unitPrice so the Sales
+  // Order pricing ladder can still find its agreed rate months later; they are
+  // hidden from the customer-facing renderers by `rolledUpInto`.
+  const isLumpEligible = isQuotation && isQuotationItemGroupsEnabled && !isTemplateEditMode;
+  const lumpSelection = items.filter(
+    (it: any) => selectedItemIds.includes(it.id) && !it.isGroupHeader && !it.rolledUpInto && !it.lumpId,
+  );
+  const openLumpDialog = () => {
+    setLumpDraft({
+      quantity: "",
+      uom: String(lumpSelection.find((m: any) => m.uom)?.uom ?? ""),
+      unitPrice: "",
+      salePrice: "",
+      amount: "",
+      description: stackDescriptions(lumpSelection),
+    });
+    setLumpDialogOpen(true);
+  };
+  const confirmLump = () => {
+    setItems((prev: any[]) =>
+      combineIntoLump(prev, lumpSelection.map((m: any) => m.id), {
+        quantity: lumpDraft.quantity,
+        uom: lumpDraft.uom,
+        unitPrice: lumpDraft.unitPrice,
+        salePrice: lumpDraft.salePrice,
+        amount: lumpDraft.amount,
+        description: lumpDraft.description,
+      }),
+    );
+    setSelectedItemIds([]);
+    setLumpDialogOpen(false);
+    toast.success("Combined into one line — the customer sees a single amount; the items inside keep their own codes and rates");
+  };
+  const undoLump = (lumpId: string) => {
+    setItems((prev: any[]) => unbundleLump(prev, lumpId));
+    toast.success("Unbundled — each item is priced on its own again");
   };
 
   // ─── FCU-CU (QF) quotation helpers ──────────────────────────────────────
@@ -5541,7 +5594,7 @@ export default function TabbedDocumentCreator({
                             {!isTemplateEditMode && (
                               <TableCell sx={{ width: "24px", minWidth: "24px", maxWidth: "24px", p: "0 !important" }} />
                             )}
-                            {isItemTaggingEnabled && !isTemplateEditMode && (
+                            {(isItemTaggingEnabled || isLumpEligible) && !isTemplateEditMode && (
                               <TableCell sx={{ width: 40, p: 0 }} />
                             )}
                             {/* Render columns based on configuration - exclude tax for invoices */}
@@ -5676,6 +5729,18 @@ export default function TabbedDocumentCreator({
                                 ...(dragOverItemId === item.id && dragItemId !== item.id
                                   ? { "& .MuiTableCell-root": { boxShadow: (t: any) => `inset 0 2px 0 0 ${t.palette.primary.main}` } }
                                   : {}),
+                                // Rolled into a lump sum: still fully editable here, but
+                                // dimmed and ruled so it is obvious the customer will not
+                                // see this line. Hiding it in the editor too would leave
+                                // the office no way to reach it.
+                                ...(item.rolledUpInto
+                                  ? {
+                                      opacity: 0.55,
+                                      "& .MuiTableCell-root": {
+                                        borderLeft: (t: any) => `3px solid ${t.palette.divider}`,
+                                      },
+                                    }
+                                  : {}),
                               }}
                             >
                               {!isTemplateEditMode && (
@@ -5708,13 +5773,19 @@ export default function TabbedDocumentCreator({
                                   </Box>
                                 </TableCell>
                               )}
-                              {isItemTaggingEnabled && !isTemplateEditMode && (
+                              {(isItemTaggingEnabled || isLumpEligible) && !isTemplateEditMode && (
                                 <TableCell sx={{ width: 40, p: 0, textAlign: 'center' }}>
-                                  <Checkbox
-                                    size="small"
-                                    checked={selectedItemIds.includes(item.id)}
-                                    onChange={() => toggleItemSelected(item.id)}
-                                  />
+                                  {/* A group header has nothing to combine, and a row
+                                      already inside a lump (or the lump itself) is not
+                                      a candidate — tick those and the selection would
+                                      mean two different things. */}
+                                  {!item.isGroupHeader && !item.rolledUpInto && !item.lumpId && (
+                                    <Checkbox
+                                      size="small"
+                                      checked={selectedItemIds.includes(item.id)}
+                                      onChange={() => toggleItemSelected(item.id)}
+                                    />
+                                  )}
                                 </TableCell>
                               )}
                               {/* Section-header rows (quotation groups): one bold underlined
@@ -6327,6 +6398,31 @@ export default function TabbedDocumentCreator({
                       >
                         {isFcuCuVariant ? "Add Row" : "Add Item"}
                       </Button>
+                      {isLumpEligible && lumpSelection.length >= 2 && (
+                        <Button
+                          variant="outlined"
+                          color="primary"
+                          onClick={openLumpDialog}
+                          size="small"
+                        >
+                          Combine into one line ({lumpSelection.length})
+                        </Button>
+                      )}
+                      {isLumpEligible &&
+                        items
+                          .filter((it: any) => it.lumpId)
+                          .map((lump: any) => (
+                            <Chip
+                              key={lump.lumpId}
+                              size="small"
+                              variant="outlined"
+                              color="primary"
+                              label={`Lump sum · ${items.filter((m: any) => m.rolledUpInto === lump.lumpId).length} lines`}
+                              onDelete={() => undoLump(lump.lumpId)}
+                              deleteIcon={<span style={{ fontSize: 11, padding: "0 6px" }}>Unbundle</span>}
+                              title="The lines inside are hidden from the customer but keep their own item codes and rates"
+                            />
+                          ))}
                       {isItemTaggingEnabled && selectedItemIds.length > 0 && (
                         <Button
                           variant="outlined"
@@ -7565,7 +7661,20 @@ export default function TabbedDocumentCreator({
               unitPrice: item.unitPrice || 0,
               uom: item.uom || "",
               discount: item.discount || 0,
-              amount: item.amount || (item.quantity || 1) * (item.unitPrice || 0),
+              // LUMP SUM markers ride along. A SALES_ORDER extracted from a
+              // quotation must keep its hidden members: the pricing ladder
+              // (buildCodeMap) reads their itemCode + unitPrice off the SO
+              // months later, and dropping them here would silently re-price
+              // the eventual invoice at asset list price.
+              ...(item.rolledUpInto ? { rolledUpInto: item.rolledUpInto } : {}),
+              ...(item.lumpId ? { lumpId: item.lumpId, lumpCount: item.lumpCount } : {}),
+              // A member's amount stays NULL. Without this branch the fallback
+              // below re-prices it from qty x unitPrice — `null` is falsy — and
+              // the customer's invoice would carry both the lump and every line
+              // inside it.
+              amount: item.rolledUpInto
+                ? null
+                : item.amount || (item.quantity || 1) * (item.unitPrice || 0),
             }));
             setItems(newItems);
           }
@@ -7731,7 +7840,20 @@ export default function TabbedDocumentCreator({
               unitPrice: item.unitPrice || 0,
               uom: item.uom || "",
               discount: item.discount || 0,
-              amount: item.amount || (item.quantity || 1) * (item.unitPrice || 0),
+              // LUMP SUM markers ride along. A SALES_ORDER extracted from a
+              // quotation must keep its hidden members: the pricing ladder
+              // (buildCodeMap) reads their itemCode + unitPrice off the SO
+              // months later, and dropping them here would silently re-price
+              // the eventual invoice at asset list price.
+              ...(item.rolledUpInto ? { rolledUpInto: item.rolledUpInto } : {}),
+              ...(item.lumpId ? { lumpId: item.lumpId, lumpCount: item.lumpCount } : {}),
+              // A member's amount stays NULL. Without this branch the fallback
+              // below re-prices it from qty x unitPrice — `null` is falsy — and
+              // the customer's invoice would carry both the lump and every line
+              // inside it.
+              amount: item.rolledUpInto
+                ? null
+                : item.amount || (item.quantity || 1) * (item.unitPrice || 0),
             }));
             setItems(newItems);
           }
@@ -7898,7 +8020,20 @@ export default function TabbedDocumentCreator({
               unitPrice: item.unitPrice || 0,
               uom: item.uom || "",
               discount: item.discount || 0,
-              amount: item.amount || (item.quantity || 1) * (item.unitPrice || 0),
+              // LUMP SUM markers ride along. A SALES_ORDER extracted from a
+              // quotation must keep its hidden members: the pricing ladder
+              // (buildCodeMap) reads their itemCode + unitPrice off the SO
+              // months later, and dropping them here would silently re-price
+              // the eventual invoice at asset list price.
+              ...(item.rolledUpInto ? { rolledUpInto: item.rolledUpInto } : {}),
+              ...(item.lumpId ? { lumpId: item.lumpId, lumpCount: item.lumpCount } : {}),
+              // A member's amount stays NULL. Without this branch the fallback
+              // below re-prices it from qty x unitPrice — `null` is falsy — and
+              // the customer's invoice would carry both the lump and every line
+              // inside it.
+              amount: item.rolledUpInto
+                ? null
+                : item.amount || (item.quantity || 1) * (item.unitPrice || 0),
             }));
             setItems(newItems);
           }
@@ -8154,6 +8289,81 @@ export default function TabbedDocumentCreator({
           setFormData(setNestedValue(formData, salesmanFieldName, salesman.salesmanCode || ""));
         }}
       />
+
+      {/* Lump sum: one price for several ticked lines. Quantity and the rate
+          are TYPED, not derived — on the reference quotation a block of items
+          with quantities 1, 3 and 1 is quoted as quantity 2, and the rate is
+          the one the customer agreed, not an average. Only the amount is
+          required; everything else prints blank if left empty. */}
+      <Dialog open={lumpDialogOpen} onClose={() => setLumpDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Combine {lumpSelection.length} items under one price</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            The customer sees one line. The items inside stay on the quotation with their own
+            item codes and rates, so a later Sales Order and invoice still price them correctly.
+          </Typography>
+          <TextField
+            label="Description (printed)"
+            value={lumpDraft.description}
+            onChange={(e) => setLumpDraft({ ...lumpDraft, description: e.target.value })}
+            multiline
+            minRows={Math.min(6, Math.max(3, lumpSelection.length))}
+            fullWidth
+            size="small"
+            helperText="One line per item, dash-prefixed. Edit freely — this is what prints."
+            sx={{ mb: 2 }}
+          />
+          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+            <TextField
+              label="UOM"
+              value={lumpDraft.uom}
+              onChange={(e) => setLumpDraft({ ...lumpDraft, uom: e.target.value })}
+              size="small"
+              sx={{ width: 110 }}
+            />
+            <TextField
+              label="Quantity"
+              value={lumpDraft.quantity}
+              onChange={(e) => setLumpDraft({ ...lumpDraft, quantity: e.target.value })}
+              size="small"
+              type="number"
+              sx={{ width: 120 }}
+            />
+            <TextField
+              label="Monthly rate"
+              value={lumpDraft.unitPrice}
+              onChange={(e) => setLumpDraft({ ...lumpDraft, unitPrice: e.target.value })}
+              size="small"
+              type="number"
+              sx={{ width: 140 }}
+            />
+            <TextField
+              label="Sales rate"
+              value={lumpDraft.salePrice}
+              onChange={(e) => setLumpDraft({ ...lumpDraft, salePrice: e.target.value })}
+              size="small"
+              type="number"
+              sx={{ width: 140 }}
+            />
+            <TextField
+              label="Amount"
+              value={lumpDraft.amount}
+              onChange={(e) => setLumpDraft({ ...lumpDraft, amount: e.target.value })}
+              size="small"
+              type="number"
+              required
+              sx={{ width: 160 }}
+              helperText="The agreed figure"
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLumpDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={confirmLump} disabled={lumpDraft.amount === "" || isNaN(Number(lumpDraft.amount))}>
+            Combine
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

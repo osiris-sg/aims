@@ -492,7 +492,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
   // N units / Model / S/No." block for display (non-delivery docs pass through
   // unchanged). A return reads "Return of…" (see groupDeliveryLines).
   const isReturnDoc = documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
-  const items = groupDeliveryLines(data.items || [], isReturnDoc);
+  // Lump-sum members are hidden EVERYWHERE the customer sees the document:
+  // filtered at the single entry point, so the rows, the subtotal and the tax
+  // reducer below all agree without three separate filters. Their `amount` is
+  // already null, so this changes no total — it removes the lines only.
+  const items = groupDeliveryLines(data.items || [], isReturnDoc).filter((it: any) => !it?.rolledUpInto);
   const subtotal = items.reduce((acc: number, item: any) => acc + (item.amount || 0), 0);
   const totalTax = items.reduce(
     (acc: number, item: any) => acc + (item.amount || 0) * ((item.tax || 0) / 100),
