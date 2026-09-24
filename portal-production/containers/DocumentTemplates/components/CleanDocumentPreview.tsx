@@ -4409,17 +4409,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                                 <TableCell
                                   key={col}
                                   rowSpan={anchor.span}
-                                  // Hairline bracket so the reader can see how far the
-                                  // merged cell reaches — this layout has no grid lines,
-                                  // and a centred figure otherwise reads as the middle
-                                  // row's own price. Mirrors the server renderer.
-                                  sx={{
-                                    textAlign: alignFor(col),
-                                    verticalAlign: "middle",
-                                    borderTop: "1px solid #bbb",
-                                    borderBottom: "1px solid #bbb",
-                                    ...groupEdges(index),
-                                  }}
+                                  // No rule around the merged cell, by choice — mirrors
+                                  // the server renderer.
+                                  sx={{ textAlign: alignFor(col), verticalAlign: "middle", ...groupEdges(index) }}
                                 >
                                   {col === "amount"
                                     ? valueFor(col, item, index)

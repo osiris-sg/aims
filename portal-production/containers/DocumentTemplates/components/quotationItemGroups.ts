@@ -232,6 +232,33 @@ export function isMergeAnchor(items: any[], row: any): boolean {
 }
 
 /**
+ * Where this row sits inside its merged run, for the EDITOR's benefit.
+ *
+ * The editor cannot use a real rowSpan — an input stretched over five rows is
+ * not an editing surface — so it fakes one continuous cell: the row borders
+ * inside the merged column are suppressed on every row but the last, and the
+ * single price input is rendered on the middle row so it sits centred in the
+ * block, the way the printed rowSpan centres it.
+ *
+ * Returns null for a row that is not in a merge.
+ */
+export function mergeRunPosition(items: any[], row: any): { position: number; size: number; isLast: boolean; isInputRow: boolean } | null {
+  const id = row?.rateMerge?.id;
+  if (!id) return null;
+  const run = items.filter((it) => it?.rateMerge?.id === id);
+  const position = run.indexOf(row);
+  if (position < 0) return null;
+  const size = run.length;
+  return {
+    position,
+    size,
+    isLast: position === size - 1,
+    // Exact centre for an odd run; the upper of the two middles for an even one.
+    isInputRow: position === Math.floor((size - 1) / 2),
+  };
+}
+
+/**
  * What each renderer needs to draw the spanning cells: for every anchor, how
  * many rows it covers; for every continuation, which column to SKIP.
  *

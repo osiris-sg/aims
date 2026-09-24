@@ -293,12 +293,10 @@ function configDrivenTable(data: any, items: any[]): string {
           if (skipCol && (c === skipCol || c === 'amount')) return '';
           if (anchor && (c === anchor.column || c === 'amount')) {
             const value = c === 'amount' ? money(item.amount) : Number(anchor.price).toFixed(2);
-            // The span must be VISIBLE. This layout draws no grid lines, so a
-            // centred figure beside the middle row reads as that row's price
-            // rather than the block's. A hairline bracket down the merged cell
-            // shows how far it reaches — the printed equivalent of a merged
-            // cell's borders in a spreadsheet.
-            return `<td rowspan="${anchor.span}" style="text-align:${alignFor(c)};vertical-align:middle;border-top:1px solid #bbb;border-bottom:1px solid #bbb;">${value}</td>`;
+            // No rule around the merged cell, by choice (guru 2026-09-24). On a
+            // layout with no grid lines the span is therefore not marked out:
+            // the figure simply sits centred against the block it prices.
+            return `<td rowspan="${anchor.span}" style="text-align:${alignFor(c)};vertical-align:middle;">${value}</td>`;
           }
           return `<td style="text-align:${alignFor(c)};">${valueFor(c, item, idx)}</td>`;
         })

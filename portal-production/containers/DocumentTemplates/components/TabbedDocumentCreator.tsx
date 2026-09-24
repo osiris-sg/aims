@@ -97,7 +97,7 @@ import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields, { headerInputSx } from "./DynamicFormFields";
 import StockCardDialog from "./StockCardDialog";
 import RevenueItemPickerDialog from "./RevenueItemPickerDialog";
-import { resolveQuotationGroup, insertItemGrouped, mergeRates, dissolveMerge, normalizeRateMerges, contiguityError, mergeMembers, isMergeAnchor, setMergePriceOn, RateMergeColumn } from "./quotationItemGroups";
+import { resolveQuotationGroup, insertItemGrouped, mergeRates, dissolveMerge, normalizeRateMerges, contiguityError, mergeMembers, mergeRunPosition, setMergePriceOn, RateMergeColumn } from "./quotationItemGroups";
 import LocateDocumentDialog from "./LocateDocumentDialog";
 import ExtractQuotationDialog from "./ExtractQuotationDialog";
 import ExtractDOToInvoiceDialog from "./ExtractDOToInvoiceDialog";
@@ -5989,28 +5989,33 @@ export default function TabbedDocumentCreator({
                                     </TableCell>
                                   );
                                 } else if (item.rateMerge && columnId === item.rateMerge.column) {
-                                  // MERGED RATE, editor view. The printed document draws one
-                                  // cell spanning these rows; the editor deliberately does
-                                  // NOT rowSpan — an input stretched over five rows is not
-                                  // an editing surface. The anchor shows the shared price,
-                                  // the rows beneath say where it lives.
-                                  const isAnchor = isMergeAnchor(items, item);
+                                  // MERGED RATE, editor view. The printed document uses a
+                                  // real rowSpan; the editor cannot — an input stretched
+                                  // over five rows is not an editing surface — so it FAKES
+                                  // one continuous cell: the row borders inside this column
+                                  // are suppressed on every row but the last, and the one
+                                  // price input renders on the middle row, so the block
+                                  // reads as a single cell with the price centred in it.
+                                  // Every other column keeps its row borders untouched.
+                                  const run = mergeRunPosition(items, item);
                                   return (
-                                    <TableCell key={columnId} sx={{ textAlign: "center" }}>
-                                      {isAnchor ? (
+                                    <TableCell
+                                      key={columnId}
+                                      sx={{
+                                        textAlign: "center",
+                                        ...(run && !run.isLast ? { borderBottom: "none" } : {}),
+                                      }}
+                                    >
+                                      {run?.isInputRow ? (
                                         <TextField
                                           size="small"
                                           type="number"
                                           value={item.rateMerge.price ?? ""}
                                           onChange={(e) => setMergePrice(item.rateMerge.id, Number(numFieldParse(e.target.value)) || 0)}
                                           sx={{ width: 110 }}
-                                          title="Shared by the rows below"
+                                          title="One rate, shared by this block of rows"
                                         />
-                                      ) : (
-                                        <Typography variant="caption" color="text.disabled" title="Shared rate — set on the first row of the merge">
-                                          ↑ shared
-                                        </Typography>
-                                      )}
+                                      ) : null}
                                     </TableCell>
                                   );
                                 } else if (columnId === "unitPrice") {
