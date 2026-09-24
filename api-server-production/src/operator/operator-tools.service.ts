@@ -2247,7 +2247,12 @@ export class OperatorToolsService {
     if (!secret) throw new Error('Internal API access is not configured on this server (INTERNAL_API_SECRET missing).');
     const ts = Date.now();
     const crypto = require('crypto');
-    const sig = crypto.createHmac('sha256', secret).update(`${ctx.clerkUserId}.${ts}`).digest('hex');
+    // A write is signed over the method and path too, so the header cannot be
+    // replayed against a different endpoint. The guard rebuilds the same string.
+    const verb = String(method || 'GET').toUpperCase();
+    const payload =
+      verb === 'GET' ? `${ctx.clerkUserId}.${ts}` : `${ctx.clerkUserId}.${ts}.${verb}.${String(path).split('?')[0]}`;
+    const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
     const port = process.env.PORT || 4040;
     const res = await fetch(`http://127.0.0.1:${port}${path}`, {
       method,

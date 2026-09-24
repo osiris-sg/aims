@@ -164,13 +164,22 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
     try {
       const secret = process.env.INTERNAL_API_SECRET;
       const raw = request.headers?.['x-operator-internal'];
-      if (!secret || !raw || request.method !== 'GET') return null;
+      const method = String(request.method || '').toUpperCase();
+      // Writes are allowed too (api_write), but they are signed over the METHOD
+      // and PATH as well, so a header captured from a read cannot be replayed
+      // against a write. Reads keep the original payload for compatibility.
+      const WRITE_METHODS = ['POST', 'PATCH', 'PUT'];
+      if (!secret || !raw || (method !== 'GET' && !WRITE_METHODS.includes(method))) return null;
       const val = Array.isArray(raw) ? raw[0] : String(raw);
       const [userId, ts, sig] = val.split('.');
       if (!userId || !ts || !sig) return null;
       if (Math.abs(Date.now() - Number(ts)) > 60_000) return null;
       const crypto = require('crypto');
-      const expect = crypto.createHmac('sha256', secret).update(`${userId}.${ts}`).digest('hex');
+      // Path without the query string — Express exposes it as `path`, and the
+      // caller signs the same thing.
+      const path = String(request.path || request.url || '').split('?')[0];
+      const payload = method === 'GET' ? `${userId}.${ts}` : `${userId}.${ts}.${method}.${path}`;
+      const expect = crypto.createHmac('sha256', secret).update(payload).digest('hex');
       const a = Buffer.from(sig);
       const b = Buffer.from(expect);
       if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;

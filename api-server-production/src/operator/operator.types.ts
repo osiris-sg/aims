@@ -92,6 +92,9 @@ export interface OperatorContext {
 
 /** An action held awaiting the user's explicit confirmation. */
 export interface PendingAction {
+  /** Unique per card. The Confirm/Cancel buttons carry it, so a tap acts on the
+   *  card it was shown under — not on whatever happens to be pending now. */
+  id?: string;
   kind:
     | 'confirm_quotation'
     | 'confirm_invoice'
@@ -113,6 +116,11 @@ export interface PendingAction {
 export interface SessionState {
   history: Array<{ role: 'user' | 'assistant'; content: any }>;
   pendingAction?: PendingAction | null;
+  /** Recent held actions, newest last. Several cards can be on screen at once
+   *  (the model can hold two in one turn), and a single slot meant the second
+   *  silently replaced the first — so Cancel on the FIRST card killed the
+   *  SECOND, and the first's Confirm then reported "expired". Bounded. */
+  pendingActions?: PendingAction[];
   /** An uploaded invoice awaiting a project pick (tapped from buttons). */
   pendingUpload?: OperatorContext['upload'] | null;
 }

@@ -237,10 +237,11 @@ export class OperatorService {
         if (!nowLive) held.summary += `\n\nStill missing a project, so this saves as a DRAFT.`;
         session.pendingAction = held;
         session.pendingUpload = null;
+        this.holdPending(session, held);
         await this.saveSession(msg.channel, msg.channelUserId, session);
         await adapter.sendButtons(msg.chatId, `${held.summary}\n\nConfirm?`, [
-          { label: '✅ Confirm', data: `confirm:${held.documentId ?? 'pending'}` },
-          { label: '❌ Cancel', data: 'cancel' },
+          { label: '✅ Confirm', data: `confirm:${held.id}` },
+          { label: '❌ Cancel', data: `cancel:${held.id}` },
         ]);
         return;
       }
@@ -285,10 +286,11 @@ export class OperatorService {
       session.pendingUpload = null;
       if (outcome.pending) {
         session.pendingAction = outcome.pending;
+        this.holdPending(session, outcome.pending);
         await this.saveSession(msg.channel, msg.channelUserId, session);
         await adapter.sendButtons(msg.chatId, `${outcome.pending.summary}\n\nConfirm?`, [
-          { label: '✅ Confirm', data: `confirm:${outcome.pending.documentId ?? 'pending'}` },
-          { label: '❌ Cancel', data: 'cancel' },
+          { label: '✅ Confirm', data: `confirm:${outcome.pending.id}` },
+          { label: '❌ Cancel', data: `cancel:${outcome.pending.id}` },
         ]);
       } else {
         await this.saveSession(msg.channel, msg.channelUserId, session);
@@ -467,9 +469,12 @@ export class OperatorService {
 
     await clearStatus();
 
-    // Persist trimmed history + any action now awaiting confirmation.
+    // Persist trimmed history + any action now awaiting confirmation. The card
+    // has to be held BEFORE the save, or its id never reaches the database and
+    // every tap comes back "expired".
     session.history = this.trimHistory(messages) as SessionState['history'];
-    session.pendingAction = pendingFromTools;
+    if (pendingFromTools) this.holdPending(session, pendingFromTools);
+    else session.pendingAction = null;
     await this.saveSession(msg.channel, msg.channelUserId, session);
 
     if (choiceFromTools) {
@@ -482,9 +487,9 @@ export class OperatorService {
 
     if (pendingFromTools) {
       await adapter.sendButtons(msg.chatId, `${pendingFromTools.summary}\n\nConfirm?`, [
-        { label: '✅ Confirm', data: `confirm:${pendingFromTools.documentId ?? 'pending'}` },
-        { label: '❌ Cancel', data: 'cancel' },
-      ]);
+          { label: '✅ Confirm', data: `confirm:${pendingFromTools.id}` },
+          { label: '❌ Cancel', data: `cancel:${pendingFromTools.id}` },
+        ]);
     }
     } catch (e: any) {
       // Never leave the user staring at a status line. Drop the (possibly
@@ -642,10 +647,11 @@ export class OperatorService {
       session.pendingUpload = null;
       if (outcome.pending) {
         session.pendingAction = outcome.pending;
+        this.holdPending(session, outcome.pending);
         await this.saveSession(msg.channel, msg.channelUserId, session);
         await adapter.sendButtons(msg.chatId, `${outcome.pending.summary}\n\nConfirm?`, [
-          { label: '✅ Confirm', data: `confirm:${outcome.pending.documentId ?? 'pending'}` },
-          { label: '❌ Cancel', data: 'cancel' },
+          { label: '✅ Confirm', data: `confirm:${outcome.pending.id}` },
+          { label: '❌ Cancel', data: `cancel:${outcome.pending.id}` },
         ]);
       } else {
         await this.saveSession(msg.channel, msg.channelUserId, session);
@@ -654,27 +660,45 @@ export class OperatorService {
       return;
     }
 
-    if (data === 'cancel') {
-      session.pendingAction = null;
+    if (data === 'cancel' || data.startsWith('cancel:')) {
+      const dropped = this.takePending(session, data.startsWith('cancel:') ? data.slice(7) : '');
       await this.saveSession(msg.channel, msg.channelUserId, session);
-      await adapter.sendText(msg.chatId, 'Cancelled. Nothing was changed.');
+      await adapter.sendText(
+        msg.chatId,
+        dropped ? 'Cancelled. Nothing was changed.' : 'That one is no longer waiting, so nothing was changed.',
+      );
       return;
     }
     if (data.startsWith('confirm:')) {
-      if (!session.pendingAction) {
+      const chosen = this.takePending(session, data.slice(8));
+      if (!chosen) {
         await adapter.sendText(msg.chatId, 'That confirmation has expired. Ask me again and I’ll redo it.');
         return;
       }
-      // Re-verify the held action targets the document the button referenced.
-      const targetId = data.slice(8);
-      if (session.pendingAction.documentId && targetId !== session.pendingAction.documentId) {
-        await adapter.sendText(msg.chatId, "That button doesn't match the pending action. Cancelled for safety.");
-        session.pendingAction = null;
-        await this.saveSession(msg.channel, msg.channelUserId, session);
-        return;
-      }
-      await this.executePending(ctx, adapter, msg, session);
+      await this.executePending(ctx, adapter, msg, session, chosen);
     }
+  }
+
+  /** Hold a card and return its id for the buttons. Keeps the last few so a
+   *  tap on an older card still lands on the right action. */
+  private holdPending(session: SessionState, pending: PendingAction): string {
+    const id = pending.id || `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    pending.id = id;
+    const list = (session.pendingActions || []).filter((p) => p.id !== id);
+    list.push(pending);
+    session.pendingActions = list.slice(-3);
+    session.pendingAction = pending; // newest, for the typed "yes" path
+    return id;
+  }
+
+  /** Find a card by the id its button carried, and drop it from the held set. */
+  private takePending(session: SessionState, id: string): PendingAction | null {
+    const list = session.pendingActions || (session.pendingAction ? [session.pendingAction] : []);
+    const found = list.find((p) => p.id === id) || (!id || id === 'pending' ? list[list.length - 1] : null);
+    if (!found) return null;
+    session.pendingActions = list.filter((p) => p !== found);
+    session.pendingAction = session.pendingActions[session.pendingActions.length - 1] ?? null;
+    return found;
   }
 
   private async executePending(
@@ -682,8 +706,9 @@ export class OperatorService {
     adapter: ChannelAdapter,
     msg: InboundMessage,
     session: SessionState,
+    chosen?: PendingAction,
   ): Promise<void> {
-    const pending = session.pendingAction!;
+    const pending = chosen ?? session.pendingAction!;
     let res: { ok: boolean; message: string };
     try {
       res = await this.tools.runPending(ctx, pending);
@@ -713,11 +738,14 @@ export class OperatorService {
     const state = (row.state as any) || {};
     // History never expires. A stale pending confirmation is dropped so it can
     // never be executed long after the user asked for it.
-    let pendingAction = state.pendingAction ?? null;
-    if (pendingAction?.createdAt && Date.now() - new Date(pendingAction.createdAt).getTime() > PENDING_TTL_MS) {
-      pendingAction = null;
-    }
-    return { history: Array.isArray(state.history) ? state.history : [], pendingAction };
+    const fresh = (p: any) => p && (!p.createdAt || Date.now() - new Date(p.createdAt).getTime() <= PENDING_TTL_MS);
+    let pendingAction = fresh(state.pendingAction) ? state.pendingAction : null;
+    const pendingActions: PendingAction[] = (Array.isArray(state.pendingActions) ? state.pendingActions : []).filter(fresh);
+    // Older sessions stored only the single slot — carry it into the list so a
+    // card shown before this change still responds to its buttons.
+    if (pendingAction && !pendingActions.some((p) => p.id && p.id === pendingAction.id)) pendingActions.push(pendingAction);
+    if (!pendingAction && pendingActions.length) pendingAction = pendingActions[pendingActions.length - 1];
+    return { history: Array.isArray(state.history) ? state.history : [], pendingAction, pendingActions };
   }
 
   private async saveSession(channel: OperatorChannel, channelUserId: string, state: SessionState): Promise<void> {
