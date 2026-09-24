@@ -18,7 +18,6 @@ import {
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
-import DrawIcon from "@mui/icons-material/Draw";
 import { request } from "@/helpers/request";
 
 /**
@@ -35,9 +34,14 @@ import { request } from "@/helpers/request";
  * NFC-or-type-it way of naming one. That keeps a single entry point to the
  * form rather than a second, subtly different one.
  *
- * Reports still awaiting a signature live on their own screen (Ongoing
- * reports) and are only summarised here — they are a different job, with a
- * different urgency.
+ * Reports still awaiting a signature live on their own screen, PENDING SIGN,
+ * reached from the scan landing page — and from there only. This screen used to
+ * carry a second "N awaiting signature" button to the same place, so one screen
+ * had two names and two doors; the technician could not tell whether they led
+ * somewhere different. The scan page is the right door because that is where the
+ * count already sits beside the other counts (scheduled deliveries, finished
+ * runs), and signing is an errand you arrive with, not one you discover here
+ * while looking up last month's service.
  */
 
 interface ReportRow {
@@ -59,7 +63,6 @@ export default function MaintenanceReportsPage() {
   const router = useRouter();
   const { getToken } = useAuth();
   const [done, setDone] = useState<ReportRow[] | null>(null);
-  const [ongoingCount, setOngoingCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -67,14 +70,13 @@ export default function MaintenanceReportsPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const [completed, draft] = await Promise.all([
-        request({ path: "/maintenance-reports?status=completed&limit=25", method: "GET" }, {}, token),
-        request({ path: "/maintenance-reports?status=draft&limit=1", method: "GET" }, {}, token),
-      ]);
+      const completed = await request(
+        { path: "/maintenance-reports?status=completed&limit=25", method: "GET" },
+        {},
+        token,
+      );
       const docs = completed?.docs ?? completed?.data?.docs ?? completed?.data ?? [];
       setDone(Array.isArray(docs) ? docs : []);
-      const t = draft?.total ?? draft?.data?.total ?? 0;
-      setOngoingCount(Number(t) || 0);
     } catch (e: any) {
       setError(e?.message ?? "Could not load maintenance reports");
       setDone([]);
@@ -110,20 +112,6 @@ export default function MaintenanceReportsPage() {
       <Typography variant="caption" color="text.secondary" sx={{ mt: -1 }}>
         Scan or pick the machine first — a report is always about one unit.
       </Typography>
-
-      {ongoingCount > 0 && (
-        <Button
-          variant="outlined"
-          color="warning"
-          size="large"
-          startIcon={<DrawIcon />}
-          onClick={() => router.push("/scan/reports/ongoing")}
-          fullWidth
-          sx={{ minHeight: 52 }}
-        >
-          {ongoingCount} awaiting signature
-        </Button>
-      )}
 
       <Divider />
 
