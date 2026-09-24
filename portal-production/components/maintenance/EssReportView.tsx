@@ -129,7 +129,7 @@ export function renderEssBody(ess: EssServiceData | null) {
           return (
             <Stack key={m.key} direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
               <Typography variant="body2" color="text.secondary">{m.label}:</Typography>
-              <Typography variant="body2" fontWeight={700}>{shown}</Typography>
+              <Typography variant="body2" fontWeight={700} color="text.primary">{shown}</Typography>
               {m.threshold != null && (
                 <Typography variant="caption" color="text.secondary">
                   (pass ≤ {m.threshold} {m.unit})
@@ -314,7 +314,7 @@ export function renderEssBody(ess: EssServiceData | null) {
               )}
             </TableBody>
           </Table>
-          <Typography variant="body2" fontWeight={700} sx={{ px: 2, py: 1.25 }}>
+          <Typography variant="body2" fontWeight={700} color="text.primary" sx={{ px: 2, py: 1.25 }}>
             {essDefectSummary(ess.defectTotals?.major ?? 0, ess.defectTotals?.minor ?? 0)}
           </Typography>
         </>,
@@ -367,7 +367,7 @@ export function renderEssBody(ess: EssServiceData | null) {
         "Operation & Maintenance Recommendations",
         <Box component="ol" sx={{ pl: 4, pr: 2, py: 1.5, m: 0 }}>
           {ESS_RECOMMENDATIONS.map((r, i) => (
-            <Typography component="li" variant="body2" key={i} sx={{ mb: 0.75 }}>
+            <Typography component="li" variant="body2" color="text.primary" key={i} sx={{ mb: 0.75 }}>
               {r}
             </Typography>
           ))}
@@ -379,7 +379,7 @@ export function renderEssBody(ess: EssServiceData | null) {
         "Final Inspection Conclusion",
         <Box sx={{ px: 2, py: 1.5 }}>
           {ESS_FINAL_CONCLUSION.map((para, i) => (
-            <Typography variant="body2" key={i} sx={{ mb: i === 0 ? 1 : 0 }}>
+            <Typography variant="body2" color="text.primary" key={i} sx={{ mb: i === 0 ? 1 : 0 }}>
               {para}
             </Typography>
           ))}
@@ -431,7 +431,14 @@ export function FieldLabel({ label, value }: { label: string; value?: string | n
       <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
         {label}
       </Typography>
-      <Typography variant="body2" fontWeight={500}>
+      {/* text.primary is STATED, not inherited. The app theme defines the
+          body2 VARIANT as carrying `color: onSurfaceVariant` — a muted grey —
+          so every uncoloured <Typography variant="body2"> renders as secondary
+          text wherever it appears. That is right for an annotation and wrong
+          for a value: it rendered the company name, job location, technician,
+          model and serial in pale grey on white. The label above stays
+          secondary, as it is in the tables below. */}
+      <Typography variant="body2" fontWeight={500} color="text.primary">
         {value ?? "—"}
       </Typography>
     </Box>
@@ -466,7 +473,7 @@ export function SignatureBlock({ url, name }: { url: string | null; name: string
           <Typography variant="caption" color="text.disabled">No signature on file</Typography>
         </Box>
       )}
-      <Typography variant="body2" fontWeight={500} sx={{ mt: 1, pt: 1, borderTop: "1px dashed", borderColor: "divider" }}>
+      <Typography variant="body2" fontWeight={500} color="text.primary" sx={{ mt: 1, pt: 1, borderTop: "1px dashed", borderColor: "divider" }}>
         {name}
       </Typography>
     </Box>

@@ -61,8 +61,13 @@ export function usePrintDocTheme(): Theme {
           h4: { ...parentTheme.typography.h4, fontWeight: 600 },
           h5: { ...parentTheme.typography.h5, fontWeight: 500 },
           h6: { ...parentTheme.typography.h6, fontWeight: 500 },
-          body1: { ...parentTheme.typography.body1, fontWeight: 400 },
-          body2: { ...parentTheme.typography.body2, fontWeight: 400 },
+          body1: { ...parentTheme.typography.body1, fontWeight: 400, color: "#000" },
+          // The app theme defines the body2 VARIANT as carrying a muted grey
+          // (`color: onSurfaceVariant`), so an uncoloured body2 prints grey on
+          // white. Spreading the parent typography carried that into the PDF.
+          // A printed document is black on white; state it here so no call site
+          // can leak grey into print by forgetting an explicit colour.
+          body2: { ...parentTheme.typography.body2, fontWeight: 400, color: "#000" },
           caption: { ...parentTheme.typography.caption, fontWeight: 400 },
           button: { ...parentTheme.typography.button, fontWeight: 400 },
         },

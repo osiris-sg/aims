@@ -331,6 +331,7 @@ export default function MaintenanceReportDetailPage() {
             <Typography variant="caption" color="text.secondary">Remarks</Typography>
             <Typography
               variant="body2"
+              color="text.primary"
               sx={{
                 mt: 0.5,
                 whiteSpace: "pre-wrap",
