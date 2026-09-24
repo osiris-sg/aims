@@ -2548,16 +2548,25 @@ export class DocumentsService {
     const customTypes = organization?.customDocumentTypes as Record<string, string> | null;
     const documentPrefix = documentTemplate?.templateVariant || customTypes?.[type] || type;
     const namePrefix = `${documentPrefix}${year}${month}-`;
+    // ORG-WIDE, deliberately NOT scoped to documentTemplateId. The prefix comes
+    // from templateVariant, which several templates SHARE (Biofuel has ten
+    // quotation templates all on "QO1"). Scoping the scan to one template gave
+    // each its own namespace under a shared prefix, so every template's first
+    // document of a month took -001 and collided with its siblings'. That is
+    // how QO1202607-001 came to exist three times, and RDO202609-001/-002
+    // twice each. DocumentNumberingService.maxExistingSerial has always scanned
+    // org-wide by name prefix; this now matches it.
     const existingDocs = await this.prisma.document.findMany({
-      where: { organizationId, documentTemplateId, name: { startsWith: namePrefix }, baseDocumentId: null },
+      where: { organizationId, name: { startsWith: namePrefix }, baseDocumentId: null },
       select: { name: true },
-      orderBy: { name: 'desc' },
-      take: 1,
     });
+    // NUMERIC max, not `orderBy name desc + take 1`. Widening the scan can now
+    // pull in names of differing serial width under one prefix, where a
+    // lexicographic max picks "-0010" over "-002". Compare the parsed integers.
     let nextSerial = 1;
-    if (existingDocs.length > 0) {
-      const match = existingDocs[0].name.match(/-(\d+)$/);
-      if (match) nextSerial = parseInt(match[1], 10) + 1;
+    for (const d of existingDocs) {
+      const match = (d.name || '').match(/-(\d+)$/);
+      if (match) nextSerial = Math.max(nextSerial, parseInt(match[1], 10) + 1);
     }
     let name = `${namePrefix}${String(nextSerial).padStart(3, '0')}`;
     try {
@@ -2636,29 +2645,29 @@ export class DocumentsService {
       const documentPrefix = documentTemplate?.templateVariant || customTypes?.[type] || type;
       const namePrefix = `${documentPrefix}${year}${month}-`;
 
-      // Find the highest serial number for this prefix to avoid duplicates
-      // Exclude revision documents (names containing "Rev-") so they don't interfere with serial lookup
+      // Find the highest serial for this prefix, ORG-WIDE and not scoped to
+      // documentTemplateId — see generateSequentialDocumentName for why: the
+      // prefix comes from templateVariant, which templates share, so a
+      // per-template scan handed the same number to siblings. Revision
+      // documents are excluded via baseDocumentId: null, as before.
       const existingDocs = await this.prisma.document.findMany({
         where: {
           organizationId,
-          documentTemplateId,
           name: {
             startsWith: namePrefix,
           },
           baseDocumentId: null,
         },
         select: { name: true },
-        orderBy: { name: 'desc' },
-        take: 1,
       });
 
+      // Numeric max — a lexicographic one mis-ranks mixed serial widths, which
+      // the widened scan can now surface under a single prefix.
       let nextSerial = 1;
-      if (existingDocs.length > 0) {
-        // Extract the serial number from the last document name
-        const lastDocName = existingDocs[0].name;
-        const match = lastDocName.match(/-(\d+)$/);
+      for (const d of existingDocs) {
+        const match = (d.name || '').match(/-(\d+)$/);
         if (match) {
-          nextSerial = parseInt(match[1], 10) + 1;
+          nextSerial = Math.max(nextSerial, parseInt(match[1], 10) + 1);
         }
       }
 
