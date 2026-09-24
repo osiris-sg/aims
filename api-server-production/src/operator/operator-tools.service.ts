@@ -853,10 +853,20 @@ export class OperatorToolsService {
             notes: { type: 'string' },
             poNo: { type: 'string' },
             referenceNo: { type: 'string' },
+            customerAddress: {
+              type: 'string',
+              description: "Bill-to address shown on the PDF. Use this when the user says the address is missing or wrong on a document.",
+            },
+            customerName: { type: 'string', description: 'Bill-to name shown on the PDF.' },
+            syncCustomerFromMaster: {
+              type: 'boolean',
+              description:
+                "Re-copy name/address/email from the customer's record in Customers onto this document. Use when the details are blank on the document but correct in the customer record — that is the usual cause of a missing address, and it beats retyping it.",
+            },
           },
           required: ['documentId'],
         },
-        run: async (ctx, { documentId, lineEdits, addLines, notes, poNo, referenceNo }) => {
+        run: async (ctx, { documentId, lineEdits, addLines, notes, poNo, referenceNo, customerAddress, customerName, syncCustomerFromMaster }) => {
           const doc = await this.findDoc(ctx.organizationId, documentId);
           if (!doc) return { result: { error: 'Document not found in this organization' } };
           const locked = ['confirmed', 'paid', 'pending_payment'];
@@ -936,6 +946,44 @@ export class OperatorToolsService {
           const nettTotal = absorbTax === 'Y' || taxApplicable === 'N' ? subTotal : round2(subTotal + gstAmount);
           const totals = { subTotal, gstAmount, nettTotal, grossTotal, discountAmount: 0 };
 
+          // Bill-to details. The PDF reads the TOP-LEVEL customerAddress, while
+          // cfg.customer.address is the nested copy — both are written so the
+          // document and its preview agree. A document created before the
+          // customer record had an address keeps a null here forever, which is
+          // the usual reason an address "doesn't show": syncCustomerFromMaster
+          // re-copies it rather than making the user retype it.
+          const custPatch: any = {};
+          let addr = customerAddress != null ? String(customerAddress) : undefined;
+          let cname = customerName != null ? String(customerName) : undefined;
+          let cemail: string | undefined;
+          if (syncCustomerFromMaster) {
+            const custId = cfg.customerId || cfg.customer?.id;
+            const master = custId
+              ? await this.prisma.customer.findFirst({
+                  where: { id: String(custId), organizationId: ctx.organizationId },
+                  select: { name: true, address: true, email: true },
+                })
+              : null;
+            if (!master) {
+              return { result: { error: 'This document has no linked customer record to copy details from. Pass customerAddress instead.' } };
+            }
+            addr = addr ?? (master.address || undefined);
+            cname = cname ?? (master.name || undefined);
+            cemail = master.email || undefined;
+          }
+          if (addr !== undefined) {
+            custPatch.customerAddress = addr;
+            custPatch.customer = { ...(cfg.customer || {}), address: addr };
+          }
+          if (cname !== undefined) {
+            custPatch.customerName = cname;
+            custPatch.customer = { ...(custPatch.customer || cfg.customer || {}), name: cname };
+          }
+          if (cemail !== undefined) {
+            custPatch.customerEmail = cemail;
+            custPatch.customer = { ...(custPatch.customer || cfg.customer || {}), email: cemail };
+          }
+
           const newCfg: any = {
             ...cfg,
             items: nextItems,
@@ -943,6 +991,7 @@ export class OperatorToolsService {
             ...(notes != null ? { note: cleanText(String(notes)) } : {}),
             ...(poNo != null ? { poNo: String(poNo) } : {}),
             ...(referenceNo != null ? { referenceNo: String(referenceNo) } : {}),
+            ...custPatch,
             documentInfo: { ...(cfg.documentInfo || {}), ...totals, items: nextItems },
           };
           await this.prisma.document.update({ where: { id: doc.id }, data: { config: newCfg } });
@@ -2336,11 +2385,20 @@ export class OperatorToolsService {
       const res = await this.selfCall(ctx, method, path, body);
       if (!res.ok) {
         // class-validator returns field-level messages, which is the agent's
-        // feedback loop on endpoints that do not document a body schema.
-        const detail = Array.isArray(res.body?.message)
-          ? res.body.message.join('; ')
-          : res.body?.message || String(res.text || '').slice(0, 300);
-        return { ok: false, message: `That didn't go through (${res.status}): ${detail}` };
+        // feedback loop on endpoints that do not document a body schema. A bare
+        // `throw new BadRequestException()` yields the useless string "Bad
+        // Request Exception", so fall through to anything else the body holds
+        // and always name the call — "(400): Bad Request Exception" left both
+        // the user and the next debugger with nothing to go on.
+        const b: any = res.body || {};
+        const parts = [
+          Array.isArray(b.message) ? b.message.join('; ') : typeof b.message === 'string' ? b.message : '',
+          typeof b.error === 'string' ? b.error : '',
+          b.detail || b.description || '',
+        ].filter((x) => x && x !== 'Bad Request Exception');
+        const detail = parts.join(' — ') || String(res.text || '').slice(0, 300) || 'no reason given';
+        this.logger.warn(`api_write ${method} ${path} -> ${res.status}: ${String(res.text || '').slice(0, 500)}`);
+        return { ok: false, message: `${method} ${path} failed (${res.status}): ${detail}` };
       }
       this.log(ctx, 'UPDATED', 'api', undefined, String(path), `${method} ${path} via Operator (${ctx.channel})`);
       return { ok: true, message: `✅ Done. ${pending.summary}` };
