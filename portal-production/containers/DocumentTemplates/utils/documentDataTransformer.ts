@@ -218,6 +218,15 @@ export function transformFormDataForBackend(
     result.referenceNo = formData.documentInfo.referenceNo;
   }
 
+  // Persist the Sub-Total / GST / Total display switch. Written FLAT
+  // (config.showTotals) because that is where every renderer reads it — the
+  // portal preview and the server's quotation.ts port. Only ever stored when
+  // the editor actually carries the key, so documents that predate it stay
+  // absent, and absent means SHOW.
+  if (formData.documentInfo?.showTotals !== undefined) {
+    result.showTotals = formData.documentInfo.showTotals;
+  }
+
   // Handle GST registration number
   result.gstRegNo = formData.company?.gstRegNo || organization?.registrationNumber || '';
 
@@ -317,6 +326,17 @@ export function transformBackendDataForForm(
   // field-def already set this via the field loop; same value either way.
   if (backendData.referenceNo !== undefined && result.documentInfo.referenceNo === undefined) {
     result.documentInfo.referenceNo = backendData.referenceNo;
+  }
+
+  // Rehydrate the totals switch so the checkbox shows the document's own
+  // setting. Defaults to TRUE when the key is absent, which is every document
+  // created before this existed — the checkbox reads ticked and saving keeps
+  // the totals visible.
+  if (backendData.showTotals !== undefined || backendData.documentInfo?.showTotals !== undefined) {
+    result.documentInfo.showTotals =
+      (backendData.showTotals ?? backendData.documentInfo?.showTotals) !== false;
+  } else {
+    result.documentInfo.showTotals = true;
   }
 
   // Ensure documentInfo has documentNumber from name field

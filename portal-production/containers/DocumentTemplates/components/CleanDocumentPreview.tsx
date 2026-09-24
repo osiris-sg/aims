@@ -4044,6 +4044,20 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         (organization?.id === BIOFUEL_ORG_ID ||
           organization?.name === "Biofuel Industries Pte Ltd"));
 
+    // Show/hide the Sub-Total / GST / Total-Include block. DISPLAY ONLY: the
+    // editor still computes and stores subTotal / gstAmount / nettTotal, which
+    // the posting flow and every downstream conversion read.
+    //
+    // ABSENT MEANS SHOW. Read as (flag ?? true) !== false, never !!flag — the
+    // ~81 quotations that predate this key carry no `showTotals` and must keep
+    // rendering their totals exactly as before. Only an explicit `false` hides.
+    //
+    // Distinct from taxApplicable:"N", which already suppresses the GST and
+    // Total-Include rows but keeps Sub-Total. The two compose: this removes all
+    // three.
+    const showTotals =
+      (((data as any).showTotals ?? (data as any).documentInfo?.showTotals) ?? true) !== false;
+
     return (
       <Paper
         data-print-paper
@@ -4424,7 +4438,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       {/* NISHIO-style totals INSIDE the boxed grid (Biofuel):
                           Sub-Total / GST / Total rows share the grid lines,
                           label spanning all but the amount column. */}
-                      {isBiofuelQuotation && (() => {
+                      {isBiofuelQuotation && showTotals && (() => {
                         const sub = items.filter((it: any) => !it.isGroupHeader && !it.isTagGroup).reduce((s: number, it: any) => s + (Number(it.amount) || 0), 0);
                         const gstP = Number((data as any).documentInfo?.gstPercent ?? (data as any).gstPercent ?? 9) || 0;
                         const taxAppl = ((data as any).taxApplicable ?? (data as any).documentInfo?.taxApplicable) !== "N" && gstP > 0;
@@ -4514,7 +4528,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     ))}
                   {/* NISHIO-style boxed totals (Biofuel) — mirrors the
                       config-driven branch above. */}
-                  {isBiofuelQuotation && (() => {
+                  {isBiofuelQuotation && showTotals && (() => {
                     const colCount = 4 + (hasItemCode ? 1 : 0) + (hasUom ? 1 : 0) + 1;
                     const sub = items.filter((it: any) => !it.isGroupHeader).reduce((s: number, it: any) => s + (Number(it.amount) || 0), 0);
                     const gstP = Number((data as any).documentInfo?.gstPercent ?? (data as any).gstPercent ?? 9) || 0;

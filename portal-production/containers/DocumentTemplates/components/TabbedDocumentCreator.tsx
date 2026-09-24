@@ -6422,6 +6422,38 @@ export default function TabbedDocumentCreator({
 
                                 return (
                                   <>
+                                    {/* SHOW / HIDE THE PRINTED TOTALS. Sits on top of the
+                                        summary it governs, so it reads as "and these are
+                                        the rows it controls".
+
+                                        DISPLAY ONLY — everything below keeps computing, and
+                                        the save keeps writing subTotal / gstAmount /
+                                        nettTotal, which posting and every conversion read.
+                                        Unticking removes the Sub-Total / GST / Total block
+                                        from the preview, the print, the PDF and the guest
+                                        link; it does not make the quotation untotalled.
+
+                                        Default ticked, including for the ~81 quotations that
+                                        predate the key — the transformer rehydrates a missing
+                                        showTotals as true. */}
+                                    {isQuotation && (
+                                      <FormControlLabel
+                                        sx={{ mb: 0.5, ml: 0 }}
+                                        control={
+                                          <Checkbox
+                                            size="small"
+                                            checked={(formData?.documentInfo as any)?.showTotals !== false}
+                                            onChange={(e) =>
+                                              setFormData((prev: any) => ({
+                                                ...prev,
+                                                documentInfo: { ...(prev?.documentInfo || {}), showTotals: e.target.checked },
+                                              }))
+                                            }
+                                          />
+                                        }
+                                        label={<Typography variant="body2">Show totals on the document</Typography>}
+                                      />
+                                    )}
                                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
                                       <Typography variant="body2">Gross Total:</Typography>
                                       <Typography variant="body2">{currency} {subtotal.toFixed(2)}</Typography>

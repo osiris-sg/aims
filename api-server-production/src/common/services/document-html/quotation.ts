@@ -109,7 +109,13 @@ export function renderQuotationBody(data: any, organization: any): string {
     : hardcodedTable(items);
 
   // ── totals ──────────────────────────────────────────────────────────────
-  const totals = `
+  // config.showTotals === false hides the block. ABSENT MEANS SHOW: read as
+  // (flag ?? true) !== false so every quotation predating the key is unchanged.
+  // DISPLAY ONLY — subTotal / gstAmount / nettTotal are still computed and
+  // stored by the editor, and still read by posting and by conversions.
+  const showTotals =
+    (((data as any)?.showTotals ?? (data as any)?.documentInfo?.showTotals) ?? true) !== false;
+  const totals = !showTotals ? '' : `
   <div style="margin-top:16px;">
     <div style="display:flex;justify-content:flex-end;border-top:1px solid #000;padding-top:8px;page-break-inside:avoid;break-inside:avoid;">
       <div style="min-width:200px;">
@@ -127,7 +133,12 @@ export function renderQuotationBody(data: any, organization: any): string {
     </div>
   </div>`;
 
-  const inWords = `<div style="margin-top:16px;margin-bottom:16px;"><p style="font-size:13px;">${escapeHtml(numberToWords(finalAmount))}</p></div>`;
+  // Behind the SAME guard as the totals. This is the total spelled out —
+  // "Singapore Dollars Eight Thousand…" — so leaving it while the figures are
+  // hidden states the total in prose and defeats the switch entirely.
+  const inWords = !showTotals
+    ? ''
+    : `<div style="margin-top:16px;margin-bottom:16px;"><p style="font-size:13px;">${escapeHtml(numberToWords(finalAmount))}</p></div>`;
 
   // ── footer: closing lines, notes, T&C, configured footer message ────────
   const footerMessage = di('footerMessage');
