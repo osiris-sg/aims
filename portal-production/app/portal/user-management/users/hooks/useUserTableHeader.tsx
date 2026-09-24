@@ -123,13 +123,13 @@ export default function useUserTableHeader() {
         // Management), so a plain sum inflated the count (guru 2026-09-24).
         const ids = new Set<string>();
         row.roles?.forEach((role: any) => role.permissions?.forEach((p: any) => ids.add(p.id)));
-        return ids.size;
+        return ids.size as unknown;
       },
       {
         id: "permissions",
         header: "Permissions",
-        cell: (info) => {
-          const totalPermissions = info.getValue();
+        cell: (info: any) => {
+          const totalPermissions = info.getValue() as number;
           return <Chip label={`${totalPermissions} permissions`} size="small" variant="outlined" sx={{ borderRadius: "4px" }} />;
         },
       }
