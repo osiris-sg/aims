@@ -543,6 +543,11 @@ interface DynamicFormFieldsProps {
   // Replace a field's input with custom content (label cell + row position
   // kept) — e.g. Biofuel's DO Reference No quotation selector.
   customInputs?: Record<string, React.ReactNode>;
+  // Extra row rendered FIRST inside the RIGHT (summary) column, above Rate /
+  // Gross Total / Disc / Sub-total / GST / Nett Total. The right column is
+  // built by filtering field definitions, so a control with no field
+  // definition — the quotation totals switch — has no other way in.
+  prependRightRow?: React.ReactNode;
   customers?: any[];
   suppliers?: any[];
   projects?: any[];
@@ -687,6 +692,7 @@ export default function DynamicFormFields({
   hiddenFields = [],
   appendRow,
   customInputs,
+  prependRightRow,
   customers = [],
   suppliers = [],
   projects = [],
@@ -1285,6 +1291,9 @@ export default function DynamicFormFields({
           bgcolor: 'background.paper',
         }}
       >
+        {/* Rendered inside the same row chrome as the field-driven rows below,
+            so a control with no field definition still looks native here. */}
+        {prependRightRow && <Box sx={rightRowSx}>{prependRightRow}</Box>}
         {rightFields.map((field) => renderRightRow(field))}
       </Box>
     </Box>

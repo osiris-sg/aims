@@ -4549,6 +4549,42 @@ export default function TabbedDocumentCreator({
                       and hosts the Contact Person / No. / Email trio on that row,
                       same as invoices. */}
                   <DynamicFormFields
+                    /* SHOW / HIDE THE PRINTED TOTALS — first row of the RIGHT
+                       (summary) column, directly above the Rate / Gross Total /
+                       Disc / Sub-total / Tax / GST / Nett Total rows it governs.
+
+                       It goes through prependRightRow because that column is
+                       built by FILTERING FIELD DEFINITIONS, and this control has
+                       no field definition — there is no other way into it short
+                       of migrating a formFields entry onto all 11 Biofuel
+                       quotation templates.
+
+                       DISPLAY ONLY: everything below keeps computing and the save
+                       keeps writing subTotal / gstAmount / nettTotal, which
+                       posting and every conversion read. Default ticked, and a
+                       document with no showTotals key reads ticked — only an
+                       explicit false hides. */
+                    prependRightRow={
+                      isQuotation ? (
+                        <FormControlLabel
+                          sx={{ m: 0 }}
+                          control={
+                            <Checkbox
+                              size="small"
+                              sx={{ p: 0.5, mr: 0.5 }}
+                              checked={(formData?.documentInfo as any)?.showTotals !== false}
+                              onChange={(e) =>
+                                setFormData((prev: any) => ({
+                                  ...prev,
+                                  documentInfo: { ...(prev?.documentInfo || {}), showTotals: e.target.checked },
+                                }))
+                              }
+                            />
+                          }
+                          label={<Typography variant="body2">Show totals on the document</Typography>}
+                        />
+                      ) : undefined
+                    }
                     fields={(() => {
                       let fields = tab.fields;
                       if (isQuotation) {
@@ -6422,38 +6458,6 @@ export default function TabbedDocumentCreator({
 
                                 return (
                                   <>
-                                    {/* SHOW / HIDE THE PRINTED TOTALS. Sits on top of the
-                                        summary it governs, so it reads as "and these are
-                                        the rows it controls".
-
-                                        DISPLAY ONLY — everything below keeps computing, and
-                                        the save keeps writing subTotal / gstAmount /
-                                        nettTotal, which posting and every conversion read.
-                                        Unticking removes the Sub-Total / GST / Total block
-                                        from the preview, the print, the PDF and the guest
-                                        link; it does not make the quotation untotalled.
-
-                                        Default ticked, including for the ~81 quotations that
-                                        predate the key — the transformer rehydrates a missing
-                                        showTotals as true. */}
-                                    {isQuotation && (
-                                      <FormControlLabel
-                                        sx={{ mb: 0.5, ml: 0 }}
-                                        control={
-                                          <Checkbox
-                                            size="small"
-                                            checked={(formData?.documentInfo as any)?.showTotals !== false}
-                                            onChange={(e) =>
-                                              setFormData((prev: any) => ({
-                                                ...prev,
-                                                documentInfo: { ...(prev?.documentInfo || {}), showTotals: e.target.checked },
-                                              }))
-                                            }
-                                          />
-                                        }
-                                        label={<Typography variant="body2">Show totals on the document</Typography>}
-                                      />
-                                    )}
                                     <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
                                       <Typography variant="body2">Gross Total:</Typography>
                                       <Typography variant="body2">{currency} {subtotal.toFixed(2)}</Typography>
