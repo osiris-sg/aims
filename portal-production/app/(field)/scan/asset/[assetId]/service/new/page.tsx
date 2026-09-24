@@ -523,24 +523,42 @@ export default function NewServiceReportPage() {
     });
   };
 
-  const captureTechSig = () => {
-    if (!techSigRef.current || techSigRef.current.isEmpty()) {
-      setError("Service signature is required");
-      return false;
-    }
-    setTechSigDataUrl(techSigRef.current.getTrimmedCanvas().toDataURL("image/png"));
+  /**
+   * Capture a pad to a data URL.
+   *
+   * RETURNS THE VALUE as well as storing it. setState is asynchronous: the
+   * stored value is NOT readable by anything running in the same tick. The
+   * Client-signature step submits immediately after capturing, so a submit
+   * that read the state variable saw the PREVIOUS render's null and rejected a
+   * signature that was plainly visible on the pad — "Client signature is
+   * required", unfixable by re-signing, because every re-sign hit the same
+   * race. Callers must use the RETURNED value, never the state, in the same
+   * tick.
+   *
+   * Returns null when the pad is genuinely empty; the caller sets the message,
+   * so a real "you have not signed" still reads correctly.
+   */
+  const captureSig = (
+    ref: React.RefObject<SignatureCanvas>,
+    store: (v: string) => void,
+  ): string | null => {
+    if (!ref.current || ref.current.isEmpty()) return null;
+    const url = ref.current.getTrimmedCanvas().toDataURL("image/png");
+    store(url);
     setError(null);
-    return true;
+    return url;
   };
 
-  const captureClientSig = () => {
-    if (!clientSigRef.current || clientSigRef.current.isEmpty()) {
-      setError("Client signature is required");
-      return false;
-    }
-    setClientSigDataUrl(clientSigRef.current.getTrimmedCanvas().toDataURL("image/png"));
-    setError(null);
-    return true;
+  const captureTechSig = (): string | null => {
+    const url = captureSig(techSigRef, setTechSigDataUrl);
+    if (!url) setError("Service signature is required");
+    return url;
+  };
+
+  const captureClientSig = (): string | null => {
+    const url = captureSig(clientSigRef, setClientSigDataUrl);
+    if (!url) setError("Client signature is required");
+    return url;
   };
 
   const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => {
@@ -560,18 +578,38 @@ export default function NewServiceReportPage() {
    * been acknowledged. POST /maintenance-reports/:id/sign completes it later
    * and sends the email then.
    */
-  const submit = async (signed: boolean) => {
+  const submit = async (signed: boolean, justCaptured?: { tech?: string | null; client?: string | null }) => {
     if (!customer) {
       setError("Pick a company first");
       setStep(1);
       return;
     }
-    if (signed && !techSigDataUrl) {
+    // Prefer a value captured in THIS tick over state, which has not flushed
+    // yet — see captureSig. Falling back to state keeps every other caller
+    // working unchanged.
+    //
+    // LAST RESORT: read the pad directly. If strokes are on the canvas the
+    // signature exists, whatever any variable says, and it must never be
+    // rejected as missing.
+    const techUrl =
+      justCaptured?.tech ??
+      techSigDataUrl ??
+      (techSigRef.current && !techSigRef.current.isEmpty()
+        ? techSigRef.current.getTrimmedCanvas().toDataURL("image/png")
+        : null);
+    const clientUrl =
+      justCaptured?.client ??
+      clientSigDataUrl ??
+      (clientSigRef.current && !clientSigRef.current.isEmpty()
+        ? clientSigRef.current.getTrimmedCanvas().toDataURL("image/png")
+        : null);
+
+    if (signed && !techUrl) {
       setError("Service signature is required");
       setStep((STEPS as readonly StepName[]).indexOf("Service signature") + 1);
       return;
     }
-    if (signed && !clientSigDataUrl) {
+    if (signed && !clientUrl) {
       setError("Client signature is required");
       setStep((STEPS as readonly StepName[]).indexOf("Client signature") + 1);
       return;
@@ -592,15 +630,22 @@ export default function NewServiceReportPage() {
       let clientKey: string | null = null;
       if (signed) {
         const [techBlob, clientBlob] = await Promise.all([
-          dataUrlToBlob(techSigDataUrl as string),
-          dataUrlToBlob(clientSigDataUrl as string),
+          dataUrlToBlob(techUrl as string),
+          dataUrlToBlob(clientUrl as string),
         ]);
         [techKey, clientKey] = await Promise.all([
           uploadImage({ blob: techBlob, folderName: "maintenance-reports", token }),
           uploadImage({ blob: clientBlob, folderName: "maintenance-reports", token }),
         ]);
+        // uploadImage swallows its own errors and returns "". Say what actually
+        // happened: the signature is fine, the NETWORK is not. Telling a
+        // technician on a dead 4G link that his signature is "required" sends
+        // him back to re-sign a pad that was never the problem.
         if (!techKey || !clientKey) {
-          throw new Error("Signature upload failed");
+          throw new Error(
+            "Your signatures could not be uploaded — the connection dropped. " +
+              "They are still on screen: move somewhere with signal and press Submit again.",
+          );
         }
       }
 
@@ -698,6 +743,9 @@ export default function NewServiceReportPage() {
       const invDoneQuery = inventoryId ? `?inventoryId=${encodeURIComponent(inventoryId)}` : "";
       router.replace(`/scan/asset/${assetId}/done${invDoneQuery}`);
     } catch (e: any) {
+      // The drawn signatures are deliberately NOT cleared here — the canvases
+      // keep their strokes and the captured data URLs stay in state, so a
+      // retry after the signal returns needs no re-signing.
       setError(e?.message ?? "Failed to submit report");
     } finally {
       setSubmitting(false);
@@ -1568,10 +1616,13 @@ export default function NewServiceReportPage() {
     }
     if (stepName === "Service signature" && !captureTechSig()) return;
     // Client signature is the LAST step: capturing it submits, rather than
-    // advancing to a step that no longer exists.
+    // advancing to a step that no longer exists. The captured URL is handed
+    // STRAIGHT to submit — reading it back from state here is the race that
+    // rejected visible signatures.
     if (stepName === "Client signature") {
-      if (!captureClientSig()) return;
-      void submit(true);
+      const client = captureClientSig();
+      if (!client) return;
+      void submit(true, { client });
       return;
     }
     setStep((v) => Math.min(v + 1, TOTAL_STEPS));

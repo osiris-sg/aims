@@ -83,7 +83,15 @@ export default function SignReportPage() {
         uploadImage({ blob: await dataUrlToBlob(techUrl), folderName: "maintenance-reports", token }),
         uploadImage({ blob: await dataUrlToBlob(clientUrl), folderName: "maintenance-reports", token }),
       ]);
-      if (!techKey || !clientKey) throw new Error("Signature upload failed");
+      // Say what actually happened. uploadImage swallows its own errors and
+      // returns "" — reporting that as a signature problem sends the
+      // technician back to a pad that was never at fault.
+      if (!techKey || !clientKey) {
+        throw new Error(
+          "Your signatures could not be uploaded — the connection dropped. " +
+            "They are still on screen: move somewhere with signal and press Sign and finish again.",
+        );
+      }
 
       // ONE call finishes the report: the gate column, the name, and both
       // signature images that the renderers actually draw. Split across two
