@@ -260,7 +260,7 @@ export default function ScanLandingPage() {
           startIcon={<DrawIcon />}
           sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "warning.main" }}
         >
-          Ongoing reports ({ongoingReportCount})
+          Pending Sign ({ongoingReportCount})
         </Button>
       )}
 

@@ -113,7 +113,7 @@ export default function OngoingReportsPage() {
 
       <Box>
         <Typography variant="h6" fontWeight={700}>
-          Ongoing reports
+          Pending Sign
         </Typography>
         <Typography variant="body2" color="text.secondary">
           Reports waiting for a signature. Tap one to sign it.

@@ -12,7 +12,7 @@ import { uploadImage } from "@/helpers/imageUploader";
 /**
  * SIGN A REPORT THAT WAS SKIPPED.
  *
- * Opening an Ongoing report lands here — straight on the signature steps, not
+ * Opening a Pending Sign report lands here — straight on the signature steps, not
  * back through the whole form. The findings were captured when the work was
  * done; the only thing missing is the acknowledgment.
  *

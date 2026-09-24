@@ -732,7 +732,7 @@ export default function NewServiceReportPage() {
       // is still standing at the machine and that is when the customer's copy
       // is wanted. A SKIPPED one has nothing to print (the acknowledgment line
       // would be blank), so it returns to the normal done screen and waits in
-      // Ongoing reports.
+      // Pending Sign.
       const created = res?.data ?? res;
       if (signed && created?.id) {
         router.replace(`/scan/reports/${created.id}/print`);
