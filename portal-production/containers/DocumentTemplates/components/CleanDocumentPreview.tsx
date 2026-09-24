@@ -4651,9 +4651,20 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {data.projectName || data.documentInfo?.projectName || data.project?.name || ""}
               </Typography>
 
-              {/* 2. Courtesy closing FIRST, numbered terms below it (guru's
-                  2026-09-14 redline on QO202609-0063: "move to bottom of
-                  paragraph"). Closing sourced from Doc Defaults footer. */}
+              {/* 2. Numbered terms — directly under the totals, ABOVE the
+                  courtesy closing. Moved up here 2026-09-24; they previously sat
+                  last, right above "Yours faithfully" (guru 2026-09-14 on
+                  QO202609-0063). Wording, spacing and the payment-terms read are
+                  unchanged — only the position moved. */}
+              <Box sx={{ mb: 3, pageBreakInside: "avoid", breakInside: "avoid" }}>
+                <Typography sx={{ fontSize: "0.8125rem" }}>1. All the above prices exclude GST</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>2. Payment terms: {data.documentInfo?.paymentTerms || data.paymentTerms || "CASH"}</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>3. Delivery: Ex-stock, subject to availability</Typography>
+                <Typography sx={{ fontSize: "0.8125rem" }}>4. Transport charges waived for rental periods of 3 months and above</Typography>
+              </Box>
+
+              {/* 3. Courtesy closing, now BELOW the numbered terms. Sourced from
+                  the Doc Defaults footer, with the long-standing fallback. */}
               <Typography sx={{ fontSize: "0.8125rem", mb: 2 }}>
                 {data.footerMessage || data.documentInfo?.footerMessage || "We trust that the above meets your requirements and look forward to receiving your favourable reply soon. Should you have any further queries regarding the above, please do not hesitate to contact the undersigned. Thank you."}
               </Typography>
@@ -4674,15 +4685,6 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <RichContent text={data.termsAndConditions} sx={{ fontSize: "0.8125rem", lineHeight: 1.6 }} />
                 </Box>
               )}
-
-              {/* Numbered terms — LAST thing before the signatures (guru
-                  2026-09-14: "at the most bottom, right above Yours faithfully"). */}
-              <Box sx={{ mb: 3, pageBreakInside: "avoid", breakInside: "avoid" }}>
-                <Typography sx={{ fontSize: "0.8125rem" }}>1. All the above prices exclude GST</Typography>
-                <Typography sx={{ fontSize: "0.8125rem" }}>2. Payment terms: {data.documentInfo?.paymentTerms || data.paymentTerms || "CASH"}</Typography>
-                <Typography sx={{ fontSize: "0.8125rem" }}>3. Delivery: Ex-stock, subject to availability</Typography>
-                <Typography sx={{ fontSize: "0.8125rem" }}>4. Transport charges waived for rental periods of 3 months and above</Typography>
-              </Box>
 
               {/* 4. Dual signature block — LEFT Biofuel / RIGHT customer (50/50) */}
               <Box sx={{ display: "flex", justifyContent: "space-between", gap: 4, mb: 4, pageBreakInside: "avoid", breakInside: "avoid" }}>
