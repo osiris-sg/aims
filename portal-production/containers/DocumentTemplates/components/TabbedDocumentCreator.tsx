@@ -97,7 +97,7 @@ import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields, { headerInputSx } from "./DynamicFormFields";
 import StockCardDialog from "./StockCardDialog";
 import RevenueItemPickerDialog from "./RevenueItemPickerDialog";
-import { resolveQuotationGroup, insertItemGrouped, combineIntoLump, unbundleLump, stackDescriptions } from "./quotationItemGroups";
+import { resolveQuotationGroup, insertItemGrouped, mergeRates, dissolveMerge, normalizeRateMerges, contiguityError, mergeMembers, isMergeAnchor, setMergePriceOn, RateMergeColumn } from "./quotationItemGroups";
 import LocateDocumentDialog from "./LocateDocumentDialog";
 import ExtractQuotationDialog from "./ExtractQuotationDialog";
 import ExtractDOToInvoiceDialog from "./ExtractDOToInvoiceDialog";
@@ -555,9 +555,7 @@ export default function TabbedDocumentCreator({
   // (enableQuotationItemGroups), never in template-edit mode where `items` are
   // layout placeholders rather than a real quotation.
   const [lumpDialogOpen, setLumpDialogOpen] = useState(false);
-  const [lumpDraft, setLumpDraft] = useState<{ quantity: string; uom: string; unitPrice: string; salePrice: string; amount: string; description: string }>(
-    { quantity: "", uom: "", unitPrice: "", salePrice: "", amount: "", description: "" },
-  );
+  const [lumpDraft, setLumpDraft] = useState<{ column: RateMergeColumn; price: string }>({ column: "unitPrice", price: "" });
   const toggleItemSelected = (id: number) =>
     setSelectedItemIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
@@ -576,7 +574,11 @@ export default function TabbedDocumentCreator({
       if (from < 0 || to < 0 || from === to) return prev;
       const [moved] = arr.splice(from, 1);
       arr.splice(to, 0, moved);
-      return arr;
+      // RULE 4 — a reorder can split a merged run. A rowSpan cannot skip a
+      // row, so the merge dissolves rather than printing a cell that spans
+      // rows it no longer covers. (normalizeRateMerges also re-anchors when
+      // the move only changed which member comes first.)
+      return normalizeRateMerges(arr);
     });
   };
 
@@ -1893,7 +1895,11 @@ export default function TabbedDocumentCreator({
   };
 
   const deleteItem = (id: number) => {
-    setItems(items.filter((item: any) => item.id !== id));
+    // RULES 2 and 3 — deleting the ANCHOR would take the shared price and the
+    // block's amount out of the document with it, so the next member is
+    // re-anchored and inherits both; deleting down to a single member
+    // dissolves the merge and lets the survivor price itself again.
+    setItems(normalizeRateMerges(items.filter((item: any) => item.id !== id)));
   };
 
   const updateItem = (id: number, field: string, value: any) => {
@@ -1919,12 +1925,11 @@ export default function TabbedDocumentCreator({
             (updated.unitPrice == null || updated.unitPrice === "") &&
             (updated.salePrice == null || updated.salePrice === "");
           const gross = qty * unit;
-          // A LUMP SUM's amount is the agreed figure the office typed. qty and
-          // the rate are shown on the same row but deliberately do not multiply
-          // out to it (the reference quotes qty 2 for members of 1, 3 and 1), so
-          // editing either must not overwrite the amount. Editing `amount`
-          // itself still lands, through the spread above.
-          if (updated.lumpId) return updated;
+          // MERGED RATE. The anchor's amount IS the shared block price, not this
+          // row's qty x rate, so editing its quantity or its own rate must not
+          // overwrite it. A continuation row's amount stays null for the same
+          // reason — the block is counted once, on the anchor.
+          if (updated.rateMerge) return updated;
           updated.amount = isEmptyLine
             ? ""
             : updated.discountType === "amount"
@@ -1938,44 +1943,40 @@ export default function TabbedDocumentCreator({
     });
   };
 
-  // ─── Lump sum ───────────────────────────────────────────────────────────
-  // Tick several rows, give them ONE price, print them as one line. The rows
-  // are not destroyed: each keeps its itemCode and unitPrice so the Sales
-  // Order pricing ladder can still find its agreed rate months later; they are
-  // hidden from the customer-facing renderers by `rolledUpInto`.
+  // ─── Merged rate cell ───────────────────────────────────────────────────
+  // Tick a run of rows, pick ONE rate column, type one price. Every row still
+  // prints in full; only that column and Amount merge into a spanning cell.
   const isLumpEligible = isQuotation && isQuotationItemGroupsEnabled && !isTemplateEditMode;
   const lumpSelection = items.filter(
-    (it: any) => selectedItemIds.includes(it.id) && !it.isGroupHeader && !it.rolledUpInto && !it.lumpId,
+    (it: any) => selectedItemIds.includes(it.id) && !it.isGroupHeader && !it.rateMerge,
   );
+  const selectionError = isLumpEligible && lumpSelection.length >= 2
+    ? contiguityError(items, lumpSelection.map((m: any) => m.id))
+    : null;
   const openLumpDialog = () => {
-    setLumpDraft({
-      quantity: "",
-      uom: String(lumpSelection.find((m: any) => m.uom)?.uom ?? ""),
-      unitPrice: "",
-      salePrice: "",
-      amount: "",
-      description: stackDescriptions(lumpSelection),
-    });
+    // RULE 1 — refuse a non-contiguous selection. Never reorder the office's
+    // rows to make one fit: a quotation's order is the office's decision.
+    const err = contiguityError(items, lumpSelection.map((m: any) => m.id));
+    if (err) { toast.error(err); return; }
+    setLumpDraft({ column: "unitPrice", price: "" });
     setLumpDialogOpen(true);
   };
   const confirmLump = () => {
     setItems((prev: any[]) =>
-      combineIntoLump(prev, lumpSelection.map((m: any) => m.id), {
-        quantity: lumpDraft.quantity,
-        uom: lumpDraft.uom,
-        unitPrice: lumpDraft.unitPrice,
-        salePrice: lumpDraft.salePrice,
-        amount: lumpDraft.amount,
-        description: lumpDraft.description,
-      }),
+      normalizeRateMerges(mergeRates(prev, lumpSelection.map((m: any) => m.id), lumpDraft.column, Number(lumpDraft.price))),
     );
     setSelectedItemIds([]);
     setLumpDialogOpen(false);
-    toast.success("Combined into one line — the customer sees a single amount; the items inside keep their own codes and rates");
+    toast.success("Rate merged — the rows still print in full, sharing one price");
   };
-  const undoLump = (lumpId: string) => {
-    setItems((prev: any[]) => unbundleLump(prev, lumpId));
-    toast.success("Unbundled — each item is priced on its own again");
+  // Re-pricing the block. The marker sits on EVERY member, so the price is set
+  // on all of them and normalize puts the money back on whichever row is first.
+  const setMergePrice = (mergeId: string, price: number) => {
+    setItems((prev: any[]) => setMergePriceOn(prev, mergeId, price));
+  };
+  const undoLump = (mergeId: string) => {
+    setItems((prev: any[]) => dissolveMerge(prev, mergeId));
+    toast.success("Unmerged — every row prices itself again");
   };
 
   // ─── FCU-CU (QF) quotation helpers ──────────────────────────────────────
@@ -5729,17 +5730,10 @@ export default function TabbedDocumentCreator({
                                 ...(dragOverItemId === item.id && dragItemId !== item.id
                                   ? { "& .MuiTableCell-root": { boxShadow: (t: any) => `inset 0 2px 0 0 ${t.palette.primary.main}` } }
                                   : {}),
-                                // Rolled into a lump sum: still fully editable here, but
-                                // dimmed and ruled so it is obvious the customer will not
-                                // see this line. Hiding it in the editor too would leave
-                                // the office no way to reach it.
-                                ...(item.rolledUpInto
-                                  ? {
-                                      opacity: 0.55,
-                                      "& .MuiTableCell-root": {
-                                        borderLeft: (t: any) => `3px solid ${t.palette.divider}`,
-                                      },
-                                    }
+                                // Part of a merged rate. The ROW is not dimmed — it prints
+                                // in full — only the shared column is marked, below.
+                                ...(item.rateMerge
+                                  ? { "& .MuiTableCell-root": { borderLeft: (t: any) => `3px solid ${t.palette.primary.light}` } }
                                   : {}),
                               }}
                             >
@@ -5779,7 +5773,7 @@ export default function TabbedDocumentCreator({
                                       already inside a lump (or the lump itself) is not
                                       a candidate — tick those and the selection would
                                       mean two different things. */}
-                                  {!item.isGroupHeader && !item.rolledUpInto && !item.lumpId && (
+                                  {!item.isGroupHeader && !item.rateMerge && (
                                     <Checkbox
                                       size="small"
                                       checked={selectedItemIds.includes(item.id)}
@@ -5992,6 +5986,31 @@ export default function TabbedDocumentCreator({
                                         sx={{ width: 80 }}
                                         inputProps={{ min: 0 }}
                                       />
+                                    </TableCell>
+                                  );
+                                } else if (item.rateMerge && columnId === item.rateMerge.column) {
+                                  // MERGED RATE, editor view. The printed document draws one
+                                  // cell spanning these rows; the editor deliberately does
+                                  // NOT rowSpan — an input stretched over five rows is not
+                                  // an editing surface. The anchor shows the shared price,
+                                  // the rows beneath say where it lives.
+                                  const isAnchor = isMergeAnchor(items, item);
+                                  return (
+                                    <TableCell key={columnId} sx={{ textAlign: "center" }}>
+                                      {isAnchor ? (
+                                        <TextField
+                                          size="small"
+                                          type="number"
+                                          value={item.rateMerge.price ?? ""}
+                                          onChange={(e) => setMergePrice(item.rateMerge.id, Number(numFieldParse(e.target.value)) || 0)}
+                                          sx={{ width: 110 }}
+                                          title="Shared by the rows below"
+                                        />
+                                      ) : (
+                                        <Typography variant="caption" color="text.disabled" title="Shared rate — set on the first row of the merge">
+                                          ↑ shared
+                                        </Typography>
+                                      )}
                                     </TableCell>
                                   );
                                 } else if (columnId === "unitPrice") {
@@ -6401,26 +6420,27 @@ export default function TabbedDocumentCreator({
                       {isLumpEligible && lumpSelection.length >= 2 && (
                         <Button
                           variant="outlined"
-                          color="primary"
+                          color={selectionError ? "warning" : "primary"}
                           onClick={openLumpDialog}
                           size="small"
+                          title={selectionError ?? "Share one rate across these rows"}
                         >
-                          Combine into one line ({lumpSelection.length})
+                          Merge rate ({lumpSelection.length})
                         </Button>
                       )}
                       {isLumpEligible &&
                         items
-                          .filter((it: any) => it.lumpId)
-                          .map((lump: any) => (
+                          .filter((it: any) => it.rateMerge?.id)
+                          .map((anchor: any) => (
                             <Chip
-                              key={lump.lumpId}
+                              key={anchor.rateMerge.id}
                               size="small"
                               variant="outlined"
                               color="primary"
-                              label={`Lump sum · ${items.filter((m: any) => m.rolledUpInto === lump.lumpId).length} lines`}
-                              onDelete={() => undoLump(lump.lumpId)}
-                              deleteIcon={<span style={{ fontSize: 11, padding: "0 6px" }}>Unbundle</span>}
-                              title="The lines inside are hidden from the customer but keep their own item codes and rates"
+                              label={`${anchor.rateMerge.column === "salePrice" ? "Sales" : "Monthly"} rate shared · ${mergeMembers(items, anchor.rateMerge.id).length} rows`}
+                              onDelete={() => undoLump(anchor.rateMerge.id)}
+                              deleteIcon={<span style={{ fontSize: 11, padding: "0 6px" }}>Unmerge</span>}
+                              title="These rows print in full and share one rate cell; each keeps its own item code and rate in the data"
                             />
                           ))}
                       {isItemTaggingEnabled && selectedItemIds.length > 0 && (
@@ -7661,19 +7681,19 @@ export default function TabbedDocumentCreator({
               unitPrice: item.unitPrice || 0,
               uom: item.uom || "",
               discount: item.discount || 0,
-              // LUMP SUM markers ride along. A SALES_ORDER extracted from a
-              // quotation must keep its hidden members: the pricing ladder
-              // (buildCodeMap) reads their itemCode + unitPrice off the SO
-              // months later, and dropping them here would silently re-price
+              // MERGED RATE markers ride along, so an extracted SALES_ORDER keeps
+              // both the shared price and every member's own itemCode +
+              // unitPrice — the pricing ladder (buildCodeMap) reads those off
+              // the SO months later, and dropping them would silently re-price
               // the eventual invoice at asset list price.
-              ...(item.rolledUpInto ? { rolledUpInto: item.rolledUpInto } : {}),
-              ...(item.lumpId ? { lumpId: item.lumpId, lumpCount: item.lumpCount } : {}),
-              // A member's amount stays NULL. Without this branch the fallback
-              // below re-prices it from qty x unitPrice — `null` is falsy — and
-              // the customer's invoice would carry both the lump and every line
-              // inside it.
-              amount: item.rolledUpInto
-                ? null
+              ...(item.rateMerge ? { rateMerge: item.rateMerge } : {}),
+              // A merged row's amount is carried VERBATIM — the block price on
+              // the first of them, null on the rest. Without this branch the
+              // fallback re-prices every one from qty x unitPrice (`null` is
+              // falsy), and the invoice would carry the block price AND each
+              // row underneath it.
+              amount: item.rateMerge
+                ? item.amount ?? null
                 : item.amount || (item.quantity || 1) * (item.unitPrice || 0),
             }));
             setItems(newItems);
@@ -7840,19 +7860,19 @@ export default function TabbedDocumentCreator({
               unitPrice: item.unitPrice || 0,
               uom: item.uom || "",
               discount: item.discount || 0,
-              // LUMP SUM markers ride along. A SALES_ORDER extracted from a
-              // quotation must keep its hidden members: the pricing ladder
-              // (buildCodeMap) reads their itemCode + unitPrice off the SO
-              // months later, and dropping them here would silently re-price
+              // MERGED RATE markers ride along, so an extracted SALES_ORDER keeps
+              // both the shared price and every member's own itemCode +
+              // unitPrice — the pricing ladder (buildCodeMap) reads those off
+              // the SO months later, and dropping them would silently re-price
               // the eventual invoice at asset list price.
-              ...(item.rolledUpInto ? { rolledUpInto: item.rolledUpInto } : {}),
-              ...(item.lumpId ? { lumpId: item.lumpId, lumpCount: item.lumpCount } : {}),
-              // A member's amount stays NULL. Without this branch the fallback
-              // below re-prices it from qty x unitPrice — `null` is falsy — and
-              // the customer's invoice would carry both the lump and every line
-              // inside it.
-              amount: item.rolledUpInto
-                ? null
+              ...(item.rateMerge ? { rateMerge: item.rateMerge } : {}),
+              // A merged row's amount is carried VERBATIM — the block price on
+              // the first of them, null on the rest. Without this branch the
+              // fallback re-prices every one from qty x unitPrice (`null` is
+              // falsy), and the invoice would carry the block price AND each
+              // row underneath it.
+              amount: item.rateMerge
+                ? item.amount ?? null
                 : item.amount || (item.quantity || 1) * (item.unitPrice || 0),
             }));
             setItems(newItems);
@@ -8020,19 +8040,19 @@ export default function TabbedDocumentCreator({
               unitPrice: item.unitPrice || 0,
               uom: item.uom || "",
               discount: item.discount || 0,
-              // LUMP SUM markers ride along. A SALES_ORDER extracted from a
-              // quotation must keep its hidden members: the pricing ladder
-              // (buildCodeMap) reads their itemCode + unitPrice off the SO
-              // months later, and dropping them here would silently re-price
+              // MERGED RATE markers ride along, so an extracted SALES_ORDER keeps
+              // both the shared price and every member's own itemCode +
+              // unitPrice — the pricing ladder (buildCodeMap) reads those off
+              // the SO months later, and dropping them would silently re-price
               // the eventual invoice at asset list price.
-              ...(item.rolledUpInto ? { rolledUpInto: item.rolledUpInto } : {}),
-              ...(item.lumpId ? { lumpId: item.lumpId, lumpCount: item.lumpCount } : {}),
-              // A member's amount stays NULL. Without this branch the fallback
-              // below re-prices it from qty x unitPrice — `null` is falsy — and
-              // the customer's invoice would carry both the lump and every line
-              // inside it.
-              amount: item.rolledUpInto
-                ? null
+              ...(item.rateMerge ? { rateMerge: item.rateMerge } : {}),
+              // A merged row's amount is carried VERBATIM — the block price on
+              // the first of them, null on the rest. Without this branch the
+              // fallback re-prices every one from qty x unitPrice (`null` is
+              // falsy), and the invoice would carry the block price AND each
+              // row underneath it.
+              amount: item.rateMerge
+                ? item.amount ?? null
                 : item.amount || (item.quantity || 1) * (item.unitPrice || 0),
             }));
             setItems(newItems);
@@ -8290,77 +8310,49 @@ export default function TabbedDocumentCreator({
         }}
       />
 
-      {/* Lump sum: one price for several ticked lines. Quantity and the rate
-          are TYPED, not derived — on the reference quotation a block of items
-          with quantities 1, 3 and 1 is quoted as quantity 2, and the rate is
-          the one the customer agreed, not an average. Only the amount is
-          required; everything else prints blank if left empty. */}
-      <Dialog open={lumpDialogOpen} onClose={() => setLumpDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Combine {lumpSelection.length} items under one price</DialogTitle>
+      {/* Merged rate: the ticked rows keep their own description, UOM, quantity
+          and code and each still prints — only the chosen rate column and the
+          Amount beside it fold into one spanning cell. */}
+      <Dialog open={lumpDialogOpen} onClose={() => setLumpDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Share one rate across {lumpSelection.length} rows</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            The customer sees one line. The items inside stay on the quotation with their own
-            item codes and rates, so a later Sales Order and invoice still price them correctly.
+            Every row still prints in full. One rate column and the Amount beside it merge
+            into a single cell spanning these rows, holding the price you type.
           </Typography>
           <TextField
-            label="Description (printed)"
-            value={lumpDraft.description}
-            onChange={(e) => setLumpDraft({ ...lumpDraft, description: e.target.value })}
-            multiline
-            minRows={Math.min(6, Math.max(3, lumpSelection.length))}
-            fullWidth
+            select
+            label="Which rate"
+            value={lumpDraft.column}
+            onChange={(e) => setLumpDraft({ ...lumpDraft, column: e.target.value as RateMergeColumn })}
             size="small"
-            helperText="One line per item, dash-prefixed. Edit freely — this is what prints."
+            fullWidth
+            SelectProps={{ native: true }}
             sx={{ mb: 2 }}
+            InputLabelProps={{ shrink: true }}
+          >
+            <option value="unitPrice">Monthly Rental Rates S$</option>
+            <option value="salePrice">Sales Unit Rates S$</option>
+          </TextField>
+          <TextField
+            label="Shared price"
+            value={lumpDraft.price}
+            onChange={(e) => setLumpDraft({ ...lumpDraft, price: e.target.value })}
+            size="small"
+            type="number"
+            required
+            fullWidth
+            helperText="Counted once in the subtotal, on the first of these rows"
           />
-          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-            <TextField
-              label="UOM"
-              value={lumpDraft.uom}
-              onChange={(e) => setLumpDraft({ ...lumpDraft, uom: e.target.value })}
-              size="small"
-              sx={{ width: 110 }}
-            />
-            <TextField
-              label="Quantity"
-              value={lumpDraft.quantity}
-              onChange={(e) => setLumpDraft({ ...lumpDraft, quantity: e.target.value })}
-              size="small"
-              type="number"
-              sx={{ width: 120 }}
-            />
-            <TextField
-              label="Monthly rate"
-              value={lumpDraft.unitPrice}
-              onChange={(e) => setLumpDraft({ ...lumpDraft, unitPrice: e.target.value })}
-              size="small"
-              type="number"
-              sx={{ width: 140 }}
-            />
-            <TextField
-              label="Sales rate"
-              value={lumpDraft.salePrice}
-              onChange={(e) => setLumpDraft({ ...lumpDraft, salePrice: e.target.value })}
-              size="small"
-              type="number"
-              sx={{ width: 140 }}
-            />
-            <TextField
-              label="Amount"
-              value={lumpDraft.amount}
-              onChange={(e) => setLumpDraft({ ...lumpDraft, amount: e.target.value })}
-              size="small"
-              type="number"
-              required
-              sx={{ width: 160 }}
-              helperText="The agreed figure"
-            />
-          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setLumpDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={confirmLump} disabled={lumpDraft.amount === "" || isNaN(Number(lumpDraft.amount))}>
-            Combine
+          <Button
+            variant="contained"
+            onClick={confirmLump}
+            disabled={lumpDraft.price === "" || isNaN(Number(lumpDraft.price))}
+          >
+            Merge rate
           </Button>
         </DialogActions>
       </Dialog>

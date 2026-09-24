@@ -40,11 +40,7 @@ const alignFor = (col: string): string =>
 
 export function renderQuotationBody(data: any, organization: any): string {
   const di = makeDi(data);
-  // Lump-sum members never print. Filtered HERE rather than in the row loop
-  // because the subtotal on the next line sums `items` with NO filter of its
-  // own — the PDF and the guest sign link both render through this function,
-  // so a member that slipped past would double-count on the customer's copy.
-  const items = groupDeliveryLines(data?.items || []).filter((it: any) => !it?.rolledUpInto);
+  const items = groupDeliveryLines(data?.items || []);
 
   // Totals are derived from the lines, exactly as the portal does.
   const subtotal = items.reduce((s: number, it: any) => s + (Number(it.amount) || 0), 0);
@@ -181,6 +177,38 @@ export function renderQuotationBody(data: any, organization: any): string {
   return header + partyRow + attn + intro + table + totals + inWords + closing + footerMsgBlock;
 }
 
+/**
+ * Merged rate cells. A run of CONTIGUOUS rows can share one rate: the anchor
+ * row draws that column — and the Amount column — with a `rowspan`, and the
+ * rows beneath omit both cells. Every other cell on every row still prints, so
+ * each product keeps its own description, UOM, quantity and code.
+ *
+ * The span is DERIVED from the rows present, never read from a stored count:
+ * a deleted row would otherwise leave a rowspan reaching past the end of its
+ * block and tear the table apart.
+ */
+function resolveRateMerges(rows: any[]): {
+  anchors: Map<number, { span: number; price: number; column: string }>;
+  skip: Map<number, string>;
+} {
+  const anchors = new Map<number, { span: number; price: number; column: string }>();
+  const skip = new Map<number, string>();
+  rows.forEach((r: any, i: number) => {
+    const m = r?.rateMerge;
+    if (!m?.id) return;
+    // Every member carries the marker; the ANCHOR is simply the first row of
+    // the run, so a deleted first row cannot take the price with it.
+    if (i > 0 && rows[i - 1]?.rateMerge?.id === m.id) return;
+    let span = 1;
+    for (let j = i + 1; j < rows.length && rows[j]?.rateMerge?.id === m.id; j++) {
+      skip.set(j, m.column);
+      span++;
+    }
+    anchors.set(i, { span, price: Number(m.price) || 0, column: m.column });
+  });
+  return { anchors, skip };
+}
+
 /** Template-driven columns (tableColumnOrder / columnLabels / internalColumns). */
 function configDrivenTable(data: any, items: any[]): string {
   const internalColumns: string[] = Array.isArray(data.internalColumns) ? data.internalColumns : DEFAULT_INTERNAL_COLUMNS;
@@ -249,16 +277,34 @@ function configDrivenTable(data: any, items: any[]): string {
     .join('');
 
   const nonTag = items.filter((i) => !i.isTagGroup);
+  const { anchors, skip } = resolveRateMerges(nonTag);
   const body = nonTag
-    .map((item, idx) =>
+    .map((item, idx) => {
       // Quotation section headers (guru 2026-09-14): bold underlined
       // full-width row, no qty/price cells — mirrors CleanDocumentPreview.
-      item.isGroupHeader
-        ? `<tr><td colspan="${columns.length}" style="font-weight:700;text-decoration:underline;padding-top:12px;">${escapeHtml(item.description || '')}</td></tr>`
-        : `<tr style="vertical-align:top;">${columns
-            .map((c) => `<td style="text-align:${alignFor(c)};">${valueFor(c, item, idx)}</td>`)
-            .join('')}</tr>`,
-    )
+      if (item.isGroupHeader) {
+        return `<tr><td colspan="${columns.length}" style="font-weight:700;text-decoration:underline;padding-top:12px;">${escapeHtml(item.description || '')}</td></tr>`;
+      }
+      const anchor = anchors.get(idx);
+      const skipCol = skip.get(idx);
+      const cells = columns
+        .map((c) => {
+          // Continuation row: the anchor above already spans these two.
+          if (skipCol && (c === skipCol || c === 'amount')) return '';
+          if (anchor && (c === anchor.column || c === 'amount')) {
+            const value = c === 'amount' ? money(item.amount) : Number(anchor.price).toFixed(2);
+            // The span must be VISIBLE. This layout draws no grid lines, so a
+            // centred figure beside the middle row reads as that row's price
+            // rather than the block's. A hairline bracket down the merged cell
+            // shows how far it reaches — the printed equivalent of a merged
+            // cell's borders in a spreadsheet.
+            return `<td rowspan="${anchor.span}" style="text-align:${alignFor(c)};vertical-align:middle;border-top:1px solid #bbb;border-bottom:1px solid #bbb;">${value}</td>`;
+          }
+          return `<td style="text-align:${alignFor(c)};">${valueFor(c, item, idx)}</td>`;
+        })
+        .join('');
+      return `<tr style="vertical-align:top;">${cells}</tr>`;
+    })
     .join('');
 
   // "Tagged CUs" sub-section
@@ -293,7 +339,18 @@ function configDrivenTable(data: any, items: any[]): string {
   return `<div style="margin-bottom:24px;"><table><thead><tr>${head}</tr></thead><tbody>${body}${tagged}${filler}</tbody></table></div>`;
 }
 
-/** Default columns when the template defines none. */
+/**
+ * Default columns when the template defines none.
+ *
+ * MERGED RATE CELLS ARE NOT SUPPORTED HERE. This fallback writes each `<td>`
+ * out by hand instead of looping the columns, so a rowspan would need a
+ * conditional per literal; it also has no section-header branch, so it already
+ * renders quotation groups as ordinary rows. Every template that can carry a
+ * merge defines `tableColumnOrder` and therefore renders through
+ * configuredTable above. A merged quotation reaching this path prints each
+ * row's own rate, which is wrong but legible — it never double-counts,
+ * because the money still sits on the anchor row's amount alone.
+ */
 function hardcodedTable(items: any[]): string {
   const hasUom = items.some((i) => i.uom && String(i.uom).trim() !== '');
   const descWidth = hasUom ? '40%' : '48%';

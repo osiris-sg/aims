@@ -78,102 +78,183 @@ export function insertItemGrouped(items: any[], newItem: any, groupTitle: string
   return [...items.slice(0, end), newItem, ...items.slice(end)];
 }
 
-// ─── Lump sum (guru 2026-09-24) ─────────────────────────────────────────────
-// Several products quoted under ONE price. The members are NOT merged away:
-// each keeps its itemCode and unitPrice so the Sales-Order pricing ladder
-// (documents.service.ts buildCodeMap → "Sales Order beats Quotation beats
-// asset") can still find its agreed rate when the unit is delivered and
-// invoiced. They are hidden from every RENDERER instead, by `rolledUpInto`.
+
+// ─── Merged rate cell (guru 2026-09-24) ─────────────────────────────────────
+// Several CONTIGUOUS rows quoted at one shared price. Nothing is hidden and
+// nothing is collapsed: every row keeps printing with its own description,
+// UOM, quantity and item code. Only ONE rate column — 'unitPrice' (Monthly
+// Rental Rates S$) or 'salePrice' (Sales Unit Rates S$) — merges into a single
+// cell spanning those rows, like a merged cell in a spreadsheet, and the
+// Amount column merges with it over the same range.
 //
-// The lump itself is an ORDINARY item row — no flag drives its rendering, so
-// no renderer needed a new branch. It prints because it is a normal line with
-// a multi-line description, and every renderer already puts description
-// through `white-space: pre-wrap`.
+// WHERE THE MONEY LIVES. The block price sits on the ANCHOR row's `amount`;
+// every continuation row's amount is null. That is the whole totals story:
+// the three subtotal reducers (preview Biofuel, preview generic, and the
+// server one at quotation.ts:46 which has NO filter of its own) each sum
+// `Number(amount) || 0` and therefore count the block price exactly ONCE,
+// with no filtering added anywhere. Members keep their OWN unitPrice too, so
+// the Sales-Order pricing ladder (buildCodeMap → itemCode + unitPrice) still
+// resolves each product months later.
 //
-// MEMBER AMOUNTS ARE `null`, NEVER `0`. Both subtotal reducers read
-// `Number(amount) || 0`, so null and 0 total identically — but the three
-// quotation→document conversion paths fall back with
-// `amount: item.amount || (quantity || 1) * (unitPrice || 0)`, and `0` is
-// falsy, so a zeroed member would be RE-PRICED into a real amount on the
-// invoice and double-count against the lump. `null` is falsy there too, which
-// is why those call sites also skip rolled-up members explicitly.
+// `null`, NEVER `0`, for a continuation's amount: the three quotation-extract
+// paths fall back with `amount: item.amount || qty * unitPrice` and 0 is
+// falsy, so a zeroed row would be re-priced onto the invoice and double-count
+// against the block.
 
-/** Stable id for a lump row; members point at it via `rolledUpInto`. */
-const newLumpId = () => `lump-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+export type RateMergeColumn = 'unitPrice' | 'salePrice';
 
-/** The printed description: one dash-prefixed line per member, stacked. */
-export const stackDescriptions = (members: any[]): string =>
-  members
-    .map((m) => String(m?.description ?? '').trim())
-    .filter(Boolean)
-    .map((d) => (d.startsWith('-') ? d : `- ${d}`))
-    .join('\n');
-
-export interface LumpInput {
-  quantity?: number | string | null;
-  uom?: string | null;
-  unitPrice?: number | string | null;
-  salePrice?: number | string | null;
-  amount: number | string;
-  description?: string | null;
+export interface RateMerge {
+  id: string;
+  column: RateMergeColumn;
+  price: number;
 }
 
+// EVERY member carries the same `rateMerge` marker — id, column and price.
+// There is no stored "anchor" flag: the anchor is simply the FIRST row of the
+// run, derived on every read. That is deliberate. When the price lived only on
+// an anchor row, deleting that row destroyed the price and the block silently
+// fell to zero; with the marker on every member the price cannot be deleted
+// while any member remains, and re-anchoring is not an operation at all — the
+// next row is already the first.
+
+const newMergeId = () => `rm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+/** Rows eligible to be merged: real lines, not section headers. */
+const isMergeable = (it: any) => !!it && !it.isGroupHeader && !it.isTagGroup;
+
 /**
- * Fold the ticked rows into one priced line.
- *
- * The lump is inserted AT THE FIRST MEMBER'S POSITION, so it stays inside its
- * group block and prints under the group title. Members keep their place in
- * the array (hidden, not moved) so unbundling restores the original order.
+ * RULE 1 — a merge must be CONTIGUOUS. HTML rowSpan can only span adjacent
+ * rows, so ticking rows 1, 3 and 5 cannot render as one cell. Reordering the
+ * office's quotation to make it fit would be a worse answer than refusing, so
+ * this reports the gap and the caller shows the message.
  */
-export function combineIntoLump(items: any[], memberIds: Array<number | string>, input: LumpInput): any[] {
+export function contiguityError(items: any[], memberIds: Array<number | string>): string | null {
   const ids = new Set(memberIds.map(String));
-  const members = items.filter((it) => ids.has(String(it?.id)) && !it?.isGroupHeader);
-  if (members.length < 2) return items;
-  const lumpId = newLumpId();
-  const firstIdx = items.findIndex((it) => ids.has(String(it?.id)));
-  const lump = {
-    id: Date.now() + Math.floor(Math.random() * 1000),
-    lumpId,
-    lumpCount: members.length,
-    itemCode: '',
-    description: (input.description && String(input.description).trim()) || stackDescriptions(members),
-    uom: input.uom ?? members.find((m) => m?.uom)?.uom ?? '',
-    quantity: input.quantity === '' || input.quantity == null ? null : Number(input.quantity),
-    unitPrice: input.unitPrice === '' || input.unitPrice == null ? null : Number(input.unitPrice),
-    salePrice: input.salePrice === '' || input.salePrice == null ? null : Number(input.salePrice),
-    // The agreed figure, typed by the office. NEVER derived from qty × rate —
-    // on a lump those deliberately do not multiply out (the reference quotes
-    // qty 2 for members of 1, 3 and 1).
-    amount: Number(input.amount) || 0,
-  };
-  const marked = items.map((it) =>
-    ids.has(String(it?.id)) && !it?.isGroupHeader
-      ? { ...it, rolledUpInto: lumpId, amount: null }
-      : it,
+  const idx = items.map((it, i) => (ids.has(String(it?.id)) ? i : -1)).filter((i) => i >= 0);
+  if (idx.length < 2) return 'Pick at least two rows.';
+  if (items.filter((it) => ids.has(String(it?.id))).some((it) => !isMergeable(it)))
+    return 'A section header cannot share a rate.';
+  const strays = items.slice(idx[0], idx[idx.length - 1] + 1).filter((it) => !ids.has(String(it?.id)));
+  if (strays.length > 0) {
+    const names = strays.map((x) => String(x?.description ?? '').trim() || 'an untitled row').slice(0, 3);
+    return `Those rows are not next to each other — ${names.join(', ')} sits between them. Tick a run of rows with nothing in between.`;
+  }
+  return null;
+}
+
+/** Apply the shared price to a contiguous run. */
+export function mergeRates(
+  items: any[],
+  memberIds: Array<number | string>,
+  column: RateMergeColumn,
+  price: number,
+): any[] {
+  if (contiguityError(items, memberIds)) return items;
+  const ids = new Set(memberIds.map(String));
+  const merge: RateMerge = { id: newMergeId(), column, price: Number(price) || 0 };
+  return normalizeRateMerges(
+    items.map((it) => (ids.has(String(it?.id)) ? { ...it, rateMerge: { ...merge } } : it)),
   );
-  return [...marked.slice(0, firstIdx), lump, ...marked.slice(firstIdx)];
+}
+
+/** Re-price a whole block: the marker is on every member, so all of them move. */
+export function setMergePriceOn(items: any[], mergeId: string, price: number): any[] {
+  return normalizeRateMerges(
+    items.map((it) =>
+      it?.rateMerge?.id === mergeId ? { ...it, rateMerge: { ...it.rateMerge, price: Number(price) || 0 } } : it,
+    ),
+  );
+}
+
+/** Undo: every row prices itself again from its own quantity x rate. */
+export function dissolveMerge(items: any[], mergeId: string): any[] {
+  return items.map((it) => {
+    if (it?.rateMerge?.id !== mergeId) return it;
+    const { rateMerge, ...rest } = it;
+    const qty = Number(rest.quantity) || 0;
+    const unit = Number(rest.unitPrice) || Number(rest.salePrice) || 0;
+    const isEmptyLine =
+      (rest.quantity == null || rest.quantity === '') &&
+      (rest.unitPrice == null || rest.unitPrice === '') &&
+      (rest.salePrice == null || rest.salePrice === '');
+    return { ...rest, amount: isEmptyLine ? '' : qty * unit };
+  });
+}
+
+/** Rows belonging to a merge, in document order. */
+export const mergeMembers = (items: any[], mergeId: string): any[] =>
+  items.filter((it) => it?.rateMerge?.id === mergeId);
+
+/**
+ * RULES 2, 3 and 4, enforced in one pass. Call after ANY structural edit —
+ * merge, re-price, delete or reorder.
+ *
+ *   2. the first row was deleted → nothing to repair: the marker is on every
+ *      member, so the next row IS the anchor, and this pass simply moves the
+ *      block's amount onto it.
+ *   3. one member left → nothing to span; dissolve, and the survivor prices
+ *      itself normally.
+ *   4. a reorder split the run → a rowSpan cannot skip a row, so dissolve
+ *      rather than print a cell spanning rows it no longer covers.
+ *
+ * It also (re)places the money: the block price sits on the FIRST member's
+ * `amount` and every other member's is null. That single figure is what all
+ * three subtotal reducers count — including the server's, which has no filter
+ * of its own — so the block is counted exactly once with no filtering anywhere.
+ */
+export function normalizeRateMerges(items: any[]): any[] {
+  const ids: string[] = [];
+  items.forEach((it) => {
+    const id = it?.rateMerge?.id;
+    if (id && ids.indexOf(id) === -1) ids.push(id);
+  });
+  let out = items;
+  for (const id of ids) {
+    const idx = out.map((it, i) => (it?.rateMerge?.id === id ? i : -1)).filter((i) => i >= 0);
+    if (idx.length < 2) { out = dissolveMerge(out, id); continue; }               // RULE 3
+    if (!idx.every((v, k) => k === 0 || v === idx[k - 1] + 1)) {                  // RULE 4
+      out = dissolveMerge(out, id);
+      continue;
+    }
+    const first = idx[0];                                                          // RULE 2
+    out = out.map((it, i) =>
+      it?.rateMerge?.id === id ? { ...it, amount: i === first ? Number(it.rateMerge.price) || 0 : null } : it,
+    );
+  }
+  return out;
+}
+
+/** True when this row leads its merged run — i.e. draws the spanning cells. */
+export function isMergeAnchor(items: any[], row: any): boolean {
+  const id = row?.rateMerge?.id;
+  if (!id) return false;
+  return items.findIndex((it) => it?.rateMerge?.id === id) === items.indexOf(row);
 }
 
 /**
- * Reverse it: drop the lump row, clear the members' marker and give each its
- * own amount back (qty × rate, the same arithmetic updateItem uses).
+ * What each renderer needs to draw the spanning cells: for every anchor, how
+ * many rows it covers; for every continuation, which column to SKIP.
+ *
+ * The span is DERIVED from the rows present, never from a stored count, so a
+ * delete can never leave a rowSpan reaching past the end of its block — the
+ * classic way a merged cell tears a table apart.
  */
-export function unbundleLump(items: any[], lumpId: string): any[] {
-  return items
-    .filter((it) => it?.lumpId !== lumpId)
-    .map((it) => {
-      if (it?.rolledUpInto !== lumpId) return it;
-      const { rolledUpInto, ...rest } = it;
-      const qty = Number(rest.quantity) || 0;
-      const unit = Number(rest.unitPrice) || Number(rest.salePrice) || 0;
-      const isEmptyLine =
-        (rest.quantity == null || rest.quantity === '') &&
-        (rest.unitPrice == null || rest.unitPrice === '') &&
-        (rest.salePrice == null || rest.salePrice === '');
-      return { ...rest, amount: isEmptyLine ? '' : qty * unit };
-    });
+export function resolveRateMerges(rows: any[]): {
+  anchors: Map<number, { span: number; price: number; column: RateMergeColumn }>;
+  skip: Map<number, RateMergeColumn>;
+} {
+  const anchors = new Map<number, { span: number; price: number; column: RateMergeColumn }>();
+  const skip = new Map<number, RateMergeColumn>();
+  rows.forEach((r: any, i: number) => {
+    const m = r?.rateMerge;
+    if (!m?.id) return;
+    if (i > 0 && rows[i - 1]?.rateMerge?.id === m.id) return; // continuation, handled below
+    let span = 1;
+    for (let j = i + 1; j < rows.length && rows[j]?.rateMerge?.id === m.id; j++) {
+      skip.set(j, m.column);
+      span++;
+    }
+    anchors.set(i, { span, price: Number(m.price) || 0, column: m.column });
+  });
+  return { anchors, skip };
 }
-
-/** Members of a lump, in document order. */
-export const lumpMembers = (items: any[], lumpId: string): any[] =>
-  items.filter((it) => it?.rolledUpInto === lumpId);

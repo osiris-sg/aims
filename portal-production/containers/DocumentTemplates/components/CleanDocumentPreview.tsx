@@ -8,6 +8,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { createTheme, ThemeProvider, useTheme } from "@mui/material/styles";
 import { BIOFUEL_SIGNATURE_DATA_URI, BIOFUEL_STAMP_DATA_URI, BIOFUEL_LOGO_DATA_URI } from "../../DocumentsTemplateView/biofuelAssets";
 import DeliveryRouteDialog from "@/components/DeliveryRouteDialog";
+import { resolveRateMerges } from "./quotationItemGroups";
 
 // Font handling:
 // - Using Carlito from Google Fonts (open-source, metric-compatible with Calibri)
@@ -492,11 +493,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
   // N units / Model / S/No." block for display (non-delivery docs pass through
   // unchanged). A return reads "Return of…" (see groupDeliveryLines).
   const isReturnDoc = documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
-  // Lump-sum members are hidden EVERYWHERE the customer sees the document:
-  // filtered at the single entry point, so the rows, the subtotal and the tax
-  // reducer below all agree without three separate filters. Their `amount` is
-  // already null, so this changes no total — it removes the lines only.
-  const items = groupDeliveryLines(data.items || [], isReturnDoc).filter((it: any) => !it?.rolledUpInto);
+  const items = groupDeliveryLines(data.items || [], isReturnDoc);
   const subtotal = items.reduce((acc: number, item: any) => acc + (item.amount || 0), 0);
   const totalTax = items.reduce(
     (acc: number, item: any) => acc + (item.amount || 0) * ((item.tax || 0) / 100),
@@ -4360,6 +4357,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 // disappear). Standalone items before any header keep their
                 // own box each.
                 const rowsArr = items.filter((it: any) => !it.isTagGroup);
+                // Merged rate cells: a run of contiguous rows sharing one rate.
+                // The anchor draws that column AND Amount with a rowSpan; the
+                // rows beneath omit both. Span is derived from the rows present
+                // so a delete can never leave a rowSpan overhanging its block.
+                const rateMerge = resolveRateMerges(rowsArr);
                 const groupOf: number[] = [];
                 {
                   let g = -1;
@@ -4398,11 +4400,39 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                           </TableRow>
                         ) : (
                         <TableRow key={index} sx={{ verticalAlign: "top" }}>
-                          {configColumns.map((col) => (
-                            <TableCell key={col} sx={{ textAlign: alignFor(col), verticalAlign: "top", ...groupEdges(index) }}>
-                              {valueFor(col, item, index)}
-                            </TableCell>
-                          ))}
+                          {configColumns.map((col) => {
+                            const anchor = rateMerge.anchors.get(index);
+                            const skipCol = rateMerge.skip.get(index);
+                            if (skipCol && (col === skipCol || col === "amount")) return null;
+                            if (anchor && (col === anchor.column || col === "amount")) {
+                              return (
+                                <TableCell
+                                  key={col}
+                                  rowSpan={anchor.span}
+                                  // Hairline bracket so the reader can see how far the
+                                  // merged cell reaches — this layout has no grid lines,
+                                  // and a centred figure otherwise reads as the middle
+                                  // row's own price. Mirrors the server renderer.
+                                  sx={{
+                                    textAlign: alignFor(col),
+                                    verticalAlign: "middle",
+                                    borderTop: "1px solid #bbb",
+                                    borderBottom: "1px solid #bbb",
+                                    ...groupEdges(index),
+                                  }}
+                                >
+                                  {col === "amount"
+                                    ? valueFor(col, item, index)
+                                    : Number(anchor.price).toFixed(2)}
+                                </TableCell>
+                              );
+                            }
+                            return (
+                              <TableCell key={col} sx={{ textAlign: alignFor(col), verticalAlign: "top", ...groupEdges(index) }}>
+                                {valueFor(col, item, index)}
+                              </TableCell>
+                            );
+                          })}
                         </TableRow>
                         )
                       ))}

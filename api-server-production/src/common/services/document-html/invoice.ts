@@ -22,10 +22,7 @@ const BIOFUEL_ORG_ID = '52e90ba8-bfbd-48b0-bb76-4f9667bf74f1';
 
 export function renderInvoiceBody(data: any, organization: any): string {
   const di = makeDi(data);
-  // A quotation converted to an invoice can carry lump-sum members (they ride
-  // along so a SALES_ORDER keeps its per-product rates for the pricing ladder).
-  // They are not printable lines: drop them before rows and subtotal alike.
-  const items: any[] = (Array.isArray(data?.items) ? data.items : []).filter((it: any) => !it?.rolledUpInto);
+  const items: any[] = Array.isArray(data?.items) ? data.items : [];
   const company = data?.company || {};
   const customer = data?.customer || {};
   const isBiofuelInvoice =
