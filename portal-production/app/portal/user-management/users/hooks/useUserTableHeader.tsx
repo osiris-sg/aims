@@ -119,12 +119,11 @@ export default function useUserTableHeader() {
     }),
     columnHelper.accessor(
       (row) => {
-        const roles = row.roles;
-        return (
-          roles?.reduce((total: number, role: any) => {
-            return total + (role.permissions?.length || 0);
-          }, 0) || 0
-        );
+        // UNIQUE permissions across roles — roles overlap heavily (Designer ⊂
+        // Management), so a plain sum inflated the count (guru 2026-09-24).
+        const ids = new Set<string>();
+        row.roles?.forEach((role: any) => role.permissions?.forEach((p: any) => ids.add(p.id)));
+        return ids.size;
       },
       {
         id: "permissions",

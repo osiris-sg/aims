@@ -22,7 +22,7 @@ export class TeamsService {
 
   async create(organizationId: string, dto: { name: string; leaderUserId?: string | null; yearlyTarget?: number | null }) {
     if (!dto?.name?.trim()) throw new BadRequestException('Team name is required');
-    return this.prisma.team.create({
+    const team = await this.prisma.team.create({
       data: {
         organizationId,
         name: dto.name.trim(),
@@ -30,12 +30,25 @@ export class TeamsService {
         yearlyTarget: dto.yearlyTarget != null && Number.isFinite(Number(dto.yearlyTarget)) ? Number(dto.yearlyTarget) : null,
       },
     });
+    // The leader IS a member — guaranteed server-side so a fresh team is
+    // never member-less even if the portal's follow-up members call fails
+    // (prod "Junior Manager Trial Team", 2026-09-25).
+    if (team.leaderUserId) await this.ensureMember(organizationId, team.id, team.leaderUserId);
+    return team;
+  }
+
+  private async ensureMember(organizationId: string, teamId: string, userId: string) {
+    await this.prisma.organizationMemberProfile.upsert({
+      where: { organizationId_userId: { organizationId, userId } },
+      update: { teamId },
+      create: { organizationId, userId, teamId },
+    });
   }
 
   async update(teamId: string, organizationId: string, dto: { name?: string; leaderUserId?: string | null; yearlyTarget?: number | null }) {
     const team = await this.prisma.team.findFirst({ where: { id: teamId, organizationId } });
     if (!team) throw new NotFoundException('Team not found');
-    return this.prisma.team.update({
+    const updated = await this.prisma.team.update({
       where: { id: teamId },
       data: {
         name: dto.name?.trim() || undefined,
@@ -43,6 +56,8 @@ export class TeamsService {
         yearlyTarget: dto.yearlyTarget !== undefined ? (dto.yearlyTarget == null ? null : Number(dto.yearlyTarget) || 0) : undefined,
       },
     });
+    if (updated.leaderUserId) await this.ensureMember(organizationId, teamId, updated.leaderUserId);
+    return updated;
   }
 
   async remove(teamId: string, organizationId: string) {
@@ -59,7 +74,7 @@ export class TeamsService {
   async setMembers(teamId: string, organizationId: string, userIds: string[]) {
     const team = await this.prisma.team.findFirst({ where: { id: teamId, organizationId } });
     if (!team) throw new NotFoundException('Team not found');
-    const ids = [...new Set((userIds || []).filter(Boolean))];
+    const ids = [...new Set([...(userIds || []), team.leaderUserId].filter(Boolean))] as string[];
     await this.prisma.$transaction([
       this.prisma.organizationMemberProfile.updateMany({ where: { organizationId, teamId }, data: { teamId: null } }),
       ...ids.map((userId) =>

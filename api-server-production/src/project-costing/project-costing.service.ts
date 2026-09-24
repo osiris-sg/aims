@@ -1223,7 +1223,7 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
     else if (scope === 'team') leadWhere.assignedToUserId = { in: tierScope.teamUserIds || [] };
     const leads = await this.prisma.lead.findMany({
       where: leadWhere,
-      select: { id: true, name: true, status: true, assignedToUserId: true, assignedToName: true, source: true, phone: true, firstContactDeadline: true, receivedAt: true, projectId: true },
+      select: { id: true, name: true, status: true, assignedToUserId: true, assignedToName: true, source: true, phone: true, firstContactDeadline: true, receivedAt: true, projectId: true, appointmentAt: true, appointmentNote: true },
       orderBy: { receivedAt: 'desc' },
     });
 
@@ -1315,6 +1315,26 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
       startDate: r.startDate.toISOString().slice(0, 10),
       endDate: r.endDate.toISOString().slice(0, 10),
     }));
+
+    // Lead appointments join the master calendar (guru/Mike 2026-09-25):
+    // pseudo-project id 'lead:<id>' — the portal routes those chips to the
+    // Leads page instead of a project.
+    const fmtTime = (d: Date) => d.toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Singapore' });
+    for (const l of leads as any[]) {
+      if (!l.appointmentAt) continue;
+      const at = new Date(l.appointmentAt);
+      if (at < winFrom || at > winTo) continue;
+      schedule.push({
+        id: `appt-${l.id}`,
+        projectId: `lead:${l.id}`,
+        projectName: `⏰ ${l.name}`,
+        designer: l.assignedToName || null,
+        label: `${fmtTime(at)} appointment — ${l.name}${l.appointmentNote ? ` (${l.appointmentNote})` : ''}`,
+        kind: 'appointment',
+        startDate: at.toISOString().slice(0, 10),
+        endDate: at.toISOString().slice(0, 10),
+      });
+    }
 
     // Open leads list (the actionable ones) — for the "my leads" table.
     const myLeads = leads
@@ -1480,7 +1500,7 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
   }
 
   // ── list for the ID projects page ─────────────────────────────────────
-  async list(organizationId: string, opts: { page?: number; limit?: number; search?: string; stage?: string; designer?: string; callerUserId?: string }) {
+  async list(organizationId: string, opts: { page?: number; limit?: number; search?: string; stage?: string; designer?: string; designerUserId?: string; callerUserId?: string }) {
     const page = Math.max(1, opts.page || 1);
     const limit = Math.min(100, Math.max(1, opts.limit || 20));
     const where: any = { organizationId };
@@ -1494,7 +1514,14 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
       if (scope.tier === 'designer') where.designerUserId = opts.callerUserId;
       else if (scope.tier === 'junior') where.designerUserId = { in: scope.teamUserIds || [opts.callerUserId] };
     }
-    if (opts.stage) where.stage = opts.stage;
+    // Stage accepts single stages AND the funnel buckets the quick-filter
+    // buttons use (guru 2026-09-24): 'none' = converted but not signed yet
+    // (stage null), 'ongoing' = anything in flight between signing and done.
+    const ONGOING_STAGES = ['design', 'works', 'carpentry', 'handover'];
+    if (opts.stage === 'none') where.stage = null;
+    else if (opts.stage === 'ongoing') where.stage = { in: ONGOING_STAGES };
+    else if (opts.stage) where.stage = opts.stage;
+    if (opts.designerUserId) where.designerUserId = opts.designerUserId;
     if (opts.designer) where.designer = { contains: opts.designer, mode: 'insensitive' };
     if (opts.search?.trim()) {
       const s = opts.search.trim();
@@ -1505,7 +1532,11 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
         { documents: { some: { name: { contains: s, mode: 'insensitive' } } } },
       ];
     }
-    const [rows, total] = await Promise.all([
+    // Bucket counts for the quick-filter buttons — same scope/search/designer
+    // narrowing, WITHOUT the stage filter (so the buttons keep their totals
+    // while one of them is active).
+    const { stage: _stageClause, ...whereNoStage } = where;
+    const [rows, total, grouped] = await Promise.all([
       this.prisma.project.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -1529,7 +1560,16 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
         },
       }),
       this.prisma.project.count({ where }),
+      this.prisma.project.groupBy({ by: ['stage'], where: whereNoStage, _count: { _all: true } }),
     ]);
+    const stageCounts = { none: 0, signed: 0, ongoing: 0, completed: 0 };
+    for (const g of grouped as any[]) {
+      const n = g._count._all as number;
+      if (!g.stage) stageCounts.none += n;
+      else if (g.stage === 'signed') stageCounts.signed += n;
+      else if (g.stage === 'completed') stageCounts.completed += n;
+      else stageCounts.ongoing += n;
+    }
     const docs = rows.map((p) => {
       const q = p.documents.find((d) => d.status === 'confirmed') || p.documents[0];
       const cfg: any = q?.config || {};
@@ -1561,6 +1601,6 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
         createdAt: p.createdAt,
       };
     });
-    return { docs, total, page, limit, totalPages: Math.ceil(total / limit) };
+    return { docs, total, page, limit, totalPages: Math.ceil(total / limit), stageCounts };
   }
 }

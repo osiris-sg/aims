@@ -75,6 +75,8 @@ const isoOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padSta
 const addDays = (iso: string, n: number) => isoOf(new Date(new Date(iso + "T00:00:00").getTime() + n * DAY));
 const fmtDay = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString("en-SG", { day: "2-digit", month: "short" });
 const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+// Lead appointments ride the calendar with pseudo-project ids "lead:<id>".
+const scheduleRoute = (projectId: string) => (projectId.startsWith("lead:") ? "/portal/sales/leads" : `/portal/projects/${projectId}`);
 // Per-project chip colours — MUI palette colours so both themes hold up.
 const PROJECT_COLORS: Array<"primary" | "warning" | "success" | "info" | "secondary" | "error"> = ["primary", "warning", "success", "info", "secondary", "error"];
 
@@ -108,7 +110,7 @@ function ScheduleOverview({ schedule, holidays, holidaysMy, self }: { schedule: 
         </Typography>
         <Box sx={{ flex: 1 }} />
         {projects.map((p) => (
-          <Chip key={p.id} size="small" color={p.color} variant="outlined" label={p.name} onClick={() => router.push(`/portal/projects/${p.id}`)} sx={{ height: 22, maxWidth: 200 }} />
+          <Chip key={p.id} size="small" color={p.color} variant="outlined" label={p.name} onClick={() => router.push(scheduleRoute(p.id))} sx={{ height: 22, maxWidth: 200 }} />
         ))}
         <IconButton size="small" onClick={() => setWeekStart((w) => addDays(w, -7))} aria-label="Earlier week">
           <ChevronLeftIcon fontSize="small" />
@@ -122,12 +124,14 @@ function ScheduleOverview({ schedule, holidays, holidaysMy, self }: { schedule: 
           <ChevronRightIcon fontSize="small" />
         </IconButton>
       </Stack>
+      {/* The grid always renders — an empty fortnight still looks like a
+          calendar, with a hint line instead of a collapsed card (guru 2026-09-24). */}
       {!windowHasItems && (
-        <Typography variant="body2" sx={{ color: "text.disabled", px: 2, pb: 2 }}>
+        <Typography variant="caption" sx={{ color: "text.disabled", px: 2, display: "block", pb: 1 }}>
           Nothing scheduled in this window — plan activities on each project's Schedule tab, or page with the arrows.
         </Typography>
       )}
-      {windowHasItems && (
+      {(
         <Box sx={{ overflowX: "auto", px: 2, pb: 2 }}>
           <Box sx={{ minWidth: 900 }}>
             {weeks.map((days) => (
@@ -157,7 +161,7 @@ function ScheduleOverview({ schedule, holidays, holidaysMy, self }: { schedule: 
                                 color={colorOf(it.projectId)}
                                 variant={it.kind === "note" ? "outlined" : "filled"}
                                 label={it.label}
-                                onClick={() => router.push(`/portal/projects/${it.projectId}`)}
+                                onClick={() => router.push(scheduleRoute(it.projectId))}
                                 sx={{ height: "auto", justifyContent: "flex-start", "& .MuiChip-label": { fontSize: 10, whiteSpace: "normal", px: 0.6, py: 0.2, lineHeight: 1.2 } }}
                               />
                             </Tooltip>
@@ -407,36 +411,6 @@ export default function IdDashboard() {
         </Paper>
       )}
 
-      {/* Project notes (Project.description) — data-review items for the owner */}
-      {(data.reviewNotes || []).length > 0 && (
-        <Paper variant="outlined" sx={{ borderRadius: 2, mb: 2.5, overflow: "hidden" }} data-tour="dash-project-notes">
-          <Stack direction="row" alignItems="baseline" spacing={1} sx={{ px: 2, pt: 1.5, pb: 0.5 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-              Project notes
-            </Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary" }}>
-              please review — click a project to open it
-            </Typography>
-          </Stack>
-          <Stack divider={<Box sx={{ borderBottom: 1, borderColor: "divider" }} />}>
-            {(data.reviewNotes || []).map((n) => (
-              <Box key={n.projectId} sx={{ px: 2, py: 1.25, cursor: "pointer", "&:hover": { bgcolor: "action.hover" } }} onClick={() => router.push(`/portal/projects/${n.projectId}`)}>
-                <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                    {n.projectName}
-                  </Typography>
-                  {n.stage && <Chip size="small" variant="outlined" label={n.stage} sx={{ height: 20, textTransform: "capitalize" }} />}
-                  <OpenInNewIcon sx={{ fontSize: 14, color: "text.disabled" }} />
-                </Stack>
-                <Typography variant="body2" sx={{ color: "text.secondary", whiteSpace: "pre-line" }}>
-                  {n.note}
-                </Typography>
-              </Box>
-            ))}
-          </Stack>
-        </Paper>
-      )}
-
       {/* Supplier rebates (management only — designers never get this data) */}
       {!self && rebates && rebates.totalRebate > 0 && (
         <Paper variant="outlined" sx={{ borderRadius: 2, mb: 2.5, overflow: "hidden" }} data-tour="dash-rebates">
@@ -481,7 +455,7 @@ export default function IdDashboard() {
       )}
 
       {/* Open leads (mine for designers, org-wide for management) */}
-      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
+      <Paper variant="outlined" sx={{ borderRadius: 2, mb: 2.5, overflow: "hidden" }}>
         <Stack direction="row" alignItems="center" sx={{ px: 2, pt: 1.5, pb: 0.5 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>
             {self ? "My open leads" : "Open leads"}
@@ -538,6 +512,36 @@ export default function IdDashboard() {
           </Box>
         )}
       </Paper>
+  {/* Project notes (Project.description) — data-review items for the owner. Sits LAST on the page (guru 2026-09-25). */}
+      {(data.reviewNotes || []).length > 0 && (
+        <Paper variant="outlined" sx={{ borderRadius: 2, mb: 2.5, overflow: "hidden" }} data-tour="dash-project-notes">
+          <Stack direction="row" alignItems="baseline" spacing={1} sx={{ px: 2, pt: 1.5, pb: 0.5 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              Project notes
+            </Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              please review — click a project to open it
+            </Typography>
+          </Stack>
+          <Stack divider={<Box sx={{ borderBottom: 1, borderColor: "divider" }} />}>
+            {(data.reviewNotes || []).map((n) => (
+              <Box key={n.projectId} sx={{ px: 2, py: 1.25, cursor: "pointer", "&:hover": { bgcolor: "action.hover" } }} onClick={() => router.push(`/portal/projects/${n.projectId}`)}>
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                    {n.projectName}
+                  </Typography>
+                  {n.stage && <Chip size="small" variant="outlined" label={n.stage} sx={{ height: 20, textTransform: "capitalize" }} />}
+                  <OpenInNewIcon sx={{ fontSize: 14, color: "text.disabled" }} />
+                </Stack>
+                <Typography variant="body2" sx={{ color: "text.secondary", whiteSpace: "pre-line" }}>
+                  {n.note}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+        </Paper>
+      )}
+
     </MainCard>
   );
 }

@@ -47,8 +47,8 @@ export class IdProjectsListController {
 
   @Get()
   @Permissions('projects:read')
-  list(@Req() req: RequestWithOrganization, @Query('page') page?: string, @Query('limit') limit?: string, @Query('search') search?: string, @Query('stage') stage?: string, @Query('designer') designer?: string) {
-    return this.service.list(orgId(req), { page: Number(page) || 1, limit: Number(limit) || 20, search, stage, designer, callerUserId: req.user?.id });
+  list(@Req() req: RequestWithOrganization, @Query('page') page?: string, @Query('limit') limit?: string, @Query('search') search?: string, @Query('stage') stage?: string, @Query('designer') designer?: string, @Query('designerUserId') designerUserId?: string) {
+    return this.service.list(orgId(req), { page: Number(page) || 1, limit: Number(limit) || 20, search, stage, designer, designerUserId, callerUserId: req.user?.id });
   }
 
   // Designer dashboard (CIEL 09-01): own stats for pure Designers, all

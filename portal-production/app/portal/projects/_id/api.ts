@@ -159,8 +159,10 @@ export function useIdProjectApi() {
         request<any>(`/leads?page=1&limit=100&search=&status=&source=`).then((r: any) =>
           (r?.docs || []).filter((l: any) => l.status === "unqualified" || l.status === "engaging"),
         ),
-      list: (q: { page: number; limit: number; search?: string; stage?: string; designer?: string }) =>
-        request<{ docs: any[]; total: number }>(`/id-projects?page=${q.page}&limit=${q.limit}&search=${encodeURIComponent(q.search || "")}&stage=${encodeURIComponent(q.stage || "")}&designer=${encodeURIComponent(q.designer || "")}`),
+      list: (q: { page: number; limit: number; search?: string; stage?: string; designer?: string; designerUserId?: string }) =>
+        request<{ docs: any[]; total: number; stageCounts?: { none: number; signed: number; ongoing: number; completed: number } }>(
+          `/id-projects?page=${q.page}&limit=${q.limit}&search=${encodeURIComponent(q.search || "")}&stage=${encodeURIComponent(q.stage || "")}&designer=${encodeURIComponent(q.designer || "")}&designerUserId=${encodeURIComponent(q.designerUserId || "")}`
+        ),
       summary: (id: string) => request<Summary>(`/projects/${id}/costing`),
       updateFields: (id: string, body: any) => request(`/projects/${id}/id-fields`, { method: "PATCH", body: j(body) }),
       addCost: (id: string, body: any) => request<Cost>(`/projects/${id}/costs`, { method: "POST", body: j(body) }),
@@ -188,6 +190,9 @@ export function useIdProjectApi() {
       revokeScheduleLink: (id: string) => request(`/projects/${id}/schedule/share-link/revoke`, { method: "POST" }),
       // Designer-role holders only (fallback to all users when the org has no
       // designers yet, so the picker still works during setup).
+      // Assignable users: Designer-role holders + team leaders (Junior
+      // Managers) so management can hand a lead to the leader, who then
+      // re-assigns within their team (fallback to all users during setup).
       listOrgUsers: () =>
         request<any>(`/users/list`, { method: "POST", body: j({ page: 1, limit: 100, search: "", filters: {} }) }).then((r: any) => {
           const all = (r?.users || r?.docs || (Array.isArray(r) ? r : [])).map((u: any) => ({
@@ -196,9 +201,10 @@ export function useIdProjectApi() {
             email: u.email,
             whatsappNumber: u.whatsappNumber || null,
             isDesigner: (u.roles || []).some((role: any) => /designer/i.test(role?.name || "")),
+            isLeader: (u.roles || []).some((role: any) => role?.name === "Junior Manager"),
           }));
-          const designers = all.filter((u: any) => u.isDesigner);
-          return designers.length ? designers : all;
+          const assignable = all.filter((u: any) => u.isDesigner || u.isLeader);
+          return assignable.length ? assignable : all;
         }),
       setDepositMode: (id: string, body: { mode: "engagement" | "percent"; engagementFee?: number; pct?: number }) => request(`/projects/${id}/deposit-mode`, { method: "PATCH", body: j(body) }),
       createMilestoneInvoice: (mid: string) => request<{ id: string; number: string | null; status: string; path: string; created: boolean }>(`/projects/milestones/${mid}/invoice`, { method: "POST" }),

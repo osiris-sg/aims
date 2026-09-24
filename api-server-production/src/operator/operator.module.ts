@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { RevenueItemsModule } from '../revenue-items/revenue-items.module';
 import { MarketingModule } from '../marketing/marketing.module';
+import { LeadsModule } from '../leads/leads.module';
 import { DeliveriesModule } from '../deliveries/deliveries.module';
 import { PrismaService } from '../common/prisma.service';
 import { CommonModule } from '../common/common.module';
@@ -48,6 +49,7 @@ import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
     ProjectCostingModule,
     RevenueItemsModule,
     MarketingModule,
+    LeadsModule,
     DeliveriesModule, // schedule_delivery tool → real delivery runs
   ],
   controllers: [OperatorController],

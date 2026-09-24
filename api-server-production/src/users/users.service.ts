@@ -26,9 +26,12 @@ export class UsersService {
     const { page = 1, limit = 10, search = '', filters = {} } = getUsersDto;
     const skip = (page - 1) * limit;
 
-    // Build where clause for user roles - scope to organization
+    // Build where clause for user roles - scope to organization.
+    // isActive: deactivated assignments (e.g. Summer's Management role during
+    // the Senior-Manager trial) must not render as chips or count permissions.
     const whereClause: any = {
       organizationId: organizationId, // Only get users from this organization
+      isActive: true,
     };
 
     if (search) {

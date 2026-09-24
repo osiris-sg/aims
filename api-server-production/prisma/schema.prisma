@@ -748,6 +748,10 @@ model Lead {
   email                String?
   phone                String?
   whatsappPhone        String? // WA number when it differs from the call number ("Phone No: 8511 8680 / WA 8958 2178")
+  // Appointment with the homeowner (guru/Mike 2026-09-25): set from the lead
+  // drawer, shown on the dashboard master calendar.
+  appointmentAt        DateTime?
+  appointmentNote      String?
   // ALL the lead's numbers, normalized digits, in entry order (guru 2026-09-21:
   // "he can continue to add multiple"). phone/whatsappPhone mirror the first
   // two for the older single-number code paths.

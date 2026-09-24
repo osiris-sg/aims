@@ -19,6 +19,7 @@ import { ProjectsService } from '../projects/projects.service';
 import { ProjectCostingService } from '../project-costing/project-costing.service';
 import { RevenueItemsService } from '../revenue-items/revenue-items.service';
 import { MarketingService } from '../marketing/marketing.service';
+import { LeadsService } from '../leads/leads.service';
 import { S3Service } from '../common/services/s3.service';
 import { OperatorAuthService } from './operator-auth.service';
 import { OperatorContext, PendingAction } from './operator.types';
@@ -93,6 +94,7 @@ export class OperatorToolsService {
     private readonly costing: ProjectCostingService,
     private readonly revenueItems: RevenueItemsService,
     private readonly marketing: MarketingService,
+    private readonly leads: LeadsService,
     private readonly deliveries: DeliveriesService,
     private readonly s3: S3Service,
     private readonly auth: OperatorAuthService,
@@ -494,6 +496,46 @@ export class OperatorToolsService {
           } catch (e: any) {
             return { result: { error: e?.message || 'Translation failed' } };
           }
+        },
+      },
+
+      {
+        name: 'set_appointment',
+        description:
+          'Set (or clear) an appointment with a lead — it shows on the dashboard master calendar. Find the lead by name or phone number. datetime is ISO or "25 Sep 14:30" style; omit it with clear=true to remove.',
+        permissions: ['documents:update'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            lead: { type: 'string', description: 'Lead name or phone number' },
+            datetime: { type: 'string', description: 'When — e.g. "2026-09-26T14:30" or "26 Sep 2:30pm"' },
+            note: { type: 'string' },
+            clear: { type: 'boolean', description: 'true removes the appointment' },
+          },
+          required: ['lead'],
+        },
+        run: async (ctx, { lead, datetime, note, clear }) => {
+          const q = String(lead || '').trim();
+          const digits = q.replace(/\D/g, '');
+          const found = await this.prisma.lead.findFirst({
+            where: {
+              organizationId: ctx.organizationId,
+              OR: [
+                { name: { contains: q, mode: 'insensitive' } },
+                ...(digits ? [{ phone: { contains: digits } }, { whatsappPhone: { contains: digits } }, { phones: { has: digits } }] : []),
+              ],
+            },
+            orderBy: { receivedAt: 'desc' },
+          });
+          if (!found) return { result: { error: `No lead matching "${q}"` } };
+          if (clear) {
+            await this.leads.update(found.id, ctx.organizationId, { appointmentAt: null, appointmentNote: null } as any, ctx.clerkUserId);
+            return { result: { ok: true, lead: found.name, appointment: null } };
+          }
+          const at = datetime ? new Date(datetime) : null;
+          if (!at || isNaN(at.getTime())) return { result: { error: 'Could not parse the date/time — try e.g. "2026-09-26 14:30"' } };
+          await this.leads.update(found.id, ctx.organizationId, { appointmentAt: at.toISOString(), appointmentNote: note || null } as any, ctx.clerkUserId);
+          return { result: { ok: true, lead: found.name, appointment: at.toISOString(), note: note || null } };
         },
       },
 

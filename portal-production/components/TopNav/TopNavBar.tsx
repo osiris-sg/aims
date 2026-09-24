@@ -160,6 +160,11 @@ export default function TopNavBar() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
+  // Org administration is master-tier only (hierarchy access, guru 2026-09-25):
+  // a user holding ONLY scoped roles (Designer / Junior / Senior Manager)
+  // doesn't get the Org Settings menu. Mirrors role-tier.ts on the server.
+  const SCOPED_ROLES = ["Designer", "Junior Manager", "Senior Manager"];
+  const isMasterTier = userRoles.length === 0 || userRoles.some((r: any) => !SCOPED_ROLES.includes(r?.name));
 
   const [openMenu, setOpenMenu] = React.useState<{ code: string; anchor: HTMLElement } | null>(null);
 
@@ -296,7 +301,10 @@ export default function TopNavBar() {
           );
         })}
 
-        {/* Organization Settings — same secondary group as the sidebar */}
+        {/* Organization Settings — same secondary group as the sidebar;
+            master tier only (juniors/seniors have no org administration) */}
+        {isMasterTier && (
+        <>
         <Button
           size="small"
           onClick={(e) => setOpenMenu(openMenu?.code === "ORG_SETTINGS" ? null : { code: "ORG_SETTINGS", anchor: e.currentTarget })}
@@ -332,6 +340,8 @@ export default function TopNavBar() {
             </MenuItem>
           ))}
         </Menu>
+        </>
+        )}
       </Stack>
 
       <Stack direction="row" alignItems="center" gap={1} sx={{ flexShrink: 0, ml: 1 }}>

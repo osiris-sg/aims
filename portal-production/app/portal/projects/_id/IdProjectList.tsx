@@ -5,7 +5,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography } from "@mui/material";
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { kebabColumn } from "@/components/RowKebab";
@@ -39,7 +39,9 @@ export default function IdProjectList() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState<any>({ stage: "" });
+  const [filters, setFilters] = useState<any>({ stage: "", designerUserId: "" });
+  // Funnel counts for the quick-filter buttons (server-computed, scope-aware).
+  const [stageCounts, setStageCounts] = useState<{ none: number; signed: number; ongoing: number; completed: number } | null>(null);
   // New project (CIEL 09-01): projects start BEFORE the quotation — from an
   // assigned lead, a referral, or the designer's own client.
   const [createOpen, setCreateOpen] = useState(false);
@@ -55,8 +57,12 @@ export default function IdProjectList() {
   useEffect(() => {
     if (!createOpen) return;
     api.listLeads().then(setLeads).catch(() => setLeads([]));
-    api.listOrgUsers().then(setDesigners).catch(() => {});
   }, [createOpen, api]);
+  // Designer list loads up-front: it feeds both the Filter drawer's Designer
+  // select and the create dialog.
+  useEffect(() => {
+    api.listOrgUsers().then(setDesigners).catch(() => {});
+  }, [api]);
   const createProject = async () => {
     setCreating(true);
     try {
@@ -80,9 +86,10 @@ export default function IdProjectList() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await api.list({ page, limit, search, stage: filters.stage || undefined });
+      const r = await api.list({ page, limit, search, stage: filters.stage || undefined, designerUserId: filters.designerUserId || undefined });
       setRows(r.docs || []);
       setTotal(r.total || 0);
+      if (r.stageCounts) setStageCounts(r.stageCounts);
     } catch (e: any) {
       toast.error(e.message || "Failed to load projects");
     } finally {
@@ -120,7 +127,7 @@ export default function IdProjectList() {
         header: "Stage",
         cell: ({ row }: any) => {
           const s = row.original.stage;
-          return s ? <Chip size="small" variant="outlined" color={STAGE_COLOR[s] || "default"} label={STAGE_LABEL[s] || s} /> : <Typography variant="caption" sx={{ color: "text.disabled" }}>—</Typography>;
+          return s ? <Chip size="small" variant="outlined" color={STAGE_COLOR[s] || "default"} label={STAGE_LABEL[s] || s} /> : <Chip size="small" variant="outlined" label="Not signed" sx={{ color: "text.secondary" }} />;
         },
       },
       { id: "contract", header: "Contract (S$)", cell: ({ row }: any) => <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{money(row.original.contractTotal)}</Typography> },
@@ -158,17 +165,51 @@ export default function IdProjectList() {
   );
 
   const filterConfig: FilterField[] = useMemo(
-    () => [{ type: "select", key: "stage", label: "Stage", options: [{ value: "", label: "All" }, ...Object.entries(STAGE_LABEL).map(([value, label]) => ({ value, label }))] }],
-    [],
+    () => [
+      { type: "select", key: "stage", label: "Stage", options: [{ value: "", label: "All" }, { value: "none", label: "Not signed" }, ...Object.entries(STAGE_LABEL).map(([value, label]) => ({ value, label }))] },
+      { type: "select", key: "designerUserId", label: "Designer", options: [{ value: "", label: "All designers" }, ...designers.map((d) => ({ value: d.id, label: d.name }))] },
+    ],
+    [designers],
   );
+
+  // Funnel quick-filters (guru 2026-09-24): one tap per bucket, tap again to
+  // clear. "Not signed" = converted lead, quotation still pending.
+  const FUNNEL: Array<{ value: string; label: string; count: number | null }> = [
+    { value: "none", label: "Not signed", count: stageCounts?.none ?? null },
+    { value: "signed", label: "Signed", count: stageCounts?.signed ?? null },
+    { value: "ongoing", label: "Ongoing", count: stageCounts?.ongoing ?? null },
+    { value: "completed", label: "Completed", count: stageCounts?.completed ?? null },
+  ];
 
   return (
     <MainCard>
+      {/* Stage funnel — quick filters (New-project button removed 2026-09-24:
+          projects are born from leads/quotations; the dialog stays for the
+          Dashboard's Create-project deep link ?new=1). */}
+      <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1.5 }}>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={filters.stage || null}
+          onChange={(_, v) => {
+            setPage(1);
+            setFilters({ ...filters, stage: v || "" });
+          }}
+          data-tour="projects-funnel"
+        >
+          {FUNNEL.map((f) => (
+            <ToggleButton key={f.value} value={f.value} sx={{ px: 1.5, textTransform: "none" }}>
+              {f.label}
+              {f.count != null && (
+                <Chip size="small" label={f.count} sx={{ ml: 0.75, height: 18, fontSize: 11, pointerEvents: "none" }} />
+              )}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+      </Stack>
       <PageTable
         onRowClick={(r: any) => router.push(`/portal/projects/${r.id}`)}
         tableName="Projects"
-        buttonName="New project"
-        onAddClick={() => setCreateOpen(true)}
         subTitle="Every signed quotation becomes a project — costing, payments and profit live here"
         columns={columns as any}
         data={rows}

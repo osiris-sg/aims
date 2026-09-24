@@ -246,6 +246,35 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     return { created };
   }
 
+  /** Existing leads sharing the name or any of the numbers — the portal warns
+   *  before saving a duplicate (two "Nisha 96816786" rows, 2026-09-25). */
+  async checkDuplicate(organizationId: string, name: string, phones: string[]) {
+    const digits = [...new Set(phones.map((v) => String(v || '').replace(/\D/g, '')).filter(Boolean))];
+    const or: any[] = [];
+    if (name.trim()) or.push({ name: { equals: name.trim(), mode: 'insensitive' } });
+    if (digits.length) {
+      or.push({ phone: { in: digits } }, { whatsappPhone: { in: digits } }, { phones: { hasSome: digits } });
+    }
+    if (!or.length) return { duplicates: [] };
+    const rows = await this.prisma.lead.findMany({
+      where: { organizationId, OR: or },
+      select: { id: true, name: true, phone: true, whatsappPhone: true, phones: true, source: true, status: true, assignedToName: true, receivedAt: true },
+      orderBy: { receivedAt: 'desc' },
+      take: 5,
+    });
+    return {
+      duplicates: rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        numbers: [...new Set([r.phone, r.whatsappPhone, ...(r.phones || [])].filter(Boolean))],
+        source: r.source,
+        status: r.status,
+        assignedToName: r.assignedToName,
+        receivedAt: r.receivedAt,
+      })),
+    };
+  }
+
   async create(organizationId: string, dto: LeadDto & { emailFrom?: string | null; emailSubject?: string | null; receivedAt?: Date; firstContactDeadline?: Date | null; replacementDeadline?: Date | null; attachmentUrl?: string | null; attachmentKey?: string | null }) {
     if (!dto.name?.trim()) throw new BadRequestException('Lead name is required');
     // A lead can carry ANY number of phone numbers (guru 2026-09-21). `phones`
@@ -268,7 +297,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         propertyRooms: dto.propertyRooms ?? null,
         propertyStatus: dto.propertyStatus ?? null,
         keyCollection: dto.keyCollection ?? null,
-        keyCollectionDate: parseDateLoose(dto.keyCollectionDate),
+        keyCollectionDate: parseDateLoose(dto.keyCollectionDate ?? dto.keyCollection),
         moveIn: dto.moveIn ?? null,
         budget: dto.budget ?? null,
         areas: dto.areas ?? null,
@@ -488,12 +517,20 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       .catch(() => null);
   }
 
-  /** The org's Designer-role users (falls back to everyone, same as the pickers). */
+  /** Assignable users: Designer-role holders PLUS team leaders (Junior
+   *  Managers — guru/Mike 2026-09-25: management hands a lead to the leader,
+   *  who re-assigns within their team). Falls back to everyone. */
   private async designersOf(organizationId: string) {
     const res: any = await this.users.getUsers({ page: 1, limit: 100, search: '', filters: {} } as any, organizationId);
     const all: any[] = res?.users || res?.docs || (Array.isArray(res) ? res : []);
-    const designers = all.filter((u) => (u.roles || []).some((r: any) => /designer/i.test(r?.name || '')));
-    return (designers.length ? designers : all).map((u) => ({ id: u.id, name: u.name || u.email || String(u.id).slice(0, 12), whatsappNumber: u.whatsappNumber || null }));
+    const isDesigner = (u: any) => (u.roles || []).some((r: any) => /designer/i.test(r?.name || ''));
+    const isLeader = (u: any) => (u.roles || []).some((r: any) => r?.name === 'Junior Manager');
+    const assignable = all.filter((u) => isDesigner(u) || isLeader(u));
+    return (assignable.length ? assignable : all).map((u) => ({
+      id: u.id,
+      name: `${u.name || u.email || String(u.id).slice(0, 12)}${isLeader(u) && !isDesigner(u) ? ' (team lead)' : ''}`,
+      whatsappNumber: u.whatsappNumber || null,
+    }));
   }
 
   /** Fire-and-forget after lead creation — never blocks the capture path. */
@@ -836,6 +873,8 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         const allowed: LeadDto = {};
         if (dto.status !== undefined) allowed.status = dto.status;
         if (dto.notes !== undefined) allowed.notes = dto.notes;
+        if ((dto as any).appointmentAt !== undefined) (allowed as any).appointmentAt = (dto as any).appointmentAt;
+        if ((dto as any).appointmentNote !== undefined) (allowed as any).appointmentNote = (dto as any).appointmentNote;
         if (dto.quotationId !== undefined) allowed.quotationId = dto.quotationId;
         if (dto.projectId !== undefined) allowed.projectId = dto.projectId;
         dto = allowed;
@@ -865,9 +904,11 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       where: { id: leadId },
       data: {
         ...Object.fromEntries(
-          ['source', 'ref', 'name', 'email', 'phone', 'whatsappPhone', 'phones', 'location', 'propertyType', 'propertyRooms', 'propertyStatus', 'keyCollection', 'moveIn', 'budget', 'areas', 'designStyle', 'remarks', 'approachNotes', 'floorPlanUrl', 'status', 'assignedToUserId', 'assignedToName', 'quotationId', 'projectId', 'notes'].map((k) => [k, (dto as any)[k] !== undefined ? (dto as any)[k] : undefined]),
+          ['source', 'ref', 'name', 'email', 'phone', 'whatsappPhone', 'phones', 'location', 'propertyType', 'propertyRooms', 'propertyStatus', 'keyCollection', 'moveIn', 'budget', 'areas', 'designStyle', 'remarks', 'approachNotes', 'floorPlanUrl', 'appointmentNote', 'status', 'assignedToUserId', 'assignedToName', 'quotationId', 'projectId', 'notes'].map((k) => [k, (dto as any)[k] !== undefined ? (dto as any)[k] : undefined]),
         ),
-        keyCollectionDate: dto.keyCollectionDate !== undefined ? parseDateLoose(dto.keyCollectionDate) : undefined,
+        keyCollectionDate: dto.keyCollectionDate !== undefined ? parseDateLoose(dto.keyCollectionDate) : (dto as any).keyCollection !== undefined ? parseDateLoose((dto as any).keyCollection) : undefined,
+        // Appointment (lead drawer → dashboard calendar): ISO datetime or null to clear.
+        appointmentAt: (dto as any).appointmentAt !== undefined ? ((dto as any).appointmentAt ? new Date((dto as any).appointmentAt) : null) : undefined,
         assignedAt: assigningNow ? (dto.assignedToUserId ? new Date() : null) : undefined,
         deadAt: dto.status === 'dead' ? new Date() : undefined,
       },

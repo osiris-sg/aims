@@ -66,6 +66,8 @@ type Lead = {
   propertyStatus: string | null;
   keyCollection: string | null;
   keyCollectionDate: string | null;
+  appointmentAt: string | null;
+  appointmentNote: string | null;
   moveIn: string | null;
   budget: string | null;
   areas: string | null;
@@ -203,6 +205,16 @@ function PhoneInput({ label, value, onChange, onRemove }: { label: string; value
   );
 }
 
+// Key collection is a date OR a state (guru/Junrong 2026-09-24): TBC while
+// the client doesn't know, "Keys collected" once they have them.
+const KEY_MODES = [
+  { value: "date", label: "Pick a date" },
+  { value: "TBC", label: "TBC" },
+  { value: "Keys collected", label: "Keys collected" },
+];
+const keyModeOf = (v: string) => (v === "TBC" || v === "Keys collected" ? v : "date");
+const PROPERTY_STATUS_OPTIONS = ["New flat", "Resale"];
+
 /** wa.me-ready number: locals get 65, anything already carrying a code passes through. */
 const waNumber = (n: string) => (n.startsWith("65") || n.length > 8 ? n : `65${n}`);
 
@@ -310,7 +322,13 @@ export default function LeadsPage() {
   const [busy, setBusy] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [deadFor, setDeadFor] = useState<Lead | null>(null);
-  const [manual, setManual] = useState<{ name: string; phones: string[]; email: string; propertyType: string; budget: string; keyCollection: string; remarks: string; source: string }>({ name: "", phones: [""], email: "", propertyType: "", budget: "", keyCollection: "", remarks: "", source: "manual" });
+  // Duplicate warning before creating (guru/Mike 2026-09-25): matches by name
+  // or any phone number; the user decides to proceed or abort.
+  const [dupWarn, setDupWarn] = useState<any[] | null>(null);
+  // Set-appointment dialog (guru/Mike 2026-09-25): lands on the dashboard calendar.
+  const [apptFor, setApptFor] = useState<Lead | null>(null);
+  const [appt, setAppt] = useState({ at: "", note: "" });
+  const [manual, setManual] = useState<{ name: string; phones: string[]; email: string; propertyType: string; propertyStatus: string; budget: string; keyCollection: string; remarks: string; source: string }>({ name: "", phones: [""], email: "", propertyType: "", propertyStatus: "", budget: "", keyCollection: "", remarks: "", source: "manual" });
   const [attachments, setAttachments] = useState<LeadAttachment[]>([]);
   const [attBusy, setAttBusy] = useState(false);
   const [editFor, setEditFor] = useState<Lead | null>(null);
@@ -412,6 +430,17 @@ export default function LeadsPage() {
       source: l.source,
     });
     setEditFor(l);
+  };
+
+  const submitManualLead = async () => {
+    const phones = Array.from(new Set(manual.phones.map((v) => v.replace(/\D/g, "")).filter(Boolean)));
+    await api.request(`/leads`, {
+      method: "POST",
+      body: JSON.stringify({ ...manual, phones, phone: phones[0] || null, whatsappPhone: phones[1] || null, keyCollection: manual.keyCollection || null, source: manual.source || "manual" }),
+    });
+    setManualOpen(false);
+    setDupWarn(null);
+    load();
   };
 
   const saveEdit = async () => {
@@ -542,7 +571,7 @@ export default function LeadsPage() {
                 <Autocomplete
                   size="small"
                   options={assignableDesigners}
-                  getOptionLabel={(o: any) => o.name}
+                  getOptionLabel={(o: any) => `${o.name}${o.isLeader && !o.isDesigner ? " · team leader" : ""}`}
                   value={designers.find((d) => d.id === l.assignedToUserId) || (l.assignedToName ? ({ id: "", name: l.assignedToName } as any) : null)}
                   isOptionEqualToValue={(a: any, b: any) => a?.id === b?.id}
                   onChange={(_, v: any) => patch(l.id, { assignedToUserId: v?.id || null, assignedToName: v?.name || null, status: v && l.status === "unqualified" ? "engaging" : undefined })}
@@ -685,7 +714,7 @@ export default function LeadsPage() {
         totalDocs={total}
         buttonName="New lead"
         onAddClick={() => {
-          setManual({ name: "", phones: [""], email: "", propertyType: "", budget: "", keyCollection: "", remarks: "", source: "manual" });
+          setManual({ name: "", phones: [""], email: "", propertyType: "", propertyStatus: "", budget: "", keyCollection: "", remarks: "", source: "manual" });
           setManualOpen(true);
         }}
       />
@@ -790,6 +819,21 @@ export default function LeadsPage() {
                   Create project
                 </Button>
               )}
+              <Button
+                size="small"
+                variant="outlined"
+                sx={{ textTransform: "none" }}
+                onClick={() => {
+                  setAppt({
+                    at: detail.appointmentAt ? moment(detail.appointmentAt).format("YYYY-MM-DDTHH:mm") : "",
+                    note: detail.appointmentNote || "",
+                  });
+                  setApptFor(detail);
+                }}
+                data-tour="lead-set-appointment"
+              >
+                {detail.appointmentAt ? `Appt: ${moment(detail.appointmentAt).format("DD MMM HH:mm")}` : "Set appointment"}
+              </Button>
             </Stack>
 
             {/* Attachments — floor plans, photos, videos, other docs. */}
@@ -926,8 +970,32 @@ export default function LeadsPage() {
               <TextField label="Budget" size="small" fullWidth value={manual.budget} onChange={(e) => setManual({ ...manual, budget: e.target.value })} />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField label="Est. key collection" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={manual.keyCollection} onChange={(e) => setManual({ ...manual, keyCollection: e.target.value })} />
+              <TextField label="New / resale" select size="small" fullWidth value={manual.propertyStatus} onChange={(e) => setManual({ ...manual, propertyStatus: e.target.value })}>
+                <MenuItem value="">—</MenuItem>
+                {PROPERTY_STATUS_OPTIONS.map((o) => (
+                  <MenuItem key={o} value={o}>{o}</MenuItem>
+                ))}
+              </TextField>
             </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Key collection"
+                select
+                size="small"
+                fullWidth
+                value={keyModeOf(manual.keyCollection)}
+                onChange={(e) => setManual({ ...manual, keyCollection: e.target.value === "date" ? "" : e.target.value })}
+              >
+                {KEY_MODES.map((o) => (
+                  <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            {keyModeOf(manual.keyCollection) === "date" && (
+              <Grid item xs={12} sm={6}>
+                <TextField label="Est. key collection date" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={manual.keyCollection} onChange={(e) => setManual({ ...manual, keyCollection: e.target.value })} />
+              </Grid>
+            )}
             <Grid item xs={12} sm={6}>
               <TextField label="Source" select size="small" fullWidth value={manual.source} onChange={(e) => setManual({ ...manual, source: e.target.value })}>
                 {MANUAL_SOURCE_OPTIONS.map((o) => (
@@ -948,12 +1016,14 @@ export default function LeadsPage() {
             onClick={async () => {
               setBusy(true);
               try {
-                await api.request(`/leads`, { method: "POST", body: JSON.stringify((() => {
-                  const phones = Array.from(new Set(manual.phones.map((v) => v.replace(/\D/g, "")).filter(Boolean)));
-                  return { ...manual, phones, phone: phones[0] || null, whatsappPhone: phones[1] || null, keyCollection: manual.keyCollection || null, source: manual.source || "manual" };
-                })()) });
-                setManualOpen(false);
-                load();
+                const phones = Array.from(new Set(manual.phones.map((v) => v.replace(/\D/g, "")).filter(Boolean)));
+                // Warn first when the name or any number already exists.
+                const chk = await api.request<any>(`/leads/check-duplicate?name=${encodeURIComponent(manual.name.trim())}&phones=${encodeURIComponent(phones.join(","))}`).catch(() => null);
+                if (chk?.duplicates?.length) {
+                  setDupWarn(chk.duplicates);
+                  return;
+                }
+                await submitManualLead();
               } catch (e: any) {
                 toast.error(e.message || "Create failed");
               } finally {
@@ -962,6 +1032,90 @@ export default function LeadsPage() {
             }}
           >
             Add
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Set appointment — shows on the dashboard master calendar. */}
+      <Dialog open={!!apptFor} onClose={() => setApptFor(null)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 2 } }}>
+        <DialogTitle>Appointment — {apptFor?.name}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <TextField label="Date & time" type="datetime-local" size="small" fullWidth InputLabelProps={{ shrink: true }} value={appt.at} onChange={(e) => setAppt({ ...appt, at: e.target.value })} />
+            <TextField label="Note" size="small" fullWidth placeholder="e.g. showroom meeting, bring floor plan" value={appt.note} onChange={(e) => setAppt({ ...appt, note: e.target.value })} />
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              Shows on the Dashboard calendar for management and the assigned designer.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          {apptFor?.appointmentAt && (
+            <Button
+              color="error"
+              disabled={busy}
+              onClick={async () => {
+                await patch(apptFor!.id, { appointmentAt: null, appointmentNote: null });
+                setDetail((d) => (d && d.id === apptFor!.id ? { ...d, appointmentAt: null, appointmentNote: null } : d));
+                setApptFor(null);
+              }}
+            >
+              Clear
+            </Button>
+          )}
+          <Box sx={{ flex: 1 }} />
+          <Button onClick={() => setApptFor(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={busy || !appt.at}
+            onClick={async () => {
+              const iso = new Date(appt.at).toISOString();
+              await patch(apptFor!.id, { appointmentAt: iso, appointmentNote: appt.note || null });
+              setDetail((d) => (d && d.id === apptFor!.id ? { ...d, appointmentAt: iso, appointmentNote: appt.note || null } : d));
+              setApptFor(null);
+              toast.success("Appointment saved — it's on the dashboard calendar");
+            }}
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Duplicate warning: same name or number already in the pipeline. */}
+      <Dialog open={!!dupWarn} onClose={() => setDupWarn(null)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 2 } }}>
+        <DialogTitle>Possible duplicate lead</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: "text.secondary", mb: 1.5 }}>
+            A lead with the same {dupWarn?.some((d: any) => d.numbers?.some((n: string) => manual.phones.some((p) => p.replace(/\D/g, "") === n))) ? "contact number" : "name"} already exists:
+          </Typography>
+          <Stack spacing={1}>
+            {(dupWarn || []).map((d: any) => (
+              <Paper key={d.id} variant="outlined" sx={{ p: 1.25, borderRadius: 1.5 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>{d.name}</Typography>
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                  {[d.numbers?.join(" · "), String(d.source || "").toUpperCase(), d.status, d.assignedToName ? `assigned to ${d.assignedToName}` : null].filter(Boolean).join(" · ")}
+                </Typography>
+              </Paper>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDupWarn(null)}>Cancel</Button>
+          <Button
+            color="warning"
+            variant="contained"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await submitManualLead();
+              } catch (e: any) {
+                toast.error(e.message || "Create failed");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Create anyway
           </Button>
         </DialogActions>
       </Dialog>
@@ -1029,10 +1183,31 @@ export default function LeadsPage() {
                 <TextField label="Rooms" size="small" fullWidth value={edit.propertyRooms} onChange={(e) => setEdit({ ...edit, propertyRooms: e.target.value })} />
               </Grid>
               <Grid item xs={12} sm={4}>
-                <TextField label="Property status" size="small" fullWidth value={edit.propertyStatus} onChange={(e) => setEdit({ ...edit, propertyStatus: e.target.value })} />
+                <TextField label="New / resale" select size="small" fullWidth value={edit.propertyStatus} onChange={(e) => setEdit({ ...edit, propertyStatus: e.target.value })}>
+                  <MenuItem value="">—</MenuItem>
+                  {[...PROPERTY_STATUS_OPTIONS, ...(edit.propertyStatus && !PROPERTY_STATUS_OPTIONS.includes(edit.propertyStatus) ? [edit.propertyStatus] : [])].map((o) => (
+                    <MenuItem key={o} value={o}>{o}</MenuItem>
+                  ))}
+                </TextField>
               </Grid>
               <Grid item xs={12} sm={6}>
-                <TextField label="Est. key collection" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={edit.keyCollection} onChange={(e) => setEdit({ ...edit, keyCollection: e.target.value })} />
+                <Stack direction="row" spacing={1}>
+                  <TextField
+                    label="Key collection"
+                    select
+                    size="small"
+                    sx={{ minWidth: 150 }}
+                    value={keyModeOf(edit.keyCollection)}
+                    onChange={(e) => setEdit({ ...edit, keyCollection: e.target.value === "date" ? "" : e.target.value })}
+                  >
+                    {KEY_MODES.map((o) => (
+                      <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+                    ))}
+                  </TextField>
+                  {keyModeOf(edit.keyCollection) === "date" && (
+                    <TextField label="Date" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={edit.keyCollection} onChange={(e) => setEdit({ ...edit, keyCollection: e.target.value })} />
+                  )}
+                </Stack>
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField label="Move-in" size="small" fullWidth value={edit.moveIn} onChange={(e) => setEdit({ ...edit, moveIn: e.target.value })} />

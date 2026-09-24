@@ -181,8 +181,16 @@ export class OrganizationsController {
   @Patch(':id')
   @UseGuards(ClerkAuthGuard)
   @Permissions('organizations:update')
-  async updateOrganization(@Param('id') id: string, @Body() updateOrganizationDto: UpdateOrganizationDto) {
+  async updateOrganization(@Param('id') id: string, @Body() updateOrganizationDto: UpdateOrganizationDto, @Req() req: RequestWithOrganization) {
     try {
+      // Org administration is MASTER-tier only (guru 2026-09-25: junior
+      // managers were editing the Company Profile — their role clones the
+      // Management permission set, so the tier is the real gate). Also pin
+      // the target to the caller's own org (osirisadmin excepted).
+      if (!req.isOsirisAdmin) {
+        if (req.userOrganization?.id !== id) throw new Error('You can only update your own organization');
+        await this.organizationsService.assertOrgAdmin(id, (req as any).user?.id);
+      }
       const organization = await this.organizationsService.update(id, updateOrganizationDto);
       return {
         success: true,

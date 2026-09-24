@@ -33,6 +33,14 @@ export class LeadsController {
     return this.service.stats(orgId(req), req.user?.id);
   }
 
+  // Dedupe guard for the New-lead dialog (guru/Mike 2026-09-25): matches on
+  // name or ANY phone number so the portal can warn before creating a copy.
+  @Get('check-duplicate')
+  @Permissions('documents:read')
+  checkDuplicate(@Req() req: RequestWithOrganization, @Query('name') name?: string, @Query('phones') phones?: string) {
+    return this.service.checkDuplicate(orgId(req), name || '', (phones || '').split(',').filter(Boolean));
+  }
+
   @Get()
   @Permissions('documents:read')
   list(

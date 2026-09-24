@@ -8,6 +8,14 @@ import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 
 @Injectable()
 export class OrganizationsService {
+  /** Master tier only — Senior/Junior Manager and Designer get a clean error
+   *  (hierarchy spec: "no org administration" below master). */
+  async assertOrgAdmin(organizationId: string, userId?: string) {
+    const { resolveTier } = await import('../common/role-tier');
+    const { tier } = await resolveTier(this.prisma, organizationId, userId);
+    if (tier !== 'master') throw new Error('Only management can edit the company profile');
+  }
+
   constructor(
     private prisma: PrismaService,
     @Inject('ClerkClient')

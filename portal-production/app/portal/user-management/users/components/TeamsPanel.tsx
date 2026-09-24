@@ -186,11 +186,18 @@ export default function TeamsPanel() {
                       {(t.memberUserIds || []).map((id) => (
                         <Chip key={id} size="small" variant="outlined" label={nameOf(id)} sx={{ height: 22 }} />
                       ))}
-                      {!t.memberUserIds?.length && (
-                        <Typography variant="caption" sx={{ color: "text.disabled" }}>
-                          no members
-                        </Typography>
-                      )}
+                      {/* Explicit affordance (guru/Mike 2026-09-25): opens the
+                          same edit dialog on its member picker. */}
+                      <Chip
+                        size="small"
+                        icon={<AddIcon sx={{ fontSize: 14 }} />}
+                        label={t.memberUserIds?.length ? "Edit" : "Add members"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEdit(t);
+                        }}
+                        sx={{ height: 22 }}
+                      />
                     </Stack>
                   </TableCell>
                   <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
