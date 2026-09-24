@@ -422,6 +422,33 @@ export default function TabbedDocumentCreator({
     documentType === "DELIVERY_ORDER" ||
     documentType === "RDO" ||
     documentType === "RETURN_DELIVERY_ORDER";
+
+  // PRINT GEOMETRY. A Paper the exact size of the sheet has ZERO tolerance:
+  // Chrome clips the overflow (the Amount column ran off the right of
+  // QO202609-0090) and Safari silently shrinks the whole page instead. The DO
+  // was fixed by sizing its Paper DELIBERATELY SMALLER than the printable band
+  // inside an explicit page margin, and quotations now take the same treatment.
+  //
+  //   @page margin 6mm   -> printable band 198 x 285mm
+  //   Paper 186mm wide   -> 12mm of slack, 6mm a side
+  //   Paper padding 8mm  -> content box 186 - 16 = 170mm
+  //
+  // 170mm is EXACTLY what the 210mm Paper's 20mm padding already gave on
+  // screen, so nothing reflows and the pagination is unchanged — the sheet just
+  // stops hanging over the edge of the band.
+  //
+  // Height is deliberately NOT pinned (the DO pins 277mm because it is one page
+  // by design). A quotation runs to several pages and must FLOW.
+  const isQuotationSheet =
+    documentType === "QUOTATION" ||
+    documentType === "QO" ||
+    documentType === "QO1" ||
+    documentType === "QO2" ||
+    documentType === "QT";
+  // Sheets that size their own Paper and therefore want the tight page margin.
+  // NOT the same as isDoSheet, which also gates FIT-TO-PAGE scaling: a DO is
+  // shrunk to one page, a quotation must break across pages instead.
+  const isTightMarginSheet = isDoSheet || isQuotationSheet;
   // FIT TO PAGE (DO/RDO only). The sheet is measured as it will PRINT and
   // scaled by exactly what is needed; one that already fits is untouched. The
   // rule is @media print, so the editor's on-screen preview never changes.
@@ -446,7 +473,7 @@ export default function TabbedDocumentCreator({
     pageStyle: `
       @page {
         size: A4;
-        margin: ${isDoSheet ? "6mm" : "20mm 15mm"};
+        margin: ${isTightMarginSheet ? "6mm" : "20mm 15mm"};
         @top-left { content: ""; }
         @top-center { content: ""; }
         @top-right { content: ""; }
@@ -467,6 +494,19 @@ export default function TabbedDocumentCreator({
           margin: 0 auto !important;
           padding: 8mm !important;
         }
+        /* Quotations: same geometry, but NO pinned height — the sheet flows
+           onto as many pages as it needs. min-height is zeroed so a short
+           quotation does not reserve a full 297mm page and push a blank one. */
+        [data-print-paper][data-print-sheet="quotation"] {
+          width: 186mm !important;
+          min-height: 0 !important;
+          margin: 0 auto !important;
+          padding: 8mm !important;
+        }
+        /* Repeat the items table header on every page. Browsers default a
+           <thead> to this, but stating it means a restyled table cannot
+           silently lose the header on page 2. */
+        thead { display: table-header-group; }
       }
     `,
   });

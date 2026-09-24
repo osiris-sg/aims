@@ -4061,6 +4061,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     return (
       <Paper
         data-print-paper
+        /* Opts this sheet into the editor's quotation print geometry: a 186mm
+           Paper inside a 6mm page margin, i.e. smaller than the printable band
+           so Chrome has no overflow to clip. On SCREEN it stays 210mm — the
+           rule is @media print only. */
+        data-print-sheet="quotation"
         sx={{
           width: "210mm",
           minHeight: "297mm",
