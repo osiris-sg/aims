@@ -4990,6 +4990,106 @@ export class DocumentsService {
   }
 
   /**
+   * Append ONE UNIT-KEYED line to a document — the asset-backed twin of
+   * appendFreeTypedLineToDocument above.
+   *
+   * WHY THIS EXISTS. A run's DO is born from what the OFFICE scheduled. A rider
+   * can legitimately put a unit on that run that the office never declared —
+   * they scan an asset with no open slot (addItem), or they pick a run by
+   * address whose declared asset is a different one (mergeIntoChosenScheduledRun).
+   * Both paths linked the DeliveryItem to the run's DO and then stopped: nothing
+   * wrote the LINE, so the unit was delivered, signed for and invoiced off a DO
+   * that did not mention it. bindUnitToUnboundDoSlot cannot help — it binds a
+   * serial INTO an existing line and no-ops when none matches. This is the only
+   * other runtime writer of config.items, and it is deliberately narrow.
+   *
+   * The line matches what createDoFromDelivery / createDoOnAdHocCompletion emit
+   * for a bound unit, field for field:
+   *   description, quantity, unitPrice 0, amount 0   — a DO is a GOODS document;
+   *     the price is the INVOICE's job (priceInvoiceLinesFromAsset). A non-zero
+   *     unitPrice here would be carried into the invoice and override the
+   *     Sales-Order → Quotation → asset ladder.
+   *   inventoryItemId  — the unit; what syncDocumentItems keys the DocumentItem on
+   *   serialNumbers    — [Inventory.sku]; this fleet stores the nameplate
+   *     identifier in `sku`, so that is the S/No. the office reads on the DO
+   *   skuKey + itemCode — Model row + Product Code column
+   *   deliveryGroup    — per-asset display grouping key
+   *   deliveryItemId   — lets getById attach this line's DO_START proof photos
+   *
+   * IDEMPOTENT. A line already carrying this inventoryItemId (or this
+   * deliveryItemId) means the unit is on the document; the call returns without
+   * writing. Retries, replayed clients and a rider re-scanning cannot duplicate
+   * a line.
+   *
+   * Tax: NOT invented. Delivery-built DOs carry no per-line tax at all, while an
+   * editor-built DO carries it on every line. So the value is inherited only
+   * when every existing goods line already agrees on one, and omitted otherwise
+   * — the appended line is then taxed exactly like its siblings on the same
+   * document, whichever kind of DO it landed on.
+   */
+  async appendUnitLineToDocument(
+    documentId: string,
+    organizationId: string,
+    line: {
+      inventoryItemId: string;
+      deliveryItemId?: string | null;
+      assetId?: string | null;
+      sku?: string | null;
+      skuKey?: string | null;
+      description: string;
+      quantity?: number;
+    },
+  ): Promise<boolean> {
+    // Org-scoped: a documentId from another tenant must not resolve.
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { config: true },
+    });
+    if (!doc) return false;
+    const config: any = doc.config ?? {};
+    const items: any[] = Array.isArray(config.items) ? config.items : [];
+
+    // Already present → no-op. Checked on BOTH keys: inventoryItemId is the
+    // real identity, deliveryItemId catches a line written for the same run row
+    // before the unit was bound.
+    const already = items.some(
+      (it) =>
+        (it?.inventoryItemId && it.inventoryItemId === line.inventoryItemId) ||
+        (line.deliveryItemId && it?.deliveryItemId && it.deliveryItemId === line.deliveryItemId),
+    );
+    if (already) return false;
+
+    // Inherit tax only on unanimous agreement among existing goods lines.
+    const goods = items.filter((it) => it?.inventoryItemId || it?.assetId);
+    const taxes = [...new Set(goods.map((it) => it?.tax).filter((t) => t !== undefined && t !== null))];
+    const inheritedTax = goods.length > 0 && taxes.length === 1 ? taxes[0] : undefined;
+
+    items.push({
+      description: line.description,
+      quantity: line.quantity ?? 1,
+      unitPrice: 0,
+      amount: 0,
+      inventoryItemId: line.inventoryItemId,
+      ...(line.deliveryItemId ? { deliveryItemId: line.deliveryItemId } : {}),
+      ...(line.sku ? { serialNumbers: [line.sku] } : {}),
+      ...(line.skuKey ? { skuKey: line.skuKey, itemCode: line.skuKey } : {}),
+      ...(line.assetId ? { deliveryGroup: line.assetId } : {}),
+      ...(inheritedTax !== undefined ? { tax: inheritedTax } : {}),
+    });
+
+    const newConfig = { ...config, items };
+    await this.prisma.document.update({
+      where: { id: documentId },
+      data: { config: newConfig as Prisma.InputJsonValue },
+    });
+    // syncDocumentItems matches desired<->existing by itemId and preserves every
+    // delivery column on the rows it keeps, so appending to a part-delivered DO
+    // neither resets nor re-deducts the units already handed over.
+    await this.syncDocumentItems(documentId, newConfig, organizationId);
+    return true;
+  }
+
+  /**
    * Regenerate a scheduled draft DO from a config fragment: merge the fragment
    * over the existing config (so logo/stamp/template layout survive), optionally
    * re-point projectId, then re-sync DocumentItems. Used when the office edits a

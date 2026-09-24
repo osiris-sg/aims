@@ -1809,8 +1809,21 @@ export class DeliveriesService {
         return bound;
       }
     }
+    // OFF-SCHEDULE UNIT. No open slot matched, so this asset is not one the
+    // office declared on this run. If the run is DO-linked, the unit must still
+    // reach the DO — born-link it and append its own line, exactly as the
+    // free-typed branch above does. Without this the unit is delivered, signed
+    // for and invoiced off a Delivery Order that never mentions it, and
+    // commitLinkedDeliveryItems cannot rescue it either: it only ever STAMPS an
+    // existing DocumentItem (`if (!docRow) continue`) and never creates one.
+    // (Run #54 / DO202609066, 2026-09-24.)
+    const offScheduleLink = await this.prisma.deliveryItem.findFirst({
+      where: { deliveryId, documentId: { not: null } },
+      select: { documentId: true },
+    });
+    const offScheduleDocumentId = offScheduleLink?.documentId ?? null;
     try {
-      return await this.prisma.deliveryItem.create({
+      const createdOffSchedule = await this.prisma.deliveryItem.create({
         data: {
           deliveryId,
           assetId: dto.assetId,
@@ -1818,8 +1831,37 @@ export class DeliveriesService {
           description: dto.description ?? asset.name,
           quantity: dto.quantity ?? 1,
           sortOrder: await this.nextSortOrder(deliveryId),
+          ...(offScheduleDocumentId ? { documentId: offScheduleDocumentId } : {}),
         },
       });
+      // Best-effort, and deliberately AFTER the row exists: a failed append
+      // leaves a linked item whose line the office can add, which is strictly
+      // better than losing the scan. Only fires on this no-slot branch, so an
+      // unfilled scheduled slot (which already has its line) is never touched.
+      if (offScheduleDocumentId && dto.inventoryId) {
+        try {
+          const unit = await this.prisma.inventory.findFirst({
+            where: { id: dto.inventoryId, organizationId },
+            select: { sku: true, asset: { select: { skuKey: true, name: true } } },
+          });
+          if (unit) {
+            await this.documentsService.appendUnitLineToDocument(offScheduleDocumentId, organizationId, {
+              inventoryItemId: dto.inventoryId,
+              deliveryItemId: createdOffSchedule.id,
+              assetId: dto.assetId,
+              sku: unit.sku,
+              skuKey: unit.asset?.skuKey ?? null,
+              description: dto.description ?? unit.asset?.name ?? asset.name,
+              quantity: dto.quantity ?? 1,
+            });
+          }
+        } catch (err: any) {
+          this.logger.warn(
+            `addItem: appending off-schedule unit line to DO ${offScheduleDocumentId} failed: ${err?.message}`,
+          );
+        }
+      }
+      return createdOffSchedule;
     } catch (err) {
       // Duplicate unit in this run (unique deliveryId+inventoryId) — release
       // the fresh reservation? NO: the duplicate means THIS run already holds
@@ -3535,9 +3577,11 @@ export class DeliveriesService {
    *     → APPEND the unit as an extra line at the END of the walk, carrying the
    *     run's DO link (from any sibling item) so it still rides with the run's
    *     Delivery Order. The rider isn't locked out; the extra unit shows in the
-   *     run basket and on the DO for the office to reconcile. bindUnitToUnbound-
-   *     DoSlot below is a no-op (no matching DO slot), and completion's stock
-   *     flip already happened per-unit at ack, so nothing is silently lost.
+   *     run basket and on the DO for the office to reconcile. There is no DO
+   *     slot to bind into, so instead of bindUnitToUnboundDoSlot (a no-op here)
+   *     the unit's line is APPENDED via appendUnitLineToDocument — without that
+   *     the DO stayed silent about a unit it had just delivered. Completion's
+   *     stock flip already happened per-unit at ack, so nothing is lost.
    *
    * Returns the chosen run (always merges); null only if the run vanished or is
    * the same ad-hoc run (defensive — the caller already validated it).
@@ -3618,20 +3662,44 @@ export class DeliveriesService {
     });
 
     // Serial-bind into the DO's asset slot (post-commit, best-effort). A no-op
-    // when the unit was appended off-schedule (no matching DO slot).
+    // when the unit was appended off-schedule (no matching DO slot) — which is
+    // exactly why the off-schedule branch below has to write its own line.
     const bindDocumentId = slot?.documentId ?? runDocumentId;
     if (bindDocumentId) {
       try {
         const unit = await this.prisma.inventory.findFirst({
           where: { id: item.inventoryId, organizationId },
-          select: { id: true, sku: true },
+          select: { id: true, sku: true, asset: { select: { skuKey: true, name: true } } },
         });
         if (unit) {
-          await this.documentsService.bindUnitToUnboundDoSlot(bindDocumentId, organizationId, {
-            id: item.inventoryId,
-            assetId: item.assetId,
-            sku: unit.sku,
-          });
+          if (slot) {
+            await this.documentsService.bindUnitToUnboundDoSlot(bindDocumentId, organizationId, {
+              id: item.inventoryId,
+              assetId: item.assetId,
+              sku: unit.sku,
+            });
+          } else {
+            // OFF-SCHEDULE: the chosen run declared a different asset, so the DO
+            // has no line to bind into. The docblock above promised this unit
+            // "shows in the run basket AND on the DO"; only the first half was
+            // ever true — the transaction moved the DeliveryItem and set its
+            // documentId, and nothing wrote the line. APPEND it. Fires only on
+            // this branch, so a filled or unfilled scheduled slot is untouched.
+            // (Run #54 / DO202609066, 2026-09-24.)
+            const moved = await this.prisma.deliveryItem.findFirst({
+              where: { id: item.id },
+              select: { id: true, description: true, quantity: true },
+            });
+            await this.documentsService.appendUnitLineToDocument(bindDocumentId, organizationId, {
+              inventoryItemId: item.inventoryId,
+              deliveryItemId: item.id,
+              assetId: item.assetId,
+              sku: unit.sku,
+              skuKey: unit.asset?.skuKey ?? null,
+              description: moved?.description ?? unit.asset?.name ?? unit.sku ?? '',
+              quantity: moved?.quantity ?? 1,
+            });
+          }
         }
       } catch (err: any) {
         this.logger.warn(`mergeIntoChosenScheduledRun: DO slot bind failed for unit ${item.inventoryId}: ${err?.message}`);
