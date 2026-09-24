@@ -5730,11 +5730,10 @@ export default function TabbedDocumentCreator({
                                 ...(dragOverItemId === item.id && dragItemId !== item.id
                                   ? { "& .MuiTableCell-root": { boxShadow: (t: any) => `inset 0 2px 0 0 ${t.palette.primary.main}` } }
                                   : {}),
-                                // Part of a merged rate. The ROW is not dimmed — it prints
-                                // in full — only the shared column is marked, below.
-                                ...(item.rateMerge
-                                  ? { "& .MuiTableCell-root": { borderLeft: (t: any) => `3px solid ${t.palette.primary.light}` } }
-                                  : {}),
+                                // A merged row carries NO marking of its own. An accent
+                                // rule here lands on every cell in the row, not just the
+                                // shared column, and reads as a heavy border drawn across
+                                // the whole block.
                               }}
                             >
                               {!isTemplateEditMode && (
@@ -6003,7 +6002,13 @@ export default function TabbedDocumentCreator({
                                       key={columnId}
                                       sx={{
                                         textAlign: "center",
-                                        ...(run && !run.isLast ? { borderBottom: "none" } : {}),
+                                        // !important is required, not lazy: the parent
+                                        // <Table> sets borderBottom via
+                                        // "& .MuiTableCell-root", a two-class descendant
+                                        // selector that outranks this cell's own one-class
+                                        // sx. Without it the dividers stay and the block
+                                        // still reads as five separate cells.
+                                        ...(run && !run.isLast ? { borderBottom: "none !important" } : {}),
                                       }}
                                     >
                                       {run?.isInputRow ? (
@@ -6435,7 +6440,11 @@ export default function TabbedDocumentCreator({
                       )}
                       {isLumpEligible &&
                         items
-                          .filter((it: any) => it.rateMerge?.id)
+                          // ONE chip per merge. Every member carries `rateMerge`,
+                          // so filtering on the field alone renders a chip per ROW —
+                          // five identical chips for a five-row merge. Keep only the
+                          // first sighting of each id.
+                          .filter((it: any, i: number) => it.rateMerge?.id && items.findIndex((x: any) => x.rateMerge?.id === it.rateMerge.id) === i)
                           .map((anchor: any) => (
                             <Chip
                               key={anchor.rateMerge.id}
