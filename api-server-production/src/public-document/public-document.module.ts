@@ -14,5 +14,7 @@ import { PublicDocumentService } from './public-document.service';
   imports: [DocumentsModule],
   controllers: [PublicDocumentController],
   providers: [PublicDocumentService, PrismaService],
+  // The Operator PA shares DOs through a view-only link minted here.
+  exports: [PublicDocumentService],
 })
 export class PublicDocumentModule {}

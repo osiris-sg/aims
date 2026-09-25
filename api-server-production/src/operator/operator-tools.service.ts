@@ -22,6 +22,7 @@ import { MarketingService } from '../marketing/marketing.service';
 import { LeadsService } from '../leads/leads.service';
 import { S3Service } from '../common/services/s3.service';
 import { OperatorAuthService } from './operator-auth.service';
+import { PublicDocumentService } from '../public-document/public-document.service';
 import { OperatorContext, PendingAction } from './operator.types';
 import { cleanText } from './text.util';
 
@@ -96,6 +97,7 @@ export class OperatorToolsService {
     private readonly marketing: MarketingService,
     private readonly leads: LeadsService,
     private readonly deliveries: DeliveriesService,
+    private readonly publicDocuments: PublicDocumentService,
     private readonly s3: S3Service,
     private readonly auth: OperatorAuthService,
   ) {}
@@ -445,7 +447,7 @@ export class OperatorToolsService {
 
       {
         name: 'preview_document',
-        description: 'Generate the PDF for a document and send it to the user. Always do this before asking them to confirm.',
+        description: 'Generate the PDF for a document and send it to the user. Always do this before asking them to confirm. For a Delivery Order this returns a view-only link (viewLink) to the signed DO instead of a PDF: give the user that link.',
         permissions: ['documents:read'],
         input_schema: {
           type: 'object',
@@ -458,6 +460,23 @@ export class OperatorToolsService {
             select: { id: true, name: true, type: true, config: true },
           });
           if (!doc) return { result: { error: 'Document not found in this organization' } };
+          // DELIVERY ORDERS are not rendered by the backend PDF: that generic
+          // layout carries no customer signature, no proof of delivery and no
+          // Pending lines, and it is cached. Share the SAME signed DO view the
+          // field app prints instead, as a VIEW-ONLY link (it can never be used
+          // to sign). No file is attached for a DO.
+          if (['DO', 'DELIVERY_ORDER', 'RDO', 'RETURN_DELIVERY_ORDER'].includes(String(doc.type).toUpperCase())) {
+            const link = await this.publicDocuments.getOrCreateViewOnlyLink(documentId, ctx.organizationId);
+            return {
+              result: {
+                documentId,
+                documentNumber: doc.name,
+                viewLink: link.url,
+                viewOnly: true,
+                note: 'Delivery orders are shared as a view-only link to the signed DO (with its proof of delivery), not as a PDF file. Give the user this link.',
+              },
+            };
+          }
           const url = await this.documents.getOrGeneratePdfUrl(documentId, ctx.organizationId);
           if (!url) return { result: { error: 'Could not generate a PDF for this document' } };
           const cfg: any = doc.config || {};

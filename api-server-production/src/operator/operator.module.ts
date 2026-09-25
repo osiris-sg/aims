@@ -31,6 +31,7 @@ import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
  * rather than reimplementing any business logic; org scoping and permissions
  * come from the user the chat sender is linked to.
  */
+import { PublicDocumentModule } from '../public-document/public-document.module';
 @Module({
   imports: [
     CommonModule, // AuditService
@@ -51,6 +52,7 @@ import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
     MarketingModule,
     LeadsModule,
     DeliveriesModule, // schedule_delivery tool → real delivery runs
+    PublicDocumentModule, // preview_document → view-only DO link
   ],
   controllers: [OperatorController],
   providers: [OperatorService, OperatorAuthService, OperatorToolsService, TelegramAdapter, WhatsAppAdapter, PrismaService],

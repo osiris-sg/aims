@@ -97,6 +97,8 @@ interface PublicDocView {
   data?: any;
   organization?: any;
   maintenanceReports?: any[];
+  // True for a view-only link (Operator PA): no signing offered.
+  viewOnly?: boolean;
 }
 
 function NeutralMessage() {
@@ -399,7 +401,9 @@ export default function PublicDocumentViewPage() {
                 organization={view.organization}
                 maintenanceReports={view.maintenanceReports}
                 publicShareToken={token}
-                onSignRequest={openSignDialog}
+                // A view-only link (shared by the Operator PA) never offers
+                // signing; the server refuses it too.
+                onSignRequest={view.viewOnly ? undefined : openSignDialog}
               />
             </div>
           </Box>

@@ -100,6 +100,19 @@ export class PublicDocumentService {
   }
 
   /**
+   * VIEW-ONLY tokens carry this prefix (the rest is the same crypto-random
+   * value). A view-only link can read the DO but can NEVER sign it: publicSign
+   * refuses it and the public view tells the page to show no sign button. Used
+   * by the Operator PA, which shares DOs with whoever is in the chat. The office
+   * share button keeps minting ordinary (signable) links, and the two kinds are
+   * never reused for each other.
+   */
+  private static readonly VIEW_ONLY_PREFIX = 'vo_';
+  private static isViewOnly(token: string): boolean {
+    return typeof token === 'string' && token.startsWith(PublicDocumentService.VIEW_ONLY_PREFIX);
+  }
+
+  /**
    * The document's `config` is a stored JSON blob that, for authenticated office
    * use, carries fields the public DO render never needs and MUST NOT leak to a
    * link holder: internal ids, a staff email (`lastUsedBy`), audit timestamps,
@@ -234,8 +247,10 @@ export class PublicDocumentService {
       throw new BadRequestException('Only delivery orders can be shared as a view-only link');
     }
 
+    // Ordinary (signable) links only: a view-only link minted for the Operator
+    // PA must never be handed out by the office share button.
     const existing = await this.prisma.documentShareLink.findFirst({
-      where: { documentId, revokedAt: null },
+      where: { documentId, revokedAt: null, NOT: { token: { startsWith: PublicDocumentService.VIEW_ONLY_PREFIX } } },
       orderBy: { createdAt: 'desc' },
       select: { token: true },
     });
@@ -248,6 +263,40 @@ export class PublicDocumentService {
         })
       ).token;
 
+    const base = (process.env.PORTAL_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const path = `/guest/do/${token}`;
+    return { token, path, url: base ? `${base}${path}` : path };
+  }
+
+  /**
+   * INTERNAL (Operator PA) — mint or reuse a VIEW-ONLY link for a DO/RDO in the
+   * caller's org. Reuses the newest active view-only link, so repeated previews
+   * share one URL. Lifecycle: a DocumentShareLink row (not the delivery run's
+   * DeliveryShareLink, which the field flow revokes on completion), no expiry,
+   * disabled only by the office "revoke links" action on the document.
+   */
+  async getOrCreateViewOnlyLink(documentId: string, organizationId: string) {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, type: true },
+    });
+    if (!doc) throw new NotFoundException('Document not found');
+    if (!DO_TYPES.includes(doc.type)) {
+      throw new BadRequestException('Only delivery orders can be shared as a view-only link');
+    }
+    const existing = await this.prisma.documentShareLink.findFirst({
+      where: { documentId, revokedAt: null, token: { startsWith: PublicDocumentService.VIEW_ONLY_PREFIX } },
+      orderBy: { createdAt: 'desc' },
+      select: { token: true },
+    });
+    const token =
+      existing?.token ??
+      (
+        await this.prisma.documentShareLink.create({
+          data: { documentId, token: `${PublicDocumentService.VIEW_ONLY_PREFIX}${this.generateToken()}` },
+          select: { token: true },
+        })
+      ).token;
     const base = (process.env.PORTAL_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
     const path = `/guest/do/${token}`;
     return { token, path, url: base ? `${base}${path}` : path };
@@ -310,6 +359,10 @@ export class PublicDocumentService {
       // Same opaque refusal the read path gives — never reveal whether a token
       // existed beyond ok/revoked/notfound.
       throw new HttpException('This link is no longer available.', HttpStatus.GONE);
+    }
+    // A view-only link (Operator PA) can never sign, whatever the page shows.
+    if (PublicDocumentService.isViewOnly(token)) {
+      throw new HttpException('This link is view only. It cannot be used to sign.', HttpStatus.FORBIDDEN);
     }
 
     // ── validate the payload ────────────────────────────────────────────────
@@ -487,6 +540,8 @@ export class PublicDocumentService {
 
     return {
       state: 'ok' as const,
+      // View-only links (Operator PA): the page must not offer signing.
+      viewOnly: PublicDocumentService.isViewOnly(token),
       documentType,
       data,
       organization: {
