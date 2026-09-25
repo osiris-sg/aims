@@ -276,6 +276,28 @@ async function discoverBotLid(groupIds) {
   }
 }
 
+/** Every group this device is in, as {id, name}. Only the linked device can
+ *  enumerate them, so AIMS is handed the list whenever it needs to match a
+ *  group the adviser named in chat. */
+async function listGroups() {
+  try {
+    return await client.pupPage.evaluate(() => {
+      const coll = window.require('WAWebCollections').Chat;
+      const models = coll.getModelsArray?.() || coll.models || [];
+      return models
+        .filter((c) => String(c?.id?._serialized || '').endsWith('@g.us'))
+        .map((c) => ({
+          id: c.id._serialized,
+          name: c.formattedTitle || c.name || c.subject || c.groupMetadata?.subject || null,
+        }))
+        .filter((g) => g.name);
+    });
+  } catch (e) {
+    console.error('   ✖ listGroups failed:', e && e.message ? e.message : e);
+    return [];
+  }
+}
+
 async function probeGroupTitles() {
   try {
     const diag = await client.pupPage.evaluate((all) => {
@@ -651,6 +673,45 @@ async function notifyDenzel(group, clientMsg, reply) {
  * Denzel replying "ok <code>" / "no <code>" to a held draft. Anything else in a
  * DM is ignored: this bridge is only ever meant to act inside groups.
  */
+// "schedule ... to ..." is the giveaway; the AI decides for real, this only
+// keeps us from paying for a model call on every "ok" and "thanks".
+const SCHEDULE_HINT = /\b(schedule|broadcast|send)\b[\s\S]*\b(to|for|in)\b|\bschedule\b/i;
+
+/** Adviser asking the PA to schedule a message into one, several or all groups.
+ *  Returns true when it handled the message. */
+async function handleScheduleRequest(msg, chatId, fromGroupId) {
+  const text = String(msg.body || '').trim();
+  if (!text || !SCHEDULE_HINT.test(text)) return false;
+  const senderDigits = String(msg.author || msg.from || '').replace(/\D/g, '');
+  const isStaff =
+    !!msg.fromMe ||
+    DENZEL_NUMBERS.some((n) => senderDigits.endsWith(n.slice(-8))) ||
+    STAFF_NUMBERS.some((n) => n && senderDigits.endsWith(n.slice(-8)));
+  if (!isStaff) return false;
+
+  const groups = await listGroups();
+  try {
+    const res = await callBridgeApi('/whatsapp/group-schedule', {
+      body: {
+        organizationId: ORG_ID,
+        request: text,
+        groups,
+        thisGroupId: fromGroupId || undefined,
+        createdBy: senderDigits || undefined,
+      },
+    });
+    if (!res || (!res.scheduled && !res.reply)) return false; // not a scheduling ask after all
+    await client.sendMessage(chatId, res.reply);
+    console.log(`   🗓  scheduled to ${res.scheduled} group(s) on request`);
+    return true;
+  } catch (e) {
+    const err = e && e.message ? e.message : String(e);
+    console.error('   ✖ schedule request failed:', err);
+    await client.sendMessage(chatId, `Sorry, I couldn't set that up: ${err}`);
+    return true;
+  }
+}
+
 async function handleApprovalReply(msg, chatId) {
   const senderDigits = String(msg.author || msg.from || '').replace(/\D/g, '');
   const isStaffDm =
@@ -730,6 +791,8 @@ client.on('message_create', async (msg) => {
     // Approval replies arrive as a 1:1 DM from Denzel, so handle them before
     // the groups-only guard below.
     if (typeof chatId === 'string' && chatId.endsWith('@c.us')) {
+      // A scheduling ask looks nothing like "ok"/"no", so try it first.
+      if (await handleScheduleRequest(msg, chatId, null)) return;
       await handleApprovalReply(msg, chatId);
       return;
     }
@@ -769,6 +832,12 @@ client.on('message_create', async (msg) => {
       pendingReplies.delete(chatId);
       console.log('   ⤷ cancelled pending reply: a human answered first');
     }
+
+    // Staff asking, inside a group, for something to be scheduled — "schedule
+    // this to this group / to the Tham group / to all groups". Checked before
+    // the appointment sniff so "schedule X for Friday" is treated as an
+    // instruction to the PA, not as a booking to remind the client about.
+    if (isStaff && (await handleScheduleRequest(msg, chatId, chatId))) return;
 
     // Staff posting a booking: capture it and remind the client later. This is
     // checked before the summon gate because the advisor may just drop the

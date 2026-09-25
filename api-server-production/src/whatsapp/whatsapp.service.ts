@@ -1134,6 +1134,90 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * "Please schedule <message> to <groups> at <when>", asked of the PA in chat.
+   *
+   * Groups are supplied by the bridge (only the linked device can enumerate
+   * them) and matched by NAME, so the adviser never sees an id. Each target
+   * becomes its own WhatsAppScheduledMessage with `to` set to the group id —
+   * the same rows dueGroupReminders() already hands the bridge to post, so
+   * nothing new is needed to deliver them.
+   */
+  async createGroupSchedule(args: {
+    organizationId: string;
+    request: string;
+    groups: Array<{ id: string; name: string }>;
+    thisGroupId?: string | null;
+    createdBy?: string | null;
+  }) {
+    const { organizationId, request, groups } = args;
+    if (!request?.trim()) throw new BadRequestException('request is required');
+    const now = new Date();
+    const thisGroupName = args.thisGroupId ? groups.find((g) => g.id === args.thisGroupId)?.name : null;
+    const parsed = await this.agent.extractScheduleRequest(
+      request,
+      now.toISOString(),
+      groups,
+      thisGroupName,
+    );
+    if (!parsed?.isSchedule) return { scheduled: 0, reply: null };
+
+    const targets = parsed.targets.length
+      ? parsed.targets
+      : args.thisGroupId
+        ? [args.thisGroupId]
+        : [];
+    if (!parsed.message || !targets.length || !parsed.date) {
+      const missing =
+        parsed.needs ||
+        [!parsed.message && 'what to send', !targets.length && 'which group', !parsed.date && 'when'].filter(Boolean).join(' and ');
+      return { scheduled: 0, reply: `I need ${missing}.` };
+    }
+
+    // SGT wall-clock -> UTC. Default to 9am when only a date was given.
+    const when = new Date(`${parsed.date}T${parsed.time || '09:00'}:00+08:00`);
+    if (isNaN(when.getTime())) return { scheduled: 0, reply: "I couldn't read that date and time." };
+
+    const recurrence = ['DAILY', 'WEEKLY', 'MONTHLY', 'CUSTOM_DAYS'].includes(parsed.recurrence)
+      ? parsed.recurrence
+      : 'NONE';
+    const created = [];
+    for (const groupId of targets) {
+      const row = await this.prisma.whatsAppScheduledMessage.create({
+        data: {
+          organizationId,
+          to: groupId,
+          body: parsed.message,
+          scheduledAt: when,
+          status: 'PENDING',
+          createdBy: args.createdBy || 'pa-agent',
+          recurrence,
+          recurEvery: recurrence === 'CUSTOM_DAYS' ? parsed.recurEvery || 1 : null,
+          recurAnchorDay: recurrence === 'MONTHLY' ? when.getUTCDate() : null,
+        },
+      });
+      created.push({ id: row.id, groupId, name: groups.find((g) => g.id === groupId)?.name || groupId });
+    }
+    const whenText = when.toLocaleString('en-GB', {
+      weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+      timeZone: 'Asia/Singapore',
+    });
+    const where =
+      created.length === 1
+        ? created[0].name
+        : parsed.all
+          ? `all ${created.length} groups`
+          : `${created.length} groups:\n${created.map((c) => `• ${c.name}`).join('\n')}`;
+    this.logger.log(`PA scheduled a message to ${created.length} group(s) for ${whenText}`);
+    return {
+      scheduled: created.length,
+      reply:
+        `📅 Scheduled for ${whenText}${recurrence !== 'NONE' ? ` (${recurrence.toLowerCase().replace('_', ' ')})` : ''}\n` +
+        `To: ${where}\n\n"${parsed.message}"`,
+      items: created,
+    };
+  }
+
+  /**
    * DM Denzel a captured appointment with a Cancel button.
    *
    * One button, Cancel, which disarms the reminder so it is never posted into

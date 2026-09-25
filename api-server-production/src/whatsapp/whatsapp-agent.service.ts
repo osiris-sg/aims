@@ -418,6 +418,80 @@ export class WhatsAppAgentService {
    * message is a CHANGE to an appointment already captured rather than a new
    * one, which is what keeps a reschedule from creating duplicates.
    */
+  /**
+   * Parse "schedule <message> to <groups> at <when>" sent by the adviser to his
+   * assistant. Group NAMES are matched by the model against the list it is
+   * given, so the adviser can write them however he likes ("the Tham family
+   * one"); ids never appear in chat.
+   */
+  async extractScheduleRequest(
+    text: string,
+    nowIso: string,
+    groups: Array<{ id: string; name: string }>,
+    thisGroupName?: string | null,
+  ): Promise<{
+    isSchedule: boolean;
+    message: string | null;
+    targets: string[]; // group ids, resolved
+    all: boolean;
+    date: string | null;
+    time: string | null;
+    recurrence: string;
+    recurEvery: number | null;
+    needs: string | null; // what is missing, in a few words
+  } | null> {
+    if (!this.anthropic) throw new BadRequestException('AI agent is not configured (missing ANTHROPIC_API_KEY)');
+
+    const list = groups.map((g, i) => `${i + 1}. ${g.name}`).join('\n');
+    const system = [
+      "You read a financial adviser's instruction to his assistant about scheduling a WhatsApp message to client group chats.",
+      `The current date/time is ${nowIso} (Asia/Singapore).`,
+      thisGroupName ? `The instruction was sent INSIDE the group "${thisGroupName}", so "this group"/"here" means that one.` : 'The instruction was sent in a private chat, so there is no "this group".',
+      `The groups available are, by number:\n${list || '(none)'}`,
+      'Pick targets by their NUMBER in that list. Match loosely on how he refers to them (a family name, a surname, part of the title). Set "all": true ONLY if he clearly means every group.',
+      'The MESSAGE is the text to post, exactly as he wants the clients to read it. Strip his instruction wording ("please schedule", "to the X group", "tomorrow 9am") and any surrounding quotes. Never invent content.',
+      'Resolve relative dates against the current date. If he gives no date, leave date null. If he gives a date but no time, leave time null.',
+      'recurrence is NONE | DAILY | WEEKLY | MONTHLY | CUSTOM_DAYS. Use CUSTOM_DAYS with recurEvery for "every N days".',
+      'If something essential is missing or ambiguous (no message, no target, no date), say so in "needs" in a few plain words and still return what you did understand.',
+      'Respond ONLY with JSON: {"isSchedule": boolean, "message": string|null, "targetNumbers": number[], "all": boolean, "date": "YYYY-MM-DD"|null, "time": "HH:MM"|null, "recurrence": string, "recurEvery": number|null, "needs": string|null}',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
+    const resp = await this.anthropic.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 900,
+      system,
+      messages: [{ role: 'user', content: text }],
+    });
+    const raw = resp.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('');
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      const j = JSON.parse(match[0]);
+      const nums: number[] = Array.isArray(j.targetNumbers) ? j.targetNumbers : [];
+      const targets = j.all
+        ? groups.map((g) => g.id)
+        : [...new Set(nums.map((n) => groups[Number(n) - 1]?.id).filter(Boolean) as string[])];
+      return {
+        isSchedule: !!j.isSchedule,
+        message: j.message ? String(j.message).trim() : null,
+        targets,
+        all: !!j.all,
+        date: j.date ? String(j.date) : null,
+        time: j.time ? String(j.time) : null,
+        recurrence: String(j.recurrence || 'NONE').toUpperCase(),
+        recurEvery: j.recurEvery ? Number(j.recurEvery) : null,
+        needs: j.needs ? String(j.needs) : null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async extractAppointment(
     text: string,
     nowIso: string,

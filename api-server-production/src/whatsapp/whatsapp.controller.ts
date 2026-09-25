@@ -303,6 +303,31 @@ export class WhatsAppController {
   }
 
   @Public()
+  @Post('group-schedule')
+  @ApiOperation({ summary: 'Group bridge: schedule a message to one/many/all groups from a chat request' })
+  async groupSchedule(
+    @Req() req: RequestWithOrganization,
+    @Body()
+    body: {
+      organizationId: string;
+      request: string;
+      groups: Array<{ id: string; name: string }>;
+      thisGroupId?: string;
+      createdBy?: string;
+    },
+  ) {
+    this.assertBridgeToken(req);
+    if (!body?.organizationId) throw new BadRequestException('organizationId is required');
+    return this.service.createGroupSchedule({
+      organizationId: body.organizationId,
+      request: body.request,
+      groups: Array.isArray(body.groups) ? body.groups : [],
+      thisGroupId: body.thisGroupId,
+      createdBy: body.createdBy,
+    });
+  }
+
+  @Public()
   @Post('group-appointment/:id/notify')
   @ApiOperation({ summary: 'Group bridge: DM the owner a captured appointment with Confirm/Cancel buttons' })
   async notifyAppointment(
