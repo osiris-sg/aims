@@ -1,25 +1,10 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@clerk/nextjs";
-import {
-  Alert,
-  Box,
-  Button,
-  Checkbox,
-  Chip,
-  CircularProgress,
-  List,
-  ListItemButton,
-  ListItemText,
-  Paper,
-  Stack,
-  Typography,
-} from "@mui/material";
+import { Box, Button, Stack, Typography } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import DrawIcon from "@mui/icons-material/Draw";
-import { request } from "@/helpers/request";
+import { PendingSignList } from "../../../components/PendingSignList";
 
 /**
  * ONGOING REPORTS — maintenance reports awaiting a signature.
@@ -35,8 +20,9 @@ import { request } from "@/helpers/request";
  * once at the end — so the list they need is "everything this client still owes
  * me a signature for", not a flat chronological feed.
  *
- * Follows the scheduled-deliveries list pattern: one fetch on mount, a plain
- * tap-through list, no filters.
+ * The list itself (fetch, focus re-read, grouping, batch selection and the
+ * batch bar) lives in components/PendingSignList, shared with the Maintenance
+ * home's Pending tab.
  *
  * BATCH SIGNING. Tapping a row still opens that one report, unchanged. Ticking
  * rows instead builds a batch: the bar at the bottom carries them to
@@ -49,111 +35,10 @@ import { request } from "@/helpers/request";
  * reports for one client are already sitting together.
  */
 
-interface OngoingReport {
-  id: string;
-  reportNumber: number | null;
-  createdAt: string;
-  technicianName: string | null;
-  serviceData: {
-    customerName?: string | null;
-    model?: string | null;
-    serial?: string | null;
-    serviceDate?: string | null;
-    templateId?: string | null;
-  } | null;
-  asset: { name: string | null } | null;
-  inventory: { sku: string | null } | null;
-}
-
 export default function OngoingReportsPage() {
   const router = useRouter();
-  const { getToken } = useAuth();
-  const [reports, setReports] = useState<OngoingReport[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  // Selected report ids, and the customer they belong to. The customer is held
-  // explicitly rather than derived on every render so the "other groups are
-  // disabled" rule survives the list being re-read on focus.
-  const [selected, setSelected] = useState<string[]>([]);
-  const [lockedCustomer, setLockedCustomer] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error("Not signed in");
-      const res = await request(
-        { path: "/maintenance-reports?status=draft&limit=100", method: "GET" },
-        {},
-        token,
-      );
-      const docs = res?.docs ?? res?.data?.docs ?? res?.data ?? [];
-      const list: OngoingReport[] = Array.isArray(docs) ? docs : [];
-      setReports(list);
-      // Drop any selection whose report has since been signed (by this
-      // technician on another screen, or by the office), so the bar never
-      // carries a stale id into the batch.
-      setSelected((prev) => {
-        const live = new Set(list.map((r) => r.id));
-        const kept = prev.filter((id) => live.has(id));
-        if (!kept.length) setLockedCustomer(null);
-        return kept;
-      });
-    } catch (e: any) {
-      setError(e?.message ?? "Could not load reports awaiting signature");
-      setReports([]);
-    }
-  }, [getToken]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Re-read on focus: the technician signs one, comes back, and the list must
-  // not still show it.
-  useEffect(() => {
-    const onFocus = () => void load();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [load]);
-
-  // Customer first, newest first within each — see the docblock.
-  const grouped = React.useMemo(() => {
-    const by = new Map<string, OngoingReport[]>();
-    for (const r of reports ?? []) {
-      const key = r.serviceData?.customerName?.trim() || "Unknown customer";
-      if (!by.has(key)) by.set(key, []);
-      by.get(key)!.push(r);
-    }
-    Array.from(by.values()).forEach((list: OngoingReport[]) =>
-      list.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
-    );
-    return Array.from(by.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [reports]);
-
-  const customerOf = (r: OngoingReport) => r.serviceData?.customerName?.trim() || "Unknown customer";
-
-  const toggle = (r: OngoingReport) => {
-    const customer = customerOf(r);
-    setSelected((prev) => {
-      // First tick in an empty selection locks the batch to this customer.
-      if (!prev.length) { setLockedCustomer(customer); return [r.id]; }
-      if (customer !== lockedCustomer) return prev; // guarded by `disabled` too
-      const next = prev.includes(r.id) ? prev.filter((id) => id !== r.id) : [...prev, r.id];
-      if (!next.length) setLockedCustomer(null);
-      return next;
-    });
-  };
-
-  const toggleGroup = (customer: string, list: OngoingReport[]) => {
-    const ids = list.map((r) => r.id);
-    const allOn = ids.every((id) => selected.includes(id));
-    if (allOn) { setSelected([]); setLockedCustomer(null); return; }
-    setSelected(ids);
-    setLockedCustomer(customer);
-  };
-
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2, pb: selected.length ? 12 : 3 }}>
+    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
       <Stack direction="row" alignItems="center" spacing={1}>
         <Button startIcon={<ArrowBackIcon />} onClick={() => router.push("/scan")}>
           Back
@@ -170,109 +55,7 @@ export default function OngoingReportsPage() {
         </Typography>
       </Box>
 
-      {error && <Alert severity="error">{error}</Alert>}
-
-      {!reports ? (
-        <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
-          <CircularProgress />
-        </Box>
-      ) : reports.length === 0 ? (
-        <Alert severity="success">Nothing is waiting for a signature.</Alert>
-      ) : (
-        grouped.map(([customer, list]) => {
-          const locked = lockedCustomer !== null && customer !== lockedCustomer;
-          const groupIds = list.map((r) => r.id);
-          const allOn = groupIds.every((id) => selected.includes(id));
-          const someOn = !allOn && groupIds.some((id) => selected.includes(id));
-          return (
-          <Box key={customer} sx={{ opacity: locked ? 0.45 : 1 }}>
-            <Stack direction="row" alignItems="center" sx={{ mb: 0.5 }}>
-              {/* Select-all for the client in front of you — the common case is
-                  "everything this customer owes me", not a hand-picked subset. */}
-              <Checkbox
-                size="small"
-                checked={allOn}
-                indeterminate={someOn}
-                disabled={locked}
-                onChange={() => toggleGroup(customer, list)}
-                sx={{ mr: 0.5 }}
-                inputProps={{ "aria-label": `Select all reports for ${customer}` }}
-              />
-              <Typography variant="subtitle2" fontWeight={700}>
-                {customer}
-                <Chip size="small" label={list.length} sx={{ ml: 1 }} />
-              </Typography>
-            </Stack>
-            <List dense sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 0 }}>
-              {list.map((r: OngoingReport) => (
-                <ListItemButton
-                  key={r.id}
-                  onClick={() => router.push(`/scan/reports/${r.id}/sign`)}
-                  sx={{ minHeight: 64 }}
-                >
-                  {/* stopPropagation: ticking must not also OPEN the report. */}
-                  <Checkbox
-                    edge="start"
-                    checked={selected.includes(r.id)}
-                    disabled={locked}
-                    onClick={(e) => { e.stopPropagation(); toggle(r); }}
-                    sx={{ mr: 0.5 }}
-                    inputProps={{ "aria-label": `Select report ${r.reportNumber ?? ""}` }}
-                  />
-                  <DrawIcon color="warning" sx={{ mr: 1.5 }} />
-                  <ListItemText
-                    primary={
-                      <>
-                        <strong>#{r.reportNumber ?? "—"}</strong>
-                        {"  "}
-                        {r.serviceData?.model || r.asset?.name || "Report"}
-                      </>
-                    }
-                    secondary={[
-                      r.serviceData?.serial || r.inventory?.sku,
-                      r.serviceData?.serviceDate,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  />
-                </ListItemButton>
-              ))}
-            </List>
-          </Box>
-          );
-        })
-      )}
-
-      {/* The batch bar. Appears only with a selection, sits above the thumb. */}
-      {selected.length > 0 && (
-        <Paper
-          elevation={8}
-          sx={{
-            position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 1200,
-            p: 1.5, borderRadius: 0, display: "flex", alignItems: "center", gap: 1,
-          }}
-        >
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="body2" fontWeight={700} noWrap>
-              {selected.length} selected
-            </Typography>
-            <Typography variant="caption" color="text.secondary" noWrap>
-              {lockedCustomer}
-            </Typography>
-          </Box>
-          <Button size="small" onClick={() => { setSelected([]); setLockedCustomer(null); }}>
-            Clear
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<DrawIcon />}
-            onClick={() => router.push(`/scan/reports/sign-batch?ids=${selected.join(",")}`)}
-            sx={{ minHeight: 48 }}
-          >
-            Sign {selected.length}
-          </Button>
-        </Paper>
-      )}
+      <PendingSignList />
     </Box>
   );
 }
