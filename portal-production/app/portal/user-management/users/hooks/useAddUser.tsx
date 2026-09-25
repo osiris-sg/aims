@@ -9,6 +9,7 @@ interface CreateUserData {
   password: string;
   roleIds: string[];
   salesmanCode?: string;
+  salesmanMobile?: string;
 }
 
 export default function useAddUserStates() {

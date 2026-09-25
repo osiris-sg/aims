@@ -107,6 +107,12 @@ export interface RateMerge {
   id: string;
   column: RateMergeColumn;
   price: number;
+  // Merging shares the QUANTITY as well as the rate (guru 2026-09-25): a block
+  // priced at one rate is quoted as one line of goods, so its rows cannot each
+  // carry their own qty. Every member's `quantity` is kept equal to this, and
+  // the block's amount is quantity x price — not the bare price, which ignored
+  // the qty entirely and left the total under-stated.
+  quantity: number;
 }
 
 // EVERY member carries the same `rateMerge` marker — id, column and price.
@@ -148,10 +154,15 @@ export function mergeRates(
   memberIds: Array<number | string>,
   column: RateMergeColumn,
   price: number,
+  quantity?: number,
 ): any[] {
   if (contiguityError(items, memberIds)) return items;
   const ids = new Set(memberIds.map(String));
-  const merge: RateMerge = { id: newMergeId(), column, price: Number(price) || 0 };
+  // Default the shared qty to the first member's — the rows being merged are
+  // normally already on the same quantity, so this keeps the visible number.
+  const firstMember = items.find((it) => ids.has(String(it?.id)));
+  const qty = quantity != null ? Number(quantity) || 0 : Number(firstMember?.quantity) || 1;
+  const merge: RateMerge = { id: newMergeId(), column, price: Number(price) || 0, quantity: qty };
   return normalizeRateMerges(
     items.map((it) => (ids.has(String(it?.id)) ? { ...it, rateMerge: { ...merge } } : it)),
   );
@@ -162,6 +173,17 @@ export function setMergePriceOn(items: any[], mergeId: string, price: number): a
   return normalizeRateMerges(
     items.map((it) =>
       it?.rateMerge?.id === mergeId ? { ...it, rateMerge: { ...it.rateMerge, price: Number(price) || 0 } } : it,
+    ),
+  );
+}
+
+/** Re-quantify a whole block; every member moves together. */
+export function setMergeQuantityOn(items: any[], mergeId: string, quantity: number): any[] {
+  return normalizeRateMerges(
+    items.map((it) =>
+      it?.rateMerge?.id === mergeId
+        ? { ...it, rateMerge: { ...it.rateMerge, quantity: Number(quantity) || 0 } }
+        : it,
     ),
   );
 }
@@ -217,9 +239,20 @@ export function normalizeRateMerges(items: any[]): any[] {
       continue;
     }
     const first = idx[0];                                                          // RULE 2
-    out = out.map((it, i) =>
-      it?.rateMerge?.id === id ? { ...it, amount: i === first ? Number(it.rateMerge.price) || 0 : null } : it,
-    );
+    out = out.map((it, i) => {
+      if (it?.rateMerge?.id !== id) return it;
+      // Shared qty lives on the marker; mirror it onto the row so the stored
+      // item, the editor's qty box and every renderer agree, and so dissolving
+      // the merge leaves each row with the quantity that was on screen.
+      const qty = Number(it.rateMerge.quantity ?? it.quantity) || 0;
+      const price = Number(it.rateMerge.price) || 0;
+      return {
+        ...it,
+        rateMerge: { ...it.rateMerge, quantity: qty },
+        quantity: qty,
+        amount: i === first ? qty * price : null,
+      };
+    });
   }
   return out;
 }
@@ -267,10 +300,10 @@ export function mergeRunPosition(items: any[], row: any): { position: number; si
  * classic way a merged cell tears a table apart.
  */
 export function resolveRateMerges(rows: any[]): {
-  anchors: Map<number, { span: number; price: number; column: RateMergeColumn }>;
+  anchors: Map<number, { span: number; price: number; quantity: number; column: RateMergeColumn }>;
   skip: Map<number, RateMergeColumn>;
 } {
-  const anchors = new Map<number, { span: number; price: number; column: RateMergeColumn }>();
+  const anchors = new Map<number, { span: number; price: number; quantity: number; column: RateMergeColumn }>();
   const skip = new Map<number, RateMergeColumn>();
   rows.forEach((r: any, i: number) => {
     const m = r?.rateMerge;
@@ -281,7 +314,12 @@ export function resolveRateMerges(rows: any[]): {
       skip.set(j, m.column);
       span++;
     }
-    anchors.set(i, { span, price: Number(m.price) || 0, column: m.column });
+    anchors.set(i, {
+      span,
+      price: Number(m.price) || 0,
+      quantity: Number(m.quantity ?? r?.quantity) || 0,
+      column: m.column,
+    });
   });
   return { anchors, skip };
 }

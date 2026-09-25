@@ -97,7 +97,7 @@ import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields, { headerInputSx } from "./DynamicFormFields";
 import StockCardDialog from "./StockCardDialog";
 import RevenueItemPickerDialog from "./RevenueItemPickerDialog";
-import { resolveQuotationGroup, insertItemGrouped, mergeRates, dissolveMerge, normalizeRateMerges, contiguityError, mergeMembers, mergeRunPosition, setMergePriceOn, RateMergeColumn } from "./quotationItemGroups";
+import { resolveQuotationGroup, insertItemGrouped, mergeRates, dissolveMerge, normalizeRateMerges, contiguityError, mergeMembers, mergeRunPosition, setMergePriceOn, setMergeQuantityOn, RateMergeColumn } from "./quotationItemGroups";
 import LocateDocumentDialog from "./LocateDocumentDialog";
 import ExtractQuotationDialog from "./ExtractQuotationDialog";
 import ExtractDOToInvoiceDialog from "./ExtractDOToInvoiceDialog";
@@ -555,7 +555,7 @@ export default function TabbedDocumentCreator({
   // (enableQuotationItemGroups), never in template-edit mode where `items` are
   // layout placeholders rather than a real quotation.
   const [lumpDialogOpen, setLumpDialogOpen] = useState(false);
-  const [lumpDraft, setLumpDraft] = useState<{ column: RateMergeColumn; price: string }>({ column: "unitPrice", price: "" });
+  const [lumpDraft, setLumpDraft] = useState<{ column: RateMergeColumn; price: string; quantity: string }>({ column: "unitPrice", price: "", quantity: "" });
   const toggleItemSelected = (id: number) =>
     setSelectedItemIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
@@ -1428,14 +1428,6 @@ export default function TabbedDocumentCreator({
     }
   }, [setFormData, setItems, documentType]);
 
-  // Linked-project change handler used by the QUOTATION project picker.
-  // Purely local state update — the actual PATCH to
-  // /documents/:id/link-project is deferred until the document is saved
-  // (see persistProjectLinkIfChanged below).
-  const handleProjectLinkChange = useCallback((nextId: string) => {
-    setFormData((prev: any) => (prev.projectId === nextId ? prev : { ...prev, projectId: nextId }));
-  }, [setFormData]);
-
   // Local projects = props.projects + any project the user has just created
   // via the "+ Create new project" inline flow. Lets the picker show the new
   // row immediately without waiting for the parent's useGetProjects refetch.
@@ -1453,6 +1445,37 @@ export default function TabbedDocumentCreator({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects]);
+
+  // Linked-project change handler used by the QUOTATION project picker.
+  // Purely local state update — the actual PATCH to
+  // /documents/:id/link-project is deferred until the document is saved
+  // (see persistProjectLinkIfChanged below).
+  //
+  // Stores the project NAME alongside the id: the preview and the server-side
+  // PDF only ever receive the saved document, so an id alone leaves them with
+  // nothing to print and the Project row stayed blank (guru 2026-09-25).
+  // Declared after effectiveProjects so the name lookup sees freshly created
+  // projects too.
+  const handleProjectLinkChange = useCallback((nextId: string) => {
+    setFormData((prev: any) => {
+      if (prev.projectId === nextId) return prev;
+      const picked = effectiveProjects.find((p: any) => p.id === nextId);
+      return { ...prev, projectId: nextId, projectName: picked?.name || "" };
+    });
+  }, [setFormData, effectiveProjects]);
+
+  // Documents linked BEFORE the name was stored (or linked elsewhere, e.g. from
+  // a DO) carry a projectId but no projectName, so the printed Project row would
+  // stay blank until someone re-picked the project. Fill it in from the loaded
+  // project list. Never clears an existing name — an unknown id (other customer's
+  // project, still loading) leaves what's already there.
+  useEffect(() => {
+    const pid = formData.projectId;
+    if (!pid || formData.projectName) return;
+    const match = effectiveProjects.find((p: any) => p.id === pid);
+    if (!match?.name) return;
+    setFormDataState((prev: any) => (prev.projectName ? prev : { ...prev, projectName: match.name }));
+  }, [formData.projectId, formData.projectName, effectiveProjects]);
 
   // Create-Project inline dialog state.
   const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
@@ -1486,8 +1509,9 @@ export default function TabbedDocumentCreator({
           status: res.data.status ?? "pending",
         };
         setLocallyCreatedProjects((prev) => [...prev, created]);
-        // Auto-select the new project in the picker.
-        setFormData((prev: any) => ({ ...prev, projectId: created.id }));
+        // Auto-select the new project in the picker (name included so the
+        // preview/PDF can print it — see handleProjectLinkChange).
+        setFormData((prev: any) => ({ ...prev, projectId: created.id, projectName: created.name }));
         toast.success("Project created");
         setCreateProjectDialogOpen(false);
         setCreateProjectName("");
@@ -1649,18 +1673,37 @@ export default function TabbedDocumentCreator({
     }
   }, [organization, formData.company?.gstRegNo]);
 
-  // Biofuel quotations: seed the salesperson MOBILE to the house default
-  // (9818 9200) when empty. The salesperson NAME comes from the Salesman Code
-  // field (documentInfo.salesPerson), so it's no longer seeded here. Runs once
-  // when org/type resolve (deps are isBiofuel/isQuotation, NOT formData), so the
-  // user can freely edit/clear within the session. Per-quote only.
+  // NEW documents: stamp the signed-in user as the salesperson, and seed their
+  // own mobile — a document raised from someone's account is theirs, so they
+  // shouldn't retype either (Eve @ Biofuel, 2026-09-24). Both stay editable:
+  // whoever raises a quote for a colleague can just change the code.
+  //
+  // Only ever fills BLANKS, and only on a document with no id yet, so opening
+  // an existing document never rewrites the salesperson who actually raised it.
+  // Biofuel quotations keep the house mobile (9818 9200) as the fallback when
+  // the user has no number on their account.
+  const seededSalesRef = useRef(false);
   useEffect(() => {
-    if (!isBiofuel || !isQuotation) return;
+    if (documentId || existingData?.id) return; // existing doc — never touch
+    if (seededSalesRef.current) return;
+    const list: any[] = Array.isArray(salesmen) ? salesmen : (salesmen as any)?.data || [];
+    const me = user?.id ? list.find((s: any) => s.userId === user.id) : undefined;
+    const houseMobile = isBiofuel && isQuotation ? "9818 9200" : "";
+    if (!me && !houseMobile) return;
+    seededSalesRef.current = true;
     setFormDataState((prev: any) => {
-      if (prev.salesMobile != null && prev.salesMobile !== "") return prev;
-      return { ...prev, salesMobile: "9818 9200" };
+      const next = { ...prev };
+      const currentCode = prev?.documentInfo?.salesPerson ?? prev?.salesPerson ?? "";
+      if (me?.salesmanCode && !currentCode) {
+        next.documentInfo = { ...(prev.documentInfo || {}), salesPerson: me.salesmanCode };
+      }
+      if (prev.salesMobile == null || prev.salesMobile === "") {
+        const mine = (me?.salesmanMobile || "").trim();
+        if (mine || houseMobile) next.salesMobile = mine || houseMobile;
+      }
+      return next;
     });
-  }, [isBiofuel, isQuotation]);
+  }, [documentId, existingData?.id, salesmen, user?.id, isBiofuel, isQuotation]);
 
   // Sync documentInfo fields from existingData when it loads async
   useEffect(() => {
@@ -1958,12 +2001,25 @@ export default function TabbedDocumentCreator({
     // rows to make one fit: a quotation's order is the office's decision.
     const err = contiguityError(items, lumpSelection.map((m: any) => m.id));
     if (err) { toast.error(err); return; }
-    setLumpDraft({ column: "unitPrice", price: "" });
+    setLumpDraft({
+      column: "unitPrice",
+      price: "",
+      // Rows being merged are normally already on the same qty — start there.
+      quantity: String(lumpSelection[0]?.quantity ?? 1),
+    });
     setLumpDialogOpen(true);
   };
   const confirmLump = () => {
     setItems((prev: any[]) =>
-      normalizeRateMerges(mergeRates(prev, lumpSelection.map((m: any) => m.id), lumpDraft.column, Number(lumpDraft.price))),
+      normalizeRateMerges(
+        mergeRates(
+          prev,
+          lumpSelection.map((m: any) => m.id),
+          lumpDraft.column,
+          Number(lumpDraft.price),
+          Number(lumpDraft.quantity),
+        ),
+      ),
     );
     setSelectedItemIds([]);
     setLumpDialogOpen(false);
@@ -1973,6 +2029,11 @@ export default function TabbedDocumentCreator({
   // on all of them and normalize puts the money back on whichever row is first.
   const setMergePrice = (mergeId: string, price: number) => {
     setItems((prev: any[]) => setMergePriceOn(prev, mergeId, price));
+  };
+  // The block's QUANTITY is shared too, so editing it moves every member and
+  // re-prices the block (qty x rate) — guru 2026-09-25.
+  const setMergeQty = (mergeId: string, quantity: number) => {
+    setItems((prev: any[]) => setMergeQuantityOn(prev, mergeId, quantity));
   };
   const undoLump = (mergeId: string) => {
     setItems((prev: any[]) => dissolveMerge(prev, mergeId));
@@ -5916,6 +5977,35 @@ export default function TabbedDocumentCreator({
                                       />
                                     </TableCell>
                                   );
+                                } else if (columnId === "quantity" && item.rateMerge) {
+                                  // MERGED QUANTITY, editor view — same faked spanning cell
+                                  // as the merged rate beside it. A block priced at one rate
+                                  // is one line of goods, so it carries ONE quantity; the
+                                  // block's amount is this qty x that rate (guru 2026-09-25).
+                                  const runQ = mergeRunPosition(items, item);
+                                  return (
+                                    <TableCell
+                                      key={columnId}
+                                      sx={{
+                                        textAlign: "center",
+                                        // See the merged-rate cell below for why !important
+                                        // is required here rather than tidier styling.
+                                        ...(runQ && !runQ.isLast ? { borderBottom: "none !important" } : {}),
+                                      }}
+                                    >
+                                      {runQ?.isInputRow ? (
+                                        <TextField
+                                          size="small"
+                                          type="number"
+                                          value={item.rateMerge.quantity ?? ""}
+                                          onChange={(e) => setMergeQty(item.rateMerge.id, Number(numFieldParse(e.target.value, 0)) || 0)}
+                                          sx={{ width: 80 }}
+                                          inputProps={{ min: 0 }}
+                                          title="One quantity, shared by this block of rows"
+                                        />
+                                      ) : null}
+                                    </TableCell>
+                                  );
                                 } else if (columnId === "quantity") {
                                   // For the FCU-CU variant qty is per-FCU: a stack of qty inputs
                                   // aligned 1:1 (same 40px row height) with the FCU chips.
@@ -8331,8 +8421,9 @@ export default function TabbedDocumentCreator({
         <DialogTitle>Share one rate across {lumpSelection.length} rows</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Every row still prints in full. One rate column and the Amount beside it merge
-            into a single cell spanning these rows, holding the price you type.
+            Every row still prints in full. The quantity, one rate column and the Amount
+            merge into single cells spanning these rows. The block is quoted as
+            quantity &times; rate, counted once.
           </Typography>
           <TextField
             select
@@ -8349,14 +8440,29 @@ export default function TabbedDocumentCreator({
             <option value="salePrice">Sales Unit Rates S$</option>
           </TextField>
           <TextField
-            label="Shared price"
+            label="Shared quantity"
+            value={lumpDraft.quantity}
+            onChange={(e) => setLumpDraft({ ...lumpDraft, quantity: e.target.value })}
+            size="small"
+            type="number"
+            required
+            fullWidth
+            sx={{ mb: 2 }}
+            helperText="These rows are quoted as one block, so they share one quantity"
+          />
+          <TextField
+            label="Shared rate"
             value={lumpDraft.price}
             onChange={(e) => setLumpDraft({ ...lumpDraft, price: e.target.value })}
             size="small"
             type="number"
             required
             fullWidth
-            helperText="Counted once in the subtotal, on the first of these rows"
+            helperText={
+              lumpDraft.price !== "" && lumpDraft.quantity !== "" && !isNaN(Number(lumpDraft.price)) && !isNaN(Number(lumpDraft.quantity))
+                ? `Amount ${(Number(lumpDraft.quantity) * Number(lumpDraft.price)).toFixed(2)} — counted once, on the first of these rows`
+                : "Counted once in the subtotal, on the first of these rows"
+            }
           />
         </DialogContent>
         <DialogActions>
@@ -8364,7 +8470,10 @@ export default function TabbedDocumentCreator({
           <Button
             variant="contained"
             onClick={confirmLump}
-            disabled={lumpDraft.price === "" || isNaN(Number(lumpDraft.price))}
+            disabled={
+              lumpDraft.price === "" || isNaN(Number(lumpDraft.price)) ||
+              lumpDraft.quantity === "" || isNaN(Number(lumpDraft.quantity))
+            }
           >
             Merge rate
           </Button>

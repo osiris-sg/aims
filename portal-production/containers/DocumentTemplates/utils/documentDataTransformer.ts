@@ -150,7 +150,12 @@ export function transformFormDataForBackend(
     // OVERWROTE the correct code with a stale "" every save (the "salesman lost on
     // refresh" bug). The fallback below still persists the top-level value for the
     // `!templateFieldConfig` TextField path, which is the only reason it was needed.
-    'salesMobile'
+    'salesMobile',
+    // Linked project NAME. projectId is persisted separately (the
+    // /documents/:id/link-project PATCH), but the preview and the server-side
+    // PDF only get the saved document — without the name they had nothing to
+    // print and the Project row stayed blank (guru 2026-09-25).
+    'projectName'
   ];
 
   flatFields.forEach(field => {

@@ -330,11 +330,13 @@ export class UsersService {
       update: {
         isActive: true,
         salesmanCode: createUserDto.salesmanCode || undefined,
+        salesmanMobile: createUserDto.salesmanMobile || undefined,
       },
       create: {
         userId,
         organizationId,
         salesmanCode: createUserDto.salesmanCode || null,
+        salesmanMobile: createUserDto.salesmanMobile || null,
         isActive: true,
       },
     });
@@ -472,11 +474,17 @@ export class UsersService {
         update: {
           isActive: true,
           salesmanCode: updateUserDto.salesmanCode || undefined,
+          // Empty string clears it on purpose; undefined leaves it untouched.
+          salesmanMobile:
+            updateUserDto.salesmanMobile === undefined
+              ? undefined
+              : updateUserDto.salesmanMobile || null,
         },
         create: {
           userId,
           organizationId,
           salesmanCode: updateUserDto.salesmanCode || null,
+          salesmanMobile: updateUserDto.salesmanMobile || null,
           isActive: true,
         },
       });

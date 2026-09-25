@@ -517,6 +517,10 @@ export class CustomersService {
             salesmanCode: s.salesmanCode,
             userId: s.userId,
             name,
+            // Their own contact number — the document editor seeds the Salesman
+            // Mobile field with it so salespeople stop retyping it per quote
+            // (Eve @ Biofuel, 2026-09-24).
+            salesmanMobile: s.salesmanMobile || '',
           };
         })
       );

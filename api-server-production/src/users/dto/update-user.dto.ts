@@ -69,4 +69,13 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   salesmanCode?: string;
+
+  @ApiProperty({
+    description: "The salesperson's own mobile number, stamped on documents they raise",
+    example: '9014 5879',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  salesmanMobile?: string;
 }

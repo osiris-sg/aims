@@ -1159,6 +1159,10 @@ model UserOrganization {
   userId         String
   organizationId String
   salesmanCode   String? // Auto-generated code like S001, S002
+  // The salesperson's own contact number, stamped onto documents they raise
+  // (Biofuel quotations print it under the Salesman Code). Per-org because the
+  // same Clerk user can sell for more than one organisation.
+  salesmanMobile String?
   isActive       Boolean      @default(true)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt

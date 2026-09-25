@@ -4116,6 +4116,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 <InfoRow label="Attention" value={data.attention?.name} minWidth="90px" fontSize="0.875rem" />
                 <InfoRow label="Mobile" value={data.attention?.phoneNumber || data.attention?.phone || data.contactNumber} minWidth="90px" fontSize="0.875rem" />
                 <InfoRow label="Email" value={data.attention?.email} minWidth="90px" fontSize="0.875rem" />
+                {/* The linked project, printed under the contact block (guru
+                    2026-09-25: it was selectable in the editor but never showed
+                    up on the quotation). InfoRow hides itself when empty, so
+                    unlinked quotations are unchanged. */}
+                <InfoRow label="Project" value={data.projectName || data.documentInfo?.projectName || data.project?.name} minWidth="90px" fontSize="0.875rem" />
               </Box>
 
               {/* Right — QUOTATION meta */}
@@ -4403,8 +4408,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                           {configColumns.map((col) => {
                             const anchor = rateMerge.anchors.get(index);
                             const skipCol = rateMerge.skip.get(index);
-                            if (skipCol && (col === skipCol || col === "amount")) return null;
-                            if (anchor && (col === anchor.column || col === "amount")) {
+                            // Quantity spans with the rate: a merged block is one
+                            // line of goods quoted as qty x rate (guru 2026-09-25).
+                            if (skipCol && (col === skipCol || col === "amount" || col === "quantity")) return null;
+                            if (anchor && (col === anchor.column || col === "amount" || col === "quantity")) {
                               return (
                                 <TableCell
                                   key={col}
@@ -4415,6 +4422,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                                 >
                                   {col === "amount"
                                     ? valueFor(col, item, index)
+                                    : col === "quantity"
+                                    ? anchor.quantity
                                     : Number(anchor.price).toFixed(2)}
                                 </TableCell>
                               );

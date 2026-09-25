@@ -41,6 +41,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
       email: "",
       password: "",
       salesmanCode: "",
+      salesmanMobile: "",
     },
   });
 
@@ -90,6 +91,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
         password: data.password,
         roleIds: selectedRoles,
         salesmanCode: data.salesmanCode || undefined,
+        salesmanMobile: data.salesmanMobile || undefined,
       });
 
       // Reset form and close drawer after successful creation
@@ -99,6 +101,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
         email: "",
         password: "",
         salesmanCode: "",
+      salesmanMobile: "",
       });
       setSelectedRoles([]);
       setShowPassword(false);
@@ -282,6 +285,18 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                   />
                 </Grid>
 
+              {/* Their own contact number. Documents they raise stamp it into
+                  the Salesman Mobile field automatically, so salespeople stop
+                  retyping it on every quotation (Eve @ Biofuel, 2026-09-24). */}
+              <Grid item xs={12}>
+                  <FormInputBox
+                    label="Salesman Mobile"
+                    control={control}
+                    name="salesmanMobile"
+                    placeHolder="e.g., 9014 5879"
+                  />
+                </Grid>
+
               <Grid item xs={12}>
                   <FormControl fullWidth>
                     <InputLabel id="select-roles-label" sx={{ color: "#666666" }}>
@@ -379,6 +394,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                   email: "",
                   password: "",
                   salesmanCode: "",
+                  salesmanMobile: "",
                 });
                 setSelectedRoles([]);
                 setShowPassword(false);

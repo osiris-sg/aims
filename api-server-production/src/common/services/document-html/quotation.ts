@@ -188,10 +188,10 @@ export function renderQuotationBody(data: any, organization: any): string {
  * block and tear the table apart.
  */
 function resolveRateMerges(rows: any[]): {
-  anchors: Map<number, { span: number; price: number; column: string }>;
+  anchors: Map<number, { span: number; price: number; quantity: number; column: string }>;
   skip: Map<number, string>;
 } {
-  const anchors = new Map<number, { span: number; price: number; column: string }>();
+  const anchors = new Map<number, { span: number; price: number; quantity: number; column: string }>();
   const skip = new Map<number, string>();
   rows.forEach((r: any, i: number) => {
     const m = r?.rateMerge;
@@ -204,7 +204,15 @@ function resolveRateMerges(rows: any[]): {
       skip.set(j, m.column);
       span++;
     }
-    anchors.set(i, { span, price: Number(m.price) || 0, column: m.column });
+    anchors.set(i, {
+      span,
+      price: Number(m.price) || 0,
+      // Shared quantity (guru 2026-09-25): a merged block is one line of goods,
+      // quoted as qty x rate. Older documents have no stored merge quantity, so
+      // fall back to the row's own.
+      quantity: Number(m.quantity ?? r?.quantity) || 0,
+      column: m.column,
+    });
   });
   return { anchors, skip };
 }
@@ -290,9 +298,14 @@ function configDrivenTable(data: any, items: any[]): string {
       const cells = columns
         .map((c) => {
           // Continuation row: the anchor above already spans these two.
-          if (skipCol && (c === skipCol || c === 'amount')) return '';
-          if (anchor && (c === anchor.column || c === 'amount')) {
-            const value = c === 'amount' ? money(item.amount) : Number(anchor.price).toFixed(2);
+          if (skipCol && (c === skipCol || c === 'amount' || c === 'quantity')) return '';
+          if (anchor && (c === anchor.column || c === 'amount' || c === 'quantity')) {
+            const value =
+              c === 'amount'
+                ? money(item.amount)
+                : c === 'quantity'
+                ? String(anchor.quantity)
+                : Number(anchor.price).toFixed(2);
             // No rule around the merged cell, by choice (guru 2026-09-24). On a
             // layout with no grid lines the span is therefore not marked out:
             // the figure simply sits centred against the block it prices.
