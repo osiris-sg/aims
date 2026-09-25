@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
 import {
   Alert,
@@ -63,7 +63,12 @@ export default function FreeTypedItemFlowPage() {
   const [done, setDone] = useState(false);
   const sigRef = React.useRef<SignaturePadHandle>(null);
 
-  const backToBasket = () => router.replace(`/scan/delivery/${deliveryId}`);
+  // A picked trip (?items=…) on the basket is passed through here and back, so
+  // finishing this line returns the rider to the same trip, not the picker.
+  const search = useSearchParams();
+  const tripItems = search?.get("items");
+  const backToBasket = () =>
+    router.replace(`/scan/delivery/${deliveryId}${tripItems ? `?items=${encodeURIComponent(tripItems)}` : ""}`);
 
   useEffect(() => {
     let cancelled = false;

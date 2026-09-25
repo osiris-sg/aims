@@ -9,6 +9,7 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
@@ -45,6 +46,7 @@ import GuidedPhotoCapture from "@/components/delivery/GuidedPhotoCapture";
 import { minPhotosForAssetClass } from "@/helpers/assetClass";
 import { useNfcScan } from "../../../hooks/useNfcScan";
 import NameplateCapture from "../../../components/NameplateCapture";
+import { DoPrintActions } from "../../../components/DoPrintActions";
 
 /**
  * Standalone-delivery BASKET (Layer 3 + in-basket scanning patch).
@@ -148,6 +150,14 @@ export default function DeliveryBasketPage() {
   // Set when the AD-HOC two-button page sent the rider here to add more units.
   // It turns on the "Done adding" button that takes them back to finish.
   const returnToAdHoc = searchParams?.get("returnTo") === "adhoc";
+  // SCHEDULED outbound runs: the items the rider picked for THIS trip, carried in
+  // the URL (?items=id,id) so a reload or resume keeps them. Missing -> the item
+  // picker is shown first. Unpicked items are left exactly as they are
+  // (not_delivered, never skipped).
+  const itemsParam = searchParams?.get("items") ?? null;
+  // Picker -> confirm is local to this page; "Back" on confirm keeps the ticks.
+  const [pickStage, setPickStage] = useState<"pick" | "confirm">("pick");
+  const [draftPick, setDraftPick] = useState<string[]>([]);
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -763,6 +773,22 @@ export default function DeliveryBasketPage() {
         router.push(`/scan/delivery/${run.id}/finalize`);
         return;
       }
+      // PARTIAL SIGN-OFF: this End finished the picked trip (every picked item
+      // handed over, nothing mid-delivery) while other items remain. Straight to
+      // the signature for what was delivered, same as the full-run jump above.
+      if (
+        fresh &&
+        selectedSet &&
+        fresh.status === "in_progress" &&
+        !fresh.items.some((it) => it.deliveryStatus === "delivering") &&
+        fresh.items.some((it) => it.deliveryStatus === "not_installed") &&
+        !fresh.items.some(
+          (it) => selectedSet.has(it.id) && (it.deliveryStatus === "not_delivered" || it.deliveryStatus === "delivering"),
+        )
+      ) {
+        router.push(`/scan/delivery/${run.id}/finalize`);
+        return;
+      }
       if (fresh) setRun(fresh);
     } catch (e: any) {
       setActionMsg(e?.message ?? "Could not mark items delivered");
@@ -770,6 +796,47 @@ export default function DeliveryBasketPage() {
       setBusy(false);
     }
   };
+
+  // ── trip item picker (SCHEDULED outbound runs only) ──────────────────────
+  // Ad-hoc and return runs keep the unrestricted walk/basket. The selection is
+  // read from ?items and only ids that are really on this run count; an empty
+  // or unusable list behaves like no selection (the picker shows again).
+  const pickerScope =
+    !!run.scheduledFor &&
+    run.direction !== "RETURN" &&
+    run.origin !== "AD_HOC" &&
+    !returnToAdHoc &&
+    (run.status === "scheduled" || run.status === "in_progress");
+  const runItemIds = new Set(run.items.map((it) => it.id));
+  const selectedIds =
+    pickerScope && itemsParam ? itemsParam.split(",").filter((id) => runItemIds.has(id)) : [];
+  const selectedSet = selectedIds.length ? new Set(selectedIds) : null;
+  const hasUndelivered = run.items.some((it) => it.deliveryStatus === "not_delivered");
+  const showPicker = pickerScope && hasUndelivered && !selectedSet;
+  // The trip's picked items are all handed over (none left to start or end), but
+  // other items are still waiting: offer the next pick instead of an empty walk.
+  const tripDone =
+    !!selectedSet &&
+    hasUndelivered &&
+    !run.items.some(
+      (it) => selectedSet.has(it.id) && (it.deliveryStatus === "not_delivered" || it.deliveryStatus === "delivering"),
+    );
+  // PARTIAL SIGN-OFF (2026-09): items handed over (not_installed) with nothing
+  // mid-delivery can be signed for now; the run stays open for the rest.
+  const canPartialSign =
+    pickerScope &&
+    run.status === "in_progress" &&
+    !run.items.some((it) => it.deliveryStatus === "delivering") &&
+    run.items.some((it) => it.deliveryStatus === "not_installed");
+  const partialSignCount = run.items.filter((it) => it.deliveryStatus === "not_installed").length;
+  // Something on this still-open run is already signed for: its DO can be
+  // printed from here (the run is not in the Completed list yet).
+  const hasSignedItems = run.status !== "completed" && run.items.some((it) => it.deliveryStatus === "completed");
+  const printableDoId = run.document?.id ?? run.items.find((it) => it.document?.id)?.document?.id ?? null;
+  const basketHref = `/scan/delivery/${run.id}`;
+  const tripHref = (ids: string[]) => `${basketHref}?items=${ids.map(encodeURIComponent).join(",")}`;
+  // Carried onto the free-typed line's own page so it comes back to this trip.
+  const tripQuery = selectedSet ? `?items=${selectedIds.map(encodeURIComponent).join(",")}` : "";
 
   // Unbound office-scheduled slots (assetId set, no unit yet) = a merged
   // scheduled run's remaining quantity. Render them as a per-asset "remaining to
@@ -784,13 +851,19 @@ export default function DeliveryBasketPage() {
   );
   const isSkipped = (it: RunItem) => skippedItems.some((s) => s.id === it.id);
 
-  const unboundSlots = run.items.filter((it) => it.assetId && !it.inventoryId && !isSkipped(it));
+  // A picked trip only offers its own open slots for loading.
+  const onTrip = (it: RunItem) => !selectedSet || selectedSet.has(it.id) || it.deliveryStatus !== "not_delivered";
+  const unboundSlots = run.items.filter((it) => it.assetId && !it.inventoryId && !isSkipped(it) && onTrip(it));
   const visibleItems = run.items.filter((it) => !(it.assetId && !it.inventoryId) && !isSkipped(it));
   // A completed item is DONE — it must leave the Delivering box entirely, so the
   // bulk "End Delivery" only ever sits over items still in flight. Completed
   // units render read-only in their own section below (progress at a glance,
   // no action that could invite a second pointless bulk end).
-  const inFlightItems = visibleItems.filter((it) => it.deliveryStatus !== "completed");
+  const inFlightItems = visibleItems.filter((it) => it.deliveryStatus !== "completed" && onTrip(it));
+  // Not picked for this trip and not started: left alone, only counted.
+  const offTripCount = selectedSet
+    ? run.items.filter((it) => it.deliveryStatus === "not_delivered" && !selectedSet.has(it.id)).length
+    : 0;
   const completedItems = visibleItems.filter((it) => it.deliveryStatus === "completed");
 
   // ── one-pass walk-through (scheduled runs only) ──────────────────────────
@@ -807,6 +880,7 @@ export default function DeliveryBasketPage() {
   const orderedItems = [...run.items].sort(
     (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
+
   // The forward walk covers ONLY un-started, non-skipped items, and it
   // TERMINATES: once every such item has been scanned (-> delivering) or skipped,
   // walkQueue is empty and the walk ends, handing the rider to the basket. This
@@ -818,7 +892,11 @@ export default function DeliveryBasketPage() {
   // it holds the run open (in_progress) - it is just picked up later, not by
   // looping the walk.
   const walkQueue = orderedItems.filter(
-    (it) => it.deliveryStatus === "not_delivered" && !it.skippedAt,
+    (it) =>
+      it.deliveryStatus === "not_delivered" &&
+      !it.skippedAt &&
+      // A picked trip walks ONLY its picked items, in list order.
+      (!selectedSet || selectedSet.has(it.id)),
   );
   const walkItem = walkQueue[0] ?? null;
   // Active while the run is in progress and un-started, unskipped items remain.
@@ -840,8 +918,12 @@ export default function DeliveryBasketPage() {
   const walkPosition = walkItem
     ? run.direction === "RETURN"
       ? run.items.length - walkQueue.length + 1
-      : orderedItems.findIndex((it) => it.id === walkItem.id) + 1
+      : selectedSet
+        ? // Picked trip: position within the picked items, not the whole run.
+          orderedItems.filter((it) => selectedSet.has(it.id)).findIndex((it) => it.id === walkItem.id) + 1
+        : orderedItems.findIndex((it) => it.id === walkItem.id) + 1
     : 0;
+  const walkTotal = selectedSet ? selectedSet.size : run.items.length;
   const isReturnRun = run.direction === "RETURN";
   // AD-HOC RUNS NEVER TAKE THE HAND-OFF FLIP HERE. Both of this page's end
   // paths (bulkEnd -> /ack-all and endItemDelivery -> /units/:id/deliver) run
@@ -875,6 +957,206 @@ export default function DeliveryBasketPage() {
     }));
   })();
 
+  // ── PICKER + CONFIRM (scheduled outbound, no trip picked yet) ───────────────
+  // Every line is listed; only not_delivered ones can be ticked. Lines already
+  // past not_delivered show ticked and disabled so a returning rider sees what
+  // is done. Nothing is written here: "Yes" only puts the pick in the URL.
+  if (showPicker) {
+    const itemLabel = (it: RunItem) => it.description || it.asset?.name || it.inventory?.sku || "Item";
+    const itemDetail = (it: RunItem) =>
+      it.inventory?.sku
+        ? `Serial ${it.inventory.sku}`
+        : !it.assetId
+          ? "Free-typed item"
+          : "Unit scanned on delivery";
+    const pickable = orderedItems.filter((it) => it.deliveryStatus === "not_delivered");
+    const picked = new Set(draftPick.filter((id) => pickable.some((it) => it.id === id)));
+    const allPicked = pickable.length > 0 && pickable.every((it) => picked.has(it.id));
+    const toggle = (id: string) =>
+      setDraftPick((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    // Open catalog slots of one product are interchangeable (a qty-N line is N
+    // identical slots) and the server fills a scanned unit into the EARLIEST
+    // open slot of that product. So the pick is normalised to the earliest open
+    // slots of each product, in the same order the server uses (unskipped
+    // first, then office order), which keeps every scan landing on a picked
+    // slot. Free-typed lines and unit-bound lines are kept by id.
+    const normalisePick = (ids: Set<string>): string[] => {
+      const keep = new Set<string>();
+      const perAsset = new Map<string, number>();
+      for (const it of orderedItems) {
+        if (!ids.has(it.id)) continue;
+        if (it.assetId && !it.inventoryId && it.deliveryStatus === "not_delivered") {
+          perAsset.set(it.assetId, (perAsset.get(it.assetId) ?? 0) + 1);
+        } else {
+          keep.add(it.id);
+        }
+      }
+      perAsset.forEach((n, assetId) => {
+        orderedItems
+          .filter((it) => it.assetId === assetId && !it.inventoryId && it.deliveryStatus === "not_delivered")
+          .sort((a, b) => (a.skippedAt ? 1 : 0) - (b.skippedAt ? 1 : 0))
+          .slice(0, n)
+          .forEach((it) => keep.add(it.id));
+      });
+      return orderedItems.filter((it) => keep.has(it.id)).map((it) => it.id);
+    };
+    const pickedItems = orderedItems.filter((it) => picked.has(it.id));
+    const lineText = (it: RunItem) => (
+      <ListItemText
+        primary={itemLabel(it)}
+        secondary={`${itemDetail(it)}${(it.quantity ?? 1) > 1 ? ` · Qty ${it.quantity}` : ""}`}
+        primaryTypographyProps={{ fontWeight: 600, variant: "body2" }}
+        secondaryTypographyProps={{ variant: "caption" }}
+      />
+    );
+
+    return (
+      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+        <Stack direction="row" spacing={2} alignItems="center">
+          <LocalShippingIcon color="primary" sx={{ fontSize: 44 }} />
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Typography variant="h6" fontWeight={700}>Delivery #{run.deliveryNumber}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {pickStage === "pick" ? "Choose the items you are delivering on this trip." : "Check the items before you start."}
+            </Typography>
+          </Box>
+        </Stack>
+
+        {canPartialSign && pickStage === "pick" && (
+          <Card variant="outlined" sx={{ borderColor: "success.main", borderWidth: 2 }}>
+            <CardContent>
+              <Typography variant="subtitle1" fontWeight={700}>
+                {partialSignCount} {partialSignCount === 1 ? "item is" : "items are"} delivered and waiting for a signature
+              </Typography>
+              <Button
+                fullWidth
+                variant="contained"
+                color="success"
+                startIcon={<LocalShippingIcon />}
+                onClick={() => router.push(`/scan/delivery/${run.id}/finalize`)}
+                sx={{ mt: 1.5, minHeight: 48 }}
+              >
+                Get customer signature
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {hasSignedItems && pickStage === "pick" && (
+          <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
+            <Typography variant="subtitle2" fontWeight={700}>Signed so far</Typography>
+            <DoPrintActions doId={printableDoId} />
+          </Box>
+        )}
+
+        {pickStage === "pick" ? (
+          <>
+            <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2 }}>
+              <ListItemButton
+                onClick={() => setDraftPick(allPicked ? [] : pickable.map((it) => it.id))}
+                disabled={pickable.length === 0}
+                sx={{ borderBottom: 1, borderColor: "divider", minHeight: 52 }}
+              >
+                <Checkbox
+                  edge="start"
+                  checked={allPicked}
+                  indeterminate={!allPicked && picked.size > 0}
+                  tabIndex={-1}
+                  disableRipple
+                  inputProps={{ "aria-label": "Select all" }}
+                />
+                <ListItemText primary="Select all" primaryTypographyProps={{ fontWeight: 600, variant: "body2" }} />
+                <Typography variant="caption" color="text.secondary">
+                  {pickable.length} to deliver
+                </Typography>
+              </ListItemButton>
+              <List disablePadding>
+                {orderedItems.map((it) => {
+                  const done = it.deliveryStatus !== "not_delivered";
+                  const chip = STATUS_CHIP[it.deliveryStatus];
+                  return (
+                    <ListItemButton
+                      key={it.id}
+                      onClick={() => !done && toggle(it.id)}
+                      disabled={done}
+                      sx={{ minHeight: 60, alignItems: "center", "&.Mui-disabled": { opacity: 0.7 } }}
+                    >
+                      <Checkbox
+                        edge="start"
+                        checked={done || picked.has(it.id)}
+                        disabled={done}
+                        tabIndex={-1}
+                        disableRipple
+                        inputProps={{ "aria-label": `Select ${itemLabel(it)}` }}
+                      />
+                      {lineText(it)}
+                      {done ? (
+                        <Chip size="small" label={chip.label} color={chip.color} sx={{ ml: 1 }} />
+                      ) : it.skippedAt ? (
+                        <Chip size="small" label="Skipped" variant="outlined" sx={{ ml: 1 }} />
+                      ) : null}
+                    </ListItemButton>
+                  );
+                })}
+              </List>
+            </Box>
+            <Button
+              variant="contained"
+              size="large"
+              startIcon={<LocalShippingIcon />}
+              disabled={picked.size === 0}
+              onClick={() => setPickStage("confirm")}
+              sx={{ minHeight: 52 }}
+            >
+              Start delivery ({picked.size})
+            </Button>
+          </>
+        ) : (
+          <>
+            <Card variant="outlined" sx={{ borderColor: "primary.main", borderWidth: 2 }}>
+              <CardContent>
+                <Typography variant="overline" color="primary" fontWeight={700}>
+                  {pickedItems.length} {pickedItems.length === 1 ? "item" : "items"}
+                </Typography>
+                <Typography variant="h6" fontWeight={700} sx={{ mb: 1 }}>
+                  Deliver these items?
+                </Typography>
+                <List disablePadding>
+                  {pickedItems.map((it, i) => (
+                    <Box
+                      key={it.id}
+                      sx={{ py: 0.75, borderTop: i === 0 ? 0 : 1, borderColor: "divider", display: "flex", alignItems: "center" }}
+                    >
+                      {lineText(it)}
+                    </Box>
+                  ))}
+                </List>
+              </CardContent>
+            </Card>
+            <Stack direction="row" spacing={1.5}>
+              <Button variant="outlined" size="large" onClick={() => setPickStage("pick")} sx={{ flex: 1, minHeight: 52 }}>
+                Back
+              </Button>
+              <Button
+                variant="contained"
+                size="large"
+                startIcon={<PlayArrowIcon />}
+                onClick={() => router.push(tripHref(normalisePick(picked)))}
+                sx={{ flex: 2, minHeight: 52 }}
+              >
+                Yes, start
+              </Button>
+            </Stack>
+          </>
+        )}
+
+        <Button variant="text" sx={{ color: "text.secondary", alignSelf: "center" }} onClick={() => router.push("/scan")}>
+          Done for now
+        </Button>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
       <Stack direction="row" spacing={2} alignItems="center">
@@ -906,6 +1188,55 @@ export default function DeliveryBasketPage() {
         </Alert>
       )}
       {nfc.error && <Alert severity="warning">{nfc.error}</Alert>}
+
+      {/* Picked trip finished: its items are all handed over while other items
+          on the run still wait. Offer the next pick rather than an empty walk. */}
+      {tripDone && (
+        <Card variant="outlined" sx={{ borderColor: "success.main", borderWidth: 2 }}>
+          <CardContent>
+            <Typography variant="h6" fontWeight={700}>Items for this trip are delivered</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
+              {canPartialSign
+                ? `Get the customer's signature for the ${partialSignCount} ${partialSignCount === 1 ? "item" : "items"} delivered. `
+                : ""}
+              {offTripCount} {offTripCount === 1 ? "item is" : "items are"} still waiting on this delivery.
+            </Typography>
+            <Stack spacing={1}>
+              {canPartialSign && (
+                <Button
+                  fullWidth
+                  variant="contained"
+                  color="success"
+                  startIcon={<LocalShippingIcon />}
+                  onClick={() => router.push(`/scan/delivery/${run.id}/finalize`)}
+                  disabled={busy}
+                  sx={{ minHeight: 48 }}
+                >
+                  Get customer signature
+                </Button>
+              )}
+              <Button
+                fullWidth
+                variant={canPartialSign ? "outlined" : "contained"}
+                startIcon={<PlayArrowIcon />}
+                onClick={() => router.push(basketHref)}
+                disabled={busy}
+                sx={{ minHeight: 48 }}
+              >
+                Pick more items
+              </Button>
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Partly signed run: print what the customer has signed for so far. */}
+      {hasSignedItems && (
+        <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
+          <Typography variant="subtitle2" fontWeight={700}>Signed so far</Typography>
+          <DoPrintActions doId={printableDoId} />
+        </Box>
+      )}
 
       {/* FINALIZE (outbound): the run has folded to `delivered`, meaning every
           item is delivered or skipped. This is the ONLY point the single customer
@@ -968,7 +1299,7 @@ export default function DeliveryBasketPage() {
         <Card variant="outlined" sx={{ borderColor: "primary.main", borderWidth: 2 }}>
           <CardContent>
             <Typography variant="overline" color="primary" fontWeight={700}>
-              Item {walkPosition} of {run.items.length}
+              Item {walkPosition} of {walkTotal}
             </Typography>
             <Typography variant="h6" fontWeight={700} sx={{ mt: 0.5 }}>
               {walkItem.description || walkItem.asset?.name || walkItem.inventory?.sku || "Item"}
@@ -994,7 +1325,7 @@ export default function DeliveryBasketPage() {
                   variant="contained"
                   size="large"
                   startIcon={isReturnRun ? <AssignmentReturnIcon /> : <LocalShippingIcon />}
-                  onClick={() => router.push(`/scan/delivery/${run.id}/free-item/${walkItem.id}`)}
+                  onClick={() => router.push(`/scan/delivery/${run.id}/free-item/${walkItem.id}${tripQuery}`)}
                   disabled={busy}
                   sx={{ py: 1.5, minHeight: 48 }}
                 >
@@ -1189,7 +1520,7 @@ export default function DeliveryBasketPage() {
                         size="small"
                         variant="contained"
                         startIcon={<LocalShippingIcon />}
-                        onClick={() => router.push(`/scan/delivery/${run.id}/free-item/${it.id}`)}
+                        onClick={() => router.push(`/scan/delivery/${run.id}/free-item/${it.id}${tripQuery}`)}
                         disabled={busy}
                         sx={{ minHeight: 40 }}
                       >
@@ -1352,7 +1683,7 @@ export default function DeliveryBasketPage() {
                           startIcon={isReturnRun ? <AssignmentReturnIcon /> : <LocalShippingIcon />}
                           onClick={() =>
                             router.push(
-                              `/scan/delivery/${run.id}/free-item/${it.id}`,
+                              `/scan/delivery/${run.id}/free-item/${it.id}${tripQuery}`,
                             )
                           }
                           disabled={busy}
@@ -1519,6 +1850,19 @@ export default function DeliveryBasketPage() {
       )}
 
       </>
+      )}
+
+      {selectedSet && !tripDone && (
+        <Stack alignItems="center" spacing={0.5}>
+          {offTripCount > 0 && (
+            <Typography variant="caption" color="text.secondary">
+              {offTripCount} {offTripCount === 1 ? "item is" : "items are"} not on this trip.
+            </Typography>
+          )}
+          <Button variant="text" size="small" onClick={() => router.push(basketHref)} disabled={busy}>
+            Change items
+          </Button>
+        </Stack>
       )}
 
       <Button

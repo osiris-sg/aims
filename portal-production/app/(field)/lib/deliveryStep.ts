@@ -69,11 +69,30 @@ export function itemStepHref(deliveryId: string, it: StepItem, reports: StepRepo
  */
 export function resumeHref(run: {
   id: string;
-  items: StepItem[];
+  items: Array<StepItem & { id?: string }>;
   reports?: StepReport[];
+  scheduledFor?: string | null;
+  origin?: string | null;
+  direction?: string | null;
 }): string {
   const basket = `/scan/delivery/${run.id}`;
   const firstUnfinished = run.items.find((i) => i.deliveryStatus !== "completed");
   if (!firstUnfinished) return basket;
+  // SCHEDULED outbound runs are worked in picked trips (?items= on the basket).
+  // The pick lives in the URL, so a resume can't know it; what the server does
+  // know is which items are out right now. Items still `delivering` are the trip
+  // in flight: resume that trip on the basket. Nothing in flight means nothing
+  // picked is pending, so land on the basket with no pick, which shows the
+  // picker (or "Ready to finish" once every item is delivered).
+  // The legacy mid-acknowledgement case (a draft DO_ACK) still goes to after-ack.
+  const scheduledOutbound = !!run.scheduledFor && run.origin !== "AD_HOC" && run.direction !== "RETURN";
+  if (scheduledOutbound) {
+    const legacy = firstUnfinished.deliveryStatus === "delivering"
+      ? itemStepHref(run.id, firstUnfinished, run.reports ?? [])
+      : null;
+    if (legacy) return legacy;
+    const inFlight = run.items.filter((i) => i.deliveryStatus === "delivering" && i.id).map((i) => i.id as string);
+    return inFlight.length ? `${basket}?items=${inFlight.map(encodeURIComponent).join(",")}` : basket;
+  }
   return itemStepHref(run.id, firstUnfinished, run.reports ?? []) ?? basket;
 }
