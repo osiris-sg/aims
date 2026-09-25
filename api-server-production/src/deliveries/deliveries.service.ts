@@ -4558,8 +4558,18 @@ export class DeliveriesService {
     // the class-based minimum from the line's stored assetClass (4 for equipment,
     // 1 for accessory). The start stays SCAN-LESS - there is no unit to scan, the
     // line just needs its photos, exactly like the outbound free-typed start.
-    const runDir = await this.prisma.delivery.findUnique({ where: { id: deliveryId }, select: { direction: true } });
+    const runDir = await this.prisma.delivery.findUnique({
+      where: { id: deliveryId },
+      select: { direction: true, status: true, isDraft: true, deliveryNumber: true },
+    });
     const isReturn = runDir?.direction === DeliveryDirection.RETURN;
+    // A still-SCHEDULED run is claimed by this start (below), exactly as a unit
+    // scan claims it in claimScheduled. Same draft rule: a draft is an
+    // unfinished office note, never claimable.
+    const claimsRun = runDir?.status === 'scheduled';
+    if (claimsRun && runDir?.isDraft) {
+      throw new BadRequestException(`Delivery #${runDir.deliveryNumber} is still a draft and cannot be started`);
+    }
     const photos = (dto.photos ?? []).map((k) => String(k).trim()).filter(Boolean);
     const required = minPhotosForAssetClass(item.assetClass);
     if (photos.length < required) {
@@ -4569,28 +4579,53 @@ export class DeliveriesService {
           : `This line is equipment, so it needs at least ${required} condition photos to start. Only ${photos.length} were provided.`,
       );
     }
-    await this.prisma.maintenanceServiceReport.create({
-      data: {
-        organizationId,
-        technicianUserId,
-        assetId: null,
-        inventoryId: null,
-        deliveryId,
-        deliveryItemId: item.id, // free-typed line: no unit, so THIS is the only exact tie
-        kind: 'DO_START',
-        status: 'draft', // DO_START is unsigned proof, same as a unit's
-        description: `${isReturn ? 'Return started' : 'Delivery started'}: ${item.description ?? 'free-typed line'}`,
-        ...(photos.length ? { photos } : {}),
-        ...(dto.angles?.length ? { serviceData: { photoAngles: dto.angles } } : {}),
-        ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
-        ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
-        ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
-      },
-    });
-    // Advance by ITEM ID — never { deliveryId, inventoryId } (both null here).
-    await this.prisma.deliveryItem.update({
-      where: { id: item.id },
-      data: { deliveryStatus: DeliveryStatus.delivering, deliveringAt: new Date(), skippedAt: null },
+    await this.prisma.$transaction(async (tx) => {
+      // CLAIM a still-scheduled run (2026-09-25, run #59). Before this, a run
+      // whose lines were ALL free-typed was never claimed: claimScheduled only
+      // runs on a unit scan, so the run stayed `scheduled` with no rider,
+      // recomputeRunStatus skipped it (its `scheduled` guard), and finalize
+      // refused it forever. Run-level claim ONLY, the same fields claimScheduled
+      // writes to the run (status, rider, startedAt); nothing unit-specific (no
+      // slot bind, no reserveUnit, no fieldDeploy - a free-typed line has none).
+      // Guarded on status = 'scheduled' so the FIRST claimant keeps the run: if
+      // another rider claimed it in the meantime this matches nothing and the
+      // start proceeds on their open run, as claimScheduled's rule has it.
+      // startedAt/updatedAt come from the DB clock, stored as UTC like Prisma's.
+      if (claimsRun) {
+        await tx.$executeRaw`
+          UPDATE "Delivery"
+          SET status = 'in_progress',
+              "riderUserId" = ${technicianUserId},
+              "riderName" = COALESCE(${dto.technicianName ?? null}::text, "riderName"),
+              "startedAt" = (now() AT TIME ZONE 'UTC'),
+              "updatedAt" = (now() AT TIME ZONE 'UTC')
+          WHERE id = ${deliveryId}::uuid
+            AND "organizationId" = ${organizationId}
+            AND status = 'scheduled'`;
+      }
+      await tx.maintenanceServiceReport.create({
+        data: {
+          organizationId,
+          technicianUserId,
+          assetId: null,
+          inventoryId: null,
+          deliveryId,
+          deliveryItemId: item.id, // free-typed line: no unit, so THIS is the only exact tie
+          kind: 'DO_START',
+          status: 'draft', // DO_START is unsigned proof, same as a unit's
+          description: `${isReturn ? 'Return started' : 'Delivery started'}: ${item.description ?? 'free-typed line'}`,
+          ...(photos.length ? { photos } : {}),
+          ...(dto.angles?.length ? { serviceData: { photoAngles: dto.angles } } : {}),
+          ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+          ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+          ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+        },
+      });
+      // Advance by ITEM ID — never { deliveryId, inventoryId } (both null here).
+      await tx.deliveryItem.update({
+        where: { id: item.id },
+        data: { deliveryStatus: DeliveryStatus.delivering, deliveringAt: new Date(), skippedAt: null },
+      });
     });
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
   }
