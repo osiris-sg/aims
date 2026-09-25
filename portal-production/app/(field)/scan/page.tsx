@@ -1,143 +1,122 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Box, Button, Typography, Alert, CircularProgress } from "@mui/material";
-import NfcIcon from "@mui/icons-material/Nfc";
-import KeyboardIcon from "@mui/icons-material/Keyboard";
-import LocalShippingIcon from "@mui/icons-material/LocalShipping";
-import PrintIcon from "@mui/icons-material/Print";
-import BuildIcon from "@mui/icons-material/Build";
-import DrawIcon from "@mui/icons-material/Draw";
-import EventIcon from "@mui/icons-material/Event";
-import { request } from "@/helpers/request";
+import { Alert, Box, CircularProgress, Typography } from "@mui/material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
-import { useNfcScan } from "../hooks/useNfcScan";
+import {
+  RunSummary,
+  fetchCompletedRuns,
+  fetchInProgressRuns,
+  fetchScheduledRuns,
+  resolveInProgressHref,
+  runMatchesSearch,
+} from "../lib/deliveryLists";
+import { CompletedRunCard, InProgressRunCard, ScheduledRunCard } from "../components/DeliveryRunCards";
+import { FieldBottomNav, FieldBottomNavSpacer } from "../components/FieldBottomNav";
+import { FieldHomeHeader } from "../components/FieldHomeHeader";
 
 /**
- * Scan landing.
+ * Deliveries home: the field app's landing screen.
  *
- * On NFC tap we read the chip's hardware UID. Every NFC tag has one — no
- * tag-writing tool needed. We hit /assets/by-nfc-uid/:uid:
- *   - 200 → asset is already bound, jump to the action chooser
- *   - 404 → unbound tag, jump to /scan/bind to attach it to a SKU
+ *   Pending      office-scheduled runs, org-wide (was /scan/deliveries/scheduled)
+ *   In progress  the rider's own unfinished runs (was /scan/deliveries)
+ *   Completed    the rider's runs completed in the last 7 days
+ *                (was /scan/deliveries/finished)
  *
- * NFC implementation is platform-abstracted by useNfcScan — native (Capacitor +
- * Capgo plugin) when running in the Android shell, Web NFC (NDEFReader) on
- * Chrome-Android browsers, unsupported elsewhere.
+ * Each tab reuses the list page's exact fetch and tap target (lib/
+ * deliveryLists + components/DeliveryRunCards), so the two surfaces can't
+ * drift. The old list pages stay: resume links and back buttons still target
+ * them.
+ *
+ * The selected tab lives in the query string (?tab=…) so Back from a run lands
+ * on the same tab. "+" opens /scan/new, which is where scanning now lives:
+ * this page deliberately does NOT listen for NFC.
  */
-export default function ScanLandingPage() {
+
+type DeliveriesTab = "pending" | "progress" | "completed";
+const TABS: { value: DeliveriesTab; label: string }[] = [
+  { value: "pending", label: "Pending" },
+  { value: "progress", label: "In progress" },
+  { value: "completed", label: "Completed" },
+];
+const isTab = (v: string | null): v is DeliveriesTab => TABS.some((t) => t.value === v);
+
+const FETCHERS: Record<DeliveriesTab, (token: string) => Promise<RunSummary[]>> = {
+  pending: fetchScheduledRuns,
+  progress: fetchInProgressRuns,
+  completed: fetchCompletedRuns,
+};
+
+const EMPTY_COPY: Record<DeliveriesTab, string> = {
+  pending: "Nothing scheduled right now.",
+  progress: "Nothing in progress. You're all caught up.",
+  completed: "No deliveries completed in the last 7 days.",
+};
+
+export default function DeliveriesHomePage() {
   const router = useRouter();
+  const search = useSearchParams();
   const { getToken } = useAuth();
   const { features, isLoading } = useOrganizationFeatures();
-  const nfc = useNfcScan();
-  const [scanError, setScanError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  // Count of the rider's own unfinished runs — drives the "Deliveries in
-  // progress (N)" badge below the primary scan action. 0 → nothing rendered.
-  const [unfinishedCount, setUnfinishedCount] = useState(0);
-  // Open office-scheduled runs, org-wide — drives the "Scheduled deliveries (N)"
-  // entry point. Same feed the scheduled page itself uses (no new endpoint).
-  const [scheduledCount, setScheduledCount] = useState(0);
-  // Reports submitted with Skip — real reports, awaiting a signature. Counted
-  // the same way the delivery counts are, so the landing screen reads
-  // consistently: a badge only when there is something to act on.
-  const [ongoingReportCount, setOngoingReportCount] = useState(0);
+  const rawTab = search?.get("tab") ?? null;
+  const tab: DeliveriesTab = isTab(rawTab) ? rawTab : "pending";
+  const [q, setQ] = useState("");
+  // Per-tab cache: switching back to a tab shows its last list at once while
+  // the refetch runs. undefined = never loaded.
+  const [lists, setLists] = useState<Partial<Record<DeliveriesTab, RunSummary[]>>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // In-progress row being opened: the list payload omits assetId/inventoryId/
+  // reports, so a tap fetches the full run and resolves the exact step.
+  const [opening, setOpening] = useState<string | null>(null);
+
+  // (Re)load the active tab every time it is shown, so a run finished or
+  // claimed elsewhere doesn't linger.
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      setLoading(true);
+      setError(null);
       try {
         const token = await getToken();
-        if (!token) return;
-        const res = await request(
-          { path: "/maintenance-reports?status=draft&limit=1", method: "GET" },
-          {},
-          token,
-        );
-        if (cancelled) return;
-        const total = res?.total ?? res?.data?.total ?? (res?.docs ?? res?.data?.docs ?? []).length ?? 0;
-        setOngoingReportCount(Number(total) || 0);
-      } catch {
-        // Non-fatal: the button simply shows no badge.
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [getToken]);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const token = await getToken();
-        if (!token) return;
-        // Only the rider's own unfinished runs are counted now; the org-wide
-        // scheduled badges were view-only and have been removed, so their fetch
-        // goes with them rather than costing a round trip on field LTE.
-        const mine = await request({ path: `/deliveries?mine=true&unfinished=true&limit=100`, method: "GET" }, {}, token);
-        if (cancelled) return;
-        if (mine.success !== false) setUnfinishedCount(((mine.data ?? mine).docs ?? []).length);
-        // Org-wide scheduled runs — the run-first entry point. Identical query to
-        // scan/deliveries/scheduled so the badge and that page never disagree.
-        const sched = await request({ path: `/deliveries?status=scheduled&limit=100`, method: "GET" }, {}, token);
-        if (cancelled) return;
-        if (sched.success !== false) setScheduledCount(((sched.data ?? sched).docs ?? []).length);
-      } catch {
-        // best-effort — the badges just stay hidden on failure
+        if (!token) throw new Error("Not signed in");
+        const runs = await FETCHERS[tab](token);
+        if (!cancelled) setLists((prev) => ({ ...prev, [tab]: runs }));
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message ?? "Failed to load deliveries");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [getToken]);
+  }, [tab, getToken]);
 
-  const resolveTag = useCallback(
-    async (uid: string) => {
-      setBusy(true);
-      setScanError(null);
+  // replace, not push: tabs are a view of one screen, so they shouldn't stack
+  // up in history. The URL still carries the tab, which is what Back restores.
+  const selectTab = (next: DeliveriesTab) => {
+    if (next === tab) return;
+    router.replace(next === "pending" ? "/scan" : `/scan?tab=${next}`, { scroll: false });
+  };
+
+  const openInProgress = useCallback(
+    async (id: string) => {
+      setOpening(id);
       try {
-        const token = await getToken();
-        if (!token) throw new Error("Not signed in");
-        const res = await request(
-          { path: `/assets/by-nfc-uid/${encodeURIComponent(uid)}`, method: "GET" },
-          {},
-          token,
-        );
-        // New shape: { inventory, asset }. The endpoint resolves the tag to a
-        // specific inventory unit and includes its parent asset for the chooser.
-        const payload = res.data ?? res;
-        const assetId = payload?.asset?.id;
-        const inventoryId = payload?.inventory?.id;
-        if (assetId) {
-          const query = inventoryId ? `?inventoryId=${encodeURIComponent(inventoryId)}` : "";
-          router.push(`/scan/asset/${assetId}${query}`);
-          return;
-        }
-        router.push(`/scan/bind?uid=${encodeURIComponent(uid)}`);
-      } catch (e: any) {
-        // The request helper surfaces 404 as a thrown error in many setups.
-        // Treat any non-success as "unbound tag" and push to bind.
-        const status = e?.response?.status ?? e?.status;
-        if (status === 404) {
-          router.push(`/scan/bind?uid=${encodeURIComponent(uid)}`);
-          return;
-        }
-        setScanError(e?.message ?? "Lookup failed");
+        const token = await getToken().catch(() => null);
+        router.push(await resolveInProgressHref(id, token));
       } finally {
-        setBusy(false);
+        setOpening(null);
       }
     },
     [getToken, router],
   );
 
-  // React to a scanned tag. The hook auto-stops after a successful read, so
-  // we just observe `uid` and dispatch the lookup.
-  useEffect(() => {
-    if (nfc.uid) resolveTag(nfc.uid);
-  }, [nfc.uid, resolveTag]);
-
-  useEffect(() => {
-    if (nfc.error) setScanError(nfc.error);
-  }, [nfc.error]);
+  const runs = lists[tab];
+  const filtered = useMemo(() => (runs ?? []).filter((r) => runMatchesSearch(r, q)), [runs, q]);
 
   if (isLoading) {
     return (
@@ -158,127 +137,62 @@ export default function ScanLandingPage() {
   }
 
   return (
-    <Box sx={{ flex: 1, p: 3, display: "flex", flexDirection: "column", gap: 3, alignItems: "center", justifyContent: "center", textAlign: "center" }}>
-      <NfcIcon sx={{ fontSize: 96, color: "primary.main" }} />
-      <Typography variant="h5" fontWeight={600}>Tap an asset tag</Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 320 }}>
-        Hold your phone close to the NFC sticker on the asset.
-      </Typography>
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <FieldHomeHeader
+        title="Deliveries"
+        search={q}
+        onSearch={setQ}
+        placeholder="Search delivery #, project, customer, address"
+        addLabel="Scan a unit"
+        onAdd={() => router.push("/scan/new")}
+        tabs={TABS}
+        tab={tab}
+        onTab={selectTab}
+      />
 
-      {nfc.isSupported === undefined && (
-        <CircularProgress size={24} />
-      )}
+      <Box sx={{ flex: 1, p: 2, display: "flex", flexDirection: "column", gap: 1.5 }}>
+        {error && <Alert severity="error">{error}</Alert>}
 
-      {nfc.isSupported === true && (
-        <Button
-          variant="contained"
-          size="large"
-          onClick={nfc.startScan}
-          disabled={busy || nfc.isScanning}
-          startIcon={<NfcIcon />}
-          sx={{
-            minWidth: 260,
-            py: 2,
-            px: 5,
-            fontSize: "1.125rem",
-            minHeight: 64,
-            "& .MuiButton-startIcon > *:first-of-type": { fontSize: 32 },
-          }}
-        >
-          {busy ? "Looking up..." : nfc.isScanning ? "Scanning…" : "Tap to scan"}
-        </Button>
-      )}
+        {runs === undefined ? (
+          loading && (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
+              <CircularProgress />
+            </Box>
+          )
+        ) : runs.length === 0 ? (
+          <Typography variant="body1" color="text.secondary" sx={{ textAlign: "center", py: 6 }}>
+            {EMPTY_COPY[tab]}
+          </Typography>
+        ) : filtered.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
+            No delivery matches &quot;{q}&quot;.
+          </Typography>
+        ) : (
+          filtered.map((r) =>
+            tab === "pending" ? (
+              <ScheduledRunCard
+                key={r.id}
+                run={r}
+                onStart={() => router.push(`/scan/delivery/${r.id}`)}
+                onViewDo={(assetId, docId) => router.push(`/scan/asset/${assetId}/do/${docId}/view`)}
+              />
+            ) : tab === "progress" ? (
+              <InProgressRunCard
+                key={r.id}
+                run={r}
+                opening={opening === r.id}
+                disabled={opening !== null}
+                onOpen={() => void openInProgress(r.id)}
+              />
+            ) : (
+              <CompletedRunCard key={r.id} run={r} onOpen={() => router.push(`/scan/deliveries/finished/${r.id}`)} />
+            ),
+          )
+        )}
+      </Box>
 
-      {nfc.isSupported === false && (
-        <Alert severity="warning" sx={{ width: "100%", maxWidth: 360 }}>
-          NFC is not available on this device — use manual serial entry below,
-          or the AIMS Field app on an NFC-capable phone.
-        </Alert>
-      )}
-
-      {/* Manual serial entry — the NFC-less path for untaggable units (any
-          tracked asset with units). Primary CTA when the device has no NFC. */}
-      <Button
-        variant={nfc.isSupported === false ? "contained" : "outlined"}
-        size="large"
-        onClick={() => router.push("/scan/manual")}
-        startIcon={<KeyboardIcon />}
-        sx={{ minWidth: 260, py: 1.5, minHeight: 56 }}
-      >
-        Enter serial manually
-      </Button>
-
-      {/* Run-FIRST entry point: pick the scheduled delivery, then scan item 1,
-          item 2, … The scan-first flow (scan a unit, then pick its run) is
-          unchanged and still the default above. Rendered only when something is
-          scheduled, matching the "deliveries in progress" rule. */}
-      {scheduledCount > 0 && (
-        <Button
-          variant="text"
-          size="large"
-          onClick={() => router.push("/scan/deliveries/scheduled")}
-          startIcon={<EventIcon />}
-          sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "text.secondary" }}
-        >
-          Scheduled deliveries ({scheduledCount})
-        </Button>
-      )}
-
-      {/* Resume unfinished deliveries — rendered ONLY when the rider has runs
-          in progress, so the scan landing stays clean when there's nothing. */}
-      {unfinishedCount > 0 && (
-        <Button
-          variant="text"
-          size="large"
-          onClick={() => router.push("/scan/deliveries")}
-          startIcon={<LocalShippingIcon />}
-          sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "text.secondary" }}
-        >
-          Deliveries in progress ({unfinishedCount})
-        </Button>
-      )}
-
-      {/* Maintenance reports. Two entries on purpose: the technician either
-          wants to START one (which needs an asset, so this routes through the
-          serial picker) or FINISH one that is waiting on a signature. Ongoing
-          is the one with a deadline attached, so it carries the count. */}
-      <Button
-        variant="text"
-        size="large"
-        onClick={() => router.push("/scan/reports")}
-        startIcon={<BuildIcon />}
-        sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "text.secondary" }}
-      >
-        Maintenance reports
-      </Button>
-
-      {ongoingReportCount > 0 && (
-        <Button
-          variant="text"
-          size="large"
-          onClick={() => router.push("/scan/reports/ongoing")}
-          startIcon={<DrawIcon />}
-          sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "warning.main" }}
-        >
-          Pending Sign ({ongoingReportCount})
-        </Button>
-      )}
-
-      {/* Reprint a receipt for an already-completed run (last 7 days). Always
-          available — a rider may need a fresh copy any time after hand-off. */}
-      <Button
-        variant="text"
-        size="large"
-        onClick={() => router.push("/scan/deliveries/finished")}
-        startIcon={<PrintIcon />}
-        sx={{ minWidth: 260, py: 1.25, minHeight: 48, color: "text.secondary" }}
-      >
-        Reprint a delivery
-      </Button>
-
-      {scanError && (
-        <Alert severity="error" sx={{ width: "100%", maxWidth: 360 }}>{scanError}</Alert>
-      )}
+      <FieldBottomNavSpacer />
+      <FieldBottomNav value="deliveries" />
     </Box>
   );
 }

@@ -3,11 +3,11 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Stack, Typography } from "@mui/material";
+import { Alert, Box, Button, Card, CardContent, CircularProgress, Stack, Typography } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import EventIcon from "@mui/icons-material/Event";
-import PlayArrowIcon from "@mui/icons-material/PlayArrow";
-import { request } from "@/helpers/request";
+import { RunSummary, fetchScheduledRuns } from "../../../lib/deliveryLists";
+import { ScheduledRunCard } from "../../../components/DeliveryRunCards";
 
 /**
  * Rider "Scheduled deliveries" list. Org-wide scheduled runs waiting to be
@@ -31,36 +31,10 @@ import { request } from "@/helpers/request";
  * scans the unit (join-on-scan in deliveries create()).
  */
 
-interface SchedItem {
-  id: string;
-  quantity: number | null;
-  description: string | null;
-  assetId: string | null;
-  inventoryId: string | null;
-  // Enriched by the list endpoint from the bound unit (null until one is
-  // scanned in). An office-scheduled slot has an assetId but no unit yet.
-  sku?: string | null;
-}
-interface SchedRun {
-  id: string;
-  deliveryNumber: number;
-  direction?: "OUTBOUND" | "RETURN";
-  scheduledFor: string | null;
-  siteAddress: string | null;
-  items: SchedItem[];
-  project: { id: string; name: string } | null;
-  customer: { id: string; name: string } | null;
-  // The run's pre-created draft DO (PO number + a full-DO link target).
-  document: { id: string; name: string | null; poNo: string | null } | null;
-}
-
-const fmt = (d: string | null) =>
-  d ? new Date(d).toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
-
 export default function ScheduledDeliveriesPage() {
   const router = useRouter();
   const { getToken } = useAuth();
-  const [runs, setRuns] = useState<SchedRun[] | null>(null);
+  const [runs, setRuns] = useState<RunSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -68,9 +42,7 @@ export default function ScheduledDeliveriesPage() {
       try {
         const token = await getToken();
         if (!token) throw new Error("Not signed in");
-        const res = await request({ path: `/deliveries?status=scheduled&limit=100`, method: "GET" }, {}, token);
-        if (res.success === false) throw new Error(res.message ?? "Failed to load scheduled deliveries");
-        setRuns(((res.data ?? res).docs ?? []) as SchedRun[]);
+        setRuns(await fetchScheduledRuns(token));
       } catch (e: any) {
         setError(e?.message ?? "Failed to load scheduled deliveries");
       }
@@ -85,7 +57,7 @@ export default function ScheduledDeliveriesPage() {
         onClick={() => router.replace("/scan")}
         sx={{ alignSelf: "flex-start", color: "text.secondary" }}
       >
-        Back to scan
+        Back
       </Button>
       <Stack direction="row" alignItems="center" spacing={1}>
         <EventIcon color="primary" />
@@ -108,90 +80,14 @@ export default function ScheduledDeliveriesPage() {
           </CardContent>
         </Card>
       ) : (
-        (runs ?? []).map((r) => {
-          const isReturn = r.direction === "RETURN";
-          // Deliveries: show still-open (unbound) slots — a bound item means
-          // someone already started picking it up. Returns are unit-bound from
-          // birth, so their manifest IS the units to collect.
-          const open = r.items.filter((i) => !i.inventoryId);
-          const rows = isReturn ? r.items : open.length ? open : r.items;
-          // OUTBOUND runs are enterable (claimScheduled binds by open asset slot).
-          // Returns are not — see the header note — so their card stays inert.
-          const enterable = !isReturn;
-          return (
-            <Card key={r.id} variant="outlined" sx={enterable ? { borderColor: "primary.main" } : undefined}>
-              <CardContent sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
-                <Stack direction="row" alignItems="center" spacing={1}>
-                  <Typography variant="subtitle2" fontWeight={700} sx={{ fontFamily: "monospace" }}>
-                    #{r.deliveryNumber}
-                  </Typography>
-                  <Chip size="small" color={isReturn ? "secondary" : "primary"} variant="outlined" label={isReturn ? "Return" : "Delivery"} />
-                  <Chip size="small" color="primary" label={fmt(r.scheduledFor)} />
-                </Stack>
-                {(r.customer?.name || r.project?.name || r.siteAddress) && (
-                  <Typography variant="body2" color="text.secondary">
-                    {r.project?.name ?? r.customer?.name ?? r.siteAddress}
-                  </Typography>
-                )}
-                {r.document?.poNo && (
-                  <Typography variant="body2">
-                    <b>PO No.:</b> {r.document.poNo}
-                  </Typography>
-                )}
-                {isReturn && (
-                  <Typography variant="caption" color="text.secondary">Collect:</Typography>
-                )}
-                <Stack spacing={0.25} sx={{ mt: 0.5 }}>
-                  {rows.map((i) => {
-                    // Same precedence the walk-through uses (description first,
-                    // /scan/delivery/[deliveryId]). A unit-backed line shows its
-                    // serial; an office slot with no unit scanned in yet shows
-                    // the asset name alone — no trailing text, so it reads the
-                    // same either way.
-                    const label = i.description || "Item";
-                    const suffix = i.sku ? ` — ${i.sku}` : "";
-                    return (
-                      <Typography key={i.id} variant="body2">
-                        • {label}
-                        {i.quantity && i.quantity > 1 ? ` ×${i.quantity}` : ""}
-                        {suffix && (
-                          <Typography component="span" variant="body2" color="text.secondary">
-                            {suffix}
-                          </Typography>
-                        )}
-                      </Typography>
-                    );
-                  })}
-                </Stack>
-                <Stack direction="row" spacing={1} sx={{ mt: 0.5, flexWrap: "wrap", rowGap: 1 }}>
-                  {/* Navigation only — the run is NOT claimed until the first
-                      scan lands in claimScheduled. */}
-                  {enterable && (
-                    <Button
-                      size="small"
-                      variant="contained"
-                      startIcon={<PlayArrowIcon />}
-                      sx={{ textTransform: "none", minHeight: 40 }}
-                      onClick={() => router.push(`/scan/delivery/${r.id}`)}
-                    >
-                      Start this delivery
-                    </Button>
-                  )}
-                  {!isReturn && r.document?.id && r.items[0]?.assetId && (
-                    <Button
-                      size="small"
-                      variant="text"
-                      sx={{ textTransform: "none", minHeight: 40 }}
-                      onClick={() => router.push(`/scan/asset/${r.items[0].assetId}/do/${r.document!.id}/view`)}
-                    >
-                      View full DO
-                    </Button>
-                  )}
-                </Stack>
-              </CardContent>
-            </Card>
-          );
-        })
+        (runs ?? []).map((r) => (
+          <ScheduledRunCard
+            key={r.id}
+            run={r}
+            onStart={() => router.push(`/scan/delivery/${r.id}`)}
+            onViewDo={(assetId, docId) => router.push(`/scan/asset/${assetId}/do/${docId}/view`)}
+          />
+        ))
       )}
     </Box>
   );

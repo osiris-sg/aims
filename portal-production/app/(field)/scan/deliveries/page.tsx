@@ -9,7 +9,6 @@ import {
   Card,
   CardActionArea,
   CardContent,
-  Chip,
   CircularProgress,
   Stack,
   TextField,
@@ -18,8 +17,8 @@ import {
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import SearchIcon from "@mui/icons-material/Search";
-import { request } from "@/helpers/request";
-import { resumeHref } from "../../lib/deliveryStep";
+import { RunSummary, fetchInProgressRuns, resolveInProgressHref, runMatchesSearch } from "../../lib/deliveryLists";
+import { InProgressRunCard } from "../../components/DeliveryRunCards";
 
 /**
  * Rider "resume unfinished deliveries" list (field). Runs the rider started
@@ -33,66 +32,10 @@ import { resumeHref } from "../../lib/deliveryStep";
  * linked DO-first runs have them; pre-ack standalone runs show items + date).
  */
 
-type RunStatus = "in_progress" | "delivered" | "completed" | "cancelled";
-
-interface RunItem {
-  id: string;
-  deliveryStatus: "not_delivered" | "delivering" | "not_installed" | "completed";
-  sku: string | null;
-  serialNumber: string | null;
-}
-
-interface Run {
-  id: string;
-  deliveryNumber: number;
-  status: RunStatus;
-  riderName: string | null;
-  siteAddress: string | null;
-  startedAt: string;
-  createdAt: string;
-  items: RunItem[];
-  document: { id: string; name: string | null } | null;
-  project: { id: string; name: string } | null;
-  customer: { id: string; name: string } | null;
-}
-
-const STATUS_CHIP: Record<RunStatus, { label: string; color: "warning" | "info" | "success" | "default" }> = {
-  in_progress: { label: "In progress", color: "warning" },
-  delivered: { label: "Delivered", color: "info" },
-  completed: { label: "Completed", color: "success" },
-  cancelled: { label: "Cancelled", color: "default" },
-};
-
-// Compact relative time — riders scan the same day, so "2h ago" beats a date.
-const relTime = (iso: string): string => {
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const mins = Math.max(0, Math.round((now - then) / 60000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.round(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
-};
-
-// "LION375-001 +2" — first unit sku (fallback serial), then a remainder count.
-const itemLabel = (items: RunItem[]): string => {
-  if (items.length === 0) return "No items";
-  const first = items[0].sku ?? items[0].serialNumber ?? "1 item";
-  return items.length > 1 ? `${first} +${items.length - 1}` : first;
-};
-
-const progressHint = (items: RunItem[]): string => {
-  const done = items.filter((i) => i.deliveryStatus === "completed").length;
-  return `${done} of ${items.length} delivered`;
-};
-
 export default function ResumeDeliveriesPage() {
   const router = useRouter();
   const { getToken } = useAuth();
-  const [runs, setRuns] = useState<Run[]>([]);
+  const [runs, setRuns] = useState<RunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -107,13 +50,7 @@ export default function ResumeDeliveriesPage() {
         setError("Not signed in");
         return;
       }
-      const res = await request(
-        { path: `/deliveries?mine=true&unfinished=true&limit=100`, method: "GET" },
-        {},
-        token,
-      );
-      if (res.success === false) throw new Error(res.message ?? "Failed to load deliveries");
-      setRuns((res.data ?? res).docs ?? []);
+      setRuns(await fetchInProgressRuns(token));
     } catch (e: any) {
       setError(e?.message ?? "Failed to load deliveries");
     } finally {
@@ -132,16 +69,8 @@ export default function ResumeDeliveriesPage() {
     async (id: string) => {
       setOpening(id);
       try {
-        const token = await getToken();
-        if (!token) {
-          router.push(`/scan/delivery/${id}`);
-          return;
-        }
-        const res = await request({ path: `/deliveries/${id}`, method: "GET" }, {}, token);
-        const run = res.data ?? res;
-        router.push(run?.id ? resumeHref(run) : `/scan/delivery/${id}`);
-      } catch {
-        router.push(`/scan/delivery/${id}`);
+        const token = await getToken().catch(() => null);
+        router.push(await resolveInProgressHref(id, token));
       } finally {
         setOpening(null);
       }
@@ -149,19 +78,8 @@ export default function ResumeDeliveriesPage() {
     [getToken, router],
   );
 
-  // Client-side filter over fetched rows: delivery number OR item sku/serial.
-  const filtered = useMemo(() => {
-    const term = q.trim().toLowerCase();
-    if (!term) return runs;
-    return runs.filter((r) => {
-      if (`#${r.deliveryNumber}`.includes(term) || String(r.deliveryNumber).includes(term)) return true;
-      return r.items.some(
-        (i) =>
-          (i.sku && i.sku.toLowerCase().includes(term)) ||
-          (i.serialNumber && i.serialNumber.toLowerCase().includes(term)),
-      );
-    });
-  }, [runs, q]);
+  // Client-side filter over fetched rows (shared with the Deliveries home).
+  const filtered = useMemo(() => runs.filter((r) => runMatchesSearch(r, q)), [runs, q]);
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
@@ -199,41 +117,15 @@ export default function ResumeDeliveriesPage() {
         </Typography>
       ) : (
         <Stack spacing={1.5}>
-          {filtered.map((r) => {
-            const chip = STATUS_CHIP[r.status] ?? { label: r.status, color: "default" as const };
-            // Customer/project only when present — pre-ack standalone runs have
-            // neither, so the item label + time carry the identity instead.
-            const context = r.project?.name ?? r.customer?.name ?? r.document?.name ?? null;
-            return (
-              <Card key={r.id} variant="outlined">
-                <CardActionArea onClick={() => openRun(r.id)} disabled={opening !== null}>
-                  <CardContent sx={{ py: 1.75 }}>
-                    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
-                      <Typography variant="subtitle1" fontWeight={700} sx={{ fontFamily: "monospace" }}>
-                        #{r.deliveryNumber}
-                      </Typography>
-                      <Chip size="small" label={chip.label} color={chip.color} />
-                      <Box sx={{ flexGrow: 1 }} />
-                      {opening === r.id ? (
-                        <CircularProgress size={16} />
-                      ) : (
-                        <Typography variant="caption" color="text.secondary">
-                          {relTime(r.startedAt ?? r.createdAt)}
-                        </Typography>
-                      )}
-                    </Stack>
-                    <Typography variant="body2" fontWeight={600} noWrap>
-                      {itemLabel(r.items)}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      {progressHint(r.items)}
-                      {context ? ` · ${context}` : ""}
-                    </Typography>
-                  </CardContent>
-                </CardActionArea>
-              </Card>
-            );
-          })}
+          {filtered.map((r) => (
+            <InProgressRunCard
+              key={r.id}
+              run={r}
+              opening={opening === r.id}
+              disabled={opening !== null}
+              onOpen={() => void openRun(r.id)}
+            />
+          ))}
         </Stack>
       )}
 
@@ -242,7 +134,7 @@ export default function ResumeDeliveriesPage() {
         <CardActionArea onClick={() => router.push("/scan")}>
           <CardContent sx={{ display: "flex", alignItems: "center", gap: 1.5, py: 1.5 }}>
             <ArrowBackIcon color="action" />
-            <Typography variant="body2">Back to scan</Typography>
+            <Typography variant="body2">Back</Typography>
           </CardContent>
         </CardActionArea>
       </Card>
