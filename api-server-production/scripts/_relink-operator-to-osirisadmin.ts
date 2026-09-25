@@ -47,7 +47,15 @@ async function main() {
   });
   if (!identity) {
     console.log(`\nNo OperatorIdentity for a number containing ${digits.slice(-8)}.`);
-    console.log('Nothing to relink — link the number first via /link, or create the row.');
+    if (!APPLY) {
+      console.log(`Dry run. Re-run with --apply to CREATE one linking ${digits} -> ${adminId}.`);
+      return;
+    }
+    const created = await prisma.operatorIdentity.create({
+      data: { channel: 'whatsapp', channelUserId: digits, clerkUserId: adminId, verified: true },
+    });
+    console.log(`\n✅ Created identity ${created.channelUserId} -> ${adminId}.`);
+    console.log('   No org stored yet, so the first message asks which org to work in.');
     return;
   }
   console.log(`identity                : ${identity.channelUserId}`);

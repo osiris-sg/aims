@@ -178,9 +178,14 @@ export class OperatorAuthService {
     }
 
     if (!chosen) {
-      if (!orgs.length) return { ok: false, reason: 'no-org' };
-      if (orgs.length > 1) return { ok: false, reason: 'needs-org-choice', options: orgs };
-      chosen = orgs[0];
+      // osirisadmin works in ANY org, membership or not — so the FIRST-TIME
+      // picker has to offer all of them, exactly as /org does. Listing only
+      // memberships here showed the platform admin two orgs out of seven
+      // (guru 2026-09-25); /org was fixed earlier and this path was missed.
+      const pickable = isOsirisAdmin ? await this.listOrgOptions({ clerkUserId, isOsirisAdmin }) : orgs;
+      if (!pickable.length) return { ok: false, reason: 'no-org' };
+      if (pickable.length > 1) return { ok: false, reason: 'needs-org-choice', options: pickable };
+      chosen = pickable[0];
       if (opts.identityId) {
         await this.prisma.operatorIdentity.update({
           where: { id: opts.identityId },

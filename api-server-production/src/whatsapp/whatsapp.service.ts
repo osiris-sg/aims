@@ -1551,6 +1551,22 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
               },
             })
             .catch(() => null); // Unique waMessageId → webhook redelivery, already stored.
+          // A redelivery must not be PROCESSED twice. The CRM agent path below
+          // is guarded by `stored`, but Operator routing was not, so Meta
+          // retrying a webhook made the agent answer the same message twice
+          // (guru 2026-09-25: two identical org pickers).
+          //
+          // Confirm it really IS a duplicate rather than inferring it from the
+          // failed insert: any other write error would otherwise drop the
+          // message silently, which is worse than answering twice.
+          if (!stored) {
+            const already = await this.prisma.whatsAppMessage.findUnique({
+              where: { waMessageId: message.id },
+              select: { id: true },
+            });
+            if (already) continue;
+            this.logger.warn(`Could not store inbound ${message.id}; processing it anyway.`);
+          }
           // A message to/from this number may be a lead's thread — mark contacted.
           if (message.from) this.leads.markLeadContacted(connection.organizationId, message.from).catch(() => null);
           // If this is the org's notify number replying, its 24h window just
