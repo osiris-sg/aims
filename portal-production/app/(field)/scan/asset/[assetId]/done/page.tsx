@@ -25,7 +25,7 @@ export default function DonePage() {
       <Stack direction="column" spacing={1.5} sx={{ width: "100%", maxWidth: 320, mt: 2 }}>
         <Button
           component={Link}
-          href="/scan/new"
+          href="/scan"
           variant="contained"
           fullWidth
           sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}

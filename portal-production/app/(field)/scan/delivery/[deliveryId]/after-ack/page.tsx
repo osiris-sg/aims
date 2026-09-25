@@ -739,7 +739,7 @@ export default function AfterAckPage() {
         >
           Back to delivery
         </Button>
-        <Button variant="text" onClick={() => router.replace("/scan/new")} sx={{ color: "text.secondary" }}>
+        <Button variant="text" onClick={() => router.replace("/scan")} sx={{ color: "text.secondary" }}>
           Scan next
         </Button>
       </Box>
