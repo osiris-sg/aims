@@ -5775,6 +5775,30 @@ export class DocumentsService {
       throw new HttpException('This endpoint is only for Delivery Orders', HttpStatus.BAD_REQUEST);
     }
 
+    // A DO whose field run is still going must be finished in the field, not
+    // bulk-completed here (2026-09 partial sign-off). The completion gate below
+    // only sees this DO's DocumentItem rows, and a free-typed line has none, so
+    // a partly signed run could otherwise look "all done" and fire the invoice
+    // while items are still undelivered. Checked on the RUN's own items, which
+    // cover free-typed lines too. Cancelled runs are ignored.
+    const owed = await this.prisma.deliveryItem.findMany({
+      where: {
+        documentId,
+        deliveryStatus: { not: DeliveryStatus.completed },
+        delivery: { status: { not: 'cancelled' } },
+      },
+      select: { delivery: { select: { deliveryNumber: true } } },
+    });
+    if (owed.length) {
+      const runs = [...new Set(owed.map((o) => o.delivery.deliveryNumber))].sort((a, b) => a - b);
+      throw new HttpException(
+        `Delivery ${runs.map((n) => `#${n}`).join(', ')} still has ${owed.length} ${owed.length === 1 ? 'item' : 'items'} ` +
+          `to deliver or sign for. Finish ${runs.length === 1 ? 'that delivery' : 'those deliveries'} in the field app ` +
+          `before completing this Delivery Order.`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     const items = await this.prisma.documentItem.findMany({ where: { documentId } });
     let deductedCount = 0;
     for (const item of items) {
