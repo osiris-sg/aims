@@ -5748,7 +5748,7 @@ export default function TabbedDocumentCreator({
                                     // column. One auto column absorbs it all instead.
                                     width: columnId === "description" ? "auto" :
                                            columnId === "item" ? "10%" :
-                                           columnId === "uom" ? "6%" :
+                                           columnId === "uom" ? "8%" :
                                            columnId === "quantity" ? "8%" :
                                            columnId === "unitPrice" ? "10%" :
                                            columnId === "salePrice" ? "10%" :
@@ -6200,7 +6200,10 @@ export default function TabbedDocumentCreator({
                                         value={item.uom || ""}
                                         onChange={(e) => updateItem(item.id, "uom", e.target.value)}
                                         size="small"
-                                        sx={{ width: 60 }}
+                                        // Fits a compound unit like UNIT-MTH, used when a
+                                        // line is priced per unit per month (2 units over
+                                        // 12 months = 24 UNIT-MTH) — guru 2026-09-25.
+                                        sx={{ width: 90 }}
                                       />
                                     </TableCell>
                                   );

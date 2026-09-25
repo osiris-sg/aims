@@ -5482,15 +5482,31 @@ export class DocumentsService {
       ...doConfigForInvoice
     } = (doConfig ?? {}) as Record<string, unknown>;
 
-    const invoiceConfig = {
-      ...doConfigForInvoice,
-      items: await this.priceInvoiceLinesFromAsset(Array.isArray(doConfig.items) ? doConfig.items : [], organizationId, {
+    // `deliveryGroup` (= the Asset id) is a DO DISPLAY key: the renderers'
+    // groupDeliveryLines() collapses a consecutive run sharing it into one
+    // "Rental of N units / Model / S/No." block. That is right for a DO, but
+    // wrong once the lines become an INVOICE the office edits: several units of
+    // the SAME asset record share one deliveryGroup, so the preview collapsed
+    // every line into one row and REGENERATED its description from the first
+    // line — silently discarding edits to the others (guru 2026-09-25,
+    // BI202609212). The invoice keeps inventoryItemId / deliveryItemId /
+    // serialNumbers (real identity: DocumentItem sync, DO_START proof photos)
+    // and drops only the display key, so its rows render exactly as typed.
+    const pricedLines = await this.priceInvoiceLinesFromAsset(
+      Array.isArray(doConfig.items) ? doConfig.items : [],
+      organizationId,
+      {
         saleOrderId: doConfig.saleOrderId,
         // A DO extracted from a quotation carries its source — the quote's
         // agreed prices back the invoice when no Sales Order is attached.
         sourceDocumentId: doConfig.sourceDocumentId,
         sourceDocumentType: doConfig.sourceDocumentType,
-      }),
+      },
+    );
+
+    const invoiceConfig = {
+      ...doConfigForInvoice,
+      items: pricedLines.map(({ deliveryGroup: _deliveryGroup, ...line }: any) => line),
       date: new Date().toISOString(),
       sourceDocumentId: documentId,
       sourceDocumentNumber: doDoc.name ?? undefined,
