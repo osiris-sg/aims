@@ -206,7 +206,7 @@ export default function FinishedDeliveryDetailPage() {
       <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
         <Alert severity="error">{error ?? "Delivery not found"}</Alert>
         <Button startIcon={<ArrowBackIcon />} onClick={() => router.replace("/scan")}>
-          Back to scan
+          Back
         </Button>
       </Box>
     );
@@ -309,7 +309,7 @@ export default function FinishedDeliveryDetailPage() {
         fullWidth
         sx={FIELD_BUTTON_SX}
       >
-        Back to scan
+        Back
       </Button>
 
       {/* Offscreen A4 render — nothing visible. */}

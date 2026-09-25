@@ -337,7 +337,7 @@ export default function ManualEntryPage() {
             ? "No tracked assets with units are available for manual entry yet."
             : "No assets are enabled for manual serial entry. An admin can enable it per asset (“Allow manual serial entry” in the asset editor)."}
         </Alert>
-        <Button sx={{ mt: 2 }} onClick={() => router.push("/scan")}>Back to scan</Button>
+        <Button sx={{ mt: 2 }} onClick={() => router.push("/scan")}>Back</Button>
       </Box>
     );
   }
@@ -532,7 +532,7 @@ export default function ManualEntryPage() {
         </>
       )}
 
-      <Button variant="text" sx={{ color: "text.secondary", alignSelf: "center" }} onClick={() => router.push("/scan")}>
+      <Button variant="text" sx={{ color: "text.secondary", alignSelf: "center" }} onClick={() => router.push("/scan/new")}>
         Back to scan
       </Button>
 

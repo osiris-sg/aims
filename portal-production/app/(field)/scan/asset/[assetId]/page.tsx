@@ -135,7 +135,7 @@ export default function AssetActionChooser() {
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="error">{error ?? "Could not load asset"}</Alert>
-        <Button sx={{ mt: 2 }} onClick={() => router.push("/scan")}>Back to scan</Button>
+        <Button sx={{ mt: 2 }} onClick={() => router.push("/scan")}>Back</Button>
       </Box>
     );
   }
@@ -464,7 +464,7 @@ export default function AssetActionChooser() {
       <Button
         variant="text"
         sx={{ mt: 4, color: "text.secondary", alignSelf: "center" }}
-        onClick={() => router.push("/scan")}
+        onClick={() => router.push("/scan/new")}
       >
         Scan another asset
       </Button>
