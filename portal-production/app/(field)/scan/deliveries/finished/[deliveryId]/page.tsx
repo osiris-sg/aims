@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
   Alert,
@@ -9,18 +9,13 @@ import {
   Button,
   CircularProgress,
   Stack,
-  Tooltip,
   Typography,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import PrintIcon from "@mui/icons-material/Print";
-import DownloadIcon from "@mui/icons-material/Download";
-import LinearProgress from "@mui/material/LinearProgress";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { request } from "@/helpers/request";
 import { formatUnitLabel } from "../../../../lib/btPrinter";
-import { isSystemPrintAvailable } from "../../../../lib/systemPrint";
-import { useDoA4Print } from "../../../../components/DoA4Print";
+import { DoPrintActions } from "../../../../components/DoPrintActions";
 
 /**
  * "Delivery completed" final screen (field). Reached both as the LANDING right
@@ -91,9 +86,10 @@ export default function FinishedDeliveryDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Printing UI (mirrors the after-ack "done" step).
-  const [printing, setPrinting] = useState(false);
-  const [printMsg, setPrintMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // PARTIAL SIGN-OFF (2026-09): finalize sends a partly signed run here with
+  // ?signed=N. The screen then reads "Signed for N items"; the run itself says it
+  // is still open (status in_progress), so a reload keeps the right form.
+  const signedParam = useSearchParams()?.get("signed");
 
   useEffect(() => {
     (async () => {
@@ -134,64 +130,16 @@ export default function FinishedDeliveryDetailPage() {
     [run],
   );
 
-  // Print DO goes through ANDROID'S print system now: the printer is a 小篆
-  // X1000, a WiFi colour inkjet, which no Bluetooth path can reach. `surface`
-  // must be mounted — it is the offscreen A4 render being printed.
-  const { surface: printSurface, printDoViaSystem, downloadDo, progress: printProgress } = useDoA4Print();
-
   // The DO this run delivered. The API derives a run-level `document` —
   // "exactly one distinct DO across linked items" — and it is deliberately null
   // when a run spans two, because printing one of them arbitrarily would hand
   // the customer the wrong paperwork. Fall back to the first linked item only
   // when that field is absent. With neither, there is nothing to print and the
-  // button says so rather than emitting a blank page.
+  // print button says so rather than emitting a blank page.
   const printableDoId = useMemo(
     () => run?.document?.id ?? run?.items.find((i) => i.document?.id)?.document?.id ?? null,
     [run],
   );
-
-  const doPrint = useCallback(async () => {
-    if (!run) return;
-    if (!printableDoId) {
-      setPrintMsg({ ok: false, text: "This run has no delivery order linked to it yet, so there is nothing to print." });
-      return;
-    }
-    setPrinting(true);
-    setPrintMsg(null);
-    try {
-      await printDoViaSystem(printableDoId);
-      // The dialog is now Android's. It owns printer choice, settings and
-      // cancellation, and reports none of that back — so this says the handover
-      // happened, not that paper came out.
-      setPrintMsg({ ok: true, text: "Print dialog opened — pick the printer there." });
-    } catch (e: any) {
-      setPrintMsg({ ok: false, text: e?.message ?? "Could not open the print dialog." });
-    } finally {
-      setPrinting(false);
-    }
-  }, [run, printableDoId, printDoViaSystem]);
-
-  /**
-   * Download DO — save the PDF to the tablet, then offer the share sheet.
-   * Same render, same print CSS, same serialiser as Print DO; only the
-   * destination differs, so the saved file is the document that would print.
-   */
-  const doDownload = async () => {
-    if (!printableDoId) {
-      setPrintMsg({ ok: false, text: "This run has no delivery order linked to it yet, so there is nothing to download." });
-      return;
-    }
-    setPrinting(true);
-    setPrintMsg(null);
-    try {
-      const saved = await downloadDo(printableDoId);
-      setPrintMsg({ ok: true, text: `Saved to Downloads as ${saved.fileName}` });
-    } catch (e: any) {
-      setPrintMsg({ ok: false, text: e?.message ?? "Could not save the PDF." });
-    } finally {
-      setPrinting(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -212,14 +160,26 @@ export default function FinishedDeliveryDetailPage() {
     );
   }
 
+  // Still open = a partial sign-off landed here. N comes from ?signed, falling
+  // back to the run's completed items when the param is absent.
+  const partlySigned = run.status !== "completed";
+  const signedCount = Number(signedParam) || run.items.filter((i) => i.deliveryStatus === "completed").length;
+  const remaining = run.items.filter((i) => i.deliveryStatus !== "completed").length;
+
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
       {/* Confirmation only — no summary of what was created. */}
       <Stack alignItems="center" spacing={1} sx={{ py: 2 }}>
         <CheckCircleIcon color="success" sx={{ fontSize: 56 }} />
         <Typography variant="h5" fontWeight={800}>
-          Delivery completed
+          {partlySigned ? `Signed for ${signedCount} ${signedCount === 1 ? "item" : "items"}` : "Delivery completed"}
         </Typography>
+        {partlySigned && remaining > 0 && (
+          <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center" }}>
+            {remaining} {remaining === 1 ? "item is" : "items are"} still to deliver on this delivery. The customer signs
+            again when they arrive.
+          </Typography>
+        )}
         <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "monospace" }}>
           Delivery #{run.deliveryNumber}
         </Typography>
@@ -231,89 +191,20 @@ export default function FinishedDeliveryDetailPage() {
         </Alert>
       )}
 
-      {/* Print DO — native shell only: window.print() is a no-op in an Android
-          WebView, so this goes through the native SystemPrint plugin to
-          Android's PrintManager. Same gate as the live after-ack flow. */}
-      {isSystemPrintAvailable() ? (
-        <Button
-          variant="contained"
-          startIcon={printing ? <CircularProgress size={18} /> : <PrintIcon />}
-          onClick={() => void doPrint()}
-          disabled={printing}
-          fullWidth
-          sx={FIELD_BUTTON_SX}
-        >
-          {printing ? "Printing…" : "Print DO"}
-        </Button>
-      ) : (
-        <Tooltip title="Printing needs the AIMS Field app">
-          <span style={{ width: "100%" }}>
-            <Button variant="contained" startIcon={<PrintIcon />} disabled fullWidth sx={FIELD_BUTTON_SX}>
-              Print DO
-            </Button>
-          </span>
-        </Tooltip>
-      )}
-
-      {/* Download DO — the X1000 serves its own WiFi hotspot with no internet,
-          so the tablet cannot be on the printer's network and on ours at once.
-          Saving the PDF first lets the rider join that hotspot afterwards and
-          print from the printer's own app. */}
-      {isSystemPrintAvailable() && (
-        <Button
-          variant="outlined"
-          startIcon={<DownloadIcon />}
-          onClick={() => void doDownload()}
-          disabled={printing}
-          fullWidth
-          sx={FIELD_BUTTON_SX}
-        >
-          Download DO
-        </Button>
-      )}
-
-      {/* A full page is a large transfer over SPP — show the rider it is moving. */}
-      {printing && (
-        <Box sx={{ width: "100%", maxWidth: 360, mb: 1 }}>
-          <LinearProgress
-            variant={printProgress ? "determinate" : "indeterminate"}
-            value={printProgress ? Math.round(printProgress.fraction * 100) : undefined}
-          />
-          <Typography variant="caption" color="text.secondary">
-            {printProgress?.label ?? "Preparing…"}
-            {printProgress ? ` ${Math.round(printProgress.fraction * 100)}%` : ""}
-          </Typography>
-        </Box>
-      )}
-
-      {printMsg && (
-        <Alert
-          severity={printMsg.ok ? "success" : "error"}
-          action={
-            !printMsg.ok ? (
-              <Button size="small" onClick={() => void doPrint()} disabled={printing}>
-                Retry
-              </Button>
-            ) : undefined
-          }
-          onClose={() => setPrintMsg(null)}
-        >
-          {printMsg.text}
-        </Alert>
-      )}
+      {/* Print DO / Download DO (native shell only), shared with the basket of a
+          partly signed run. */}
+      <DoPrintActions doId={printableDoId} />
 
       <Button
         variant="outlined"
         startIcon={<ArrowBackIcon />}
-        onClick={() => router.replace("/scan")}
+        onClick={() => router.replace(partlySigned ? "/scan?tab=progress" : "/scan")}
         fullWidth
         sx={FIELD_BUTTON_SX}
       >
-        Back
+        {partlySigned ? "Back to Deliveries" : "Back"}
       </Button>
 
-      {/* Offscreen A4 render — nothing visible. */}
-      {printSurface}
     </Box>
   );
 }

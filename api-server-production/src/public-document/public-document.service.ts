@@ -164,6 +164,13 @@ export class PublicDocumentService {
         description: lines.join('\n'),
         proofPhotos: proofGroups.flatMap((g) => g.photos),
         proofGroups,
+        // Same merge as the preview: Pending unless every member line with a
+        // live delivery state is completed (partial sign-off, 2026-09).
+        lineDeliveryStatus: ((): string | undefined => {
+          const states = run.map((r: any) => r?.lineDeliveryStatus).filter(Boolean) as string[];
+          if (!states.length) return undefined;
+          return states.find((st) => st !== 'completed') ?? 'completed';
+        })(),
       });
       i = j;
     }
@@ -199,7 +206,9 @@ export class PublicDocumentService {
     // proofGroups rides alongside proofPhotos: it is the per-unit split the
     // preview's photo strip renders. It carries only serials + photo keys —
     // no asset ids — so it is safe to ship publicly.
-    const ITEM_KEEP = ['id', 'sku', 'skuKey', 'itemCode', 'description', 'quantity', 'uom', 'remarks', 'serialNumbers', 'proofPhotos', 'proofGroups'];
+    // lineDeliveryStatus: the line's live delivery state ("Pending" on a partly
+    // signed DO). Not sensitive: it only says whether the line was handed over.
+    const ITEM_KEEP = ['id', 'sku', 'skuKey', 'itemCode', 'description', 'quantity', 'uom', 'remarks', 'serialNumbers', 'proofPhotos', 'proofGroups', 'lineDeliveryStatus'];
     if (Array.isArray(cfg.items)) {
       cfg.items = cfg.items.map((it: any) => {
         const out: any = {};

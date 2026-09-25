@@ -805,6 +805,33 @@ export class DocumentsService {
         console.warn(`getById: proof photo grouping failed for ${document.id}: ${err?.message ?? err}`);
       }
 
+      // Per-line delivery state (2026-09 partial sign-off): each line born from a
+      // run item carries that item's LIVE deliveryStatus as lineDeliveryStatus, so
+      // the DO can mark lines not yet signed for as "Pending". Read-time only and
+      // recomputed on every read; a line whose item no longer exists loses the
+      // key, so a value that an editor save wrote back can never go stale.
+      try {
+        const cfg: any = (document as any).config ?? {};
+        const lines: any[] = Array.isArray(cfg.items) ? cfg.items : [];
+        const itemIds = [...new Set(lines.map((l) => l?.deliveryItemId).filter(Boolean))] as string[];
+        if (itemIds.length) {
+          const rows = await this.prisma.deliveryItem.findMany({
+            where: { id: { in: itemIds } },
+            select: { id: true, deliveryStatus: true },
+          });
+          const statusById = new Map(rows.map((r) => [r.id, r.deliveryStatus]));
+          for (const line of lines) {
+            if (!line?.deliveryItemId) continue;
+            const st = statusById.get(line.deliveryItemId);
+            if (st) line.lineDeliveryStatus = st;
+            else delete line.lineDeliveryStatus;
+          }
+          (document as any).config = cfg;
+        }
+      } catch (err: any) {
+        console.warn(`getById: line delivery status failed for ${document.id}: ${err?.message ?? err}`);
+      }
+
       // Timeline: the scheduled date/time lives on the Delivery RUN, not the DO
       // config. Resolve the run born-linked to this DO (via DeliveryItem.documentId)
       // and expose its scheduledFor INSIDE config, so it rides the config spread

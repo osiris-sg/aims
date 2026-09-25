@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -41,6 +41,31 @@ export default function FinalizeDeliveryPage() {
   const [signedByName, setSignedByName] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // PARTIAL SIGN-OFF (2026-09): an outbound run that is still in_progress signs
+  // only for the items handed over so far. Read from the run itself so the copy
+  // is right after a reload too. null until loaded (the full-run copy shows).
+  const [partialCount, setPartialCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (isReturn) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET" }, {}, token);
+        const run = res?.data ?? res;
+        if (cancelled || !run?.items || run.status !== "in_progress") return;
+        const n = run.items.filter((it: { deliveryStatus: string }) => it.deliveryStatus === "not_installed").length;
+        if (n > 0) setPartialCount(n);
+      } catch {
+        /* the full-run copy stays; the server decides what the signature covers */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [deliveryId, getToken, isReturn]);
+  const partial = partialCount !== null;
 
   const uploadInstallPhoto = async (blob: Blob): Promise<string | null> => {
     const token = await getToken();
@@ -80,8 +105,15 @@ export default function FinalizeDeliveryPage() {
           );
       if (res?.success === false) throw new Error(res?.message ?? (isReturn ? "Could not finalize the return" : "Could not finalize the delivery"));
       // A RETURN has no printable DO receipt to land on, so go straight back to
-      // the scan home. OUTBOUND lands on the "Delivery completed" screen
-      // (confirmation + Print DO), the rider's chance to print at hand-off.
+      // the scan home. OUTBOUND lands on the finished screen (confirmation +
+      // Print DO), the rider's chance to print at hand-off. A PARTIAL sign-off
+      // lands on the same screen in its "Signed for N items" form; the count
+      // rides in the URL and the screen reads the run, so a reload keeps it.
+      const out = res?.data ?? res;
+      if (!isReturn && out?.partial) {
+        router.replace(`/scan/deliveries/finished/${deliveryId}?signed=${Number(out.signedItemCount) || 0}`);
+        return;
+      }
       router.replace(isReturn ? "/scan" : `/scan/deliveries/finished/${deliveryId}`);
     } catch (e: any) {
       setError(e?.message ?? (isReturn ? "Could not finalize the return" : "Could not finalize the delivery"));
@@ -114,7 +146,9 @@ export default function FinalizeDeliveryPage() {
             Installation needed?
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            One answer for the whole delivery. If yes, add installation photos for the run below.
+            {partial
+              ? "One answer for the items delivered on this trip. If yes, add installation photos below."
+              : "One answer for the whole delivery. If yes, add installation photos for the run below."}
           </Typography>
 
           <Stack direction="row" spacing={1.5}>
@@ -138,7 +172,7 @@ export default function FinalizeDeliveryPage() {
 
           {installChoice === "yes" && (
             <PhotoCaptureField
-              label="Installation photos (whole run)"
+              label={partial ? "Installation photos (this trip)" : "Installation photos (whole run)"}
               photos={installPhotos}
               onChange={setInstallPhotos}
               upload={uploadInstallPhoto}
@@ -166,7 +200,9 @@ export default function FinalizeDeliveryPage() {
           <Typography variant="body2" color="text.secondary">
             {isReturn
               ? "One signature covers the whole return. It completes the collection and creates the Return Delivery Order."
-              : "One signature covers the whole delivery. It completes the run and creates the Delivery Order and its invoice."}
+              : partial
+                ? `This signature covers the ${partialCount} ${partialCount === 1 ? "item" : "items"} delivered so far. The rest of this delivery stays open and is signed for when it arrives.`
+                : "One signature covers the whole delivery. It completes the run and creates the Delivery Order and its invoice."}
           </Typography>
 
           <TextField
@@ -180,7 +216,15 @@ export default function FinalizeDeliveryPage() {
           <SignaturePadField ref={sigRef} />
 
           <Button fullWidth variant="contained" color="success" onClick={submit} disabled={working} sx={{ minHeight: 48 }}>
-            {working ? <CircularProgress size={22} /> : isReturn ? "Complete return" : "Complete delivery"}
+            {working ? (
+              <CircularProgress size={22} />
+            ) : isReturn ? (
+              "Complete return"
+            ) : partial ? (
+              `Sign for ${partialCount} ${partialCount === 1 ? "item" : "items"}`
+            ) : (
+              "Complete delivery"
+            )}
           </Button>
         </>
       )}

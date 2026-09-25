@@ -3933,6 +3933,9 @@ export class DeliveriesService {
     },
     organizationId: string,
     technicianUserId: string,
+    // Partial sign-off is the RIDER's action only. The guest share link calls
+    // this without it, so a guest still can only sign a fully delivered run.
+    opts: { allowPartial?: boolean } = {},
   ) {
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
@@ -3944,13 +3947,21 @@ export class DeliveriesService {
     }
     if (!dto.signature) throw new BadRequestException('Customer signature is required');
     if (run.status === 'completed') throw new BadRequestException('This delivery is already finalized');
+    // PARTIAL SIGN-OFF (2026-09): an in_progress run signs for what it has
+    // handed over so far. The run stays open for the rest; see finalizeRunPartial.
+    if (run.status === 'in_progress' && opts.allowPartial) {
+      return this.finalizeRunPartial(deliveryId, dto, organizationId, technicianUserId);
+    }
     // `delivered` is the fold's "every item delivered" state (all not_installed
-    // or completed) - the only point the signature is valid. A SKIPPED item holds
-    // the run at in_progress, so finalize is unreachable until the rider comes
-    // back and delivers it: the one signature never covers an unfinished run.
+    // or completed) - the only point the FULL signature is valid. A run with
+    // items still undelivered is in_progress and signs partially (above).
     if (run.status !== 'delivered') {
       throw new BadRequestException('Deliver every item on this run before capturing the signature');
     }
+    // How many lines this signature covers (the rider's confirmation screen).
+    const signedItemCount = await this.prisma.deliveryItem.count({
+      where: { deliveryId, deliveryStatus: DeliveryStatus.not_installed },
+    });
 
     const now = new Date();
     // ONE run-level DO_INSTALL for the WHOLE run: installation is asked once at
@@ -4003,13 +4014,164 @@ export class DeliveriesService {
       data: { deliveryStatus: DeliveryStatus.completed, completedAt: now },
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
-    // Auto-revoke any guest share link on this run: the run is finished, so the
-    // link must stop accepting anything (matches the guest resolveToken guard).
-    await this.prisma.deliveryShareLink.updateMany({
-      where: { deliveryId, revokedAt: null },
-      data: { revokedAt: now },
+    // Auto-revoke any guest share link on this run, but ONLY once the run is
+    // finished: the link must stop accepting anything then (matches the guest
+    // resolveToken guard). A run that did not complete keeps its link.
+    await this.revokeShareLinksIfCompleted(deliveryId);
+    const finished = await this.prisma.delivery.findUnique({ where: { id: deliveryId } });
+    return finished ? { ...finished, signedItemCount, partial: false } : finished;
+  }
+
+  /**
+   * PARTIAL SIGN-OFF (2026-09). The customer signs for the items handed over so
+   * far while the rest of the run is still to come.
+   *
+   *   - Needs at least one item delivered (not_installed) and none mid-delivery
+   *     (delivering): the signature covers a settled set, never a moving one.
+   *   - Signs ONLY the unsigned DO_ACK / DO_INSTALL proof of those items (the
+   *     proof rows carry deliveryItemId), plus this sign-off's own run-level
+   *     DO_INSTALL when installation was done. Earlier signed rows are left as
+   *     they are: they are the history of the earlier sign-offs.
+   *   - Completes ONLY those items, then commits their DO lines right away
+   *     (commitLinkedDeliveryItems for those ids; idempotent, advance-only).
+   *     The draft invoice is NOT created here: its gate still needs every
+   *     deliverable DO line completed, which only the last sign-off reaches.
+   *   - recomputeRunStatus then folds: still in_progress while anything is
+   *     undelivered, completed (with the normal completion hook) otherwise.
+   *
+   * Every timestamp comes from the database clock (UTC, like Prisma writes),
+   * never a JS Date passed into a timestamp-without-time-zone column.
+   */
+  private async finalizeRunPartial(
+    deliveryId: string,
+    dto: {
+      signature?: string;
+      recipientName?: string;
+      latitude?: number;
+      longitude?: number;
+      technicianName?: string;
+      installNeeded?: boolean;
+      installPhotos?: string[];
+    },
+    organizationId: string,
+    technicianUserId: string,
+  ) {
+    const items = await this.prisma.deliveryItem.findMany({
+      where: { deliveryId },
+      select: { id: true, deliveryStatus: true, documentId: true },
     });
-    return this.prisma.delivery.findUnique({ where: { id: deliveryId } });
+    if (items.some((i) => i.deliveryStatus === DeliveryStatus.delivering)) {
+      throw new BadRequestException('Finish the items being delivered before capturing the signature');
+    }
+    const signItems = items.filter((i) => i.deliveryStatus === DeliveryStatus.not_installed);
+    if (!signItems.length) {
+      throw new BadRequestException('Deliver at least one item before capturing the signature');
+    }
+    const signIds = signItems.map((i) => i.id);
+    const recipientName = dto.recipientName?.trim() ? dto.recipientName.trim() : null;
+
+    await this.prisma.$transaction(async (tx) => {
+      // This sign-off's installation record, created unsigned and signed below
+      // together with the items' proof (one DO_INSTALL per sign-off).
+      let installId: string | null = null;
+      if (dto.installNeeded) {
+        const photos = (dto.installPhotos ?? []).map((k) => String(k).trim()).filter(Boolean);
+        const install = await tx.maintenanceServiceReport.create({
+          data: {
+            organizationId,
+            technicianUserId,
+            assetId: null,
+            inventoryId: null,
+            deliveryId,
+            kind: 'DO_INSTALL',
+            status: 'draft',
+            description: 'Installed (partial sign-off)',
+            ...(photos.length ? { photos } : {}),
+            ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+            ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+            ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+          },
+          select: { id: true },
+        });
+        installId = install.id;
+      }
+      await tx.$executeRaw`
+        UPDATE "MaintenanceServiceReport"
+        SET signature = ${dto.signature},
+            "signedByName" = COALESCE(${recipientName}::text, "signedByName"),
+            "signedAt" = (now() AT TIME ZONE 'UTC'),
+            status = 'completed',
+            "updatedAt" = (now() AT TIME ZONE 'UTC')
+        WHERE "deliveryId" = ${deliveryId}::uuid
+          AND kind IN ('DO_ACK', 'DO_INSTALL')
+          AND status <> 'completed'
+          AND ("deliveryItemId" = ANY(${signIds}::uuid[]) OR id = ${installId}::uuid)`;
+      const completed = await tx.$executeRaw`
+        UPDATE "DeliveryItem"
+        SET "deliveryStatus" = 'completed',
+            "completedAt" = (now() AT TIME ZONE 'UTC')
+        WHERE id = ANY(${signIds}::uuid[])
+          AND "deliveryId" = ${deliveryId}::uuid
+          AND "deliveryStatus" = 'not_installed'`;
+      if (completed !== signIds.length) {
+        throw new BadRequestException('The delivery changed while signing. Reload and try again.');
+      }
+    });
+
+    // Link the run's proof rows onto their DO (idempotent), so the new signature
+    // surfaces on the DO immediately.
+    await this.stampProofMsrDocumentIds(deliveryId, organizationId);
+    // Commit the signed lines to their DO now (stamp DocumentItems, deduct the
+    // delivered units' stock, mirror Document.status). Best-effort like the
+    // completion hook: a commit failure is logged, never un-signs the customer.
+    const byDoc = new Map<string, string[]>();
+    for (const it of signItems) {
+      if (!it.documentId) continue;
+      byDoc.set(it.documentId, [...(byDoc.get(it.documentId) ?? []), it.id]);
+    }
+    for (const [documentId, ids] of byDoc) {
+      try {
+        await this.documentsService.commitLinkedDeliveryItems(documentId, organizationId, ids);
+      } catch (err: any) {
+        this.logger.error(
+          `finalizeRunPartial: commit failed for delivery ${deliveryId}, DO ${documentId}: ${err?.message}`,
+          err?.stack,
+        );
+      }
+    }
+    // Fold. Normally stays in_progress (items remain); if this sign-off covered
+    // the last undelivered work it completes and the completion hook runs.
+    await this.recomputeRunStatus(deliveryId, organizationId);
+    // A DO is NOT complete while its run still owes it items. The commit above
+    // mirrors Document.status from the DO's DocumentItem rows only, and a
+    // free-typed line has no DocumentItem row, so a DO whose remaining work is a
+    // free-typed line would otherwise read delivered_installed ("complete") after
+    // a partial sign-off. Hold it at delivered_not_installed until the run's
+    // last sign-off; the completion hook's commit sets the terminal status then.
+    for (const documentId of byDoc.keys()) {
+      const owed = await this.prisma.deliveryItem.count({
+        where: { deliveryId, documentId, deliveryStatus: { not: DeliveryStatus.completed } },
+      });
+      if (owed > 0) {
+        await this.prisma.document.updateMany({
+          where: { id: documentId, organizationId, status: 'delivered_installed' },
+          data: { status: 'delivered_not_installed' },
+        });
+      }
+    }
+    await this.revokeShareLinksIfCompleted(deliveryId);
+    const after = await this.prisma.delivery.findUnique({ where: { id: deliveryId } });
+    return after ? { ...after, signedItemCount: signIds.length, partial: after.status !== 'completed' } : after;
+  }
+
+  /** Revoke a run's live guest share links, but only once the run is completed. */
+  private async revokeShareLinksIfCompleted(deliveryId: string) {
+    await this.prisma.$executeRaw`
+      UPDATE "DeliveryShareLink"
+      SET "revokedAt" = (now() AT TIME ZONE 'UTC')
+      WHERE "deliveryId" = ${deliveryId}::uuid
+        AND "revokedAt" IS NULL
+        AND EXISTS (SELECT 1 FROM "Delivery" d WHERE d.id = ${deliveryId}::uuid AND d.status = 'completed')`;
   }
 
   /**

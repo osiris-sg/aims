@@ -312,6 +312,17 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
 const DESCRIPTION_HAS_MODEL = /Model\s*:/i;
 const DESCRIPTION_HAS_SERIAL = /S\s*\/\s*No\.?\s*:/i;
 
+// A merged row is "completed" only when every member line that carries a live
+// delivery state (lineDeliveryStatus, added by the API's getById) is completed.
+// Otherwise it takes the first unfinished member's state, so a group with one
+// unit still to come reads as Pending. Undefined when no member carries a state.
+// Mirrored in api-server-production/src/public-document/public-document.service.ts.
+function mergedLineDeliveryStatus(run: any[]): string | undefined {
+  const states = run.map((r) => r?.lineDeliveryStatus).filter(Boolean) as string[];
+  if (!states.length) return undefined;
+  return states.find((st) => st !== "completed") ?? "completed";
+}
+
 function groupDeliveryLines(raw: any[], isReturn = false): any[] {
   if (!Array.isArray(raw) || raw.length === 0) return raw;
   const out: any[] = [];
@@ -395,6 +406,7 @@ function groupDeliveryLines(raw: any[], isReturn = false): any[] {
       // renders. Both are the WHOLE run now, not just run[0].
       proofPhotos: proofGroups.flatMap((g) => g.photos),
       proofGroups,
+      lineDeliveryStatus: mergedLineDeliveryStatus(run),
     });
     i = j;
   }
@@ -437,6 +449,18 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     if (Math.abs(dx) >= 40) stepZoom(dx < 0 ? 1 : -1);
   };
   const doStartReport = maintenanceReports?.find((r) => r.kind === "DO_START") ?? null;
+  // The customer signature shown on a DO is the LATEST signed proof of a kind
+  // (2026-09 partial sign-off: a later sign-off replaces the displayed one; the
+  // earlier signed rows stay on their reports as history). A DO signed once has
+  // one signature on every row, so latest == first and its output is unchanged.
+  // With nothing signed it falls back to the first row, exactly as before.
+  const latestSignedProof = (kind: "DO_ACK" | "DO_INSTALL") => {
+    const rows = (maintenanceReports ?? []).filter((r) => r.kind === kind);
+    const signed = rows.filter((r) => r.signature);
+    if (!signed.length) return rows[0] ?? null;
+    const at = (r: any) => new Date(r.signedAt ?? r.createdAt).getTime() || 0;
+    return signed.reduce((best, r) => (at(r) >= at(best) ? r : best));
+  };
   const doStartReportId = doStartReport?.id ?? null;
   const doStartPingCount = (doStartReport as any)?.pingCount ?? 0;
   // Scheduled date comes from the Delivery run (getById folds it into config).
@@ -2042,6 +2066,33 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     // FROM the site) with the same person/address value. Preview only for now -
     // the server PDF renderer is not routed through here (OSI-87).
     const isRdo = documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
+    // PARTIAL SIGN-OFF (2026-09): once at least one line on this DO is completed,
+    // every line whose run item is not completed yet reads "Pending". A DO where
+    // nothing is completed (a draft printed before dispatch, or any DO without
+    // live line states) renders exactly as before.
+    const anyLineCompleted = !isRdo && items.some((it: any) => it?.lineDeliveryStatus === "completed");
+    const isPendingLine = (it: any) =>
+      anyLineCompleted && !!it?.lineDeliveryStatus && it.lineDeliveryStatus !== "completed";
+    const pendingTag = (
+      <Box
+        component="span"
+        sx={{
+          display: "inline-block",
+          mt: 0.5,
+          px: 0.75,
+          border: "1px solid #999",
+          borderRadius: "3px",
+          fontSize: "0.6875rem",
+          fontWeight: 700,
+          color: "#555",
+          letterSpacing: "0.04em",
+          textTransform: "uppercase",
+          lineHeight: 1.6,
+        }}
+      >
+        Pending
+      </Box>
+    );
     // Biofuel replica vs generic layout. Hoisted so the same test gates BOTH the
     // sub-layout selector below AND the PROOF OF DELIVERY section (generic only):
     // the Biofuel replica shows proof photos inline, every other org keeps the
@@ -2154,8 +2205,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     // unchanged: the DO_ACK signature, falling back to DO_INSTALL. Prints, and
     // is placed after the flex spacer so it pins to the bottom of page 1.
     const receivedByBlock = (() => {
-      const ack = maintenanceReports?.find((r) => r.kind === "DO_ACK") ?? null;
-      const install = maintenanceReports?.find((r) => r.kind === "DO_INSTALL") ?? null;
+      const ack = latestSignedProof("DO_ACK");
+      const install = latestSignedProof("DO_INSTALL");
       const sig = ack?.signature ? ack : install?.signature ? install : null;
       const signedName = sig?.signedByName ?? "";
       // Date preference: the date the SIGNER TYPED wins, because on a guest
@@ -2496,6 +2547,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                         <TableCell sx={{ textAlign: "center" }}>{index + 1}.</TableCell>
                         <TableCell>
                           <DescriptionText text={item.description || ""} sx={{ fontWeight: 500 }} />
+                          {isPendingLine(item) && <Box>{pendingTag}</Box>}
                           {/* ONE STRIP PER UNIT, labelled by serial.
                               A merged line stands for N units, and each unit's
                               condition photos are separate evidence — a single
@@ -2718,6 +2770,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <TableCell>{item.itemCode || ""}</TableCell>
                   <TableCell>
                     <DescriptionText text={item.description || ""} sx={{ fontWeight: 500 }} />
+                    {isPendingLine(item) && <Box>{pendingTag}</Box>}
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity === "" || item.quantity == null || !Number.isFinite(Number(item.quantity)) ? "" : Number(item.quantity).toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
@@ -2764,8 +2817,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               blank as a fillable paper form. */}
           {(() => {
             const doStart = maintenanceReports?.find((r) => r.kind === "DO_START") ?? null;
-            const doAck = maintenanceReports?.find((r) => r.kind === "DO_ACK") ?? null;
-            const doInstall = maintenanceReports?.find((r) => r.kind === "DO_INSTALL") ?? null;
+            const doAck = latestSignedProof("DO_ACK");
+            const doInstall = latestSignedProof("DO_INSTALL");
             const deliveryByName = doStart?.technicianName ?? doStart?.signedByName ?? null;
             // Shared box style for the content-above-the-ruled-line area.
             // Fixed height keeps the three ruled lines aligned horizontally

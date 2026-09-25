@@ -254,7 +254,8 @@ export class DeliveriesController {
     return this.service.attachProjectToAdHocRun(id, body.projectId, org.id);
   }
 
-  // END-OF-RUN SIGNATURE (outbound). Valid once every item is delivered.
+  // CUSTOMER SIGNATURE (outbound). Full sign-off once every item is delivered;
+  // a partial sign-off for the items handed over so far (run stays open).
   @Post(':id/finalize')
   @Permissions('maintenance-reports:create')
   finalize(
@@ -265,7 +266,7 @@ export class DeliveriesController {
   ) {
     const riderUserId = req.user?.id;
     if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
-    return this.service.finalizeRun(id, dto, org.id, riderUserId);
+    return this.service.finalizeRun(id, dto, org.id, riderUserId, { allowPartial: true });
   }
 
   // Field: ONE signature at the END of a RETURN run (no install step). Reached
