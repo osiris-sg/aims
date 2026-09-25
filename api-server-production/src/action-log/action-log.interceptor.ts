@@ -44,6 +44,11 @@ const VERB_ACTIONS: Record<string, string> = {
   'run-due': 'RUN', run: 'RUN', 'generate-now': 'RUN', cancel: 'CANCEL', assign: 'ASSIGN',
   'link-project': 'LINK', link: 'LINK', 'claim-scheduled': 'CLAIM', 'ack-all': 'ACKNOWLEDGE',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
+  // Field delivery verbs (2026-09): the customer sign-off (full or partial, and
+  // the guest link's), the return sign-off, ad-hoc acknowledge, install skip, and
+  // a free-typed line's start/end. Only the delivery routes use these segments.
+  finalize: 'SIGN', 'finalize-return': 'SIGN', 'adhoc-ack': 'ACKNOWLEDGE',
+  'skip-install': 'SKIP', start: 'START', end: 'END',
   revoke: 'REVOKE', activate: 'ACTIVATE', deactivate: 'DEACTIVATE',
   'auto-match': 'MATCH', match: 'MATCH', unmatch: 'UNMATCH', ignore: 'IGNORE',
   'log-edit-unlock': 'UNLOCK',
