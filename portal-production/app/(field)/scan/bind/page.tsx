@@ -600,8 +600,8 @@ export default function BindTagPage() {
   if (!uid) {
     return (
       <Box sx={{ p: 3 }}>
-        <Alert severity="error">Missing tag UID — go back and tap again.</Alert>
-        <Button sx={{ mt: 2 }} onClick={() => router.replace("/scan")}>Back to scan</Button>
+        <Alert severity="error">Missing tag UID. Go back and tap again.</Alert>
+        <Button sx={{ mt: 2 }} onClick={() => router.replace("/scan/new")}>Back to scan</Button>
       </Box>
     );
   }
@@ -915,7 +915,7 @@ export default function BindTagPage() {
 
       {error && <Alert severity="error">{error}</Alert>}
 
-      <Button sx={{ mt: 2 }} onClick={() => router.replace("/scan")}>Cancel</Button>
+      <Button sx={{ mt: 2 }} onClick={() => router.replace("/scan/new")}>Cancel</Button>
 
       {/* Add a child asset type — name + skuKey → new child asset under the
           selected parent, appears as a new inline section ready to tag. */}

@@ -652,7 +652,7 @@ export default function DeliveryBasketPage() {
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="error">{error ?? "Could not load delivery"}</Alert>
-        <Button sx={{ mt: 2 }} onClick={() => router.push("/scan")}>Back to scan</Button>
+        <Button sx={{ mt: 2 }} onClick={() => router.push("/scan")}>Back</Button>
       </Box>
     );
   }
@@ -1512,7 +1512,7 @@ export default function DeliveryBasketPage() {
             Free type item
           </Button>
           {/* Fallback: full scanner page (devices without Web NFC in-browser). */}
-          <Button variant="text" size="small" onClick={() => router.push("/scan")} sx={{ color: "text.secondary" }}>
+          <Button variant="text" size="small" onClick={() => router.push("/scan/new")} sx={{ color: "text.secondary" }}>
             Use the scanner page instead
           </Button>
         </Stack>

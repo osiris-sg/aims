@@ -180,7 +180,7 @@ export default function AdHocDeliveryPage() {
       </Stack>
 
       <Button size="small" onClick={() => router.push("/scan")} disabled={busy}>
-        Back to scan
+        Back
       </Button>
     </Box>
   );
