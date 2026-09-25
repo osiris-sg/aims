@@ -121,6 +121,18 @@ export class OperatorService {
       } else if (resolved.reason === 'no-org') {
         await adapter.sendText(msg.chatId, 'Your AIMS account is not assigned to any organization yet.');
       } else if (resolved.reason === 'needs-org-choice') {
+        // The tap ANSWERING this picker arrives here too, because resolve()
+        // still finds no stored org. Handling it before re-prompting is what
+        // makes the picker escapable at all.
+        if (msg.callbackData?.startsWith('org:')) {
+          const picked = await this.auth.chooseOrgWhileUnset(msg.channel, msg.channelUserId, msg.callbackData.slice(4));
+          if (picked) {
+            await adapter.sendText(msg.chatId, `✅ Now working in ${picked.name}. What would you like to do?`);
+            return;
+          }
+          await adapter.sendText(msg.chatId, "You don't have access to that organization.");
+          return;
+        }
         await this.presentOrgPicker(adapter, msg.chatId, resolved.options ?? []);
       }
       return;

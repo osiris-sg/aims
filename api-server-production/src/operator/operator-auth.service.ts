@@ -263,6 +263,44 @@ export class OperatorAuthService {
     return membership?.organization ?? null;
   }
 
+  /**
+   * Accept an org pick from a sender who has NO org stored yet.
+   *
+   * resolve() returns needs-org-choice before handleInbound reaches its button
+   * handler, so the tap that answers the picker was itself being swallowed and
+   * re-prompted forever (guru 2026-09-25). This resolves the identity directly,
+   * applies the same access rule, and stores the choice.
+   */
+  async chooseOrgWhileUnset(
+    channel: OperatorChannel,
+    channelUserId: string,
+    organizationId: string,
+  ): Promise<{ id: string; name: string } | null> {
+    const identity = await this.prisma.operatorIdentity.findUnique({
+      where: { channel_channelUserId: { channel, channelUserId } },
+      select: { clerkUserId: true },
+    });
+    let clerkUserId = identity?.clerkUserId;
+    if (!clerkUserId && channel === 'whatsapp') {
+      const digits = String(channelUserId).replace(/\D/g, '');
+      const prof = await this.prisma.organizationMemberProfile.findFirst({
+        where: { whatsappNumber: digits },
+        select: { userId: true },
+      });
+      clerkUserId = prof?.userId;
+    }
+    if (!clerkUserId) return null;
+    const roles = await this.prisma.userRole.findMany({
+      where: { userId: clerkUserId, isActive: true },
+      select: { role: { select: { name: true } } },
+    });
+    const isOsirisAdmin = roles.some((r) => r.role?.name === 'osirisadmin');
+    const org = await this.canUseOrg({ clerkUserId, isOsirisAdmin }, organizationId);
+    if (!org) return null;
+    await this.setOrganization(channel, channelUserId, organizationId);
+    return org;
+  }
+
   async setOrganization(channel: OperatorChannel, channelUserId: string, organizationId: string) {
     const existing = await this.prisma.operatorIdentity.findUnique({
       where: { channel_channelUserId: { channel, channelUserId } },
