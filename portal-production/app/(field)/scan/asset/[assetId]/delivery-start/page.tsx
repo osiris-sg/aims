@@ -75,9 +75,7 @@ export default function StartDeliveryPage() {
   // "photos" is a full-screen step, not a cramped inline block: the guided
   // sequence needs the whole viewport on a phone. Mirrors how after-ack steps.
   const [phase, setPhase] = useState<"start" | "photos" | "assign">("start");
-  // Never set any more: standalone outbound now replaces straight to the
-  // ad-hoc page, so the assign phase that read this is unreachable.
-  const [runId] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
   // Set when the rider pressed "Assign & continue" but still owes photos: the
   // photo screen returns straight to doAssign instead of the assign list.
@@ -391,16 +389,11 @@ export default function StartDeliveryPage() {
           router.replace(`/scan/delivery/${deliveryId}`);
           return;
         }
-        // Standalone OUTBOUND: straight to the ad-hoc run (guru 2026-09-25).
-        // The rider no longer picks a scheduled run here; the run-first path
-        // (Deliveries home, Pending tab) is how a scheduled run is worked. This
-        // is exactly where "Start New Delivery" on the assign phase used to
-        // land. `replace` keeps this auto-starting page out of history, so Back
-        // can't re-fire the start.
-        //
-        // NOTE: this makes the ASSIGN phase below (and doAssign / the
-        // scheduled-open fetch) UNREACHABLE. Left in place deliberately.
-        router.replace(`/scan/delivery/${deliveryId}/adhoc`);
+        // Standalone delivery: assign is the last step of starting — park in the
+        // assign phase (optional project pick), then land on the basket.
+        setRunId(deliveryId);
+        setPhase("assign");
+        setSubmitting(false);
         return;
       }
       // Carry inventoryId through to /done so its "Back to this asset" link
@@ -453,8 +446,6 @@ export default function StartDeliveryPage() {
   };
 
   // ── ASSIGN phase (standalone, after DO_START) ───────────────────────────────
-  // UNREACHABLE since 2026-09-25: confirm() replaces to /scan/delivery/:id/adhoc
-  // instead of setting phase "assign". Kept in place, not deleted.
   // The rider picks one of the office's SCHEDULED DELIVERIES (by drop address).
   // Every open run is shown; a run with no slot for this unit's asset is flagged
   // but still pickable, so an office typo can't strand the rider.
