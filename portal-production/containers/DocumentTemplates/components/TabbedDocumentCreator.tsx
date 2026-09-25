@@ -1225,7 +1225,13 @@ export default function TabbedDocumentCreator({
           tax: isInvoiceType ? undefined : (item.tax || "9"),
         };
       });
-      return mapped;
+      // Re-settle merged blocks ON LOAD. A document saved before the merge
+      // carried a shared quantity stores only a flat block price, and a
+      // DUPLICATE copies that stale amount verbatim — so the block kept
+      // printing the old figure no matter what quantity was on screen
+      // (guru 2026-09-25). Normalising here re-derives every block as
+      // quantity x rate, from whatever the rows actually say.
+      return normalizeRateMerges(mapped);
     }
 
     // If no existing items, start with empty array - rows appear only when user adds items

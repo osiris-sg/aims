@@ -3373,6 +3373,29 @@ export class DocumentsService {
           seenIds.add(id);
           return { ...item, id };
         });
+
+        // Re-settle merged rate blocks (guru 2026-09-25). A block is quoted as
+        // shared quantity x shared rate, but the amount is STORED on its first
+        // row — copying it verbatim carried the source document's figure into
+        // the duplicate, so the new quote printed the old amount however the
+        // quantity was changed. Recompute each block from its own marker.
+        const blockFirstSeen = new Set<string>();
+        duplicatedConfig.items = duplicatedConfig.items.map((item: any) => {
+          const merge = item?.rateMerge;
+          if (!merge?.id) return item;
+          // Documents merged before the shared quantity existed fall back to
+          // the row's own quantity, exactly as the renderers do.
+          const qty = Number(merge.quantity ?? item.quantity) || 0;
+          const price = Number(merge.price) || 0;
+          const isFirst = !blockFirstSeen.has(merge.id);
+          blockFirstSeen.add(merge.id);
+          return {
+            ...item,
+            quantity: qty,
+            rateMerge: { ...merge, quantity: qty },
+            amount: isFirst ? qty * price : null,
+          };
+        });
       }
 
       // Reuse createBasicDocument so we get the standard document-number
