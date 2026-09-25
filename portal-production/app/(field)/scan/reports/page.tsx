@@ -7,16 +7,18 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   CircularProgress,
   Divider,
+  List,
+  ListItemButton,
+  ListItemText,
   Stack,
   Typography,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import { request } from "@/helpers/request";
-import { ReportSummary } from "../../lib/maintenanceReports";
-import { CompletedReportList } from "../../components/CompletedReportList";
 
 /**
  * MAINTENANCE REPORTS — the landing screen.
@@ -42,10 +44,25 @@ import { CompletedReportList } from "../../components/CompletedReportList";
  * while looking up last month's service.
  */
 
+interface ReportRow {
+  id: string;
+  reportNumber: number | null;
+  status: string;
+  createdAt: string;
+  serviceData: {
+    customerName?: string | null;
+    model?: string | null;
+    serial?: string | null;
+    serviceDate?: string | null;
+  } | null;
+  asset: { name: string | null } | null;
+  inventory: { sku: string | null } | null;
+}
+
 export default function MaintenanceReportsPage() {
   const router = useRouter();
   const { getToken } = useAuth();
-  const [done, setDone] = useState<ReportSummary[] | null>(null);
+  const [done, setDone] = useState<ReportRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -113,7 +130,32 @@ export default function MaintenanceReportsPage() {
           No completed reports yet.
         </Typography>
       ) : (
-        <CompletedReportList reports={done} />
+        <List dense sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 0 }}>
+          {done.map((r: ReportRow) => (
+            <ListItemButton
+              key={r.id}
+              onClick={() => router.push(`/scan/reports/${r.id}/print`)}
+              sx={{ minHeight: 64 }}
+            >
+              <ListItemText
+                primary={
+                  <>
+                    <strong>#{r.reportNumber ?? "—"}</strong>{"  "}
+                    {r.serviceData?.customerName || "—"}
+                  </>
+                }
+                secondary={[
+                  r.serviceData?.model || r.asset?.name,
+                  r.serviceData?.serial || r.inventory?.sku,
+                  r.serviceData?.serviceDate,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              />
+              <Chip size="small" label="Signed" color="success" variant="outlined" />
+            </ListItemButton>
+          ))}
+        </List>
       )}
     </Box>
   );
