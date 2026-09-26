@@ -43,4 +43,8 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // layout. When ON, Sales → Quotation opens the ID editor instead of the
   // generic document editor. Default OFF; enabled per org.
   enableIdQuotation: false,
+  // Operations dashboard (Biofuel, 2026-09-26): replaces the generic landing
+  // cards with stock on hand, units in/out, revenue by product over a
+  // filterable range, field-service frequency and a fleet map. Default OFF.
+  enableOpsDashboard: false,
 };

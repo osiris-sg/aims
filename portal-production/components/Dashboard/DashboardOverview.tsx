@@ -7,14 +7,17 @@ import InvoicesDueCard from "@/components/Dashboard/InvoicesDueCard";
 import DeliveryOrdersCard from "@/components/Dashboard/DeliveryOrdersCard";
 import ProjectsEndingCard from "@/components/Dashboard/ProjectsEndingCard";
 import IdDashboard from "@/components/Dashboard/IdDashboard";
+import OpsDashboard from "@/components/Dashboard/OpsDashboard";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 export default function DashboardOverview() {
   // Interior-design orgs (enableIdQuotation) get the designer dashboard —
   // projects/leads/revenue-vs-target — instead of the rental cards.
-  const { isIdQuotationEnabled, isLoading } = useOrganizationFeatures();
+  // Equipment-rental orgs (enableOpsDashboard) get the operations screen.
+  const { isIdQuotationEnabled, isOpsDashboardEnabled, isLoading } = useOrganizationFeatures();
   if (isIdQuotationEnabled) return <IdDashboard />;
   if (isLoading) return null;
+  if (isOpsDashboardEnabled) return <OpsDashboard />;
   return (
     <MainCard>
       <Box sx={{ width: "100%", height: "100%" }}>

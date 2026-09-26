@@ -88,6 +88,11 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // items with includes, internal cost/margin + guardrails, Letter-of-Intent
   // print layout) instead of the generic document editor. Default OFF.
   enableIdQuotation: false,
+  // Operations dashboard (Biofuel, 2026-09-26): the portal landing page shows
+  // stock on hand, units in/out, revenue by product over a filterable range,
+  // field-service frequency and a fleet map, instead of the generic cards.
+  // Default OFF.
+  enableOpsDashboard: false,
   // NOTE: the "AIMS Guide" assistant (bottom-right bubble) is deliberately
   // NOT flagged — it's global for every org (guru, 2026-08-03).
 };
@@ -162,5 +167,6 @@ export function useOrganizationFeatures() {
     isLegacyAccountingUxEnabled: features.enableLegacyAccountingUx ?? false,
     isIdQuotationEnabled: features.enableIdQuotation ?? false,
     isAdsInsightsEnabled: features.enableAdsInsights ?? false,
+    isOpsDashboardEnabled: features.enableOpsDashboard ?? false,
   };
 }
