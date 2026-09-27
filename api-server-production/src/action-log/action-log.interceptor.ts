@@ -49,6 +49,8 @@ const VERB_ACTIONS: Record<string, string> = {
   // a free-typed line's start/end. Only the delivery routes use these segments.
   finalize: 'SIGN', 'finalize-return': 'SIGN', 'adhoc-ack': 'ACKNOWLEDGE',
   'skip-install': 'SKIP', start: 'START', end: 'END',
+  // Driver hand-off (2026-09): the rider's POST /deliveries/:id/handoff.
+  handoff: 'HANDOFF',
   revoke: 'REVOKE', activate: 'ACTIVATE', deactivate: 'DEACTIVATE',
   'auto-match': 'MATCH', match: 'MATCH', unmatch: 'UNMATCH', ignore: 'IGNORE',
   'log-edit-unlock': 'UNLOCK',
@@ -167,7 +169,15 @@ export class ActionLogInterceptor implements NestInterceptor {
       // params.token FIRST: the path tail is the verb ('sign') on the write
       // route, so popping the last segment would record the verb as the actor.
       const token = params.token || path.split('/').filter(Boolean).pop() || 'unknown';
-      return { actorType: 'GUEST', actorId: `token:${String(token).substring(0, 24)}`, actorName: 'Guest (share link)', channel: 'public' };
+      // A drv_ token is a rider's hand-off to another driver (2026-09): name the
+      // actor as the driver so the log reads who finished the trip.
+      const isDriver = String(token).startsWith('drv_');
+      return {
+        actorType: 'GUEST',
+        actorId: `token:${String(token).substring(0, 24)}`,
+        actorName: isDriver ? 'Driver (hand-off link)' : 'Guest (share link)',
+        channel: 'public',
+      };
     }
     // Webhooks / ingestion / anything else non-human → "System creation".
     return { actorType: 'SYSTEM', actorId: `system:${path.split('/').filter(Boolean)[0] || 'unknown'}`, actorName: SYSTEM_ACTOR_NAME, channel: 'webhook' };

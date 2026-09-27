@@ -1,4 +1,5 @@
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
+import * as QRCode from 'qrcode';
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, forwardRef } from '@nestjs/common';
 import { AssetClass, DeliveryDirection, DeliveryOrigin, DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
@@ -4021,6 +4022,9 @@ export class DeliveriesService {
     // finished: the link must stop accepting anything then (matches the guest
     // resolveToken guard). A run that did not complete keeps its link.
     await this.revokeShareLinksIfCompleted(deliveryId);
+    // This sign-off ends the trip: its driver link (if any) stops working and
+    // the next trip asks "Who's delivering?" again.
+    await this.endTripHandoff(deliveryId);
     const finished = await this.prisma.delivery.findUnique({ where: { id: deliveryId } });
     return finished ? { ...finished, signedItemCount, partial: false } : finished;
   }
@@ -4163,8 +4167,153 @@ export class DeliveriesService {
       }
     }
     await this.revokeShareLinksIfCompleted(deliveryId);
+    await this.endTripHandoff(deliveryId);
     const after = await this.prisma.delivery.findUnique({ where: { id: deliveryId } });
     return after ? { ...after, signedItemCount: signIds.length, partial: after.status !== 'completed' } : after;
+  }
+
+  // ── DRIVER HANDOFF (2026-09) ────────────────────────────────────────────────
+  // A scheduled OUTBOUND run's trip can be handed to another driver: the rider
+  // records the vehicle and shows a QR of a drv_ share link. The link drives the
+  // public driver page (public-delivery), which may only END the trip's loaded
+  // items and SIGN (partial allowed). Per trip: every sign-off clears the mode
+  // and revokes the drv_ link. Timestamps from the DB clock.
+  static readonly DRIVER_TOKEN_PREFIX = 'drv_';
+  static readonly DRIVER_LINK_TTL_HOURS = 24;
+
+  /** Refuse the rider's own End / sign while the trip is handed to a driver. */
+  async assertNotHandedOff(deliveryId: string, organizationId: string) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { handoffMode: true, vehicleNumber: true },
+    });
+    if (run?.handoffMode === 'DRIVER') {
+      throw new BadRequestException(
+        `This trip is handed to vehicle ${run.vehicleNumber ?? ''}. The driver ends and signs it from their link.`.replace(/\s+\./, '.'),
+      );
+    }
+  }
+
+  /** End the current trip's hand-off: revoke its drv_ link(s) and clear the mode. */
+  private async endTripHandoff(deliveryId: string) {
+    await this.prisma.$executeRaw`
+      UPDATE "DeliveryShareLink" SET "revokedAt" = (now() AT TIME ZONE 'UTC')
+      WHERE "deliveryId" = ${deliveryId}::uuid AND "revokedAt" IS NULL
+        AND left(token, 4) = ${DeliveriesService.DRIVER_TOKEN_PREFIX}`;
+    await this.prisma.$executeRaw`
+      UPDATE "Delivery" SET "handoffMode" = NULL, "updatedAt" = (now() AT TIME ZONE 'UTC')
+      WHERE id = ${deliveryId}::uuid AND "handoffMode" IS NOT NULL`;
+  }
+
+  private driverLinkUrl(token: string, baseUrl?: string | null) {
+    const fromEnv = (process.env.PORTAL_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
+    const fromClient = baseUrl && /^https?:\/\/[^\s/]+$/i.test(baseUrl.replace(/\/$/, '')) ? baseUrl.replace(/\/$/, '') : '';
+    const base = fromEnv || fromClient;
+    const path = `/guest/delivery/${token}`;
+    return { path, url: base ? `${base}${path}` : path };
+  }
+
+  /**
+   * Rider: choose who delivers the loaded trip. SELF records the choice. DRIVER
+   * needs a vehicle number, revokes any earlier drv_ link on the run, mints a new
+   * one (24h), and returns it with a QR image of its absolute URL.
+   */
+  async handoffTrip(
+    deliveryId: string,
+    dto: { mode?: string; vehicleNumber?: string; itemIds?: string[]; baseUrl?: string },
+    organizationId: string,
+    userId: string,
+  ) {
+    const mode = String(dto?.mode ?? '').toUpperCase();
+    if (mode !== 'SELF' && mode !== 'DRIVER') throw new BadRequestException('Choose Myself or Other driver.');
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { id: true, status: true, direction: true, origin: true, scheduledFor: true, riderUserId: true, isDraft: true, handoffMode: true },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.direction !== DeliveryDirection.OUTBOUND || run.origin === DeliveryOrigin.AD_HOC || !run.scheduledFor || run.isDraft) {
+      throw new BadRequestException('Only a scheduled delivery can be handed to another driver.');
+    }
+    if (run.status !== 'in_progress') throw new BadRequestException('Load the items for this trip first.');
+    if (run.riderUserId && run.riderUserId !== userId) {
+      throw new BadRequestException('Only the rider on this delivery can hand it over.');
+    }
+    if (run.handoffMode === 'DRIVER') throw new BadRequestException('This trip is already handed to a driver.');
+    const items = await this.prisma.deliveryItem.findMany({
+      where: { deliveryId },
+      select: { id: true, deliveryStatus: true },
+    });
+    if (!items.some((i) => i.deliveryStatus === DeliveryStatus.delivering)) {
+      throw new BadRequestException('Load the items for this trip first.');
+    }
+    const picked = (dto.itemIds ?? []).filter(Boolean);
+    if (picked.length) {
+      const byId = new Map(items.map((i) => [i.id, i.deliveryStatus]));
+      if (picked.some((id) => !byId.has(id))) throw new BadRequestException('An item is not on this delivery.');
+      if (picked.some((id) => byId.get(id) === DeliveryStatus.not_delivered)) {
+        throw new BadRequestException('Load every item you picked for this trip first.');
+      }
+    }
+
+    if (mode === 'SELF') {
+      await this.prisma.$executeRaw`
+        UPDATE "Delivery" SET "handoffMode" = 'SELF', "updatedAt" = (now() AT TIME ZONE 'UTC')
+        WHERE id = ${deliveryId}::uuid AND "organizationId" = ${organizationId}`;
+      return { mode: 'SELF' as const };
+    }
+
+    const vehicleNumber = String(dto.vehicleNumber ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+    if (!vehicleNumber) throw new BadRequestException('Enter the vehicle number.');
+    if (vehicleNumber.length > 20) throw new BadRequestException('That vehicle number is too long.');
+    // The share link needs the run's DO (a scheduled run is born-linked to one).
+    const linked = await this.prisma.deliveryItem.findFirst({
+      where: { deliveryId, documentId: { not: null } },
+      select: { documentId: true },
+    });
+    if (!linked?.documentId) throw new BadRequestException('This delivery has no delivery order to hand over.');
+
+    const token = `${DeliveriesService.DRIVER_TOKEN_PREFIX}${randomBytes(32).toString('base64url')}`;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        UPDATE "DeliveryShareLink" SET "revokedAt" = (now() AT TIME ZONE 'UTC')
+        WHERE "deliveryId" = ${deliveryId}::uuid AND "revokedAt" IS NULL
+          AND left(token, 4) = ${DeliveriesService.DRIVER_TOKEN_PREFIX}`;
+      await tx.$executeRaw`
+        INSERT INTO "DeliveryShareLink" (id, token, "documentId", "deliveryId", "createdAt", "expiresAt")
+        VALUES (${randomUUID()}, ${token}, ${linked.documentId}::uuid, ${deliveryId}::uuid,
+                (now() AT TIME ZONE 'UTC'),
+                (now() AT TIME ZONE 'UTC') + make_interval(hours => ${DeliveriesService.DRIVER_LINK_TTL_HOURS}::int))`;
+      await tx.$executeRaw`
+        UPDATE "Delivery"
+        SET "handoffMode" = 'DRIVER', "vehicleNumber" = ${vehicleNumber},
+            "handedOffAt" = (now() AT TIME ZONE 'UTC'), "handedOffByUserId" = ${userId},
+            "updatedAt" = (now() AT TIME ZONE 'UTC')
+        WHERE id = ${deliveryId}::uuid AND "organizationId" = ${organizationId}`;
+    });
+    return this.getHandoff(deliveryId, organizationId, dto.baseUrl);
+  }
+
+  /** Rider: the current trip's hand-off (vehicle, time, live driver link + QR). */
+  async getHandoff(deliveryId: string, organizationId: string, baseUrl?: string | null) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { handoffMode: true, vehicleNumber: true, handedOffAt: true },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.handoffMode !== 'DRIVER') return { mode: run.handoffMode ?? null };
+    const link = await this.prisma.deliveryShareLink.findFirst({
+      where: {
+        deliveryId,
+        revokedAt: null,
+        token: { startsWith: DeliveriesService.DRIVER_TOKEN_PREFIX },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { token: true, expiresAt: true },
+    });
+    if (!link) return { mode: 'DRIVER' as const, vehicleNumber: run.vehicleNumber, handedOffAt: run.handedOffAt, url: null, qrDataUrl: null, expiresAt: null };
+    const { path, url } = this.driverLinkUrl(link.token, baseUrl);
+    const qrDataUrl = await QRCode.toDataURL(url, { margin: 1, width: 512, errorCorrectionLevel: 'M' });
+    return { mode: 'DRIVER' as const, vehicleNumber: run.vehicleNumber, handedOffAt: run.handedOffAt, path, url, qrDataUrl, expiresAt: link.expiresAt };
   }
 
   /** Revoke a run's live guest share links, but only once the run is completed. */
@@ -4972,6 +5121,7 @@ export class DeliveriesService {
         }
       }
       const updated = await this.prisma.delivery.update({ where: { id: deliveryId }, data: { status: 'cancelled' } });
+      await this.endTripHandoff(deliveryId);
       return note ? { ...updated, note } : updated;
     }
 
@@ -5017,10 +5167,13 @@ export class DeliveriesService {
       }
       await this.releaseUnit(item.inventoryId, delivery.deliveryNumber);
     }
-    return this.prisma.delivery.update({
+    const cancelled = await this.prisma.delivery.update({
       where: { id: deliveryId },
       data: { status: 'cancelled' },
     });
+    // A cancelled run's driver link must stop working too.
+    await this.endTripHandoff(deliveryId);
+    return cancelled;
   }
 
   /**

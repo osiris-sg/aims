@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { MaintenanceReportsModule } from '../maintenance-reports/maintenance-reports.module';
 import { DeliveriesModule } from '../deliveries/deliveries.module';
+import { PublicDocumentModule } from '../public-document/public-document.module';
 import { UploadsService } from '../uploads/uploads.service';
 import { PublicDeliveryController } from './public-delivery.controller';
 import { PublicDeliveryService } from './public-delivery.service';
@@ -14,7 +15,7 @@ import { PublicDeliveryService } from './public-delivery.service';
   // does. Both import-chains are one-way (no cycle back to PublicDelivery).
   // UploadsService is added directly (it only depends on the global ConfigService)
   // for the token-scoped POD photo upload.
-  imports: [MaintenanceReportsModule, DeliveriesModule],
+  imports: [MaintenanceReportsModule, DeliveriesModule, PublicDocumentModule],
   controllers: [PublicDeliveryController],
   providers: [PublicDeliveryService, PrismaService, UploadsService],
 })

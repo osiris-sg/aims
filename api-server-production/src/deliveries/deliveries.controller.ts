@@ -195,7 +195,7 @@ export class DeliveriesController {
   // signature + photo + GPS (one DO_ACK MSR per unit carrying the shared proof).
   @Post(':id/ack-all')
   @Permissions('maintenance-reports:create')
-  ackAll(
+  async ackAll(
     @Param('id') id: string,
     @Body() dto: AckAllDto,
     @UserOrganization() org: { id: string },
@@ -203,7 +203,32 @@ export class DeliveriesController {
   ) {
     const riderUserId = req.user?.id;
     if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    // While the trip is handed to another driver, the rider cannot end it.
+    await this.service.assertNotHandedOff(id, org.id);
     return this.service.acknowledgeAll(id, dto, org.id, riderUserId);
+  }
+
+  // Field: WHO DELIVERS THIS TRIP (scheduled outbound runs). SELF records the
+  // choice; DRIVER takes a vehicle number and returns a drv_ link + QR image for
+  // another driver to finish the trip on a public page. Rider only.
+  @Post(':id/handoff')
+  @Permissions('maintenance-reports:create')
+  handoff(
+    @Param('id') id: string,
+    @Body() body: { mode?: string; vehicleNumber?: string; itemIds?: string[]; baseUrl?: string },
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    const riderUserId = req.user?.id;
+    if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.handoffTrip(id, body ?? {}, org.id, riderUserId);
+  }
+
+  // Field: the current trip's hand-off, for "Show QR" on the rider's basket.
+  @Get(':id/handoff/current')
+  @Permissions('maintenance-reports:read')
+  getHandoff(@Param('id') id: string, @Query('baseUrl') baseUrl: string, @UserOrganization() org: { id: string }) {
+    return this.service.getHandoff(id, org.id, baseUrl);
   }
 
   // Field: MARK ONE UNIT DELIVERED (per-item "End Delivery", signature-at-end).
@@ -212,7 +237,7 @@ export class DeliveriesController {
   // path from the free-typed :itemId/deliver (that one is keyed by DeliveryItem.id).
   @Post(':id/units/:inventoryId/deliver')
   @Permissions('maintenance-reports:create')
-  deliverUnit(
+  async deliverUnit(
     @Param('id') id: string,
     @Param('inventoryId') inventoryId: string,
     @Body() dto: AckAllDto,
@@ -221,6 +246,7 @@ export class DeliveriesController {
   ) {
     const riderUserId = req.user?.id;
     if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    await this.service.assertNotHandedOff(id, org.id);
     return this.service.markUnitDelivered(id, inventoryId, dto, org.id, riderUserId);
   }
 
@@ -258,7 +284,7 @@ export class DeliveriesController {
   // a partial sign-off for the items handed over so far (run stays open).
   @Post(':id/finalize')
   @Permissions('maintenance-reports:create')
-  finalize(
+  async finalize(
     @Param('id') id: string,
     @Body() dto: AckAllDto,
     @UserOrganization() org: { id: string },
@@ -266,6 +292,8 @@ export class DeliveriesController {
   ) {
     const riderUserId = req.user?.id;
     if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    // While the trip is handed to another driver, the rider cannot sign it.
+    await this.service.assertNotHandedOff(id, org.id);
     return this.service.finalizeRun(id, dto, org.id, riderUserId, { allowPartial: true });
   }
 
@@ -346,7 +374,7 @@ export class DeliveriesController {
   // MSR (asset-less), advances the line delivering -> completed.
   @Post(':id/items/:itemId/end')
   @Permissions('maintenance-reports:create')
-  endFreeTypedItem(
+  async endFreeTypedItem(
     @Param('id') id: string,
     @Param('itemId') itemId: string,
     @Body() dto: FreeTypedEndDto,
@@ -355,6 +383,7 @@ export class DeliveriesController {
   ) {
     const riderUserId = req.user?.id;
     if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    await this.service.assertNotHandedOff(id, org.id);
     return this.service.endFreeTypedItem(id, itemId, dto, org.id, riderUserId);
   }
 

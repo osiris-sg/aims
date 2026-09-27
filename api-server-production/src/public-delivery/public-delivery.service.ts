@@ -6,6 +6,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
+import { PublicDocumentService } from '../public-document/public-document.service';
 import { DeliveryDirection, DeliveryStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { UploadsService } from '../uploads/uploads.service';
@@ -70,7 +71,19 @@ export class PublicDeliveryService {
     private readonly uploadsService: UploadsService,
     private readonly maintenanceReportsService: MaintenanceReportsService,
     private readonly deliveriesService: DeliveriesService,
+    private readonly publicDocuments: PublicDocumentService,
   ) {}
+
+  /**
+   * DRIVER links (2026-09 hand-off) are drv_-prefixed tokens on this same table,
+   * minted by the rider (DeliveriesService.handoffTrip), never by the office.
+   * They are NARROWER than an office guest link: the driver sees only the trip's
+   * loaded items, can END them (no new photos, no unloaded items), and SIGN with
+   * partial sign-off allowed. Records are stamped "Driver (<vehicle>)".
+   */
+  private static isDriverToken(token: string): boolean {
+    return typeof token === 'string' && token.startsWith('drv_');
+  }
 
   /** Controller calls this per public request with the token + client IP. */
   publicRateGate(token: string, ip: string) {
@@ -120,8 +133,10 @@ export class PublicDeliveryService {
     const expiresAt = new Date(Math.max(windowBase, now) + LINK_WINDOW_MS);
 
     // Reuse the newest active (non-revoked, non-expired) link for THIS run; else create.
+    // Ordinary guest links only: a rider's drv_ driver link is never handed out
+    // by the office share button.
     const existing = await this.prisma.deliveryShareLink.findFirst({
-      where: { deliveryId: run.id, revokedAt: null },
+      where: { deliveryId: run.id, revokedAt: null, NOT: { token: { startsWith: 'drv_' } } },
       orderBy: { createdAt: 'desc' },
       select: { token: true, expiresAt: true },
     });
@@ -171,7 +186,7 @@ export class PublicDeliveryService {
         revokedAt: true,
         expiresAt: true,
         document: { select: { id: true, name: true, organizationId: true, config: true } },
-        delivery: { select: { id: true, status: true, direction: true, deliveryNumber: true, organizationId: true } },
+        delivery: { select: { id: true, status: true, direction: true, deliveryNumber: true, organizationId: true, vehicleNumber: true, handoffMode: true } },
       },
     });
     // A run-scoped token must resolve to an OUTBOUND run. Anything else reads as
@@ -212,8 +227,13 @@ export class PublicDeliveryService {
       return { state, deliveryNumber: null, documentNumber: null, customerName: '', deliveryItems: [] };
     }
     const config: any = link.document.config || {};
+    const isDriver = PublicDeliveryService.isDriverToken(token);
     const items = await this.prisma.deliveryItem.findMany({
-      where: { deliveryId: link.delivery.id },
+      // A DRIVER link sees only the trip: the items loaded and not yet signed for.
+      where: {
+        deliveryId: link.delivery.id,
+        ...(isDriver ? { deliveryStatus: { in: [DeliveryStatus.delivering, DeliveryStatus.not_installed] } } : {}),
+      },
       orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
       select: { id: true, inventoryId: true, assetId: true, description: true, quantity: true, deliveryStatus: true, assetClass: true },
     });
@@ -225,8 +245,21 @@ export class PublicDeliveryService {
         })
       : [];
     const unitById = new Map(units.map((u) => [u.id, u]));
+    const trip = isDriver
+      ? {
+          mode: 'DRIVER' as const,
+          vehicleNumber: link.delivery.vehicleNumber ?? null,
+          // End is offered while anything is still out; sign once all are ended.
+          canEnd: items.some((i) => i.deliveryStatus === DeliveryStatus.delivering),
+          canSign:
+            items.length > 0 &&
+            !items.some((i) => i.deliveryStatus === DeliveryStatus.delivering) &&
+            items.some((i) => i.deliveryStatus === DeliveryStatus.not_installed),
+        }
+      : { mode: 'GUEST' as const };
     return {
       state,
+      ...trip,
       deliveryNumber: link.delivery.deliveryNumber,
       documentNumber: link.document.name,
       customerName: config?.customer?.name || config?.customerName || '',
@@ -242,8 +275,9 @@ export class PublicDeliveryService {
           quantity: it.quantity,
           deliveryStatus: it.deliveryStatus,
           minPhotos: minPhotosForAssetClass(cls),
-          // A guest can only act on an item that has not been delivered yet.
-          canDeliver: it.deliveryStatus === DeliveryStatus.not_delivered || it.deliveryStatus === DeliveryStatus.delivering,
+          // A guest can only act on an item that has not been delivered yet. A
+          // DRIVER never delivers item by item: they End the whole trip.
+          canDeliver: !isDriver && (it.deliveryStatus === DeliveryStatus.not_delivered || it.deliveryStatus === DeliveryStatus.delivering),
         };
       }),
     };
@@ -276,6 +310,10 @@ export class PublicDeliveryService {
     const { link, state } = await this.resolveToken(token);
     if (!link) this.assertActionable(state);
     this.assertActionable(state);
+    // A driver link can never deliver an item that was not loaded for the trip.
+    if (PublicDeliveryService.isDriverToken(token)) {
+      throw new HttpException('This link can only end the items already loaded for this trip.', HttpStatus.FORBIDDEN);
+    }
     const organizationId = link!.document.organizationId;
     const deliveryId = link!.delivery.id;
 
@@ -341,6 +379,31 @@ export class PublicDeliveryService {
    * never leave a half-committed run. finalizeRun also auto-revokes this link on
    * completion. `installNeeded` is the single yes/no finalize needs.
    */
+  /**
+   * PUBLIC, DRIVER links only — END the trip: mark every item still out
+   * (delivering) as delivered, exactly like the rider's End Delivery (ack-all),
+   * with no new photos. Items that were never loaded are untouched.
+   */
+  async endTrip(token: string) {
+    const { link, state } = await this.resolveToken(token);
+    if (!link) this.assertActionable(state);
+    this.assertActionable(state);
+    if (!PublicDeliveryService.isDriverToken(token)) {
+      throw new HttpException('This link cannot end the delivery.', HttpStatus.FORBIDDEN);
+    }
+    const out = await this.prisma.deliveryItem.count({
+      where: { deliveryId: link!.delivery.id, deliveryStatus: DeliveryStatus.delivering },
+    });
+    if (!out) throw new BadRequestException('Nothing on this trip is waiting to be ended.');
+    await this.deliveriesService.acknowledgeAll(
+      link!.delivery.id,
+      { technicianName: `Driver (${link!.delivery.vehicleNumber ?? 'unknown vehicle'})` },
+      link!.document.organizationId,
+      GUEST_TECHNICIAN,
+    );
+    return this.getRunView(token);
+  }
+
   async finalize(
     token: string,
     body: { signature?: string; signedByName?: string; installNeeded?: boolean; installPhotos?: string[] },
@@ -349,6 +412,37 @@ export class PublicDeliveryService {
     if (!link) this.assertActionable(state);
     this.assertActionable(state);
     if (!body?.signature) throw new BadRequestException('signature is required');
+    // DRIVER link: sign for the trip (partial sign-off allowed), stamped with the
+    // vehicle, then hand back a VIEW-ONLY DO link for printing. finalizeRun ends
+    // the trip's hand-off, which revokes this link.
+    if (PublicDeliveryService.isDriverToken(token)) {
+      const driver = `Driver (${link!.delivery.vehicleNumber ?? 'unknown vehicle'})`;
+      const res: any = await this.deliveriesService.finalizeRun(
+        link!.delivery.id,
+        {
+          signature: body.signature,
+          ...(body.signedByName ? { recipientName: body.signedByName } : {}),
+          technicianName: driver,
+          installNeeded: !!body.installNeeded,
+          ...(body.installNeeded && Array.isArray(body.installPhotos) && body.installPhotos.length
+            ? { installPhotos: body.installPhotos.filter((p) => typeof p === 'string') }
+            : {}),
+        },
+        link!.document.organizationId,
+        GUEST_TECHNICIAN,
+        { allowPartial: true },
+      );
+      const view = await this.publicDocuments.getOrCreateViewOnlyLink(link!.document.id, link!.document.organizationId);
+      return {
+        state: 'signed' as const,
+        signedItemCount: res?.signedItemCount ?? null,
+        partial: !!res?.partial,
+        deliveryNumber: link!.delivery.deliveryNumber,
+        documentNumber: link!.document.name,
+        viewPath: view.path,
+        viewUrl: view.url,
+      };
+    }
     await this.deliveriesService.finalizeRun(
       link!.delivery.id,
       {

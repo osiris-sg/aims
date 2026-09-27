@@ -93,6 +93,14 @@ export class PublicDeliveryController {
     return this.publicDeliveryService.deliverItem(token, itemId, body?.photos ?? []);
   }
 
+  /** PUBLIC, DRIVER links only — end every item still out on the trip. */
+  @Public()
+  @Post('public/delivery/:token/end')
+  async end(@Param('token') token: string, @Req() req: Request) {
+    this.publicDeliveryService.publicRateGate(token, this.clientIp(req));
+    return this.publicDeliveryService.endTrip(token);
+  }
+
   /** PUBLIC — finalize the run: install yes/no + one signature. */
   @Public()
   @Post('public/delivery/:token/finalize')

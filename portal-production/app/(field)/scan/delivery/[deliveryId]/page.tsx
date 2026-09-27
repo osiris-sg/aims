@@ -108,6 +108,11 @@ interface Run {
   riderName: string | null;
   siteAddress: string | null;
   startedAt: string;
+  // DRIVER HANDOFF (2026-09): who delivers the current trip. SELF / DRIVER, or
+  // null when the rider has not chosen yet. Cleared at each sign-off.
+  handoffMode?: "SELF" | "DRIVER" | null;
+  vehicleNumber?: string | null;
+  handedOffAt?: string | null;
   // Derived by the backend: the single distinct DO across linked items, else null.
   document: { id: string; name: string | null } | null;
   items: RunItem[];
@@ -158,6 +163,12 @@ export default function DeliveryBasketPage() {
   // Picker -> confirm is local to this page; "Back" on confirm keeps the ticks.
   const [pickStage, setPickStage] = useState<"pick" | "confirm">("pick");
   const [draftPick, setDraftPick] = useState<string[]>([]);
+  // Driver hand-off: the "Other driver" vehicle step and the QR screen.
+  const [handoffStage, setHandoffStage] = useState<"vehicle" | "qr" | null>(null);
+  const [vehicleInput, setVehicleInput] = useState("");
+  const [handoffQr, setHandoffQr] = useState<{ qrDataUrl: string | null; url: string | null; vehicleNumber: string | null } | null>(null);
+  const [handoffBusy, setHandoffBusy] = useState(false);
+  const [handoffError, setHandoffError] = useState<string | null>(null);
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -826,6 +837,8 @@ export default function DeliveryBasketPage() {
   const canPartialSign =
     pickerScope &&
     run.status === "in_progress" &&
+    // Handed to a driver: the driver signs from their link, not the rider.
+    run.handoffMode !== "DRIVER" &&
     !run.items.some((it) => it.deliveryStatus === "delivering") &&
     run.items.some((it) => it.deliveryStatus === "not_installed");
   const partialSignCount = run.items.filter((it) => it.deliveryStatus === "not_installed").length;
@@ -835,6 +848,67 @@ export default function DeliveryBasketPage() {
   const printableDoId = run.document?.id ?? run.items.find((it) => it.document?.id)?.document?.id ?? null;
   const basketHref = `/scan/delivery/${run.id}`;
   const tripHref = (ids: string[]) => `${basketHref}?items=${ids.map(encodeURIComponent).join(",")}`;
+  // ── WHO'S DELIVERING (2026-09 hand-off) ───────────────────────────────────
+  // Once the picked trip is loaded (every picked item started, at least one out
+  // for delivery), the rider chooses Myself or Other driver before the
+  // Delivering view. Handed to a driver: End and signing move to the driver's
+  // link, so the rider's basket shows the hand-off card instead.
+  const tripLoaded =
+    !!selectedSet &&
+    run.status === "in_progress" &&
+    !run.items.some((it) => selectedSet.has(it.id) && it.deliveryStatus === "not_delivered") &&
+    run.items.some((it) => selectedSet.has(it.id) && it.deliveryStatus === "delivering");
+  const handedOver = pickerScope && run.handoffMode === "DRIVER";
+  const needsHandoffChoice = pickerScope && tripLoaded && !run.handoffMode;
+  const submitHandoff = async (mode: "SELF" | "DRIVER") => {
+    setHandoffBusy(true);
+    setHandoffError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: `/deliveries/${run.id}/handoff`, method: "POST" },
+        {
+          mode,
+          ...(mode === "DRIVER" ? { vehicleNumber: vehicleInput.trim() } : {}),
+          itemIds: selectedIds,
+          baseUrl: typeof window !== "undefined" ? window.location.origin : undefined,
+        },
+        token,
+      );
+      if (res?.success === false) throw new Error(res?.message ?? "Could not save the choice");
+      const out = res?.data ?? res;
+      if (mode === "DRIVER") {
+        setHandoffQr({ qrDataUrl: out?.qrDataUrl ?? null, url: out?.url ?? null, vehicleNumber: out?.vehicleNumber ?? null });
+        setHandoffStage("qr");
+      } else {
+        setHandoffStage(null);
+      }
+      await load();
+    } catch (e: any) {
+      setHandoffError(e?.message ?? "Could not save the choice");
+    } finally {
+      setHandoffBusy(false);
+    }
+  };
+  const showHandoffQr = async () => {
+    setHandoffBusy(true);
+    setHandoffError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const origin = typeof window !== "undefined" ? encodeURIComponent(window.location.origin) : "";
+      const res = await request({ path: `/deliveries/${run.id}/handoff/current?baseUrl=${origin}`, method: "GET" }, {}, token);
+      if (res?.success === false) throw new Error(res?.message ?? "Could not load the QR");
+      const out = res?.data ?? res;
+      setHandoffQr({ qrDataUrl: out?.qrDataUrl ?? null, url: out?.url ?? null, vehicleNumber: out?.vehicleNumber ?? null });
+      setHandoffStage("qr");
+    } catch (e: any) {
+      setHandoffError(e?.message ?? "Could not load the QR");
+    } finally {
+      setHandoffBusy(false);
+    }
+  };
   // Carried onto the free-typed line's own page so it comes back to this trip.
   const tripQuery = selectedSet ? `?items=${selectedIds.map(encodeURIComponent).join(",")}` : "";
 
@@ -1022,6 +1096,22 @@ export default function DeliveryBasketPage() {
           </Box>
         </Stack>
 
+        {pickerScope && run.handoffMode === "DRIVER" && pickStage === "pick" && (
+          <Card variant="outlined" sx={{ borderColor: "info.main", borderWidth: 2 }}>
+            <CardContent>
+              <Typography variant="subtitle1" fontWeight={700}>
+                The current trip is with vehicle {run.vehicleNumber ?? ""}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
+                The driver ends it and gets the customer&apos;s signature from their link.
+              </Typography>
+              <Button fullWidth variant="outlined" onClick={() => void showHandoffQr()} sx={{ minHeight: 44 }}>
+                Show QR
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         {canPartialSign && pickStage === "pick" && (
           <Card variant="outlined" sx={{ borderColor: "success.main", borderWidth: 2 }}>
             <CardContent>
@@ -1157,6 +1247,87 @@ export default function DeliveryBasketPage() {
     );
   }
 
+  // QR for the driver: large, with the vehicle number, until the rider is done.
+  if (handoffStage === "qr" && handoffQr) {
+    return (
+      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2, alignItems: "center", textAlign: "center" }}>
+        <Typography variant="h6" fontWeight={800}>Show this to the driver</Typography>
+        <Typography variant="body2" color="text.secondary">
+          The driver scans it with any phone camera to finish this trip. No login needed.
+        </Typography>
+        {handoffQr.qrDataUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <Box component="img" src={handoffQr.qrDataUrl} alt="Driver link QR code" sx={{ width: "100%", maxWidth: 340, aspectRatio: "1 / 1", bgcolor: "#fff", p: 1.5, borderRadius: 2 }} />
+        ) : (
+          <Alert severity="warning">The driver link is no longer active.</Alert>
+        )}
+        {handoffQr.vehicleNumber && (
+          <Chip icon={<LocalShippingIcon />} label={handoffQr.vehicleNumber} sx={{ fontSize: "1.1rem", py: 2.5, px: 1, fontWeight: 700 }} />
+        )}
+        <Button variant="contained" size="large" onClick={() => setHandoffStage(null)} sx={{ minHeight: 48, minWidth: 220 }}>
+          Done
+        </Button>
+      </Box>
+    );
+  }
+
+  // Who's delivering: shown once the trip is loaded, before the Delivering view.
+  if (needsHandoffChoice && !walkActive) {
+    return (
+      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+        <Stack direction="row" spacing={2} alignItems="center">
+          <LocalShippingIcon color="primary" sx={{ fontSize: 44 }} />
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Typography variant="h6" fontWeight={700}>Delivery #{run.deliveryNumber}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {selectedIds.length} {selectedIds.length === 1 ? "item" : "items"} loaded for this trip
+            </Typography>
+          </Box>
+        </Stack>
+        <Typography variant="h6" fontWeight={800}>Who&apos;s delivering?</Typography>
+        {handoffError && <Alert severity="error">{handoffError}</Alert>}
+        {handoffStage !== "vehicle" ? (
+          <Stack spacing={1.5}>
+            <Button variant="contained" size="large" onClick={() => void submitHandoff("SELF")} disabled={handoffBusy} sx={{ minHeight: 56 }}>
+              Myself
+            </Button>
+            <Button variant="outlined" size="large" onClick={() => { setHandoffError(null); setHandoffStage("vehicle"); }} disabled={handoffBusy} sx={{ minHeight: 56 }}>
+              Other driver
+            </Button>
+          </Stack>
+        ) : (
+          <Stack spacing={1.5}>
+            <TextField
+              label="Vehicle number"
+              value={vehicleInput}
+              onChange={(e) => setVehicleInput(e.target.value.toUpperCase())}
+              autoFocus
+              fullWidth
+              inputProps={{ maxLength: 20, autoCapitalize: "characters" }}
+            />
+            <Stack direction="row" spacing={1.5}>
+              <Button variant="outlined" size="large" onClick={() => setHandoffStage(null)} disabled={handoffBusy} sx={{ flex: 1, minHeight: 52 }}>
+                Back
+              </Button>
+              <Button
+                variant="contained"
+                size="large"
+                onClick={() => void submitHandoff("DRIVER")}
+                disabled={handoffBusy || !vehicleInput.trim()}
+                sx={{ flex: 2, minHeight: 52 }}
+              >
+                {handoffBusy ? <CircularProgress size={22} color="inherit" /> : "Show QR"}
+              </Button>
+            </Stack>
+          </Stack>
+        )}
+        <Button variant="text" sx={{ color: "text.secondary", alignSelf: "center" }} onClick={() => router.push("/scan")}>
+          Done for now
+        </Button>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
       <Stack direction="row" spacing={2} alignItems="center">
@@ -1191,7 +1362,28 @@ export default function DeliveryBasketPage() {
 
       {/* Picked trip finished: its items are all handed over while other items
           on the run still wait. Offer the next pick rather than an empty walk. */}
-      {tripDone && (
+      {/* Handed to another driver: they end and sign from their link. */}
+      {handedOver && (
+        <Card variant="outlined" sx={{ borderColor: "info.main", borderWidth: 2 }}>
+          <CardContent>
+            <Typography variant="h6" fontWeight={700}>
+              Handed to vehicle {run.vehicleNumber ?? ""}
+              {run.handedOffAt
+                ? ` at ${new Date(run.handedOffAt.endsWith("Z") ? run.handedOffAt : `${run.handedOffAt}Z`).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`
+                : ""}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
+              The driver ends this trip and gets the customer&apos;s signature from their link.
+            </Typography>
+            {handoffError && <Alert severity="error" sx={{ mb: 1.5 }}>{handoffError}</Alert>}
+            <Button fullWidth variant="outlined" onClick={() => void showHandoffQr()} disabled={handoffBusy} sx={{ minHeight: 48 }}>
+              Show QR
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {tripDone && !handedOver && (
         <Card variant="outlined" sx={{ borderColor: "success.main", borderWidth: 2 }}>
           <CardContent>
             <Typography variant="h6" fontWeight={700}>Items for this trip are delivered</Typography>
@@ -1242,7 +1434,7 @@ export default function DeliveryBasketPage() {
           item is delivered or skipped. This is the ONLY point the single customer
           signature is captured; it completes the run and fires the DO commit +
           invoice. Returns are signed at collection, so this never shows for them. */}
-      {!isReturnRun && run.status === "delivered" && (
+      {!isReturnRun && run.status === "delivered" && !handedOver && (
         <Card variant="outlined" sx={{ borderColor: "success.main", borderWidth: 2 }}>
           <CardContent>
             <Typography variant="h6" fontWeight={700}>Ready to finish</Typography>
@@ -1577,7 +1769,7 @@ export default function DeliveryBasketPage() {
       {/* Single End action for the WHOLE box: a unit lead captures one signature/
           photo/GPS and ack-all fans it across every delivering item (free-typed
           included). Shown while anything is still delivering. */}
-      {deliveringItems.length >= 1 && !returnToAdHoc && (
+      {deliveringItems.length >= 1 && !returnToAdHoc && !handedOver && (
         <Button
           fullWidth
           variant="contained"

@@ -8,6 +8,12 @@
  * finalizeRun, so the DO commits and the invoice fires atomically. No skip, no
  * add, no edit, no cancel. Expired / revoked / completed / cancelled links each
  * render a plain message rather than an error.
+ *
+ * DRIVER mode (2026-09 hand-off): a drv_ link the rider showed as a QR. The
+ * driver sees only the trip's loaded items, ends them in one tap (no new
+ * photos), then captures the installation answer and the customer signature
+ * (partial sign-off: the rest of the run stays open). Afterwards the page offers
+ * the signed DO as a view-only link, printable from the browser.
  */
 
 import React, { useCallback, useEffect, useState } from "react";
@@ -47,6 +53,11 @@ interface GuestItem {
 }
 interface GuestView {
   state: State;
+  // DRIVER = a rider's hand-off link; GUEST = the office share link.
+  mode?: "DRIVER" | "GUEST";
+  vehicleNumber?: string | null;
+  canEnd?: boolean;
+  canSign?: boolean;
   deliveryNumber: number | null;
   documentNumber: string | null;
   customerName: string;
@@ -91,6 +102,10 @@ export default function GuestDeliveryPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [active, setActive] = useState<GuestItem | null>(null);
   const [finalizing, setFinalizing] = useState(false);
+  // DRIVER mode: ending the trip, and the result of the driver's sign-off.
+  const [ending, setEnding] = useState(false);
+  const [endError, setEndError] = useState<string | null>(null);
+  const [signed, setSigned] = useState<{ signedItemCount: number | null; viewPath: string | null; documentNumber: string | null } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -115,12 +130,57 @@ export default function GuestDeliveryPage() {
     return res?.Key ?? res?.data?.Key ?? null;
   };
 
+  const endTrip = async () => {
+    setEnding(true);
+    setEndError(null);
+    try {
+      const res: any = await request({ path: `/public/delivery/${token}/end`, method: "POST" }, {});
+      if (res?.success === false) throw new Error(res?.message ?? "Could not end the delivery");
+      await load();
+    } catch (e: any) {
+      setEndError(e?.response?.data?.message || e?.message || "Could not end the delivery");
+    } finally {
+      setEnding(false);
+    }
+  };
+
+  // DRIVER: the sign-off is done. The link is closed now, so this screen comes
+  // from the finalize response, not a reload.
+  if (signed) {
+    return (
+      <Centered>
+        <Stack alignItems="center" spacing={2} sx={{ textAlign: "center", maxWidth: 380, width: "100%" }}>
+          <CheckCircleIcon color="success" sx={{ fontSize: 56 }} />
+          <Typography variant="h6" fontWeight={800}>
+            {signed.signedItemCount != null
+              ? `Signed for ${signed.signedItemCount} ${signed.signedItemCount === 1 ? "item" : "items"}`
+              : "Delivery signed"}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Thank you. The delivery order is updated with the customer&apos;s signature. You can view it or print it
+            from your browser.
+          </Typography>
+          {signed.viewPath && (
+            <Button fullWidth variant="contained" href={signed.viewPath} target="_blank" rel="noopener" sx={{ minHeight: 48 }}>
+              View / Print DO
+            </Button>
+          )}
+          <Typography variant="caption" color="text.secondary">This link is now closed.</Typography>
+        </Stack>
+      </Centered>
+    );
+  }
+
   if (loading) return <Centered><CircularProgress /></Centered>;
   if (loadError && !view) return <Centered><Alert severity="error">{loadError}</Alert></Centered>;
   if (!view) return <Centered><Alert severity="error">Delivery not found.</Alert></Centered>;
 
   if (view.state !== "ok") {
     const m = STATE_MSG[view.state];
+    // A driver link closes when its trip is signed for or the rider hands over again.
+    if (view.mode === "DRIVER" && view.state === "revoked") {
+      return <StateScreen title="Trip finished" body="This driver link is closed: the trip was signed for, or the rider shared a new link." />;
+    }
     return <StateScreen title={m.title} body={m.body} done={m.done} />;
   }
 
@@ -140,10 +200,76 @@ export default function GuestDeliveryPage() {
     return (
       <FinalizeScreen
         token={token}
+        driver={view.mode === "DRIVER"}
+        itemCount={view.deliveryItems.filter((i) => i.deliveryStatus === "not_installed").length}
         upload={uploadGuestPhoto}
         onBack={() => setFinalizing(false)}
-        onDone={async () => { setFinalizing(false); await load(); }}
+        onDone={async (res: any) => {
+          setFinalizing(false);
+          if (view.mode === "DRIVER" && res?.state === "signed") {
+            setSigned({ signedItemCount: res.signedItemCount ?? null, viewPath: res.viewPath ?? null, documentNumber: res.documentNumber ?? null });
+            return;
+          }
+          await load();
+        }}
       />
+    );
+  }
+
+  // ── DRIVER mode ────────────────────────────────────────────────────────────
+  if (view.mode === "DRIVER") {
+    return (
+      <Box sx={{ p: 3, width: "100%", maxWidth: 560, mx: "auto", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 2 }}>
+        <Box>
+          <Typography variant="h6" fontWeight={800}>Delivery #{view.deliveryNumber}</Typography>
+          <Typography variant="body2" color="text.secondary">
+            {view.documentNumber}{view.customerName ? ` · ${view.customerName}` : ""}
+          </Typography>
+          {view.vehicleNumber && (
+            <Chip size="small" icon={<LocalShippingIcon />} label={`Vehicle ${view.vehicleNumber}`} sx={{ mt: 1 }} />
+          )}
+        </Box>
+
+        <Typography variant="subtitle2" fontWeight={700}>Items on this trip ({view.deliveryItems.length})</Typography>
+        <Stack spacing={1.5}>
+          {view.deliveryItems.map((it) => {
+            const chip = STATUS_CHIP[it.deliveryStatus];
+            return (
+              <Card key={it.id} variant="outlined">
+                <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Typography variant="body2" fontWeight={600} noWrap>{it.description}</Typography>
+                      {it.unitSku && (
+                        <Typography variant="caption" color="text.secondary" noWrap display="block">{it.unitSku}</Typography>
+                      )}
+                    </Box>
+                    <Chip size="small" label={chip.label} color={chip.color} />
+                  </Stack>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </Stack>
+
+        {endError && <Alert severity="error">{endError}</Alert>}
+
+        {view.canEnd && (
+          <Button fullWidth variant="contained" startIcon={<LocalShippingIcon />} onClick={endTrip} disabled={ending} sx={{ minHeight: 48 }}>
+            {ending ? <CircularProgress size={22} color="inherit" /> : "End Delivery"}
+          </Button>
+        )}
+        {view.canSign && (
+          <Button fullWidth variant="contained" color="success" onClick={() => setFinalizing(true)} sx={{ minHeight: 48 }}>
+            Get customer signature
+          </Button>
+        )}
+        {!view.canEnd && !view.canSign && (
+          <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center" }}>
+            Nothing on this trip is waiting.
+          </Typography>
+        )}
+      </Box>
     );
   }
 
@@ -290,14 +416,19 @@ function DeliverItemScreen({
 
 function FinalizeScreen({
   token,
+  driver = false,
+  itemCount = 0,
   upload,
   onBack,
   onDone,
 }: {
   token: string;
+  // DRIVER mode signs for the trip only (partial sign-off).
+  driver?: boolean;
+  itemCount?: number;
   upload: (blob: Blob) => Promise<string | null>;
   onBack: () => void;
-  onDone: () => void;
+  onDone: (result?: any) => void;
 }) {
   const [installNeeded, setInstallNeeded] = useState<"yes" | "no" | null>(null);
   const [installPhotos, setInstallPhotos] = useState<CapturedPhoto[]>([]);
@@ -329,7 +460,7 @@ function FinalizeScreen({
         },
       );
       if (res?.success === false) throw new Error(res?.message ?? "Could not finalize the delivery");
-      onDone();
+      onDone(res?.data ?? res);
     } catch (e: any) {
       setError(e?.response?.data?.message || e?.message || "Could not finalize the delivery");
       setSubmitting(false);
@@ -338,7 +469,12 @@ function FinalizeScreen({
 
   return (
     <Box sx={{ p: 3, maxWidth: 560, mx: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
-      <Typography variant="h6" fontWeight={800}>Finish delivery</Typography>
+      <Typography variant="h6" fontWeight={800}>{driver ? "Customer signature" : "Finish delivery"}</Typography>
+      {driver && (
+        <Typography variant="body2" color="text.secondary">
+          This signature covers the {itemCount} {itemCount === 1 ? "item" : "items"} on this trip.
+        </Typography>
+      )}
 
       <Typography variant="subtitle2" fontWeight={700}>Installation needed?</Typography>
       <Stack direction="row" spacing={1.5}>
@@ -369,7 +505,13 @@ function FinalizeScreen({
       <Stack direction="row" spacing={1}>
         <Button variant="outlined" fullWidth onClick={onBack} disabled={submitting} sx={{ minHeight: 48 }}>Back</Button>
         <Button variant="contained" color="success" fullWidth onClick={submit} disabled={submitting || uploading} sx={{ minHeight: 48 }}>
-          {submitting ? <CircularProgress size={22} color="inherit" /> : "Complete delivery"}
+          {submitting ? (
+            <CircularProgress size={22} color="inherit" />
+          ) : driver ? (
+            `Sign for ${itemCount} ${itemCount === 1 ? "item" : "items"}`
+          ) : (
+            "Complete delivery"
+          )}
         </Button>
       </Stack>
     </Box>
