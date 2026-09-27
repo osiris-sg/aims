@@ -1148,6 +1148,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     from: string;
     text: string;
     groups: Array<{ id: string; name: string }>;
+    thisGroupId?: string | null;
   }) {
     const key = this.paSessionKey(args.from);
     const row = await this.prisma.operatorSession.findUnique({ where: { channel_channelUserId: key } });
@@ -1156,7 +1157,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       ? state.history.slice(-12)
       : [];
 
-    const out = await this.agent.paConverse(history, args.text, args.groups, new Date().toISOString());
+    const thisGroupName = args.thisGroupId
+      ? args.groups.find((g) => g.id === args.thisGroupId)?.name || null
+      : null;
+    const out = await this.agent.paConverse(history, args.text, args.groups, new Date().toISOString(), thisGroupName);
     if (!out) return { reply: null };
 
     let reply = out.reply;

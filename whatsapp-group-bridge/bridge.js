@@ -731,7 +731,7 @@ async function handlePaChat(msg, chatId, fromGroupId) {
   const groups = await listGroups();
   try {
     const res = await callBridgeApi('/whatsapp/pa-chat', {
-      body: { organizationId: ORG_ID, from: who, text, groups },
+      body: { organizationId: ORG_ID, from: who, text, groups, thisGroupId: fromGroupId || undefined },
     });
     if (!res?.reply) return false;
     if (res.hasPlan) paPlanOpen.add(who);

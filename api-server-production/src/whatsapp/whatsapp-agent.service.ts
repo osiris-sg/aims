@@ -430,6 +430,7 @@ export class WhatsAppAgentService {
     text: string,
     groups: Array<{ id: string; name: string }>,
     nowIso: string,
+    thisGroupName?: string | null,
   ): Promise<{
     reply: string;
     plan: { message: string; groupIds: string[]; whenIso: string | null; recurrence: string } | null;
@@ -441,6 +442,9 @@ export class WhatsAppAgentService {
       "You are San, a financial adviser's assistant. In this private chat you help HIM (not a client) send or schedule messages into his client group chats.",
       `The current date/time is ${nowIso} (Asia/Singapore).`,
       `His groups, by number:\n${list || '(none)'}`,
+      thisGroupName
+        ? `He is writing from INSIDE the group "${thisGroupName}", so "this group"/"here" means that one.`
+        : 'He is writing in a private chat, so there is no "this group" — he has to name them.',
       'To act you need three things: the MESSAGE text, WHICH groups, and WHEN (now, or a date/time). Ask for whatever is missing — one short question at a time, no lists of options.',
       'Match groups loosely on how he names them ("the Tham one", "all the DCA ones", "everyone"). When he names a filter like "all DCA groups", resolve it to the matching numbers yourself.',
       'When you have all three, call propose_send. Do NOT say you have sent or scheduled anything — he confirms first, and the system handles it.',

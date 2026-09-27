@@ -307,7 +307,14 @@ export class WhatsAppController {
   @ApiOperation({ summary: 'Group bridge: one turn of the adviser\'s private chat with the PA' })
   async paChat(
     @Req() req: RequestWithOrganization,
-    @Body() body: { organizationId: string; from: string; text: string; groups: Array<{ id: string; name: string }> },
+    @Body()
+    body: {
+      organizationId: string;
+      from: string;
+      text: string;
+      groups: Array<{ id: string; name: string }>;
+      thisGroupId?: string;
+    },
   ) {
     this.assertBridgeToken(req);
     if (!body?.organizationId) throw new BadRequestException('organizationId is required');
@@ -316,6 +323,7 @@ export class WhatsAppController {
       from: body.from,
       text: body.text,
       groups: Array.isArray(body.groups) ? body.groups : [],
+      thisGroupId: body.thisGroupId,
     });
   }
 
