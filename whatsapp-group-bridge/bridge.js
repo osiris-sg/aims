@@ -544,6 +544,39 @@ async function deliverDueReminders() {
   }
 }
 
+/** The phone number behind a LID, read from WhatsApp's own contact store.
+ *
+ *  WhatsApp addresses people by LID now, and a LID has no relationship to the
+ *  phone number — so a staff member is unrecognisable until someone pastes
+ *  their LID into STAFF_NUMBERS by hand. This resolves it instead, so a new
+ *  staff phone works from the phone number alone. Best effort: returns null on
+ *  any older build where the mapping is not exposed, and the configured list
+ *  still applies. */
+async function phoneForLid(lidDigits) {
+  if (!lidDigits || phoneForLid.cache.has(lidDigits)) return phoneForLid.cache.get(lidDigits) ?? null;
+  let found = null;
+  try {
+    found = await client.pupPage.evaluate((digits) => {
+      const collections = window.require('WAWebCollections');
+      const all = collections.Contact?.getModelsArray?.() || collections.Contact?.models || [];
+      for (const c of all) {
+        const ids = [c?.id?._serialized, c?.lid?._serialized, c?.phoneNumber?._serialized].filter(Boolean).map(String);
+        if (!ids.some((i) => i.replace(/\D/g, '') === digits)) continue;
+        for (const cand of [c?.phoneNumber, c?.id]) {
+          const ser = String(cand?._serialized || cand || '');
+          if (ser.endsWith('@c.us')) return ser.replace(/\D/g, '');
+        }
+      }
+      return null;
+    }, lidDigits);
+  } catch {
+    /* older build — fall back to the configured list */
+  }
+  phoneForLid.cache.set(lidDigits, found);
+  return found;
+}
+phoneForLid.cache = new Map();
+
 /** Is this sender Denzel or configured staff? Compared by CONTAINMENT because
  *  the same person arrives as a phone number in some events and as a LID in
  *  others, and neither is a suffix of the other. */
@@ -552,6 +585,17 @@ function isStaffId(digits) {
   return [...DENZEL_NUMBERS, ...STAFF_NUMBERS].some(
     (n) => n && (digits.includes(n) || n.includes(digits)),
   );
+}
+
+/** isStaffId, but falls back to the phone number behind a LID. */
+async function isStaffSender(digits) {
+  if (isStaffId(digits)) return true;
+  const phone = await phoneForLid(digits);
+  if (phone && isStaffId(phone)) {
+    console.log(`   ⤷ ${digits} resolved to +${phone} (staff)`);
+    return true;
+  }
+  return false;
 }
 
 // Digit-forms of every id mentioned in the message (handles @lid and @c.us).
@@ -690,7 +734,7 @@ async function handlePaChat(msg, chatId, fromGroupId) {
   const text = String(msg.body || '').trim();
   if (!text) return false;
   const senderDigits = String(msg.author || msg.from || '').replace(/\D/g, '');
-  if (!isStaffId(senderDigits)) {
+  if (!(await isStaffSender(senderDigits))) {
     console.log(`   ⤷ DM ignored: ${senderDigits} is not staff`);
     return false;
   }
@@ -726,7 +770,7 @@ async function handlePaChat(msg, chatId, fromGroupId) {
 
 async function handleApprovalReply(msg, chatId) {
   const senderDigits = String(msg.author || msg.from || '').replace(/\D/g, '');
-  if (!isStaffId(senderDigits)) return false;
+  if (!(await isStaffSender(senderDigits))) return false;
 
   const text = String(msg.body || '').trim();
   // The code is optional: typing it out is friction, and a linked device cannot
