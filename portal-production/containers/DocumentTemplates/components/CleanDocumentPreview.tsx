@@ -123,6 +123,9 @@ interface FieldDeliveryReport {
   // name + unit sku; either can be null (asset-less proof shows no label).
   subjectAsset?: string | null;
   subjectSku?: string | null;
+  // Display-only label of what the proof covers ("Asset, S/No X" or a
+  // free-typed line's text). Titles each sign-off's RECEIVED BY box.
+  subjectLabel?: string | null;
   // The date the SIGNER TYPED, ISO (YYYY-MM-DD), when the signature was captured
   // from the public share link. Distinct from signedAt (the moment of capture) —
   // a customer signing on Monday may date it the Friday of delivery. Absent on
@@ -461,6 +464,30 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     const at = (r: any) => new Date(r.signedAt ?? r.createdAt).getTime() || 0;
     return signed.reduce((best, r) => (at(r) >= at(best) ? r : best));
   };
+  // SIGN-OFFS (2026-09): every customer signature event on this DO, oldest
+  // first. A sign-off is identified by its signature + signedAt: both finalize
+  // paths (full and partial) and the guest sign write ONE signature and ONE
+  // timestamp across all the rows they sign, in a single statement, so rows of
+  // one sign-off always share both and two sign-offs never do. DO_ACK rows carry
+  // the items the sign-off covers; a DO_INSTALL with the same key is that
+  // sign-off's installation. A DO signed once has exactly one group.
+  const signOffs = (() => {
+    const groups = new Map<string, { key: string; ack: FieldDeliveryReport | null; install: FieldDeliveryReport | null; labels: string[]; at: number }>();
+    for (const r of maintenanceReports ?? []) {
+      if ((r.kind !== "DO_ACK" && r.kind !== "DO_INSTALL") || !r.signature) continue;
+      const key = `${r.signature}|${r.signedAt ?? ""}`;
+      const g = groups.get(key) ?? { key, ack: null, install: null, labels: [], at: new Date(r.signedAt ?? r.createdAt).getTime() || 0 };
+      if (r.kind === "DO_ACK") {
+        if (!g.ack) g.ack = r;
+        const label = (r.subjectLabel || "").trim();
+        if (label && !g.labels.includes(label)) g.labels.push(label);
+      } else if (!g.install) {
+        g.install = r;
+      }
+      groups.set(key, g);
+    }
+    return Array.from(groups.values()).sort((a, b) => a.at - b.at);
+  })();
   const doStartReportId = doStartReport?.id ?? null;
   const doStartPingCount = (doStartReport as any)?.pingCount ?? 0;
   // Scheduled date comes from the Delivery run (getById folds it into config).
@@ -2204,6 +2231,56 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     // bordered white box) with the sign date beside it on one line. Source is
     // unchanged: the DO_ACK signature, falling back to DO_INSTALL. Prints, and
     // is placed after the flex spacer so it pins to the bottom of page 1.
+    // One RECEIVED BY box per sign-off when the DO was signed more than once.
+    // Each box is a plain block (break-inside: avoid, so it never splits across
+    // pages), titled with the items it covers; a long item list is capped so a
+    // box can never grow taller than a page. Oldest first. A DO signed once
+    // (or not at all) renders the single box below exactly as before.
+    const MAX_BOX_ITEMS = 8;
+    const signOffBox = (g: (typeof signOffs)[number], idx: number) => {
+      const sig = g.ack ?? g.install;
+      const shown = g.labels.slice(0, MAX_BOX_ITEMS);
+      const more = g.labels.length - shown.length;
+      const title = shown.length ? ` (${shown.join("; ")}${more > 0 ? `; and ${more} more` : ""})` : "";
+      const signedDate = sig
+        ? sig.signedDateText
+          ? new Date(`${sig.signedDateText}T12:00:00Z`).toLocaleDateString("en-GB")
+          : new Date(sig.signedAt ?? sig.createdAt).toLocaleDateString("en-GB")
+        : "";
+      return (
+        <Box
+          key={g.key}
+          sx={{ display: "block", mt: idx === 0 ? 4 : 1.5, border: "1px solid #000", pageBreakInside: "avoid", breakInside: "avoid" }}
+        >
+          <Box sx={{ backgroundColor: "#e0e0e0", px: 1.5, py: 0.75, borderBottom: "1px solid #000" }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, letterSpacing: "0.5px", lineHeight: 1.4 }}>
+              RECEIVED BY{title}
+            </Typography>
+          </Box>
+          <Box sx={{ display: "flex", gap: 2, p: 1.5 }}>
+            <Box sx={{ width: "38%", flexShrink: 0 }}>
+              <Typography sx={{ fontSize: "0.75rem", color: "#666", mb: 0.75 }}>Name</Typography>
+              <Typography sx={{ fontSize: "0.875rem", fontWeight: 500 }}>{sig?.signedByName ?? ""}</Typography>
+              {g.install && (
+                <Typography sx={{ fontSize: "0.75rem", color: "#444", mt: 0.75 }}>Installation: Yes</Typography>
+              )}
+            </Box>
+            <Box sx={{ flex: 1, display: "flex", alignItems: "flex-end", gap: 2 }}>
+              <Box sx={{ flex: 1 }}>
+                <Typography sx={{ fontSize: "0.75rem", color: "#666", mb: 0.75 }}>Signature</Typography>
+                <Box sx={{ border: "1px solid #ccc", backgroundColor: "#fff", height: 68, display: "flex", alignItems: "center", justifyContent: "center", p: 0.5 }}>
+                  {sig?.signature && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={resolvePhotoSrc(sig.signature)} alt="Customer signature" style={{ maxHeight: 60, maxWidth: "100%", objectFit: "contain" }} />
+                  )}
+                </Box>
+              </Box>
+              <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "nowrap", pb: 0.5 }}>Date: {signedDate}</Typography>
+            </Box>
+          </Box>
+        </Box>
+      );
+    };
     const receivedByBlock = (() => {
       const ack = latestSignedProof("DO_ACK");
       const install = latestSignedProof("DO_INSTALL");
@@ -2607,11 +2684,15 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   internally — but nothing stopped the page break landing
                   BETWEEN them, leaving a signature box stranded at the bottom
                   of page 1 with its footer alone overleaf. */}
+              {/* Several sign-offs: every box but the last is its own unbreakable
+                  block (they may run onto the next page one whole box at a time);
+                  the LAST box joins the footer's keep-together group below. */}
+              {signOffs.length > 1 && signOffs.slice(0, -1).map((g, i) => signOffBox(g, i))}
               <Box sx={{ pageBreakInside: "avoid", breakInside: "avoid" }}>
               {/* Footer — the RECEIVED BY block (reference receipt style). The
                   old left-hand Biofuel signature + stamp was removed; the
                   customer signature now lives in this shared bordered box. */}
-              {receivedByBlock}
+              {signOffs.length > 1 ? signOffBox(signOffs[signOffs.length - 1], signOffs.length - 1) : receivedByBlock}
 
               {/* Biofuel DO closing footer (prints). The contact number comes
                   from the org record (organization.phoneNumber) with a +65
@@ -2796,6 +2877,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         {/* Flex spacer — fills available height inside the page-1 wrapper so
             the signature block below pins to the bottom of the printed page. */}
         <Box sx={{ flex: 1 }} />
+
+        {/* Several sign-offs (partial deliveries): one RECEIVED BY box per
+            sign-off, oldest first, each naming its items. The signature row
+            below keeps showing the latest sign-off, as it always has. */}
+        {signOffs.length > 1 && (
+          <Box sx={{ display: "block", mb: 2 }}>{signOffs.map((g, i) => signOffBox(g, i))}</Box>
+        )}
 
         {/* Bottom Signature Section - DO Style */}
         <Box sx={{ borderTop: "1px solid #000", pt: 2 }}>

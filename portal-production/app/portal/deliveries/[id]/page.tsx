@@ -117,6 +117,7 @@ interface RunDetail {
     // findById selects this already — it was simply never declared here, so the
     // page could not tell one unit's proof from another's.
     inventoryId: string | null;
+    deliveryItemId?: string | null;
     createdAt: string;
   }>;
 }
@@ -191,6 +192,36 @@ function groupProofReports(reports: ProofReport[]): Array<{
       allSigned && new Set(signed.map(key)).size === 1 ? signed[0] : null;
     return { kind, members, sharedSignature };
   });
+}
+
+/**
+ * SIGN-OFFS (2026-09 partial sign-off). A run delivered in several trips is
+ * signed once per trip. A sign-off = the signed DO_ACK / DO_INSTALL rows sharing
+ * one signature + signedAt (each finalize writes both in one statement). Each
+ * trip's items are the DO_ACK rows' lines; its start is the earliest DO_START of
+ * those lines and its end the latest DO_ACK. Oldest first.
+ */
+function groupSignOffs(reports: ProofReport[]) {
+  const groups = new Map<string, { key: string; acks: ProofReport[]; install: ProofReport | null }>();
+  for (const r of reports) {
+    if ((r.kind !== "DO_ACK" && r.kind !== "DO_INSTALL") || !r.signature) continue;
+    const key = `${r.signature}|${r.signedAt ?? ""}`;
+    const g = groups.get(key) ?? { key, acks: [], install: null };
+    if (r.kind === "DO_ACK") g.acks.push(r);
+    else if (!g.install) g.install = r;
+    groups.set(key, g);
+  }
+  return Array.from(groups.values())
+    .map((g) => {
+      const itemIds = new Set(g.acks.map((a) => a.deliveryItemId).filter(Boolean) as string[]);
+      const starts = reports.filter((r) => r.kind === "DO_START" && r.deliveryItemId && itemIds.has(r.deliveryItemId));
+      const t = (d: string | null | undefined) => (d ? new Date(d).getTime() : NaN);
+      const startedAt = starts.length ? new Date(Math.min(...starts.map((r) => t(r.createdAt)))).toISOString() : null;
+      const endedAt = g.acks.length ? new Date(Math.max(...g.acks.map((r) => t(r.createdAt)))).toISOString() : null;
+      const head = g.acks[0] ?? g.install!;
+      return { ...g, itemIds, startedAt, endedAt, signedAt: head.signedAt, signedByName: head.signedByName, signature: head.signature };
+    })
+    .sort((a, b) => (a.signedAt ?? "").localeCompare(b.signedAt ?? ""));
 }
 
 const fmtDateTime = (d: string | null) =>
@@ -721,6 +752,41 @@ export default function DeliveryDetailPage() {
         </Paper>
       ) : (
         <Stack spacing={2} sx={{ mb: 3 }}>
+          {/* Delivered in several trips: one card per sign-off, oldest first,
+              naming the trip's items, when it started and ended, and who signed. */}
+          {(() => {
+            const signOffs = groupSignOffs(run.reports);
+            if (signOffs.length < 2) return null;
+            const itemName = (id: string) => {
+              const it = run.items.find((x) => x.id === id);
+              if (!it) return "Item";
+              const name = it.asset?.name || it.description || "Item";
+              return it.inventory?.sku ? `${name}, S/No ${it.inventory.sku}` : name;
+            };
+            return signOffs.map((g, i) => (
+              <Paper key={g.key} variant="outlined" sx={{ p: 2 }}>
+                <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" sx={{ mb: 1 }}>
+                  <Typography variant="subtitle2" fontWeight={700}>Sign-off {i + 1} of {signOffs.length}</Typography>
+                  <Chip size="small" variant="outlined" color="success" label="Signed" />
+                  {g.install && <Chip size="small" variant="outlined" label="Installed" />}
+                  <Typography variant="caption" color="text.secondary">
+                    {fmtDateTime(g.signedAt)}
+                    {g.signedByName ? ` · ${g.signedByName}` : ""}
+                  </Typography>
+                </Stack>
+                <Typography variant="body2" sx={{ mb: 0.5 }}>
+                  {Array.from(g.itemIds).map(itemName).join("; ") || "Items not recorded"}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                  Delivery started {fmtDateTime(g.startedAt)} · Delivery ended {fmtDateTime(g.endedAt)}
+                </Typography>
+                {g.signature && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={imgSrc(g.signature)} alt="Customer signature" style={{ maxHeight: 64, maxWidth: 240, objectFit: "contain", border: "1px solid rgba(0,0,0,0.12)", background: "#fff" }} />
+                )}
+              </Paper>
+            ));
+          })()}
           {groupProofReports(run.reports).map((group) => {
             // Serial for a member, resolved off the run's items (reports carry
             // inventoryId; items carry the sku). Falls back to the description,

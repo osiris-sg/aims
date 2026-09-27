@@ -1945,6 +1945,9 @@ export class DeliveriesService {
           longitude: true,
           technicianName: true,
           inventoryId: true,
+          // Which line each proof row belongs to: lets the office run page group
+          // proof per sign-off (trip) and name each trip's items.
+          deliveryItemId: true,
           createdAt: true,
         },
       }),

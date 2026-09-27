@@ -752,6 +752,31 @@ export class DocumentsService {
           r.signedDateText = sd && typeof sd === 'object' ? (sd as any).signedDateText ?? null : null;
           delete (r as any).serviceData;
         }
+        // subjectLabel: a display-only name for what the proof row covers, used
+        // to title a sign-off's RECEIVED BY box on a DO signed more than once
+        // (2026-09 partial sign-off). Unit -> "Asset, S/No SKU". Free-typed line
+        // -> the DO line's own description (matched by deliveryItemId), else the
+        // report's "Delivered/Delivery acknowledged: <text>" description. Plain
+        // text only; no ids ride on it, so the public view can pass it through.
+        const cfgLines: any[] = Array.isArray((document as any).config?.items) ? (document as any).config.items : [];
+        const plain = (v: any) =>
+          String(v ?? '')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .split(/\n/)[0]
+            .replace(/\s+/g, ' ')
+            .trim();
+        for (const r of proofReports) {
+          if (r.subjectAsset) {
+            r.subjectLabel = r.subjectSku ? `${r.subjectAsset}, S/No ${r.subjectSku}` : r.subjectAsset;
+            continue;
+          }
+          const line = r.deliveryItemId ? cfgLines.find((l) => l?.deliveryItemId === r.deliveryItemId) : null;
+          const fromLine = line ? plain(line.description) : '';
+          const fromReport = plain(String(r.description ?? '').replace(/^(delivery acknowledged|delivered|delivery started|installed)[^:]*:\s*/i, ''));
+          r.subjectLabel = fromLine || fromReport || null;
+        }
       }
 
       // Group DO_START proof photos onto each config line so the DO preview

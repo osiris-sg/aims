@@ -563,6 +563,9 @@ export class PublicDocumentService {
         createdAt: r.createdAt,
         subjectAsset: r.subjectAsset ?? null,
         subjectSku: r.subjectSku ?? null,
+        // Display-only "what this proof covers" (asset + S/No, or a free-typed
+        // line's text). Titles each sign-off's RECEIVED BY box. No ids.
+        subjectLabel: r.subjectLabel ?? null,
         // The date the signer typed (getById already narrowed serviceData down
         // to this one key — no provenance reaches here to be leaked).
         signedDateText: r.signedDateText ?? null,
