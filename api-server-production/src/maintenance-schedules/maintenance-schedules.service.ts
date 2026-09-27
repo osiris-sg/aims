@@ -59,6 +59,15 @@ interface DeployedUnit {
   customerName: string | null;
 }
 
+interface RemindResult {
+  scheduleId: string;
+  organizationId: string;
+  assetId: string;
+  dueDate: string;
+  units: number;
+  via: 'daily-job' | 'instant';
+}
+
 interface LastReport {
   id: string;
   reportNumber: number | null;
@@ -338,11 +347,10 @@ export class MaintenanceSchedulesService {
           `This asset already has a maintenance date on ${fmtDate(ymdOf(existing.dueDate))}. Edit that date instead.`,
         );
       }
-      const row = await tx.maintenanceSchedule.create({
+      return tx.maintenanceSchedule.create({
         data: { organizationId, assetId, dueDate: dateOnly(due), notes: this.cleanNotes(body?.notes), createdByUserId: userId },
       });
-      return this.scheduleDto(row);
-    });
+    }).then((row) => this.remindIfDueSoon(row.id));
   }
 
   private async activeRow(organizationId: string, id: string) {
@@ -367,7 +375,9 @@ export class MaintenanceSchedulesService {
     }
     if (body?.notes !== undefined) data.notes = this.cleanNotes(body.notes);
     const updated = await this.prisma.maintenanceSchedule.update({ where: { id: row.id }, data });
-    return this.scheduleDto(updated);
+    // A moved date is re-armed (remindedAt cleared above); if it now falls
+    // inside the window it is reminded at once rather than tomorrow at 08:52.
+    return this.remindIfDueSoon(updated.id);
   }
 
   async cancel(organizationId: string, id: string) {
@@ -392,10 +402,11 @@ export class MaintenanceSchedulesService {
   /**
    * Remind every live schedule whose dueDate is 0 to 7 days away (Singapore
    * date) and has not been reminded: a push to the org's field techs and an
-   * office bell (MAINTENANCE_DUE), linking to the asset. Idempotent: each row is
-   * CLAIMED (remindedAt set where it is still null) before anything is sent, so
-   * a second run, or a second instance, sends nothing. The bell is also unique
-   * per (user, kind, schedule id + date). Returns what it did, for tests and the log.
+   * office bell (MAINTENANCE_DUE), linking to the asset, through remindOne.
+   * Idempotent: each row is CLAIMED (remindedAt set where it is still null)
+   * before anything is sent, so a second run, a second instance, or a date
+   * already reminded instantly on create / edit sends nothing. The bell is also
+   * unique per (user, kind, schedule id + date). Returns what it did.
    */
   async runReminders(now: Date = new Date()) {
     const today = sgtToday(now);
@@ -404,7 +415,7 @@ export class MaintenanceSchedulesService {
       where: { cancelledAt: null, remindedAt: null, dueDate: { gte: dateOnly(today), lte: dateOnly(horizon) } },
       orderBy: { dueDate: 'asc' },
     });
-    const sent: Array<{ scheduleId: string; organizationId: string; assetId: string; dueDate: string; units: number }> = [];
+    const sent: RemindResult[] = [];
     const flagCache = new Map<string, boolean>();
 
     for (const s of due) {
@@ -415,51 +426,92 @@ export class MaintenanceSchedulesService {
       }
       if (!on) continue;
 
-      const claim = await this.prisma.maintenanceSchedule.updateMany({
-        where: { id: s.id, remindedAt: null, cancelledAt: null },
-        data: { remindedAt: now },
-      });
-      if (claim.count !== 1) continue;
-
-      const asset = await this.prisma.asset.findFirst({ where: { id: s.assetId }, select: { name: true } });
-      const units = (await this.deployedUnits(s.organizationId, s.assetId)).length;
-      const dueYmd = ymdOf(s.dueDate);
-      const assetName = asset?.name ?? 'an asset';
-      const unitsText = `${units} unit${units === 1 ? '' : 's'} deployed`;
-      const message = `Maintenance due for ${assetName} on ${fmtDate(dueYmd)}, ${unitsText}`;
-      const linkUrl = `/portal/maintenance-reports/dates/${s.assetId}`;
-
-      // Same channel as a new scheduled delivery: push to every field tech.
-      // Both calls are best-effort and never throw.
-      await this.push.sendToFieldTechs(s.organizationId, {
-        title: 'Maintenance due',
-        body: `${assetName} on ${fmtDate(dueYmd)}, ${unitsText}`,
-        data: { kind: 'MAINTENANCE_DUE', scheduleId: s.id, assetId: s.assetId, dueDate: dueYmd },
-      });
-      await this.notifications.emit({
-        organizationId: s.organizationId,
-        kind: 'MAINTENANCE_DUE',
-        title: message,
-        body: s.notes ?? null,
-        entityType: 'maintenance-schedule',
-        // Keyed by schedule AND date: the bell is unique per (user, kind,
-        // entityId), so a re-dated schedule still gets a bell for its new date.
-        entityId: `${s.id}:${dueYmd}`,
-        linkUrl,
-      });
-      sent.push({ scheduleId: s.id, organizationId: s.organizationId, assetId: s.assetId, dueDate: dueYmd, units });
+      const r = await this.remindOne(s, now, 'daily-job');
+      if (r) sent.push(r);
     }
 
-    // One Activity Log row per org that had reminders this run.
-    for (const org of new Set(sent.map((x) => x.organizationId))) {
-      const mine = sent.filter((x) => x.organizationId === org);
-      this.actionLog.system('maintenance-reminders', 'SEND', 'maintenance-schedules', {
-        organizationId: org,
-        resourceId: mine.length === 1 ? mine[0].scheduleId : undefined,
-        details: { today, horizon, reminders: mine },
-      });
-    }
     this.logger.log(`maintenance reminders: ${sent.length} sent (${due.length} candidate(s), ${today}..${horizon})`);
     return { today, horizon, candidates: due.length, sent };
+  }
+
+  /** Is this due date inside the reminder window (today..today+7, Singapore date)? */
+  private inReminderWindow(dueDate: Date, now: Date = new Date()): boolean {
+    const today = sgtToday(now);
+    const d = ymdOf(dueDate);
+    return d >= today && d <= addDays(today, REMIND_DAYS_AHEAD);
+  }
+
+  /**
+   * THE reminder, shared by the daily job and the instant send so the message
+   * and the order are identical: CLAIM first (remindedAt set only where it is
+   * still null, on a live row), THEN push to field techs + office bell + one
+   * Activity Log system row. A lost claim returns null and sends nothing, so
+   * the job, an instant send and a second instance can never double-send.
+   * Push and bell are best-effort and never throw.
+   */
+  private async remindOne(
+    s: { id: string; organizationId: string; assetId: string; dueDate: Date; notes: string | null },
+    now: Date,
+    via: 'daily-job' | 'instant',
+  ): Promise<RemindResult | null> {
+    const claim = await this.prisma.maintenanceSchedule.updateMany({
+      where: { id: s.id, remindedAt: null, cancelledAt: null },
+      data: { remindedAt: now },
+    });
+    if (claim.count !== 1) return null;
+
+    const asset = await this.prisma.asset.findFirst({ where: { id: s.assetId }, select: { name: true } });
+    const units = (await this.deployedUnits(s.organizationId, s.assetId)).length;
+    const dueYmd = ymdOf(s.dueDate);
+    const assetName = asset?.name ?? 'an asset';
+    const unitsText = `${units} unit${units === 1 ? '' : 's'} deployed`;
+    const message = `Maintenance due for ${assetName} on ${fmtDate(dueYmd)}, ${unitsText}`;
+    const linkUrl = `/portal/maintenance-reports/dates/${s.assetId}`;
+
+    // Same channel as a new scheduled delivery: push to every field tech.
+    // Both calls are best-effort and never throw.
+    await this.push.sendToFieldTechs(s.organizationId, {
+      title: 'Maintenance due',
+      body: `${assetName} on ${fmtDate(dueYmd)}, ${unitsText}`,
+      data: { kind: 'MAINTENANCE_DUE', scheduleId: s.id, assetId: s.assetId, dueDate: dueYmd },
+    });
+    await this.notifications.emit({
+      organizationId: s.organizationId,
+      kind: 'MAINTENANCE_DUE',
+      title: message,
+      body: s.notes ?? null,
+      entityType: 'maintenance-schedule',
+      // Keyed by schedule AND date: the bell is unique per (user, kind,
+      // entityId), so a re-dated schedule still gets a bell for its new date.
+      entityId: `${s.id}:${dueYmd}`,
+      linkUrl,
+    });
+    const result = { scheduleId: s.id, organizationId: s.organizationId, assetId: s.assetId, dueDate: dueYmd, units, via };
+    this.actionLog.system('maintenance-reminders', 'SEND', 'maintenance-schedules', {
+      organizationId: s.organizationId,
+      resourceId: s.id,
+      details: result,
+    });
+    return result;
+  }
+
+  /**
+   * Instant reminder after a create or a date change: when the date is due
+   * within the window and this date has not been reminded, send it now (same
+   * remindOne as the 08:52 job, which then skips it). Never fails the save.
+   * Returns the schedule as stored after any send.
+   */
+  private async remindIfDueSoon(scheduleId: string) {
+    let row = await this.prisma.maintenanceSchedule.findUnique({ where: { id: scheduleId } });
+    if (row && !row.cancelledAt && !row.remindedAt && this.inReminderWindow(row.dueDate)) {
+      try {
+        if (await this.remindOne(row, new Date(), 'instant')) {
+          row = await this.prisma.maintenanceSchedule.findUnique({ where: { id: scheduleId } });
+        }
+      } catch (e: any) {
+        this.logger.warn(`instant maintenance reminder failed for ${scheduleId}: ${e?.message}`);
+      }
+    }
+    return this.scheduleDto(row);
   }
 }
