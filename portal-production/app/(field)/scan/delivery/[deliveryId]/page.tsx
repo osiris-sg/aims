@@ -19,6 +19,7 @@ import {
   List,
   ListItemButton,
   ListItemText,
+  Snackbar,
   Stack,
   TextField,
   ToggleButton,
@@ -32,6 +33,8 @@ import {
   type AssetClass,
 } from "@/helpers/assetClass";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import ShareIcon from "@mui/icons-material/Share";
 import NfcIcon from "@mui/icons-material/Nfc";
 import KeyboardIcon from "@mui/icons-material/Keyboard";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
@@ -167,6 +170,12 @@ export default function DeliveryBasketPage() {
   const [handoffStage, setHandoffStage] = useState<"vehicle" | "qr" | null>(null);
   const [vehicleInput, setVehicleInput] = useState("");
   const [handoffQr, setHandoffQr] = useState<{ qrDataUrl: string | null; url: string | null; vehicleNumber: string | null } | null>(null);
+  // The driver link as text under the QR: copy it, or hand it to the phone's
+  // share sheet. Share uses navigator.share only (no Capacitor Share plugin in
+  // the shipped APK), so it is hidden where the browser/WebView has none.
+  const [linkCopied, setLinkCopied] = useState(false);
+  const driverLinkRef = useRef<HTMLInputElement | null>(null);
+  const canShare = typeof navigator !== "undefined" && typeof (navigator as any).share === "function";
   const [handoffBusy, setHandoffBusy] = useState(false);
   const [handoffError, setHandoffError] = useState<string | null>(null);
   const [run, setRun] = useState<Run | null>(null);
@@ -1252,6 +1261,32 @@ export default function DeliveryBasketPage() {
 
   // QR for the driver: large, with the vehicle number, until the rider is done.
   if (handoffStage === "qr" && handoffQr) {
+    const link = handoffQr.url;
+    const shareText = link
+      ? `Delivery #${run.deliveryNumber}${run.siteAddress ? ` for ${run.siteAddress}` : ""}. Open to deliver: ${link}`
+      : "";
+    const copyLink = async () => {
+      if (!link) return;
+      try {
+        await navigator.clipboard.writeText(link);
+      } catch {
+        // Older WebViews: copy from the selected field instead.
+        const el = driverLinkRef.current;
+        if (!el) return;
+        el.focus();
+        el.select();
+        document.execCommand("copy");
+      }
+      setLinkCopied(true);
+    };
+    const shareLink = async () => {
+      if (!link || !canShare) return;
+      try {
+        await (navigator as any).share({ title: `Delivery #${run.deliveryNumber}`, text: shareText });
+      } catch {
+        /* the rider closed the share sheet */
+      }
+    };
     return (
       <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2, alignItems: "center", textAlign: "center" }}>
         <Typography variant="h6" fontWeight={800}>Show this to the driver</Typography>
@@ -1264,12 +1299,45 @@ export default function DeliveryBasketPage() {
         ) : (
           <Alert severity="warning">The driver link is no longer active.</Alert>
         )}
+        {link && (
+          <Box sx={{ width: "100%", maxWidth: 400, display: "flex", flexDirection: "column", gap: 1 }}>
+            <Typography variant="caption" color="text.secondary">
+              Or send the link:
+            </Typography>
+            <TextField
+              value={link}
+              inputRef={driverLinkRef}
+              size="small"
+              fullWidth
+              InputProps={{ readOnly: true }}
+              onFocus={(e) => e.target.select()}
+              inputProps={{ "aria-label": "Driver link", style: { fontSize: "0.8125rem" } }}
+            />
+            <Stack direction="row" spacing={1}>
+              <Button variant="outlined" startIcon={<ContentCopyIcon />} onClick={() => void copyLink()} fullWidth sx={{ minHeight: 44 }}>
+                Copy link
+              </Button>
+              {canShare && (
+                <Button variant="outlined" startIcon={<ShareIcon />} onClick={() => void shareLink()} fullWidth sx={{ minHeight: 44 }}>
+                  Share
+                </Button>
+              )}
+            </Stack>
+          </Box>
+        )}
         {handoffQr.vehicleNumber && (
           <Chip icon={<LocalShippingIcon />} label={handoffQr.vehicleNumber} sx={{ fontSize: "1.1rem", py: 2.5, px: 1, fontWeight: 700 }} />
         )}
         <Button variant="contained" size="large" onClick={() => setHandoffStage(null)} sx={{ minHeight: 48, minWidth: 220 }}>
           Done
         </Button>
+        <Snackbar
+          open={linkCopied}
+          autoHideDuration={2000}
+          onClose={() => setLinkCopied(false)}
+          message="Link copied"
+          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        />
       </Box>
     );
   }
