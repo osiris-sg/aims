@@ -546,6 +546,16 @@ async function deliverDueReminders() {
   }
 }
 
+/** Is this sender Denzel or configured staff? Compared by CONTAINMENT because
+ *  the same person arrives as a phone number in some events and as a LID in
+ *  others, and neither is a suffix of the other. */
+function isStaffId(digits) {
+  if (!digits) return false;
+  return [...DENZEL_NUMBERS, ...STAFF_NUMBERS].some(
+    (n) => n && (digits.includes(n) || n.includes(digits)),
+  );
+}
+
 // Digit-forms of every id mentioned in the message (handles @lid and @c.us).
 function mentionedDigits(msg) {
   return (msg.mentionedIds || []).map((id) => ((id && (id._serialized || id.user || id)) + '').replace(/\D/g, ''));
@@ -682,11 +692,10 @@ async function handlePaChat(msg, chatId, fromGroupId) {
   const text = String(msg.body || '').trim();
   if (!text) return false;
   const senderDigits = String(msg.author || msg.from || '').replace(/\D/g, '');
-  const isStaff =
-    !!msg.fromMe ||
-    DENZEL_NUMBERS.some((n) => senderDigits.endsWith(n.slice(-8))) ||
-    STAFF_NUMBERS.some((n) => n && senderDigits.endsWith(n.slice(-8)));
-  if (!isStaff) return false;
+  if (!isStaffId(senderDigits)) {
+    console.log(`   ⤷ DM ignored: ${senderDigits} is not staff`);
+    return false;
+  }
   const who = senderDigits || 'unknown';
 
   // A bare ok/no answers whatever plan is outstanding. Anything else is a turn
@@ -740,11 +749,7 @@ async function handlePaChat(msg, chatId, fromGroupId) {
 
 async function handleApprovalReply(msg, chatId) {
   const senderDigits = String(msg.author || msg.from || '').replace(/\D/g, '');
-  const isStaffDm =
-    !!msg.fromMe ||
-    DENZEL_NUMBERS.some((n) => senderDigits.endsWith(n.slice(-8))) ||
-    STAFF_NUMBERS.some((n) => n && senderDigits.endsWith(n.slice(-8)));
-  if (!isStaffDm) return false;
+  if (!isStaffId(senderDigits)) return false;
 
   const text = String(msg.body || '').trim();
   // The code is optional: typing it out is friction, and a linked device cannot
@@ -812,17 +817,23 @@ client.on('message_create', async (msg) => {
   try {
     const chatId = msg.from;
 
-    // Approval replies arrive as a 1:1 DM from Denzel, so handle them before
-    // the groups-only guard below.
-    if (typeof chatId === 'string' && chatId.endsWith('@c.us')) {
+    // Anything that is not a group is a 1:1 chat. WhatsApp addresses those as
+    // @c.us OR @lid depending on the account, and testing only for @c.us sent
+    // every @lid DM into the groups-only guard below, which dropped it without
+    // logging — Denzel messaged the PA three times and got silence.
+    if (typeof chatId === 'string' && !chatId.endsWith('@g.us')) {
+      // The linked device's OWN outbound messages come back through
+      // message_create. On a coexistence number that includes replies the Cloud
+      // API Operator just sent, so answering them would have the PA talking to
+      // itself.
+      if (msg.fromMe) return;
+      console.log(`✉️  DM [${chatId}] ${String(msg.body || '').slice(0, 80)}`);
       // A held group draft's ok/no is answered first (it owns bare "ok" when a
       // draft is outstanding); everything else is conversation with the PA.
       if (await handleApprovalReply(msg, chatId)) return;
       await handlePaChat(msg, chatId, null);
       return;
     }
-
-    if (!(typeof chatId === 'string' && chatId.endsWith('@g.us'))) return; // GROUPS ONLY
     if (ALLOWED_GROUPS.length && !ALLOWED_GROUPS.includes(chatId)) return; // only allowlisted groups
     const from = (msg.author || msg.from || '').split('@')[0];
     const senderDigits = from.replace(/\D/g, '');
