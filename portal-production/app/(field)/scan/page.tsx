@@ -72,6 +72,21 @@ export default function DeliveriesHomePage() {
   // reports, so a tap fetches the full run and resolves the exact step.
   const [opening, setOpening] = useState<string | null>(null);
 
+  // Coming back to the app (focus / visible again) refetches the active tab, so
+  // a run a driver finished or the office changed shows its current state.
+  const [refreshKey, setRefreshKey] = useState(0);
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") setRefreshKey((k) => k + 1);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, []);
+
   // (Re)load the active tab every time it is shown, so a run finished or
   // claimed elsewhere doesn't linger.
   useEffect(() => {
@@ -93,7 +108,7 @@ export default function DeliveriesHomePage() {
     return () => {
       cancelled = true;
     };
-  }, [tab, getToken]);
+  }, [tab, getToken, refreshKey]);
 
   // replace, not push: tabs are a view of one screen, so they shouldn't stack
   // up in history. The URL still carries the tab, which is what Back restores.

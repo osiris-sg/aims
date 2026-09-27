@@ -24,6 +24,7 @@ const SKIP_PATHS = [
   '/lock/heartbeat', // document presence heartbeat (useDocumentLock)
   '/location-ping', // field app GPS batches
   '/admin/dashboard', // polled stats
+  '/handoff/status', // rider's 5 s poll while a trip is with a driver
 ];
 
 // Background GETs fired on page load / tab focus, not user intent.

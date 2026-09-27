@@ -239,6 +239,15 @@ export class DeliveriesController {
     return this.service.getHandoff(id, org.id, baseUrl);
   }
 
+  // Field: the rider's phone polls this every 5 s while a trip is with a driver
+  // (QR screen / handed-over card) to follow the driver's End and sign-off.
+  // Lightweight and NOT activity-logged (SKIP_PATHS '/handoff/status').
+  @Get(':id/handoff/status')
+  @Permissions('maintenance-reports:read')
+  getHandoffStatus(@Param('id') id: string, @UserOrganization() org: { id: string }) {
+    return this.service.getHandoffStatus(id, org.id);
+  }
+
   // Field: MARK ONE UNIT DELIVERED (per-item "End Delivery", signature-at-end).
   // Writes an unsigned DO_ACK proof + advances the unit delivering -> not_installed.
   // NO signature here: the run's single finalize signature stamps it. Distinct

@@ -262,6 +262,88 @@ export default function DeliveryBasketPage() {
     void load();
   }, [load]);
 
+  // ── FOLLOW THE DRIVER (2026-09) ────────────────────────────────────────────
+  // While the trip is with a driver (QR screen, Show QR, handed-over card) poll
+  // the lightweight, un-logged GET /deliveries/:id/handoff/status every 5 s,
+  // only while the page is visible, and at once on focus / return to the app.
+  // Consecutive answers are compared: the driver ending the trip reloads the
+  // run (the card then reads "waiting for signature"); the hand-off clearing
+  // with a NEW sign-off means the driver signed; clearing with none means the
+  // office cancelled it. The first answer is only the baseline.
+  const [followMsg, setFollowMsg] = useState<string | null>(null);
+  const handedToDriver = run?.handoffMode === "DRIVER";
+  const lastStatusRef = useRef<any>(null);
+  useEffect(() => {
+    if (!handedToDriver) {
+      lastStatusRef.current = null;
+      return;
+    }
+    let stopped = false;
+    let busy = false;
+    const poll = async () => {
+      if (stopped || busy || document.visibilityState !== "visible") return;
+      busy = true;
+      try {
+        const token = await getToken();
+        if (!token || stopped) return;
+        const res = await request({ path: `/deliveries/${deliveryId}/handoff/status`, method: "GET" }, {}, token);
+        if (stopped || res?.success === false) return;
+        const cur = res?.data ?? res;
+        if (!cur?.items) return;
+        const prev = lastStatusRef.current;
+        lastStatusRef.current = cur;
+        if (!prev) return;
+        if (cur.handoffMode === "DRIVER") {
+          if (cur.items.ended !== prev.items.ended || cur.items.delivering !== prev.items.delivering) await load();
+          return;
+        }
+        // The hand-off cleared.
+        setHandoffStage(null);
+        if (cur.signOffs > prev.signOffs) {
+          const n = Math.max(1, cur.items.completed - prev.items.completed);
+          if (cur.status === "completed") {
+            router.replace(`/scan/deliveries/finished/${deliveryId}?signed=${n}&by=driver`);
+            return;
+          }
+          setFollowMsg(`Driver signed for ${n} ${n === 1 ? "item" : "items"}`);
+          // Items remain: back to the basket without this trip's pick, which
+          // shows the picker for the next trip.
+          router.replace(`/scan/delivery/${deliveryId}`);
+          await load();
+        } else {
+          setFollowMsg("The office cancelled the hand-off");
+          await load();
+        }
+      } catch {
+        /* try again on the next tick */
+      } finally {
+        busy = false;
+      }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 5000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [handedToDriver, deliveryId, getToken, load, router]);
+  const followSnack = (
+    <Snackbar
+      open={!!followMsg}
+      autoHideDuration={4000}
+      onClose={() => setFollowMsg(null)}
+      message={followMsg ?? ""}
+      anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+    />
+  );
+
   // Clerk-auth'd upload closure for the photo dialog (folder: do-start —
   // same bucket location as the run's first unit on the delivery-start page).
   const uploadDoStart = useCallback(
@@ -1103,6 +1185,7 @@ export default function DeliveryBasketPage() {
 
     return (
       <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+        {followSnack}
         <Stack direction="row" spacing={2} alignItems="center">
           <LocalShippingIcon color="primary" sx={{ fontSize: 44 }} />
           <Box sx={{ minWidth: 0, flex: 1 }}>
@@ -1290,6 +1373,12 @@ export default function DeliveryBasketPage() {
     return (
       <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2, alignItems: "center", textAlign: "center" }}>
         <Typography variant="h6" fontWeight={800}>Show this to the driver</Typography>
+        {run.items.some((it) => it.deliveryStatus === "not_installed") &&
+          !run.items.some((it) => it.deliveryStatus === "delivering") && (
+            <Alert severity="info" sx={{ width: "100%", maxWidth: 400, textAlign: "left" }}>
+              Driver ended the trip, waiting for signature.
+            </Alert>
+          )}
         <Typography variant="body2" color="text.secondary">
           The driver scans it with any phone camera to finish this trip. No login needed.
         </Typography>
@@ -1346,6 +1435,7 @@ export default function DeliveryBasketPage() {
   if (needsHandoffChoice && !walkActive) {
     return (
       <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+        {followSnack}
         <Stack direction="row" spacing={2} alignItems="center">
           <LocalShippingIcon color="primary" sx={{ fontSize: 44 }} />
           <Box sx={{ minWidth: 0, flex: 1 }}>
@@ -1401,6 +1491,7 @@ export default function DeliveryBasketPage() {
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
+      {followSnack}
       <Stack direction="row" spacing={2} alignItems="center">
         <LocalShippingIcon color="primary" sx={{ fontSize: 44 }} />
         <Box sx={{ minWidth: 0, flex: 1 }}>
@@ -1443,9 +1534,16 @@ export default function DeliveryBasketPage() {
                 ? ` at ${new Date(run.handedOffAt.endsWith("Z") ? run.handedOffAt : `${run.handedOffAt}Z`).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`
                 : ""}
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
-              The driver ends this trip and gets the customer&apos;s signature from their link.
-            </Typography>
+            {run.items.some((it) => it.deliveryStatus === "not_installed") &&
+            !run.items.some((it) => it.deliveryStatus === "delivering") ? (
+              <Alert severity="info" sx={{ mt: 1, mb: 1.5 }}>
+                Driver ended the trip, waiting for signature.
+              </Alert>
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
+                The driver ends this trip and gets the customer&apos;s signature from their link.
+              </Typography>
+            )}
             {handoffError && <Alert severity="error" sx={{ mb: 1.5 }}>{handoffError}</Alert>}
             <Button fullWidth variant="outlined" onClick={() => void showHandoffQr()} disabled={handoffBusy} sx={{ minHeight: 48 }}>
               Show QR

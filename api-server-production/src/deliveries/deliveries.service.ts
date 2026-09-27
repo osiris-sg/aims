@@ -4310,6 +4310,45 @@ export class DeliveriesService {
   }
 
   /** Rider: the current trip's hand-off (vehicle, time, live driver link + QR). */
+  /**
+   * Rider's poll while a trip is with a driver: run status, hand-off mode and
+   * per-state item counts, plus how many customer sign-offs the run has (a
+   * sign-off = the signed DO_ACK rows sharing one signature + signedAt). The
+   * phone compares consecutive answers: ended rises when the driver ends the
+   * trip; mode clears with signOffs up when the driver signs, and clears with
+   * signOffs unchanged when the office cancels the hand-off. Read-only.
+   */
+  async getHandoffStatus(deliveryId: string, organizationId: string) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { status: true, handoffMode: true, vehicleNumber: true },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    const byStatus = await this.prisma.deliveryItem.groupBy({
+      by: ['deliveryStatus'],
+      where: { deliveryId },
+      _count: { _all: true },
+    });
+    const n = (s: DeliveryStatus) => byStatus.find((r) => r.deliveryStatus === s)?._count._all ?? 0;
+    const signOffs = await this.prisma.$queryRaw<Array<{ n: number }>>`
+      SELECT count(DISTINCT (signature, "signedAt"))::int AS n
+      FROM "MaintenanceServiceReport"
+      WHERE "deliveryId" = ${deliveryId}::uuid AND kind = 'DO_ACK' AND signature IS NOT NULL`;
+    return {
+      status: run.status,
+      handoffMode: run.handoffMode ?? null,
+      vehicleNumber: run.vehicleNumber ?? null,
+      items: {
+        total: byStatus.reduce((s, r) => s + r._count._all, 0),
+        notDelivered: n(DeliveryStatus.not_delivered),
+        delivering: n(DeliveryStatus.delivering),
+        ended: n(DeliveryStatus.not_installed),
+        completed: n(DeliveryStatus.completed),
+      },
+      signOffs: signOffs[0]?.n ?? 0,
+    };
+  }
+
   async getHandoff(deliveryId: string, organizationId: string, baseUrl?: string | null) {
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },

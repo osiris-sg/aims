@@ -89,7 +89,10 @@ export default function FinishedDeliveryDetailPage() {
   // PARTIAL SIGN-OFF (2026-09): finalize sends a partly signed run here with
   // ?signed=N. The screen then reads "Signed for N items"; the run itself says it
   // is still open (status in_progress), so a reload keeps the right form.
-  const signedParam = useSearchParams()?.get("signed");
+  const search = useSearchParams();
+  const signedParam = search?.get("signed");
+  // ?by=driver: the rider's phone followed a driver's sign-off here.
+  const byDriver = search?.get("by") === "driver";
 
   useEffect(() => {
     (async () => {
@@ -178,6 +181,11 @@ export default function FinishedDeliveryDetailPage() {
           <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center" }}>
             {remaining} {remaining === 1 ? "item is" : "items are"} still to deliver on this delivery. The customer signs
             again when they arrive.
+          </Typography>
+        )}
+        {byDriver && signedParam && (
+          <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center" }}>
+            Driver signed for {Number(signedParam)} {Number(signedParam) === 1 ? "item" : "items"}
           </Typography>
         )}
         <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "monospace" }}>
