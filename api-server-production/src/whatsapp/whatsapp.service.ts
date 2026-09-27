@@ -1149,6 +1149,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     text: string;
     groups: Array<{ id: string; name: string }>;
     thisGroupId?: string | null;
+    /** The sender's real phone number. `from` may be a LID, which the Cloud
+     *  API silently accepts and delivers nowhere, so buttons are only offered
+     *  when the bridge could resolve an actual number. */
+    notifyPhone?: string | null;
   }) {
     const key = this.paSessionKey(args.from);
     const row = await this.prisma.operatorSession.findUnique({ where: { channel_channelUserId: key } });
@@ -1195,7 +1199,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     let buttonsSent = false;
     if (pendingPlan) {
       const body = reply!.replace(/\n\nReply \*ok\*[\s\S]*$/, '');
-      buttonsSent = await this.sendPlanButtons(args.organizationId, args.from, body);
+      buttonsSent = await this.sendPlanButtons(args.organizationId, args.notifyPhone, body, args.from);
     }
 
     const nextHistory = [...history, { role: 'user' as const, content: args.text }];
@@ -1216,8 +1220,16 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   /** Send the plan with Confirm/Cancel buttons. False if Meta refuses, in
    *  which case the bridge falls back to the typed "ok". */
-  private async sendPlanButtons(organizationId: string, to: string, text: string): Promise<boolean> {
-    const digits = String(to).replace(/\D/g, '');
+  private async sendPlanButtons(
+    organizationId: string,
+    to: string | null | undefined,
+    text: string,
+    sessionKey: string,
+  ): Promise<boolean> {
+    const digits = String(to || '').replace(/\D/g, '');
+    // No resolved phone number means no buttons. Sending to a LID looks like a
+    // success (Meta returns 200) but lands nowhere, and the caller would then
+    // suppress the text reply and leave him with silence.
     if (!digits) return false;
     const payload = {
       messaging_product: 'whatsapp',
@@ -1229,8 +1241,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         body: { text: text.slice(0, 1024) },
         action: {
           buttons: [
-            { type: 'reply', reply: { id: `pa_ok:${digits}`, title: '\u2705 Confirm' } },
-            { type: 'reply', reply: { id: `pa_no:${digits}`, title: '\u274C Cancel' } },
+            { type: 'reply', reply: { id: `pa_ok:${sessionKey}`.slice(0, 256), title: '\u2705 Confirm' } },
+            { type: 'reply', reply: { id: `pa_no:${sessionKey}`.slice(0, 256), title: '\u274C Cancel' } },
           ],
         },
       },
@@ -1250,7 +1262,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private async handlePaPlanButton(organizationId: string, replyId: string, from: string) {
     const m = replyId.match(/^pa_(ok|no):(.+)$/);
     if (!m) return false;
-    const res = await this.paConfirm({ organizationId, from, approve: m[1] === 'ok', viaButton: true });
+    // The plan is stored under the key the conversation used (often a LID);
+    // `from` here is the phone number Meta reports, which is a different id.
+    const res = await this.paConfirm({ organizationId, from: m[2], approve: m[1] === 'ok', viaButton: true });
     if (res.reply) await this.sendText(organizationId, { to: from, body: res.reply }).catch(() => null);
     return true;
   }

@@ -748,7 +748,17 @@ async function handlePaChat(msg, chatId, fromGroupId) {
   const groups = await listGroups();
   try {
     const res = await callBridgeApi('/whatsapp/pa-chat', {
-      body: { organizationId: ORG_ID, from: who, text, groups, thisGroupId: fromGroupId || undefined },
+      body: {
+        organizationId: ORG_ID,
+        from: who,
+        text,
+        groups,
+        thisGroupId: fromGroupId || undefined,
+        // The Cloud API can only address a real phone number. `who` is often a
+        // LID, which Meta accepts and delivers nowhere, so resolve it first and
+        // let the service fall back to plain text when we cannot.
+        notifyPhone: (String(chatId).endsWith('@c.us') ? who : await phoneForLid(who)) || undefined,
+      },
     });
     if (!res?.reply && !(res?.posts || []).length) return false;
     if (res.reply) await client.sendMessage(chatId, res.reply);

@@ -314,6 +314,7 @@ export class WhatsAppController {
       text: string;
       groups: Array<{ id: string; name: string }>;
       thisGroupId?: string;
+      notifyPhone?: string;
     },
   ) {
     this.assertBridgeToken(req);
@@ -324,6 +325,7 @@ export class WhatsAppController {
       text: body.text,
       groups: Array.isArray(body.groups) ? body.groups : [],
       thisGroupId: body.thisGroupId,
+      notifyPhone: body.notifyPhone,
     });
   }
 
