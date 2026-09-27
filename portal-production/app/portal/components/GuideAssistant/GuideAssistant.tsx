@@ -24,6 +24,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useConfiguration } from "../../context/ConfigurationContext";
 import { useUserPermissions } from "../../hooks/useUserPermissions";
+import { useOrganizationFeatures } from "../../hooks/useOrganizationFeatures";
 import { LEGACY_MODULES, getGuide, guideCatalog, type Guide } from "./guides";
 import TourOverlay from "./TourOverlay";
 
@@ -82,6 +83,10 @@ export default function GuideAssistant() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
+
+  // Flag-injected submenus the sidebar adds on top of the stored module config
+  // (DynamicSidebarContent): the assistant must see them too.
+  const { isMaintenanceDatesEnabled } = useOrganizationFeatures();
 
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -154,6 +159,13 @@ export default function GuideAssistant() {
                   typeof s === "string"
                     ? { key: s, label: s, path: `${route}/${s}` }
                     : { key: s.key, label: s.label, path: s.href || `${route}/${s.key}` },
+                )
+                .concat(
+                  m.moduleCode === "MAINTENANCE" &&
+                    isMaintenanceDatesEnabled &&
+                    !(m.config?.subMenus || []).some((s: any) => (typeof s === "string" ? s : s?.key) === "dates")
+                    ? [{ key: "dates", label: "Maintenance Dates", path: `${route}/dates` }]
+                    : [],
                 ),
             };
           });
@@ -212,7 +224,7 @@ export default function GuideAssistant() {
         setLoading(false);
       }
     },
-    [loading, turns, getToken, pathname, modules, runAction, isModuleAllowed, isAdminUser],
+    [loading, turns, getToken, pathname, modules, runAction, isModuleAllowed, isAdminUser, isMaintenanceDatesEnabled],
   );
 
   return (
