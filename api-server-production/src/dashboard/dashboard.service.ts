@@ -423,4 +423,35 @@ export class DashboardService {
     return { units, visits };
   }
 
+
+  // ── Ops dashboard layout (per user, per org) ───────────────────────────
+  // Stored in its own table keyed by Clerk user id. It is NOT hung off the
+  // membership row: a global osirisadmin viewing another org has no membership
+  // there, so that storage 403'd for exactly the people who administer these
+  // dashboards (guru 2026-09-26).
+  async getOpsLayout(organizationId: string, userId: string) {
+    const row = await this.prisma.userDashboardLayout.findUnique({
+      where: { userId_organizationId_key: { userId, organizationId, key: 'ops' } },
+      select: { layout: true },
+    });
+    // null means "never customised" — the client falls back to the default
+    // arrangement, so changing that default later doesn't require rewriting
+    // everyone's stored layout.
+    return { layout: (row?.layout as any) ?? null };
+  }
+
+  async saveOpsLayout(organizationId: string, userId: string, layout: Array<{ id: string; w: number }>) {
+    // Keep only what the board understands, so a malformed payload can never
+    // render someone's dashboard unopenable.
+    const clean = (Array.isArray(layout) ? layout : [])
+      .filter((e) => e && typeof e.id === 'string')
+      .map((e) => ({ id: e.id, w: Math.min(Math.max(Number(e.w) || 4, 1), 12) }));
+    const saved = await this.prisma.userDashboardLayout.upsert({
+      where: { userId_organizationId_key: { userId, organizationId, key: 'ops' } },
+      update: { layout: clean },
+      create: { userId, organizationId, key: 'ops', layout: clean },
+      select: { layout: true },
+    });
+    return { ok: true, layout: saved.layout };
+  }
 }

@@ -1,5 +1,9 @@
 {
   "compilerOptions": {
+    // ES5 (the default when unset) makes every `[...set]` / `[...map.entries()]`
+    // a type error. Next/SWC does the real transpiling (noEmit: true), so this
+    // target only governs type-checking and changes nothing shipped.
+    "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,

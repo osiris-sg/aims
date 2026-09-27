@@ -11,6 +11,8 @@ interface RequestWithOrganization extends Request {
     id: string;
     name: string;
   };
+  // Set by ClerkAuthGuard — the authenticated user (id is the Clerk user id).
+  user?: { id: string };
 }
 
 @ApiTags('dashboard')
@@ -128,6 +130,27 @@ export class DashboardController {
   @ApiOperation({ summary: 'Where the fleet sits, and where the team has been' })
   async getOpsMap(@Req() req: RequestWithOrganization) {
     return await this.dashboardService.getOpsMap(this.orgOf(req));
+  }
+
+  @Get('ops/layout')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: "This user's saved dashboard arrangement" })
+  async getOpsLayout(@Req() req: RequestWithOrganization) {
+    return await this.dashboardService.getOpsLayout(this.orgOf(req), this.userOf(req));
+  }
+
+  @Post('ops/layout')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Save this user’s dashboard arrangement' })
+  async saveOpsLayout(@Req() req: RequestWithOrganization, @Body() body: { layout: Array<{ id: string; w: number }> }) {
+    const layout = Array.isArray(body?.layout) ? body.layout : [];
+    return await this.dashboardService.saveOpsLayout(this.orgOf(req), this.userOf(req), layout);
+  }
+
+  private userOf(req: RequestWithOrganization): string {
+    const userId = req.user?.id;
+    if (!userId) throw new Error('Not signed in');
+    return userId;
   }
 
   private orgOf(req: RequestWithOrganization): string {

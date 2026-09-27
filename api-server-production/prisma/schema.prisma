@@ -1154,6 +1154,27 @@ model DeviceToken {
   @@index([organizationId])
 }
 
+// A person's saved arrangement of a dashboard, per organisation.
+//
+// Deliberately NOT hung off UserOrganization.settings: a global osirisadmin
+// viewing another org has no membership row there, so that storage silently
+// 403s for the very people who administer the dashboards (guru 2026-09-26).
+// Keyed by Clerk user id directly, so it works for members and admins alike.
+model UserDashboardLayout {
+  id             String   @id @default(uuid())
+  userId         String // Clerk user id
+  organizationId String
+  // Which dashboard this arrangement belongs to ("ops" today; room for more).
+  key            String   @default("ops")
+  // [{ id: widgetId, w: span-of-12 }] in display order.
+  layout         Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, organizationId, key])
+  @@index([organizationId, key])
+}
+
 model UserOrganization {
   id             String       @id @default(uuid())
   userId         String
