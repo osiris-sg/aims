@@ -303,6 +303,35 @@ export class WhatsAppController {
   }
 
   @Public()
+  @Post('pa-chat')
+  @ApiOperation({ summary: 'Group bridge: one turn of the adviser\'s private chat with the PA' })
+  async paChat(
+    @Req() req: RequestWithOrganization,
+    @Body() body: { organizationId: string; from: string; text: string; groups: Array<{ id: string; name: string }> },
+  ) {
+    this.assertBridgeToken(req);
+    if (!body?.organizationId) throw new BadRequestException('organizationId is required');
+    return this.service.paChat({
+      organizationId: body.organizationId,
+      from: body.from,
+      text: body.text,
+      groups: Array.isArray(body.groups) ? body.groups : [],
+    });
+  }
+
+  @Public()
+  @Post('pa-confirm')
+  @ApiOperation({ summary: 'Group bridge: the adviser said ok/no to the plan the PA proposed' })
+  async paConfirm(
+    @Req() req: RequestWithOrganization,
+    @Body() body: { organizationId: string; from: string; approve: boolean },
+  ) {
+    this.assertBridgeToken(req);
+    if (!body?.organizationId) throw new BadRequestException('organizationId is required');
+    return this.service.paConfirm({ organizationId: body.organizationId, from: body.from, approve: !!body.approve });
+  }
+
+  @Public()
   @Post('group-schedule')
   @ApiOperation({ summary: 'Group bridge: schedule a message to one/many/all groups from a chat request' })
   async groupSchedule(

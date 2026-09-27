@@ -419,6 +419,95 @@ export class WhatsAppAgentService {
    * one, which is what keeps a reschedule from creating duplicates.
    */
   /**
+   * The PA's own chat with the adviser: a real conversation, not one-shot
+   * parsing. It asks for what is missing, and only when it has message +
+   * groups + timing does it propose a plan for him to confirm.
+   *
+   * Returns the text to reply with, plus a plan when one is ready.
+   */
+  async paConverse(
+    history: Array<{ role: 'user' | 'assistant'; content: string }>,
+    text: string,
+    groups: Array<{ id: string; name: string }>,
+    nowIso: string,
+  ): Promise<{
+    reply: string;
+    plan: { message: string; groupIds: string[]; whenIso: string | null; recurrence: string } | null;
+  } | null> {
+    if (!this.anthropic) throw new BadRequestException('AI agent is not configured (missing ANTHROPIC_API_KEY)');
+
+    const list = groups.map((g, i) => `${i + 1}. ${g.name}`).join('\n');
+    const system = [
+      "You are San, a financial adviser's assistant. In this private chat you help HIM (not a client) send or schedule messages into his client group chats.",
+      `The current date/time is ${nowIso} (Asia/Singapore).`,
+      `His groups, by number:\n${list || '(none)'}`,
+      'To act you need three things: the MESSAGE text, WHICH groups, and WHEN (now, or a date/time). Ask for whatever is missing — one short question at a time, no lists of options.',
+      'Match groups loosely on how he names them ("the Tham one", "all the DCA ones", "everyone"). When he names a filter like "all DCA groups", resolve it to the matching numbers yourself.',
+      'When you have all three, call propose_send. Do NOT say you have sent or scheduled anything — he confirms first, and the system handles it.',
+      'Keep every reply to one or two short lines. No preamble, no restating what he said, no em dashes.',
+      'If he is not asking you to send anything, just answer him briefly.',
+    ].join('\n\n');
+
+    const tools: Anthropic.Tool[] = [
+      {
+        name: 'propose_send',
+        description:
+          'Propose sending a message to groups, for him to confirm. Call only when you have the message text, the target groups, and the timing.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            message: { type: 'string', description: 'Exactly what the clients should read. No instruction wording.' },
+            groupNumbers: { type: 'array', items: { type: 'number' }, description: 'Numbers from the group list.' },
+            when: { type: 'string', description: '"now", or an ISO-8601 date/time with +08:00.' },
+            recurrence: { type: 'string', description: 'NONE | DAILY | WEEKLY | MONTHLY. Default NONE.' },
+          },
+          required: ['message', 'groupNumbers', 'when'],
+        },
+      },
+    ];
+
+    const messages: Anthropic.MessageParam[] = [
+      ...history.map((h) => ({ role: h.role, content: h.content })),
+      { role: 'user' as const, content: text },
+    ];
+
+    const resp = await this.anthropic.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 900,
+      system,
+      tools,
+      messages,
+    });
+    const say = resp.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('')
+      .trim();
+    const use = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'propose_send');
+    if (!use) return { reply: say || 'Sorry, I did not follow that.', plan: null };
+
+    const a: any = use.input || {};
+    const groupIds = [
+      ...new Set((a.groupNumbers || []).map((n: any) => groups[Number(n) - 1]?.id).filter(Boolean) as string[]),
+    ];
+    if (!groupIds.length) return { reply: 'I could not match that to any of your groups. Which one?', plan: null };
+    const whenRaw = String(a.when || 'now').trim();
+    const whenIso = /^now$/i.test(whenRaw) ? null : whenRaw;
+    if (whenIso && isNaN(new Date(whenIso).getTime())) {
+      return { reply: 'When should that go out?', plan: null };
+    }
+    return {
+      reply: say,
+      plan: {
+        message: String(a.message || '').trim(),
+        groupIds,
+        whenIso,
+        recurrence: String(a.recurrence || 'NONE').toUpperCase(),
+      },
+    };
+  }
+
+  /**
    * Parse "schedule <message> to <groups> at <when>" sent by the adviser to his
    * assistant. Group NAMES are matched by the model against the list it is
    * given, so the adviser can write them however he likes ("the Tham family

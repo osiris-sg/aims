@@ -1133,6 +1133,120 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     return { reply: verdict.reply, confidence: score };
   }
 
+  private paSessionKey(from: string) {
+    return { channel: 'wa-pa', channelUserId: String(from).replace(/\D/g, '') };
+  }
+
+  /**
+   * One turn of the adviser's private chat with the PA. Keeps history in
+   * OperatorSession (generic channel/userId/json, so no new table) and returns
+   * the reply to send. When the AI has message + groups + timing it stores a
+   * plan and asks him to confirm; nothing is created until he does.
+   */
+  async paChat(args: {
+    organizationId: string;
+    from: string;
+    text: string;
+    groups: Array<{ id: string; name: string }>;
+  }) {
+    const key = this.paSessionKey(args.from);
+    const row = await this.prisma.operatorSession.findUnique({ where: { channel_channelUserId: key } });
+    const state: any = (row?.state as any) || {};
+    const history: Array<{ role: 'user' | 'assistant'; content: string }> = Array.isArray(state.history)
+      ? state.history.slice(-12)
+      : [];
+
+    const out = await this.agent.paConverse(history, args.text, args.groups, new Date().toISOString());
+    if (!out) return { reply: null };
+
+    let reply = out.reply;
+    let pendingPlan: any = null;
+    if (out.plan) {
+      const names = out.plan.groupIds.map((id) => args.groups.find((g) => g.id === id)?.name || id);
+      const whenText = out.plan.whenIso
+        ? new Date(out.plan.whenIso).toLocaleString('en-GB', {
+            weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+            timeZone: 'Asia/Singapore',
+          })
+        : 'now';
+      pendingPlan = { ...out.plan, names, createdAt: new Date().toISOString() };
+      reply =
+        `${whenText === 'now' ? 'Sending now' : `Scheduled for ${whenText}`}` +
+        `${out.plan.recurrence !== 'NONE' ? ` (${out.plan.recurrence.toLowerCase()})` : ''} to ${names.length} group${names.length > 1 ? 's' : ''}:\n` +
+        `${names.map((n) => `• ${n}`).join('\n')}\n\n"${out.plan.message}"\n\nReply *ok* to go ahead, or *no* to drop it.`;
+    }
+
+    const nextHistory = [...history, { role: 'user' as const, content: args.text }];
+    if (reply) nextHistory.push({ role: 'assistant' as const, content: reply });
+    await this.prisma.operatorSession.upsert({
+      where: { channel_channelUserId: key },
+      update: { state: { history: nextHistory.slice(-12), pendingPlan }, expiresAt: new Date(Date.now() + 30 * 86400_000) },
+      create: {
+        ...key,
+        state: { history: nextHistory.slice(-12), pendingPlan },
+        expiresAt: new Date(Date.now() + 30 * 86400_000),
+      },
+    });
+    return { reply, hasPlan: !!pendingPlan };
+  }
+
+  /**
+   * He confirmed (or dropped) the plan. Later sends become scheduled rows the
+   * bridge already polls for; an immediate send is handed back as posts[]
+   * because only the linked device can write into a group.
+   */
+  async paConfirm(args: { organizationId: string; from: string; approve: boolean }) {
+    const key = this.paSessionKey(args.from);
+    const row = await this.prisma.operatorSession.findUnique({ where: { channel_channelUserId: key } });
+    const state: any = (row?.state as any) || {};
+    const plan = state.pendingPlan;
+    if (!plan) return { reply: 'Nothing is waiting for a yes right now.', posts: [] };
+
+    const clear = async (appended: string) => {
+      const history = [...(state.history || []), { role: 'assistant', content: appended }].slice(-12);
+      await this.prisma.operatorSession.update({
+        where: { channel_channelUserId: key },
+        data: { state: { history, pendingPlan: null } },
+      });
+    };
+
+    if (!args.approve) {
+      await clear('Dropped.');
+      return { reply: '👍 Dropped.', posts: [] };
+    }
+
+    if (!plan.whenIso) {
+      // Immediate: the bridge posts these itself and logs them.
+      await clear('Sent.');
+      return {
+        reply: `✅ Sending to ${plan.names.length} group${plan.names.length > 1 ? 's' : ''} now.`,
+        posts: plan.groupIds.map((id: string) => ({ groupId: id, body: plan.message })),
+      };
+    }
+
+    const when = new Date(plan.whenIso);
+    const recurrence = ['DAILY', 'WEEKLY', 'MONTHLY'].includes(plan.recurrence) ? plan.recurrence : 'NONE';
+    for (const groupId of plan.groupIds) {
+      await this.prisma.whatsAppScheduledMessage.create({
+        data: {
+          organizationId: args.organizationId,
+          to: groupId,
+          body: plan.message,
+          scheduledAt: when,
+          status: 'PENDING',
+          createdBy: String(args.from).replace(/\D/g, '') || 'pa-chat',
+          recurrence,
+          recurAnchorDay: recurrence === 'MONTHLY' ? when.getUTCDate() : null,
+        },
+      });
+    }
+    await clear('Scheduled.');
+    return {
+      reply: `✅ Scheduled for ${when.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Singapore' })} to ${plan.names.length} group${plan.names.length > 1 ? 's' : ''}.`,
+      posts: [],
+    };
+  }
+
   /**
    * "Please schedule <message> to <groups> at <when>", asked of the PA in chat.
    *

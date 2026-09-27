@@ -186,6 +186,8 @@ const pendingReplies = new Map();
 // Drafts waiting on Denzel's OK, keyed by a short code he replies with.
 // In-memory: a restart drops them, and the draft still sits in CRM > Suggestions.
 const pendingApprovals = new Map();
+// Senders with a PA plan awaiting ok/no (AIMS holds the plan itself).
+const paPlanOpen = new Set();
 
 // SESSION_DIR lets a hosted deploy point the session at a persistent disk so it
 // survives restarts/redeploys (Render worker mounts a disk here). Local default
@@ -673,41 +675,65 @@ async function notifyDenzel(group, clientMsg, reply) {
  * Denzel replying "ok <code>" / "no <code>" to a held draft. Anything else in a
  * DM is ignored: this bridge is only ever meant to act inside groups.
  */
-// "schedule ... to ..." is the giveaway; the AI decides for real, this only
-// keeps us from paying for a model call on every "ok" and "thanks".
-const SCHEDULE_HINT = /\b(schedule|broadcast|send)\b[\s\S]*\b(to|for|in)\b|\bschedule\b/i;
-
-/** Adviser asking the PA to schedule a message into one, several or all groups.
- *  Returns true when it handled the message. */
-async function handleScheduleRequest(msg, chatId, fromGroupId) {
+/** The adviser's private chat with the PA: a real conversation. Every DM from
+ *  him goes to AIMS, which keeps the history, asks for what is missing and
+ *  proposes a plan; "ok" here executes it. Returns true when handled. */
+async function handlePaChat(msg, chatId, fromGroupId) {
   const text = String(msg.body || '').trim();
-  if (!text || !SCHEDULE_HINT.test(text)) return false;
+  if (!text) return false;
   const senderDigits = String(msg.author || msg.from || '').replace(/\D/g, '');
   const isStaff =
     !!msg.fromMe ||
     DENZEL_NUMBERS.some((n) => senderDigits.endsWith(n.slice(-8))) ||
     STAFF_NUMBERS.some((n) => n && senderDigits.endsWith(n.slice(-8)));
   if (!isStaff) return false;
+  const who = senderDigits || 'unknown';
+
+  // A bare ok/no answers whatever plan is outstanding. Anything else is a turn
+  // of conversation. Approval of a HELD GROUP DRAFT is a different thing and
+  // is handled after this, so only act on ok/no when a plan is actually open.
+  const yn = text.match(/^(ok|okay|yes|y|send|go|confirm|no|n|drop|cancel|skip)\b\s*$/i);
+  if (yn && paPlanOpen.has(who)) {
+    const approve = /^(ok|okay|yes|y|send|go|confirm)$/i.test(yn[1]);
+    try {
+      const res = await callBridgeApi('/whatsapp/pa-confirm', {
+        body: { organizationId: ORG_ID, from: who, approve },
+      });
+      paPlanOpen.delete(who);
+      if (res?.reply) await client.sendMessage(chatId, res.reply);
+      for (const post of res?.posts || []) {
+        try {
+          await client.sendMessage(post.groupId, post.body);
+          console.log(`   📣 posted to ${post.groupId}`);
+        } catch (e) {
+          console.error(`   ✖ post to ${post.groupId} failed:`, e && e.message ? e.message : e);
+          await client.sendMessage(chatId, `Couldn't post to one group: ${e && e.message ? e.message : e}`);
+        }
+      }
+      return true;
+    } catch (e) {
+      const err = e && e.message ? e.message : String(e);
+      console.error('   ✖ pa-confirm failed:', err);
+      await client.sendMessage(chatId, `Sorry, that didn't go through: ${err}`);
+      return true;
+    }
+  }
 
   const groups = await listGroups();
   try {
-    const res = await callBridgeApi('/whatsapp/group-schedule', {
-      body: {
-        organizationId: ORG_ID,
-        request: text,
-        groups,
-        thisGroupId: fromGroupId || undefined,
-        createdBy: senderDigits || undefined,
-      },
+    const res = await callBridgeApi('/whatsapp/pa-chat', {
+      body: { organizationId: ORG_ID, from: who, text, groups },
     });
-    if (!res || (!res.scheduled && !res.reply)) return false; // not a scheduling ask after all
+    if (!res?.reply) return false;
+    if (res.hasPlan) paPlanOpen.add(who);
     await client.sendMessage(chatId, res.reply);
-    console.log(`   🗓  scheduled to ${res.scheduled} group(s) on request`);
+    console.log(`   💬 PA chat with ${who}${res.hasPlan ? ' (plan proposed)' : ''}`);
     return true;
   } catch (e) {
     const err = e && e.message ? e.message : String(e);
-    console.error('   ✖ schedule request failed:', err);
-    await client.sendMessage(chatId, `Sorry, I couldn't set that up: ${err}`);
+    console.error('   ✖ pa-chat failed:', err);
+    // Never leave him wondering whether it is broken or ignoring him.
+    await client.sendMessage(chatId, `Sorry, I couldn't process that: ${err}`);
     return true;
   }
 }
@@ -718,14 +744,14 @@ async function handleApprovalReply(msg, chatId) {
     !!msg.fromMe ||
     DENZEL_NUMBERS.some((n) => senderDigits.endsWith(n.slice(-8))) ||
     STAFF_NUMBERS.some((n) => n && senderDigits.endsWith(n.slice(-8)));
-  if (!isStaffDm) return;
+  if (!isStaffDm) return false;
 
   const text = String(msg.body || '').trim();
   // The code is optional: typing it out is friction, and a linked device cannot
   // send tappable buttons (only the Cloud API can), so a bare "ok" has to work
   // whenever the button prompt could not go out.
   const m = text.match(/^(ok|okay|yes|y|send|no|n|drop|skip)\b\s*([a-z0-9]{4,8})?$/i);
-  if (!m) return;
+  if (!m) return false;
   const approve = /^(ok|okay|yes|y|send)$/i.test(m[1]);
   let code = (m[2] || '').toLowerCase();
 
@@ -744,10 +770,7 @@ async function handleApprovalReply(msg, chatId) {
   // Otherwise act on the most recent outstanding draft.
   if (!code) {
     const codes = [...pendingApprovals.keys()];
-    if (!codes.length) {
-      await client.sendMessage(chatId, 'Nothing is waiting for approval right now.');
-      return;
-    }
+    if (!codes.length) return false; // no draft held — the PA chat handles this
     code = codes[codes.length - 1];
     if (codes.length > 1) {
       await client.sendMessage(
@@ -760,7 +783,7 @@ async function handleApprovalReply(msg, chatId) {
   const held = pendingApprovals.get(code);
   if (!held) {
     await client.sendMessage(chatId, `I can't find draft ${code} any more. It may have expired or already been handled.`);
-    return;
+    return true;
   }
 
   try {
@@ -782,6 +805,7 @@ async function handleApprovalReply(msg, chatId) {
     await client.sendMessage(chatId, `Sorry, that didn't go through: ${err}`);
   }
   pendingApprovals.delete(code);
+  return true;
 }
 
 client.on('message_create', async (msg) => {
@@ -791,9 +815,10 @@ client.on('message_create', async (msg) => {
     // Approval replies arrive as a 1:1 DM from Denzel, so handle them before
     // the groups-only guard below.
     if (typeof chatId === 'string' && chatId.endsWith('@c.us')) {
-      // A scheduling ask looks nothing like "ok"/"no", so try it first.
-      if (await handleScheduleRequest(msg, chatId, null)) return;
-      await handleApprovalReply(msg, chatId);
+      // A held group draft's ok/no is answered first (it owns bare "ok" when a
+      // draft is outstanding); everything else is conversation with the PA.
+      if (await handleApprovalReply(msg, chatId)) return;
+      await handlePaChat(msg, chatId, null);
       return;
     }
 
@@ -837,7 +862,7 @@ client.on('message_create', async (msg) => {
     // this to this group / to the Tham group / to all groups". Checked before
     // the appointment sniff so "schedule X for Friday" is treated as an
     // instruction to the PA, not as a booking to remind the client about.
-    if (isStaff && (await handleScheduleRequest(msg, chatId, chatId))) return;
+    if (isStaff && summoned && (await handlePaChat(msg, chatId, chatId))) return;
 
     // Staff posting a booking: capture it and remind the client later. This is
     // checked before the summon gate because the advisor may just drop the
