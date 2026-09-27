@@ -2194,9 +2194,10 @@ export default function DeliveryBasketPage() {
                 ? `This unit is equipment, so it needs ${requiredPhotos} condition photos before it can be moved.`
                 : "Take at least one photo of the unit's condition before it is moved."}
           </Typography>
-          {requiredPhotos > 1 ? (
-            // Equipment going out: walk the named angles instead of a free-form
-            // picker, so the office gets a comparable set for every unit.
+          {pending?.mode !== "photos" && requiredPhotos >= 1 ? (
+            // Condition photos before a unit moves (equipment 4, accessory 1):
+            // the fast capture screen. "Add photos" on a started unit keeps the
+            // free-form picker, which has no cap.
             <GuidedPhotoCapture
               photos={pendingPhotos}
               onChange={setPendingPhotos}

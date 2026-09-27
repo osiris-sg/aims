@@ -5,7 +5,6 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   CircularProgress,
   Dialog,
   IconButton,
@@ -16,31 +15,33 @@ import {
 import AddPhotoAlternateIcon from "@mui/icons-material/AddPhotoAlternate";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import DeleteIcon from "@mui/icons-material/Delete";
 import CloseIcon from "@mui/icons-material/Close";
-import { usePhotoUploader, type CapturedPhoto } from "./usePhotoUploader";
+import ReplayIcon from "@mui/icons-material/Replay";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import { canUseInAppCamera, captureNativePhotos, chooseNativeGalleryPhotos } from "@/app/(field)/lib/nativeCamera";
+import { compressImageBlob } from "@/app/(field)/lib/imageCompress";
+import type { CapturedPhoto } from "./usePhotoUploader";
 
 export type { CapturedPhoto };
 
 /**
- * The angles an equipment unit is walked through, in WALK-AROUND order (4 for
- * equipment: Front, Left, Back, Right — a continuous loop around the unit
- * rather than front/back/side hopping). These match the equipment minimum, so
- * every named slot is required; anything past them is an extra angle the rider
- * chooses. Each has an `example` placeholder image (public/guide-angles) shown
- * under the prompt — swap those files for real reference photos anytime.
+ * The reference angles for EQUIPMENT (walk-around order), each with an example
+ * image in public/guide-angles. Guidance only: the rider is not walked through
+ * them one by one and a photo is not tied to an angle. The keys are still
+ * stamped positionally on the photos so the payload keeps its `angles` array
+ * and a later return can pair shots the way it always has.
  */
 const STEPS = [
-  { key: "front", label: "Front", hint: "Face the unit head on, whole unit in frame.", example: "/guide-angles/front.jpeg" },
-  { key: "left", label: "Left", hint: "Step to the left side and shoot it square on.", example: "/guide-angles/left.jpeg" },
-  { key: "back", label: "Back", hint: "Walk around and shoot the rear panel.", example: "/guide-angles/back.jpeg" },
-  { key: "right", label: "Right", hint: "Step to the right side and shoot it square on.", example: "/guide-angles/right.jpeg" },
+  { key: "front", label: "Front", example: "/guide-angles/front.jpeg" },
+  { key: "left", label: "Left", example: "/guide-angles/left.jpeg" },
+  { key: "back", label: "Back", example: "/guide-angles/back.jpeg" },
+  { key: "right", label: "Right", example: "/guide-angles/right.jpeg" },
 ] as const;
 
-/** Ordered angle KEYS for the guided set — used to pair returns by angle. */
+/** Ordered angle KEYS for the guided set, used to pair returns by angle. */
 export const PHOTO_ANGLE_KEYS: readonly string[] = STEPS.map((s) => s.key);
 
-/** Human label for a stored angle key (front → Front); "" / extra → "". */
+/** Human label for a stored angle key (front -> Front); "" / extra -> "". */
 export function angleLabel(key: string | undefined): string {
   if (!key) return "";
   const step = STEPS.find((s) => s.key === key);
@@ -53,24 +54,17 @@ interface Props {
   onChange: (photos: CapturedPhoto[]) => void;
   /** Uploads ONE compressed blob and resolves its stored key. */
   upload: (blob: Blob) => Promise<string | null>;
-  /** How many photos this unit needs before delivery can start. */
+  /** How many photos this unit needs (equipment 4, accessory 1). */
   minPhotos: number;
   onError?: (message: string) => void;
+  /** true while any photo is still uploading: callers hold Continue on it. */
   onUploadingChange?: (uploading: boolean) => void;
   disabled?: boolean;
-  /**
-   * Return flow (#2): the unit's OUTBOUND condition photos + parallel angle
-   * labels. When set, capture becomes strictly one-angle-at-a-time WITH a review
-   * step — after each shot the rider sees it beside the matching outbound angle,
-   * then advances. Angle-matched when `angles` line up; otherwise index-paired
-   * with the full outbound strip and a "not a guaranteed angle match" caption.
-   */
+  /** Return flow: the unit's OUTBOUND photos, shown as "How it went out". */
   comparison?: { photos: string[]; angles: string[] };
   /**
-   * Per-photo damage (returns). When set, each shot is followed by a
-   * "Damaged?" answer plus an optional comment before the rider advances, so
-   * four angles produce four answers. Parallel arrays to `photos`, mirroring
-   * how the angle labels travel; photos[] itself is never reshaped.
+   * Per-photo damage (returns). Parallel arrays to `photos`: each added photo
+   * gets a Damaged? answer and an optional comment.
    */
   damage?: {
     flags: boolean[];
@@ -79,16 +73,30 @@ interface Props {
   };
 }
 
+/** A photo on its way to storage (or stuck there). Not in `photos` until it lands. */
+interface Pending {
+  id: string;
+  previewUrl: string;
+  /** The compressed blob once compression finished, kept for a retry. */
+  blob: Blob | null;
+  file: File;
+  status: "uploading" | "failed";
+}
+
+const TILE = 96;
+/** Most photos one unit can carry. Continue needs only `minPhotos`. */
+export const MAX_PHOTOS = 8;
+
 /**
- * Guided condition capture for EQUIPMENT: front, back, left, right, then
- * any extra angles the minimum still needs. One shot per step rather than a
- * free-for-all picker, so the office gets a comparable set for every unit
- * instead of several photos of the same corner.
+ * Condition photos, fast: a reference strip of example angles, then "Take
+ * photos" (the camera reopens after each shot until the minimum is met) or
+ * "Choose from gallery" (multi-select). Past the minimum the rider may add more,
+ * up to MAX_PHOTOS; a pick over the cap is trimmed with a note. Photos
+ * upload in parallel with a per-photo state and retry; the caller's Continue
+ * waits on onUploadingChange and `photos.length >= minPhotos`.
  *
- * The angle labels are guidance for the rider, not stored metadata. The
- * submitted payload is still a flat photos[] of S3 keys, so nothing downstream
- * (the DO_START report, the office proof panel, the printed DO) has to change.
- * Accessories keep the free-form single-photo grid in PhotoCaptureField.
+ * The payload is unchanged: a flat photos[] of S3 keys, plus positional angle
+ * keys for equipment (accessories carry none, as before).
  */
 export default function GuidedPhotoCapture({
   photos,
@@ -101,322 +109,343 @@ export default function GuidedPhotoCapture({
   comparison,
   damage,
 }: Props) {
-  const { uploading, captureMode, camMsg, setCamMsg, ingestFiles, takeNativePhotoOnce } =
-    usePhotoUploader({ upload, onError, onUploadingChange });
+  const isEquipment = minPhotos > 1;
+  // Accessories get no example strip until a real accessory image exists.
+  const examples = isEquipment ? STEPS : [];
 
-  // Comparison (return) mode: after each capture the rider reviews the shot
-  // beside its outbound angle before advancing. `reviewing` gates that step.
-  const comparisonMode = !!comparison;
-  const [reviewing, setReviewing] = useState(false);
-  // Enter the review whenever a new photo ARRIVES, regardless of how it was
-  // captured (native camera, device-camera input, or gallery pick). Driving this
-  // off the photo count rather than off any one capture handler is what makes
-  // every source run the identical capture -> compare -> damage -> next sequence:
-  // no path can add a photo without the review that follows. Only an INCREASE
-  // triggers it, so Retake (which drops the last photo) and Next (which just
-  // leaves the review) never re-open it.
-  const prevPhotoCount = useRef(photos.length);
-  useEffect(() => {
-    if (comparisonMode && photos.length > prevPhotoCount.current) setReviewing(true);
-    prevPhotoCount.current = photos.length;
-  }, [photos.length, comparisonMode]);
-  // Fullscreen image viewer for the return comparison (Delivered / Returning),
-  // same fullscreen-Dialog pattern /submit uses: the black overflow-auto box lets
-  // the phone pinch-zoom the contained image.
+  // Latest controlled values, so parallel uploads that land together each
+  // append to the list the previous one produced rather than to a stale prop.
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
+  const damageRef = useRef(damage);
+  damageRef.current = damage;
+
+  const [pending, setPending] = useState<Pending[]>([]);
+  const [camMsg, setCamMsg] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState(false);
   const [viewerSrc, setViewerSrc] = useState<string | null>(null);
-  // Does the outbound set carry angle labels? (Units captured before angle-
-  // labelling shipped won't — then we fall back to index pairing + full strip.)
-  const outboundHasAngles = !!comparison?.angles?.some((a) => a);
+  // Native shell: in-app camera / gallery unless a call has actually failed,
+  // then the WebView <input> takes over (one tap more, but it works).
+  const [inAppFailed, setInAppFailed] = useState(false);
+  const [galleryFailed, setGalleryFailed] = useState(false);
+  const inApp = canUseInAppCamera();
+  const useNativeCamera = inApp && !inAppFailed;
+  const useNativeGallery = inApp && !galleryFailed;
 
-  // The outbound reference photo for the unit's angle at position `idx`:
-  // angle-matched when labels exist, else the same index (best-effort).
-  const outboundFor = (
-    idx: number,
-  ): { src: string; matched: boolean } | null => {
-    if (!comparison) return null;
-    const key = STEPS[idx]?.key;
-    if (outboundHasAngles && key) {
-      const at = comparison.angles.findIndex((a) => a === key);
-      if (at >= 0 && comparison.photos[at]) return { src: comparison.photos[at], matched: true };
-    }
-    if (comparison.photos[idx]) return { src: comparison.photos[idx], matched: false };
-    return null;
-  };
+  const uploadingNow = pending.some((p) => p.status === "uploading");
+  useEffect(() => {
+    onUploadingChange?.(uploadingNow);
+  }, [uploadingNow, onUploadingChange]);
 
-  // STRICTLY SEQUENTIAL: the angle being asked for is derived from how many
-  // photos exist, so there is no separate cursor to drift out of sync. Deleting
-  // a photo shortens the list and therefore steps the prompt back to that angle
-  // on its own.
-  const totalSlots = Math.max(STEPS.length, minPhotos);
-  const stepIndex = Math.min(photos.length, totalSlots - 1);
-  const current = STEPS[stepIndex];
-  const currentLabel = current?.label ?? `Additional angle ${stepIndex - STEPS.length + 1}`;
-  const currentHint =
-    current?.hint ?? "Any angle that shows the unit's condition, for example a serial plate or existing damage.";
+  // Failed uploads hold their slot until retried or removed.
+  const held = photos.length + pending.length;
+  /** Still needed before Continue. */
+  const remaining = Math.max(0, minPhotos - held);
+  /** Still allowed under the cap. */
+  const room = Math.max(0, MAX_PHOTOS - held);
   const done = photos.length >= minPhotos;
+  const locked = disabled || capturing;
 
-  // Re-stamp every photo's angle by its CURRENT position so the stored labels
-  // always match the thumbnail captions below (which read STEPS[idx]). Positional
-  // is exactly right for this strictly-sequential capture; deleting a photo
-  // shifts the rest and re-labels them here on the next onChange.
+  // Equipment keeps positional angle keys (the payload's `angles`); accessories
+  // never had any.
   const withAngles = (list: CapturedPhoto[]): CapturedPhoto[] =>
-    list.map((p, idx) => ({ ...p, angle: STEPS[idx]?.key ?? "" }));
+    isEquipment
+      ? list.map((p, idx) => ({ ...p, angle: STEPS[idx]?.key ?? "" }))
+      : list.map((p) => {
+          const copy = { ...p };
+          delete copy.angle;
+          return copy;
+        });
 
-  const append = (captured: CapturedPhoto[]) => {
-    if (captured.length === 0) return;
-    onChange(withAngles([...photos, ...captured]));
-    // Grow the damage arrays in step so index N always describes photo N.
-    if (damage) {
-      damage.onChange(
-        [...damage.flags, ...captured.map(() => false)],
-        [...damage.comments, ...captured.map(() => "")],
-      );
+  const commit = (next: CapturedPhoto[]) => {
+    photosRef.current = next;
+    onChange(withAngles(next));
+  };
+
+  const appendPhoto = (photo: CapturedPhoto) => {
+    commit([...photosRef.current, photo]);
+    const d = damageRef.current;
+    if (d) {
+      const flags = [...d.flags, false];
+      const comments = [...d.comments, ""];
+      damageRef.current = { ...d, flags, comments };
+      d.onChange(flags, comments);
     }
-    // Review is entered by the photo-count effect above (fires for every capture
-    // source), not here, so the gallery path can never bypass it.
   };
 
-  // The answer for the shot under review (always the last one taken).
-  const lastIndex = photos.length - 1;
-  const lastDamaged = damage?.flags[lastIndex] ?? false;
-  const lastComment = damage?.comments[lastIndex] ?? "";
-  const setLastDamage = (flag: boolean, comment: string) => {
-    if (!damage || lastIndex < 0) return;
-    const flags = [...damage.flags];
-    const comments = [...damage.comments];
-    flags[lastIndex] = flag;
-    comments[lastIndex] = comment;
-    damage.onChange(flags, comments);
+  const runUpload = async (item: Pending) => {
+    try {
+      const blob = item.blob ?? (await compressImageBlob(item.file));
+      setPending((ps) => ps.map((p) => (p.id === item.id ? { ...p, blob } : p)));
+      const key = await upload(blob);
+      if (!key) throw new Error("Upload failed");
+      setPending((ps) => ps.filter((p) => p.id !== item.id));
+      appendPhoto({ key, previewUrl: item.previewUrl });
+    } catch (e: any) {
+      setPending((ps) => ps.map((p) => (p.id === item.id ? { ...p, status: "failed" } : p)));
+      onError?.(e?.message ? `A photo did not upload: ${e.message}` : "A photo did not upload. Tap retry on it.");
+    }
   };
 
-  // Review controls (comparison mode only).
-  const retakeLast = () => {
-    onChange(withAngles(photos.slice(0, -1)));
-    setReviewing(false);
+  const addFiles = (files: File[]) => {
+    if (!files.length) return;
+    onError?.("");
+    const items: Pending[] = files.map((file, i) => ({
+      id: `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`,
+      previewUrl: URL.createObjectURL(file),
+      blob: null,
+      file,
+      status: "uploading",
+    }));
+    setPending((ps) => [...ps, ...items]);
+    items.forEach((it) => void runUpload(it));
   };
-  const advanceReview = () => setReviewing(false);
 
-  // One shot per step: only ever take the FIRST file so a multi-select cannot
-  // skip past an angle the rider has not actually photographed.
-  const handleFiles = (files: FileList | null) => {
-    const one = files && files[0] ? [files[0]] : [];
-    if (one.length) void ingestFiles(one).then(append);
+  const retry = (id: string) => {
+    const item = pending.find((p) => p.id === id);
+    if (!item) return;
+    const again = { ...item, status: "uploading" as const };
+    setPending((ps) => ps.map((p) => (p.id === id ? again : p)));
+    void runUpload(again);
   };
+
+  const dropPending = (id: string) => setPending((ps) => ps.filter((p) => p.id !== id));
 
   const removePhoto = (index: number) => {
-    onChange(withAngles(photos.filter((_, i) => i !== index)));
-    // Drop the matching answer so the arrays stay index-aligned with photos[].
-    if (damage) {
-      damage.onChange(
-        damage.flags.filter((_, i) => i !== index),
-        damage.comments.filter((_, i) => i !== index),
-      );
+    commit(photosRef.current.filter((_, i) => i !== index));
+    const d = damageRef.current;
+    if (d) {
+      const flags = d.flags.filter((_, i) => i !== index);
+      const comments = d.comments.filter((_, i) => i !== index);
+      damageRef.current = { ...d, flags, comments };
+      d.onChange(flags, comments);
     }
   };
+
+  const setDamage = (index: number, flag: boolean, comment: string) => {
+    const d = damageRef.current;
+    if (!d) return;
+    const flags = [...d.flags];
+    const comments = [...d.comments];
+    flags[index] = flag;
+    comments[index] = comment;
+    damageRef.current = { ...d, flags, comments };
+    d.onChange(flags, comments);
+  };
+
+  /** Keep at most what fits under the cap; say so when a pick was trimmed. */
+  const takeNeeded = (files: File[]) => {
+    const fits = Math.max(0, MAX_PHOTOS - photosRef.current.length - pending.length);
+    if (files.length > fits) {
+      setInfo(`A unit can have up to ${MAX_PHOTOS} photos, so the first ${fits} ${fits === 1 ? "was" : "were"} added.`);
+    } else setInfo(null);
+    return files.slice(0, fits);
+  };
+
+  // Native camera: reopens after every shot until the minimum is met (past the
+  // minimum, one shot per tap). Backing out ends the run and keeps what was
+  // taken. Each shot starts uploading as soon as it is taken.
+  const takeNative = async () => {
+    setCamMsg(null);
+    setInfo(null);
+    setCapturing(true);
+    try {
+      await captureNativePhotos({ max: Math.min(room, Math.max(remaining, 1)), onShot: (f) => addFiles([f]) });
+    } catch {
+      setInAppFailed(true);
+      setCamMsg("Switched to the device camera. Tap Take photos again.");
+    } finally {
+      setCapturing(false);
+    }
+  };
+
+  const chooseNative = async () => {
+    setCamMsg(null);
+    setCapturing(true);
+    try {
+      addFiles(takeNeeded(await chooseNativeGalleryPhotos(room)));
+    } catch {
+      setGalleryFailed(true);
+      setCamMsg("Switched to the phone's file picker. Tap Choose from gallery again.");
+    } finally {
+      setCapturing(false);
+    }
+  };
+
+  const onInputFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const list = e.target.files ? Array.from(e.target.files) : [];
+    e.target.value = ""; // the same file can be picked again after a remove
+    addFiles(takeNeeded(list));
+  };
+
+  const takeLabel = held === 0 ? "Take photos" : remaining > 0 ? `Take photo ${held + 1} of ${minPhotos}` : "Add another photo";
 
   return (
     <Box>
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
         <Typography variant="subtitle2">
-          Condition photos ({photos.length} of {minPhotos})
+          Condition photos ({photos.length < minPhotos ? `${photos.length} of ${minPhotos}` : `${photos.length} added`})
         </Typography>
-        {uploading && <CircularProgress size={16} />}
-        {done && <CheckCircleIcon color="success" fontSize="small" />}
+        {uploadingNow && <CircularProgress size={16} />}
+        {done && !uploadingNow && <CheckCircleIcon color="success" fontSize="small" />}
       </Stack>
-      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
-        {comparisonMode
-          ? "Capture each angle, then compare it to how the unit went out."
-          : "This is equipment, so it needs a set of angles before it leaves."}
-      </Typography>
 
-      {/* ONE angle at a time. The full set is deliberately NOT listed: the rider
-          is asked for a single named shot, takes it, and the prompt advances. The
-          prompt is identical outbound and on a return (angle + example only); the
-          delivered comparison appears in the review AFTER the shot, not here. */}
-      {!done && !(comparisonMode && reviewing) && (
-        <Box sx={{ mb: 1.5, p: 1.5, borderRadius: 1, bgcolor: "action.hover" }}>
-          <Typography variant="overline" color="text.secondary" sx={{ display: "block", lineHeight: 1.4 }}>
-            Photo {photos.length + 1} of {minPhotos}
-          </Typography>
-          <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.3 }}>
-            {currentLabel}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {currentHint}
-          </Typography>
-        </Box>
-      )}
-
-      {/* (#4b) Large example photo for the current angle, directly under the
-          "Photo N of M" prompt and above the Take/Choose buttons, so the rider
-          frames the same shot. Shown for BOTH outbound and return capture (hidden
-          only during the return review, where the delivered comparison takes
-          over). Static placeholders live in public/guide-angles. */}
-      {!done && !(comparisonMode && reviewing) && current?.example && (
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-            Example: {currentLabel}
-          </Typography>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={current.example}
-            alt={`${currentLabel} example`}
-            style={{
-              display: "block",
-              width: "100%",
-              maxWidth: 360,
-              aspectRatio: "4 / 3",
-              objectFit: "cover",
-              borderRadius: 8,
-              border: "1px solid rgba(0,0,0,0.12)",
-            }}
-          />
-        </Box>
-      )}
-
-      {/* Comparison review: the shot just taken beside the outbound same angle. */}
-      {comparisonMode && reviewing && photos.length > 0 && (() => {
-        const idx = photos.length - 1;
-        const ref = outboundFor(idx);
-        const label = STEPS[idx]?.label ?? `Extra ${idx - STEPS.length + 1}`;
-        const last = photos[idx];
-        const isLastAngle = photos.length >= minPhotos;
-        return (
-          <Box sx={{ mb: 2, p: 1.5, borderRadius: 1, bgcolor: "action.hover" }}>
-            <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.3, mb: 1 }}>
-              {label}: compare
-            </Typography>
-            {/* Stacked comparison: the DELIVERED photo on top, the RETURNING one
-                directly below it, so the rider reads the same angle top-to-bottom.
-                Per-angle pairing is unchanged (angle-labelled units pair exactly;
-                older units fall back to index-pairing). */}
-            <Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                {ref ? (ref.matched ? "Delivered" : "Delivered (angle not guaranteed)") : "No delivered photo"}
-              </Typography>
-              {ref ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={ref.src}
-                  alt=""
-                  onClick={() => setViewerSrc(ref.src)}
-                  style={{ display: "block", width: "100%", maxWidth: 260, aspectRatio: "1 / 1", borderRadius: 4, objectFit: "cover", cursor: "pointer" }}
-                />
-              ) : (
-                <Box
-                  sx={{
-                    width: "100%",
-                    maxWidth: 260,
-                    aspectRatio: "1 / 1",
-                    borderRadius: 1,
-                    bgcolor: "action.disabledBackground",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Typography variant="caption" color="text.secondary">None on file</Typography>
-                </Box>
-              )}
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1, mb: 0.5 }}>
-                Returning
-              </Typography>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={last.previewUrl}
-                alt=""
-                onClick={() => setViewerSrc(last.previewUrl)}
-                style={{ display: "block", width: "100%", maxWidth: 260, aspectRatio: "1 / 1", borderRadius: 4, objectFit: "cover", cursor: "pointer" }}
+      {/* Reference strip: what a good set covers. Not enforced, not slots. */}
+      {examples.length > 0 && (
+      <Box sx={{ mb: 1.5 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+          Try to cover these angles
+        </Typography>
+        <Stack direction="row" spacing={1} sx={{ overflowX: "auto", pb: 0.5 }}>
+          {examples.map((s) => (
+            <Box key={s.key} sx={{ flexShrink: 0, width: 72, textAlign: "center" }}>
+              <Box
+                component="img"
+                src={s.example}
+                alt={`${s.label} example`}
+                sx={{ display: "block", width: 72, height: 54, objectFit: "cover", borderRadius: 1, border: "1px solid", borderColor: "divider" }}
               />
-            </Box>
-            {damage && (
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-                  Damaged?
-                </Typography>
-                <Stack direction="row" spacing={1}>
-                  <Button
-                    variant={lastDamaged ? "contained" : "outlined"}
-                    color={lastDamaged ? "error" : "primary"}
-                    onClick={() => setLastDamage(true, lastComment)}
-                    disabled={uploading || disabled}
-                    fullWidth
-                    sx={{ minHeight: 44 }}
-                  >
-                    Yes
-                  </Button>
-                  <Button
-                    variant={!lastDamaged ? "contained" : "outlined"}
-                    onClick={() => setLastDamage(false, lastComment)}
-                    disabled={uploading || disabled}
-                    fullWidth
-                    sx={{ minHeight: 44 }}
-                  >
-                    No
-                  </Button>
-                </Stack>
-                <TextField
-                  label="Comment (optional)"
-                  placeholder="Note anything visible on this angle"
-                  value={lastComment}
-                  onChange={(e) => setLastDamage(lastDamaged, e.target.value)}
-                  disabled={uploading || disabled}
-                  fullWidth
-                  multiline
-                  minRows={2}
-                  size="small"
-                  sx={{ mt: 1.5 }}
-                />
-              </Box>
-            )}
-            <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
-              <Button variant="outlined" onClick={retakeLast} disabled={uploading || disabled} fullWidth>
-                Retake
-              </Button>
-              <Button variant="contained" onClick={advanceReview} disabled={uploading || disabled} fullWidth>
-                {isLastAngle ? "Done" : "Next angle"}
-              </Button>
-            </Stack>
-          </Box>
-        );
-      })()}
-
-      {photos.length > 0 && (
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
-          {photos.map((p, idx) => (
-            <Box key={p.key} sx={{ position: "relative", width: 84, height: 84 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={p.previewUrl}
-                alt=""
-                style={{ width: "100%", height: "100%", borderRadius: 4, objectFit: "cover" }}
-              />
-              <IconButton
-                size="small"
-                onClick={() => removePhoto(idx)}
-                disabled={uploading || disabled}
-                sx={{ position: "absolute", top: 2, right: 2, bgcolor: "rgba(0,0,0,0.6)", color: "white" }}
-              >
-                <DeleteIcon fontSize="small" />
-              </IconButton>
-              <Typography
-                variant="caption"
-                sx={{
-                  position: "absolute",
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  px: 0.5,
-                  bgcolor: "rgba(0,0,0,0.6)",
-                  color: "white",
-                  fontSize: "0.6rem",
-                  borderRadius: "0 0 4px 4px",
-                }}
-              >
-                {STEPS[idx]?.label ?? `Extra ${idx - STEPS.length + 1}`}
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem" }}>
+                {s.label}
               </Typography>
             </Box>
           ))}
+        </Stack>
+      </Box>
+      )}
+
+      {/* Return: how the unit went out, for comparison (tap to enlarge). */}
+      {comparison && comparison.photos.length > 0 && (
+        <Box sx={{ mb: 1.5 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+            How it went out (tap to enlarge)
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ overflowX: "auto", pb: 0.5 }}>
+            {comparison.photos.map((src, i) => (
+              <Box
+                key={i}
+                component="img"
+                src={src}
+                alt=""
+                onClick={() => setViewerSrc(src)}
+                sx={{ width: 72, height: 72, flexShrink: 0, borderRadius: 1, objectFit: "cover", border: "1px solid", borderColor: "divider", cursor: "pointer" }}
+              />
+            ))}
+          </Stack>
+        </Box>
+      )}
+
+      {/* Added photos, then the ones still uploading or failed. */}
+      {(photos.length > 0 || pending.length > 0) && (
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: `repeat(auto-fill, minmax(${TILE}px, 1fr))`,
+            gap: 1,
+            mb: 1.5,
+          }}
+        >
+          {photos.map((p, idx) => (
+            <Box key={p.key} sx={{ position: "relative", aspectRatio: "1 / 1" }}>
+              <Box
+                component="img"
+                src={p.previewUrl}
+                alt={`Photo ${idx + 1}`}
+                onClick={() => setViewerSrc(p.previewUrl)}
+                sx={{ width: "100%", height: "100%", borderRadius: 1, objectFit: "cover", display: "block", cursor: "pointer" }}
+              />
+              <IconButton
+                size="small"
+                aria-label={`Remove photo ${idx + 1}`}
+                onClick={() => removePhoto(idx)}
+                disabled={locked}
+                sx={{ position: "absolute", top: 4, right: 4, p: 0.25, bgcolor: "rgba(0,0,0,0.6)", color: "#fff", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+              <Box sx={{ position: "absolute", bottom: 4, left: 4, px: 0.75, borderRadius: 1, bgcolor: "rgba(0,0,0,0.6)", color: "#fff", fontSize: "0.7rem", fontWeight: 600 }}>
+                Photo {idx + 1}
+              </Box>
+              {damage?.flags[idx] && (
+                <Box sx={{ position: "absolute", top: 4, left: 4, px: 0.75, borderRadius: 1, bgcolor: "error.main", color: "#fff", fontSize: "0.65rem", fontWeight: 700 }}>
+                  Damaged
+                </Box>
+              )}
+            </Box>
+          ))}
+          {pending.map((p) => (
+            <Box key={p.id} sx={{ position: "relative", aspectRatio: "1 / 1" }}>
+              <Box
+                component="img"
+                src={p.previewUrl}
+                alt=""
+                sx={{ width: "100%", height: "100%", borderRadius: 1, objectFit: "cover", display: "block", opacity: 0.45 }}
+              />
+              <Box sx={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 0.5 }}>
+                {p.status === "uploading" ? (
+                  <>
+                    <CircularProgress size={22} />
+                    <Typography variant="caption" sx={{ fontWeight: 700, color: "text.primary" }}>Uploading</Typography>
+                  </>
+                ) : (
+                  <>
+                    <ErrorOutlineIcon color="error" fontSize="small" />
+                    <Button size="small" variant="contained" color="error" startIcon={<ReplayIcon />} onClick={() => retry(p.id)} sx={{ py: 0, minHeight: 28 }}>
+                      Retry
+                    </Button>
+                  </>
+                )}
+              </Box>
+              {p.status === "failed" && (
+                <IconButton
+                  size="small"
+                  aria-label="Remove failed photo"
+                  onClick={() => dropPending(p.id)}
+                  sx={{ position: "absolute", top: 4, right: 4, p: 0.25, bgcolor: "rgba(0,0,0,0.6)", color: "#fff", "&:hover": { bgcolor: "rgba(0,0,0,0.75)" } }}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              )}
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      {/* Return: a Damaged? answer per added photo (parallel to photos[]). */}
+      {damage && photos.length > 0 && (
+        <Stack spacing={1.5} sx={{ mb: 1.5 }}>
+          {photos.map((p, idx) => {
+            const flag = damage.flags[idx] ?? false;
+            const comment = damage.comments[idx] ?? "";
+            return (
+              <Box key={p.key} sx={{ display: "flex", gap: 1.5, p: 1, borderRadius: 1, bgcolor: "action.hover" }}>
+                <Box component="img" src={p.previewUrl} alt="" sx={{ width: 56, height: 56, borderRadius: 1, objectFit: "cover", flexShrink: 0 }} />
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Typography variant="body2" fontWeight={600} sx={{ mr: "auto" }}>
+                      Photo {idx + 1}: damaged?
+                    </Typography>
+                    <Button size="small" variant={flag ? "contained" : "outlined"} color={flag ? "error" : "primary"} onClick={() => setDamage(idx, true, comment)} disabled={locked}>
+                      Yes
+                    </Button>
+                    <Button size="small" variant={!flag ? "contained" : "outlined"} onClick={() => setDamage(idx, false, comment)} disabled={locked}>
+                      No
+                    </Button>
+                  </Stack>
+                  <TextField
+                    placeholder="Comment (optional)"
+                    value={comment}
+                    onChange={(e) => setDamage(idx, flag, e.target.value)}
+                    disabled={locked}
+                    size="small"
+                    fullWidth
+                    sx={{ mt: 0.75 }}
+                  />
+                </Box>
+              </Box>
+            );
+          })}
         </Stack>
       )}
 
@@ -425,59 +454,58 @@ export default function GuidedPhotoCapture({
           {camMsg}
         </Alert>
       )}
-
-      {done && !(comparisonMode && reviewing) && (
-        <Alert severity="success" sx={{ mb: 1 }}>
-          All {minPhotos} photos captured. Add more below if this unit needs them.
+      {info && (
+        <Alert severity="info" sx={{ mb: 1 }} onClose={() => setInfo(null)}>
+          {info}
         </Alert>
       )}
 
-      {/* Capture buttons hidden during the comparison review (Retake / Next own
-          that step). */}
-      {!(comparisonMode && reviewing) && (
-      <Stack spacing={1}>
-        {captureMode === "inapp" ? (
-          // Native shell, in-app CameraX: the Sunmi's only working path.
-          <Button
-            variant={done ? "outlined" : "contained"}
-            startIcon={<PhotoCameraIcon />}
-            onClick={() => void takeNativePhotoOnce().then(append)}
-            disabled={uploading || disabled}
-            fullWidth
-          >
-            {done ? "Add another photo" : `Take ${currentLabel.toLowerCase()} photo`}
-          </Button>
-        ) : (
-          // Web, or a native shell whose in-app camera failed: the device
-          // camera via <input capture>. One shot so the rider stays on the
-          // prompted angle.
-          <Button
-            component="label"
-            variant={done ? "outlined" : "contained"}
-            startIcon={<PhotoCameraIcon />}
-            disabled={uploading || disabled}
-            fullWidth
-          >
-            {done ? "Add another photo" : `Take ${currentLabel.toLowerCase()} photo`}
-            <input type="file" accept="image/*" capture="environment" hidden onChange={(e) => handleFiles(e.target.files)} />
-          </Button>
-        )}
-        <Button
-          component="label"
-          variant="outlined"
-          startIcon={<AddPhotoAlternateIcon />}
-          disabled={uploading || disabled}
-          fullWidth
-        >
-          Choose from gallery
-          <input type="file" accept="image/*" hidden onChange={(e) => handleFiles(e.target.files)} />
-        </Button>
-      </Stack>
+      {done && (
+        <Alert severity="success" sx={{ mb: 1 }}>
+          {room === 0
+            ? `${MAX_PHOTOS} photos added, the most a unit can have. Remove one to replace it.`
+            : `${photos.length} ${photos.length === 1 ? "photo" : "photos"} added. You can add more, up to ${MAX_PHOTOS}.`}
+        </Alert>
+      )}
+      {!done && remaining === 0 && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          {pending.some((p) => p.status === "failed") ? "Retry or remove the failed photo to continue." : "Uploading, one moment."}
+        </Typography>
+      )}
+      {room > 0 && (
+        <Stack spacing={1}>
+          {useNativeCamera ? (
+            <Button variant={done ? "outlined" : "contained"} startIcon={capturing ? <CircularProgress size={18} color="inherit" /> : <PhotoCameraIcon />} onClick={() => void takeNative()} disabled={locked} fullWidth sx={{ minHeight: 48 }}>
+              {takeLabel}
+            </Button>
+          ) : (
+            // Browser (or a native shell whose camera call failed): the device
+            // camera through <input capture>. A page cannot reopen the camera by
+            // itself, so each further shot is one tap on this button.
+            <Button component="label" variant={done ? "outlined" : "contained"} startIcon={<PhotoCameraIcon />} disabled={locked} fullWidth sx={{ minHeight: 48 }}>
+              {takeLabel}
+              <input type="file" accept="image/*" capture="environment" hidden onChange={onInputFiles} />
+            </Button>
+          )}
+          {useNativeGallery ? (
+            <Button variant="outlined" startIcon={<AddPhotoAlternateIcon />} onClick={() => void chooseNative()} disabled={locked} fullWidth sx={{ minHeight: 48 }}>
+              Choose from gallery
+            </Button>
+          ) : (
+            <Button component="label" variant="outlined" startIcon={<AddPhotoAlternateIcon />} disabled={locked} fullWidth sx={{ minHeight: 48 }}>
+              Choose from gallery
+              <input type="file" accept="image/*" multiple={room > 1} hidden onChange={onInputFiles} />
+            </Button>
+          )}
+          <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center" }}>
+            {remaining > 0
+              ? `${remaining} more ${remaining === 1 ? "photo" : "photos"} needed`
+              : `Optional, ${room} more allowed`}
+          </Typography>
+        </Stack>
       )}
 
-      {/* Fullscreen photo viewer (tap a comparison image). Same pattern /submit
-          uses: a black overflow-auto box holding the contained image, so the
-          phone can pinch-zoom it. */}
+      {/* Fullscreen viewer: a black overflow-auto box so the phone can pinch-zoom. */}
       <Dialog open={!!viewerSrc} onClose={() => setViewerSrc(null)} fullScreen>
         <Box sx={{ display: "flex", alignItems: "center", p: 1 }}>
           <IconButton onClick={() => setViewerSrc(null)} aria-label="Close photo">
@@ -486,7 +514,6 @@ export default function GuidedPhotoCapture({
         </Box>
         {viewerSrc && (
           <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "common.black", overflow: "auto" }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <Box component="img" src={viewerSrc} alt="" sx={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
           </Box>
         )}

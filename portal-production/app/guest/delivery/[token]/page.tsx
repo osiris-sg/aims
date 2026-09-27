@@ -347,7 +347,8 @@ function DeliverItemScreen({
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const guided = item.minPhotos > 1;
+  // Condition photos (equipment 4, accessory 1) use the fast capture screen.
+  const guided = item.minPhotos >= 1;
 
   const submit = async () => {
     setError(null);

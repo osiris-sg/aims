@@ -917,7 +917,7 @@ export default function DeliveryDetailPage() {
                         )}
                         {r.photos.length > 0 && (
                           <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: "wrap", gap: 1 }}>
-                            {r.photos.map((k) => {
+                            {r.photos.map((k, photoIdx) => {
                               const src = imgSrc(k);
                               const optimizable = src.startsWith(RESOURCE_URL);
                               return (
@@ -926,8 +926,12 @@ export default function DeliveryDetailPage() {
                                   component="a"
                                   href={src}
                                   target="_blank"
-                                  sx={{ display: "block", width: 120, height: 120, borderRadius: 1, overflow: "hidden", border: "1px solid", borderColor: "divider" }}
+                                  sx={{ position: "relative", display: "block", width: 120, height: 120, borderRadius: 1, overflow: "hidden", border: "1px solid", borderColor: "divider" }}
                                 >
+                                  {/* Numbered, not named by angle: photos are not tied to angles. */}
+                                  <Box component="span" sx={{ position: "absolute", left: 4, bottom: 4, zIndex: 1, px: 0.75, borderRadius: 1, bgcolor: "rgba(0,0,0,0.6)", color: "#fff", fontSize: "0.7rem", fontWeight: 600 }}>
+                                    Photo {photoIdx + 1}
+                                  </Box>
                                   {optimizable ? (
                                     <Image src={src} alt="Delivery photo" width={120} height={120} loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                                   ) : (

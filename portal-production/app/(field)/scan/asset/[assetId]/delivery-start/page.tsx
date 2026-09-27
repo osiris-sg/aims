@@ -651,7 +651,10 @@ export default function StartDeliveryPage() {
           </Box>
         )}
 
-        {standalone && requiredPhotos > 1 ? (
+        {/* Equipment (and outbound accessories) use the fast capture screen. An
+            accessory RETURN keeps the free-form picker: its single unit-level
+            Damaged? answer is asked below, not per photo. */}
+        {standalone && (requiredPhotos > 1 || (requiredPhotos === 1 && !isReturn)) ? (
           <GuidedPhotoCapture
             photos={photos}
             onChange={setPhotos}

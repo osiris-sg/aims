@@ -93,10 +93,13 @@ export async function captureNativePhoto(): Promise<File | null> {
  * Error handling: a real failure after ≥1 capture keeps what was taken and stops
  * cleanly; a failure before any capture rethrows so the caller shows the guard.
  */
-export async function captureNativePhotos(): Promise<File[]> {
+export async function captureNativePhotos(opts: { max?: number; onShot?: (file: File) => void } = {}): Promise<File[]> {
   await ensureCameraPermission();
   const files: File[] = [];
-  for (;;) {
+  // `max` stops the loop once enough shots are in (the condition-photo minimum);
+  // `onShot` hands each shot over as it is taken, so its upload can start while
+  // the rider lines up the next one.
+  while (!opts.max || files.length < opts.max) {
     let file: File | null;
     try {
       file = await takeOne();
@@ -106,6 +109,41 @@ export async function captureNativePhotos(): Promise<File[]> {
     }
     if (!file) break; // rider backed out of the camera = done
     files.push(file);
+    opts.onShot?.(file);
   }
   return files;
+}
+
+/**
+ * Multi-select from the gallery through the plugin's chooseFromGallery (the
+ * Android photo picker; @capacitor/camera 8.1+, already in the shipped APK).
+ * `limit` caps the selection on Android 13+; callers still slice, because older
+ * Android ignores it. Returns [] when the rider backs out; throws on a real
+ * failure so the caller can fall back to the WebView file input.
+ */
+export async function chooseNativeGalleryPhotos(limit: number): Promise<File[]> {
+  let res;
+  try {
+    res = await Camera.chooseFromGallery({
+      allowMultipleSelection: limit !== 1,
+      ...(limit > 1 ? { limit } : {}),
+      targetWidth: 1600,
+      targetHeight: 1600,
+      quality: 70,
+      correctOrientation: true,
+      editable: "no",
+    });
+  } catch (e: any) {
+    const msg = String(e?.message ?? e ?? "");
+    if (/cancel/i.test(msg)) return [];
+    throw e;
+  }
+  const out: File[] = [];
+  for (const [i, r] of (res?.results ?? []).entries()) {
+    const src = r.webPath || (r.uri ? Capacitor.convertFileSrc(r.uri) : null);
+    if (!src) continue;
+    const blob = await (await fetch(src)).blob();
+    out.push(new File([blob], `gallery-${Date.now()}-${i}.jpg`, { type: blob.type || "image/jpeg" }));
+  }
+  return limit > 0 ? out.slice(0, limit) : out;
 }

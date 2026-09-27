@@ -225,7 +225,7 @@ export default function FreeTypedItemFlowPage() {
 
       {isStart ? (
         <>
-          {requiredPhotos > 1 ? (
+          {requiredPhotos >= 1 ? (
             <GuidedPhotoCapture
               photos={photos}
               onChange={setPhotos}
