@@ -732,12 +732,22 @@ async function notifyDenzel(group, clientMsg, reply) {
  * Denzel replying "ok <code>" / "no <code>" to a held draft. Anything else in a
  * DM is ignored: this bridge is only ever meant to act inside groups.
  */
+// Exact labels of every interactive button the Cloud API side sends. A tap is
+// handled there, but on a coexistence number the linked device ALSO receives it
+// as a plain text message reading e.g. "✅ Confirm" — which the PA then read as
+// a fresh instruction and answered with a duplicate plan card.
+const BUTTON_ECHOES = new Set(['✅ confirm', '❌ cancel', '✅ send it', '❌ drop it', '❌ cancel reminder']);
+
 /** The adviser's private chat with the PA: a real conversation. Every DM from
  *  him goes to AIMS, which keeps the history, asks for what is missing and
  *  proposes a plan; "ok" here executes it. Returns true when handled. */
 async function handlePaChat(msg, chatId, fromGroupId) {
   const text = String(msg.body || '').trim();
   if (!text) return false;
+  if (BUTTON_ECHOES.has(text.toLowerCase())) {
+    console.log(`   ⤷ ignored button echo: ${text}`);
+    return true;
+  }
   const senderDigits = String(msg.author || msg.from || '').replace(/\D/g, '');
   if (!(await isStaffSender(senderDigits))) {
     console.log(`   ⤷ DM ignored: ${senderDigits} is not staff`);
