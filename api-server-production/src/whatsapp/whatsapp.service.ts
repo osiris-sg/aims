@@ -1188,6 +1188,16 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         `${names.map((n) => `• ${n}`).join('\n')}\n\n"${out.plan.message}"\n\nReply *ok* to go ahead, or *no* to drop it.`;
     }
 
+    // Offer it as tappable buttons instead of asking him to type "ok". The
+    // bridge cannot send interactive messages, but the Cloud API side of this
+    // same coexistence number can — and unlike the approval prompts, his 24h
+    // window is certainly open here because he messaged us seconds ago.
+    let buttonsSent = false;
+    if (pendingPlan) {
+      const body = reply!.replace(/\n\nReply \*ok\*[\s\S]*$/, '');
+      buttonsSent = await this.sendPlanButtons(args.organizationId, args.from, body);
+    }
+
     const nextHistory = [...history, { role: 'user' as const, content: args.text }];
     if (reply) nextHistory.push({ role: 'assistant' as const, content: reply });
     await this.prisma.operatorSession.upsert({
@@ -1199,7 +1209,50 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         expiresAt: new Date(Date.now() + 30 * 86400_000),
       },
     });
-    return { reply, hasPlan: !!pendingPlan };
+    // When the buttons went out there is nothing for the bridge to send, or he
+    // would get the same plan twice.
+    return { reply: buttonsSent ? null : reply, hasPlan: !!pendingPlan, buttonsSent };
+  }
+
+  /** Send the plan with Confirm/Cancel buttons. False if Meta refuses, in
+   *  which case the bridge falls back to the typed "ok". */
+  private async sendPlanButtons(organizationId: string, to: string, text: string): Promise<boolean> {
+    const digits = String(to).replace(/\D/g, '');
+    if (!digits) return false;
+    const payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: digits,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text: text.slice(0, 1024) },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: `pa_ok:${digits}`, title: '\u2705 Confirm' } },
+            { type: 'reply', reply: { id: `pa_no:${digits}`, title: '\u274C Cancel' } },
+          ],
+        },
+      },
+    };
+    try {
+      await this.dispatch(organizationId, payload, { body: text });
+      return true;
+    } catch (e: any) {
+      this.logger.warn(`PA plan buttons failed for ${digits}: ${e.message}`);
+      return false;
+    }
+  }
+
+  /** A tapped Confirm/Cancel on a PA plan. The reply goes out over the Cloud
+   *  API; an immediate send becomes a due scheduled row, because only the
+   *  linked device can write into a group and it collects those on its poll. */
+  private async handlePaPlanButton(organizationId: string, replyId: string, from: string) {
+    const m = replyId.match(/^pa_(ok|no):(.+)$/);
+    if (!m) return false;
+    const res = await this.paConfirm({ organizationId, from, approve: m[1] === 'ok', viaButton: true });
+    if (res.reply) await this.sendText(organizationId, { to: from, body: res.reply }).catch(() => null);
+    return true;
   }
 
   /**
@@ -1207,7 +1260,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
    * bridge already polls for; an immediate send is handed back as posts[]
    * because only the linked device can write into a group.
    */
-  async paConfirm(args: { organizationId: string; from: string; approve: boolean }) {
+  async paConfirm(args: { organizationId: string; from: string; approve: boolean; viaButton?: boolean }) {
     const key = this.paSessionKey(args.from);
     const row = await this.prisma.operatorSession.findUnique({ where: { channel_channelUserId: key } });
     const state: any = (row?.state as any) || {};
@@ -1228,12 +1281,28 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (!plan.whenIso) {
-      // Immediate: the bridge posts these itself and logs them.
       await clear('Sent.');
-      return {
-        reply: `✅ Sending to ${plan.names.length} group${plan.names.length > 1 ? 's' : ''} now.`,
-        posts: plan.groupIds.map((id: string) => ({ groupId: id, body: plan.message })),
-      };
+      const summary = `✅ Sending to ${plan.names.length} group${plan.names.length > 1 ? 's' : ''} now.`;
+      // A typed "ok" arrives through the bridge, so hand it the posts directly.
+      if (!args.viaButton) {
+        return { reply: summary, posts: plan.groupIds.map((id: string) => ({ groupId: id, body: plan.message })) };
+      }
+      // A TAP arrives on the Cloud API webhook, which cannot write into a
+      // group. Queue it as due-now and the bridge picks it up on its poll.
+      for (const groupId of plan.groupIds) {
+        await this.prisma.whatsAppScheduledMessage.create({
+          data: {
+            organizationId: args.organizationId,
+            to: groupId,
+            body: plan.message,
+            scheduledAt: new Date(),
+            status: 'PENDING',
+            createdBy: String(args.from).replace(/\D/g, '') || 'pa-chat',
+            recurrence: 'NONE',
+          },
+        });
+      }
+      return { reply: summary, posts: [] };
     }
 
     const when = new Date(plan.whenIso);
@@ -1796,6 +1865,12 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             await this.leads
               .handleAssignTap(tapped, from, { organizationId: connection.organizationId, phoneNumberId: connection.phoneNumberId, accessToken: connection.accessToken })
               .catch((e) => this.logger.error(`Lead assign tap failed: ${e.message}`));
+            continue;
+          }
+          if (from && tapped && /^pa_(ok|no):/.test(tapped)) {
+            await this.handlePaPlanButton(connection.organizationId, tapped, from).catch((e) =>
+              this.logger.error(`PA plan button failed: ${e.message}`),
+            );
             continue;
           }
           if (from && tapped && /^appt(ok|no):/.test(tapped)) {

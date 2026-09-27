@@ -55,7 +55,6 @@ const MIN_REPLY_GAP_MS = Number(process.env.MIN_REPLY_GAP_MS || 4000); // gentle
 // the PA feels less robotic. Intro replies are NOT delayed. Default 5 min.
 const REPLY_DELAY_MS = Number(process.env.REPLY_DELAY_MS || 5 * 60 * 1000);
 // How often to check AIMS for appointment reminders that have come due.
-const REMINDER_POLL_MS = Number(process.env.REMINDER_POLL_MS || 5 * 60 * 1000);
 // Approvals should feel instant, so this polls far more often than reminders.
 const APPROVAL_POLL_MS = Number(process.env.APPROVAL_POLL_MS || 20 * 1000);
 // A holding reply ("Denzel's with clients, he'll come back to you") only makes
@@ -249,10 +248,16 @@ client.on('ready', () => {
   // Appointment reminders are posted INTO groups, which only this linked device
   // can do, so the bridge polls AIMS for ones that have come due.
   deliverDueReminders();
-  setInterval(deliverDueReminders, REMINDER_POLL_MS);
   // Button taps land on the AIMS webhook, not here — poll for the results.
   postApprovedDrafts();
-  setInterval(postApprovedDrafts, APPROVAL_POLL_MS);
+  // One fast sweep for everything this device has to post. A plan confirmed by
+  // TAPPING lands on the Cloud API webhook, which cannot write into a group, so
+  // it is queued as due-now and collected here — on the old 5-minute reminder
+  // interval "send now" would have meant "within five minutes".
+  setInterval(() => {
+    postApprovedDrafts();
+    deliverDueReminders();
+  }, APPROVAL_POLL_MS);
   // One-shot: preview a notification format on the real device without waiting
   // for the triggering event. Set DEMO_NOTIFY to the message body.
   if (process.env.DEMO_NOTIFY) {
