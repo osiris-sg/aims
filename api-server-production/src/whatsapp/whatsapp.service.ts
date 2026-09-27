@@ -1185,7 +1185,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             timeZone: 'Asia/Singapore',
           })
         : 'now';
-      pendingPlan = { ...out.plan, names, createdAt: new Date().toISOString() };
+      pendingPlan = { ...out.plan, names, createdAt: new Date().toISOString(), planId: `pl${Date.now().toString(36)}` };
       reply =
         `${whenText === 'now' ? 'Sending now' : `Scheduled for ${whenText}`}` +
         `${out.plan.recurrence !== 'NONE' ? ` (${out.plan.recurrence.toLowerCase()})` : ''} to ${names.length} group${names.length > 1 ? 's' : ''}:\n` +
@@ -1199,7 +1199,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     let buttonsSent = false;
     if (pendingPlan) {
       const body = reply!.replace(/\n\nReply \*ok\*[\s\S]*$/, '');
-      buttonsSent = await this.sendPlanButtons(args.organizationId, args.notifyPhone, body, args.from);
+      buttonsSent = await this.sendPlanButtons(args.organizationId, args.notifyPhone, body, `${args.from}:${pendingPlan.planId}`);
     }
 
     const nextHistory = [...history, { role: 'user' as const, content: args.text }];
@@ -1260,11 +1260,17 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
    *  API; an immediate send becomes a due scheduled row, because only the
    *  linked device can write into a group and it collects those on its poll. */
   private async handlePaPlanButton(organizationId: string, replyId: string, from: string) {
-    const m = replyId.match(/^pa_(ok|no):(.+)$/);
+    const m = replyId.match(/^pa_(ok|no):([^:]+)(?::(.+))?$/);
     if (!m) return false;
     // The plan is stored under the key the conversation used (often a LID);
     // `from` here is the phone number Meta reports, which is a different id.
-    const res = await this.paConfirm({ organizationId, from: m[2], approve: m[1] === 'ok', viaButton: true });
+    const res = await this.paConfirm({
+      organizationId,
+      from: m[2],
+      approve: m[1] === 'ok',
+      viaButton: true,
+      planId: m[3],
+    });
     if (res.reply) await this.sendText(organizationId, { to: from, body: res.reply }).catch(() => null);
     return true;
   }
@@ -1274,12 +1280,17 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
    * bridge already polls for; an immediate send is handed back as posts[]
    * because only the linked device can write into a group.
    */
-  async paConfirm(args: { organizationId: string; from: string; approve: boolean; viaButton?: boolean }) {
+  async paConfirm(args: { organizationId: string; from: string; approve: boolean; viaButton?: boolean; planId?: string }) {
     const key = this.paSessionKey(args.from);
     const row = await this.prisma.operatorSession.findUnique({ where: { channel_channelUserId: key } });
     const state: any = (row?.state as any) || {};
     const plan = state.pendingPlan;
     if (!plan) return { reply: 'Nothing is waiting for a yes right now.', posts: [] };
+    // A card left on screen from an earlier turn must not execute a DIFFERENT
+    // plan than the one it is showing.
+    if (args.planId && plan.planId && args.planId !== plan.planId) {
+      return { reply: 'That one is out of date. Use the latest message I sent you.', posts: [] };
+    }
 
     const clear = async (appended: string) => {
       const history = [...(state.history || []), { role: 'assistant', content: appended }].slice(-12);
