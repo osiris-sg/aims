@@ -1160,6 +1160,14 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const thisGroupName = args.thisGroupId
       ? args.groups.find((g) => g.id === args.thisGroupId)?.name || null
       : null;
+    // A bare ok/no answers the plan on the session. Decided HERE because the
+    // plan lives here: the bridge used to keep its own "a plan is open" flag,
+    // which a restart silently desynced from the truth.
+    if (/^(ok|okay|yes|y|send|go|confirm|no|n|nope|drop|cancel|skip)\s*[.!]?$/i.test(args.text.trim()) && state.pendingPlan) {
+      const approve = /^(ok|okay|yes|y|send|go|confirm)\s*[.!]?$/i.test(args.text.trim());
+      return this.paConfirm({ organizationId: args.organizationId, from: args.from, approve });
+    }
+
     const out = await this.agent.paConverse(history, args.text, args.groups, new Date().toISOString(), thisGroupName);
     if (!out) return { reply: null };
 

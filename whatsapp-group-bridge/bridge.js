@@ -186,8 +186,6 @@ const pendingReplies = new Map();
 // Drafts waiting on Denzel's OK, keyed by a short code he replies with.
 // In-memory: a restart drops them, and the draft still sits in CRM > Suggestions.
 const pendingApprovals = new Map();
-// Senders with a PA plan awaiting ok/no (AIMS holds the plan itself).
-const paPlanOpen = new Set();
 
 // SESSION_DIR lets a hosted deploy point the session at a persistent disk so it
 // survives restarts/redeploys (Render worker mounts a disk here). Local default
@@ -698,45 +696,24 @@ async function handlePaChat(msg, chatId, fromGroupId) {
   }
   const who = senderDigits || 'unknown';
 
-  // A bare ok/no answers whatever plan is outstanding. Anything else is a turn
-  // of conversation. Approval of a HELD GROUP DRAFT is a different thing and
-  // is handled after this, so only act on ok/no when a plan is actually open.
-  const yn = text.match(/^(ok|okay|yes|y|send|go|confirm|no|n|drop|cancel|skip)\b\s*$/i);
-  if (yn && paPlanOpen.has(who)) {
-    const approve = /^(ok|okay|yes|y|send|go|confirm)$/i.test(yn[1]);
-    try {
-      const res = await callBridgeApi('/whatsapp/pa-confirm', {
-        body: { organizationId: ORG_ID, from: who, approve },
-      });
-      paPlanOpen.delete(who);
-      if (res?.reply) await client.sendMessage(chatId, res.reply);
-      for (const post of res?.posts || []) {
-        try {
-          await client.sendMessage(post.groupId, post.body);
-          console.log(`   📣 posted to ${post.groupId}`);
-        } catch (e) {
-          console.error(`   ✖ post to ${post.groupId} failed:`, e && e.message ? e.message : e);
-          await client.sendMessage(chatId, `Couldn't post to one group: ${e && e.message ? e.message : e}`);
-        }
-      }
-      return true;
-    } catch (e) {
-      const err = e && e.message ? e.message : String(e);
-      console.error('   ✖ pa-confirm failed:', err);
-      await client.sendMessage(chatId, `Sorry, that didn't go through: ${err}`);
-      return true;
-    }
-  }
-
   const groups = await listGroups();
   try {
     const res = await callBridgeApi('/whatsapp/pa-chat', {
       body: { organizationId: ORG_ID, from: who, text, groups, thisGroupId: fromGroupId || undefined },
     });
-    if (!res?.reply) return false;
-    if (res.hasPlan) paPlanOpen.add(who);
-    await client.sendMessage(chatId, res.reply);
-    console.log(`   💬 PA chat with ${who}${res.hasPlan ? ' (plan proposed)' : ''}`);
+    if (!res?.reply && !(res?.posts || []).length) return false;
+    if (res.reply) await client.sendMessage(chatId, res.reply);
+    for (const post of res.posts || []) {
+      try {
+        await client.sendMessage(post.groupId, post.body);
+        console.log(`   📣 posted to ${post.groupId}`);
+      } catch (e) {
+        const err = e && e.message ? e.message : String(e);
+        console.error(`   ✖ post to ${post.groupId} failed:`, err);
+        await client.sendMessage(chatId, `Couldn't post to that group: ${err}`);
+      }
+    }
+    console.log(`   💬 PA chat with ${who}${res.hasPlan ? ' (plan proposed)' : ''}${(res.posts || []).length ? ` (+${res.posts.length} posted)` : ''}`);
     return true;
   } catch (e) {
     const err = e && e.message ? e.message : String(e);
