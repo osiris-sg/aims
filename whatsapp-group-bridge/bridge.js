@@ -869,11 +869,19 @@ client.on('message_create', async (msg) => {
       console.log('   ⤷ cancelled pending reply: a human answered first');
     }
 
-    // Staff asking, inside a group, for something to be scheduled — "schedule
-    // this to this group / to the Tham group / to all groups". Checked before
-    // the appointment sniff so "schedule X for Friday" is treated as an
-    // instruction to the PA, not as a booking to remind the client about.
-    if (isStaff && summoned && (await handlePaChat(msg, chatId, chatId))) return;
+    // Staff asking, INSIDE a group, for something to be sent or scheduled.
+    //
+    // Deliberately narrow. A group has three older jobs that a staff @mention
+    // already means — the intro ("@San PA this is Badri"), appointment capture,
+    // and the templated reply — and routing every summon here hijacked all
+    // three: an intro came back as "What would you like to send?" instead of
+    // San greeting the new client. So this needs an explicit send/schedule
+    // word AND must not be an intro. In a DM there is nothing to collide with,
+    // so the conversation there stays wide open.
+    const PA_TASK_HINT = /\b(schedule|broadcast|send|post|blast|remind)\b/i;
+    if (isStaff && summoned && !isIntro && PA_TASK_HINT.test(msg.body || '')) {
+      if (await handlePaChat(msg, chatId, chatId)) return;
+    }
 
     // Staff posting a booking: capture it and remind the client later. This is
     // checked before the summon gate because the advisor may just drop the
