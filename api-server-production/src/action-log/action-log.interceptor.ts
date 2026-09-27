@@ -50,7 +50,7 @@ const VERB_ACTIONS: Record<string, string> = {
   finalize: 'SIGN', 'finalize-return': 'SIGN', 'adhoc-ack': 'ACKNOWLEDGE',
   'skip-install': 'SKIP', start: 'START', end: 'END',
   // Driver hand-off (2026-09): the rider's POST /deliveries/:id/handoff.
-  handoff: 'HANDOFF',
+  handoff: 'HANDOFF', 'cancel-handoff': 'CANCEL_HANDOFF',
   revoke: 'REVOKE', activate: 'ACTIVATE', deactivate: 'DEACTIVATE',
   'auto-match': 'MATCH', match: 'MATCH', unmatch: 'UNMATCH', ignore: 'IGNORE',
   'log-edit-unlock': 'UNLOCK',

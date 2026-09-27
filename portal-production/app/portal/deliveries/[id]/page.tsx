@@ -68,6 +68,10 @@ interface RunDetail {
   // until the office attaches a project here.
   origin?: "SCHEDULED" | "AD_HOC";
   riderName: string | null;
+  // Driver hand-off (2026-09): the current trip is with another driver.
+  handoffMode?: "SELF" | "DRIVER" | null;
+  vehicleNumber?: string | null;
+  handedOffAt?: string | null;
   siteAddress: string | null;
   notes: string | null;
   startedAt: string;
@@ -414,6 +418,26 @@ export default function DeliveryDetailPage() {
     [getToken, router],
   );
 
+  // Office safety valve: cancel the current trip's hand-off. The driver's link
+  // stops working and the rider's app asks "Who's delivering?" again.
+  const [cancelHandoffOpen, setCancelHandoffOpen] = useState(false);
+  const doCancelHandoff = async () => {
+    setActing(true);
+    setActionError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request({ path: `/deliveries/${deliveryId}/cancel-handoff`, method: "POST" }, {}, token);
+      if (res?.success === false) throw new Error(res.message ?? "Could not cancel the hand-off");
+      setCancelHandoffOpen(false);
+      await load();
+    } catch (e: any) {
+      setActionError(e?.message ?? "Could not cancel the hand-off");
+    } finally {
+      setActing(false);
+    }
+  };
+
   const doCreateDo = async () => {
     setActing(true);
     setActionError(null);
@@ -586,6 +610,38 @@ export default function DeliveryDetailPage() {
       </Typography>
 
       {actionError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>{actionError}</Alert>}
+
+      {/* Handed to another driver (field app QR hand-off). The office can cancel
+          it: the driver link stops working and the rider chooses again. */}
+      {run.handoffMode === "DRIVER" && (
+        <Alert
+          severity="info"
+          sx={{ mb: 2 }}
+          action={
+            <Button color="inherit" size="small" onClick={() => setCancelHandoffOpen(true)} disabled={acting}>
+              Cancel hand-off
+            </Button>
+          }
+        >
+          The current trip is handed to vehicle {run.vehicleNumber ?? ""}
+          {run.handedOffAt ? ` since ${fmtDateTime(run.handedOffAt)}` : ""}. The driver ends and signs it from their link.
+        </Alert>
+      )}
+      <Dialog open={cancelHandoffOpen} onClose={() => !acting && setCancelHandoffOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Cancel hand-off?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            The driver&apos;s link for vehicle {run.vehicleNumber ?? ""} stops working, and the rider&apos;s app asks
+            who is delivering this trip again. Items the driver already ended or signed for stay as they are.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCancelHandoffOpen(false)} disabled={acting}>Keep it</Button>
+          <Button color="error" variant="contained" onClick={() => void doCancelHandoff()} disabled={acting}>
+            Cancel hand-off
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Scheduled run: asset-only, no rider yet, nothing reserved. A rider picks
           it up by scanning a matching unit in the field. The office can cancel it

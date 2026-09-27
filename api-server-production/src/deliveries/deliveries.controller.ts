@@ -224,6 +224,14 @@ export class DeliveriesController {
     return this.service.handoffTrip(id, body ?? {}, org.id, riderUserId);
   }
 
+  // Office: cancel a trip's hand-off (revokes the driver link, clears the mode,
+  // the rider chooses again). documents:update = office users, not field techs.
+  @Post(':id/cancel-handoff')
+  @Permissions('documents:update')
+  cancelHandoff(@Param('id') id: string, @UserOrganization() org: { id: string }) {
+    return this.service.cancelHandoff(id, org.id);
+  }
+
   // Field: the current trip's hand-off, for "Show QR" on the rider's basket.
   @Get(':id/handoff/current')
   @Permissions('maintenance-reports:read')

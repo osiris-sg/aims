@@ -4293,6 +4293,22 @@ export class DeliveriesService {
     return this.getHandoff(deliveryId, organizationId, dto.baseUrl);
   }
 
+  /**
+   * OFFICE safety valve: cancel the current trip's hand-off. Revokes the drv_
+   * link and clears the mode, so the rider's basket asks "Who's delivering?"
+   * again. Items already ended or signed by the driver stay exactly as they are.
+   */
+  async cancelHandoff(deliveryId: string, organizationId: string) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { handoffMode: true, vehicleNumber: true, status: true },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.handoffMode !== 'DRIVER') throw new BadRequestException('This delivery is not handed to another driver.');
+    await this.endTripHandoff(deliveryId);
+    return { cancelled: true, vehicleNumber: run.vehicleNumber };
+  }
+
   /** Rider: the current trip's hand-off (vehicle, time, live driver link + QR). */
   async getHandoff(deliveryId: string, organizationId: string, baseUrl?: string | null) {
     const run = await this.prisma.delivery.findFirst({
