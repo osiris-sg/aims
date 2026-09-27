@@ -472,13 +472,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
   // the items the sign-off covers; a DO_INSTALL with the same key is that
   // sign-off's installation. A DO signed once has exactly one group.
   const signOffs = (() => {
-    const groups = new Map<string, { key: string; ack: FieldDeliveryReport | null; install: FieldDeliveryReport | null; labels: string[]; at: number }>();
+    const groups = new Map<string, { key: string; ack: FieldDeliveryReport | null; acks: FieldDeliveryReport[]; install: FieldDeliveryReport | null; labels: string[]; at: number }>();
     for (const r of maintenanceReports ?? []) {
       if ((r.kind !== "DO_ACK" && r.kind !== "DO_INSTALL") || !r.signature) continue;
       const key = `${r.signature}|${r.signedAt ?? ""}`;
-      const g = groups.get(key) ?? { key, ack: null, install: null, labels: [], at: new Date(r.signedAt ?? r.createdAt).getTime() || 0 };
+      const g = groups.get(key) ?? { key, ack: null, acks: [], install: null, labels: [], at: new Date(r.signedAt ?? r.createdAt).getTime() || 0 };
       if (r.kind === "DO_ACK") {
         if (!g.ack) g.ack = r;
+        g.acks.push(r);
         const label = (r.subjectLabel || "").trim();
         if (label && !g.labels.includes(label)) g.labels.push(label);
       } else if (!g.install) {
@@ -2198,21 +2199,65 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         Click photos to view
       </Typography>
     ) : null;
+    // One Started / Ended pair PER TRIP when the DO was signed more than once
+    // (partial sign-off), oldest first, titled with the same item labels as that
+    // sign-off's RECEIVED BY box. Ended = the latest DO_ACK of the sign-off;
+    // Started = the earliest DO_START for the same items, paired by subject
+    // label (the one per-unit key both the office and the public payloads
+    // carry). A DO signed once keeps the single pair above, unchanged.
+    const MAX_TRIP_ITEMS = 8;
+    const trips =
+      signOffs.length > 1
+        ? signOffs.map((g) => {
+            const labels = new Set(g.labels);
+            const starts = (maintenanceReports ?? [])
+              .filter((r) => r.kind === "DO_START" && labels.has((r.subjectLabel || "").trim()))
+              .map((r) => new Date(r.createdAt).getTime())
+              .filter((n) => !Number.isNaN(n));
+            const ends = g.acks.map((r) => new Date(r.createdAt).getTime()).filter((n) => !Number.isNaN(n));
+            const shown = g.labels.slice(0, MAX_TRIP_ITEMS);
+            const more = g.labels.length - shown.length;
+            return {
+              key: g.key,
+              title: shown.length ? ` (${shown.join("; ")}${more > 0 ? `; and ${more} more` : ""})` : "",
+              startedAt: starts.length ? new Date(Math.min(...starts)) : null,
+              endedAt: ends.length ? new Date(Math.max(...ends)) : null,
+            };
+          })
+        : [];
+    const tripBlock = (tr: (typeof trips)[number], i: number) => (
+      // A trip's heading and its two rows never split across pages.
+      <Box key={tr.key} sx={{ mt: i === 0 ? 0.75 : 1, pageBreakInside: "avoid", breakInside: "avoid" }}>
+        <Typography sx={{ fontSize: "0.8125rem", fontWeight: 700, color: "#111", mb: 0.25 }}>
+          Trip {i + 1}{tr.title}
+        </Typography>
+        <Box sx={{ pl: 1.5 }}>
+          {tr.startedAt && tlRow("Delivery Started", tlTimeValue(tr.startedAt))}
+          {tr.endedAt && tlRow("Delivery Ended", tlTimeValue(tr.endedAt))}
+        </Box>
+      </Box>
+    );
     const timelineBlock = (
       // mt:4 (was 2) — roughly double the gap between the item table bottom and
       // the TIMELINE heading. Biofuel replica only (generic no longer uses this).
       // Constant: the hint now sits ABOVE the table, so the table→TIMELINE gap is
       // back to its original value (item-table box mb:3 + this mt:4).
-      // break-inside: the heading must never be orphaned from its rows.
-      <Box sx={{ mt: 4, pageBreakInside: "avoid", breakInside: "avoid" }}>
-        <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700, letterSpacing: "1px", pb: 0.5, mb: 1, borderBottom: "1px solid #ddd" }}>
-          TIMELINE
-        </Typography>
-        {tlRow("Scheduled Date", scheduledDateStr)}
-        {/* Print rows (no screenOnly). Each hides entirely when its source MSR
-            is absent, rather than showing a blank or a placeholder. */}
-        {deliveryStartedAt && tlRow("Delivery Started", tlTimeValue(deliveryStartedAt))}
-        {deliveryEndedAt && tlRow("Delivery Ended", tlTimeValue(deliveryEndedAt))}
+      // break-inside: the heading must never be orphaned from its rows. With
+      // several trips the block may break BETWEEN trips (each trip is its own
+      // unbreakable box); the heading, Scheduled Date and Trip 1 stay together.
+      <Box sx={{ mt: 4, ...(trips.length ? {} : { pageBreakInside: "avoid", breakInside: "avoid" }) }}>
+        <Box sx={trips.length ? { pageBreakInside: "avoid", breakInside: "avoid" } : undefined}>
+          <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700, letterSpacing: "1px", pb: 0.5, mb: 1, borderBottom: "1px solid #ddd" }}>
+            TIMELINE
+          </Typography>
+          {tlRow("Scheduled Date", scheduledDateStr)}
+          {/* Print rows (no screenOnly). Each hides entirely when its source MSR
+              is absent, rather than showing a blank or a placeholder. */}
+          {trips.length === 0 && deliveryStartedAt && tlRow("Delivery Started", tlTimeValue(deliveryStartedAt))}
+          {trips.length === 0 && deliveryEndedAt && tlRow("Delivery Ended", tlTimeValue(deliveryEndedAt))}
+          {trips.length > 0 && tripBlock(trips[0], 0)}
+        </Box>
+        {trips.slice(1).map((tr, i) => tripBlock(tr, i + 1))}
         {tlRow(
           "Route",
           doStartReportId && doStartPingCount > 0 ? (
