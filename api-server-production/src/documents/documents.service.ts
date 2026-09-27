@@ -4950,6 +4950,7 @@ export class DocumentsService {
     documentId: string,
     organizationId: string,
     itemIds?: string[],
+    opts: { partial?: boolean } = {},
   ): Promise<number> {
     const document = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
@@ -4990,9 +4991,15 @@ export class DocumentsService {
       );
     }
 
-    // Stamp item states across (unit-level match, incl. asset-level DO rows —
-    // same matching family as advanceDeliveryItem). Only ever advances a DO
-    // row; a more-advanced DO row is left alone.
+    // Stamp item states across. Only ever advances a DO row; a more-advanced
+    // DO row is left alone.
+    //
+    // A unit that has its OWN line (bound above, or born bound) stamps ONLY
+    // that line. An asset-level line of the same product is a fallback for a
+    // unit with no line at all, and never during a partial sign-off: there the
+    // empty lines belong to units still to come, and completing one here left
+    // the next unit nothing to bind into (DO202609072, 2026-09-27: trip 1
+    // completed trip 2's empty slot, so ZZTEST-02 never reached the DO).
     for (const item of items) {
       if (!item.inventoryId) continue;
       const itemMatch: any[] = [
@@ -5000,7 +5007,9 @@ export class DocumentsService {
         { itemId: item.inventoryId },
         { itemId: item.assetId, itemType: ItemType.ASSET },
       ];
-      const rows = await this.prisma.documentItem.findMany({ where: { documentId, OR: itemMatch } });
+      const matched = await this.prisma.documentItem.findMany({ where: { documentId, OR: itemMatch } });
+      const own = matched.filter((r) => r.inventoryId === item.inventoryId || r.itemId === item.inventoryId);
+      const rows = own.length ? own : opts.partial ? [] : matched;
       const docRow = rows
         .filter((r) => RANK[r.deliveryStatus] < RANK[item.deliveryStatus])
         .sort((a, b) => RANK[a.deliveryStatus] - RANK[b.deliveryStatus])[0];

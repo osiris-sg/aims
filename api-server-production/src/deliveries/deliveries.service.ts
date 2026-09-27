@@ -4138,7 +4138,7 @@ export class DeliveriesService {
     }
     for (const [documentId, ids] of byDoc) {
       try {
-        await this.documentsService.commitLinkedDeliveryItems(documentId, organizationId, ids);
+        await this.documentsService.commitLinkedDeliveryItems(documentId, organizationId, ids, { partial: true });
       } catch (err: any) {
         this.logger.error(
           `finalizeRunPartial: commit failed for delivery ${deliveryId}, DO ${documentId}: ${err?.message}`,
