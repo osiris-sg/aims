@@ -215,6 +215,10 @@ export default function DynamicSidebarContent() {
         const key = typeof s === 'string' ? s : s?.key;
         // CRM → Marketing rides on the enableAdsInsights org flag.
         if (key === 'marketing' && m.moduleCode === 'CRM' && !isAdsInsightsEnabled) return false;
+        // Role-gated submenu (see TopNavBar — same rule).
+        if (typeof s === 'object' && Array.isArray(s.roles) && userRoles.length > 0 && !isAdminUser) {
+          if (!userRoles.some((r: any) => s.roles.includes(r?.name))) return false;
+        }
         return !hide?.includes(key);
       });
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };

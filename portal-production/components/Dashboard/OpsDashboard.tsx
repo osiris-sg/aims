@@ -232,7 +232,12 @@ export default function OpsDashboard() {
 
   return (
     <MainCard>
-      <Box>
+      {/* MainCard scrolls its content (overflowY: auto), and MUI's shrunk
+          outlined labels float ~9px ABOVE their field's top border — as the
+          first child, the filter row's "Product / From / To" labels overflowed
+          past the scroll container and were clipped (guru 2026-09-28). A little
+          top padding keeps them inside. */}
+      <Box sx={{ pt: 1.5 }}>
         <Stack
           direction={{ xs: "column", md: "row" }}
           spacing={1.5}

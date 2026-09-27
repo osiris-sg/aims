@@ -8,7 +8,9 @@
 
 export type RoleTier = 'master' | 'senior' | 'junior' | 'designer';
 
-const SCOPED_ROLES = ['Designer', 'Junior Manager', 'Senior Manager'];
+// 'Marketing' is an add-on nav role (CRM→Marketing page only) — it must not
+// promote its holder to master tier.
+const SCOPED_ROLES = ['Designer', 'Junior Manager', 'Senior Manager', 'Marketing'];
 
 export function tierOfRoleNames(names: string[]): RoleTier {
   if (names.length === 0) return 'master'; // e.g. osirisadmin with no org roles

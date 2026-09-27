@@ -1175,6 +1175,12 @@ export class DocumentsService {
         // wiping it killed every previously-emailed pay link with "invalid or
         // expired" (guru 2026-08-19).
         'payToken',
+        // The attached Sales Order / Quotation. The editor does not surface it,
+        // so a bare save used to erase it — which silently cost the invoice its
+        // agreed-price source (priceInvoiceLinesFromAsset reads it) and the
+        // deployment/recurring anchoring keyed off the order (guru 2026-09-28,
+        // BI202609212 lost saleOrderId on its first edit).
+        'saleOrderId',
       ];
       // Only meaningful when the caller actually sent a config. A status-only
       // save (dto.config absent → configAsPlainObject null) has nothing to
@@ -5635,25 +5641,88 @@ export class DocumentsService {
       }
       return map;
     };
+    // Identity match, tried BEFORE the code match (guru 2026-09-28). Codes are
+    // typed by hand and drift: QO202609-0086 priced "AIS4260" while the DO line
+    // carried the asset's own skuKey "AIS", so the agreed $400 never reached
+    // the invoice and it silently fell back to the asset rate. Both sides are
+    // normalised to an ASSET id first: a quotation line stores the Asset id in
+    // `inventoryItemId` (a product-level pick), while a delivery-built line
+    // stores the Inventory UNIT id there and the Asset id in `assetId`.
+    // Same strictness as the code map: an asset on 2+ lines is ambiguous and
+    // unusable, and a line without a usable unitPrice is skipped.
+    const buildAssetMap = async (doc: { config: any } | null): Promise<Map<string, any>> => {
+      const map = new Map<string, any>();
+      const lines: any[] = Array.isArray((doc?.config as any)?.items) ? (doc!.config as any).items : [];
+      const candidates = [
+        ...new Set(
+          lines
+            .flatMap((l) => [l?.assetId, l?.inventoryItemId])
+            .filter((v): v is string => typeof v === 'string' && !!v),
+        ),
+      ];
+      if (!candidates.length) return map;
+      const [assetRows, invRows] = await Promise.all([
+        this.prisma.asset.findMany({ where: { id: { in: candidates }, organizationId }, select: { id: true } }),
+        this.prisma.inventory.findMany({ where: { id: { in: candidates } }, select: { id: true, assetId: true } }),
+      ]);
+      const isAsset = new Set(assetRows.map((a) => a.id));
+      const invToAsset = new Map(invRows.map((i) => [i.id, i.assetId]));
+      const resolve = (l: any): string | null => {
+        for (const v of [l?.assetId, l?.inventoryItemId]) {
+          if (typeof v !== 'string' || !v) continue;
+          if (isAsset.has(v)) return v;
+          const viaUnit = invToAsset.get(v);
+          if (viaUnit) return viaUnit;
+        }
+        return null;
+      };
+      const seen = new Map<string, number>();
+      for (const l of lines) {
+        const a = resolve(l);
+        if (a) seen.set(a, (seen.get(a) || 0) + 1);
+      }
+      for (const l of lines) {
+        const a = resolve(l);
+        if (!a || seen.get(a)! > 1) continue; // ambiguous → unusable
+        if (l?.unitPrice == null || isNaN(Number(l.unitPrice))) continue;
+        map.set(a, l);
+      }
+      return map;
+    };
     // Sales Order beats Quotation beats asset (guru 2026-09-22). The attached
     // doc id is accepted as either type — the schedule dialog may attach a
     // quotation; type decides which tier its prices land in.
     let soLineByCode = new Map<string, any>();
     let qoLineByCode = new Map<string, any>();
+    let soLineByAsset = new Map<string, any>();
+    let qoLineByAsset = new Map<string, any>();
     if (saleOrderId) {
       const attached = await this.prisma.document.findFirst({
         where: { id: saleOrderId, organizationId, type: { in: ['SALES_ORDER', 'QUOTATION'] } },
         select: { type: true, config: true },
       });
-      if (attached?.type === 'SALES_ORDER') soLineByCode = buildCodeMap(attached);
-      else if (attached) qoLineByCode = buildCodeMap(attached);
+      if (attached?.type === 'SALES_ORDER') {
+        soLineByCode = buildCodeMap(attached);
+        soLineByAsset = await buildAssetMap(attached);
+      } else if (attached) {
+        qoLineByCode = buildCodeMap(attached);
+        qoLineByAsset = await buildAssetMap(attached);
+      }
     }
-    if (qoLineByCode.size === 0 && links?.sourceDocumentId && String(links.sourceDocumentType || '').toUpperCase().includes('QUOTATION')) {
+    if (
+      qoLineByCode.size === 0 &&
+      qoLineByAsset.size === 0 &&
+      links?.sourceDocumentId &&
+      String(links.sourceDocumentType || '').toUpperCase().includes('QUOTATION')
+    ) {
       const qo = await this.prisma.document.findFirst({
         where: { id: links.sourceDocumentId, organizationId, type: 'QUOTATION' },
         select: { type: true, config: true },
       });
-      if (qo) qoLineByCode = buildCodeMap(qo);
+      if (qo) {
+        qoLineByCode = buildCodeMap(qo);
+        qoLineByAsset = await buildAssetMap(qo);
+      }
     }
     const unitIds = [...new Set(items.map((i) => i.inventoryItemId).filter((v): v is string => !!v))];
     const units = unitIds.length
@@ -5715,20 +5784,26 @@ export class DocumentsService {
 
     return items.map((it) => {
       const qty = Number(it.quantity) || 1;
-      // 1) Sales Order agreed price — wins when the line's code matches
-      //    exactly one priced SO line.
+      const assetId: string | null = it.assetId || (it.inventoryItemId ? unitAsset.get(it.inventoryItemId) ?? null : null);
+      // 1) Sales Order / Quotation agreed price. Identity (same Asset) is tried
+      //    before the typed code, and SALES_ORDER still outranks QUOTATION.
       const lineCode = String(it.skuKey ?? it.itemCode ?? '').trim().toLowerCase();
-      const agreed = lineCode ? soLineByCode.get(lineCode) ?? qoLineByCode.get(lineCode) : undefined;
+      const fromSalesOrder =
+        (assetId ? soLineByAsset.has(assetId) : false) || (lineCode ? soLineByCode.has(lineCode) : false);
+      const agreed =
+        (assetId ? soLineByAsset.get(assetId) : undefined) ??
+        (lineCode ? soLineByCode.get(lineCode) : undefined) ??
+        (assetId ? qoLineByAsset.get(assetId) : undefined) ??
+        (lineCode ? qoLineByCode.get(lineCode) : undefined);
       if (agreed) {
         const unitPrice = Number(agreed.unitPrice);
         const amount = Math.round(unitPrice * qty * 100) / 100;
         // recompute from unitPrice — the source doc's own amount counts a
         // different quantity (e.g. months of hire vs units delivered).
-        const pricedFrom = soLineByCode.has(lineCode) ? 'SALES_ORDER' : 'QUOTATION';
+        const pricedFrom = fromSalesOrder ? 'SALES_ORDER' : 'QUOTATION';
         return { ...it, unitPrice, price: unitPrice, amount, pricedFrom };
       }
       // 2) Asset price (today's behaviour).
-      const assetId: string | null = it.assetId || (it.inventoryItemId ? unitAsset.get(it.inventoryItemId) ?? null : null);
       const asset = assetId ? assetById.get(assetId) : null;
       if (!asset) return it; // non-goods / unresolved → leave as-is (0)
       const intent = it.deploymentType || (it.inventoryItemId ? unitDeploy.get(it.inventoryItemId) : null) || 'RENTAL';

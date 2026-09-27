@@ -17,6 +17,7 @@ import Image from "next/image";
 import { UserButton, useUser } from "@clerk/nextjs";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
@@ -157,6 +158,7 @@ export default function TopNavBar() {
   const { mode, toggleMode } = useThemeMode();
   const { modules } = useConfiguration();
   const { isModuleAllowed, userRoles } = useUserPermissions();
+  const { isAdsInsightsEnabled } = useOrganizationFeatures();
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
@@ -179,7 +181,16 @@ export default function TopNavBar() {
       if (!Array.isArray(subMenus)) return m;
       const filtered = subMenus.filter((s: any) => {
         if (typeof s === "object" && s?.adminOnly && !isAdminUser) return false;
-        return !hide?.includes(typeof s === "string" ? s : s?.key);
+        const key = typeof s === "string" ? s : s?.key;
+        // CRM → Marketing rides on the enableAdsInsights org flag.
+        if (key === "marketing" && m.moduleCode === "CRM" && !isAdsInsightsEnabled) return false;
+        // Role-gated submenu (guru 2026-09-28: e.g. CIEL hides the WhatsApp
+        // CRM pages from the Marketing-role user). Admin-ish users (no org
+        // roles / admin roles) always pass.
+        if (typeof s === "object" && Array.isArray(s.roles) && userRoles.length > 0 && !isAdminUser) {
+          if (!userRoles.some((r: any) => s.roles.includes(r?.name))) return false;
+        }
+        return !hide?.includes(key);
       });
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
     })
