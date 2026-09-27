@@ -50,6 +50,11 @@ export interface WidgetDef {
   /** Short line in the picker explaining what the widget answers. */
   blurb: string;
   defaultW: number;
+  /** Height in grid rows (ROW_H px each) — a grid needs both dimensions. */
+  defaultH: number;
+  /** Smallest size that still renders usefully; the grid refuses to go below. */
+  minW?: number;
+  minH?: number;
   /** A stat tile draws its own compact body with no header. */
   bare?: boolean;
   /** Right-aligned content in the widget header (legend, total…). */
@@ -90,6 +95,9 @@ export const WIDGETS: WidgetDef[] = [
     title: "Units tracked",
     blurb: "How many units exist, across how many products",
     defaultW: 3,
+    defaultH: 3,
+    minW: 2,
+    minH: 2,
     bare: true,
     render: (c) => (
       <StatBody
@@ -105,6 +113,9 @@ export const WIDGETS: WidgetDef[] = [
     title: "Out on rent",
     blurb: "Units with a customer right now",
     defaultW: 3,
+    defaultH: 3,
+    minW: 2,
+    minH: 2,
     bare: true,
     render: (c) => (
       <StatBody
@@ -121,6 +132,9 @@ export const WIDGETS: WidgetDef[] = [
     title: "Revenue in period",
     blurb: "Invoiced total for the chosen range",
     defaultW: 3,
+    defaultH: 3,
+    minW: 2,
+    minH: 2,
     bare: true,
     render: (c) => (
       <StatBody
@@ -137,6 +151,9 @@ export const WIDGETS: WidgetDef[] = [
     title: "Service visits",
     blurb: "Maintenance visits in the chosen range",
     defaultW: 3,
+    defaultH: 3,
+    minW: 2,
+    minH: 2,
     bare: true,
     render: (c) => (
       <StatBody
@@ -153,6 +170,9 @@ export const WIDGETS: WidgetDef[] = [
     title: "Revenue",
     blurb: "Invoiced amounts month by month",
     defaultW: 8,
+    defaultH: 9,
+    minW: 4,
+    minH: 6,
     subtitle: (c) =>
       c.assetId
         ? `${(c.revenue?.items || []).find((i: any) => i.assetId === c.assetId)?.item || "Product"} · invoiced in this period`
@@ -177,6 +197,9 @@ export const WIDGETS: WidgetDef[] = [
     title: "By product",
     blurb: "Which products earn the most — click one to filter",
     defaultW: 4,
+    defaultH: 9,
+    minW: 3,
+    minH: 5,
     subtitle: () => "Highest earning first",
     render: (c) =>
       !(c.revenue?.items || []).length ? (
@@ -218,6 +241,9 @@ export const WIDGETS: WidgetDef[] = [
     title: "Stock on hand",
     blurb: "Every unit, split by what it is doing right now",
     defaultW: 7,
+    defaultH: 11,
+    minW: 4,
+    minH: 6,
     subtitle: () => "Every unit, split by what it is doing right now",
     action: (c) => <Legend series={STOCK_STATUSES} counts={c.statusTotals} />,
     render: (c) => (
@@ -231,6 +257,9 @@ export const WIDGETS: WidgetDef[] = [
     title: "Recent movements",
     blurb: "Units going out to site and coming back",
     defaultW: 5,
+    defaultH: 11,
+    minW: 3,
+    minH: 6,
     subtitle: () => "Units going out to site and coming back",
     render: (c) =>
       !c.movements?.length ? (
@@ -285,6 +314,9 @@ export const WIDGETS: WidgetDef[] = [
     title: "Field activity",
     blurb: "How often the team is out on site, and which units keep breaking",
     defaultW: 5,
+    defaultH: 13,
+    minW: 4,
+    minH: 6,
     subtitle: () => "How often the team is out on site",
     action: (c) => <Legend series={MSR_KINDS} counts={c.kindTotals} />,
     render: (c) => (
@@ -315,6 +347,9 @@ export const WIDGETS: WidgetDef[] = [
     title: "Where the fleet is",
     blurb: "Map of every unit with a GPS position",
     defaultW: 7,
+    defaultH: 13,
+    minW: 4,
+    minH: 8,
     subtitle: (c) => `${c.mapData?.units?.length ?? 0} units positioned · ${c.mapData?.visits?.length ?? 0} field visits`,
     action: () => <Legend series={STOCK_STATUSES} />,
     render: (c) => <FleetMap units={c.mapData?.units || []} visits={c.mapData?.visits || []} height={340} />,
@@ -323,8 +358,15 @@ export const WIDGETS: WidgetDef[] = [
 
 export const WIDGET_BY_ID = Object.fromEntries(WIDGETS.map((w) => [w.id, w])) as Record<string, WidgetDef>;
 
+/** Height of one grid row in px (RGL's rowHeight). */
+export const ROW_H = 24;
+
 /** The arrangement a person sees before they customise anything. */
-export const DEFAULT_LAYOUT: Array<{ id: string; w: number }> = WIDGETS.map((w) => ({ id: w.id, w: w.defaultW }));
+export const DEFAULT_LAYOUT: Array<{ id: string; w: number; h: number }> = WIDGETS.map((w) => ({
+  id: w.id,
+  w: w.defaultW,
+  h: w.defaultH,
+}));
 
 /** Widths offered in the widget menu, as spans of 12. */
 export const WIDTH_CHOICES = [

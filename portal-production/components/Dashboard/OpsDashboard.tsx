@@ -25,6 +25,7 @@ import {
   Grid,
   IconButton,
   MenuItem,
+  Skeleton,
   Stack,
   TextField,
   Typography,
@@ -33,24 +34,48 @@ import AddIcon from "@mui/icons-material/Add";
 import TuneIcon from "@mui/icons-material/Tune";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import CloseIcon from "@mui/icons-material/Close";
-import {
-  DndContext,
-  PointerSensor,
-  KeyboardSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
+import dynamic from "next/dynamic";
 import MainCard from "@/components/MainCard";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import WidgetFrame from "./ops/WidgetFrame";
+import type { GridEntry } from "./ops/GridBoard";
 import { DEFAULT_LAYOUT, WIDGETS, WIDGET_BY_ID, type WidgetCtx } from "./ops/widgets";
 import { STOCK_STATUSES } from "./ops/vizTokens";
 
-type LayoutEntry = { id: string; w: number };
+// The grid measures its own container, so it can only run in the browser.
+const GridBoard = dynamic(() => import("./ops/GridBoard"), {
+  ssr: false,
+  loading: () => <Skeleton variant="rectangular" height={420} sx={{ borderRadius: 1 }} />,
+});
+
+type LayoutEntry = GridEntry;
+
+// Layouts saved before the board became a real grid carry only { id, w }.
+// Lay those out left-to-right at the widget's default height rather than
+// throwing the arrangement away.
+function toGrid(saved: any[]): LayoutEntry[] {
+  let x = 0;
+  let y = 0;
+  let rowH = 0;
+  return saved
+    .filter((e) => e && WIDGET_BY_ID[e.id])
+    .map((e) => {
+      const def = WIDGET_BY_ID[e.id];
+      const w = Math.min(Math.max(Number(e.w) || def.defaultW, 1), 12);
+      const h = Number(e.h) || def.defaultH;
+      if (typeof e.x === "number" && typeof e.y === "number") return { id: e.id, x: e.x, y: e.y, w, h };
+      if (x + w > 12) {
+        x = 0;
+        y += rowH || h;
+        rowH = 0;
+      }
+      const entry = { id: e.id, x, y, w, h };
+      x += w;
+      rowH = Math.max(rowH, h);
+      return entry;
+    });
+}
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const monthsAgo = (n: number) => {
@@ -104,12 +129,12 @@ export default function OpsDashboard() {
         setMapData(g);
         // A saved layout can name a widget that no longer exists (renamed or
         // retired) — drop those rather than crash on an unknown id.
-        const saved: LayoutEntry[] | null = l?.layout ?? null;
-        setLayout(saved && saved.length ? saved.filter((e) => WIDGET_BY_ID[e.id]) : DEFAULT_LAYOUT);
+        const saved: any[] | null = l?.layout ?? null;
+        setLayout(saved && saved.length ? toGrid(saved) : toGrid(DEFAULT_LAYOUT));
       } catch (e: any) {
         if (alive) {
           setError(e?.message || "Could not load the dashboard");
-          setLayout(DEFAULT_LAYOUT);
+          setLayout(toGrid(DEFAULT_LAYOUT));
         }
       }
     })();
@@ -162,22 +187,6 @@ export default function OpsDashboard() {
     },
     [persist],
   );
-
-  const sensors = useSensors(
-    // A small distance threshold keeps a click on a widget's own controls from
-    // being read as the start of a drag.
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
-  const onDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e;
-    if (!over || active.id === over.id || !layout) return;
-    const fromIdx = layout.findIndex((l) => l.id === active.id);
-    const toIdx = layout.findIndex((l) => l.id === over.id);
-    if (fromIdx < 0 || toIdx < 0) return;
-    update(arrayMove(layout, fromIdx, toIdx));
-  };
 
   const revenueColumns = useMemo(
     () => (revenue?.series || []).map((s: any) => ({ month: s.month, values: { revenue: s.revenue } })),
@@ -236,7 +245,7 @@ export default function OpsDashboard() {
             </Typography>
             <Typography variant="body2" sx={{ color: "text.secondary" }}>
               {editing
-                ? "Drag a widget by its handle, resize it, or remove it. Changes save by themselves."
+                ? "Drag a widget by its grip to move it, pull its bottom-right corner to resize, or remove it. Changes save by themselves."
                 : "Stock, movements, revenue and field activity in one place."}
             </Typography>
           </Box>
@@ -285,7 +294,7 @@ export default function OpsDashboard() {
             >
               Add widget{available.length ? ` (${available.length})` : ""}
             </Button>
-            <Button size="small" startIcon={<RestartAltIcon />} onClick={() => update(DEFAULT_LAYOUT)} sx={{ textTransform: "none" }}>
+            <Button size="small" startIcon={<RestartAltIcon />} onClick={() => update(toGrid(DEFAULT_LAYOUT))} sx={{ textTransform: "none" }}>
               Reset to default
             </Button>
             <Typography variant="caption" sx={{ color: "text.secondary" }}>
@@ -322,35 +331,24 @@ export default function OpsDashboard() {
             </Button>
           </Box>
         ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-            <SortableContext items={layout.map((l) => l.id)} strategy={rectSortingStrategy}>
-              <Grid container spacing={2}>
-                {layout.map((entry) => {
-                  const def = WIDGET_BY_ID[entry.id];
-                  if (!def) return null;
-                  return (
-                    // Phones always get full width — a quarter-width tile at
-                    // 390px is unreadable, so the stored span applies from md up.
-                    <Grid item xs={12} md={entry.w} key={entry.id}>
-                      <WidgetFrame
-                        id={entry.id}
-                        title={def.title}
-                        subtitle={def.subtitle ? def.subtitle(ctx) : undefined}
-                        action={def.action ? def.action(ctx) : undefined}
-                        bare={def.bare}
-                        width={entry.w}
-                        editing={editing}
-                        onWidth={(w) => update(layout.map((l) => (l.id === entry.id ? { ...l, w } : l)))}
-                        onRemove={() => update(layout.filter((l) => l.id !== entry.id))}
-                      >
-                        {def.render(ctx)}
-                      </WidgetFrame>
-                    </Grid>
-                  );
-                })}
-              </Grid>
-            </SortableContext>
-          </DndContext>
+          <GridBoard entries={layout} editing={editing} onChange={update}>
+            {(id) => {
+              const def = WIDGET_BY_ID[id];
+              if (!def) return null;
+              return (
+                <WidgetFrame
+                  title={def.title}
+                  subtitle={def.subtitle ? def.subtitle(ctx) : undefined}
+                  action={def.action ? def.action(ctx) : undefined}
+                  bare={def.bare}
+                  editing={editing}
+                  onRemove={() => update((layout || []).filter((l) => l.id !== id))}
+                >
+                  {def.render(ctx)}
+                </WidgetFrame>
+              );
+            }}
+          </GridBoard>
         )}
 
         <Dialog open={pickerOpen} onClose={() => setPickerOpen(false)} maxWidth="sm" fullWidth>
@@ -370,7 +368,9 @@ export default function OpsDashboard() {
                 <Box
                   key={w.id}
                   onClick={() => {
-                    update([...(layout || []), { id: w.id, w: w.defaultW }]);
+                    // New widgets land on a fresh row at the bottom.
+                    const bottom = (layout || []).reduce((m, e) => Math.max(m, e.y + e.h), 0);
+                    update([...(layout || []), { id: w.id, x: 0, y: bottom, w: w.defaultW, h: w.defaultH }]);
                     setPickerOpen(false);
                   }}
                   sx={{
