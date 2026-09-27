@@ -846,6 +846,14 @@ export default function DeliveryBasketPage() {
   // printed from here (the run is not in the Completed list yet).
   const hasSignedItems = run.status !== "completed" && run.items.some((it) => it.deliveryStatus === "completed");
   const printableDoId = run.document?.id ?? run.items.find((it) => it.document?.id)?.document?.id ?? null;
+  // Partly signed run: print what the customer has signed for so far. Sits
+  // BELOW the item walk / list (the work comes first), above "View all items".
+  const signedSoFar = hasSignedItems ? (
+    <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
+      <Typography variant="subtitle2" fontWeight={700}>Signed so far</Typography>
+      <DoPrintActions doId={printableDoId} />
+    </Box>
+  ) : null;
   const basketHref = `/scan/delivery/${run.id}`;
   const tripHref = (ids: string[]) => `${basketHref}?items=${ids.map(encodeURIComponent).join(",")}`;
   // ── WHO'S DELIVERING (2026-09 hand-off) ───────────────────────────────────
@@ -1132,13 +1140,6 @@ export default function DeliveryBasketPage() {
           </Card>
         )}
 
-        {hasSignedItems && pickStage === "pick" && (
-          <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
-            <Typography variant="subtitle2" fontWeight={700}>Signed so far</Typography>
-            <DoPrintActions doId={printableDoId} />
-          </Box>
-        )}
-
         {pickStage === "pick" ? (
           <>
             <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2 }}>
@@ -1239,6 +1240,8 @@ export default function DeliveryBasketPage() {
             </Stack>
           </>
         )}
+
+        {pickStage === "pick" && signedSoFar}
 
         <Button variant="text" sx={{ color: "text.secondary", alignSelf: "center" }} onClick={() => router.push("/scan")}>
           Done for now
@@ -1420,14 +1423,6 @@ export default function DeliveryBasketPage() {
             </Stack>
           </CardContent>
         </Card>
-      )}
-
-      {/* Partly signed run: print what the customer has signed for so far. */}
-      {hasSignedItems && (
-        <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
-          <Typography variant="subtitle2" fontWeight={700}>Signed so far</Typography>
-          <DoPrintActions doId={printableDoId} />
-        </Box>
       )}
 
       {/* FINALIZE (outbound): the run has folded to `delivered`, meaning every
@@ -1642,6 +1637,8 @@ export default function DeliveryBasketPage() {
           </CardContent>
         </Card>
       )}
+
+      {walkActive && signedSoFar}
 
       {walkActive && (
         <Button
@@ -1983,6 +1980,9 @@ export default function DeliveryBasketPage() {
           </Stack>
         </Box>
       )}
+
+      {/* Signed so far: after the item lists, before adding more. */}
+      {signedSoFar}
 
       {canAdd && (
         <Stack spacing={1.5}>
