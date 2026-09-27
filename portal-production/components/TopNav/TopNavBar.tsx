@@ -158,7 +158,7 @@ export default function TopNavBar() {
   const { mode, toggleMode } = useThemeMode();
   const { modules } = useConfiguration();
   const { isModuleAllowed, userRoles } = useUserPermissions();
-  const { isAdsInsightsEnabled } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled } = useOrganizationFeatures();
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
@@ -192,6 +192,15 @@ export default function TopNavBar() {
         }
         return !hide?.includes(key);
       });
+      // Service Reports -> Maintenance Dates rides on the enableMaintenanceDates
+      // org flag (display only, same as DynamicSidebarContent).
+      if (
+        m.moduleCode === "MAINTENANCE" &&
+        isMaintenanceDatesEnabled &&
+        !filtered.some((s: any) => (typeof s === "string" ? s : s?.key) === "dates")
+      ) {
+        filtered.push({ key: "dates", label: "Maintenance Dates" });
+      }
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
     })
     .sort((a: any, b: any) => orderKey(a) - orderKey(b));

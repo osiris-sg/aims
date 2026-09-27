@@ -85,7 +85,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
 
@@ -221,6 +221,16 @@ export default function DynamicSidebarContent() {
         }
         return !hide?.includes(key);
       });
+      // Service Reports -> Maintenance Dates rides on the enableMaintenanceDates
+      // org flag. Added here (display only) rather than in every org's stored
+      // module config, the same way HIDDEN_SUBMENUS avoids DB churn.
+      if (
+        m.moduleCode === 'MAINTENANCE' &&
+        isMaintenanceDatesEnabled &&
+        !filtered.some((s: any) => (typeof s === 'string' ? s : s?.key) === 'dates')
+      ) {
+        filtered.push({ key: 'dates', label: 'Maintenance Dates' });
+      }
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
     })
     .sort((a, b) => orderKey(a) - orderKey(b));

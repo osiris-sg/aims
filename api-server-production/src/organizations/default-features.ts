@@ -47,4 +47,8 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // cards with stock on hand, units in/out, revenue by product over a
   // filterable range, field-service frequency and a fleet map. Default OFF.
   enableOpsDashboard: false,
+  // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.
+  // Plan a maintenance date per asset, see which deployed units are done, and a
+  // reminder 7 days before (push to field techs + office bell). Default OFF.
+  enableMaintenanceDates: false,
 };

@@ -93,6 +93,10 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // field-service frequency and a fleet map, instead of the generic cards.
   // Default OFF.
   enableOpsDashboard: false,
+  // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.
+  // A maintenance date per asset, which deployed units are done this cycle, and
+  // a reminder 7 days before (push to field techs + office bell). Default OFF.
+  enableMaintenanceDates: false,
   // NOTE: the "AIMS Guide" assistant (bottom-right bubble) is deliberately
   // NOT flagged — it's global for every org (guru, 2026-08-03).
 };
@@ -168,5 +172,6 @@ export function useOrganizationFeatures() {
     isIdQuotationEnabled: features.enableIdQuotation ?? false,
     isAdsInsightsEnabled: features.enableAdsInsights ?? false,
     isOpsDashboardEnabled: features.enableOpsDashboard ?? false,
+    isMaintenanceDatesEnabled: features.enableMaintenanceDates ?? false,
   };
 }

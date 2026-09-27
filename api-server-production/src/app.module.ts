@@ -53,6 +53,7 @@ import { AccountingModule } from './accounting/accounting.module';
 import { JournalModule } from './journal/journal.module';
 import { MaintenanceReportsModule } from './maintenance-reports/maintenance-reports.module';
 import { DeliveriesModule } from './deliveries/deliveries.module';
+import { MaintenanceSchedulesModule } from './maintenance-schedules/maintenance-schedules.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AskModule } from './ask/ask.module';
 import { AnomaliesModule } from './anomalies/anomalies.module';
@@ -120,6 +121,7 @@ import { ActionLogInterceptor } from './action-log/action-log.interceptor';
     JournalModule,
     MaintenanceReportsModule,
     DeliveriesModule,
+    MaintenanceSchedulesModule,
     NotificationsModule,
     AskModule,
     DocumentAssistantModule,

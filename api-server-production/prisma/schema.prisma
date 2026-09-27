@@ -2596,6 +2596,32 @@ model MaintenanceServiceReport {
   @@index([organizationId, reportNumber(sort: Desc)])
 }
 
+// MAINTENANCE DATES (Biofuel, 2026-09). A planned maintenance date for an ASSET
+// (a product, not a unit): every deployed unit of that product (rental and sold)
+// is due on dueDate. One ACTIVE row per asset (dueDate today or later and not
+// cancelled), enforced in MaintenanceSchedulesService; past rows stay as history
+// and mark the start of the next cycle ("done this cycle" = a completed SERVICE
+// report signed on or after the previous dueDate).
+//
+// dueDate is a DATE (no time), so it never shifts across time zones. remindedAt
+// is stamped by the daily 08:52 SGT reminder job when it claims the row (the
+// claim is what makes the job idempotent); editing dueDate clears it so the new
+// date is reminded again. No foreign keys on purpose: a plain additive table.
+model MaintenanceSchedule {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String
+  assetId         String    @db.Uuid
+  dueDate         DateTime  @db.Date
+  notes           String?
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  remindedAt      DateTime?
+  cancelledAt     DateTime?
+
+  @@index([organizationId, assetId, dueDate])
+  @@index([dueDate, remindedAt])
+}
+
 // Live-tracked GPS pings emitted by the field-tech app between Start Delivery
 // and Acknowledge Delivery. Linked to the DO_START MaintenanceServiceReport;
 // the office portal renders these as a polyline on a Leaflet map.

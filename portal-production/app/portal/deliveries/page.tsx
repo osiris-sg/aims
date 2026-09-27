@@ -34,6 +34,8 @@ import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { request } from "@/helpers/request";
 import ScheduleDeliveryDialog from "./_components/ScheduleDeliveryDialog";
 import ScheduleReturnDialog from "./_components/ScheduleReturnDialog";
+import MaintenanceScheduleDialog from "@/components/maintenance/MaintenanceScheduleDialog";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 /**
  * Office Deliveries queue (phase-1 layer 4; per-item linking 2026-08).
@@ -117,6 +119,8 @@ export default function DeliveriesQueuePage() {
   const [error, setError] = useState<string | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
+  const { isMaintenanceDatesEnabled } = useOrganizationFeatures();
   // Anchored to the CLICK POSITION, not the button element — element anchors
   // detach when rows re-render and the menu then opens at the top-left
   // corner (full-sweep fix, guru 2026-09-14).
@@ -296,6 +300,11 @@ export default function DeliveriesQueuePage() {
           Deliveries
         </Typography>
         <Box sx={{ flex: 1 }} />
+        {isMaintenanceDatesEnabled && (
+          <Button variant="outlined" startIcon={<EventIcon />} onClick={() => setMaintenanceOpen(true)}>
+            Schedule maintenance
+          </Button>
+        )}
         <Button variant="outlined" startIcon={<EventIcon />} onClick={() => setReturnOpen(true)}>
           Schedule a return
         </Button>
@@ -580,6 +589,10 @@ export default function DeliveriesQueuePage() {
           void load();
         }}
       />
+
+      {isMaintenanceDatesEnabled && (
+        <MaintenanceScheduleDialog open={maintenanceOpen} onClose={() => setMaintenanceOpen(false)} />
+      )}
 
       <ScheduleReturnDialog
         open={returnOpen}
