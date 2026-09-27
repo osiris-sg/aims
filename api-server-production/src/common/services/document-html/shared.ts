@@ -176,7 +176,14 @@ export function groupDeliveryLines(raw: any[]): any[] {
     const rawDesc = String(first.description ?? first.name ?? '');
     const qty = members.reduce((s, m) => s + (Number(m.quantity) || 0), 0);
     const amount = members.reduce((s, m) => s + (Number(m.amount) || 0), 0);
-    const serials = members.flatMap((m) => (Array.isArray(m.serialNumbers) ? m.serialNumbers : []));
+    // Every unit's serial: its line's own, or else the serial of the condition-photo
+    // report matched to that line (proofSerial, from getById). A line never bound
+    // to its unit still names it, so no unit drops off the S/No. row.
+    const serialsOf = (m: any): string[] => {
+      const own = (Array.isArray(m?.serialNumbers) ? m.serialNumbers : []).filter(Boolean);
+      return own.length ? own : m?.proofSerial ? [m.proofSerial] : [];
+    };
+    const serials = Array.from(new Set(members.flatMap(serialsOf)));
     // `model` is an explicit field when the writer supplies one; skuKey is the
     // fallback. See the MODEL note in CleanDocumentPreview.tsx — there is no
     // Asset.model column, so skuKey is all the stored data offers today.
@@ -184,7 +191,7 @@ export function groupDeliveryLines(raw: any[]): any[] {
     const lines = [
       `Rental of ${qty} unit${qty === 1 ? '' : 's'} of ${rawDesc}`,
       model && !DESCRIPTION_HAS_MODEL.test(rawDesc) ? `Model: ${model}` : '',
-      ...(DESCRIPTION_HAS_SERIAL.test(rawDesc) ? [] : serials.map((s: any) => `S/No.: ${s}`)),
+      DESCRIPTION_HAS_SERIAL.test(rawDesc) || !serials.length ? '' : `S/No.: ${serials.join(', ')}`,
     ].filter(Boolean);
     // No photo strip in this renderer either; groups carried for the same
     // reason as pdf-generator.service.ts.
@@ -195,7 +202,7 @@ export function groupDeliveryLines(raw: any[]): any[] {
       amount,
       proofGroups: members
         .map((m) => ({
-          serial: (Array.isArray(m.serialNumbers) ? m.serialNumbers : []).filter(Boolean)[0] ?? null,
+          serial: serialsOf(m)[0] ?? null,
           photos: Array.isArray(m.proofPhotos) ? m.proofPhotos.filter(Boolean) : [],
         }))
         .filter((g) => g.photos.length > 0),

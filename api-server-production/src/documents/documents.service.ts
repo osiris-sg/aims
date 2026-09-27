@@ -822,7 +822,10 @@ export class DocumentsService {
           };
           for (const line of lines) {
             const m = findFor(line);
-            if (m) { line.proofPhotos = m.photos ?? []; used.add(m.id); }
+            // proofSerial (additive): the matched report's unit serial, so a
+            // grouped line can name the unit even when the line itself carries
+            // no serialNumbers.
+            if (m) { line.proofPhotos = m.photos ?? []; line.proofSerial = m.subjectSku ?? null; used.add(m.id); }
           }
           (document as any).config = cfg;
         }

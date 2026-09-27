@@ -346,9 +346,14 @@ function groupDeliveryLines(raw: any[], isReturn = false): any[] {
       j++;
     }
     const name = run[0].description || "";
-    const serials = run
-      .flatMap((r) => (Array.isArray(r.serialNumbers) ? r.serialNumbers : []))
-      .filter(Boolean);
+    // Every unit's serial: its line's own, or else the serial of the condition-photo
+    // report matched to that line (proofSerial, from getById). A line never bound
+    // to its unit still names it, so no unit drops off the S/No. row.
+    const serialsOf = (r: any): string[] => {
+      const own = (Array.isArray(r?.serialNumbers) ? r.serialNumbers : []).filter(Boolean);
+      return own.length ? own : r?.proofSerial ? [r.proofSerial] : [];
+    };
+    const serials = Array.from(new Set(run.flatMap(serialsOf)));
     const qty = run.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
     const amount = run.reduce((s, r) => s + (Number(r.amount) || 0), 0);
     // PER-UNIT PROOF PHOTOS SURVIVE THE MERGE.
@@ -363,7 +368,7 @@ function groupDeliveryLines(raw: any[], isReturn = false): any[] {
     // can label it. Lines with no photos contribute nothing.
     const proofGroups = run
       .map((r) => ({
-        serial: (Array.isArray(r.serialNumbers) ? r.serialNumbers : []).filter(Boolean)[0] ?? null,
+        serial: serialsOf(r)[0] ?? null,
         photos: Array.isArray(r.proofPhotos) ? r.proofPhotos.filter(Boolean) : [],
       }))
       .filter((g) => g.photos.length > 0);
@@ -397,7 +402,7 @@ function groupDeliveryLines(raw: any[], isReturn = false): any[] {
     // hand-typed description like DO202609-0045's "LION250\nS/No.: MG20260168".
     if (model && !DESCRIPTION_HAS_MODEL.test(name)) lines.push(`Model: ${model}`);
     if (year != null) lines.push(`Year: ${year}`);
-    if (!DESCRIPTION_HAS_SERIAL.test(name)) for (const s of serials) lines.push(`S/No.: ${s}`);
+    if (!DESCRIPTION_HAS_SERIAL.test(name) && serials.length) lines.push(`S/No.: ${serials.join(", ")}`);
     out.push({
       ...run[0],
       quantity: qty,
@@ -2690,12 +2695,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                             const labelled = groups.length > 1;
                             return groups.map((g, gi) => (
                               <Box key={g.serial ?? gi} sx={{ mt: 0.5 }}>
-                                {labelled && g.serial && (
+                                {/* Every group on a multi-unit line is captioned, so one
+                                    unit's photos never read as another's. */}
+                                {labelled && (
                                   <Typography sx={{ fontSize: "0.6875rem", color: "#666", lineHeight: 1.4 }}>
-                                    {g.serial}
+                                    {g.serial ?? `Unit ${gi + 1}`}
                                   </Typography>
                                 )}
-                                <Box sx={{ display: "flex", gap: 0.5, mt: labelled && g.serial ? 0.25 : 0, flexWrap: "nowrap" }}>
+                                <Box sx={{ display: "flex", gap: 0.5, mt: labelled ? 0.25 : 0, flexWrap: "nowrap" }}>
                                   {g.photos.slice(0, 4).map((key: string, photoIdx: number) => (
                                     // eslint-disable-next-line @next/next/no-img-element
                                     <img key={key} src={resolvePhotoSrc(key)} alt="" onClick={() => openZoom(g.photos, photoIdx)} style={{ width: "23%", aspectRatio: "4 / 3", objectFit: "cover", border: "1px solid #ccc", cursor: "pointer" }} />

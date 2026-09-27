@@ -172,9 +172,14 @@ export class PdfGeneratorService {
         j++;
       }
       const name = run[0].description || '';
-      const serials = run
-        .flatMap((r) => (Array.isArray(r.serialNumbers) ? r.serialNumbers : []))
-        .filter(Boolean);
+      // Every unit's serial: its line's own, or else the serial of the condition-photo
+      // report matched to that line (proofSerial, from getById). A line never bound
+      // to its unit still names it, so no unit drops off the S/No. row.
+      const serialsOf = (r: any): string[] => {
+        const own = (Array.isArray(r?.serialNumbers) ? r.serialNumbers : []).filter(Boolean);
+        return own.length ? own : r?.proofSerial ? [r.proofSerial] : [];
+      };
+      const serials = Array.from(new Set(run.flatMap(serialsOf)));
       const qty = run.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
       const amount = run.reduce((s, r) => s + (Number(r.amount) || 0), 0);
       const model = run[0].model || run[0].skuKey || '';
@@ -184,7 +189,7 @@ export class PdfGeneratorService {
       const lines = [`${verb} of ${qty} unit${qty === 1 ? '' : 's'} of ${name}`];
       if (model && !DESCRIPTION_HAS_MODEL.test(name)) lines.push(`Model: ${model}`);
       if (year != null) lines.push(`Year: ${year}`);
-      if (!DESCRIPTION_HAS_SERIAL.test(name)) for (const s of serials) lines.push(`S/No.: ${s}`);
+      if (!DESCRIPTION_HAS_SERIAL.test(name) && serials.length) lines.push(`S/No.: ${serials.join(', ')}`);
       // This renderer draws no photos today. The groups are carried anyway so
       // that adding a photo strip to the PDF later cannot silently reintroduce
       // the run[0]-only loss the portal copy just fixed.
@@ -196,7 +201,7 @@ export class PdfGeneratorService {
         description: lines.join('\n'),
         proofGroups: run
           .map((r) => ({
-            serial: (Array.isArray(r.serialNumbers) ? r.serialNumbers : []).filter(Boolean)[0] ?? null,
+            serial: serialsOf(r)[0] ?? null,
             photos: Array.isArray(r.proofPhotos) ? r.proofPhotos.filter(Boolean) : [],
           }))
           .filter((g) => g.photos.length > 0),

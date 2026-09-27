@@ -149,7 +149,14 @@ export class PublicDocumentService {
         j++;
       }
       const name = run[0].description || '';
-      const serials = run.flatMap((r) => (Array.isArray(r.serialNumbers) ? r.serialNumbers : [])).filter(Boolean);
+      // Every unit's serial: its line's own, or else the serial of the condition-photo
+      // report matched to that line (proofSerial, from getById). A line never bound
+      // to its unit still names it, so no unit drops off the S/No. row.
+      const serialsOf = (r: any): string[] => {
+        const own = (Array.isArray(r?.serialNumbers) ? r.serialNumbers : []).filter(Boolean);
+        return own.length ? own : r?.proofSerial ? [r.proofSerial] : [];
+      };
+      const serials = Array.from(new Set(run.flatMap(serialsOf)));
       // PER-UNIT PROOF PHOTOS SURVIVE THE MERGE — see the same block in the
       // portal's CleanDocumentPreview. This copy matters because the guest page
       // renders items ALREADY MERGED HERE, so dropping them server-side hides
@@ -157,7 +164,7 @@ export class PublicDocumentService {
       // recover them.
       const proofGroups = run
         .map((r) => ({
-          serial: (Array.isArray(r.serialNumbers) ? r.serialNumbers : []).filter(Boolean)[0] ?? null,
+          serial: serialsOf(r)[0] ?? null,
           photos: Array.isArray(r.proofPhotos) ? r.proofPhotos.filter(Boolean) : [],
         }))
         .filter((g) => g.photos.length > 0);
@@ -169,7 +176,7 @@ export class PublicDocumentService {
       const lines = [`${verb} of ${qty} unit${qty === 1 ? '' : 's'} of ${name}`];
       if (model && !DESCRIPTION_HAS_MODEL.test(name)) lines.push(`Model: ${model}`);
       if (year != null) lines.push(`Year: ${year}`);
-      if (!DESCRIPTION_HAS_SERIAL.test(name)) for (const s of serials) lines.push(`S/No.: ${s}`);
+      if (!DESCRIPTION_HAS_SERIAL.test(name) && serials.length) lines.push(`S/No.: ${serials.join(', ')}`);
       out.push({
         ...run[0],
         quantity: qty,
