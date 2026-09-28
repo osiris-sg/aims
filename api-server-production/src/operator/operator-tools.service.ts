@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
 import { XeroSyncService } from '../xero-sync/xero-sync.service';
+import { BankRecService } from '../bank-rec/bank-rec.service';
 import { AuditService } from '../common/audit.service';
 import { CustomersService } from '../customers/customers.service';
 import { AssetsService } from '../assets/assets.service';
@@ -100,6 +101,7 @@ export class OperatorToolsService {
     private readonly deliveries: DeliveriesService,
     private readonly publicDocuments: PublicDocumentService,
     private readonly xeroSync: XeroSyncService,
+    private readonly bankRec: BankRecService,
     private readonly s3: S3Service,
     private readonly auth: OperatorAuthService,
   ) {}
@@ -230,6 +232,31 @@ export class OperatorToolsService {
 
   private tools(): ToolDef[] {
     return [
+      {
+        name: 'bank_rec_checkpoint',
+        description:
+          "Say how far the bank reconciliation has got: for each bank account it compares Xero's closing balance with the AIMS GL month by month, and reports the last month both agree on plus the month to resume from. Use when asked 'where did we stop on the bank rec', 'is the bank reconciled', or 'which month do I start from'. It is a period marker — the open month still needs its lines ticked off in AIMS.",
+        permissions: ['bankrec:read'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            from: { type: 'string', description: 'Optional start date (YYYY-MM-DD). Defaults to 12 months back.' },
+            to: { type: 'string', description: 'Optional end date (YYYY-MM-DD). Defaults to today.' },
+          },
+        },
+        run: async (ctx, { from, to }) => {
+          const r = await this.bankRec.xeroCheckpoints(ctx.organizationId, { from, to });
+          return {
+            result: {
+              ...r,
+              summary: r.resume
+                .map((a: any) => `${a.account}: agreed through ${a.agreedThrough ?? 'never'}${a.resumeFrom ? `, resume from ${a.resumeFrom}` : ' (all months agree)'}`)
+                .join(' · '),
+            },
+          };
+        },
+      },
+
       {
         name: 'confirm_invoices_from_xero',
         description:

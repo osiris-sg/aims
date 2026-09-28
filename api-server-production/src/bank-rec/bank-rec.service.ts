@@ -1361,6 +1361,81 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
     this.logRec(organizationId, undefined, 'IMPORT_DELETED', imp.filename || `Import ${importId.slice(0, 8)}`, 'Bank statement import deleted', importId);
     return deleted;
   }
+
+  // -------------------------------------------------------------------------
+  // "Where did the accountant get to?" (guru 2026-09-28)
+  //
+  // The accountant reconciles in Xero, then has to continue in AIMS, and today
+  // has no way to see how far Xero already got. Xero's per-LINE position cannot
+  // be imported: the bank statement report is behind a scope this app is not
+  // granted (401), and Xero's reconciled flags sit on accounting records that do
+  // not map 1:1 to bank lines anyway — one $130,800 bank payment is four
+  // $65,400 bill payments in Xero.
+  //
+  // So the resume point is derived from BALANCES instead. For each month end we
+  // compare Xero's closing balance per bank account (its own Bank Summary
+  // report) against the AIMS GL balance for the same account. Every month where
+  // the two agree is settled on both sides; the first month they diverge is
+  // where the accountant picks up. That is a PERIOD marker, not a per-line one —
+  // the open month still has to be ticked off line by line in AIMS.
+  // -------------------------------------------------------------------------
+  async xeroCheckpoints(organizationId: string, opts: { from?: string; to?: string } = {}) {
+    const enabled = await isOrgFeatureEnabled(this.prisma, organizationId, BANK_CHECKPOINT_FLAG);
+    if (!enabled) {
+      throw new HttpException(
+        'The Xero bank checkpoint is off for this organization. Enable it in Admin → Configuration.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    const to = opts.to ? new Date(opts.to) : new Date();
+    const from = opts.from ? new Date(opts.from) : new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth() - 11, 1));
+    const norm = (v: string) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const accounts = await this.listBankAccounts(organizationId);
+    type BankAcct = (typeof accounts)[number];
+    // Annotate the tuple: without it TS widens to (string | BankAcct)[]
+    // and every acct.name / acct.id read below becomes `unknown`.
+    const aimsByName = new Map<string, BankAcct>(accounts.map((a): [string, BankAcct] => [norm(a.name), a]));
+
+    // Month ends from `from` to `to`.
+    const months: Array<{ label: string; start: Date; end: Date }> = [];
+    let cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1));
+    while (cur <= to) {
+      const start = new Date(cur);
+      const end = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, 0));
+      months.push({ label: `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`, start, end });
+      cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, 1));
+    }
+
+    const rows: any[] = [];
+    for (const m of months) {
+      const xero = await this.xeroSync.bankSummaryClosing(organizationId, m.start, m.end);
+      for (const [xname, closing] of xero) {
+        const acct = aimsByName.get(norm(xname));
+        if (!acct) continue; // a Xero bank account AIMS does not carry
+        const agg = await this.prisma.journalEntryLine.aggregate({
+          where: {
+            accountId: acct.id,
+            journalEntry: { organizationId, status: 'POSTED', entryDate: { lte: m.end } },
+          },
+          _sum: { debit: true, credit: true },
+        });
+        const aims = ROUND((agg._sum.debit || 0) - (agg._sum.credit || 0));
+        const diff = ROUND(closing - aims);
+        rows.push({ month: m.label, account: acct.name, accountId: acct.id, code: acct.code, xero: ROUND(closing), aims, diff, agreed: Math.abs(diff) <= 0.01 });
+      }
+    }
+
+    // Resume point per account: the last month that agreed, and the first that did not.
+    const byAccount = new Map<string, any>();
+    for (const r of rows) {
+      const e = byAccount.get(r.account) || { account: r.account, code: r.code, agreedThrough: null, resumeFrom: null };
+      if (r.agreed) { if (!e.resumeFrom) e.agreedThrough = r.month; }
+      else if (!e.resumeFrom) e.resumeFrom = r.month;
+      byAccount.set(r.account, e);
+    }
+    return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10), rows, resume: [...byAccount.values()] };
+  }
 }
 
 // ---------- helpers ----------
@@ -1413,76 +1488,5 @@ function parseDateFlexible(s: string | undefined): Date {
   }
   throw new Error(`Unparseable date: ${s}`);
 
-  // -------------------------------------------------------------------------
-  // "Where did the accountant get to?" (guru 2026-09-28)
-  //
-  // The accountant reconciles in Xero, then has to continue in AIMS, and today
-  // has no way to see how far Xero already got. Xero's per-LINE position cannot
-  // be imported: the bank statement report is behind a scope this app is not
-  // granted (401), and Xero's reconciled flags sit on accounting records that do
-  // not map 1:1 to bank lines anyway — one $130,800 bank payment is four
-  // $65,400 bill payments in Xero.
-  //
-  // So the resume point is derived from BALANCES instead. For each month end we
-  // compare Xero's closing balance per bank account (its own Bank Summary
-  // report) against the AIMS GL balance for the same account. Every month where
-  // the two agree is settled on both sides; the first month they diverge is
-  // where the accountant picks up. That is a PERIOD marker, not a per-line one —
-  // the open month still has to be ticked off line by line in AIMS.
-  // -------------------------------------------------------------------------
-  async xeroCheckpoints(organizationId: string, opts: { from?: string; to?: string } = {}) {
-    const enabled = await isOrgFeatureEnabled(this.prisma, organizationId, BANK_CHECKPOINT_FLAG);
-    if (!enabled) {
-      throw new HttpException(
-        'The Xero bank checkpoint is off for this organization. Enable it in Admin → Configuration.',
-        HttpStatus.FORBIDDEN,
-      );
-    }
-    const to = opts.to ? new Date(opts.to) : new Date();
-    const from = opts.from ? new Date(opts.from) : new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth() - 11, 1));
-    const norm = (v: string) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-    const accounts = await this.listBankAccounts(organizationId);
-    const aimsByName = new Map(accounts.map((a) => [norm(a.name), a]));
-
-    // Month ends from `from` to `to`.
-    const months: Array<{ label: string; start: Date; end: Date }> = [];
-    let cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1));
-    while (cur <= to) {
-      const start = new Date(cur);
-      const end = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, 0));
-      months.push({ label: `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`, start, end });
-      cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, 1));
-    }
-
-    const rows: any[] = [];
-    for (const m of months) {
-      const xero = await this.xeroSync.bankSummaryClosing(organizationId, m.start, m.end);
-      for (const [xname, closing] of xero) {
-        const acct = aimsByName.get(norm(xname));
-        if (!acct) continue; // a Xero bank account AIMS does not carry
-        const agg = await this.prisma.journalEntryLine.aggregate({
-          where: {
-            accountId: acct.id,
-            journalEntry: { organizationId, status: 'POSTED', entryDate: { lte: m.end } },
-          },
-          _sum: { debit: true, credit: true },
-        });
-        const aims = ROUND((agg._sum.debit || 0) - (agg._sum.credit || 0));
-        const diff = ROUND(closing - aims);
-        rows.push({ month: m.label, account: acct.name, accountId: acct.id, code: acct.code, xero: ROUND(closing), aims, diff, agreed: Math.abs(diff) <= 0.01 });
-      }
-    }
-
-    // Resume point per account: the last month that agreed, and the first that did not.
-    const byAccount = new Map<string, any>();
-    for (const r of rows) {
-      const e = byAccount.get(r.account) || { account: r.account, code: r.code, agreedThrough: null, resumeFrom: null };
-      if (r.agreed) { if (!e.resumeFrom) e.agreedThrough = r.month; }
-      else if (!e.resumeFrom) e.resumeFrom = r.month;
-      byAccount.set(r.account, e);
-    }
-    return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10), rows, resume: [...byAccount.values()] };
-  }
 
 }
