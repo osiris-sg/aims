@@ -99,6 +99,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableMaintenanceDates: false,
   // Push a document to Xero on confirm, rather than by manual sync. Default OFF.
   enableXeroConfirmSync: false,
+  enableBankRecXeroCheckpoint: false,
   // NOTE: the "AIMS Guide" assistant (bottom-right bubble) is deliberately
   // NOT flagged — it's global for every org (guru, 2026-08-03).
 };

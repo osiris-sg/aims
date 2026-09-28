@@ -23,6 +23,16 @@ function requireOrgId(req: RequestWithOrganization): string {
 export class BankRecController {
   constructor(private readonly service: BankRecService) {}
 
+  @Get('xero-checkpoints')
+  @Permissions('bankrec:read')
+  @ApiOperation({
+    summary:
+      "Where the accountant got to: per bank account and month, Xero's closing balance vs the AIMS GL, and the month to resume from",
+  })
+  xeroCheckpoints(@Req() req: RequestWithOrganization, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.xeroCheckpoints(requireOrgId(req), { from, to });
+  }
+
   @Get('accounts')
   @Permissions('bankrec:read')
   @ApiOperation({ summary: 'List bank accounts available for reconciliation' })
@@ -123,6 +133,21 @@ export class BankRecController {
     @Query('search') search?: string,
   ) {
     return this.service.documentCandidates(requireOrgId(req), lineId, search);
+  }
+
+  // Verification previews for the reconcile view (guru 2026-09-28): the full
+  // double entry behind a journal candidate + its source document, or an open
+  // document's summary — so the accountant can check before matching.
+  @Get('journal-lines/:journalLineId/preview')
+  @Permissions('bankrec:read')
+  journalLinePreview(@Req() req: RequestWithOrganization, @Param('journalLineId') journalLineId: string) {
+    return this.service.journalLinePreview(requireOrgId(req), journalLineId);
+  }
+
+  @Get('documents/:documentId/preview')
+  @Permissions('bankrec:read')
+  documentPreview(@Req() req: RequestWithOrganization, @Param('documentId') documentId: string) {
+    return this.service.documentPreview(requireOrgId(req), documentId);
   }
 
   // Settle open documents from the statement line: records the payment(s)

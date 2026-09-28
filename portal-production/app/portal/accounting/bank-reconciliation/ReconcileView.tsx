@@ -17,6 +17,11 @@ import {
   Checkbox,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  IconButton,
   Paper,
   Stack,
   Tab,
@@ -30,6 +35,8 @@ import CheckIcon from "@mui/icons-material/Check";
 import CloseIcon from "@mui/icons-material/Close";
 import SearchIcon from "@mui/icons-material/Search";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { toast } from "react-toastify";
 
 type StatementLine = {
@@ -81,6 +88,151 @@ const fmt = (n: number) =>
   (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dmy = (iso: string) => new Date(iso).toLocaleDateString("en-GB");
 
+// Verification preview (guru 2026-09-28): the double entry behind a journal
+// candidate + its source document — checked before committing a match.
+type PreviewData = {
+  journal?: {
+    journalNumber: string;
+    entryDate: string;
+    reference?: string | null;
+    description?: string | null;
+    isUnconfirmed?: boolean;
+    lines: Array<{ account: string; description?: string | null; debit: number; credit: number; highlight?: boolean }>;
+  };
+  sourceDocument?: {
+    id: string;
+    number: string;
+    type: string;
+    templateId: string;
+    status: string;
+    contact?: string | null;
+    date?: string | null;
+    dueDate?: string | null;
+    reference?: string | null;
+    total?: number | null;
+    outstanding?: number | null;
+    items: Array<{ description: string; quantity?: number | null; amount: number }>;
+  } | null;
+};
+
+function PreviewDialog({ open, loading, data, onClose }: { open: boolean; loading: boolean; data: PreviewData | null; onClose: () => void }) {
+  const doc = data?.sourceDocument;
+  const isBill = doc?.type === "BILL";
+  const openUrl = doc ? (isBill ? "/portal/accounting/payables/purchase-journal" : `/portal/documents/${doc.type}/${doc.templateId}/${doc.id}`) : null;
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ pr: 6 }}>
+        Verify before matching
+        <IconButton size="small" onClick={onClose} sx={{ position: "absolute", right: 12, top: 12 }}>
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent dividers>
+        {loading || !data ? (
+          <Box sx={{ py: 4, textAlign: "center" }}><CircularProgress size={20} /></Box>
+        ) : (
+          <Stack gap={2}>
+            {data.journal && (
+              <Box>
+                <Stack direction="row" alignItems="center" gap={1} sx={{ mb: 0.5 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                    {data.journal.journalNumber} · {dmy(data.journal.entryDate)}
+                  </Typography>
+                  {data.journal.isUnconfirmed && (
+                    <Chip size="small" color="warning" variant="outlined" label="unconfirmed" sx={{ height: 18, fontSize: "0.6rem" }} />
+                  )}
+                </Stack>
+                {data.journal.reference && (
+                  <Typography variant="caption" sx={{ fontFamily: "monospace", display: "block" }}>{data.journal.reference}</Typography>
+                )}
+                <Box sx={{ mt: 1, border: 1, borderColor: "divider", borderRadius: 1 }}>
+                  <Stack direction="row" sx={{ px: 1, py: 0.5, borderBottom: 1, borderColor: "divider" }}>
+                    <Typography variant="caption" sx={{ flex: 1, fontWeight: 700 }}>Account</Typography>
+                    <Typography variant="caption" sx={{ width: 90, textAlign: "right", fontWeight: 700 }}>Debit</Typography>
+                    <Typography variant="caption" sx={{ width: 90, textAlign: "right", fontWeight: 700 }}>Credit</Typography>
+                  </Stack>
+                  {data.journal.lines.map((l, i) => (
+                    <Stack
+                      key={i}
+                      direction="row"
+                      sx={{
+                        px: 1, py: 0.5,
+                        borderBottom: 1, borderColor: "divider", "&:last-child": { borderBottom: 0 },
+                        bgcolor: l.highlight ? (t: any) => alpha(t.palette.primary.main, 0.08) : undefined,
+                      }}
+                    >
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="caption" sx={{ display: "block", fontWeight: 600 }} noWrap>{l.account}</Typography>
+                        {l.description && (
+                          <Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block" }}>{l.description}</Typography>
+                        )}
+                      </Box>
+                      <Typography variant="caption" sx={{ width: 90, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{l.debit ? fmt(l.debit) : ""}</Typography>
+                      <Typography variant="caption" sx={{ width: 90, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{l.credit ? fmt(l.credit) : ""}</Typography>
+                    </Stack>
+                  ))}
+                </Box>
+              </Box>
+            )}
+
+            {data.journal && doc && <Divider />}
+
+            {doc ? (
+              <Box>
+                <Stack direction="row" alignItems="center" justifyContent="space-between">
+                  <Box>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                      {doc.type.replace(/_/g, " ")} {doc.number}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {doc.contact || "—"}
+                      {doc.date ? ` · ${dmy(doc.date)}` : ""}
+                      {doc.dueDate ? ` · due ${dmy(doc.dueDate)}` : ""}
+                      {` · ${String(doc.status).replace(/_/g, " ")}`}
+                    </Typography>
+                    {doc.reference && (
+                      <Typography variant="caption" sx={{ display: "block", fontFamily: "monospace" }}>{doc.reference}</Typography>
+                    )}
+                  </Box>
+                  {openUrl && (
+                    <Button size="small" variant="outlined" endIcon={<OpenInNewIcon fontSize="small" />} onClick={() => window.open(openUrl, "_blank", "noopener")}>
+                      Open
+                    </Button>
+                  )}
+                </Stack>
+                {doc.items.length > 0 && (
+                  <Box sx={{ mt: 1, border: 1, borderColor: "divider", borderRadius: 1, maxHeight: 220, overflowY: "auto" }}>
+                    {doc.items.map((it, i) => (
+                      <Stack key={i} direction="row" gap={1} sx={{ px: 1, py: 0.5, borderBottom: 1, borderColor: "divider", "&:last-child": { borderBottom: 0 } }}>
+                        <Typography variant="caption" sx={{ flex: 1, whiteSpace: "pre-line" }}>
+                          {it.description || "—"}
+                        </Typography>
+                        <Typography variant="caption" sx={{ width: 90, textAlign: "right", fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+                          {it.amount ? fmt(it.amount) : ""}
+                        </Typography>
+                      </Stack>
+                    ))}
+                  </Box>
+                )}
+                <Stack direction="row" justifyContent="flex-end" gap={2} sx={{ mt: 0.75 }}>
+                  {doc.total !== null && doc.total !== undefined && (
+                    <Typography variant="caption">Total <strong>{fmt(doc.total)}</strong></Typography>
+                  )}
+                  {doc.outstanding !== null && doc.outstanding !== undefined && (
+                    <Typography variant="caption">Outstanding <strong>{fmt(doc.outstanding)}</strong></Typography>
+                  )}
+                </Stack>
+              </Box>
+            ) : data.journal ? (
+              <Typography variant="caption" color="text.secondary">No source document — this journal was entered directly.</Typography>
+            ) : null}
+          </Stack>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function ReconcileView({
   lines,
   request,
@@ -104,6 +256,11 @@ export default function ReconcileView({
   // computed in pick order, clamping the last pick to what's left).
   const [docCands, setDocCands] = useState<DocCandidate[] | null>(null);
   const [docSelected, setDocSelected] = useState<string[]>([]);
+
+  // Verification preview dialog
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [preview, setPreview] = useState<PreviewData | null>(null);
 
   // Create panel state
   const [pnlAccounts, setPnlAccounts] = useState<any[]>([]);
@@ -184,6 +341,21 @@ export default function ReconcileView({
       toast.error(e?.message || "Action failed");
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const openPreview = async (kind: "journal" | "document", id: string) => {
+    setPreviewOpen(true);
+    setPreviewLoading(true);
+    setPreview(null);
+    try {
+      const r = await request(kind === "journal" ? `/bank-rec/journal-lines/${id}/preview` : `/bank-rec/documents/${id}/preview`);
+      setPreview(r || null);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to load preview");
+      setPreviewOpen(false);
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -347,13 +519,27 @@ export default function ReconcileView({
                           <Chip size="small" color="warning" variant="outlined" label={`off by ${fmt(Math.abs(sugDrift))}`} sx={{ height: 20, fontSize: "0.65rem" }} />
                         )}
                       </Stack>
-                      <Typography variant="body2" sx={{ mt: 0.5 }}>
-                        {sugLines.length} journal{sugLines.length === 1 ? "" : "s"} · {fmt(sugTotal)} —{" "}
-                        <Box component="span" sx={{ fontFamily: "monospace" }}>
-                          {sugLines.slice(0, 4).map((m) => m.journalEntry?.journalNumber).filter(Boolean).join(", ")}
-                          {sugLines.length > 4 ? "…" : ""}
-                        </Box>
-                      </Typography>
+                      <Stack direction="row" alignItems="center" gap={0.5} flexWrap="wrap" sx={{ mt: 0.5 }}>
+                        <Typography variant="body2">
+                          {sugLines.length} journal{sugLines.length === 1 ? "" : "s"} · {fmt(sugTotal)} —
+                        </Typography>
+                        {sugLines.slice(0, 6).map((m) => (
+                          <Tooltip key={m.id} title="View this journal & its document">
+                            <Chip
+                              size="small"
+                              clickable
+                              variant="outlined"
+                              icon={<InfoOutlinedIcon sx={{ fontSize: 13 }} />}
+                              label={m.journalEntry?.journalNumber || "JE"}
+                              onClick={() => openPreview("journal", m.id)}
+                              sx={{ height: 20, fontSize: "0.65rem", fontFamily: "monospace" }}
+                            />
+                          </Tooltip>
+                        ))}
+                        {sugLines.length > 6 && (
+                          <Typography variant="caption" color="text.secondary">+{sugLines.length - 6} more</Typography>
+                        )}
+                      </Stack>
                     </Box>
                     <Tooltip title="Reject suggestion (back to pending)">
                       <span>
@@ -456,6 +642,15 @@ export default function ReconcileView({
                                   <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: c.amountMatches ? 700 : 400, flexShrink: 0 }}>
                                     {fmt(amt)}
                                   </Typography>
+                                  <Tooltip title="View the journal & its document">
+                                    <IconButton
+                                      size="small"
+                                      sx={{ p: 0.25, flexShrink: 0 }}
+                                      onClick={(e) => { e.stopPropagation(); openPreview("journal", c.journalLineId); }}
+                                    >
+                                      <InfoOutlinedIcon sx={{ fontSize: 16 }} />
+                                    </IconButton>
+                                  </Tooltip>
                                 </Stack>
                               );
                             })
@@ -521,6 +716,15 @@ export default function ReconcileView({
                                         <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: Math.abs(d.outstanding - target) < 0.005 ? 700 : 400, flexShrink: 0 }}>
                                           {fmt(d.outstanding)}
                                         </Typography>
+                                        <Tooltip title={`View the ${d.kind === "BILL" ? "bill" : "invoice"}`}>
+                                          <IconButton
+                                            size="small"
+                                            sx={{ p: 0.25, flexShrink: 0 }}
+                                            onClick={(e) => { e.stopPropagation(); openPreview("document", d.documentId); }}
+                                          >
+                                            <InfoOutlinedIcon sx={{ fontSize: 16 }} />
+                                          </IconButton>
+                                        </Tooltip>
                                       </Stack>
                                     );
                                   })
@@ -611,6 +815,8 @@ export default function ReconcileView({
           </Paper>
         );
       })}
+
+      <PreviewDialog open={previewOpen} loading={previewLoading} data={preview} onClose={() => setPreviewOpen(false)} />
     </Stack>
   );
 }

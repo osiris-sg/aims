@@ -845,4 +845,38 @@ Return JSON array.`;
     return { scanned: xeroInvoices.length, confirmed, retotalled, journalsVoided, skipped, mismatches, dryRun: !!opts.dryRun };
   }
 
+
+  /**
+   * Closing balance per bank account for a period, straight from Xero's own
+   * Bank Summary report. Used by the bank-rec checkpoint to answer "how far has
+   * the accountant already reconciled in Xero" without needing the (restricted)
+   * bank statement report. Keyed by account NAME — the report does not carry
+   * the account code, and AIMS/Xero codes diverge on some accounts anyway.
+   */
+  async bankSummaryClosing(organizationId: string, from: Date, to: Date): Promise<Map<string, number>> {
+    const conn = await this.loadConnection(organizationId);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const res = await fetch(
+      `https://api.xero.com/api.xro/2.0/Reports/BankSummary?fromDate=${iso(from)}&toDate=${iso(to)}`,
+      { headers: { Authorization: `Bearer ${conn.accessToken}`, 'Xero-Tenant-Id': conn.tenantId, Accept: 'application/json' } },
+    );
+    const out = new Map<string, number>();
+    if (!res.ok) {
+      this.logger.warn(`BankSummary ${iso(from)}..${iso(to)} → HTTP ${res.status}`);
+      return out;
+    }
+    const body: any = await res.json();
+    for (const section of body?.Reports?.[0]?.Rows || []) {
+      for (const row of section.Rows || []) {
+        const cells = (row.Cells || []).map((c: any) => c.Value);
+        const name = String(cells[0] ?? '').trim();
+        if (!name || /^total$/i.test(name)) continue;
+        // Bank Summary columns: name | opening | received | spent | closing
+        const closing = Number(cells[4]);
+        if (!isNaN(closing)) out.set(name, closing);
+      }
+    }
+    return out;
+  }
+
 }
