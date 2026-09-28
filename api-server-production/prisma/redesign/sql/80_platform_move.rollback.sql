@@ -1,0 +1,17 @@
+BEGIN;
+ALTER TABLE platform."Organization" SET SCHEMA public;
+ALTER TABLE platform."UserOrganization" SET SCHEMA public;
+ALTER TABLE platform."OrganizationModule" SET SCHEMA public;
+ALTER TABLE platform."OrganizationUIConfig" SET SCHEMA public;
+ALTER TABLE platform."ApiKey" SET SCHEMA public;
+ALTER TABLE platform."DocumentTemplate" SET SCHEMA public;
+ALTER TABLE platform."OrganizationActiveTemplate" SET SCHEMA public;
+ALTER TABLE platform."OrganizationMemberProfile" SET SCHEMA public;
+ALTER TABLE platform."DeviceToken" SET SCHEMA public;
+ALTER TABLE platform."WhatsAppConnection" SET SCHEMA public;
+ALTER TABLE platform."WhatsAppWebhookEvent" SET SCHEMA public;
+ALTER TABLE platform."OperatorIdentity" SET SCHEMA public;
+ALTER TABLE platform."OperatorLinkCode" SET SCHEMA public;
+ALTER TABLE platform."OperatorSession" SET SCHEMA public;
+ALTER TABLE platform."ActionLog" SET SCHEMA public;
+COMMIT;

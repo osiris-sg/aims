@@ -1,6 +1,7 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { docRef } from '../common/doc-ref';
+import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 
 // Xero-parity AR/AP reports: Aged Summary/Detail, Invoice Summary, Contact
 // Transactions, Income & Expenses by Contact. All read the Document table
@@ -8,7 +9,7 @@ import { docRef } from '../common/doc-ref';
 // SOA/aging in statements.service.ts.
 //
 // Outstanding-per-document rule (fixes the xeroBalance-only blind spot):
-//   outstanding = config.xeroBalance   when present (Xero-imported docs)
+//   outstanding = outstandingOf(config)   when present (Xero-imported docs)
 //               = gross − Σ payments   otherwise (AIMS-native docs)
 
 export type Side = 'receivable' | 'payable';
@@ -88,7 +89,7 @@ export class XeroReportsService {
     for (const doc of docs) {
       const c: any = doc.config || {};
       if (c.voided) continue;
-      let gross = R(Number(c.xeroGross ?? c.nettTotal ?? c.totalAmount ?? c.summary?.grandTotal ?? 0));
+      let gross = R(Number(grossStampOf(c) ?? c.nettTotal ?? c.totalAmount ?? c.summary?.grandTotal ?? 0));
       if (gross <= 0.005) continue;
       // Net (excl GST): imported invoices carry `subtotal`+`taxAmount`, bills
       // carry `xeroTax`; native docs carry `subTotal`. Fall back to gross.
@@ -103,11 +104,11 @@ export class XeroReportsService {
       const recordedPaid = R(payInfo?.total ?? 0);
       let outstanding: number;
       let paid: number;
-      if (c.xeroBalance !== undefined && c.xeroBalance !== null) {
+      if (outstandingOf(c) !== undefined && outstandingOf(c) !== null) {
         // xeroBalance is maintained LIVE by updateInvoiceStatusAfterPayment on
         // every native payment — it is already net of payments. Subtracting
         // recorded payments again double-counted every post-import payment.
-        outstanding = R(Math.max(0, Number(c.xeroBalance)));
+        outstanding = R(Math.max(0, Number(outstandingOf(c))));
         paid = R(gross - outstanding);
       } else {
         paid = recordedPaid;
@@ -728,7 +729,7 @@ export class XeroReportsService {
       const tax = R(Number(di.gstAmount ?? c.taxAmount ?? c.xeroTax ?? 0) || 0);
       let net = Number(di.subTotal ?? c.subtotal ?? c.subTotal ?? NaN);
       if (!Number.isFinite(net)) {
-        const gross = Number(c.xeroGross ?? di.nettTotal ?? c.nettTotal ?? c.totalAmount ?? 0) || 0;
+        const gross = Number(grossStampOf(c) ?? di.nettTotal ?? c.nettTotal ?? c.totalAmount ?? 0) || 0;
         net = R(gross - tax);
       } else {
         net = R(net);

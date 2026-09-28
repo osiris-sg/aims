@@ -4,6 +4,7 @@ import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { JournalService } from '../journal/journal.service';
 import { PaymentsService } from '../payments/payments.service';
 import { AuditService } from 'src/common/audit.service';
+import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
@@ -236,7 +237,7 @@ export class ReceiptsService {
       if ((status === 'draft' || status === 'unconfirmed') && !posted.has(d.id) && !c.xeroImported) continue;
       const di: any = c.documentInfo || {};
       const tax = Number(di.gstAmount ?? c.taxAmount ?? c.xeroTax ?? 0) || 0;
-      let gross = Number(c.xeroGross ?? di.nettTotal ?? c.nettTotal ?? c.totalAmount ?? NaN);
+      let gross = Number(grossStampOf(c) ?? di.nettTotal ?? c.nettTotal ?? c.totalAmount ?? NaN);
       if (!Number.isFinite(gross)) {
         const itemsSum = (c.items || []).reduce(
           (s: number, it: any) => s + (parseFloat(it.amount) || parseFloat(it.quantity) * parseFloat(it.unitPrice) || 0),
@@ -249,11 +250,11 @@ export class ReceiptsService {
       const recorded = paidByDoc.get(d.id) || 0;
       const own = ownByDoc.get(d.id) || 0;
       let outstanding: number;
-      if (c.xeroBalance !== undefined && c.xeroBalance !== null) {
+      if (outstandingOf(c) !== undefined && outstandingOf(c) !== null) {
         // xeroBalance is LIVE (net of all payments incl. this receipt's own
         // rows) — add this receipt's own allocations back so the edit grid
         // shows what's allocatable by THIS receipt.
-        outstanding = ROUND(Math.max(0, Number(c.xeroBalance) + own));
+        outstanding = ROUND(Math.max(0, Number(outstandingOf(c)) + own));
       } else {
         outstanding = ROUND(Math.max(0, gross - recorded));
       }
@@ -514,7 +515,7 @@ export class ReceiptsService {
       if ((status === 'draft' || status === 'unconfirmed') && !posted.has(d.id) && !c.xeroImported) continue;
       const di: any = c.documentInfo || {};
       const tax = Number(di.gstAmount ?? c.taxAmount ?? c.xeroTax ?? 0) || 0;
-      let gross = Number(c.xeroGross ?? di.nettTotal ?? c.nettTotal ?? c.totalAmount ?? NaN);
+      let gross = Number(grossStampOf(c) ?? di.nettTotal ?? c.nettTotal ?? c.totalAmount ?? NaN);
       if (!Number.isFinite(gross)) {
         const itemsSum = (c.items || []).reduce(
           (s: number, it: any) => s + (parseFloat(it.amount) || parseFloat(it.quantity) * parseFloat(it.unitPrice) || 0),
@@ -526,8 +527,8 @@ export class ReceiptsService {
       gross = ROUND(Math.abs(gross));
       const applied = appliedByDoc.get(d.id) || 0;
       let outstanding: number;
-      if (c.xeroBalance !== undefined && c.xeroBalance !== null) {
-        outstanding = ROUND(Math.max(0, Math.abs(Number(c.xeroBalance))));
+      if (outstandingOf(c) !== undefined && outstandingOf(c) !== null) {
+        outstanding = ROUND(Math.max(0, Math.abs(Number(outstandingOf(c)))));
       } else {
         outstanding = ROUND(Math.max(0, gross - applied));
       }

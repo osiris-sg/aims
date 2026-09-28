@@ -8,6 +8,7 @@ import { GetProjectDto } from './dto/get-project.dto';
 import { Prisma, DeploymentType, DeploymentStatus } from '@prisma/client';
 import { ProjectStatus } from '@prisma/client';
 import { InventoryStatus } from '@prisma/client';
+import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 
 // Try a few common JSON paths to extract the invoice total. `xeroGross` comes
 // first because the Biofuel Xero historical import (which produced ~1.8k of
@@ -16,7 +17,7 @@ import { InventoryStatus } from '@prisma/client';
 function readDocAmount(config: any): number {
   if (!config || typeof config !== 'object') return 0;
   const cand =
-    config.xeroGross ??
+    grossStampOf(config) ??
     config.nettTotal ??
     config.netTotal ??
     config.grandTotal ??

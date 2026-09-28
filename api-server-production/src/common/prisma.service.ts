@@ -3,6 +3,8 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaNeon } from '@prisma/adapter-neon';
 import { neonConfig } from '@neondatabase/serverless';
 import ws = require('ws');
+import { TENANCY_ON } from './tenancy/tenant-context';
+import { TenancyRouter } from './tenancy/tenancy-router';
 
 // Use Neon's serverless driver: it tunnels Postgres over a WebSocket on port
 // 443 instead of the raw TCP connection on 5432. 443 is open on virtually every
@@ -25,6 +27,13 @@ function createNeonAdapter(): PrismaNeon {
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   constructor() {
     super({ adapter: createNeonAdapter() });
+    // Schema-per-org mode: every `this.prisma.<model>` call is routed to the
+    // org's own schema/client (or `platform`); this instance itself only serves
+    // the archive-only legacy tables left in `public`. Off by default, so every
+    // environment without TENANCY_MODE=per-org behaves exactly as before.
+    if (TENANCY_ON) {
+      return new TenancyRouter(this).proxy();
+    }
   }
 
   async onModuleInit() {

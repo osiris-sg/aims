@@ -6,6 +6,7 @@ import { JournalService } from '../journal/journal.service';
 import { refWith } from '../common/doc-ref';
 import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service';
 import { AccountMemoryService } from '../account-memory/account-memory.service';
+import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 
 // ---------------------------------------------------------------------------
 // Bills (Accounts Payable) — supplier-side equivalent of invoices.
@@ -108,14 +109,14 @@ export class BillsService {
     const c: any = doc.config || {};
     const subtotal = c.subtotal ?? c.xeroSubtotal ?? 0;
     const taxAmount = c.taxAmount ?? c.xeroTax ?? 0;
-    const totalAmount = c.totalAmount ?? c.xeroGross ?? 0;
-    const xeroBalance = c.xeroBalance;
+    const totalAmount = c.totalAmount ?? grossStampOf(c) ?? 0;
+    const xeroBalance = outstandingOf(c);
     const amountPaid =
       c.amountPaid !== undefined
         ? c.amountPaid
         : xeroBalance !== undefined
           ? ROUND(totalAmount - xeroBalance)
-          : c.xeroAmountPaid ?? 0;
+          : amountPaidOf(c) ?? 0;
     // Resolve status. Prefer config.billStatus (AIMS-native), else derive from
     // xeroStatus / DocumentStatus.
     let billStatus: BillStatus = c.billStatus as BillStatus;

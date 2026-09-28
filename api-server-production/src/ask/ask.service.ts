@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { JournalService } from '../journal/journal.service';
 import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service';
 import { PrismaService } from '../common/prisma.service';
+import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 
 // ---------------------------------------------------------------------------
 // Conversational accounting agent. The frontend "Ask" bar POSTs a question
@@ -509,7 +510,7 @@ When answering financial questions:
     for (const d of docs) {
       const c: any = d.config || {};
       if (c.voided) continue;
-      const bal = Number(c.xeroBalance || 0);
+      const bal = Number(outstandingOf(c) || 0);
       if (bal <= 0.005) continue;
       const name = c.customer?.name || '(no customer)';
       if (q && !name.toLowerCase().includes(q)) continue;
@@ -537,7 +538,7 @@ When answering financial questions:
     for (const d of docs) {
       const c: any = d.config || {};
       if (c.voided) continue;
-      const bal = Number(c.balance ?? c.xeroBalance ?? 0);
+      const bal = Number(c.balance ?? outstandingOf(c) ?? 0);
       if (bal <= 0.005) continue;
       const name = c.supplier?.name || '(no supplier)';
       if (q && !name.toLowerCase().includes(q)) continue;
@@ -562,8 +563,8 @@ When answering financial questions:
       const c: any = d.config || {};
       const date = String(c.date || '').slice(0, 10);
       const due = c.dueDate ? new Date(c.dueDate) : new Date(new Date(c.date || today).getTime() + 30 * 86400000);
-      const balance = R(Number(c.xeroBalance || 0));
-      return { invoice: d.name, customer: c.customer?.name || '(none)', date, total: R(Number(c.totalAmount || c.xeroGross || 0)), balance, status: c.voided ? 'voided' : d.status, _overdue: balance > 0.005 && due < today };
+      const balance = R(Number(outstandingOf(c) || 0));
+      return { invoice: d.name, customer: c.customer?.name || '(none)', date, total: R(Number(c.totalAmount || grossStampOf(c) || 0)), balance, status: c.voided ? 'voided' : d.status, _overdue: balance > 0.005 && due < today };
     });
     if (q) rows = rows.filter((r) => r.customer.toLowerCase().includes(q));
     if (status === 'overdue') rows = rows.filter((r) => r._overdue);

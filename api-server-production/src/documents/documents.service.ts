@@ -23,6 +23,7 @@ import { AuditService } from 'src/common/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as moment from 'moment';
 import { isPortedType, PORTED_PDF_MARGIN } from '../common/services/document-html';
+import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 
 // Who performed a document action — derived from req.user in the controller.
 export interface DocumentActor {
@@ -6404,7 +6405,7 @@ export class DocumentsService {
       // understated the balance by the GST portion).
       const nativeGross =
         parseFloat(config?.documentInfo?.nettTotal ?? config?.nettTotal ?? 'NaN') || itemsTotal;
-      const invoiceAmount = isXero ? Number(config.xeroGross ?? itemsTotal) : nativeGross;
+      const invoiceAmount = isXero ? Number(grossStampOf(config) ?? itemsTotal) : nativeGross;
 
       // Native Payment rows recorded against this invoice.
       const payments = await this.prisma.payment.findMany({
@@ -6420,7 +6421,7 @@ export class DocumentsService {
       if (isXero) {
         // xeroBalance is maintained LIVE by updateInvoiceStatusAfterPayment —
         // already net of native payments (subtracting them again double-counted).
-        const xeroBalance = Number(config.xeroBalance ?? 0);
+        const xeroBalance = Number(outstandingOf(config) ?? 0);
         remainingBalance = xeroBalance;
         totalPaid = invoiceAmount - remainingBalance;
       } else {

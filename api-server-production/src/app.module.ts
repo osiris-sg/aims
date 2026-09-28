@@ -80,6 +80,7 @@ import { OperatorModule } from './operator/operator.module';
 import { GuideModule } from './guide/guide.module';
 import { ActionLogModule } from './action-log/action-log.module';
 import { ActionLogInterceptor } from './action-log/action-log.interceptor';
+import { TenantContextInterceptor } from './common/tenancy/tenant-context.interceptor';
 
 @Module({
   imports: [
@@ -166,6 +167,13 @@ import { ActionLogInterceptor } from './action-log/action-log.interceptor';
     {
       provide: APP_GUARD,
       useClass: ClerkAuthGuard,
+    },
+    {
+      // Schema-per-org: runs each request inside its org's tenant context so
+      // PrismaService routes to that org's schema. No-op data-wise when
+      // TENANCY_MODE is off (the context is simply never read).
+      provide: APP_INTERCEPTOR,
+      useClass: TenantContextInterceptor,
     },
     {
       // Global user-action capture — runs after the guard, so req.user /

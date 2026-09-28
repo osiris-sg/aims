@@ -1,5 +1,6 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { amountPaidOf, grossStampOf, outstandingOf, owedOf, stampDocumentMoney } from '../common/document-money';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentDto } from './dto/update-payment.dto';
 import { Prisma, DocumentStatus } from '@prisma/client';
@@ -54,7 +55,7 @@ export class PaymentsService {
         0,
       );
       const invoiceGross =
-        parseFloat(cfg.xeroGross ?? di.nettTotal ?? cfg.nettTotal ?? cfg.totalAmount ?? 'NaN') || itemsSum;
+        parseFloat(grossStampOf(cfg) ?? di.nettTotal ?? cfg.nettTotal ?? cfg.totalAmount ?? 'NaN') || itemsSum;
       if (invoiceGross > 0) {
         const prior = await this.prisma.payment.aggregate({
           where: { documentId: createPaymentDto.documentId, organizationId },
@@ -475,7 +476,7 @@ export class PaymentsService {
         return sum + amount;
       }, 0);
       const invoiceAmount =
-        parseFloat(config?.xeroGross ?? di.nettTotal ?? config?.nettTotal ?? config?.totalAmount ?? 'NaN') || itemsSum;
+        parseFloat(grossStampOf(config) ?? di.nettTotal ?? config?.nettTotal ?? config?.totalAmount ?? 'NaN') || itemsSum;
 
       // Get all payments for this document
       const payments = await this.prisma.payment.findMany({
@@ -500,7 +501,7 @@ export class PaymentsService {
       if (isXeroImported) {
         let importBalance = Number(config?.xeroImportBalance);
         if (!Number.isFinite(importBalance)) {
-          importBalance = Number(config?.xeroBalance);
+          importBalance = Number(outstandingOf(config));
           if (!Number.isFinite(importBalance)) importBalance = invoiceAmount;
           importBalanceStamp = { xeroImportBalance: Math.round(importBalance * 100) / 100 };
         }
@@ -521,7 +522,7 @@ export class PaymentsService {
         where: { id: documentId },
         data: {
           status: newStatus,
-          config: { ...config, ...importBalanceStamp, xeroBalance: outstanding, xeroAmountPaid: totalPaid } as any,
+          config: stampDocumentMoney({ ...config, ...importBalanceStamp }, { outstanding, paid: totalPaid }) as any,
         },
       });
       console.log(`✅ Invoice ${document.name}: balance ${outstanding}, status ${newStatus} (Paid: ${totalPaid}/${invoiceAmount})`);

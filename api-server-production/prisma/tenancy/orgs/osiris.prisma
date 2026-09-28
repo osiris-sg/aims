@@ -1,0 +1,1974 @@
+// Per-org schema for org_osiris (TENANCY_MODE=per-org). Source of truth for this org; pushed by scripts/tenancy-push.ts.
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters", "postgresqlExtensions"]
+  output          = "../../../node_modules/.prisma-tenancy/org-osiris"
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pg_trgm]
+}
+
+enum AdjustmentType {
+  ADD
+  SUBTRACT
+  SET
+}
+
+/// Equipment vs Accessory. Drives the minimum number of photos required when a
+/// unit is tagged in the field (see minPhotosForAssetClass in
+/// src/common/asset-class.ts). Every pre-existing asset is EQUIPMENT.
+enum AssetClass {
+  EQUIPMENT
+  ACCESSORY
+}
+
+enum AuditStatus {
+  SUCCESS
+  FAILURE
+  PENDING
+}
+
+enum DeliveryDirection {
+  OUTBOUND // normal delivery: stock goes OUT to a project (instock → rental/sold)
+  RETURN // reverse delivery: rental stock comes BACK from a project (rental → instock)
+}
+
+enum DeliveryRunStatus {
+  scheduled // office pre-created; asset-only items, no rider yet — awaiting pickup
+  in_progress // rider started; not all items acknowledged yet
+  delivered // every item acknowledged (not_installed or better)
+  completed // every item completed / install-skipped
+  cancelled // abandoned — reserved units restored to instock
+}
+
+enum DeliveryStatus {
+  not_delivered
+  delivering
+  not_installed
+  completed
+}
+
+enum DocumentStatus {
+  draft
+  unconfirmed
+  confirmed
+  pending_delivery
+  delivered_not_installed
+  delivered_installed
+  pending_payment
+  paid
+  pending_return
+  returned
+}
+
+enum InventoryStatus {
+  instock
+  rental
+  reserved
+  maintenance
+  sold
+  // Auto-created child placeholder awaiting its real serial/SKU. Excluded from
+  // instock stock counts and OSI-13 serial auto-match (both filter on
+  // status=instock); flips to instock when the unit gets a real identity
+  // (updateInventories auto-flip).
+  pending
+}
+
+enum ItemType {
+  INVENTORY
+  ASSET
+}
+
+enum MaintenanceReportKind {
+  SERVICE
+  DO_START
+  DO_ACK
+  DO_INSTALL
+}
+
+enum MaintenanceServiceReportStatus {
+  draft
+  completed
+}
+
+enum ProjectStatus {
+  pending
+  ongoing
+  completed
+}
+
+/// Where a delivery run CAME FROM. An enum rather than an `isAdHoc` boolean
+/// because a third kind is plausible (a customer-initiated or API-created run),
+/// and two booleans encoding three states leaves an impossible fourth. The
+/// codebase already models this shape with enums — DeliveryDirection,
+/// DeploymentType, DeliveryRunStatus.
+enum DeliveryOrigin {
+  SCHEDULED // the office scheduled it up front (the default, and every pre-existing row)
+  AD_HOC // a rider started it from a scan with no scheduled run to join
+}
+
+model Role {
+  id             String       @id @default(uuid())
+  name           String
+  description    String?
+  allowedModules String[]     @default([])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organizationId String
+  userRoles      UserRole[]
+  permissions    Permission[] @relation("PermissionToRole")
+
+  @@unique([name, organizationId])
+}
+
+model UserRole {
+  id             String       @id @default(uuid())
+  userId         String
+  roleId         String
+  createdAt      DateTime     @default(now())
+  organizationId String
+  assignedAt     DateTime     @default(now())
+  assignedBy     String?
+  expiresAt      DateTime?
+  isActive       Boolean      @default(true)
+  role           Role         @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId, organizationId])
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  resource    String
+  action      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  roles       Role[]   @relation("PermissionToRole")
+}
+
+model Customer {
+  id              String            @id @default(uuid()) @db.Uuid
+  customerCode    String? // Auto-generated code like CA001, CB002
+  name            String
+  email           String?
+  phone           String?
+  address         String?
+  gstRegNo        String? // Customer's GST/Tax registration number
+  // Trading currency (one per customer code — a customer trading in two
+  // currencies gets two customer codes). Documents inherit this; GL converts
+  // to base at the accountant's standing rate (AccountingSetting.currencyRates).
+  currency        String            @default("SGD")
+  salesmanId      String? // Reference to UserOrganization.id for the assigned salesman
+  // Xero pull-sync: ContactID from Xero (null = not yet synced).
+  xeroId          String?           @unique
+  xeroLastSyncAt  DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  organizationId  String
+  priceHistories  PriceHistory[] // Track price history for this customer
+  payments        Payment[]
+  projects        Project[]         @relation("CustomerProjects")
+  orders          Order[]           @relation("CustomerOrders")
+  deliveries      Delivery[]
+
+  @@unique([email, organizationId])
+  @@unique([id, organizationId])
+  @@unique([customerCode, organizationId])
+  @@index([salesmanId])
+  // Fast case-insensitive substring search (ILIKE %term%) on customer name.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  documents Document[] @relation("DocumentCustomer")
+}
+
+model Supplier {
+  id             String        @id @default(uuid()) @db.Uuid
+  supplierCode   String?
+  name           String
+  email          String?
+  phone          String?
+  address        String?
+  gstRegNo       String?
+  // Trading currency — same one-currency-per-code convention as Customer.
+  currency       String        @default("SGD")
+  // Xero pull-sync: ContactID from Xero (suppliers are also Contacts in Xero).
+  xeroId         String?       @unique
+  xeroLastSyncAt DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organizationId String
+  billPayments   BillPayment[]
+
+  @@unique([email, organizationId])
+  @@unique([id, organizationId])
+  @@unique([supplierCode, organizationId])
+  documents Document[] @relation("DocumentSupplier")
+}
+
+model CustomField {
+  id             String             @id @default(uuid())
+  organizationId String
+  entityType     String // 'Asset', 'Customer', 'Document', 'Inventory', 'Project'
+  fieldName      String // Technical name (e.g., 'warranty_date')
+  displayLabel   String // User-facing label (e.g., 'Warranty Expiry Date')
+  fieldType      String // 'text', 'number', 'date', 'select', 'multiselect', 'boolean', 'file', 'richtext'
+  required       Boolean            @default(false)
+  options        Json? // For select/multiselect fields: [{value: 'val1', label: 'Label 1'}]
+  defaultValue   String?
+  validation     Json? // Validation rules: {min: 0, max: 100, pattern: '^[A-Z]'}
+  sortOrder      Int?               @default(0)
+  isActive       Boolean            @default(true)
+  showInList     Boolean            @default(false) // Show in list/table views
+  showInForm     Boolean            @default(true) // Show in forms
+  groupName      String? // Group fields together in forms
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  fieldValues    CustomFieldValue[]
+
+  @@unique([organizationId, entityType, fieldName])
+  @@index([organizationId, entityType])
+}
+
+model CustomFieldValue {
+  id            String      @id @default(uuid())
+  customFieldId String
+  entityId      String // ID of the Asset/Customer/etc.
+  entityType    String // 'Asset', 'Customer', etc.
+  value         Json // Flexible storage for any type of value
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  customField   CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+
+  @@unique([customFieldId, entityId])
+  @@index([entityId, entityType])
+}
+
+model UserDashboardLayout {
+  id             String   @id @default(uuid())
+  userId         String // Clerk user id
+  organizationId String
+  // Which dashboard this arrangement belongs to ("ops" today; room for more).
+  key            String   @default("ops")
+  // [{ id: widgetId, w: span-of-12 }] in display order.
+  layout         Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, organizationId, key])
+  @@index([organizationId, key])
+}
+
+model Notification {
+  id             String    @id @default(uuid())
+  organizationId String
+  userId         String // recipient
+  kind           String // 'DO_READY' | 'INVOICE_DRAFT' | future kinds
+  title          String
+  body           String?
+  entityType     String? // 'document' | future
+  entityId       String? // e.g. documentId to open on click
+  linkUrl        String? // precomputed portal route
+  readAt         DateTime? // null = unread
+  createdAt      DateTime  @default(now())
+
+  @@unique([userId, kind, entityId])
+  @@index([userId, organizationId, readAt])
+}
+
+model AuditLog {
+  id             String      @id @default(uuid())
+  userId         String
+  userName       String?
+  userEmail      String?
+  action         String
+  resource       String
+  resourceId     String?
+  resourceName   String?
+  organizationId String?
+  details        Json?
+  ipAddress      String?
+  userAgent      String?
+  status         AuditStatus @default(SUCCESS)
+  errorMessage   String?
+  createdAt      DateTime    @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([resource])
+  @@index([organizationId])
+  @@index([createdAt])
+  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([resource, createdAt])
+  @@index([organizationId, action, createdAt])
+  @@index([userId, action, createdAt])
+}
+
+model EmailIngestConfig {
+  id             String  @id @default(uuid())
+  organizationId String  @unique
+  enabled        Boolean @default(false)
+  // Sender allow-list: full addresses or @domain suffixes, e.g.
+  // ["ap@daikin.com.sg", "@sembcorp.com"]. Empty array = accept all senders.
+  watchedSenders Json    @default("[]")
+  // AI    → classify each attachment by issuer (INVOICE = AR / BILL = AP).
+  // FIXED → skip classification, always create defaultDocType.
+  routingMode    String  @default("AI")
+  defaultDocType String? // used when routingMode=FIXED: INVOICE | BILL
+  // Hard rules, evaluated deterministically top-down BEFORE any AI call;
+  // first match wins. Shape:
+  //   { conditions: [{ field: "SUBJECT"|"SENDER"|"BODY",
+  //       operator: "CONTAINS"|"EQUALS"|"STARTS_WITH"|"DOMAIN", value }...],
+  //     action: "IGNORE"|"FORCE_BILL"|"FORCE_INVOICE"|"AI_GUIDANCE", guidance? }[]
+  rules          Json    @default("[]")
+  // Free-text per-org instructions appended to the AI classifier prompt as
+  // trusted admin guidance (unlike the untrusted email envelope).
+  aiGuidance     String?
+  // Reserved for a future auto-confirm mode; both create paths only make
+  // DRAFTs today.
+  createMode     String  @default("DRAFT")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+}
+
+model EmailIngestLog {
+  id                 String  @id @default(uuid())
+  organizationId     String
+  // Provider Message-ID when supplied; else synthesized from a payload hash
+  // so provider retries dedupe onto the same row.
+  messageId          String
+  fromAddress        String
+  subject            String?
+  status             String // RECEIVED | PARSED | IGNORED | FAILED
+  reason             String?
+  // Document ids created from this email (BILL and/or INVOICE drafts).
+  createdDocumentIds Json    @default("[]")
+  attachmentCount    Int     @default(0)
+  rawMeta            Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+
+  @@unique([organizationId, messageId])
+  @@index([organizationId, createdAt])
+}
+
+model ChartOfAccount {
+  id               String    @id @default(uuid())
+  organizationId   String
+  code             String // e.g., "S0001", "CA001", "CL300"
+  name             String // e.g., "Credit Sales", "Trade Receivables"
+  description      String?
+  accountType      String // High-level type — see AccountType enum-ish values in service
+  category         String // 'PNL' | 'BALANCE_SHEET'
+  normalBalance    String // 'DEBIT' | 'CREDIT'
+  isControlAccount Boolean   @default(false) // Debtor / Creditor / GST control accounts
+  isSystem         Boolean   @default(false) // Seeded by default; cannot be deleted
+  isActive         Boolean   @default(true)
+  parentAccountId  String? // Optional sub-account hierarchy
+  // Xero pull-sync: AccountID from Xero.
+  xeroId           String?   @unique
+  xeroLastSyncAt   DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  parent       ChartOfAccount?    @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
+  children     ChartOfAccount[]   @relation("AccountHierarchy")
+  journalLines JournalEntryLine[]
+  budgets      Budget[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, accountType])
+  @@index([organizationId, category])
+  documentLines DocumentLine[]
+}
+
+model JournalEntry {
+  id             String   @id @default(uuid())
+  organizationId String
+  journalNumber  String // e.g., "JV-000001"
+  entryDate      DateTime
+  type           String // MANUAL | INVOICE | PAYMENT | CREDIT_NOTE | DEBIT_NOTE | OPENING_BALANCE | ADJUSTMENT
+  status         String   @default("DRAFT") // DRAFT | POSTED | VOID
+  // Posted immediately but born from an UNCONFIRMED document (guru 2026-07-24
+  // status model: no drafts — docs are unconfirmed until confirmed, their JEs
+  // post right away tagged here and flip on document confirm).
+  isUnconfirmed  Boolean  @default(false)
+  reference      String? // Source document number, payment reference, etc.
+  description    String?
+  totalDebit     Float    @default(0)
+  totalCredit    Float    @default(0)
+  currency       String   @default("SGD")
+
+  // Source linkage (only one is set depending on type)
+  sourceDocumentId String?
+  sourcePaymentId  String?
+
+  postedAt        DateTime?
+  postedBy        String?
+  voidedAt        DateTime?
+  voidedBy        String?
+  reversesEntryId String? // If this is a reversing entry, points to original
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+
+  lines        JournalEntryLine[]
+
+  @@unique([organizationId, journalNumber])
+  @@index([organizationId, entryDate])
+  @@index([organizationId, status])
+  @@index([organizationId, type])
+  @@index([sourceDocumentId])
+  @@index([sourcePaymentId])
+}
+
+model JournalEntryLine {
+  id             String  @id @default(uuid())
+  journalEntryId String
+  accountId      String // FK to ChartOfAccount.id
+  lineNumber     Int
+  description    String?
+  debit          Float   @default(0)
+  credit         Float   @default(0)
+
+  // Multi-currency support — set when the org operates in multiple currencies
+  foreignAmount Float?
+  exchangeRate  Float?
+
+  // Cost-center tag for dimensional reporting. Optional — null = unallocated /
+  // "general overhead". Set by the user on manual JE entry or auto-suggested
+  // by the journal-auto-post pipeline based on document context + LLM hint.
+  costCenterId String?
+  costCenter   CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+
+  journalEntry JournalEntry   @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      ChartOfAccount @relation(fields: [accountId], references: [id])
+
+  @@index([journalEntryId])
+  @@index([accountId])
+  @@index([costCenterId])
+}
+
+model AccountingSetting {
+  id             String @id @default(uuid())
+  organizationId String @unique
+
+  // "Click to pay" public page (guru 2026-08-06): bank-transfer details +
+  // PayNow QR (S3 key) shown to customers. Shape:
+  // { bank: { accountName, accountNumber, bankName, branchCode, bankCode,
+  //   currencyCode }, paynowQrKey }
+  paymentDetails Json?
+
+  // ---------- Operation Settings ----------
+  baseCurrency          String  @default("SGD")
+  // Next-number counters per document type (e.g. { "invoice": 119, "quotation": 22, ... })
+  nextNumbers           Json?
+  // Per-doc-type prefix overrides (e.g. { "invoice": "INV", "quotation": "QO" })
+  numberPrefixes        Json?
+  activateLastSoldPrice Boolean @default(true)
+  activateLastBuyPrice  Boolean @default(true)
+
+  // ---------- Accounts Settings ----------
+  yearOpeningDate   DateTime?
+  yearOpeningStock  Float?    @default(0)
+  monthOpeningDate  DateTime?
+  monthOpeningStock Float?    @default(0)
+  monthClosingStock Float?    @default(0)
+
+  // ---------- Tax Settings ----------
+  taxRegistrationNumber String?
+  taxDefaultPercentage  Float?  @default(9)
+  taxReference          String? @default("GST") // GST / VAT / etc. (Tax ID display name)
+  // Xero-parity financial settings (consolidated "Financial Settings" tab).
+  taxBasis              String? @default("ACCRUAL") // ACCRUAL (invoice) | CASH (payment)
+  taxPeriod             String? @default("QUARTERLY") // MONTHLY | QUARTERLY | ANNUALLY
+  salesTaxInclusive     Boolean @default(false) // Tax Defaults — For Sales (inclusive vs exclusive)
+  purchasesTaxInclusive Boolean @default(false) // Tax Defaults — For Purchases
+  fiscalYearEndDay      Int?    @default(31) // Financial Year End (e.g. 30 June → 30 / 6)
+  fiscalYearEndMonth    Int?    @default(12)
+  timeZone              String? @default("Asia/Singapore")
+  // Accountant-locked standing FX rates to BASE currency, e.g. {"USD": 1.35}
+  // = 1 USD → 1.35 SGD. Every foreign-currency document posts at the rate
+  // current when it's confirmed (stored on the doc + journal lines); the
+  // realised difference on settlement goes to the FX gain/loss account.
+  currencyRates         Json?
+
+  // ---------- Accounts Definition ----------
+  // Code-range windows (e.g. { sales: { from: "S0001", to: "S9999" }, ... })
+  accountCodeRanges Json?
+  // Control-account code references (e.g. { debtorControl: "CA001", creditorControl: "CL001", taxLiabilities: "CL300", ... })
+  controlAccounts   Json?
+
+  // ---------- AP / Bills ----------
+  // Bills over this amount require Admin approval before posting. 0 = no
+  // threshold (every bill auto-eligible). Configurable per org.
+  billApprovalThreshold Float? @default(5000)
+
+  // ---------- Perpetual Inventory ----------
+  // When ON, journal auto-post writes Dr Inventory / Cr Cash on PO confirm and
+  // Dr COGS / Cr Inventory on invoice post (instead of expensing purchases
+  // directly to COGS). Closing Stock then comes from the Inventory GL account
+  // balance and the P&L Closing Stock filter input becomes redundant. OFF by
+  // default — preserves existing periodic-inventory behavior for legacy orgs.
+  enablePerpetualInventory Boolean @default(false)
+
+  // ---------- Period Locking ----------
+  // Inclusive cut-off date for the last closed period. Posting / editing
+  // journal entries with entryDate <= this date is rejected. Updated by the
+  // Smart Close Wizard on Month-End / Year-End run.
+  lockedThroughDate DateTime?
+  // Log of past close runs — array of { type, lockedThrough, runAt, runBy,
+  // yearEndJournalEntryId? } so users can audit / unwind if needed.
+  closeHistory      Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+}
+
+model TaxRate {
+  id             String   @id @default(uuid())
+  organizationId String
+  code           String // "1".."7" — legacy numeric codes kept for familiarity
+  name           String // e.g. "Output Tax", "Major Exporter - Goods Imported"
+  rate           Float // 9, 0
+  direction      String // OUTPUT | INPUT
+  category       String // STANDARD | ZERO_RATED | EXEMPT | MAJOR_EXPORTER
+  isActive       Boolean  @default(true)
+  isSystem       Boolean  @default(false) // seeded defaults; rate editable, code fixed
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+
+  // NOTE: code uniqueness enforced app-side (assigned sequentially); a DB
+  // unique index needs --accept-data-loss to add, blocked in this session.
+  @@index([organizationId, isActive])
+  documentLines DocumentLine[]
+}
+
+model CostCenter {
+  id             String  @id @default(uuid())
+  organizationId String
+  code           String // short code, e.g. OPS, SALES, R&D
+  name           String // human label, e.g. "Operations — Field"
+  description    String?
+  parentId       String?
+  isActive       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent       CostCenter?        @relation("CostCenterHierarchy", fields: [parentId], references: [id])
+  children     CostCenter[]       @relation("CostCenterHierarchy")
+  journalLines JournalEntryLine[]
+
+  // NOTE: code uniqueness enforced app-side (assigned sequentially); a DB
+  // unique index needs --accept-data-loss to add, blocked in this session.
+  @@index([organizationId, isActive])
+  documentLines DocumentLine[]
+}
+
+model Budget {
+  id             String @id @default(uuid())
+  organizationId String
+  accountId      String // FK to ChartOfAccount.id
+  year           Int
+  month          Int // 1-12
+  amount         Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  account      ChartOfAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, year, month])
+  @@index([organizationId, year])
+}
+
+model FixedAsset {
+  id               String    @id @default(uuid())
+  organizationId   String
+  code             String // org-unique tag, e.g. FA-001
+  name             String // e.g. "Delivery van #1"
+  description      String?
+  category         String? // free-form bucket (Vehicle / Office Equipment / Machinery)
+  // Acquisition
+  cost             Float // purchase cost (excl tax) — depreciation basis
+  salvageValue     Float     @default(0)
+  inServiceDate    DateTime // date depreciation begins
+  // Depreciation method
+  // STRAIGHT_LINE | DECLINING_BALANCE | UNITS_OF_PRODUCTION
+  method           String    @default("STRAIGHT_LINE")
+  usefulLifeMonths Int? // required for STRAIGHT_LINE
+  decliningRate    Float? // percent per period, e.g. 20 → 20% reducing-balance
+  totalUnits       Float? // required for UNITS_OF_PRODUCTION (total life-units)
+  unitsPerPeriod   Float? // user-entered units consumed each period for U-O-P
+  // Linkage
+  sourcePoId       String? // PO document this FA was created from (optional)
+  // Lifecycle
+  disposedAt       DateTime?
+  disposalProceeds Float?
+  isActive         Boolean   @default(true)
+
+  // GL accounts used when posting depreciation. Optional — falls back to
+  // controlAccounts.{depreciationProvision, depreciationExpense} on settings,
+  // or PD001 / EX410 by default.
+  depreciationProvisionAccountId String?
+  depreciationExpenseAccountId   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+
+  entries      DepreciationEntry[]
+
+  // NOTE: code uniqueness enforced app-side (assigned sequentially); a DB
+  // unique index needs --accept-data-loss to add, blocked in this session.
+  @@index([organizationId, isActive])
+}
+
+model DepreciationEntry {
+  id             String   @id @default(uuid())
+  fixedAssetId   String
+  organizationId String
+  periodYear     Int
+  periodMonth    Int // 1-12
+  amount         Float
+  journalEntryId String? // back-link to the JE that posted this depreciation
+  postedAt       DateTime @default(now())
+
+  fixedAsset FixedAsset @relation(fields: [fixedAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([fixedAssetId, periodYear, periodMonth])
+  @@index([organizationId, periodYear, periodMonth])
+}
+
+model RecurringJournalTemplate {
+  id             String    @id @default(uuid())
+  organizationId String
+  name           String // e.g. "Office rent — May 2026"
+  description    String?
+  reference      String? // optional reference applied to the created JE
+  // DAILY | WEEKLY | MONTHLY | QUARTERLY | YEARLY
+  frequency      String
+  // Next date this template is due to run. Cron / hub-load compares to today.
+  nextRunDate    DateTime
+  // Last time this template successfully created an entry. Helps users sanity-
+  // check that automation is working.
+  lastRunAt      DateTime?
+  lastRunEntryId String?
+  // Active flag — paused templates skip without erroring.
+  isActive       Boolean   @default(true)
+  // Line clones, stored as JSON: [{ accountId, description, debit, credit }]
+  lines          Json
+  // Optional end date — template stops creating entries after this.
+  endDate        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+
+
+  @@index([organizationId, isActive])
+  @@index([organizationId, nextRunDate])
+}
+
+model AccountMemory {
+  id             String   @id @default(uuid())
+  organizationId String
+  side           String   @default("SALES") // SALES (invoices) | PURCHASE (bills)
+  text           String // original line description at correction time
+  normalizedText String // lowercased + punctuation-stripped, for exact/keyword match
+  accountCode    String
+  accountId      String?
+  count          Int      @default(1)
+  embedding      Float[] // semantic vector (empty if OpenAI key absent)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, side, normalizedText])
+  @@index([organizationId, side])
+}
+
+model BankStatementImport {
+  id             String    @id @default(uuid())
+  organizationId String
+  bankAccountId  String // FK to ChartOfAccount.id of the bank account
+  source         String // CSV | PDF | MANUAL
+  filename       String?
+  // Date window the statement covers (best-guess from first/last line dates).
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  // Statement's ending balance (read from CSV last row / PDF total). Used to
+  // verify reconciliation: book balance + outstanding ?= bank ending balance.
+  endingBalance  Float?
+  // CSV column-mapping the user saved on first import for this bank account.
+  // Stored on the import too so we know what we used.
+  columnMapping  Json?
+  notes          String?
+  // PDF extraction runs in the background (guru 2026-08-03): the import row
+  // is created PROCESSING immediately so the user can leave/refresh, then
+  // flips to READY (lines created + auto-matched) or FAILED (see error).
+  status         String    @default("READY") // PROCESSING | READY | FAILED
+  error          String?
+
+  createdAt DateTime @default(now())
+  createdBy String?
+
+  lines        BankStatementLine[]
+
+  @@index([organizationId, bankAccountId])
+}
+
+model BankStatementLine {
+  id                   String    @id @default(uuid())
+  importId             String
+  organizationId       String
+  bankAccountId        String // duplicated from import for query convenience
+  // Parsed fields
+  date                 DateTime
+  description          String
+  reference            String?
+  // Signed: positive = credit (money in), negative = debit (money out). UI
+  // can split into debit/credit columns from this.
+  amount               Float
+  runningBalance       Float?
+  // Matching
+  // PENDING | MATCHED | POSTED_NEW | IGNORED
+  status               String    @default("PENDING")
+  matchedJournalLineId String? // the JournalEntryLine this row matched
+  matchedAt            DateTime?
+  matchedBy            String?
+  // For POSTED_NEW: the JE we created from this unmatched line.
+  postedJournalEntryId String?
+  // LLM-suggested GL account when unmatched (for the "post as new" flow).
+  suggestedAccountId   String?
+  suggestionConfidence Float?
+  suggestionReason     String?
+
+  createdAt DateTime @default(now())
+
+  // One statement line can settle MANY journal lines (batch payments — guru
+  // 2026-08-03). matchedJournalLineId stays for the single-match fast path;
+  // the match rows are authoritative.
+  matches BankStatementMatch[]
+
+  import BankStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId])
+  @@index([organizationId, bankAccountId, status])
+  @@index([organizationId, date])
+}
+
+model BankStatementMatch {
+  id             String   @id @default(uuid())
+  organizationId String
+  lineId         String
+  journalLineId  String   @unique // a JE line is claimable once
+  createdAt      DateTime @default(now())
+  createdBy      String?
+
+  line BankStatementLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([lineId])
+}
+
+model XeroConnection {
+  id                    String       @id @default(uuid()) @db.Uuid
+  organizationId        String       @unique
+  tenantId              String       @unique
+  accessToken           String
+  refreshToken          String
+  accessTokenExpiresAt  DateTime
+  refreshTokenExpiresAt DateTime
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+}
+
+model XeroAccountMapping {
+  id              String    @id @default(uuid())
+  organizationId  String
+  // AIMS side
+  aimsAccountId   String? // null = unmatched ("Xero account not yet mapped")
+  aimsAccountCode String // duplicated for diff/audit even if aims account is later deleted
+  // Xero side
+  xeroAccountId   String // Xero's AccountID GUID
+  xeroAccountCode String? // Xero's account code (some Xero accts have no code)
+  xeroAccountName String
+  xeroAccountType String? // REVENUE | EXPENSE | ASSET | LIABILITY | EQUITY...
+  // Confidence + source
+  source          String    @default("AUTO") // AUTO | MANUAL | CREATED
+  confidence      Float? // 0-1, set when source=AUTO
+  reason          String?
+  confirmedAt     DateTime? // set when user clicks "approve"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+
+  @@unique([organizationId, xeroAccountId])
+  @@index([organizationId, aimsAccountId])
+}
+
+model XeroSyncRun {
+  id             String @id @default(uuid())
+  organizationId String
+  // PULL scope flags — JSON for forward-compat as we add bills/invoices.
+  // e.g. { accounts: true, contacts: true, invoices: false, ... }
+  scope          Json
+  status         String @default("RUNNING") // RUNNING | SUCCESS | PARTIAL | FAILED
+  // Per-resource counts: { accountsCreated, accountsUpdated, contactsCreated, ... }
+  counts         Json?
+  // Per-resource errors so a single bad record doesn't blow the whole run.
+  errors         Json?
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  startedBy  String?
+
+
+  @@index([organizationId, startedAt(sort: Desc)])
+}
+
+model Asset {
+  id                     String                     @id @default(uuid()) @db.Uuid
+  name                   String
+  skuKey                 String
+  categoryId             String                     @db.Uuid
+  description            String?
+  image                  String?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  deletedAt              DateTime?                  @db.Timestamptz(6)
+  organizationId         String?
+  price                  Float? // Legacy: treated as the selling price for backwards compatibility
+  costPrice              Float? // What we pay to acquire/produce one unit (for margin tracking)
+  customPrices           Json? // Optional [{ label: string, value: number }] — e.g. Listing Price, Dealer Price, Rental
+  // GL revenue accounts for auto-posting. A product with salesAccountCode shows
+  // in the Stock Card "Sales" tab (line credits it when sold); rentalAccountCode
+  // shows it in the "Rental" tab (credits it when rented). Set either/both.
+  salesAccountCode       String?
+  rentalAccountCode      String?
+  // Accessory asset IDs auto-added with this FCU on the FCU-CU (QF) quotation
+  // (e.g. Sky Air: decoration panel + wired remote). Many-to-many — accessories
+  // are shared across FCUs, so this is a tag list, not a parent/child relation.
+  // Additional accessory OPTIONS (e.g. black panel, wireless remote): not auto-added,
+  // but shown in this FCU's scoped accessory picker so they're swappable.
+  parentAssetId          String?                    @db.Uuid
+  // Unit of Measure (e.g., PCS, EA, SET, BOX, KG, etc.)
+  uom                    String                     @default("PCS")
+  // Equipment vs Accessory. Non-null with a default so the ADD COLUMN backfills
+  // every existing row to EQUIPMENT in one statement (no separate backfill).
+  assetClass             AssetClass                 @default(EQUIPMENT)
+  // Tracking mode: true = individual inventory items with SKUs, false = simple quantity
+  isTracked              Boolean                    @default(true)
+  // When true AND parentAssetId is set: creating a unit of the parent asset
+  // silently auto-creates one 'pending' placeholder unit of THIS asset,
+  // linked via Inventory.parentInventoryId. Only honoured for tracked child
+  // assets (isTracked=true); the import path never auto-creates.
+  autoCreateOnParentUnit Boolean                    @default(false)
+  // Field manual entry: units of this asset can be reached by keying in the
+  // serial on the scan home (untaggable assets — e.g. submersible pumps that
+  // live underwater). Gates the asset list behind GET /assets/manual-entry.
+  allowManualEntry       Boolean                    @default(false)
+  isExternal             Boolean                    @default(true)
+  // Quantity for untracked products (only used when isTracked = false)
+  quantity               Int?
+  // Minimum quantity threshold for low stock alerts
+  minQuantity            Int?
+  // Hardware UID of the NFC tag bound to this asset (chip serial number).
+  // Set on first scan via the field PWA. Globally unique.
+  nfcTagUid              String?                    @unique
+  waterSgProductLine     String?
+  category               Category                   @relation(fields: [categoryId], references: [id])
+  parentAsset            Asset?                     @relation("AssetHierarchy", fields: [parentAssetId], references: [id])
+  subAssets              Asset[]                    @relation("AssetHierarchy")
+  taggedTemplates        AssetTemplateTag[]
+  inventories            Inventory[]
+  priceHistories         PriceHistory[]
+  quantityAdjustments    QuantityAdjustment[]
+  serviceReports         MaintenanceServiceReport[]
+  documentItems          DocumentItem[]
+
+  @@unique([skuKey, organizationId, deletedAt])
+  documentLines2 DocumentLine[]
+}
+
+model Category {
+  id             String        @id @default(uuid()) @db.Uuid
+  name           String
+  organizationId String?
+  assets         Asset[]
+}
+
+model Inventory {
+  id                     String                     @id @default(uuid()) @db.Uuid
+  assetId                String                     @db.Uuid
+  location               String?
+  category               String
+  quantity               Int?
+  sku                    String
+  // Manufacturer's serial number from the equipment nameplate. Captured by
+  // the field-scan AI extraction at bind time; used for audit / warranty
+  // lookups. Distinct from `sku` (which is our own per-unit identifier).
+  serialNumber           String?
+  // Manufacture year from the nameplate (per-unit). Nullable — not captured
+  // automatically today (the label OCR returns model + serial only); the office
+  // can fill it, and a future OCR pass may. Surfaced on delivery-created DO
+  // lines ("Year: {y}") only when a group's units agree on one value.
+  year                   Int?
+  cameraP2P              String?
+  // SIM card identifier for units that carry a cellular modem — in practice the
+  // TSS child unit of a SIDS system. Nullable; filled by the office on the unit
+  // detail page. Exposed to water-sg via the public-api child projection.
+  simCardId              String?
+  // Hardware UID of the NFC tag bound to this individual unit (chip serial).
+  // Set via the field PWA's create-and-bind flow. Globally unique across orgs.
+  // This is the primary NFC-binding column going forward; Asset.nfcTagUid is
+  // legacy and only retained for backward compatibility.
+  nfcTagUid              String?                    @unique
+  // One-shot GPS fix captured at field-bind time (create-and-bind flow only).
+  // Best-effort: null when the tech denied location / no signal / timeout — the
+  // bind is never blocked. Distinct from MSR/delivery coordinates (those track
+  // delivery events); these record WHERE the unit was tagged, for backfill
+  // verification against the water-sg site coordinates. Pre-existing units and
+  // office-created units stay null (no backfill).
+  taggedLatitude         Float?
+  taggedLongitude        Float?
+  taggedLocationAccuracy Float? // horizontal accuracy in metres (coords.accuracy)
+  taggedLocationAt       DateTime? // stamped when coords are present
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  status                 InventoryStatus
+  organizationId         String
+  // Unit-level hierarchy: the specific parent UNIT this unit belongs to
+  // (e.g. a TSS sensor's SIDS host). Null = standalone/top-level unit. Set by
+  // autoCreateChildUnits when a parent unit is created and the child Asset has
+  // autoCreateOnParentUnit=true. SetNull on parent delete — children orphan,
+  // never block (pristine placeholders are cleaned up by deleteInventories).
+  parentInventoryId      String?                    @db.Uuid
+  parentInventory        Inventory?                 @relation("InventoryHierarchy", fields: [parentInventoryId], references: [id], onDelete: SetNull)
+  childInventories       Inventory[]                @relation("InventoryHierarchy")
+  asset                  Asset                      @relation(fields: [assetId], references: [id])
+  timelineItems          TimelineItem[]
+  serviceReports         MaintenanceServiceReport[]
+  documentItems          DocumentItem[]
+
+  // Backs the SKU-match bind: a SKU identifies one unit within an org, so
+  // create-and-bind can resolve an existing unit by (sku, organizationId).
+  // Enforces what generateSkuRange only assumed — a concurrent SKU collision
+  // now surfaces as a clean P2002 instead of a silent duplicate.
+  @@unique([sku, organizationId])
+  @@index([parentInventoryId])
+  documentLines2 DocumentLine[]
+}
+
+model QuantityAdjustment {
+  id             String         @id @default(uuid()) @db.Uuid
+  assetId        String         @db.Uuid
+  previousQty    Int // Quantity before adjustment
+  newQty         Int // Quantity after adjustment
+  adjustmentType AdjustmentType // add, subtract, set
+  amount         Int // Amount adjusted
+  reason         String? // Optional reason for adjustment
+  adjustedBy     String // User name/email who made the adjustment
+  adjustedAt     DateTime       @default(now())
+  organizationId String
+  createdAt      DateTime       @default(now())
+
+  // Relations
+  asset        Asset        @relation(fields: [assetId], references: [id])
+
+  // Indexes for fast queries
+  @@index([assetId, adjustedAt])
+  @@index([organizationId, adjustedAt])
+}
+
+model Document {
+  id                 String         @id @default(uuid()) @db.Uuid
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  config             Json // All form data stored here (customer, items, etc.)
+  documentTemplateId String
+  type               String // Document type: INVOICE, QUOTATION, etc.
+  organizationId     String
+  name               String? // Document number/identifier
+  status             DocumentStatus @default(unconfirmed)
+
+  // Revision fields for document versioning
+  baseDocumentId String? @db.Uuid
+  revisionNumber Int?    @default(0)
+
+  // Concurrent-edit guard (presence lock + optimistic concurrency).
+  // editingAt = heartbeat (editor open); lastActivityAt = last real content
+  // edit. Take-over is allowed only when lastActivityAt is >5 min stale.
+  // version increments on every successful save; a save carrying an older
+  // version is rejected (409) so a stale copy can't clobber newer work.
+  editingByUserId String?
+  editingByName   String?
+  editingAt       DateTime?
+  lastActivityAt  DateTime?
+  version         Int       @default(0)
+
+  // Project link
+  projectId           String? @db.Uuid
+  // Deployment link — for invoices/DOs that belong to a specific rental/sale event
+  projectDeploymentId String? @db.Uuid
+
+  // Generic file attachments (supplier PDFs, payment receipts, supporting
+  // docs). Same shape as Bill.attachments:
+  //   [{ fileKey, fileName, mimeType, label?, uploadedAt, uploadedBy }]
+  attachments Json?
+
+  project            Project?                   @relation(fields: [projectId], references: [id])
+  timelineItems      TimelineItem[]
+  priceHistories     PriceHistory[] // Track price history entries from this document
+  payments           Payment[] // Payments made against this document
+  documentItems      DocumentItem[] // Junction table for efficient item queries
+  maintenanceReports MaintenanceServiceReport[] // Field-side reports (DO_START / DO_ACK) linked to this document
+  msrInvoices        MaintenanceServiceReport[] @relation("MsrInvoice") // Service reports that produced THIS invoice
+  orderSources       Order[]                    @relation("OrderSourceQuotation") // Orders auto-created when this quotation was confirmed
+  deliveryShareLinks DeliveryShareLink[] // Guest (no-login) delivery links scoped to THIS delivery order
+  documentShareLinks DocumentShareLink[] // View-only (no-login) links to THIS document, read-only render
+  signLinks          DocumentSignLink[] // Client e-signature links (quotations)
+  deliveries         Delivery[] // Standalone physical-delivery runs later linked to THIS delivery order (legacy run-level link — frozen)
+  deliveryItems      DeliveryItem[] // Per-item DO links: run items fulfilled by THIS delivery order
+
+  // Self-relation for revisions: base document -> many revisions
+  baseDocument Document?  @relation("DocumentRevisions", fields: [baseDocumentId], references: [id])
+  revisions    Document[] @relation("DocumentRevisions")
+
+  embedding DocumentEmbedding? // Semantic-search vector for the AI assistant
+
+  @@unique([name, organizationId, documentTemplateId])
+  @@index([baseDocumentId])
+  @@index([organizationId, type])
+  @@index([organizationId, status])
+  @@index([projectId])
+  @@index([projectDeploymentId])
+  // Fast case-insensitive substring search (ILIKE %term%) on document number/name
+  // — powers the projects-search "documents.some.name" arm over ~4.2k docs.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+
+  // NEW: party as real columns (backfilled from config after the copy)
+  customerId String?   @db.Uuid
+  supplierId String?   @db.Uuid
+  customer   Customer? @relation("DocumentCustomer", fields: [customerId], references: [id])
+  supplier   Supplier? @relation("DocumentSupplier", fields: [supplierId], references: [id])
+  lines      DocumentLine[]
+}
+
+/// NEW: every document line, services included. config.items[] becomes a render snapshot of it.
+model DocumentLine {
+  id            String   @id @default(uuid()) @db.Uuid
+  documentId    String   @db.Uuid
+  lineNumber    Int
+  kind          String   @default("PRODUCT") // PRODUCT | SERVICE | TEXT | SECTION
+  description   String?
+  quantity      Decimal  @default(0) @db.Decimal(18, 4)
+  uom           String?
+  unitPrice     Decimal  @default(0) @db.Decimal(18, 4)
+  discount      Decimal  @default(0) @db.Decimal(18, 2)
+  amount        Decimal  @default(0) @db.Decimal(18, 2)
+  taxAmount     Decimal  @default(0) @db.Decimal(18, 2)
+  isFixedAsset  Boolean  @default(false)
+  assetId       String?  @db.Uuid
+  inventoryId   String?  @db.Uuid
+  revenueItemId String?
+  accountId     String?
+  taxRateId     String?
+  costCenterId  String?
+  sectionId     String? // WorkSection (interior orgs)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  document    Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  asset       Asset?          @relation(fields: [assetId], references: [id])
+  inventory   Inventory?      @relation(fields: [inventoryId], references: [id])
+  revenueItem RevenueItem?    @relation(fields: [revenueItemId], references: [id])
+  account     ChartOfAccount? @relation(fields: [accountId], references: [id])
+  taxRate     TaxRate?        @relation(fields: [taxRateId], references: [id])
+  costCenter  CostCenter?     @relation(fields: [costCenterId], references: [id])
+  @@unique([documentId, lineNumber])
+  @@index([assetId])
+  @@index([accountId])
+}
+
+model DocumentItem {
+  id             String         @id @default(uuid()) @db.Uuid
+  documentId     String         @db.Uuid
+  itemId         String         @db.Uuid // Can be inventoryId or assetId
+  itemType       ItemType // INVENTORY or ASSET
+  sku            String? // SKU for reference
+  description    String? // Item description for reference
+  quantity       Float          @default(0)
+  unitPrice      Float?         @default(0)
+  discount       Float?         @default(0)
+  amount         Float?         @default(0)
+  uom            String? // Unit of measure
+  lineNumber     Int? // Position in document
+  // True for service line items (labor, delivery fees, etc.).
+  // Per Phase 5 Option 1, services from the import flow do NOT create DocumentItem
+  // rows (they're skipped at the !inventoryItemId gate); this flag covers product
+  // rows misclassified post-hoc as service, plus any future paths that DO create
+  // service-row DocumentItems.
+  isService      Boolean        @default(false)
+  // True for fixed-asset purchases on a PO line. When PO is confirmed, the
+  // journal-auto-post pipeline creates a FixedAsset record from this line so
+  // it enters the depreciation schedule. User completes method + useful life
+  // on the FA detail page after creation.
+  isFixedAsset   Boolean        @default(false)
+  // Per-item delivery tracking (Phase 1). Additive — existing itemId/itemType
+  // remain the back-compat link; these new columns drive the per-item DO flow.
+  deliveryStatus DeliveryStatus @default(not_delivered)
+  deductedAt     DateTime?
+  deliveringAt   DateTime?
+  deliveredAt    DateTime?
+  completedAt    DateTime?
+  installSkipped Boolean        @default(false)
+  inventoryId    String?        @db.Uuid
+  inventory      Inventory?     @relation(fields: [inventoryId], references: [id])
+  assetId        String?        @db.Uuid
+  asset          Asset?         @relation(fields: [assetId], references: [id])
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, itemId, lineNumber])
+  @@index([itemId])
+  @@index([documentId])
+  @@index([itemId, itemType])
+}
+
+model DocumentNumberFormat {
+  id             String   @id @default(uuid())
+  organizationId String
+  documentType   String // "INVOICE", "QUOTATION", "DELIVERY_ORDER", ...
+  label          String // variant name shown in the create picker, e.g. "EW"
+  pattern        String // e.g. "BIPL-EW-INV-{YYYYMMDD}-{####}"
+  nextSerial     Int      @default(1)
+  resetPolicy    String   @default("never") // never | daily | monthly | yearly
+  lastResetKey   String? // e.g. "2026-06" — detects when to restart the serial
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, documentType])
+}
+
+model DocumentShareLink {
+  id         String    @id @default(uuid())
+  token      String    @unique // unguessable, crypto-random (32 bytes, base64url)
+  documentId String    @db.Uuid
+  document   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime? // set on revoke; the ONLY way to disable a link (no expiry)
+
+  @@index([documentId])
+}
+
+model DocumentSignLink {
+  id         String    @id @default(uuid())
+  token      String    @unique // unguessable, crypto-random (32 bytes, base64url)
+  documentId String    @db.Uuid
+  document   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  signedAt   DateTime?
+  signerName String?
+  signerIp   String?
+  userAgent  String?
+
+  @@index([documentId])
+}
+
+model DocumentEmbedding {
+  id             String   @id @default(uuid())
+  organizationId String
+  documentId     String   @unique @db.Uuid
+  type           String
+  customerId     String?
+  textSnippet    String
+  embedding      Float[]
+  updatedAt      DateTime @updatedAt
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, type])
+  @@index([organizationId, customerId])
+}
+
+model SubmitJob {
+  id              String   @id @default(uuid())
+  organizationId  String
+  // Clerk user id of the submitter (no FK — same posture as MSR.technicianUserId).
+  createdByUserId String
+  // Groups the files uploaded in one submission (one docType per batch).
+  batchId         String
+  // AIMS document type for the whole batch (INVOICE, DO, QUOTATION, PO, BILL…).
+  docType         String
+  // QUEUED → PROCESSING → DONE | FAILED.
+  status          String   @default("QUEUED")
+  s3Key           String
+  fileUrl         String?
+  mimeType        String?
+  fileName        String?
+  // Draft created on success (null until DONE; null forever on FAILED).
+  documentId      String?  @db.Uuid
+  // Failure reason (null unless FAILED).
+  reason          String?
+  // Sequence-gap warning moved off the sync response onto the job row
+  // (computeSequenceGapWarning result); surfaced in the submit history.
+  sequenceWarning Json?
+  attemptCount    Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+
+  // Submitter's own history (caller-scoped, recent-first).
+  @@index([organizationId, createdByUserId, createdAt])
+  // Worker claim sweep + admin org-scoped log.
+  @@index([status])
+  @@index([organizationId, createdAt])
+}
+
+model Order {
+  id                String   @id @default(uuid()) @db.Uuid
+  orderNumber       String // e.g. ORD202605-001
+  organizationId    String
+  customerId        String?  @db.Uuid
+  sourceQuotationId String?  @db.Uuid // Document.id of the originating quotation
+  orderType         String? // Carried from the QF quotation's "Type" field: Project / Route Order
+  status            String   @default("DRAFT") // DRAFT / IN_PROGRESS / COMPLETED / CANCELLED (free-form)
+  items             Json // Snapshot at order-creation time: [{ itemCode, description, quantity, unitPrice, costPrice?, taggedAssetCode?, ... }]
+  linkedDocuments   Json? // { po: [{id,name}], do: [{id,name}], invoice: [{id,name}] }
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  customer        Customer?    @relation("CustomerOrders", fields: [customerId], references: [id])
+  sourceQuotation Document?    @relation("OrderSourceQuotation", fields: [sourceQuotationId], references: [id])
+
+  @@unique([orderNumber, organizationId])
+  @@index([organizationId, status])
+  @@index([customerId])
+  @@index([sourceQuotationId])
+}
+
+model RevenueItem {
+  id             String   @id @default(uuid())
+  organizationId String
+  code           String? // optional short code (e.g. "APF-40")
+  name           String // description placed on the invoice line
+  type           String   @default("SERVICE") // PRODUCT | SERVICE
+  unitPrice      Float? // optional default unit price
+  taxRate        Float? // optional default GST % (else org default)
+  accountCode    String // GL revenue account code, e.g. "201"
+  accountId      String? // resolved ChartOfAccount id
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // ---- Work-library fields (interior-design quotations, CIEL 2026-08) ----
+  // Null / default for plain services. A "work item" is one templatised
+  // quotation line: which trade section it belongs to, the full line text
+  // with {dims} placeholders, its default "* Includes …" bullets, a default
+  // cost per unit for margin tracking, and how it is normally priced.
+
+  @@index([organizationId, isActive])
+  @@index([organizationId, type])
+  documentLines DocumentLine[]
+}
+
+model PriceHistory {
+  id             String   @id @default(uuid())
+  assetId        String   @db.Uuid // Reference to the asset/item sold (REQUIRED)
+  unitPrice      Float // Unit price at time of sale
+  quantity       Float // Quantity sold
+  uom            String? // Unit of measure
+  totalAmount    Float // Total amount for this line item
+  documentId     String   @db.Uuid // Reference to the document (invoice)
+  documentNumber String // Invoice number for reference
+  documentDate   DateTime // Date of the invoice
+  customerId     String?  @db.Uuid // Customer who bought it
+  customerName   String? // Customer name for reference
+  organizationId String // Organization ID
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  document     Document     @relation(fields: [documentId], references: [id])
+  customer     Customer?    @relation(fields: [customerId], references: [id])
+  asset        Asset        @relation(fields: [assetId], references: [id])
+
+  // Indexes for fast queries
+  @@index([assetId, organizationId])
+  @@index([customerId, organizationId])
+  @@index([documentDate])
+  @@index([createdAt])
+}
+
+model AssetTemplateTag {
+  id         String           @id @default(uuid()) @db.Uuid
+  assetId    String           @db.Uuid
+  templateId String           @db.Uuid
+  createdAt  DateTime         @default(now())
+  asset      Asset            @relation(fields: [assetId], references: [id])
+
+  @@unique([assetId, templateId])
+}
+
+model TimelineItem {
+  id          String     @id @default(uuid()) @db.Uuid
+  message     String?
+  pdfUrl      String?
+  inventoryId String?    @db.Uuid
+  documentId  String?    @db.Uuid
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  document    Document?  @relation(fields: [documentId], references: [id])
+  inventory   Inventory? @relation(fields: [inventoryId], references: [id])
+}
+
+model Payment {
+  id             String   @id @default(uuid())
+  organizationId String
+  customerId     String   @db.Uuid
+  documentId     String   @db.Uuid
+  amount         Float
+  paymentDate    DateTime
+  paymentMethod  String // cash, check, transfer, etc
+  reference      String? // check number, transfer reference
+  notes          String?
+  // Official Receipt allocation: set when this payment row is one allocation
+  // line of an OFFICIAL_RECEIPT document (Document.id). Such rows are managed
+  // (replaced) by the receipt's save and carry NO per-payment journal — the
+  // receipt posts ONE journal for the whole batch.
+  receiptId      String?  @db.Uuid
+  // Same shape as Bill.attachments / BillPayment.attachments — the
+  // customer payment proof (deposit slip, bank transfer screenshot).
+  attachments    Json?
+  // Xero-imported receive-payments (bank-rec visibility backfill 2026-08-03):
+  // PaymentID for idempotency + the imported GL journal this payment IS, so
+  // bank rec can walk journal → payment → customer/invoice.
+  xeroId         String?  @unique
+  journalEntryId String?
+  createdBy      String // user ID who recorded payment
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  customer     Customer     @relation(fields: [customerId], references: [id])
+  document     Document     @relation(fields: [documentId], references: [id])
+
+  // Create related transaction when payment is recorded
+
+  @@index([customerId, organizationId])
+  @@index([documentId])
+  @@index([receiptId])
+  @@index([paymentDate])
+  @@index([organizationId, paymentDate])
+}
+
+model BillPayment {
+  id             String   @id @default(uuid())
+  organizationId String
+  billId         String // → Document.id where type='BILL'
+  supplierId     String   @db.Uuid
+  amount         Float
+  paymentDate    DateTime
+  paymentMethod  String // cash | cheque | transfer | giro | other
+  reference      String? // cheque number / TT reference / paynow ref
+  notes          String?
+  // ChartOfAccount.id of the cash/bank account credited. Picker should
+  // filter via JournalService.isCashOrBankAccount.
+  bankAccountId  String
+  // JE auto-posted on create — null only briefly between insert and post.
+  // Xero-imported payments keep this null (their journal already arrived via
+  // the Xero GL import — posting again would double-count).
+  journalEntryId String?
+  // Xero PaymentID when this row was pulled from Xero (sync idempotency key).
+  xeroId         String?  @unique
+  // Payment proof — cheque scan, bank TT advice, paynow screenshot.
+  attachments    Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdBy      String
+
+  supplier     Supplier     @relation(fields: [supplierId], references: [id])
+
+  @@index([organizationId, paymentDate])
+  @@index([billId])
+  @@index([supplierId])
+}
+
+model RecurringInvoiceTemplate {
+  id                  String    @id @default(uuid())
+  organizationId      String
+  // Short human ID ("REC-001") — shown in the list and referenced from the
+  // billing tracker spreadsheets so each row links to its schedule (guru
+  // 2026-08-27, accountant walkthrough).
+  code                String?
+  name                String // label, e.g. "China Railway monthly retainer"
+  customerId          String
+  documentTemplateId  String // invoice template/variant to render
+  numberFormatId      String? // optional numbering variant
+  config              Json // invoice config (line items, notes) with text tokens
+  frequency           String // DAILY | WEEKLY | MONTHLY | QUARTERLY | YEARLY
+  nextRunDate         DateTime
+  endDate             DateTime? // optional stop date
+  autoSend            Boolean   @default(false) // draft-first: email only when explicitly enabled
+  isActive            Boolean   @default(true)
+  lastRunAt           DateTime?
+  lastRunDocumentId   String?
+  // Period counter for {NTH}/{RUN NO} tokens ("17th mth"): the number the
+  // NEXT run will use; +1 after each run. Editable so mid-stream takeovers
+  // can start at e.g. 18 (guru 2026-08-07).
+  nextRunNo           Int       @default(1)
+  // Deployment linkage ("Confirm & make recurring" flow): generated invoices
+  // inherit these so they chain onto the same rental deployment; off-hiring
+  // the deployment deactivates the template.
+  projectId           String?
+  projectDeploymentId String?
+  sourceDocumentId    String? // the confirmed invoice this template was seeded from
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  createdBy           String?
+
+  // NOTE: code uniqueness enforced app-side (assigned sequentially); a DB
+  // unique index needs --accept-data-loss to add, blocked in this session.
+  @@index([organizationId, isActive])
+  @@index([organizationId, nextRunDate])
+  @@index([projectDeploymentId])
+}
+
+model Project {
+  id               String              @id @default(uuid()) @db.Uuid
+  projectNumber    String? // e.g. PRJ-2026-001
+  name             String
+  description      String?
+  // Optional plain delivery/site address for the project (free text). Preferred
+  // over the linked SiteOffice.address as the "Deliver To" source for scheduled
+  // deliveries. Additive/nullable.
+  address          String?
+  organizationId   String?
+  customerId       String?             @db.Uuid // direct FK; siteOffice still optional
+  customerPoNumber String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  startDate        DateTime?
+  endDate          DateTime?
+  status           ProjectStatus       @default(pending)
+  siteOfficeId     String?             @db.Uuid
+  // ---- Interior-design project fields (CIEL, 2026-08) — null for other orgs ----
+  documents        Document[]
+  deliveries       Delivery[]
+  // Management-only supplier rebate override for THIS project (CIEL 09-16):
+  // suppliers quietly rebate ~10% of invoiced costs back to the firm; costs
+  // stay booked at full value (designer commission unaffected), the rebate is
+  // company profit visible to management only. null → per-supplier % → 10.
+  customer         Customer?           @relation("CustomerProjects", fields: [customerId], references: [id])
+
+  @@unique([projectNumber, organizationId])
+  @@index([organizationId, status])
+  @@index([customerId])
+  // Fast case-insensitive substring search (ILIKE %term%) on project name.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+model Delivery {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String
+  // Per-org serial (paper-trail analogue, same pattern as MSR.reportNumber).
+  // Assigned at creation — required, unlike MSR's nullable historic rows.
+  deliveryNumber Int
+  // OUTBOUND (normal delivery) or RETURN (reverse — collecting rentals back to
+  // stock). Additive with a default so every existing run reads as OUTBOUND.
+  direction      DeliveryDirection @default(OUTBOUND)
+  status         DeliveryRunStatus @default(in_progress)
+  // Nullable so an office-SCHEDULED run can exist before any rider picks it up.
+  // The rider claims it at scan-to-bind (sets riderUserId, status → in_progress).
+  // Every rider-started run sets it at creation as before.
+  riderUserId    String?
+  riderName      String?
+  // DRIVER HANDOFF (2026-09): who delivers the CURRENT trip of a scheduled run.
+  // SELF = the rider; DRIVER = handed to another driver via a drv_ share link
+  // (QR). Cleared at each sign-off so the next trip asks again. vehicleNumber
+  // is the driver's vehicle; handedOffAt / handedOffByUserId record the hand-off.
+  // All nullable + additive (safe db push).
+  vehicleNumber     String?
+  handoffMode       String?
+  handedOffAt       DateTime?
+  handedOffByUserId String?
+  projectId      String?           @db.Uuid
+  customerId     String?           @db.Uuid
+  siteAddress    String? // free-text drop site when no project is linked yet
+  notes          String?
+  // Office-scheduled runs: the target delivery date/time. Null for ad-hoc runs
+  // recorded live in the field. A run with scheduledFor set + status `scheduled`
+  // is waiting for a rider to pick it up.
+  scheduledFor   DateTime?
+  // Office DRAFT: a partly-filled schedule the office can come back to. A draft
+  // is NOT a real scheduled run — it is excluded from every rider-facing query,
+  // from claim/merge/fold/cancel, and it mints NO Delivery Order. The DO is
+  // created only when the draft is promoted to a real schedule. Boolean rather
+  // than a DeliveryRunStatus value on purpose: adding an enum value means
+  // ALTER TYPE ADD VALUE, which has stopped backend deploys before.
+  isDraft        Boolean           @default(false)
+  /// AD_HOC marks a run a rider started from a scan with no scheduled run to
+  /// join. Set at CREATION only — existing rows keep the SCHEDULED default, so
+  /// nothing is reclassified. Deliberately not inferred from `projectId IS
+  /// NULL`: production already holds project-less runs that are a mix of
+  /// stranded scans, genuine deliveries (one with a customer AND an address)
+  /// and empty office drafts, so the null tells you nothing about origin.
+  ///
+  /// An AD_HOC run completes down a third path: its DO is created but NOT
+  /// committed, so the unit stays `reserved` until the office attaches a
+  /// project and the deployment is created.
+  // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
+  // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
+  // for zero-downtime deploys (Render db-pushes on deploy while old code may
+  // still serve) and dropped in a later cleanup.
+  documentId     String?           @db.Uuid
+  startedAt      DateTime          @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  project      Project?                   @relation(fields: [projectId], references: [id])
+  customer     Customer?                  @relation(fields: [customerId], references: [id])
+  document     Document?                  @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  items        DeliveryItem[]
+  reports      MaintenanceServiceReport[]
+  shareLinks   DeliveryShareLink[] // run-scoped guest delivery links
+
+  @@unique([organizationId, deliveryNumber])
+  @@index([documentId])
+  @@index([organizationId, status, createdAt])
+}
+
+model DeliveryItem {
+  id             String         @id @default(uuid()) @db.Uuid
+  deliveryId     String         @db.Uuid
+  delivery       Delivery       @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  // A catalog-resolved line carries assetId (+ inventoryId for tracked units).
+  // A FREE-TYPED line has BOTH null — description-only, awaiting office
+  // resolution to a real asset/unit. Plain UUIDs (no FK) — mirrors how
+  // DocumentItem references stock without hard coupling.
+  assetId        String?        @db.Uuid
+  inventoryId    String?        @db.Uuid
+  description    String?
+  quantity       Int            @default(1)
+  // Class for a FREE-TYPED line only (no assetId to read it from). NULL on
+  // catalog-backed lines — those resolve the class through their Asset.
+  assetClass     AssetClass?
+  // Same per-item lifecycle as DocumentItem.deliveryStatus (shared enum):
+  // not_delivered → delivering → not_installed → completed.
+  // Walk order. DeliveryItem has no createdAt and its id is a random uuid, so
+  // there was no way to step through a run's items in the order the office
+  // entered them. Written at schedule time; 0 for rows created before this.
+  sortOrder      Int            @default(0)
+  deliveryStatus DeliveryStatus @default(not_delivered)
+  // Set when the rider CONSCIOUSLY passes an item over during the walk-through.
+  // Not inferable: `not_delivered` alone conflates "skipped" with "not reached
+  // yet", which the basket's Delivering / Skipped split has to tell apart.
+  skippedAt      DateTime?
+  deliveringAt   DateTime?
+  deliveredAt    DateTime?
+  completedAt    DateTime?
+  installSkipped Boolean        @default(false)
+  // THE LINK (per-item, 2026-08) — the DO this ITEM fulfils. One run's items
+  // may fulfil different DOs. SetNull: deleting a (draft) DO un-links the
+  // items and they fall back into the office queue. No documentItemId — the
+  // row-level binding already exists physically via DocumentItem.inventoryId;
+  // (documentId, inventoryId) recovers it, same join stamping/deduction use.
+  documentId     String?        @db.Uuid
+  document       Document?      @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  // Deliberately NO deductedAt — stock deduction is the DO's job, performed
+  // at link time through the existing DocumentItem claim.
+  // Proof MSRs (DO_START/DO_ACK) captured against THIS line — the inverse of
+  // MaintenanceServiceReport.deliveryItem. Run-level proof (DO_INSTALL) is not here.
+  proofReports   MaintenanceServiceReport[]
+
+  @@unique([deliveryId, inventoryId]) // a unit can't be scanned twice into one run
+  @@index([inventoryId])
+  @@index([documentId])
+}
+
+model DeliveryShareLink {
+  id         String    @id @default(uuid())
+  token      String    @unique // unguessable, crypto-random
+  documentId String    @db.Uuid
+  document   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  // Run-scoped guest link (2026-08): the token drives the DELIVERY RUN, not the
+  // DO in isolation. Nullable + additive so the column is a safe db push. The DO
+  // (documentId) is the run's born-linked draft, kept for the office generate.
+  deliveryId String?   @db.Uuid
+  delivery   Delivery? @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime? // set at mint: a window around the run's scheduledFor
+  revokedAt  DateTime? // set on revoke, and auto-set when the run finalizes
+
+  @@index([documentId])
+  @@index([deliveryId])
+}
+
+model MaintenanceServiceReport {
+  id                String                         @id @default(uuid()) @db.Uuid
+  organizationId    String
+  // Nullable: a FREE-TYPED delivery line (a cable etc.) has no asset, but still
+  // produces DO_START / DO_ACK proof MSRs tied to the run by deliveryId. Every
+  // asset-backed MSR still sets this. The three asset-scoped history reads
+  // (listByAsset, listByProject, getScanContext) intentionally exclude null-asset
+  // rows — a free-typed line has no asset history.
+  assetId           String?                        @db.Uuid
+  // Optional link to a specific inventory unit (when isTracked assets have serials)
+  inventoryId       String?                        @db.Uuid
+  // Clerk user id of the technician who performed the work
+  technicianUserId  String
+  technicianName    String?
+  description       String // What was serviced / issue / resolution
+  // S3 keys for proof-of-service photos
+  photos            String[]                       @default([])
+  // S3 key OR base64 PNG (matches Document signature handling)
+  signature         String?
+  signedByName      String? // Customer / recipient name
+  signedAt          DateTime?
+  status            MaintenanceServiceReportStatus @default(draft)
+  // Discriminator for what kind of field activity this row represents.
+  // SERVICE   — traditional maintenance/repair visit (default).
+  // DO_START  — technician started delivery of an existing DO (label: "Delivery Started").
+  // DO_ACK    — technician confirmed final handover/installation of a DO (label: "Delivery Acknowledged").
+  kind              MaintenanceReportKind          @default(SERVICE)
+  // FK to the Document this report relates to.
+  //   DO_START / DO_ACK → the DO being delivered.
+  //   SERVICE           → null.
+  // Historic DO_ACK rows backfilled from the description-prefix scheme may
+  // have null documentId; gating logic only considers MSRs with non-null FK.
+  documentId        String?                        @db.Uuid
+  document          Document?                      @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  // GPS captured at submission time. Optional — submission proceeds without
+  // GPS if browser geolocation is denied or unavailable.
+  latitude          Float?
+  longitude         Float?
+  // Reverse-geocoded human-readable label (e.g. "12 Tuas South Ave 3").
+  // Schema-ready for future enablement; v1 of the field flow leaves it null.
+  locationLabel     String?
+  // Site ID returned by water-sg when a site is created from this
+  // acknowledgment. Null = no site created (gate off, not SIDS, or the
+  // best-effort POST failed). Additive audit footprint, never read by gating.
+  waterSgSiteId     String?
+  // Sequential per-org SERVICE report number (paper-form analogue). Null for
+  // DO_START / DO_ACK rows and for SERVICE rows created by the legacy flow.
+  reportNumber      Int?
+  // Structured payload for the 5-page MSR form (customer link, checklist,
+  // times, tech signature key, etc.). Schemaless on purpose — see the field
+  // PWA's submit handler for the canonical shape.
+  serviceData       Json?
+  // Return flow: the rider flagged this unit as damaged at collection. RECORDED
+  // ONLY today (no behaviour hangs off it: a damaged unit still returns to
+  // instock). The free-text comment lives in serviceData.returnComment.
+  damaged           Boolean?
+  // Set by the field tech at submit time. When false, the report is auto-
+  // emailed to the customer (PDF attached) and the loop closes. When true,
+  // an Invoice document must be created from the office before customer
+  // contact — surfaced on the dashboard as "Pending Invoice".
+  paymentRequired   Boolean                        @default(false)
+  // FK to the Invoice Document created off this report (set when an office
+  // user clicks Create Invoice on the detail page). Distinct from the
+  // DO-flow `documentId` above so the two linkages don't fight.
+  invoiceDocumentId String?                        @db.Uuid
+  invoiceDocument   Document?                      @relation("MsrInvoice", fields: [invoiceDocumentId], references: [id], onDelete: SetNull)
+  // FK to the standalone Delivery run this report belongs to (delivery-first
+  // flow). Grouping key alongside documentId — DO-first rows keep documentId,
+  // standalone rows carry deliveryId; both may be set once linked.
+  deliveryId        String?                        @db.Uuid
+  delivery          Delivery?                      @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+  // FK to the specific DeliveryItem (line) this proof belongs to (2026-08).
+  // Nullable — existing rows have no value and there is no backfill; run-level
+  // proof (DO_INSTALL) stays null because it belongs to no single line. Makes
+  // free-typed proof matchable to its exact line, which the description text
+  // alone cannot do when two lines carry the same text.
+  deliveryItemId    String?                        @db.Uuid
+  deliveryItem      DeliveryItem?                  @relation(fields: [deliveryItemId], references: [id], onDelete: SetNull)
+  createdAt         DateTime                       @default(now())
+  updatedAt         DateTime                       @updatedAt
+
+  asset         Asset?                 @relation(fields: [assetId], references: [id])
+  inventory     Inventory?             @relation(fields: [inventoryId], references: [id])
+  // Background-tracked GPS pings collected during this delivery. Populated
+  // only for kind=DO_START rows — DO_ACK and SERVICE rows have none.
+  locationPings DeliveryLocationPing[]
+
+  @@unique([organizationId, reportNumber])
+  @@index([organizationId, assetId, createdAt])
+  @@index([assetId, status])
+  @@index([organizationId, kind, createdAt])
+  @@index([documentId, kind])
+  @@index([deliveryId, kind])
+  @@index([deliveryItemId])
+  @@index([organizationId, reportNumber(sort: Desc)])
+}
+
+model DeliveryLocationPing {
+  id        String   @id @default(uuid()) @db.Uuid
+  reportId  String   @db.Uuid
+  latitude  Float
+  longitude Float
+  accuracy  Float? // metres of horizontal uncertainty (68% confidence)
+  speed     Float? // metres per second
+  heading   Float? // degrees from true north (0..360)
+  timestamp DateTime // capture time from the phone
+  createdAt DateTime @default(now()) // server-side receive time
+
+  report MaintenanceServiceReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  // Idempotency anchor — duplicate batch retries don't double-insert.
+  @@unique([reportId, timestamp])
+  // Lookups are always "all pings for report X, ordered by time" → composite
+  // index covers both filter and order.
+  @@index([reportId, timestamp])
+}
+
+model MaintenanceSchedule {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String
+  assetId         String    @db.Uuid
+  dueDate         DateTime  @db.Date
+  notes           String?
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  remindedAt      DateTime?
+  cancelledAt     DateTime?
+
+  @@index([organizationId, assetId, dueDate])
+  @@index([dueDate, remindedAt])
+}
+
+model WhatsAppMessage {
+  id             String  @id @default(uuid())
+  organizationId String
+  direction      String // OUTBOUND | INBOUND
+  // E.164 counterparty number (recipient for outbound, sender for inbound).
+  counterparty   String
+  // Which line (WhatsAppConnection.phoneNumberId) carried this message —
+  // null on rows from the single-number era.
+  phoneNumberId  String?
+  // Meta's message id (wamid...) — idempotency anchor for webhook redeliveries.
+  waMessageId    String? @unique
+  templateName   String?
+  body           String?
+  // queued → sent → delivered → read, or failed (statuses arrive via webhook).
+  status         String  @default("queued")
+  error          String?
+  payload        Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+
+  @@index([organizationId, createdAt])
+}
+
+model WhatsAppQnA {
+  id             String @id @default(uuid())
+  organizationId String
+  question       String
+  answer         String
+  // 1536-dim embedding of `question` (text-embedding-3-small), stored as a
+  // JSON number array — same no-pgvector approach as DocumentEmbedding.
+  embedding      Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+
+  @@index([organizationId])
+}
+
+model WhatsAppAgentConfig {
+  id                String  @id @default(uuid())
+  organizationId    String  @unique
+  // Master switch: run the agent on inbound messages at all.
+  enabled           Boolean @default(false)
+  // Whether the AI may send replies without human review (only when it also
+  // judges the message to be inside autoSendGuidance and is confident).
+  autoSendEnabled   Boolean @default(false)
+  // Management number (digits, country code) that receives internal prompts —
+  // e.g. the new-lead assignment list (guru 2026-09-13).
+  notifyNumber      String?
+  // Plain-text description of the KINDS of messages the AI may answer on its
+  // own, e.g. "opening hours, price list questions, delivery status".
+  autoSendGuidance  String?
+  // General tone/behaviour instructions appended to the system prompt.
+  aiGuidance        String?
+  // Owner/advisor number (digits incl. country code) that receives internal
+  // notifications — e.g. a confirmation whenever a scheduled message goes out.
+  ownerNotifyNumber String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+}
+
+model WhatsAppSuggestion {
+  id               String  @id @default(uuid())
+  organizationId   String
+  // The inbound WhatsAppMessage this suggestion answers.
+  inboundMessageId String  @unique
+  counterparty     String
+  inboundBody      String
+  suggestedReply   String
+  // AI's self-assessment: could this have been auto-sent under the org rules?
+  canAutoSend      Boolean @default(false)
+  confidence       Float?
+  reason           String?
+  // PENDING (awaiting review) | AUTO_SENT | APPROVED (group draft OK'd by button, bridge yet to post)
+  // | SENT (approved, possibly edited) | DISMISSED | FAILED
+  status           String  @default("PENDING")
+  // The outbound WhatsAppMessage id once sent (auto or approved).
+  sentMessageId    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+
+  @@index([organizationId, status, createdAt])
+}
+
+model WhatsAppScheduledMessage {
+  id             String   @id @default(uuid())
+  organizationId String
+  // E.164 digits of the recipient.
+  to             String
+  body           String
+  scheduledAt    DateTime // next occurrence for recurring rows
+  // PENDING | SENDING | SENT | FAILED | CANCELLED
+  status         String   @default("PENDING")
+  sentMessageId  String?
+  error          String?
+  createdBy      String?
+
+  // Recurrence: NONE | DAILY | WEEKLY | MONTHLY | CUSTOM_DAYS.
+  // CUSTOM_DAYS uses recurEvery (n days between sends). recurUntil caps the
+  // series; recurCount tracks how many have gone out.
+  recurrence     String    @default("NONE")
+  recurEvery     Int? // for CUSTOM_DAYS
+  recurUntil     DateTime?
+  recurCount     Int       @default(0)
+  // The intended day-of-month for MONTHLY series. Without it, a run that
+  // clamps into a short month (31 -> 30 Sep) would keep deriving from the
+  // clamped day and ratchet downwards, silently drifting off month-end.
+  recurAnchorDay Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+
+  @@index([status, scheduledAt])
+  @@index([organizationId, scheduledAt])
+}
+
+model WhatsAppContact {
+  id             String    @id @default(uuid())
+  organizationId String
+  waId           String // digits-only number
+  profileName    String?
+  appContactName String?
+  lastMessageAt  DateTime?
+  // Per-number AI override: APPROVED = may auto-reply, BLOCKED = never
+  // auto-reply (still drafts a suggestion for manual review), null = follow
+  // the org's global agent policy.
+  agentAutoReply String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+
+  @@unique([organizationId, waId])
+}
+
+model WhatsAppAppointment {
+  id             String  @id @default(uuid())
+  organizationId String
+  groupId        String // group the appointment was posted in, and where the reminder goes
+  groupName      String?
+
+  startsAt  DateTime // resolved appointment date/time
+  timeText  String? // as written, e.g. "3pm (Tentatively)"
+  topic     String?
+  venue     String?
+  tentative Boolean  @default(false)
+
+  clientName String? // who the reminder greets
+
+  // 3 days before at 09:00 local, or the next morning when it is sooner.
+  remindAt       DateTime
+  reminderStatus String    @default("PENDING") // PENDING | SENT | CANCELLED | FAILED
+  remindedAt     DateTime?
+  error          String?
+
+  sourceMessage String? // original text, so a mis-parse can be audited
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([organizationId, groupId])
+  @@index([reminderStatus, remindAt])
+}
+
+model AdAccountConnection {
+  id             String    @id @default(uuid())
+  organizationId String    @unique
+  adAccountId    String // "act_…"
+  accessToken    String // system-user token, never echoed to the portal
+  accountName    String?
+  currency       String?
+  status         String    @default("CONNECTED") // CONNECTED | ERROR | DISCONNECTED
+  lastError      String?
+  lastSyncAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model AdInsight {
+  id             String   @id @default(uuid())
+  organizationId String
+  date           DateTime // the insight day (UTC midnight)
+  campaignId     String?
+  campaignName   String?
+  adsetId        String?
+  adsetName      String?
+  adId           String
+  adName         String?
+  spend          Float    @default(0)
+  impressions    Int      @default(0)
+  clicks         Int      @default(0)
+  linkClicks     Int      @default(0)
+  metaLeads      Int      @default(0) // Meta-reported lead actions
+  thruplays      Int      @default(0)
+  videoAvgSec    Float? // average watch time (seconds)
+  videoP25       Int      @default(0)
+  videoP50       Int      @default(0)
+  videoP75       Int      @default(0)
+  videoP100      Int      @default(0)
+  raw            Json? // full actions payload for future metrics
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, date, adId])
+  @@index([organizationId, date])
+  @@index([organizationId, campaignId])
+}

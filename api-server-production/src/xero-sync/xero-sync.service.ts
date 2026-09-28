@@ -4,6 +4,7 @@ import { XeroClient } from 'xero-node';
 import { PrismaService } from '../common/prisma.service';
 import { ActionLogService } from '../action-log/action-log.service';
 import { isOrgFeatureEnabled } from '../common/org-features';
+import { stampDocumentMoney } from '../common/document-money';
 
 // Per-org gate for confirm-from-Xero (admin panel toggle).
 export const XERO_CONFIRM_SYNC_FLAG = 'enableXeroConfirmSync';
@@ -796,7 +797,7 @@ Return JSON array.`;
             ...cfg,
             subTotal: xSub, gstAmount: xGst, nettTotal: xTotal,
             xeroInvoiceId: inv.invoiceID, xeroStatus: inv.status,
-            xeroGross: xTotal, xeroBalance: due, xeroAmountPaid: R(inv.amountPaid),
+            ...stampDocumentMoney({}, { outstanding: due, paid: R(inv.amountPaid), gross: xTotal }),
             paymentStatus: newStatus, paymentStatusSource: 'xero-confirm-sync',
             confirmedFromXeroAt: new Date().toISOString(),
             xeroLastSyncAt: new Date().toISOString(),

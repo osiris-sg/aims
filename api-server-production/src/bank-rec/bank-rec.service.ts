@@ -7,6 +7,7 @@ import { PaymentsService } from '../payments/payments.service';
 import { BillsService } from '../bills/bills.service';
 import { XeroSyncService } from '../xero-sync/xero-sync.service';
 import { isOrgFeatureEnabled } from '../common/org-features';
+import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 
 // Per-org gate for the Xero bank checkpoint (admin panel toggle).
 export const BANK_CHECKPOINT_FLAG = 'enableBankRecXeroCheckpoint';
@@ -612,7 +613,7 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
 
     if (moneyIn) {
       // Open invoices (awaiting payment / partially paid). Outstanding comes
-      // from config.xeroBalance — the live balance updateInvoiceStatusAfterPayment
+      // from outstandingOf(config) — the live balance updateInvoiceStatusAfterPayment
       // maintains — falling back to gross minus recorded payments.
       const docs = await this.prisma.document.findMany({
         where: { organizationId, type: { in: ['INVOICE', 'TI', 'TI2'] }, status: { in: ['confirmed', 'pending_payment'] as any } },
@@ -625,10 +626,10 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
       for (const d of docs) {
         const c: any = d.config || {};
         const di: any = c.documentInfo || {};
-        const gross = parseFloat(c.xeroGross ?? di.nettTotal ?? c.nettTotal ?? c.totalAmount ?? 'NaN');
+        const gross = parseFloat(grossStampOf(c) ?? di.nettTotal ?? c.nettTotal ?? c.totalAmount ?? 'NaN');
         if (!Number.isFinite(gross) || gross <= 0) continue;
-        const paid = Number(c.xeroAmountPaid ?? 0) || 0;
-        const outstanding = ROUND(Number.isFinite(Number(c.xeroBalance)) ? Number(c.xeroBalance) : gross - paid);
+        const paid = Number(amountPaidOf(c) ?? 0) || 0;
+        const outstanding = ROUND(Number.isFinite(Number(outstandingOf(c))) ? Number(outstandingOf(c)) : gross - paid);
         if (outstanding < 0.005) continue;
         const custId = c.customer?.id ?? c.customerId ?? null;
         out.push({
@@ -651,9 +652,9 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
         if (c.kind === 'SPR') continue;
         const billStatus = c.billStatus || (c.xeroStatus === 'AUTHORISED' ? 'POSTED' : null);
         if (billStatus !== 'POSTED') continue;
-        const total = ROUND(Number(c.totalAmount ?? c.xeroGross ?? 0) || 0);
+        const total = ROUND(Number(c.totalAmount ?? grossStampOf(c) ?? 0) || 0);
         if (total <= 0) continue;
-        const paid = Number(c.amountPaid ?? c.xeroAmountPaid ?? 0) || 0;
+        const paid = Number(c.amountPaid ?? amountPaidOf(c) ?? 0) || 0;
         const outstanding = ROUND(total - paid);
         if (outstanding < 0.005) continue;
         out.push({
@@ -687,7 +688,7 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
   private docSummary(d: { id: string; name: string | null; type: string; documentTemplateId: string; status: any; config: any }) {
     const c: any = d.config || {};
     const di: any = c.documentInfo || {};
-    const gross = parseFloat(c.xeroGross ?? di.nettTotal ?? c.nettTotal ?? c.totalAmount ?? 'NaN');
+    const gross = parseFloat(grossStampOf(c) ?? di.nettTotal ?? c.nettTotal ?? c.totalAmount ?? 'NaN');
     return {
       id: d.id,
       number: d.name || '',
@@ -699,7 +700,7 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
       dueDate: c.dueDate ?? null,
       reference: di.referenceNo ?? c.referenceNo ?? di.reference ?? c.reference ?? c.xeroReference ?? null,
       total: Number.isFinite(gross) ? ROUND(gross) : null,
-      outstanding: Number.isFinite(Number(c.xeroBalance)) ? ROUND(Number(c.xeroBalance)) : null,
+      outstanding: Number.isFinite(Number(outstandingOf(c))) ? ROUND(Number(outstandingOf(c))) : null,
       items: ((c.items || c.lines || []) as any[])
         .filter((it) => (it?.description || '').trim() || Number(it?.amount))
         .slice(0, 12)

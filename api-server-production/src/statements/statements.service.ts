@@ -1,5 +1,6 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { amountPaidOf, grossOf, grossStampOf, outstandingOf, owedOf } from '../common/document-money';
 import { docRef, refWith } from '../common/doc-ref';
 import { GenerateSOADto } from './dto/generate-soa.dto';
 
@@ -67,11 +68,11 @@ export class StatementsService {
         const c: any = doc.config || {};
         if (c.voided) continue;
         const d = c.date ? new Date(c.date) : doc.createdAt;
-        const gross = R(c.xeroGross ?? c.totalAmount ?? 0);
+        const gross = R(grossStampOf(c) ?? c.totalAmount ?? 0);
         if (gross <= 0) continue;
         if (doc.type === 'INVOICE') {
           add(d, { date: d, reference: docRef(doc.type, doc.name || '(no #)'), description: `Invoice ${doc.name || ''}`.trim(), transactionType: 'INVOICE', debit: gross, credit: 0, balance: 0, documentType: 'INVOICE' }, gross);
-          const paid = R(gross - R(c.xeroBalance ?? gross));
+          const paid = R(gross - R(outstandingOf(c) ?? gross));
           if (isXero && paid > 0.005) {
             add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Payment / credits applied — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: paid, balance: 0, documentType: 'PAYMENT' }, -paid);
           }
@@ -144,7 +145,9 @@ export class StatementsService {
       for (const inv of invoices) {
         const c: any = inv.config || {};
         if (c.voided) continue;
-        const owed = Number(c.xeroBalance ?? 0);
+        // owedOf() falls back to the document's gross when nothing has been
+        // stamped yet — an unpaid invoice is owed IN FULL, not zero.
+        const owed = owedOf(c);
         if (owed <= 0.005) continue;
         const ref = c.dueDate ? new Date(c.dueDate) : c.date ? new Date(c.date) : inv.createdAt;
         const days = Math.floor((today.getTime() - ref.getTime()) / (1000 * 60 * 60 * 24));
@@ -265,7 +268,9 @@ export class StatementsService {
       for (const inv of invoices) {
         const c: any = inv.config || {};
         if (c.voided) continue;
-        const owed = Number(c.xeroBalance ?? 0);
+        // owedOf() falls back to the document's gross when nothing has been
+        // stamped yet — an unpaid invoice is owed IN FULL, not zero.
+        const owed = owedOf(c);
         if (owed <= 0.005) continue;
         const cId = c.customerId || c.customer?.id;
         if (!cId) continue;
@@ -377,14 +382,14 @@ export class StatementsService {
     for (const b of bills) {
       const c: any = b.config || {};
       const d = c.date ? new Date(c.date) : b.createdAt;
-      const gross = c.xeroGross ?? c.totalAmount ?? 0;
+      const gross = grossStampOf(c) ?? c.totalAmount ?? 0;
       if (gross <= 0) continue;
 
       // Anything before startDate rolls into opening.
       if (startDate && d < startDate) {
         openingBalance += gross;
         // If the bill was already paid before startDate, net it out.
-        const isPaid = c.xeroStatus === 'Paid' || c.xeroBalance === 0;
+        const isPaid = c.xeroStatus === 'Paid' || outstandingOf(c) === 0;
         if (isPaid) openingBalance -= gross;
         continue;
       }
@@ -405,7 +410,7 @@ export class StatementsService {
 
       // For Xero-imported paid bills we don't have exact payment dates, so
       // synthesize a payment on the same date.
-      const isPaid = c.xeroStatus === 'Paid' || c.xeroBalance === 0;
+      const isPaid = c.xeroStatus === 'Paid' || outstandingOf(c) === 0;
       if (isPaid && (!payments.length || !payments.some((p) => p.billId === b.id))) {
         txs.push({
           date: d,
@@ -458,11 +463,11 @@ export class StatementsService {
       const now = endDate;
       for (const b of bills) {
         const c: any = b.config || {};
-        const isPaid = c.xeroStatus === 'Paid' || c.xeroBalance === 0;
+        const isPaid = c.xeroStatus === 'Paid' || outstandingOf(c) === 0;
         if (isPaid) continue;
         const due = c.dueDate ? new Date(c.dueDate) : c.date ? new Date(c.date) : b.createdAt;
         const ageDays = Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
-        const owed = c.xeroBalance ?? c.xeroGross ?? 0;
+        const owed = owedOf(c);
         if (ageDays <= 30) aging.current += owed;
         else if (ageDays <= 60) aging.days30 += owed;
         else if (ageDays <= 90) aging.days60 += owed;
@@ -514,8 +519,8 @@ export class StatementsService {
       if (date && (date < sd || date > ed)) continue;
       const cId = c.customerId || c.customer?.id || 'unknown';
       const cName = c.customer?.name || 'Unknown customer';
-      const gross = c.xeroGross || 0;
-      const balance = c.xeroBalance || 0;
+      const gross = grossStampOf(c) || 0;
+      const balance = owedOf(c);
       const paid = gross - balance;
       const row = byCustomer.get(cId) || { name: cName, invoiceCount: 0, totalSales: 0, totalPaid: 0, outstanding: 0 };
       row.invoiceCount++;
@@ -572,8 +577,8 @@ export class StatementsService {
       if (date && (date < sd || date > ed)) continue;
       const sId = c.supplierId || c.supplier?.id || 'unknown';
       const sName = c.supplier?.name || 'Unknown supplier';
-      const gross = c.xeroGross || 0;
-      const balance = c.xeroBalance || 0;
+      const gross = grossStampOf(c) || 0;
+      const balance = owedOf(c);
       const paid = gross - balance;
       const row = bySupplier.get(sId) || { name: sName, billCount: 0, totalPurchases: 0, totalPaid: 0, outstanding: 0 };
       row.billCount++;

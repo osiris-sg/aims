@@ -7,7 +7,8 @@
   "license": "UNLICENSED",
   "scripts": {
     "prebuild": "npx prisma generate",
-    "build": "nest build && npx prisma db push",
+    "build": "nest build && node scripts/db-push.js",
+    "tenancy:generate": "node -e \"const fs=require('fs');const {execSync}=require('child_process');execSync('npx prisma generate --schema prisma/tenancy/platform.prisma',{stdio:'inherit'});for(const f of fs.readdirSync('prisma/tenancy/orgs'))execSync('npx prisma generate --schema prisma/tenancy/orgs/'+f,{stdio:'inherit'})\"",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",

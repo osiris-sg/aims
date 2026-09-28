@@ -1,0 +1,2 @@
+-- 01 · READ-ONLY: which org lands in which org schema.
+SELECT o.name, CASE WHEN o.name ILIKE 'Biofuel%' THEN 'org_biofuel' WHEN o.name ILIKE 'CIEL%' THEN 'org_ciel' WHEN o.name ILIKE 'Cappitech%' THEN 'org_cappitech' WHEN o.name ILIKE 'Osiris Technology%' THEN 'org_osiris' WHEN o.name ILIKE '%your%world%' THEN 'org_yourworld' WHEN o.name ILIKE 'U2CAN%' THEN 'org_u2can' WHEN o.name ILIKE 'osiris-platform%' THEN 'org_platformorg' END AS org_schema, o.id FROM public."Organization" o ORDER BY 2 NULLS FIRST, 1;
