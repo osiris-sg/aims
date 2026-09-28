@@ -45,6 +45,15 @@ export class XeroSyncController {
     return this.service.run(requireOrgId(req), body.scope ?? { accounts: true, contacts: true, payments: true }, req.auth?.userId);
   }
 
+  @Post('confirm-from-xero')
+  @Permissions('xerosync:create')
+  @ApiOperation({
+    summary: 'Confirm AIMS invoices that Xero has authorised — match totals to Xero, supersede the AIMS-native journal, and report any line differences',
+  })
+  confirmFromXero(@Req() req: RequestWithOrganization, @Body() body: { dryRun?: boolean }) {
+    return this.service.confirmFromXero(requireOrgId(req), { dryRun: body?.dryRun });
+  }
+
   // -------- Account mappings --------
 
   @Get('account-mappings')

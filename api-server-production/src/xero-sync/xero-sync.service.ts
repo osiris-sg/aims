@@ -2,6 +2,11 @@ import { BadRequestException, HttpException, HttpStatus, Injectable, Logger, Not
 import Anthropic from '@anthropic-ai/sdk';
 import { XeroClient } from 'xero-node';
 import { PrismaService } from '../common/prisma.service';
+import { ActionLogService } from '../action-log/action-log.service';
+import { isOrgFeatureEnabled } from '../common/org-features';
+
+// Per-org gate for confirm-from-Xero (admin panel toggle).
+export const XERO_CONFIRM_SYNC_FLAG = 'enableXeroConfirmSync';
 
 // ---------------------------------------------------------------------------
 // Xero PULL-only sync. Mirror counterpart to the existing XeroService which
@@ -26,7 +31,10 @@ type ScopeFlags = {
 export class XeroSyncService {
   private readonly logger = new Logger(XeroSyncService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly actionLog: ActionLogService,
+  ) {}
 
   // ---------- Connection loader ----------
 
@@ -689,4 +697,152 @@ Return JSON array.`;
 
     return { suggested };
   }
+
+  // -------------------------------------------------------------------------
+  // Confirm-from-Xero (guru 2026-09-28).
+  //
+  // The accountant approves invoices in Xero. Until now AIMS only mirrored the
+  // STATUS, which left two gaps that showed up as reconciliation drift:
+  //   1. Figures were never matched — Xero's numbers went into the xero* mirror
+  //      fields while AIMS kept its own subTotal/gstAmount/nettTotal silently.
+  //   2. Double-posting — an AIMS-origin invoice auto-posts its own JV-0001xx,
+  //      and once Xero authorises it the GL sync imports a JV-XERO journal for
+  //      the SAME invoice, so the books counted it twice (29 such pairs, worth
+  //      $241k, had to be voided by hand on 2026-09-25).
+  //
+  // So on each AUTHORISED/PAID Xero invoice that AIMS itself pushed:
+  //   • totals are set from Xero (book of record once authorised);
+  //   • LINES ARE NEVER REWRITTEN — a line-level difference is reported for a
+  //     human instead, because Xero does not carry the AIMS line detail
+  //     (descriptions, serial numbers, account codes) and overwriting would
+  //     destroy it (the known Xero-imported-docs editor wipe);
+  //   • the AIMS-native journal is voided so only the imported one counts, and
+  //     ONLY when an imported journal actually exists for that invoice — never
+  //     leave a confirmed invoice with no posting at all.
+  // Idempotent: a document already confirmed with matching totals is skipped.
+  // -------------------------------------------------------------------------
+  async confirmFromXero(organizationId: string, opts: { dryRun?: boolean } = {}) {
+    const enabled = await isOrgFeatureEnabled(this.prisma, organizationId, XERO_CONFIRM_SYNC_FLAG);
+    if (!enabled) {
+      throw new HttpException(
+        'Confirm-from-Xero is off for this organization. Enable it in Admin → Configuration.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    const conn = await this.loadConnection(organizationId);
+    const client = this.buildClient(conn.accessToken);
+    const tenantId = conn.tenantId;
+
+    const xeroInvoices: any[] = [];
+    for (let page = 1; ; page++) {
+      const res: any = await client.accountingApi.getInvoices(
+        tenantId, undefined,
+        'Type=="ACCREC" AND (Status=="AUTHORISED" OR Status=="PAID")',
+        undefined, undefined, undefined, undefined, undefined, page,
+      );
+      const list: any[] = res?.body?.invoices ?? [];
+      xeroInvoices.push(...list);
+      if (list.length < 100) break;
+    }
+
+    const docs = await this.prisma.document.findMany({
+      where: { organizationId, type: 'INVOICE' },
+      select: { id: true, name: true, status: true, config: true },
+    });
+    const byXeroId = new Map<string, any>();
+    const byName = new Map<string, any>();
+    for (const d of docs) {
+      const c: any = d.config || {};
+      if (c.xeroInvoiceId) byXeroId.set(c.xeroInvoiceId, d);
+      if (d.name) byName.set(d.name, d);
+    }
+
+    const R = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+    let confirmed = 0, retotalled = 0, journalsVoided = 0, skipped = 0;
+    const mismatches: Array<{ document: string; reason: string; xero: number; aims: number }> = [];
+
+    for (const inv of xeroInvoices) {
+      const doc = byXeroId.get(inv.invoiceID) || byName.get(inv.invoiceNumber);
+      if (!doc) { skipped++; continue; }
+      const cfg: any = doc.config || {};
+      // Only invoices AIMS pushed. A Xero-origin document is already the
+      // mirror of Xero and is handled by the importer.
+      if (!cfg.xeroSyncedAt && !cfg.xeroSyncedBy) { skipped++; continue; }
+
+      const xSub = R(inv.subTotal), xGst = R(inv.totalTax), xTotal = R(inv.total);
+      const due = R(inv.amountDue);
+      const newStatus = due <= 0.005 ? 'paid' : 'pending_payment';
+      const aimsNett = R(cfg.nettTotal ?? 0);
+      const totalsDiffer = Math.abs(xTotal - aimsNett) > 0.005;
+
+      // Lines are reported, never rewritten.
+      const lineSum = R((cfg.items || []).reduce((t: number, i: any) => t + (Number(i.amount) || 0), 0));
+      if (Math.abs(lineSum - xSub) > 0.005) {
+        mismatches.push({ document: doc.name || inv.invoiceNumber, reason: 'line total differs from Xero subtotal', xero: xSub, aims: lineSum });
+      }
+      if (totalsDiffer) {
+        mismatches.push({ document: doc.name || inv.invoiceNumber, reason: 'invoice total differs from Xero', xero: xTotal, aims: aimsNett });
+      }
+
+      const alreadyRight = doc.status === newStatus && !totalsDiffer;
+      if (alreadyRight) { skipped++; continue; }
+      if (opts.dryRun) { confirmed++; if (totalsDiffer) retotalled++; continue; }
+
+      await this.prisma.document.update({
+        where: { id: doc.id },
+        data: {
+          status: newStatus as any,
+          config: {
+            ...cfg,
+            subTotal: xSub, gstAmount: xGst, nettTotal: xTotal,
+            xeroInvoiceId: inv.invoiceID, xeroStatus: inv.status,
+            xeroGross: xTotal, xeroBalance: due, xeroAmountPaid: R(inv.amountPaid),
+            paymentStatus: newStatus, paymentStatusSource: 'xero-confirm-sync',
+            confirmedFromXeroAt: new Date().toISOString(),
+            xeroLastSyncAt: new Date().toISOString(),
+          } as any,
+        },
+      });
+      confirmed++;
+      if (totalsDiffer) retotalled++;
+
+      // Supersede the AIMS-native posting — but only when Xero's own journal
+      // has actually landed, so the invoice is never left unposted.
+      const imported = await this.prisma.journalEntry.count({
+        where: {
+          organizationId, status: 'POSTED', postedBy: 'xero-import',
+          OR: [{ description: { contains: doc.name || '' } }, { reference: { contains: doc.name || '' } }],
+        },
+      });
+      if (imported > 0 && doc.name) {
+        const native = await this.prisma.journalEntry.findMany({
+          where: {
+            organizationId, status: 'POSTED',
+            NOT: { postedBy: 'xero-import' },
+            OR: [{ sourceDocumentId: doc.id }, { reference: { contains: doc.name } }],
+          },
+          select: { id: true, journalNumber: true },
+        });
+        for (const je of native) {
+          await this.prisma.journalEntry.update({
+            where: { id: je.id },
+            data: { status: 'VOID', voidedAt: new Date(), voidedBy: 'xero-confirm-sync' },
+          });
+          journalsVoided++;
+          this.actionLog.system('xero-confirm-sync', 'VOID', 'journal-entry', {
+            organizationId, resourceId: je.id,
+            details: { note: `superseded by the imported Xero journal for ${doc.name}`, journalNumber: je.journalNumber },
+          });
+        }
+      }
+
+      this.actionLog.system('xero-confirm-sync', 'CONFIRM', 'documents', {
+        organizationId, resourceId: doc.id,
+        details: { document: doc.name, status: newStatus, retotalled: totalsDiffer, xeroTotal: xTotal },
+      });
+    }
+
+    return { scanned: xeroInvoices.length, confirmed, retotalled, journalsVoided, skipped, mismatches, dryRun: !!opts.dryRun };
+  }
+
 }

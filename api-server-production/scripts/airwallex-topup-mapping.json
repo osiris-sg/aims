@@ -3,19 +3,22 @@
   "customerName": "LAM HWA ENGINEERING & TRADING PTE LTD",
   "fundedTotal": 77820,
   "jpsgCompanyId": "59926524-8a27-4545-b629-e295f5e2b133",
-  "jpsgCreditBalance": 2836.76
+  "jpsgCreditBalance": 2836.76,
+  "uen": "200006689D"
  },
  "topup_cbd33647-005b-458a-9942-bc7d7f27428f": {
   "customerName": "Ee hup construction pte ltd",
   "fundedTotal": 65280,
   "jpsgCompanyId": "cbd33647-005b-458a-9942-bc7d7f27428f",
-  "jpsgCreditBalance": 1508.23
+  "jpsgCreditBalance": 1508.23,
+  "uen": "197902194k"
  },
  "topup_0e2ef863-25a4-46b0-adf8-0d4be869ea23": {
   "customerName": "SMM Engineering & Services Pte Ltd ",
   "fundedTotal": 14850,
   "jpsgCompanyId": "0e2ef863-25a4-46b0-adf8-0d4be869ea23",
-  "jpsgCreditBalance": 286.43
+  "jpsgCreditBalance": 286.43,
+  "uen": "202216380W"
  },
  "topup_f7fc3dec-4c47-4492-8738-0e4a92cd11ae": {
   "customerName": "INTEGRATE ENGINEERS PTE. LTD.",
@@ -33,7 +36,8 @@
   "customerName": "Jin Quan Engineering Pte Ltd",
   "fundedTotal": 5000,
   "jpsgCompanyId": "154c6b18-bfc8-45fd-abe5-bc0662df18c4",
-  "jpsgCreditBalance": 1095
+  "jpsgCreditBalance": 1095,
+  "uen": "200806112N"
  },
  "topup_c3cc362e-3713-48e3-bfe4-5a8ffdf2fa0a": {
   "customerName": "GS PERFECT ENGINEERING PTE LTD",
@@ -45,13 +49,15 @@
   "customerName": "BRK INTERNATIONAL PTE LTD",
   "fundedTotal": 2800,
   "jpsgCompanyId": "2cd9aa63-1fc5-4b11-8ee0-364e5f7d7343",
-  "jpsgCreditBalance": 458.94
+  "jpsgCreditBalance": 458.94,
+  "uen": "201529107R"
  },
  "topup_fc5c5e89-81a4-4bab-bcb7-11c97a582e8b": {
   "customerName": "TECHNO CONSTRUCTION PTE. LTD.",
   "fundedTotal": 2000,
   "jpsgCompanyId": "fc5c5e89-81a4-4bab-bcb7-11c97a582e8b",
-  "jpsgCreditBalance": 619.79
+  "jpsgCreditBalance": 619.79,
+  "uen": "201905879C"
  },
  "topup_05b807d1-aaf7-4a1a-bcc4-2f314008c228": {
   "customerName": "Power Green Services Pte Ltd",
@@ -81,7 +87,8 @@
   "customerName": "Aik Sun Demolition & Engineering Pte Ltd",
   "fundedTotal": 500,
   "jpsgCompanyId": "fe97a361-b9bf-4b6a-887b-b67492508aec",
-  "jpsgCreditBalance": 280
+  "jpsgCreditBalance": 280,
+  "uen": "199407828C"
  },
  "topup_078623f8-636c-48ff-bf3a-779e44f81132": {
   "customerName": "T. T. Chua Construction Pte Ltd",
@@ -105,7 +112,8 @@
   "customerName": "Joon Thiam Industrial Services Pte Ltd",
   "fundedTotal": 200,
   "jpsgCompanyId": "ff2b46b9-60c8-43cc-ab79-cb8560ed452f",
-  "jpsgCreditBalance": 0
+  "jpsgCreditBalance": 0,
+  "uen": "201317586G"
  },
  "topup_fc5615e5-517f-466f-9151-cf47cc9b6713": {
   "customerName": "Jin Loong Tai Pte Ltd",
@@ -117,7 +125,8 @@
   "customerName": "New Season Contractors Pte Ltd",
   "fundedTotal": 100,
   "jpsgCompanyId": "320beef5-5b3b-4c82-ad8a-8763d0ff8ad3",
-  "jpsgCreditBalance": 51
+  "jpsgCreditBalance": 51,
+  "uen": "201022230Z"
  },
  "topup_c6de8b44-1c32-46d7-bc87-a6c9050c9e8a": {
   "customerName": "MK INDUSTRIES & CONSTRUCTION PTE LTD",
@@ -141,7 +150,8 @@
   "customerName": "Nee Lee Engineering Services Pte Ltd",
   "fundedTotal": 0,
   "jpsgCompanyId": "cef338c2-95c7-47c6-b090-f7c5f3bbf9c4",
-  "jpsgCreditBalance": 2000
+  "jpsgCreditBalance": 2000,
+  "uen": "201609035E"
  },
  "topup_cc5e3cd3-5d28-47e2-bf71-c3f1c8ca9d2b": {
   "customerName": "Prabhu Transport",
@@ -159,6 +169,37 @@
   "customerName": "SIN HENG TRANSPORT PTE LTD",
   "fundedTotal": 0,
   "jpsgCompanyId": "dcbc9f10-0a46-4f15-819d-deea79a39400",
-  "jpsgCreditBalance": 0
+  "jpsgCreditBalance": 0,
+  "uen": "201925138n"
+ },
+ "topup_4ad79447-58af-469b-be0b-3e6317fbe48b": {
+  "customerName": "Sinhua civil engineering & construction pte ltd",
+  "uen": "201704193R",
+  "jpsgCompanyId": "4ad79447-58af-469b-be0b-3e6317fbe48b"
+ },
+ "topup_fa7468da-50ac-4abf-a6a5-54e452281a4b": {
+  "customerName": "Hong Aik Engineering Pte Ltd",
+  "uen": "201316237N",
+  "jpsgCompanyId": "fa7468da-50ac-4abf-a6a5-54e452281a4b"
+ },
+ "topup_ce05b68c-9917-4fd3-b01b-8e71274fb653": {
+  "customerName": "Teo Bak Soah Trading Co",
+  "uen": "27504200J",
+  "jpsgCompanyId": "ce05b68c-9917-4fd3-b01b-8e71274fb653"
+ },
+ "topup_c7bfbbcc-bebf-4fc9-81cd-147fe147dc01": {
+  "customerName": "Skyline Environmental Pte Ltd.",
+  "uen": "201717371E",
+  "jpsgCompanyId": "c7bfbbcc-bebf-4fc9-81cd-147fe147dc01"
+ },
+ "topup_efab0be8-e3ff-409d-a064-6d5669195be9": {
+  "customerName": "Samkang Construction Pte Ltd",
+  "uen": "199304331M",
+  "jpsgCompanyId": "efab0be8-e3ff-409d-a064-6d5669195be9"
+ },
+ "topup_e6b34633-8491-4376-8072-049e87e3a2e6": {
+  "customerName": "Teng Leng Industries Pte Ltd",
+  "uen": "200405939c",
+  "jpsgCompanyId": "e6b34633-8491-4376-8072-049e87e3a2e6"
  }
 }

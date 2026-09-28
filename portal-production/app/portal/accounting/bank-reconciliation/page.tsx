@@ -17,12 +17,14 @@ import {
   MenuItem,
   Paper,
   Stack,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Tabs,
   TextField,
   Tooltip,
   Typography,
@@ -37,6 +39,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import PageTable from "@/components/PageTable";
+import ReconcileView from "./ReconcileView";
 import { useClientSort } from "@/components/clientSort";
 import { kebabColumn } from "@/components/RowKebab";
 
@@ -136,6 +139,8 @@ export default function BankReconciliationPage() {
   const [filters, setFilters] = useState<any>({});
   // Status-chip filter (null = all) — the count chips above the table filter it.
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  // Xero-style work view vs the full audit table (guru 2026-09-28).
+  const [view, setView] = useState<"reconcile" | "lines">("reconcile");
   // Manual ending-balance entry (imports without a running-balance column).
   const [endingEditOpen, setEndingEditOpen] = useState(false);
   const [endingDraft, setEndingDraft] = useState("");
@@ -708,8 +713,31 @@ export default function BankReconciliationPage() {
         </Stack>
       )}
 
-      {/* Status chip strip — click to filter the table (click again / All to clear). */}
+      {/* View toggle: Reconcile (Xero-style work view) vs All lines (audit table) */}
       {activeImport && (
+        <Stack direction="row" alignItems="center" gap={2} flexWrap="wrap">
+          <Tabs
+            value={view}
+            onChange={(_, v) => setView(v)}
+            sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, py: 0.5, textTransform: "none", fontWeight: 600 } }}
+          >
+            <Tab value="reconcile" label={`Reconcile (${counts.PENDING + (counts as any).SUGGESTED})`} />
+            <Tab value="lines" label="All lines" />
+          </Tabs>
+          {view === "reconcile" && (
+            <TextField
+              size="small"
+              placeholder="Search description or reference…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              sx={{ minWidth: 260 }}
+            />
+          )}
+        </Stack>
+      )}
+
+      {/* Status chip strip — click to filter the table (click again / All to clear). */}
+      {activeImport && view === "lines" && (
         <Stack direction="row" gap={1} flexWrap="wrap">
           {([
             { key: null, label: `All ${counts.all}`, color: undefined },
@@ -732,8 +760,27 @@ export default function BankReconciliationPage() {
         </Stack>
       )}
 
+      {/* Xero-style reconcile work view: unreconciled lines as row pairs —
+          bank line left, one-click OK / Match / Create right. */}
+      {activeImport && view === "reconcile" && (() => {
+        const q = (search || "").trim().toLowerCase();
+        const work = visibleLines
+          .filter((l) => l.status === "PENDING" || l.status === "SUGGESTED")
+          .filter((l) => !q || (l.description || "").toLowerCase().includes(q) || (l.reference || "").toLowerCase().includes(q));
+        return (
+          <>
+            <ReconcileView lines={work.slice(0, 50) as any} request={request} onChanged={loadActive} />
+            {work.length > 50 && (
+              <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center" }}>
+                Showing the first 50 of {work.length} unreconciled lines — reconcile or search to narrow.
+              </Typography>
+            )}
+          </>
+        );
+      })()}
+
       {/* Statement-line table */}
-      {activeImport && (
+      {activeImport && view === "lines" && (
         <PageTable
           onRowClick={(line: StatementLine) => openDetail(line)}
           columns={lineColumns}

@@ -18,6 +18,24 @@ const TO = arg("to") || "BI202609099";
 const DUE_DATE = arg("due") || "2026-09-30"; // matches Aug convention (due end of month)
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+// AIMS descriptions are rich text from the editor (<div>/<br>/<span>, HTML
+// entities). Xero renders the description as PLAIN TEXT, so tags pushed raw
+// show up literally on the invoice (guru 2026-09-25). Convert to newlines.
+const ENT: Record<string, string> = { amp: "&", nbsp: " ", lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'", "#160": " " };
+function toText(html: string): string {
+  return String(html ?? "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(div|p|li|tr)>/gi, "")
+    .replace(/<(div|p|li|tr)\b[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&(#?\w+);/g, (m, k) => ENT[k.toLowerCase()] ?? m)
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+
 const XT2_FILE = __dirname + "/_xero2-tokens.json";
 async function tokens() {
   const t = JSON.parse(fs.readFileSync(XT2_FILE, "utf8"));
@@ -106,7 +124,9 @@ async function xero(method: string, path: string, body?: any) {
     const LineItems = items.map(it => {
       const amt = Number(it.amount) || 0;
       const qty = Number(it.quantity) || 1;
-      const hasQty = it.quantity !== null && it.quantity !== undefined && it.quantity !== "";
+      // A qty of 0/blank means the accountant cleared it: print the line bare.
+      // Bundled equipment keeps its real qty (1) and prints "1 / 0.00 / 0.00".
+      const hasQty = Number(it.quantity) > 0;
       if (amt === 0 && !(Number(it.unitPrice) || 0)) {
         // Bundled equipment (generator, DB box, cables) carries a qty and
         // prints "1 / 0.00 / 0.00" — the accountant's own July format
@@ -114,12 +134,12 @@ async function xero(method: string, path: string, body?: any) {
         // bare. Collapsing both to description-only dropped the qty (guru
         // 2026-09-22).
         return hasQty
-          ? { Description: (it.description || " ").slice(0, 3900), Quantity: qty, UnitAmount: 0 }
-          : { Description: (it.description || " ").slice(0, 3900) };
+          ? { Description: (toText(it.description) || " ").slice(0, 3900), Quantity: qty, UnitAmount: 0 }
+          : { Description: (toText(it.description) || " ").slice(0, 3900) };
       }
       const taxed = (Number(it.tax) || 0) > 0 || (Number(it.taxAmount) || 0) > 0;
       return {
-        Description: (it.description || " ").slice(0, 3900),
+        Description: (toText(it.description) || " ").slice(0, 3900),
         Quantity: qty,
         UnitAmount: Number(it.unitPrice) || amt / qty,
         AccountCode: it.accountCode,

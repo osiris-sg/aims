@@ -69,9 +69,12 @@ export class PaymentsService {
         }
       }
 
-      // Validate customer matches
+      // Validate customer matches. Some invoices (recurring-generated, API-born)
+      // carry only config.customerId with no nested customer object — accept
+      // either key as the invoice's customer.
       const config: any = document.config;
-      if (config.customer?.id !== createPaymentDto.customerId) {
+      const invoiceCustomerId = config.customer?.id ?? config.customerId;
+      if (invoiceCustomerId !== createPaymentDto.customerId) {
         throw new HttpException('Customer does not match invoice', HttpStatus.BAD_REQUEST);
       }
 

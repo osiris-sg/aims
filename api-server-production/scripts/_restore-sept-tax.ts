@@ -4,11 +4,13 @@
 import { createScriptPrisma, BIOFUEL_ORG_ID as ORG } from "./xero-migration/_common";
 const prisma = createScriptPrisma();
 const APPLY = process.argv.includes("--apply");
+const ONLY = (process.argv.find(a => a.startsWith("--names="))?.split("=")[1] || "").split(",").filter(Boolean);
 (async () => {
   const docs = await prisma.document.findMany({ where: { organizationId: ORG, type: "INVOICE", name: { gte: "BI202609001", lte: "BI202609099" } } });
   let fixed = 0, ok = 0, skipped: string[] = [];
   for (const d of docs) {
     if (!/^BI202609\d{3}$/.test(d.name!)) continue;
+    if (ONLY.length && !ONLY.includes(d.name!)) continue;
     const c: any = d.config;
     const items: any[] = c.items || [];
     const priced = items.filter(i => (Number(i.amount) || 0) !== 0);

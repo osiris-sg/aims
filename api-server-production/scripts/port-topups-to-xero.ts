@@ -12,7 +12,7 @@
  * the other funded customers. Idempotent: transfers matched by
  * (date,amount,from,to); spend monies by Reference.
  */
-import { createScriptPrisma, BIOFUEL_ORG_ID } from './xero-migration/_common';
+import { createScriptPrisma, getXeroTokens, BIOFUEL_ORG_ID } from './xero-migration/_common';
 import * as fs from 'fs';
 const prisma = createScriptPrisma();
 const XERO_API = 'https://api.xero.com/api.xro/2.0';
@@ -25,22 +25,21 @@ const DRY = process.argv.includes('--dry');
 const NAME_ALIAS: Record<string, string> = {
   'Customer Deposit-LAM HWA ENGINEERING & TRADING PTE LTD': 'Customer Deposit-Lam Hwa',
   'Customer Deposit-SKV CONSTRUCTION & TRANSPORT PTE LTD': 'Customer Deposit-SKV',
+  // Xero 662 is CURRENT_ASSET, not BANK — cannot be a BankTransfer leg, so
+  // Sin Hua's top-ups post as a manual journal instead (see JOURNAL_ONLY).
+  'Customer Deposit-Sinhua civil engineering & construction pte ltd':
+    'Customer Deposit-Sin Hua Civil Engineering & Construction Pte Ltd',
 };
+// Deposit accounts that are not BANK type in Xero: gross leg via ManualJournal.
+const JOURNAL_ONLY = new Set(['Customer Deposit-Sin Hua Civil Engineering & Construction Pte Ltd']);
 
+// Xero tokens live in the PROD DB (XeroConnection); data ops stay on the
+// chosen env DB. getXeroTokens() already resolves .env.production for us.
 async function tokens() {
-  const conn = await prisma.xeroConnection.findUnique({ where: { organizationId: BIOFUEL_ORG_ID } });
-  if (!conn) throw new Error('no XeroConnection');
-  if (conn.accessTokenExpiresAt.getTime() - Date.now() > 5 * 60 * 1000) return { at: conn.accessToken, tid: conn.tenantId };
-  const envTxt = fs.readFileSync('.env', 'utf8');
-  const cid = envTxt.match(/^XERO_CLIENT_ID="?([^"\n]+)"?/m)?.[1] || process.env.XERO_CLIENT_ID;
-  const csec = envTxt.match(/^XERO_CLIENT_SECRET="?([^"\n]+)"?/m)?.[1] || process.env.XERO_CLIENT_SECRET;
-  const basic = Buffer.from(`${cid}:${csec}`).toString('base64');
-  const res = await fetch('https://identity.xero.com/connect/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: `Basic ${basic}` }, body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: conn.refreshToken }) });
-  if (!res.ok) throw new Error(`refresh ${res.status}: ${await res.text()}`);
-  const t: any = await res.json();
-  const upd = await prisma.xeroConnection.update({ where: { organizationId: BIOFUEL_ORG_ID }, data: { accessToken: t.access_token, refreshToken: t.refresh_token, accessTokenExpiresAt: new Date(Date.now() + t.expires_in * 1000), refreshTokenExpiresAt: new Date(Date.now() + 60 * 864e5) } });
-  return { at: upd.accessToken, tid: upd.tenantId };
+  const t: any = await getXeroTokens(prisma, BIOFUEL_ORG_ID);
+  return { at: t.accessToken, tid: t.tenantId };
 }
+
 let TK: { at: string; tid: string };
 async function xero(method: string, path: string, body?: any) {
   for (let i = 0; i < 6; i++) {
@@ -72,19 +71,29 @@ async function main() {
   if (!feesAcct) throw new Error('Airwallex Fees account missing in Xero');
   console.log(`Xero: Airwallex=${airwallex.AccountID.slice(0, 8)} UOB=${uob.AccountID.slice(0, 8)} Fees=${feesAcct.AccountID.slice(0, 8)} (code ${feesAcct.Code || '-'})`);
 
+  const txns: any[] = JSON.parse(fs.readFileSync(`${SP}/airwallex-txns.json`, 'utf8'));
+  const mapping: Record<string, { customerName: string }> = JSON.parse(fs.readFileSync('scripts/airwallex-topup-mapping.json', 'utf8'));
+
   // ---- 2. AIMS funded deposit accounts → ensure Xero bank accounts ----
+  // Only the customers present in THIS batch — never touch Xero's chart for
+  // deposit accounts this run has no transactions for.
+  const batchNames = new Set(
+    txns.filter(t => t.amount > 0).map(t => mapping[t.baseTopupId]?.customerName).filter(Boolean)
+        .map(n => `Customer Deposit-${n}`),
+  );
   const aimsDeps = await prisma.chartOfAccount.findMany({ where: { organizationId: BIOFUEL_ORG_ID, name: { startsWith: 'Customer Deposit-' } }, select: { id: true, name: true } });
-  const funded: Array<{ aimsId: string; aimsName: string; xeroName: string }> = [];
-  for (const d of aimsDeps) {
-    const g = await prisma.journalEntryLine.aggregate({ where: { accountId: d.id, journalEntry: { organizationId: BIOFUEL_ORG_ID, status: 'POSTED' } }, _sum: { debit: true, credit: true } });
-    if (Math.abs((g._sum.credit || 0) - (g._sum.debit || 0)) < 0.005 && !(g._sum.credit || 0)) continue;
-    funded.push({ aimsId: d.id, aimsName: d.name, xeroName: (NAME_ALIAS[d.name] || d.name).trim() });
-  }
+  const funded = aimsDeps
+    .filter(d => batchNames.has(d.name))
+    .map(d => ({ aimsId: d.id, aimsName: d.name, xeroName: (NAME_ALIAS[d.name] || d.name).trim() }));
+  const missingInAims = [...batchNames].filter(n => !aimsDeps.some(d => d.name === n));
+  if (missingInAims.length) throw new Error(`AIMS deposit accounts missing: ${missingInAims.join(' | ')}`);
   console.log(`funded deposit accounts to mirror: ${funded.length}`);
   let nextNum = 3;
   const xeroDepId = new Map<string, string>(); // aims name -> xero AccountID
+  const depAcctCode = new Map<string, string>(); // xero name -> account Code
   for (const f of funded) {
     let acct = xeroAccts.get(f.xeroName);
+    if (acct && JOURNAL_ONLY.has(f.xeroName)) { xeroDepId.set(f.aimsName, acct.AccountID); depAcctCode.set(f.xeroName, acct.Code); continue; }
     if (!acct) {
       let num: string;
       do { num = String(nextNum++).padStart(8, '0'); } while (bankNums.has(num));
@@ -97,6 +106,8 @@ async function main() {
       await sleep(1100);
     }
     xeroDepId.set(f.aimsName, acct.AccountID);
+    depAcctCode.set(f.xeroName, acct.Code);
+    depAcctCode.set(f.xeroName, acct.Code);
   }
 
   // ---- 3. Existing Xero transfers & spend monies (idempotency) ----
@@ -115,13 +126,19 @@ async function main() {
     if (list.length < 100) break;
     await sleep(1100);
   }
-  console.log(`existing in Xero: transfers=${existingTransfers.size} AWX spend refs=${existingSpendRefs.size}`);
+  const existingJournalRefs = new Set<string>();
+  for (let page = 1; ; page++) {
+    const bt = await xero('GET', `/BankTransactions?where=${encodeURIComponent('Type=="RECEIVE"')}&page=${page}`);
+    const list = bt.BankTransactions || [];
+    for (const b of list) if (b.Reference?.startsWith('AWXG:')) existingJournalRefs.add(b.Reference);
+    if (list.length < 100) break;
+    await sleep(1100);
+  }
+  console.log(`existing in Xero: transfers=${existingTransfers.size} AWX spend refs=${existingSpendRefs.size} AWX journals=${existingJournalRefs.size}`);
 
   // ---- 4. Replay AWX journals ----
-  const txns: any[] = JSON.parse(fs.readFileSync(`${SP}/airwallex-txns.json`, 'utf8'));
-  const mapping: Record<string, { customerName: string }> = JSON.parse(fs.readFileSync('scripts/airwallex-topup-mapping.json', 'utf8'));
   const settled = txns.filter(t => t.status === 'Settled');
-  let transfers = 0, spends = 0, skipped = 0, failed = 0;
+  let transfers = 0, spends = 0, skipped = 0, failed = 0, journals = 0;
   const spendBatch: any[] = [];
 
   for (const t of settled) {
@@ -141,15 +158,38 @@ async function main() {
       const aimsName = `Customer Deposit-${cust}`;
       const depId = xeroDepId.get(aimsName);
       if (!depId) { failed++; console.log(`  ✗ no Xero account for ${aimsName}`); continue; }
-      const key = `${day}|${R(t.amount)}|${depId}|${airwallex.AccountID}`;
-      if (!existingTransfers.has(key)) {
-        if (DRY) console.log(`  [dry] transfer ${cust} → Airwallex ${R(t.amount)} ${day}`);
+      const xeroName = (NAME_ALIAS[aimsName] || aimsName).trim();
+      if (JOURNAL_ONLY.has(xeroName)) {
+        // Deposit account isn't BANK type in Xero, so the gross leg goes in as
+        // a manual journal: Dr Airwallex / Cr Customer Deposit-X.
+        // Xero rejects manual journals that touch a bank account, so the
+        // gross leg is a RECEIVE against Airwallex coded to the deposit
+        // account: Dr Airwallex / Cr Customer Deposit-X. Ref AWXG: keeps it
+        // distinct from the AWX: fee spend on the same ftxId.
+        if (existingJournalRefs.has(`AWXG:${t.ftxId}`)) { skipped++; }
+        else if (DRY) console.log(`  [dry] RECEIVE ${cust} → Airwallex ${R(t.amount)} ${day} (Xero acct is CURRENT_ASSET)`);
         else {
-          await xero('PUT', '/BankTransfers', { BankTransfers: [{ FromBankAccount: { AccountID: depId }, ToBankAccount: { AccountID: airwallex.AccountID }, Amount: R(t.amount), Date: day }] });
-          transfers++;
+          await xero('PUT', '/BankTransactions', { BankTransactions: [{
+            Type: 'RECEIVE',
+            Contact: { Name: cust },
+            BankAccount: { AccountID: airwallex.AccountID },
+            Date: day, Reference: `AWXG:${t.ftxId}`, LineAmountTypes: 'NoTax',
+            LineItems: [{ Description: `Airwallex top-up — ${cust}`, Quantity: 1, UnitAmount: R(t.amount), AccountCode: depAcctCode.get(xeroName), TaxType: 'NONE' }],
+          }] });
+          journals++;
           await sleep(1100);
         }
-      } else skipped++;
+      } else {
+        const key = `${day}|${R(t.amount)}|${depId}|${airwallex.AccountID}`;
+        if (!existingTransfers.has(key)) {
+          if (DRY) console.log(`  [dry] transfer ${cust} → Airwallex ${R(t.amount)} ${day}`);
+          else {
+            await xero('PUT', '/BankTransfers', { BankTransfers: [{ FromBankAccount: { AccountID: depId }, ToBankAccount: { AccountID: airwallex.AccountID }, Amount: R(t.amount), Date: day }] });
+            transfers++;
+            await sleep(1100);
+          }
+        } else skipped++;
+      }
       if (t.fee > 0 && !existingSpendRefs.has(`AWX:${t.ftxId}`)) {
         spendBatch.push({ ref: `AWX:${t.ftxId}`, date: day, amount: R(t.fee), desc: `Airwallex PayNow fee (1% + $0.50) on $${t.amount.toFixed(2)} top-up — ${cust}` });
       }
@@ -176,6 +216,6 @@ async function main() {
     }
     await sleep(1500);
   }
-  console.log(`\nDONE: transfers=${transfers} spends=${spends} skipped(existing)=${skipped} failed=${failed}`);
+  console.log(`\nDONE: transfers=${transfers} journals=${journals} spends=${spends} skipped(existing)=${skipped} failed=${failed}`);
 }
 main().catch(e => { console.error('FATAL', e?.message || e); process.exit(1); }).finally(() => prisma.$disconnect());

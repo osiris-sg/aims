@@ -113,6 +113,30 @@ export class BankRecController {
     return this.service.manualMatch(requireOrgId(req), lineId, body.journalLineIds ?? body.journalLineId ?? [], req.auth?.userId);
   }
 
+  // Open documents this line could settle (money in → unpaid invoices,
+  // money out → unpaid bills). Reconciling against one CREATES the payment.
+  @Get('lines/:lineId/document-candidates')
+  @Permissions('bankrec:read')
+  documentCandidates(
+    @Req() req: RequestWithOrganization,
+    @Param('lineId') lineId: string,
+    @Query('search') search?: string,
+  ) {
+    return this.service.documentCandidates(requireOrgId(req), lineId, search);
+  }
+
+  // Settle open documents from the statement line: records the payment(s)
+  // through the standard payment services, then self-links the new journals.
+  @Post('lines/:lineId/settle')
+  @Permissions('bankrec:create')
+  settle(
+    @Req() req: RequestWithOrganization,
+    @Param('lineId') lineId: string,
+    @Body() body: { allocations: Array<{ documentId: string; amount: number }> },
+  ) {
+    return this.service.settle(requireOrgId(req), lineId, body?.allocations || [], req.auth?.userId);
+  }
+
   @Post('lines/:lineId/confirm')
   @Permissions('bankrec:create')
   confirm(@Req() req: RequestWithOrganization, @Param('lineId') lineId: string) {

@@ -40,7 +40,7 @@ const VERB_ACTIONS: Record<string, string> = {
   'confirm-do': 'CONFIRM', 'confirm-invoice': 'CONFIRM', 'confirm-pr': 'CONFIRM',
   'bulk-complete-do': 'CONFIRM', approve: 'APPROVE', reject: 'REJECT', submit: 'SUBMIT',
   void: 'VOID', post: 'POST_GL', 'post-batch': 'POST_GL', confirm: 'CONFIRM',
-  'send-email': 'SEND', 'sync-to-xero': 'SYNC', duplicate: 'DUPLICATE',
+  'send-email': 'SEND', 'sync-to-xero': 'SYNC', 'confirm-from-xero': 'CONFIRM', duplicate: 'DUPLICATE',
   revisions: 'CREATE_REVISION', notes: 'NOTE', sign: 'SIGN', 'generate-pdf': 'EXPORT',
   'run-due': 'RUN', run: 'RUN', 'generate-now': 'RUN', cancel: 'CANCEL', assign: 'ASSIGN',
   'link-project': 'LINK', link: 'LINK', 'claim-scheduled': 'CLAIM', 'ack-all': 'ACKNOWLEDGE',
@@ -54,6 +54,9 @@ const VERB_ACTIONS: Record<string, string> = {
   handoff: 'HANDOFF', 'cancel-handoff': 'CANCEL_HANDOFF',
   revoke: 'REVOKE', activate: 'ACTIVATE', deactivate: 'DEACTIVATE',
   'auto-match': 'MATCH', match: 'MATCH', unmatch: 'UNMATCH', ignore: 'IGNORE',
+  // Bank-rec statement-driven settlement: POST lines/:id/settle creates the
+  // payment(s) for open invoices/bills and reconciles the line.
+  settle: 'SETTLE',
   'log-edit-unlock': 'UNLOCK',
   // Schedule assistant (CIEL): POST .../schedule/assist parses only (no writes);
   // .../schedule/assist/apply performs the approved changes. Same shape for

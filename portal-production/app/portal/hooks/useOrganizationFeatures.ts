@@ -97,6 +97,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // A maintenance date per asset, which deployed units are done this cycle, and
   // a reminder 7 days before (push to field techs + office bell). Default OFF.
   enableMaintenanceDates: false,
+  // Push a document to Xero on confirm, rather than by manual sync. Default OFF.
+  enableXeroConfirmSync: false,
   // NOTE: the "AIMS Guide" assistant (bottom-right bubble) is deliberately
   // NOT flagged — it's global for every org (guru, 2026-08-03).
 };

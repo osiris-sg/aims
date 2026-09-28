@@ -2,6 +2,7 @@ import { DeliveriesService } from '../deliveries/deliveries.service';
 import { Injectable, Logger } from '@nestjs/common';
 import type Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
+import { XeroSyncService } from '../xero-sync/xero-sync.service';
 import { AuditService } from '../common/audit.service';
 import { CustomersService } from '../customers/customers.service';
 import { AssetsService } from '../assets/assets.service';
@@ -98,6 +99,7 @@ export class OperatorToolsService {
     private readonly leads: LeadsService,
     private readonly deliveries: DeliveriesService,
     private readonly publicDocuments: PublicDocumentService,
+    private readonly xeroSync: XeroSyncService,
     private readonly s3: S3Service,
     private readonly auth: OperatorAuthService,
   ) {}
@@ -228,6 +230,28 @@ export class OperatorToolsService {
 
   private tools(): ToolDef[] {
     return [
+      {
+        name: 'confirm_invoices_from_xero',
+        description:
+          "Pull Xero's invoice approvals back into AIMS: for every invoice the accountant has AUTHORISED or PAID in Xero, match the AIMS totals to Xero, mark the AIMS document paid/pending payment, and void AIMS's own duplicate journal so the GL does not count it twice. Line items are never rewritten — differences come back as a mismatch list to read out. Use when asked to 'confirm the invoices from Xero', 'sync the approvals', or after the accountant says they have approved a batch. Pass dryRun:true first when the user wants to see what would change.",
+        permissions: ['xerosync:create'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            dryRun: { type: 'boolean', description: 'Report what would change without writing anything.' },
+          },
+        },
+        run: async (ctx, { dryRun }) => {
+          const r = await this.xeroSync.confirmFromXero(ctx.organizationId, { dryRun: !!dryRun });
+          return {
+            result: {
+              ...r,
+              summary: `${r.dryRun ? 'Would confirm' : 'Confirmed'} ${r.confirmed} invoice(s) · ${r.retotalled} re-totalled to Xero · ${r.journalsVoided} duplicate journal(s) voided · ${r.mismatches.length} mismatch(es) to check`,
+            },
+          };
+        },
+      },
+
       {
         name: 'find_customer',
         description: 'Search customers in this organization by name, code, email or phone. Use before creating any document.',

@@ -3,6 +3,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
 import { JournalService } from '../journal/journal.service';
 import { AuditService } from '../common/audit.service';
+import { PaymentsService } from '../payments/payments.service';
+import { BillsService } from '../bills/bills.service';
 
 // ---------------------------------------------------------------------------
 // Bank reconciliation engine.
@@ -41,6 +43,8 @@ export class BankRecService {
     private readonly prisma: PrismaService,
     private readonly journal: JournalService,
     private readonly auditService: AuditService,
+    private readonly payments: PaymentsService,
+    private readonly bills: BillsService,
   ) {}
 
   // Reconciliation actions are audit-trail material (guru 2026-08-27: a match
@@ -576,6 +580,206 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
       },
     });
     this.logRec(organizationId, userId, 'MATCHED', this.lineLabel(line), `Statement line matched to ${ids.length} journal line${ids.length === 1 ? '' : 's'}`, lineId);
+    return updated;
+  }
+
+  // ---------- Statement-driven settlement (guru 2026-09-28, Xero-style) ----
+  // Instead of matching only EXISTING journals, a statement line can settle
+  // open documents directly: money IN → unpaid invoices, money OUT → unpaid
+  // bills. Reconciling creates the payment through the SAME services the
+  // Mark-as-Paid / Record-payment flows use, so AR/AP, statuses and reports
+  // stay on one settlement path — then self-links the new bank-side journal
+  // line as the match (exactly like Post-as-new does).
+
+  async documentCandidates(organizationId: string, lineId: string, search?: string) {
+    const line = await this.prisma.bankStatementLine.findFirst({ where: { id: lineId, organizationId } });
+    if (!line) throw new NotFoundException('Statement line not found');
+    const moneyIn = line.amount > 0;
+    const target = Math.abs(ROUND(line.amount));
+    const q = (search || '').trim().toLowerCase();
+
+    type DocCand = {
+      documentId: string; number: string; contactName: string | null; contactId: string | null;
+      date: string | null; total: number; outstanding: number; kind: 'INVOICE' | 'BILL';
+    };
+    const out: DocCand[] = [];
+
+    if (moneyIn) {
+      // Open invoices (awaiting payment / partially paid). Outstanding comes
+      // from config.xeroBalance — the live balance updateInvoiceStatusAfterPayment
+      // maintains — falling back to gross minus recorded payments.
+      const docs = await this.prisma.document.findMany({
+        where: { organizationId, type: { in: ['INVOICE', 'TI', 'TI2'] }, status: { in: ['confirmed', 'pending_payment'] as any } },
+        select: { id: true, name: true, config: true },
+      });
+      const custIds = [...new Set(docs.map((d) => (d.config as any)?.customer?.id ?? (d.config as any)?.customerId).filter(Boolean))];
+      const custs = new Map(
+        (await this.prisma.customer.findMany({ where: { id: { in: custIds } }, select: { id: true, name: true } })).map((c) => [c.id, c.name]),
+      );
+      for (const d of docs) {
+        const c: any = d.config || {};
+        const di: any = c.documentInfo || {};
+        const gross = parseFloat(c.xeroGross ?? di.nettTotal ?? c.nettTotal ?? c.totalAmount ?? 'NaN');
+        if (!Number.isFinite(gross) || gross <= 0) continue;
+        const paid = Number(c.xeroAmountPaid ?? 0) || 0;
+        const outstanding = ROUND(Number.isFinite(Number(c.xeroBalance)) ? Number(c.xeroBalance) : gross - paid);
+        if (outstanding < 0.005) continue;
+        const custId = c.customer?.id ?? c.customerId ?? null;
+        out.push({
+          documentId: d.id, number: d.name || '', contactName: c.customer?.name ?? (custId ? custs.get(custId) ?? null : null),
+          contactId: custId, date: c.date ?? null, total: ROUND(gross), outstanding, kind: 'INVOICE',
+        });
+      }
+    } else {
+      // Open bills (awaiting payment). SPRs are credits — excluded.
+      const docs = await this.prisma.document.findMany({
+        where: { organizationId, type: 'BILL' },
+        select: { id: true, name: true, status: true, config: true },
+      });
+      const supIds = [...new Set(docs.map((d) => (d.config as any)?.supplierId).filter(Boolean))];
+      const sups = new Map(
+        (await this.prisma.supplier.findMany({ where: { id: { in: supIds } }, select: { id: true, name: true } })).map((s) => [s.id, s.name]),
+      );
+      for (const d of docs) {
+        const c: any = d.config || {};
+        if (c.kind === 'SPR') continue;
+        const billStatus = c.billStatus || (c.xeroStatus === 'AUTHORISED' ? 'POSTED' : null);
+        if (billStatus !== 'POSTED') continue;
+        const total = ROUND(Number(c.totalAmount ?? c.xeroGross ?? 0) || 0);
+        if (total <= 0) continue;
+        const paid = Number(c.amountPaid ?? c.xeroAmountPaid ?? 0) || 0;
+        const outstanding = ROUND(total - paid);
+        if (outstanding < 0.005) continue;
+        out.push({
+          documentId: d.id, number: d.name || '', contactName: c.supplierId ? sups.get(c.supplierId) ?? null : null,
+          contactId: c.supplierId ?? null, date: c.billDate ?? c.date ?? null, total, outstanding, kind: 'BILL',
+        });
+      }
+    }
+
+    let rows = out;
+    if (q) {
+      rows = rows.filter((r) => r.number.toLowerCase().includes(q) || (r.contactName || '').toLowerCase().includes(q));
+    }
+    // Exact-outstanding matches first, then nearest amount, then newest.
+    rows.sort((a, b) => {
+      const ax = Math.abs(a.outstanding - target) < 0.005 ? 0 : 1;
+      const bx = Math.abs(b.outstanding - target) < 0.005 ? 0 : 1;
+      if (ax !== bx) return ax - bx;
+      const ad = Math.abs(a.outstanding - target) - Math.abs(b.outstanding - target);
+      if (Math.abs(ad) > 0.005) return ad;
+      return (b.date || '').localeCompare(a.date || '');
+    });
+    return { line: { id: line.id, amount: line.amount, date: line.date }, candidates: rows.slice(0, 100) };
+  }
+
+  async settle(
+    organizationId: string,
+    lineId: string,
+    allocations: Array<{ documentId: string; amount: number }>,
+    userId?: string,
+  ) {
+    const allocs = (allocations || []).filter((a) => a?.documentId && Number(a.amount) > 0);
+    if (!allocs.length) throw new BadRequestException('Pick at least one document to settle');
+    const line = await this.prisma.bankStatementLine.findFirst({ where: { id: lineId, organizationId } });
+    if (!line) throw new NotFoundException('Statement line not found');
+    if (line.status !== 'PENDING') throw new BadRequestException(`Line is ${line.status} — unmatch first`);
+    const target = Math.abs(ROUND(line.amount));
+    const sum = ROUND(allocs.reduce((s, a) => s + Number(a.amount), 0));
+    if (Math.abs(sum - target) > 0.005) {
+      throw new BadRequestException(`Allocations (${sum.toFixed(2)}) must equal the statement amount (${target.toFixed(2)})`);
+    }
+    const bankAccount = await this.prisma.chartOfAccount.findFirst({ where: { id: line.bankAccountId, organizationId } });
+    if (!bankAccount) throw new BadRequestException('Bank account not found');
+
+    const moneyIn = line.amount > 0;
+    const matchedJournalLineIds: string[] = [];
+    const settledNumbers: string[] = [];
+
+    for (const alloc of allocs) {
+      if (moneyIn) {
+        const doc = await this.prisma.document.findFirst({
+          where: { id: alloc.documentId, organizationId, type: { in: ['INVOICE', 'TI', 'TI2'] } },
+          select: { id: true, name: true, config: true },
+        });
+        if (!doc) throw new BadRequestException('Invoice not found');
+        const cfg: any = doc.config || {};
+        const customerId = cfg.customer?.id ?? cfg.customerId;
+        if (!customerId) throw new BadRequestException(`${doc.name}: invoice has no customer — settle it from the invoice screen instead`);
+        const res: any = await this.payments.create(
+          {
+            documentId: doc.id,
+            customerId,
+            amount: ROUND(Number(alloc.amount)),
+            paymentDate: new Date(line.date).toISOString(),
+            paymentMethod: 'BANK_TRANSFER',
+            reference: line.reference || undefined,
+            notes: `Bank reconciliation — ${String(line.description || '').slice(0, 140)}`,
+            cashAccountCode: bankAccount.code,
+          } as any,
+          organizationId,
+          userId || 'bank-rec',
+        );
+        settledNumbers.push(doc.name || doc.id);
+        const paymentId = res?.data?.id;
+        const je = paymentId
+          ? await this.prisma.journalEntry.findFirst({
+              where: { organizationId, sourcePaymentId: paymentId, status: { not: 'VOID' } },
+              include: { lines: true },
+            })
+          : null;
+        const bankLine = je?.lines.find((l) => l.accountId === line.bankAccountId && Number(l.debit) > 0);
+        if (bankLine) matchedJournalLineIds.push(bankLine.id);
+      } else {
+        const bp: any = await this.bills.recordPayment(
+          organizationId,
+          alloc.documentId,
+          {
+            amount: ROUND(Number(alloc.amount)),
+            paymentDate: new Date(line.date).toISOString(),
+            paymentMethod: 'BANK_TRANSFER',
+            bankAccountId: line.bankAccountId,
+            reference: line.reference || undefined,
+            notes: `Bank reconciliation — ${String(line.description || '').slice(0, 140)}`,
+          },
+          userId || 'bank-rec',
+        );
+        settledNumbers.push(alloc.documentId);
+        if (bp?.journalEntryId) {
+          const bankLine = await this.prisma.journalEntryLine.findFirst({
+            where: { journalEntryId: bp.journalEntryId, accountId: line.bankAccountId },
+          });
+          if (bankLine) matchedJournalLineIds.push(bankLine.id);
+        }
+      }
+    }
+
+    // Self-link the new payment journals as this line's match. If the GL post
+    // failed (missing control accounts) the payments still exist — surface it
+    // rather than leaving a half-linked line.
+    if (matchedJournalLineIds.length === 0) {
+      throw new BadRequestException(
+        'Payments were recorded but their journals could not be found — check Accounting Setup control accounts, then match this line manually.',
+      );
+    }
+    const updated = await this.prisma.bankStatementLine.update({
+      where: { id: lineId },
+      data: {
+        status: 'MATCHED',
+        matchedJournalLineId: matchedJournalLineIds.length === 1 ? matchedJournalLineIds[0] : null,
+        matchedAt: new Date(),
+        matchedBy: userId,
+        matches: { create: matchedJournalLineIds.map((journalLineId) => ({ organizationId, journalLineId, createdBy: userId })) },
+      },
+    });
+    this.logRec(
+      organizationId,
+      userId,
+      'SETTLED',
+      this.lineLabel(line),
+      `Settled ${allocs.length} document${allocs.length === 1 ? '' : 's'} (${settledNumbers.join(', ')}) — payment${allocs.length === 1 ? '' : 's'} created + matched`,
+      lineId,
+    );
     return updated;
   }
 
