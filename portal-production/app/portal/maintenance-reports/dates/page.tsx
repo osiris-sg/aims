@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
   Alert,
@@ -70,6 +70,9 @@ interface AssetRow {
 
 export default function MaintenanceDatesPage() {
   const router = useRouter();
+  // ?due=YYYY-MM-DD: the grouped reminder bell ("Maintenance due for N assets
+  // on <date>") links here, showing only the assets due that day.
+  const dueFilter = useSearchParams()?.get("due") ?? null;
   const { getToken } = useAuth();
   const { isMaintenanceDatesEnabled, isLoading: featuresLoading } = useOrganizationFeatures();
   const [rows, setRows] = useState<AssetRow[]>([]);
@@ -143,6 +146,7 @@ export default function MaintenanceDatesPage() {
   };
 
   const assetOf = (r: AssetRow): MaintenanceAssetOption => ({ id: r.assetId, name: r.assetName, skuKey: r.skuKey });
+  const shown = dueFilter ? rows.filter((r) => r.schedule?.dueDate === dueFilter) : rows;
 
   if (!featuresLoading && !isMaintenanceDatesEnabled) {
     return (
@@ -179,6 +183,15 @@ export default function MaintenanceDatesPage() {
         fullWidth
       />
 
+      {dueFilter && (
+        <Box>
+          <Chip
+            color="info"
+            label={`Due ${fmtDay(dueFilter)} (${shown.length} ${shown.length === 1 ? "asset" : "assets"})`}
+            onDelete={() => router.replace("/portal/maintenance-reports/dates")}
+          />
+        </Box>
+      )}
       {error && <Alert severity="error">{error}</Alert>}
       {actionMsg && (
         <Alert severity={actionMsg.severity} onClose={() => setActionMsg(null)}>
@@ -209,14 +222,18 @@ export default function MaintenanceDatesPage() {
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
-            ) : rows.length === 0 ? (
+            ) : shown.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} align="center" sx={{ py: 6, color: "text.secondary" }}>
-                  {search ? "No assets match this search." : "No deployed assets or maintenance dates yet."}
+                  {dueFilter
+                    ? `No assets are due on ${fmtDay(dueFilter)}.`
+                    : search
+                      ? "No assets match this search."
+                      : "No deployed assets or maintenance dates yet."}
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((r) => {
+              shown.map((r) => {
                 const days = r.schedule && today ? daysUntil(r.schedule.dueDate, today) : null;
                 return (
                   <TableRow

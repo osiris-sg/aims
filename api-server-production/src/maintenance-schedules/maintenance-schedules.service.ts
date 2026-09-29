@@ -50,6 +50,8 @@ function fmtDate(ymd: string): string {
 export type RepeatUnit = 'WEEK' | 'MONTH';
 const REPEAT_UNITS: RepeatUnit[] = ['WEEK', 'MONTH'];
 const MAX_REPEAT_EVERY = 24;
+/** Most assets one batch can schedule. */
+const MAX_BATCH_ASSETS = 200;
 
 function daysInMonth(y: number, m: number): number {
   // m is 1..12; day 0 of the next month is the last day of this one.
@@ -101,6 +103,8 @@ interface RemindResult {
   dueDate: string;
   units: number;
   via: 'daily-job' | 'instant';
+  /** Size of the grouped reminder this schedule went out in (absent when single). */
+  grouped?: number;
 }
 
 interface LastReport {
@@ -378,20 +382,21 @@ export class MaintenanceSchedulesService {
     return s ? s.slice(0, 2000) : null;
   }
 
-  async create(
+  /**
+   * Create ONE schedule (or the first occurrence of a series) for one asset,
+   * under the per-asset advisory lock and the one-upcoming-date rule. Throws a
+   * BadRequest with a readable reason when the asset already has a date.
+   * No reminder here: create / createBatch decide how to remind.
+   */
+  private async createOne(
     organizationId: string,
     userId: string | null,
-    body: { assetId?: string; dueDate?: string; notes?: string; repeat?: { every?: number; unit?: string } | null },
+    assetId: string,
+    due: string,
+    notes: string | null,
+    repeat: { every: number; unit: RepeatUnit } | null | undefined,
   ) {
-    await this.assertEnabled(organizationId);
-    const assetId = String(body?.assetId ?? '').trim();
-    if (!assetId) throw new BadRequestException('Pick an asset.');
-    const due = this.parseDate(body?.dueDate);
-    const repeat = this.parseRepeat(body?.repeat);
-    const asset = await this.prisma.asset.findFirst({ where: { id: assetId, organizationId, deletedAt: null }, select: { id: true } });
-    if (!asset) throw new NotFoundException('Asset not found');
     const today = sgtToday();
-
     // One active date per asset. The advisory lock serialises two office users
     // scheduling the same asset at once, so the check-then-insert cannot race.
     return this.prisma.$transaction(async (tx) => {
@@ -410,13 +415,91 @@ export class MaintenanceSchedulesService {
           organizationId,
           assetId,
           dueDate: dateOnly(due),
-          notes: this.cleanNotes(body?.notes),
+          notes,
           createdByUserId: userId,
           // A repeating date starts a series; a one-off has none.
           ...(repeat ? { repeatEvery: repeat.every, repeatUnit: repeat.unit, seriesId: randomUUID() } : {}),
         },
       });
-    }).then((row) => this.remindIfDueSoon(row.id));
+    });
+  }
+
+  async create(
+    organizationId: string,
+    userId: string | null,
+    body: { assetId?: string; dueDate?: string; notes?: string; repeat?: { every?: number; unit?: string } | null },
+  ) {
+    await this.assertEnabled(organizationId);
+    const assetId = String(body?.assetId ?? '').trim();
+    if (!assetId) throw new BadRequestException('Pick an asset.');
+    const due = this.parseDate(body?.dueDate);
+    const repeat = this.parseRepeat(body?.repeat);
+    const asset = await this.prisma.asset.findFirst({ where: { id: assetId, organizationId, deletedAt: null }, select: { id: true } });
+    if (!asset) throw new NotFoundException('Asset not found');
+    const row = await this.createOne(organizationId, userId, assetId, due, this.cleanNotes(body?.notes), repeat);
+    return this.remindIfDueSoon(row.id);
+  }
+
+  /**
+   * Schedule several assets at once: one date + optional repeat + notes, one
+   * schedule (or series) per asset, each under the same rules as a single
+   * create. Partial success is allowed: every asset gets its own result. The
+   * ones created inside the reminder window share ONE grouped reminder (one
+   * push + one office bell) instead of one per asset.
+   */
+  async createBatch(
+    organizationId: string,
+    userId: string | null,
+    body: { assetIds?: string[]; dueDate?: string; notes?: string; repeat?: { every?: number; unit?: string } | null },
+  ) {
+    await this.assertEnabled(organizationId);
+    const ids = [...new Set((Array.isArray(body?.assetIds) ? body.assetIds : []).map((x) => String(x ?? '').trim()).filter(Boolean))];
+    if (!ids.length) throw new BadRequestException('Pick at least one asset.');
+    if (ids.length > MAX_BATCH_ASSETS) throw new BadRequestException(`Pick at most ${MAX_BATCH_ASSETS} assets at a time.`);
+    const due = this.parseDate(body?.dueDate);
+    const repeat = this.parseRepeat(body?.repeat);
+    const notes = this.cleanNotes(body?.notes);
+    const assets = await this.prisma.asset.findMany({
+      where: { id: { in: ids }, organizationId, deletedAt: null },
+      select: { id: true, name: true },
+    });
+    const nameOf = new Map(assets.map((a) => [a.id, a.name]));
+
+    const results: Array<{ assetId: string; assetName: string | null; ok: boolean; schedule?: any; error?: string }> = [];
+    const created: any[] = [];
+    for (const assetId of ids) {
+      const assetName = nameOf.get(assetId) ?? null;
+      if (!assetName) {
+        results.push({ assetId, assetName, ok: false, error: 'Asset not found' });
+        continue;
+      }
+      try {
+        const row = await this.createOne(organizationId, userId, assetId, due, notes, repeat);
+        created.push(row);
+        results.push({ assetId, assetName, ok: true, schedule: row });
+      } catch (e: any) {
+        results.push({ assetId, assetName, ok: false, error: e?.response?.message ?? e?.message ?? 'Could not schedule' });
+      }
+    }
+
+    // One grouped instant reminder for everything created inside the window.
+    const soon = created.filter((r) => this.inReminderWindow(r.dueDate));
+    if (soon.length) {
+      try {
+        await this.remindRows(soon, new Date(), 'instant');
+      } catch (e: any) {
+        this.logger.warn(`instant batch reminder failed: ${e?.message}`);
+      }
+    }
+    const fresh = created.length
+      ? new Map((await this.prisma.maintenanceSchedule.findMany({ where: { id: { in: created.map((r) => r.id) } } })).map((r) => [r.id, r]))
+      : new Map();
+    return {
+      dueDate: due,
+      scheduled: results.filter((r) => r.ok).length,
+      failed: results.filter((r) => !r.ok).length,
+      results: results.map((r) => (r.ok ? { ...r, schedule: this.scheduleDto(fresh.get(r.schedule.id) ?? r.schedule) } : r)),
+    };
   }
 
   private async activeRow(organizationId: string, id: string) {
@@ -614,7 +697,7 @@ export class MaintenanceSchedulesService {
   /**
    * Remind every live schedule whose dueDate is 0 to 7 days away (Singapore
    * date) and has not been reminded: a push to the org's field techs and an
-   * office bell (MAINTENANCE_DUE), linking to the asset, through remindOne.
+   * office bell (MAINTENANCE_DUE), linking to the asset, through remindRows (grouped by org + date).
    * Idempotent: each row is CLAIMED (remindedAt set where it is still null)
    * before anything is sent, so a second run, a second instance, or a date
    * already reminded instantly on create / edit sends nothing. The bell is also
@@ -627,20 +710,19 @@ export class MaintenanceSchedulesService {
       where: { cancelledAt: null, remindedAt: null, dueDate: { gte: dateOnly(today), lte: dateOnly(horizon) } },
       orderBy: { dueDate: 'asc' },
     });
-    const sent: RemindResult[] = [];
     const flagCache = new Map<string, boolean>();
-
+    const eligible: typeof due = [];
     for (const s of due) {
       let on = flagCache.get(s.organizationId);
       if (on === undefined) {
         on = await isOrgFeatureEnabled(this.prisma, s.organizationId, MAINTENANCE_DATES_FLAG);
         flagCache.set(s.organizationId, on);
       }
-      if (!on) continue;
-
-      const r = await this.remindOne(s, now, 'daily-job');
-      if (r) sent.push(r);
+      if (on) eligible.push(s);
     }
+    // Grouped by org + due date inside remindRows: several assets due the same
+    // day get ONE push and ONE bell.
+    const sent: RemindResult[] = await this.remindRows(eligible, now, 'daily-job');
 
     this.logger.log(`maintenance reminders: ${sent.length} sent (${due.length} candidate(s), ${today}..${horizon})`);
     return { today, horizon, candidates: due.length, sent };
@@ -654,70 +736,112 @@ export class MaintenanceSchedulesService {
   }
 
   /**
-   * THE reminder, shared by the daily job and the instant send so the message
+   * THE reminder, shared by the daily job and the instant sends so the message
    * and the order are identical: CLAIM first (remindedAt set only where it is
-   * still null, on a live row), THEN push to field techs + office bell + one
-   * Activity Log system row. A lost claim returns null and sends nothing, so
-   * the job, an instant send and a second instance can never double-send.
-   * Push and bell are best-effort and never throw.
+   * still null, on a live row), THEN send. A lost claim sends nothing, so the
+   * job, an instant send and a second instance can never double-send.
+   *
+   * Claimed rows are grouped by org + due date. A group of one keeps the
+   * single-asset wording; a bigger group sends ONE push and ONE office bell
+   * ("Maintenance due for N assets on <date>", the assets listed in the bell,
+   * linking to Maintenance Dates filtered to that date). Every schedule still
+   * gets its own Activity Log row. Push and bell are best-effort, never throw.
    */
-  private async remindOne(
-    s: { id: string; organizationId: string; assetId: string; dueDate: Date; notes: string | null },
+  private async remindRows(
+    rows: Array<{ id: string; organizationId: string; assetId: string; dueDate: Date; notes: string | null }>,
     now: Date,
     via: 'daily-job' | 'instant',
-  ): Promise<RemindResult | null> {
-    const claim = await this.prisma.maintenanceSchedule.updateMany({
-      where: { id: s.id, remindedAt: null, cancelledAt: null },
-      data: { remindedAt: now },
-    });
-    if (claim.count !== 1) return null;
+  ): Promise<RemindResult[]> {
+    const claimed: typeof rows = [];
+    for (const s of rows) {
+      const claim = await this.prisma.maintenanceSchedule.updateMany({
+        where: { id: s.id, remindedAt: null, cancelledAt: null },
+        data: { remindedAt: now },
+      });
+      if (claim.count === 1) claimed.push(s);
+    }
+    const groups = new Map<string, typeof rows>();
+    for (const s of claimed) {
+      const key = `${s.organizationId}|${ymdOf(s.dueDate)}`;
+      groups.set(key, [...(groups.get(key) ?? []), s]);
+    }
+    const out: RemindResult[] = [];
+    for (const group of groups.values()) {
+      const organizationId = group[0].organizationId;
+      const dueYmd = ymdOf(group[0].dueDate);
+      const assets = await this.prisma.asset.findMany({ where: { id: { in: group.map((s) => s.assetId) } }, select: { id: true, name: true } });
+      const nameOf = new Map(assets.map((a) => [a.id, a.name]));
+      const lines: Array<{ s: (typeof rows)[number]; name: string; units: number }> = [];
+      for (const s of group) {
+        lines.push({ s, name: nameOf.get(s.assetId) ?? 'an asset', units: (await this.deployedUnits(organizationId, s.assetId)).length });
+      }
+      const unitsText = (n: number) => `${n} unit${n === 1 ? '' : 's'} deployed`;
 
-    const asset = await this.prisma.asset.findFirst({ where: { id: s.assetId }, select: { name: true } });
-    const units = (await this.deployedUnits(s.organizationId, s.assetId)).length;
-    const dueYmd = ymdOf(s.dueDate);
-    const assetName = asset?.name ?? 'an asset';
-    const unitsText = `${units} unit${units === 1 ? '' : 's'} deployed`;
-    const message = `Maintenance due for ${assetName} on ${fmtDate(dueYmd)}, ${unitsText}`;
-    const linkUrl = `/portal/maintenance-reports/dates/${s.assetId}`;
-
-    // Same channel as a new scheduled delivery: push to every field tech.
-    // Both calls are best-effort and never throw.
-    await this.push.sendToFieldTechs(s.organizationId, {
-      title: 'Maintenance due',
-      body: `${assetName} on ${fmtDate(dueYmd)}, ${unitsText}`,
-      data: { kind: 'MAINTENANCE_DUE', scheduleId: s.id, assetId: s.assetId, dueDate: dueYmd },
-    });
-    await this.notifications.emit({
-      organizationId: s.organizationId,
-      kind: 'MAINTENANCE_DUE',
-      title: message,
-      body: s.notes ?? null,
-      entityType: 'maintenance-schedule',
-      // Keyed by schedule AND date: the bell is unique per (user, kind,
-      // entityId), so a re-dated schedule still gets a bell for its new date.
-      entityId: `${s.id}:${dueYmd}`,
-      linkUrl,
-    });
-    const result = { scheduleId: s.id, organizationId: s.organizationId, assetId: s.assetId, dueDate: dueYmd, units, via };
-    this.actionLog.system('maintenance-reminders', 'SEND', 'maintenance-schedules', {
-      organizationId: s.organizationId,
-      resourceId: s.id,
-      details: result,
-    });
-    return result;
+      if (group.length === 1) {
+        const { s, name, units } = lines[0];
+        // Same channel as a new scheduled delivery: push to every field tech.
+        await this.push.sendToFieldTechs(organizationId, {
+          title: 'Maintenance due',
+          body: `${name} on ${fmtDate(dueYmd)}, ${unitsText(units)}`,
+          data: { kind: 'MAINTENANCE_DUE', scheduleId: s.id, assetId: s.assetId, dueDate: dueYmd },
+        });
+        await this.notifications.emit({
+          organizationId,
+          kind: 'MAINTENANCE_DUE',
+          title: `Maintenance due for ${name} on ${fmtDate(dueYmd)}, ${unitsText(units)}`,
+          body: s.notes ?? null,
+          entityType: 'maintenance-schedule',
+          // Keyed by schedule AND date: the bell is unique per (user, kind,
+          // entityId), so a re-dated schedule still gets a bell for its new date.
+          entityId: `${s.id}:${dueYmd}`,
+          linkUrl: `/portal/maintenance-reports/dates/${s.assetId}`,
+        });
+      } else {
+        const n = group.length;
+        const names = lines.map((l) => l.name);
+        const shown = names.slice(0, 5).join(', ') + (n > 5 ? ` and ${n - 5} more` : '');
+        const ids = group.map((s) => s.id).sort();
+        await this.push.sendToFieldTechs(organizationId, {
+          title: 'Maintenance due',
+          body: `${n} assets on ${fmtDate(dueYmd)}: ${shown}`,
+          data: { kind: 'MAINTENANCE_DUE', dueDate: dueYmd, count: String(n), scheduleIds: ids.join(',') },
+        });
+        await this.notifications.emit({
+          organizationId,
+          kind: 'MAINTENANCE_DUE',
+          title: `Maintenance due for ${n} assets on ${fmtDate(dueYmd)}`,
+          body: lines.map((l) => `${l.name} (${unitsText(l.units)})`).join('\n'),
+          entityType: 'maintenance-schedule-group',
+          // One bell per group; each schedule is claimed once, so the lowest
+          // id of the group can never head another group for the same date.
+          entityId: `grp:${dueYmd}:${ids[0]}`,
+          linkUrl: `/portal/maintenance-reports/dates?due=${dueYmd}`,
+        });
+      }
+      for (const { s, units } of lines) {
+        const result = { scheduleId: s.id, organizationId, assetId: s.assetId, dueDate: dueYmd, units, via, grouped: group.length > 1 ? group.length : undefined };
+        this.actionLog.system('maintenance-reminders', 'SEND', 'maintenance-schedules', {
+          organizationId,
+          resourceId: s.id,
+          details: result,
+        });
+        out.push(result);
+      }
+    }
+    return out;
   }
 
   /**
    * Instant reminder after a create or a date change: when the date is due
    * within the window and this date has not been reminded, send it now (same
-   * remindOne as the 08:52 job, which then skips it). Never fails the save.
+   * remindRows as the 08:52 job, which then skips it). Never fails the save.
    * Returns the schedule as stored after any send.
    */
   private async remindIfDueSoon(scheduleId: string) {
     let row = await this.prisma.maintenanceSchedule.findUnique({ where: { id: scheduleId } });
     if (row && !row.cancelledAt && !row.remindedAt && this.inReminderWindow(row.dueDate)) {
       try {
-        if (await this.remindOne(row, new Date(), 'instant')) {
+        if ((await this.remindRows([row], new Date(), 'instant')).length) {
           row = await this.prisma.maintenanceSchedule.findUnique({ where: { id: scheduleId } });
         }
       } catch (e: any) {

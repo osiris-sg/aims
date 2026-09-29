@@ -43,6 +43,18 @@ export class MaintenanceSchedulesController {
     return this.service.create(org.id, req.user?.id ?? null, body ?? {});
   }
 
+  // Schedule several assets at once: one date / repeat / notes, one schedule
+  // per asset, partial success with a result per asset.
+  @Post('batch')
+  @Permissions('documents:create-basic')
+  createBatch(
+    @Body() body: { assetIds?: string[]; dueDate?: string; notes?: string; repeat?: { every?: number; unit?: string } | null },
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    return this.service.createBatch(org.id, req.user?.id ?? null, body ?? {});
+  }
+
   @Patch(':id')
   @Permissions('documents:create-basic')
   update(
