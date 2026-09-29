@@ -113,7 +113,7 @@ export function renderIdVoBody(data: any, organization: any): string {
   <div class="panel">
     <h3>Payment Schedule</h3>
     <table class="kv">
-      ${cons.schedule.map((m: any) => `<tr><td>${escapeHtml(m.label || '')}</td><td class="v"><span class="stat ${m.collected ? 'ok' : 'pending'}">${m.collected ? 'COLLECTED' : 'PENDING'}</span></td></tr>`).join('')}
+      ${cons.schedule.map((m: any) => `<tr><td>${escapeHtml(m.label || '')}</td><td class="v" style="font-variant-numeric:tabular-nums;">${m.amount != null ? money(m.amount) : ''}</td><td class="v"><span class="stat ${m.collected ? 'ok' : 'pending'}">${m.collected ? 'COLLECTED' : 'PENDING'}</span></td></tr>`).join('')}
     </table>
   </div>`
     : '';

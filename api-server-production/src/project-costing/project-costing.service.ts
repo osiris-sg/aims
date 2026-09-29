@@ -1483,7 +1483,9 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
       newQuantum: previousQuantum + net,
       collected: summary.totals.collected,
       balance: previousQuantum + net - summary.totals.collected,
-      schedule: summary.milestones.filter((m: any) => m.kind === 'milestone').map((m: any) => ({ label: m.label, collected: num(m.amount) > 0 && num(m.paidAmount) >= num(m.amount) })),
+      // amount rides along so the printed sheet shows the dollar figure next
+      // to each phase, not just COLLECTED/PENDING (guru 2026-09-29).
+      schedule: summary.milestones.filter((m: any) => m.kind === 'milestone').map((m: any) => ({ label: m.label, amount: num(m.amount), paid: num(m.paidAmount), collected: num(m.amount) > 0 && num(m.paidAmount) >= num(m.amount) })),
     };
 
     const count = await this.prisma.projectMilestone.count({ where: { projectId: doc.projectId, organizationId } });
