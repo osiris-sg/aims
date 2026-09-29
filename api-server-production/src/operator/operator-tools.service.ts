@@ -137,6 +137,14 @@ const ACTION_CHIPS: Record<string, string> = {
   ERROR: 'ERROR',
 };
 
+/** A sales order's CUSTOMER PO, by the canonical reference key and its legacy
+ *  fallbacks (CLAUDE.md), else the SO's own number. */
+function soCustomerPo(config: any, fallback: string): string {
+  const c = config || {};
+  const v = c.documentInfo?.referenceNo || c.referenceNo || c.documentInfo?.reference || c.reference || c.xeroReference || c.poNo || c.customerPoNumber;
+  return String(v || '').trim() || fallback;
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -1749,7 +1757,7 @@ export class OperatorToolsService {
       {
         name: 'schedule_delivery',
         description:
-          'Schedule a REAL delivery run (the Deliveries module) from a staff message. Pass the pieces AS WRITTEN: when ("Tomorrow morning"), customer ("CNQC"), location ("lentor garten"), and each item line ("1 unit Lion 375"). The tool matches customer, project, catalog items and the open sales order itself, and returns EITHER a Confirm card (then STOP) OR questions to put to the user. Answer them by calling again with the same inputs plus customerId / projectId / items[{line, assetId}] or items[{line, freeTyped:true}] / saleOrderId / doContactId. Items carry NO prices. Only a SALES ORDER can be attached; quotations are refused. With no sales order the card says so and confirming saves a DRAFT run (no DO).',
+          'Schedule a REAL delivery run (the Deliveries module) from a staff message. Pass the pieces AS WRITTEN: when ("Tomorrow morning"), customer ("CNQC"), location ("lentor garten"), and each item line ("1 unit Lion 375"). The tool matches customer, project, catalog items and the open sales order itself, and returns EITHER a Confirm card (then STOP) OR questions to put to the user. Answer them by calling again with the same inputs plus customerId / projectId / items[{line, assetId}] or items[{line, freeTyped:true}] / saleOrderId / doContactId. Items carry NO prices. Pass every order or quotation number the user gives (saleOrderNumber, exactly as written) and let the tool check it: it explains an unknown number or a quotation to the user itself and warns about a sales order for another customer/project. With no sales order the card says so and confirming saves a DRAFT run (no DO).',
         permissions: ['documents:create-basic'],
         input_schema: {
           type: 'object',
@@ -1871,7 +1879,7 @@ export class OperatorToolsService {
       {
         name: 'attach_sales_order',
         description:
-          'Link a SALES ORDER to a DRAFT delivery run that was saved without one ("attach SO202609-0002 to delivery #12", or the SO number sent right after a draft was saved). The run then becomes a normal scheduled run and gets its delivery order, exactly as when the office completes it in Deliveries. Shows a Confirm card. Quotations are refused. For a delivery card that is still waiting for confirmation, call schedule_delivery again with saleOrderNumber instead.',
+          'Link a SALES ORDER to a DRAFT delivery run that was saved without one ("attach SO202609-0002 to delivery #12", or the SO number sent right after a draft was saved). The run then becomes a normal scheduled run and gets its delivery order, exactly as when the office completes it in Deliveries. Shows a Confirm card. Pass the number exactly as written: the tool checks it and explains an unknown number, a quotation or a mismatch itself. For a delivery card that is still waiting for confirmation, call schedule_delivery again with saleOrderNumber instead.',
         permissions: ['documents:create-basic'],
         input_schema: {
           type: 'object',
@@ -2308,7 +2316,9 @@ export class OperatorToolsService {
       `Customer PO: ${po.poNumber || '(not found on the PO)'}`,
       'Lines:',
       ...po.lines.map((l) => `• ${l.quantity} x ${l.description || l.code}${money(l.unitPrice)}`),
-      ...(mismatch ? [``, `⚠️ This PO is from ${po.customerName}, but the delivery is for ${customer.name}. Confirm only if it belongs to ${customer.name}.`] : []),
+      ...(mismatch
+        ? [``, `⚠️ This PO is from ${po.customerName}, not ${customer.name}.`, `Confirming creates the Sales Order under ${customer.name} and links it to this delivery.`]
+        : []),
       ``,
       target.kind === 'card'
         ? 'On confirm it is created in AIMS and linked to the delivery above.'
@@ -2332,6 +2342,59 @@ export class OperatorToolsService {
     };
   }
 
+  /**
+   * Why an existing sales order does not line up with a delivery: another
+   * customer, another project, catalog items the SO has no line for. Free-typed
+   * delivery lines never count as a mismatch on their own. Returns the problems
+   * and the warning text shown above the card (it still links on confirm).
+   */
+  private async soMismatch(
+    org: string,
+    doc: { id: string; name: string | null; config: any; projectId: string | null },
+    customer: { id: string; name: string },
+    project: { id: string; name: string } | null,
+    customerProjectIds: Set<string>,
+    lines: Array<{ quantity: number; asset: { id: string; name: string; skuKey: string | null } | null; text: string }>,
+  ): Promise<{ problems: string[]; text: string }> {
+    const cfg: any = doc.config || {};
+    const name = doc.name || 'This sales order';
+    const soCustomer = typeof cfg.customer === 'string' ? cfg.customer : cfg.customer?.name || cfg.customerName || null;
+    const soProject = doc.projectId
+      ? await this.prisma.project.findFirst({ where: { id: doc.projectId, organizationId: org }, select: { name: true } })
+      : null;
+    const problems: string[] = [];
+    const reasons: string[] = [];
+    if (!sameCustomer(customer, cfg) && !(doc.projectId && customerProjectIds.has(doc.projectId))) {
+      problems.push(`customer is ${soCustomer || '(none on the SO)'}, not ${customer.name}`);
+      reasons.push(`belongs to ${soCustomer || 'no customer'}, not ${customer.name}`);
+    }
+    if (doc.projectId && doc.projectId !== project?.id) {
+      problems.push(`project is ${soProject?.name || 'another project'}, not ${project?.name || '(none)'}`);
+      reasons.push(`is for project ${soProject?.name || 'another project'}, not ${project?.name || 'this delivery (no project)'}`);
+    }
+    const soLines: any[] = [...(cfg.items || []), ...(cfg.documentInfo?.items || [])];
+    const uncovered = lines.filter((l) => l.asset && !soLines.some((li) => orderLineCovers(li, l.asset!)));
+    if (uncovered.length) {
+      const what = uncovered.map((l) => l.asset!.name).join(', ');
+      problems.push(`no SO line for ${what}`);
+      reasons.push(`has no line for ${what}`);
+    }
+    if (!problems.length) return { problems, text: '' };
+    const poNo = soCustomerPo(cfg, name);
+    const soLinesText = (cfg.items || [])
+      .slice(0, 8)
+      .map((li: any) => `${Number(li.quantity) || 1} x ${String(li.description || li.itemCode || 'item').split('\n')[0].slice(0, 60)}`)
+      .join(', ');
+    const deliveryText = lines.map((l) => `${l.quantity} x ${l.asset ? l.asset.name : l.text}`).join(', ');
+    const text = [
+      `⚠️ ${name} ${reasons.join('; it ')}.`,
+      `Linking puts its PO number (${poNo}) on this DO and counts its lines as delivered.`,
+      `SO lines: ${soLinesText || '(none)'}`,
+      `Delivery items: ${deliveryText || '(none)'}`,
+    ].join('\n');
+    return { problems, text };
+  }
+
   /** attach_sales_order: an existing SO → a draft run (card first). */
   private async attachSalesOrderCard(ctx: OperatorContext, args: any): Promise<ToolOutcome> {
     const org = ctx.organizationId;
@@ -2349,34 +2412,70 @@ export class OperatorToolsService {
       where: { organizationId: org, name: { equals: number, mode: 'insensitive' as const } },
       select: { id: true, name: true, type: true, config: true, projectId: true },
     });
-    if (!doc) return { result: { error: `No sales order numbered "${number}" in this organization.` } };
-    if (doc.type !== 'SALES_ORDER') {
+    const stays = `Delivery #${run.deliveryNumber} stays a draft until then.`;
+    if (!doc) {
       return {
-        result: { error: `${doc.name} is not a sales order. The user has been told.`, refused: 'not-a-sales-order' },
-        notice: `${doc.name} is ${['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(doc.type)) ? 'a quotation' : `a ${doc.type}`}. A delivery is booked against a sales order only, never a quotation, so it was not used.`,
+        result: { error: `${number} was not found. The user has been told and given the options.`, refused: 'not-found' },
+        notice: `I couldn't find ${number} in AIMS. Check the number and send it again, or upload the customer's PO. ${stays}`,
+      };
+    }
+    if (doc.type !== 'SALES_ORDER') {
+      const isQuote = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(doc.type));
+      return {
+        result: { error: `${doc.name} is not a sales order. The user has been told and given the options.`, refused: 'not-a-sales-order' },
+        notice: `${doc.name} is ${isQuote ? 'a quotation, not a sales order' : `a ${doc.type}, not a sales order`}, so it can't be linked. Send the sales order number, or upload the customer's PO. ${stays}`,
       };
     }
     const customer = run.customer ? { id: run.customer.id, name: run.customer.name } : null;
     const projectIds = customer
       ? new Set((await this.prisma.project.findMany({ where: { organizationId: org, customerId: customer.id }, select: { id: true } })).map((p) => p.id))
       : new Set<string>();
-    if (!customer || (!sameCustomer(customer, doc.config || {}) && !(doc.projectId && projectIds.has(doc.projectId)))) {
-      return { result: { error: `${doc.name} is not ${customer?.name ?? "this delivery's customer"}'s sales order.` } };
+    const runItems = await this.prisma.deliveryItem.findMany({
+      where: { deliveryId: run.id },
+      orderBy: { sortOrder: 'asc' },
+      select: { assetId: true, description: true, quantity: true },
+    });
+    const runAssets = new Map(
+      (
+        await this.prisma.asset.findMany({
+          where: { organizationId: org, id: { in: [...new Set(runItems.map((i) => i.assetId).filter(Boolean) as string[])] } },
+          select: { id: true, name: true, skuKey: true },
+        })
+      ).map((a) => [a.id, a]),
+    );
+    // A catalog line of N units is stored as N one-unit slots.
+    const lines: Array<{ quantity: number; asset: { id: string; name: string; skuKey: string | null } | null; text: string }> = [];
+    for (const it of runItems) {
+      const last = lines[lines.length - 1];
+      if (it.assetId && last?.asset?.id === it.assetId) last.quantity += 1;
+      else lines.push({ quantity: it.assetId ? 1 : it.quantity || 1, asset: (it.assetId && runAssets.get(it.assetId)) || null, text: it.description || '' });
     }
+    const project = run.projectId ? { id: run.projectId, name: run.project?.name ?? '' } : null;
+    const w = customer
+      ? await this.soMismatch(org, doc, { id: customer.id, name: customer.name }, project, projectIds, lines)
+      : { problems: [], text: '' };
     const when = run.scheduledFor
       ? new Date(run.scheduledFor).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Singapore' })
       : '(no date)';
     const pending: PendingAction = {
       kind: 'link_sales_order',
       summary: [
+        ...(w.problems.length ? [w.text, ''] : []),
         `🔗 Link sales order ${doc.name} to delivery #${run.deliveryNumber}`,
-        `Customer: ${customer.name}`,
+        `Customer: ${customer?.name ?? '(none)'}`,
         `Project: ${run.project?.name ?? '(none)'}`,
         `When: ${when}`,
         '',
         'It becomes a scheduled run and gets its delivery order.',
       ].join('\n'),
-      args: { deliveryId: run.id, deliveryNumber: run.deliveryNumber, saleOrderId: doc.id, saleOrderName: doc.name },
+      args: {
+        deliveryId: run.id,
+        deliveryNumber: run.deliveryNumber,
+        saleOrderId: doc.id,
+        saleOrderName: doc.name,
+        poNumber: soCustomerPo(doc.config, doc.name || ''),
+        soProblems: w.problems,
+      },
       createdAt: new Date().toISOString(),
     };
     return { result: { needsConfirmation: true, card: pending.summary }, pending };
@@ -2388,7 +2487,12 @@ export class OperatorToolsService {
    * isDraft false: the same save the office does in Deliveries → Edit, which
    * mints the DO (placeholder number) carrying the sales order.
    */
-  private async promoteDraftWithSo(ctx: OperatorContext, deliveryId: string, so: { id: string; name: string }): Promise<PendingResult> {
+  private async promoteDraftWithSo(
+    ctx: OperatorContext,
+    deliveryId: string,
+    so: { id: string; name: string; poNumber?: string | null },
+    problems: string[] = [],
+  ): Promise<PendingResult> {
     const org = ctx.organizationId;
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId: org },
@@ -2418,12 +2522,20 @@ export class OperatorToolsService {
         scheduledFor: new Date(run.scheduledFor).toISOString(),
         ...(run.siteAddress ? { address: run.siteAddress } : {}),
         saleOrderId: so.id,
-        poNumber: so.name,
+        poNumber: so.poNumber || so.name,
         items,
       } as any,
       org,
     );
-    this.log(ctx, 'UPDATED', 'delivery', run.id, `#${run.deliveryNumber}`, `Sales order ${so.name} linked; draft is now a scheduled run (Operator, ${ctx.channel})`, 'LINK');
+    this.log(
+      ctx,
+      'UPDATED',
+      'delivery',
+      run.id,
+      `#${run.deliveryNumber}`,
+      `Sales order ${so.name} linked${problems.length ? ` with warning: ${problems.join('; ')}` : ''}; draft is now a scheduled run (Operator, ${ctx.channel})`,
+      'LINK',
+    );
     return { ok: true, message: `✅ ${so.name} linked. Delivery #${run.deliveryNumber} for ${run.customer?.name ?? 'the customer'} is now scheduled.` };
   }
 
@@ -2587,6 +2699,13 @@ export class OperatorToolsService {
       if (so?.name) explicitSo = so.name;
       else if (quote?.name) explicitSo = quote.name;
     }
+    // An SO that cannot be used as-is is never a dead end (guru 2026-09-30):
+    // unknown number or a quotation → say why and carry on without one (the
+    // card can still be confirmed as a draft); an existing SO that does not
+    // match → a warning naming every mismatch, and it links on confirm anyway.
+    let soNotice: string | null = null;
+    let soWarning: { text: string; problems: string[] } | null = null;
+    let soPoNumber: string | null = null;
     if (customer && explicitSo) {
       const byUuid = !!args.saleOrderId && UUID_RE.test(txt(args.saleOrderId)) && explicitSo === txt(args.saleOrderId);
       const doc = await this.prisma.document.findFirst({
@@ -2596,23 +2715,17 @@ export class OperatorToolsService {
         },
         select: { id: true, name: true, type: true, status: true, config: true, projectId: true },
       });
-      if (!doc) return { result: { error: `No sales order numbered "${explicitSo}" in this organization.` } };
-      if (doc.type !== 'SALES_ORDER') {
-        const what = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(doc.type)) ? 'a quotation' : `a ${doc.type}`;
-        return {
-          result: {
-            error: `${doc.name} is ${what}, and quotations are never accepted for a delivery. The user has already been told that. Offer: send the sales order number, or save it as a DRAFT without one.`,
-            refused: 'quotation',
-          },
-          notice: `${doc.name} is ${what}. A delivery is booked against a sales order only, never a quotation, so it was not used.`,
-        };
+      if (!doc) {
+        soNotice = `I couldn't find ${explicitSo} in AIMS. Check the number and send it again, upload the customer's PO, or confirm without a sales order and it saves as a draft.`;
+      } else if (doc.type !== 'SALES_ORDER') {
+        const isQuote = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(doc.type));
+        soNotice = `${doc.name} is ${isQuote ? 'a quotation, not a sales order' : `a ${doc.type}, not a sales order`}, so it can't be linked. Send the sales order number, upload the customer's PO, or confirm without a sales order and it saves as a draft.`;
+      } else {
+        saleOrder = { id: doc.id, name: doc.name || doc.id };
+        soPoNumber = soCustomerPo(doc.config, saleOrder.name);
+        const w = await this.soMismatch(org, doc, customer, project, customerProjectIds, resolved.map((r) => ({ quantity: r.quantity, asset: r.asset ?? null, text: r.text })));
+        if (w.problems.length) soWarning = w;
       }
-      const cfg: any = doc.config || {};
-      if (!sameCustomer(customer, cfg) && !(doc.projectId && customerProjectIds.has(doc.projectId))) {
-        const theirs = typeof cfg.customer === 'string' ? cfg.customer : cfg.customer?.name || cfg.customerName;
-        return { result: { error: `${doc.name} is not ${customer.name}'s sales order${theirs ? ` (it is for ${theirs})` : ''}.` } };
-      }
-      saleOrder = { id: doc.id, name: doc.name || doc.id };
     } else if (customer && !args.noSaleOrder) {
       const orders = await this.prisma.document.findMany({
         // Every sales order counts as open: DocumentStatus has no closed/void
@@ -2630,7 +2743,10 @@ export class OperatorToolsService {
         const soLines: any[] = [...(cfg.items || []), ...(cfg.documentInfo?.items || [])];
         return catalogLines.every((r) => soLines.some((li) => orderLineCovers(li, r.asset!)));
       });
-      if (fits.length === 1) saleOrder = { id: fits[0].id, name: fits[0].name || fits[0].id };
+      if (fits.length === 1) {
+        saleOrder = { id: fits[0].id, name: fits[0].name || fits[0].id };
+        soPoNumber = soCustomerPo(fits[0].config, saleOrder.name);
+      }
       else if (fits.length > 1) {
         questions.push({
           about: 'saleOrder',
@@ -2686,6 +2802,7 @@ export class OperatorToolsService {
           },
           note: 'Nothing is booked yet. Ask these in ONE short message, then call schedule_delivery again with the same inputs plus the answers.',
         },
+        ...(soNotice ? { notice: soNotice } : {}),
       };
     }
 
@@ -2699,7 +2816,9 @@ export class OperatorToolsService {
       scheduledFor: when!.iso,
       ...(site ? { address: site } : {}),
       ...(notes ? { notes } : {}),
-      ...(saleOrder ? { saleOrderId: saleOrder.id, poNumber: txt(args.poNumber) || saleOrder.name } : txt(args.poNumber) ? { poNumber: txt(args.poNumber) } : {}),
+      // The DO's "Your PO No." is the SO's CUSTOMER PO, as the Deliveries dialog
+      // fills it (customerPo || SO number).
+      ...(saleOrder ? { saleOrderId: saleOrder.id, poNumber: txt(args.poNumber) || soPoNumber || saleOrder.name } : txt(args.poNumber) ? { poNumber: txt(args.poNumber) } : {}),
       ...(contactsDto ? { contacts: contactsDto } : {}),
       items: resolved.map((r) => (r.asset ? { assetId: r.asset.id, quantity: r.quantity } : { description: cleanText(r.text), quantity: r.quantity })),
     };
@@ -2731,6 +2850,9 @@ export class OperatorToolsService {
         isDraft,
         needsSaleOrder: !saleOrder,
         needsProject: !project,
+        // Shown as its own message before the card; noted on the LINK row.
+        ...(soWarning ? { soWarning: soWarning.text, soProblems: soWarning.problems } : {}),
+        ...(saleOrder ? { saleOrderName: saleOrder.name } : {}),
         // What was asked, resolved: an uploaded PO rebuilds this card with the
         // new sales order attached.
         input: {
@@ -2746,10 +2868,12 @@ export class OperatorToolsService {
       result: {
         needsConfirmation: true,
         card: summary,
+        ...(soWarning ? { salesOrderWarning: soWarning.text } : {}),
         // For "change the DO contact to …": pass doContactId from these.
         contactOptions: contactOptions.slice(0, 10),
       },
       pending,
+      ...(soNotice ? { notice: soNotice } : {}),
     };
   }
 
@@ -3210,7 +3334,7 @@ export class OperatorToolsService {
       }
       const t = a.target || {};
       if (t.kind === 'draft') {
-        const res = await this.promoteDraftWithSo(ctx, t.deliveryId, { id: so.documentId, name: so.documentNumber });
+        const res = await this.promoteDraftWithSo(ctx, t.deliveryId, { id: so.documentId, name: so.documentNumber, poNumber: a.poNumber || null });
         return { ...res, message: `✅ Sales Order ${so.documentNumber} created from the PO.\n${res.message.replace(/^✅ /, '')}`, note: `saleOrderId ${so.documentId}` };
       }
       return {
@@ -3223,7 +3347,7 @@ export class OperatorToolsService {
 
     if (pending.kind === 'link_sales_order') {
       const a = pending.args || {};
-      return this.promoteDraftWithSo(ctx, a.deliveryId, { id: a.saleOrderId, name: a.saleOrderName });
+      return this.promoteDraftWithSo(ctx, a.deliveryId, { id: a.saleOrderId, name: a.saleOrderName, poNumber: a.poNumber }, a.soProblems || []);
     }
 
     if (pending.kind === 'schedule_delivery') {
@@ -3245,6 +3369,20 @@ export class OperatorToolsService {
         `Delivery ${isDraft ? 'saved as a draft' : 'scheduled'} via Operator (${ctx.channel})`,
         isDraft ? 'CREATE_DRAFT' : 'SCHEDULE',
       );
+      if (dto.saleOrderId) {
+        const problems: string[] = pending.args?.soProblems || [];
+        this.log(
+          ctx,
+          'UPDATED',
+          'delivery',
+          run?.id,
+          ref,
+          problems.length
+            ? `Sales order ${pending.args?.saleOrderName || ''} linked with warning: ${problems.join('; ')}`
+            : `Sales order ${pending.args?.saleOrderName || ''} linked`,
+          'LINK',
+        );
+      }
       return {
         ok: true,
         message: isDraft
