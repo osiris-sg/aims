@@ -1,0 +1,15 @@
+{
+  "name": "whatsapp-dm-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Linked-device relay: mirrors a phone's 1:1 WhatsApp conversations into AIMS. Read-only, never sends.",
+  "main": "bridge.js",
+  "scripts": {
+    "start": "node bridge.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "qrcode": "^1.5.4",
+    "whatsapp-web.js": "^1.34.7"
+  }
+}

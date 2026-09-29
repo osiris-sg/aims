@@ -1,0 +1,7 @@
+node_modules
+.wwebjs_auth
+.wwebjs_auth.testnum.bak
+.wwebjs_cache
+qr.png
+bridge.log
+.env

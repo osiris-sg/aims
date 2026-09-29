@@ -303,6 +303,35 @@ export class WhatsAppController {
   }
 
   @Public()
+  @Post('dm-bridge/message')
+  @ApiOperation({ summary: 'DM bridge: store a 1:1 message relayed by a linked device (X-Group-Bridge-Token gated)' })
+  async dmBridgeMessage(
+    @Req() req: RequestWithOrganization,
+    @Body()
+    body: {
+      organizationId: string;
+      direction: 'INBOUND' | 'OUTBOUND';
+      counterparty: string;
+      body?: string;
+      waMessageId?: string;
+      sentAt?: string;
+      payload?: any;
+    },
+  ) {
+    this.assertBridgeToken(req);
+    if (!body?.organizationId) throw new BadRequestException('organizationId is required');
+    return this.service.storeBridgeMessage({
+      organizationId: body.organizationId,
+      direction: body.direction === 'OUTBOUND' ? 'OUTBOUND' : 'INBOUND',
+      counterparty: body.counterparty,
+      body: body.body,
+      waMessageId: body.waMessageId,
+      sentAt: body.sentAt,
+      payload: body.payload,
+    });
+  }
+
+  @Public()
   @Post('pa-chat')
   @ApiOperation({ summary: 'Group bridge: one turn of the adviser\'s private chat with the PA' })
   async paChat(

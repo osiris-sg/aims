@@ -1133,6 +1133,62 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     return { reply: verdict.reply, confidence: score };
   }
 
+  /**
+   * Store a 1:1 message relayed by a linked-device bridge.
+   *
+   * For a number Meta will not let us connect at all — "already has an
+   * existing WhatsApp Business account", with neither signup path working —
+   * a linked device is the only way its conversations reach AIMS. Rows land in
+   * the same WhatsAppMessage table the Cloud API writes to, so the CRM shows
+   * them without knowing the difference.
+   *
+   * Idempotent on waMessageId: the library re-emits on reconnect, and a
+   * relayed message must not become two rows.
+   */
+  async storeBridgeMessage(args: {
+    organizationId: string;
+    direction: 'INBOUND' | 'OUTBOUND';
+    counterparty: string;
+    body?: string | null;
+    waMessageId?: string | null;
+    sentAt?: string | null;
+    payload?: any;
+  }) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: args.organizationId },
+      select: { id: true },
+    });
+    if (!org) throw new BadRequestException('Unknown organization');
+    const counterparty = String(args.counterparty || '').replace(/\D/g, '') || 'unknown';
+    const waMessageId = args.waMessageId ? String(args.waMessageId).slice(0, 180) : null;
+
+    if (waMessageId) {
+      const existing = await this.prisma.whatsAppMessage.findUnique({
+        where: { waMessageId },
+        select: { id: true },
+      });
+      if (existing) return { id: existing.id, stored: false };
+    }
+    const created = await this.prisma.whatsAppMessage.create({
+      data: {
+        organizationId: args.organizationId,
+        direction: args.direction === 'OUTBOUND' ? 'OUTBOUND' : 'INBOUND',
+        counterparty,
+        waMessageId,
+        body: args.body ?? null,
+        status: args.direction === 'OUTBOUND' ? 'sent' : 'received',
+        payload: args.payload ?? undefined,
+        // The linked device reports when the message actually happened; a
+        // backlog replayed on reconnect would otherwise all read "now".
+        ...(args.sentAt && !isNaN(new Date(args.sentAt).getTime()) ? { createdAt: new Date(args.sentAt) } : {}),
+      },
+    });
+    if (args.direction === 'INBOUND') {
+      await this.upsertContact(args.organizationId, counterparty, { lastMessageAt: new Date() }).catch(() => null);
+    }
+    return { id: created.id, stored: true };
+  }
+
   private paSessionKey(from: string) {
     return { channel: 'wa-pa', channelUserId: String(from).replace(/\D/g, '') };
   }
