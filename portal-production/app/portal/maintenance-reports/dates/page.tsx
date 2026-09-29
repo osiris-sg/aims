@@ -51,6 +51,9 @@ interface ScheduleDto {
   dueDate: string;
   notes: string | null;
   remindedAt: string | null;
+  repeatEvery: number | null;
+  repeatUnit: "WEEK" | "MONTH" | null;
+  repeatLabel: string | null;
 }
 
 interface AssetRow {
@@ -109,16 +112,27 @@ export default function MaintenanceDatesPage() {
     if (isMaintenanceDatesEnabled) void load();
   }, [load, isMaintenanceDatesEnabled]);
 
-  const cancelDate = async () => {
+  // mode "date": cancel this occurrence (a repeating series continues with its
+  // next date); "series": cancel it and stop repeating.
+  const cancelDate = async (mode: "date" | "series" = "date") => {
     const row = confirmCancel;
     if (!row?.schedule) return;
     setActing(true);
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/maintenance-schedules/${row.schedule.id}/cancel`, method: "POST" }, {}, token);
+      const res = await request({ path: `/maintenance-schedules/${row.schedule.id}/cancel`, method: "POST" }, { mode }, token);
       if (res?.success === false) throw new Error(res.message ?? "Could not cancel the date");
-      setActionMsg({ text: `Maintenance date for ${row.assetName} cancelled.`, severity: "success" });
+      const next = (res?.data ?? res)?.next;
+      setActionMsg({
+        text:
+          mode === "series"
+            ? `Maintenance for ${row.assetName} will no longer repeat.`
+            : next?.dueDate
+              ? `Date cancelled. Next maintenance for ${row.assetName}: ${fmtDay(next.dueDate)}.`
+              : `Maintenance date for ${row.assetName} cancelled.`,
+        severity: "success",
+      });
       setConfirmCancel(null);
       void load();
     } catch (e: any) {
@@ -225,6 +239,9 @@ export default function MaintenanceDatesPage() {
                       {r.schedule ? (
                         <Stack direction="row" spacing={1} alignItems="center">
                           <Typography variant="body2">{fmtDay(r.schedule.dueDate)}</Typography>
+                          {r.schedule.repeatLabel && (
+                            <Chip size="small" variant="outlined" color="info" label={r.schedule.repeatLabel} />
+                          )}
                           {days !== null && (
                             <Chip
                               size="small"
@@ -297,7 +314,14 @@ export default function MaintenanceDatesPage() {
               const row = menu.row;
               setMenu(null);
               setDialog({
-                editing: { id: row.schedule!.id, asset: assetOf(row), dueDate: row.schedule!.dueDate, notes: row.schedule!.notes },
+                editing: {
+                  id: row.schedule!.id,
+                  asset: assetOf(row),
+                  dueDate: row.schedule!.dueDate,
+                  notes: row.schedule!.notes,
+                  repeatEvery: row.schedule!.repeatEvery,
+                  repeatUnit: row.schedule!.repeatUnit,
+                },
               });
             }}
           >
@@ -323,18 +347,37 @@ export default function MaintenanceDatesPage() {
           <>
             <DialogTitle>Cancel maintenance date?</DialogTitle>
             <DialogContent>
-              <DialogContentText>
-                The {fmtDay(confirmCancel.schedule.dueDate)} date for {confirmCancel.assetName} is cancelled and no
-                reminder is sent. You can schedule a new date at any time.
-              </DialogContentText>
+              {confirmCancel.schedule.repeatLabel ? (
+                <DialogContentText>
+                  The {fmtDay(confirmCancel.schedule.dueDate)} date for {confirmCancel.assetName} repeats (
+                  {confirmCancel.schedule.repeatLabel.toLowerCase()}). Cancel only this date and the series continues with
+                  the next one, or stop repeating altogether.
+                </DialogContentText>
+              ) : (
+                <DialogContentText>
+                  The {fmtDay(confirmCancel.schedule.dueDate)} date for {confirmCancel.assetName} is cancelled and no
+                  reminder is sent. You can schedule a new date at any time.
+                </DialogContentText>
+              )}
             </DialogContent>
-            <DialogActions>
+            <DialogActions sx={{ flexWrap: "wrap", gap: 1 }}>
               <Button onClick={() => setConfirmCancel(null)} disabled={acting}>
                 Keep it
               </Button>
-              <Button onClick={() => void cancelDate()} color="error" variant="contained" disabled={acting}>
-                {acting ? "Working…" : "Cancel date"}
-              </Button>
+              {confirmCancel.schedule.repeatLabel ? (
+                <>
+                  <Button onClick={() => void cancelDate("date")} color="error" variant="outlined" disabled={acting}>
+                    Cancel this date
+                  </Button>
+                  <Button onClick={() => void cancelDate("series")} color="error" variant="contained" disabled={acting}>
+                    {acting ? "Working…" : "Stop repeating"}
+                  </Button>
+                </>
+              ) : (
+                <Button onClick={() => void cancelDate("date")} color="error" variant="contained" disabled={acting}>
+                  {acting ? "Working…" : "Cancel date"}
+                </Button>
+              )}
             </DialogActions>
           </>
         )}

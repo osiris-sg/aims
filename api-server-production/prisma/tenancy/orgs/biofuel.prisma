@@ -1993,6 +1993,10 @@ model MaintenanceSchedule {
   createdAt       DateTime  @default(now())
   remindedAt      DateTime?
   cancelledAt     DateTime?
+  // RECURRING (2026-09): see prisma/schema.prisma MaintenanceSchedule.
+  repeatEvery     Int?
+  repeatUnit      String?
+  seriesId        String?
 
   @@index([organizationId, assetId, dueDate])
   @@index([dueDate, remindedAt])

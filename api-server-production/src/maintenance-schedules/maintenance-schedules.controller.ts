@@ -36,7 +36,7 @@ export class MaintenanceSchedulesController {
   @Post()
   @Permissions('documents:create-basic')
   create(
-    @Body() body: { assetId?: string; dueDate?: string; notes?: string },
+    @Body() body: { assetId?: string; dueDate?: string; notes?: string; repeat?: { every?: number; unit?: string } | null },
     @UserOrganization() org: { id: string },
     @Req() req: ClerkRequest,
   ) {
@@ -47,15 +47,17 @@ export class MaintenanceSchedulesController {
   @Permissions('documents:create-basic')
   update(
     @Param('id') id: string,
-    @Body() body: { dueDate?: string; notes?: string | null },
+    @Body() body: { dueDate?: string; notes?: string | null; repeat?: { every?: number; unit?: string } | null },
     @UserOrganization() org: { id: string },
   ) {
     return this.service.update(org.id, id, body ?? {});
   }
 
+  // body.mode: "date" (default) cancels this occurrence and a repeating series
+  // continues; "series" cancels it and stops repeating.
   @Post(':id/cancel')
   @Permissions('documents:create-basic')
-  cancel(@Param('id') id: string, @UserOrganization() org: { id: string }) {
-    return this.service.cancel(org.id, id);
+  cancel(@Param('id') id: string, @Body() body: { mode?: 'date' | 'series' }, @UserOrganization() org: { id: string }) {
+    return this.service.cancel(org.id, id, body?.mode ?? 'date');
   }
 }

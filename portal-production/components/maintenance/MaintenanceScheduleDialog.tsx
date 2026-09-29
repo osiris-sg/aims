@@ -11,7 +11,10 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
+  MenuItem,
   Stack,
+  Switch,
   TextField,
   Typography,
 } from "@mui/material";
@@ -32,6 +35,9 @@ export interface MaintenanceScheduleEdit {
   asset: MaintenanceAssetOption;
   dueDate: string; // YYYY-MM-DD
   notes: string | null;
+  /** Repeat rule of this occurrence (null = one-off). */
+  repeatEvery?: number | null;
+  repeatUnit?: "WEEK" | "MONTH" | string | null;
 }
 
 interface Props {
@@ -58,6 +64,11 @@ export default function MaintenanceScheduleDialog({ open, onClose, onSaved, edit
   const [assetSearching, setAssetSearching] = useState(false);
   const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
+  // Recurring: "every N weeks / months" (1-24). On edit it applies to the
+  // occurrences after this one; the date itself changes this occurrence only.
+  const [repeatOn, setRepeatOn] = useState(false);
+  const [repeatEvery, setRepeatEvery] = useState("3");
+  const [repeatUnit, setRepeatUnit] = useState<"WEEK" | "MONTH">("MONTH");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,6 +79,9 @@ export default function MaintenanceScheduleDialog({ open, onClose, onSaved, edit
     setAsset(editing?.asset ?? presetAsset ?? null);
     setDueDate(editing?.dueDate ?? "");
     setNotes(editing?.notes ?? "");
+    setRepeatOn(!!editing?.repeatEvery);
+    setRepeatEvery(String(editing?.repeatEvery ?? 3));
+    setRepeatUnit(editing?.repeatUnit === "WEEK" ? "WEEK" : "MONTH");
     setAssetInput("");
   }, [open, editing, presetAsset]);
 
@@ -101,7 +115,16 @@ export default function MaintenanceScheduleDialog({ open, onClose, onSaved, edit
   }, [assetInput, open, editing, getToken]);
 
   const today = dayjs().format("YYYY-MM-DD");
-  const canSave = !!asset && /^\d{4}-\d{2}-\d{2}$/.test(dueDate) && dueDate >= today && !saving;
+  const everyNum = Number(repeatEvery);
+  const repeatValid = !repeatOn || (Number.isInteger(everyNum) && everyNum >= 1 && everyNum <= 24);
+  const canSave = !!asset && /^\d{4}-\d{2}-\d{2}$/.test(dueDate) && dueDate >= today && repeatValid && !saving;
+  const repeatPayload = repeatOn ? { every: everyNum, unit: repeatUnit } : null;
+  // On edit, only send the rule when it changed, so editing the date alone
+  // never touches the series.
+  const repeatChanged =
+    !!editing &&
+    (repeatOn !== !!editing.repeatEvery ||
+      (repeatOn && (everyNum !== editing.repeatEvery || repeatUnit !== editing.repeatUnit)));
 
   const save = async () => {
     if (!canSave || !asset) return;
@@ -113,12 +136,12 @@ export default function MaintenanceScheduleDialog({ open, onClose, onSaved, edit
       const res = editing
         ? await request(
             { path: `/maintenance-schedules/${editing.id}`, method: "PATCH" },
-            { dueDate, notes: notes.trim() || null },
+            { dueDate, notes: notes.trim() || null, ...(repeatChanged ? { repeat: repeatPayload } : {}) },
             token,
           )
         : await request(
             { path: "/maintenance-schedules", method: "POST" },
-            { assetId: asset.id, dueDate, notes: notes.trim() || undefined },
+            { assetId: asset.id, dueDate, notes: notes.trim() || undefined, ...(repeatPayload ? { repeat: repeatPayload } : {}) },
             token,
           );
       if (res?.success === false) throw new Error(res.message ?? "Could not save the maintenance date");
@@ -167,6 +190,42 @@ export default function MaintenanceScheduleDialog({ open, onClose, onSaved, edit
               slotProps={{ textField: { size: "small", fullWidth: true, required: true, InputLabelProps: { shrink: true } } }}
             />
           </LocalizationProvider>
+          <FormControlLabel
+            control={<Switch checked={repeatOn} onChange={(e) => setRepeatOn(e.target.checked)} />}
+            label="Repeat"
+            sx={{ mt: "4px !important" }}
+          />
+          {repeatOn && (
+            <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ mt: "4px !important" }}>
+              <TextField
+                label="Every"
+                size="small"
+                type="number"
+                value={repeatEvery}
+                onChange={(e) => setRepeatEvery(e.target.value.replace(/[^0-9]/g, ""))}
+                inputProps={{ min: 1, max: 24, inputMode: "numeric" }}
+                error={!repeatValid}
+                helperText={!repeatValid ? "1 to 24" : " "}
+                sx={{ width: 110 }}
+              />
+              <TextField
+                select
+                label="Unit"
+                size="small"
+                value={repeatUnit}
+                onChange={(e) => setRepeatUnit(e.target.value === "WEEK" ? "WEEK" : "MONTH")}
+                sx={{ flex: 1 }}
+              >
+                <MenuItem value="WEEK">{everyNum === 1 ? "Week" : "Weeks"}</MenuItem>
+                <MenuItem value="MONTH">{everyNum === 1 ? "Month" : "Months"}</MenuItem>
+              </TextField>
+            </Stack>
+          )}
+          {editing && repeatOn && (
+            <Typography variant="caption" color="text.secondary" sx={{ mt: "0 !important" }}>
+              A new date changes this occurrence only. A new repeat rule applies to the dates after this one.
+            </Typography>
+          )}
           <TextField
             label="Notes"
             size="small"

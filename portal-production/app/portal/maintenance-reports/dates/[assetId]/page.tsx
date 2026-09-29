@@ -42,6 +42,9 @@ interface ScheduleDto {
   createdAt: string;
   remindedAt: string | null;
   cancelledAt: string | null;
+  repeatEvery: number | null;
+  repeatUnit: "WEEK" | "MONTH" | null;
+  repeatLabel: string | null;
 }
 
 interface UnitRow {
@@ -151,6 +154,7 @@ export default function MaintenanceAssetPage() {
                       <Typography variant="subtitle2" fontWeight={700}>
                         {fmtDay(s.dueDate)}
                       </Typography>
+                      {s.repeatLabel && <Chip size="small" variant="outlined" color="info" label={s.repeatLabel} />}
                       {days !== null && (
                         <Chip
                           size="small"
@@ -185,7 +189,16 @@ export default function MaintenanceAssetPage() {
                 onClick={() =>
                   setDialog(
                     s
-                      ? { editing: { id: s.id, asset: { id: data.asset.id, name: data.asset.name, skuKey: data.asset.skuKey }, dueDate: s.dueDate, notes: s.notes } }
+                      ? {
+                          editing: {
+                            id: s.id,
+                            asset: { id: data.asset.id, name: data.asset.name, skuKey: data.asset.skuKey },
+                            dueDate: s.dueDate,
+                            notes: s.notes,
+                            repeatEvery: s.repeatEvery,
+                            repeatUnit: s.repeatUnit,
+                          },
+                        }
                       : {},
                   )
                 }

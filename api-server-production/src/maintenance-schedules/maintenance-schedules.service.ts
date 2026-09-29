@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from 'src/common/prisma.service';
 import { isOrgFeatureEnabled } from 'src/common/org-features';
@@ -41,6 +42,40 @@ function sgtMidnight(ymd: string): Date {
 /** "5 Oct 2026". dueDate is a UTC-midnight date, so format it in UTC. */
 function fmtDate(ymd: string): string {
   return dateOnly(ymd).toLocaleDateString('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// ── RECURRING (2026-09) ──────────────────────────────────────────────────────
+// Pure calendar math on YYYY-MM-DD strings: no clock, no time zone, so no JS
+// Date ever reaches a timestamp-without-tz column through it.
+export type RepeatUnit = 'WEEK' | 'MONTH';
+const REPEAT_UNITS: RepeatUnit[] = ['WEEK', 'MONTH'];
+const MAX_REPEAT_EVERY = 24;
+
+function daysInMonth(y: number, m: number): number {
+  // m is 1..12; day 0 of the next month is the last day of this one.
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+/**
+ * The k-th occurrence after `anchor` for "every N weeks / months". Months are
+ * counted from the ANCHOR's day and clamped to the month's length, so a series
+ * started on 31 Jan runs 28/29 Feb, 31 Mar, 30 Apr... and never drifts to the 28th.
+ */
+export function addInterval(anchor: string, k: number, every: number, unit: RepeatUnit): string {
+  if (unit === 'WEEK') return addDays(anchor, 7 * every * k);
+  const [y, m, d] = anchor.split('-').map(Number);
+  const total = m - 1 + every * k;
+  const ny = y + Math.floor(total / 12);
+  const nm = (total % 12) + 1;
+  const nd = Math.min(d, daysInMonth(ny, nm));
+  return `${ny}-${String(nm).padStart(2, '0')}-${String(nd).padStart(2, '0')}`;
+}
+
+/** "Every week", "Every 2 weeks", "Every month", "Every 3 months". */
+export function repeatLabel(every: number | null | undefined, unit: string | null | undefined): string | null {
+  if (!every || !unit) return null;
+  const word = unit === 'WEEK' ? 'week' : 'month';
+  return every === 1 ? `Every ${word}` : `Every ${every} ${word}s`;
 }
 
 type DeployKind = 'RENTAL' | 'SALE';
@@ -201,6 +236,10 @@ export class MaintenanceSchedulesService {
       createdAt: s.createdAt,
       remindedAt: s.remindedAt ?? null,
       cancelledAt: s.cancelledAt ?? null,
+      repeatEvery: s.repeatEvery ?? null,
+      repeatUnit: s.repeatUnit ?? null,
+      seriesId: s.seriesId ?? null,
+      repeatLabel: repeatLabel(s.repeatEvery, s.repeatUnit),
     };
   }
 
@@ -319,17 +358,36 @@ export class MaintenanceSchedulesService {
     return s;
   }
 
+  /** undefined = not sent; null = no repeat; else a validated { every, unit }. */
+  private parseRepeat(v: unknown): { every: number; unit: RepeatUnit } | null | undefined {
+    if (v === undefined) return undefined;
+    if (v === null || v === false) return null;
+    const r = v as { every?: unknown; unit?: unknown };
+    const every = Number(r?.every);
+    const unit = String(r?.unit ?? '').toUpperCase() as RepeatUnit;
+    if (!Number.isInteger(every) || every < 1 || every > MAX_REPEAT_EVERY) {
+      throw new BadRequestException(`Repeat every must be a whole number from 1 to ${MAX_REPEAT_EVERY}.`);
+    }
+    if (!REPEAT_UNITS.includes(unit)) throw new BadRequestException('Repeat unit must be WEEK or MONTH.');
+    return { every, unit };
+  }
+
   private cleanNotes(v: unknown): string | null {
     if (v === undefined || v === null) return null;
     const s = String(v).trim();
     return s ? s.slice(0, 2000) : null;
   }
 
-  async create(organizationId: string, userId: string | null, body: { assetId?: string; dueDate?: string; notes?: string }) {
+  async create(
+    organizationId: string,
+    userId: string | null,
+    body: { assetId?: string; dueDate?: string; notes?: string; repeat?: { every?: number; unit?: string } | null },
+  ) {
     await this.assertEnabled(organizationId);
     const assetId = String(body?.assetId ?? '').trim();
     if (!assetId) throw new BadRequestException('Pick an asset.');
     const due = this.parseDate(body?.dueDate);
+    const repeat = this.parseRepeat(body?.repeat);
     const asset = await this.prisma.asset.findFirst({ where: { id: assetId, organizationId, deletedAt: null }, select: { id: true } });
     if (!asset) throw new NotFoundException('Asset not found');
     const today = sgtToday();
@@ -348,7 +406,15 @@ export class MaintenanceSchedulesService {
         );
       }
       return tx.maintenanceSchedule.create({
-        data: { organizationId, assetId, dueDate: dateOnly(due), notes: this.cleanNotes(body?.notes), createdByUserId: userId },
+        data: {
+          organizationId,
+          assetId,
+          dueDate: dateOnly(due),
+          notes: this.cleanNotes(body?.notes),
+          createdByUserId: userId,
+          // A repeating date starts a series; a one-off has none.
+          ...(repeat ? { repeatEvery: repeat.every, repeatUnit: repeat.unit, seriesId: randomUUID() } : {}),
+        },
       });
     }).then((row) => this.remindIfDueSoon(row.id));
   }
@@ -361,10 +427,36 @@ export class MaintenanceSchedulesService {
     return row;
   }
 
-  async update(organizationId: string, id: string, body: { dueDate?: string; notes?: string | null }) {
+  /**
+   * Edit the upcoming occurrence. dueDate / notes change THIS occurrence only
+   * (the series keeps counting from its anchor). repeat changes the rule for
+   * future occurrences: the next one is counted from this occurrence under the
+   * new rule; null stops repeating after this date; a one-off gets a new series.
+   */
+  async update(
+    organizationId: string,
+    id: string,
+    body: { dueDate?: string; notes?: string | null; repeat?: { every?: number; unit?: string } | null },
+  ) {
     await this.assertEnabled(organizationId);
     const row = await this.activeRow(organizationId, id);
-    const data: { dueDate?: Date; notes?: string | null; remindedAt?: null } = {};
+    const data: {
+      dueDate?: Date;
+      notes?: string | null;
+      remindedAt?: null;
+      repeatEvery?: number | null;
+      repeatUnit?: string | null;
+      seriesId?: string;
+    } = {};
+    const repeat = this.parseRepeat(body?.repeat);
+    if (repeat === null) {
+      data.repeatEvery = null;
+      data.repeatUnit = null;
+    } else if (repeat) {
+      data.repeatEvery = repeat.every;
+      data.repeatUnit = repeat.unit;
+      if (!row.seriesId) data.seriesId = randomUUID();
+    }
     if (body?.dueDate !== undefined) {
       const due = this.parseDate(body.dueDate);
       if (due !== ymdOf(row.dueDate)) {
@@ -380,23 +472,143 @@ export class MaintenanceSchedulesService {
     return this.remindIfDueSoon(updated.id);
   }
 
-  async cancel(organizationId: string, id: string) {
+  /**
+   * mode "date" (default): cancel this occurrence; a repeating series carries
+   * on with its next occurrence, created now (and reminded now if within 7 days).
+   * mode "series": cancel this occurrence AND end the series (its repeat rule is
+   * cleared, so the daily job never continues it).
+   */
+  async cancel(organizationId: string, id: string, mode: 'date' | 'series' = 'date') {
     await this.assertEnabled(organizationId);
+    if (mode !== 'date' && mode !== 'series') throw new BadRequestException('mode must be "date" or "series".');
     const row = await this.activeRow(organizationId, id);
-    const updated = await this.prisma.maintenanceSchedule.update({ where: { id: row.id }, data: { cancelledAt: new Date() } });
-    return this.scheduleDto(updated);
+    const updated = await this.prisma.maintenanceSchedule.update({
+      where: { id: row.id },
+      data: { cancelledAt: new Date(), ...(mode === 'series' ? { repeatEvery: null, repeatUnit: null } : {}) },
+    });
+    let next: any = null;
+    if (mode === 'date' && updated.seriesId && updated.repeatEvery) {
+      const created = await this.rollSeries(updated.seriesId, sgtToday(), 'cancel-date');
+      if (created) next = await this.remindIfDueSoon(created.id);
+    }
+    return { ...this.scheduleDto(updated), next };
+  }
+
+  // ── recurring series ────────────────────────────────────────────────────
+
+  /**
+   * Create the next occurrence of ONE series when it needs one: its latest row
+   * still repeats and is either past or cancelled. The next date is the first
+   * step from the series' anchor (the earliest occurrence under the current
+   * rule) that is after the latest row and not before today, so missed runs
+   * skip ahead instead of back-filling. Runs under the same per-asset advisory
+   * lock as create and re-reads inside it: two job runs (or a job and a cancel)
+   * can never create two successors. Skipped while the asset already has
+   * another upcoming date (one upcoming date per asset); the job retries daily.
+   * Returns the created row, or null.
+   */
+  private async rollSeries(seriesId: string, today: string, via: 'daily-job' | 'cancel-date') {
+    const head = await this.prisma.maintenanceSchedule.findFirst({ where: { seriesId }, select: { assetId: true, organizationId: true } });
+    if (!head) return null;
+    const created = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`maint-sched:${head.assetId}`}))`;
+      const rows = await tx.maintenanceSchedule.findMany({ where: { seriesId }, orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }] });
+      const tail = rows[rows.length - 1];
+      if (!tail || !tail.repeatEvery || !tail.repeatUnit) return null; // one-off or ended
+      const tailDue = ymdOf(tail.dueDate);
+      if (!tail.cancelledAt && tailDue >= today) return null; // still upcoming: nothing to do
+      const upcoming = await tx.maintenanceSchedule.findFirst({
+        where: { organizationId: tail.organizationId, assetId: tail.assetId, cancelledAt: null, dueDate: { gte: dateOnly(today) } },
+        select: { id: true },
+      });
+      if (upcoming) return null;
+      // Anchor: the earliest occurrence in the trailing run with the same rule.
+      let anchorIdx = rows.length - 1;
+      while (
+        anchorIdx > 0 &&
+        rows[anchorIdx - 1].repeatEvery === tail.repeatEvery &&
+        rows[anchorIdx - 1].repeatUnit === tail.repeatUnit
+      ) anchorIdx--;
+      const anchor = ymdOf(rows[anchorIdx].dueDate);
+      const unit = tail.repeatUnit as RepeatUnit;
+      let next: string | null = null;
+      for (let k = 1; k <= 2000; k++) {
+        const d = addInterval(anchor, k, tail.repeatEvery, unit);
+        if (d > tailDue && d >= today) {
+          next = d;
+          break;
+        }
+      }
+      if (!next) return null;
+      return tx.maintenanceSchedule.create({
+        data: {
+          organizationId: tail.organizationId,
+          assetId: tail.assetId,
+          dueDate: dateOnly(next),
+          notes: tail.notes,
+          createdByUserId: tail.createdByUserId,
+          repeatEvery: tail.repeatEvery,
+          repeatUnit: tail.repeatUnit,
+          seriesId,
+        },
+      });
+    });
+    if (created) {
+      this.actionLog.system('maintenance-series', 'CREATE', 'maintenance-schedules', {
+        organizationId: created.organizationId,
+        resourceId: created.id,
+        details: { seriesId, dueDate: ymdOf(created.dueDate), via, rule: repeatLabel(created.repeatEvery, created.repeatUnit) },
+      });
+    }
+    return created;
+  }
+
+  /**
+   * Daily: continue every series whose latest occurrence has passed (or was
+   * cancelled and could not continue at the time). Idempotent (see rollSeries).
+   */
+  async runSeriesRollover(now: Date = new Date()) {
+    const today = sgtToday(now);
+    const tails = await this.prisma.maintenanceSchedule.findMany({
+      where: { seriesId: { not: null } },
+      orderBy: [{ seriesId: 'asc' }, { dueDate: 'desc' }, { createdAt: 'desc' }],
+      distinct: ['seriesId'],
+      select: { seriesId: true, organizationId: true, repeatEvery: true, dueDate: true, cancelledAt: true },
+    });
+    const flagCache = new Map<string, boolean>();
+    const created: string[] = [];
+    for (const t of tails) {
+      if (!t.seriesId || !t.repeatEvery) continue;
+      if (!t.cancelledAt && ymdOf(t.dueDate) >= today) continue;
+      let on = flagCache.get(t.organizationId);
+      if (on === undefined) {
+        on = await isOrgFeatureEnabled(this.prisma, t.organizationId, MAINTENANCE_DATES_FLAG);
+        flagCache.set(t.organizationId, on);
+      }
+      if (!on) continue;
+      const row = await this.rollSeries(t.seriesId, today, 'daily-job');
+      if (row) created.push(row.id);
+    }
+    return { today, created };
   }
 
   // ── daily reminder ──────────────────────────────────────────────────────
 
-  /** 08:52 SGT daily. */
+  /** 08:52 SGT daily: continue recurring series, then send reminders. */
   @Cron('52 0 * * *') // 00:52 UTC = 08:52 SGT
   async dailyReminders() {
     try {
-      await this.runReminders();
+      await this.runDaily();
     } catch (e: any) {
-      this.logger.error(`maintenance reminders failed: ${e?.message}`, e?.stack);
+      this.logger.error(`maintenance daily run failed: ${e?.message}`, e?.stack);
     }
+  }
+
+  /** Series rollover first, so a new occurrence inside the window is reminded in the same run. */
+  async runDaily(now: Date = new Date()) {
+    const rollover = await this.runSeriesRollover(now);
+    const reminders = await this.runReminders(now);
+    return { rollover, reminders };
   }
 
   /**
