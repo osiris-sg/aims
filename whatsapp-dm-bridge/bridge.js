@@ -52,8 +52,27 @@ function clearChromiumLocks(dir) {
 }
 clearChromiumLocks(SESSION_DIR);
 
+// Pin the WhatsApp Web build when WA_WEB_VERSION is set.
+//
+// The group bridge, whose session was established in August, still restores
+// and authenticates fine. A FRESH link made today did not complete: the phone
+// accepted it, the client never authenticated, and WhatsApp revoked it minutes
+// later. Same library, same image, same host — the only difference is old
+// session versus new handshake, which points at the web build having moved on.
+// Pinning to a known snapshot is the documented remedy. Snapshots:
+// https://github.com/wppconnect-team/wa-version (html/<version>.html)
+const WA_WEB_VERSION = process.env.WA_WEB_VERSION;
+const webVersionCache = WA_WEB_VERSION
+  ? {
+      type: 'remote',
+      remotePath: `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${WA_WEB_VERSION}.html`,
+    }
+  : undefined;
+if (WA_WEB_VERSION) console.log(`📌 pinning WhatsApp Web to ${WA_WEB_VERSION}`);
+
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
+  ...(webVersionCache ? { webVersionCache } : {}),
   puppeteer: {
     headless: true,
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
