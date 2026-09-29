@@ -24,6 +24,8 @@ interface Props {
   internalView: boolean;
   onInternalView: (v: boolean) => void;
   readOnly: boolean;
+  /** Confirmed doc: opens the edit-after-confirm warning. */
+  onUnlockEdit?: () => void;
   onBack: () => void;
   onPreview: () => void;
   onConfirm: () => void;
@@ -50,7 +52,7 @@ const SAVE_LABEL: Record<SaveState, { text: string; icon: React.ReactNode; color
   conflict: { text: "Updated elsewhere — reload", icon: <ErrorOutlineIcon fontSize="small" />, color: "error.main" },
 };
 
-export default function HeaderBar({ number, clientName, status, saveState, internalView, onInternalView, readOnly, onBack, onPreview, onConfirm, onSaveNow, onToggleRail, onSendForSignature, canUndo, onUndo, designerSigned, onDesignerSign, signedBy, onRevertSignature, project, onOpenProject }: Props) {
+export default function HeaderBar({ number, clientName, status, saveState, internalView, onInternalView, readOnly, onUnlockEdit, onBack, onPreview, onConfirm, onSaveNow, onToggleRail, onSendForSignature, canUndo, onUndo, designerSigned, onDesignerSign, signedBy, onRevertSignature, project, onOpenProject }: Props) {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down("md"));
   const save = SAVE_LABEL[saveState];
@@ -135,6 +137,11 @@ export default function HeaderBar({ number, clientName, status, saveState, inter
         Preview
       </Button>
       {!readOnly ? (
+        status === "confirmed" ? (
+          <Tooltip title="Edits to a confirmed document are recorded in its history">
+            <Chip size="small" color="warning" variant="outlined" label="Confirmed · editing" />
+          </Tooltip>
+        ) : (
         <>
           <Button size="small" variant="outlined" startIcon={<DrawIcon />} onClick={onSendForSignature} data-tour="idq-send-signature">
             {compact ? "Sign" : "Send for signature"}
@@ -145,6 +152,7 @@ export default function HeaderBar({ number, clientName, status, saveState, inter
             </Button>
           </Tooltip>
         </>
+        )
       ) : (
         <>
           {onDesignerSign && (
@@ -155,7 +163,9 @@ export default function HeaderBar({ number, clientName, status, saveState, inter
             </Tooltip>
           )}
           {designerSigned && <Chip size="small" color="success" variant="outlined" icon={<DrawIcon />} label="Countersigned" />}
-          <Chip size="small" color="primary" variant="outlined" label="Confirmed · read-only" />
+          <Tooltip title="Unlock to edit — the unlock and every save are recorded in the document history">
+            <Chip size="small" color="primary" variant="outlined" label={onUnlockEdit ? "Confirmed · unlock to edit" : "Confirmed · read-only"} onClick={onUnlockEdit} data-tour="idq-unlock-edit" />
+          </Tooltip>
         </>
       )}
     </Box>

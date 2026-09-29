@@ -59,6 +59,9 @@ export function useIdQuoteApi() {
       saveDocument: (doc: { id: string; type: string; config: any; version?: number; status?: string; projectId?: string | null }) =>
         request<QuoteDocument>(`/documents/update`, { method: "POST", body: JSON.stringify(doc) }),
       getHtml: (id: string, lang?: "en" | "zh") => request<{ html: string; name: string | null; type: string }>(`/documents/${id}/html${lang === "zh" ? "?lang=zh" : ""}`),
+      // Stamps "Unlocked for editing" into the document history (same endpoint
+      // as the generic editor's edit-after-confirm flow).
+      logEditUnlock: (id: string) => request(`/documents/${id}/log-edit-unlock`, { method: "POST" }),
       // AI-translates the quote's free text to Chinese once (cached on the doc).
       translate: (id: string) => request<{ translated: number; cached: number }>(`/documents/${id}/translate`, { method: "POST" }),
       marginAlert: (id: string, body: { marginPct: number | null; floorPct: number; lines: string[] }) =>

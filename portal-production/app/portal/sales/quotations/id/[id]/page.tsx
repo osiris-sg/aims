@@ -71,7 +71,13 @@ export default function IdQuotationEditorPage() {
   const quoteRef = useRef(quote);
   quoteRef.current = quote;
 
-  const readOnly = doc?.status === "confirmed";
+  // Confirmed docs open read-only, but can be UNLOCKED for editing (guru
+  // 2026-09-29, same as the generic editor): the unlock is stamped into the
+  // document history, and every later save logs "Edited after confirm".
+  const [editUnlocked, setEditUnlocked] = useState(false);
+  const [unlockWarnOpen, setUnlockWarnOpen] = useState(false);
+  const confirmed = doc?.status === "confirmed";
+  const readOnly = confirmed && !editUnlocked;
   const designerSigned = !!(doc?.config?.designerSignature);
 
   // ── load ──────────────────────────────────────────────────────────────
@@ -483,6 +489,7 @@ export default function IdQuotationEditorPage() {
   return (
     <Box sx={{ minHeight: "100%", width: "100%", maxWidth: "100%", overflowX: "hidden", bgcolor: "background.default" }}>
       <HeaderBar
+        onUnlockEdit={() => setUnlockWarnOpen(true)}
         number={doc.name}
         clientName={quote.header.clientName}
         status={doc.status}
@@ -654,6 +661,34 @@ export default function IdQuotationEditorPage() {
           setTermsOpen(false);
         }}
       />
+
+      {/* Edit-after-confirm warning — mirror of the generic editor's. */}
+      <Dialog open={unlockWarnOpen} onClose={() => setUnlockWarnOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Edit confirmed quotation?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            {doc?.name || "This quotation"} is already confirmed{doc?.config?.clientSignature ? " and signed by the client" : ""}. Are you sure you want to edit it?
+          </Typography>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            The unlock and every change you save will be recorded in the document&apos;s history under your name.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUnlockWarnOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={() => {
+              setUnlockWarnOpen(false);
+              setEditUnlocked(true);
+              // Fire-and-forget: the trail shows when the session began.
+              api.logEditUnlock(id).catch(() => {});
+            }}
+          >
+            Yes, edit document
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <PreviewDialog open={previewOpen} documentId={doc.id} revision={previewRev} onClose={() => setPreviewOpen(false)} />
 

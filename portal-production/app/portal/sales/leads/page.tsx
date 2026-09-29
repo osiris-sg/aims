@@ -678,7 +678,7 @@ export default function LeadsPage() {
               color={color as any}
               variant={filters.status === value ? "filled" : "outlined"}
               label={label}
-              onClick={() => { setFilters({ ...filters, status: filters.status === value ? "" : value }); setPage(1); }}
+              onClick={() => { setFilters({ status: filters.status === value ? "" : value, source: "", assignedToUserId: "" }); setPage(1); }}
             />
           ))}
           {(stats.perDesigner || []).slice(0, 4).map((d: any) => (
@@ -688,7 +688,7 @@ export default function LeadsPage() {
                 variant={d.userId && filters.assignedToUserId === d.userId ? "filled" : "outlined"}
                 color={d.userId && filters.assignedToUserId === d.userId ? "primary" : "default"}
                 label={`${d.name}: ${d.signed}/${d.taken}`}
-                onClick={d.userId ? () => { setFilters({ ...filters, assignedToUserId: filters.assignedToUserId === d.userId ? "" : d.userId }); setPage(1); } : undefined}
+                onClick={d.userId ? () => { setFilters({ status: "", source: "", assignedToUserId: filters.assignedToUserId === d.userId ? "" : d.userId }); setPage(1); } : undefined}
               />
             </Tooltip>
           ))}
@@ -897,7 +897,12 @@ export default function LeadsPage() {
         <DialogTitle>Mark lead as dead</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ color: "text.secondary", mb: 1.5 }}>
-            Attach a screenshot showing the client never replied — this is the evidence for the replacement claim with {deadFor?.source === "network" ? "Network" : "EZiD"}. The lead is marked dead once the proof is uploaded.
+            {/* Provider leads (EZiD / Network) → the proof backs the replacement
+                claim; any other source → it's simply the record of why the
+                lead died (guru 2026-09-29). */}
+            {deadFor?.source === "ezid" || deadFor?.source === "network"
+              ? `Attach a screenshot showing the client never replied — this is the evidence for the replacement claim with ${deadFor?.source === "network" ? "Network" : "EZiD"}. The lead is marked dead once the proof is uploaded.`
+              : "Attach a screenshot showing the client never replied — it's kept on the lead as the record of why it went dead. The lead is marked dead once the proof is uploaded."}
           </Typography>
           <Button variant="outlined" component="label" fullWidth disabled={busy} sx={{ textTransform: "none" }}>
             {busy ? "Uploading…" : "Choose screenshot / PDF"}
