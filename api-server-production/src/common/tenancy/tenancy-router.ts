@@ -254,6 +254,15 @@ export class TenancyRouter {
       if (key === 'AND' || key === 'OR' || key === 'NOT') continue;
       if (tf.has(key)) continue;
       const v = where[key];
+      // A compound-unique selector (@@unique([channel, channelUserId]) is queried
+      // as where.channel_channelUserId = { channel, channelUserId }). It is not a
+      // column, but it is valid wherever all of its parts are. Dropping it made
+      // every findUnique/upsert on such a key match nothing (the Operator's
+      // identity and session lookups, 2026-09-30).
+      if (v && typeof v === 'object' && !Array.isArray(v) && key.includes('_')) {
+        const parts = Object.keys(v);
+        if (parts.length > 1 && parts.every((k) => tf.has(k))) continue;
+      }
       const isNull = v === null || v === undefined || (v && typeof v === 'object' && Object.keys(v).length === 1 && v.equals === null);
       delete where[key];
       if (!isNull) {
