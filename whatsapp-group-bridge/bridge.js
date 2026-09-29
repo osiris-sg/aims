@@ -192,6 +192,12 @@ const OPERATOR_TRIGGER = new RegExp(process.env.OPERATOR_TRIGGER || '@san\\b', '
 // A card's confirmation needs no summon: "confirm 4821" / "cancel 4821".
 const OPERATOR_CODE_RE = /^\s*(confirm|cancel)\s+\d{4}\s*$/i;
 const OPERATOR_TIMEOUT_MS = 120 * 1000;
+// After San asks this sender something or shows them a card, their next
+// message in that chat needs no tag, for this long (other people still do).
+const OPERATOR_FOLLOWUP_MS = 10 * 60 * 1000;
+// Images and PDFs only, the customer's PO. The API enforces the same cap.
+const OPERATOR_MEDIA_MAX_BYTES = 10 * 1024 * 1024;
+const OPERATOR_MEDIA_OK = /^(image\/(jpeg|png|webp|heic|heif)|application\/pdf)$/i;
 const OPERATOR_CATCHUP_MS = 30 * 60 * 1000;
 // Last message seen per operator chat, kept next to the session on the
 // persistent disk so a restart can pick up what it missed.
@@ -439,6 +445,16 @@ async function findChatsByName(needle) {
 // ── Operator transport ──────────────────────────────────────────────────────
 
 let operatorStarted = false;
+// `${chatId}|${sender}` → until when that sender's reply needs no tag.
+const operatorFollowUps = new Map();
+// Ids of messages San sent in operator chats (a quote-reply to one triggers).
+const operatorSentIds = new Set();
+function rememberOperatorSent(sent) {
+  const id = sent && sent.id && (sent.id.id || sent.id._serialized);
+  if (!id) return;
+  operatorSentIds.add(String(id));
+  if (operatorSentIds.size > 1000) operatorSentIds.delete(operatorSentIds.values().next().value);
+}
 let operatorLastSeen = {};
 let operatorSaveTimer = null;
 
@@ -494,9 +510,12 @@ function stripOperatorTrigger(text) {
   return t.replace(/[ \t]+/g, ' ').trim();
 }
 
-/** Is this operator-chat message meant for the Operator? */
-function operatorTriggered(body, mentions, isGroup) {
+/** Is this operator-chat message meant for the Operator? `opts.quotesUs`: it
+ *  quote-replies one of San's messages; `opts.followUp`: San is waiting on
+ *  this sender's answer in this chat. */
+function operatorTriggered(body, mentions, isGroup, opts = {}) {
   if (!isGroup) return true; // a DM is always addressed to us
+  if (opts.quotesUs || opts.followUp) return true;
   if (OPERATOR_CODE_RE.test(stripOperatorTrigger(body))) return true;
   if (OPERATOR_TRIGGER.test(body || '')) return true;
   // Only a mention of THIS account counts; tagging a colleague does not.
@@ -519,7 +538,7 @@ function sendTyping(chatId) {
 }
 
 /** Hand one message to the Operator and post its replies as quoted replies. */
-async function forwardToOperator({ messageId, chatId, isGroup, authorId, body, quotedMessageId }) {
+async function forwardToOperator({ messageId, chatId, isGroup, authorId, body, quotedMessageId, media }) {
   const { phone, lid } = await senderPhone(authorId);
   const typing = setInterval(() => sendTyping(chatId), 10 * 1000);
   sendTyping(chatId);
@@ -537,6 +556,7 @@ async function forwardToOperator({ messageId, chatId, isGroup, authorId, body, q
         fromLid: lid,
         text: stripOperatorTrigger(body),
         quotedMessageId: quotedMessageId || null,
+        ...(media ? { media } : {}),
       }),
       signal: ctl.signal,
     });
@@ -544,12 +564,19 @@ async function forwardToOperator({ messageId, chatId, isGroup, authorId, body, q
     if (!res.ok) throw new Error(json?.message || `operator ${res.status}`);
     const out = json?.data ?? json;
     for (const text of out?.messages || []) {
+      let sent = null;
       try {
-        await client.sendMessage(chatId, text, { quotedMessageId: messageId });
+        sent = await client.sendMessage(chatId, text, { quotedMessageId: messageId });
       } catch {
-        await client.sendMessage(chatId, text); // quoting unavailable on this build
+        sent = await client.sendMessage(chatId, text).catch(() => null); // quoting unavailable on this build
       }
+      rememberOperatorSent(sent);
     }
+    // San asked this sender something (or showed a card): their next message
+    // here needs no tag for 10 minutes. Anything else closes the window.
+    const key = `${chatId}|${String(authorId || '')}`;
+    if (out?.awaitingReply) operatorFollowUps.set(key, Date.now() + OPERATOR_FOLLOWUP_MS);
+    else operatorFollowUps.delete(key);
     console.log(`   🧭 operator ${phone ? '+' + phone : lid || '?'}: ${(out?.messages || []).length} repl${(out?.messages || []).length === 1 ? 'y' : 'ies'}${out?.skipped ? ` (${out.skipped})` : ''}`);
   } catch (e) {
     const err = e && e.name === 'AbortError' ? 'timed out' : e && e.message ? e.message : String(e);
@@ -564,25 +591,48 @@ async function forwardToOperator({ messageId, chatId, isGroup, authorId, body, q
 async function handleOperatorMessage(msg, chatId, isGroup) {
   if (msg.fromMe) return; // our own replies come back through message_create
   if (isGroup) markOperatorSeen(chatId, msg.timestamp);
+  // For media, body is the caption (often empty).
   const body = String(msg.body || '');
-  if (!body.trim()) return;
-  if (!operatorTriggered(body, mentionedDigits(msg), isGroup)) return;
-  console.log(`🧭 [${chatId}] ${String(msg.author || msg.from || '')}: ${body.slice(0, 80)}`);
-  let quoted = null;
-  if (msg.hasQuotedMsg) {
+  const hasMedia = !!msg.hasMedia;
+  if (!body.trim() && !hasMedia) return;
+  const authorId = isGroup ? msg.author : msg.from;
+  const quotedStanza = msg._data && msg._data.quotedStanzaID ? String(msg._data.quotedStanzaID) : '';
+  const quotedWho = String((msg._data && msg._data.quotedParticipant && (msg._data.quotedParticipant._serialized || msg._data.quotedParticipant)) || '').replace(/\D/g, '');
+  const quotesUs =
+    !!msg.hasQuotedMsg &&
+    ((quotedStanza && operatorSentIds.has(quotedStanza)) || (!!quotedWho && BOT_IDS.some((b) => b && (quotedWho === b || quotedWho.includes(b) || b.includes(quotedWho)))));
+  const key = `${chatId}|${String(authorId || '')}`;
+  const until = operatorFollowUps.get(key) || 0;
+  const followUp = until > Date.now();
+  if (!followUp && until) operatorFollowUps.delete(key); // timed out
+  if (!operatorTriggered(body, mentionedDigits(msg), isGroup, { quotesUs, followUp })) return;
+  console.log(`🧭 [${chatId}] ${String(authorId || '')}: ${hasMedia ? '[media] ' : ''}${body.slice(0, 80)}${quotesUs ? ' (quote)' : followUp ? ' (follow-up)' : ''}`);
+  let media = null;
+  if (hasMedia) {
     try {
-      quoted = (await msg.getQuotedMessage())?.id?._serialized || null;
-    } catch {
-      /* quoting unavailable on this build */
+      const m = await msg.downloadMedia();
+      const bytes = m && m.data ? Math.floor((m.data.length * 3) / 4) : 0;
+      if (m && OPERATOR_MEDIA_OK.test(String(m.mimetype || '').split(';')[0]) && bytes <= OPERATOR_MEDIA_MAX_BYTES) {
+        media = { mimetype: String(m.mimetype).split(';')[0], data: m.data, filename: m.filename || null };
+      } else {
+        console.log(`   ⤷ media skipped (${m ? m.mimetype : 'none'}, ${bytes} bytes)`);
+      }
+    } catch (e) {
+      console.error('   ✖ media download failed:', e && e.message ? e.message : e);
+    }
+    if (!media && !body.trim()) {
+      await client.sendMessage(chatId, 'I can only read an image or a PDF, up to 10 MB.', { quotedMessageId: msg.id?._serialized }).catch(() => {});
+      return;
     }
   }
   await forwardToOperator({
     messageId: msg.id?._serialized,
     chatId,
     isGroup,
-    authorId: isGroup ? msg.author : msg.from,
+    authorId,
     body,
-    quotedMessageId: quoted,
+    quotedMessageId: quotedStanza || null,
+    media,
   });
 }
 
