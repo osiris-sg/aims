@@ -210,6 +210,14 @@ export class OperatorService {
     // project cost: match the invoice's site address to a project, else offer
     // the projects as tappable buttons.
     if (msg.attachment) {
+      // A delivery waiting for its sales order (a card still held, or a draft
+      // saved without one)? Then this file is the customer's PO.
+      const soSession = await this.loadSession(msg.channel, msg.channelUserId);
+      if (await this.handlePoUpload(ctx, adapter, msg, soSession)) return;
+      if (msg.channel === 'wa-web') {
+        await adapter.sendText(msg.chatId, 'What is this file for? Send it right after a delivery card, or tell me which delivery it belongs to.');
+        return;
+      }
       await adapter.sendTyping?.(msg.chatId).catch(() => null);
       const status = (await adapter.sendStatus?.(msg.chatId, '📎 Reading the uploaded invoice...')) ?? null;
       const up = await this.tools
@@ -308,6 +316,51 @@ export class OperatorService {
 
   // ── Invoice upload → project costing ──────────────────────────────────────
 
+  /**
+   * The customer's PO for a delivery: read it, then show the Sales Order it
+   * will create (a card with its own code). Applies when this sender has a
+   * delivery card waiting for a sales order in this chat, or saved a draft run
+   * without one here in the last day. Returns false when neither applies.
+   */
+  private async handlePoUpload(
+    ctx: OperatorContext,
+    adapter: ChannelAdapter,
+    msg: InboundMessage,
+    session: SessionState,
+  ): Promise<boolean> {
+    const inChat = (p: { chatId?: string }) => msg.channel !== 'wa-web' || p.chatId === msg.chatId;
+    const card = [...(session.pendingActions || [])]
+      .reverse()
+      .find((p) => p.kind === 'schedule_delivery' && p.args?.needsSaleOrder && inChat(p));
+    const draft = card
+      ? null
+      : [...(session.draftRuns || [])].reverse().find((d) => d.chatId === msg.chatId && Date.now() - d.at < 24 * 3600_000);
+    if (!card && !draft) return false;
+    await adapter.sendTyping?.(msg.chatId).catch(() => null);
+    const po = await this.tools.extractPurchaseOrder(ctx, msg.attachment!).catch(() => null);
+    if (!po) {
+      await adapter.sendText(msg.chatId, "I couldn't read that as a PO. Send the sales order number instead, or a clearer copy.");
+      return true;
+    }
+    const target = card
+      ? { kind: 'card' as const, customerId: card.args!.dto.customerId, projectId: card.args!.dto.projectId ?? null, input: card.args!.input }
+      : { kind: 'draft' as const, deliveryId: draft!.deliveryId, customerId: draft!.customerId || '', projectId: null, number: draft!.number };
+    if (target.kind === 'draft') {
+      const run = await this.prisma.delivery.findFirst({ where: { id: target.deliveryId }, select: { projectId: true, customerId: true } });
+      target.projectId = run?.projectId ?? null;
+      target.customerId = target.customerId || run?.customerId || '';
+    }
+    const built = await this.tools.salesOrderCardFromPo(ctx, po, target);
+    if (!built.pending) {
+      await adapter.sendText(msg.chatId, built.error || "I couldn't turn that PO into a sales order.");
+      return true;
+    }
+    this.holdPending(session, built.pending, msg);
+    await this.saveSession(msg.channel, msg.channelUserId, session);
+    await this.presentCard(adapter, msg, built.pending);
+    return true;
+  }
+
   /** File an uploaded invoice as a project cost: match its site address to a
    *  project, else offer the projects as tappable buttons. */
   private async handleUpload(
@@ -317,35 +370,6 @@ export class OperatorService {
     session: SessionState,
     up: OperatorContext['upload'] | null,
   ): Promise<void> {
-    // A delivery held for want of its order? Then this upload IS that order.
-    // Registering it here is the whole point: the gap was named, the file was
-    // sent, the run is filled in — no extra step asked of the user.
-    const held = session.pendingAction;
-    if (up && held?.kind === 'schedule_delivery' && !held.args?.dto?.saleOrderId) {
-      const readable = (up.lines?.length ?? 0) > 0 || !!up.extracted?.invoiceNo || up.extracted?.amount != null;
-      if (readable) {
-        // The sales order is NOT created now: it is made from this file when
-        // the user confirms the card (every write goes through a card).
-        held.args!.soUpload = up;
-        const nowLive = !!held.args!.dto.projectId;
-        held.args!.isDraft = !nowLive;
-        held.summary = held.summary
-          .replace(/^Sales order: .*$/m, `Sales order: new one from the uploaded PO${up.extracted?.invoiceNo ? ` (${up.extracted.invoiceNo})` : ''}, created when you confirm`)
-          .replace(/\n\nConfirming saves a DRAFT[\s\S]*$/, '');
-        if (!nowLive) held.summary += `\n\nConfirming saves a DRAFT run (no DO): there is no project: the office adds one in Deliveries.`;
-        session.pendingUpload = null;
-        this.holdPending(session, held, msg);
-        await this.saveSession(msg.channel, msg.channelUserId, session);
-        await this.presentCard(adapter, msg, held);
-        return;
-      }
-      await adapter.sendText(
-        msg.chatId,
-        "I couldn't read that as an order. Send the sales order number instead and I'll attach it.",
-      );
-      return;
-    }
-
     const e = up?.extracted;
     if (!up || e?.amount == null) {
       // Keep the stored file around — the next message may name what it really
@@ -574,7 +598,8 @@ export class OperatorService {
       await adapter.sendButtons(
         msg.chatId,
         noDashes(choiceFromTools.question),
-        choiceFromTools.options.slice(0, 3).map((o: string) => ({ label: o.slice(0, 20), data: `choice:${o}` })),
+        // 20 characters is a WhatsApp Cloud button limit; wa-web prints them as text.
+        choiceFromTools.options.slice(0, 3).map((o: string) => ({ label: msg.channel === 'wa-web' ? o : o.slice(0, 20), data: `choice:${o}` })),
       );
     }
 
@@ -659,6 +684,7 @@ export class OperatorService {
       `     @Ah Seng"`,
       `  becomes schedule_delivery({ message: <the whole message, verbatim>, when: "Tomorrow morning", customer: "CNQC", location: "lentor garten", lines: ["1 unit Lion 375", "60 es DG", "1 set 25 mm 5 core cable"] }). The @mention is dropped from the fields. Pass any order or quotation number the user gives as saleOrderNumber, never leave it out: the tool decides, and it refuses quotations itself. The tool answers with either a Confirm card (then STOP) or questions: ask them in ONE short message (ask_choice when it is a pick between 2 or 3 options), then call schedule_delivery again with the SAME inputs plus the answers (customerId, projectId, items[{line, assetId}] or items[{line, freeTyped:true}], saleOrderId, doContactId). If the user changes a held card ("ok but Thursday", "make it 2 units"), call schedule_delivery again with all the same inputs plus the change; the new card replaces the old one. Quotations are never accepted for a delivery: only a sales order, or none (it then saves as a DRAFT run).`,
       `14. For "what deliveries are on / scheduled / pending" questions use list_deliveries.`,
+      `15. SALES ORDER AFTER A DRAFT: when a delivery was saved as a DRAFT without a sales order and the user then sends an SO number ("SO202609-0002", "attach SO… to delivery #12"), call attach_sales_order with that delivery's number. While the delivery card is still waiting for confirmation, call schedule_delivery again with saleOrderNumber instead. An uploaded PO is handled by the system itself.`,
     ].join('\n');
   }
 
@@ -809,6 +835,21 @@ export class OperatorService {
 
   /** Show a held card: Confirm/Cancel buttons, or on wa-web the code to type. */
   private async presentCard(adapter: ChannelAdapter, msg: InboundMessage, pending: PendingAction): Promise<void> {
+    // A delivery with no sales order: the card itself (ending at the DO
+    // contact), then the next step and the confirm line as a second message.
+    if (pending.kind === 'schedule_delivery' && pending.args?.needsSaleOrder) {
+      await adapter.sendText(msg.chatId, pending.summary);
+      const step = "No sales order found. Send the SO number, or upload the customer's PO and I'll create the Sales Order in AIMS and link it.";
+      if (msg.channel === 'wa-web' && pending.code) {
+        await adapter.sendText(msg.chatId, `${step}\nReply confirm ${pending.code} (or cancel ${pending.code})`);
+      } else {
+        await adapter.sendButtons(msg.chatId, `${step}\nOr confirm to save it as a draft run now.`, [
+          { label: '✅ Confirm', data: `confirm:${pending.id}` },
+          { label: '❌ Cancel', data: `cancel:${pending.id}` },
+        ]);
+      }
+      return;
+    }
     if (msg.channel === 'wa-web' && pending.code) {
       await adapter.sendText(msg.chatId, `${pending.summary}\n\nReply confirm ${pending.code}\n(or cancel ${pending.code})`);
       return;
@@ -874,6 +915,32 @@ export class OperatorService {
       }
     }
     if (id) session.doneIds = [...(session.doneIds || []).filter((x) => x !== id), id].slice(-20);
+    // A draft saved without a sales order: a PO or SO number that follows here
+    // is linked to it.
+    if (res.draftRun) {
+      session.draftRuns = [
+        ...(session.draftRuns || []).filter((d) => d.deliveryId !== res.draftRun!.deliveryId),
+        { ...res.draftRun, chatId: msg.chatId, at: Date.now() },
+      ].slice(-5);
+    }
+    if (res.ok && pending.kind === 'create_sales_order' && pending.args?.target?.kind === 'draft') {
+      session.draftRuns = (session.draftRuns || []).filter((d) => d.deliveryId !== pending.args!.target.deliveryId);
+    }
+    if (res.ok && pending.kind === 'link_sales_order') {
+      session.draftRuns = (session.draftRuns || []).filter((d) => d.deliveryId !== pending.args?.deliveryId);
+    }
+    // The sales order was created for a waiting delivery card: show that card
+    // again with the order on it (a fresh card, new code).
+    let followCard: PendingAction | null = null;
+    if (res.ok && res.followUp) {
+      const out = await this.tools.execute(ctx, res.followUp.tool, res.followUp.input).catch(() => null);
+      if (out?.pending) {
+        this.holdPending(session, out.pending, msg);
+        followCard = out.pending;
+      } else if (out?.result?.error) {
+        res = { ...res, message: `${res.message}\n${out.result.error}` };
+      }
+    }
     session.lastResult = { id, at: Date.now(), message: res.message };
     // The model never saw the tap, so tell it what now exists (numbers, ids):
     // "email it to them" or "preview it" on the next turn needs them.
@@ -887,6 +954,7 @@ export class OperatorService {
     await this.saveSession(msg.channel, msg.channelUserId, session);
     if (res.preview) await adapter.sendDocument(msg.chatId, res.preview.url, res.preview.filename, res.preview.caption).catch(() => null);
     await adapter.sendText(msg.chatId, res.message);
+    if (followCard) await this.presentCard(adapter, msg, followCard);
   }
 
   // ── Session ───────────────────────────────────────────────────────────────
@@ -921,6 +989,8 @@ export class OperatorService {
       pendingUpload: state.pendingUpload ?? null,
       doneIds,
       lastResult: state.lastResult ?? null,
+      // Was dropped on load too: a PO sent after a draft could not find it.
+      draftRuns: Array.isArray(state.draftRuns) ? state.draftRuns : [],
     };
   }
 

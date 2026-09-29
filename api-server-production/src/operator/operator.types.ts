@@ -114,7 +114,12 @@ export interface PendingAction {
     | 'schedule_delivery'
     | 'api_write'
     // Any other writing tool: the call itself is held and only runs on Confirm.
-    | 'tool_call';
+    | 'tool_call'
+    // A customer PO read from an upload → a SALES_ORDER, then linked to the
+    // held delivery card or to a draft run.
+    | 'create_sales_order'
+    // An existing sales order → a draft run, which then becomes scheduled.
+    | 'link_sales_order';
   documentId?: string;
   documentType?: string;
   summary: string;
@@ -142,4 +147,7 @@ export interface SessionState {
   /** The last card that ran, so a bare second "ok" is answered, not re-read.
    *  Cleared as soon as the model takes another turn. */
   lastResult?: { id: string; at: number; message: string } | null;
+  /** Draft runs this sender confirmed without a sales order, newest last: a PO
+   *  or SO number that follows is linked to them. Bounded. */
+  draftRuns?: Array<{ deliveryId: string; number: number | null; chatId: string; customerId: string | null; at: number }>;
 }
