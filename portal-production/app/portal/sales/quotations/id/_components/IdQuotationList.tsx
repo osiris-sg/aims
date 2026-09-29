@@ -7,7 +7,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Box, Chip, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { Box, Chip, Typography } from "@mui/material";
 import moment from "moment";
 import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
@@ -42,14 +42,6 @@ export default function IdQuotationList() {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({ status: "", createdOn: { startDate: null, endDate: null } });
   const [creating, setCreating] = useState(false);
-  // Quotations | Variation orders switch (guru 2026-09-29): VOs get their own
-  // Sales listing; a row opens the project's VO sheet dialog via ?vo=.
-  const [view, setView] = useState<"quotes" | "vos">("quotes");
-  const [voRows, setVoRows] = useState<any[]>([]);
-  const [voLoading, setVoLoading] = useState(false);
-  const [voPage, setVoPage] = useState(1);
-  const [voLimit, setVoLimit] = useState(10);
-  const [voSearch, setVoSearch] = useState("");
   const [toDelete, setToDelete] = useState<any | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -79,41 +71,6 @@ export default function IdQuotationList() {
   useEffect(() => {
     load();
   }, [load]);
-
-  useEffect(() => {
-    if (view !== "vos") return;
-    setVoLoading(true);
-    api
-      .request<{ docs: any[] }>(`/id-projects/vos`)
-      .then((r) => setVoRows(r?.docs || []))
-      .catch((e: any) => toast.error(e.message || "Failed to load variation orders"))
-      .finally(() => setVoLoading(false));
-  }, [view, api]);
-
-  const voFiltered = useMemo(() => {
-    const q = voSearch.trim().toLowerCase();
-    if (!q) return voRows;
-    return voRows.filter((v) => [v.name, v.projectName, v.contractNo, v.designer].some((x) => String(x || "").toLowerCase().includes(q)));
-  }, [voRows, voSearch]);
-
-  const voColumns = useMemo(
-    () => [
-      { id: "vo", header: "VO", cell: ({ row }: any) => <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.original.name || "VO"}</Typography> },
-      { id: "contract", header: "Contract", cell: ({ row }: any) => <Typography variant="body2">{row.original.contractNo || "—"}</Typography> },
-      {
-        id: "project",
-        header: "Project",
-        cell: ({ row }: any) => <Typography variant="body2">{row.original.projectName || "—"}</Typography>,
-      },
-      { id: "designer", header: "Designer", cell: ({ row }: any) => <Typography variant="body2">{row.original.designer || "—"}</Typography> },
-      { id: "adds", header: "Additions", cell: ({ row }: any) => <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>S$ {money(row.original.additions)}</Typography> },
-      { id: "rems", header: "Removals", cell: ({ row }: any) => <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>(S$ {money(row.original.removals)})</Typography> },
-      { id: "net", header: "Net (S$)", cell: ({ row }: any) => <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right", fontWeight: 700 }}>{money(row.original.net)}</Typography> },
-      { id: "status", header: "Status", cell: ({ row }: any) => <StatusChip status={row.original.status} /> },
-      { id: "created", header: "Created", cell: ({ row }: any) => <Typography variant="body2">{moment(row.original.createdAt).format("DD MMM YYYY")}</Typography> },
-    ],
-    [],
-  );
 
   const handleCreate = async () => {
     if (!organization?.id) return;
@@ -238,32 +195,6 @@ export default function IdQuotationList() {
 
   return (
     <MainCard>
-      <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1.5 }}>
-        <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)} data-tour="sales-vo-toggle">
-          <ToggleButton value="quotes" sx={{ px: 1.5, textTransform: "none" }}>Quotations</ToggleButton>
-          <ToggleButton value="vos" sx={{ px: 1.5, textTransform: "none" }}>Variation orders</ToggleButton>
-        </ToggleButtonGroup>
-      </Stack>
-      {view === "vos" ? (
-        <PageTable
-          onRowClick={(v: any) => v.projectId && router.push(`/portal/projects/${v.projectId}?vo=${v.id}`)}
-          tableName="Variation orders"
-          subTitle="Confirmed VOs add their net amount to the project's contract sum"
-          columns={voColumns as any}
-          data={voFiltered.slice((voPage - 1) * voLimit, voPage * voLimit)}
-          loading={voLoading}
-          page={voPage}
-          limit={voLimit}
-          search={voSearch}
-          filters={{}}
-          setPage={setVoPage}
-          setLimit={setVoLimit}
-          setSearch={(v: string) => { setVoSearch(v); setVoPage(1); }}
-          setFilters={() => {}}
-          pageCount={Math.max(1, Math.ceil(voFiltered.length / voLimit))}
-          totalDocs={voFiltered.length}
-        />
-      ) : (
       <PageTable
         onRowClick={(d: any) => router.push(`/portal/sales/quotations/id/${d.id}`)}
         tableName="Quotations"
@@ -286,7 +217,6 @@ export default function IdQuotationList() {
         buttonDisabled={creating}
         onAddClick={handleCreate}
       />
-      )}
       <DeleteItemDialogNoConfirm open={!!toDelete} onCancel={() => setToDelete(null)} onConfirm={handleDelete} loading={deleting} />
     </MainCard>
   );
