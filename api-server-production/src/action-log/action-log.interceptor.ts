@@ -28,7 +28,17 @@ const SKIP_PATHS = [
 ];
 
 // Background GETs fired on page load / tab focus, not user intent.
-const SKIP_GET_PATHS = ['/configuration', '/organizations/user', '/users/me/roles', '/guide/', '/documents/past-descriptions'];
+const SKIP_GET_PATHS = [
+  '/configuration',
+  '/organizations/user',
+  '/users/me/roles',
+  '/guide/',
+  '/documents/past-descriptions',
+  // The WhatsApp group bridge polls these every few seconds (2026-09-30: ~65%
+  // of all PROD rows). Its POST .../:id/sent is a real event and still logs.
+  '/whatsapp/group-approvals/approved',
+  '/whatsapp/group-reminders/due',
+];
 
 // POST endpoints that are actually list/read queries ("POST / = list" is a
 // house convention) — log them as VIEW, not CREATE.
