@@ -82,6 +82,9 @@ client.on('qr', async (qr) => {
   const ascii = await qrcode.toString(qr, { type: 'terminal', small: true });
   console.log(`\n📱 Scan from the phone whose 1:1 chats should reach AIMS (WhatsApp → Linked devices → Link a device):\n${ascii}`);
   console.log('QR_RAW::' + qr);
+  // Also push it to AIMS. A QR lives ~20s, and reading it back out of the
+  // host's log API costs 40-80s — so the logs can never yield a scannable one.
+  post('/whatsapp/dm-bridge/qr', { key: LABEL, qr }).catch(() => null);
 });
 
 client.on('authenticated', () => console.log('🔐 authenticated'));

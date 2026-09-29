@@ -303,6 +303,23 @@ export class WhatsAppController {
   }
 
   @Public()
+  @Post('dm-bridge/qr')
+  @ApiOperation({ summary: 'DM bridge: publish the current link QR (in-memory, expires with the QR)' })
+  async setBridgeQr(@Req() req: RequestWithOrganization, @Body() body: { key?: string; qr: string }) {
+    this.assertBridgeToken(req);
+    if (!body?.qr) throw new BadRequestException('qr is required');
+    return this.service.setBridgeQr(body.key || 'default', body.qr);
+  }
+
+  @Public()
+  @Get('dm-bridge/qr')
+  @ApiOperation({ summary: 'DM bridge: read the current link QR' })
+  async getBridgeQr(@Req() req: RequestWithOrganization, @Query('key') key?: string) {
+    this.assertBridgeToken(req);
+    return this.service.getBridgeQr(key || 'default');
+  }
+
+  @Public()
   @Post('dm-bridge/message')
   @ApiOperation({ summary: 'DM bridge: store a 1:1 message relayed by a linked device (X-Group-Bridge-Token gated)' })
   async dmBridgeMessage(

@@ -1134,6 +1134,29 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Latest link QR from a bridge, held in memory only.
+   *
+   * The QR rotates every ~20s, and reading it out of the host's log API costs
+   * 40-80s of lag — long enough that every QR is stale before it can be shown
+   * to anyone. The bridge posts it here the moment it is generated instead.
+   *
+   * In memory deliberately: it is a live credential for the WhatsApp account
+   * until scanned, worthless a minute later, and has no business in a table.
+   */
+  private bridgeQrs = new Map<string, { qr: string; at: number }>();
+
+  setBridgeQr(key: string, qr: string) {
+    this.bridgeQrs.set(key, { qr, at: Date.now() });
+    return { ok: true };
+  }
+
+  getBridgeQr(key: string) {
+    const row = this.bridgeQrs.get(key);
+    if (!row) return { qr: null, ageMs: null };
+    return { qr: row.qr, ageMs: Date.now() - row.at };
+  }
+
+  /**
    * Store a 1:1 message relayed by a linked-device bridge.
    *
    * For a number Meta will not let us connect at all — "already has an
