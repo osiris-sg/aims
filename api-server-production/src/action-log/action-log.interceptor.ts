@@ -40,7 +40,7 @@ const VERB_ACTIONS: Record<string, string> = {
   'confirm-do': 'CONFIRM', 'confirm-invoice': 'CONFIRM', 'confirm-pr': 'CONFIRM',
   'bulk-complete-do': 'CONFIRM', approve: 'APPROVE', reject: 'REJECT', submit: 'SUBMIT',
   void: 'VOID', post: 'POST_GL', 'post-batch': 'POST_GL', confirm: 'CONFIRM',
-  'send-email': 'SEND', 'sync-to-xero': 'SYNC', 'confirm-from-xero': 'CONFIRM', duplicate: 'DUPLICATE',
+  'send-email': 'SEND', 'sync-to-xero': 'SYNC', sync: 'SYNC', 'confirm-from-xero': 'CONFIRM', duplicate: 'DUPLICATE',
   revisions: 'CREATE_REVISION', notes: 'NOTE', sign: 'SIGN', 'generate-pdf': 'EXPORT',
   'run-due': 'RUN', run: 'RUN', 'generate-now': 'RUN', cancel: 'CANCEL', assign: 'ASSIGN',
   'link-project': 'LINK', link: 'LINK', 'claim-scheduled': 'CLAIM', 'ack-all': 'ACKNOWLEDGE',
@@ -73,7 +73,7 @@ const VERB_ACTIONS: Record<string, string> = {
   // ID quotation Chinese mode: POST :id/translate fills the cached zh map.
   translate: 'UPDATE',
   // Marketing (Meta ads): connect/disconnect the ad account, pull insights.
-  connect: 'UPDATE', disconnect: 'UPDATE', sync: 'SYNC',
+  connect: 'UPDATE', disconnect: 'UPDATE', // `sync` is already mapped above
   update: 'UPDATE', create: 'CREATE', delete: 'DELETE',
 };
 

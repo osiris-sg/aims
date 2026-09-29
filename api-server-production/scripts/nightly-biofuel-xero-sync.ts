@@ -85,7 +85,10 @@ async function main() {
   // Independent verification.
   if (run("[reconcile] Xero vs AIMS", "scripts/reconcile-xero-biofuel.ts")) {
     if (!run("[GST] F5 current quarter vs Xero", "scripts/verify-gst-vs-xero.ts", gstQuarterArgs())) process.exit(1);
-    console.log(`\n✓ NIGHTLY SYNC CLEAN (GL+AR+AP+GST) in ${Math.round((Date.now() - startedAt) / 60000)} min`);
+    // Structural invariants (all orgs): duplicates, orphans, unbalanced
+    // journals, stale doc↔journal ties — the 2026-09-28 incident classes.
+    if (!run("[invariants] accounting invariants", "scripts/verify-accounting-invariants.ts")) process.exit(1);
+    console.log(`\n✓ NIGHTLY SYNC CLEAN (GL+AR+AP+GST+invariants) in ${Math.round((Date.now() - startedAt) / 60000)} min`);
     process.exit(0);
   }
 
@@ -104,7 +107,8 @@ async function main() {
 
   if (run("[reconcile 2nd] Xero vs AIMS", "scripts/reconcile-xero-biofuel.ts")) {
     if (!run("[GST] F5 current quarter vs Xero", "scripts/verify-gst-vs-xero.ts", gstQuarterArgs())) process.exit(1);
-    console.log(`\n✓ NIGHTLY SYNC CLEAN (GL+AR+AP+GST, after full reload) in ${Math.round((Date.now() - startedAt) / 60000)} min`);
+    if (!run("[invariants] accounting invariants", "scripts/verify-accounting-invariants.ts")) process.exit(1);
+    console.log(`\n✓ NIGHTLY SYNC CLEAN (GL+AR+AP+GST+invariants, after full reload) in ${Math.round((Date.now() - startedAt) / 60000)} min`);
     process.exit(0);
   }
 

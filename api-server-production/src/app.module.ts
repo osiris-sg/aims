@@ -67,6 +67,7 @@ import { ReceiptsModule } from './receipts/receipts.module';
 import { PostingPreviewModule } from './posting-preview/posting-preview.module';
 import { BankRecModule } from './bank-rec/bank-rec.module';
 import { XeroSyncModule } from './xero-sync/xero-sync.module';
+import { AirwallexSyncModule } from './airwallex-sync/airwallex-sync.module';
 import { DocumentAssistantModule } from './document-assistant/document-assistant.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { PublicPayModule } from './public-pay/public-pay.module';
@@ -138,6 +139,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     PostingPreviewModule,
     BankRecModule,
     XeroSyncModule,
+    AirwallexSyncModule,
     PublicDeliveryModule,
     PublicDocumentModule,
     PublicSignModule,

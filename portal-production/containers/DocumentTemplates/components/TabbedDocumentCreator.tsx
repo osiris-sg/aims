@@ -97,7 +97,7 @@ import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields, { headerInputSx } from "./DynamicFormFields";
 import StockCardDialog from "./StockCardDialog";
 import RevenueItemPickerDialog from "./RevenueItemPickerDialog";
-import { resolveQuotationGroup, insertItemGrouped, mergeRates, dissolveMerge, normalizeRateMerges, contiguityError, mergeMembers, mergeRunPosition, setMergePriceOn, setMergeQuantityOn, RateMergeColumn } from "./quotationItemGroups";
+import { resolveQuotationGroup, insertItemGrouped, makeGroupHeaderItem, mergeRates, dissolveMerge, normalizeRateMerges, contiguityError, mergeMembers, mergeRunPosition, setMergePriceOn, setMergeQuantityOn, RateMergeColumn } from "./quotationItemGroups";
 import LocateDocumentDialog from "./LocateDocumentDialog";
 import ExtractQuotationDialog from "./ExtractQuotationDialog";
 import ExtractDOToInvoiceDialog from "./ExtractDOToInvoiceDialog";
@@ -1927,16 +1927,33 @@ export default function TabbedDocumentCreator({
   const addRevenueItemLine = (rev: any) => {
     const up = rev.unitPrice != null ? Number(rev.unitPrice) : 0;
     if (editingItemId != null) {
-      setItems(items.map((it: any) => it.id === editingItemId ? {
-        ...it,
-        isService: rev.type === "SERVICE",
-        itemCode: rev.code || it.itemCode,
-        description: rev.name,
-        unitPrice: up,
-        amount: (Number(it.quantity) || 1) * up,
-        accountCode: rev.accountCode ?? null,
-        revenueTag: rev.type === "SERVICE" ? "service" : null,
-      } : it));
+      // Re-coding an EXISTING row (picking a service to set its GL account).
+      // The row's description / qty / price are the user's own work — a
+      // re-code must not wipe them. Fill each one only when it is still empty
+      // (guru 2026-09-29); the account code and item code always update,
+      // because setting those is the point of the action.
+      setItems(items.map((it: any) => {
+        if (it.id !== editingItemId) return it;
+        const hasDescription = String(it.description ?? "").trim() !== "";
+        const hasQuantity = it.quantity !== null && it.quantity !== undefined && it.quantity !== "" && Number(it.quantity) > 0;
+        const hasPrice = it.unitPrice !== null && it.unitPrice !== undefined && it.unitPrice !== "" && Number(it.unitPrice) !== 0;
+        const description = hasDescription ? it.description : rev.name;
+        const quantity = hasQuantity ? it.quantity : 1;
+        const unitPrice = hasPrice ? Number(it.unitPrice) : up;
+        return {
+          ...it,
+          isService: rev.type === "SERVICE",
+          itemCode: rev.code || it.itemCode,
+          description,
+          quantity,
+          unitPrice,
+          // Only recompute the amount when this actually supplied a missing
+          // qty or price — otherwise leave a hand-typed amount alone.
+          amount: !hasQuantity || !hasPrice ? (Number(quantity) || 1) * (Number(unitPrice) || 0) : it.amount,
+          accountCode: rev.accountCode ?? null,
+          revenueTag: rev.type === "SERVICE" ? "service" : null,
+        };
+      }));
       setEditingItemId(null);
       return;
     }
@@ -2033,6 +2050,13 @@ export default function TabbedDocumentCreator({
   };
   // Re-pricing the block. The marker sits on EVERY member, so the price is set
   // on all of them and normalize puts the money back on whichever row is first.
+  // Append an empty section title. Left blank on purpose so the cursor lands in
+  // a fresh row and the user names it; normalizeRateMerges keeps any merged
+  // blocks intact around it.
+  const addTitleRow = () => {
+    setItems((prev: any[]) => [...prev, makeGroupHeaderItem("")]);
+  };
+
   const setMergePrice = (mergeId: string, price: number) => {
     setItems((prev: any[]) => setMergePriceOn(prev, mergeId, price));
   };
@@ -6578,6 +6602,23 @@ export default function TabbedDocumentCreator({
                           size="small"
                         >
                           Add Service
+                        </Button>
+                      )}
+                      {/* Section titles are normally minted automatically when a
+                          product matches a known group (Battery Energy Storage
+                          System, ECM Add Ons…). This adds an EMPTY one at the
+                          bottom for a section the catalogue doesn't know about —
+                          the row is the usual bold underlined header, typed in
+                          place (guru 2026-09-29). */}
+                      {isQuotationItemGroupsEnabled && isQuotation && !isTemplateEditMode && (
+                        <Button
+                          variant="outlined"
+                          startIcon={<AddIcon />}
+                          onClick={addTitleRow}
+                          size="small"
+                          title="Add a section title row"
+                        >
+                          Add Title
                         </Button>
                       )}
                     </Box>

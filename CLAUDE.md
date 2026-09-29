@@ -180,6 +180,26 @@ The root package.json only contains Xero integration dependencies (`xero-node`).
   canonicalises legacy keys into `referenceNo` on save (an explicit "" from
   the editor still clears it). Never introduce a new reference key.
 - **Accounting**: documents auto-post double-entry journals to the GL; Xero-style reports; posting queue for accountant review
+- **Accounting foolproofing (2026-09-28, after the double-posting incident) — three rules:**
+  1. **Document money has ONE read/write path**: `src/common/document-money.ts`.
+     Read owed/paid/gross via `owedOf/outstandingOf/amountPaidOf/grossOf`; write
+     ONLY via `stampDocumentMoney()` (stamps canonical `outstandingBalance` /
+     `paidToDate` / `totalWithTax` + legacy `xero*` twins). Never read or write
+     these config keys directly, and never coerce `outstandingOf()`'s null to 0
+     (null = "never stamped" = owed in full).
+  2. **DB guard triggers exist in every accounting schema** (`aims_je_guard` on
+     `JournalEntry`, `aims_doc_delete_guard` on `Document`; installer:
+     `scripts/journal-guards.ts`). They block: a second active native journal
+     for the same (org, sourceDocumentId, type); a `sourceDocumentId` pointing
+     at a missing Document; deleting a Document that still has a non-VOID
+     journal. Excluded from the dup rule: `createdBy='xero-import'`, `PAYMENT`/
+     `ADJUSTMENT` types, rows with `sourcePaymentId` (part-payments are legal).
+     If an insert raises "AIMS guard: …", the app flow is wrong (void before
+     repost) — NEVER drop the trigger to make an error go away. They are
+     plain-SQL triggers precisely so `prisma db push` can't remove them.
+  3. **Invariant sweep**: `scripts/verify-accounting-invariants.ts` (all orgs,
+     both layouts; runs nightly via `nightly-biofuel-xero-sync.ts`). If you
+     touch posting/payment/void logic, run it against dev before handing over.
 - **Inventory**: Asset-based inventory tracking with QR codes (tracked by serial, `Inventory.sku`)
 - **Projects**: Project → Deployment (RENTAL/SALE/SERVICE) → Assignments + Documents; recurring invoicing anchors on deployments
 - **Users & Permissions**: Role-based access control; org membership needs BOTH `UserOrganization` AND `UserRole` rows

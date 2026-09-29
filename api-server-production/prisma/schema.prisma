@@ -3349,3 +3349,34 @@ model AdInsight {
   @@index([organizationId, date])
   @@index([organizationId, campaignId])
 }
+
+// ── Airwallex payment sync (YOURWORLD ticket sales, 2026-09-28) ─────────────
+// Polls Airwallex payment_intents and books each succeeded order as a journal
+// (Dr clearing / Cr revenue, reference = the STAR_ order id) so the ticket
+// service's accounting always tallies. One connection per org.
+model AirwallexConnection {
+  id             String  @id @default(uuid())
+  organizationId String  @unique
+  // Airwallex API credentials (x-client-id + x-api-key → bearer token).
+  // clientId nullable: key can be seeded first, sync stays off until both set.
+  clientId       String?
+  apiKey         String
+  apiBase        String  @default("https://api.airwallex.com")
+  // Only intents whose merchant_order_id / metadata.order_id starts with this
+  // prefix belong to this org's ticket service.
+  orderPrefix    String  @default("STAR-")
+  // Posting map (codes resolved in the org's chart of accounts).
+  clearingAccountCode String @default("CA103")
+  revenueAccountCode  String @default("SS002")
+  feeAccountCode      String @default("EX041")
+  refundAccountCode   String @default("CS003")
+  enabled        Boolean   @default(false)
+  // Poll cursors per stream: only records created at/after these are fetched.
+  syncFrom       DateTime?
+  refundsFrom    DateTime?
+  feesFrom       DateTime?
+  lastSyncAt     DateTime?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
