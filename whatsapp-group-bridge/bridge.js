@@ -398,6 +398,40 @@ async function logGroupIds(retry = true) {
   for (const g of groups.sort((a, b) => String(a.name).localeCompare(String(b.name)))) {
     console.log(`GROUP:: ${g.name} -> ${g.id}`);
   }
+  console.log(`TOTAL:: ${groups.length} groups`);
+  await findChatsByName('biofuel');
+}
+
+/** LIST_GROUPS debug: every chat whose name contains `needle`, searched across
+ *  ALL chats (groups and 1:1, named or not) plus WhatsApp's group-metadata
+ *  store, which also holds groups that have no chat loaded yet. Read-only. */
+async function findChatsByName(needle) {
+  try {
+    const res = await client.pupPage.evaluate((q) => {
+      const col = window.require('WAWebCollections');
+      const arr = (c) => (c ? c.getModelsArray?.() || c.models || [] : []);
+      const hits = new Map();
+      let checked = 0;
+      for (const c of arr(col.Chat)) {
+        checked++;
+        const id = String(c?.id?._serialized || '');
+        const names = [c.formattedTitle, c.name, c.subject, c.groupMetadata?.subject, c.contact?.name, c.contact?.pushname];
+        const name = names.find((n) => n && String(n).toLowerCase().includes(q));
+        if (name && id) hits.set(id, String(name));
+      }
+      for (const g of arr(col.GroupMetadata)) {
+        checked++;
+        const id = String(g?.id?._serialized || '');
+        const name = g?.subject;
+        if (name && id && String(name).toLowerCase().includes(q) && !hits.has(id)) hits.set(id, String(name));
+      }
+      return { checked, hits: [...hits].map(([id, name]) => ({ id, name })) };
+    }, String(needle).toLowerCase());
+    if (!res.hits.length) console.log(`FOUND:: none (checked ${res.checked} chats)`);
+    for (const h of res.hits) console.log(`FOUND:: ${h.name} -> ${h.id}`);
+  } catch (e) {
+    console.log(`FOUND:: search failed: ${e && e.message ? e.message : e}`);
+  }
 }
 
 // ── Operator transport ──────────────────────────────────────────────────────
@@ -1135,6 +1169,13 @@ client.on('message_create', async (msg) => {
       if (await handleApprovalReply(msg, chatId)) return;
       await handlePaChat(msg, chatId, null);
       return;
+    }
+    // LIST_GROUPS debug: name and id of every incoming group message. Logging
+    // only, not awaited, so handling below is exactly as without it.
+    if (LIST_GROUPS && !msg.fromMe) {
+      storeGroupTitle(chatId)
+        .then((name) => console.log(`INCOMING:: ${name || '(no name)'} -> ${chatId}`))
+        .catch(() => console.log(`INCOMING:: (no name) -> ${chatId}`));
     }
     // Operator chats belong to the Operator's org: never handed to Denzel's agent.
     if (OPERATOR_ON && OPERATOR_CHATS.includes(chatId)) {
