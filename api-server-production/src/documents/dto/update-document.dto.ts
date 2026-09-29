@@ -33,8 +33,14 @@ class ItemDto {
   @IsOptional()
   inventoryItemId: string;
 
+  // Typed loosely ON PURPOSE. A line whose quantity the user cleared is stored
+  // as "" so it prints blank; the global ValidationPipe runs with
+  // enableImplicitConversion, which coerces a DECLARED `number` — turning ""
+  // into 0 before it is ever saved, so the blank came back filled in on the
+  // next load (guru 2026-09-29). `amount` round-trips correctly today only
+  // because it is not declared here at all. Keep this untyped.
   @IsOptional()
-  quantity: number;
+  quantity?: any;
 
   @IsString()
   @IsOptional()
