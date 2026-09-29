@@ -274,6 +274,8 @@ client.on('ready', () => {
   const name = client.info?.pushname || '';
   const lid = client.info?.lid?.user || client.info?.me?.lid?.user || '';
   BOT_IDS = [me, lid, process.env.BOT_LID].map((s) => (s || '').replace(/\D/g, '')).filter(Boolean);
+  // Which WhatsApp account this device is logged in as (read-only).
+  console.log(`ACCOUNT:: ${client.info?.wid?.user || 'unknown'} (${client.info?.pushname || ''})`);
   console.log(
     `✅ Group bridge live — linked as +${me} ${name ? '(' + name + ')' : ''}` +
       `${lid ? ' [lid ' + lid + ']' : ''} for org ${ORG_ID}. Trigger: @mention or ${TRIGGER}`,
