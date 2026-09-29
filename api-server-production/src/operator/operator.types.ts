@@ -2,7 +2,9 @@
 // speaks these types — every Telegram/WhatsApp specific lives in an adapter, so
 // adding a channel is a new adapter, not a change to the brain.
 
-export type OperatorChannel = 'telegram' | 'whatsapp';
+// 'wa-web' = the whatsapp-web.js linked-device bridge (San): groups and DMs
+// the Cloud API cannot reach. Replies travel back in the HTTP response.
+export type OperatorChannel = 'telegram' | 'whatsapp' | 'wa-web';
 
 export interface InboundMessage {
   channel: OperatorChannel;
@@ -26,6 +28,11 @@ export interface InboundMessage {
   /** True when `text` came from transcribing a voice note — the operator echoes
    *  what it heard so the user can catch a mis-transcription. */
   fromVoice?: boolean;
+  /** wa-web only: the org the bridge's token is bound to. The sender must be a
+   *  member of it; the Operator never works in any other org on this channel. */
+  boundOrgId?: string;
+  /** wa-web only: a group chat (unlinked senders stay silent there). */
+  isGroup?: boolean;
 }
 
 export interface ChannelButton {
@@ -113,6 +120,10 @@ export interface PendingAction {
   summary: string;
   args?: Record<string, any>;
   createdAt: string;
+  /** wa-web only: the 4-digit code the card ends with ("Reply confirm 4821"),
+   *  and the chat it was shown in. Only the requester, only in that chat. */
+  code?: string;
+  chatId?: string;
 }
 
 export interface SessionState {

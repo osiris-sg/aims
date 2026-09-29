@@ -6,6 +6,7 @@ import { Public } from '../decorators/public.decorator';
 import { OperatorService } from './operator.service';
 import { OperatorAuthService } from './operator-auth.service';
 import { TelegramAdapter } from './adapters/telegram.adapter';
+import { WaWebBridgeService, WaWebInbound } from './wa-web-bridge.service';
 
 interface RequestWithUser extends Request {
   user?: { id: string; firstName?: string; lastName?: string; emailAddresses?: Array<{ emailAddress: string }> };
@@ -21,7 +22,29 @@ export class OperatorController {
     private readonly auth: OperatorAuthService,
     private readonly telegram: TelegramAdapter,
     private readonly configService: ConfigService,
+    private readonly waWeb: WaWebBridgeService,
   ) {}
+
+  /**
+   * The San bridge (whatsapp-web.js) hands over one triggered message and gets
+   * back every reply, which it posts as quoted replies from the linked phone.
+   * Public: authenticated by X-Operator-Bridge-Token, bound to ONE org and its
+   * allowed chats in WA_WEB_BRIDGES (see WaWebBridgeService).
+   */
+  @Public()
+  @Post('wa-web/inbound')
+  @ApiOperation({ summary: 'wa-web bridge: one message in, the Operator replies out (token-gated)' })
+  waWebInbound(@Headers('x-operator-bridge-token') token: string, @Body() body: WaWebInbound) {
+    return this.waWeb.inbound(token, body || {});
+  }
+
+  /** The bridge checks in every 60 s; 5 min of silence rings the office bell. */
+  @Public()
+  @Post('wa-web/heartbeat')
+  @ApiOperation({ summary: 'wa-web bridge heartbeat (token-gated)' })
+  waWebHeartbeat(@Headers('x-operator-bridge-token') token: string) {
+    return this.waWeb.heartbeat(token);
+  }
 
   /**
    * Telegram webhook. Public (Telegram's servers call it), authenticated by the

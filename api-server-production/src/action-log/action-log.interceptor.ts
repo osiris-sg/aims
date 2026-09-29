@@ -25,6 +25,11 @@ const SKIP_PATHS = [
   '/location-ping', // field app GPS batches
   '/admin/dashboard', // polled stats
   '/handoff/status', // rider's 5 s poll while a trip is with a driver
+  // The San bridge's transport. Its heartbeat is noise; its inbound request is
+  // a SYSTEM row that says nothing, and every write it leads to is logged by
+  // the Operator as the staff member who asked (channel wa-web).
+  '/operator/wa-web/inbound',
+  '/operator/wa-web/heartbeat',
 ];
 
 // Background GETs fired on page load / tab focus, not user intent.

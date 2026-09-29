@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { OperatorChannel, OperatorContext } from './operator.types';
+import { toE164Digits } from './phone.util';
 
 /** Flat (not a discriminated union) — this project runs strictNullChecks:false,
  *  which disables union narrowing, so callers check `ok` and read the fields. */
@@ -97,7 +98,41 @@ export class OperatorAuthService {
     return false;
   }
 
+  /**
+   * wa-web (the San bridge): the org is fixed by the bridge's token, and the
+   * sender is matched by EXACT E.164 digits, never by suffix: a 'wa-web'
+   * OperatorIdentity (/link) first, then a member profile's WhatsApp number in
+   * THAT org (User Management → WhatsApp Number). A match that is not a member
+   * of the bound org is treated as unlinked: this channel never works anywhere
+   * else.
+   */
+  async resolveWaWeb(orgId: string, phone: string | null | undefined): Promise<ResolveResult> {
+    const e164 = toE164Digits(phone);
+    if (!e164 || !orgId) return { ok: false, reason: 'unlinked' };
+    const identity = await this.prisma.operatorIdentity.findUnique({
+      where: { channel_channelUserId: { channel: 'wa-web', channelUserId: e164 } },
+    });
+    let userId: string | null = identity?.verified ? identity.clerkUserId : null;
+    if (!userId) {
+      const profiles = await this.prisma.organizationMemberProfile.findMany({
+        where: { organizationId: orgId, whatsappNumber: { not: null } },
+        select: { userId: true, whatsappNumber: true },
+      });
+      const users = [...new Set(profiles.filter((p) => toE164Digits(p.whatsappNumber) === e164).map((p) => p.userId))];
+      if (users.length > 1) this.logger.warn(`wa-web: ${e164} is set on ${users.length} users in ${orgId}, ignoring.`);
+      if (users.length === 1) userId = users[0];
+    }
+    if (!userId) return { ok: false, reason: 'unlinked' };
+    // No identityId: resolveForUser would otherwise re-point the identity's
+    // stored org when the user is not a member of the bound one.
+    const r = await this.resolveForUser(userId, orgId, 'wa-web', e164, { displayName: identity?.displayName });
+    if (!r.ok || r.ctx?.organizationId !== orgId) return { ok: false, reason: 'unlinked' };
+    return r;
+  }
+
   async resolve(channel: OperatorChannel, channelUserId: string): Promise<ResolveResult> {
+    // wa-web needs the bridge's org: OperatorService calls resolveWaWeb for it.
+    if (channel === 'wa-web') return { ok: false, reason: 'unlinked' };
     // 1) Explicit link — OperatorIdentity (/link flow, osirisadmin, manual register).
     const identity = await this.prisma.operatorIdentity.findUnique({
       where: { channel_channelUserId: { channel, channelUserId } },

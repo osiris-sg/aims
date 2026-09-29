@@ -26,6 +26,9 @@ import { OperatorAuthService } from './operator-auth.service';
 import { OperatorToolsService } from './operator-tools.service';
 import { TelegramAdapter } from './adapters/telegram.adapter';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
+import { WaWebAdapter } from './adapters/wa-web.adapter';
+import { WaWebBridgeService } from './wa-web-bridge.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 /**
  * AIMS Operator — a chat agent (Telegram first, WhatsApp later) that executes
@@ -57,9 +60,19 @@ import { PublicDocumentModule } from '../public-document/public-document.module'
     PublicDocumentModule, // preview_document → view-only DO link
     XeroSyncModule, // confirm_invoices_from_xero tool
     BankRecModule, // bank_rec_checkpoint tool
+    NotificationsModule, // wa-web bridge offline bell
   ],
   controllers: [OperatorController],
-  providers: [OperatorService, OperatorAuthService, OperatorToolsService, TelegramAdapter, WhatsAppAdapter, PrismaService],
+  providers: [
+    OperatorService,
+    OperatorAuthService,
+    OperatorToolsService,
+    TelegramAdapter,
+    WhatsAppAdapter,
+    WaWebAdapter,
+    WaWebBridgeService,
+    PrismaService,
+  ],
   exports: [OperatorService, OperatorAuthService, WhatsAppAdapter],
 })
 export class OperatorModule {}
