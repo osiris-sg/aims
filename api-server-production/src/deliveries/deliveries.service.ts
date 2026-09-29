@@ -621,6 +621,7 @@ export class DeliveriesService {
             projectId: dto.projectId ?? null,
             customerId,
             ...(deliveryAddress ? { siteAddress: deliveryAddress } : {}),
+            ...(dto.notes?.trim() ? { notes: dto.notes.trim() } : {}),
             items: {
               // A qty-N catalog line becomes N qty-1 SLOTS, so every position the
               // rider walks is a real row that can carry its own status and
@@ -895,6 +896,9 @@ export class DeliveriesService {
           projectId: dto.projectId ?? null,
           customerId,
           siteAddress: deliveryAddress || null,
+          // Only when sent: the Deliveries dialog does not carry notes yet, and
+          // an edit from there must not wipe what the Operator stored.
+          ...(dto.notes !== undefined ? { notes: dto.notes?.trim() || null } : {}),
         },
       });
     });

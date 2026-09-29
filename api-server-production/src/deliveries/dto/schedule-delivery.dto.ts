@@ -162,6 +162,14 @@ export class ScheduleDeliveryDto {
   @IsOptional()
   @IsString()
   machineLocation?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'Office notes for the run (free text, e.g. "call site supervisor on arrival"). Lands on Delivery.notes.',
+  })
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }
 
 /**
