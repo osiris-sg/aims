@@ -336,6 +336,12 @@ export class DocumentsService {
   // session started, not just the saves it later produced. Saves during the
   // session then log as EDITED_AFTER_CONFIRM, bracketing the whole session.
   async logEditUnlock(documentId: string, organizationId: string, actor?: DocumentActor) {
+    // Managers and up only — same rule as the confirmed-edit save guard.
+    if (actor?.id) {
+      const { resolveTier } = await import('../common/role-tier');
+      const { tier } = await resolveTier(this.prisma, organizationId, actor.id);
+      if (tier === 'designer') throw new HttpException('Only managers can edit a confirmed document', HttpStatus.FORBIDDEN);
+    }
     const doc = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
       select: { id: true, name: true, status: true },
@@ -1104,6 +1110,20 @@ export class DocumentsService {
       // the actor, so the person who re-edited a confirmed document is always
       // traceable. (The old behavior threw "Cannot edit confirmed document".)
       const wasConfirmedBeforeSave = !['draft', 'unconfirmed'].includes(existingDocument.status);
+
+      // Managers and up only (guru 2026-09-29): a Designer-tier user may
+      // neither CONFIRM a document nor edit one that is already confirmed.
+      // (The client-signature confirm runs with no user and is unaffected.)
+      if (actor?.id && (wasConfirmedBeforeSave || dto.status === 'confirmed')) {
+        const { resolveTier } = await import('../common/role-tier');
+        const { tier } = await resolveTier(this.prisma, organizationId, actor.id);
+        if (tier === 'designer') {
+          throw new HttpException(
+            wasConfirmedBeforeSave ? 'Only managers can edit a confirmed document' : 'Only managers can confirm a document',
+            HttpStatus.FORBIDDEN,
+          );
+        }
+      }
 
       // Optimistic-concurrency guard. If the client sent the version it loaded,
       // reject the save when the document has since moved on (someone else saved

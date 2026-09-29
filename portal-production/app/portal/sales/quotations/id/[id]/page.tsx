@@ -12,6 +12,7 @@ import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogCont
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import MergeIcon from "@mui/icons-material/CallMergeRounded";
 import { toast } from "react-toastify";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useIdQuoteApi, ApiError } from "../_lib/api";
 import type { IdQuote, QuoteDocument, QuoteItem, QuoteSection, WorkItem, WorkSection } from "../_lib/types";
 import { defaultQuote, emptyItem, emptySection, normalizeQuote, sectionFromPreset } from "../_lib/defaults";
@@ -74,6 +75,12 @@ export default function IdQuotationEditorPage() {
   // Confirmed docs open read-only, but can be UNLOCKED for editing (guru
   // 2026-09-29, same as the generic editor): the unlock is stamped into the
   // document history, and every later save logs "Edited after confirm".
+  // Confirm + unlock-to-edit are for managers and up (guru 2026-09-29):
+  // a user holding only Designer(/Marketing) roles gets neither control —
+  // their path to a confirmed quote is the client-signature flow. The API
+  // enforces the same rule.
+  const { userRoles } = useUserPermissions();
+  const canManage = userRoles.length === 0 || userRoles.some((r: any) => !["Designer", "Marketing"].includes(r?.name));
   const [editUnlocked, setEditUnlocked] = useState(false);
   const [unlockWarnOpen, setUnlockWarnOpen] = useState(false);
   const confirmed = doc?.status === "confirmed";
@@ -489,7 +496,7 @@ export default function IdQuotationEditorPage() {
   return (
     <Box sx={{ minHeight: "100%", width: "100%", maxWidth: "100%", overflowX: "hidden", bgcolor: "background.default" }}>
       <HeaderBar
-        onUnlockEdit={() => setUnlockWarnOpen(true)}
+        onUnlockEdit={canManage ? () => setUnlockWarnOpen(true) : undefined}
         number={doc.name}
         clientName={quote.header.clientName}
         status={doc.status}
@@ -512,7 +519,7 @@ export default function IdQuotationEditorPage() {
           if (dirtyRef.current) await save();
           setPreviewOpen(true);
         }}
-        onConfirm={() => setConfirmOpen(true)}
+        onConfirm={canManage ? () => setConfirmOpen(true) : undefined}
         onSaveNow={() => save()}
         onToggleRail={() => setRailOpen(true)}
         onSendForSignature={async () => {

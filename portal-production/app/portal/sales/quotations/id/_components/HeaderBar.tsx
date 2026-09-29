@@ -28,7 +28,8 @@ interface Props {
   onUnlockEdit?: () => void;
   onBack: () => void;
   onPreview: () => void;
-  onConfirm: () => void;
+  /** Managers and up — absent hides the Confirm button. */
+  onConfirm?: () => void;
   onSaveNow: () => void;
   onToggleRail: () => void;
   onSendForSignature: () => void;
@@ -146,11 +147,13 @@ export default function HeaderBar({ number, clientName, status, saveState, inter
           <Button size="small" variant="outlined" startIcon={<DrawIcon />} onClick={onSendForSignature} data-tour="idq-send-signature">
             {compact ? "Sign" : "Send for signature"}
           </Button>
-          <Tooltip title="Confirm without a client signature (e.g. signed on paper)">
-            <Button size="small" variant="contained" startIcon={<CheckCircleIcon />} onClick={onConfirm} data-tour="idq-confirm">
-              Confirm
-            </Button>
-          </Tooltip>
+          {onConfirm && (
+            <Tooltip title="Confirm without a client signature (e.g. signed on paper)">
+              <Button size="small" variant="contained" startIcon={<CheckCircleIcon />} onClick={onConfirm} data-tour="idq-confirm">
+                Confirm
+              </Button>
+            </Tooltip>
+          )}
         </>
         )
       ) : (

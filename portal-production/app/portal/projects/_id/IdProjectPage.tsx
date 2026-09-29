@@ -967,7 +967,18 @@ export default function IdProjectPage({ id }: { id: string }) {
                     </Cell>
                     <Cell>{fmtDate(d.createdAt)}</Cell>
                     <Cell right>
-                      <Button size="small" onClick={() => router.push(`/portal/documents/${d.type}/${d.documentTemplateId}/${d.id}`)} sx={{ textTransform: "none" }}>
+                      {/* VOs have no generic template — the generic editor
+                          renders them blank. They open in the VO sheet dialog
+                          (guru 2026-09-29). */}
+                      <Button
+                        size="small"
+                        onClick={() =>
+                          d.type === "VARIATION_ORDER" || d.type === "VO"
+                            ? setVoDoc(d.id)
+                            : router.push(`/portal/documents/${d.type}/${d.documentTemplateId}/${d.id}`)
+                        }
+                        sx={{ textTransform: "none" }}
+                      >
                         Open
                       </Button>
                     </Cell>
