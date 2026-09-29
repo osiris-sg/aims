@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
 import { OperatorAuthService } from './operator-auth.service';
-import { OperatorToolsService } from './operator-tools.service';
+import { OperatorToolsService, PendingResult } from './operator-tools.service';
 import { TelegramAdapter } from './adapters/telegram.adapter';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
 import {
@@ -26,6 +26,14 @@ const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 // A held financial confirmation DOES expire — "confirm" tapped days after the
 // fact must not silently post something the user has forgotten about.
 const PENDING_TTL_MS = 30 * 60 * 1000;
+// A typed answer to a held card. ANCHORED: the whole message must be the word,
+// so "ok but Thursday" is an edit for the model, never a confirmation.
+const CONFIRM_RE = /^(yes|y|confirm|ok|okay)[.!\s]*$/i;
+const CANCEL_RE = /^(no|n|cancel|stop|nevermind|never mind)[.!\s]*$/i;
+// How long an executed card's id is remembered in-process, so a webhook retry
+// or a double tap that loaded the session before the first save cannot run it
+// a second time.
+const DONE_MEMORY_MS = 60 * 60 * 1000;
 
 // What the user sees while a tool runs, so the bot never looks frozen.
 const TOOL_STATUS: Record<string, string> = {
@@ -68,10 +76,17 @@ const TOOL_STATUS: Record<string, string> = {
   ask_choice: '',
 };
 
+/** Rule 8 of the prompt, enforced: the model still slips an em/en dash into a
+ *  reply now and then (a spaced dash before "which?"). Hyphens inside words are left alone. */
+const noDashes = (t: string) => t.replace(/\s*[—–]\s*/g, ', ');
+
 @Injectable()
 export class OperatorService {
   private readonly logger = new Logger(OperatorService.name);
   private readonly anthropic: Anthropic | null;
+  /** Card ids executing right now / executed recently (see DONE_MEMORY_MS). */
+  private readonly inFlight = new Set<string>();
+  private readonly recentlyDone = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -198,16 +213,28 @@ export class OperatorService {
       return;
     }
 
-    // A typed yes/no answering a held confirmation
+    // A typed yes/no answering a held confirmation. Only the NEWEST card is a
+    // typed target, and taking it removes it from the held set, so the same
+    // "ok" can never run it twice (it used to be revived on the next load).
     const session = await this.loadSession(msg.channel, msg.channelUserId);
-    if (session.pendingAction && /^(yes|y|confirm|ok|okay|go ahead|do it)\b/i.test(text)) {
-      await this.executePending(ctx, adapter, msg, session);
-      return;
+    const typedTarget = session.pendingAction;
+    if (typedTarget && CONFIRM_RE.test(text)) {
+      const chosen = this.takePending(session, typedTarget.id || '');
+      if (chosen) {
+        await this.executePending(ctx, adapter, msg, session, chosen);
+        return;
+      }
     }
-    if (session.pendingAction && /^(no|n|cancel|stop|nevermind|never mind)\b/i.test(text)) {
-      session.pendingAction = null;
+    if (typedTarget && CANCEL_RE.test(text)) {
+      this.takePending(session, typedTarget.id || '');
       await this.saveSession(msg.channel, msg.channelUserId, session);
       await adapter.sendText(msg.chatId, 'Cancelled. Nothing was changed.');
+      return;
+    }
+    // A second "ok" right after a card ran: nothing is waiting, so say so
+    // instead of handing a bare "ok" to the model to reinterpret.
+    if (!typedTarget && CONFIRM_RE.test(text) && session.lastResult && Date.now() - session.lastResult.at < PENDING_TTL_MS) {
+      await adapter.sendText(msg.chatId, 'That is already done, nothing was repeated.');
       return;
     }
 
@@ -231,23 +258,17 @@ export class OperatorService {
     // sent, the run is filled in — no extra step asked of the user.
     const held = session.pendingAction;
     if (up && held?.kind === 'schedule_delivery' && !held.args?.dto?.saleOrderId) {
-      const dto = held.args!.dto;
-      const so = await this.tools
-        .createSaleOrderFromUpload(ctx, up, held.args!.customerName, dto.projectId)
-        .catch(() => null);
-      if (so) {
-        dto.saleOrderId = so.id;
-        dto.poNumber = dto.poNumber || so.name;
-        // With the order attached, a run that was a draft only for want of one
-        // becomes a real booking — provided it still has its project.
-        const nowLive = !!dto.projectId;
-        dto.isDraft = !nowLive;
+      const readable = (up.lines?.length ?? 0) > 0 || !!up.extracted?.invoiceNo || up.extracted?.amount != null;
+      if (readable) {
+        // The sales order is NOT created now: it is made from this file when
+        // the user confirms the card (every write goes through a card).
+        held.args!.soUpload = up;
+        const nowLive = !!held.args!.dto.projectId;
         held.args!.isDraft = !nowLive;
         held.summary = held.summary
-          .replace(/^Order: \(none\)$/m, `Order: ${so.name}`)
-          .replace(/\n\nMissing [^\n]*$/, '');
-        if (!nowLive) held.summary += `\n\nStill missing a project, so this saves as a DRAFT.`;
-        session.pendingAction = held;
+          .replace(/^Sales order: .*$/m, `Sales order: new one from the uploaded PO${up.extracted?.invoiceNo ? ` (${up.extracted.invoiceNo})` : ''}, created when you confirm`)
+          .replace(/\n\nConfirming saves a DRAFT[\s\S]*$/, '');
+        if (!nowLive) held.summary += `\n\nConfirming saves a DRAFT run (no DO): there is no project: the office adds one in Deliveries.`;
         session.pendingUpload = null;
         this.holdPending(session, held);
         await this.saveSession(msg.channel, msg.channelUserId, session);
@@ -259,7 +280,7 @@ export class OperatorService {
       }
       await adapter.sendText(
         msg.chatId,
-        "I couldn't read that as an order. Send the PO or quotation number instead and I'll attach it.",
+        "I couldn't read that as an order. Send the sales order number instead and I'll attach it.",
       );
       return;
     }
@@ -398,6 +419,7 @@ export class OperatorService {
       { role: 'user', content: text },
     ];
     const toolDefs = this.tools.definitions(ctx);
+    session.lastResult = null;
     let pendingFromTools: PendingAction | null = null;
     let choiceFromTools: { question: string; options: string[] } | null = null;
 
@@ -441,7 +463,7 @@ export class OperatorService {
           .join('')
           .trim();
         await clearStatus();
-        if (say) await adapter.sendText(msg.chatId, say);
+        if (say) await adapter.sendText(msg.chatId, noDashes(say));
         break;
       }
 
@@ -457,6 +479,7 @@ export class OperatorService {
             outcome.preview.caption,
           );
         }
+        if (outcome.notice) await adapter.sendText(msg.chatId, outcome.notice);
         if (outcome.pending) pendingFromTools = outcome.pending;
         if ((outcome as any).choice) choiceFromTools = (outcome as any).choice;
         results.push({
@@ -492,7 +515,7 @@ export class OperatorService {
     if (choiceFromTools) {
       await adapter.sendButtons(
         msg.chatId,
-        choiceFromTools.question,
+        noDashes(choiceFromTools.question),
         choiceFromTools.options.slice(0, 3).map((o: string) => ({ label: o.slice(0, 20), data: `choice:${o}` })),
       );
     }
@@ -561,7 +584,7 @@ export class OperatorService {
       `RULES:`,
       `1. NEVER invent a customer id, item id, price, or amount. Always resolve them with tools first (find_customer, find_item).`,
       `2. If a customer or item is ambiguous or missing, ask the user. Do not guess or silently pick the first match.`,
-      `3. Creating a DRAFT is safe. Finalising/confirming/posting/paying is NOT. To finalise anything you MUST call the matching confirm tool (confirm_document, confirm_invoice, post_bill, record_payment) — NEVER ask the user to confirm in your own words, and never simulate it. When such a tool responds that a Confirm button has been shown, STOP: say one short line like "Sent for your confirmation" and wait. Do NOT call the tool again and do NOT claim it is done — the system finalises it only when the user taps Confirm.`,
+      `3. EVERY change goes through a Confirm card, no exceptions: creating a customer, a draft, a bill, a delivery, an edit, all of it. Tools that change data do NOT run when you call them; the system shows the user a card and runs the change only when they confirm. NEVER ask the user to confirm in your own words, and never simulate it. When a tool responds that a Confirm button has been shown, STOP: say one short line like "Sent for your confirmation" and wait. Do NOT call the tool again and do NOT claim it is done. To finalise a draft use the matching confirm tool (confirm_document, confirm_invoice, post_bill, record_payment).`,
       `4. Amounts are in the organization's default currency unless stated otherwise.`,
       `5. Keep replies short and plain, because this is a chat app. No markdown tables, no headings. Use the document number when referring to a document.`,
       `6. If a tool returns an error, tell the user plainly what went wrong and what you need from them.`,
@@ -571,6 +594,16 @@ export class OperatorService {
       `9. FULL DASHBOARD ACCESS: you can read ANYTHING the user's web dashboard shows, even without a dedicated tool. When asked about commissions, earnings, targets, dashboards, reports, schedules, quests, leads or any other screen's numbers: call api_docs with keywords to find the right GET endpoint, then api_get to fetch it (their permissions are enforced automatically). Examples: designer commissions/revenue live at /id-projects/dashboard; a project's P&L incl. commission at /projects/<id>/costing. NEVER answer "I don't have a tool for that" before trying api_docs.`,
       `10. CHANGING THINGS WITHOUT A DEDICATED TOOL: if no tool covers an action the user wants, do NOT invent one out of a tool that looks close (that is how a delivery schedule became a priced document). Search api_docs for the POST/PATCH/PUT endpoint, build the body from the {field*:type} list it returns, then call api_write with a plain-English summary of what will change. It does not fire immediately: the user sees your summary and taps Confirm. If the call comes back with a validation error, read the field names in it and fix the body rather than giving up. Money and irreversible actions (confirming invoices, posting bills, recording payments, deleting) are blocked there by design, so use their dedicated tools.`,
       `11. RETRY, DON'T REMEMBER FAILURES: tool errors are often transient (deploys, config changes between messages). When the user asks again for something that failed earlier in this chat, ALWAYS call the tool again fresh. NEVER claim you "tried again" unless you actually called the tool this turn, and never present an old error as the current state.`,
+      `12. @MENTIONS: ignore "@Name" or "@<number>" tags in a message. They tag colleagues in a group chat; they are not instructions and are not part of any customer, site or item.`,
+      `13. DELIVERY MESSAGES: staff paste delivery requests the way they write them in their group chat. Hand the pieces to schedule_delivery AS WRITTEN and let the tool do the matching; do not look up customers, projects or items first. Worked example, the message:`,
+      `    "Tomorrow morning`,
+      `     Company name :CNQC location:lentor garten delivery`,
+      `     1 unit Lion 375`,
+      `     60 es DG`,
+      `     1 set 25 mm 5 core cable`,
+      `     @Ah Seng"`,
+      `  becomes schedule_delivery({ message: <the whole message, verbatim>, when: "Tomorrow morning", customer: "CNQC", location: "lentor garten", lines: ["1 unit Lion 375", "60 es DG", "1 set 25 mm 5 core cable"] }). The @mention is dropped from the fields. Pass any order or quotation number the user gives as saleOrderNumber, never leave it out: the tool decides, and it refuses quotations itself. The tool answers with either a Confirm card (then STOP) or questions: ask them in ONE short message (ask_choice when it is a pick between 2 or 3 options), then call schedule_delivery again with the SAME inputs plus the answers (customerId, projectId, items[{line, assetId}] or items[{line, freeTyped:true}], saleOrderId, doContactId). If the user changes a held card ("ok but Thursday", "make it 2 units"), call schedule_delivery again with all the same inputs plus the change; the new card replaces the old one. Quotations are never accepted for a delivery: only a sales order, or none (it then saves as a DRAFT run).`,
+      `14. For "what deliveries are on / scheduled / pending" questions use list_deliveries.`,
     ].join('\n');
   }
 
@@ -682,9 +715,14 @@ export class OperatorService {
       return;
     }
     if (data.startsWith('confirm:')) {
-      const chosen = this.takePending(session, data.slice(8));
+      const cardId = data.slice(8);
+      const chosen = this.takePending(session, cardId);
       if (!chosen) {
-        await adapter.sendText(msg.chatId, 'That confirmation has expired. Ask me again and I’ll redo it.');
+        const done = (cardId && session.doneIds?.includes(cardId)) || this.recentlyDone.has(cardId);
+        await adapter.sendText(
+          msg.chatId,
+          done ? 'That one is already done, nothing was repeated.' : 'That confirmation has expired. Ask me again and I’ll redo it.',
+        );
         return;
       }
       await this.executePending(ctx, adapter, msg, session, chosen);
@@ -696,20 +734,26 @@ export class OperatorService {
   private holdPending(session: SessionState, pending: PendingAction): string {
     const id = pending.id || `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     pending.id = id;
-    const list = (session.pendingActions || []).filter((p) => p.id !== id);
+    // A new delivery card REPLACES the previous one ("ok but Thursday" re-runs
+    // the tool): two live delivery cards would let both be confirmed.
+    const list = (session.pendingActions || []).filter(
+      (p) => p.id !== id && !(pending.kind === 'schedule_delivery' && p.kind === 'schedule_delivery'),
+    );
     list.push(pending);
     session.pendingActions = list.slice(-3);
     session.pendingAction = pending; // newest, for the typed "yes" path
     return id;
   }
 
-  /** Find a card by the id its button carried, and drop it from the held set. */
+  /** Find a card by the id its button carried, and drop it from the held set.
+   *  The typed-"ok" target is cleared only when it IS this card, and never
+   *  handed to an older card: a second "ok" must not confirm something else. */
   private takePending(session: SessionState, id: string): PendingAction | null {
     const list = session.pendingActions || (session.pendingAction ? [session.pendingAction] : []);
     const found = list.find((p) => p.id === id) || (!id || id === 'pending' ? list[list.length - 1] : null);
     if (!found) return null;
     session.pendingActions = list.filter((p) => p !== found);
-    session.pendingAction = session.pendingActions[session.pendingActions.length - 1] ?? null;
+    if (!session.pendingAction || session.pendingAction.id === found.id) session.pendingAction = null;
     return found;
   }
 
@@ -718,10 +762,25 @@ export class OperatorService {
     adapter: ChannelAdapter,
     msg: InboundMessage,
     session: SessionState,
-    chosen?: PendingAction,
+    pending: PendingAction,
   ): Promise<void> {
-    const pending = chosen ?? session.pendingAction!;
-    let res: { ok: boolean; message: string };
+    const id = pending.id || '';
+    const now = Date.now();
+    for (const [k, at] of this.recentlyDone) if (now - at > DONE_MEMORY_MS) this.recentlyDone.delete(k);
+    // Idempotency: a card runs once. The in-process set catches a concurrent
+    // second "ok"/tap (both requests loaded the session before either saved);
+    // doneIds catches a replay after the save. The refusal does NOT save the
+    // session, so it cannot overwrite what the first run stored.
+    if (id && this.inFlight.has(id)) {
+      await adapter.sendText(msg.chatId, 'Already on it, nothing was repeated.');
+      return;
+    }
+    if (id && (this.recentlyDone.has(id) || session.doneIds?.includes(id))) {
+      await adapter.sendText(msg.chatId, 'That one is already done, nothing was repeated.');
+      return;
+    }
+    if (id) this.inFlight.add(id);
+    let res: PendingResult;
     try {
       res = await this.tools.runPending(ctx, pending);
     } catch (e: any) {
@@ -734,9 +793,25 @@ export class OperatorService {
         ok: false,
         message: `Sorry, I couldn't finalise that: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`,
       };
+    } finally {
+      if (id) {
+        this.inFlight.delete(id);
+        this.recentlyDone.set(id, Date.now());
+      }
     }
-    session.pendingAction = null;
+    if (id) session.doneIds = [...(session.doneIds || []).filter((x) => x !== id), id].slice(-20);
+    session.lastResult = { id, at: Date.now(), message: res.message };
+    // The model never saw the tap, so tell it what now exists (numbers, ids):
+    // "email it to them" or "preview it" on the next turn needs them.
+    session.history = this.trimHistory([
+      ...(session.history as Anthropic.MessageParam[]),
+      {
+        role: 'assistant',
+        content: `[${pending.kind === 'tool_call' ? pending.args?.tool : pending.kind} confirmed by the user] ${res.message}${res.note ? ` (${res.note})` : ''}`,
+      },
+    ]) as SessionState['history'];
     await this.saveSession(msg.channel, msg.channelUserId, session);
+    if (res.preview) await adapter.sendDocument(msg.chatId, res.preview.url, res.preview.filename, res.preview.caption).catch(() => null);
     await adapter.sendText(msg.chatId, res.message);
   }
 
@@ -751,13 +826,28 @@ export class OperatorService {
     // History never expires. A stale pending confirmation is dropped so it can
     // never be executed long after the user asked for it.
     const fresh = (p: any) => p && (!p.createdAt || Date.now() - new Date(p.createdAt).getTime() <= PENDING_TTL_MS);
-    let pendingAction = fresh(state.pendingAction) ? state.pendingAction : null;
-    const pendingActions: PendingAction[] = (Array.isArray(state.pendingActions) ? state.pendingActions : []).filter(fresh);
-    // Older sessions stored only the single slot — carry it into the list so a
-    // card shown before this change still responds to its buttons.
-    if (pendingAction && !pendingActions.some((p) => p.id && p.id === pendingAction.id)) pendingActions.push(pendingAction);
-    if (!pendingAction && pendingActions.length) pendingAction = pendingActions[pendingActions.length - 1];
-    return { history: Array.isArray(state.history) ? state.history : [], pendingAction, pendingActions };
+    const doneIds: string[] = Array.isArray(state.doneIds) ? state.doneIds : [];
+    const notDone = (p: any) => !(p?.id && doneIds.includes(p.id));
+    const hasList = Array.isArray(state.pendingActions);
+    const pendingActions: PendingAction[] = (hasList ? state.pendingActions : []).filter(fresh).filter(notDone);
+    let pendingAction: PendingAction | null = fresh(state.pendingAction) && notDone(state.pendingAction) ? state.pendingAction : null;
+    // Older sessions stored only the single slot: carry it into the list so a
+    // card shown before the list existed still responds to its buttons.
+    if (pendingAction && !hasList) pendingActions.push(pendingAction);
+    // The typed-"ok" target survives only while its own card is still held. It
+    // is NEVER refilled from the list: that revival is what let one "ok" run a
+    // card that had already been executed or cancelled.
+    if (pendingAction && hasList && !pendingActions.some((p) => p.id && p.id === pendingAction!.id)) pendingAction = null;
+    return {
+      history: Array.isArray(state.history) ? state.history : [],
+      pendingAction,
+      pendingActions,
+      // Was dropped on load, so a project tap for an uploaded invoice always
+      // came back "expired".
+      pendingUpload: state.pendingUpload ?? null,
+      doneIds,
+      lastResult: state.lastResult ?? null,
+    };
   }
 
   private async saveSession(channel: OperatorChannel, channelUserId: string, state: SessionState): Promise<void> {
