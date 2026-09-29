@@ -8,7 +8,7 @@
 //   Documents — everything linked to the project
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Alert,
   Autocomplete,
@@ -251,6 +251,13 @@ export default function IdProjectPage({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [editingMs, setEditingMs] = useState<Record<string, Partial<Milestone>>>({});
   const [voDoc, setVoDoc] = useState<string | null>(null);
+  // Deep link ?vo=<docId> (Sales VO list / generic-route redirect) → open the
+  // VO sheet dialog straight away.
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const v = searchParams?.get("vo");
+    if (v) setVoDoc(v);
+  }, [searchParams]);
   const { organization } = useOrganization();
   const quoteApi = useIdQuoteApi();
 

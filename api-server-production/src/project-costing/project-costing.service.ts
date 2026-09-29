@@ -1500,6 +1500,42 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
   }
 
   // ── list for the ID projects page ─────────────────────────────────────
+  /** Org-wide Variation Orders for Sales → Quotation (guru 2026-09-29):
+   *  one row per VO across projects, tier-scoped like everything else. */
+  async listVos(organizationId: string, callerUserId?: string) {
+    const scope = await resolveTier(this.prisma, organizationId, callerUserId);
+    const projWhere: any = { organizationId };
+    if (scope.tier === 'designer') projWhere.designerUserId = callerUserId;
+    else if (scope.tier === 'junior') projWhere.designerUserId = { in: scope.teamUserIds || [callerUserId] };
+    const docs = await this.prisma.document.findMany({
+      where: { organizationId, type: 'VARIATION_ORDER', project: projWhere },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, name: true, status: true, config: true, createdAt: true, projectId: true,
+        project: { select: { id: true, name: true, designer: true, address: true } },
+      },
+    });
+    const sumL = (list: any[]) => (Array.isArray(list) ? list : []).reduce((x, l) => x + (l?.complimentary ? 0 : num(l?.amount)), 0);
+    return {
+      docs: docs.map((d) => {
+        const c: any = d.config || {};
+        return {
+          id: d.id,
+          name: d.name,
+          status: d.status,
+          projectId: d.projectId,
+          projectName: d.project?.name || c.client || null,
+          designer: d.project?.designer || c.designer || null,
+          contractNo: c.contractNo || null,
+          additions: sumL(c?.vo?.additions),
+          removals: sumL(c?.vo?.removals),
+          net: sumL(c?.vo?.additions) - sumL(c?.vo?.removals),
+          createdAt: d.createdAt,
+        };
+      }),
+    };
+  }
+
   async list(organizationId: string, opts: { page?: number; limit?: number; search?: string; stage?: string; designer?: string; designerUserId?: string; callerUserId?: string }) {
     const page = Math.max(1, opts.page || 1);
     const limit = Math.min(100, Math.max(1, opts.limit || 20));

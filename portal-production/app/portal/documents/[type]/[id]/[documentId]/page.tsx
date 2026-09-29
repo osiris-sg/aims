@@ -55,6 +55,26 @@ export default function page() {
   // Prevent rapid navigation clicks
   const isNavigatingRef = useRef(false);
 
+  // Variation Orders have no generic template — this editor would render them
+  // blank. Bounce to the owning project with ?vo=<id>, which opens the VO
+  // sheet dialog (guru 2026-09-29).
+  const isVoType = String(Array.isArray(type) ? type[0] : type || "").toUpperCase().startsWith("VARIATION") || String(type).toUpperCase() === "VO";
+  useEffect(() => {
+    if (!isVoType || !documentId) return;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request({ path: `/documents/${documentId}`, method: "GET" }, {}, token);
+        const pid = res?.data?.projectId;
+        if (pid) router.replace(`/portal/projects/${pid}?vo=${documentId}`);
+        else toast.error("This variation order isn't linked to a project");
+      } catch {
+        toast.error("Could not open the variation order");
+      }
+    })();
+  }, [isVoType, documentId, getToken, router]);
+
   // Fetch all documents for navigation
   const { documents: allDocuments = [], refetch: refetchDocuments } = useGetDocuments({});
 
@@ -549,7 +569,7 @@ export default function page() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || isVoType) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", width: "100%", flex: 1, minHeight: "60vh" }}>
         <CircularProgress />

@@ -45,6 +45,13 @@ export class PublicScheduleController {
 export class IdProjectsListController {
   constructor(private readonly service: ProjectCostingService) {}
 
+  // Org-wide VO list for Sales → Quotation (tier-scoped).
+  @Get('vos')
+  @Permissions('documents:read')
+  listVos(@Req() req: RequestWithOrganization) {
+    return this.service.listVos(orgId(req), req.user?.id);
+  }
+
   @Get()
   @Permissions('projects:read')
   list(@Req() req: RequestWithOrganization, @Query('page') page?: string, @Query('limit') limit?: string, @Query('search') search?: string, @Query('stage') stage?: string, @Query('designer') designer?: string, @Query('designerUserId') designerUserId?: string) {
