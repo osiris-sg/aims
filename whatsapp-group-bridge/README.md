@@ -32,3 +32,22 @@ group message ──▶ bridge (linked device) ──▶ POST /whatsapp/group-ag
 4. Add that number to a group and type `@pa please intro`.
 
 The `.wwebjs_auth/` session persists across restarts (don't commit it).
+
+## AIMS Operator in chosen chats (off by default)
+
+The same worker can hand chosen chats to the AIMS Operator (the assistant that
+books deliveries and drafts documents), bound to a different org than the
+group agent. Nothing changes until `OPERATOR_ENABLED=true`.
+
+- API: `WA_WEB_BRIDGES={"<token>":{"orgId":"<org>","chats":["<id>@g.us","dm"],"label":"San"}}`.
+  The API refuses any chat not listed; `"dm"` allows 1:1 chats.
+- Bridge: `OPERATOR_TOKEN=<token>`, `OPERATOR_CHATS=<id>@g.us`, `OPERATOR_ENABLED=true`
+  (and `OPERATOR_DMS=true` to take DMs from non-staff senders).
+- In an operator chat, a message goes to AIMS only when it tags this account or
+  says `@San`, or is `confirm 1234` / `cancel 1234`. Replies come back as quoted
+  replies. Those chats never reach the group agent.
+- Heartbeat every 60 s; AIMS rings the office bell after 5 min of silence.
+- On reconnect, triggered messages from the last 30 min are caught up
+  (`operator-last-seen.json` on the disk; AIMS drops any it already handled).
+- `LIST_GROUPS=true` logs `GROUP:: <name> -> <id>` for every group at boot, to
+  find a chat id. It sends nothing.
