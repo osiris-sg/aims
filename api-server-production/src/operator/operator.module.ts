@@ -29,7 +29,6 @@ import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
 import { WaWebAdapter } from './adapters/wa-web.adapter';
 import { WaWebBridgeService } from './wa-web-bridge.service';
 import { NotificationsModule } from '../notifications/notifications.module';
-import { DocumentExtractionModule } from '../document-extraction/document-extraction.module';
 
 /**
  * AIMS Operator — a chat agent (Telegram first, WhatsApp later) that executes
@@ -62,7 +61,6 @@ import { PublicDocumentModule } from '../public-document/public-document.module'
     XeroSyncModule, // confirm_invoices_from_xero tool
     BankRecModule, // bank_rec_checkpoint tool
     NotificationsModule, // wa-web bridge offline bell
-    DocumentExtractionModule, // a customer's PO → sales order
   ],
   controllers: [OperatorController],
   providers: [

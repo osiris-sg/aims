@@ -34,25 +34,12 @@ export interface WaWebInbound {
   fromLid?: string | null;
   text?: string;
   quotedMessageId?: string | null;
-  /** An image or PDF sent with the message (the customer's PO), base64. */
-  media?: { mimetype?: string; data?: string; filename?: string } | null;
-}
-
-export interface WaWebReply {
-  messages: string[];
-  quotedMessageId: string | null;
-  /** San just asked this sender something or showed them a card: their next
-   *  message in this chat needs no tag (the bridge keeps a 10-minute window). */
-  awaitingReply: boolean;
-  skipped?: string;
 }
 
 const PER_MINUTE = 6;
 const PER_HOUR = 60;
 const HEARTBEAT_SILENCE_MS = 5 * 60_000;
 const SEEN_TTL_MS = 2 * 3600_000;
-export const WA_WEB_MEDIA_MAX_BYTES = 10 * 1024 * 1024;
-const MEDIA_OK = (m: string) => /^image\/(jpeg|png|webp|heic|heif)$/i.test(m) || m.toLowerCase() === 'application/pdf';
 
 @Injectable()
 export class WaWebBridgeService {
@@ -104,7 +91,7 @@ export class WaWebBridgeService {
   }
 
   /** One message from the bridge → everything the Operator says back. */
-  async inbound(token: string | undefined, body: WaWebInbound): Promise<WaWebReply> {
+  async inbound(token: string | undefined, body: WaWebInbound): Promise<{ messages: string[]; quotedMessageId: string | null; skipped?: string }> {
     const bridge = this.bridgeFor(token);
     const chatId = String(body?.chatId || '');
     // Group-ness comes from the id itself, never from what the caller claims.
@@ -113,22 +100,7 @@ export class WaWebBridgeService {
     if (!allowed) throw new ForbiddenException('Chat not allowed for this bridge');
 
     const messageId = String(body?.messageId || '');
-    // A question, a choice or a card leaves the floor with this sender.
-    const awaiting = (messages: string[]) =>
-      messages.some(
-        (m) =>
-          /Reply confirm \d{4}/.test(m) ||
-          /\(Reply with your choice\)\s*$/.test(m) ||
-          /\?\s*$/.test(m.trim()) ||
-          // a draft saved without a sales order invites the SO number or PO next
-          /send the SO number or the customer's PO/i.test(m),
-      );
-    const reply = (messages: string[], skipped?: string): WaWebReply => ({
-      messages,
-      quotedMessageId: messageId || null,
-      awaitingReply: awaiting(messages),
-      ...(skipped ? { skipped } : {}),
-    });
+    const reply = (messages: string[], skipped?: string) => ({ messages, quotedMessageId: messageId || null, ...(skipped ? { skipped } : {}) });
     const now = Date.now();
     for (const [k, at] of this.seen) if (now - at > SEEN_TTL_MS) this.seen.delete(k);
     if (messageId) {
@@ -138,17 +110,7 @@ export class WaWebBridgeService {
 
     // The trigger word is for the bridge, not for the Operator.
     const text = String(body?.text || '').replace(/@san\b/gi, ' ').replace(/[ \t]+/g, ' ').trim();
-    // Media: images and PDFs only, 10 MB at most. The bridge checks too.
-    let attachment: { dataUri: string; mimetype: string; filename?: string } | undefined;
-    if (body?.media?.data) {
-      const mimetype = String(body.media.mimetype || '').toLowerCase();
-      const bytes = Math.floor((String(body.media.data).length * 3) / 4);
-      if (!MEDIA_OK(mimetype) || bytes > WA_WEB_MEDIA_MAX_BYTES) {
-        return reply(['I can only read an image or a PDF, up to 10 MB.'], 'media-refused');
-      }
-      attachment = { dataUri: `data:${mimetype};base64,${body.media.data}`, mimetype, filename: body.media.filename || undefined };
-    }
-    if (!text && !attachment) return reply([], 'empty');
+    if (!text) return reply([], 'empty');
     const phone = toE164Digits(body?.fromPhone);
     const sender = phone || String(body?.fromLid || '').replace(/\D/g, '') || chatId;
 
@@ -169,7 +131,6 @@ export class WaWebBridgeService {
           boundOrgId: bridge.orgId,
           isGroup,
           providerMessageId: messageId || undefined,
-          ...(attachment ? { attachment } : {}),
         }),
       );
       return reply(messages);

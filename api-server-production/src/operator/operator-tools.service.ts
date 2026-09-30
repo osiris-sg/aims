@@ -25,7 +25,6 @@ import { LeadsService } from '../leads/leads.service';
 import { S3Service } from '../common/services/s3.service';
 import { OperatorAuthService } from './operator-auth.service';
 import { PublicDocumentService } from '../public-document/public-document.service';
-import { DocumentExtractionService, DocumentType } from '../document-extraction/document-extraction.service';
 import { OperatorContext, PendingAction } from './operator.types';
 import { cleanText } from './text.util';
 import { ActionLogService } from '../action-log/action-log.service';
@@ -61,21 +60,6 @@ export interface PendingResult {
   message: string;
   preview?: { url: string; filename: string; caption: string };
   note?: string;
-  /** Run this tool next and show its card (e.g. the delivery card again, now
-   *  with the sales order that was just created). */
-  followUp?: { tool: string; input: any };
-  /** A draft run was just saved: a PO or SO number that follows links to it. */
-  draftRun?: { deliveryId: string; number: number | null; customerId: string | null };
-}
-
-/** A customer PO read from an upload, before anything is created. */
-export interface ExtractedPo {
-  customerName: string | null;
-  poNumber: string | null;
-  lines: Array<{ description: string; code?: string | null; quantity: number; unitPrice?: number | null }>;
-  fileKey: string | null;
-  fileName: string;
-  mimeType: string;
 }
 
 interface ToolDef {
@@ -198,7 +182,6 @@ export class OperatorToolsService {
     private readonly s3: S3Service,
     private readonly auth: OperatorAuthService,
     private readonly actionLog: ActionLogService,
-    private readonly extraction: DocumentExtractionService,
   ) {}
 
   /** Extract a just-uploaded invoice/receipt (project-agnostic) and store the
@@ -249,6 +232,45 @@ export class OperatorToolsService {
       lines: Array.isArray(extracted?.lines) ? extracted.lines : null,
       taxAmount: Number(extracted?.taxAmount) || null,
     };
+  }
+
+  /**
+   * Turn an uploaded PO/quotation into a SALES_ORDER so a held delivery run can
+   * point at it. Lines keep whatever the extractor found (description/qty/price)
+   * — a free-text line is still a valid Sale Order line here, and coded ones
+   * are what a later invoice prices from.
+   */
+  async createSaleOrderFromUpload(
+    ctx: OperatorContext,
+    up: NonNullable<OperatorContext['upload']>,
+    customerName?: string,
+    projectId?: string,
+  ): Promise<{ id: string; name: string } | null> {
+    const template = await this.templates.getDocumentTemplateByType('SALES_ORDER', ctx.organizationId).catch(() => null);
+    if (!template?.id) return null;
+    const e: any = up.extracted || {};
+    const items = (up.lines || []).map((l: any, i: number) => ({
+      id: i + 1,
+      description: String(l.description || '').trim(),
+      quantity: Number(l.quantity) || 1,
+      ...(Number(l.unitPrice) ? { unitPrice: Number(l.unitPrice) } : {}),
+      ...(Number(l.amount) ? { amount: Number(l.amount) } : {}),
+      ...(l.itemCode ? { itemCode: String(l.itemCode) } : {}),
+    }));
+    const config: any = {
+      customer: customerName || e.supplierName || undefined,
+      referenceNo: e.invoiceNo || undefined,
+      date: e.date || new Date().toISOString(),
+      items: items.length ? items : [{ id: 1, description: e.description || up.filename || 'Uploaded order', quantity: 1 }],
+      ...(e.amount ? { nettTotal: e.amount } : {}),
+      ...(up.attachmentUrl ? { sourceFileUrl: up.attachmentUrl } : {}),
+    };
+    const created: any = await this.documents
+      .createBasicDocument(template.id, 'SALES_ORDER', ctx.organizationId, config, projectId, ctx.actor as any)
+      .catch(() => null);
+    if (!created?.id) return null;
+    this.log(ctx, 'CREATED', 'document', created.id, created.name, `Sale Order from an uploaded PO via Operator (${ctx.channel})`);
+    return { id: created.id, name: created.name };
   }
 
   /** Projects with their site address — for matching an uploaded invoice's
@@ -1869,22 +1891,6 @@ export class OperatorToolsService {
       },
 
       {
-        name: 'attach_sales_order',
-        description:
-          'Link a SALES ORDER to a DRAFT delivery run that was saved without one ("attach SO202609-0002 to delivery #12", or the SO number sent right after a draft was saved). The run then becomes a normal scheduled run and gets its delivery order, exactly as when the office completes it in Deliveries. Shows a Confirm card. Quotations are refused. For a delivery card that is still waiting for confirmation, call schedule_delivery again with saleOrderNumber instead.',
-        permissions: ['documents:create-basic'],
-        input_schema: {
-          type: 'object',
-          properties: {
-            deliveryNumber: { type: 'number', description: 'The draft run number, e.g. 12 for "#12" (from the draft confirmation).' },
-            saleOrderNumber: { type: 'string', description: 'The sales order number as the user gave it. Exact match.' },
-          },
-          required: ['deliveryNumber', 'saleOrderNumber'],
-        },
-        run: async (ctx, args) => this.attachSalesOrderCard(ctx, args),
-      },
-
-      {
         name: 'list_deliveries',
         description:
           'List delivery runs by date range, status and customer: "what deliveries are on tomorrow", "pending deliveries for CNQC", "drafts this week". Dates are Singapore days; defaults to today and the next 7 days. Read-only.',
@@ -2216,217 +2222,6 @@ export class OperatorToolsService {
    * totals maths on this path (the portal editor does it client-side), so
    * everything is computed here — see AIMS_OPERATOR_AGENT_PLAN.md §9.3.
    */
-  // ── Sales orders for deliveries: from an uploaded PO, or linked to a draft ──
-
-  /** Read a customer's PO (image or PDF) with the document extractor and keep
-   *  the file in S3. Nothing is created in AIMS here. */
-  async extractPurchaseOrder(
-    ctx: OperatorContext,
-    attachment: { dataUri: string; mimetype: string; filename?: string },
-  ): Promise<ExtractedPo | null> {
-    const comma = attachment.dataUri.indexOf(',');
-    const buffer = Buffer.from(comma >= 0 ? attachment.dataUri.slice(comma + 1) : attachment.dataUri, 'base64');
-    const mimeType = attachment.mimetype.includes('pdf') ? 'application/pdf' : attachment.mimetype || 'image/jpeg';
-    const ext = mimeType.includes('pdf') ? 'pdf' : mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
-    const fileName = (attachment.filename || `customer-po.${ext}`).replace(/[^a-zA-Z0-9._-]/g, '_');
-    const key = `sales-orders/${ctx.organizationId}/po/${Date.now()}-${fileName}${fileName.includes('.') ? '' : `.${ext}`}`;
-    const [stored, data] = await Promise.all([
-      this.s3.uploadFile(key, buffer, mimeType as any).catch(() => null),
-      this.extraction
-        .processDocumentFile({ buffer, mimetype: mimeType, originalname: fileName, size: buffer.length } as any, DocumentType.PURCHASE_ORDER)
-        .catch((e: any) => {
-          this.logger.warn(`PO extraction failed: ${e?.message}`);
-          return null;
-        }),
-    ]);
-    if (!data) return null;
-    // A PO is issued BY the customer: the issuer is the customer, unless the
-    // extractor read it the other way round (the issuer is us).
-    const org = await this.prisma.organization.findUnique({ where: { id: ctx.organizationId }, select: { name: true } });
-    const ours = (n: any) => !!n && !!org?.name && sameCustomer({ id: '', name: org.name }, { customer: String(n) });
-    const issuer = data.company?.name || null;
-    const addressee = data.customer?.name || null;
-    const customerName = issuer && !ours(issuer) ? issuer : addressee && !ours(addressee) ? addressee : issuer || addressee;
-    const lines = (data.items || [])
-      .map((it) => ({
-        description: String(it.description || '').trim(),
-        code: it.model ? String(it.model).trim() : null,
-        quantity: Number(it.quantity) || 1,
-        unitPrice: it.unitPrice != null && !isNaN(Number(it.unitPrice)) ? Number(it.unitPrice) : null,
-      }))
-      .filter((l) => l.description || l.code);
-    return {
-      customerName,
-      poNumber: data.references?.poNumber || data.document?.number || null,
-      lines,
-      fileKey: stored ? key : null,
-      fileName,
-      mimeType,
-    };
-  }
-
-  /**
-   * The Sales Order card for an uploaded PO. `target` says what it is for: the
-   * delivery card still waiting (rebuilt with the new SO after confirm) or a
-   * draft run (promoted after confirm). A PO from a different customer than
-   * the delivery's is shown as a question, never silently used.
-   */
-  async salesOrderCardFromPo(
-    ctx: OperatorContext,
-    po: ExtractedPo,
-    target: { kind: 'card'; customerId: string; projectId?: string | null; input: any } | { kind: 'draft'; deliveryId: string; customerId: string; projectId?: string | null; number: number | null },
-  ): Promise<{ pending?: PendingAction; error?: string }> {
-    const customer = await this.prisma.customer.findFirst({
-      where: { id: target.customerId, organizationId: ctx.organizationId },
-      select: { id: true, name: true, customerCode: true },
-    });
-    if (!customer) return { error: 'The delivery has no customer to put the sales order under.' };
-    const project = target.projectId
-      ? await this.prisma.project.findFirst({ where: { id: target.projectId, organizationId: ctx.organizationId }, select: { id: true, name: true } })
-      : null;
-    if (!po.lines.length) return { error: "I couldn't read any lines on that PO. Send the sales order number instead, or a clearer copy." };
-    const catalog = await this.prisma.asset.findMany({
-      where: { organizationId: ctx.organizationId, deletedAt: null },
-      select: { id: true, name: true, skuKey: true },
-    });
-    const items = po.lines.map((l) => {
-      const v = matchItem(l.code || l.description, catalog);
-      const asset = v.kind === 'sure' ? v.asset : null;
-      return {
-        ...(asset ? { itemId: asset.id } : { isService: false }),
-        description: l.description || asset?.name || l.code || 'item',
-        quantity: l.quantity,
-        ...(l.unitPrice != null ? { unitPrice: l.unitPrice } : {}),
-      };
-    });
-    const mismatch = po.customerName && !sameCustomer(customer, { customer: po.customerName });
-    const money = (n: any) => (n != null ? ` @ ${Number(n).toFixed(2)}` : '');
-    const summary = [
-      `📄 Sales Order to create`,
-      `Customer: ${customer.name}`,
-      `Project: ${project?.name ?? '(none)'}`,
-      `Customer PO: ${po.poNumber || '(not found on the PO)'}`,
-      'Lines:',
-      ...po.lines.map((l) => `• ${l.quantity} x ${l.description || l.code}${money(l.unitPrice)}`),
-      ...(mismatch ? [``, `⚠️ This PO is from ${po.customerName}, but the delivery is for ${customer.name}. Confirm only if it belongs to ${customer.name}.`] : []),
-      ``,
-      target.kind === 'card'
-        ? 'On confirm it is created in AIMS and linked to the delivery above.'
-        : `On confirm it is created and linked to draft delivery ${target.number != null ? `#${target.number}` : ''}, which then becomes a scheduled run.`,
-    ].join('\n');
-    return {
-      pending: {
-        kind: 'create_sales_order',
-        summary,
-        args: {
-          customerId: customer.id,
-          customerName: customer.name,
-          projectId: project?.id ?? null,
-          poNumber: po.poNumber,
-          items,
-          file: po.fileKey ? { fileKey: po.fileKey, fileName: po.fileName, mimeType: po.mimeType } : null,
-          target,
-        },
-        createdAt: new Date().toISOString(),
-      },
-    };
-  }
-
-  /** attach_sales_order: an existing SO → a draft run (card first). */
-  private async attachSalesOrderCard(ctx: OperatorContext, args: any): Promise<ToolOutcome> {
-    const org = ctx.organizationId;
-    const run = await this.prisma.delivery.findFirst({
-      where: { organizationId: org, deliveryNumber: Number(args.deliveryNumber) },
-      select: { id: true, deliveryNumber: true, isDraft: true, status: true, direction: true, projectId: true, customerId: true, scheduledFor: true, customer: { select: { id: true, name: true } }, project: { select: { name: true } } },
-    });
-    if (!run) return { result: { error: `There is no delivery #${args.deliveryNumber}.` } };
-    if (!run.isDraft || run.status !== 'scheduled' || run.direction !== 'OUTBOUND') {
-      return { result: { error: `Delivery #${run.deliveryNumber} is not a draft waiting for a sales order.` } };
-    }
-    if (!run.projectId) return { result: { error: `Delivery #${run.deliveryNumber} has no project yet, so it cannot be booked. The office adds one in Deliveries.` } };
-    const number = String(args.saleOrderNumber || '').trim();
-    const doc = await this.prisma.document.findFirst({
-      where: { organizationId: org, name: { equals: number, mode: 'insensitive' as const } },
-      select: { id: true, name: true, type: true, config: true, projectId: true },
-    });
-    if (!doc) return { result: { error: `No sales order numbered "${number}" in this organization.` } };
-    if (doc.type !== 'SALES_ORDER') {
-      return {
-        result: { error: `${doc.name} is not a sales order. The user has been told.`, refused: 'not-a-sales-order' },
-        notice: `${doc.name} is ${['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(doc.type)) ? 'a quotation' : `a ${doc.type}`}. A delivery is booked against a sales order only, never a quotation, so it was not used.`,
-      };
-    }
-    const customer = run.customer ? { id: run.customer.id, name: run.customer.name } : null;
-    const projectIds = customer
-      ? new Set((await this.prisma.project.findMany({ where: { organizationId: org, customerId: customer.id }, select: { id: true } })).map((p) => p.id))
-      : new Set<string>();
-    if (!customer || (!sameCustomer(customer, doc.config || {}) && !(doc.projectId && projectIds.has(doc.projectId)))) {
-      return { result: { error: `${doc.name} is not ${customer?.name ?? "this delivery's customer"}'s sales order.` } };
-    }
-    const when = run.scheduledFor
-      ? new Date(run.scheduledFor).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Singapore' })
-      : '(no date)';
-    const pending: PendingAction = {
-      kind: 'link_sales_order',
-      summary: [
-        `🔗 Link sales order ${doc.name} to delivery #${run.deliveryNumber}`,
-        `Customer: ${customer.name}`,
-        `Project: ${run.project?.name ?? '(none)'}`,
-        `When: ${when}`,
-        '',
-        'It becomes a scheduled run and gets its delivery order.',
-      ].join('\n'),
-      args: { deliveryId: run.id, deliveryNumber: run.deliveryNumber, saleOrderId: doc.id, saleOrderName: doc.name },
-      createdAt: new Date().toISOString(),
-    };
-    return { result: { needsConfirmation: true, card: pending.summary }, pending };
-  }
-
-  /**
-   * Link a sales order to a DRAFT run and make it a normal scheduled run. This
-   * is DeliveriesService.updateScheduled with the run's own content and
-   * isDraft false: the same save the office does in Deliveries → Edit, which
-   * mints the DO (placeholder number) carrying the sales order.
-   */
-  private async promoteDraftWithSo(ctx: OperatorContext, deliveryId: string, so: { id: string; name: string }): Promise<PendingResult> {
-    const org = ctx.organizationId;
-    const run = await this.prisma.delivery.findFirst({
-      where: { id: deliveryId, organizationId: org },
-      select: {
-        id: true, deliveryNumber: true, isDraft: true, status: true, projectId: true, customerId: true, scheduledFor: true, siteAddress: true,
-        customer: { select: { name: true } },
-        items: { select: { assetId: true, description: true, quantity: true, assetClass: true, sortOrder: true }, orderBy: { sortOrder: 'asc' } },
-      },
-    });
-    if (!run) return { ok: false, message: 'That delivery no longer exists.' };
-    if (!run.isDraft || run.status !== 'scheduled') return { ok: false, message: `Delivery #${run.deliveryNumber} is no longer a draft, nothing was changed.` };
-    if (!run.projectId || !run.scheduledFor) return { ok: false, message: `Delivery #${run.deliveryNumber} still needs a project and a date before it can be booked.` };
-    // Rebuild the lines: a catalog line of N units is stored as N one-unit slots.
-    const items: Array<{ assetId?: string; description?: string; quantity: number; assetClass?: any }> = [];
-    for (const it of run.items) {
-      const last = items[items.length - 1];
-      if (it.assetId && last?.assetId === it.assetId) last.quantity += 1;
-      else if (it.assetId) items.push({ assetId: it.assetId, quantity: 1 });
-      else items.push({ description: it.description || 'item', quantity: it.quantity || 1, ...(it.assetClass ? { assetClass: it.assetClass } : {}) });
-    }
-    await this.deliveries.updateScheduled(
-      run.id,
-      {
-        isDraft: false,
-        projectId: run.projectId,
-        customerId: run.customerId ?? undefined,
-        scheduledFor: new Date(run.scheduledFor).toISOString(),
-        ...(run.siteAddress ? { address: run.siteAddress } : {}),
-        saleOrderId: so.id,
-        poNumber: so.name,
-        items,
-      } as any,
-      org,
-    );
-    this.log(ctx, 'UPDATED', 'delivery', run.id, `#${run.deliveryNumber}`, `Sales order ${so.name} linked; draft is now a scheduled run (Operator, ${ctx.channel})`, 'LINK');
-    return { ok: true, message: `✅ ${so.name} linked. Delivery #${run.deliveryNumber} for ${run.customer?.name ?? 'the customer'} is now scheduled.` };
-  }
-
   // ── schedule_delivery: from a staff message to a Confirm card ────────────
 
   /**
@@ -2708,38 +2503,27 @@ export class OperatorToolsService {
       // "LION250 (LION250)" reads as a bug: show the code only when it adds something.
       return !code || a.name.replace(/\s+/g, '').toLowerCase() === code.replace(/\s+/g, '').toLowerCase() ? a.name : `${a.name} (${code})`;
     };
-    // The card ends at the DO contact. With no sales order, the next step (SO
-    // number or the customer's PO) is a separate message (OperatorService).
-    const summary = [
-      `🚚 Delivery for ${customer!.name}`,
-      `When: ${when!.label}${when!.timeFrom === 'default' ? ' (no time given)' : ''}`,
-      `Project: ${project?.name ?? '(none)'}`,
-      `Site: ${site || project?.name || '(none)'}`,
-      'Items:',
-      ...resolved.map((r) => `• ${r.quantity} x ${r.asset ? `${label(r.asset)} (catalog)` : `${cleanText(r.text)} (free-typed)`}`),
-      ...(notes ? [`Notes: ${notes}`] : []),
-      `Sales order: ${saleOrder ? saleOrder.name : 'No sales order found'}`,
-      `DO contact: ${doContact ? `${doContact.name}${doContact.phone ? ` (${doContact.phone})` : ''}` : '(none on the project)'}`,
-    ].join('\n');
+    const draftNotes = [
+      !saleOrder && 'there is no sales order: send the SO number or upload the PO to book it',
+      !project && 'there is no project: the office adds one in Deliveries',
+    ].filter(Boolean);
+    const summary =
+      [
+        `🚚 Delivery for ${customer!.name}`,
+        `When: ${when!.label}${when!.timeFrom === 'default' ? ' (no time given)' : ''}`,
+        `Project: ${project?.name ?? '(none)'}`,
+        `Site: ${site || project?.name || '(none)'}`,
+        'Items:',
+        ...resolved.map((r) => `• ${r.quantity} x ${r.asset ? `${label(r.asset)} (catalog)` : `${cleanText(r.text)} (free-typed)`}`),
+        `Sales order: ${saleOrder ? saleOrder.name : 'No sales order found'}`,
+        `DO contact: ${doContact ? `${doContact.name}${doContact.phone ? ` (${doContact.phone})` : ''}` : '(none on the project)'}`,
+        ...(notes ? [`Notes: ${notes}`] : []),
+      ].join('\n') + (isDraft ? `\n\nConfirming saves a DRAFT run (no DO): ${draftNotes.join('; ')}.` : '');
 
     const pending: PendingAction = {
       kind: 'schedule_delivery',
       summary,
-      args: {
-        dto,
-        customerName: customer!.name,
-        isDraft,
-        needsSaleOrder: !saleOrder,
-        needsProject: !project,
-        // What was asked, resolved: an uploaded PO rebuilds this card with the
-        // new sales order attached.
-        input: {
-          ...args,
-          customerId: customer!.id,
-          ...(project ? { projectId: project.id } : {}),
-          items: resolved.map((r) => (r.asset ? { line: r.line, assetId: r.asset.id, quantity: r.quantity } : { line: r.line, freeTyped: true, quantity: r.quantity })),
-        },
-      },
+      args: { dto, customerName: customer!.name, isDraft },
       createdAt: new Date().toISOString(),
     };
     return {
@@ -2879,7 +2663,7 @@ export class OperatorToolsService {
     }
   }
 
-  private async createSalesDraft(ctx: OperatorContext, type: 'QUOTATION' | 'INVOICE' | 'SALES_ORDER', args: any): Promise<ToolOutcome> {
+  private async createSalesDraft(ctx: OperatorContext, type: 'QUOTATION' | 'INVOICE', args: any): Promise<ToolOutcome> {
     const customer = await this.prisma.customer.findFirst({
       where: { id: args.customerId, organizationId: ctx.organizationId },
     });
@@ -2999,7 +2783,7 @@ export class OperatorToolsService {
       type,
       ctx.organizationId,
       config,
-      args.projectId || undefined, // a sales order made for a delivery sits on its project
+      undefined,
       ctx.actor,
     );
     const doc = created?.data ?? created;
@@ -3190,50 +2974,24 @@ export class OperatorToolsService {
       return { ok: true, message: `✅ ${this.doneText(name, r)}`, preview, note: JSON.stringify(r).slice(0, 1500) };
     }
 
-    if (pending.kind === 'create_sales_order') {
-      const a = pending.args || {};
-      // The normal document path: template, numbering and config exactly as a
-      // sales document made anywhere else in the Operator. Never a hand-set number.
-      const out = await this.createSalesDraft(ctx, 'SALES_ORDER', {
-        customerId: a.customerId,
-        projectId: a.projectId || undefined,
-        items: a.items,
-        poNo: a.poNumber || '',
-        referenceNo: a.poNumber || '',
-      });
-      const so: any = out.result || {};
-      if (so.error || !so.documentId) return { ok: false, message: `Nothing was created: ${so.error || 'the sales order could not be saved'}` };
-      if (a.file?.fileKey) {
-        await this.documents
-          .addAttachments(so.documentId, ctx.organizationId, [{ ...a.file, label: "Customer's PO (WhatsApp upload)" }], ctx.actor as any)
-          .catch((e: any) => this.logger.warn(`PO attach failed on ${so.documentNumber}: ${e?.message}`));
-      }
-      const t = a.target || {};
-      if (t.kind === 'draft') {
-        const res = await this.promoteDraftWithSo(ctx, t.deliveryId, { id: so.documentId, name: so.documentNumber });
-        return { ...res, message: `✅ Sales Order ${so.documentNumber} created from the PO.\n${res.message.replace(/^✅ /, '')}`, note: `saleOrderId ${so.documentId}` };
-      }
-      return {
-        ok: true,
-        message: `✅ Sales Order ${so.documentNumber} created from the PO. Here is the delivery with it:`,
-        note: `saleOrderId ${so.documentId}`,
-        followUp: { tool: 'schedule_delivery', input: { ...(t.input || {}), saleOrderId: so.documentId, saleOrderNumber: undefined, noSaleOrder: undefined } },
-      };
-    }
-
-    if (pending.kind === 'link_sales_order') {
-      const a = pending.args || {};
-      return this.promoteDraftWithSo(ctx, a.deliveryId, { id: a.saleOrderId, name: a.saleOrderName });
-    }
-
     if (pending.kind === 'schedule_delivery') {
       const { customerName } = pending.args || {};
       const dto: any = { ...(pending.args?.dto || {}) };
-      const isDraft = !!pending.args?.isDraft;
+      let isDraft = !!pending.args?.isDraft;
       // Idempotency: the session guards stop a second "ok" in this process;
       // this stops the same card booking twice from anywhere else.
       const dup = await this.findDuplicateRun(ctx.organizationId, dto);
       if (dup) return { ok: true, message: `Already done: delivery #${dup.deliveryNumber} for ${customerName} exists, nothing was repeated.` };
+      // A PO uploaded while the card was held becomes its sales order HERE, on
+      // Confirm, never before (every write goes through a card).
+      if (pending.args?.soUpload && !dto.saleOrderId) {
+        const so = await this.createSaleOrderFromUpload(ctx, pending.args.soUpload, customerName, dto.projectId);
+        if (!so) return { ok: false, message: "I couldn't create the sales order from that upload, so nothing was booked. Send the SO number instead." };
+        dto.saleOrderId = so.id;
+        dto.poNumber = dto.poNumber || so.name;
+        isDraft = !dto.projectId;
+        dto.isDraft = isDraft;
+      }
       const run: any = await this.deliveries.createScheduled(dto, ctx.organizationId);
       const ref = run?.deliveryNumber != null ? `#${run.deliveryNumber}` : run?.id;
       this.log(
@@ -3248,10 +3006,9 @@ export class OperatorToolsService {
       return {
         ok: true,
         message: isDraft
-          ? `✅ Saved as a DRAFT run for ${customerName} (${ref}). It is not booked yet: ${dto.saleOrderId ? 'it needs a project' : "send the SO number or the customer's PO and I'll link it"}.`
+          ? `✅ Saved as a DRAFT run for ${customerName} (${ref}). It is not booked yet: ${dto.saleOrderId ? 'it needs a project' : 'it needs a sales order'} before it goes live.`
           : `✅ Delivery ${ref} scheduled for ${customerName}.`,
         note: `deliveryId ${run?.id}`,
-        ...(isDraft && run?.id ? { draftRun: { deliveryId: run.id, number: run.deliveryNumber ?? null, customerId: dto.customerId ?? null } } : {}),
       };
     }
 
