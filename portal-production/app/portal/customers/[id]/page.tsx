@@ -11,6 +11,7 @@ import { kebabColumn } from "@/components/RowKebab";
 import { Button } from "@mui/material";
 import { ColumnDef } from "@tanstack/react-table";
 import AddSiteOffice from "./components/AddSiteOffice";
+import WhatsAppGroupPicker from "@/components/deliveries/WhatsAppGroupPicker";
 import { useGetSiteOffices } from "./hooks/useGetSiteOffices";
 import { toast } from "react-toastify";
 interface Customer {
@@ -167,6 +168,8 @@ export default function ViewCustomerPage({ params }: { params: { id: string } })
                 <Typography variant="h4" color="text.secondary" textAlign="center">
                   <strong>Address:</strong> {customer?.address || "-"}
                 </Typography>
+                {/* Delivery group posts: renders nothing unless the org has the flag. */}
+                <WhatsAppGroupPicker target={{ kind: "customer", id: params.id }} />
 
                 {/* Site Offices Section */}
                 <Box sx={{ mt: 4, gap: 2 }}>

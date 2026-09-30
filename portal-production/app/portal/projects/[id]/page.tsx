@@ -8,6 +8,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import WhatsAppGroupPicker from "@/components/deliveries/WhatsAppGroupPicker";
 import IdProjectPage from "../_id/IdProjectPage";
 import {
   Alert,
@@ -757,6 +758,10 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
                 {project.description}
               </Typography>
             )}
+            {/* Delivery group posts: renders nothing unless the org has the flag. */}
+            <Box sx={{ mt: 1.5 }}>
+              <WhatsAppGroupPicker target={{ kind: "project", id: project.id }} />
+            </Box>
           </Box>
 
           {/* Money summary — Phone: stat cards wrap */}

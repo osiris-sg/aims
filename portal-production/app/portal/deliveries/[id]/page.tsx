@@ -42,6 +42,7 @@ import PlaceIcon from "@mui/icons-material/Place";
 import { request } from "@/helpers/request";
 import { useOrganization } from "@hooks/useOrganization";
 import ScheduleDeliveryDialog from "@/app/portal/deliveries/_components/ScheduleDeliveryDialog";
+import DeliveryGroupPostsPanel from "@/components/deliveries/DeliveryGroupPostsPanel";
 
 /**
  * Delivery run detail (office). Items + the field PROOF (photos, signature,
@@ -608,6 +609,16 @@ export default function DeliveryDetailPage() {
         {run.customer ? ` · Customer: ${run.customer.name}` : ""}
         {run.siteAddress ? ` · Site: ${run.siteAddress}` : ""}
       </Typography>
+
+      {/* Signed DO download + "Posted to group" (delivery group posts). Shown
+          once the customer has signed for anything on an outbound run. */}
+      {run.direction !== "RETURN" && (
+        <DeliveryGroupPostsPanel
+          deliveryId={deliveryId}
+          documents={distinctDocs.map((d) => ({ id: d.id, name: d.name ?? null }))}
+          signed={run.items.some((i) => i.deliveryStatus === "completed")}
+        />
+      )}
 
       {actionError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>{actionError}</Alert>}
 

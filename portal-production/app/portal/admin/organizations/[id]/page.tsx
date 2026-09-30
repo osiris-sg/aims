@@ -103,6 +103,7 @@ import CleanDocumentPreview from "@/containers/DocumentTemplates/components/Clea
 import EmailIngestionTab from "./EmailIngestionTab";
 import ApiKeysTab from "./ApiKeysTab";
 import { FEATURE_FLAG_DEFAULTS } from "@/app/portal/hooks/useOrganizationFeatures";
+import WhatsAppGroupPicker from "@/components/deliveries/WhatsAppGroupPicker";
 
 // Icon mapping for Material-UI icons
 const iconMap: Record<string, React.ComponentType> = {
@@ -1739,6 +1740,22 @@ export default function OrganizationDetailPage() {
                       ))}
                     </List>
                     <Button onClick={handleSaveUIConfig}>Save Feature Flags</Button>
+                  </AccordionDetails>
+                </Accordion>
+
+                {/* Delivery group posts (enableDeliveryGroupPosts): the fallback
+                    WhatsApp group for signed deliveries whose project and
+                    customer have none. */}
+                <Accordion>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Typography>Delivery group posts</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                      With the enableDeliveryGroupPosts flag on, each delivery sign-off is posted (photos + signed DO) to
+                      the project&apos;s WhatsApp group, else the customer&apos;s, else this ops group. No group: not posted.
+                    </Typography>
+                    <WhatsAppGroupPicker target={{ kind: "ops" }} orgId={organizationId} label="Ops WhatsApp group (fallback)" />
                   </AccordionDetails>
                 </Accordion>
 

@@ -97,6 +97,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // A maintenance date per asset, which deployed units are done this cycle, and
   // a reminder 7 days before (push to field techs + office bell). Default OFF.
   enableMaintenanceDates: false,
+  // Delivery group posts: each delivery sign-off is posted to the project's
+  // WhatsApp group (photos + signed DO). Default OFF.
+  enableDeliveryGroupPosts: false,
   // Push a document to Xero on confirm, rather than by manual sync. Default OFF.
   enableXeroConfirmSync: false,
   enableBankRecXeroCheckpoint: false,
@@ -176,5 +179,6 @@ export function useOrganizationFeatures() {
     isAdsInsightsEnabled: features.enableAdsInsights ?? false,
     isOpsDashboardEnabled: features.enableOpsDashboard ?? false,
     isMaintenanceDatesEnabled: features.enableMaintenanceDates ?? false,
+    isDeliveryGroupPostsEnabled: features.enableDeliveryGroupPosts ?? false,
   };
 }
