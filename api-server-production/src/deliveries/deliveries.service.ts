@@ -26,6 +26,7 @@ const RANK: Record<DeliveryStatus, number> = {
 /** Thrown to skip DO creation for a draft; caught by the same best-effort catch. */
 class SkipDraftDo extends Error {}
 
+import { enqueueDeliveryGroupPost } from '../delivery-group-posts/enqueue';
 @Injectable()
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
@@ -3966,10 +3967,15 @@ export class DeliveriesService {
     if (run.status !== 'delivered') {
       throw new BadRequestException('Deliver every item on this run before capturing the signature');
     }
-    // How many lines this signature covers (the rider's confirmation screen).
-    const signedItemCount = await this.prisma.deliveryItem.count({
-      where: { deliveryId, deliveryStatus: DeliveryStatus.not_installed },
-    });
+    // The lines this signature covers (the rider's confirmation screen counts
+    // them; the WhatsApp group post lists them).
+    const signedItemIds = (
+      await this.prisma.deliveryItem.findMany({
+        where: { deliveryId, deliveryStatus: DeliveryStatus.not_installed },
+        select: { id: true },
+      })
+    ).map((i) => i.id);
+    const signedItemCount = signedItemIds.length;
 
     const now = new Date();
     // ONE run-level DO_INSTALL for the WHOLE run: installation is asked once at
@@ -4026,6 +4032,9 @@ export class DeliveriesService {
     // finished: the link must stop accepting anything then (matches the guest
     // resolveToken guard). A run that did not complete keeps its link.
     await this.revokeShareLinksIfCompleted(deliveryId);
+    // Queue this sign-off's post for the project's WhatsApp group (flag-gated,
+    // never throws; the post worker sends it once the DO PDF is rendered).
+    await enqueueDeliveryGroupPost(this.prisma, organizationId, deliveryId, signedItemIds, this.logger);
     // This sign-off ends the trip: its driver link (if any) stops working and
     // the next trip asks "Who's delivering?" again.
     await this.endTripHandoff(deliveryId);
@@ -4171,6 +4180,8 @@ export class DeliveriesService {
       }
     }
     await this.revokeShareLinksIfCompleted(deliveryId);
+    // Queue this trip's post for the project's WhatsApp group (see finalizeRun).
+    await enqueueDeliveryGroupPost(this.prisma, organizationId, deliveryId, signIds, this.logger);
     await this.endTripHandoff(deliveryId);
     const after = await this.prisma.delivery.findUnique({ where: { id: deliveryId } });
     return after ? { ...after, signedItemCount: signIds.length, partial: after.status !== 'completed' } : after;

@@ -179,6 +179,10 @@ model Customer {
   // Xero pull-sync: ContactID from Xero (null = not yet synced).
   xeroId          String?           @unique
   xeroLastSyncAt  DateTime?
+  // Delivery group posts (2026-09-30): the WhatsApp group a signed delivery
+  // is posted to (Project first, then Customer, then the org ops group).
+  whatsappGroupId   String?
+  whatsappGroupName String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   organizationId  String
@@ -1486,6 +1490,10 @@ model Project {
   organizationId   String?
   customerId       String?             @db.Uuid // direct FK; siteOffice still optional
   customerPoNumber String?
+  // Delivery group posts (2026-09-30): the WhatsApp group a signed delivery
+  // is posted to (Project first, then Customer, then the org ops group).
+  whatsappGroupId   String?
+  whatsappGroupName String?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   startDate        DateTime?
@@ -2216,4 +2224,54 @@ model AdInsight {
   @@unique([organizationId, date, adId])
   @@index([organizationId, date])
   @@index([organizationId, campaignId])
+}
+
+/// Outbox (2026-09-30): one row per delivery SIGN-OFF to post into the
+/// project's WhatsApp group by the post-only whatsapp-web.js worker
+/// (whatsapp-post-bridge). Unique on (deliveryId, signedAt): a sign-off is
+/// queued at most once. Flow: PENDING (PDF to render) -> READY -> CLAIMED
+/// (leased by the worker) -> SENT, or FAILED / SKIPPED (no group mapped).
+/// Plain ids, no relations: it must live in per-org schemas as-is.
+model DeliveryGroupPost {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String
+  deliveryId      String    @db.Uuid
+  signedAt        DateTime
+  status          String    @default("PENDING")
+  final           Boolean   @default(false)
+  tripNumber      Int       @default(1)
+  groupId         String?
+  groupName       String?
+  groupSource     String?
+  caption         String
+  photoKeys       String[]
+  extraPhotoCount Int       @default(0)
+  documentIds     String[]
+  pdfKeys         String[]
+  attempts        Int       @default(0)
+  error           String?
+  claimedAt       DateTime?
+  claimedBy       String?
+  renderedAt      DateTime?
+  sentAt          DateTime?
+  messageIds      String[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([deliveryId, signedAt])
+  @@index([organizationId, status])
+}
+
+/// The WhatsApp groups the post worker's number is in, as it last reported
+/// them. Feeds the group dropdowns (Project, Customer, org ops group).
+model WhatsAppGroup {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String
+  groupId        String
+  name           String
+  lastSeenAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, groupId])
 }

@@ -25,6 +25,10 @@ const SKIP_PATHS = [
   '/location-ping', // field app GPS batches
   '/admin/dashboard', // polled stats
   '/handoff/status', // rider's 5 s poll while a trip is with a driver
+  // The WhatsApp post worker's background traffic (delivery group posts). Its
+  // claim/done calls are the meaningful rows and still log.
+  '/wa-post/heartbeat',
+  '/wa-post/groups',
 ];
 
 // Background GETs fired on page load / tab focus, not user intent.
@@ -38,6 +42,7 @@ const SKIP_GET_PATHS = [
   // of all PROD rows). Its POST .../:id/sent is a real event and still logs.
   '/whatsapp/group-approvals/approved',
   '/whatsapp/group-reminders/due',
+  '/wa-post/jobs', // the post worker's poll
 ];
 
 // POST endpoints that are actually list/read queries ("POST / = list" is a
@@ -54,6 +59,9 @@ const VERB_ACTIONS: Record<string, string> = {
   revisions: 'CREATE_REVISION', notes: 'NOTE', sign: 'SIGN', 'generate-pdf': 'EXPORT',
   'run-due': 'RUN', run: 'RUN', 'generate-now': 'RUN', cancel: 'CANCEL', assign: 'ASSIGN',
   'link-project': 'LINK', link: 'LINK', 'claim-scheduled': 'CLAIM', 'ack-all': 'ACKNOWLEDGE',
+  // Delivery group posts (2026-09-30): the post worker claims a post and
+  // reports it sent; the office retries a failed or skipped one.
+  claim: 'CLAIM', done: 'POSTED', retry: 'RETRY',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
   // Field delivery verbs (2026-09): the customer sign-off (full or partial, and
   // the guest link's), the return sign-off, ad-hoc acknowledge, install skip, and
@@ -192,6 +200,11 @@ export class ActionLogInterceptor implements NestInterceptor {
         actorName: isDriver ? 'Driver (hand-off link)' : 'Guest (share link)',
         channel: 'public',
       };
+    }
+    // The WhatsApp post worker (whatsapp-post-bridge): a named system actor, so
+    // the log says which worker claimed/posted a delivery.
+    if (path.startsWith('/wa-post/')) {
+      return { actorType: 'SYSTEM', actorId: 'system:wa-post-bridge', actorName: 'WhatsApp post bridge', channel: 'wa-post' };
     }
     // Webhooks / ingestion / anything else non-human → "System creation".
     return { actorType: 'SYSTEM', actorId: `system:${path.split('/').filter(Boolean)[0] || 'unknown'}`, actorName: SYSTEM_ACTOR_NAME, channel: 'webhook' };

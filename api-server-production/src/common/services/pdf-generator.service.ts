@@ -78,43 +78,7 @@ export class PdfGeneratorService {
       // PrintAttributes has no scale field), and two mechanisms that round
       // differently would drift. One mechanism, one result. See
       // portal-production/lib/printScale.ts.
-      if (options?.fitToPage) {
-        const { selector, bandMm } = options.fitToPage;
-        await page.emulateMediaType('print');
-        const naturalMm = await page.evaluate((sel) => {
-          const el = document.querySelector(sel) as HTMLElement | null;
-          if (!el) return 0;
-          return (el.getBoundingClientRect().height / 96) * 25.4;
-        }, selector);
-
-        if (naturalMm > bandMm) {
-          const needed = Math.floor((bandMm / naturalMm) * 1000) / 1000;
-          const scale = Math.max(PdfGeneratorService.FIT_SCALE_FLOOR, needed);
-          const scaledMm = (naturalMm * scale).toFixed(2);
-          if (needed < PdfGeneratorService.FIT_SCALE_FLOOR) {
-            console.warn(
-              `[pdf] ${naturalMm.toFixed(1)}mm of content cannot fit one page at the ` +
-                `${PdfGeneratorService.FIT_SCALE_FLOOR} floor — rendering across pages instead.`,
-            );
-          }
-          // The CONTAINER carries the scaled height — a transform alone leaves
-          // the layout box full-size and Chromium still breaks the page. See
-          // portal-production/lib/printScale.ts, where this was measured.
-          await page.evaluate((sel) => {
-            const el = document.querySelector(sel);
-            el?.parentElement?.classList.add('aims-print-fit');
-          }, selector);
-          await page.addStyleTag({
-            content: `@media print {
-              .aims-print-fit { height: ${scaledMm}mm !important; overflow: hidden !important; }
-              .aims-print-fit ${selector} {
-                transform: scale(${scale}) !important;
-                transform-origin: top left !important;
-              }
-            }`,
-          });
-        }
-      }
+      if (options?.fitToPage) await this.fitToOnePage(page, options.fitToPage);
 
       // Generate PDF with A4 format
       const pdfBuffer = await page.pdf({
@@ -131,6 +95,109 @@ export class PdfGeneratorService {
       if (browser) {
         await browser.close();
       }
+    }
+  }
+
+  /** Scale the sheet so it prints on one page (see generatePdfFromHtml). */
+  private async fitToOnePage(page: puppeteer.Page, fitToPage: { selector: string; bandMm: number }) {
+    const { selector, bandMm } = fitToPage;
+    await page.emulateMediaType('print');
+    const naturalMm = await page.evaluate((sel) => {
+      const el = document.querySelector(sel) as HTMLElement | null;
+      if (!el) return 0;
+      return (el.getBoundingClientRect().height / 96) * 25.4;
+    }, selector);
+
+    if (naturalMm > bandMm) {
+      const needed = Math.floor((bandMm / naturalMm) * 1000) / 1000;
+      const scale = Math.max(PdfGeneratorService.FIT_SCALE_FLOOR, needed);
+      const scaledMm = (naturalMm * scale).toFixed(2);
+      if (needed < PdfGeneratorService.FIT_SCALE_FLOOR) {
+        console.warn(
+          `[pdf] ${naturalMm.toFixed(1)}mm of content cannot fit one page at the ` +
+            `${PdfGeneratorService.FIT_SCALE_FLOOR} floor — rendering across pages instead.`,
+        );
+      }
+      // The CONTAINER carries the scaled height — a transform alone leaves
+      // the layout box full-size and Chromium still breaks the page. See
+      // portal-production/lib/printScale.ts, where this was measured.
+      await page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        el?.parentElement?.classList.add('aims-print-fit');
+      }, selector);
+      await page.addStyleTag({
+        content: `@media print {
+          .aims-print-fit { height: ${scaledMm}mm !important; overflow: hidden !important; }
+          .aims-print-fit ${selector} {
+            transform: scale(${scale}) !important;
+            transform-origin: top left !important;
+          }
+        }`,
+      });
+    }
+  }
+
+  /**
+   * Print a LIVE page to PDF (2026-09-30). For the SIGNED Delivery Order: the
+   * portal's view-only /guest/do/<vo_ token> page renders it exactly as the
+   * field app prints it (CleanDocumentPreview, customer signature, proof of
+   * delivery). There is no server-side DO template, and the generic document
+   * PDF carries no signature.
+   *
+   * Waits for `waitForSelector`, web fonts and every image before printing;
+   * the whole job gives up after `timeoutMs` (default 60 s: the portal may be
+   * cold-starting).
+   */
+  async generatePdfFromUrl(
+    url: string,
+    options: {
+      waitForSelector: string;
+      fitToPage?: { selector: string; bandMm: number };
+      margin?: { top: string; right: string; bottom: string; left: string };
+      timeoutMs?: number;
+    },
+  ): Promise<Buffer> {
+    const timeoutMs = options.timeoutMs ?? 60_000;
+    let browser: puppeteer.Browser | null = null;
+    let timer: NodeJS.Timeout | undefined;
+    const work = (async () => {
+      browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+      });
+      const page = await browser.newPage();
+      // Wide enough that the page's phone-fit scaling stays at 1; light scheme.
+      await page.setViewport({ width: 1280, height: 1800 });
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+      await page.goto(url, { waitUntil: 'networkidle0', timeout: timeoutMs });
+      await page.waitForSelector(options.waitForSelector, { timeout: timeoutMs });
+      await page.evaluate(async () => {
+        await (document as any).fonts?.ready;
+        await Promise.all(
+          Array.from(document.images).map((img) =>
+            img.complete ? null : new Promise((r) => { img.onload = img.onerror = () => r(null); }),
+          ),
+        );
+      });
+      await page.emulateMediaType('print');
+      if (options.fitToPage) await this.fitToOnePage(page, options.fitToPage);
+      const pdf = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: options.margin ?? { top: '6mm', right: '6mm', bottom: '6mm', left: '6mm' },
+      });
+      return Buffer.from(pdf);
+    })();
+    try {
+      return await Promise.race([
+        work,
+        new Promise<Buffer>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`PDF render timed out after ${timeoutMs / 1000}s`)), timeoutMs + 5000);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (browser) await (browser as puppeteer.Browser).close().catch(() => null);
     }
   }
 

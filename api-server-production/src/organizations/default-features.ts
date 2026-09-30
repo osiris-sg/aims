@@ -60,4 +60,8 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Plan a maintenance date per asset, see which deployed units are done, and a
   // reminder 7 days before (push to field techs + office bell). Default OFF.
   enableMaintenanceDates: false,
+  // Delivery group posts (Biofuel, 2026-09-30): each delivery sign-off is
+  // posted to the project's WhatsApp group (photos + signed DO) by the Osiris
+  // number's post-only worker. Default OFF.
+  enableDeliveryGroupPosts: false,
 };

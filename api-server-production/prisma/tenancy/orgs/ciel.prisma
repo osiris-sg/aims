@@ -104,6 +104,10 @@ model Customer {
   // Xero pull-sync: ContactID from Xero (null = not yet synced).
   xeroId          String?           @unique
   xeroLastSyncAt  DateTime?
+  // Delivery group posts (2026-09-30): the WhatsApp group a signed delivery
+  // is posted to (Project first, then Customer, then the org ops group).
+  whatsappGroupId   String?
+  whatsappGroupName String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   organizationId  String
@@ -1244,6 +1248,10 @@ model Project {
   address          String?
   organizationId   String?
   customerId       String?             @db.Uuid // direct FK; siteOffice still optional
+  // Delivery group posts (2026-09-30): the WhatsApp group a signed delivery
+  // is posted to (Project first, then Customer, then the org ops group).
+  whatsappGroupId   String?
+  whatsappGroupName String?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   startDate        DateTime?
