@@ -85,19 +85,30 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     mediaId: string,
     token: string,
   ): Promise<{ buffer: Buffer; mimetype: string } | null> {
-    try {
-      const meta = await this.graph<{ url?: string; mime_type?: string }>(mediaId, { token });
-      if (!meta?.url) return null;
-      const res = await fetch(meta.url, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) return null;
-      const buffer = Buffer.from(await res.arrayBuffer());
-      // Cap at 15MB — the extractor rejects larger, and we never want a runaway.
-      if (buffer.length > 15 * 1024 * 1024) return null;
-      return { buffer, mimetype: meta.mime_type || 'application/octet-stream' };
-    } catch (e: any) {
-      this.logger.error(`Media download failed for ${mediaId}: ${e.message}`);
-      return null;
+    // Meta's media endpoint intermittently fails right after the webhook
+    // delivers (seen live 2026-09-30: a PDF the agent swore wasn't there
+    // downloaded fine minutes later) — so retry before giving up.
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const meta = await this.graph<{ url?: string; mime_type?: string }>(mediaId, { token });
+        if (meta?.url) {
+          const res = await fetch(meta.url, { headers: { Authorization: `Bearer ${token}` } });
+          if (res.ok) {
+            const buffer = Buffer.from(await res.arrayBuffer());
+            // Cap at 15MB — the extractor rejects larger, and we never want a runaway.
+            if (buffer.length > 15 * 1024 * 1024) return null;
+            return { buffer, mimetype: meta.mime_type || 'application/octet-stream' };
+          }
+          this.logger.warn(`Media binary fetch ${mediaId} attempt ${attempt}: HTTP ${res.status}`);
+        } else {
+          this.logger.warn(`Media meta ${mediaId} attempt ${attempt}: no url`);
+        }
+      } catch (e: any) {
+        this.logger.error(`Media download failed for ${mediaId} (attempt ${attempt}): ${e.message}`);
+      }
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 1000 * attempt));
     }
+    return null;
   }
 
   /** A short biasing prompt for voice transcription: the org's customer/project
@@ -2026,6 +2037,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
               ?.name;
             // An uploaded photo/PDF — download it so the operator can extract it.
             let attachment: { dataUri: string; mimetype: string; filename?: string } | undefined;
+            let attachmentFailed = false;
             const mediaMsg = message.image || message.document;
             if (mediaMsg?.id) {
               const dl = await this.downloadMedia(mediaMsg.id, connection.accessToken);
@@ -2035,6 +2047,14 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
                   mimetype: dl.mimetype,
                   filename: message.document?.filename,
                 };
+              } else {
+                // The user DID attach a file — never pretend they didn't.
+                attachmentFailed = true;
+                await this.dispatch(
+                  connection.organizationId,
+                  { messaging_product: 'whatsapp', to: from, type: 'text', text: { body: `⚠️ WhatsApp wouldn't let me fetch "${message.document?.filename || 'that file'}" just now — please send it again.` } },
+                  { body: '⚠️ media fetch failed — asked to resend', fromPhoneNumberId: connection.phoneNumberId },
+                ).catch(() => null);
               }
             }
             // A voice note → transcribe to text (voice-to-quotation/invoice),
@@ -2056,6 +2076,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
               }
             }
             const caption = message.image?.caption || message.document?.caption || body || '';
+            if (attachmentFailed && !body) continue;
             this.operator
               .handleInbound({
                 channel: 'whatsapp',
