@@ -105,9 +105,7 @@ export interface PendingAction {
     | 'edit_schedule'
     | 'import_price_list'
     | 'schedule_delivery'
-    | 'api_write'
-    // Any other writing tool: the call itself is held and only runs on Confirm.
-    | 'tool_call';
+    | 'api_write';
   documentId?: string;
   documentType?: string;
   summary: string;
@@ -125,10 +123,4 @@ export interface SessionState {
   pendingActions?: PendingAction[];
   /** An uploaded invoice awaiting a project pick (tapped from buttons). */
   pendingUpload?: OperatorContext['upload'] | null;
-  /** Ids of cards already executed, newest last. A replayed "ok" or a second
-   *  tap on the same card is refused against this list. Bounded. */
-  doneIds?: string[];
-  /** The last card that ran, so a bare second "ok" is answered, not re-read.
-   *  Cleared as soon as the model takes another turn. */
-  lastResult?: { id: string; at: number; message: string } | null;
 }

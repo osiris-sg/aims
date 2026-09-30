@@ -27,19 +27,6 @@ import { OperatorAuthService } from './operator-auth.service';
 import { PublicDocumentService } from '../public-document/public-document.service';
 import { OperatorContext, PendingAction } from './operator.types';
 import { cleanText } from './text.util';
-import { ActionLogService } from '../action-log/action-log.service';
-import { runAsOrg } from '../common/tenancy/tenant-context';
-import {
-  compact,
-  matchCustomer,
-  matchItem,
-  matchProject,
-  orderLineCovers,
-  parseLine,
-  parseWhen,
-  sameCustomer,
-  sgtYmd,
-} from './delivery-intake';
 
 /** What a tool hands back to the loop. `pending` asks the caller to raise a
  *  confirm prompt instead of proceeding. */
@@ -48,80 +35,16 @@ export interface ToolOutcome {
   pending?: PendingAction;
   /** A document PDF to push to the user before the model's final text. */
   preview?: { documentId: string; url: string; filename: string; caption: string };
-  /** A line the SYSTEM sends to the user as-is, before the model replies. For
-   *  refusals that must never depend on the model's wording. */
-  notice?: string;
-}
-
-/** What a confirmed card hands back: the reply, an optional document to send
- *  first, and a note for the model's history (ids, numbers). */
-export interface PendingResult {
-  ok: boolean;
-  message: string;
-  preview?: { url: string; filename: string; caption: string };
-  note?: string;
 }
 
 interface ToolDef {
   name: string;
   description: string;
   permissions: string[];
+  /** True when the tool writes — audited, and blocked for unconfirmed drafts. */
   input_schema: Anthropic.Tool['input_schema'];
   run: (ctx: OperatorContext, args: any) => Promise<ToolOutcome>;
-  /** The tool changes data. Calling it does NOT run it: execute() holds the
-   *  call behind a Confirm card and runPending runs it on Confirm. A function
-   *  decides per call (confirm_invoices_from_xero only writes without dryRun). */
-  writes?: boolean | ((args: any) => boolean);
-  /** The tool writes its own Activity Log row (this.log); otherwise runPending
-   *  writes a generic one for it. */
-  logs?: boolean;
 }
-
-/** What the card says a held tool call will do. */
-const WRITE_VERBS: Record<string, string> = {
-  create_customer: 'Create a new customer',
-  update_customer: 'Update a customer',
-  create_quotation: 'Create a DRAFT quotation',
-  create_invoice: 'Create a DRAFT invoice',
-  create_invoice_from_quotation: 'Raise a DRAFT invoice from a quotation',
-  create_delivery_order: 'Create a DRAFT delivery order document',
-  create_credit_note: 'Create a DRAFT credit note',
-  edit_document: 'Edit a document',
-  create_bill: 'Record a supplier bill (unposted)',
-  set_appointment: 'Set a lead appointment',
-  translate_quotation: 'Translate a quotation to Chinese',
-  confirm_invoices_from_xero: "Pull Xero's approvals into AIMS: mark invoices paid, re-total to Xero, void duplicate journals",
-};
-
-/** Tools whose result is a document worth sending straight back as a preview. */
-const DOC_CREATORS = new Set(['create_quotation', 'create_invoice', 'create_invoice_from_quotation', 'create_credit_note']);
-const DOC_LABELS: Record<string, string> = {
-  create_quotation: 'Quotation',
-  create_invoice: 'Invoice',
-  create_invoice_from_quotation: 'Invoice',
-  create_credit_note: 'Credit note',
-  create_delivery_order: 'Delivery order',
-};
-/** Activity Log resource + action chip for a confirmed tool call that does not log itself. */
-const TOOL_LOG: Record<string, [string, string]> = {
-  set_appointment: ['lead', 'UPDATE'],
-  translate_quotation: ['document', 'TRANSLATE'],
-  confirm_invoices_from_xero: ['xero-sync', 'CONFIRM'],
-};
-
-/** Legacy audit verbs → the Activity Log's semantic action chips. */
-const ACTION_CHIPS: Record<string, string> = {
-  CREATED: 'CREATE',
-  EDITED: 'UPDATE',
-  UPDATED: 'UPDATE',
-  STATUS_CHANGED: 'CONFIRM',
-  APPROVED: 'POST_GL',
-  SENT: 'SEND',
-  PAYMENT: 'PAYMENT',
-  ERROR: 'ERROR',
-};
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -181,7 +104,6 @@ export class OperatorToolsService {
     private readonly bankRec: BankRecService,
     private readonly s3: S3Service,
     private readonly auth: OperatorAuthService,
-    private readonly actionLog: ActionLogService,
   ) {}
 
   /** Extract a just-uploaded invoice/receipt (project-agnostic) and store the
@@ -298,83 +220,12 @@ export class OperatorToolsService {
     if (!this.auth.hasPermission(ctx, tool.permissions)) {
       return { result: { error: `You do not have permission to ${name} (needs ${tool.permissions.join(', ')}).` } };
     }
-    // Every query runs as the operator's org: in per-org tenancy that picks the
-    // org's own schema; in the plain layout it is a no-op.
-    return runAsOrg(ctx.organizationId, async () => {
-      try {
-        // EVERY write goes through a Confirm card, no exceptions (guru
-        // 2026-09-30). A writing tool is never run here: the call is held and
-        // runPending runs it when the user confirms.
-        const writes = typeof tool.writes === 'function' ? tool.writes(args || {}) : !!tool.writes;
-        if (writes) return await this.holdToolCall(ctx, tool, args || {});
-        return await tool.run(ctx, args || {});
-      } catch (e: any) {
-        this.logger.error(`tool ${name} failed: ${e.message}`);
-        return { result: { error: e?.message || 'Tool failed' } };
-      }
-    });
-  }
-
-  /** Hold a writing tool's call behind a card that says, in plain words, what
-   *  it will do. Ids are resolved to names; an id that does not exist in this
-   *  org fails now rather than after the tap. */
-  private async holdToolCall(ctx: OperatorContext, tool: ToolDef, args: any): Promise<ToolOutcome> {
-    const org = ctx.organizationId;
-    const lines: string[] = [];
-    const assetName = async (id?: string) =>
-      id ? (await this.prisma.asset.findFirst({ where: { id, organizationId: org }, select: { name: true } }))?.name : undefined;
-    for (const [k, v] of Object.entries(args)) {
-      if (v === undefined || v === null || v === '') continue;
-      if (k === 'customerId') {
-        const c = await this.prisma.customer.findFirst({ where: { id: String(v), organizationId: org }, select: { name: true } });
-        if (!c) return { result: { error: 'Customer not found in this organization' } };
-        lines.push(`Customer: ${c.name}`);
-      } else if (k === 'supplierId') {
-        const sup = await this.prisma.supplier.findFirst({ where: { id: String(v), organizationId: org }, select: { name: true } });
-        if (!sup) return { result: { error: 'Supplier not found in this organization' } };
-        lines.push(`Supplier: ${sup.name}`);
-      } else if (k === 'documentId' || k === 'quotationId') {
-        const d = await this.findDoc(org, String(v));
-        if (!d) return { result: { error: 'Document not found in this organization' } };
-        lines.push(`Document: ${d.name || d.id} (${d.type})`);
-      } else if ((k === 'items' || k === 'lines' || k === 'addLines') && Array.isArray(v)) {
-        if (tool.name === 'create_invoice_from_quotation') {
-          lines.push(`Quotation lines: ${(v as any[]).join(', ')}`);
-          continue;
-        }
-        lines.push(k === 'addLines' ? 'Add lines:' : 'Lines:');
-        for (const it of v as any[]) {
-          const what = (await assetName(it.itemId || it.assetId)) || it.description || 'item';
-          const price = it.unitPrice != null ? ` @ ${it.unitPrice}` : it.amount != null ? ` = ${it.amount}` : '';
-          lines.push(`• ${it.quantity ?? 1} x ${String(what).slice(0, 80)}${price}`);
-        }
-      } else if (k === 'lineEdits' && Array.isArray(v)) {
-        for (const e of v as any[]) {
-          const change = e.remove
-            ? 'remove'
-            : [
-                e.find != null ? `"${e.find}" to "${e.replaceWith ?? ''}"` : null,
-                e.description != null ? `text to "${String(e.description).slice(0, 80)}"` : null,
-                e.quantity != null ? `qty ${e.quantity}` : null,
-                e.unitPrice != null ? `price ${e.unitPrice}` : null,
-              ]
-                .filter(Boolean)
-                .join(', ');
-          lines.push(`• Line ${e.line}: ${change}`);
-        }
-      } else if (typeof v === 'object') {
-        lines.push(`${k}: ${JSON.stringify(v).slice(0, 200)}`);
-      } else {
-        lines.push(`${k.replace(/([A-Z])/g, ' $1').replace(/^./, (x) => x.toUpperCase())}: ${String(v).slice(0, 200)}`);
-      }
+    try {
+      return await tool.run(ctx, args || {});
+    } catch (e: any) {
+      this.logger.error(`tool ${name} failed: ${e.message}`);
+      return { result: { error: e?.message || 'Tool failed' } };
     }
-    const pending: PendingAction = {
-      kind: 'tool_call',
-      summary: `${WRITE_VERBS[tool.name] || tool.name.replace(/_/g, ' ')}\n${lines.join('\n')}`.trim(),
-      args: { tool: tool.name, input: args },
-      createdAt: new Date().toISOString(),
-    };
-    return { result: { needsConfirmation: true, willDo: pending.summary }, pending };
   }
 
   // ── Tool table ─────────────────────────────────────────────────────────────
@@ -411,7 +262,6 @@ export class OperatorToolsService {
         description:
           "Pull Xero's invoice approvals back into AIMS: for every invoice the accountant has AUTHORISED or PAID in Xero, match the AIMS totals to Xero, mark the AIMS document paid/pending payment, and void AIMS's own duplicate journal so the GL does not count it twice. Line items are never rewritten — differences come back as a mismatch list to read out. Use when asked to 'confirm the invoices from Xero', 'sync the approvals', or after the accountant says they have approved a batch. Pass dryRun:true first when the user wants to see what would change.",
         permissions: ['xerosync:create'],
-        writes: (a: any) => !a?.dryRun,
         input_schema: {
           type: 'object',
           properties: {
@@ -492,8 +342,6 @@ export class OperatorToolsService {
         name: 'create_customer',
         description: 'Create a new customer. Only call after find_customer returns no match and the user confirmed the name.',
         permissions: ['customers:create'],
-        writes: true,
-        logs: true,
         input_schema: {
           type: 'object',
           properties: {
@@ -517,8 +365,6 @@ export class OperatorToolsService {
         description:
           "Update an existing customer's details (name, address, email, phone). Use this to correct or rename a customer instead of creating a duplicate. Only pass the fields being changed.",
         permissions: ['customers:update'],
-        writes: true,
-        logs: true,
         input_schema: {
           type: 'object',
           properties: {
@@ -622,8 +468,6 @@ export class OperatorToolsService {
         description:
           'Create a DRAFT quotation for a customer. Provide resolved customerId and line items. Prices are looked up automatically when unitPrice is omitted. The draft is NOT sent or confirmed. Always preview it and ask the user to confirm.',
         permissions: ['documents:create-basic'],
-        writes: true,
-        logs: true,
         input_schema: {
           type: 'object',
           properties: {
@@ -705,7 +549,6 @@ export class OperatorToolsService {
         description:
           'Translate an ID quotation to Simplified Chinese (中文). AI-translates every free-text line once and caches it on the document; afterwards the portal preview and the client sign link can toggle English/中文. Safe to re-run — only new/edited lines are translated again.',
         permissions: ['documents:update'],
-        writes: true,
         input_schema: {
           type: 'object',
           properties: { documentId: { type: 'string' } },
@@ -731,7 +574,6 @@ export class OperatorToolsService {
         description:
           'Set (or clear) an appointment with a lead — it shows on the dashboard master calendar. Find the lead by name or phone number. datetime is ISO or "25 Sep 14:30" style; omit it with clear=true to remove.',
         permissions: ['documents:update'],
-        writes: true,
         input_schema: {
           type: 'object',
           properties: {
@@ -758,12 +600,12 @@ export class OperatorToolsService {
           if (!found) return { result: { error: `No lead matching "${q}"` } };
           if (clear) {
             await this.leads.update(found.id, ctx.organizationId, { appointmentAt: null, appointmentNote: null } as any, ctx.clerkUserId);
-            return { result: { ok: true, leadId: found.id, lead: found.name, appointment: null } };
+            return { result: { ok: true, lead: found.name, appointment: null } };
           }
           const at = datetime ? new Date(datetime) : null;
           if (!at || isNaN(at.getTime())) return { result: { error: 'Could not parse the date/time — try e.g. "2026-09-26 14:30"' } };
           await this.leads.update(found.id, ctx.organizationId, { appointmentAt: at.toISOString(), appointmentNote: note || null } as any, ctx.clerkUserId);
-          return { result: { ok: true, leadId: found.id, lead: found.name, appointment: at.toISOString(), note: note || null } };
+          return { result: { ok: true, lead: found.name, appointment: at.toISOString(), note: note || null } };
         },
       },
 
@@ -830,8 +672,6 @@ export class OperatorToolsService {
         description:
           'Create a DRAFT invoice for a customer, same arguments as create_quotation. Does NOT post to the ledger until confirmed.',
         permissions: ['documents:create-basic'],
-        writes: true,
-        logs: true,
         input_schema: {
           type: 'object',
           properties: {
@@ -870,8 +710,6 @@ export class OperatorToolsService {
           'Already-billed lines are tracked across invoices, so the same line is never billed twice and you can keep billing ' +
           'the remainder until the quote is fully invoiced.',
         permissions: ['documents:create-basic'],
-        writes: true,
-        logs: true,
         input_schema: {
           type: 'object',
           properties: {
@@ -1039,8 +877,6 @@ export class OperatorToolsService {
         description:
           'Edit an EXISTING unconfirmed/draft document in place. For a SMALL wording change (e.g. "two (2)" to "one (1)"), use lineEdits with find/replaceWith so the rest of the text is preserved exactly — NEVER retype the whole description from memory. Use the `description` field only to rewrite a whole line. Also supports changing quantity/unitPrice, removing a line, adding lines, and notes/PO/reference. Totals recompute automatically. ALWAYS call get_document first to read the full current line text, then edit. Confirmed/posted documents need a revision in the app (the tool will say so).',
         permissions: ['documents:update'],
-        writes: true,
-        logs: true,
         input_schema: {
           type: 'object',
           properties: {
@@ -1684,8 +1520,6 @@ export class OperatorToolsService {
         description:
           'Record a supplier bill (accounts payable). Creates it UNPOSTED for review. Use post_bill afterwards to put it in the ledger.',
         permissions: ['bills:create'],
-        writes: true,
-        logs: true,
         input_schema: {
           type: 'object',
           properties: {
@@ -1764,45 +1598,172 @@ export class OperatorToolsService {
       {
         name: 'schedule_delivery',
         description:
-          'Schedule a REAL delivery run (the Deliveries module) from a staff message. Pass the pieces AS WRITTEN: when ("Tomorrow morning"), customer ("CNQC"), location ("lentor garten"), and each item line ("1 unit Lion 375"). The tool matches customer, project, catalog items and the open sales order itself, and returns EITHER a Confirm card (then STOP) OR questions to put to the user. Answer them by calling again with the same inputs plus customerId / projectId / items[{line, assetId}] or items[{line, freeTyped:true}] / saleOrderId / doContactId. Items carry NO prices. Only a SALES ORDER can be attached; quotations are refused. With no sales order the card says so and confirming saves a DRAFT run (no DO).',
+          'Schedule a REAL delivery run (the Deliveries module): creates the run plus a pending DO that claims its number on confirmation. Use this whenever the user says schedule/deliver/send equipment on a date. Items carry NO prices. A LIVE run needs: customer, project, items, the date/time, AND a sale order or quotation — pass it as saleOrderId, or as saleOrderNumber when the user just says the number ("use QO202609-0055"); a quotation already sitting on the project also counts. When it is missing, say so in ONE short line and add that they can send the number or upload the PO. Do not offer buttons for this and do not lecture about drafts: they can simply reply with the number or send the file, and it is registered onto the held run automatically.',
         permissions: ['documents:create-basic'],
         input_schema: {
           type: 'object',
           properties: {
-            message: { type: 'string', description: "The user's own words for this delivery, VERBATIM: the original message plus any later corrections. The tool reads order numbers out of it itself." },
-            when: { type: 'string', description: 'The date words as written: "Tomorrow morning", "Thursday 2pm", "30 Sep". Morning = 09:00, afternoon = 14:00 (Singapore).' },
-            customer: { type: 'string', description: 'Customer as written, e.g. "CNQC" (short name, code or full name).' },
-            customerId: { type: 'string', description: 'Only once a question has been answered, from the options the tool gave.' },
-            location: { type: 'string', description: 'Site / location as written, e.g. "lentor garten". Matched against the customer\'s projects.' },
-            projectId: { type: 'string', description: 'Only once a question has been answered, from the options the tool gave.' },
-            lines: { type: 'array', items: { type: 'string' }, description: 'Each item line as written: "1 unit Lion 375", "60 es DG".' },
+            customerId: { type: 'string' },
+            projectId: { type: 'string', description: 'Optional — resolved from the customer\'s most recent project when omitted.' },
+            scheduledFor: { type: 'string', description: 'ISO date/time of the delivery, e.g. 2026-09-23T09:00:00+08:00' },
+            siteAddress: { type: 'string' },
             items: {
               type: 'array',
-              description: 'Answers about specific lines (1-based `line` into `lines`): assetId from the options, or freeTyped:true to keep the line as typed. May also change quantity.',
               items: {
                 type: 'object',
                 properties: {
-                  line: { type: 'integer' },
-                  assetId: { type: 'string' },
-                  freeTyped: { type: 'boolean' },
+                  assetId: { type: 'string', description: 'Catalog asset id from find_item' },
+                  description: { type: 'string', description: 'Free-typed line when no assetId' },
                   quantity: { type: 'number' },
-                  description: { type: 'string', description: 'Only for a brand new line not in `lines`.' },
                 },
+                required: ['quantity'],
               },
             },
-            saleOrderNumber: { type: 'string', description: "A sales order NUMBER the user gave, e.g. 'SO202609-0002'. Exact match. Quotation numbers are refused." },
-            saleOrderId: { type: 'string', description: 'Only once a question has been answered, from the options the tool gave.' },
-            doContactId: { type: 'string', description: 'Change the DO contact to this customer contact (from the options the tool gave).' },
-            siteAddress: { type: 'string', description: 'Only when the user gives an address that differs from the project\'s.' },
-            notes: { type: 'string', description: 'Anything else for the office or the rider, e.g. "call Mr Tan on arrival".' },
-            poNumber: { type: 'string', description: "Optional display text for the DO's PO No. Defaults to the sales order's number." },
-            scheduledFor: { type: 'string', description: 'Older form of `when` (ISO with +08:00). Prefer `when`.' },
-            noProject: { type: 'boolean', description: 'The user chose to save it without a project (DRAFT).' },
-            noSaleOrder: { type: 'boolean', description: 'The user chose to save it without a sales order (DRAFT).' },
+            saleOrderId: { type: 'string', description: 'Id of the sale order OR quotation this delivery is against, from find_sales_order. One of this or saleOrderNumber is REQUIRED for a live run.' },
+            saleOrderNumber: { type: 'string', description: "The order/quotation NUMBER when the user just says it, e.g. 'QO202609-0055' or 'SO202609-0002'. Resolved for you, so no lookup needed first." },
+            poNumber: { type: 'string', description: "Optional display text for the DO, e.g. 'PO2512032'. Defaults to the Sale Order's number." },
+            notes: { type: 'string' },
           },
-          required: ['message'],
+          required: ['customerId', 'scheduledFor', 'items'],
         },
-        run: async (ctx, args) => this.scheduleDeliveryCard(ctx, args),
+        run: async (ctx, args) => {
+          const customer = await this.prisma.customer.findFirst({ where: { id: args.customerId, organizationId: ctx.organizationId }, select: { id: true, name: true, address: true } });
+          if (!customer) return { result: { error: 'Customer not found in this organization' } };
+          let projectId: string | undefined = args.projectId;
+          let projectName: string | undefined;
+          if (!projectId) {
+            const proj = await this.prisma.project.findFirst({ where: { organizationId: ctx.organizationId, customerId: customer.id }, orderBy: { createdAt: 'desc' }, select: { id: true, name: true } });
+            projectId = proj?.id;
+            projectName = proj?.name;
+          } else {
+            const proj = await this.prisma.project.findFirst({ where: { id: projectId, organizationId: ctx.organizationId }, select: { name: true } });
+            projectName = proj?.name;
+          }
+          // A real schedule needs BOTH a project and the Sale Order/quotation it
+          // is against — ScheduleDeliveryDto marks each @ValidateIf(!isDraft).
+          // This tool calls the service directly, so class-validator never runs
+          // and a missing saleOrderId would sail through as a "real" run the
+          // API itself would have rejected. Park it as a DRAFT instead: the
+          // office finishes it in Deliveries, and nothing invalid is created.
+          // Either type is accepted: the invoice pricer takes the attached id
+          // as a SALES_ORDER or a QUOTATION and decides which tier its prices
+          // land in (documents.service.ts:5440). Resolving by NUMBER too means
+          // "use QO202609-0055" works without a lookup round-trip.
+          const ORDER_TYPES = ['SALES_ORDER', 'QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
+          let saleOrder: { id: string; name: string; type: string } | null = null;
+          if (args.saleOrderId || args.saleOrderNumber) {
+            saleOrder = await this.prisma.document.findFirst({
+              where: {
+                organizationId: ctx.organizationId,
+                type: { in: ORDER_TYPES },
+                ...(args.saleOrderId
+                  ? { id: String(args.saleOrderId) }
+                  : { name: { contains: String(args.saleOrderNumber).trim(), mode: 'insensitive' as const } }),
+              },
+              orderBy: { createdAt: 'desc' },
+              select: { id: true, name: true, type: true },
+            });
+            if (!saleOrder) {
+              return {
+                result: {
+                  error: `No sale order or quotation matching "${args.saleOrderNumber || args.saleOrderId}" in this organization. Use find_sales_order to see what exists.`,
+                },
+              };
+            }
+          }
+          // Either a Sale Order OR a quotation, never both required (guru
+          // 2026-09-22: "some wont have order some wont have quotation but must
+          // have at least 1"). They are linked differently: the order is a
+          // pointer on the run (config.saleOrderId), while a DO carries NO
+          // pointer back to a quotation — applyQuotation copies the lines and
+          // discards the source — so a quotation counts when it hangs off the
+          // run's PROJECT. Same rule the Deliveries "missing" chips use.
+          let quotation: { id: string; name: string } | null = null;
+          if (!saleOrder && projectId) {
+            quotation = await this.prisma.document.findFirst({
+              where: {
+                organizationId: ctx.organizationId,
+                projectId,
+                type: { in: ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'] },
+              },
+              orderBy: { createdAt: 'desc' },
+              select: { id: true, name: true },
+            });
+          }
+          const missing = [
+            !projectId && 'a project',
+            !saleOrder && !quotation && 'a Sale Order or a quotation',
+          ].filter(Boolean);
+          const isDraft = missing.length > 0;
+          const dto: any = {
+            isDraft,
+            projectId,
+            customerId: customer.id,
+            scheduledFor: args.scheduledFor,
+            siteAddress: args.siteAddress || customer.address || undefined,
+            notes: args.notes,
+            ...(saleOrder ? { saleOrderId: saleOrder.id, poNumber: args.poNumber || saleOrder.name } : {}),
+            items: (args.items || []).map((it: any) => ({ assetId: it.assetId || undefined, description: it.assetId ? undefined : it.description, quantity: Number(it.quantity) || 1 })),
+          };
+          // Held for confirmation rather than created outright. A delivery run
+          // books a date against a real customer, and this is the tool that
+          // already mis-fired once, so the user sees what was resolved for them
+          // (project, site address, draft-or-live) before it exists.
+          const when = new Date(args.scheduledFor);
+          const whenText = isNaN(when.getTime())
+            ? String(args.scheduledFor)
+            : when.toLocaleString('en-GB', {
+                weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+                timeZone: 'Asia/Singapore',
+              });
+          // Catalogue lines arrive as an assetId with no text, so the summary
+          // said "1 x item" and the user could not tell WHAT was being sent.
+          // Resolve the names for the confirmation card.
+          const assetIds = (args.items || []).map((it: any) => it.assetId).filter(Boolean);
+          const namedAssets = assetIds.length
+            ? await this.prisma.asset.findMany({
+                where: { id: { in: assetIds }, organizationId: ctx.organizationId },
+                select: { id: true, name: true, skuKey: true },
+              })
+            : [];
+          const label = (a: { name: string; skuKey: string | null }) => {
+            const code = (a.skuKey || '').trim();
+            // "LION250 (LION250)" reads as a bug. Only show the code when it
+            // adds something the name does not already say.
+            if (!code || a.name.replace(/\s+/g, '').toLowerCase() === code.replace(/\s+/g, '').toLowerCase()) return a.name;
+            return `${a.name} (${code})`;
+          };
+          const nameById = new Map(namedAssets.map((a) => [a.id, label(a)]));
+          const lines = (args.items || []).map((it: any) => {
+            const what = (it.assetId && nameById.get(it.assetId)) || it.description || 'item';
+            return `${Number(it.quantity) || 1} x ${what}`;
+          });
+          const pending: PendingAction = {
+            kind: 'schedule_delivery',
+            summary:
+              `Delivery for ${customer.name} on ${whenText}\n` +
+              `${lines.join('\n')}\n` +
+              `Project: ${projectName || '(none)'}\n` +
+              `Order: ${saleOrder ? `${saleOrder.name}${saleOrder.type === 'SALES_ORDER' ? '' : ' (quotation)'}` : quotation ? `${quotation.name} (quotation on the project)` : '(none)'}\n` +
+              `Site: ${dto.siteAddress || '(none on file)'}` +
+              (isDraft ? `\n\nMissing ${missing.join(' and ')}. Confirming saves it as a DRAFT, not a booked run.` : ''),
+            args: { dto, customerName: customer.name, isDraft },
+            createdAt: new Date().toISOString(),
+          };
+          return {
+            result: {
+              needsConfirmation: true,
+              customer: customer.name,
+              project: projectName || null,
+              saleOrder: saleOrder?.name || null,
+              quotationOnProject: quotation?.name || null,
+              scheduledFor: whenText,
+              items: dto.items.length,
+              status: isDraft ? `will save as a DRAFT schedule (missing ${missing.join(' and ')})` : 'will be scheduled',
+            },
+            pending,
+          };
+        },
       },
 
       {
@@ -1831,7 +1792,7 @@ export class OperatorToolsService {
       {
         name: 'find_sales_order',
         description:
-          "Find open Sales Orders, e.g. to answer which order a delivery is against. Narrow by project, customer name, or a number fragment ('SO2026', 'PO2512032'). Only sales orders are listed: a delivery can never be scheduled against a quotation.",
+          "Find the Sale Orders AND quotations a delivery can be scheduled against — a live run needs at least one of the two. Narrow by project, customer name, or a number fragment ('SO2026', 'QO2026', 'PO2512032'). Each result says kind:'order' or kind:'quotation'. Pass an ORDER's id to schedule_delivery as saleOrderId. A QUOTATION cannot be attached to the run directly (a DO carries no pointer back to one); it counts automatically when it sits on the run's project, which is what projectId in the results tells you.",
         permissions: ['documents:read'],
         input_schema: {
           type: 'object',
@@ -1846,15 +1807,15 @@ export class OperatorToolsService {
           const docs = await this.prisma.document.findMany({
             where: {
               organizationId: ctx.organizationId,
-              // Sales orders only (guru 2026-09-30: quotations are never
-              // accepted for a delivery).
-              type: 'SALES_ORDER',
+              // QUOTATION is canonical; QO/QO1/QO2/QT are legacy aliases this
+              // codebase still carries.
+              type: { in: ['SALES_ORDER', 'QUOTATION', 'QO', 'QO1', 'QO2', 'QT'] },
               ...(args.projectId ? { projectId: String(args.projectId) } : {}),
               ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
             },
             orderBy: { createdAt: 'desc' },
             take: 25,
-            select: { id: true, name: true, type: true, status: true, createdAt: true, config: true, projectId: true },
+            select: { id: true, name: true, type: true, createdAt: true, config: true, projectId: true },
           });
           // The customer lives inside config (Document has no customerId column),
           // so it is filtered here rather than in the query.
@@ -1870,7 +1831,7 @@ export class OperatorToolsService {
             result: matched.slice(0, 10).map((d: any) => ({
               id: d.id,
               number: d.name,
-              status: d.status,
+              kind: d.type === 'SALES_ORDER' ? 'order' : 'quotation',
               date: d.createdAt?.toISOString?.().slice(0, 10),
               customer: customerOf(d) || null,
               projectId: d.projectId,
@@ -1884,30 +1845,10 @@ export class OperatorToolsService {
       },
 
       {
-        name: 'list_deliveries',
-        description:
-          'List delivery runs by date range, status and customer: "what deliveries are on tomorrow", "pending deliveries for CNQC", "drafts this week". Dates are Singapore days; defaults to today and the next 7 days. Read-only.',
-        permissions: ['maintenance-reports:read'],
-        input_schema: {
-          type: 'object',
-          properties: {
-            from: { type: 'string', description: 'First day, YYYY-MM-DD or words ("today", "tomorrow", "Monday").' },
-            to: { type: 'string', description: 'Last day (inclusive), same forms. Defaults to `from` + 7 days.' },
-            status: { type: 'string', enum: ['scheduled', 'in_progress', 'delivered', 'completed', 'cancelled', 'draft'], description: '"draft" = office drafts not yet booked.' },
-            customer: { type: 'string', description: 'Customer name, short name or code.' },
-            limit: { type: 'number', description: 'Max rows (default 20, max 50).' },
-          },
-        },
-        run: async (ctx, args) => this.listDeliveries(ctx, args),
-      },
-
-      {
         name: 'create_delivery_order',
         description:
           'Create a DRAFT delivery order DOCUMENT only (no delivery run, no rider, no date). For "schedule/send/deliver tomorrow" requests ALWAYS use schedule_delivery instead. Rental DOs carry quantities, not prices — omit unitPrice unless the user gave one.',
         permissions: ['documents:create-basic'],
-        writes: true,
-        logs: true,
         input_schema: {
           type: 'object',
           properties: {
@@ -1938,8 +1879,6 @@ export class OperatorToolsService {
         description:
           'Create a DRAFT credit note for a customer (refund or reduction of a previous invoice). Confirming it posts a reversing journal.',
         permissions: ['documents:create-basic'],
-        writes: true,
-        logs: true,
         input_schema: {
           type: 'object',
           properties: {
@@ -2215,447 +2154,6 @@ export class OperatorToolsService {
    * totals maths on this path (the portal editor does it client-side), so
    * everything is computed here — see AIMS_OPERATOR_AGENT_PLAN.md §9.3.
    */
-  // ── schedule_delivery: from a staff message to a Confirm card ────────────
-
-  /**
-   * Turn what staff typed into either questions or a card. Matching rule for
-   * customer, project, item and sales order alike: ONE strong match is used,
-   * several or none become a question. Nothing is guessed and nothing is
-   * written here: the run is created only by runPending, on Confirm.
-   */
-  private async scheduleDeliveryCard(ctx: OperatorContext, args: any): Promise<ToolOutcome> {
-    const org = ctx.organizationId;
-    const questions: Array<Record<string, any>> = [];
-    const txt = (v: any) => String(v ?? '').trim();
-
-    // Customer: name, customer code (the short name) and aliases (CNQC).
-    const custSelect = { id: true, name: true, customerCode: true, address: true } as const;
-    let customer: { id: string; name: string; customerCode: string | null; address: string | null } | null = null;
-    if (args.customerId) {
-      customer = await this.prisma.customer.findFirst({ where: { id: String(args.customerId), organizationId: org }, select: custSelect });
-      if (!customer) return { result: { error: 'Customer not found in this organization' } };
-    } else if (txt(args.customer)) {
-      const all = await this.prisma.customer.findMany({ where: { organizationId: org }, select: custSelect });
-      const m = matchCustomer(txt(args.customer), all);
-      if (m.kind === 'one') customer = m.row;
-      else {
-        const opts = m.kind === 'several' ? m.rows : m.suggestions;
-        questions.push({
-          about: 'customer',
-          question:
-            m.kind === 'several'
-              ? `Several customers match "${txt(args.customer)}". Which one?`
-              : `No customer matches "${txt(args.customer)}".${opts.length ? ' Did you mean one of these?' : " What is the customer's name?"}`,
-          options: opts.slice(0, 5).map((c) => ({ customerId: c.id, name: c.name })),
-        });
-      }
-    } else {
-      questions.push({ about: 'customer', question: 'Which customer is this for?' });
-    }
-
-    // When: date words in Singapore time.
-    const whenText = txt(args.when) || txt(args.scheduledFor);
-    const when = parseWhen(whenText);
-    if (!when) {
-      questions.push({ about: 'when', question: whenText ? `I couldn't read a day in "${whenText}". Which day and time?` : 'Which day and time?' });
-    } else if (when.ymd < sgtYmd()) {
-      questions.push({ about: 'when', question: `${when.label} is in the past. Which day?` });
-    }
-
-    // Items: each line = quantity + text, matched to the catalog.
-    type Line = { line: number; raw: string; quantity: number; text: string; assetId?: string; freeTyped?: boolean };
-    const lines: Line[] = (Array.isArray(args.lines) ? args.lines : []).map((raw: any, i: number) => ({ line: i + 1, ...parseLine(String(raw)) }));
-    for (const o of Array.isArray(args.items) ? args.items : []) {
-      const n = Number(o?.line);
-      const target = Number.isInteger(n) && n >= 1 ? lines[n - 1] : undefined;
-      if (target) {
-        if (o.assetId) Object.assign(target, { assetId: String(o.assetId), freeTyped: false });
-        if (o.freeTyped) Object.assign(target, { assetId: undefined, freeTyped: true });
-        if (o.quantity != null) target.quantity = Number(o.quantity);
-      } else {
-        const p = parseLine(txt(o?.description));
-        lines.push({
-          line: lines.length + 1,
-          raw: p.raw,
-          text: p.text,
-          quantity: o?.quantity != null ? Number(o.quantity) : p.quantity,
-          assetId: o?.assetId || undefined,
-          freeTyped: !!o?.freeTyped,
-        });
-      }
-    }
-    const catalog = await this.prisma.asset.findMany({
-      where: { organizationId: org, deletedAt: null },
-      select: { id: true, name: true, skuKey: true },
-    });
-    const byId = new Map(catalog.map((a) => [a.id, a]));
-    type Resolved = { line: number; quantity: number; text: string; asset?: { id: string; name: string; skuKey: string | null } };
-    const resolved: Resolved[] = [];
-    for (const l of lines) {
-      if (!Number.isInteger(l.quantity) || l.quantity < 1) {
-        questions.push({ about: 'item', line: l.line, question: `Line ${l.line} "${l.raw}": how many? (a whole number)` });
-      } else if (l.assetId) {
-        const a = byId.get(l.assetId);
-        if (!a) return { result: { error: `The item picked for line ${l.line} is not in this organization's catalog.` } };
-        resolved.push({ line: l.line, quantity: l.quantity, text: l.text, asset: a });
-      } else if (!l.text) {
-        questions.push({ about: 'item', line: l.line, question: `Line ${l.line}: which item?` });
-      } else if (l.freeTyped) {
-        resolved.push({ line: l.line, quantity: l.quantity, text: l.text });
-      } else {
-        const v = matchItem(l.text, catalog);
-        if (v.kind === 'sure') resolved.push({ line: l.line, quantity: l.quantity, text: l.text, asset: v.asset });
-        else if (v.kind === 'unsure') {
-          questions.push({
-            about: 'item',
-            line: l.line,
-            question: `Line ${l.line} "${l.raw}": did you mean ${v.options.map((o) => o.name).join(' or ')}? Or keep it as typed.`,
-            options: v.options.map((o) => ({ assetId: o.id, name: o.name })),
-          });
-        } else resolved.push({ line: l.line, quantity: l.quantity, text: l.text }); // not in the catalog: free-typed
-      }
-    }
-    if (!lines.length) questions.push({ about: 'item', question: 'What is being delivered?' });
-
-    // Project / site: the location against THAT customer's projects.
-    let project: { id: string; name: string; address: string | null } | null = null;
-    let customerProjectIds = new Set<string>();
-    if (customer) {
-      const projects = await this.prisma.project.findMany({
-        where: { organizationId: org, customerId: customer.id },
-        select: { id: true, name: true, address: true },
-        orderBy: { createdAt: 'desc' },
-      });
-      customerProjectIds = new Set(projects.map((p) => p.id));
-      const projectOptions = (rows: typeof projects) => rows.slice(0, 5).map((p) => ({ projectId: p.id, name: p.name, address: p.address }));
-      if (args.projectId) {
-        project = projects.find((p) => p.id === String(args.projectId)) ?? null;
-        if (!project) return { result: { error: `That project is not one of ${customer.name}'s projects.` } };
-      } else if (args.noProject || !projects.length) {
-        project = null; // saved as a DRAFT without one
-      } else if (txt(args.location)) {
-        const m = matchProject(txt(args.location), projects);
-        if (m.kind === 'one') project = m.row;
-        else {
-          questions.push({
-            about: 'project',
-            question:
-              m.kind === 'several'
-                ? `Several of ${customer.name}'s projects match "${txt(args.location)}". Which one?`
-                : `None of ${customer.name}'s projects matches "${txt(args.location)}". Is it one of these, or save it as a DRAFT without a project?`,
-            options: projectOptions(m.kind === 'several' ? m.rows : m.suggestions.length ? m.suggestions : projects),
-          });
-        }
-      } else if (projects.length === 1) {
-        project = projects[0];
-      } else {
-        questions.push({ about: 'project', question: `Which of ${customer.name}'s projects (site) is this for?`, options: projectOptions(projects) });
-      }
-    }
-
-    // Sales order: explicit number = exact + must be this customer's; else the
-    // open SALES_ORDERs for the customer (+ project) that cover the items.
-    // Quotations are never accepted.
-    let saleOrder: { id: string; name: string } | null = null;
-    let explicitSo = txt(args.saleOrderId) || txt(args.saleOrderNumber);
-    // Order numbers are read out of the message itself as well, so a number the
-    // model dropped (or a quotation it quietly left out) is still seen. A
-    // quotation named there is refused out loud, never silently swapped for
-    // whatever sales order the auto-match would have found.
-    if (customer && !explicitSo && !args.noSaleOrder && txt(args.message)) {
-      const refs = [...new Set(txt(args.message).match(/\b(?=[A-Za-z0-9/-]*\d)(?=[A-Za-z0-9/-]*[A-Za-z])[A-Za-z0-9][A-Za-z0-9/-]{4,}\b/g) || [])].slice(0, 10);
-      const named = refs.length
-        ? await this.prisma.document.findMany({
-            where: { organizationId: org, OR: refs.map((r) => ({ name: { equals: r, mode: 'insensitive' as const } })) },
-            select: { name: true, type: true },
-          })
-        : [];
-      const so = named.find((d) => d.type === 'SALES_ORDER');
-      const quote = named.find((d) => ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(d.type)));
-      if (so?.name) explicitSo = so.name;
-      else if (quote?.name) explicitSo = quote.name;
-    }
-    if (customer && explicitSo) {
-      const byUuid = !!args.saleOrderId && UUID_RE.test(txt(args.saleOrderId)) && explicitSo === txt(args.saleOrderId);
-      const doc = await this.prisma.document.findFirst({
-        where: {
-          organizationId: org,
-          ...(byUuid ? { id: txt(args.saleOrderId) } : { name: { equals: explicitSo, mode: 'insensitive' as const } }),
-        },
-        select: { id: true, name: true, type: true, status: true, config: true, projectId: true },
-      });
-      if (!doc) return { result: { error: `No sales order numbered "${explicitSo}" in this organization.` } };
-      if (doc.type !== 'SALES_ORDER') {
-        const what = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(doc.type)) ? 'a quotation' : `a ${doc.type}`;
-        return {
-          result: {
-            error: `${doc.name} is ${what}, and quotations are never accepted for a delivery. The user has already been told that. Offer: send the sales order number, or save it as a DRAFT without one.`,
-            refused: 'quotation',
-          },
-          notice: `${doc.name} is ${what}. A delivery is booked against a sales order only, never a quotation, so it was not used.`,
-        };
-      }
-      const cfg: any = doc.config || {};
-      if (!sameCustomer(customer, cfg) && !(doc.projectId && customerProjectIds.has(doc.projectId))) {
-        const theirs = typeof cfg.customer === 'string' ? cfg.customer : cfg.customer?.name || cfg.customerName;
-        return { result: { error: `${doc.name} is not ${customer.name}'s sales order${theirs ? ` (it is for ${theirs})` : ''}.` } };
-      }
-      saleOrder = { id: doc.id, name: doc.name || doc.id };
-    } else if (customer && !args.noSaleOrder) {
-      const orders = await this.prisma.document.findMany({
-        // Every sales order counts as open: DocumentStatus has no closed/void
-        // state for an order (documents are deleted, not voided).
-        where: { organizationId: org, type: 'SALES_ORDER' },
-        select: { id: true, name: true, config: true, projectId: true },
-        orderBy: { createdAt: 'desc' },
-        take: 300,
-      });
-      const catalogLines = resolved.filter((r) => r.asset);
-      const fits = orders.filter((d) => {
-        const cfg: any = d.config || {};
-        if (!sameCustomer(customer!, cfg) && !(d.projectId && customerProjectIds.has(d.projectId))) return false;
-        if (project && d.projectId && d.projectId !== project.id) return false;
-        const soLines: any[] = [...(cfg.items || []), ...(cfg.documentInfo?.items || [])];
-        return catalogLines.every((r) => soLines.some((li) => orderLineCovers(li, r.asset!)));
-      });
-      if (fits.length === 1) saleOrder = { id: fits[0].id, name: fits[0].name || fits[0].id };
-      else if (fits.length > 1) {
-        questions.push({
-          about: 'saleOrder',
-          question: `${fits.length} open sales orders for ${customer.name} cover these items. Which one?`,
-          options: fits.slice(0, 5).map((d) => ({ saleOrderId: d.id, number: d.name })),
-        });
-      }
-    }
-
-    // DO contact: the project's (DO role, else primary, else first), changeable.
-    let doContact: { id: string; name: string; phone: string | null } | null = null;
-    let contactsDto: Array<{ contactId: string; group: string | null }> | undefined;
-    let contactOptions: Array<{ doContactId: string; name: string; phone: string | null }> = [];
-    if (customer) {
-      const contacts = await this.prisma.customerContact.findMany({
-        where: { customerId: customer.id },
-        select: { id: true, name: true, phone: true },
-        orderBy: { createdAt: 'asc' },
-        take: 20,
-      });
-      contactOptions = contacts.map((c) => ({ doContactId: c.id, name: c.name, phone: c.phone }));
-      if (project) {
-        const links = await this.prisma.projectContact.findMany({
-          where: { projectId: project.id },
-          orderBy: { createdAt: 'asc' },
-          select: { customerContactId: true, group: true, customerContact: { select: { id: true, name: true, phone: true, isPrimary: true } } },
-        });
-        const pick = links.find((l) => l.group === 'DO') ?? links.find((l) => l.customerContact?.isPrimary) ?? links[0];
-        doContact = pick?.customerContact ?? null;
-        if (args.doContactId) {
-          const c = contacts.find((x) => x.id === String(args.doContactId));
-          if (!c) return { result: { error: `That contact is not one of ${customer.name}'s contacts.` } };
-          doContact = c;
-          contactsDto = [
-            ...links.filter((l) => l.group !== 'DO').map((l) => ({ contactId: l.customerContactId, group: l.group })),
-            { contactId: c.id, group: 'DO' },
-          ];
-        }
-      }
-    }
-
-    if (questions.length) {
-      return {
-        result: {
-          needsAnswers: true,
-          questions,
-          understood: {
-            customer: customer?.name ?? null,
-            project: project?.name ?? null,
-            when: when?.label ?? null,
-            items: resolved.map((r) => `${r.quantity} x ${r.asset ? r.asset.name : `${r.text} (free-typed)`}`),
-            saleOrder: saleOrder?.name ?? null,
-          },
-          note: 'Nothing is booked yet. Ask these in ONE short message, then call schedule_delivery again with the same inputs plus the answers.',
-        },
-      };
-    }
-
-    const isDraft = !project || !saleOrder;
-    const site = txt(args.siteAddress) || project?.address || '';
-    const notes = txt(args.notes) ? cleanText(txt(args.notes)) : '';
-    const dto: any = {
-      isDraft,
-      projectId: project?.id,
-      customerId: customer!.id,
-      scheduledFor: when!.iso,
-      ...(site ? { address: site } : {}),
-      ...(notes ? { notes } : {}),
-      ...(saleOrder ? { saleOrderId: saleOrder.id, poNumber: txt(args.poNumber) || saleOrder.name } : txt(args.poNumber) ? { poNumber: txt(args.poNumber) } : {}),
-      ...(contactsDto ? { contacts: contactsDto } : {}),
-      items: resolved.map((r) => (r.asset ? { assetId: r.asset.id, quantity: r.quantity } : { description: cleanText(r.text), quantity: r.quantity })),
-    };
-    const label = (a: { name: string; skuKey: string | null }) => {
-      const code = (a.skuKey || '').trim();
-      // "LION250 (LION250)" reads as a bug: show the code only when it adds something.
-      return !code || a.name.replace(/\s+/g, '').toLowerCase() === code.replace(/\s+/g, '').toLowerCase() ? a.name : `${a.name} (${code})`;
-    };
-    const draftNotes = [
-      !saleOrder && 'there is no sales order: send the SO number or upload the PO to book it',
-      !project && 'there is no project: the office adds one in Deliveries',
-    ].filter(Boolean);
-    const summary =
-      [
-        `🚚 Delivery for ${customer!.name}`,
-        `When: ${when!.label}${when!.timeFrom === 'default' ? ' (no time given)' : ''}`,
-        `Project: ${project?.name ?? '(none)'}`,
-        `Site: ${site || project?.name || '(none)'}`,
-        'Items:',
-        ...resolved.map((r) => `• ${r.quantity} x ${r.asset ? `${label(r.asset)} (catalog)` : `${cleanText(r.text)} (free-typed)`}`),
-        `Sales order: ${saleOrder ? saleOrder.name : 'No sales order found'}`,
-        `DO contact: ${doContact ? `${doContact.name}${doContact.phone ? ` (${doContact.phone})` : ''}` : '(none on the project)'}`,
-        ...(notes ? [`Notes: ${notes}`] : []),
-      ].join('\n') + (isDraft ? `\n\nConfirming saves a DRAFT run (no DO): ${draftNotes.join('; ')}.` : '');
-
-    const pending: PendingAction = {
-      kind: 'schedule_delivery',
-      summary,
-      args: { dto, customerName: customer!.name, isDraft },
-      createdAt: new Date().toISOString(),
-    };
-    return {
-      result: {
-        needsConfirmation: true,
-        card: summary,
-        // For "change the DO contact to …": pass doContactId from these.
-        contactOptions: contactOptions.slice(0, 10),
-      },
-      pending,
-    };
-  }
-
-  /** Read-only: delivery runs in a Singapore date range, by status/customer. */
-  private async listDeliveries(ctx: OperatorContext, args: any): Promise<ToolOutcome> {
-    const org = ctx.organizationId;
-    const day = (w: any) => {
-      const v = String(w ?? '').trim();
-      if (!v) return null;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
-      return parseWhen(v)?.ymd ?? null;
-    };
-    const from = day(args.from) ?? sgtYmd();
-    const to = day(args.to) ?? new Date(Date.parse(`${from}T00:00:00Z`) + 7 * 864e5).toISOString().slice(0, 10);
-    const start = new Date(`${from}T00:00:00+08:00`);
-    const end = new Date(new Date(`${to}T00:00:00+08:00`).getTime() + 864e5);
-    let customerIds: string[] | undefined;
-    if (String(args.customer || '').trim()) {
-      const all = await this.prisma.customer.findMany({ where: { organizationId: org }, select: { id: true, name: true, customerCode: true } });
-      const m = matchCustomer(String(args.customer), all);
-      if (m.kind === 'one') customerIds = [m.row.id];
-      else if (m.kind === 'several') customerIds = m.rows.map((c) => c.id);
-      else return { result: { error: `No customer matches "${args.customer}".`, didYouMean: m.suggestions.map((c) => c.name) } };
-    }
-    const status = String(args.status || '').trim();
-    const rows = await this.prisma.delivery.findMany({
-      where: {
-        organizationId: org,
-        OR: [{ scheduledFor: { gte: start, lt: end } }, { scheduledFor: null, createdAt: { gte: start, lt: end } }],
-        ...(status === 'draft' ? { isDraft: true } : status ? { status: status as any, isDraft: false } : {}),
-        ...(customerIds ? { customerId: { in: customerIds } } : {}),
-      },
-      orderBy: [{ scheduledFor: 'asc' }, { deliveryNumber: 'asc' }],
-      take: Math.min(Number(args.limit) || 20, 50),
-      select: {
-        id: true,
-        deliveryNumber: true,
-        status: true,
-        isDraft: true,
-        direction: true,
-        scheduledFor: true,
-        siteAddress: true,
-        notes: true,
-        customer: { select: { name: true } },
-        project: { select: { name: true } },
-        items: { select: { description: true, quantity: true }, orderBy: { sortOrder: 'asc' } },
-      },
-    });
-    return {
-      result: {
-        from,
-        to,
-        count: rows.length,
-        deliveries: rows.map((r) => {
-          const counts = new Map<string, number>();
-          for (const it of r.items) counts.set(it.description || 'item', (counts.get(it.description || 'item') || 0) + (it.quantity || 1));
-          return {
-            number: r.deliveryNumber,
-            when: r.scheduledFor
-              ? new Date(r.scheduledFor).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Singapore' })
-              : null,
-            status: r.isDraft ? 'draft' : r.status,
-            direction: r.direction,
-            customer: r.customer?.name ?? null,
-            project: r.project?.name ?? null,
-            site: r.siteAddress,
-            items: [...counts].map(([d, q]) => `${q} x ${d}`).join(', '),
-            notes: r.notes,
-          };
-        }),
-      },
-    };
-  }
-
-  /** A run already booked from this very card (same customer, project, time,
-   *  draft-ness and items, in the last 15 minutes)? Last line of defence behind
-   *  the session guards, e.g. a replay on another server instance. */
-  private async findDuplicateRun(organizationId: string, dto: any): Promise<{ id: string; deliveryNumber: number } | null> {
-    if (!dto?.scheduledFor || !dto?.customerId) return null;
-    const runs = await this.prisma.delivery.findMany({
-      where: {
-        organizationId,
-        customerId: dto.customerId,
-        projectId: dto.projectId ?? null,
-        isDraft: !!dto.isDraft,
-        scheduledFor: new Date(dto.scheduledFor),
-        createdAt: { gte: new Date(Date.now() - 15 * 60_000) },
-      },
-      select: { id: true, deliveryNumber: true, items: { select: { assetId: true, description: true, quantity: true } } },
-    });
-    const sig = (rows: Array<{ assetId?: string | null; description?: string | null; quantity?: number | null }>) => {
-      const m = new Map<string, number>();
-      for (const r of rows) {
-        const k = r.assetId || `t:${compact(r.description)}`;
-        m.set(k, (m.get(k) || 0) + (Number(r.quantity) || 1));
-      }
-      return [...m].sort(([a], [b]) => a.localeCompare(b)).map(([k, q]) => `${k}=${q}`).join('|');
-    };
-    const want = sig(dto.items || []);
-    return runs.find((r) => sig(r.items) === want) ?? null;
-  }
-
-  /** The confirmation line for a held tool call that has just run. */
-  private doneText(name: string, r: any): string {
-    switch (name) {
-      case 'create_customer':
-        return `Customer ${r.name}${r.customerCode ? ` (${r.customerCode})` : ''} created.`;
-      case 'update_customer':
-        return `Customer ${r.name} updated (${(r.updated || []).join(', ')}).`;
-      case 'create_bill':
-        return `Bill ${r.billNumber} recorded, unposted. Ask me to post it when it should go to the ledger.`;
-      case 'edit_document':
-        return `${r.documentNumber} updated. Total now ${r.nettTotal}.`;
-      case 'set_appointment':
-        return r.appointment
-          ? `Appointment with ${r.lead} set for ${new Date(r.appointment).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Singapore' })}.`
-          : `Appointment with ${r.lead} cleared.`;
-      case 'translate_quotation':
-        return r.note || 'Translated.';
-      case 'confirm_invoices_from_xero':
-        return r.summary || 'Done.';
-      default:
-        if (r.documentNumber) {
-          return `${DOC_LABELS[name] || 'Document'} ${r.documentNumber} created as a draft${r.nettTotal != null ? `, total ${r.nettTotal}` : ''}.`;
-        }
-        return 'Done.';
-    }
-  }
-
   private async createSalesDraft(ctx: OperatorContext, type: 'QUOTATION' | 'INVOICE', args: any): Promise<ToolOutcome> {
     const customer = await this.prisma.customer.findFirst({
       where: { id: args.customerId, organizationId: ctx.organizationId },
@@ -2932,73 +2430,17 @@ export class OperatorToolsService {
     return lines;
   }
 
-  async runPending(ctx: OperatorContext, pending: PendingAction): Promise<PendingResult> {
-    // The org the card was made in is the org it runs in (per-org tenancy
-    // routes every query by it; in the plain layout this is a no-op).
-    return runAsOrg(ctx.organizationId, () => this.runPendingInOrg(ctx, pending));
-  }
-
-  private async runPendingInOrg(ctx: OperatorContext, pending: PendingAction): Promise<PendingResult> {
-    if (pending.kind === 'tool_call') {
-      const { tool: name, input } = pending.args || {};
-      const tool = this.tools().find((t) => t.name === name);
-      if (!tool) return { ok: false, message: 'That action is no longer available, nothing was changed.' };
-      if (!this.auth.hasPermission(ctx, tool.permissions)) {
-        return { ok: false, message: `You no longer have permission to ${String(name).replace(/_/g, ' ')}, nothing was changed.` };
-      }
-      const out = await tool.run(ctx, input || {});
-      const r: any = out?.result ?? {};
-      if (r.error) return { ok: false, message: `Nothing was changed: ${r.error}` };
-      if (!tool.logs) {
-        const [resource, chip] = TOOL_LOG[name] || ['operator', 'UPDATE'];
-        this.log(ctx, 'UPDATED', resource, r.documentId || r.leadId || r.id, r.documentNumber || r.lead, `${name} via Operator (${ctx.channel})`, chip);
-      }
-      let preview: PendingResult['preview'];
-      if (DOC_CREATORS.has(name) && r.documentId) {
-        const pv = await this.tools()
-          .find((t) => t.name === 'preview_document')!
-          .run(ctx, { documentId: r.documentId })
-          .catch(() => null);
-        if (pv?.preview) preview = pv.preview;
-      }
-      return { ok: true, message: `✅ ${this.doneText(name, r)}`, preview, note: JSON.stringify(r).slice(0, 1500) };
-    }
-
+  async runPending(ctx: OperatorContext, pending: PendingAction): Promise<{ ok: boolean; message: string }> {
     if (pending.kind === 'schedule_delivery') {
-      const { customerName } = pending.args || {};
-      const dto: any = { ...(pending.args?.dto || {}) };
-      let isDraft = !!pending.args?.isDraft;
-      // Idempotency: the session guards stop a second "ok" in this process;
-      // this stops the same card booking twice from anywhere else.
-      const dup = await this.findDuplicateRun(ctx.organizationId, dto);
-      if (dup) return { ok: true, message: `Already done: delivery #${dup.deliveryNumber} for ${customerName} exists, nothing was repeated.` };
-      // A PO uploaded while the card was held becomes its sales order HERE, on
-      // Confirm, never before (every write goes through a card).
-      if (pending.args?.soUpload && !dto.saleOrderId) {
-        const so = await this.createSaleOrderFromUpload(ctx, pending.args.soUpload, customerName, dto.projectId);
-        if (!so) return { ok: false, message: "I couldn't create the sales order from that upload, so nothing was booked. Send the SO number instead." };
-        dto.saleOrderId = so.id;
-        dto.poNumber = dto.poNumber || so.name;
-        isDraft = !dto.projectId;
-        dto.isDraft = isDraft;
-      }
+      const { dto, customerName, isDraft } = pending.args || {};
       const run: any = await this.deliveries.createScheduled(dto, ctx.organizationId);
-      const ref = run?.deliveryNumber != null ? `#${run.deliveryNumber}` : run?.id;
-      this.log(
-        ctx,
-        'CREATED',
-        'delivery',
-        run?.id,
-        ref,
-        `Delivery ${isDraft ? 'saved as a draft' : 'scheduled'} via Operator (${ctx.channel})`,
-        isDraft ? 'CREATE_DRAFT' : 'SCHEDULE',
-      );
+      const ref = run?.deliveryNumber ?? run?.id;
+      this.log(ctx, 'CREATED', 'delivery', run?.id, ref, `Delivery scheduled via Operator (${ctx.channel})`);
       return {
         ok: true,
         message: isDraft
-          ? `✅ Saved as a DRAFT run for ${customerName} (${ref}). It is not booked yet: ${dto.saleOrderId ? 'it needs a project' : 'it needs a sales order'} before it goes live.`
+          ? `✅ Saved as a DRAFT schedule for ${customerName} (${ref}). The office needs to assign a project in Deliveries before it goes live.`
           : `✅ Delivery ${ref} scheduled for ${customerName}.`,
-        note: `deliveryId ${run?.id}`,
       };
     }
 
@@ -3095,7 +2537,6 @@ export class OperatorToolsService {
     if (pending.kind === 'edit_schedule') {
       const a = pending.args || {};
       const res = await this.costing.scheduleAssistApply(a.projectId, ctx.organizationId, a.ops || []);
-      this.log(ctx, 'EDITED', 'project', a.projectId, a.projectName, `Schedule updated via Operator (${ctx.channel})`);
       const lines: string[] = Array.isArray(a.lines) ? a.lines : [];
       return { ok: true, message: `🗓 Schedule of ${a.projectName} updated (${res.applied} change${res.applied === 1 ? '' : 's'}):\n${lines.map((l) => `• ${l}`).join('\n')}` };
     }
@@ -3103,7 +2544,6 @@ export class OperatorToolsService {
     if (pending.kind === 'import_price_list') {
       const a = pending.args || {};
       const res = await this.revenueItems.importPricelistApply(ctx.organizationId, { supplierName: a.supplierName || null, mode: a.mode || 'add', items: a.items || [] });
-      this.log(ctx, 'CREATED', 'revenue-item', undefined, a.supplierName, `Price list imported via Operator (${ctx.channel})`, 'IMPORT');
       const parts = [res.updated ? `${res.updated} updated` : null, res.created ? `${res.created} added` : null].filter(Boolean).join(', ');
       return {
         ok: true,
@@ -3224,13 +2664,6 @@ export class OperatorToolsService {
     return { ok: false, message: 'Nothing to confirm.' };
   }
 
-  /**
-   * Every Operator write lands twice: the legacy AuditLog (document history)
-   * and the Activity Log, as the LINKED STAFF USER (not "System creation"),
-   * channel whatsapp/telegram, with a semantic action chip and the resource id.
-   * The webhook request itself only shows as a system row, so without this the
-   * Activity Log could not say who booked a delivery from chat.
-   */
   private log(
     ctx: OperatorContext,
     action: string,
@@ -3238,23 +2671,7 @@ export class OperatorToolsService {
     resourceId?: string,
     resourceName?: string,
     detail?: string,
-    chip?: string,
   ) {
-    void this.actionLog.log({
-      actorType: 'USER',
-      actorId: ctx.clerkUserId || ctx.actor.id || 'operator',
-      actorName: ctx.actor.name ?? null,
-      actorEmail: ctx.actor.email ?? null,
-      organizationId: ctx.organizationId,
-      channel: ctx.channel,
-      method: 'CHAT',
-      path: `/operator/${ctx.channel}`,
-      action: chip || ACTION_CHIPS[action] || action,
-      resource,
-      resourceId: resourceId ?? null,
-      details: { via: 'operator', name: resourceName, detail },
-      status: action === 'ERROR' ? 'FAILURE' : 'SUCCESS',
-    });
     this.audit
       .logAction({
         userId: ctx.actor.id || 'operator',
