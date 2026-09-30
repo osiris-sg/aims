@@ -172,41 +172,6 @@ async function resolveClientName(chatId, senderId) {
   }
 }
 
-// ── AIMS Operator (chunk 2, 2026-09-30) ──────────────────────────────────────
-// Everything below is OFF unless OPERATOR_ENABLED=true, so a redeploy with the
-// old env behaves exactly as before. When on, the chats in OPERATOR_CHATS
-// belong to the Operator's org (bound server-side to OPERATOR_TOKEN in the
-// API's WA_WEB_BRIDGES) and are never seen by Denzel's group agent; every
-// other chat keeps working for Denzel's org exactly as today.
-const OPERATOR_ENABLED = /^(1|true|yes)$/i.test(process.env.OPERATOR_ENABLED || '');
-const OPERATOR_TOKEN = process.env.OPERATOR_TOKEN || '';
-const OPERATOR_CHATS = (process.env.OPERATOR_CHATS || '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
-// DMs from anyone who is not Denzel's staff (Biofuel staff, /link). Off by
-// default: the San number also takes DMs from Denzel's clients.
-const OPERATOR_DMS = /^(1|true|yes)$/i.test(process.env.OPERATOR_DMS || '');
-// Summon word in addition to an @mention of this account.
-const OPERATOR_TRIGGER = new RegExp(process.env.OPERATOR_TRIGGER || '@san\\b', 'i');
-// A card's confirmation needs no summon: "confirm 4821" / "cancel 4821".
-const OPERATOR_CODE_RE = /^\s*(confirm|cancel)\s+\d{4}\s*$/i;
-const OPERATOR_TIMEOUT_MS = 120 * 1000;
-const OPERATOR_CATCHUP_MS = 30 * 60 * 1000;
-// Last message seen per operator chat, kept next to the session on the
-// persistent disk so a restart can pick up what it missed.
-const OPERATOR_STATE_FILE = path.join(
-  process.env.OPERATOR_STATE_DIR || path.dirname(path.resolve(process.env.SESSION_DIR || './.wwebjs_auth')),
-  'operator-last-seen.json',
-);
-const OPERATOR_ON = OPERATOR_ENABLED && !!OPERATOR_TOKEN && (OPERATOR_CHATS.length > 0 || OPERATOR_DMS);
-if (OPERATOR_ENABLED && !OPERATOR_ON) {
-  console.warn('⚠️ OPERATOR_ENABLED is set but OPERATOR_TOKEN or OPERATOR_CHATS/OPERATOR_DMS is missing: Operator stays off.');
-}
-// LIST_GROUPS=true: log every group as "name -> id" once the store has loaded.
-// Read-only: sends nothing.
-const LIST_GROUPS = /^(1|true|yes)$/i.test(process.env.LIST_GROUPS || '');
-
 if (!ORG_ID || !BRIDGE_TOKEN) {
   console.error('❌ Set AIMS_ORG_ID and AIMS_GROUP_BRIDGE_TOKEN in .env');
   process.exit(1);
@@ -267,7 +232,6 @@ client.on('qr', async (qr) => {
   }
 });
 client.on('authenticated', () => console.log('🔐 authenticated'));
-let waReady = false; // heartbeats only while WhatsApp itself is connected
 let BOT_IDS = []; // phone + LID digit-forms used to recognise an @mention of us
 client.on('ready', () => {
   const me = client.info?.wid?.user || 'unknown';
@@ -294,9 +258,6 @@ client.on('ready', () => {
     postApprovedDrafts();
     deliverDueReminders();
   }, APPROVAL_POLL_MS);
-  waReady = true;
-  if (LIST_GROUPS) setTimeout(logGroupIds, 20 * 1000);
-  if (OPERATOR_ON) startOperator();
   // One-shot: preview a notification format on the real device without waiting
   // for the triggering event. Set DEMO_NOTIFY to the message body.
   if (process.env.DEMO_NOTIFY) {
@@ -381,215 +342,7 @@ async function probeGroupTitles() {
     console.log(`🔎 store probe failed: ${e && e.message ? e.message : e}`);
   }
 }
-client.on('disconnected', (r) => {
-  waReady = false;
-  console.warn('⚠️ disconnected:', r);
-});
-
-/** LIST_GROUPS=true: every group this device is in, as "name -> id". */
-async function logGroupIds(retry = true) {
-  const groups = await listGroups();
-  if (!groups.length && retry) {
-    console.log('📋 LIST_GROUPS: store not loaded yet, retrying in 60 s');
-    setTimeout(() => logGroupIds(false), 60 * 1000);
-    return;
-  }
-  console.log(`📋 LIST_GROUPS: ${groups.length} groups`);
-  for (const g of groups.sort((a, b) => String(a.name).localeCompare(String(b.name)))) {
-    console.log(`GROUP:: ${g.name} -> ${g.id}`);
-  }
-}
-
-// ── Operator transport ──────────────────────────────────────────────────────
-
-let operatorStarted = false;
-let operatorLastSeen = {};
-let operatorSaveTimer = null;
-
-function loadOperatorState() {
-  try {
-    operatorLastSeen = JSON.parse(fs.readFileSync(OPERATOR_STATE_FILE, 'utf8')) || {};
-  } catch {
-    operatorLastSeen = {};
-  }
-}
-
-/** Record the newest message seen in an operator chat (unix seconds). */
-function markOperatorSeen(chatId, tsSec) {
-  if (!tsSec || (operatorLastSeen[chatId] || 0) >= tsSec) return;
-  operatorLastSeen[chatId] = tsSec;
-  clearTimeout(operatorSaveTimer);
-  operatorSaveTimer = setTimeout(() => {
-    try {
-      fs.writeFileSync(OPERATOR_STATE_FILE, JSON.stringify(operatorLastSeen));
-    } catch (e) {
-      console.error('   ✖ operator state save failed:', e && e.message ? e.message : e);
-    }
-  }, 2000);
-}
-
-function startOperator() {
-  if (operatorStarted) {
-    // A reconnect: anything triggered while we were away.
-    setTimeout(operatorCatchUp, 15 * 1000);
-    return;
-  }
-  operatorStarted = true;
-  loadOperatorState();
-  console.log(`🧭 Operator ON for ${OPERATOR_CHATS.length} chat(s)${OPERATOR_DMS ? ' + DMs' : ''}. Trigger: @mention or ${OPERATOR_TRIGGER}`);
-  const beat = () => {
-    if (!waReady) return; // a logged-out device must go quiet so AIMS raises the alarm
-    fetch(`${API_BASE}/operator/wa-web/heartbeat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Operator-Bridge-Token': OPERATOR_TOKEN },
-      body: '{}',
-    }).catch((e) => console.error('   ✖ heartbeat failed:', e && e.message ? e.message : e));
-  };
-  beat();
-  setInterval(beat, 60 * 1000);
-  // Give the store (and our own LID discovery) time to load first.
-  setTimeout(operatorCatchUp, 15 * 1000);
-}
-
-/** The summon word and mentions of this account are for the bridge, not the Operator. */
-function stripOperatorTrigger(text) {
-  let t = String(text || '').replace(new RegExp(OPERATOR_TRIGGER.source, 'gi'), ' ');
-  for (const b of BOT_IDS) if (b) t = t.split('@' + b).join(' ');
-  return t.replace(/[ \t]+/g, ' ').trim();
-}
-
-/** Is this operator-chat message meant for the Operator? */
-function operatorTriggered(body, mentions, isGroup) {
-  if (!isGroup) return true; // a DM is always addressed to us
-  if (OPERATOR_CODE_RE.test(stripOperatorTrigger(body))) return true;
-  if (OPERATOR_TRIGGER.test(body || '')) return true;
-  // Only a mention of THIS account counts; tagging a colleague does not.
-  return mentions.some((m) => BOT_IDS.some((b) => b && (m === b || m.includes(b) || b.includes(m))));
-}
-
-/** Phone digits for the sender: @c.us is the number; a LID is looked up. */
-async function senderPhone(authorId) {
-  const id = String(authorId || '');
-  const digits = id.replace(/@.*/, '').replace(/\D/g, '');
-  if (!digits) return { phone: null, lid: null };
-  if (id.endsWith('@lid')) return { phone: await phoneForLid(digits), lid: digits };
-  return { phone: digits, lid: null };
-}
-
-function sendTyping(chatId) {
-  return client.pupPage
-    .evaluate((id) => window.WWebJS && window.WWebJS.sendChatstate && window.WWebJS.sendChatstate('typing', id), chatId)
-    .catch(() => {});
-}
-
-/** Hand one message to the Operator and post its replies as quoted replies. */
-async function forwardToOperator({ messageId, chatId, isGroup, authorId, body, quotedMessageId }) {
-  const { phone, lid } = await senderPhone(authorId);
-  const typing = setInterval(() => sendTyping(chatId), 10 * 1000);
-  sendTyping(chatId);
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), OPERATOR_TIMEOUT_MS);
-  try {
-    const res = await fetch(`${API_BASE}/operator/wa-web/inbound`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Operator-Bridge-Token': OPERATOR_TOKEN },
-      body: JSON.stringify({
-        messageId,
-        chatId,
-        isGroup,
-        fromPhone: phone,
-        fromLid: lid,
-        text: stripOperatorTrigger(body),
-        quotedMessageId: quotedMessageId || null,
-      }),
-      signal: ctl.signal,
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json?.message || `operator ${res.status}`);
-    const out = json?.data ?? json;
-    for (const text of out?.messages || []) {
-      try {
-        await client.sendMessage(chatId, text, { quotedMessageId: messageId });
-      } catch {
-        await client.sendMessage(chatId, text); // quoting unavailable on this build
-      }
-    }
-    console.log(`   🧭 operator ${phone ? '+' + phone : lid || '?'}: ${(out?.messages || []).length} repl${(out?.messages || []).length === 1 ? 'y' : 'ies'}${out?.skipped ? ` (${out.skipped})` : ''}`);
-  } catch (e) {
-    const err = e && e.name === 'AbortError' ? 'timed out' : e && e.message ? e.message : String(e);
-    console.error(`   ✖ operator failed: ${err}`);
-  } finally {
-    clearTimeout(timer);
-    clearInterval(typing);
-  }
-}
-
-/** An operator-chat or staff-DM message, live. */
-async function handleOperatorMessage(msg, chatId, isGroup) {
-  if (msg.fromMe) return; // our own replies come back through message_create
-  if (isGroup) markOperatorSeen(chatId, msg.timestamp);
-  const body = String(msg.body || '');
-  if (!body.trim()) return;
-  if (!operatorTriggered(body, mentionedDigits(msg), isGroup)) return;
-  console.log(`🧭 [${chatId}] ${String(msg.author || msg.from || '')}: ${body.slice(0, 80)}`);
-  let quoted = null;
-  if (msg.hasQuotedMsg) {
-    try {
-      quoted = (await msg.getQuotedMessage())?.id?._serialized || null;
-    } catch {
-      /* quoting unavailable on this build */
-    }
-  }
-  await forwardToOperator({
-    messageId: msg.id?._serialized,
-    chatId,
-    isGroup,
-    authorId: isGroup ? msg.author : msg.from,
-    body,
-    quotedMessageId: quoted,
-  });
-}
-
-/** After a (re)connect: triggered messages in the operator chats from the last
- *  30 minutes that arrived while we were away. AIMS drops any it has already
- *  handled (by message id), so a message seen live as well is not run twice. */
-async function operatorCatchUp() {
-  const nowSec = Math.floor(Date.now() / 1000);
-  for (const chatId of OPERATOR_CHATS) {
-    const since = Math.max(operatorLastSeen[chatId] || 0, nowSec - OPERATOR_CATCHUP_MS / 1000);
-    let missed = [];
-    try {
-      missed = await client.pupPage.evaluate(
-        (id, sinceSec) => {
-          const coll = window.require('WAWebCollections').Msg;
-          const all = coll.getModelsArray?.() || coll.models || [];
-          return all
-            .filter((m) => String(m?.id?.remote?._serialized || m?.id?.remote || '') === id)
-            .filter((m) => !m?.id?.fromMe && (m.t || 0) > sinceSec && m.type === 'chat')
-            .map((m) => ({
-              id: m.id._serialized,
-              body: m.body || '',
-              author: String(m.author?._serialized || m.author || ''),
-              t: m.t,
-              mentions: (m.mentionedJidList || []).map((x) => String(x?._serialized || x).replace(/\D/g, '')),
-            }))
-            .sort((a, b) => a.t - b.t);
-        },
-        chatId,
-        since,
-      );
-    } catch (e) {
-      console.error(`   ✖ catch-up read failed for ${chatId}:`, e && e.message ? e.message : e);
-      continue;
-    }
-    const triggered = missed.filter((m) => operatorTriggered(m.body, m.mentions, true));
-    if (triggered.length) console.log(`🧭 catch-up ${chatId}: ${triggered.length} missed request(s)`);
-    for (const m of triggered) {
-      await forwardToOperator({ messageId: m.id, chatId, isGroup: true, authorId: m.author, body: m.body });
-    }
-    if (missed.length) markOperatorSeen(chatId, missed[missed.length - 1].t);
-  }
-}
+client.on('disconnected', (r) => console.warn('⚠️ disconnected:', r));
 
 async function askAgent(groupId, from, body) {
   const res = await fetch(`${API_BASE}/whatsapp/group-agent`, {
@@ -1121,24 +874,10 @@ client.on('message_create', async (msg) => {
       // itself.
       if (msg.fromMe) return;
       console.log(`✉️  DM [${chatId}] ${String(msg.body || '').slice(0, 80)}`);
-      // Operator DMs: anyone who is NOT Denzel's staff (Denzel's own PA chat
-      // below is untouched). AIMS stays silent for senders it does not know.
-      if (OPERATOR_ON && OPERATOR_DMS) {
-        const dmDigits = String(msg.from || '').replace(/\D/g, '');
-        if (!(await isStaffSender(dmDigits))) {
-          await handleOperatorMessage(msg, chatId, false);
-          return;
-        }
-      }
       // A held group draft's ok/no is answered first (it owns bare "ok" when a
       // draft is outstanding); everything else is conversation with the PA.
       if (await handleApprovalReply(msg, chatId)) return;
       await handlePaChat(msg, chatId, null);
-      return;
-    }
-    // Operator chats belong to the Operator's org: never handed to Denzel's agent.
-    if (OPERATOR_ON && OPERATOR_CHATS.includes(chatId)) {
-      await handleOperatorMessage(msg, chatId, true);
       return;
     }
     if (ALLOWED_GROUPS.length && !ALLOWED_GROUPS.includes(chatId)) return; // only allowlisted groups
