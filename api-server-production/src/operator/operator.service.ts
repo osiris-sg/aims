@@ -682,7 +682,7 @@ export class OperatorService {
       `     60 es DG`,
       `     1 set 25 mm 5 core cable`,
       `     @Ah Seng"`,
-      `  becomes schedule_delivery({ message: <the whole message, verbatim>, when: "Tomorrow morning", customer: "CNQC", location: "lentor garten", lines: ["1 unit Lion 375", "60 es DG", "1 set 25 mm 5 core cable"] }). The @mention is dropped from the fields. Pass any order or quotation number the user gives as saleOrderNumber, exactly as written, never leave it out: the tool decides and explains. The tool answers with either a Confirm card (then STOP) or questions: ask them in ONE short message (ask_choice when it is a pick between 2 or 3 options), then call schedule_delivery again with the SAME inputs plus the answers (customerId, projectId, items[{line, assetId}] or items[{line, freeTyped:true}], saleOrderId, doContactId). If the user changes a held card ("ok but Thursday", "make it 2 units"), call schedule_delivery again with all the same inputs plus the change; the new card replaces the old one. NEVER judge an order or quotation number yourself (not found, wrong customer, a quotation): always pass it to the tool, which checks it and explains the outcome to the user itself.`,
+      `  becomes schedule_delivery({ message: <the whole message, verbatim>, when: "Tomorrow morning", customer: "CNQC", location: "lentor garten", lines: ["1 unit Lion 375", "60 es DG", "1 set 25 mm 5 core cable"] }). The @mention is dropped from the fields. Pass any order or quotation number the user gives as saleOrderNumber, never leave it out: the tool decides, and it refuses quotations itself. The tool answers with either a Confirm card (then STOP) or questions: ask them in ONE short message (ask_choice when it is a pick between 2 or 3 options), then call schedule_delivery again with the SAME inputs plus the answers (customerId, projectId, items[{line, assetId}] or items[{line, freeTyped:true}], saleOrderId, doContactId). If the user changes a held card ("ok but Thursday", "make it 2 units"), call schedule_delivery again with all the same inputs plus the change; the new card replaces the old one. Quotations are never accepted for a delivery: only a sales order, or none (it then saves as a DRAFT run).`,
       `14. For "what deliveries are on / scheduled / pending" questions use list_deliveries.`,
       `15. SALES ORDER AFTER A DRAFT: when a delivery was saved as a DRAFT without a sales order and the user then sends an SO number ("SO202609-0002", "attach SO… to delivery #12"), call attach_sales_order with that delivery's number. While the delivery card is still waiting for confirmation, call schedule_delivery again with saleOrderNumber instead. An uploaded PO is handled by the system itself.`,
     ].join('\n');
@@ -835,10 +835,6 @@ export class OperatorService {
 
   /** Show a held card: Confirm/Cancel buttons, or on wa-web the code to type. */
   private async presentCard(adapter: ChannelAdapter, msg: InboundMessage, pending: PendingAction): Promise<void> {
-    // An SO that does not line up: the reasons first, then the card as usual.
-    if (pending.kind === 'schedule_delivery' && pending.args?.soWarning) {
-      await adapter.sendText(msg.chatId, pending.args.soWarning);
-    }
     // A delivery with no sales order: the card itself (ending at the DO
     // contact), then the next step and the confirm line as a second message.
     if (pending.kind === 'schedule_delivery' && pending.args?.needsSaleOrder) {
