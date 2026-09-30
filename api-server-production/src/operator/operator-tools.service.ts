@@ -288,14 +288,13 @@ export class OperatorToolsService {
   /** Tool definitions handed to Claude (schema only — no implementations). */
   definitions(ctx: OperatorContext): Anthropic.Tool[] {
     return this.tools()
-      .filter((t) => this.allowedOnChannel(ctx, t.name) && this.auth.hasPermission(ctx, t.permissions))
+      .filter((t) => this.auth.hasPermission(ctx, t.permissions))
       .map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
   }
 
   async execute(ctx: OperatorContext, name: string, args: any): Promise<ToolOutcome> {
     const tool = this.tools().find((t) => t.name === name);
     if (!tool) return { result: { error: `Unknown tool ${name}` } };
-    if (!this.allowedOnChannel(ctx, name)) return { result: { error: `${name} is not available on this channel.` } };
     if (!this.auth.hasPermission(ctx, tool.permissions)) {
       return { result: { error: `You do not have permission to ${name} (needs ${tool.permissions.join(', ')}).` } };
     }
@@ -314,12 +313,6 @@ export class OperatorToolsService {
         return { result: { error: e?.message || 'Tool failed' } };
       }
     });
-  }
-
-  /** The San group bridge (wa-web) gets the full toolset except api_write: a
-   *  hand-built call to any endpoint is too open for a group chat. */
-  private allowedOnChannel(ctx: OperatorContext, name: string): boolean {
-    return !(ctx.channel === 'wa-web' && name === 'api_write');
   }
 
   /** Hold a writing tool's call behind a card that says, in plain words, what
@@ -2946,13 +2939,10 @@ export class OperatorToolsService {
   }
 
   private async runPendingInOrg(ctx: OperatorContext, pending: PendingAction): Promise<PendingResult> {
-    if (pending.kind === 'api_write' && !this.allowedOnChannel(ctx, 'api_write')) {
-      return { ok: false, message: 'That is not available on this channel, nothing was changed.' };
-    }
     if (pending.kind === 'tool_call') {
       const { tool: name, input } = pending.args || {};
       const tool = this.tools().find((t) => t.name === name);
-      if (!tool || !this.allowedOnChannel(ctx, name)) return { ok: false, message: 'That action is no longer available, nothing was changed.' };
+      if (!tool) return { ok: false, message: 'That action is no longer available, nothing was changed.' };
       if (!this.auth.hasPermission(ctx, tool.permissions)) {
         return { ok: false, message: `You no longer have permission to ${String(name).replace(/_/g, ' ')}, nothing was changed.` };
       }

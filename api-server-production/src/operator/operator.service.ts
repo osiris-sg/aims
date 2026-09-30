@@ -1,12 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
-import { randomInt } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { OperatorAuthService } from './operator-auth.service';
 import { OperatorToolsService, PendingResult } from './operator-tools.service';
 import { TelegramAdapter } from './adapters/telegram.adapter';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
-import { WaWebAdapter } from './adapters/wa-web.adapter';
 import {
   ChannelAdapter,
   InboundMessage,
@@ -36,15 +34,6 @@ const CANCEL_RE = /^(no|n|cancel|stop|nevermind|never mind)[.!\s]*$/i;
 // or a double tap that loaded the session before the first save cannot run it
 // a second time.
 const DONE_MEMORY_MS = 60 * 60 * 1000;
-// wa-web: a card is confirmed by typing its code, in that chat, by its sender,
-// within 10 minutes. Anchored: nothing else on the line.
-const WA_WEB_CODE_RE = /^\s*(confirm|cancel)\s+(\d{4})\s*$/i;
-const WA_WEB_CODE_TTL_MS = 10 * 60 * 1000;
-const WA_WEB_CODE_REFUSED = "That code isn't yours or has expired.";
-// An unlinked sender in a DM gets the how-to-link line once a day at most, and
-// only when the message is plainly meant for the Operator: the San number also
-// takes DMs from Denzel's clients, who must never see it.
-const WA_WEB_ADDRESSED_RE = /(@san\b|^\s*\/(start|help|link)\b|\blink\b)/i;
 
 // What the user sees while a tool runs, so the bot never looks frozen.
 const TOOL_STATUS: Record<string, string> = {
@@ -98,8 +87,6 @@ export class OperatorService {
   /** Card ids executing right now / executed recently (see DONE_MEMORY_MS). */
   private readonly inFlight = new Set<string>();
   private readonly recentlyDone = new Map<string, number>();
-  /** wa-web: when an unlinked DM sender was last told how to link. */
-  private readonly linkHintAt = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -107,7 +94,6 @@ export class OperatorService {
     private readonly tools: OperatorToolsService,
     private readonly telegram: TelegramAdapter,
     private readonly whatsapp: WhatsAppAdapter,
-    private readonly waWeb: WaWebAdapter,
   ) {
     const key = process.env.ANTHROPIC_API_KEY;
     this.anthropic = key ? new Anthropic({ apiKey: key }) : null;
@@ -116,7 +102,6 @@ export class OperatorService {
   private adapterFor(channel: OperatorChannel): ChannelAdapter {
     if (channel === 'telegram') return this.telegram;
     if (channel === 'whatsapp') return this.whatsapp;
-    if (channel === 'wa-web') return this.waWeb;
     throw new Error(`No adapter for channel ${channel}`);
   }
 
@@ -134,34 +119,13 @@ export class OperatorService {
 
     // /link is the only command available before an identity exists.
     if (/^\/link\b/i.test(text)) {
-      if (msg.channel === 'wa-web' && (msg.isGroup || !msg.channelUserId)) {
-        // A code typed into a group is readable by everyone in it.
-        if (msg.channelUserId) await adapter.sendText(msg.chatId, 'Send /link to me in a direct message, not in a group.');
-        return;
-      }
       const code = text.split(/\s+/)[1] || '';
       const res = await this.auth.redeemLinkCode(msg.channel, msg.channelUserId, code, msg.displayName);
       await adapter.sendText(msg.chatId, res.message);
       return;
     }
 
-    const resolved =
-      msg.channel === 'wa-web'
-        ? await this.auth.resolveWaWeb(msg.boundOrgId || '', msg.channelUserId)
-        : await this.auth.resolve(msg.channel, msg.channelUserId);
-
-    if (msg.channel === 'wa-web' && (!resolved.ok || !resolved.ctx)) {
-      // Silent in groups. In a DM, one pointer at most, and only when meant for us.
-      if (msg.isGroup || !WA_WEB_ADDRESSED_RE.test(text)) return;
-      const key = msg.channelUserId || msg.chatId;
-      if (Date.now() - (this.linkHintAt.get(key) || 0) < 24 * 3600_000) return;
-      this.linkHintAt.set(key, Date.now());
-      await adapter.sendText(
-        msg.chatId,
-        "I don't recognise this number yet. Ask your admin to add it as your WhatsApp Number in AIMS (User Management → Edit user), or send me /link <code> from the AIMS link screen.",
-      );
-      return;
-    }
+    const resolved = await this.auth.resolve(msg.channel, msg.channelUserId);
 
     if (!resolved.ok || !resolved.ctx) {
       if (resolved.reason === 'unlinked') {
@@ -228,10 +192,6 @@ export class OperatorService {
       );
       return;
     }
-    if (msg.channel === 'wa-web' && (/^\/orgs?\b/i.test(text) || /^(switch|change) org/i.test(text))) {
-      await adapter.sendText(msg.chatId, `This chat works in ${ctx.organizationName} only.`);
-      return;
-    }
     if (/^\/orgs?\b/i.test(text) || /^(switch|change) org/i.test(text)) {
       // Everything after the command is a name filter, so a long org list stays
       // reachable on channels that cap the picker at a handful of rows.
@@ -257,31 +217,7 @@ export class OperatorService {
     // typed target, and taking it removes it from the held set, so the same
     // "ok" can never run it twice (it used to be revived on the next load).
     const session = await this.loadSession(msg.channel, msg.channelUserId);
-    if (msg.channel === 'wa-web') {
-      const m = text.match(WA_WEB_CODE_RE);
-      if (m) {
-        // Only a card THIS sender holds, shown in THIS chat, under 10 minutes
-        // old. Anyone else's code, a used code or an old one gets one answer.
-        const card = (session.pendingActions || []).find(
-          (p) => p.code === m[2] && p.chatId === msg.chatId && Date.now() - new Date(p.createdAt).getTime() <= WA_WEB_CODE_TTL_MS,
-        );
-        const taken = card ? this.takePending(session, card.id || '') : null;
-        if (!taken) {
-          await adapter.sendText(msg.chatId, WA_WEB_CODE_REFUSED);
-          return;
-        }
-        if (m[1].toLowerCase() === 'cancel') {
-          await this.saveSession(msg.channel, msg.channelUserId, session);
-          await adapter.sendText(msg.chatId, 'Cancelled. Nothing was changed.');
-          return;
-        }
-        await this.executePending(ctx, adapter, msg, session, taken);
-        return;
-      }
-    }
-    // Everywhere else a bare "ok" confirms the newest card. Not on wa-web: in a
-    // group anyone can type "ok", so only the code counts there.
-    const typedTarget = msg.channel === 'wa-web' ? null : session.pendingAction;
+    const typedTarget = session.pendingAction;
     if (typedTarget && CONFIRM_RE.test(text)) {
       const chosen = this.takePending(session, typedTarget.id || '');
       if (chosen) {
@@ -297,7 +233,7 @@ export class OperatorService {
     }
     // A second "ok" right after a card ran: nothing is waiting, so say so
     // instead of handing a bare "ok" to the model to reinterpret.
-    if (msg.channel !== 'wa-web' && !typedTarget && CONFIRM_RE.test(text) && session.lastResult && Date.now() - session.lastResult.at < PENDING_TTL_MS) {
+    if (!typedTarget && CONFIRM_RE.test(text) && session.lastResult && Date.now() - session.lastResult.at < PENDING_TTL_MS) {
       await adapter.sendText(msg.chatId, 'That is already done, nothing was repeated.');
       return;
     }
@@ -334,9 +270,12 @@ export class OperatorService {
           .replace(/\n\nConfirming saves a DRAFT[\s\S]*$/, '');
         if (!nowLive) held.summary += `\n\nConfirming saves a DRAFT run (no DO): there is no project: the office adds one in Deliveries.`;
         session.pendingUpload = null;
-        this.holdPending(session, held, msg);
+        this.holdPending(session, held);
         await this.saveSession(msg.channel, msg.channelUserId, session);
-        await this.presentCard(adapter, msg, held);
+        await adapter.sendButtons(msg.chatId, `${held.summary}\n\nConfirm?`, [
+          { label: '✅ Confirm', data: `confirm:${held.id}` },
+          { label: '❌ Cancel', data: `cancel:${held.id}` },
+        ]);
         return;
       }
       await adapter.sendText(
@@ -380,9 +319,12 @@ export class OperatorService {
       session.pendingUpload = null;
       if (outcome.pending) {
         session.pendingAction = outcome.pending;
-        this.holdPending(session, outcome.pending, msg);
+        this.holdPending(session, outcome.pending);
         await this.saveSession(msg.channel, msg.channelUserId, session);
-        await this.presentCard(adapter, msg, outcome.pending);
+        await adapter.sendButtons(msg.chatId, `${outcome.pending.summary}\n\nConfirm?`, [
+          { label: '✅ Confirm', data: `confirm:${outcome.pending.id}` },
+          { label: '❌ Cancel', data: `cancel:${outcome.pending.id}` },
+        ]);
       } else {
         await this.saveSession(msg.channel, msg.channelUserId, session);
         await adapter.sendText(msg.chatId, outcome.result?.error || "I couldn't record that cost.");
@@ -566,7 +508,7 @@ export class OperatorService {
     // has to be held BEFORE the save, or its id never reaches the database and
     // every tap comes back "expired".
     session.history = this.trimHistory(messages) as SessionState['history'];
-    if (pendingFromTools) this.holdPending(session, pendingFromTools, msg);
+    if (pendingFromTools) this.holdPending(session, pendingFromTools);
     else session.pendingAction = null;
     await this.saveSession(msg.channel, msg.channelUserId, session);
 
@@ -579,7 +521,10 @@ export class OperatorService {
     }
 
     if (pendingFromTools) {
-      await this.presentCard(adapter, msg, pendingFromTools);
+      await adapter.sendButtons(msg.chatId, `${pendingFromTools.summary}\n\nConfirm?`, [
+          { label: '✅ Confirm', data: `confirm:${pendingFromTools.id}` },
+          { label: '❌ Cancel', data: `cancel:${pendingFromTools.id}` },
+        ]);
     }
     } catch (e: any) {
       // Never leave the user staring at a status line. Drop the (possibly
@@ -747,9 +692,12 @@ export class OperatorService {
       session.pendingUpload = null;
       if (outcome.pending) {
         session.pendingAction = outcome.pending;
-        this.holdPending(session, outcome.pending, msg);
+        this.holdPending(session, outcome.pending);
         await this.saveSession(msg.channel, msg.channelUserId, session);
-        await this.presentCard(adapter, msg, outcome.pending);
+        await adapter.sendButtons(msg.chatId, `${outcome.pending.summary}\n\nConfirm?`, [
+          { label: '✅ Confirm', data: `confirm:${outcome.pending.id}` },
+          { label: '❌ Cancel', data: `cancel:${outcome.pending.id}` },
+        ]);
       } else {
         await this.saveSession(msg.channel, msg.channelUserId, session);
         await adapter.sendText(msg.chatId, outcome.result?.error || "I couldn't record that cost.");
@@ -783,19 +731,9 @@ export class OperatorService {
 
   /** Hold a card and return its id for the buttons. Keeps the last few so a
    *  tap on an older card still lands on the right action. */
-  private holdPending(session: SessionState, pending: PendingAction, msg?: InboundMessage): string {
+  private holdPending(session: SessionState, pending: PendingAction): string {
     const id = pending.id || `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     pending.id = id;
-    // wa-web: a linked device has no buttons, so the card ends "Reply confirm
-    // 4821". The code is bound to this sender's session AND this chat.
-    if (msg?.channel === 'wa-web') {
-      const taken = new Set((session.pendingActions || []).map((p) => p.code).filter(Boolean));
-      let code = pending.code;
-      while (!code || taken.has(code)) code = String(randomInt(1000, 10000));
-      pending.code = code;
-      pending.chatId = msg.chatId;
-      pending.createdAt = new Date().toISOString(); // the 10 minutes run from when it is shown
-    }
     // A new delivery card REPLACES the previous one ("ok but Thursday" re-runs
     // the tool): two live delivery cards would let both be confirmed.
     const list = (session.pendingActions || []).filter(
@@ -805,18 +743,6 @@ export class OperatorService {
     session.pendingActions = list.slice(-3);
     session.pendingAction = pending; // newest, for the typed "yes" path
     return id;
-  }
-
-  /** Show a held card: Confirm/Cancel buttons, or on wa-web the code to type. */
-  private async presentCard(adapter: ChannelAdapter, msg: InboundMessage, pending: PendingAction): Promise<void> {
-    if (msg.channel === 'wa-web' && pending.code) {
-      await adapter.sendText(msg.chatId, `${pending.summary}\n\nReply confirm ${pending.code}\n(or cancel ${pending.code})`);
-      return;
-    }
-    await adapter.sendButtons(msg.chatId, `${pending.summary}\n\nConfirm?`, [
-      { label: '✅ Confirm', data: `confirm:${pending.id}` },
-      { label: '❌ Cancel', data: `cancel:${pending.id}` },
-    ]);
   }
 
   /** Find a card by the id its button carried, and drop it from the held set.
