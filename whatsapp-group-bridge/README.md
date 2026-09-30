@@ -43,12 +43,9 @@ group agent. Nothing changes until `OPERATOR_ENABLED=true`.
   The API refuses any chat not listed; `"dm"` allows 1:1 chats.
 - Bridge: `OPERATOR_TOKEN=<token>`, `OPERATOR_CHATS=<id>@g.us`, `OPERATOR_ENABLED=true`
   (and `OPERATOR_DMS=true` to take DMs from non-staff senders).
-- In an operator chat, a message goes to AIMS when it tags this account or says
-  `@San`, is `confirm 1234` / `cancel 1234`, quote-replies one of San's
-  messages, or comes from the person San just asked something (their next
-  message within 10 minutes; everyone else still tags). Images and PDFs up to
-  10 MB are passed along (a customer's PO becomes a Sales Order card). Replies
-  come back as quoted replies. Those chats never reach the group agent.
+- In an operator chat, a message goes to AIMS only when it tags this account or
+  says `@San`, or is `confirm 1234` / `cancel 1234`. Replies come back as quoted
+  replies. Those chats never reach the group agent.
 - Heartbeat every 60 s; AIMS rings the office bell after 5 min of silence.
 - On reconnect, triggered messages from the last 30 min are caught up
   (`operator-last-seen.json` on the disk; AIMS drops any it already handled).
