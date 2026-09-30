@@ -313,6 +313,7 @@ export class OperatorService {
 
     // Ambiguous → let them tap the project. Stash the upload for the tap.
     session.pendingUpload = up;
+    (session as any).pendingUploadAt = new Date().toISOString();
     session.pendingAction = null;
     await this.saveSession(msg.channel, msg.channelUserId, session);
     const prompt = `Which project should I charge ${who} (${money}) to?`;
@@ -757,7 +758,18 @@ export class OperatorService {
     // card shown before this change still responds to its buttons.
     if (pendingAction && !pendingActions.some((p) => p.id && p.id === pendingAction.id)) pendingActions.push(pendingAction);
     if (!pendingAction && pendingActions.length) pendingAction = pendingActions[pendingActions.length - 1];
-    return { history: Array.isArray(state.history) ? state.history : [], pendingAction, pendingActions };
+    // The stashed invoice upload behind "which project?" buttons MUST survive
+    // the round-trip — this restore was lost in the pending-actions rework
+    // (2026-09-30: every project tap answered "upload has expired"). 30 min
+    // is plenty; after that the tap asks for a resend as designed.
+    const uploadFresh = state.pendingUpload && (!state.pendingUploadAt || Date.now() - new Date(state.pendingUploadAt).getTime() <= 30 * 60 * 1000);
+    return {
+      history: Array.isArray(state.history) ? state.history : [],
+      pendingAction,
+      pendingActions,
+      pendingUpload: uploadFresh ? state.pendingUpload : null,
+      pendingUploadAt: uploadFresh ? state.pendingUploadAt : null,
+    } as SessionState;
   }
 
   private async saveSession(channel: OperatorChannel, channelUserId: string, state: SessionState): Promise<void> {

@@ -123,4 +123,5 @@ export interface SessionState {
   pendingActions?: PendingAction[];
   /** An uploaded invoice awaiting a project pick (tapped from buttons). */
   pendingUpload?: OperatorContext['upload'] | null;
+  pendingUploadAt?: string | null;
 }
