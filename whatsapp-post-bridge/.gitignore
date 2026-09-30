@@ -1,0 +1,8 @@
+node_modules/
+*.log
+.env
+.wwebjs_auth/
+.wwebjs_cache/
+.wwebjs_auth*/
+qr.png
+bridge.log.*

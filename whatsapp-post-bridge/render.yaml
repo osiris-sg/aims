@@ -1,0 +1,33 @@
+# Render Blueprint for the WhatsApp POST bridge (post-only whatsapp-web.js worker).
+#
+# Its OWN worker and disk: one linked device is one WhatsApp account, and two
+# services sharing a session directory would fight over the same Chromium
+# profile. Posts signed deliveries into WhatsApp groups; answers nothing.
+services:
+  - type: worker
+    name: whatsapp-post-bridge-osiris
+    runtime: docker
+    repo: https://github.com/osiris-sg/aims
+    branch: main
+    rootDir: whatsapp-post-bridge
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: singapore
+    plan: starter
+    numInstances: 1
+    autoDeploy: false # a redeploy restarts Chromium; do it deliberately
+    disk:
+      name: post-session
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: AIMS_API_BASE
+        value: https://aims-ahwy.onrender.com
+      - key: AIMS_POST_TOKEN
+        sync: false # secret: a key of WA_POST_BRIDGES on the API
+      - key: POST_ENABLED
+        value: 'false'
+      - key: SESSION_DIR
+        value: /data/.wwebjs_auth
+      - key: PUPPETEER_EXECUTABLE_PATH
+        value: /usr/bin/chromium
