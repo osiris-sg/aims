@@ -137,7 +137,7 @@ export class OperatorService {
       }
       return;
     }
-    const ctx: OperatorContext = resolved.ctx;
+    let ctx: OperatorContext = resolved.ctx;
 
     // Button taps
     if (msg.callbackData) {
@@ -173,10 +173,62 @@ export class OperatorService {
     if (/^\/(start|help)\b/i.test(text)) {
       await adapter.sendText(
         msg.chatId,
-        `You're linked to ${ctx.organizationName}.\n\nAsk me things like:\n• "create a quotation for Acme, 2 fan coil units and 8 hours install"\n• "show me the last 5 quotations"\n• "what's QO2026-001?"\n\nI'll always show you a preview and ask before finalising anything.\n\nSend /org to switch organization.`,
+        `You're linked to ${ctx.organizationName}.\n\nAsk me things like:\n• "create a quotation for Acme, 2 fan coil units and 8 hours install"\n• "show me the last 5 quotations"\n• "what's QO2026-001?"\n\nI'll always show you a preview and ask before finalising anything.\n\nSend /org to switch organization.${ctx.isOsirisAdmin ? '\\n/as <name> to troubleshoot as another user, /whoami to check.' : ''}`,
       );
       return;
     }
+    // Act as another user in this org, to reproduce what THEY see.
+    // osirisadmin only, and it deliberately drops the admin bypass: the point
+    // is to hit the same walls they hit. /whoami shows where you are.
+    if (/^\/(as|actas|whoami)\b/i.test(text)) {
+      const sess = await this.loadSession(msg.channel, msg.channelUserId);
+      const arg = text.replace(/^\/(as|actas|whoami)\b/i, '').trim();
+
+      if (/^\/whoami\b/i.test(text)) {
+        await adapter.sendText(
+          msg.chatId,
+          sess.actingAs
+            ? `👤 Acting as ${sess.actingAs.label} in ${ctx.organizationName}.\nSend /as off to stop.`
+            : `You, in ${ctx.organizationName}${ctx.isOsirisAdmin ? ' (admin)' : ''}.`,
+        );
+        return;
+      }
+      if (!ctx.isOsirisAdmin && !sess.actingAs) {
+        await adapter.sendText(msg.chatId, 'Only a platform admin can act as another user.');
+        return;
+      }
+      if (/^(off|stop|end|exit|me)$/i.test(arg)) {
+        sess.actingAs = null;
+        await this.saveSession(msg.channel, msg.channelUserId, sess);
+        await adapter.sendText(msg.chatId, '✅ Back to yourself.');
+        return;
+      }
+      const matches = await this.auth.listOrgUsers(ctx.organizationId, arg);
+      if (!arg || matches.length > 1) {
+        const lines = matches.slice(0, 12).map((u) => `• ${u.name}${u.email ? ` — ${u.email}` : ''}  [${u.roles}]`);
+        await adapter.sendText(
+          msg.chatId,
+          (arg ? `Several match "${arg}":` : `Users in ${ctx.organizationName}:`) +
+            `\n${lines.join('\n')}\n\nSend /as <name or email>.`,
+        );
+        return;
+      }
+      if (!matches.length) {
+        await adapter.sendText(msg.chatId, `Nobody in ${ctx.organizationName} matches "${arg}".`);
+        return;
+      }
+      const t = matches[0];
+      sess.actingAs = { userId: t.userId, label: t.name !== '(no name)' ? t.name : t.email || t.userId };
+      await this.saveSession(msg.channel, msg.channelUserId, sess);
+      await adapter.sendText(
+        msg.chatId,
+        `👤 Acting as ${sess.actingAs.label} (${t.roles}) in ${ctx.organizationName}.\n` +
+          `You have exactly their permissions now, so you will hit the same walls they do.\n` +
+          `/whoami to check, /as off when done.`,
+      );
+      return;
+    }
+
     if (/^\/orgs?\b/i.test(text) || /^(switch|change) org/i.test(text)) {
       // Everything after the command is a name filter, so a long org list stays
       // reachable on channels that cap the picker at a handful of rows.
@@ -200,6 +252,15 @@ export class OperatorService {
 
     // A typed yes/no answering a held confirmation
     const session = await this.loadSession(msg.channel, msg.channelUserId);
+
+    // INTERNAL TROUBLESHOOTING: an osirisadmin can act as another user in this
+    // org to reproduce what they see. Swap the context before anything runs, so
+    // tools, permission checks and the audit trail all see that user — and the
+    // admin's own cross-org bypass stops applying, which is the entire point.
+    // `impersonating` keeps the real driver's id so nothing is anonymous.
+    if (session.actingAs) {
+      ctx = await this.auth.contextAs(ctx, session.actingAs.userId, session.actingAs.label);
+    }
     if (session.pendingAction && /^(yes|y|confirm|ok|okay|go ahead|do it)\b/i.test(text)) {
       await this.executePending(ctx, adapter, msg, session);
       return;
