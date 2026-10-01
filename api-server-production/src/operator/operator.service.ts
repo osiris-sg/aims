@@ -205,12 +205,11 @@ export class OperatorService {
       }
       const matches = await this.auth.listOrgUsers(ctx.organizationId, arg);
       if (!arg || matches.length > 1) {
-        const lines = matches.slice(0, 12).map((u) => `• ${u.name}${u.email ? ` — ${u.email}` : ''}  [${u.roles}]`);
-        await adapter.sendText(
-          msg.chatId,
-          (arg ? `Several match "${arg}":` : `Users in ${ctx.organizationName}:`) +
-            `\n${lines.join('\n')}\n\nSend /as <name or email>.`,
-        );
+        if (!matches.length) {
+          await adapter.sendText(msg.chatId, `No users found in ${ctx.organizationName}.`);
+          return;
+        }
+        await this.presentUserPicker(adapter, msg.chatId, matches, ctx.organizationName);
         return;
       }
       if (!matches.length) {
@@ -638,6 +637,34 @@ export class OperatorService {
 
   // ── Confirmation handling ─────────────────────────────────────────────────
 
+  /** Tappable list of the org's users for /as. Typing a name still works;
+   *  this is for when you do not remember who is in there. */
+  private async presentUserPicker(
+    adapter: ChannelAdapter,
+    chatId: string,
+    users: Array<{ userId: string; name: string; email: string; roles: string }>,
+    orgName: string,
+  ): Promise<void> {
+    const rows = users.slice(0, 10).map((u) => ({
+      id: `as:${u.userId}`.slice(0, 200),
+      // WhatsApp caps a row title at 24 chars and a description at 72.
+      title: (u.name !== '(no name)' ? u.name : u.email || u.userId).slice(0, 24),
+      description: [u.roles, u.email].filter(Boolean).join(' · ').slice(0, 72),
+    }));
+    const prompt =
+      `Who in ${orgName} should I act as?` +
+      (users.length > 10 ? `\n\nShowing 10 of ${users.length}. Send "/as <name>" to narrow it.` : '');
+    if (adapter.sendList) {
+      await adapter.sendList(chatId, prompt, 'Choose user', rows);
+      return;
+    }
+    await adapter.sendButtons(
+      chatId,
+      prompt,
+      rows.slice(0, 3).map((r) => ({ label: r.title.slice(0, 20), data: r.id })),
+    );
+  }
+
   /**
    * Render the org picker. WhatsApp reply buttons cap at THREE (the adapter
    * silently drops the rest), so anything larger goes out as a tappable list,
@@ -698,6 +725,30 @@ export class OperatorService {
       const picked = data.slice('choice:'.length);
       const choiceSession = await this.loadSession(msg.channel, msg.channelUserId);
       await this.runAgent(ctx, adapter, { ...msg, text: picked, callbackData: undefined }, choiceSession, picked);
+      return;
+    }
+
+    if (data.startsWith('as:')) {
+      // Re-resolve the pick so a stale card cannot name someone who has since
+      // left the org, and so the label shown matches what is stored.
+      const picked = data.slice(3);
+      if (!ctx.isOsirisAdmin) {
+        await adapter.sendText(msg.chatId, 'Only a platform admin can act as another user.');
+        return;
+      }
+      const found = (await this.auth.listOrgUsers(ctx.organizationId)).find((u) => u.userId === picked);
+      if (!found) {
+        await adapter.sendText(msg.chatId, 'That user is no longer in this organization.');
+        return;
+      }
+      const sess = await this.loadSession(msg.channel, msg.channelUserId);
+      sess.actingAs = { userId: found.userId, label: found.name !== '(no name)' ? found.name : found.email || found.userId };
+      await this.saveSession(msg.channel, msg.channelUserId, sess);
+      await adapter.sendText(
+        msg.chatId,
+        `👤 Acting as ${sess.actingAs.label} (${found.roles}) in ${ctx.organizationName}.\n` +
+          `You have exactly their permissions now. /whoami to check, /as off when done.`,
+      );
       return;
     }
 
