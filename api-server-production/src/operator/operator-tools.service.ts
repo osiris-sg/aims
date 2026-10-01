@@ -1935,10 +1935,17 @@ export class OperatorToolsService {
 
       {
         name: 'list_projects',
-        description: 'List projects in this organization, optionally filtered by a search term.',
+        description:
+          'List projects, optionally filtered by a search term. Each row carries bucket: not_signed | signed | ongoing | completed — the same buckets as the Projects page chips (ongoing = in works: design/works/carpentry/handover). When asked "how many ongoing", give the breakdown: e.g. "2 in works (ongoing), plus 1 signed and 1 not signed — 4 open in total" so it matches both the funnel chips and the dashboard tile.',
         permissions: ['projects:read'],
         input_schema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } } },
         run: async (ctx, { query, limit }) => {
+          const bucketOf = (p: any) => {
+            if (p.stage === 'completed' || p.status === 'completed') return 'completed';
+            if (!p.stage) return 'not_signed';
+            if (p.stage === 'signed') return 'signed';
+            return 'ongoing';
+          };
           // Designer-only users are row-scoped to their own projects, same as
           // the portal list and the HTTP DesignerProjectScopeGuard.
           if (this.designerOnly(ctx)) {
@@ -1949,18 +1956,18 @@ export class OperatorToolsService {
                 ...(query ? { name: { contains: String(query), mode: 'insensitive' } } : {}),
               },
               orderBy: { createdAt: 'desc' },
-              take: Math.min(Number(limit) || 10, 25),
-              select: { id: true, name: true, status: true, customer: { select: { name: true } } },
+              take: Math.min(Number(limit) || 25, 50),
+              select: { id: true, name: true, status: true, stage: true, customer: { select: { name: true } } },
             });
-            return { result: rows.map((p) => ({ id: p.id, name: p.name, status: p.status, customer: p.customer?.name })) };
+            return { result: rows.map((p: any) => ({ id: p.id, name: p.name, status: p.status, stage: p.stage || null, bucket: bucketOf(p), customer: p.customer?.name })) };
           }
           const res: any = await this.projects.getProjects(
-            { page: 1, limit: Math.min(Number(limit) || 10, 25), search: query } as any,
+            { page: 1, limit: Math.min(Number(limit) || 25, 50), search: query } as any,
             ctx.organizationId,
           );
           const docs = res?.docs ?? [];
           return {
-            result: docs.map((p: any) => ({ id: p.id, name: p.name, status: p.status, customer: p.customer?.name })),
+            result: docs.map((p: any) => ({ id: p.id, name: p.name, status: p.status, stage: p.stage || null, bucket: bucketOf(p), customer: p.customer?.name })),
           };
         },
       },

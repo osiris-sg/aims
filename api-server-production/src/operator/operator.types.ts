@@ -67,6 +67,11 @@ export interface OperatorContext {
   /** Roles the user holds IN organizationId (already filtered). */
   roles: Array<{ name: string; permissions: Array<{ resource: string; action: string }> }>;
   isOsirisAdmin: boolean;
+  /** Set while an admin is acting AS another user for troubleshooting. The
+   *  context is that user's — their roles, their permissions, their blind
+   *  spots — so a bug only they can see is reproducible. Kept alongside so
+   *  every reply and every audit row can say who is really driving. */
+  impersonating?: { byUserId: string; label: string } | null;
   channel: OperatorChannel;
   channelUserId: string;
   /** Set for the turn in which the user uploaded a file: the extracted data and
@@ -121,6 +126,9 @@ export interface SessionState {
    *  silently replaced the first — so Cancel on the FIRST card killed the
    *  SECOND, and the first's Confirm then reported "expired". Bounded. */
   pendingActions?: PendingAction[];
+  /** Acting as another user (osirisadmin only). Survives between messages so
+   *  a whole troubleshooting session runs in their shoes. */
+  actingAs?: { userId: string; label: string } | null;
   /** An uploaded invoice awaiting a project pick (tapped from buttons). */
   pendingUpload?: OperatorContext['upload'] | null;
   pendingUploadAt?: string | null;

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { OperatorChannel, OperatorContext } from './operator.types';
@@ -27,7 +27,12 @@ export interface ResolveResult {
 export class OperatorAuthService {
   private readonly logger = new Logger(OperatorAuthService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Optional: only the impersonation lookup needs it, and the rest of this
+    // service must keep working if Clerk is unreachable or unconfigured.
+    @Optional() @Inject('ClerkClient') private readonly clerk?: any,
+  ) {}
 
   // ── Linking ────────────────────────────────────────────────────────────────
 
@@ -299,6 +304,75 @@ export class OperatorAuthService {
     if (!org) return null;
     await this.setOrganization(channel, channelUserId, organizationId);
     return org;
+  }
+
+  /**
+   * Everyone with a role in this org, with names/emails from Clerk.
+   *
+   * AIMS stores neither — identity is Clerk-only, and UserRole holds raw Clerk
+   * ids — so a human-readable list has to be assembled here. `query` matches
+   * name or email so an admin can say "act as eve" rather than paste an id.
+   */
+  async listOrgUsers(organizationId: string, query?: string) {
+    const [roles, members] = await Promise.all([
+      this.prisma.userRole.findMany({
+        where: { organizationId, isActive: true },
+        select: { userId: true, role: { select: { name: true } } },
+      }),
+      this.prisma.userOrganization.findMany({
+        where: { organizationId, isActive: true },
+        select: { userId: true },
+      }),
+    ]);
+    const ids = [...new Set([...roles.map((r) => r.userId), ...members.map((m) => m.userId)])];
+    const out: Array<{ userId: string; name: string; email: string; roles: string }> = [];
+    for (const id of ids.slice(0, 40)) {
+      let name = '';
+      let email = '';
+      try {
+        const u: any = await (this.clerk as any)?.users?.getUser(id);
+        name = [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.username || '';
+        email =
+          (u?.emailAddresses || []).find((e: any) => e.id === u?.primaryEmailAddressId)?.emailAddress ||
+          u?.emailAddresses?.[0]?.emailAddress ||
+          '';
+      } catch {
+        /* a deleted or unreachable Clerk user still deserves a row */
+      }
+      out.push({
+        userId: id,
+        name: name || '(no name)',
+        email: email || '',
+        roles: roles.filter((r) => r.userId === id).map((r) => r.role?.name).filter(Boolean).join(', ') || '(no role)',
+      });
+    }
+    const q = (query || '').trim().toLowerCase();
+    if (!q) return out;
+    return out.filter(
+      (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.userId === query,
+    );
+  }
+
+  /**
+   * Rebuild the context as another user in the same org.
+   *
+   * isOsirisAdmin is deliberately NOT carried over: the point of acting as
+   * someone is to hit the walls they hit. Keeping the bypass would show the
+   * admin a world nobody else can see, which is the opposite of troubleshooting.
+   */
+  async contextAs(ctx: OperatorContext, targetUserId: string, label: string): Promise<OperatorContext> {
+    const roles = await this.prisma.userRole.findMany({
+      where: { userId: targetUserId, organizationId: ctx.organizationId, isActive: true },
+      select: { role: { select: { name: true, permissions: { select: { resource: true, action: true } } } } },
+    });
+    return {
+      ...ctx,
+      clerkUserId: targetUserId,
+      actor: { id: targetUserId, name: label },
+      roles: roles.filter((r) => r.role).map((r) => ({ name: r.role!.name, permissions: r.role!.permissions })),
+      isOsirisAdmin: roles.some((r) => r.role?.name === 'osirisadmin'),
+      impersonating: { byUserId: ctx.clerkUserId, label },
+    };
   }
 
   async setOrganization(channel: OperatorChannel, channelUserId: string, organizationId: string) {

@@ -34,8 +34,10 @@ import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
  * come from the user the chat sender is linked to.
  */
 import { PublicDocumentModule } from '../public-document/public-document.module';
+import { AuthModule } from '../auth/auth.module'; // provides 'ClerkClient' for the act-as lookup
 @Module({
   imports: [
+    AuthModule, // 'ClerkClient' — names/emails for /as
     CommonModule, // AuditService
     CustomersModule,
     AssetsModule,
