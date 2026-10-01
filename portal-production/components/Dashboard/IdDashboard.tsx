@@ -29,6 +29,7 @@ type Row = {
 type Payload = {
   scope: "self" | "team" | "all"; year: number; designers: Row[];
   team?: { name: string; target: number | null; revenueYtd: number; projectedProfit: number; members: number } | null;
+  funnel?: { notSigned: number; signed: number; inWorks: number; completed: number };
   totals: { ongoing: number; done: number; revenueYtd: number; target: number | null; projectedProfit: number; earnings: number };
   myLeads: Array<{ id: string; name: string; status: string; source: string; phone: string | null; assignedToName: string | null; firstContactDeadline: string | null; receivedAt: string }>;
   schedule: Array<{ id: string; projectId: string; projectName: string; designer: string | null; label: string; kind: string; startDate: string; endDate: string }>;
@@ -258,7 +259,13 @@ export default function IdDashboard() {
       {/* KPI row */}
       <Grid container spacing={1.5} sx={{ mb: 2.5 }}>
         <Grid item xs={6} md={2.4}>
-          <KPI label="Ongoing projects" value={t.ongoing} />
+          <KPI
+            label="Ongoing projects"
+            value={t.ongoing}
+            // "Ongoing" here = every open job. The breakdown mirrors the
+            // Projects page funnel chips (guru 2026-10-01: 4 vs 2 confusion).
+            hint={data.funnel ? [data.funnel.notSigned ? `${data.funnel.notSigned} not signed` : null, data.funnel.signed ? `${data.funnel.signed} signed` : null, data.funnel.inWorks ? `${data.funnel.inWorks} in works` : null].filter(Boolean).join(" · ") || undefined : undefined}
+          />
         </Grid>
         <Grid item xs={6} md={2.4}>
           <KPI label="Completed" value={t.done} />

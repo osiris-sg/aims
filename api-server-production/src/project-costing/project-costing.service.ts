@@ -1249,9 +1249,14 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
       return r;
     };
 
+    const funnel = { notSigned: 0, signed: 0, inWorks: 0, completed: 0 };
     for (const pj of projects) {
       const r = rowFor(pj.designerUserId, pj.designer || 'Unassigned');
       const completed = pj.stage === 'completed' || pj.status === 'completed';
+      if (completed) funnel.completed++;
+      else if (!pj.stage) funnel.notSigned++;
+      else if (pj.stage === 'signed') funnel.signed++;
+      else funnel.inWorks++;
       if (completed) r.done += 1;
       else r.ongoing += 1;
       const cfg: any = pj.documents[0]?.config || null;
@@ -1361,7 +1366,7 @@ Rules: work never happens on a Sunday — when a range starts or ends on one, us
           }
         : null;
 
-    return { scope, year, designers, totals, myLeads, schedule, reviewNotes, team, holidays: SG_PUBLIC_HOLIDAYS, holidaysMy: MY_PUBLIC_HOLIDAYS };
+    return { scope, year, designers, totals, funnel, myLeads, schedule, reviewNotes, team, holidays: SG_PUBLIC_HOLIDAYS, holidaysMy: MY_PUBLIC_HOLIDAYS };
   }
 
   // ── Lead → Project → Quotation (CIEL 09-01) ───────────────────────
