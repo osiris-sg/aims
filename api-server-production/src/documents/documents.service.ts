@@ -1636,6 +1636,36 @@ export class DocumentsService {
         PURCHASE_RETURN: 'PURCHASE_RETURN',
       };
       const glType = GL_TYPES[dto.type as keyof typeof GL_TYPES];
+
+      // Teach the account-coding memory from every CONFIRMED document (guru
+      // 2026-09-30). Until now the only way to teach it was to open the
+      // Posting Preview dialog and OVERRIDE a suggestion — a door almost
+      // nobody walks through: /posting-preview/learn had been called twice
+      // ever, and the SALES side of the memory held zero rules while 80
+      // invoice lines worth $431k sat uncoded.
+      //
+      // A confirmed document is a settled description->account pairing whether
+      // or not anyone overrode anything, so it is the honest thing to learn
+      // from. Fire-and-forget: a memory failure must never block a confirm.
+      if (becomingConfirmed) {
+        try {
+          const cfgForLearn: any = configAsPlainObject || existingDocument.config;
+          const learnSide = ['BILL', 'PO', 'PURCHASE_ORDER', 'PR', 'PURCHASE_RETURN'].includes(String(dto.type).toUpperCase())
+            ? 'PURCHASE'
+            : 'SALES';
+          const corrections = (cfgForLearn?.items || [])
+            .filter((it: any) => String(it?.description || '').trim() && it?.accountCode && (Number(it?.amount) || 0) !== 0)
+            .map((it: any) => ({ text: String(it.description), accountCode: String(it.accountCode), accountId: it.accountId ?? null }));
+          if (corrections.length) {
+            this.accountMemory
+              .record(organizationId, learnSide, corrections)
+              .catch((e: any) => console.warn('[account-memory] learn on confirm failed:', e?.message));
+          }
+        } catch (e: any) {
+          console.warn('[account-memory] learn on confirm skipped:', e?.message);
+        }
+      }
+
       if (becomingConfirmed && glType) {
         console.log('📒 [GL auto-post] entering for', dto.type, '→', glType);
         try {

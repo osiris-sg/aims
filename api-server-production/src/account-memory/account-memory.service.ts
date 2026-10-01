@@ -33,6 +33,35 @@ export class AccountMemoryService {
   }
 
   /**
+   * Normalize, then strip the parts that make every line unique — dates,
+   * times, reference/serial numbers and bare numerics — so a rule describes a
+   * PATTERN rather than one transaction (guru 2026-09-30).
+   *
+   * Why: Biofuel's memory had 119 rules for maybe a dozen real patterns,
+   * because a berth fee was memorised complete with its vessel time:
+   *   "marine berth appl late cancel amend w o quay crane type baam btr etb
+   *    15 06 2026 1400 done"
+   * No two bills share a berth time, so no rule ever matched another line —
+   * exact matching resolved 1 of 86 uncoded lines, containment resolved 0.
+   * Canonicalised, every berth fee collapses to one rule whose count climbs.
+   *
+   * Kept deliberately conservative: words are preserved, only the variable
+   * tokens go, so distinct services stay distinct.
+   */
+  private canonical(s?: string | null): string {
+    return this.normalize(s)
+      // dates in any separator style: 15 06 2026 / 2026 06 15 / 15 06 26
+      .replace(/\b\d{1,4} \d{1,2} \d{2,4}\b/g, ' ')
+      // times (1400, 09 30) and standalone 3+ digit runs: references, serials,
+      // ASN / ticket / DO numbers, amounts
+      .replace(/\b\d{3,}\b/g, ' ')
+      // alphanumeric reference codes (jpfzoyberthj1c, baam, do542387…)
+      .replace(/\b[a-z]*\d+[a-z0-9]*\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
    * Resolve each description to a learned account (or null). Order:
    *   1. exact normalized match
    *   2. keyword/substring match (rule phrase ⊆ line, or line ⊆ rule phrase)
@@ -58,6 +87,16 @@ export class AccountMemoryService {
       if (!norm) continue;
       let hit = rules.find((r) => r.normalizedText === norm);
       if (!hit) hit = rules.find((r) => r.normalizedText.length >= 6 && (norm.includes(r.normalizedText) || r.normalizedText.includes(norm)));
+      // Pattern tier: compare with the variable tokens stripped from BOTH
+      // sides, so "berth fee ... 15 06 2026 1400" matches a rule learnt from
+      // "berth fee ... 03 07 2026 0900". Prefers the most-reinforced rule.
+      if (!hit) {
+        const canon = this.canonical(descriptions[i]);
+        if (canon.length >= 6) {
+          const matches = rules.filter((r) => this.canonical(r.text) === canon);
+          if (matches.length) hit = matches.sort((a, b) => b.count - a.count)[0];
+        }
+      }
       if (hit) out[i] = make(hit, 0.99, `Learned from your coding (${hit.count}×)`);
       else unresolved.push(i);
     }
