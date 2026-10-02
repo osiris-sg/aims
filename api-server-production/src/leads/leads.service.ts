@@ -356,13 +356,19 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     return names.length > 0 && names.every((n) => n === 'Designer');
   }
 
-  async list(organizationId: string, opts: { page?: number; limit?: number; search?: string; status?: string; source?: string; assignedToUserId?: string; callerUserId?: string }) {
+  async list(organizationId: string, opts: { page?: number; limit?: number; search?: string; status?: string; source?: string; assignedToUserId?: string; replyState?: string; callerUserId?: string }) {
     const page = Math.max(1, opts.page || 1);
     const limit = Math.min(100, Math.max(1, opts.limit || 20));
     const where: any = { organizationId };
     if (opts.status) where.status = opts.status;
     if (opts.source) where.source = opts.source;
     if (opts.assignedToUserId) where.assignedToUserId = opts.assignedToUserId;
+    // Replied-vs-never tiles (guru 2026-10-03) — all three states live over
+    // ASSIGNED leads only, matching the stats block.
+    if (opts.replyState === 'replied') where.firstReplyAt = { not: null };
+    else if (opts.replyState === 'contacted') Object.assign(where, { firstReplyAt: null, firstContactedAt: { not: null } });
+    else if (opts.replyState === 'never') Object.assign(where, { firstReplyAt: null, firstContactedAt: null });
+    if (opts.replyState) where.assignedToUserId = where.assignedToUserId || { not: null };
     // Designers only see their assigned leads.
     // Hierarchy scoping: designers see their own leads; a Junior Manager sees
     // the leads GIVEN to them or their team; senior/master see everything.
@@ -400,7 +406,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         ...(selfOnly ? { assignedToUserId: callerUserId } : {}),
         ...(scope.tier === 'junior' ? { assignedToUserId: { in: scope.teamUserIds || [] } } : {}),
       },
-      select: { status: true, source: true, assignedToUserId: true, assignedToName: true, receivedAt: true, firstContactedAt: true },
+      select: { status: true, source: true, assignedToUserId: true, assignedToName: true, receivedAt: true, firstContactedAt: true, firstReplyAt: true },
     });
     const byStatus: Record<string, number> = {};
     for (const l of leads) byStatus[l.status] = (byStatus[l.status] || 0) + 1;
@@ -472,6 +478,44 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       };
     }
 
+    // Replied vs never replied (guru 2026-10-03), manager tiers ONLY — master,
+    // senior AND junior (a junior's lead set is already team-scoped above).
+    // Measured over ASSIGNED leads: replied = the lead messaged back
+    // (firstReplyAt); contacted-no-reply = designer reached out, silence so
+    // far; never-contacted = no chat either way.
+    let replies: any = null;
+    if (scope.tier === 'master' || scope.tier === 'senior' || scope.tier === 'junior') {
+      const assigned = leads.filter((l) => l.assignedToUserId || l.assignedToName);
+      const repliesPerDesigner = new Map<string, { userId: string | null; name: string; assigned: number; replied: number; contactedNoReply: number; neverContacted: number }>();
+      let replied = 0;
+      let contactedNoReply = 0;
+      let neverContacted = 0;
+      for (const l of assigned) {
+        const key = l.assignedToUserId || l.assignedToName!;
+        const row = repliesPerDesigner.get(key) || { userId: l.assignedToUserId || null, name: l.assignedToName || key, assigned: 0, replied: 0, contactedNoReply: 0, neverContacted: 0 };
+        row.assigned += 1;
+        if (l.firstReplyAt) {
+          replied += 1;
+          row.replied += 1;
+        } else if (l.firstContactedAt) {
+          contactedNoReply += 1;
+          row.contactedNoReply += 1;
+        } else {
+          neverContacted += 1;
+          row.neverContacted += 1;
+        }
+        repliesPerDesigner.set(key, row);
+      }
+      replies = {
+        assigned: assigned.length,
+        replied,
+        contactedNoReply,
+        neverContacted,
+        repliedPct: assigned.length ? (replied / assigned.length) * 100 : null,
+        perDesigner: [...repliesPerDesigner.values()].sort((a, b) => b.assigned - a.assigned),
+      };
+    }
+
     return {
       total: leads.length,
       byStatus,
@@ -479,6 +523,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       deadPct: leads.length ? ((byStatus['dead'] || 0) / leads.length) * 100 : null,
       perDesigner: [...perDesigner.values()].sort((a, b) => b.taken - a.taken),
       insights,
+      replies,
       // Lets the portal scope the assign picker: juniors may only hand leads
       // to their own team (the server rejects the rest anyway).
       viewer: { tier: scope.tier, teamUserIds: scope.tier === 'junior' ? scope.teamUserIds || [] : null },
@@ -678,6 +723,71 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
   }
 
   /**
+   * 3-hourly "reply the lead" nudge (guru 2026-10-03): a lead assigned to a
+   * designer who has NOT contacted it on WhatsApp yet gets re-pinged to that
+   * designer every 3h until first contact (firstContactedAt, stamped by
+   * markLeadContacted) or the lead leaves the open statuses. Runs hourly but
+   * only acts inside 09:00–21:00 SGT; capped at 12 nudges per lead so a dead
+   * assignment doesn't ping forever. Template send → lands outside the 24h
+   * window too.
+   */
+  @Cron('30 * * * *')
+  async contactNudgeCron() {
+    const sgtHour = (new Date().getUTCHours() + 8) % 24;
+    if (sgtHour < 9 || sgtHour >= 21) return;
+    const cutoff = new Date(Date.now() - 3 * 3600000);
+    const leads: any[] = await this.prisma.lead.findMany({
+      where: {
+        assignedToUserId: { not: null },
+        firstContactedAt: null,
+        status: { in: ['unqualified', 'engaging'] },
+        assignedAt: { lte: cutoff },
+        contactNudgeCount: { lt: 12 },
+        OR: [{ contactNudgeAt: null }, { contactNudgeAt: { lte: cutoff } }],
+      },
+      orderBy: { assignedAt: 'asc' },
+      take: 50,
+    });
+    if (!leads.length) return;
+    const byOrg = new Map<string, any[]>();
+    for (const l of leads) byOrg.set(l.organizationId, [...(byOrg.get(l.organizationId) || []), l]);
+    for (const [orgId, orgLeads] of byOrg) {
+      try {
+        const line = await this.agentLine(orgId);
+        if (!line) continue;
+        // One designer lookup per org, not per lead.
+        const numberOf = new Map((await this.designersOf(orgId)).map((d) => [d.id, String(d.whatsappNumber || '').replace(/\D/g, '')]));
+        let sent = 0;
+        for (const lead of orgLeads) {
+          const to = numberOf.get(lead.assignedToUserId);
+          if (!to) continue; // designer has no WhatsApp number on their profile
+          const leadDigits = [lead.whatsappPhone, lead.phone, ...((lead.phones || []) as string[])].map((v: any) => String(v || '').replace(/\D/g, '')).find(Boolean);
+          const hours = lead.assignedAt ? Math.max(1, Math.round((Date.now() - new Date(lead.assignedAt).getTime()) / 3600000)) : null;
+          const text = [
+            `⏰ Reminder: lead ${lead.name}${leadDigits ? ` (+${leadDigits.length <= 8 ? `65${leadDigits}` : leadDigits})` : ''} was assigned to you${hours ? ` ${hours}h ago` : ''} and has no WhatsApp contact yet.`,
+            leadDigits ? `Message them now: wa.me/${leadDigits.length <= 8 ? `65${leadDigits}` : leadDigits}` : 'Please reach out to the lead now.',
+          ].join(' ');
+          try {
+            await this.sendNotifyTemplate(line, to, text);
+            await this.prisma.lead.update({ where: { id: lead.id }, data: { contactNudgeAt: new Date(), contactNudgeCount: { increment: 1 } } });
+            sent++;
+            this.actionLog.system('lead-contact-nudge', 'SEND', 'lead', {
+              organizationId: orgId,
+              resourceId: lead.id,
+              details: { lead: lead.name, designer: lead.assignedToName, nudgeNo: (lead.contactNudgeCount || 0) + 1, to },
+            });
+          } catch (e) {
+            this.logger.warn(`contact nudge for lead ${lead.id} failed: ${(e as Error).message}`);
+          }
+        }
+        if (sent) this.logger.log(`contactNudgeCron: ${sent} nudge(s) sent for org ${orgId}`);
+      } catch (e) {
+        this.logger.warn(`contactNudgeCron for org ${orgId} failed: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  /**
    * The notify number just messaged the agent line — their 24h window is now
    * OPEN, so re-send the interactive assign card for any recent lead that is
    * still unassigned and whose card never got through (the template fallback
@@ -721,9 +831,11 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
    * A WhatsApp chat with a lead's number was detected on a connected line
    * (designer's outbound echo, or the lead replying). First detection stamps
    * the lead and auto-completes quest step 1 ("Contact the lead") on the
-   * linked project, if any.
+   * linked project, if any. Direction matters since 2026-10-03 (guru's
+   * replied-vs-never insights): any chat stamps firstContactedAt, but ONLY an
+   * INBOUND message from the lead stamps firstReplyAt.
    */
-  async markLeadContacted(organizationId: string, phone: string) {
+  async markLeadContacted(organizationId: string, phone: string, direction: 'INBOUND' | 'OUTBOUND' = 'OUTBOUND') {
     const digits = String(phone || '').replace(/\D/g, '');
     if (!digits || digits.length < 8) return;
     const lead: any = await this.prisma.lead.findFirst({
@@ -735,12 +847,25 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
           { phones: { hasSome: [digits, digits.replace(/^65/, '')] } },
         ],
         status: { in: ['unqualified', 'engaging', 'converted'] },
-        firstContactedAt: null,
+        // OUTBOUND only matters for first contact; INBOUND also matters for a
+        // first REPLY on an already-contacted lead (nested AND keeps it clear
+        // of the phone-match OR above).
+        ...(direction === 'INBOUND'
+          ? { AND: [{ OR: [{ firstContactedAt: null }, { firstReplyAt: null }] }] }
+          : { firstContactedAt: null }),
       },
       orderBy: { receivedAt: 'desc' },
     });
     if (!lead) return;
-    await this.prisma.lead.update({ where: { id: lead.id }, data: { firstContactedAt: new Date() } });
+    const firstContact = !lead.firstContactedAt;
+    await this.prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        ...(firstContact ? { firstContactedAt: new Date() } : {}),
+        ...(direction === 'INBOUND' && !lead.firstReplyAt ? { firstReplyAt: new Date() } : {}),
+      },
+    });
+    if (!firstContact) return; // reply stamped on an already-contacted lead — quest step already handled
     if (lead.projectId) {
       await this.prisma.projectQuestStep
         .updateMany({

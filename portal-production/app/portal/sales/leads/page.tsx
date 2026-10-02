@@ -295,6 +295,74 @@ function LeadInsights({ stats }: { stats: any }) {
   );
 }
 
+// Replied vs never replied (guru 2026-10-03), manager tiers only — the server
+// returns `replies` for master/senior AND Junior Managers (team-scoped) but
+// never for designers. Counts live over ASSIGNED leads: replied = the lead
+// messaged back on WhatsApp, waiting = designer reached out but silence so
+// far, never = no chat detected either way. Tiles are filters, one at a time.
+function LeadReplies({ stats, active, onFilter }: { stats: any; active: string; onFilter: (state: string) => void }) {
+  const r = stats.replies;
+  const tiles: Array<[string, string, number, string, string]> = [
+    ["replied", "Replied", r.replied, "success.main", "the lead messaged back"],
+    ["contacted", "Contacted · no reply", r.contactedNoReply, "warning.main", "designer reached out, waiting"],
+    ["never", "Never contacted", r.neverContacted, "error.main", "no WhatsApp chat yet"],
+  ];
+  return (
+    <Grid container spacing={1.5} sx={{ mb: 2 }} data-tour="leads-replies">
+      <Grid item xs={12} md={5}>
+        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, height: "100%" }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+            Lead replies
+            <Typography component="span" variant="caption" sx={{ ml: 0.75, color: "text.secondary" }}>
+              {r.assigned} assigned{r.repliedPct != null ? ` · ${r.repliedPct.toFixed(0)}% replied` : ""}
+            </Typography>
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+            {tiles.map(([state, label, count, color, hint]) => (
+              <Tooltip key={state} title={`${hint} — click to filter`}>
+                <Paper
+                  variant="outlined"
+                  onClick={() => onFilter(active === state ? "" : state)}
+                  sx={{
+                    flex: 1, p: 1, borderRadius: 2, cursor: "pointer", textAlign: "center",
+                    borderColor: active === state ? color : "divider",
+                    bgcolor: active === state ? "action.selected" : "transparent",
+                    "&:hover": { bgcolor: "action.hover" },
+                  }}
+                >
+                  <Typography variant="h6" sx={{ fontWeight: 800, color, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{count}</Typography>
+                  <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1.25 }}>{label}</Typography>
+                </Paper>
+              </Tooltip>
+            ))}
+          </Stack>
+        </Paper>
+      </Grid>
+      <Grid item xs={12} md={7}>
+        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, height: "100%" }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>By designer</Typography>
+          <Stack spacing={0.75}>
+            {(r.perDesigner || []).slice(0, 6).map((d: any) => (
+              <Stack key={d.userId || d.name} direction="row" alignItems="center" spacing={1} sx={{ flexWrap: { xs: "wrap", md: "nowrap" }, rowGap: 0.25 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, minWidth: 110, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</Typography>
+                <Box sx={{ flex: 1, minWidth: { xs: 80, md: 0 }, display: "flex", height: 8, borderRadius: 4, overflow: "hidden", bgcolor: "action.hover" }}>
+                  {d.replied > 0 && <Box sx={{ flex: d.replied, bgcolor: "success.main" }} />}
+                  {d.contactedNoReply > 0 && <Box sx={{ flex: d.contactedNoReply, bgcolor: "warning.main" }} />}
+                  {d.neverContacted > 0 && <Box sx={{ flex: d.neverContacted, bgcolor: "error.main" }} />}
+                </Box>
+                <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums", minWidth: 150, textAlign: "right", color: "text.secondary" }}>
+                  {d.replied} replied · {d.contactedNoReply} waiting · {d.neverContacted} never
+                </Typography>
+              </Stack>
+            ))}
+            {!r.perDesigner?.length && <Typography variant="caption" sx={{ color: "text.secondary" }}>No assigned leads yet.</Typography>}
+          </Stack>
+        </Paper>
+      </Grid>
+    </Grid>
+  );
+}
+
 export default function LeadsPage() {
   const router = useRouter();
   const api = useIdQuoteApi();
@@ -345,7 +413,7 @@ export default function LeadsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const q = `page=${page}&limit=${limit}&search=${encodeURIComponent(search)}&status=${filters.status || ""}&source=${filters.source || ""}&assignedToUserId=${filters.assignedToUserId || ""}`;
+      const q = `page=${page}&limit=${limit}&search=${encodeURIComponent(search)}&status=${filters.status || ""}&source=${filters.source || ""}&assignedToUserId=${filters.assignedToUserId || ""}&replyState=${filters.replyState || ""}`;
       const [r, s] = await Promise.all([api.request<any>(`/leads?${q}`), api.request<any>(`/leads/stats`).catch(() => null)]);
       setRows(r?.docs || []);
       setTotal(r?.total || 0);
@@ -664,13 +732,20 @@ export default function LeadsPage() {
   return (
     <MainCard>
       {stats?.insights && stats.total > 0 && <LeadInsights stats={stats} />}
+      {stats?.replies && stats.replies.assigned > 0 && (
+        <LeadReplies
+          stats={stats}
+          active={filters.replyState || ""}
+          onFilter={(state) => { setFilters(state ? { replyState: state } : {}); setPage(1); }}
+        />
+      )}
       {stats && stats.total > 0 && (
         // Every chip is a FILTER: click a status or designer to filter the
         // table to it (click again — or "N leads" — to clear).
         <Stack direction="row" spacing={1} sx={{ mb: 1.5, flexWrap: "wrap", rowGap: 1 }}>
           <Chip
             size="small"
-            variant={!filters.status && !filters.assignedToUserId ? "filled" : "outlined"}
+            variant={!filters.status && !filters.assignedToUserId && !filters.replyState ? "filled" : "outlined"}
             label={`${stats.total} leads`}
             onClick={() => { setFilters({}); setPage(1); }}
           />

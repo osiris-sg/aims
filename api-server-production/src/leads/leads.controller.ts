@@ -51,8 +51,9 @@ export class LeadsController {
     @Query('status') status?: string,
     @Query('source') source?: string,
     @Query('assignedToUserId') assignedToUserId?: string,
+    @Query('replyState') replyState?: string,
   ) {
-    return this.service.list(orgId(req), { page: Number(page) || 1, limit: Number(limit) || 20, search, status, source, assignedToUserId, callerUserId: req.user?.id });
+    return this.service.list(orgId(req), { page: Number(page) || 1, limit: Number(limit) || 20, search, status, source, assignedToUserId, replyState, callerUserId: req.user?.id });
   }
 
   @Get(':id')

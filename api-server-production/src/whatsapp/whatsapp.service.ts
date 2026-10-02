@@ -1864,7 +1864,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
               .catch(() => {}); // redelivery
             // Designer texted this number from their phone → lead contact detected
             // (auto-completes quest step 1 on the lead's project).
-            this.leads.markLeadContacted(connection.organizationId, counterparty).catch(() => null);
+            this.leads.markLeadContacted(connection.organizationId, counterparty, 'OUTBOUND').catch(() => null);
             const closed = await this.prisma.whatsAppSuggestion.updateMany({
               where: { organizationId: connection.organizationId, counterparty, status: 'PENDING' },
               data: { status: 'HANDLED_MANUALLY' },
@@ -1961,8 +1961,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             if (already) continue;
             this.logger.warn(`Could not store inbound ${message.id}; processing it anyway.`);
           }
-          // A message to/from this number may be a lead's thread — mark contacted.
-          if (message.from) this.leads.markLeadContacted(connection.organizationId, message.from).catch(() => null);
+          // A message FROM this number may be a lead's thread — a lead's own
+          // inbound message counts as their REPLY (and as first contact).
+          if (message.from) this.leads.markLeadContacted(connection.organizationId, message.from, 'INBOUND').catch(() => null);
           // If this is the org's notify number replying, its 24h window just
           // opened — re-send any assign cards that couldn't deliver earlier.
           if (message.from) this.leads.rebroadcastPending(connection.organizationId, message.from).catch(() => null);
