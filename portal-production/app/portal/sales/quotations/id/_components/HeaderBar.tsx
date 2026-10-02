@@ -97,9 +97,9 @@ export default function HeaderBar({ number, clientName, status, saveState, inter
           {signedBy && (
             <Chip size="small" color="success" variant="outlined" icon={<DrawIcon />} label={`Signed by ${signedBy.name || clientName} · ${new Date(signedBy.signedAt).toLocaleDateString("en-SG", { day: "2-digit", month: "short" })}`} sx={{ height: 20, "& .MuiChip-label": { fontSize: 11 } }} />
           )}
-          {signedBy && onRevertSignature && (
-            <Tooltip title="Client cancelled? Remove the signature and put the quotation back to draft — the contract number stays.">
-              <Chip size="small" variant="outlined" color="warning" label="Revert signature" onClick={onRevertSignature} sx={{ height: 20, "& .MuiChip-label": { fontSize: 11 } }} />
+          {onRevertSignature && (
+            <Tooltip title={signedBy ? "Client cancelled? Remove the signature and put the quotation back to draft — the contract number stays." : "Put this confirmed quotation back to draft so the designer can edit it — the contract number stays. Managers only."}>
+              <Chip size="small" variant="outlined" color="warning" label={signedBy ? "Revert signature" : "Revert to draft"} onClick={onRevertSignature} sx={{ height: 20, "& .MuiChip-label": { fontSize: 11 } }} />
             </Tooltip>
           )}
           {project && (

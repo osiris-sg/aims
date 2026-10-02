@@ -246,6 +246,13 @@ export class PublicSignService {
    * a schedule/costs); the who-signed-when trail goes to the document history.
    */
   async revertClientSignature(documentId: string, organizationId: string, actor?: { id?: string; name?: string; email?: string }) {
+    // Managers and up only (guru 2026-10-02): reverting puts the quotation
+    // back in the designers' hands — the designer tier can't do it themselves.
+    if (actor?.id) {
+      const { resolveTier } = await import('../common/role-tier');
+      const { tier } = await resolveTier(this.prisma, organizationId, actor.id);
+      if (tier === 'designer') throw new BadRequestException('Only managers can revert a confirmed quotation');
+    }
     const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId } });
     if (!doc) throw new NotFoundException('Quotation not found');
     const cfg: any = doc.config || {};
@@ -279,7 +286,9 @@ export class PublicSignService {
           resourceName: doc.name,
           organizationId,
           details: {
-            detail: `Client signature reverted — quotation back to draft (client cancelled).${prevSig ? ` Was signed by ${prevSig.name} on ${prevSig.signedAt}.` : ''} Contract number ${doc.name || '(none)'} kept.`,
+            detail: prevSig
+              ? `Client signature reverted — quotation back to draft (client cancelled). Was signed by ${prevSig.name} on ${prevSig.signedAt}. Contract number ${doc.name || '(none)'} kept.`
+              : `Confirmed quotation reverted to draft by a manager so it can be edited again. Contract number ${doc.name || '(none)'} kept.`,
           },
         },
       }),

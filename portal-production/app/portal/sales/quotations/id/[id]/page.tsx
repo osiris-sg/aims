@@ -531,7 +531,7 @@ export default function IdQuotationEditorPage() {
         designerSigned={designerSigned}
         onDesignerSign={signedBy && !designerSigned ? () => setDesignerSignOpen(true) : undefined}
         signedBy={signedBy}
-        onRevertSignature={signedBy ? () => setRevertOpen(true) : undefined}
+        onRevertSignature={canManage && confirmed ? () => setRevertOpen(true) : undefined}
         project={project}
         onOpenProject={() => project && router.push(`/portal/projects/${project.id}`)}
       />
@@ -702,11 +702,13 @@ export default function IdQuotationEditorPage() {
       {/* Client cancelled after signing → strip the signature, back to draft.
           The contract number is KEPT and reused when they re-sign. */}
       <Dialog open={revertOpen} onClose={() => !reverting && setRevertOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Revert client signature?</DialogTitle>
+        <DialogTitle>{signedBy ? "Revert client signature?" : "Revert to draft?"}</DialogTitle>
         <DialogContent>
           <Typography variant="body2">
-            This removes {signedBy?.name || "the client"}&apos;s signature and puts the quotation back to DRAFT so it can be edited and re-signed.
-            The contract number {doc.name ? <b>{doc.name}</b> : null} stays with this quotation. The linked project is not touched.
+            {signedBy
+              ? <>This removes {signedBy?.name || "the client"}&apos;s signature and puts the quotation back to DRAFT so it can be edited and re-signed.</>
+              : <>This puts the confirmed quotation back to DRAFT so the designer can edit it again (and re-confirm or re-send for signature after).</>}{" "}
+            The contract number {doc.name ? <b>{doc.name}</b> : null} stays with this quotation. The linked project is not touched. The revert is recorded in the document&apos;s history under your name.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -721,7 +723,7 @@ export default function IdQuotationEditorPage() {
               setReverting(true);
               try {
                 await api.revertSignature(doc.id);
-                toast.success("Signature reverted — quotation is back to draft, contract number kept");
+                toast.success("Quotation is back to draft — contract number kept");
                 window.location.reload();
               } catch (e: any) {
                 toast.error(e.message || "Failed to revert");
@@ -730,7 +732,7 @@ export default function IdQuotationEditorPage() {
             }}
             sx={{ textTransform: "none" }}
           >
-            {reverting ? "Reverting…" : "Revert signature"}
+            {reverting ? "Reverting…" : signedBy ? "Revert signature" : "Revert to draft"}
           </Button>
         </DialogActions>
       </Dialog>
