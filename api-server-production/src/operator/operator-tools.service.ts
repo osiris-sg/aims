@@ -1340,7 +1340,7 @@ export class OperatorToolsService {
       {
         name: 'api_write',
         description:
-          "Call any POST/PATCH/PUT endpoint of the AIMS API as this user, for actions no dedicated tool covers. Find the path AND its body fields with api_docs first. NEVER fires immediately: it returns a summary the user must confirm, so always tell them what you are about to do. Their permissions are enforced. Money and irreversible actions (confirming invoices, posting bills, recording payments, deleting) are BLOCKED here on purpose — use the dedicated tools for those.",
+          "Call any POST/PATCH/PUT endpoint of the AIMS API as this user, for anything no dedicated tool covers. Find the path AND its body fields with api_docs first. LOOKUPS ARE FREE: AIMS lists some collections over POST rather than GET (/documents, /documents/paginated, /customers, /assets, /projects, /suppliers, /inventories...), and those run IMMEDIATELY and return their rows with no confirmation — use them to find things, e.g. POST /documents with a filter body to locate a past invoice by customer or description, then act on what comes back. Anything that CHANGES data never fires immediately: it returns a summary the user must confirm, so tell them what you are about to do. Their permissions are enforced. Money and irreversible actions (confirming invoices, posting bills, recording payments, deleting) are BLOCKED here on purpose — use the dedicated tools for those.",
         permissions: [],
         input_schema: {
           type: 'object',
