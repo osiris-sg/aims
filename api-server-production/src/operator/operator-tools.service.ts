@@ -55,6 +55,20 @@ const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
  * already excluded by the method whitelist; these catch the POST/PATCH verbs
  * that are just as final.
  */
+/**
+ * POSTs that are really LISTS (house convention; mirrors VIEW_POST_RE in
+ * action-log.interceptor.ts). They read, so api_write must run them
+ * immediately and hand back the rows.
+ *
+ * Holding them behind Confirm broke a real request (guru 2026-10-02): asked
+ * to find a past invoice, the agent confirmed the search, got back only
+ * "Done" with the rows discarded, and asked for the same confirmation again.
+ * api_get cannot cover these because it is GET-only, so this is a gap in the
+ * generic read path, not a missing bespoke tool.
+ */
+const READ_ONLY_POST_RE =
+  /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview)$/;
+
 const BLOCKED_WRITE_PATHS: RegExp[] = [
   /\/payments(\/|$)/i,
   /\/receipts(\/|$)/i,
@@ -1358,6 +1372,20 @@ export class OperatorToolsService {
               },
             };
           }
+          // A POST that is really a list changes nothing: run it now and return
+          // the rows, rather than asking the user to approve a search and then
+          // discarding the answer.
+          if (method === 'POST' && READ_ONLY_POST_RE.test(path.split('?')[0])) {
+            const r = await this.selfCall(ctx, method, path, args.body || {});
+            if (!r.ok) {
+              const b: any = r.body || {};
+              const d = Array.isArray(b.message) ? b.message.join('; ') : b.message || b.error || 'no reason given';
+              return { result: { error: `${method} ${path} failed (${r.status}): ${d}` } };
+            }
+            const out = JSON.stringify(r.body ?? {});
+            return { result: { path, data: out.length > 14000 ? out.slice(0, 14000) + '…[truncated]' : r.body } };
+          }
+
           // Held, never executed here. The user taps Confirm and runPending()
           // makes the call — same gate every risky tool already uses.
           const pending: PendingAction = {
