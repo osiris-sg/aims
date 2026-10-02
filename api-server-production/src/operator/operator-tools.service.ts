@@ -889,7 +889,7 @@ export class OperatorToolsService {
       {
         name: 'edit_document',
         description:
-          'Edit an EXISTING unconfirmed/draft document in place. For a SMALL wording change (e.g. "two (2)" to "one (1)"), use lineEdits with find/replaceWith so the rest of the text is preserved exactly — NEVER retype the whole description from memory. Use the `description` field only to rewrite a whole line. Also supports changing quantity/unitPrice, removing a line, adding lines, and notes/PO/reference. Totals recompute automatically. ALWAYS call get_document first to read the full current line text, then edit. Confirmed/posted documents need a revision in the app (the tool will say so).',
+          'Edit an EXISTING unconfirmed/draft document in place. USE THIS for any change to a document (dates, lines, wording, notes, PO/reference, bill-to) — never api_write: /documents/update is a whole-document save whose DTO demands id, type and a complete config, so a partial edit through it just fails with a 400. For a SMALL wording change (e.g. "two (2)" to "one (1)"), use lineEdits with find/replaceWith so the rest of the text is preserved exactly — NEVER retype the whole description from memory. Use the `description` field only to rewrite a whole line. Also supports changing quantity/unitPrice, removing a line, adding lines, and notes/PO/reference. Totals recompute automatically. ALWAYS call get_document first to read the full current line text, then edit. Confirmed/posted documents need a revision in the app (the tool will say so).',
         permissions: ['documents:update'],
         input_schema: {
           type: 'object',
@@ -937,6 +937,11 @@ export class OperatorToolsService {
             notes: { type: 'string' },
             poNo: { type: 'string' },
             referenceNo: { type: 'string' },
+            date: {
+              type: 'string',
+              description: "Document date as YYYY-MM-DD. Use this to date an invoice into a particular month; /documents/update cannot be used for it (its DTO demands the whole document).",
+            },
+            dueDate: { type: 'string', description: 'Due date as YYYY-MM-DD.' },
             customerAddress: {
               type: 'string',
               description: "Bill-to address shown on the PDF. Use this when the user says the address is missing or wrong on a document.",
@@ -950,7 +955,7 @@ export class OperatorToolsService {
           },
           required: ['documentId'],
         },
-        run: async (ctx, { documentId, lineEdits, addLines, notes, poNo, referenceNo, customerAddress, customerName, syncCustomerFromMaster }) => {
+        run: async (ctx, { documentId, lineEdits, addLines, notes, poNo, referenceNo, customerAddress, customerName, syncCustomerFromMaster, date, dueDate }) => {
           const doc = await this.findDoc(ctx.organizationId, documentId);
           if (!doc) return { result: { error: 'Document not found in this organization' } };
           const locked = ['confirmed', 'paid', 'pending_payment'];
@@ -1076,7 +1081,18 @@ export class OperatorToolsService {
             ...(poNo != null ? { poNo: String(poNo) } : {}),
             ...(referenceNo != null ? { referenceNo: String(referenceNo) } : {}),
             ...custPatch,
-            documentInfo: { ...(cfg.documentInfo || {}), ...totals, items: nextItems },
+            // Dates live at the top level AND inside documentInfo (the field-
+            // config form reads one, the preview the other), so both move
+            // together or the editor and the PDF disagree.
+            ...(date != null ? { date: String(date) } : {}),
+            ...(dueDate != null ? { dueDate: String(dueDate) } : {}),
+            documentInfo: {
+              ...(cfg.documentInfo || {}),
+              ...totals,
+              items: nextItems,
+              ...(date != null ? { date: String(date) } : {}),
+              ...(dueDate != null ? { dueDate: String(dueDate) } : {}),
+            },
           };
           await this.prisma.document.update({ where: { id: doc.id }, data: { config: newCfg } });
           this.log(ctx, 'EDITED', 'document', doc.id, doc.name, `Edited via Operator (${ctx.channel})`);
