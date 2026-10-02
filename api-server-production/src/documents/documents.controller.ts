@@ -10,6 +10,7 @@ import { S3Service } from 'src/common/services/s3.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { EmailService } from 'src/email/email.service';
 import { SendInvoiceEmailDto } from 'src/email/dto/send-invoice-email.dto';
+import { ApiBody } from '@nestjs/swagger'; // documents the bulk-download body for api_docs
 
 // Extend Request type to include userOrganization
 interface RequestWithOrganization extends Request {
@@ -347,6 +348,19 @@ export class DocumentsController {
   // the page turns it into a Blob download.
   @Post('bulk-download')
   @Permissions('documents:read')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['ids'],
+      properties: {
+        ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Document ids OR document numbers (e.g. "TI2202610-001"). Max 50.',
+        },
+      },
+    },
+  })
   async bulkDownload(@Body() body: { ids: string[] }, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {

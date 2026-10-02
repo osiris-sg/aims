@@ -6596,8 +6596,28 @@ export class DocumentsService {
   // "<document name> - <reference>.pdf" (reference omitted when blank).
   // PDFs come from the same getOrGeneratePdfUrl pipeline the email / pay
   // flows use, so the branded layout and the S3 cache are shared.
-  async bulkDownloadPdfs(organizationId: string, ids: string[]) {
-    if (!Array.isArray(ids) || ids.length === 0) {
+  async bulkDownloadPdfs(organizationId: string, rawIds: string[]) {
+    if (!Array.isArray(rawIds) || rawIds.length === 0) {
+      throw new HttpException('No documents selected', HttpStatus.BAD_REQUEST);
+    }
+    // Accept document NUMBERS as well as uuids. The list page sends uuids, but
+    // anything working from a search result (the chat agent, a script) has the
+    // number — "TI2202610-001" — and silently matched nothing before.
+    const isUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v));
+    const names = rawIds.filter((v) => v && !isUuid(v)).map(String);
+    let ids = rawIds.filter((v) => v && isUuid(v)).map(String);
+    if (names.length) {
+      const byName = await this.prisma.document.findMany({
+        where: { organizationId, name: { in: names } },
+        select: { id: true, name: true },
+      });
+      ids = [...ids, ...byName.map((d) => d.id)];
+      const missing = names.filter((n) => !byName.some((d) => d.name === n));
+      if (missing.length && !ids.length) {
+        throw new HttpException(`No document found named ${missing.join(', ')}`, HttpStatus.BAD_REQUEST);
+      }
+    }
+    if (!ids.length) {
       throw new HttpException('No documents selected', HttpStatus.BAD_REQUEST);
     }
     if (ids.length > 50) {
