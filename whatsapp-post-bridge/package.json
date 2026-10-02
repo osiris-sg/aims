@@ -5,12 +5,13 @@
   "description": "Post-only whatsapp-web.js worker: posts signed AIMS deliveries (photos + signed DO) into WhatsApp groups. No inbound handling.",
   "main": "bridge.js",
   "scripts": {
-    "start": "node bridge.js"
+    "start": "node bridge.js",
+    "postinstall": "node patch-wwebjs.js"
   },
   "license": "UNLICENSED",
   "dependencies": {
     "dotenv": "^17.4.2",
     "qrcode": "^1.5.4",
-    "whatsapp-web.js": "^1.34.7"
+    "whatsapp-web.js": "1.34.7"
   }
 }

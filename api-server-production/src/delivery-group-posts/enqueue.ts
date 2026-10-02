@@ -118,15 +118,35 @@ export async function enqueueDeliveryGroupPost(
     const extraPhotoCount = Math.max(0, new Set(allPhotos).size - photoKeys.length);
 
     const signer = ack?.signedByName || null;
-    const where = [project?.name, run.siteAddress && run.siteAddress !== project?.name ? run.siteAddress : null].filter(Boolean).join(', ');
     const doNames = docs
       .map((d: any) => d.name)
       .filter(Boolean)
       .join(', ');
+    // Partial trip: how much of the run is still to deliver (a catalog line is
+    // one row per unit; a free-typed line carries its own quantity).
+    const owed = final
+      ? 0
+      : (
+          await prisma.deliveryItem.findMany({
+            where: { deliveryId, deliveryStatus: { not: 'completed' } },
+            select: { assetId: true, quantity: true },
+          })
+        ).reduce((n: number, i: any) => n + (i.assetId ? 1 : i.quantity || 1), 0);
+    // Format (2026-10-02):
+    //   Delivery #69, ZZTestProject
+    //
+    //   DO: DO202610078 · signed by elroy at 2 Oct, 2:46 pm
+    //   Trip 1 (final) · 1 x ZZTEST Asset
+    const head = [`Delivery #${run.deliveryNumber}`, project?.name || customer?.name].filter(Boolean).join(', ');
+    const signedLine = `${doNames ? `DO: ${doNames} · signed` : 'Signed'}${signer ? ` by ${signer}` : ''} at ${fmtSgt(signedAt)}`;
+    const tripLine = `Trip ${tripNumber} (${final ? 'final' : `partial: ${owed} item${owed === 1 ? '' : 's'} still to deliver`}) · ${
+      [...counts].map(([d, q]) => `${q} x ${d}`).join(', ') || 'no items'
+    }`;
     const caption = [
-      `✅ Delivered: Delivery #${run.deliveryNumber}${where ? `, ${where}` : ''}`,
-      `${doNames ? `DO: ${doNames} · ` : ''}signed${signer ? ` by ${signer}` : ''} at ${fmtSgt(signedAt)}`,
-      `Trip ${tripNumber}${final ? ' (final)' : ' (partial)'} · ${[...counts].map(([d, q]) => `${q} x ${d}`).join(', ') || 'no items'}`,
+      head,
+      '',
+      signedLine,
+      tripLine,
       ...(extraPhotoCount ? [`+${extraPhotoCount} more photo${extraPhotoCount === 1 ? '' : 's'} in AIMS`] : []),
     ].join('\n');
 

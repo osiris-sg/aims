@@ -20,7 +20,8 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true \
 WORKDIR /app
 
 # Install deps first for layer caching.
-COPY package.json ./
+# patch-wwebjs.js runs as postinstall (media-send fix), so it must be in place first.
+COPY package.json patch-wwebjs.js ./
 RUN npm install --omit=dev --no-audit --no-fund
 
 COPY bridge.js ./
