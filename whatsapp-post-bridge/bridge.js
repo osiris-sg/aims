@@ -45,11 +45,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * @param {string} o.token post bridge token
  * @param {string} o.journalFile
  * @param {number} [o.gapMs]
+ * @param {number} [o.partAttempts]   tries per part before the post is reported failed (default 3)
+ * @param {number[]} [o.partBackoffMs] waits between those tries
  * @param {(m: string) => void} [o.log]
  */
 function createPoster(o) {
   const log = o.log || console.log;
   const gap = o.gapMs ?? MEDIA_GAP_MS;
+  const partAttempts = o.partAttempts ?? 3;
+  const partBackoff = o.partBackoffMs ?? [2000, 5000];
 
   const api = async (method, p, body) => {
     const res = await fetch(`${o.api}${p}`, {
@@ -118,10 +122,22 @@ function createPoster(o) {
     try {
       for (let i = entry.sent; i < parts.length; i++) {
         const part = parts[i];
+        // Retry THIS part only, a few times, before giving up on the post.
+        // Parts already sent are behind `entry.sent` and are never repeated.
         let msg;
-        if (part.kind === 'text') msg = await o.send(job.groupId, part.text);
-        else if (part.kind === 'photo') msg = await o.send(job.groupId, await fetchMedia(part.url, part.filename));
-        else msg = await o.send(job.groupId, await fetchMedia(part.url, part.filename), { sendMediaAsDocument: true });
+        for (let attempt = 1; ; attempt++) {
+          try {
+            if (part.kind === 'text') msg = await o.send(job.groupId, part.text);
+            else if (part.kind === 'photo') msg = await o.send(job.groupId, await fetchMedia(part.url, part.filename));
+            else msg = await o.send(job.groupId, await fetchMedia(part.url, part.filename), { sendMediaAsDocument: true });
+            break;
+          } catch (e) {
+            const err = e && e.message ? e.message : String(e);
+            if (attempt >= partAttempts) throw new Error(`part ${i + 1}/${parts.length} (${part.kind}${part.filename ? ` ${part.filename}` : ''}): ${err}`);
+            log(`   ↻ part ${i + 1}/${parts.length} (${part.kind}) failed, retrying: ${err}`);
+            await sleep(partBackoff[attempt - 1] ?? partBackoff[partBackoff.length - 1]);
+          }
+        }
         entry.sent = i + 1;
         entry.at = Date.now();
         const id = msg?.id?._serialized || msg?.id?.id;
