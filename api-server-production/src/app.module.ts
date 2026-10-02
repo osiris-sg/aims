@@ -24,6 +24,7 @@ import { PushModule } from './push/push.module';
 import { ProjectCostingModule } from './project-costing/project-costing.module';
 import { TeamsModule } from './teams/teams.module';
 import { MarketingModule } from './marketing/marketing.module';
+import { SearchModule } from './search/search.module';
 import { LeadsModule } from './leads/leads.module';
 import { CustomerInfoModule } from './customer-info/customer-info.module';
 import { PublicApiModule } from './public-api/public-api.module';
@@ -150,6 +151,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     ProjectCostingModule,
     TeamsModule,
     MarketingModule,
+    SearchModule,
     LeadsModule,
     CustomerInfoModule,
     PublicApiModule,

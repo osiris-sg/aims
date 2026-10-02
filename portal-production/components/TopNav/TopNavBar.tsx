@@ -18,6 +18,7 @@ import { UserButton, useUser } from "@clerk/nextjs";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import GlobalSearch from "./GlobalSearch";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
@@ -365,6 +366,7 @@ export default function TopNavBar() {
       </Stack>
 
       <Stack direction="row" alignItems="center" gap={1} sx={{ flexShrink: 0, ml: 1 }}>
+        <GlobalSearch />
         <TopNavOrgSwitcher />
         <NotificationBell />
         <Tooltip title={mode === "dark" ? "Light mode" : "Dark mode"}>

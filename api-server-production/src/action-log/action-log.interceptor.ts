@@ -33,6 +33,7 @@ const SKIP_PATHS = [
 
 // Background GETs fired on page load / tab focus, not user intent.
 const SKIP_GET_PATHS = [
+  '/search', // global top-nav search fires per keystroke
   '/configuration',
   '/organizations/user',
   '/users/me/roles',

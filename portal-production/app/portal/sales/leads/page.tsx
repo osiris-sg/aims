@@ -7,7 +7,7 @@
 // quotation is then raised inside the project (Lead → Project → Quotation).
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Alert,
   Autocomplete,
@@ -318,6 +318,14 @@ export default function LeadsPage() {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({ status: "", source: "" });
   const [detail, setDetail] = useState<Lead | null>(null);
+  // Global search deep-link: /portal/sales/leads?focus=<id> opens the drawer.
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const f = searchParams?.get("focus");
+    if (!f) return;
+    api.request<Lead>(`/leads/${f}`).then((l) => l && setDetail(l)).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [toDelete, setToDelete] = useState<Lead | null>(null);
   const [busy, setBusy] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
