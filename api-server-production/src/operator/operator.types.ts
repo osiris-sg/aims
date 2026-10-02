@@ -97,6 +97,9 @@ export interface OperatorContext {
 
 /** An action held awaiting the user's explicit confirmation. */
 export interface PendingAction {
+  /** The uploaded invoice this card is about — re-sent with the Confirm
+   *  buttons so the user sees WHAT they are confirming (guru 2026-10-02). */
+  attachment?: { url: string; filename: string } | null;
   /** Unique per card. The Confirm/Cancel buttons carry it, so a tap acts on the
    *  card it was shown under — not on whatever happens to be pending now. */
   id?: string;
@@ -132,4 +135,7 @@ export interface SessionState {
   /** An uploaded invoice awaiting a project pick (tapped from buttons). */
   pendingUpload?: OperatorContext['upload'] | null;
   pendingUploadAt?: string | null;
+  /** Finished cards (confirmed/cancelled) — a re-tap on an old button answers
+   *  honestly instead of "expired" or silently redoing the action. */
+  doneActions?: Array<{ id: string; summary: string; result: 'confirmed' | 'cancelled' | 'failed'; at: string }>;
 }

@@ -11,6 +11,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Drawer, Paper, Stack, Tooltip, Typography, useMediaQuery, useTheme } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import MergeIcon from "@mui/icons-material/CallMergeRounded";
+import LibraryAddIcon from "@mui/icons-material/LibraryAddOutlined";
 import { toast } from "react-toastify";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useIdQuoteApi, ApiError } from "../_lib/api";
@@ -381,6 +382,48 @@ export default function IdQuotationEditorPage() {
     },
     [allItemIds],
   );
+  // Save ticked lines into the Work Library (managers only, guru 2026-10-02).
+  const [savingToLibrary, setSavingToLibrary] = useState(false);
+  const saveSelectedToLibrary = async () => {
+    setSavingToLibrary(true);
+    try {
+      const accountCode = library[0]?.accountCode || "200";
+      let added = 0, skipped = 0;
+      for (const sec of quote.sections) {
+        const sectionId = presets.find((p) => p.title.toLowerCase() === (sec.title || "").toLowerCase())?.id || presets[0]?.id || null;
+        for (const area of sec.areas) {
+          for (const it of area.items) {
+            if (!selected.has(it.id)) continue;
+            if (it.workItemId) { skipped++; continue; } // already from the library
+            if (!it.description?.trim()) { skipped++; continue; }
+            const qty = Number(it.qty) || 1;
+            const created = await api.createWorkItem({
+              name: it.description.trim().slice(0, 120),
+              type: "SERVICE",
+              descriptionTemplate: it.description.trim(),
+              unitPrice: it.amount != null ? Math.round((Number(it.amount) / qty) * 100) / 100 : null,
+              unitCost: it.cost != null ? Math.round((Number(it.cost) / qty) * 100) / 100 : null,
+              uom: it.uom || "nos",
+              pricingMode: it.pricingMode || "priced",
+              includes: (it.includes || []).map((i) => ({ text: i.text, qty: i.qty ?? 1 })),
+              workSectionId: sectionId,
+              accountCode,
+              isActive: true,
+            });
+            setLibrary((ls) => [created, ...ls]);
+            added++;
+          }
+        }
+      }
+      toast.success(`${added} line${added === 1 ? "" : "s"} added to the Work Library${skipped ? ` (${skipped} skipped — already from the library or empty)` : ""}`);
+      setSelected(new Set());
+    } catch (e: any) {
+      toast.error(e.message || "Could not save to the library");
+    } finally {
+      setSavingToLibrary(false);
+    }
+  };
+
   const deleteSelected = () => {
     update((q) => ({
       ...q,
@@ -617,6 +660,13 @@ export default function IdQuotationEditorPage() {
               </Button>
             </span>
           </Tooltip>
+          {canManage && (
+            <Tooltip title="Add the ticked lines to the Work Library so they're reusable in future quotations (managers only)">
+              <Button size="small" startIcon={<LibraryAddIcon />} disabled={savingToLibrary} onClick={saveSelectedToLibrary} sx={{ textTransform: "none" }}>
+                {savingToLibrary ? "Saving…" : "Save to library"}
+              </Button>
+            </Tooltip>
+          )}
           <Button size="small" onClick={() => setSelected(new Set())} sx={{ textTransform: "none", color: "text.secondary" }}>
             Clear
           </Button>
@@ -629,6 +679,12 @@ export default function IdQuotationEditorPage() {
         sections={presets}
         targetSectionTitle={paletteSection?.title || null}
         guidelinePct={quote.settings.marginGuidelinePct}
+        canEdit={canManage}
+        onEdit={async (wid, patch) => {
+          const updated = await api.updateWorkItem(wid, patch);
+          setLibrary((ls) => ls.map((w) => (w.id === wid ? { ...w, ...updated } : w)));
+          toast.success("Library item updated");
+        }}
         onClose={() => setPalette(null)}
         onPick={(item) => {
           if (palette) addItemToArea(palette.sectionId, palette.areaId, item);

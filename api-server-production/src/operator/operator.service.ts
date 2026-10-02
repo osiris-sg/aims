@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
+import { matchProjectByAddress } from '../common/address-match';
 import { OperatorAuthService } from './operator-auth.service';
 import { OperatorToolsService } from './operator-tools.service';
 import { TelegramAdapter } from './adapters/telegram.adapter';
@@ -311,10 +312,7 @@ export class OperatorService {
         session.pendingUpload = null;
         this.holdPending(session, held);
         await this.saveSession(msg.channel, msg.channelUserId, session);
-        await adapter.sendButtons(msg.chatId, `${held.summary}\n\nConfirm?`, [
-          { label: '✅ Confirm', data: `confirm:${held.id}` },
-          { label: '❌ Cancel', data: `cancel:${held.id}` },
-        ]);
+        await this.sendPendingCard(adapter, msg.chatId, held);
         return;
       }
       await adapter.sendText(
@@ -350,7 +348,7 @@ export class OperatorService {
     const who = e.supplierName || 'this supplier';
 
     // Pick a project: the only one, or a confident site-address match.
-    let chosen = projects.length === 1 ? projects[0] : this.matchProjectByAddress(e.siteAddress, projects);
+    let chosen = projects.length === 1 ? projects[0] : matchProjectByAddress(e.siteAddress, projects);
 
     if (chosen) {
       ctx.upload = up;
@@ -360,10 +358,7 @@ export class OperatorService {
         session.pendingAction = outcome.pending;
         this.holdPending(session, outcome.pending);
         await this.saveSession(msg.channel, msg.channelUserId, session);
-        await adapter.sendButtons(msg.chatId, `${outcome.pending.summary}\n\nConfirm?`, [
-          { label: '✅ Confirm', data: `confirm:${outcome.pending.id}` },
-          { label: '❌ Cancel', data: `cancel:${outcome.pending.id}` },
-        ]);
+        await this.sendPendingCard(adapter, msg.chatId, outcome.pending);
       } else {
         await this.saveSession(msg.channel, msg.channelUserId, session);
         await adapter.sendText(msg.chatId, outcome.result?.error || "I couldn't record that cost.");
@@ -413,27 +408,6 @@ export class OperatorService {
 
   /** Confident site-address match: score projects by shared distinctive tokens
    *  (numbers weigh more), return the clear winner or null. */
-  private matchProjectByAddress(
-    siteAddress: string | null | undefined,
-    projects: Array<{ id: string; name: string; address: string | null; customer: string | null }>,
-  ): (typeof projects)[number] | null {
-    if (!siteAddress) return null;
-    const norm = (s: any) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-    const invTokens = new Set(norm(siteAddress).split(' ').filter((t) => t.length >= 2));
-    if (!invTokens.size) return null;
-    const scoreFor = (p: (typeof projects)[number]) => {
-      const ptoks = new Set(norm(`${p.name} ${p.address || ''}`).split(' ').filter(Boolean));
-      let score = 0;
-      for (const t of ptoks) if (invTokens.has(t)) score += /[0-9]/.test(t) ? 2 : 1;
-      return score;
-    };
-    const scored = projects.map((p) => ({ p, s: scoreFor(p) })).sort((a, b) => b.s - a.s);
-    const [best, second] = scored;
-    // Confident: clears a threshold AND clearly beats the runner-up.
-    if (best && best.s >= 4 && (!second || best.s >= second.s + 3)) return best.p;
-    return null;
-  }
-
   private projectButtonLabel(p: { name: string; customer: string | null }): string {
     return (p.name || p.customer || 'Project').slice(0, 20);
   }
@@ -559,10 +533,7 @@ export class OperatorService {
     }
 
     if (pendingFromTools) {
-      await adapter.sendButtons(msg.chatId, `${pendingFromTools.summary}\n\nConfirm?`, [
-          { label: '✅ Confirm', data: `confirm:${pendingFromTools.id}` },
-          { label: '❌ Cancel', data: `cancel:${pendingFromTools.id}` },
-        ]);
+      await this.sendPendingCard(adapter, msg.chatId, pendingFromTools);
     }
     } catch (e: any) {
       // Never leave the user staring at a status line. Drop the (possibly
@@ -774,10 +745,7 @@ export class OperatorService {
         session.pendingAction = outcome.pending;
         this.holdPending(session, outcome.pending);
         await this.saveSession(msg.channel, msg.channelUserId, session);
-        await adapter.sendButtons(msg.chatId, `${outcome.pending.summary}\n\nConfirm?`, [
-          { label: '✅ Confirm', data: `confirm:${outcome.pending.id}` },
-          { label: '❌ Cancel', data: `cancel:${outcome.pending.id}` },
-        ]);
+        await this.sendPendingCard(adapter, msg.chatId, outcome.pending);
       } else {
         await this.saveSession(msg.channel, msg.channelUserId, session);
         await adapter.sendText(msg.chatId, outcome.result?.error || "I couldn't record that cost.");
@@ -786,22 +754,56 @@ export class OperatorService {
     }
 
     if (data === 'cancel' || data.startsWith('cancel:')) {
-      const dropped = this.takePending(session, data.startsWith('cancel:') ? data.slice(7) : '');
+      const id = data.startsWith('cancel:') ? data.slice(7) : '';
+      const dropped = this.takePending(session, id);
+      if (dropped) this.markDone(session, dropped, 'cancelled');
       await this.saveSession(msg.channel, msg.channelUserId, session);
+      const done = !dropped && (session.doneActions || []).find((d) => d.id === id);
       await adapter.sendText(
         msg.chatId,
-        dropped ? 'Cancelled. Nothing was changed.' : 'That one is no longer waiting, so nothing was changed.',
+        dropped ? `❌ Cancelled — ${dropped.summary}. Nothing was changed.` : done ? this.doneReply(done) : 'That one is no longer waiting, so nothing was changed.',
       );
       return;
     }
     if (data.startsWith('confirm:')) {
-      const chosen = this.takePending(session, data.slice(8));
+      const id = data.slice(8);
+      const chosen = this.takePending(session, id);
       if (!chosen) {
-        await adapter.sendText(msg.chatId, 'That confirmation has expired. Ask me again and I’ll redo it.');
+        // The card may already be finished — say so instead of "expired".
+        const done = (session.doneActions || []).find((d) => d.id === id);
+        await adapter.sendText(msg.chatId, done ? this.doneReply(done) : 'That confirmation has expired. Ask me again and I’ll redo it.');
         return;
       }
       await this.executePending(ctx, adapter, msg, session, chosen);
     }
+  }
+
+  /** Send a confirmation card: the invoice itself first (so the user sees
+   *  WHAT they're confirming — guru 2026-10-02), then the Confirm buttons. */
+  private async sendPendingCard(adapter: ChannelAdapter, chatId: string, pending: PendingAction): Promise<void> {
+    if (pending.attachment?.url) {
+      await adapter
+        .sendDocument(chatId, pending.attachment.url, pending.attachment.filename || 'invoice.pdf', '📎 This is what you are confirming:')
+        .catch(() => null);
+    }
+    await adapter.sendButtons(chatId, `${pending.summary}\n\nConfirm?`, [
+      { label: '\u2705 Confirm', data: `confirm:${pending.id}` },
+      { label: '\u274c Cancel', data: `cancel:${pending.id}` },
+    ]);
+  }
+
+  /** Remember a finished card so a re-tap answers honestly. */
+  private markDone(session: SessionState, pending: PendingAction, result: 'confirmed' | 'cancelled' | 'failed') {
+    const list = session.doneActions || [];
+    list.push({ id: pending.id || '', summary: pending.summary || '', result, at: new Date().toISOString() });
+    session.doneActions = list.slice(-6);
+  }
+
+  private doneReply(d: { summary: string; result: string; at: string }): string {
+    const t = new Date(d.at).toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Singapore' });
+    if (d.result === 'confirmed') return `✅ Already confirmed at ${t} — ${d.summary}. I didn't do it a second time.`;
+    if (d.result === 'cancelled') return `❌ That card was cancelled at ${t} — nothing was changed.`;
+    return `⚠️ That one failed at ${t} — ask me again to retry.`;
   }
 
   /** Hold a card and return its id for the buttons. Keeps the last few so a
@@ -849,8 +851,10 @@ export class OperatorService {
       };
     }
     session.pendingAction = null;
+    this.markDone(session, pending, res.ok ? 'confirmed' : 'failed');
     await this.saveSession(msg.channel, msg.channelUserId, session);
-    await adapter.sendText(msg.chatId, res.message);
+    // The card "becomes confirmed": the reply always leads with the outcome.
+    await adapter.sendText(msg.chatId, res.ok ? (/^✅/.test(res.message) ? res.message : `✅ Confirmed — ${res.message}`) : res.message);
 
     // Hand the outcome back to the model so multi-step work continues.
     //
@@ -917,6 +921,7 @@ export class OperatorService {
       pendingActions,
       pendingUpload: uploadFresh ? state.pendingUpload : null,
       pendingUploadAt: uploadFresh ? state.pendingUploadAt : null,
+      doneActions: Array.isArray(state.doneActions) ? state.doneActions.slice(-6) : [],
     } as SessionState;
   }
 

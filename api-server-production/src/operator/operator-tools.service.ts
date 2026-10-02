@@ -235,7 +235,29 @@ export class OperatorToolsService {
       return { result: { error: `You do not have permission to ${name} (needs ${tool.permissions.join(', ')}).` } };
     }
     try {
-      return await tool.run(ctx, args || {});
+      const outcome = await tool.run(ctx, args || {});
+      // GLOBAL (guru 2026-10-02): EVERY confirmation card shows WHAT is being
+      // confirmed — all tools, all orgs. An in-context upload rides as-is;
+      // otherwise a document-backed card (confirm/post/pay/email a doc)
+      // attaches that document's own PDF. Best-effort: a missing PDF never
+      // blocks the card.
+      if (outcome?.pending && !outcome.pending.attachment) {
+        if ((ctx.upload as any)?.attachmentUrl) {
+          outcome.pending.attachment = { url: (ctx.upload as any).attachmentUrl, filename: ctx.upload?.filename || 'upload.pdf' };
+        } else if ((outcome.pending as any).documentId) {
+          try {
+            const docId = (outcome.pending as any).documentId as string;
+            const url = await this.documents.getOrGeneratePdfUrl(docId, ctx.organizationId);
+            if (url) {
+              const doc = await this.prisma.document.findFirst({ where: { id: docId, organizationId: ctx.organizationId }, select: { name: true, type: true } });
+              outcome.pending.attachment = { url, filename: `${doc?.name || doc?.type || 'document'}.pdf` };
+            }
+          } catch (e: any) {
+            this.logger.warn(`pending-card PDF skipped for ${name}: ${e?.message}`);
+          }
+        }
+      }
+      return outcome;
     } catch (e: any) {
       this.logger.error(`tool ${name} failed: ${e.message}`);
       return { result: { error: e?.message || 'Tool failed' } };
@@ -1151,6 +1173,7 @@ export class OperatorToolsService {
             args.description ?? up?.extracted.description ?? (supplierName ? `${supplierName} invoice` : 'Project cost');
           const cur = up?.extracted.currency || 'SGD';
           const pending: PendingAction = {
+            attachment: up?.attachmentUrl ? { url: up.attachmentUrl, filename: up.filename || 'invoice.pdf' } : null,
             kind: 'add_project_cost',
             summary: `Add cost to ${proj.name}: ${supplierName || 'supplier'} ${invoiceNo ? '(' + invoiceNo + ') ' : ''}${cur} ${amount.toFixed(2)}`,
             args: {

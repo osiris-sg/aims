@@ -67,6 +67,9 @@ export function useIdQuoteApi() {
       marginAlert: (id: string, body: { marginPct: number | null; floorPct: number; lines: string[] }) =>
         request(`/documents/${id}/margin-alert`, { method: "POST", body: JSON.stringify(body) }),
       listWorkItems: () => request<WorkItem[]>(`/revenue-items?workOnly=true&activeOnly=true`),
+      // Manager-only in the UI; the API enforces accounting:update anyway.
+      updateWorkItem: (id: string, body: any) => request<WorkItem>(`/revenue-items/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+      createWorkItem: (body: any) => request<WorkItem>(`/revenue-items`, { method: "POST", body: JSON.stringify(body) }),
       // Users pickable as the quotation's Designer: only holders of the
       // "Designer" role. Falls back to everyone ONLY when the org has no
       // designer users yet (so the picker isn't uselessly empty during setup).
