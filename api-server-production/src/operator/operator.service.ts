@@ -851,6 +851,42 @@ export class OperatorService {
     session.pendingAction = null;
     await this.saveSession(msg.channel, msg.channelUserId, session);
     await adapter.sendText(msg.chatId, res.message);
+
+    // Hand the outcome back to the model so multi-step work continues.
+    //
+    // A confirmation used to END the turn. Asked to post TWO invoices, the
+    // agent could only hold one pending action, posted it, and stopped — the
+    // second stayed a draft with nothing said about it (guru 2026-10-02).
+    // Each further step still needs its own tap, so this cannot run away.
+    if (res.ok) {
+      await this.continueAfterConfirm(ctx, adapter, msg, pending, res.message);
+    }
+  }
+
+  /** Resume the user's request after a confirmed step, if anything is left. */
+  private async continueAfterConfirm(
+    ctx: OperatorContext,
+    adapter: ChannelAdapter,
+    msg: InboundMessage,
+    done: PendingAction,
+    outcome: string,
+  ): Promise<void> {
+    try {
+      const session = await this.loadSession(msg.channel, msg.channelUserId);
+      await this.runAgent(
+        ctx,
+        adapter,
+        msg,
+        session,
+        `[system] The user tapped Confirm and this completed: ${done.summary} -> ${outcome}\n` +
+          `If anything from their earlier request is still outstanding (another document to confirm, a second invoice, a remaining step), do it now. ` +
+          `If nothing remains, say nothing further — do NOT repeat the confirmation or start new work.`,
+      );
+    } catch (e: any) {
+      // The action itself already succeeded and was reported; a failed
+      // continuation must not make it look otherwise.
+      this.logger.warn(`continueAfterConfirm failed: ${e?.message}`);
+    }
   }
 
   // ── Session ───────────────────────────────────────────────────────────────
