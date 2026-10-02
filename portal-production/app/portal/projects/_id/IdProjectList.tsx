@@ -10,6 +10,7 @@ import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { kebabColumn } from "@/components/RowKebab";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
+import MassCostUpload from "./MassCostUpload";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import type { FilterField } from "@/components/FilterDrawer";
 import { toast } from "react-toastify";
@@ -45,6 +46,7 @@ export default function IdProjectList() {
   // New project (CIEL 09-01): projects start BEFORE the quotation — from an
   // assigned lead, a referral, or the designer's own client.
   const [createOpen, setCreateOpen] = useState(false);
+  const [massUploadOpen, setMassUploadOpen] = useState(false);
   // Dashboard's "Create project" deep-links here with ?new=1 → open the dialog.
   const searchParams = useSearchParams();
   useEffect(() => {
@@ -210,6 +212,8 @@ export default function IdProjectList() {
       <PageTable
         onRowClick={(r: any) => router.push(`/portal/projects/${r.id}`)}
         tableName="Projects"
+        buttonName="Upload invoices"
+        onAddClick={() => setMassUploadOpen(true)}
         subTitle="Every signed quotation becomes a project — costing, payments and profit live here"
         columns={columns as any}
         data={rows}
@@ -269,6 +273,7 @@ export default function IdProjectList() {
           </Button>
         </DialogActions>
       </Dialog>
+      <MassCostUpload open={massUploadOpen} onClose={() => setMassUploadOpen(false)} onSaved={load} />
       <DeleteItemDialogNoConfirm
         open={!!toDelete}
         onCancel={() => setToDelete(null)}

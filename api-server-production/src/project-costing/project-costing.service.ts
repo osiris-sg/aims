@@ -354,6 +354,50 @@ export class ProjectCostingService {
    * attachment upload. Returns a DRAFT cost for the user (or the WhatsApp
    * agent) to confirm; nothing is written to the ledger here.
    */
+  /** Mass upload (guru 2026-10-02): extract an invoice with NO project chosen
+   *  and suggest the project by matching the invoice's site address — same
+   *  scorer as the WhatsApp agent. Candidates are tier-scoped. */
+  async extractCostAny(organizationId: string, base64Data: string, filename?: string, callerUserId?: string) {
+    if (!base64Data) throw new BadRequestException('No file provided');
+    const headerMatch = base64Data.match(/^data:([a-zA-Z/+.-]+);base64,/);
+    const mediaType = (headerMatch?.[1] || 'image/jpeg') as any;
+    const raw = base64Data.slice(base64Data.indexOf(',') + 1);
+    const ext = mediaType === 'application/pdf' ? 'pdf' : mediaType.includes('png') ? 'png' : mediaType.includes('webp') ? 'webp' : 'jpg';
+    const key = `project-costs/${organizationId}/unassigned/${Date.now()}-${(filename || 'invoice').replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
+    const [attachmentUrl, extracted] = await Promise.all([
+      this.s3.uploadFile(key, Buffer.from(raw, 'base64'), mediaType),
+      this.bills.extractFromFile(organizationId, base64Data, mediaType).catch(() => null),
+    ]);
+    const lines: any[] = Array.isArray(extracted?.lines) ? extracted.lines : [];
+    const description = lines.length ? lines.map((l) => String(l.description || '').split('\n')[0]).filter(Boolean).slice(0, 4).join('; ') : '';
+
+    const scope = await resolveTier(this.prisma, organizationId, callerUserId);
+    const projWhere: any = { organizationId, status: { not: 'completed' } };
+    if (scope.tier === 'designer') projWhere.designerUserId = callerUserId;
+    else if (scope.tier === 'junior') projWhere.designerUserId = { in: scope.teamUserIds || [callerUserId] };
+    const projects = (await this.prisma.project.findMany({ where: projWhere, select: { id: true, name: true, address: true } })).map((p) => ({ ...p, customer: null }));
+    const { matchProjectByAddress, rankProjectsByAddress } = await import('../common/address-match');
+    const siteAddress = (extracted as any)?.siteAddress || null;
+    const match = matchProjectByAddress(siteAddress, projects);
+    const candidates = rankProjectsByAddress(siteAddress, projects, 5).map((c) => ({ id: c.id, name: c.name, score: c.score }));
+
+    return {
+      attachmentUrl,
+      attachmentKey: key,
+      supplierName: extracted?.supplierName || null,
+      invoiceNo: extracted?.billNumber || null,
+      date: extracted?.billDate || null,
+      amount: num(extracted?.totalAmount) || num(extracted?.subtotal) || null,
+      description: description || (extracted?.supplierName ? `${extracted.supplierName} invoice` : ''),
+      currency: extracted?.currency || 'SGD',
+      siteAddress,
+      matchedProjectId: match?.id || null,
+      matchedProjectName: match?.name || null,
+      candidates,
+      extracted: !!extracted,
+    };
+  }
+
   async extractCost(projectId: string, organizationId: string, base64Data: string, filename?: string) {
     await this.project(projectId, organizationId);
     if (!base64Data) throw new BadRequestException('No file provided');

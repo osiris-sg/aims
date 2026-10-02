@@ -157,6 +157,13 @@ export class ProjectCostingController {
     return this.service.addCost(id, orgId(req), body, actorName(req));
   }
 
+  // Mass upload: extract with no project chosen; suggests one by address.
+  @Post('costs/extract-any')
+  @Permissions('projects:update')
+  extractCostAny(@Body() body: { file: string; filename?: string }, @Req() req: RequestWithOrganization) {
+    return this.service.extractCostAny(orgId(req), body?.file, body?.filename, req.user?.id);
+  }
+
   @Post(':id/costs/extract')
   @Permissions('projects:update')
   extractCost(@Param('id') id: string, @Body() body: { file: string; filename?: string }, @Req() req: RequestWithOrganization) {
