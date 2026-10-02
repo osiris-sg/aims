@@ -89,7 +89,10 @@ export class IngestionEmailService {
     const attachmentCount = payload.attachments?.length ?? 0;
 
     // 3. Sender allow-list — full address or @domain suffix; empty = accept all.
-    if (!this.senderIsWatched(fromEmail, config.watchedSenders)) {
+    // Lead emails are exempt (guru 2026-10-02: an "Orange Network" lead died
+    // here because only @ezid.sg was watched — a PAID lead must never be
+    // dropped over config; the lead detector is subject/sender-specific).
+    if (!looksLikeLeadEmail(fromEmail, payload.subject) && !this.senderIsWatched(fromEmail, config.watchedSenders)) {
       await this.createLog(organizationId, messageId, payload, 'IGNORED', 'sender-not-watched', attachmentCount);
       return { ok: false, reason: 'sender-not-watched' };
     }

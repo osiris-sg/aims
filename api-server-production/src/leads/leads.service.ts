@@ -98,14 +98,14 @@ export class LeadsService {
   ) {}
 
   // ── EZiD: deterministic parse of the plain-text field list ───────────────
-  private parseEzid(text: string): LeadDto | null {
+  private parseEzid(text: string, opts: { network?: boolean } = {}): LeadDto | null {
     const grab = (label: string) => {
       const m = text.match(new RegExp(`${label}\\s*:\\s*([^\\n]+)`, 'i'));
       return m?.[1]?.trim() || null;
     };
-    const name = grab('First Name') || grab('Name');
+    const name = grab('Homeowner Name') || grab('First Name') || grab('Name');
     if (!name) return null;
-    const phoneRaw = grab('Phone No') || grab('Phone');
+    const phoneRaw = grab('Phone Number') || grab('Phone No') || grab('Phone');
     // "Phone No: 85118680 / WA 89582178 (verified)" — the line can carry TWO
     // numbers (call + WhatsApp). Split on separators and file each by its
     // label instead of mashing every digit into one 16-digit "number".
@@ -126,20 +126,26 @@ export class LeadsService {
     }
     // "Remarks for ID:" runs to the end of the message (multi-paragraph).
     const remarks = text.match(/Remarks for ID\s*:\s*([\s\S]+)$/i)?.[1]?.trim() || null;
+    const handledBy = grab('Lead Handled by');
     return {
-      source: 'ezid',
+      source: opts.network ? 'network' : 'ezid',
       name,
       email: grab('Email'),
       phone,
       whatsappPhone,
       phoneVerified: /verified/i.test(phoneRaw || ''),
-      propertyType: grab('Property Type'),
+      propertyType: grab('Property Type') || grab('Housing Type'),
       propertyRooms: grab('Property Rooms'),
       propertyStatus: grab('Property Status'),
       keyCollection: grab('Key Collection'),
       keyCollectionDate: grab('Key Collection Date'),
-      budget: grab('Renovation Budget'),
+      moveIn: grab('Move-In Date') || grab('Move In'),
+      location: grab('Location'),
+      areas: grab('Areas to Renovate'),
+      designStyle: grab('Design Style'),
+      budget: grab('Renovation Budget') || grab('Budget'),
       remarks,
+      ...(handledBy ? { approachNotes: `Lead handled by ${handledBy} (provider concierge)` } : {}),
     };
   }
 
@@ -232,13 +238,18 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       created.push(lead.id);
     }
 
-    // 2. EZiD plain-text body (only when no PDF lead was found in the mail).
+    // 2. Plain-text body (only when no PDF lead was found in the mail).
+    //    Covers EZiD's field list AND provider "lead distributed" mails
+    //    (e.g. Orange Network, 2026-10-02) whose labels differ slightly.
     if (!created.length && payload.text) {
-      const dto = this.parseEzid(payload.text);
+      const isNetwork = /lead distributed|lead programme|network/i.test(payload.subject || '') || /orangenetw/i.test(fromEmail);
+      const dto = this.parseEzid(payload.text, { network: isNetwork });
+      const receivedAt = new Date();
       const lead = await this.create(organizationId, {
-        ...(dto || { source: 'ezid', name: payload.subject || 'Unparsed lead', remarks: payload.text.slice(0, 4000), notes: 'Automatic parse failed — raw email kept in remarks' }),
+        ...(dto || { source: isNetwork ? 'network' : 'ezid', name: payload.subject?.replace(/^new lead distributed:\s*/i, '') || 'Unparsed lead', remarks: payload.text.slice(0, 4000), notes: 'Automatic parse failed — raw email kept in remarks' }),
         emailFrom: fromEmail,
         emailSubject: payload.subject || null,
+        ...(isNetwork ? { receivedAt, firstContactDeadline: new Date(receivedAt.getTime() + DAY), replacementDeadline: new Date(receivedAt.getTime() + 14 * DAY) } : {}),
       } as any);
       created.push(lead.id);
     }
