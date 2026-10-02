@@ -217,7 +217,7 @@ function main() {
   client.on('qr', async (qr) => {
     const ascii = await qrcode.toString(qr, { type: 'terminal', small: true });
     console.log('\n📱 Scan this QR from the posting number (WhatsApp Business → Linked devices → Link a device):\n' + ascii);
-    console.log('QR_RAW::' + qr);
+    console.log(`QR_RAW:: ${qr}`); // one line, so it can be copied out of the log
   });
   client.on('authenticated', () => console.log('🔐 authenticated'));
   client.on('disconnected', (r) => {
