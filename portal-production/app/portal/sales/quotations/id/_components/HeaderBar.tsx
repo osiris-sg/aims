@@ -26,8 +26,6 @@ interface Props {
   readOnly: boolean;
   /** Confirmed doc: opens the edit-after-confirm warning. */
   onUnlockEdit?: () => void;
-  /** Locks an unlocked confirmed doc back to read-only (clears the unlock). */
-  onRelock?: () => void;
   onBack: () => void;
   onPreview: () => void;
   /** Managers and up — absent hides the Confirm button. */
@@ -55,7 +53,7 @@ const SAVE_LABEL: Record<SaveState, { text: string; icon: React.ReactNode; color
   conflict: { text: "Updated elsewhere — reload", icon: <ErrorOutlineIcon fontSize="small" />, color: "error.main" },
 };
 
-export default function HeaderBar({ number, clientName, status, saveState, internalView, onInternalView, readOnly, onUnlockEdit, onRelock, onBack, onPreview, onConfirm, onSaveNow, onToggleRail, onSendForSignature, canUndo, onUndo, designerSigned, onDesignerSign, signedBy, onRevertSignature, project, onOpenProject }: Props) {
+export default function HeaderBar({ number, clientName, status, saveState, internalView, onInternalView, readOnly, onUnlockEdit, onBack, onPreview, onConfirm, onSaveNow, onToggleRail, onSendForSignature, canUndo, onUndo, designerSigned, onDesignerSign, signedBy, onRevertSignature, project, onOpenProject }: Props) {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down("md"));
   const save = SAVE_LABEL[saveState];
@@ -140,13 +138,6 @@ export default function HeaderBar({ number, clientName, status, saveState, inter
         Preview
       </Button>
       {!readOnly ? (
-        status === "confirmed" ? (
-          // Unlocked state must be reversible (guru 2026-10-03: "i unlocked it
-          // but why isn't it confirmed again") — clicking locks it back.
-          <Tooltip title="Editing a confirmed document — every save is recorded in its history. Click to finish and lock it again.">
-            <Chip size="small" color="warning" variant="outlined" icon={<CheckCircleIcon />} label="Confirmed · editing — lock" onClick={onRelock} data-tour="idq-relock" />
-          </Tooltip>
-        ) : (
         <>
           <Button size="small" variant="outlined" startIcon={<DrawIcon />} onClick={onSendForSignature} data-tour="idq-send-signature">
             {compact ? "Sign" : "Send for signature"}
@@ -159,7 +150,6 @@ export default function HeaderBar({ number, clientName, status, saveState, inter
             </Tooltip>
           )}
         </>
-        )
       ) : (
         <>
           {onDesignerSign && (
@@ -170,7 +160,7 @@ export default function HeaderBar({ number, clientName, status, saveState, inter
             </Tooltip>
           )}
           {designerSigned && <Chip size="small" color="success" variant="outlined" icon={<DrawIcon />} label="Countersigned" />}
-          <Tooltip title="Unlock to edit — the unlock and every save are recorded in the document history">
+          <Tooltip title="Unlock to edit: the quotation goes back to unconfirmed so it can be changed, then Confirm again. The contract number is kept and the whole round trip is recorded in its history.">
             <Chip size="small" color="primary" variant="outlined" label={onUnlockEdit ? "Confirmed · unlock to edit" : "Confirmed · read-only"} onClick={onUnlockEdit} data-tour="idq-unlock-edit" />
           </Tooltip>
         </>

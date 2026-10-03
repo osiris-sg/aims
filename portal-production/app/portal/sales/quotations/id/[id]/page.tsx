@@ -82,10 +82,12 @@ export default function IdQuotationEditorPage() {
   // enforces the same rule.
   const { userRoles } = useUserPermissions();
   const canManage = userRoles.length === 0 || userRoles.some((r: any) => !["Designer", "Marketing"].includes(r?.name));
-  const [editUnlocked, setEditUnlocked] = useState(false);
   const [unlockWarnOpen, setUnlockWarnOpen] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
   const confirmed = doc?.status === "confirmed";
-  const readOnly = confirmed && !editUnlocked;
+  // Unlocking REVERTS the quotation to unconfirmed (guru 2026-10-03), so the
+  // status alone says whether it is editable — there is no local unlock flag.
+  const readOnly = confirmed;
   const designerSigned = !!(doc?.config?.designerSignature);
 
   // ── load ──────────────────────────────────────────────────────────────
@@ -540,10 +542,6 @@ export default function IdQuotationEditorPage() {
     <Box sx={{ minHeight: "100%", width: "100%", maxWidth: "100%", overflowX: "hidden", bgcolor: "background.default" }}>
       <HeaderBar
         onUnlockEdit={canManage ? () => setUnlockWarnOpen(true) : undefined}
-        onRelock={async () => {
-          if (dirtyRef.current) await save();
-          setEditUnlocked(false);
-        }}
         number={doc.name}
         clientName={quote.header.clientName}
         status={doc.status}
@@ -578,7 +576,7 @@ export default function IdQuotationEditorPage() {
         designerSigned={designerSigned}
         onDesignerSign={signedBy && !designerSigned ? () => setDesignerSignOpen(true) : undefined}
         signedBy={signedBy}
-        onRevertSignature={canManage && confirmed ? () => setRevertOpen(true) : undefined}
+        onRevertSignature={canManage && signedBy ? () => setRevertOpen(true) : undefined}
         project={project}
         onOpenProject={() => project && router.push(`/portal/projects/${project.id}`)}
       />
@@ -737,7 +735,10 @@ export default function IdQuotationEditorPage() {
             {doc?.name || "This quotation"} is already confirmed{doc?.config?.clientSignature ? " and signed by the client" : ""}. Are you sure you want to edit it?
           </Typography>
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            The unlock and every change you save will be recorded in the document&apos;s history under your name.
+            It goes back to UNCONFIRMED so it can be edited, and has to be confirmed again afterwards (or re-sent for
+            signature). The contract number {doc?.name ? <b>{doc.name}</b> : null} is kept and the linked project is not
+            touched.{doc?.config?.clientSignature ? " The client's signature is removed, so they would have to sign again." : ""}{" "}
+            The unlock, the status change and every save are recorded in the document&apos;s history under your name.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -745,14 +746,29 @@ export default function IdQuotationEditorPage() {
           <Button
             variant="contained"
             color="warning"
-            onClick={() => {
-              setUnlockWarnOpen(false);
-              setEditUnlocked(true);
-              // Fire-and-forget: the trail shows when the session began.
-              api.logEditUnlock(id).catch(() => {});
+            disabled={unlocking}
+            onClick={async () => {
+              setUnlocking(true);
+              try {
+                // Both halves are tracked: log-edit-unlock records WHO opened
+                // it, revert-signature records the status change and keeps the
+                // contract number. Awaited — a failed revert must not leave
+                // the editor pretending to be unlocked.
+                await api.logEditUnlock(id).catch(() => {});
+                await api.revertSignature(id);
+                toast.success("Back to unconfirmed — edit, then Confirm again. Contract number kept.");
+                // Full reload like the revert-to-draft path: signedBy, the
+                // project chip and the sign-link state all re-derive, so
+                // nothing keeps claiming the quotation is signed.
+                window.location.reload();
+              } catch (e: any) {
+                toast.error(e?.message || "Could not unlock the quotation");
+              } finally {
+                setUnlocking(false);
+              }
             }}
           >
-            Yes, edit document
+            {unlocking ? "Unlocking…" : "Yes, edit document"}
           </Button>
         </DialogActions>
       </Dialog>
