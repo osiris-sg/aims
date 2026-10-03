@@ -900,6 +900,23 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       },
     });
     await this.waSend(line, from, { type: 'text', text: { body: `✅ ${lead.name} assigned to ${name}` } }, `assigned to ${name}`).catch(() => null);
+    await this.notifyAssignedDesigner(lead, userId, line);
+    await this.notifications
+      .emit({ organizationId: lead.organizationId, kind: 'lead_assigned', title: `Lead ${lead.name} → ${name}`, body: 'Assigned via WhatsApp', forUserId: userId })
+      .catch(() => null);
+  }
+
+  /**
+   * WhatsApp the lead brief (+ "💬 Message the lead" deep link) to the
+   * designer a lead was just assigned to. Shared by the WhatsApp assign-tap
+   * AND the portal dropdown (guru 2026-10-03: Mike assigned Emelda to Summer
+   * in the portal and Summer never got the brief — only the tap path sent it).
+   */
+  private async notifyAssignedDesigner(lead: any, userId: string, agentLine?: { organizationId: string; phoneNumberId: string; accessToken: string } | null) {
+    const line = agentLine || (await this.agentLine(lead.organizationId));
+    if (!line) return;
+    const designers = await this.designersOf(lead.organizationId);
+    const d = designers.find((x) => x.id === userId);
     const dnum = String(d?.whatsappNumber || '').replace(/\D/g, '');
     if (dnum) {
       const brief = [
@@ -946,14 +963,21 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
             },
           },
           body,
-        ).catch((e) => this.logger.warn(`Designer notify failed: ${e.message}`));
+        ).catch(async (e) => {
+          // Closed 24h window (guru 2026-10-02, Emelda→Summer: the brief
+          // FAILED silently) → deliver the essentials through the approved
+          // template instead — it lands any time, and the wa.me link still
+          // works as plain text. The designer replying re-opens the window.
+          this.logger.warn(`Designer notify failed: ${e.message} — sending template fallback`);
+          await this.sendNotifyTemplate(line, dnum, `New lead assigned to you — ${lead.name}. Message them now: ${waUrl.split('?')[0]} · Full details in AIMS → Sales → Leads.`).catch((e2) => this.logger.warn(`Designer notify template fallback failed: ${e2.message}`));
+        });
       } else {
-        await this.waSend(line, dnum, { type: 'text', text: { body: brief } }, brief).catch((e) => this.logger.warn(`Designer notify failed: ${e.message}`));
+        await this.waSend(line, dnum, { type: 'text', text: { body: brief } }, brief).catch(async (e) => {
+          this.logger.warn(`Designer notify failed: ${e.message} — sending template fallback`);
+          await this.sendNotifyTemplate(line, dnum, `New lead assigned to you — ${lead.name}. Full details in AIMS → Sales → Leads.`).catch((e2) => this.logger.warn(`Designer notify template fallback failed: ${e2.message}`));
+        });
       }
     }
-    await this.notifications
-      .emit({ organizationId: lead.organizationId, kind: 'lead_assigned', title: `Lead ${lead.name} → ${name}`, body: 'Assigned via WhatsApp', forUserId: userId })
-      .catch(() => null);
   }
 
   /**
@@ -1036,7 +1060,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       if (!isManualSource(existing.source)) throw new BadRequestException('This lead was captured from email; its source cannot be changed');
     }
     const assigningNow = dto.assignedToUserId !== undefined && dto.assignedToUserId !== existing.assignedToUserId;
-    return this.prisma.lead.update({
+    const updated = await this.prisma.lead.update({
       where: { id: leadId },
       data: {
         ...Object.fromEntries(
@@ -1049,6 +1073,15 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         deadAt: dto.status === 'dead' ? new Date() : undefined,
       },
     });
+    // Portal-dropdown assignment must brief the designer on WhatsApp exactly
+    // like the assign-tap flow (fire-and-forget — never blocks the save).
+    if (assigningNow && dto.assignedToUserId) {
+      this.notifyAssignedDesigner(updated, dto.assignedToUserId).catch((e) => this.logger.warn(`Designer brief (portal assign) failed for ${leadId}: ${e?.message}`));
+      this.notifications
+        .emit({ organizationId, kind: 'lead_assigned', title: `Lead ${updated.name} → ${updated.assignedToName || 'designer'}`, body: 'Assigned from the portal', forUserId: dto.assignedToUserId })
+        .catch(() => null);
+    }
+    return updated;
   }
 
   /** Upload the no-reply proof (screenshot/PDF) and mark the lead dead in one step. */
