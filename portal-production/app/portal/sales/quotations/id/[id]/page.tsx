@@ -540,6 +540,10 @@ export default function IdQuotationEditorPage() {
     <Box sx={{ minHeight: "100%", width: "100%", maxWidth: "100%", overflowX: "hidden", bgcolor: "background.default" }}>
       <HeaderBar
         onUnlockEdit={canManage ? () => setUnlockWarnOpen(true) : undefined}
+        onRelock={async () => {
+          if (dirtyRef.current) await save();
+          setEditUnlocked(false);
+        }}
         number={doc.name}
         clientName={quote.header.clientName}
         status={doc.status}

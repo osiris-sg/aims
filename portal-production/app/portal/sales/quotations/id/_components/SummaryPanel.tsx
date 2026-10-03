@@ -51,6 +51,10 @@ function DecimalField({ value, onCommit, disabled, width, startAdornment, endAdo
       onBlur={() => setDraft(null)}
       inputProps={{ inputMode: "decimal", style: { textAlign: "right", width, padding: "4px 6px" } }}
       InputProps={{ ...(startAdornment ? { startAdornment } : {}), ...(endAdornment ? { endAdornment } : {}) }}
+      // The discount row pairs this with a fullWidth label field — without a
+      // shrink lock the flexbox squeezes this input and the digits clip
+      // ("2320" renders as "232…", guru 2026-10-03).
+      sx={{ flexShrink: 0 }}
     />
   );
 }

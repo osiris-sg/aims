@@ -26,6 +26,8 @@ interface Props {
   readOnly: boolean;
   /** Confirmed doc: opens the edit-after-confirm warning. */
   onUnlockEdit?: () => void;
+  /** Locks an unlocked confirmed doc back to read-only (clears the unlock). */
+  onRelock?: () => void;
   onBack: () => void;
   onPreview: () => void;
   /** Managers and up — absent hides the Confirm button. */
@@ -53,7 +55,7 @@ const SAVE_LABEL: Record<SaveState, { text: string; icon: React.ReactNode; color
   conflict: { text: "Updated elsewhere — reload", icon: <ErrorOutlineIcon fontSize="small" />, color: "error.main" },
 };
 
-export default function HeaderBar({ number, clientName, status, saveState, internalView, onInternalView, readOnly, onUnlockEdit, onBack, onPreview, onConfirm, onSaveNow, onToggleRail, onSendForSignature, canUndo, onUndo, designerSigned, onDesignerSign, signedBy, onRevertSignature, project, onOpenProject }: Props) {
+export default function HeaderBar({ number, clientName, status, saveState, internalView, onInternalView, readOnly, onUnlockEdit, onRelock, onBack, onPreview, onConfirm, onSaveNow, onToggleRail, onSendForSignature, canUndo, onUndo, designerSigned, onDesignerSign, signedBy, onRevertSignature, project, onOpenProject }: Props) {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down("md"));
   const save = SAVE_LABEL[saveState];
@@ -139,8 +141,10 @@ export default function HeaderBar({ number, clientName, status, saveState, inter
       </Button>
       {!readOnly ? (
         status === "confirmed" ? (
-          <Tooltip title="Edits to a confirmed document are recorded in its history">
-            <Chip size="small" color="warning" variant="outlined" label="Confirmed · editing" />
+          // Unlocked state must be reversible (guru 2026-10-03: "i unlocked it
+          // but why isn't it confirmed again") — clicking locks it back.
+          <Tooltip title="Editing a confirmed document — every save is recorded in its history. Click to finish and lock it again.">
+            <Chip size="small" color="warning" variant="outlined" icon={<CheckCircleIcon />} label="Confirmed · editing — lock" onClick={onRelock} data-tour="idq-relock" />
           </Tooltip>
         ) : (
         <>
