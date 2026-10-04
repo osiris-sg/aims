@@ -281,6 +281,33 @@ export class OperatorService {
 
   /** File an uploaded invoice as a project cost: match its site address to a
    *  project, else offer the projects as tappable buttons. */
+  /**
+   * Put an uploaded file into the conversation.
+   *
+   * handleUpload answers every upload itself and returns, so the model never
+   * learnt a file had arrived or what was in it. Asked "what's the total of
+   * the invoices I just forwarded", it had nothing to add up and listed
+   * recent documents instead — confidently, and wrongly (guru 2026-10-04).
+   *
+   * Recording each one as a turn means later questions are answered from the
+   * files themselves, and a batch can be totalled.
+   */
+  private rememberUpload(session: SessionState, up: NonNullable<OperatorContext['upload']>) {
+    const e: any = up.extracted || {};
+    const parts = [
+      up.filename ? `file: ${up.filename}` : null,
+      e.supplierName ? `from: ${e.supplierName}` : null,
+      e.invoiceNo ? `no: ${e.invoiceNo}` : null,
+      e.amount != null ? `amount: ${e.currency || 'SGD'} ${Number(e.amount).toFixed(2)}` : 'amount: not readable',
+      e.date ? `date: ${e.date}` : null,
+      e.description ? `lines: ${String(e.description).slice(0, 160)}` : null,
+    ].filter(Boolean);
+    session.history = [
+      ...(session.history || []),
+      { role: 'user' as const, content: `[the user forwarded a document] ${parts.join(' | ')}` },
+    ].slice(-40);
+  }
+
   private async handleUpload(
     ctx: OperatorContext,
     adapter: ChannelAdapter,
@@ -288,6 +315,14 @@ export class OperatorService {
     session: SessionState,
     up: OperatorContext['upload'] | null,
   ): Promise<void> {
+    // Record the file FIRST, ahead of every branch below — including the
+    // delivery one, which returns early. Saved immediately because not all
+    // branches save before returning.
+    if (up) {
+      this.rememberUpload(session, up);
+      await this.saveSession(msg.channel, msg.channelUserId, session);
+    }
+
     // A delivery held for want of its order? Then this upload IS that order.
     // Registering it here is the whole point: the gap was named, the file was
     // sent, the run is filled in — no extra step asked of the user.
