@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
+import { CHAT_UPLOAD_PROJECT_COST_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 import { matchProjectByAddress } from '../common/address-match';
 import { OperatorAuthService } from './operator-auth.service';
 import { OperatorToolsService } from './operator-tools.service';
@@ -336,6 +337,23 @@ export class OperatorService {
       );
       return;
     }
+    // Filing an uploaded invoice as a PROJECT COST is the ID-firm workflow, not
+    // a universal one. Off by default: an org that does not do project costing
+    // was being pushed into confirming a cost it has no use for. When it is
+    // off, hold the file and let the user say what it is — the agent can then
+    // act on it in the next turn.
+    const costUploadOn = await isOrgFeatureEnabled(this.prisma, ctx.organizationId, CHAT_UPLOAD_PROJECT_COST_FLAG);
+    if (!costUploadOn) {
+      session.pendingUpload = up;
+      await this.saveSession(msg.channel, msg.channelUserId, session);
+      const money = e?.amount != null ? ` (${e.currency || 'SGD'} ${Number(e.amount).toFixed(2)})` : '';
+      await adapter.sendText(
+        msg.chatId,
+        `Got the file${money}. What should I do with it?`,
+      );
+      return;
+    }
+
     const projects = await this.tools.listProjectsForMatch(ctx.organizationId);
     if (!projects.length) {
       await adapter.sendText(
