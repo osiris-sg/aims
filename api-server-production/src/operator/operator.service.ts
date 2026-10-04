@@ -92,8 +92,41 @@ export class OperatorService {
     throw new Error(`No adapter for channel ${channel}`);
   }
 
-  /** Entry point: one inbound chat message, end to end. */
+  /**
+   * One chat at a time.
+   *
+   * The webhook fires handleInbound per message without awaiting, so six
+   * forwarded PDFs became six concurrent handlers. Each sends the invoice
+   * then its Confirm card, and interleaved that way the pairs scrambled —
+   * the card for INV-060 appeared under the PDF for INV-059 (guru
+   * 2026-10-04). Worse, concurrent handlers load and save the SAME session,
+   * so one could overwrite another's pendingAction or history.
+   *
+   * Serialising per sender fixes both. Different people still run in
+   * parallel; only one message per chat is in flight at a time.
+   */
+  private readonly chatQueues = new Map<string, Promise<void>>();
+
   async handleInbound(msg: InboundMessage): Promise<void> {
+    const key = `${msg.channel}:${msg.channelUserId}`;
+    const prev = this.chatQueues.get(key) ?? Promise.resolve();
+    const next = prev.then(
+      () => this.handleInboundSerial(msg),
+      () => this.handleInboundSerial(msg), // a failed predecessor must not block the queue
+    );
+    // Swallow here only for the stored chain; the caller still sees the error.
+    const tracked = next.catch(() => undefined);
+    this.chatQueues.set(key, tracked);
+    tracked.then(() => {
+      // Drop the key once this is the last one through, so the map does not
+      // grow one entry per person forever.
+      if (this.chatQueues.get(key) === tracked) this.chatQueues.delete(key);
+    });
+    return next;
+  }
+
+  /** Entry point: one inbound chat message, end to end. */
+  private async handleInboundSerial(msg: InboundMessage): Promise<void> {
     const adapter = this.adapterFor(msg.channel);
     // WhatsApp replies route back out through the business number that received
     // the inbound — prime the adapter before any send in this request.
