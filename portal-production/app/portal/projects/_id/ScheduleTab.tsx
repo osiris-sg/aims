@@ -358,7 +358,7 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
   const [rangeSel, setRangeSel] = useState<{ anchor: string; head: string } | null>(null);
   const [picker, setPicker] = useState<{ start: string; end: string } | null>(null);
   // Click-position anchored (element anchors detach when the grid re-renders).
-  const [chipInfo, setChipInfo] = useState<{ item: ScheduleItem; pos: { left: number; top: number } } | null>(null);
+  const [chipInfo, setChipInfo] = useState<{ item: ScheduleItem; iso: string; pos: { left: number; top: number } } | null>(null);
   const [busy, setBusy] = useState(false);
   const dragRef = useRef<{ id: string; fromIso: string; x: number; y: number; moved: boolean } | null>(null);
   const dragOverRef = useRef<string | null>(null);
@@ -375,6 +375,12 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
   const to = maxIso > floor ? maxIso : floor;
   const weeks: string[][] = [];
   for (let c = from; c <= to; c = addDays(c, 7)) weeks.push([0, 1, 2, 3, 4, 5, 6].map((i) => addDays(c, i)));
+  // Week NUMBERS count from the first scheduled activity — the same anchor the
+  // print/PDF and the client link use (guru/Mike 2026-10-05: the grid said
+  // "Wk 5" where the print said "Week 3" because the grid numbered from
+  // today's week). Weeks shown before the schedule starts get no number.
+  const firstItemMonday = starts.length ? mondayOf(minIso) : from;
+  const weekNo = (weekStart: string) => Math.round((new Date(weekStart).getTime() - new Date(firstItemMonday).getTime()) / (7 * 86400000)) + 1;
 
   const itemsOn = (iso: string) => data.items.filter((it) => it.startDate.slice(0, 10) <= iso && it.endDate.slice(0, 10) >= iso && it.kind !== "holiday");
 
@@ -482,9 +488,9 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
         </Box>
       )}
       <Box sx={{ minWidth: 980 }}>
-        {weeks.map((days, wi) => (
+        {weeks.map((days) => (
           <Box key={days[0]} sx={{ display: "grid", gridTemplateColumns: "64px repeat(7, minmax(0, 1fr))", border: 1, borderColor: "divider", borderRadius: 1.5, overflow: "hidden", mb: 1.25 }}>
-            <Box sx={{ bgcolor: "action.selected", p: 1, fontWeight: 800, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>Wk {wi + 1}</Box>
+            <Box sx={{ bgcolor: "action.selected", p: 1, fontWeight: 800, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>{weekNo(days[0]) >= 1 ? `Wk ${weekNo(days[0])}` : "—"}</Box>
             {days.map((iso, di) => {
               const sun = di === 6;
               const isToday = iso === todayIso;
@@ -555,7 +561,7 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
                               suppressClickRef.current = false;
                               return;
                             }
-                            setChipInfo({ item: it, pos: { left: e.clientX, top: e.clientY } });
+                            setChipInfo({ item: it, iso, pos: { left: e.clientX, top: e.clientY } });
                           }}
                           sx={{
                             height: "auto",
@@ -614,24 +620,61 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
             <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mb: 1 }}>
               Hold and drag a day's chip to move JUST that day (the block splits around it). Whole-block dates are editable in the List view; Shift moves everything.
             </Typography>
-            <Button
-              size="small"
-              color="error"
-              startIcon={<DeleteIcon />}
-              disabled={busy}
-              onClick={async () => {
-                try {
-                  await api.removeScheduleItem(chipInfo.item.id);
-                  setChipInfo(null);
-                  onChange();
-                } catch (e: any) {
-                  toast.error(e.message || "Could not remove");
-                }
-              }}
-              sx={{ textTransform: "none" }}
-            >
-              Remove from schedule
-            </Button>
+            <Stack direction="row" spacing={1}>
+              {chipInfo.item.startDate.slice(0, 10) !== chipInfo.item.endDate.slice(0, 10) && (
+                // Delete ONE day of a multi-day block without touching the rest
+                // (guru 2026-10-05) — same split logic as dragging a day out:
+                // edge days shrink the block, a middle day splits it in two.
+                <Button
+                  size="small"
+                  color="warning"
+                  startIcon={<DeleteIcon />}
+                  disabled={busy}
+                  onClick={async () => {
+                    const it = chipInfo.item;
+                    const day = chipInfo.iso;
+                    const s0 = it.startDate.slice(0, 10);
+                    const e0 = it.endDate.slice(0, 10);
+                    setBusy(true);
+                    try {
+                      if (day === s0) await api.updateScheduleItem(it.id, { startDate: addDays(s0, 1) });
+                      else if (day === e0) await api.updateScheduleItem(it.id, { endDate: addDays(e0, -1) });
+                      else {
+                        await api.updateScheduleItem(it.id, { endDate: addDays(day, -1) });
+                        await api.addScheduleItems(projectId, [{ label: it.label, kind: it.kind, startDate: addDays(day, 1), endDate: e0, notes: it.notes }]);
+                      }
+                      setChipInfo(null);
+                      onChange();
+                    } catch (e: any) {
+                      toast.error(e.message || "Could not remove the day");
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  sx={{ textTransform: "none" }}
+                >
+                  Remove this day
+                </Button>
+              )}
+              <Button
+                size="small"
+                color="error"
+                startIcon={<DeleteIcon />}
+                disabled={busy}
+                onClick={async () => {
+                  try {
+                    await api.removeScheduleItem(chipInfo.item.id);
+                    setChipInfo(null);
+                    onChange();
+                  } catch (e: any) {
+                    toast.error(e.message || "Could not remove");
+                  }
+                }}
+                sx={{ textTransform: "none" }}
+              >
+                {chipInfo.item.startDate.slice(0, 10) !== chipInfo.item.endDate.slice(0, 10) ? "Remove whole block" : "Remove from schedule"}
+              </Button>
+            </Stack>
           </Box>
         )}
       </Popover>
