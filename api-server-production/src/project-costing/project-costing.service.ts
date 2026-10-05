@@ -861,7 +861,7 @@ Reply with ONLY a JSON object:
  {"op":"remove","id":"<existing id>"},
  {"op":"shift","days":N,"fromDate"?:"YYYY-MM-DD"}
 ]}
-Rules: work never happens on a Sunday — when a range starts or ends on one, use the surrounding days; use existing ids exactly; prefer "shift" for "push/delay everything"; if the instruction is ambiguous or matches nothing, return "ops":[] and ask in "summary". STRICT JSON only.`;
+Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use the surrounding days; but a single-day activity MAY be placed on a Sunday when the instruction asks for it by name (a meeting, a handover, a site visit) — keep startDate and endDate equal to that Sunday; use existing ids exactly; prefer "shift" for "push/delay everything"; if the instruction is ambiguous or matches nothing, return "ops":[] and ask in "summary". STRICT JSON only.`;
     const client = new Anthropic({ apiKey });
     const res = await client.messages.create({
       model: 'claude-sonnet-5',

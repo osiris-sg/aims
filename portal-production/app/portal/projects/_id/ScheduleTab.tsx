@@ -414,10 +414,6 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
     async (id: string, fromIso: string, dropIso: string) => {
       const it = data.items.find((x) => x.id === id);
       if (!it || dropIso === fromIso) return;
-      if (new Date(dropIso).getDay() === 0 && it.kind === "work") {
-        toast.warn("Sundays are workers' off days — pick another day");
-        return;
-      }
       const s0 = it.startDate.slice(0, 10);
       const e0 = it.endDate.slice(0, 10);
       setBusy(true);
@@ -509,6 +505,10 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
             <Box sx={{ bgcolor: "action.selected", p: 1, fontWeight: 800, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>{weekNo(days[0]) >= 1 ? `Wk ${weekNo(days[0])}` : "—"}</Box>
             {days.map((iso, di) => {
               const sun = di === 6;
+              // A work block merely spanning a Sunday shows no work that day; an
+              // activity put deliberately on that one Sunday (owner meeting, handover)
+              // does show, and then the off-day caption stands down (guru 5 Oct).
+              const shown = itemsOn(iso).filter((it) => !(sun && it.kind === "work" && it.startDate.slice(0, 10) !== it.endDate.slice(0, 10)));
               const isToday = iso === todayIso;
               const holiday = data.holidays[iso];
               const holidayMy = data.holidaysMy?.[iso];
@@ -553,13 +553,12 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
                   >
                     {holiday && <Chip size="small" color="error" label={`${holiday} · PH`} sx={{ height: 20, pointerEvents: "none", "& .MuiChip-label": { fontSize: 10.5, px: 0.75 } }} />}
                     {holidayMy && <Chip size="small" color="error" variant="outlined" label={`MY · ${holidayMy}`} sx={{ height: 20, pointerEvents: "none", "& .MuiChip-label": { fontSize: 10, px: 0.75 } }} />}
-                    {sun && (
+                    {sun && shown.length === 0 && (
                       <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: 700, fontSize: 10, pointerEvents: "none" }}>
                         WORKERS OFF DAY
                       </Typography>
                     )}
-                    {itemsOn(iso)
-                      .filter((it) => !(sun && it.kind === "work"))
+                    {shown
                       .map((it) => (
                         <Chip
                           key={it.id}
@@ -743,7 +742,7 @@ function AddOnDateDialog({ range, sequence, busy, onClose, onAdd }: { range: { s
             <TextField label="To" type="date" size="small" InputLabelProps={{ shrink: true }} value={end} onChange={(e) => setEnd(e.target.value)} />
           </Stack>
           <Typography variant="caption" sx={{ color: "text.disabled" }}>
-            The activity covers every day in the range. Sundays never show work; public holidays stay flagged.
+            The activity covers every day in the range. A range spanning a Sunday shows no work that day. To put something on a Sunday itself, such as a meeting with the owner, set From and To to that Sunday.
           </Typography>
         </Stack>
       </DialogContent>
@@ -975,7 +974,7 @@ function AddActivitiesDialog({ open, sequence, projectId, onClose, onAdded }: { 
       </DialogContent>
       <DialogActions>
         <Typography variant="caption" sx={{ color: "text.secondary", mr: "auto", pl: 1 }}>
-          Sundays are workers' off days and never receive work; public holidays are flagged automatically.
+          Sundays are workers' off days, so a work range spanning one shows nothing that day. A single-day activity placed on a Sunday does show. Public holidays are flagged automatically.
         </Typography>
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="contained" disabled={busy || !labels.length} onClick={submit}>
