@@ -201,7 +201,19 @@ export default function ScheduleTab({ projectId }: { projectId: string }) {
     setPrintHtml(null);
     try {
       const r = await api.getScheduleHtml(projectId);
-      setPrintHtml(r.html);
+      // Preview-only chrome (guru 2026-10-05: "the colour preview can change
+      // instead of just white?"): show the sheet as A4 paper on a neutral grey
+      // canvas, like a print preview. @media print strips it so the printed
+      // page is untouched.
+      const previewCss = `<style>
+        @media screen {
+          body { background: #525659 !important; padding: 20px 16px 32px; }
+          .preview-paper { background: #fff; max-width: 1123px; margin: 0 auto; padding: 24px 28px; box-shadow: 0 2px 14px rgba(0,0,0,.45); border-radius: 2px; }
+        }
+        @media print { .preview-paper { background: none; max-width: none; margin: 0; padding: 0; box-shadow: none; } }
+      </style>`;
+      const html = r.html.replace("</head>", `${previewCss}</head>`).replace(/<body>/i, '<body><div class="preview-paper">').replace(/<\/body>/i, "</div></body>");
+      setPrintHtml(html);
     } catch (e: any) {
       toast.error(e.message || "Failed to render");
     }
@@ -298,7 +310,7 @@ export default function ScheduleTab({ projectId }: { projectId: string }) {
       >
         <DialogTitle sx={{ py: 1.5 }}>Client schedule</DialogTitle>
         <DialogContent sx={{ p: 0, bgcolor: "#e9e9e9" }}>
-          {printHtml ? <iframe id="idq-schedule-frame" title="Schedule" srcDoc={printHtml} sandbox="allow-same-origin allow-modals" style={{ width: "100%", height: "100%", border: 0, background: "#fff" }} /> : <Box sx={{ display: "flex", justifyContent: "center", pt: 8 }}><CircularProgress /></Box>}
+          {printHtml ? <iframe id="idq-schedule-frame" title="Schedule" srcDoc={printHtml} sandbox="allow-same-origin allow-modals" style={{ width: "100%", height: "100%", border: 0, background: "#525659" }} /> : <Box sx={{ display: "flex", justifyContent: "center", pt: 8 }}><CircularProgress /></Box>}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPrintOpen(false)}>Close</Button>
@@ -357,6 +369,7 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [rangeSel, setRangeSel] = useState<{ anchor: string; head: string } | null>(null);
   const [picker, setPicker] = useState<{ start: string; end: string } | null>(null);
+  const [extraWeeks, setExtraWeeks] = useState(0);
   // Click-position anchored (element anchors detach when the grid re-renders).
   const [chipInfo, setChipInfo] = useState<{ item: ScheduleItem; iso: string; pos: { left: number; top: number } } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -372,7 +385,10 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
   const maxIso = ends.length ? ends.reduce((a, b) => (a > b ? a : b)) : todayIso;
   const from = mondayOf(minIso < todayIso ? minIso : todayIso);
   const floor = addDays(from, 20);
-  const to = maxIso > floor ? maxIso : floor;
+  // "+ Add week" (guru/Mike 2026-10-05): the grid normally ends at the last
+  // activity, so there is nowhere to click when planning further ahead —
+  // each press extends the visible grid by one empty week.
+  const to = addDays(maxIso > floor ? maxIso : floor, extraWeeks * 7);
   const weeks: string[][] = [];
   for (let c = from; c <= to; c = addDays(c, 7)) weeks.push([0, 1, 2, 3, 4, 5, 6].map((i) => addDays(c, i)));
   // Week NUMBERS count from the first scheduled activity — the same anchor the
@@ -581,6 +597,9 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
             })}
           </Box>
         ))}
+        <Button size="small" startIcon={<AddIcon />} onClick={() => setExtraWeeks((n) => n + 1)} sx={{ textTransform: "none", color: "text.secondary", mb: 1 }}>
+          Add week
+        </Button>
       </Box>
 
       <AddOnDateDialog
