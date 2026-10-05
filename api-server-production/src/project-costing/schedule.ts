@@ -159,7 +159,7 @@ export function buildWeeks(items: ScheduleItem[]) {
         if (t < s || t > e) continue;
         if (it.kind === 'note') day.notes.push(it.label);
         else if (it.kind === 'holiday') day.holiday = day.holiday || it.label;
-        else if (day.dow !== 'Sun') day.work.push(it.label); // workers off on Sundays
+        else if (day.dow !== 'Sun' || s === e) day.work.push(it.label); // workers off on Sundays, unless the activity was deliberately put on that one Sunday (owner meeting, handover)
       }
     }
   }
