@@ -307,6 +307,10 @@ export class OperatorService {
     }
 
     if (!text) return;
+    // A file uploaded minutes ago is part of THIS conversation: hydrate it onto
+    // the context so a reply like "charge it to 687 Jurong West" lets
+    // add_project_cost attach the file and reuse its extracted fields.
+    if (!ctx.upload && session.pendingUpload) ctx.upload = session.pendingUpload as any;
     await this.runAgent(ctx, adapter, msg, session, text);
   }
 
@@ -433,8 +437,41 @@ export class OperatorService {
     const money = `${e.currency || 'SGD'} ${Number(e.amount).toFixed(2)}`;
     const who = e.supplierName || 'this supplier';
 
+    // GLOBAL route (guru 2026-10-05: "I don't want our agent to be so rigid"):
+    // the upload joins the conversation and the AGENT decides. It knows the
+    // chat (a project named two turns ago), can list_projects, read the
+    // invoice's site address, ask a question, or file the cost — instead of a
+    // fixed match→picker pipeline that ignores context. The deterministic flow
+    // below survives only as the fallback when the model is unavailable.
+    if (this.anthropic) {
+      ctx.upload = up;
+      session.pendingUpload = up;
+      (session as any).pendingUploadAt = new Date().toISOString();
+      await this.saveSession(msg.channel, msg.channelUserId, session);
+      await this.runAgent(
+        ctx,
+        adapter,
+        msg,
+        session,
+        `I just uploaded a supplier invoice: ${who}, ${money}${e.invoiceNo ? `, invoice no ${e.invoiceNo}` : ''}${e.siteAddress ? `, site address on the invoice: ${e.siteAddress}` : ', no site address on the invoice'}. File it as a project cost (add_project_cost). Pick the project from our conversation so far or the invoice's site address — check with list_projects. Only ask me which project if you genuinely can't tell.`,
+      );
+      return;
+    }
+
     // Pick a project: the only one, or a confident site-address match.
     let chosen = projects.length === 1 ? projects[0] : matchProjectByAddress(e.siteAddress, projects);
+
+    // No address on the invoice (or no match)? The CONVERSATION may already
+    // have named the project — e.g. the agent just said "upload it and I'll
+    // add it to the 687 Jurong West project" (guru/Mike 2026-10-05: the picker
+    // re-asked despite that). Match the last few turns' text the same way.
+    if (!chosen) {
+      const recent = (session.history || [])
+        .slice(-6)
+        .map((m: any) => (typeof m.content === 'string' ? m.content : Array.isArray(m.content) ? m.content.map((b: any) => b?.text || '').join(' ') : ''))
+        .join('\n');
+      if (recent.trim()) chosen = matchProjectByAddress(recent, projects);
+    }
 
     if (chosen) {
       ctx.upload = up;
@@ -937,6 +974,12 @@ export class OperatorService {
       };
     }
     session.pendingAction = null;
+    // A confirmed cost consumed its upload — clear it so the next file never
+    // inherits a stale one.
+    if (res.ok && pending.kind === 'add_project_cost') {
+      session.pendingUpload = null;
+      (session as any).pendingUploadAt = null;
+    }
     this.markDone(session, pending, res.ok ? 'confirmed' : 'failed');
     await this.saveSession(msg.channel, msg.channelUserId, session);
     // The card "becomes confirmed": the reply always leads with the outcome.
