@@ -80,6 +80,48 @@ export interface ServiceReportPdfInput {
   asset: { name: string; skuKey: string } | null;
   inventory: { sku: string; serialNumber: string | null } | null;
   orgName: string;
+  /** Optional proof photos (S3 keys), printed at the very end. */
+  photos?: string[] | null;
+}
+
+/** Most photos a service report carries (field app + API enforce it). */
+export const MAX_SERVICE_REPORT_PHOTOS = 12;
+
+/**
+ * Photos section (2026-10-06). Only emitted when a report HAS photos, so a
+ * report without them stays byte-for-byte what it was. With photos the report
+ * becomes multi-page, so it switches to the paginated layout ESS uses (the page
+ * inset comes from the generator's margin, see servicePdfMargin) and prints the
+ * photos in rows of three that never split across a page.
+ */
+const PHOTOS_PRINT_CSS = `
+    .page { min-height: 0; padding: 0; }
+    .sig-grid { break-inside: avoid; page-break-inside: avoid; }
+    .photos { margin-top: 18px; }
+    .photos-head { break-inside: avoid; page-break-inside: avoid; }
+    .photos-row { display: flex; gap: 8px; margin-bottom: 8px; break-inside: avoid; page-break-inside: avoid; }
+    .photo { width: calc((100% - 16px) / 3); text-align: center; }
+    .photo img { display: block; width: 100%; height: 52mm; object-fit: contain; border: 1px solid #ccc; background: #fafafa; }
+    .photo-cap { font-size: 10px; color: #444; margin-top: 2px; }
+`;
+
+const buildPhotosHtml = (photos: string[]): string => {
+  const cells = photos.map(
+    (key, i) => `<div class="photo"><img src="${/^https?:\/\//.test(key) ? esc(key) : `${S3_PREFIX}${esc(key)}`}" alt="Photo ${i + 1}" /><div class="photo-cap">Photo ${i + 1}</div></div>`,
+  );
+  const rows: string[] = [];
+  for (let i = 0; i < cells.length; i += 3) rows.push(`<div class="photos-row">${cells.slice(i, i + 3).join('')}</div>`);
+  // The title travels with the first row so it is never stranded at a page foot.
+  return `
+    <div class="photos">
+      <div class="photos-head"><div class="section-title">Photos</div>${rows[0]}</div>
+      ${rows.slice(1).join('\n      ')}
+    </div>`;
+};
+
+/** PDF margins for a report: ESS, or any report with photos, is paginated. */
+export function servicePdfMargin(serviceData: { templateId?: string | null } | null, photos?: string[] | null) {
+  return templateFor(serviceData?.templateId) === 'ESS_V1' || (photos?.length ?? 0) > 0 ? ESS_PDF_MARGIN : undefined;
 }
 
 
@@ -335,6 +377,7 @@ export function buildServiceReportHtml(input: ServiceReportPdfInput): string {
   // Stamped at capture; absent => GENERIC_V1, which is every pre-template row.
   const templateId = templateFor(sd.templateId);
   const isEss = templateId === 'ESS_V1';
+  const photos = (input.photos ?? []).filter((k) => typeof k === 'string' && k && !k.startsWith('data:')).slice(0, MAX_SERVICE_REPORT_PHOTOS);
 
   const checklistCellsHtml = CHECKLIST_LABELS.map((item) => {
     const isChecked = checkedSet.has(item.id);
@@ -387,7 +430,7 @@ export function buildServiceReportHtml(input: ServiceReportPdfInput): string {
     .sig-name { font-size: 11px; font-weight: 600; }
 
     .footer-text { margin-top: 18px; font-size: 10px; color: #444; line-height: 1.4; }
-${isEss ? ESS_PRINT_CSS : ''}  </style>
+${isEss ? ESS_PRINT_CSS : ''}${photos.length ? PHOTOS_PRINT_CSS : ''}  </style>
 </head>
 <body>
   <div class="page">
@@ -446,7 +489,7 @@ ${isEss ? buildEssConclusionHtml(sd.ess ?? null) : ''}
           I / WE, the undersigned, certify that the above services are satisfied &amp; have examined the said machines are in good and proper condition.
         </div>
       </div>
-    </div>
+    </div>${photos.length ? buildPhotosHtml(photos) : ''}
   </div>
 </body>
 </html>`;

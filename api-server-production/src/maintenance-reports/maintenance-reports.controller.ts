@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
@@ -71,6 +71,13 @@ export class MaintenanceReportsController {
     @UserOrganization() org: { id: string },
   ) {
     return this.service.createInvoiceFromMsr(id, org.id);
+  }
+
+  /** Optional photos on a SERVICE report: replace the set while it is a draft. */
+  @Patch(':id/photos')
+  @Permissions('maintenance-reports:create')
+  updatePhotos(@Param('id') id: string, @Body() body: { photos?: string[] }, @UserOrganization() org: { id: string }) {
+    return this.service.updatePhotos(id, body?.photos ?? [], org.id);
   }
 
   @Post(':id/sign')

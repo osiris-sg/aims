@@ -11,8 +11,7 @@ import { DeliveriesService } from '../deliveries/deliveries.service';
 import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto';
 import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
 import { CreateLocationPingsDto } from './dto/location-ping.dto';
-import { buildServiceReportHtml, ESS_PDF_MARGIN } from './service-report-pdf';
-import { templateFor } from './msr-templates';
+import { buildServiceReportHtml, MAX_SERVICE_REPORT_PHOTOS, servicePdfMargin } from './service-report-pdf';
 import { minPhotosForAssetClass } from 'src/common/asset-class';
 
 @Injectable()
@@ -203,7 +202,9 @@ export class MaintenanceReportsService {
       technicianUserId,
       technicianName: dto.technicianName,
       description: dto.description,
-      photos: dto.photos ?? [],
+      // SERVICE photos are optional proof, 12 at most; delivery kinds keep
+      // their own rules (DO_START minimums above).
+      photos: (dto.kind ?? MaintenanceReportKind.SERVICE) === MaintenanceReportKind.SERVICE ? this.cleanServicePhotos(dto.photos) : dto.photos ?? [],
       paymentRequired: dto.paymentRequired ?? false,
       // Defaults to SERVICE in the schema; explicit pass-through for DO_START
       // and DO_ACK from the field PWA action cards.
@@ -325,6 +326,76 @@ export class MaintenanceReportsService {
   }
 
   /**
+   * The report PDF (puppeteer), as emailed to the customer: header, findings,
+   * signatures and, at the very end, the optional photos.
+   *
+   * The ESS report runs to ~6 pages and needs a real page inset on EVERY page.
+   * Passing `margin` is the ONLY way to get one: the generator otherwise
+   * appends `@page { margin: 0 }` after this document's style AND passes
+   * margin 0 to page.pdf(), either of which defeats a CSS @page rule. A report
+   * with photos is multi-page too and takes the same path; a GENERIC report
+   * without photos is a single self-padded page and stays on the zero-margin
+   * path, so its output is unchanged. NO fit-to-page: a maintenance report
+   * BREAKS cleanly rather than shrink, as the field print does.
+   */
+  async renderReportPdf(report: {
+    reportNumber: number | null;
+    technicianName: string | null;
+    serviceData: unknown;
+    photos?: string[] | null;
+    asset: { name: string; skuKey: string } | null;
+    inventory: { sku: string; serialNumber: string | null } | null;
+    organization: { name: string };
+  }): Promise<Buffer> {
+    const sd = (report.serviceData as any) ?? {};
+    const html = buildServiceReportHtml({
+      reportNumber: report.reportNumber,
+      technicianName: report.technicianName,
+      serviceData: sd,
+      asset: report.asset,
+      inventory: report.inventory,
+      orgName: report.organization.name,
+      photos: report.photos ?? [],
+    });
+    const margin = servicePdfMargin(sd, report.photos);
+    return this.pdfGenerator.generatePdfFromHtml(html, margin ? { margin } : undefined);
+  }
+
+  /**
+   * Optional photos on a SERVICE report (2026-10-06): replace the set while it
+   * is still a draft (Pending Sign). A signed report is read-only. Keys come
+   * from POST /uploads/image; at most MAX_SERVICE_REPORT_PHOTOS.
+   */
+  async updatePhotos(id: string, photos: unknown, organizationId: string) {
+    const report = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { id, organizationId },
+      select: { id: true, kind: true, status: true },
+    });
+    if (!report) throw new NotFoundException('Service report not found');
+    if (report.kind !== MaintenanceReportKind.SERVICE) throw new BadRequestException('Only service reports carry these photos');
+    if (report.status === 'completed') throw new BadRequestException('A signed report cannot be changed');
+    const keys = this.cleanServicePhotos(photos);
+    const updated = await this.prisma.maintenanceServiceReport.update({
+      where: { id },
+      data: { photos: keys },
+      select: { id: true, photos: true },
+    });
+    return updated;
+  }
+
+  /** Validate optional service photos: S3 keys only, 12 at most. */
+  private cleanServicePhotos(photos: unknown): string[] {
+    if (photos == null) return [];
+    if (!Array.isArray(photos) || photos.some((k) => typeof k !== 'string' || !k.trim() || k.startsWith('data:'))) {
+      throw new BadRequestException('photos must be a list of uploaded image keys');
+    }
+    if (photos.length > MAX_SERVICE_REPORT_PHOTOS) {
+      throw new BadRequestException(`A service report can have up to ${MAX_SERVICE_REPORT_PHOTOS} photos`);
+    }
+    return [...new Set(photos.map((k: string) => k.trim()))];
+  }
+
+  /**
    * Generate the report PDF (puppeteer) and email it to the customer with
    * admin@osiris.sg (or ADMIN_EMAIL) in CC. All steps are independently
    * try/catch'd so a render failure doesn't sink the email and an email
@@ -353,30 +424,7 @@ export class MaintenanceReportsService {
 
     let pdfBuffer: Buffer | undefined;
     try {
-      const html = buildServiceReportHtml({
-        reportNumber: report.reportNumber,
-        technicianName: report.technicianName,
-        serviceData: sd,
-        asset: report.asset,
-        inventory: report.inventory,
-        orgName: report.organization.name,
-      });
-      // The ESS report runs to ~6 pages and needs a real page inset on EVERY
-      // page. Passing `margin` is the ONLY way to get one: the generator
-      // otherwise appends `@page { margin: 0 }` after this document's style
-      // AND passes margin 0 to page.pdf(), either of which defeats a CSS @page
-      // rule. GENERIC is a single self-padded page and stays on the existing
-      // zero-margin path, so its output is unchanged.
-      const isEssReport = templateFor((sd as any)?.templateId) === 'ESS_V1';
-      // NO fit-to-page for either template. A maintenance report is multi-page
-      // by design and must BREAK cleanly rather than shrink — the same rule the
-      // field print follows. (This PDF already breaks correctly: each category
-      // is its own `keep cat` block, so there is no oversized unbreakable
-      // section to push whole onto the next page.)
-      pdfBuffer = await this.pdfGenerator.generatePdfFromHtml(
-        html,
-        isEssReport ? { margin: ESS_PDF_MARGIN } : undefined,
-      );
+      pdfBuffer = await this.renderReportPdf(report);
     } catch (err: any) {
       this.logger.error(`MSR ${reportId} PDF generation failed: ${err?.message}`, err?.stack);
       // Continue without attachment — the customer still gets a notification.
