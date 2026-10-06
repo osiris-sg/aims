@@ -4559,7 +4559,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 // The anchor draws that column AND Amount with a rowSpan; the
                 // rows beneath omit both. Span is derived from the rows present
                 // so a delete can never leave a rowSpan overhanging its block.
-                const rateMerge = resolveRateMerges(rowsArr);
+                // configColumns is passed so a merge stored against the other
+                // rate column still spans the one actually drawn.
+                const rateMerge = resolveRateMerges(rowsArr, configColumns);
                 const groupOf: number[] = [];
                 {
                   let g = -1;

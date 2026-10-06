@@ -299,7 +299,28 @@ export function mergeRunPosition(items: any[], row: any): { position: number; si
  * delete can never leave a rowSpan reaching past the end of its block — the
  * classic way a merged cell tears a table apart.
  */
-export function resolveRateMerges(rows: any[]): {
+/**
+ * The rate column a merge should actually span.
+ *
+ * A merge stores the rate column it was made on, but the lump dialog used to
+ * default to 'unitPrice' regardless of which rate column the quotation shows.
+ * On a sales quotation (rate column 'salePrice') the stored column then matched
+ * nothing, so Amount and Quantity spanned while the rate column did not —
+ * printing each member's own price beside the single block amount
+ * (guru 6 Oct, "Automated Intervention System" at 0.00 against a 3,600 amount).
+ * When the stored column is not one the renderer is drawing, fall back to the
+ * rate column that IS drawn, so older documents span correctly too.
+ */
+const RATE_COLUMNS: RateMergeColumn[] = ['unitPrice', 'salePrice'];
+function effectiveRateColumn(stored: RateMergeColumn, rendered?: string[]): RateMergeColumn {
+  if (!rendered?.length || rendered.includes(stored)) return stored;
+  return RATE_COLUMNS.find((c) => c !== stored && rendered.includes(c)) ?? stored;
+}
+
+export function resolveRateMerges(
+  rows: any[],
+  renderedColumns?: string[],
+): {
   anchors: Map<number, { span: number; price: number; quantity: number; column: RateMergeColumn }>;
   skip: Map<number, RateMergeColumn>;
 } {
@@ -309,16 +330,17 @@ export function resolveRateMerges(rows: any[]): {
     const m = r?.rateMerge;
     if (!m?.id) return;
     if (i > 0 && rows[i - 1]?.rateMerge?.id === m.id) return; // continuation, handled below
+    const column = effectiveRateColumn(m.column, renderedColumns);
     let span = 1;
     for (let j = i + 1; j < rows.length && rows[j]?.rateMerge?.id === m.id; j++) {
-      skip.set(j, m.column);
+      skip.set(j, column);
       span++;
     }
     anchors.set(i, {
       span,
       price: Number(m.price) || 0,
       quantity: Number(m.quantity ?? r?.quantity) || 0,
-      column: m.column,
+      column,
     });
   });
   return { anchors, skip };

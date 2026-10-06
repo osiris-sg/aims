@@ -2019,13 +2019,38 @@ export default function TabbedDocumentCreator({
   const selectionError = isLumpEligible && lumpSelection.length >= 2
     ? contiguityError(items, lumpSelection.map((m: any) => m.id))
     : null;
+  // The rate column this document actually prints. The dialog used to default
+  // to "unitPrice" no matter what, so a merge made on a SALES quotation (which
+  // shows "Sales Unit Rates S$" = salePrice) stored a column no renderer draws:
+  // Amount and Quantity spanned, the rate column did not, and each member's own
+  // price printed beside the single block amount — a 0.00 rate against a 3,600
+  // amount, and an orphan 900.00 (guru 6 Oct). Default to what is on screen.
+  // The rate columns this document actually draws, each with the heading the
+  // template prints for it. A template may LABEL its unitPrice column
+  // "Sales Unit Rates S$" — QO202610-0116 does — so the chooser must offer the
+  // real columns under their real headings instead of a fixed pair of names,
+  // or the user picks a column the document does not have.
+  const documentRateColumns = (): Array<{ id: RateMergeColumn; label: string }> => {
+    const cols = (existingData?.tableColumnOrder ?? existingData?.config?.tableColumnOrder) as string[] | undefined;
+    const labels = (existingData?.columnLabels ?? existingData?.config?.columnLabels) as Record<string, string> | undefined;
+    const fallback: Record<RateMergeColumn, string> = {
+      unitPrice: "Monthly Rental Rates S$",
+      salePrice: "Sales Unit Rates S$",
+    };
+    const present = (["unitPrice", "salePrice"] as RateMergeColumn[]).filter(
+      (c) => !Array.isArray(cols) || cols.length === 0 || cols.includes(c),
+    );
+    const ids = present.length ? present : (["unitPrice"] as RateMergeColumn[]);
+    return ids.map((id) => ({ id, label: labels?.[id] || fallback[id] }));
+  };
+  const documentRateColumn = (): RateMergeColumn => documentRateColumns()[0].id;
   const openLumpDialog = () => {
     // RULE 1 — refuse a non-contiguous selection. Never reorder the office's
     // rows to make one fit: a quotation's order is the office's decision.
     const err = contiguityError(items, lumpSelection.map((m: any) => m.id));
     if (err) { toast.error(err); return; }
     setLumpDraft({
-      column: "unitPrice",
+      column: documentRateColumn(),
       price: "",
       // Rows being merged are normally already on the same qty — start there.
       quantity: String(lumpSelection[0]?.quantity ?? 1),
@@ -6107,7 +6132,18 @@ export default function TabbedDocumentCreator({
                                       />
                                     </TableCell>
                                   );
-                                } else if (item.rateMerge && columnId === item.rateMerge.column) {
+                                } else if (
+                                  item.rateMerge &&
+                                  // Same tolerance as the printed document: a merge stored
+                                  // against the rate column this doc does NOT draw still
+                                  // merges on the one it does (guru 6 Oct).
+                                  columnId ===
+                                    (renderColumns.includes(item.rateMerge.column)
+                                      ? item.rateMerge.column
+                                      : ["unitPrice", "salePrice"].find(
+                                          (c) => c !== item.rateMerge.column && renderColumns.includes(c),
+                                        ) ?? item.rateMerge.column)
+                                ) {
                                   // MERGED RATE, editor view. The printed document uses a
                                   // real rowSpan; the editor cannot — an input stretched
                                   // over five rows is not an editing surface — so it FAKES
@@ -8486,8 +8522,11 @@ export default function TabbedDocumentCreator({
             sx={{ mb: 2 }}
             InputLabelProps={{ shrink: true }}
           >
-            <option value="unitPrice">Monthly Rental Rates S$</option>
-            <option value="salePrice">Sales Unit Rates S$</option>
+            {documentRateColumns().map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
           </TextField>
           <TextField
             label="Shared quantity"

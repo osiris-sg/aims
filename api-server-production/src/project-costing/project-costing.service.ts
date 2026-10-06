@@ -181,6 +181,14 @@ export class ProjectCostingService {
     const profit = collected - totalCost;
     const commissionPct = project.commissionPct ?? DEFAULT_COMMISSION_PCT;
     const commission = Math.round(profit * commissionPct) / 100;
+    // Designer advances (guru 2026-10-06): approved/paid requests against this
+    // project reduce the commission still payable at handover.
+    const advanced = (
+      await this.prisma.designerAdvance.aggregate({
+        where: { organizationId, projectId, status: { in: ['approved', 'paid'] } },
+        _sum: { amount: true },
+      })
+    )._sum.amount || 0;
     // Their sheet's "Profit Margin" = profit ÷ amount collected. Also give the
     // forward-looking version against the contract (what it'll be at handover).
     const marginOnCollected = collected > 0 ? (profit / collected) * 100 : null;
@@ -247,8 +255,8 @@ export class ProjectCostingService {
         profit,
         commissionPct,
         commission,
-        advanced: 0, // Phase 7: designer advances
-        commissionBalance: commission,
+        advanced,
+        commissionBalance: commission - advanced,
         marginOnCollected,
         projectedProfit,
         projectedMargin,

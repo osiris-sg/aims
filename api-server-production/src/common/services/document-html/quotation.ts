@@ -187,7 +187,25 @@ export function renderQuotationBody(data: any, organization: any): string {
  * a deleted row would otherwise leave a rowspan reaching past the end of its
  * block and tear the table apart.
  */
-function resolveRateMerges(rows: any[]): {
+/**
+ * A merge stores the rate column it was made on, but the lump dialog used to
+ * default to 'unitPrice' whichever rate column the quotation actually shows.
+ * On a sales quotation (rate column 'salePrice') the stored column matched
+ * nothing here, so Amount and Quantity spanned while the rate column did not,
+ * printing each member's own price beside the one block amount (guru 6 Oct).
+ * When the stored column is not among the columns being drawn, fall back to
+ * the rate column that is, so older documents span correctly too.
+ */
+const RATE_COLUMNS = ['unitPrice', 'salePrice'];
+function effectiveRateColumn(stored: string, rendered?: string[]): string {
+  if (!rendered?.length || rendered.includes(stored)) return stored;
+  return RATE_COLUMNS.find((c) => c !== stored && rendered.includes(c)) ?? stored;
+}
+
+function resolveRateMerges(
+  rows: any[],
+  renderedColumns?: string[],
+): {
   anchors: Map<number, { span: number; price: number; quantity: number; column: string }>;
   skip: Map<number, string>;
 } {
@@ -199,9 +217,10 @@ function resolveRateMerges(rows: any[]): {
     // Every member carries the marker; the ANCHOR is simply the first row of
     // the run, so a deleted first row cannot take the price with it.
     if (i > 0 && rows[i - 1]?.rateMerge?.id === m.id) return;
+    const column = effectiveRateColumn(m.column, renderedColumns);
     let span = 1;
     for (let j = i + 1; j < rows.length && rows[j]?.rateMerge?.id === m.id; j++) {
-      skip.set(j, m.column);
+      skip.set(j, column);
       span++;
     }
     anchors.set(i, {
@@ -211,7 +230,7 @@ function resolveRateMerges(rows: any[]): {
       // quoted as qty x rate. Older documents have no stored merge quantity, so
       // fall back to the row's own.
       quantity: Number(m.quantity ?? r?.quantity) || 0,
-      column: m.column,
+      column,
     });
   });
   return { anchors, skip };
@@ -285,7 +304,7 @@ function configDrivenTable(data: any, items: any[]): string {
     .join('');
 
   const nonTag = items.filter((i) => !i.isTagGroup);
-  const { anchors, skip } = resolveRateMerges(nonTag);
+  const { anchors, skip } = resolveRateMerges(nonTag, columns);
   const body = nonTag
     .map((item, idx) => {
       // Quotation section headers (guru 2026-09-14): bold underlined
