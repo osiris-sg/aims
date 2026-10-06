@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AdvancesModule } from '../advances/advances.module';
 import { RevenueItemsModule } from '../revenue-items/revenue-items.module';
 import { MarketingModule } from '../marketing/marketing.module';
 import { LeadsModule } from '../leads/leads.module';
@@ -37,6 +38,7 @@ import { PublicDocumentModule } from '../public-document/public-document.module'
 import { AuthModule } from '../auth/auth.module'; // provides 'ClerkClient' for the act-as lookup
 @Module({
   imports: [
+    AdvancesModule,
     AuthModule, // 'ClerkClient' — names/emails for /as
     CommonModule, // AuditService
     CustomersModule,

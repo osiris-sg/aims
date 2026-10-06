@@ -742,6 +742,33 @@ model ProjectMilestone {
   @@index([organizationId, projectId])
 }
 
+// Designer advance request (guru 2026-10-06): a designer asks for money ahead
+// of commission; Senior Manager/Master approve or decline. Approved advances
+// show on the project's Contract & P&L "Advanced to designer" line and net
+// off against commission at handover. paidAt is stamped when finance actually
+// pays it out (bi-weekly run).
+model DesignerAdvance {
+  id              String    @id @default(uuid())
+  organizationId  String
+  projectId       String?   @db.Uuid
+  projectName     String?
+  requestedById   String
+  requestedByName String?
+  amount          Float
+  reason          String?
+  status          String    @default("pending") // pending | approved | declined | paid
+  decidedById     String?
+  decidedByName   String?
+  decidedAt       DateTime?
+  decisionNote    String?
+  paidAt          DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([organizationId, status])
+  @@index([organizationId, requestedById])
+}
+
 // Sales lead (interior-design orgs, 2026-08): one homeowner enquiry. Arrives
 // by email — EZiD (plain-text fields) or Network Singapore (PDF "Lead
 // Programme" distribution) — via the docs+{org}@ ingestion webhook, or is

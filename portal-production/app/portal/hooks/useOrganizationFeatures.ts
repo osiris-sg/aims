@@ -88,6 +88,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // items with includes, internal cost/margin + guardrails, Letter-of-Intent
   // print layout) instead of the generic document editor. Default OFF.
   enableIdQuotation: false,
+  // Designer advance requests (guru 2026-10-06): designers ask for money ahead
+  // of commission; Senior Management approves. Default OFF.
+  enableDesignerAdvances: false,
   // Operations dashboard (Biofuel, 2026-09-26): the portal landing page shows
   // stock on hand, units in/out, revenue by product over a filterable range,
   // field-service frequency and a fleet map, instead of the generic cards.
@@ -176,6 +179,7 @@ export function useOrganizationFeatures() {
     isXeroDocSyncEnabled: features.enableXeroDocSync ?? false,
     isLegacyAccountingUxEnabled: features.enableLegacyAccountingUx ?? false,
     isIdQuotationEnabled: features.enableIdQuotation ?? false,
+    isDesignerAdvancesEnabled: features.enableDesignerAdvances ?? false,
     isAdsInsightsEnabled: features.enableAdsInsights ?? false,
     isOpsDashboardEnabled: features.enableOpsDashboard ?? false,
     isMaintenanceDatesEnabled: features.enableMaintenanceDates ?? false,

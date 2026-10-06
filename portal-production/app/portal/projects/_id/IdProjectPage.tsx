@@ -16,6 +16,10 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   Grid,
   IconButton,
@@ -248,6 +252,9 @@ export default function IdProjectPage({ id }: { id: string }) {
   const [tab, setTab] = useState(0);
   const [costDialog, setCostDialog] = useState<{ open: boolean; editing: Cost | null }>({ open: false, editing: null });
   const [costToDelete, setCostToDelete] = useState<Cost | null>(null);
+  // In-app invoice viewer (guru/Mike 2026-10-06): clicking a cost row shows its
+  // attached invoice in a dialog instead of jumping to a new tab.
+  const [invoicePreview, setInvoicePreview] = useState<{ url: string; title: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [editingMs, setEditingMs] = useState<Record<string, Partial<Milestone>>>({});
   const [voDoc, setVoDoc] = useState<string | null>(null);
@@ -483,7 +490,12 @@ export default function IdProjectPage({ id }: { id: string }) {
                   {costRows.map((c) => {
                     const sec = data.sections.find((s) => s.id === c.sectionId);
                     return (
-                      <TableRow key={c.id} hover sx={{ opacity: c.status === "rejected" ? 0.5 : 1 }}>
+                      <TableRow
+                        key={c.id}
+                        hover
+                        onClick={() => c.attachmentUrl && setInvoicePreview({ url: c.attachmentUrl, title: `${c.supplierName || "Invoice"}${c.invoiceNo ? ` · ${c.invoiceNo}` : ""}` })}
+                        sx={{ opacity: c.status === "rejected" ? 0.5 : 1, cursor: c.attachmentUrl ? "pointer" : "default" }}
+                      >
                         <Cell>{fmtDate(c.date)}</Cell>
                         <TableCell sx={{ py: 0.75, minWidth: 260 }}>
                           <Typography variant="body2" sx={{ fontWeight: 600 }}>
@@ -498,7 +510,13 @@ export default function IdProjectPage({ id }: { id: string }) {
                             <span>{c.invoiceNo || "—"}</span>
                             {c.attachmentUrl && (
                               <Tooltip title="View invoice">
-                                <IconButton size="small" href={c.attachmentUrl} target="_blank" rel="noreferrer">
+                                <IconButton
+                                  size="small"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setInvoicePreview({ url: c.attachmentUrl!, title: `${c.supplierName || "Invoice"}${c.invoiceNo ? ` · ${c.invoiceNo}` : ""}` });
+                                  }}
+                                >
                                   <AttachFileIcon sx={{ fontSize: 16 }} />
                                 </IconButton>
                               </Tooltip>
@@ -508,7 +526,7 @@ export default function IdProjectPage({ id }: { id: string }) {
                         <Cell>{sec ? <Chip size="small" variant="outlined" label={`${sec.letter || ""} ${sec.title}`.trim()} /> : <Typography variant="caption" sx={{ color: "text.disabled" }}>—</Typography>}</Cell>
                         <Cell>
                           {c.status === "pending" ? (
-                            <Button size="small" startIcon={<CheckIcon />} onClick={() => api.updateCost(c.id, { status: "approved" }).then(load)} sx={{ textTransform: "none" }}>
+                            <Button size="small" startIcon={<CheckIcon />} onClick={(e) => { e.stopPropagation(); api.updateCost(c.id, { status: "approved" }).then(load); }} sx={{ textTransform: "none" }}>
                               Approve
                             </Button>
                           ) : (
@@ -517,10 +535,10 @@ export default function IdProjectPage({ id }: { id: string }) {
                         </Cell>
                         <Cell right sx={{ fontWeight: 600 }}>{money(c.amount)}</Cell>
                         <Cell right>
-                          <IconButton size="small" onClick={() => setCostDialog({ open: true, editing: c })}>
+                          <IconButton size="small" onClick={(e) => { e.stopPropagation(); setCostDialog({ open: true, editing: c }); }}>
                             <EditIcon fontSize="small" />
                           </IconButton>
-                          <IconButton size="small" onClick={() => setCostToDelete(c)} sx={{ "&:hover": { color: "error.main" } }}>
+                          <IconButton size="small" onClick={(e) => { e.stopPropagation(); setCostToDelete(c); }} sx={{ "&:hover": { color: "error.main" } }}>
                             <DeleteIcon fontSize="small" />
                           </IconButton>
                         </Cell>
@@ -908,7 +926,7 @@ export default function IdProjectPage({ id }: { id: string }) {
                 </Table>
                 <Divider sx={{ my: 1.5 }} />
                 <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                  Projected at handover: profit {money(t.projectedProfit)} · margin {pct(t.projectedMargin)} (contract − approved & pending costs). Designer advances arrive with the commissions module.
+                  Projected at handover: profit {money(t.projectedProfit)} · margin {pct(t.projectedMargin)} (contract − approved & pending costs). Advances: approved designer advance requests net off against commission.
                 </Typography>
               </Grid>
             </Grid>
@@ -1015,6 +1033,29 @@ export default function IdProjectPage({ id }: { id: string }) {
       {voDoc && data && <VoDialog docId={voDoc} summary={data} onClose={() => setVoDoc(null)} onChanged={load} />}
 
       <CostDialog open={costDialog.open} projectId={id} sections={data.sections} editing={costDialog.editing} onClose={() => setCostDialog({ open: false, editing: null })} onSaved={load} />
+
+      {/* Attached invoice viewer — stays inside the app (guru/Mike 2026-10-06) */}
+      <Dialog open={!!invoicePreview} onClose={() => setInvoicePreview(null)} maxWidth="md" fullWidth PaperProps={{ sx: { height: "88vh" } }}>
+        <DialogTitle sx={{ py: 1.5, pr: 6 }}>{invoicePreview?.title}</DialogTitle>
+        <DialogContent sx={{ p: 0, bgcolor: "#525659" }}>
+          {invoicePreview && (/\.(png|jpe?g|gif|webp)(\?|$)/i.test(invoicePreview.url) ? (
+            <Box sx={{ display: "flex", justifyContent: "center", p: 2 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={invoicePreview.url} alt={invoicePreview.title} style={{ maxWidth: "100%", maxHeight: "78vh", objectFit: "contain", background: "#fff" }} />
+            </Box>
+          ) : (
+            <iframe title={invoicePreview.title} src={invoicePreview.url} style={{ width: "100%", height: "100%", border: 0 }} />
+          ))}
+        </DialogContent>
+        <DialogActions>
+          <Button href={invoicePreview?.url || "#"} target="_blank" rel="noreferrer" sx={{ textTransform: "none" }}>
+            Open in new tab
+          </Button>
+          <Button variant="contained" onClick={() => setInvoicePreview(null)} sx={{ textTransform: "none" }}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
       <DeleteItemDialogNoConfirm
         open={!!costToDelete}
         onCancel={() => setCostToDelete(null)}

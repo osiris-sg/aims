@@ -9,8 +9,9 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
-  Box, Button, Chip, CircularProgress, Grid, IconButton, LinearProgress, Paper, Stack,
-  Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography,
+  Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
+  Grid, IconButton, LinearProgress, MenuItem, Paper, Stack,
+  Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
@@ -18,6 +19,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import TodayIcon from "@mui/icons-material/TodayOutlined";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import MainCard from "@/components/MainCard";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 const apiBase = process.env.NEXT_PUBLIC_BACKEND_API_URL;
 
@@ -180,9 +182,171 @@ function ScheduleOverview({ schedule, holidays, holidaysMy, self }: { schedule: 
   );
 }
 
+/**
+ * Designer advances (guru 2026-10-06, enableDesignerAdvances orgs): designers
+ * request money ahead of commission; Senior Management approves/declines and
+ * later stamps the payout. Designers see their own requests; seniors see all
+ * pending ones with the decision buttons.
+ */
+function AdvancesCard({ self }: { self: boolean }) {
+  const { getToken } = useAuth();
+  const [rows, setRows] = useState<any[]>([]);
+  const [canDecide, setCanDecide] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ amount: "", projectId: "", reason: "" });
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+
+  const headers = useCallback(async () => {
+    const token = await getToken();
+    const h: Record<string, string> = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+    const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
+    if (activeOrgId) h["X-Active-Org-Id"] = activeOrgId;
+    return h;
+  }, [getToken]);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`${apiBase}/advances`, { headers: await headers() });
+      if (!res.ok) return;
+      const j = await res.json();
+      const payload = j?.data ?? j;
+      setRows(payload?.rows || []);
+      setCanDecide(!!payload?.viewer?.canDecide);
+    } catch {
+      /* card is optional */
+    }
+  }, [headers]);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const openDialog = async () => {
+    setOpen(true);
+    try {
+      const res = await fetch(`${apiBase}/id-projects?limit=100`, { headers: await headers() });
+      const j = await res.json();
+      const payload = j?.data ?? j;
+      const list = payload?.docs || payload?.rows || (Array.isArray(payload) ? payload : []);
+      setProjects(list.map((p: any) => ({ id: p.id, name: p.name })));
+    } catch {
+      setProjects([]);
+    }
+  };
+
+  const submit = async () => {
+    const amount = Number(form.amount);
+    if (!(amount > 0)) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`${apiBase}/advances`, {
+        method: "POST",
+        headers: await headers(),
+        body: JSON.stringify({ amount, projectId: form.projectId || null, reason: form.reason || null }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.message?.message || j?.message || "Could not submit the request");
+      }
+      setOpen(false);
+      setForm({ amount: "", projectId: "", reason: "" });
+      load();
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const act = async (id: string, path: string, body?: any) => {
+    setBusy(true);
+    try {
+      await fetch(`${apiBase}/advances/${id}/${path}`, { method: "PATCH", headers: await headers(), body: body ? JSON.stringify(body) : undefined });
+      load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pending = rows.filter((r) => r.status === "pending");
+  const recent = rows.filter((r) => r.status !== "pending").slice(0, 5);
+  const statusColor: Record<string, "default" | "warning" | "success" | "error" | "info"> = { pending: "warning", approved: "info", paid: "success", declined: "error" };
+
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 2, mb: 2.5, p: 2 }}>
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+          {self ? "My advances" : "Advance requests"}
+        </Typography>
+        <Box sx={{ flex: 1 }} />
+        <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={openDialog} sx={{ textTransform: "none" }} data-tour="request-advance">
+          Request advance
+        </Button>
+      </Stack>
+      {pending.length === 0 && recent.length === 0 && (
+        <Typography variant="caption" sx={{ color: "text.secondary" }}>
+          No advance requests yet. An approved advance is paid with the bi-weekly run and nets off against commission at handover.
+        </Typography>
+      )}
+      <Stack spacing={0.75}>
+        {[...pending, ...recent].map((r) => (
+          <Stack key={r.id} direction="row" alignItems="center" spacing={1} sx={{ flexWrap: "wrap", rowGap: 0.5 }}>
+            <Chip size="small" label={r.status} color={statusColor[r.status] || "default"} variant="outlined" sx={{ height: 20, textTransform: "capitalize" }} />
+            <Typography variant="body2" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{money(r.amount)}</Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary", flex: 1, minWidth: 160 }} noWrap>
+              {!self && (r.requestedByName || "—")}{!self && " · "}{r.projectName || "no project"}{r.reason ? ` — ${r.reason}` : ""}
+            </Typography>
+            {canDecide && r.status === "pending" && (
+              <>
+                <Button size="small" disabled={busy} onClick={() => act(r.id, "decide", { approve: true })} sx={{ textTransform: "none" }}>
+                  Approve
+                </Button>
+                <Button size="small" color="error" disabled={busy} onClick={() => { const note = window.prompt("Reason for declining (optional)") || undefined; act(r.id, "decide", { approve: false, note }); }} sx={{ textTransform: "none" }}>
+                  Decline
+                </Button>
+              </>
+            )}
+            {canDecide && r.status === "approved" && (
+              <Button size="small" disabled={busy} onClick={() => act(r.id, "paid")} sx={{ textTransform: "none" }}>
+                Mark paid
+              </Button>
+            )}
+          </Stack>
+        ))}
+      </Stack>
+
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Request an advance</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <TextField label="Amount (S$)" size="small" value={form.amount} onChange={(e) => /^[0-9]*\.?[0-9]*$/.test(e.target.value) && setForm({ ...form, amount: e.target.value })} inputProps={{ inputMode: "decimal" }} autoFocus fullWidth />
+            <TextField label="Project (optional)" size="small" select value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })} fullWidth>
+              <MenuItem value="">No specific project</MenuItem>
+              {projects.map((p) => (
+                <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+              ))}
+            </TextField>
+            <TextField label="Reason (optional)" size="small" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} multiline minRows={2} fullWidth />
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              Goes to Senior Management for approval. Approved advances net off against your commission at handover.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpen(false)} sx={{ textTransform: "none" }}>Cancel</Button>
+          <Button variant="contained" disabled={busy || !(Number(form.amount) > 0)} onClick={submit} sx={{ textTransform: "none" }}>
+            Submit request
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Paper>
+  );
+}
+
 export default function IdDashboard() {
   const router = useRouter();
   const { getToken, userId } = useAuth();
+  const { isDesignerAdvancesEnabled } = useOrganizationFeatures();
   const [data, setData] = useState<Payload | null>(null);
   const [rebates, setRebates] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -374,6 +538,7 @@ export default function IdDashboard() {
 
       {/* Master calendar across the visible projects */}
       <ScheduleOverview schedule={data.schedule || []} holidays={data.holidays || {}} holidaysMy={data.holidaysMy || {}} self={self} />
+      {isDesignerAdvancesEnabled && <AdvancesCard self={self} />}
 
       {/* Management: per-designer table */}
       {!self && (

@@ -2,6 +2,7 @@ import { DeliveriesService } from '../deliveries/deliveries.service';
 import { Injectable, Logger } from '@nestjs/common';
 import type Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
+import { AdvancesService } from '../advances/advances.service';
 import { XeroSyncService } from '../xero-sync/xero-sync.service';
 import { BankRecService } from '../bank-rec/bank-rec.service';
 import { AuditService } from '../common/audit.service';
@@ -118,6 +119,7 @@ export class OperatorToolsService {
     private readonly bankRec: BankRecService,
     private readonly s3: S3Service,
     private readonly auth: OperatorAuthService,
+    private readonly advances: AdvancesService,
   ) {}
 
   /** Extract a just-uploaded invoice/receipt (project-agnostic) and store the
@@ -642,6 +644,39 @@ export class OperatorToolsService {
           if (!at || isNaN(at.getTime())) return { result: { error: 'Could not parse the date/time — try e.g. "2026-09-26 14:30"' } };
           await this.leads.update(found.id, ctx.organizationId, { appointmentAt: at.toISOString(), appointmentNote: note || null } as any, ctx.clerkUserId);
           return { result: { ok: true, lead: found.name, appointment: at.toISOString(), note: note || null } };
+        },
+      },
+
+      {
+        name: 'request_advance',
+        description:
+          'Request a designer ADVANCE (money ahead of commission) — e.g. "request a $2,000 advance against 584 Pasir Ris". Optionally tied to a project (find it with list_projects). Shows a confirm card; once confirmed, the request goes to Senior Management for approval — nothing is paid out here.',
+        permissions: ['projects:read'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            amount: { type: 'number', description: 'Requested amount in SGD' },
+            projectId: { type: 'string', description: 'Project id (from list_projects) the advance is against, if any' },
+            reason: { type: 'string', description: 'Why the advance is needed' },
+          },
+          required: ['amount'],
+        },
+        run: async (ctx, { amount, projectId, reason }) => {
+          const amt = Number(amount);
+          if (!(amt > 0)) return { result: { error: 'Tell me the advance amount.' } };
+          let projectName: string | null = null;
+          if (projectId) {
+            const proj = await this.prisma.project.findFirst({ where: { id: projectId, organizationId: ctx.organizationId }, select: { name: true } });
+            if (!proj) return { result: { error: 'Project not found in this organization' } };
+            projectName = proj.name;
+          }
+          const pending: PendingAction = {
+            kind: 'request_advance',
+            summary: `Request a S$ ${amt.toFixed(2)} advance${projectName ? ` against ${projectName}` : ''}${reason ? ` — ${String(reason).slice(0, 120)}` : ''} (goes to Senior Management for approval)`,
+            args: { amount: amt, projectId: projectId || null, reason: reason || null },
+            createdAt: new Date().toISOString(),
+          };
+          return { pending, result: { ok: true, confirm: pending.summary } };
         },
       },
 
@@ -2625,6 +2660,15 @@ export class OperatorToolsService {
       };
     }
 
+    if (pending.kind === 'request_advance') {
+      const a = pending.args || {};
+      const row = await this.advances.create(ctx.organizationId, ctx.clerkUserId, ctx.actor?.name || null, {
+        amount: Number(a.amount),
+        projectId: a.projectId || null,
+        reason: a.reason || null,
+      });
+      return { ok: true, message: `Advance request for S$ ${Number(row.amount).toFixed(2)}${row.projectName ? ` against ${row.projectName}` : ''} sent to management for approval.` };
+    }
     if (pending.kind === 'add_project_cost') {
       const a = pending.args || {};
       const cost: any = await this.costing.addCost(

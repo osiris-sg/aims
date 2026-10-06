@@ -113,7 +113,8 @@ export interface PendingAction {
     | 'edit_schedule'
     | 'import_price_list'
     | 'schedule_delivery'
-    | 'api_write';
+    | 'api_write'
+    | 'request_advance';
   documentId?: string;
   documentType?: string;
   summary: string;
