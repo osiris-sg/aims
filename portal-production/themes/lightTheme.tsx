@@ -382,15 +382,20 @@ const theme = createTheme({
     },
     MuiChip: {
       styleOverrides: {
+        // Chip TYPOGRAPHY is kept identical to darkTheme on purpose. This block
+        // used to read 10px / 700 / uppercase / letter-spaced, while dark read
+        // 11px / 500 / sentence case — so the same screen showed
+        // "Key Collection Day" in dark and "KEY COLLECTION DAY" in light
+        // (guru 2026-10-05, CIEL dashboard). Only the COLOURS below differ by
+        // mode, which is what a palette is for. Change these two blocks
+        // together or the modes drift apart again.
         root: {
-          fontSize: "0.625rem",
-          fontWeight: 700,
+          fontSize: "0.6875rem",
+          fontWeight: 500,
           height: 22,
           borderRadius: 999,
-          letterSpacing: "0.02em",
-          textTransform: "uppercase",
         },
-        label: { fontSize: "0.625rem", padding: "0 8px" },
+        label: { fontSize: "0.6875rem", padding: "0 10px" },
         colorSuccess: {
           backgroundColor: alpha(tokens.primary, 0.1),
           color: tokens.primary,
