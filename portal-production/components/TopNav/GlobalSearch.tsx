@@ -47,7 +47,7 @@ export default function GlobalSearch() {
         label: `${d.number || "Draft"} · ${d.type}`,
         sub: [d.customer, d.status, money(d.total)].filter(Boolean).join(" · "),
         go: () => {
-          if (d.type === "VARIATION_ORDER" && d.projectId) router.push(`/portal/projects/${d.projectId}?vo=${d.id}`);
+          if (d.type === "VARIATION_ORDER") router.push(`/portal/sales/variation-orders/${d.id}`);
           else if (d.isIdQuote && ["QUOTATION", "QO", "QO1", "QO2", "QT"].includes(d.type)) router.push(`/portal/sales/quotations/id/${d.id}`);
           else router.push(`/portal/documents/${d.type}/${d.templateId || "none"}/${d.id}`);
         },

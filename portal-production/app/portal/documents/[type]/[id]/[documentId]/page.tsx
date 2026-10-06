@@ -56,24 +56,13 @@ export default function page() {
   const isNavigatingRef = useRef(false);
 
   // Variation Orders have no generic template — this editor would render them
-  // blank. Bounce to the owning project with ?vo=<id>, which opens the VO
-  // sheet dialog (guru 2026-09-29).
+  // blank. Open the standalone VO view (quotation-family print layout), not
+  // the owning project (guru 2026-10-07: jumping to the project was wrong).
   const isVoType = String(Array.isArray(type) ? type[0] : type || "").toUpperCase().startsWith("VARIATION") || String(type).toUpperCase() === "VO";
   useEffect(() => {
     if (!isVoType || !documentId) return;
-    (async () => {
-      try {
-        const token = await getToken();
-        if (!token) return;
-        const res = await request({ path: `/documents/${documentId}`, method: "GET" }, {}, token);
-        const pid = res?.data?.projectId;
-        if (pid) router.replace(`/portal/projects/${pid}?vo=${documentId}`);
-        else toast.error("This variation order isn't linked to a project");
-      } catch {
-        toast.error("Could not open the variation order");
-      }
-    })();
-  }, [isVoType, documentId, getToken, router]);
+    router.replace(`/portal/sales/variation-orders/${documentId}`);
+  }, [isVoType, documentId, router]);
 
   // Fetch all documents for navigation
   const { documents: allDocuments = [], refetch: refetchDocuments } = useGetDocuments({});

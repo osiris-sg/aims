@@ -57,7 +57,7 @@ export default function VariationOrdersPage() {
   return (
     <MainCard>
       <PageTable
-        onRowClick={(v: any) => v.projectId && router.push(`/portal/projects/${v.projectId}?vo=${v.id}`)}
+        onRowClick={(v: any) => router.push(`/portal/sales/variation-orders/${v.id}`)}
         tableName="Variation Orders"
         subTitle="Changes after signing — a confirmed VO adds its net amount to the project's contract sum. New VOs are raised from the project page."
         columns={columns as any}
