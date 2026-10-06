@@ -60,6 +60,12 @@ interface Props {
   /** true while any photo is still uploading: callers hold Continue on it. */
   onUploadingChange?: (uploading: boolean) => void;
   disabled?: boolean;
+  /** Cap on photos (default MAX_PHOTOS). Service reports allow 12. */
+  maxPhotos?: number;
+  /** Section heading (default "Condition photos"). */
+  title?: string;
+  /** What the photos belong to, for the cap message (default "a unit"). */
+  noun?: string;
   /** Return flow: the unit's OUTBOUND photos, shown as "How it went out". */
   comparison?: { photos: string[]; angles: string[] };
   /**
@@ -108,6 +114,9 @@ export default function GuidedPhotoCapture({
   disabled,
   comparison,
   damage,
+  maxPhotos = MAX_PHOTOS,
+  title = "Condition photos",
+  noun = "a unit",
 }: Props) {
   const isEquipment = minPhotos > 1;
   // Accessories get no example strip until a real accessory image exists.
@@ -143,7 +152,7 @@ export default function GuidedPhotoCapture({
   /** Still needed before Continue. */
   const remaining = Math.max(0, minPhotos - held);
   /** Still allowed under the cap. */
-  const room = Math.max(0, MAX_PHOTOS - held);
+  const room = Math.max(0, maxPhotos - held);
   const done = photos.length >= minPhotos;
   const locked = disabled || capturing;
 
@@ -236,9 +245,10 @@ export default function GuidedPhotoCapture({
 
   /** Keep at most what fits under the cap; say so when a pick was trimmed. */
   const takeNeeded = (files: File[]) => {
-    const fits = Math.max(0, MAX_PHOTOS - photosRef.current.length - pending.length);
+    const fits = Math.max(0, maxPhotos - photosRef.current.length - pending.length);
     if (files.length > fits) {
-      setInfo(`A unit can have up to ${MAX_PHOTOS} photos, so the first ${fits} ${fits === 1 ? "was" : "were"} added.`);
+      const who = noun.charAt(0).toUpperCase() + noun.slice(1);
+      setInfo(`${who} can have up to ${maxPhotos} photos, so the first ${fits} ${fits === 1 ? "was" : "were"} added.`);
     } else setInfo(null);
     return files.slice(0, fits);
   };
@@ -285,7 +295,9 @@ export default function GuidedPhotoCapture({
     <Box>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
         <Typography variant="subtitle2">
-          Condition photos ({photos.length < minPhotos ? `${photos.length} of ${minPhotos}` : `${photos.length} added`})
+          {minPhotos > 0
+            ? `${title} (${photos.length < minPhotos ? `${photos.length} of ${minPhotos}` : `${photos.length} added`})`
+            : `${title}${photos.length ? ` (${photos.length} added)` : ""}`}
         </Typography>
         {uploadingNow && <CircularProgress size={16} />}
         {done && !uploadingNow && <CheckCircleIcon color="success" fontSize="small" />}
@@ -460,11 +472,11 @@ export default function GuidedPhotoCapture({
         </Alert>
       )}
 
-      {done && (
+      {done && photos.length > 0 && (
         <Alert severity="success" sx={{ mb: 1 }}>
           {room === 0
-            ? `${MAX_PHOTOS} photos added, the most a unit can have. Remove one to replace it.`
-            : `${photos.length} ${photos.length === 1 ? "photo" : "photos"} added. You can add more, up to ${MAX_PHOTOS}.`}
+            ? `${maxPhotos} photos added, the most ${noun} can have. Remove one to replace it.`
+            : `${photos.length} ${photos.length === 1 ? "photo" : "photos"} added. You can add more, up to ${maxPhotos}.`}
         </Alert>
       )}
       {!done && remaining === 0 && (

@@ -27,6 +27,7 @@ import {
 } from "@mui/material";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
+import GuidedPhotoCapture, { type CapturedPhoto } from "@/components/delivery/GuidedPhotoCapture";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import {
   ESS_CATEGORIES,
@@ -132,6 +133,7 @@ const GENERIC_STEPS = [
   "Header",
   "Checklist",
   "Remarks & Time",
+  "Photos",
   "Payment",
   "Sign or skip",
   "Service signature",
@@ -146,6 +148,7 @@ const ESS_STEPS = [
   "Power-on tests",
   "Remarks & Time",
   "Conclusion",
+  "Photos",
   "Payment",
   "Sign or skip",
   "Service signature",
@@ -196,6 +199,10 @@ export default function NewServiceReportPage() {
 
   // Page 3 state
   const [remarks, setRemarks] = useState("");
+  // Optional proof photos (2026-10-06): 0 to 12, saved on the report whether it
+  // is signed now or left for later.
+  const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
+  const [photosUploading, setPhotosUploading] = useState(false);
 
   // ── ESS_V1 state ───────────────────────────────────────────────────────────
   // Inert for GENERIC reports: none of it is read unless the resolved template
@@ -720,6 +727,7 @@ export default function NewServiceReportPage() {
           paymentRequired: paymentRequired ?? false,
           ...(signed && clientSignerName.trim() ? { signedByName: clientSignerName.trim() } : {}),
           ...(technicianName ? { technicianName } : {}),
+          ...(photos.length ? { photos: photos.map((p) => p.key) } : {}),
           serviceData,
         },
         token,
@@ -1378,6 +1386,30 @@ export default function NewServiceReportPage() {
     </Box>
   );
 
+  /** Optional photos of the work, printed at the end of the report. */
+  const renderPhotosStep = () => (
+    <Stack spacing={1.5}>
+      <Typography variant="body2" color="text.secondary">
+        Optional. Add up to 12 photos of the work; they appear at the end of the report. You can skip this step.
+      </Typography>
+      <GuidedPhotoCapture
+        photos={photos}
+        onChange={setPhotos}
+        upload={async (blob) => {
+          const token = await getToken();
+          if (!token) throw new Error("Not signed in");
+          return uploadImage({ blob, folderName: "maintenance-reports", token });
+        }}
+        minPhotos={0}
+        maxPhotos={12}
+        title="Photos (optional)"
+        noun="a report"
+        onError={(m) => setError(m || null)}
+        onUploadingChange={setPhotosUploading}
+      />
+    </Stack>
+  );
+
   const renderRemarksStep = () => (
     <Stack spacing={2}>
       <Box>
@@ -1647,6 +1679,7 @@ export default function NewServiceReportPage() {
 
   const progressPct = (step / TOTAL_STEPS) * 100;
   const nextDisabled =
+    (stepName === "Photos" && photosUploading) ||
     submitting ||
     (stepName === "Header" && !canAdvanceFromHeader) ||
     (stepName === "Service signature" && !techSigDrawn && !techSigDataUrl) ||
@@ -1675,6 +1708,7 @@ export default function NewServiceReportPage() {
       {stepName === "Conclusion" && renderEssConclusionStep()}
       {stepName === "Service signature" && renderTechSigStep()}
       {stepName === "Client signature" && renderClientSigStep()}
+      {stepName === "Photos" && renderPhotosStep()}
       {stepName === "Payment" && renderPaymentStep()}
       {stepName === "Sign or skip" && renderSignGateStep()}
 

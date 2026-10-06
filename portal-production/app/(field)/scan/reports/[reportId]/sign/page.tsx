@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { Alert, Box, Button, CircularProgress, Divider, Typography } from "@mui/material";
@@ -8,6 +8,9 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { request } from "@/helpers/request";
 import SignatureCapture, { CapturedSignatures } from "../../../../components/SignatureCapture";
 import { signOneReport, uploadSignaturePair } from "../../../../lib/signReports";
+import { uploadImage } from "@/helpers/imageUploader";
+import GuidedPhotoCapture, { type CapturedPhoto } from "@/components/delivery/GuidedPhotoCapture";
+import { photoSrc } from "@/components/maintenance/ReportPhotos";
 
 /**
  * SIGN A REPORT THAT WAS SKIPPED.
@@ -34,6 +37,39 @@ export default function SignReportPage() {
   const [report, setReport] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Optional photos on the draft: add or remove before signing. Each change is
+  // saved to the draft; signing waits for the last save.
+  const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
+  const [photosUploading, setPhotosUploading] = useState(false);
+  const [photoState, setPhotoState] = useState<"saved" | "saving" | "error" | null>(null);
+  const saveChain = useRef<Promise<void>>(Promise.resolve());
+
+  const savePhotos = useCallback(
+    (next: CapturedPhoto[]) => {
+      setPhotoState("saving");
+      saveChain.current = saveChain.current.then(async () => {
+        try {
+          const token = await getToken();
+          if (!token) throw new Error("Not signed in");
+          const res = await request(
+            { path: `/maintenance-reports/${reportId}/photos`, method: "PATCH" },
+            { photos: next.map((p) => p.key) },
+            token,
+          );
+          if (res?.success === false) throw new Error(res?.message ?? "Could not save the photos");
+          setPhotoState("saved");
+        } catch {
+          setPhotoState("error");
+        }
+      });
+    },
+    [getToken, reportId],
+  );
+
+  const onPhotosChange = (next: CapturedPhoto[]) => {
+    setPhotos(next);
+    savePhotos(next);
+  };
 
   useEffect(() => {
     (async () => {
@@ -49,6 +85,7 @@ export default function SignReportPage() {
           return;
         }
         setReport(data);
+        setPhotos(((data.photos ?? []) as string[]).map((key) => ({ key, previewUrl: photoSrc(key) })));
       } catch (e: any) {
         setError(e?.message ?? "Could not load the report");
       }
@@ -60,6 +97,8 @@ export default function SignReportPage() {
       setSubmitting(true);
       setError(null);
       try {
+        // The draft's photos must be saved before the report is signed.
+        await saveChain.current;
         const token = await getToken();
         if (!token) throw new Error("Not signed in");
         const pair = await uploadSignaturePair(techDataUrl, clientDataUrl, token);
@@ -113,9 +152,37 @@ export default function SignReportPage() {
 
       <Divider />
 
+      {report.kind === "SERVICE" && (
+        <>
+          <GuidedPhotoCapture
+            photos={photos}
+            onChange={onPhotosChange}
+            upload={async (blob) => {
+              const token = await getToken();
+              if (!token) throw new Error("Not signed in");
+              return uploadImage({ blob, folderName: "maintenance-reports", token });
+            }}
+            minPhotos={0}
+            maxPhotos={12}
+            title="Photos (optional)"
+            noun="a report"
+            disabled={submitting}
+            onError={(m) => setError(m || null)}
+            onUploadingChange={setPhotosUploading}
+          />
+          {photoState === "saving" && (
+            <Typography variant="caption" color="text.secondary">
+              Saving photos…
+            </Typography>
+          )}
+          {photoState === "error" && <Alert severity="warning">The photos could not be saved. Remove and add one again to retry.</Alert>}
+          <Divider />
+        </>
+      )}
+
       <SignatureCapture
         initialClientName={sd.clientSignerName ?? ""}
-        submitting={submitting}
+        submitting={submitting || photosUploading}
         onComplete={(captured) => void finish(captured)}
       />
 

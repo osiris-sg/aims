@@ -36,6 +36,7 @@ import {
   renderEssBody,
   renderEssConclusion,
 } from "@/components/maintenance/EssReportView";
+import ReportPhotos from "@/components/maintenance/ReportPhotos";
 
 // Labels come from the SHARED catalogue (see the drift warning there). Which
 // template a report renders under is read from the ROW's stamped templateId,
@@ -68,6 +69,8 @@ interface ServiceData {
 interface MsrDetail {
   id: string;
   reportNumber: number | null;
+  /** Optional proof photos (S3 keys), shown at the end. */
+  photos?: string[] | null;
   technicianName: string | null;
   createdAt: string;
   status: string;
@@ -377,11 +380,23 @@ export default function MaintenanceReportDetailPage() {
         </Grid>
       </Paper>
 
+      {/* Optional photos, at the very end (nothing renders without any). On
+          screen a grid that opens full size; printed as rows that never split. */}
+      <Box className="msr-photos-screen">
+        <ReportPhotos photos={report.photos} />
+      </Box>
+      <Box className="msr-photos-print">
+        <ReportPhotos photos={report.photos} variant="print" />
+      </Box>
+
       {/* Global print rules — strip the portal sidebar/navbar layout and keep
           only the report content. The toolbar above uses its own media query;
           this targets chrome that lives outside this component. */}
       <style jsx global>{`
+        .msr-photos-print { display: none; }
         @media print {
+          .msr-photos-screen { display: none !important; }
+          .msr-photos-print { display: block !important; }
           aside, nav, header { display: none !important; }
           .MuiDrawer-root { display: none !important; }
           body { background: white !important; }

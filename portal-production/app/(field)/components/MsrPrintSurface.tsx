@@ -13,6 +13,7 @@ import {
   renderEssConclusion,
   SignatureBlock,
 } from "@/components/maintenance/EssReportView";
+import ReportPhotos from "@/components/maintenance/ReportPhotos";
 import {
   printHtmlViaSystem,
   savePdfViaSystem,
@@ -254,6 +255,9 @@ export function useMsrPrint(): UseMsrPrintResult {
                 </Box>
               </Box>
             </Box>
+
+            {/* Optional photos, last; nothing when there are none. */}
+            <ReportPhotos photos={report.photos} variant="print" />
           </Box>
         )}
       </div>
