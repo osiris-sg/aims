@@ -35,6 +35,33 @@ type QItem = {
 
 const EXTRACT_CONCURRENCY = 2;
 
+/** Downscale an image data-URI to ≤2000px JPEG (q0.82) — invoice photos stay
+ *  perfectly readable while the payload drops ~10×. */
+function compressImage(dataUri: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const MAX = 2000;
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("no canvas"));
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const out = canvas.toDataURL("image/jpeg", 0.82);
+        // A rare pathological case (tiny PNG) can grow — keep the smaller one.
+        resolve(out.length < dataUri.length ? out : dataUri);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    img.onerror = () => reject(new Error("image load failed"));
+    img.src = dataUri;
+  });
+}
+
 export default function MassCostUpload({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
   const api = useIdProjectApi();
   const [items, setItems] = useState<QItem[]>([]);
@@ -114,9 +141,15 @@ export default function MassCostUpload({ open, onClose, onSaved }: { open: boole
     accepted.forEach((a, i) => {
       const reader = new FileReader();
       const mime = a.blob.type || (/\.pdf$/i.test(a.name) ? "application/pdf" : "image/jpeg");
-      reader.onload = () => {
+      reader.onload = async () => {
         let uri = String(reader.result || "");
         if (!uri.startsWith("data:") || uri.startsWith("data:application/octet-stream")) uri = uri.replace(/^data:[^;]*/, `data:${mime}`);
+        // Phone photos arrive at 4–12MB; the upload + AI read were eating most
+        // of the wait (guru/Mike 2026-10-07). Downscale images client-side to
+        // ≤2000px JPEG — plenty for extraction, ~10× smaller on the wire.
+        if (mime.startsWith("image/") && a.blob.size > 500 * 1024) {
+          uri = await compressImage(uri).catch(() => uri);
+        }
         patchItem(newItems[i].key, { dataUri: uri, status: "queued" });
       };
       reader.readAsDataURL(a.blob);
@@ -141,7 +174,7 @@ export default function MassCostUpload({ open, onClose, onSaved }: { open: boole
     if (!current?.projectId) return toast.error("Pick a project first");
     patchItem(current.key, { status: "saving" });
     try {
-      await api.addCost(current.projectId, {
+      const saved: any = await api.addCost(current.projectId, {
         supplierName: current.supplierName || null,
         invoiceNo: current.invoiceNo || null,
         date: current.date || null,
@@ -152,6 +185,10 @@ export default function MassCostUpload({ open, onClose, onSaved }: { open: boole
         status: "approved",
         source: "portal",
       });
+      if (saved?.duplicateWarning) {
+        const d = saved.duplicateWarning;
+        toast.warn(`⚠ Possible duplicate: ${d.supplierName || "this supplier"} invoice ${d.invoiceNo} is already filed${d.projectName ? ` on ${d.projectName}` : ""} (S$ ${Number(d.amount).toFixed(2)})`, { autoClose: 10000 });
+      }
       patchItem(current.key, { status: "done" });
     } catch (e: any) {
       toast.error(e.message || "Could not save the cost");

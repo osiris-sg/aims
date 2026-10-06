@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
@@ -297,11 +297,31 @@ export class ProjectCostingService {
   }
 
   // ── costs ledger ──────────────────────────────────────────────────────
+  /** Same supplier + same invoice number already filed anywhere in the org?
+   *  (guru 2026-10-07: "if the invoice is same supplier and same invoice
+   *  number please flag it out") — the cost still saves, the caller surfaces
+   *  the warning. Normalised comparison so "DINV 2608-046" = "DINV-2608-046". */
+  private async findDuplicateCost(organizationId: string, supplierName?: string | null, invoiceNo?: string | null, excludeId?: string) {
+    const normAlnum = (s: any) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const inv = normAlnum(invoiceNo);
+    const sup = normAlnum(supplierName).slice(0, 10);
+    if (!inv || !sup) return null;
+    const siblings = await this.prisma.projectCost.findMany({
+      where: { organizationId, invoiceNo: { not: null }, ...(excludeId ? { id: { not: excludeId } } : {}) },
+      select: { id: true, projectId: true, supplierName: true, invoiceNo: true, amount: true },
+    });
+    const hit = siblings.find((s) => normAlnum(s.invoiceNo) === inv && (normAlnum(s.supplierName).startsWith(sup) || sup.startsWith(normAlnum(s.supplierName).slice(0, 10))));
+    if (!hit) return null;
+    const proj = await this.prisma.project.findFirst({ where: { id: hit.projectId }, select: { name: true } });
+    return { costId: hit.id, invoiceNo: hit.invoiceNo, supplierName: hit.supplierName, amount: hit.amount, projectName: proj?.name || null };
+  }
+
   async addCost(projectId: string, organizationId: string, dto: CostDto, actorName?: string) {
     await this.project(projectId, organizationId);
     if (!dto.description?.trim()) throw new BadRequestException('Description is required');
     if (!(num(dto.amount) > 0)) throw new BadRequestException('Amount must be greater than zero');
-    return this.prisma.projectCost.create({
+    const duplicateWarning = await this.findDuplicateCost(organizationId, dto.supplierName, dto.invoiceNo);
+    const created = await this.prisma.projectCost.create({
       data: {
         organizationId,
         projectId,
@@ -321,6 +341,7 @@ export class ProjectCostingService {
         notes: dto.notes || null,
       },
     });
+    return { ...created, duplicateWarning };
   }
 
   async updateCost(costId: string, organizationId: string, dto: Partial<CostDto>) {
@@ -374,10 +395,11 @@ export class ProjectCostingService {
     const key = `project-costs/${organizationId}/unassigned/${Date.now()}-${(filename || 'invoice').replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
     const [attachmentUrl, extracted] = await Promise.all([
       this.s3.uploadFile(key, Buffer.from(raw, 'base64'), mediaType),
-      this.bills.extractFromFile(organizationId, base64Data, mediaType).catch(() => null),
+      // Header-only Haiku extraction — the costing row needs supplier / no. /
+      // date / total / site, not a full line transcript (5–10× faster).
+      this.bills.extractCostSummaryFromFile(organizationId, base64Data, mediaType).catch(() => null),
     ]);
-    const lines: any[] = Array.isArray(extracted?.lines) ? extracted.lines : [];
-    const description = lines.length ? lines.map((l) => String(l.description || '').split('\n')[0]).filter(Boolean).slice(0, 4).join('; ') : '';
+    const description = String((extracted as any)?.summary || '').slice(0, 200);
 
     const scope = await resolveTier(this.prisma, organizationId, callerUserId);
     const projWhere: any = { organizationId, status: { not: 'completed' } };
@@ -416,10 +438,11 @@ export class ProjectCostingService {
     const key = `project-costs/${organizationId}/${projectId}/${Date.now()}-${(filename || 'invoice').replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
     const [attachmentUrl, extracted] = await Promise.all([
       this.s3.uploadFile(key, Buffer.from(raw, 'base64'), mediaType),
-      this.bills.extractFromFile(organizationId, base64Data, mediaType).catch(() => null),
+      // Header-only Haiku extraction — the costing row needs supplier / no. /
+      // date / total / site, not a full line transcript (5–10× faster).
+      this.bills.extractCostSummaryFromFile(organizationId, base64Data, mediaType).catch(() => null),
     ]);
-    const lines: any[] = Array.isArray(extracted?.lines) ? extracted.lines : [];
-    const description = lines.length ? lines.map((l) => String(l.description || '').split('\n')[0]).filter(Boolean).slice(0, 4).join('; ') : '';
+    const description = String((extracted as any)?.summary || '').slice(0, 200);
     return {
       attachmentUrl,
       attachmentKey: key,
@@ -430,7 +453,7 @@ export class ProjectCostingService {
       amount: num(extracted?.totalAmount) || num(extracted?.subtotal) || null,
       description: description || (extracted?.supplierName ? `${extracted.supplierName} invoice` : ''),
       currency: extracted?.currency || 'SGD',
-      lines,
+      lines: [],
       extracted: !!extracted,
     };
   }
@@ -1515,6 +1538,51 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
   }
 
   /**
+   * Apply a trade section to every cost of the SAME contractor on the project
+   * that has NO section yet (guru/Mike 2026-10-07: "once I input one, I don't
+   * have to press them one by one"). Never overwrites a section someone chose.
+   */
+  async applySectionToSupplier(projectId: string, organizationId: string, dto: { supplierName: string; sectionId: string }) {
+    const supplierName = String(dto.supplierName || '').trim();
+    if (!supplierName || !dto.sectionId) return { updated: 0 };
+    const r = await this.prisma.projectCost.updateMany({
+      where: { projectId, organizationId, sectionId: null, supplierName: { equals: supplierName, mode: 'insensitive' } },
+      data: { sectionId: dto.sectionId },
+    });
+    return { updated: r.count };
+  }
+
+  /**
+   * Append one ADDITION line to the project's open draft VO — creating the
+   * draft if there is none (guru/Mike 2026-10-07: filing a cost should let
+   * you flag it "billable to owner" so the chargeable extra is caught on a VO
+   * immediately, not remembered later).
+   */
+  async addVoLine(projectId: string, organizationId: string, dto: { description: string; amount: number }) {
+    const description = String(dto.description || '').trim().slice(0, 500);
+    const amount = num(dto.amount);
+    if (!description) throw new BadRequestException('Describe the VO line');
+    let vo = await this.prisma.document.findFirst({
+      where: { organizationId, projectId, type: 'VARIATION_ORDER', status: { not: 'confirmed' } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, name: true, config: true },
+    });
+    if (!vo) {
+      const created = await this.createVo(projectId, organizationId);
+      vo = await this.prisma.document.findFirst({ where: { id: created.id }, select: { id: true, name: true, config: true } });
+    }
+    const cfg: any = vo!.config || {};
+    const additions = Array.isArray(cfg?.vo?.additions) ? cfg.vo.additions : [];
+    const { randomUUID } = await import('crypto');
+    additions.push({ id: randomUUID(), description, amount, complimentary: false });
+    await this.prisma.document.update({
+      where: { id: vo!.id },
+      data: { config: { ...cfg, vo: { ...(cfg.vo || {}), additions } }, version: { increment: 1 } },
+    });
+    return { voId: vo!.id, voName: vo!.name, lines: additions.length };
+  }
+
+  /**
    * Confirm a VO: snapshot the consolidation (their sheet's right-hand panel),
    * lock the document, and add the net amount to the contract as a `vo`
    * milestone so contract sum, balance and reports all move together.
@@ -1556,6 +1624,25 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
       }),
     ]);
     return { confirmed: true, net, newQuantum: consolidation.newQuantum };
+  }
+
+  /** Delete an UNCONFIRMED variation order (guru/Mike 2026-10-07: the empty
+   *  VO1–VO3 stubs needed a way out). A confirmed VO changed the contract
+   *  quantum and has a milestone — it cannot be deleted, only dealt with by a
+   *  counter-VO. Any tier may delete a draft (guru 2026-10-07: "if
+   *  unconfirmed, designer tier can delete") — a designer only on their own
+   *  project. */
+  async deleteVo(docId: string, organizationId: string, callerUserId?: string) {
+    const doc = await this.prisma.document.findFirst({ where: { id: docId, organizationId, type: 'VARIATION_ORDER' }, select: { id: true, name: true, status: true, projectId: true } });
+    if (!doc) throw new NotFoundException('Variation order not found');
+    const scope = await resolveTier(this.prisma, organizationId, callerUserId);
+    if (scope.tier === 'designer' && doc.projectId) {
+      const proj = await this.prisma.project.findFirst({ where: { id: doc.projectId, organizationId }, select: { designerUserId: true } });
+      if (proj?.designerUserId !== callerUserId) throw new ForbiddenException('You can only delete variation orders on your own projects');
+    }
+    if (doc.status === 'confirmed') throw new BadRequestException('A confirmed variation order cannot be deleted — raise a counter-VO instead');
+    await this.prisma.document.delete({ where: { id: doc.id } });
+    return { deleted: true, name: doc.name };
   }
 
   // ── list for the ID projects page ─────────────────────────────────────

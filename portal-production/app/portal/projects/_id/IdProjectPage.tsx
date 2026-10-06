@@ -244,6 +244,32 @@ function RebatePanel({ projectId, baseProfit }: { projectId: string; baseProfit:
   );
 }
 
+// Money cell that lets the user TYPE freely (decimals, clearing the field) —
+// a string draft while focused, committed as a number. The old inline
+// `Number(v) || 0` coerced on every keystroke, so "2844.4" lost its dot and an
+// emptied field snapped to 0 (guru/Mike 2026-10-07: "manually still cannot
+// edit"). Module scope on purpose: defined inside the page it would remount
+// (and drop the draft) on every parent re-render.
+function MoneyCellField({ value, disabled, onCommit }: { value: number; disabled?: boolean; onCommit: (n: number) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <TextField
+      size="small"
+      value={draft ?? (value || "")}
+      disabled={disabled}
+      onFocus={() => setDraft(value ? String(value) : "")}
+      onChange={(ev) => {
+        const v = ev.target.value;
+        if (!/^[0-9]*\.?[0-9]*$/.test(v)) return;
+        setDraft(v);
+        onCommit(v === "" ? 0 : Number(v) || 0);
+      }}
+      onBlur={() => setDraft(null)}
+      inputProps={{ inputMode: "decimal", style: { textAlign: "right", width: 96, padding: "4px 8px" } }}
+    />
+  );
+}
+
 export default function IdProjectPage({ id }: { id: string }) {
   const router = useRouter();
   const api = useIdProjectApi();
@@ -272,6 +298,10 @@ export default function IdProjectPage({ id }: { id: string }) {
     try {
       setData(await api.summary(id));
       setError(null);
+      // Drop stale per-row drafts so a reload (after save / Recalculate) shows
+      // the server truth — a leftover draft once re-saved paidAmount 0 over
+      // freshly entered collections (guru/Mike 2026-10-07).
+      setEditingMs({});
     } catch (e: any) {
       setError(e.message || "Failed to load project");
     }
@@ -344,6 +374,35 @@ export default function IdProjectPage({ id }: { id: string }) {
 
   const t = data?.totals;
   const costRows = useMemo(() => data?.costs || [], [data]);
+  // Group-by-contractor view (guru/Mike 2026-10-07): same rows, bucketed by
+  // supplier with a subtotal header per contractor, biggest spend first.
+  const [groupBySupplier, setGroupBySupplier] = useState(false);
+  // Duplicate flag (guru 2026-10-07): rows on this project sharing the same
+  // supplier + invoice number (separators ignored) get an amber chip.
+  const dupCostIds = useMemo(() => {
+    const normA = (s: any) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const seen = new Map<string, string[]>();
+    for (const c of costRows) {
+      const inv = normA(c.invoiceNo);
+      if (!inv) continue;
+      const k = `${normA(c.supplierName).slice(0, 10)}|${inv}`;
+      seen.set(k, [...(seen.get(k) || []), c.id]);
+    }
+    const dup = new Set<string>();
+    for (const ids of seen.values()) if (ids.length > 1) ids.forEach((i) => dup.add(i));
+    return dup;
+  }, [costRows]);
+  const costGroups = useMemo(() => {
+    const map = new Map<string, { name: string; rows: any[]; total: number }>();
+    for (const c of costRows) {
+      const key = (c.supplierName || "—").trim().toUpperCase();
+      const g = map.get(key) || { name: c.supplierName || "No contractor", rows: [], total: 0 };
+      g.rows.push(c);
+      if (c.status !== "rejected") g.total += Number(c.amount) || 0;
+      map.set(key, g);
+    }
+    return [...map.values()].sort((a, b) => b.total - a.total);
+  }, [costRows]);
 
   if (error) return <Alert severity="error" sx={{ m: 3 }}>{error}</Alert>;
   if (!data || !t)
@@ -462,6 +521,9 @@ export default function IdProjectPage({ id }: { id: string }) {
                 Subcontractor & supplier costs
               </Typography>
               <Box sx={{ flex: 1 }} />
+              <Button size="small" variant={groupBySupplier ? "contained" : "outlined"} color={groupBySupplier ? "primary" : "inherit"} onClick={() => setGroupBySupplier((v) => !v)} sx={{ textTransform: "none" }}>
+                {groupBySupplier ? "Grouped by contractor" : "Group by contractor"}
+              </Button>
               <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={() => setCostDialog({ open: true, editing: null })} sx={{ textTransform: "none" }}>
                 Add cost / upload invoice
               </Button>
@@ -487,7 +549,22 @@ export default function IdProjectPage({ id }: { id: string }) {
                       </TableCell>
                     </TableRow>
                   )}
-                  {costRows.map((c) => {
+                  {(groupBySupplier ? costGroups.flatMap((g) => [{ __group: g } as any, ...g.rows]) : costRows).map((c: any) => {
+                    if (c.__group) {
+                      const g = c.__group;
+                      return (
+                        <TableRow key={`grp-${g.name}`} sx={{ bgcolor: "action.selected" }}>
+                          <TableCell colSpan={5} sx={{ py: 0.75, fontWeight: 800 }}>
+                            {g.name}
+                            <Typography component="span" variant="caption" sx={{ ml: 1, color: "text.secondary" }}>
+                              {g.rows.length} invoice{g.rows.length === 1 ? "" : "s"}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ py: 0.75, textAlign: "right", fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{money(g.total)}</TableCell>
+                          <TableCell />
+                        </TableRow>
+                      );
+                    }
                     const sec = data.sections.find((s) => s.id === c.sectionId);
                     return (
                       <TableRow
@@ -508,6 +585,11 @@ export default function IdProjectPage({ id }: { id: string }) {
                         <Cell>
                           <Stack direction="row" spacing={0.5} alignItems="center">
                             <span>{c.invoiceNo || "—"}</span>
+                            {dupCostIds.has(c.id) && (
+                              <Tooltip title="Another cost on this project has the same supplier and invoice number — check for a duplicate">
+                                <Chip size="small" color="warning" variant="outlined" label="duplicate?" sx={{ height: 18, "& .MuiChip-label": { px: 0.75, fontSize: 10 } }} />
+                              </Tooltip>
+                            )}
                             {c.attachmentUrl && (
                               <Tooltip title="View invoice">
                                 <IconButton
@@ -708,10 +790,34 @@ export default function IdProjectPage({ id }: { id: string }) {
                         <Cell right>{money(v.additions)}</Cell>
                         <Cell right>({money(v.removals)})</Cell>
                         <Cell right sx={{ fontWeight: 700 }}>{money(v.net)}</Cell>
-                        <Cell right>
+                        <Cell right sx={{ whiteSpace: "nowrap" }}>
                           <Button size="small" onClick={() => setVoDoc(v.id)} sx={{ textTransform: "none" }}>
                             {v.status === "confirmed" ? "View" : "Edit"}
                           </Button>
+                          {v.status !== "confirmed" && (
+                            <Tooltip title="Delete this draft VO (confirmed VOs can't be deleted)">
+                              <IconButton
+                                size="small"
+                                disabled={busy}
+                                onClick={async () => {
+                                  if (!window.confirm(`Delete ${v.name || "this VO"}? This cannot be undone.`)) return;
+                                  setBusy(true);
+                                  try {
+                                    await api.request(`/projects/vo/${v.id}`, { method: "DELETE" });
+                                    toast.success(`${v.name || "VO"} deleted`);
+                                    load();
+                                  } catch (err: any) {
+                                    toast.error(err.message || "Could not delete the VO");
+                                  } finally {
+                                    setBusy(false);
+                                  }
+                                }}
+                                sx={{ "&:hover": { color: "error.main" } }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
                         </Cell>
                       </TableRow>
                     ))}
@@ -750,7 +856,7 @@ export default function IdProjectPage({ id }: { id: string }) {
                         </TableCell>
                         <Cell right>{m.pct != null ? `${m.pct}%` : "—"}</Cell>
                         <TableCell sx={{ py: 0.5, textAlign: "right" }}>
-                          <TextField size="small" value={e.amount ?? m.amount} disabled={!!m.invoice} onChange={(ev) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, amount: Number(ev.target.value) || 0 } }))} inputProps={{ inputMode: "decimal", style: { textAlign: "right", width: 96, padding: "4px 8px" } }} />
+                          <MoneyCellField value={Number(e.amount ?? m.amount) || 0} disabled={!!m.invoice} onCommit={(n) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, amount: n } }))} />
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
                           {m.kind === "refund" ? (
@@ -783,7 +889,7 @@ export default function IdProjectPage({ id }: { id: string }) {
                           )}
                         </TableCell>
                         <TableCell sx={{ py: 0.5, textAlign: "right" }}>
-                          <TextField size="small" value={paid} onChange={(ev) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, paidAmount: Number(ev.target.value) || 0 } }))} inputProps={{ inputMode: "decimal", style: { textAlign: "right", width: 96, padding: "4px 8px" } }} />
+                          <MoneyCellField value={Number(paid) || 0} onCommit={(n) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, paidAmount: n } }))} />
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
                           <TextField size="small" type="date" value={(e.paidAt ?? m.paidAt ?? "").toString().slice(0, 10)} onChange={(ev) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, paidAt: ev.target.value || null } }))} inputProps={{ style: { padding: "4px 8px" } }} />
@@ -797,15 +903,16 @@ export default function IdProjectPage({ id }: { id: string }) {
                             <MenuItem value="CASH">Cash</MenuItem>
                           </TextField>
                         </TableCell>
-                        <Cell>
+                        {/* Fixed-width status + always-present (hidden) Save: typing in Paid
+                            used to pop the button in and grow the chip, reflowing the whole
+                            table on every keystroke (guru/Mike 2026-10-07). */}
+                        <Cell sx={{ minWidth: 180 }}>
                           <Chip size="small" variant="outlined" label={status === "paid" ? "Paid" : status === "partial" ? `Partial · ${money(outstanding)} left` : status === "refund" ? "Refund" : "Due"} color={status === "paid" ? "success" : status === "partial" ? "warning" : status === "due" ? "default" : "info"} />
                         </Cell>
-                        <Cell right>
-                          {dirty && (
-                            <Button size="small" variant="contained" disabled={busy} onClick={() => saveMilestone(m)} sx={{ textTransform: "none", mr: 0.5 }}>
-                              Save
-                            </Button>
-                          )}
+                        <Cell right sx={{ minWidth: 96 }}>
+                          <Button size="small" variant="contained" disabled={busy || !dirty} onClick={() => saveMilestone(m)} sx={{ textTransform: "none", mr: 0.5, visibility: dirty ? "visible" : "hidden" }}>
+                            Save
+                          </Button>
                           {m.kind !== "milestone" && (
                             <IconButton size="small" onClick={() => api.removeMilestone(m.id).then(load)} sx={{ "&:hover": { color: "error.main" } }}>
                               <DeleteIcon fontSize="small" />

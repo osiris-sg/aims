@@ -899,6 +899,56 @@ export class BillsService {
     return bestScore >= 0.6 ? best : null;
   }
 
+  /**
+   * FAST header-only extraction for project costing (guru/Mike 2026-10-07:
+   * "takes quite long to upload one invoice"). The costing flow only needs
+   * supplier / number / date / total / site address — not the word-for-word
+   * line transcript the AP flow wants — so this runs Haiku with a tiny output
+   * budget instead of Sonnet writing out every line (5–10× faster).
+   */
+  async extractCostSummaryFromFile(
+    organizationId: string,
+    base64Data: string,
+    mediaType: 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp' = 'application/pdf',
+  ) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new BadRequestException('Bill extraction not configured (missing ANTHROPIC_API_KEY)');
+    const commaIdx = base64Data.indexOf(',');
+    const headerMatch = base64Data.match(/^data:([a-zA-Z/+]+);base64,/);
+    const data = commaIdx >= 0 && headerMatch ? base64Data.slice(commaIdx + 1) : base64Data;
+    const detectedMedia = (headerMatch?.[1] as any) ?? mediaType;
+    const client = new Anthropic({ apiKey });
+    const system = `You are reading a supplier bill / invoice. Output ONLY a JSON object with:
+  - "supplierName": string (vendor name from header)
+  - "billNumber": string (their invoice number)
+  - "billDate": YYYY-MM-DD
+  - "currency": ISO code, default "SGD"
+  - "subtotal": number (excl tax), "taxAmount": number, "totalAmount": number
+  - "siteAddress": string or null — any project / site / delivery / job address on the document (a "PROJECT:" / "SITE:" / "DELIVER TO:" line, or a block/unit/street/postal reference identifying WHERE the work is). Copy it verbatim. Null if none.
+  - "summary": one short line (max 15 words) saying what the invoice is for.
+Use null when unreadable. STRICT JSON only, no prose, no trailing commas, never the token undefined.`;
+    const content: any[] = [];
+    if (detectedMedia === 'application/pdf') content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } });
+    else content.push({ type: 'image', source: { type: 'base64', media_type: detectedMedia, data } });
+    content.push({ type: 'text', text: 'Extract the bill header per the system schema.' });
+    const response = await client.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 600, system, messages: [{ role: 'user', content }] });
+    const text = response.content.find((b) => b.type === 'text');
+    const raw = text && 'text' in text ? (text as any).text.trim() : '';
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      const parsed = JSON.parse(match[0].replace(/:\s*undefined\s*([,}\]])/g, ': null$1').replace(/,\s*([}\]])/g, '$1'));
+      return {
+        ...parsed,
+        lines: [],
+        supplierIdGuess: parsed.supplierName ? await this.matchSupplier(organizationId, parsed.supplierName) : null,
+        meta: { extractedBy: 'claude-haiku-4-5', detectedMedia },
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async extractFromFile(
     organizationId: string,
     base64Data: string,

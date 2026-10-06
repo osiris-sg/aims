@@ -5,7 +5,7 @@
 // amount into the form for the user to confirm.
 
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Grid, IconButton, LinearProgress, MenuItem, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Grid, IconButton, LinearProgress, MenuItem, Stack, Switch, TextField, Typography } from "@mui/material";
 import UploadFileIcon from "@mui/icons-material/UploadFileOutlined";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ClearIcon from "@mui/icons-material/Close";
@@ -29,6 +29,7 @@ export default function CostDialog({ open, projectId, sections, editing, onClose
   const api = useIdProjectApi();
   const [form, setForm] = useState<Form>(blank());
   const [saving, setSaving] = useState(false);
+  const [voBill, setVoBill] = useState<{ on: boolean; amount: string }>({ on: false, amount: "" });
   const [extracting, setExtracting] = useState(false);
   const [extractNote, setExtractNote] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -36,6 +37,7 @@ export default function CostDialog({ open, projectId, sections, editing, onClose
   useEffect(() => {
     if (!open) return;
     setExtractNote(null);
+    setVoBill({ on: false, amount: "" });
     setForm(
       editing
         ? {
@@ -110,7 +112,39 @@ export default function CostDialog({ open, projectId, sections, editing, onClose
     };
     try {
       if (editing) await api.updateCost(editing.id, body);
-      else await api.addCost(projectId, body);
+      else {
+        const saved: any = await api.addCost(projectId, body);
+        if (saved?.duplicateWarning) {
+          const d = saved.duplicateWarning;
+          toast.warn(`⚠ Possible duplicate: ${d.supplierName || "this supplier"} invoice ${d.invoiceNo} is already filed${d.projectName ? ` on ${d.projectName}` : ""} (S$ ${Number(d.amount).toFixed(2)})`, { autoClose: 10000 });
+        }
+      }
+      // Picking a trade section fills it for this contractor's OTHER costs
+      // that have none yet (guru/Mike 2026-10-07) — chosen sections are never
+      // overwritten, so a multi-trade subcon stays correct.
+      if (form.sectionId && form.supplierName.trim()) {
+        try {
+          const r = await api.request<{ updated: number }>(`/projects/${projectId}/costs/apply-section`, {
+            method: "POST",
+            body: JSON.stringify({ supplierName: form.supplierName.trim(), sectionId: form.sectionId }),
+          });
+          if (r?.updated > 0) toast.info(`Section also applied to ${r.updated} other ${form.supplierName.trim()} cost${r.updated === 1 ? "" : "s"} without one`);
+        } catch {
+          /* best-effort convenience */
+        }
+      }
+      if (voBill.on) {
+        const voAmount = Number(voBill.amount) > 0 ? Number(voBill.amount) : Number(form.amount);
+        try {
+          const r = await api.request<{ voName: string }>(`/projects/${projectId}/vo-line`, {
+            method: "POST",
+            body: JSON.stringify({ description: form.description.trim(), amount: voAmount }),
+          });
+          toast.success(`Added to ${r?.voName || "the draft VO"} — S$ ${voAmount.toFixed(2)} billable to owner`);
+        } catch (err: any) {
+          toast.error(err.message || "Cost saved, but adding the VO line failed — add it in the VO sheet");
+        }
+      }
       toast.success(editing ? "Cost updated" : "Cost added");
       onSaved();
       onClose();
@@ -205,6 +239,30 @@ export default function CostDialog({ open, projectId, sections, editing, onClose
             </Grid>
             <Grid item xs={12}>
               <TextField label="Notes" size="small" fullWidth value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
+            </Grid>
+            {/* Billable to owner → VO line (guru/Mike 2026-10-07): catching a
+                chargeable extra WHILE filing its cost, instead of remembering
+                it later. On save, one addition line is appended to the
+                project's open draft VO (created if none). */}
+            <Grid item xs={12}>
+              <Stack direction="row" spacing={1.5} alignItems="center" sx={{ p: 1.25, border: 1, borderColor: voBill.on ? "warning.main" : "divider", borderRadius: 1.5, flexWrap: "wrap", rowGap: 1 }}>
+                <FormControlLabel
+                  control={<Switch size="small" checked={voBill.on} onChange={(e) => setVoBill((v) => ({ ...v, on: e.target.checked }))} />}
+                  label={<Typography variant="body2" sx={{ fontWeight: 600 }}>Billable to owner — add to VO</Typography>}
+                  sx={{ mr: 0 }}
+                />
+                {voBill.on && (
+                  <TextField
+                    label="Bill owner (S$)"
+                    size="small"
+                    value={voBill.amount}
+                    onChange={(e) => /^[0-9]*\.?[0-9]*$/.test(e.target.value) && setVoBill((v) => ({ ...v, amount: e.target.value }))}
+                    placeholder={form.amount || "amount"}
+                    inputProps={{ inputMode: "decimal", style: { width: 110 } }}
+                    helperText="defaults to the cost amount — mark up as needed"
+                  />
+                )}
+              </Stack>
             </Grid>
           </Grid>
         </Stack>

@@ -144,6 +144,24 @@ export class ProjectCostingController {
     return this.service.confirmVo(docId, orgId(req));
   }
 
+  @Delete('vo/:docId')
+  @Permissions('projects:update')
+  deleteVo(@Param('docId') docId: string, @Req() req: RequestWithOrganization) {
+    return this.service.deleteVo(docId, orgId(req), req.user?.id);
+  }
+
+  @Post(':id/vo-line')
+  @Permissions('projects:update')
+  addVoLine(@Param('id') id: string, @Body() body: { description: string; amount: number }, @Req() req: RequestWithOrganization) {
+    return this.service.addVoLine(id, orgId(req), body || ({} as any));
+  }
+
+  @Post(':id/costs/apply-section')
+  @Permissions('projects:update')
+  applySectionToSupplier(@Param('id') id: string, @Body() body: { supplierName: string; sectionId: string }, @Req() req: RequestWithOrganization) {
+    return this.service.applySectionToSupplier(id, orgId(req), body || ({} as any));
+  }
+
   @Patch(':id/id-fields')
   @Permissions('projects:update')
   updateFields(@Param('id') id: string, @Body() body: any, @Req() req: RequestWithOrganization) {

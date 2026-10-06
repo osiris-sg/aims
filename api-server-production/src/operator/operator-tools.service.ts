@@ -2671,6 +2671,8 @@ export class OperatorToolsService {
     }
     if (pending.kind === 'add_project_cost') {
       const a = pending.args || {};
+      // eslint-disable-next-line prefer-const
+      let dupNote = '';
       const cost: any = await this.costing.addCost(
         a.projectId,
         ctx.organizationId,
@@ -2754,9 +2756,13 @@ export class OperatorToolsService {
       }
 
       this.log(ctx, 'CREATED', 'project-cost', cost?.id, a.projectName, `Cost ${a.amount} added to ${a.projectName} via Operator (${ctx.channel})`);
+      if (cost?.duplicateWarning) {
+        const d = cost.duplicateWarning;
+        dupNote = `\n⚠ Possible DUPLICATE: ${d.supplierName || 'this supplier'} invoice ${d.invoiceNo} is already filed${d.projectName ? ` on ${d.projectName}` : ''} (S$ ${Number(d.amount).toFixed(2)}). Check before approving.`;
+      }
       return {
         ok: true,
-        message: `✅ Added ${a.supplierName ? a.supplierName + ' ' : ''}${Number(a.amount).toFixed(2)} to ${a.projectName}'s costing as PENDING APPROVAL${a.attachmentUrl ? ' (invoice attached)' : ''}${billInfo}. Approve it in the app to finalise.`,
+        message: `✅ Added ${a.supplierName ? a.supplierName + ' ' : ''}${Number(a.amount).toFixed(2)} to ${a.projectName}'s costing as PENDING APPROVAL${a.attachmentUrl ? ' (invoice attached)' : ''}${billInfo}. Approve it in the app to finalise.${dupNote}`,
       };
     }
 
