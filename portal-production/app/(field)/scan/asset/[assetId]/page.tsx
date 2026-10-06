@@ -11,6 +11,7 @@ import HandymanIcon from "@mui/icons-material/Handyman";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
 import { request } from "@/helpers/request";
+import FieldBackButton from "../../../components/FieldBackButton";
 
 type DeliveryItemStatus = "not_delivered" | "delivering" | "not_installed" | "completed";
 
@@ -468,6 +469,7 @@ export default function AssetActionChooser() {
       >
         Scan another asset
       </Button>
+      <FieldBackButton />
     </Box>
   );
 }

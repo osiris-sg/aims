@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Box, Button, Stack, Typography } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { PendingSignList } from "../../../components/PendingSignList";
+import FieldBackButton from "../../../components/FieldBackButton";
 
 /**
  * ONGOING REPORTS — maintenance reports awaiting a signature.
@@ -56,6 +57,8 @@ export default function OngoingReportsPage() {
       </Box>
 
       <PendingSignList />
+
+      <FieldBackButton to="/scan" />
     </Box>
   );
 }

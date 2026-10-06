@@ -7,6 +7,7 @@ import { Alert, Box, Button, Stack, TextField, Typography } from "@mui/material"
 import { request } from "@/helpers/request";
 import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/SignaturePadField";
 import { useBackgroundLocationContext } from "../../../../context/BackgroundLocationContext";
+import FieldBackButton from "../../../../components/FieldBackButton";
 
 export default function SignPage() {
   const params = useParams();
@@ -149,6 +150,17 @@ export default function SignPage() {
           {submitting ? "Submitting..." : "Submit"}
         </Button>
       </Stack>
+
+      {/* Leave without signing: the report stays a draft (Pending Sign). Never
+          history: the form before this creates a new report on each Continue. */}
+      <FieldBackButton
+        to={
+          deliveryId
+            ? `/scan/delivery/${deliveryId}`
+            : `/scan/asset/${assetId}${inventoryId ? `?inventoryId=${encodeURIComponent(inventoryId)}` : ""}`
+        }
+        disabled={submitting}
+      />
     </Box>
   );
 }

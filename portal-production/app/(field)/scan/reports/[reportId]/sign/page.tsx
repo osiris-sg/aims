@@ -184,6 +184,7 @@ export default function SignReportPage() {
         initialClientName={sd.clientSignerName ?? ""}
         submitting={submitting || photosUploading}
         onComplete={(captured) => void finish(captured)}
+        onBackFromTech={() => router.push("/scan/reports/ongoing")}
       />
 
       {error && <Alert severity="error">{error}</Alert>}

@@ -10,6 +10,7 @@ import KeyboardIcon from "@mui/icons-material/Keyboard";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useNfcScan } from "../../hooks/useNfcScan";
+import FieldBackButton from "../../components/FieldBackButton";
 
 /**
  * Scan a unit (reached from the "+" on the Deliveries home, /scan).
@@ -167,6 +168,10 @@ export default function ScanUnitPage() {
         {scanError && (
           <Alert severity="error" sx={{ width: "100%", maxWidth: 360 }}>{scanError}</Alert>
         )}
+      </Box>
+      {/* Same exit as the back arrow at the top. */}
+      <Box sx={{ px: 3, pb: 3 }}>
+        <FieldBackButton />
       </Box>
     </Box>
   );

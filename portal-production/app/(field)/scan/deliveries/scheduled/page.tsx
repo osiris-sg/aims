@@ -8,6 +8,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import EventIcon from "@mui/icons-material/Event";
 import { RunSummary, fetchScheduledRuns } from "../../../lib/deliveryLists";
 import { ScheduledRunCard } from "../../../components/DeliveryRunCards";
+import FieldBackButton from "../../../components/FieldBackButton";
 
 /**
  * Rider "Scheduled deliveries" list. Org-wide scheduled runs waiting to be
@@ -89,6 +90,8 @@ export default function ScheduledDeliveriesPage() {
           />
         ))
       )}
+
+      <FieldBackButton to="/scan" />
     </Box>
   );
 }

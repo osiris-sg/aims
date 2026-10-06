@@ -13,6 +13,7 @@ import { Alert, Box, Button, CircularProgress, IconButton, Stack, Typography } f
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { request } from "@/helpers/request";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
+import FieldBackButton from "../../../../../../components/FieldBackButton";
 import { transformBackendDataForForm } from "@/containers/DocumentTemplates/utils/documentDataTransformer";
 
 // CleanDocumentPreview renders every branch at a fixed A4 Paper width
@@ -220,6 +221,10 @@ export default function ViewDeliveryOrderPage() {
             />
           </Box>
         </Box>
+      </Box>
+
+      <Box sx={{ p: 2, borderTop: 1, borderColor: "divider", bgcolor: "background.paper" }}>
+        <FieldBackButton />
       </Box>
     </Box>
   );

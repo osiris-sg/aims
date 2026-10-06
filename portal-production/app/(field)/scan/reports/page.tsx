@@ -17,6 +17,7 @@ import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import { request } from "@/helpers/request";
 import { ReportSummary } from "../../lib/maintenanceReports";
 import { CompletedReportList } from "../../components/CompletedReportList";
+import FieldBackButton from "../../components/FieldBackButton";
 
 /**
  * MAINTENANCE REPORTS — the landing screen.
@@ -115,6 +116,8 @@ export default function MaintenanceReportsPage() {
       ) : (
         <CompletedReportList reports={done} />
       )}
+
+      <FieldBackButton to="/scan" />
     </Box>
   );
 }
