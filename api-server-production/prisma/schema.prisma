@@ -756,6 +756,10 @@ model DesignerAdvance {
   requestedByName String?
   amount          Float
   reason          String?
+  // Signatures (guru 2026-10-07): the designer signs the request, management
+  // signs the approval — stored as small PNG data-URLs for the record.
+  requestSignature String?
+  approveSignature String?
   status          String    @default("pending") // pending | approved | declined | paid
   decidedById     String?
   decidedByName   String?

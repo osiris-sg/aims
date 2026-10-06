@@ -5,7 +5,8 @@
 // Revenue = contract value (signed quotation + confirmed VOs) of projects
 // started this year, tracked against the manager-set yearly target.
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import SignatureCanvas from "react-signature-canvas";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -192,10 +193,18 @@ function AdvancesCard({ self }: { self: boolean }) {
   const { getToken } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
   const [canDecide, setCanDecide] = useState(false);
+  const [canEditDates, setCanEditDates] = useState(false);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ amount: "", projectId: "", reason: "" });
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+  // Approval dialog (signature required) + Director-only date editor.
+  const [approveFor, setApproveFor] = useState<any>(null);
+  const [approveNote, setApproveNote] = useState("");
+  const [dateEdit, setDateEdit] = useState<any>(null);
+  const [dateForm, setDateForm] = useState({ requestedAt: "", decidedAt: "" });
+  const requestSigRef = useRef<any>(null);
+  const approveSigRef = useRef<any>(null);
 
   const headers = useCallback(async () => {
     const token = await getToken();
@@ -213,6 +222,7 @@ function AdvancesCard({ self }: { self: boolean }) {
       const payload = j?.data ?? j;
       setRows(payload?.rows || []);
       setCanDecide(!!payload?.viewer?.canDecide);
+      setCanEditDates(!!payload?.viewer?.canEditDates);
     } catch {
       /* card is optional */
     }
@@ -237,12 +247,16 @@ function AdvancesCard({ self }: { self: boolean }) {
   const submit = async () => {
     const amount = Number(form.amount);
     if (!(amount > 0)) return;
+    if (!requestSigRef.current || requestSigRef.current.isEmpty()) {
+      alert("Please sign the request");
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch(`${apiBase}/advances`, {
         method: "POST",
         headers: await headers(),
-        body: JSON.stringify({ amount, projectId: form.projectId || null, reason: form.reason || null }),
+        body: JSON.stringify({ amount, projectId: form.projectId || null, reason: form.reason || null, signature: requestSigRef.current.getTrimmedCanvas().toDataURL("image/png") }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -296,9 +310,20 @@ function AdvancesCard({ self }: { self: boolean }) {
             <Typography variant="body2" sx={{ color: "text.secondary", flex: 1, minWidth: 160 }} noWrap>
               {!self && (r.requestedByName || "—")}{!self && " · "}{r.projectName || "no project"}{r.reason ? ` — ${r.reason}` : ""}
             </Typography>
+            <Typography variant="caption" sx={{ color: "text.disabled", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+              requested {new Date(r.createdAt).toLocaleDateString("en-SG", { day: "2-digit", month: "short" })}
+              {r.decidedAt ? ` · ${r.status === "declined" ? "declined" : "approved"} ${new Date(r.decidedAt).toLocaleDateString("en-SG", { day: "2-digit", month: "short" })}` : ""}
+            </Typography>
+            {r.requestSignature && <Box component="img" src={r.requestSignature} alt="requester signature" sx={{ height: 22, bgcolor: "#fff", borderRadius: 0.5, px: 0.25 }} />}
+            {r.approveSignature && <Box component="img" src={r.approveSignature} alt="approver signature" sx={{ height: 22, bgcolor: "#fff", borderRadius: 0.5, px: 0.25 }} />}
+            {canEditDates && (
+              <Button size="small" disabled={busy} onClick={() => { setDateEdit(r); setDateForm({ requestedAt: (r.createdAt || "").slice(0, 10), decidedAt: (r.decidedAt || "").slice(0, 10) }); }} sx={{ textTransform: "none", minWidth: 0, px: 0.5, color: "text.secondary" }}>
+                Edit dates
+              </Button>
+            )}
             {canDecide && r.status === "pending" && (
               <>
-                <Button size="small" disabled={busy} onClick={() => act(r.id, "decide", { approve: true })} sx={{ textTransform: "none" }}>
+                <Button size="small" disabled={busy} onClick={() => { setApproveNote(""); setApproveFor(r); }} sx={{ textTransform: "none" }}>
                   Approve
                 </Button>
                 <Button size="small" color="error" disabled={busy} onClick={() => { const note = window.prompt("Reason for declining (optional)") || undefined; act(r.id, "decide", { approve: false, note }); }} sx={{ textTransform: "none" }}>
@@ -315,6 +340,72 @@ function AdvancesCard({ self }: { self: boolean }) {
         ))}
       </Stack>
 
+      {/* Approve with signature (guru 2026-10-07: management signs the approval) */}
+      <Dialog open={!!approveFor} onClose={() => setApproveFor(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Approve advance — {approveFor ? money(approveFor.amount) : ""}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ mt: 0.5 }}>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {approveFor?.requestedByName || "Designer"} · {approveFor?.projectName || "no project"}{approveFor?.reason ? ` — ${approveFor.reason}` : ""}
+            </Typography>
+            <TextField label="Note (optional)" size="small" value={approveNote} onChange={(e) => setApproveNote(e.target.value)} fullWidth />
+            <Box>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>Sign to approve</Typography>
+              <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "#fff" }}>
+                <SignatureCanvas ref={approveSigRef} penColor="#1a237e" canvasProps={{ style: { width: "100%", height: 120 } }} />
+              </Box>
+              <Button size="small" onClick={() => approveSigRef.current?.clear()} sx={{ textTransform: "none", color: "text.secondary" }}>
+                Clear
+              </Button>
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setApproveFor(null)} sx={{ textTransform: "none" }}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={busy}
+            onClick={async () => {
+              if (!approveSigRef.current || approveSigRef.current.isEmpty()) return alert("Please sign to approve");
+              const sig = approveSigRef.current.getTrimmedCanvas().toDataURL("image/png");
+              await act(approveFor.id, "decide", { approve: true, note: approveNote || undefined, signature: sig });
+              setApproveFor(null);
+            }}
+            sx={{ textTransform: "none" }}
+          >
+            Approve
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Director-only date editor (guru 2026-10-07) */}
+      <Dialog open={!!dateEdit} onClose={() => setDateEdit(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Edit advance dates</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <TextField label="Requested on" type="date" size="small" InputLabelProps={{ shrink: true }} value={dateForm.requestedAt} onChange={(e) => setDateForm({ ...dateForm, requestedAt: e.target.value })} fullWidth />
+            <TextField label="Approved / declined on" type="date" size="small" InputLabelProps={{ shrink: true }} value={dateForm.decidedAt} onChange={(e) => setDateForm({ ...dateForm, decidedAt: e.target.value })} fullWidth />
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              Directors only — use for back-dating a request that was made on paper first.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDateEdit(null)} sx={{ textTransform: "none" }}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={busy}
+            onClick={async () => {
+              await act(dateEdit.id, "dates", { requestedAt: dateForm.requestedAt || null, decidedAt: dateForm.decidedAt || null });
+              setDateEdit(null);
+            }}
+            sx={{ textTransform: "none" }}
+          >
+            Save dates
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Request an advance</DialogTitle>
         <DialogContent>
@@ -327,6 +418,15 @@ function AdvancesCard({ self }: { self: boolean }) {
               ))}
             </TextField>
             <TextField label="Reason (optional)" size="small" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} multiline minRows={2} fullWidth />
+            <Box>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>Your signature</Typography>
+              <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "#fff" }}>
+                <SignatureCanvas ref={requestSigRef} penColor="#1a237e" canvasProps={{ style: { width: "100%", height: 120 } }} />
+              </Box>
+              <Button size="small" onClick={() => requestSigRef.current?.clear()} sx={{ textTransform: "none", color: "text.secondary" }}>
+                Clear
+              </Button>
+            </Box>
             <Typography variant="caption" sx={{ color: "text.secondary" }}>
               Goes to Senior Management for approval. Approved advances net off against your commission at handover.
             </Typography>

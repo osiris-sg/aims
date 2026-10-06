@@ -54,4 +54,10 @@ export class AdvancesController {
   markPaid(@Req() req: RequestWithOrganization, @Param('id') id: string) {
     return this.service.markPaid(orgId(req), req.user?.id, id);
   }
+
+  @Patch(':id/dates')
+  @Permissions('projects:update')
+  editDates(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() dto: { requestedAt?: string | null; decidedAt?: string | null }) {
+    return this.service.editDates(orgId(req), req.user?.id, id, dto || {});
+  }
 }
