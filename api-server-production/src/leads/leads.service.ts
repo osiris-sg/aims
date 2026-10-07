@@ -3,7 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { ActionLogService } from '../action-log/action-log.service';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
-import { resolveTier } from '../common/role-tier';
+import { resolveTier, tierOfRoleNames } from '../common/role-tier';
 import { S3Service } from '../common/services/s3.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UsersService } from '../users/users.service';
@@ -757,8 +757,19 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         if (!line) continue;
         // One designer lookup per org, not per lead.
         const numberOf = new Map((await this.designersOf(orgId)).map((d) => [d.id, String(d.whatsappNumber || '').replace(/\D/g, '')]));
+        // Management-tier assignees are the TRIAGE stop (all leads land on them
+        // before they hand off to a designer) — never nudge them (guru 2026-10-08).
+        const assigneeIds = [...new Set(orgLeads.map((l) => l.assignedToUserId as string))];
+        const roleRows = await this.prisma.userRole.findMany({
+          where: { organizationId: orgId, userId: { in: assigneeIds }, isActive: true },
+          select: { userId: true, role: { select: { name: true } } },
+        });
+        const namesByUser = new Map<string, string[]>();
+        for (const r of roleRows) namesByUser.set(r.userId, [...(namesByUser.get(r.userId) || []), r.role.name]);
+        const masterIds = new Set(assigneeIds.filter((id) => tierOfRoleNames(namesByUser.get(id) || []) === 'master'));
         let sent = 0;
         for (const lead of orgLeads) {
+          if (masterIds.has(lead.assignedToUserId)) continue; // triage holder, not the designer
           const to = numberOf.get(lead.assignedToUserId);
           if (!to) continue; // designer has no WhatsApp number on their profile
           const leadDigits = [lead.whatsappPhone, lead.phone, ...((lead.phones || []) as string[])].map((v: any) => String(v || '').replace(/\D/g, '')).find(Boolean);

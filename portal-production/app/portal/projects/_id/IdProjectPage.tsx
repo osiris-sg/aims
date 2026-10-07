@@ -37,6 +37,7 @@ import {
   TextField,
   Tooltip,
   Typography,
+  TableSortLabel,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AddIcon from "@mui/icons-material/Add";
@@ -380,7 +381,38 @@ export default function IdProjectPage({ id }: { id: string }) {
   };
 
   const t = data?.totals;
-  const costRows = useMemo(() => data?.costs || [], [data]);
+  // Column sorting on the costing table (guru 2026-10-08). Default = the
+  // server order (date desc); clicking a header toggles asc/desc.
+  const [costSort, setCostSort] = useState<{ key: "date" | "supplier" | "invoiceNo" | "section" | "status" | "amount"; dir: "asc" | "desc" } | null>(null);
+  const toggleCostSort = (key: NonNullable<typeof costSort>["key"]) =>
+    setCostSort((s) => (s?.key === key ? (s.dir === "asc" ? { key, dir: "desc" } : null) : { key, dir: "asc" }));
+  const costRows = useMemo(() => {
+    const rows = [...(data?.costs || [])];
+    if (!costSort) return rows;
+    const secName = (c: any) => {
+      const sec = (data?.sections || []).find((x: any) => x.id === c.sectionId);
+      return sec ? `${sec.letter || ""} ${sec.title}` : "";
+    };
+    const val = (c: any) => {
+      switch (costSort.key) {
+        case "date": return new Date(c.date || 0).getTime();
+        case "supplier": return String(c.supplierName || "").toUpperCase();
+        case "invoiceNo": return String(c.invoiceNo || "").toUpperCase();
+        case "section": return secName(c).toUpperCase();
+        case "status": return String(c.status || "");
+        case "amount": return Number(c.amount) || 0;
+      }
+    };
+    rows.sort((a, b) => {
+      const va: any = val(a), vb: any = val(b);
+      // empty values always sink to the bottom, whichever direction
+      if (va === "" && vb !== "") return 1;
+      if (vb === "" && va !== "") return -1;
+      const cmp = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb));
+      return costSort.dir === "asc" ? cmp : -cmp;
+    });
+    return rows;
+  }, [data, costSort]);
   // Group-by-contractor view (guru/Mike 2026-10-07): same rows, bucketed by
   // supplier with a subtotal header per contractor, biggest spend first.
   const [groupBySupplier, setGroupBySupplier] = useState(false);
@@ -539,12 +571,24 @@ export default function IdProjectPage({ id }: { id: string }) {
               <Table size="small" sx={{ minWidth: 860 }}>
                 <TableHead>
                   <TableRow>
-                    <Cell>Date</Cell>
-                    <Cell>Subcontractor / description</Cell>
-                    <Cell>Invoice no.</Cell>
-                    <Cell>Section</Cell>
-                    <Cell>Status</Cell>
-                    <Cell right>Amount (S$)</Cell>
+                    <Cell>
+                      <TableSortLabel active={costSort?.key === "date"} direction={costSort?.key === "date" ? costSort.dir : "asc"} onClick={() => toggleCostSort("date")}>Date</TableSortLabel>
+                    </Cell>
+                    <Cell>
+                      <TableSortLabel active={costSort?.key === "supplier"} direction={costSort?.key === "supplier" ? costSort.dir : "asc"} onClick={() => toggleCostSort("supplier")}>Subcontractor / description</TableSortLabel>
+                    </Cell>
+                    <Cell>
+                      <TableSortLabel active={costSort?.key === "invoiceNo"} direction={costSort?.key === "invoiceNo" ? costSort.dir : "asc"} onClick={() => toggleCostSort("invoiceNo")}>Invoice no.</TableSortLabel>
+                    </Cell>
+                    <Cell>
+                      <TableSortLabel active={costSort?.key === "section"} direction={costSort?.key === "section" ? costSort.dir : "asc"} onClick={() => toggleCostSort("section")}>Section</TableSortLabel>
+                    </Cell>
+                    <Cell>
+                      <TableSortLabel active={costSort?.key === "status"} direction={costSort?.key === "status" ? costSort.dir : "asc"} onClick={() => toggleCostSort("status")}>Status</TableSortLabel>
+                    </Cell>
+                    <Cell right>
+                      <TableSortLabel active={costSort?.key === "amount"} direction={costSort?.key === "amount" ? costSort.dir : "asc"} onClick={() => toggleCostSort("amount")}>Amount (S$)</TableSortLabel>
+                    </Cell>
                     <Cell />
                   </TableRow>
                 </TableHead>
