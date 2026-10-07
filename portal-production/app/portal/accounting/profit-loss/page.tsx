@@ -25,6 +25,7 @@ import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import CloseWizardDialog from "../_lib/CloseWizardDialog";
+import { PaperSheet, ReportHeader, ReportPrintCss, fmt, formatShortDate } from "../_lib/report-doc";
 
 type Section = {
   title: string;
@@ -57,17 +58,7 @@ type BsReport = {
   totals: { totalAssets: number; totalLiabilitiesAndEquity: number; balanced: boolean };
 };
 
-const fmt = (n: number) => {
-  if (n === 0) return "0.00";
-  if (n < 0) return `( ${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} )`;
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
-
 const today = () => new Date().toISOString().slice(0, 10);
-const formatHumanDate = (d: Date | string) =>
-  new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-const formatShortDate = (d: Date | string) =>
-  new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 type Mode = "STANDARD" | "MONTH_END" | "YEAR_END";
 
@@ -295,26 +286,7 @@ export default function ProfitLossPage() {
         </PaperSheet>
       )}
 
-      {/* Print CSS — hide app chrome, show only the paper */}
-      <style jsx global>{`
-        @media print {
-          .no-print {
-            display: none !important;
-          }
-          @page {
-            size: A4;
-            margin: 0;
-          }
-          body {
-            background: white !important;
-          }
-          [data-print-paper] {
-            box-shadow: none !important;
-            margin: 0 !important;
-            padding: 20mm !important;
-          }
-        }
-      `}</style>
+      <ReportPrintCss />
 
       <CloseWizardDialog
         open={closeWizardOpen}
@@ -323,52 +295,6 @@ export default function ProfitLossPage() {
         defaultType={closeWizardType}
         onCompleted={() => load()}
       />
-    </Box>
-  );
-}
-
-// White A4-sized paper that frames the printable report content
-function PaperSheet({ children }: { children: React.ReactNode }) {
-  return (
-    // Phone: the A4 sheet scrolls inside this container, page body doesn't
-    <Box sx={{ display: "flex", justifyContent: { xs: "flex-start", md: "center" }, py: 1, overflowX: "auto" }}>
-      <Paper
-        data-print-paper
-        elevation={2}
-        sx={{
-          width: "210mm",
-          flexShrink: 0,
-          minHeight: "297mm",
-          p: "20mm",
-          backgroundColor: "white",
-          color: "#000",
-          fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
-          fontSize: "0.8125rem",
-          lineHeight: 1.5,
-        }}
-      >
-        {children}
-      </Paper>
-    </Box>
-  );
-}
-
-function ReportHeader({
-  organization,
-  date,
-  title,
-}: {
-  organization: any;
-  date: string;
-  title: string;
-}) {
-  return (
-    <Box sx={{ textAlign: "center", mb: 3 }}>
-      <Typography sx={{ fontSize: "1rem", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase" }}>
-        {organization?.name || "Company Name"}
-      </Typography>
-      <Typography sx={{ fontSize: "0.8125rem", mt: 0.25 }}>{formatHumanDate(date)}</Typography>
-      <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700, mt: 1.5, letterSpacing: 1 }}>{title}</Typography>
     </Box>
   );
 }
