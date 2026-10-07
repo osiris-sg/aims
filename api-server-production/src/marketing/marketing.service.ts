@@ -11,7 +11,9 @@ import { resolveTier } from '../common/role-tier';
 // Read-only Graph API access via a client-shared system-user token (ads_read).
 
 const GRAPH = 'https://graph.facebook.com/v23.0';
-const AD_SOURCES = ['facebook', 'instagram'];
+// Lead.source stores the SHORT codes (leads page: fb | ig) — the long names
+// never matched, so true CPL/ROAS always read zero (found 2026-10-07).
+const AD_SOURCES = ['fb', 'ig', 'facebook', 'instagram'];
 
 const INSIGHT_FIELDS = [
   'date_start',
@@ -177,6 +179,9 @@ export class MarketingService {
   async nightlySync() {
     const conns = await this.prisma.adAccountConnection.findMany({ where: { status: { not: 'DISCONNECTED' } } });
     for (const c of conns) {
+      // Demo-seeded connection (DEMO INTERIOR): fake token, data is hand-seeded
+      // AdInsight rows — syncing would just error it to status ERROR nightly.
+      if (c.accessToken === 'DEMO-SEED') continue;
       try {
         const r = await this.syncOrg(c.organizationId, 3);
         await this.actionLog.system('ads-insights-sync', 'SYNC', 'marketing', {
