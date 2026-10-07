@@ -14,6 +14,8 @@ export interface EmitNotificationParams {
   /** The user this notification is ABOUT (e.g. the designer a lead was
    *  assigned to). They receive it even if they are designer-only. */
   forUserId?: string | null;
+  /** Deliver ONLY to forUserId — personal traffic that must not broadcast to master-tier users (advances etc.). */
+  exclusive?: boolean;
 }
 
 /**
@@ -42,7 +44,9 @@ export class NotificationsService {
    */
   async emit(params: EmitNotificationParams): Promise<void> {
     try {
-      const recipients = await this.resolveRecipients(params.organizationId, params.forUserId ?? null, params.linkUrl ?? null);
+      const recipients = params.exclusive && params.forUserId
+        ? [params.forUserId]
+        : await this.resolveRecipients(params.organizationId, params.forUserId ?? null, params.linkUrl ?? null);
       if (!recipients.length) return;
       await this.prisma.notification.createMany({
         data: recipients.map((userId) => ({

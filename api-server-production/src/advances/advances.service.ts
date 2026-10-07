@@ -54,6 +54,7 @@ export class AdvancesService {
               entityType: 'advance',
               entityId: row.id,
               forUserId: uid,
+              exclusive: true,
               linkUrl: '/portal/dashboard',
             })
             .catch(() => null),
@@ -139,6 +140,7 @@ export class AdvancesService {
         entityType: 'advance',
         entityId: id,
         forUserId: row.requestedById,
+        exclusive: true,
         linkUrl: '/portal/dashboard',
       })
       .catch(() => null);
@@ -159,6 +161,7 @@ export class AdvancesService {
                 entityType: 'advance',
                 entityId: id,
                 forUserId: uid,
+                exclusive: true,
                 linkUrl: '/portal/dashboard',
               })
               .catch(() => null),

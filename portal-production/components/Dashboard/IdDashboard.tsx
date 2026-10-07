@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
   Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  Grid, IconButton, LinearProgress, MenuItem, Paper, Stack,
+  FormControlLabel, Grid, IconButton, LinearProgress, MenuItem, Paper, Stack, Switch,
   Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -205,6 +205,32 @@ function AdvancesCard({ self }: { self: boolean }) {
   const [dateForm, setDateForm] = useState({ requestedAt: "", decidedAt: "" });
   const requestSigRef = useRef<any>(null);
   const approveSigRef = useRef<any>(null);
+  // Saved signature (guru 2026-10-08): kept on THIS device only (localStorage),
+  // never uploaded until it is used to sign something.
+  const SIG_KEY = "aims-saved-signature";
+  const [savedSig, setSavedSig] = useState<string | null>(null);
+  const [rememberSig, setRememberSig] = useState(false);
+  useEffect(() => {
+    try {
+      setSavedSig(window.localStorage.getItem(SIG_KEY));
+    } catch {
+      /* private mode */
+    }
+  }, []);
+  const useSavedOn = (ref: React.MutableRefObject<any>) => {
+    if (!savedSig || !ref.current) return;
+    ref.current.clear();
+    ref.current.fromDataURL(savedSig);
+  };
+  const maybeRemember = (dataUrl: string) => {
+    if (!rememberSig) return;
+    try {
+      window.localStorage.setItem(SIG_KEY, dataUrl);
+      setSavedSig(dataUrl);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const headers = useCallback(async () => {
     const token = await getToken();
@@ -256,7 +282,11 @@ function AdvancesCard({ self }: { self: boolean }) {
       const res = await fetch(`${apiBase}/advances`, {
         method: "POST",
         headers: await headers(),
-        body: JSON.stringify({ amount, projectId: form.projectId || null, reason: form.reason || null, signature: requestSigRef.current.getTrimmedCanvas().toDataURL("image/png") }),
+        body: (() => {
+          const sig = requestSigRef.current.getTrimmedCanvas().toDataURL("image/png");
+          maybeRemember(sig);
+          return JSON.stringify({ amount, projectId: form.projectId || null, reason: form.reason || null, signature: sig });
+        })(),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -354,9 +384,21 @@ function AdvancesCard({ self }: { self: boolean }) {
               <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "#fff" }}>
                 <SignatureCanvas ref={approveSigRef} penColor="#1a237e" canvasProps={{ style: { width: "100%", height: 120 } }} />
               </Box>
-              <Button size="small" onClick={() => approveSigRef.current?.clear()} sx={{ textTransform: "none", color: "text.secondary" }}>
-                Clear
-              </Button>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap" }}>
+                <Button size="small" onClick={() => approveSigRef.current?.clear()} sx={{ textTransform: "none", color: "text.secondary" }}>
+                  Clear
+                </Button>
+                {savedSig && (
+                  <Button size="small" onClick={() => useSavedOn(approveSigRef)} sx={{ textTransform: "none" }}>
+                    Use saved signature
+                  </Button>
+                )}
+                <FormControlLabel
+                  control={<Switch size="small" checked={rememberSig} onChange={(e) => setRememberSig(e.target.checked)} />}
+                  label={<Typography variant="caption">Remember on this device</Typography>}
+                  sx={{ mr: 0 }}
+                />
+              </Stack>
             </Box>
           </Stack>
         </DialogContent>
@@ -368,6 +410,7 @@ function AdvancesCard({ self }: { self: boolean }) {
             onClick={async () => {
               if (!approveSigRef.current || approveSigRef.current.isEmpty()) return alert("Please sign to approve");
               const sig = approveSigRef.current.getTrimmedCanvas().toDataURL("image/png");
+              maybeRemember(sig);
               await act(approveFor.id, "decide", { approve: true, note: approveNote || undefined, signature: sig });
               setApproveFor(null);
             }}
@@ -423,9 +466,21 @@ function AdvancesCard({ self }: { self: boolean }) {
               <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "#fff" }}>
                 <SignatureCanvas ref={requestSigRef} penColor="#1a237e" canvasProps={{ style: { width: "100%", height: 120 } }} />
               </Box>
-              <Button size="small" onClick={() => requestSigRef.current?.clear()} sx={{ textTransform: "none", color: "text.secondary" }}>
-                Clear
-              </Button>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap" }}>
+                <Button size="small" onClick={() => requestSigRef.current?.clear()} sx={{ textTransform: "none", color: "text.secondary" }}>
+                  Clear
+                </Button>
+                {savedSig && (
+                  <Button size="small" onClick={() => useSavedOn(requestSigRef)} sx={{ textTransform: "none" }}>
+                    Use saved signature
+                  </Button>
+                )}
+                <FormControlLabel
+                  control={<Switch size="small" checked={rememberSig} onChange={(e) => setRememberSig(e.target.checked)} />}
+                  label={<Typography variant="caption">Remember on this device</Typography>}
+                  sx={{ mr: 0 }}
+                />
+              </Stack>
             </Box>
             <Typography variant="caption" sx={{ color: "text.secondary" }}>
               Goes to Senior Management for approval. Approved advances net off against your commission at handover.
