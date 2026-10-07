@@ -11,14 +11,16 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 export default function MasterFilesLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { isIdQuotationEnabled } = useOrganizationFeatures();
+  const { isIdQuotationEnabled, isServiceItemsEnabled } = useOrganizationFeatures();
 
   const tabs = [
     { label: "Customers", value: "/portal/masterfiles/customers" },
     { label: "Suppliers", value: "/portal/masterfiles/suppliers" },
     { label: "Products", value: "/portal/masterfiles/products" },
     { label: "Inventory", value: "/portal/masterfiles/inventory" },
-    { label: "Services", value: "/portal/masterfiles/services" },
+    // Gated per org (guru 2026-10-08: CIEL doesn't use service items — their
+    // library lives in the Work Library tab).
+    ...(isServiceItemsEnabled ? [{ label: "Services", value: "/portal/masterfiles/services" }] : []),
     // Interior-design work library (trade sections + templatised quotation
     // lines) — only for orgs on the ID quotation editor.
     ...(isIdQuotationEnabled ? [{ label: "Work Library", value: "/portal/masterfiles/work-library" }] : []),
