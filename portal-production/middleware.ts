@@ -7,6 +7,9 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 // links; the backend authorises solely via the unguessable pay token.
 // /sign(.*) is the public client e-signature page for quotations (token URL).
 // /schedule(.*) is the public client link to a project's live weekly schedule.
+// /book/<token> is the public client booking page for a designer's calendar —
+// the page sends no auth; the backend authorises solely via the link token
+// and only ever returns free/busy slots.
 // /signature/<random> is the TEMPORARY (2026-09) standalone signature capture
 // page. The path segment is the ONLY thing making it unguessable — it is
 // matched EXACTLY, so any other /signature/* falls through to Clerk and
@@ -20,6 +23,7 @@ const isPublicRoute = createRouteMatcher([
   "/pay(.*)",
   "/sign/(.*)",
   "/schedule/(.*)",
+  "/book/(.*)",
   "/signature/9eyFpEEFvrmPZN3qvwD_Zw",
 ]);
 
