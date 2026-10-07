@@ -91,6 +91,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Designer advance requests (guru 2026-10-06): designers ask for money ahead
   // of commission; Senior Management approves. Default OFF.
   enableDesignerAdvances: false,
+  // Per-designer appointment calendar + public client booking link (guru
+  // 2026-10-08). Default OFF.
+  enableAppointmentBooking: false,
   // Operations dashboard (Biofuel, 2026-09-26): the portal landing page shows
   // stock on hand, units in/out, revenue by product over a filterable range,
   // field-service frequency and a fleet map, instead of the generic cards.
@@ -180,6 +183,7 @@ export function useOrganizationFeatures() {
     isLegacyAccountingUxEnabled: features.enableLegacyAccountingUx ?? false,
     isIdQuotationEnabled: features.enableIdQuotation ?? false,
     isDesignerAdvancesEnabled: features.enableDesignerAdvances ?? false,
+    isAppointmentBookingEnabled: features.enableAppointmentBooking ?? false,
     isAdsInsightsEnabled: features.enableAdsInsights ?? false,
     isOpsDashboardEnabled: features.enableOpsDashboard ?? false,
     isMaintenanceDatesEnabled: features.enableMaintenanceDates ?? false,

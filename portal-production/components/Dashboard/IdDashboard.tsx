@@ -498,10 +498,184 @@ function AdvancesCard({ self }: { self: boolean }) {
   );
 }
 
+/**
+ * Appointment schedule (guru 2026-10-08, enableAppointmentBooking orgs): the
+ * DESIGNER's own calendar — appointments they add, client self-bookings from
+ * their public /book link, and their lead appointments, in one list. Managers
+ * see every designer's. The booking link shows clients FREE slots only.
+ */
+function AppointmentsCard({ self }: { self: boolean }) {
+  const { getToken } = useAuth();
+  const [rows, setRows] = useState<any[]>([]);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ title: "", phone: "", location: "", note: "", date: "", time: "" });
+  const [link, setLink] = useState<string | null>(null);
+
+  const headers = useCallback(async () => {
+    const token = await getToken();
+    const h: Record<string, string> = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+    const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
+    if (activeOrgId) h["X-Active-Org-Id"] = activeOrgId;
+    return h;
+  }, [getToken]);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`${apiBase}/appointments`, { headers: await headers() });
+      if (!res.ok) return;
+      const j = await res.json();
+      const payload = j?.data ?? j;
+      const all = [...(payload?.appointments || []), ...(payload?.leadAppointments || [])]
+        .filter((a: any) => new Date(a.endAt || a.startAt) >= new Date())
+        .sort((a: any, b: any) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+      setRows(all);
+    } catch {
+      /* optional card */
+    }
+  }, [headers]);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const shareLink = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`${apiBase}/appointments/booking-link`, { method: "POST", headers: await headers() });
+      const j = await res.json();
+      const payload = j?.data ?? j;
+      const url = /^https?:/i.test(payload.url) ? payload.url : `${window.location.origin}${payload.path}`;
+      setLink(url);
+      try {
+        await navigator.clipboard.writeText(url);
+      } catch {
+        /* clipboard may be blocked */
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submit = async () => {
+    if (!form.title.trim() || !form.date || !form.time) return;
+    setBusy(true);
+    try {
+      const startAt = new Date(`${form.date}T${form.time}:00+08:00`).toISOString();
+      const res = await fetch(`${apiBase}/appointments`, {
+        method: "POST",
+        headers: await headers(),
+        body: JSON.stringify({ title: form.title.trim(), phone: form.phone || null, location: form.location || null, note: form.note || null, startAt }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.message?.message || j?.message || "Could not add the appointment");
+      }
+      setOpen(false);
+      setForm({ title: "", phone: "", location: "", note: "", date: "", time: "" });
+      load();
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancel = async (id: string) => {
+    if (!window.confirm("Cancel this appointment?")) return;
+    setBusy(true);
+    try {
+      await fetch(`${apiBase}/appointments/${id}/cancel`, { method: "PATCH", headers: await headers() });
+      load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const fmt = (iso: string) => new Date(iso).toLocaleString("en-SG", { timeZone: "Asia/Singapore", weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  const srcChip: Record<string, { label: string; color: "default" | "success" | "info" | "warning" }> = {
+    client: { label: "booked by client", color: "success" },
+    lead: { label: "lead", color: "info" },
+    block: { label: "blocked", color: "default" },
+    designer: { label: "own", color: "default" },
+  };
+
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 2, mb: 2.5, p: 2 }}>
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1, flexWrap: "wrap", rowGap: 1 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+          {self ? "My appointments" : "Appointments"}
+        </Typography>
+        <Box sx={{ flex: 1 }} />
+        <Button size="small" variant="outlined" disabled={busy} onClick={shareLink} sx={{ textTransform: "none" }}>
+          Share booking link
+        </Button>
+        <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setOpen(true)} sx={{ textTransform: "none" }} data-tour="add-appointment">
+          Add appointment
+        </Button>
+      </Stack>
+      {link && (
+        <Typography variant="caption" sx={{ display: "block", mb: 1, color: "text.secondary", wordBreak: "break-all" }}>
+          Booking link copied — clients see only your free slots: {link}{" "}
+          <Typography component="a" variant="caption" href={`https://wa.me/?text=${encodeURIComponent(`Book an appointment with me here: ${link}`)}`} target="_blank" rel="noreferrer" sx={{ color: "primary.main" }}>
+            Share on WhatsApp
+          </Typography>
+        </Typography>
+      )}
+      {rows.length === 0 && (
+        <Typography variant="caption" sx={{ color: "text.secondary" }}>
+          Nothing upcoming. Add an appointment, or share your booking link and let clients pick a free slot themselves.
+        </Typography>
+      )}
+      <Stack spacing={0.5}>
+        {rows.slice(0, 10).map((a: any) => (
+          <Stack key={a.id} direction="row" alignItems="center" spacing={1} sx={{ flexWrap: "wrap", rowGap: 0.25 }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", minWidth: 150 }}>
+              {fmt(a.startAt)}
+            </Typography>
+            <Typography variant="body2" sx={{ flex: 1, minWidth: 140 }} noWrap>
+              {a.title}
+              {!self && a.designerName ? ` · ${a.designerName}` : ""}
+              {a.location ? ` — ${a.location}` : ""}
+            </Typography>
+            <Chip size="small" variant="outlined" color={srcChip[a.source]?.color || "default"} label={srcChip[a.source]?.label || a.source} sx={{ height: 18, "& .MuiChip-label": { px: 0.6, fontSize: 10 } }} />
+            {!String(a.id).startsWith("lead:") && (
+              <IconButton size="small" disabled={busy} onClick={() => cancel(a.id)} sx={{ color: "text.disabled", "&:hover": { color: "error.main" } }} aria-label="Cancel appointment">
+                ✕
+              </IconButton>
+            )}
+          </Stack>
+        ))}
+      </Stack>
+
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Add appointment</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <TextField label="Client / purpose" size="small" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} autoFocus fullWidth />
+            <Stack direction="row" spacing={1}>
+              <TextField label="Date" type="date" size="small" InputLabelProps={{ shrink: true }} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} fullWidth />
+              <TextField label="Time" type="time" size="small" InputLabelProps={{ shrink: true }} value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} fullWidth />
+            </Stack>
+            <TextField label="Phone (optional)" size="small" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} fullWidth />
+            <TextField label="Location (optional)" size="small" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} fullWidth />
+            <TextField label="Note (optional)" size="small" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} fullWidth />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpen(false)} sx={{ textTransform: "none" }}>Cancel</Button>
+          <Button variant="contained" disabled={busy || !form.title.trim() || !form.date || !form.time} onClick={submit} sx={{ textTransform: "none" }}>
+            Add
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Paper>
+  );
+}
+
 export default function IdDashboard() {
   const router = useRouter();
   const { getToken, userId } = useAuth();
-  const { isDesignerAdvancesEnabled } = useOrganizationFeatures();
+  const { isDesignerAdvancesEnabled, isAppointmentBookingEnabled } = useOrganizationFeatures();
   const [data, setData] = useState<Payload | null>(null);
   const [rebates, setRebates] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -693,6 +867,7 @@ export default function IdDashboard() {
 
       {/* Master calendar across the visible projects */}
       <ScheduleOverview schedule={data.schedule || []} holidays={data.holidays || {}} holidaysMy={data.holidaysMy || {}} self={self} />
+      {isAppointmentBookingEnabled && <AppointmentsCard self={self} />}
       {isDesignerAdvancesEnabled && <AdvancesCard self={self} />}
 
       {/* Management: per-designer table */}

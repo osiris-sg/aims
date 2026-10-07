@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
 import { AdvancesService } from '../advances/advances.service';
+import { AppointmentsService } from '../appointments/appointments.service';
 import { XeroSyncService } from '../xero-sync/xero-sync.service';
 import { BankRecService } from '../bank-rec/bank-rec.service';
 import { AuditService } from '../common/audit.service';
@@ -120,6 +121,7 @@ export class OperatorToolsService {
     private readonly s3: S3Service,
     private readonly auth: OperatorAuthService,
     private readonly advances: AdvancesService,
+    private readonly appointments: AppointmentsService,
   ) {}
 
   /** Extract a just-uploaded invoice/receipt (project-agnostic) and store the
@@ -677,6 +679,45 @@ export class OperatorToolsService {
             createdAt: new Date().toISOString(),
           };
           return { pending, result: { ok: true, confirm: pending.summary } };
+        },
+      },
+
+{
+        name: 'my_appointments',
+        description:
+          "The designer's appointment schedule: upcoming appointments (own entries, client bookings and lead appointments merged). Use when asked \"what's on my calendar\", \"any appointments tomorrow\", etc.",
+        permissions: ['projects:read'],
+        input_schema: {
+          type: 'object',
+          properties: { days: { type: 'number', description: 'How many days ahead (default 14)' } },
+        },
+        run: async (ctx, { days }) => {
+          const to = new Date(Date.now() + Math.min(Math.max(Number(days) || 14, 1), 60) * 86400000).toISOString();
+          const r = await this.appointments.list(ctx.organizationId, ctx.clerkUserId, new Date().toISOString(), to);
+          const rows = [...r.appointments, ...r.leadAppointments]
+            .sort((a: any, b: any) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
+            .slice(0, 25)
+            .map((a: any) => ({
+              when: new Date(a.startAt).toLocaleString('en-SG', { timeZone: 'Asia/Singapore', weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
+              title: a.title,
+              phone: a.phone || null,
+              location: a.location || null,
+              source: a.source,
+              designer: a.designerName || null,
+            }));
+          return { result: { count: rows.length, appointments: rows } };
+        },
+      },
+
+      {
+        name: 'booking_link',
+        description:
+          "The designer's personal public booking link — clients open it, see only FREE slots, and book themselves. Use when asked to \"send my booking link\" or \"let the client pick a time\".",
+        permissions: ['projects:read'],
+        input_schema: { type: 'object', properties: {} },
+        run: async (ctx) => {
+          const link = await this.appointments.bookingLink(ctx.organizationId, ctx.clerkUserId, null);
+          return { result: { url: link.url, note: `Clients see only your free ${link.slotMinutes}-minute slots (${link.hourStart}:00–${link.hourEnd}:00 SGT, next ${link.daysAhead} days).` } };
         },
       },
 

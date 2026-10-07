@@ -26,6 +26,7 @@ import { TeamsModule } from './teams/teams.module';
 import { MarketingModule } from './marketing/marketing.module';
 import { SearchModule } from './search/search.module';
 import { AdvancesModule } from './advances/advances.module';
+import { AppointmentsModule } from './appointments/appointments.module';
 import { LeadsModule } from './leads/leads.module';
 import { CustomerInfoModule } from './customer-info/customer-info.module';
 import { PublicApiModule } from './public-api/public-api.module';
@@ -154,6 +155,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     MarketingModule,
     SearchModule,
     AdvancesModule,
+    AppointmentsModule,
     LeadsModule,
     CustomerInfoModule,
     PublicApiModule,

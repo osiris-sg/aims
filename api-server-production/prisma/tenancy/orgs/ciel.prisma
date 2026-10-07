@@ -1416,6 +1416,47 @@ model ProjectMilestone {
 // show on the project's Contract & P&L "Advanced to designer" line and net
 // off against commission at handover. paidAt is stamped when finance actually
 // pays it out (bi-weekly run).
+// ── Designer appointment schedule (guru 2026-10-08) ─────────────────────────
+// Per-DESIGNER calendar (not per project): the designer's own appointments
+// plus client self-bookings via a public link. Lead appointments
+// (Lead.appointmentAt) merge into the same view at read time.
+model DesignerAppointment {
+  id             String   @id @default(uuid())
+  organizationId String
+  designerUserId String
+  designerName   String?
+  title          String // client name / purpose
+  phone          String?
+  location       String?
+  note           String?
+  startAt        DateTime
+  endAt          DateTime
+  source         String   @default("designer") // designer | client | block
+  status         String   @default("booked") // booked | cancelled
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, designerUserId, startAt])
+}
+
+// One shareable booking link per designer: clients see ONLY free slots and
+// book one; slot geometry lives on the link so it can be tuned per designer.
+model DesignerBookingLink {
+  id             String    @id @default(uuid())
+  organizationId String
+  designerUserId String    @unique
+  designerName   String?
+  token          String    @unique
+  slotMinutes    Int       @default(60)
+  hourStart      Int       @default(10) // SGT
+  hourEnd        Int       @default(20)
+  daysAhead      Int       @default(14)
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([organizationId])
+}
+
 model DesignerAdvance {
   id              String    @id @default(uuid())
   organizationId  String
