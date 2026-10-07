@@ -5,6 +5,7 @@ import AdmZip = require('adm-zip');
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { PrismaService } from 'src/common/prisma.service';
 import { isUnconfirmedDoc } from '../common/doc-status';
+import { documentReferenceOf } from '../common/doc-ref';
 import { AccountMemoryService } from '../account-memory/account-memory.service';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
 import { InventoryStatus, DocumentStatus, ItemType, DeliveryStatus, DeploymentType, Prisma } from '@prisma/client';
@@ -6649,7 +6650,7 @@ export class DocumentsService {
         continue;
       }
       const c: any = doc.config || {};
-      const ref = c.documentInfo?.referenceNo || c.referenceNo || c.documentInfo?.reference || c.reference || c.xeroReference || '';
+      const ref = documentReferenceOf(c);
       let base = sanitize(`${doc.name || doc.id}${ref ? ` - ${ref}` : ''}`) || doc.id;
       // Duplicate names (same number+ref twice) would silently overwrite
       // inside the zip — suffix them.
@@ -6788,7 +6789,7 @@ export class DocumentsService {
       contactEmail: contactEmail || undefined,
       date: toYmd(c.date ?? c.billDate) || new Date().toISOString().split('T')[0],
       dueDate: toYmd(c.dueDate),
-      reference: c.reference || c.poNo || c.qinRef || undefined,
+      reference: documentReferenceOf(c) || c.poNo || c.qinRef || undefined,
       invoiceNumber: doc.name || undefined,
       lineAmountTypes,
       status: 'DRAFT', // land as Xero draft; approval stays a human decision in Xero

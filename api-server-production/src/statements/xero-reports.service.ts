@@ -1,6 +1,6 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
-import { docRef } from '../common/doc-ref';
+import { docRef, documentReferenceOf } from '../common/doc-ref';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 
 // Xero-parity AR/AP reports: Aged Summary/Detail, Invoice Summary, Contact
@@ -138,7 +138,7 @@ export class XeroReportsService {
         contactName,
         date,
         dueDate,
-        reference: c.reference || c.xeroReference || '',
+        reference: documentReferenceOf(c),
         gross,
         net,
         paid,

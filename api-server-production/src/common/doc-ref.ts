@@ -67,3 +67,28 @@ export function refWith(prefix: string, number: string | null | undefined): stri
   if (!num || isPrefixed(num)) return num;
   return `${prefix} ${num}`;
 }
+
+/**
+ * A document's free-text reference, read the canonical way.
+ *
+ * `config.referenceNo` is CANONICAL (guru 2026-09-09) — the editor writes it
+ * there — but older rows kept the same value under `documentInfo.referenceNo`,
+ * `documentInfo.reference`, `reference` (bills + the v1 API) or
+ * `xeroReference` (Xero imports). A reader that checks only some of those
+ * silently returns '' for documents written by the other writers: the Debtor
+ * Statement printed "INVOICE" instead of the reference for BI202609092, whose
+ * value sits on the canonical key alone (guru 8 Oct).
+ *
+ * Never add a new reference key — write to `config.referenceNo` and read here.
+ */
+export function documentReferenceOf(config: any): string {
+  const c = config || {};
+  return (
+    c.documentInfo?.referenceNo ||
+    c.referenceNo ||
+    c.documentInfo?.reference ||
+    c.reference ||
+    c.xeroReference ||
+    ''
+  );
+}

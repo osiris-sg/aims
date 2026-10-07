@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { JournalService } from '../journal/journal.service';
-import { refWith } from '../common/doc-ref';
+import { refWith, documentReferenceOf } from '../common/doc-ref';
 import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service';
 import { AccountMemoryService } from '../account-memory/account-memory.service';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
@@ -133,7 +133,7 @@ export class BillsService {
       billDate: c.billDate || c.date || doc.createdAt.toISOString(),
       dueDate: c.dueDate || null,
       status: billStatus,
-      reference: c.reference || c.xeroReference || null,
+      reference: documentReferenceOf(c) || null,
       description: c.description || null,
       kind: c.kind === 'SPR' ? 'SPR' : 'SIN',
       subtotal,
