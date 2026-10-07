@@ -75,6 +75,8 @@ const VERB_ACTIONS: Record<string, string> = {
   'auto-match': 'MATCH', match: 'MATCH', unmatch: 'UNMATCH', ignore: 'IGNORE',
   // Designer advances (2026-10-06): approve/decline and the payout stamp.
   decide: 'APPROVE', paid: 'PAY', 'apply-section': 'UPDATE',
+  // Confirmed-VO rollback (directors only) — a POST that is not a create.
+  revert: 'REVERT',
   // Bank-rec statement-driven settlement: POST lines/:id/settle creates the
   // payment(s) for open invoices/bills and reconciles the line.
   settle: 'SETTLE',

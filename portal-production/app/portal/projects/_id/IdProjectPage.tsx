@@ -47,6 +47,7 @@ import DescriptionIcon from "@mui/icons-material/DescriptionOutlined";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import CheckIcon from "@mui/icons-material/Check";
 import { toast } from "react-toastify";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import StatusChip from "@/components/StatusChip";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import CostDialog from "./CostDialog";
@@ -59,7 +60,9 @@ import { useIdQuoteApi } from "@/app/portal/sales/quotations/id/_lib/api";
 import { defaultQuote } from "@/app/portal/sales/quotations/id/_lib/defaults";
 
 const KPI = ({ label, value, hint, color }: { label: string; value: string; hint?: string; color?: string }) => (
-  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, minWidth: 0 }}>
+  // width comes from the equal Grid cells; height 100% so a card without a
+  // hint line doesn't sit shorter than its neighbours (guru 2026-10-08).
+  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, minWidth: 0, height: "100%" }}>
     <Typography variant="overline" sx={{ color: "text.secondary", lineHeight: 1.4, display: "block", whiteSpace: "nowrap" }}>
       {label}
     </Typography>
@@ -271,6 +274,10 @@ function MoneyCellField({ value, disabled, onCommit }: { value: number; disabled
 }
 
 export default function IdProjectPage({ id }: { id: string }) {
+  // Director tier (master): any role OUTSIDE the scoped set. Gates VO revert
+  // (guru 2026-10-07) — the server enforces the same rule.
+  const { userRoles } = useUserPermissions();
+  const isDirector = userRoles.length === 0 || userRoles.some((r: any) => !["Designer", "Marketing", "Junior Manager", "Senior Manager"].includes(r?.name));
   const router = useRouter();
   const api = useIdProjectApi();
   const [data, setData] = useState<Summary | null>(null);
@@ -806,6 +813,31 @@ export default function IdProjectPage({ id }: { id: string }) {
                           <Button size="small" onClick={() => setVoDoc(v.id)} sx={{ textTransform: "none" }}>
                             {v.status === "confirmed" ? "View" : "Edit"}
                           </Button>
+                          {v.status === "confirmed" && isDirector && (
+                            <Tooltip title="Put this confirmed VO back to draft — removes its amount from the contract sum. Directors only; blocked if money was collected against it.">
+                              <Button
+                                size="small"
+                                color="warning"
+                                disabled={busy}
+                                onClick={async () => {
+                                  if (!window.confirm(`Revert ${v.name || "this VO"} to draft? Its ${money(v.net)} comes OFF the contract sum until re-confirmed.`)) return;
+                                  setBusy(true);
+                                  try {
+                                    await api.request(`/projects/vo/${v.id}/revert`, { method: "POST" });
+                                    toast.success(`${v.name || "VO"} reverted to draft`);
+                                    load();
+                                  } catch (err: any) {
+                                    toast.error(err.message || "Could not revert the VO");
+                                  } finally {
+                                    setBusy(false);
+                                  }
+                                }}
+                                sx={{ textTransform: "none" }}
+                              >
+                                Revert
+                              </Button>
+                            </Tooltip>
+                          )}
                           {v.status !== "confirmed" && (
                             <Tooltip title="Delete this draft VO (confirmed VOs can't be deleted)">
                               <IconButton

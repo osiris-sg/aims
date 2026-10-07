@@ -150,6 +150,12 @@ export class ProjectCostingController {
     return this.service.deleteVo(docId, orgId(req), req.user?.id);
   }
 
+  @Post('vo/:docId/revert')
+  @Permissions('projects:update')
+  revertVo(@Param('docId') docId: string, @Req() req: RequestWithOrganization) {
+    return this.service.revertVo(docId, orgId(req), req.user?.id);
+  }
+
   @Post(':id/vo-line')
   @Permissions('projects:update')
   addVoLine(@Param('id') id: string, @Body() body: { description: string; amount: number }, @Req() req: RequestWithOrganization) {

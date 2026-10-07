@@ -1626,6 +1626,30 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
     return { confirmed: true, net, newQuantum: consolidation.newQuantum };
   }
 
+  /** Revert a CONFIRMED VO back to draft — DIRECTORS (master tier) only
+   *  (guru 2026-10-07: same pattern as the quotation revert). Reverses what
+   *  confirm did: removes the VO's contract milestone (refused if money was
+   *  already collected against it) and reopens the document for editing. */
+  async revertVo(docId: string, organizationId: string, callerUserId?: string) {
+    const scope = await resolveTier(this.prisma, organizationId, callerUserId);
+    if (scope.tier !== 'master') throw new ForbiddenException('Only Directors can revert a confirmed variation order');
+    const doc = await this.prisma.document.findFirst({ where: { id: docId, organizationId, type: 'VARIATION_ORDER' } });
+    if (!doc) throw new NotFoundException('Variation order not found');
+    if (doc.status !== 'confirmed') throw new BadRequestException('This variation order is not confirmed');
+    const ms = await this.prisma.projectMilestone.findFirst({ where: { organizationId, projectId: doc.projectId!, kind: 'vo', label: doc.name || undefined } });
+    if (ms && ms.paidAmount > 0) throw new BadRequestException(`S$ ${ms.paidAmount.toFixed(2)} was already collected against this VO — clear the collection first`);
+    const cfg: any = doc.config || {};
+    const { consolidation: _drop, ...rest } = cfg;
+    await this.prisma.$transaction([
+      ...(ms ? [this.prisma.projectMilestone.delete({ where: { id: ms.id } })] : []),
+      this.prisma.document.update({
+        where: { id: doc.id },
+        data: { status: 'unconfirmed', config: { ...rest, vo: { ...(cfg.vo || {}), confirmedAt: null } }, version: { increment: 1 } },
+      }),
+    ]);
+    return { reverted: true, name: doc.name };
+  }
+
   /** Delete an UNCONFIRMED variation order (guru/Mike 2026-10-07: the empty
    *  VO1–VO3 stubs needed a way out). A confirmed VO changed the contract
    *  quantum and has a milestone — it cannot be deleted, only dealt with by a
