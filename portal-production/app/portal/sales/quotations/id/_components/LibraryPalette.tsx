@@ -56,6 +56,7 @@ export default function LibraryPalette({ open, items, sections, targetSectionTit
       unitCost: w.unitCost != null ? String(w.unitCost) : "",
       uom: w.uom || "nos",
       workSectionId: w.workSectionId || "",
+      supplierName: w.supplierName || "",
     });
     setEditing(w);
   };
@@ -70,6 +71,7 @@ export default function LibraryPalette({ open, items, sections, targetSectionTit
         unitCost: draft.unitCost === "" ? null : Number(draft.unitCost),
         uom: draft.uom || null,
         workSectionId: draft.workSectionId || null,
+        supplierName: draft.supplierName?.trim() || null,
       });
       setEditing(null);
     } finally {
@@ -94,7 +96,7 @@ export default function LibraryPalette({ open, items, sections, targetSectionTit
     const term = q.trim().toLowerCase();
     return items
       .filter((w) => sectionId === "all" || w.workSectionId === sectionId)
-      .filter((w) => !term || `${w.code || ""} ${w.name} ${w.descriptionTemplate || ""}`.toLowerCase().includes(term))
+      .filter((w) => !term || `${w.code || ""} ${w.name} ${w.descriptionTemplate || ""} ${w.supplierName || ""}`.toLowerCase().includes(term))
       .slice(0, 60);
   }, [items, q, sectionId]);
 
@@ -147,6 +149,7 @@ export default function LibraryPalette({ open, items, sections, targetSectionTit
               <Stack direction="row" spacing={1}>
                 <TextField label="Unit price (S$)" size="small" value={draft.unitPrice} onChange={(e) => { if (/^[0-9]*\.?[0-9]*$/.test(e.target.value)) setDraft({ ...draft, unitPrice: e.target.value }); }} inputProps={{ inputMode: "decimal" }} sx={{ width: 140 }} />
                 <TextField label="Unit cost (S$)" size="small" value={draft.unitCost} onChange={(e) => { if (/^[0-9]*\.?[0-9]*$/.test(e.target.value)) setDraft({ ...draft, unitCost: e.target.value }); }} inputProps={{ inputMode: "decimal" }} sx={{ width: 140 }} />
+                <TextField label="Contractor (whose rate)" size="small" value={draft.supplierName} onChange={(e) => setDraft({ ...draft, supplierName: e.target.value })} sx={{ width: 200 }} />
                 <TextField label="UOM" size="small" value={draft.uom} onChange={(e) => setDraft({ ...draft, uom: e.target.value })} sx={{ width: 100 }} />
                 <TextField label="Section" select size="small" value={draft.workSectionId} onChange={(e) => setDraft({ ...draft, workSectionId: e.target.value })} sx={{ minWidth: 200 }}>
                   {sections.map((sec) => (
@@ -179,10 +182,15 @@ export default function LibraryPalette({ open, items, sections, targetSectionTit
                 primary={w.descriptionTemplate || w.name}
                 primaryTypographyProps={{ variant: "body2", sx: { lineHeight: 1.35 } }}
                 secondary={
-                  <Stack component="span" direction="row" spacing={1} sx={{ mt: 0.25 }}>
+                  <Stack component="span" direction="row" spacing={1} alignItems="center" sx={{ mt: 0.25, flexWrap: "wrap", rowGap: 0.25 }}>
                     <Typography component="span" variant="caption" sx={{ color: "text.secondary" }}>
                       {w.workSection?.title}
                     </Typography>
+                    {/* Whose price list this cost rate came from (guru 2026-10-07:
+                        a trade can have several contractors — show which one). */}
+                    {w.supplierName && (
+                      <Chip component="span" size="small" variant="outlined" label={w.supplierName} sx={{ height: 16, "& .MuiChip-label": { px: 0.6, fontSize: 10 } }} />
+                    )}
                     {w.includes?.length ? (
                       <Typography component="span" variant="caption" sx={{ color: "text.disabled" }}>
                         · {w.includes.length} include{w.includes.length === 1 ? "" : "s"}

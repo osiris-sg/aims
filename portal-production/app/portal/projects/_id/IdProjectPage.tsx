@@ -570,7 +570,11 @@ export default function IdProjectPage({ id }: { id: string }) {
                       <TableRow
                         key={c.id}
                         hover
-                        onClick={() => c.attachmentUrl && setInvoicePreview({ url: c.attachmentUrl, title: `${c.supplierName || "Invoice"}${c.invoiceNo ? ` · ${c.invoiceNo}` : ""}` })}
+                        onClick={() =>
+                          c.attachmentUrl
+                            ? setInvoicePreview({ url: c.attachmentUrl, title: `${c.supplierName || "Invoice"}${c.invoiceNo ? ` · ${c.invoiceNo}` : ""}` })
+                            : toast.info("No invoice file on this cost — open ✏ and upload the supplier invoice to attach it")
+                        }
                         sx={{ opacity: c.status === "rejected" ? 0.5 : 1, cursor: c.attachmentUrl ? "pointer" : "default" }}
                       >
                         <Cell>{fmtDate(c.date)}</Cell>
@@ -638,11 +642,19 @@ export default function IdProjectPage({ id }: { id: string }) {
               </Table>
             </Box>
 
-            {data.tally.length > 0 && (
+            {(data.tally.length > 0 || costRows.length > 0) && (
               <Box sx={{ mt: 3 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
                   Actual cost vs quotation provision
                 </Typography>
+                {data.tally.length === 0 && (
+                  // Nothing tallies yet (backfilled project: stub quote, untagged
+                  // costs) — say WHY instead of hiding (guru 2026-10-07: "I can't
+                  // see that section" on Raymond & Joan).
+                  <Alert severity="info" sx={{ mb: 1 }}>
+                    No costs carry a Trade section yet — edit a cost and pick its section (it auto-applies to that contractor&apos;s other costs) and this comparison fills in. Provisions appear when the quotation is built with priced sections.
+                  </Alert>
+                )}
                 <Box sx={{ overflowX: "auto", width: "100%" }}>
                   <Table size="small" sx={{ minWidth: 640 }}>
                     <TableHead>
