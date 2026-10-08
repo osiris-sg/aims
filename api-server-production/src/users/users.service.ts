@@ -559,10 +559,24 @@ export class UsersService {
     // Access revoked — drop the guard's cached roles so it takes effect now.
     ClerkAuthGuard.invalidateUser(userId);
 
+    // The Clerk instance is shared with SiteClock — never delete a Clerk user
+    // SiteClock also uses (marked by publicMetadata.siteclock). If we can't
+    // tell, fail safe and keep the Clerk user.
+    let clerkUser;
     try {
-      await this.clerkClient.users.deleteUser(userId);
+      clerkUser = await this.clerkClient.users.getUser(userId);
     } catch (error) {
-      console.error('Error deleting user from Clerk:', error);
+      console.error(`Kept Clerk user ${userId}: could not fetch it to check for SiteClock use:`, error);
+    }
+
+    if (clerkUser && clerkUser.publicMetadata?.siteclock != null) {
+      console.log(`Kept Clerk user ${userId}: also a SiteClock user`);
+    } else if (clerkUser) {
+      try {
+        await this.clerkClient.users.deleteUser(userId);
+      } catch (error) {
+        console.error('Error deleting user from Clerk:', error);
+      }
     }
 
     return {
