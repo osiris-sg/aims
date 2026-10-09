@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "react-toastify";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import { useAuth } from "@clerk/nextjs";
@@ -308,11 +309,16 @@ export default function DeliveryDetailPage() {
         token,
       );
       if (res?.success === false) throw new Error(res?.message ?? "Could not attach the project");
+      // What attaching did: deployment, stock, the draft invoice (or why none).
+      const summary = (res?.data ?? res)?.attachResult?.summary;
+      if (summary) toast.success(summary, { autoClose: 12000 });
       setAttachOpen(false);
       setAttachProjectId("");
       await load();
     } catch (e: any) {
-      setAttachError(e?.message ?? "Could not attach the project");
+      const msg = e?.message ?? "Could not attach the project";
+      setAttachError(msg);
+      toast.error(msg);
     } finally {
       setAttaching(false);
     }

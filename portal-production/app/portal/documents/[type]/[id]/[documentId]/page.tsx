@@ -501,6 +501,27 @@ export default function page() {
         // Clear this document from cache so fresh data is loaded on next access
         documentCache.delete(documentId as string);
         console.log(`Cache cleared for document: ${documentId}`);
+        // AD-HOC HAND-OFF: saving a project on an ad-hoc run's DO attaches the
+        // run (deployment, stock, draft invoice). Never silent: say what it did,
+        // or why it could not. On success the DO was committed server-side, so
+        // reload it; a later save must not send the pre-commit status back.
+        const attach = (response as any)?.data?.adHocAttach ?? (response as any)?.adHocAttach;
+        if (attach?.message) {
+          if (attach.ok) {
+            toast.success(attach.message, { autoClose: 12000 });
+            const freshToken = await getToken();
+            const fresh = freshToken ? await fetchDocumentData(documentId as string, freshToken, type as string) : null;
+            if (fresh) {
+              documentCache.set(documentId as string, fresh);
+              setExistingData(fresh.existingData);
+              setDocumentMetadata(fresh.documentMetadata);
+              setFieldConfig(fresh.fieldConfig);
+              setSelectedCustomerId(fresh.customerId);
+            }
+          } else {
+            toast.error(attach.message, { autoClose: false });
+          }
+        }
         // Don't show toast or navigate here - let the caller handle it
         // (e.g., handleConfirmDocument will refresh the page)
         return;
