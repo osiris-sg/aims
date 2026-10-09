@@ -1759,6 +1759,9 @@ model Delivery {
   // All nullable + additive (safe db push).
   vehicleNumber     String?
   handoffMode       String?
+  // Mirrors schema.prisma: SCHEDULED vs AD_HOC (a rider started it from a scan).
+  // Missing here, so per-org runs could never be ad-hoc (2026-10-09).
+  origin            DeliveryOrigin @default(SCHEDULED)
   handedOffAt       DateTime?
   handedOffByUserId String?
   projectId      String?           @db.Uuid
