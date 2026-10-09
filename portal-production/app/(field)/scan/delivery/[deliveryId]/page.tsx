@@ -654,6 +654,29 @@ export default function DeliveryBasketPage() {
     [deliveryId, getToken, load],
   );
 
+  // Bring skipped items back into the walk (POST items/:itemId/unskip clears
+  // skippedAt). A skip used to be reachable again only through a Start shown on
+  // in-progress runs, so skipping on a run nobody had claimed yet was a dead end
+  // (Delivery #73, 2026-10-09). Throws so the caller can show the message.
+  const unskipItems = useCallback(
+    async (ids: string[]) => {
+      if (!ids.length) return;
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      await Promise.all(
+        ids.map(async (itemId) => {
+          const res = await request(
+            { path: `/deliveries/${deliveryId}/items/${itemId}/unskip`, method: "POST" },
+            {},
+            token,
+          );
+          if (res?.success === false) throw new Error(res.message ?? "Could not bring this item back");
+        }),
+      );
+    },
+    [deliveryId, getToken],
+  );
+
   // Inline NFC: observe scanned uid → resolve to a unit → add. The hook resets
   // uid on each startScan, and auto-stops after one read.
   useEffect(() => {
@@ -914,14 +937,24 @@ export default function DeliveryBasketPage() {
     pickerScope && itemsParam ? itemsParam.split(",").filter((id) => runItemIds.has(id)) : [];
   const selectedSet = selectedIds.length ? new Set(selectedIds) : null;
   const hasUndelivered = run.items.some((it) => it.deliveryStatus === "not_delivered");
-  const showPicker = pickerScope && hasUndelivered && !selectedSet;
+  // A trip whose picks are ALL skipped (nothing started on it) has nothing left
+  // to walk: show the picker again, where those lines are listed as Skipped and
+  // can be picked back in, instead of a basket holding only a Skipped card.
+  const tripOnlySkipped =
+    !!selectedSet &&
+    run.items.filter((it) => selectedSet.has(it.id)).every((it) => it.deliveryStatus === "not_delivered" && !!it.skippedAt);
+  const showPicker = pickerScope && hasUndelivered && (!selectedSet || tripOnlySkipped);
   // The trip's picked items are all handed over (none left to start or end), but
   // other items are still waiting: offer the next pick instead of an empty walk.
+  // A skipped pick is not "left to start" here (the walk passes it over); it is
+  // counted with the items still waiting.
   const tripDone =
     !!selectedSet &&
     hasUndelivered &&
     !run.items.some(
-      (it) => selectedSet.has(it.id) && (it.deliveryStatus === "not_delivered" || it.deliveryStatus === "delivering"),
+      (it) =>
+        selectedSet.has(it.id) &&
+        ((it.deliveryStatus === "not_delivered" && !it.skippedAt) || it.deliveryStatus === "delivering"),
     );
   // PARTIAL SIGN-OFF (2026-09): items handed over (not_installed) with nothing
   // mid-delivery can be signed for now; the run stays open for the rest.
@@ -1035,7 +1068,7 @@ export default function DeliveryBasketPage() {
   const inFlightItems = visibleItems.filter((it) => it.deliveryStatus !== "completed" && onTrip(it));
   // Not picked for this trip and not started: left alone, only counted.
   const offTripCount = selectedSet
-    ? run.items.filter((it) => it.deliveryStatus === "not_delivered" && !selectedSet.has(it.id)).length
+    ? run.items.filter((it) => it.deliveryStatus === "not_delivered" && (!selectedSet.has(it.id) || !!it.skippedAt)).length
     : 0;
   const completedItems = visibleItems.filter((it) => it.deliveryStatus === "completed");
 
@@ -1324,7 +1357,24 @@ export default function DeliveryBasketPage() {
                 variant="contained"
                 size="large"
                 startIcon={<PlayArrowIcon />}
-                onClick={() => router.push(tripHref(normalisePick(picked)))}
+                onClick={async () => {
+                  // Picked lines that were skipped come back into the walk;
+                  // without this the walk (unskipped items only) passed them by.
+                  const ids = normalisePick(picked);
+                  const skippedIds = ids.filter((id) => run.items.some((it) => it.id === id && it.skippedAt));
+                  setBusy(true);
+                  setActionMsg(null);
+                  try {
+                    await unskipItems(skippedIds);
+                    if (skippedIds.length) await load();
+                    router.push(tripHref(ids));
+                  } catch (e: any) {
+                    setActionMsg(e?.message ?? "Could not bring the skipped item back");
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+                disabled={busy}
                 sx={{ flex: 2, minHeight: 52 }}
               >
                 Yes, start
@@ -2025,64 +2075,38 @@ export default function DeliveryBasketPage() {
                     </Box>
                     <Chip size="small" label="Skipped" color="default" />
                   </Stack>
-                  {run.status === "in_progress" && (
+                  {/* Deliver this item: unskip it and put it back into the walk,
+                      which then offers the same Start / Load a unit / free-typed
+                      flow as any other item (and claims a still-scheduled run on
+                      the first start). Shown on scheduled runs too: the old
+                      per-type buttons only appeared once a run was in progress,
+                      so a skip on an unclaimed run had no way back. */}
+                  {(run.status === "scheduled" || run.status === "in_progress") && (
                     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
-                      {/* Free-typed: no unit; runs its full flow on its own page
-                          (Start clears the skip + captures guided photos, then End).
-                          RETURN mirrors OUTBOUND (same page, same photo capture);
-                          only the End differs (collected, not signed). */}
-                      {!it.inventoryId && !it.assetId && (
-                        <Button
-                          size="small"
-                          variant="contained"
-                          startIcon={isReturnRun ? <AssignmentReturnIcon /> : <LocalShippingIcon />}
-                          onClick={() =>
-                            router.push(
-                              `/scan/delivery/${run.id}/free-item/${it.id}${tripQuery}`,
-                            )
+                      <Button
+                        size="small"
+                        variant="contained"
+                        startIcon={isReturnRun ? <AssignmentReturnIcon /> : <LocalShippingIcon />}
+                        onClick={async () => {
+                          setBusy(true);
+                          setActionMsg(null);
+                          try {
+                            await unskipItems([it.id]);
+                            await load();
+                            setWalkDismissed(false);
+                            // A picked trip walks only its picks: add this one.
+                            if (pickerScope) router.push(tripHref(selectedSet ? [...selectedIds.filter((x) => x !== it.id), it.id] : [it.id]));
+                          } catch (e: any) {
+                            setActionMsg(e?.message ?? "Could not bring this item back");
+                          } finally {
+                            setBusy(false);
                           }
-                          disabled={busy}
-                          sx={{ minHeight: 40 }}
-                        >
-                          {it.deliveryStatus === "delivering"
-                            ? isReturnRun
-                              ? "End Return"
-                              : "End Delivery"
-                            : isReturnRun
-                              ? "Start Return"
-                              : "Start Delivery"}
-                        </Button>
-                      )}
-                      {it.inventoryId && (
-                        <Button
-                          size="small"
-                          variant="contained"
-                          startIcon={<PlayArrowIcon />}
-                          onClick={() => requestStart(it)}
-                          disabled={busy}
-                          sx={{ minHeight: 40 }}
-                        >
-                          {isReturnRun ? "Start Return" : "Start Delivery"}
-                        </Button>
-                      )}
-                      {/* Open slot: needs a unit before it can start, so the
-                          action is the scan rather than a Start button. */}
-                      {!it.inventoryId && it.assetId && (
-                        <Button
-                          size="small"
-                          variant="contained"
-                          startIcon={<KeyboardIcon />}
-                          onClick={() => {
-                            setManualOpen(true);
-                            setCandidates(null);
-                            setSerial("");
-                          }}
-                          disabled={busy}
-                          sx={{ minHeight: 40 }}
-                        >
-                          Load a unit
-                        </Button>
-                      )}
+                        }}
+                        disabled={busy}
+                        sx={{ minHeight: 40 }}
+                      >
+                        {isReturnRun ? "Collect this item" : "Deliver this item"}
+                      </Button>
                     </Stack>
                   )}
                 </CardContent>
