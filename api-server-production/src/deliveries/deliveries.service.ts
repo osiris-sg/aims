@@ -4866,6 +4866,38 @@ export class DeliveriesService {
   }
 
   /**
+   * Undo a skip (2026-10-09): clear skippedAt so the item rejoins the walk like
+   * any other. Without it a skipped item could only be reached through a Start
+   * that the field app offers on in-progress runs, so a skip on a run nobody
+   * had claimed yet (still `scheduled`) was a dead end (Delivery #73).
+   * Same scope as skipItem: a run that is scheduled or in progress, an item not
+   * yet started. Idempotent: an item that is not skipped is returned as is.
+   */
+  async unskipItem(deliveryId: string, itemId: string, organizationId: string) {
+    const delivery = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { id: true, status: true },
+    });
+    if (!delivery) throw new NotFoundException('Delivery not found');
+    if (delivery.status !== 'scheduled' && delivery.status !== 'in_progress') {
+      throw new BadRequestException(`Items can only be brought back on a scheduled or in-progress delivery (this one is ${delivery.status})`);
+    }
+    const item = await this.prisma.deliveryItem.findFirst({
+      where: { id: itemId, deliveryId },
+      select: { id: true, deliveryStatus: true, skippedAt: true },
+    });
+    if (!item) throw new NotFoundException('Item is not on this delivery');
+    if (item.deliveryStatus !== DeliveryStatus.not_delivered) {
+      throw new BadRequestException('This item has already been started, so it is not skipped');
+    }
+    if (!item.skippedAt) return item;
+    return this.prisma.deliveryItem.update({
+      where: { id: item.id },
+      data: { skippedAt: null },
+    });
+  }
+
+  /**
    * Mark a FREE-TYPED item delivered. Free-typed lines (assetId AND inventoryId
    * both null) have no unit to scan, so they can't ride the MSR-driven unit
    * machine (advanceDeliveryItem, keyed by inventoryId). Instead the rider taps

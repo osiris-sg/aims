@@ -358,6 +358,18 @@ export class DeliveriesController {
     return this.service.skipItem(id, itemId, org.id);
   }
 
+  // Field: bring a skipped item back into the walk (clears skippedAt). Same
+  // permission and scope as skip: run scheduled or in progress, item not started.
+  @Post(':id/items/:itemId/unskip')
+  @Permissions('maintenance-reports:create')
+  unskipItem(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @UserOrganization() org: { id: string },
+  ) {
+    return this.service.unskipItem(id, itemId, org.id);
+  }
+
   // Mark a FREE-TYPED item delivered (no unit to scan). Keyed by DeliveryItem.id;
   // the service rejects any row that carries an assetId/inventoryId.
   @Post(':id/items/:itemId/deliver')
