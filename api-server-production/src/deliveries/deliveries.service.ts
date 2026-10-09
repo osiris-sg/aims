@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'crypto';
 import * as QRCode from 'qrcode';
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, forwardRef } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional, forwardRef } from '@nestjs/common';
 import { AssetClass, DeliveryDirection, DeliveryOrigin, DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
 import { isUnconfirmedDoc } from 'src/common/doc-status';
@@ -9,6 +9,7 @@ import { DocumentsService } from '../documents/documents.service';
 import { ProjectsService } from '../projects/projects.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PushService } from '../push/push.service';
+import { ActionLogService } from '../action-log/action-log.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { ScheduleDeliveryDto, ClaimScheduledDto } from './dto/schedule-delivery.dto';
@@ -46,6 +47,8 @@ export class DeliveriesService {
     private readonly projectsService: ProjectsService,
     private readonly notifications: NotificationsService,
     private readonly push: PushService,
+    // Global module; optional so hand-built instances (scripts) still work.
+    @Optional() private readonly actionLog?: ActionLogService,
   ) {}
 
   // ── reservation ──────────────────────────────────────────────────────────
@@ -2442,134 +2445,257 @@ export class DeliveriesService {
   }
 
   /**
-   * OFFICE: attach a project to a completed AD-HOC run.
+   * OFFICE: attach a project to an AD-HOC run, and finish what the rider could
+   * not (2026-10-09 rework). Entry points: the run page's "Attach project"
+   * (POST :id/attach-project) and saving a project on the run's DO
+   * (DocumentsService.tryAttachProjectToAdHocRun).
    *
-   * This is the second half of the ad-hoc flow — the half the rider cannot do.
-   * The run delivered real units to a real place, but with no project there was
-   * nothing to deploy against, so the units were left `reserved` rather than
-   * deducted. This closes that.
-   *
-   * ORDER MATTERS, and it is: VALIDATE → set projectId (+customerId) →
-   * fieldDeploy per unit. The deploy is last because it is the only irreversible
-   * step: fieldDeploy creates a ProjectDeployment + Assignment AND flips the
-   * unit reserved → rental in the same transaction. Doing it before the run is
-   * pointed at the project would leave a deployment orphaned from its run if a
-   * later step failed. Validation is first so a wrong project never gets as far
-   * as writing anything.
-   *
-   * fieldDeploy is called WITHOUT deferStatusFlip, so it performs the stock flip
-   * that createDoOnAdHocCompletion deliberately skipped. commitLinkedDeliveryItems
-   * is NOT called: that is the DO-confirm path (it stamps DocumentItems and moves
-   * the DO to delivered_installed). The DO stays a draft for the office to price
-   * and confirm; attaching a project is about the deployment, not the document.
-   *
-   * ABORTS on:
-   *   • a run that is not AD_HOC — the scheduled path deducts at completion
-   *   • a run that ALREADY has a project — re-pointing would strand the first
-   *     project's deployments; detach is a separate, deliberate act
-   *   • a project belonging to a DIFFERENT customer than the run's, when the run
-   *     has one — silently re-billing another customer is the worst outcome here
-   *   • a unit that is no longer `reserved` — something else has claimed it
-   *     (sold, already deployed, released back to stock), and deploying it would
-   *     double-count. Reported per unit rather than swallowed.
+   * What it does, in this order:
+   *   1. The DO(s) get the project and the project's customer: Document.projectId,
+   *      customer block, Bill To, project name, and the PO when the DO has none
+   *      (the project's customer PO, else its ONE sales order). Only those keys:
+   *      signature, sign-offs, lines and proof are never touched. From a DO save
+   *      (`fillDocument: 'empty-only'`) only empty fields are filled, since the
+   *      office's own save owns that document.
+   *   2. A deployment + assignment per line (fieldDeploy with deferStatusFlip):
+   *      the stock move is left to step 3, exactly as on a scheduled run. A unit
+   *      already rental/sold (the DO was confirmed or bulk-completed first) still
+   *      gets its deployment, typed SALE when sold. A unit now active on ANOTHER
+   *      project is left there and reported, never moved.
+   *   3. The scheduled run's completion path on each DO: commitLinkedDeliveryItems
+   *      (stamps the DO lines, deducts stock exactly once via deductedAt, only
+   *      flipping instock/reserved units) then maybeCompleteDeliveryOrderAndInvoice
+   *      (DO_READY + the draft invoice, normal numbering). SKIPPED when the DO
+   *      already has an invoice (e.g. from Bulk complete), and said so: one DO,
+   *      one invoice.
+   *   4. LAST, the run itself gets projectId + customerId.
+   * Every step is idempotent, and the run is pointed at the project only once
+   * the rest succeeded, so a failure part-way can simply be retried. The one
+   * refusal is a run that already has a project ("Already attached to <name>").
    */
   async attachProjectToAdHocRun(
     deliveryId: string,
     projectId: string,
     organizationId: string,
+    opts: {
+      actor?: { id?: string; name?: string; email?: string };
+      via?: 'run-page' | 'document-save';
+      fillDocument?: 'overwrite' | 'empty-only';
+    } = {},
   ) {
+    const via = opts.via ?? 'run-page';
+    const fill = opts.fillDocument ?? 'overwrite';
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
       select: {
-        id: true, deliveryNumber: true, origin: true, projectId: true, customerId: true, direction: true,
-        items: { select: { id: true, assetId: true, inventoryId: true, description: true } },
+        id: true, deliveryNumber: true, origin: true, projectId: true, customerId: true, direction: true, createdAt: true,
+        project: { select: { name: true } },
+        items: { select: { id: true, assetId: true, inventoryId: true, description: true, documentId: true } },
       },
     });
     if (!run) throw new NotFoundException('Delivery not found');
     if (run.origin !== DeliveryOrigin.AD_HOC) {
-      throw new BadRequestException('Only an ad-hoc run needs a project attached — a scheduled run already has one');
+      throw new BadRequestException('Only an ad-hoc delivery needs a project attached; a scheduled one already has one');
     }
     if (run.direction === DeliveryDirection.RETURN) {
       throw new BadRequestException('A return cannot have a project attached this way');
     }
     if (run.projectId) {
-      throw new BadRequestException('This run already has a project. Detach it first if it is wrong.');
+      throw new BadRequestException(`Already attached to ${run.project?.name ?? 'a project'}`);
     }
 
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, organizationId },
-      select: { id: true, name: true, customerId: true },
+      select: {
+        id: true, name: true, customerId: true, customerPoNumber: true,
+        customer: { select: { id: true, name: true, customerCode: true, address: true, email: true, phone: true, gstRegNo: true } },
+      },
     });
     if (!project) throw new NotFoundException('Project not found in this organization');
+    const customer = project.customer;
+    const customerId = customer?.id ?? run.customerId ?? null;
+    const notes: string[] = [];
 
-    // The run's customer wins when it has one; otherwise the project supplies it.
-    // A mismatch is a hard stop — attaching would re-point the delivery at a
-    // different payer.
-    if (run.customerId && project.customerId && run.customerId !== project.customerId) {
-      throw new BadRequestException(
-        'That project belongs to a different customer than this delivery. Pick a project on the same customer.',
-      );
-    }
-    const customerId = run.customerId ?? project.customerId ?? null;
-
-    // Every unit must still be OURS to deploy.
-    const unitIds = run.items.map((i) => i.inventoryId).filter((v): v is string => !!v);
-    if (unitIds.length) {
-      const units = await this.prisma.inventory.findMany({
-        where: { id: { in: unitIds }, organizationId },
-        select: { id: true, sku: true, status: true },
+    // ── 1. the DO(s): project, customer, Bill To, PO ──
+    const documentIds = [...new Set(run.items.map((i) => i.documentId).filter((v): v is string => !!v))];
+    const salesOrders = await this.prisma.document.findMany({
+      where: { organizationId, projectId, type: { in: ['SALES_ORDER', 'SO'] } },
+      select: { id: true, name: true, config: true },
+    });
+    const soleSo = salesOrders.length === 1 ? salesOrders[0] : null;
+    for (const docId of documentIds) {
+      const doc = await this.prisma.document.findFirst({ where: { id: docId, organizationId }, select: { id: true, config: true, projectId: true } });
+      if (!doc) continue;
+      const cfg: Record<string, any> = { ...((doc.config as any) ?? {}) };
+      const set = (key: string, value: unknown) => {
+        if (value === undefined || value === null || value === '') return;
+        if (fill === 'empty-only' && cfg[key] !== undefined && cfg[key] !== null && cfg[key] !== '') return;
+        cfg[key] = value;
+      };
+      set('projectName', project.name);
+      cfg.documentInfo = { ...(cfg.documentInfo ?? {}) };
+      if (fill === 'overwrite' || !cfg.documentInfo.projectName) cfg.documentInfo.projectName = project.name;
+      if (customer && (fill === 'overwrite' || !cfg.customerId)) {
+        cfg.customerId = customer.id;
+        cfg.customerName = customer.name;
+        if (customer.customerCode) cfg.customerCode = customer.customerCode;
+        if (customer.address) cfg.customerAddress = customer.address;
+        if (customer.email) cfg.customerEmail = customer.email;
+        cfg.customer = { ...(typeof cfg.customer === 'object' && cfg.customer ? cfg.customer : {}), ...customer };
+        // Bill To follows the customer, stored as the address is on the record.
+        cfg.billTo = customer.address ?? '';
+      }
+      if (!cfg.poNo) {
+        const so = soleSo?.config as any;
+        const po = project.customerPoNumber?.trim() || (soleSo ? (so?.poNo?.trim?.() || soleSo.name) : null);
+        if (po) cfg.poNo = po;
+        if (soleSo && !cfg.saleOrderId) cfg.saleOrderId = soleSo.id;
+      }
+      await this.prisma.document.update({
+        where: { id: docId },
+        data: { config: cfg as Prisma.InputJsonValue, ...(fill === 'overwrite' || !doc.projectId ? { projectId } : {}) },
       });
-      const notReserved = units.filter((u) => u.status !== InventoryStatus.reserved);
-      if (notReserved.length) {
+    }
+
+    // ── 2. deployment + assignment per line (stock moves in step 3) ──
+    const unitIds = run.items.map((i) => i.inventoryId).filter((v): v is string => !!v);
+    const unitRows = unitIds.length
+      ? await this.prisma.inventory.findMany({ where: { id: { in: unitIds }, organizationId }, select: { id: true, sku: true, status: true } })
+      : [];
+    const unitById = new Map(unitRows.map((u) => [u.id, u]));
+    let deployed = 0;
+    let alreadyOnProject = 0;
+    for (const it of run.items) {
+      try {
+        if (it.inventoryId && it.assetId) {
+          const unit = unitById.get(it.inventoryId);
+          const elsewhere = await this.prisma.assignment.findFirst({
+            where: { inventoryId: it.inventoryId, endDate: null, projectId: { not: projectId } },
+            select: { project: { select: { name: true } } },
+          });
+          if (elsewhere) {
+            notes.push(`${unit?.sku ?? 'A unit'} is now on ${elsewhere.project?.name ?? 'another project'}; it was left there`);
+            continue;
+          }
+          const r: any = await this.projectsService.fieldDeploy(projectId, organizationId, {
+            inventoryId: it.inventoryId,
+            assetId: it.assetId,
+            deferStatusFlip: true,
+            ...(unit?.status === InventoryStatus.sold ? { type: 'SALE' as const } : {}),
+          });
+          if (r?.status === 'already_on_project') alreadyOnProject++;
+          else deployed++;
+        } else if (it.description?.trim()) {
+          const desc = it.description.trim();
+          // Free-typed deploys are not idempotent by themselves: skip one this
+          // run already made (a retry after a later step failed).
+          const existing = await this.prisma.assignment.findFirst({
+            where: { projectId, inventoryId: null, assetId: null, description: desc, endDate: null, createdAt: { gte: run.createdAt } },
+            select: { id: true },
+          });
+          if (existing) { alreadyOnProject++; continue; }
+          await this.projectsService.fieldDeploy(projectId, organizationId, { description: desc });
+          deployed++;
+        }
+      } catch (err: any) {
+        this.logger.error(`attachProjectToAdHocRun: fieldDeploy failed for item ${it.id} on delivery ${deliveryId}: ${err?.message}`);
         throw new BadRequestException(
-          `These units are no longer reserved for this run: ${notReserved
-            .map((u) => `${u.sku} (${u.status})`)
-            .join(', ')}. Resolve them before attaching a project.`,
+          `Could not deploy one of the items onto ${project.name}: ${err?.message ?? 'unknown error'}. Nothing was attached; you can try again.`,
         );
       }
     }
 
-    // 1. point the run at the project (and its customer)
+    // ── 3. commit each DO, then the invoice gate (unless already invoiced) ──
+    const before = new Map(unitRows.map((u) => [u.id, u.status]));
+    const invoices: Array<{ documentId: string; doName: string | null; invoiceId: string | null; invoiceName: string | null; created: boolean }> = [];
+    for (const docId of documentIds) {
+      const doDoc = await this.prisma.document.findUnique({ where: { id: docId }, select: { name: true, type: true } });
+      if (!doDoc || !['DELIVERY_ORDER', 'DO'].includes(doDoc.type)) continue;
+      try {
+        await this.documentsService.commitLinkedDeliveryItems(docId, organizationId);
+        const existing = await this.prisma.document.findFirst({
+          where: { organizationId, type: 'INVOICE', config: { path: ['sourceDocumentId'], equals: docId } },
+          select: { id: true, name: true },
+        });
+        if (existing) {
+          notes.push(`${doDoc.name} already has invoice ${existing.name}, so no new invoice was made`);
+          invoices.push({ documentId: docId, doName: doDoc.name, invoiceId: existing.id, invoiceName: existing.name, created: false });
+          continue;
+        }
+        const inv: any = await this.documentsService.maybeCompleteDeliveryOrderAndInvoice(docId, organizationId);
+        if (inv?.id) {
+          invoices.push({ documentId: docId, doName: doDoc.name, invoiceId: inv.id, invoiceName: inv.name ?? null, created: true });
+          await this.actionLog?.log({
+            actorType: opts.actor?.id ? 'USER' : 'SYSTEM',
+            actorId: opts.actor?.id ?? 'system:attach-project',
+            actorName: opts.actor?.name ?? (opts.actor?.id ? null : 'System creation'),
+            actorEmail: opts.actor?.email ?? null,
+            organizationId,
+            channel: 'portal',
+            action: 'CREATE',
+            resource: 'documents',
+            resourceId: inv.id,
+            details: { what: 'Draft invoice from an ad-hoc delivery', invoice: inv.name, deliveryOrder: doDoc.name, deliveryNumber: run.deliveryNumber, project: project.name, via },
+          });
+        } else {
+          notes.push(`${doDoc.name}: not every line is delivered yet, so no invoice was made`);
+        }
+      } catch (err: any) {
+        this.logger.error(`attachProjectToAdHocRun: commit/invoice failed for DO ${docId}: ${err?.message}`, err?.stack);
+        throw new BadRequestException(
+          `The units were deployed onto ${project.name}, but ${doDoc.name ?? 'the delivery order'} could not be completed: ${err?.message ?? 'unknown error'}. Try again; nothing is done twice.`,
+        );
+      }
+    }
+    if (!documentIds.length) {
+      notes.push('There is no delivery order yet: the stock moves and the draft invoice is made when the customer signs');
+    }
+    const after = unitIds.length
+      ? await this.prisma.inventory.findMany({ where: { id: { in: unitIds } }, select: { id: true, sku: true, status: true } })
+      : [];
+    const stockMoved = after.filter((u) => before.get(u.id) !== u.status).map((u) => `${u.sku} ${before.get(u.id)} -> ${u.status}`);
+    const stockUnchanged = after.filter((u) => before.get(u.id) === u.status).map((u) => `${u.sku} (${u.status})`);
+
+    // ── 4. point the run at the project, last ──
     await this.prisma.delivery.update({
       where: { id: deliveryId },
       data: { projectId, ...(customerId ? { customerId } : {}) },
     });
-
-    // 2. deploy each line. Unit-backed lines create a ProjectDeployment +
-    //    Assignment and flip reserved → rental. Free-typed lines deploy by
-    //    description so they can be off-hired on a later return, mirroring the
-    //    scheduled path. fieldDeploy is idempotent (already_on_project).
-    const deployed: string[] = [];
-    for (const it of run.items) {
-      try {
-        if (it.inventoryId && it.assetId) {
-          await this.projectsService.fieldDeploy(projectId, organizationId, {
-            inventoryId: it.inventoryId,
-            assetId: it.assetId,
-            // NO deferStatusFlip: this is where the skipped deduction happens.
-          });
-        } else if (it.description?.trim()) {
-          await this.projectsService.fieldDeploy(projectId, organizationId, {
-            description: it.description.trim(),
-          });
-        } else {
-          continue;
-        }
-        deployed.push(it.id);
-      } catch (err: any) {
-        this.logger.error(
-          `attachProjectToAdHocRun: fieldDeploy failed for item ${it.id} on delivery ${deliveryId}: ${err?.message}`,
-        );
-        throw new BadRequestException(
-          `Could not deploy one of the items onto ${project.name}: ${err?.message ?? 'unknown error'}`,
-        );
-      }
+    if (via === 'document-save') {
+      // The run page's POST is logged by the interceptor (ATTACH); a DO save is
+      // logged as a document UPDATE, so the hand-off gets its own row.
+      await this.actionLog?.log({
+        actorType: opts.actor?.id ? 'USER' : 'SYSTEM',
+        actorId: opts.actor?.id ?? 'system:attach-project',
+        actorName: opts.actor?.name ?? (opts.actor?.id ? null : 'System creation'),
+        actorEmail: opts.actor?.email ?? null,
+        organizationId,
+        channel: 'portal',
+        action: 'ATTACH',
+        resource: 'deliveries',
+        resourceId: deliveryId,
+        details: { what: 'Project attached to an ad-hoc delivery on saving its DO', deliveryNumber: run.deliveryNumber, project: project.name },
+      });
     }
 
-    this.logger.log(
-      `Delivery #${run.deliveryNumber} (AD_HOC): attached project ${project.name}, deployed ${deployed.length} item(s), stock deducted`,
-    );
-    return this.findById(deliveryId, organizationId);
+    const created = invoices.filter((i) => i.created);
+    const summary = [
+      `Attached to ${project.name}.`,
+      deployed || alreadyOnProject ? `${deployed + alreadyOnProject} item(s) deployed.` : '',
+      stockMoved.length
+        ? `Stock: ${stockMoved.join(', ')}.`
+        : documentIds.length && stockUnchanged.length
+          ? 'Stock was already moved, so it was not moved again.'
+          : '',
+      created.length ? `Draft invoice ${created.map((i) => i.invoiceName).join(', ')} created.` : '',
+      ...notes.map((n) => `${n}.`),
+    ].filter(Boolean).join(' ');
+    this.logger.log(`Delivery #${run.deliveryNumber} (AD_HOC): ${summary}`);
+    const fresh = await this.findById(deliveryId, organizationId);
+    return {
+      ...fresh,
+      attachResult: { project: project.name, deployed, alreadyOnProject, stockMoved, stockUnchanged, invoices, notes, summary },
+    };
   }
 
   /**
@@ -2868,10 +2994,10 @@ export class DeliveriesService {
     try {
       const delivery = await this.prisma.delivery.findFirst({
         where: { id: deliveryId, organizationId },
-        select: { id: true, deliveryNumber: true, items: { select: { documentId: true } } },
+        select: { id: true, deliveryNumber: true, projectId: true, items: { select: { documentId: true } } },
       });
       if (!delivery || delivery.items.length === 0) return;
-      if (delivery.items.some((i) => i.documentId)) return; // already linked — nothing to create
+      if (delivery.items.some((i) => i.documentId)) return; // already linked: nothing to create
 
       const created = await this.createDoFromDelivery(deliveryId, organizationId);
       const doId = (created as { createdDocumentId?: string })?.createdDocumentId;
@@ -2879,8 +3005,34 @@ export class DeliveriesService {
 
       await this.stampProofMsrDocumentIds(deliveryId, organizationId);
 
+      // ATTACHED BEFORE THE SIGNATURE (2026-10-09). The office may attach the
+      // project while the run is still open (delivered, waiting for the
+      // customer). attachProjectToAdHocRun then deployed the units but had no DO
+      // to commit, so finish it here: the DO was just created WITH the project
+      // and customer, so commit it and make the draft invoice, as a completed
+      // scheduled run does. Without a project, stop as before.
+      if (delivery.projectId) {
+        await this.documentsService.commitLinkedDeliveryItems(doId, organizationId);
+        const invoiced = await this.prisma.document.findFirst({
+          where: { organizationId, type: 'INVOICE', config: { path: ['sourceDocumentId'], equals: doId } },
+          select: { id: true },
+        });
+        const inv: any = invoiced ? null : await this.documentsService.maybeCompleteDeliveryOrderAndInvoice(doId, organizationId);
+        if (inv?.id) {
+          this.actionLog?.system('adhoc-completion', 'CREATE', 'documents', {
+            organizationId,
+            resourceId: inv.id,
+            details: { what: 'Draft invoice from an ad-hoc delivery (project attached before signing)', invoice: inv.name, deliveryNumber: delivery.deliveryNumber },
+          });
+        }
+        this.logger.log(
+          `Delivery #${delivery.deliveryNumber} (AD_HOC, project attached): created + committed DO ${doId}, invoice ${inv?.name ?? (invoiced ? 'already existed' : 'not made')}`,
+        );
+        return;
+      }
+
       this.logger.log(
-        `Delivery #${delivery.deliveryNumber} (AD_HOC): created DO ${doId} — stock NOT deducted, no invoice`,
+        `Delivery #${delivery.deliveryNumber} (AD_HOC): created DO ${doId}; stock NOT deducted, no invoice`,
       );
     } catch (err: any) {
       this.logger.error(

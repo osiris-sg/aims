@@ -1159,6 +1159,10 @@ export class DocumentsService {
       // response so the office sees WHY the units were not deployed instead of
       // the save looking clean. Null when there was nothing to do.
       let adHocWarning: string | null = null;
+      // The hand-off's outcome when it ran (deployed, stock, draft invoice), shown
+      // to the office as a toast. The attach also commits the DO, so the response
+      // carries its fresh status instead of the pre-attach one.
+      let adHocSummary: string | null = null;
       console.log('Project ID resolved:', projectId, 'Type:', typeof projectId);
       console.log('dto', dto);
 
@@ -1784,8 +1788,10 @@ export class DocumentsService {
         projectId,
         organizationId,
         dto.type,
+        actor,
       );
-      if (adHocAttach) adHocWarning = adHocAttach;
+      if (adHocAttach?.warning) adHocWarning = adHocAttach.warning;
+      if (adHocAttach?.summary) adHocSummary = adHocAttach.summary;
 
       // If config.items exists and is an array, handle inventory/timeline logic (for DO, RDO, etc.)
       // Exclude invoice types (TI, TI2, INVOICE), quotations (QO1, QUOTATION, QT, QO), service reports (MSR), and Purchase Orders (PO) from inventory status validation
@@ -2123,7 +2129,13 @@ export class DocumentsService {
       // document, and failing the whole save would throw away their pricing and
       // PO to report a delivery-side precondition. Silence is the worse option
       // though — that is how the half state hid in the first place.
-      return adHocWarning ? { ...updatedDocument, adHocAttachWarning: adHocWarning } : updatedDocument;
+      if (adHocSummary) {
+        const fresh = await this.prisma.document.findUnique({ where: { id: updatedDocument.id }, select: { status: true, name: true } });
+        return { ...updatedDocument, ...(fresh ?? {}), adHocAttach: { ok: true, message: adHocSummary } };
+      }
+      return adHocWarning
+        ? { ...updatedDocument, adHocAttachWarning: adHocWarning, adHocAttach: { ok: false, message: adHocWarning } }
+        : updatedDocument;
     } catch (error) {
       throw new HttpException(`Update failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
@@ -2151,7 +2163,8 @@ export class DocumentsService {
     projectId: string | null,
     organizationId: string,
     dtoType: string,
-  ): Promise<string | null> {
+    actor?: DocumentActor,
+  ): Promise<{ warning?: string; summary?: string } | null> {
     if (!projectId) return null;
     // Outbound delivery orders only. A return (RDO) off-hires rather than
     // deploys, and every other type has no delivery run behind it.
@@ -2175,15 +2188,22 @@ export class DocumentsService {
       // saving a document.
       if (run.origin !== 'AD_HOC' || run.direction === 'RETURN' || run.projectId) return null;
 
-      await this.deliveriesService.attachProjectToAdHocRun(run.id, projectId, organizationId);
+      // The office's save owns this document: attach only fills DO fields that
+      // are still empty (customer, Bill To, PO), then deploys, commits and makes
+      // the draft invoice exactly as the run page's "Attach project" does.
+      const out: any = await this.deliveriesService.attachProjectToAdHocRun(run.id, projectId, organizationId, {
+        actor,
+        via: 'document-save',
+        fillDocument: 'empty-only',
+      });
       console.log(
         `updateDocument: handed project ${projectId} to ad-hoc delivery #${run.deliveryNumber} (${run.id})`,
       );
-      return null;
+      return { summary: `Delivery #${run.deliveryNumber}: ${out?.attachResult?.summary ?? 'attached to the project.'}` };
     } catch (err: any) {
       const reason = err?.response?.message ?? err?.message ?? 'unknown error';
       console.warn(`tryAttachProjectToAdHocRun failed for document ${documentId}: ${reason}`);
-      return `The document saved, but its delivery run could not be put on this project: ${reason}`;
+      return { warning: `The document saved, but its delivery run could not be put on this project: ${reason}` };
     }
   }
 

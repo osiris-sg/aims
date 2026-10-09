@@ -89,6 +89,8 @@ const VERB_ACTIONS: Record<string, string> = {
   complete: 'COMPLETE', skip: 'SKIP', reset: 'UPDATE', replay: 'RUN',
   // Delivery runs: bring a skipped item back into the walk (POST items/:itemId/unskip).
   unskip: 'UNSKIP',
+  // Ad-hoc delivery: POST :id/attach-project (deploy + commit + draft invoice).
+  'attach-project': 'ATTACH',
   'bulk-download': 'EXPORT', pdf: 'EXPORT', generate: 'CREATE', 'meter-reading': 'UPDATE',
   // Document attachments: POST :id/attachments = ATTACH, :id/attachments/remove = DETACH
   // (the trailing segment wins, so "remove" must map before generic fallbacks).

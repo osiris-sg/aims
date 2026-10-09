@@ -292,9 +292,15 @@ export class DeliveriesController {
     @Param('id') id: string,
     @Body() body: { projectId: string },
     @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
   ) {
     if (!body?.projectId) throw new BadRequestException('projectId is required');
-    return this.service.attachProjectToAdHocRun(id, body.projectId, org.id);
+    const u: any = req.user || {};
+    const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+    return this.service.attachProjectToAdHocRun(id, body.projectId, org.id, {
+      actor: { id: u.id, name: name || undefined, email: u.emailAddresses?.[0]?.emailAddress },
+      via: 'run-page',
+    });
   }
 
   // CUSTOMER SIGNATURE (outbound). Full sign-off once every item is delivered;
