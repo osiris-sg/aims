@@ -4832,18 +4832,37 @@ export default function TabbedDocumentCreator({
                       ) {
                         fields = [...fields, { fieldName: "documentInfo.contact", displayLabel: "Contact", fieldType: "text", required: false }];
                       }
+                      // INVOICES: an editable "Deliver To" in the DETAILS tab
+                      // (guru 2026-10-09). It is the same config.deliveryTo the
+                      // Biofuel and generic layouts (and the server PDF) print;
+                      // empty = no Deliver To block. It used to be hidden on
+                      // invoices, so a value copied from the source DO could
+                      // not be changed: BI202609101, re-assigned to Keller,
+                      // kept printing Tenda's "Deliver To". Some templates carry
+                      // the field in General (TI2 defaults), so it is moved,
+                      // never duplicated; a template with no DETAILS tab keeps
+                      // it in General.
+                      if (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") {
+                        const home = templateFieldConfig?.tabs.some((t: any) => t.tabId === "details") ? "details" : "general";
+                        fields = fields.filter((f: any) => f.fieldName !== "deliveryTo");
+                        if (tab.tabId === home) {
+                          fields = [...fields, { fieldName: "deliveryTo", displayLabel: "Deliver To", fieldType: "textarea", required: false }];
+                        }
+                      }
                       return fields;
                     })()}
                     formData={formData}
                     setFormData={setFormData}
                     hideDiscount={isRouteOrderPO}
                     hiddenFields={
-                      // Legacy invoice arrangement drops Bill to / Deliver to
-                      // (auto-filled from the customer master, printed as-is)
-                      // and Currency (defaults to SGD; code still shows in the
-                      // totals panel next to Rate). Quotations drop Currency too.
+                      // Legacy invoice arrangement drops Bill to (auto-filled
+                      // from the customer master, printed as-is) and Currency
+                      // (defaults to SGD; code still shows in the totals panel
+                      // next to Rate). Deliver To is NOT hidden any more: it is
+                      // an editable DETAILS-tab field (see the fields builder
+                      // above). Quotations drop Currency too.
                       documentType === "TI" || documentType === "TI2" || documentType === "INVOICE"
-                        ? ["billTo", "deliveryTo", "documentInfo.currency"]
+                        ? ["billTo", "documentInfo.currency"]
                         : isQuotation
                         ? ["documentInfo.currency"]
                         : documentType === "DO" || documentType === "DELIVERY_ORDER"
@@ -8379,8 +8398,33 @@ export default function TabbedDocumentCreator({
             // Document trades in the customer's master-file currency — the GL
             // converts to base at the accountant's standing rate on posting.
             const customerCurrency = (customer as any).currency || "";
+            // PREVIOUS-CUSTOMER LEFTOVERS. Bill To is rewritten below; the rest
+            // of that block belongs to the old customer too and must go with
+            // it: Deliver To (+ its deliveryAddress mirror, which for DOs can
+            // hold an old site-office id), the Attention / Mobile / Email trio
+            // and the Contact fields that print as "Attn:" under Deliver To.
+            // BI202609101 kept Tenda's "Deliver To" after its customer became
+            // Keller (guru 2026-10-09). Only when a DIFFERENT customer replaces
+            // one already set: re-picking the same customer, or the first pick
+            // on a new document, keeps what is there. Emptied fields are then
+            // re-seeded from the new customer by the fill-once effect (Contact
+            // from its phone). Existing documents are untouched until edited.
+            const previousCustomerId = formData.customer?.id || "";
+            const swapped = !!previousCustomerId && previousCustomerId !== customer.id;
+            const leftoverReset: Record<string, unknown> = swapped
+              ? {
+                  deliveryTo: "",
+                  deliveryAddress: { ...(formData as any).deliveryAddress, address: "", attention: "", phone: "" },
+                  attention: { name: "", email: "", phoneNumber: "" },
+                  ...((formData as any).contact !== undefined ? { contact: "" } : {}),
+                  ...((formData as any).contactName !== undefined ? { contactName: "" } : {}),
+                  ...((formData as any).contactNumber !== undefined ? { contactNumber: "" } : {}),
+                }
+              : {};
+            const contactReset = swapped ? { contact: "", contactName: "", contactNumber: "" } : {};
             setFormData({
               ...formData,
+              ...leftoverReset,
               customer: {
                 id: customer.id || "",
                 name: customer.name || "",
@@ -8414,6 +8458,7 @@ export default function TabbedDocumentCreator({
               billTo: addressToBillTo(customer.address),
               documentInfo: {
                 ...formData.documentInfo,
+                ...contactReset,
                 ...(salesmanCode ? { salesPerson: salesmanCode } : {}),
                 ...(customerCurrency ? { currency: customerCurrency } : {}),
               },
