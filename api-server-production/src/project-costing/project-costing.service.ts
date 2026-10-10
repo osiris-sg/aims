@@ -360,6 +360,10 @@ export class ProjectCostingService {
         status: dto.status || undefined,
         approvedAt: approvingNow ? new Date() : undefined,
         notes: dto.notes !== undefined ? dto.notes : undefined,
+        // Attaching/replacing a supplier invoice on an EXISTING cost must
+        // stick (guru 2026-10-10: upload said success but never persisted).
+        attachmentUrl: dto.attachmentUrl !== undefined ? dto.attachmentUrl : undefined,
+        attachmentKey: dto.attachmentKey !== undefined ? dto.attachmentKey : undefined,
       },
     });
   }
@@ -1509,8 +1513,23 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
       orderBy: { createdAt: 'desc' },
       select: { name: true, config: true },
     });
-    const n = (await this.prisma.document.count({ where: { projectId, organizationId, type: 'VARIATION_ORDER' } })) + 1;
+    // Number from the HIGHEST existing VO, not the count — a deleted VO1
+    // otherwise makes count+1 recreate "VO2 …" and hit the unique (name, org,
+    // templateId) constraint (guru 2026-10-10, Siusin).
+    const prior = await this.prisma.document.findMany({
+      where: { projectId, organizationId, type: 'VARIATION_ORDER' },
+      select: { name: true, config: true },
+    });
+    let n = 0;
+    for (const d of prior) {
+      const m = /^VO(\d+)/.exec(d.name || '');
+      n = Math.max(n, m ? parseInt(m[1], 10) : 0, Number((d.config as any)?.voNumber) || 0);
+    }
+    n += 1;
     const templateId = await this.documents.resolveTemplateIdForType('QUOTATION', organizationId);
+    const voName = (k: number) => `VO${k}${q?.name ? ` · ${q.name}` : ''}`;
+    // Belt and braces: the unique constraint is org-wide, so skip past any taken name.
+    while (await this.prisma.document.findFirst({ where: { organizationId, documentTemplateId: templateId, name: voName(n) }, select: { id: true } })) n += 1;
     const qc: any = q?.config || {};
     const doc = await this.prisma.document.create({
       data: {
@@ -1518,7 +1537,7 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
         projectId,
         type: 'VARIATION_ORDER',
         documentTemplateId: templateId,
-        name: `VO${n}${q?.name ? ` · ${q.name}` : ''}`,
+        name: voName(n),
         config: {
           templateVariant: 'ID_VO',
           voNumber: n,

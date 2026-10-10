@@ -6873,6 +6873,32 @@ export class DocumentsService {
     });
     if (!document) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
     const config: any = document.config || {};
+    // VO sheet: the payment-schedule panel must show TODAY's collection state,
+    // not the confirm-time snapshot (guru 2026-10-10: a partial payment after
+    // confirmation still printed as the full amount PENDING). Quantum figures
+    // stay snapshotted — only the schedule rows refresh.
+    if (config.templateVariant === 'ID_VO' && document.projectId && config.consolidation) {
+      try {
+        const ms = await this.prisma.projectMilestone.findMany({
+          where: { projectId: document.projectId, organizationId, kind: 'milestone' },
+          orderBy: { sortOrder: 'asc' },
+          select: { label: true, amount: true, paidAmount: true },
+        });
+        if (ms.length) {
+          config.consolidation = {
+            ...config.consolidation,
+            schedule: ms.map((m) => ({
+              label: m.label,
+              amount: Number(m.amount) || 0,
+              paid: Number(m.paidAmount) || 0,
+              collected: (Number(m.amount) || 0) > 0 && (Number(m.paidAmount) || 0) >= (Number(m.amount) || 0),
+            })),
+          };
+        }
+      } catch {
+        /* keep the snapshot if the live read fails */
+      }
+    }
     const documentInfo = config.documentInfo || { documentNumber: document.name };
     const items: any[] = Array.isArray(config.items) ? config.items : [];
     const isQuotation = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(document.type).toUpperCase());

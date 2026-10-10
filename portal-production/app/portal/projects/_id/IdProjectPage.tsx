@@ -122,7 +122,7 @@ const Cell = ({ children, right, sx, colSpan }: { children?: React.ReactNode; ri
  *  costs back to the firm; costs stay booked at full value (designer
  *  commission unaffected) and this extra profit is only visible here. The
  *  API 404s for designer-only users, so the panel silently doesn't render. */
-function RebatePanel({ projectId, baseProfit }: { projectId: string; baseProfit: number | null }) {
+function RebatePanel({ projectId, baseProfit, commission }: { projectId: string; baseProfit: number | null; commission: number | null }) {
   const api = useIdProjectApi();
   const [data, setData] = useState<any>(null);
   const [hidden, setHidden] = useState(false);
@@ -239,6 +239,14 @@ function RebatePanel({ projectId, baseProfit }: { projectId: string; baseProfit:
               <TableRow>
                 <Cell colSpan={3} sx={{ color: "text.secondary" }}>Profit incl. rebate (P&L profit {money(baseProfit!)} + rebate)</Cell>
                 <Cell right sx={{ fontWeight: 800 }}>{money(trueProfit)}</Cell>
+              </TableRow>
+            )}
+            {trueProfit != null && commission != null && (
+              <TableRow>
+                <Cell colSpan={3} sx={{ color: "text.secondary" }}>
+                  Company take after designer commission ({money(commission)}) + rebate
+                </Cell>
+                <Cell right sx={{ fontWeight: 800, color: "success.main" }}>{money(trueProfit - commission)}</Cell>
               </TableRow>
             )}
           </TableBody>
@@ -751,7 +759,7 @@ export default function IdProjectPage({ id }: { id: string }) {
               </Box>
             )}
 
-            <RebatePanel projectId={id} baseProfit={data.totals?.profit ?? null} />
+            <RebatePanel projectId={id} baseProfit={data.totals?.profit ?? null} commission={data.totals?.commission ?? null} />
           </Box>
         )}
 
@@ -939,7 +947,22 @@ export default function IdProjectPage({ id }: { id: string }) {
                     return (
                       <TableRow key={m.id} hover sx={{ bgcolor: m.kind === "refund" ? "action.hover" : undefined }}>
                         <TableCell sx={{ py: 0.5, minWidth: 240 }}>
-                          <TextField size="small" variant="standard" fullWidth value={e.label ?? m.label} onChange={(ev) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, label: ev.target.value } }))} InputProps={{ disableUnderline: true, sx: { fontSize: 13.5, fontWeight: m.kind === "milestone" ? 600 : 400 } }} />
+                          {m.kind === "milestone" ? (
+                            <Tooltip title="Click to rename this milestone" enterDelay={600}>
+                              <TextField
+                                size="small"
+                                variant="standard"
+                                fullWidth
+                                value={e.label ?? m.label}
+                                onChange={(ev) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, label: ev.target.value } }))}
+                                InputProps={{ disableUnderline: true, sx: { fontSize: 13.5, fontWeight: 600, "&:hover": { borderBottom: "1px dashed", borderColor: "text.disabled" } } }}
+                              />
+                            </Tooltip>
+                          ) : (
+                            // VO / refund labels mirror their source (the VO document's
+                            // name) — not editable here (guru 2026-10-10).
+                            <Typography variant="body2" sx={{ fontSize: 13.5 }}>{m.label}</Typography>
+                          )}
                           {m.kind !== "milestone" && <Chip size="small" label={m.kind === "vo" ? "Variation order" : "Refund to client"} sx={{ height: 18, "& .MuiChip-label": { fontSize: 10 } }} />}
                         </TableCell>
                         <Cell right>{m.pct != null ? `${m.pct}%` : "—"}</Cell>

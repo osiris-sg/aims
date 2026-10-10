@@ -799,7 +799,7 @@ function ListView({ data, onChange }: { data: Schedule; onChange: () => void }) 
             return (
               <TableRow key={it.id} hover>
                 <TableCell sx={{ minWidth: 280 }}>
-                  <TextField size="small" variant="standard" fullWidth value={d.label ?? it.label} onChange={(e) => setDrafts((s) => ({ ...s, [it.id]: { ...d, label: e.target.value } }))} InputProps={{ disableUnderline: true, sx: { fontSize: 13.5 } }} />
+                  <TextField size="small" variant="standard" fullWidth value={d.label ?? it.label} onChange={(e) => setDrafts((s) => ({ ...s, [it.id]: { ...d, label: e.target.value } }))} InputProps={{ disableUnderline: true, sx: { fontSize: 13.5, "&:hover": { borderBottom: "1px dashed", borderColor: "text.disabled" } } }} />
                 </TableCell>
                 <TableCell>
                   <TextField select size="small" value={d.kind ?? it.kind} onChange={(e) => setDrafts((s) => ({ ...s, [it.id]: { ...d, kind: e.target.value as any } }))} inputProps={{ style: { padding: "4px 8px" } }}>

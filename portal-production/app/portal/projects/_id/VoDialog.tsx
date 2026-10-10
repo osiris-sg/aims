@@ -13,15 +13,18 @@ import {
   DialogTitle, Divider, IconButton, Stack, TextField, Tooltip, Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
+import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import PrintIcon from "@mui/icons-material/PrintOutlined";
 import CheckCircleIcon from "@mui/icons-material/CheckCircleOutline";
 import { toast } from "react-toastify";
 import { money, useIdProjectApi, type Summary } from "./api";
 
-type VoLine = { id: string; description: string; amount: number | null; complimentary: boolean };
+// kind "area" = a general-area header row like the main quote's sections
+// (LIVING ROOM, KITCHEN…): no number, no amount, prints as a bold band.
+type VoLine = { id: string; description: string; amount: number | null; complimentary: boolean; kind?: "line" | "area" };
 const newId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-const sum = (list: VoLine[]) => list.reduce((s, l) => s + (l.complimentary ? 0 : Number(l.amount) || 0), 0);
+const sum = (list: VoLine[]) => list.reduce((s, l) => s + (l.kind === "area" || l.complimentary ? 0 : Number(l.amount) || 0), 0);
 
 /** Lets decimals be typed freely: string draft while focused, number committed live. */
 function VoAmountField({ value, disabled, onCommit, placeholder }: { value: number | null; disabled?: boolean; onCommit: (n: number | null) => void; placeholder?: string }) {
@@ -46,6 +49,21 @@ function VoAmountField({ value, disabled, onCommit, placeholder }: { value: numb
 }
 
 function LineList({ title, lines, readOnly, onChange }: { title: string; lines: VoLine[]; readOnly: boolean; onChange: (next: VoLine[]) => void }) {
+  // Reorder by dragging the six-dot handle onto another row (drops ABOVE it),
+  // same gesture as the quotation editor (guru 2026-10-10).
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+  const dropOn = (targetId: string) => {
+    if (!dragId || dragId === targetId) return;
+    const from = lines.findIndex((x) => x.id === dragId);
+    const to = lines.findIndex((x) => x.id === targetId);
+    if (from < 0 || to < 0) return;
+    const next = [...lines];
+    const [moved] = next.splice(from, 1);
+    next.splice(next.findIndex((x) => x.id === targetId), 0, moved);
+    onChange(next);
+  };
+  let itemNo = 0;
   return (
     <Box sx={{ mb: 2 }}>
       <Stack direction="row" alignItems="center" sx={{ mb: 0.5 }}>
@@ -57,28 +75,91 @@ function LineList({ title, lines, readOnly, onChange }: { title: string; lines: 
         </Typography>
       </Stack>
       <Stack spacing={0.75}>
-        {lines.map((l, i) => (
-          <Stack key={l.id} direction="row" spacing={1} alignItems="flex-start">
-            <Typography variant="body2" sx={{ width: 20, textAlign: "right", pt: 1, color: "text.secondary" }}>
-              {i + 1}
-            </Typography>
-            <TextField size="small" fullWidth multiline minRows={1} placeholder="Describe the change…" value={l.description} disabled={readOnly} onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, description: e.target.value } : x)))} />
-            <VoAmountField placeholder="0.00" value={l.complimentary ? null : l.amount ?? null} disabled={readOnly || l.complimentary} onCommit={(n) => onChange(lines.map((x) => (x.id === l.id ? { ...x, amount: n } : x)))} />
-            <Tooltip title="Complimentary (no charge)">
-              <Checkbox size="small" checked={l.complimentary} disabled={readOnly} onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, complimentary: e.target.checked, amount: e.target.checked ? null : x.amount } : x)))} sx={{ mt: 0.25 }} />
-            </Tooltip>
-            {!readOnly && (
-              <IconButton size="small" onClick={() => onChange(lines.filter((x) => x.id !== l.id))} sx={{ color: "text.disabled", "&:hover": { color: "error.main" }, mt: 0.25 }}>
-                <DeleteIcon fontSize="small" />
-              </IconButton>
-            )}
-          </Stack>
-        ))}
+        {lines.map((l) => {
+          const isArea = l.kind === "area";
+          if (!isArea) itemNo += 1;
+          return (
+            <Stack
+              key={l.id}
+              direction="row"
+              spacing={1}
+              alignItems="flex-start"
+              onDragOver={(e) => {
+                if (!dragId) return;
+                e.preventDefault();
+                setOverId(l.id);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                dropOn(l.id);
+                setDragId(null);
+                setOverId(null);
+              }}
+              sx={{
+                borderTop: 2,
+                borderColor: overId === l.id && dragId && dragId !== l.id ? "primary.main" : "transparent",
+                opacity: dragId === l.id ? 0.45 : 1,
+                ...(isArea ? { bgcolor: "action.hover", borderRadius: 1, py: 0.25, pr: 0.5 } : {}),
+              }}
+            >
+              {!readOnly ? (
+                <Box
+                  draggable
+                  onDragStart={(e) => {
+                    setDragId(l.id);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDragEnd={() => {
+                    setDragId(null);
+                    setOverId(null);
+                  }}
+                  sx={{ cursor: "grab", color: "text.disabled", pt: 1, px: 0.25, "&:active": { cursor: "grabbing" } }}
+                >
+                  <DragIndicatorIcon fontSize="small" />
+                </Box>
+              ) : (
+                <Box sx={{ width: 28 }} />
+              )}
+              <Typography variant="body2" sx={{ width: 20, textAlign: "right", pt: 1, color: "text.secondary" }}>
+                {isArea ? "" : itemNo}
+              </Typography>
+              {isArea ? (
+                <TextField
+                  size="small"
+                  fullWidth
+                  placeholder="AREA (e.g. LIVING ROOM)"
+                  value={l.description}
+                  disabled={readOnly}
+                  onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, description: e.target.value } : x)))}
+                  inputProps={{ style: { fontWeight: 700, textTransform: "uppercase" } }}
+                />
+              ) : (
+                <TextField size="small" fullWidth multiline minRows={1} placeholder="Describe the change…" value={l.description} disabled={readOnly} onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, description: e.target.value } : x)))} />
+              )}
+              {!isArea && <VoAmountField placeholder="0.00" value={l.complimentary ? null : l.amount ?? null} disabled={readOnly || l.complimentary} onCommit={(n) => onChange(lines.map((x) => (x.id === l.id ? { ...x, amount: n } : x)))} />}
+              {!isArea && (
+                <Tooltip title="Complimentary (no charge)">
+                  <Checkbox size="small" checked={l.complimentary} disabled={readOnly} onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, complimentary: e.target.checked, amount: e.target.checked ? null : x.amount } : x)))} sx={{ mt: 0.25 }} />
+                </Tooltip>
+              )}
+              {!readOnly && (
+                <IconButton size="small" onClick={() => onChange(lines.filter((x) => x.id !== l.id))} sx={{ color: "text.disabled", "&:hover": { color: "error.main" }, mt: 0.25 }}>
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              )}
+            </Stack>
+          );
+        })}
       </Stack>
       {!readOnly && (
-        <Button size="small" startIcon={<AddIcon />} onClick={() => onChange([...lines, { id: newId(), description: "", amount: null, complimentary: false }])} sx={{ textTransform: "none", mt: 0.5, color: "text.secondary" }}>
-          Add line
-        </Button>
+        <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+          <Button size="small" startIcon={<AddIcon />} onClick={() => onChange([...lines, { id: newId(), description: "", amount: null, complimentary: false }])} sx={{ textTransform: "none", color: "text.secondary" }}>
+            Add line
+          </Button>
+          <Button size="small" startIcon={<AddIcon />} onClick={() => onChange([...lines, { id: newId(), description: "", amount: null, complimentary: false, kind: "area" }])} sx={{ textTransform: "none", color: "text.secondary" }}>
+            Add area
+          </Button>
+        </Stack>
       )}
     </Box>
   );
@@ -99,7 +180,7 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
       .getDocument(docId)
       .then((d) => {
         setDoc(d);
-        const norm = (list: any[]): VoLine[] => (Array.isArray(list) ? list : []).map((l) => ({ id: l.id || newId(), description: l.description || "", amount: l.amount ?? null, complimentary: !!l.complimentary }));
+        const norm = (list: any[]): VoLine[] => (Array.isArray(list) ? list : []).map((l) => ({ id: l.id || newId(), description: l.description || "", amount: l.amount ?? null, complimentary: !!l.complimentary, kind: l.kind === "area" ? "area" : "line" }));
         setAdditions(norm(d?.config?.vo?.additions));
         setRemovals(norm(d?.config?.vo?.removals));
         setDirty(false);
@@ -144,7 +225,7 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
 
   const confirm = async () => {
     if (!doc) return;
-    if (!additions.length && !removals.length) {
+    if (!additions.some((l) => l.kind !== "area") && !removals.some((l) => l.kind !== "area")) {
       toast.warn("Add at least one line before confirming");
       return;
     }

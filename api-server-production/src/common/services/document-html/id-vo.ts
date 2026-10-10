@@ -16,7 +16,7 @@
  */
 import { escapeHtml, formatDate, money } from './shared';
 
-type VoLine = { description?: string; amount?: number | null; complimentary?: boolean };
+type VoLine = { description?: string; amount?: number | null; complimentary?: boolean; kind?: string };
 
 const CSS = `
 <style>
@@ -49,6 +49,8 @@ const CSS = `
   .idvo .stat { font-weight: 700; letter-spacing:.5px; font-size: 11px; }
   .idvo .stat.ok { color: #1b7f3b; }
   .idvo .stat.pending { color: #b06f00; }
+  .idvo .stat.part { color: #b06f00; }
+  .idvo .part-note { font-size: 10px; color: #777; font-variant-numeric: tabular-nums; }
   .idvo .ack { margin-top: 30px; page-break-inside: avoid; }
   .idvo .ack h3 { font-size: 12.5px; margin-bottom: 26px; }
   .idvo .sign { display:flex; justify-content:space-between; }
@@ -58,11 +60,18 @@ const CSS = `
 
 const isNum = (v: any): v is number => typeof v === 'number' && isFinite(v);
 const amt = (l: VoLine): string => (l.complimentary || !isNum(Number(l.amount)) || l.amount == null ? '<span class="word">Complimentary</span>' : money(Number(l.amount)));
-const sumLines = (list: VoLine[] | undefined): number => (Array.isArray(list) ? list : []).reduce((s, l) => s + (l.complimentary ? 0 : Number(l.amount) || 0), 0);
+const sumLines = (list: VoLine[] | undefined): number => (Array.isArray(list) ? list : []).reduce((s, l) => s + (l.kind === 'area' || l.complimentary ? 0 : Number(l.amount) || 0), 0);
 
 function linesTable(title: string, list: VoLine[] | undefined, subtotalLabel: string): string {
+  // "area" rows are general-area headers like the main quote's sections
+  // (LIVING ROOM…): bold band, no number, no amount; items number past them.
+  let n = 0;
   const rows = (Array.isArray(list) ? list : [])
-    .map((l, i) => `<tr><td class="no">${i + 1}</td><td>${escapeHtml(l.description || '')}</td><td class="amt">${amt(l)}</td></tr>`)
+    .map((l) =>
+      l.kind === 'area'
+        ? `<tr><td class="no"></td><td colspan="2" style="font-weight:700;background:#f1f1f1;text-transform:uppercase;">${escapeHtml(l.description || '')}</td></tr>`
+        : `<tr><td class="no">${++n}</td><td>${escapeHtml(l.description || '')}</td><td class="amt">${amt(l)}</td></tr>`,
+    )
     .join('');
   return `
   <h2 class="grp">${escapeHtml(title)}</h2>
@@ -113,7 +122,21 @@ export function renderIdVoBody(data: any, organization: any): string {
   <div class="panel">
     <h3>Payment Schedule</h3>
     <table class="kv">
-      ${cons.schedule.map((m: any) => `<tr><td>${escapeHtml(m.label || '')}</td><td class="v" style="font-variant-numeric:tabular-nums;">${m.amount != null ? `S$ ${money(m.amount)}` : ''}</td><td class="v"><span class="stat ${m.collected ? 'ok' : 'pending'}">${m.collected ? 'COLLECTED' : 'PENDING'}</span></td></tr>`).join('')}
+      ${cons.schedule
+        .map((m: any) => {
+          const amount = Number(m.amount) || 0;
+          const paid = Number(m.paid) || 0;
+          // Partial collections show as such (guru 2026-10-10: 80k of the 81k
+          // carpentry milestone was in, sheet still said the full sum PENDING).
+          const partial = !m.collected && paid > 0 && amount > 0 && paid < amount;
+          const stat = m.collected
+            ? '<span class="stat ok">COLLECTED</span>'
+            : partial
+              ? `<span class="stat part">PARTIAL</span><div class="part-note">S$ ${money(paid)} collected · S$ ${money(amount - paid)} left</div>`
+              : '<span class="stat pending">PENDING</span>';
+          return `<tr><td>${escapeHtml(m.label || '')}</td><td class="v" style="font-variant-numeric:tabular-nums;">${m.amount != null ? `S$ ${money(m.amount)}` : ''}</td><td class="v">${stat}</td></tr>`;
+        })
+        .join('')}
     </table>
   </div>`
     : '';

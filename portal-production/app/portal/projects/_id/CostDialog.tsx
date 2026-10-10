@@ -78,7 +78,10 @@ export default function CostDialog({ open, projectId, sections, editing, onClose
         attachmentKey: x.attachmentKey || "",
         supplierName: form.supplierName || x.supplierName || "",
         invoiceNo: form.invoiceNo || x.invoiceNo || "",
-        date: x.date || form.date,
+        // Editing an existing cost: attaching its invoice must NOT re-date the
+        // row (guru 2026-10-10 — rows jumped apart in the date-sorted list).
+        // New cost: the invoice date beats the default "today".
+        date: editing ? form.date : x.date || form.date,
         amount: form.amount || (x.amount != null ? String(x.amount) : ""),
         description: form.description || x.description || "",
       });
