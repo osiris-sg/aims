@@ -217,10 +217,16 @@ function AdvancesCard({ self }: { self: boolean }) {
       /* private mode */
     }
   }, []);
-  const useSavedOn = (ref: React.MutableRefObject<any>) => {
+  // Which canvas currently shows the SAVED signature. fromDataURL stretches
+  // the image to the canvas, so re-exporting it grows the signature every
+  // round-trip (guru 2026-10-10) — when the flag is set we submit the stored
+  // PNG verbatim instead of re-reading the canvas. Drawing or Clear resets it.
+  const usedSavedRef = useRef<{ req: boolean; app: boolean }>({ req: false, app: false });
+  const useSavedOn = (ref: React.MutableRefObject<any>, which: "req" | "app") => {
     if (!savedSig || !ref.current) return;
     ref.current.clear();
     ref.current.fromDataURL(savedSig);
+    usedSavedRef.current[which] = true;
   };
   const maybeRemember = (dataUrl: string) => {
     if (!rememberSig) return;
@@ -247,6 +253,7 @@ function AdvancesCard({ self }: { self: boolean }) {
       const j = await res.json();
       const payload = j?.data ?? j;
       setRows(payload?.rows || []);
+      setByDesigner(payload?.byDesigner || []);
       setCanDecide(!!payload?.viewer?.canDecide);
       setCanEditDates(!!payload?.viewer?.canEditDates);
     } catch {
@@ -283,8 +290,8 @@ function AdvancesCard({ self }: { self: boolean }) {
         method: "POST",
         headers: await headers(),
         body: (() => {
-          const sig = requestSigRef.current.getTrimmedCanvas().toDataURL("image/png");
-          maybeRemember(sig);
+          const sig = usedSavedRef.current.req && savedSig ? savedSig : requestSigRef.current.getTrimmedCanvas().toDataURL("image/png");
+          if (!usedSavedRef.current.req) maybeRemember(sig);
           return JSON.stringify({ amount, projectId: form.projectId || null, reason: form.reason || null, signature: sig });
         })(),
       });
@@ -312,6 +319,11 @@ function AdvancesCard({ self }: { self: boolean }) {
     }
   };
 
+  // Per-designer advances summary (guru 2026-10-10): who has taken how much,
+  // at a glance — click a designer to see the per-project split.
+  const [byDesigner, setByDesigner] = useState<any[]>([]);
+  const [openDesigner, setOpenDesigner] = useState<string | null>(null);
+
   const pending = rows.filter((r) => r.status === "pending");
   const recent = rows.filter((r) => r.status !== "pending").slice(0, 5);
   const statusColor: Record<string, "default" | "warning" | "success" | "error" | "info"> = { pending: "warning", approved: "info", paid: "success", declined: "error" };
@@ -332,6 +344,54 @@ function AdvancesCard({ self }: { self: boolean }) {
           No advance requests yet. An approved advance is paid with the bi-weekly run and nets off against commission at handover.
         </Typography>
       )}
+      {byDesigner.length > 0 && (
+        <Box sx={{ mb: 1.5, p: 1, borderRadius: 1, bgcolor: "action.hover" }}>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary", display: "block", mb: 0.5 }}>
+            {self ? "My advances summary" : "Advances by designer"}
+          </Typography>
+          <Stack spacing={0.25}>
+            {byDesigner.map((d: any) => (
+              <Box key={d.designerId}>
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  spacing={1}
+                  onClick={() => setOpenDesigner((v) => (v === d.designerId ? null : d.designerId))}
+                  sx={{ cursor: d.projects?.length ? "pointer" : "default", flexWrap: "wrap", rowGap: 0.25 }}
+                >
+                  <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 130 }} noWrap>
+                    {d.designerName}
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
+                    {money(d.advanced)}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>
+                    advanced ({d.count} request{d.count === 1 ? "" : "s"}) · paid out {money(d.paid)}
+                    {d.pending > 0 ? ` · ${money(d.pending)} pending` : ""}
+                  </Typography>
+                  {d.projects?.length > 0 && (
+                    <Typography variant="caption" sx={{ color: "primary.main" }}>
+                      {openDesigner === d.designerId ? "hide projects" : `${d.projects.length} project${d.projects.length === 1 ? "" : "s"}`}
+                    </Typography>
+                  )}
+                </Stack>
+                {openDesigner === d.designerId && (
+                  <Stack spacing={0} sx={{ pl: 2, pb: 0.5 }}>
+                    {d.projects.map((pj: any) => (
+                      <Stack key={pj.name} direction="row" spacing={1} alignItems="baseline">
+                        <Typography variant="caption" sx={{ color: "text.secondary", flex: 1 }} noWrap>
+                          {pj.name}
+                        </Typography>
+                        <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums" }}>{money(pj.amount)}</Typography>
+                      </Stack>
+                    ))}
+                  </Stack>
+                )}
+              </Box>
+            ))}
+          </Stack>
+        </Box>
+      )}
       <Stack spacing={0.75}>
         {[...pending, ...recent].map((r) => (
           <Stack key={r.id} direction="row" alignItems="center" spacing={1} sx={{ flexWrap: "wrap", rowGap: 0.5 }}>
@@ -344,8 +404,8 @@ function AdvancesCard({ self }: { self: boolean }) {
               requested {new Date(r.createdAt).toLocaleDateString("en-SG", { day: "2-digit", month: "short" })}
               {r.decidedAt ? ` · ${r.status === "declined" ? "declined" : "approved"} ${new Date(r.decidedAt).toLocaleDateString("en-SG", { day: "2-digit", month: "short" })}` : ""}
             </Typography>
-            {r.requestSignature && <Box component="img" src={r.requestSignature} alt="requester signature" sx={{ height: 22, bgcolor: "#fff", borderRadius: 0.5, px: 0.25 }} />}
-            {r.approveSignature && <Box component="img" src={r.approveSignature} alt="approver signature" sx={{ height: 22, bgcolor: "#fff", borderRadius: 0.5, px: 0.25 }} />}
+            {r.requestSignature && <Box component="img" src={r.requestSignature} alt="requester signature" sx={{ height: 22, maxWidth: 80, objectFit: "contain", bgcolor: "#fff", borderRadius: 0.5, px: 0.25 }} />}
+            {r.approveSignature && <Box component="img" src={r.approveSignature} alt="approver signature" sx={{ height: 22, maxWidth: 80, objectFit: "contain", bgcolor: "#fff", borderRadius: 0.5, px: 0.25 }} />}
             {canEditDates && (
               <Button size="small" disabled={busy} onClick={() => { setDateEdit(r); setDateForm({ requestedAt: (r.createdAt || "").slice(0, 10), decidedAt: (r.decidedAt || "").slice(0, 10) }); }} sx={{ textTransform: "none", minWidth: 0, px: 0.5, color: "text.secondary" }}>
                 Edit dates
@@ -382,14 +442,14 @@ function AdvancesCard({ self }: { self: boolean }) {
             <Box>
               <Typography variant="caption" sx={{ color: "text.secondary" }}>Sign to approve</Typography>
               <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "#fff" }}>
-                <SignatureCanvas ref={approveSigRef} penColor="#1a237e" canvasProps={{ style: { width: "100%", height: 120 } }} />
+                <SignatureCanvas ref={approveSigRef} penColor="#1a237e" onBegin={() => (usedSavedRef.current.app = false)} canvasProps={{ style: { width: "100%", height: 120 } }} />
               </Box>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap" }}>
-                <Button size="small" onClick={() => approveSigRef.current?.clear()} sx={{ textTransform: "none", color: "text.secondary" }}>
+                <Button size="small" onClick={() => { approveSigRef.current?.clear(); usedSavedRef.current.app = false; }} sx={{ textTransform: "none", color: "text.secondary" }}>
                   Clear
                 </Button>
                 {savedSig && (
-                  <Button size="small" onClick={() => useSavedOn(approveSigRef)} sx={{ textTransform: "none" }}>
+                  <Button size="small" onClick={() => useSavedOn(approveSigRef, "app")} sx={{ textTransform: "none" }}>
                     Use saved signature
                   </Button>
                 )}
@@ -409,8 +469,8 @@ function AdvancesCard({ self }: { self: boolean }) {
             disabled={busy}
             onClick={async () => {
               if (!approveSigRef.current || approveSigRef.current.isEmpty()) return alert("Please sign to approve");
-              const sig = approveSigRef.current.getTrimmedCanvas().toDataURL("image/png");
-              maybeRemember(sig);
+              const sig = usedSavedRef.current.app && savedSig ? savedSig : approveSigRef.current.getTrimmedCanvas().toDataURL("image/png");
+              if (!usedSavedRef.current.app) maybeRemember(sig);
               await act(approveFor.id, "decide", { approve: true, note: approveNote || undefined, signature: sig });
               setApproveFor(null);
             }}
@@ -464,14 +524,14 @@ function AdvancesCard({ self }: { self: boolean }) {
             <Box>
               <Typography variant="caption" sx={{ color: "text.secondary" }}>Your signature</Typography>
               <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "#fff" }}>
-                <SignatureCanvas ref={requestSigRef} penColor="#1a237e" canvasProps={{ style: { width: "100%", height: 120 } }} />
+                <SignatureCanvas ref={requestSigRef} penColor="#1a237e" onBegin={() => (usedSavedRef.current.req = false)} canvasProps={{ style: { width: "100%", height: 120 } }} />
               </Box>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap" }}>
-                <Button size="small" onClick={() => requestSigRef.current?.clear()} sx={{ textTransform: "none", color: "text.secondary" }}>
+                <Button size="small" onClick={() => { requestSigRef.current?.clear(); usedSavedRef.current.req = false; }} sx={{ textTransform: "none", color: "text.secondary" }}>
                   Clear
                 </Button>
                 {savedSig && (
-                  <Button size="small" onClick={() => useSavedOn(requestSigRef)} sx={{ textTransform: "none" }}>
+                  <Button size="small" onClick={() => useSavedOn(requestSigRef, "req")} sx={{ textTransform: "none" }}>
                     Use saved signature
                   </Button>
                 )}

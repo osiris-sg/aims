@@ -93,8 +93,32 @@ export class AdvancesService {
     if (scope.tier === 'designer') where.requestedById = callerUserId;
     else if (scope.tier === 'junior') where.requestedById = { in: scope.teamUserIds || [callerUserId] };
     const rows = await this.prisma.designerAdvance.findMany({ where, orderBy: { createdAt: 'desc' }, take: 200 });
+    // Per-designer summary (guru 2026-10-10: "a summary of the advances taken
+    // by individual designers" — replaces digging through project folders).
+    // Aggregated over ALL advances in scope, not just the 200 listed rows.
+    const all = await this.prisma.designerAdvance.findMany({
+      where: { ...where, status: undefined },
+      select: { requestedById: true, requestedByName: true, projectName: true, status: true, amount: true },
+    });
+    const byId = new Map<string, { designerId: string; designerName: string; pending: number; advanced: number; paid: number; count: number; projects: Map<string, number> }>();
+    for (const a of all) {
+      const g = byId.get(a.requestedById) || { designerId: a.requestedById, designerName: a.requestedByName || 'Unknown', pending: 0, advanced: 0, paid: 0, count: 0, projects: new Map<string, number>() };
+      const amt = Number(a.amount) || 0;
+      if (a.status === 'pending') g.pending += amt;
+      if (a.status === 'approved' || a.status === 'paid') {
+        g.advanced += amt;
+        const pk = a.projectName || 'No project';
+        g.projects.set(pk, (g.projects.get(pk) || 0) + amt);
+      }
+      if (a.status === 'paid') g.paid += amt;
+      if (a.status !== 'declined') g.count += 1;
+      byId.set(a.requestedById, g);
+    }
+    const byDesigner = [...byId.values()]
+      .sort((a, b) => b.advanced - a.advanced)
+      .map((g) => ({ ...g, projects: [...g.projects.entries()].map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount) }));
     // canEditDates: Directors only (guru 2026-10-07) — master tier.
-    return { rows, viewer: { tier: scope.tier, canDecide: scope.tier === 'master' || scope.tier === 'senior', canEditDates: scope.tier === 'master' } };
+    return { rows, byDesigner, viewer: { tier: scope.tier, canDecide: scope.tier === 'master' || scope.tier === 'senior', canEditDates: scope.tier === 'master' } };
   }
 
   /** Backdate the request and/or approval dates — DIRECTORS (master tier) only
