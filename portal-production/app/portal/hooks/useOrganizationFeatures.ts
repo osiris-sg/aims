@@ -33,6 +33,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Base capabilities (typically on)
   enableProjects: true,
   enableAnalytics: true,
+  // Header-bell notifications; OFF also stops the server writing new rows (guru 2026-10-10: CIEL wants none).
+  enableNotifications: true,
   enableDocumentAI: true,
   enableCustomFields: true,
   enableServiceItems: true,
@@ -183,6 +185,7 @@ export function useOrganizationFeatures() {
     isLegacyAccountingUxEnabled: features.enableLegacyAccountingUx ?? false,
     isIdQuotationEnabled: features.enableIdQuotation ?? false,
     isDesignerAdvancesEnabled: features.enableDesignerAdvances ?? false,
+    isNotificationsEnabled: features.enableNotifications ?? true,
     isAppointmentBookingEnabled: features.enableAppointmentBooking ?? false,
     isAdsInsightsEnabled: features.enableAdsInsights ?? false,
     isOpsDashboardEnabled: features.enableOpsDashboard ?? false,

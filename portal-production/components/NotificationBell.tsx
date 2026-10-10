@@ -22,6 +22,7 @@ import {
   useMarkAllNotificationsRead,
   type NotificationItem,
 } from "@/app/portal/hooks/api/useNotifications";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 // Compact relative time, no em-dashes in any user-facing string.
 function timeAgo(iso: string): string {
@@ -51,12 +52,15 @@ export default function NotificationBell({ sx, iconColor }: { sx?: SxProps<Theme
   const markAll = useMarkAllNotificationsRead();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const open = Boolean(anchorEl);
+  const { isNotificationsEnabled } = useOrganizationFeatures();
 
   const onClickItem = (n: NotificationItem) => {
     if (!n.readAt) markRead.mutate(n.id);
     setAnchorEl(null);
     if (n.linkUrl) router.push(n.linkUrl);
   };
+
+  if (!isNotificationsEnabled) return null;
 
   return (
     <>

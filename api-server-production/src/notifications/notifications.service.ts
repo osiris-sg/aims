@@ -44,6 +44,14 @@ export class NotificationsService {
    */
   async emit(params: EmitNotificationParams): Promise<void> {
     try {
+      // Org kill switch (guru 2026-10-10): enableNotifications=false stops ALL
+      // bell notifications for the org — nothing is written, the bell is hidden
+      // in the portal too. Default (unset) = on.
+      const ui = await this.prisma.organizationUIConfig.findUnique({
+        where: { organizationId: params.organizationId },
+        select: { features: true },
+      });
+      if (((ui?.features as any) || {}).enableNotifications === false) return;
       const recipients = params.exclusive && params.forUserId
         ? [params.forUserId]
         : await this.resolveRecipients(params.organizationId, params.forUserId ?? null, params.linkUrl ?? null);
