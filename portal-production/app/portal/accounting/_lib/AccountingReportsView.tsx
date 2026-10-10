@@ -27,6 +27,7 @@ import BudgetVsActualPage from "../budget-vs-actual/page";
 import InvoicesPage from "../../invoices/page";
 import ARWorkspace from "./ARWorkspace";
 import APWorkspace from "./APWorkspace";
+import GLWorkspace from "./GLWorkspace";
 import BillsPage from "../bills/page";
 import BankReconciliationPage from "../bank-reconciliation/page";
 import StatementOfAccountPage from "../../reports/statement-of-account/page";
@@ -74,6 +75,9 @@ export const REPORTS: ReportEntry[] = [
   // AP landing = supplier-balance workspace (legacy AP screen, modern UI —
   // guru 2026-07-31), twin of the AR workspace.
   { key: "ap", label: "Accounts Payable", description: "Supplier balances with drill-down transaction history", category: "Payables", Component: APWorkspace },
+  // GL landing = account-balance workspace (legacy General Ledger home,
+  // modern UI — guru 2026-10-10), third of the workspace trio.
+  { key: "gl-home", label: "General Ledger Home", description: "KPI tiles and account balances with drill-down ledger", category: "Ledger", Component: GLWorkspace },
   { key: "ar-invoices", label: "Invoice List", description: "All invoices with payment status, tabs and quick payment recording", category: "Receivables", Component: InvoicesPage },
   { key: "ar-aging", label: "Aged Receivables Summary", description: "Outstanding invoices per customer, bucketed by age", category: "Receivables", Component: AgedReceivablesSummary },
   { key: "ar-aging-detail", label: "Aged Receivables Detail", description: "Every outstanding invoice, aged and grouped by customer", category: "Receivables", Component: AgedReceivablesDetail },
@@ -302,8 +306,13 @@ function ReportsInner({
   // customer balances), not the report directory. Reports stay reachable via
   // the workspace's View Reports dialog; ?tab= deep-links still win.
   const legacyLanding =
-    !rawTab && isLegacyAccountingUxEnabled && categories.length === 1 && (categories[0] === "Receivables" || categories[0] === "Payables")
-      ? REPORTS.find((r) => r.key === (categories[0] === "Payables" ? "ap" : "ar")) || null
+    !rawTab &&
+    isLegacyAccountingUxEnabled &&
+    categories.length === 1 &&
+    (categories[0] === "Receivables" || categories[0] === "Payables" || categories[0] === "Ledger")
+      ? REPORTS.find(
+          (r) => r.key === (categories[0] === "Payables" ? "ap" : categories[0] === "Ledger" ? "gl-home" : "ar"),
+        ) || null
       : null;
 
   const [search, setSearch] = useState("");

@@ -980,7 +980,12 @@ export class JournalService {
   // period — matches Xero's GL Detail, which shows Net Movement per account).
   async glDetailReport(
     organizationId: string,
-    opts: { startDate?: Date; endDate?: Date; accountIds?: string[] },
+    // includeOpening (legacy GENERAL LEDGER print, guru 2026-10-10): each
+    // account opens with a BALANCE B/F row (posted activity before startDate)
+    // and the running balance continues from it; accounts whose only content
+    // is the B/F still appear. Off by default — the GL Detail report keeps
+    // its within-period behaviour.
+    opts: { startDate?: Date; endDate?: Date; accountIds?: string[]; includeOpening?: boolean },
   ) {
     const MAX_LINES = 5000;
     const dateFilter: any = {};
@@ -1041,9 +1046,39 @@ export class JournalService {
       byAccount.set(a.id, e);
     }
 
+    // Opening balances (BALANCE B/F) per account: everything posted strictly
+    // before startDate. Accounts with a non-zero opening but no rows in the
+    // period still get a group, so the printed ledger shows their B/F line.
+    const openingByAccount = new Map<string, number>();
+    if (opts.includeOpening && opts.startDate) {
+      const prior = await this.prisma.journalEntryLine.groupBy({
+        by: ['accountId'],
+        where: {
+          ...(opts.accountIds?.length ? { accountId: { in: opts.accountIds } } : {}),
+          journalEntry: { organizationId, status: 'POSTED', entryDate: { lt: opts.startDate } },
+        },
+        _sum: { debit: true, credit: true },
+      });
+      for (const g of prior) {
+        const bal = ROUND((g._sum.debit ?? 0) - (g._sum.credit ?? 0));
+        if (bal !== 0) openingByAccount.set(g.accountId, bal);
+      }
+      const missing = [...openingByAccount.keys()].filter((id) => !byAccount.has(id));
+      if (missing.length) {
+        const accts = await this.prisma.chartOfAccount.findMany({
+          where: { id: { in: missing }, organizationId },
+          select: { id: true, code: true, name: true, accountType: true },
+        });
+        for (const a of accts) {
+          byAccount.set(a.id, { code: a.code, name: a.name, accountType: a.accountType, rows: [], debit: 0, credit: 0 });
+        }
+      }
+    }
+
     const groups = [...byAccount.entries()]
       .map(([accountId, e]) => {
-        let running = 0;
+        const opening = openingByAccount.get(accountId) ?? 0;
+        let running = opening;
         for (const r of e.rows) {
           running = ROUND(running + r.debit - r.credit);
           r.runningBalance = running;
@@ -1053,6 +1088,7 @@ export class JournalService {
           code: e.code,
           name: e.name,
           accountType: e.accountType,
+          ...(opts.includeOpening ? { openingBalance: ROUND(opening), closingBalance: ROUND(running) } : {}),
           rows: e.rows,
           totalDebit: ROUND(e.debit),
           totalCredit: ROUND(e.credit),

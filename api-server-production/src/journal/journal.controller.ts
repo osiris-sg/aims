@@ -145,6 +145,7 @@ export class JournalController {
       startDate: q.startDate ? new Date(q.startDate) : undefined,
       endDate: q.endDate ? new Date(q.endDate) : undefined,
       accountIds: q.accountIds ? String(q.accountIds).split(',').filter(Boolean) : undefined,
+      includeOpening: q.includeOpening === '1' || q.includeOpening === 'true',
     });
   }
 
