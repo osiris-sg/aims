@@ -44,7 +44,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider allowedRedirectOrigins={["https://siteclock.osiris.sg"]}>
       <html lang="en">
         <body className={`${carlito.variable} ROOT_LAYOUT`}>
           <AppRouterCacheProvider>
