@@ -8,7 +8,13 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Alert, Box, Button, CircularProgress, Container, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, TextField, Typography } from "@mui/material";
+import { ThemeProvider, createTheme } from "@mui/material/styles";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
+
+// Client-facing page: ALWAYS light, whatever the phone's theme — the portal's
+// dark palette was painting the papers near-black under hardcoded dark ink
+// (guru 2026-10-11, screenshot: invisible slot times on a dark-mode iPhone).
+const lightTheme = createTheme({ palette: { mode: "light" } });
 
 const apiBase = process.env.NEXT_PUBLIC_BACKEND_API_URL;
 
@@ -18,7 +24,7 @@ type Payload = { designerName: string; orgName: string; orgLogo: string | null; 
 const fmtDay = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString("en-SG", { weekday: "short", day: "2-digit", month: "short" });
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Singapore" });
 
-export default function PublicBookingPage() {
+function PublicBookingPageInner() {
   const { token } = useParams<{ token: string }>();
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -170,5 +176,13 @@ export default function PublicBookingPage() {
         </DialogActions>
       </Dialog>
     </Box>
+  );
+}
+
+export default function PublicBookingPage() {
+  return (
+    <ThemeProvider theme={lightTheme}>
+      <PublicBookingPageInner />
+    </ThemeProvider>
   );
 }
