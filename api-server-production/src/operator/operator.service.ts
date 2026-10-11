@@ -1069,6 +1069,14 @@ export class OperatorService {
     // is plenty; after that the tap asks for a resend as designed.
     const uploadFresh = state.pendingUpload && (!state.pendingUploadAt || Date.now() - new Date(state.pendingUploadAt).getTime() <= 30 * 60 * 1000);
     return {
+      // Spread the stored state FIRST so anything not named below survives the
+      // round-trip. Enumerating every key has now lost two features: the
+      // pendingUpload restore (note above), and bulkInvoiceMode — set by the
+      // tool, saved, then silently dropped on the very next message, so every
+      // invoice fell back to a per-invoice confirm and the flag was wiped from
+      // the DB by the save that followed (guru 2026-10-11). The explicit
+      // fields below still win; this only stops new state vanishing.
+      ...state,
       history: Array.isArray(state.history) ? state.history : [],
       pendingAction,
       pendingActions,
