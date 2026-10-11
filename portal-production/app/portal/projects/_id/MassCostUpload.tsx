@@ -71,6 +71,26 @@ export default function MassCostUpload({ open, onClose, onSaved }: { open: boole
   const itemsRef = useRef<QItem[]>([]);
   itemsRef.current = items;
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+  // Inline "new project" (guru 2026-10-12): when the invoice's site has no
+  // project yet, create it right here — address pre-filled from extraction.
+  const NEW_PROJECT = { id: "__new__", name: "➕ New project from this invoice…" };
+  const [newProj, setNewProj] = useState<{ forKey: string; clientName: string; address: string } | null>(null);
+  const [creating, setCreating] = useState(false);
+  const createProject = async () => {
+    if (!newProj?.clientName.trim()) return toast.error("Give the project a client / name");
+    setCreating(true);
+    try {
+      const r = await api.createProject({ clientName: newProj.clientName.trim(), address: newProj.address.trim() || null, source: "self" });
+      setProjects((ls) => [{ id: r.projectId, name: r.name }, ...ls]);
+      patchItem(newProj.forKey, { projectId: r.projectId });
+      setNewProj(null);
+      toast.success(`Project "${r.name}" created`);
+    } catch (e: any) {
+      toast.error(e.message || "Could not create the project");
+    } finally {
+      setCreating(false);
+    }
+  };
   const runningRef = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -315,12 +335,35 @@ export default function MassCostUpload({ open, onClose, onSaved }: { open: boole
                 <Stack spacing={1.5}>
                   <Autocomplete
                     size="small"
-                    options={projects}
+                    options={[NEW_PROJECT, ...projects]}
                     getOptionLabel={(o: any) => o.name}
                     value={projects.find((p) => p.id === current.projectId) || null}
-                    onChange={(_, v: any) => patchItem(current.key, { projectId: v?.id || null })}
-                    renderInput={(p) => <TextField {...p} label="Project" helperText={current.extract?.matchedProjectId ? "Matched by site address — change if wrong" : current.extract?.candidates?.length ? "Best guesses by address — please confirm" : "No address match — pick the project"} />}
+                    onChange={(_, v: any) => {
+                      if (v?.id === "__new__") {
+                        setNewProj({ forKey: current.key, clientName: "", address: current.extract?.siteAddress || "" });
+                        return;
+                      }
+                      patchItem(current.key, { projectId: v?.id || null });
+                    }}
+                    renderInput={(p) => <TextField {...p} label="Project" helperText={current.extract?.matchedProjectId ? "Matched by site address — change if wrong" : current.extract?.candidates?.length ? "Best guesses by address — please confirm" : "No address match — pick the project, or create it"} />}
                   />
+                  {newProj?.forKey === current.key && (
+                    <Box sx={{ border: 1, borderColor: "primary.main", borderRadius: 1.5, p: 1.5 }}>
+                      <Typography variant="caption" sx={{ fontWeight: 700, display: "block", mb: 1 }}>
+                        New project — address taken from the invoice
+                      </Typography>
+                      <Stack spacing={1}>
+                        <TextField label="Client / project name" size="small" autoFocus value={newProj.clientName} onChange={(e) => setNewProj({ ...newProj, clientName: e.target.value })} fullWidth />
+                        <TextField label="Site address" size="small" value={newProj.address} onChange={(e) => setNewProj({ ...newProj, address: e.target.value })} fullWidth />
+                        <Stack direction="row" spacing={1} justifyContent="flex-end">
+                          <Button size="small" onClick={() => setNewProj(null)} sx={{ textTransform: "none", color: "text.secondary" }}>Cancel</Button>
+                          <Button size="small" variant="contained" disabled={creating || !newProj.clientName.trim()} onClick={createProject} sx={{ textTransform: "none" }}>
+                            {creating ? "Creating…" : "Create project"}
+                          </Button>
+                        </Stack>
+                      </Stack>
+                    </Box>
+                  )}
                   <Stack direction="row" spacing={1}>
                     <TextField label="Supplier" size="small" fullWidth value={current.supplierName} onChange={(e) => patchItem(current.key, { supplierName: e.target.value })} />
                     <TextField label="Invoice no." size="small" value={current.invoiceNo} onChange={(e) => patchItem(current.key, { invoiceNo: e.target.value })} sx={{ width: 160 }} />

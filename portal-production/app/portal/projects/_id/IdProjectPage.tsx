@@ -423,7 +423,26 @@ export default function IdProjectPage({ id }: { id: string }) {
   }, [data, costSort]);
   // Group-by-contractor view (guru/Mike 2026-10-07): same rows, bucketed by
   // supplier with a subtotal header per contractor, biggest spend first.
+  // Sticky (guru 2026-10-12): the view kept resetting to the flat date list on
+  // every visit, which read as "grouping not fixed". Remembered per device.
   const [groupBySupplier, setGroupBySupplier] = useState(false);
+  useEffect(() => {
+    try {
+      setGroupBySupplier(window.localStorage.getItem("aims-costing-group-by-supplier") === "1");
+    } catch {
+      /* private mode */
+    }
+  }, []);
+  const toggleGroupBySupplier = () => {
+    setGroupBySupplier((v) => {
+      try {
+        window.localStorage.setItem("aims-costing-group-by-supplier", v ? "0" : "1");
+      } catch {
+        /* ignore */
+      }
+      return !v;
+    });
+  };
   // Duplicate flag (guru 2026-10-07): rows on this project sharing the same
   // supplier + invoice number (separators ignored) get an amber chip.
   const dupCostIds = useMemo(() => {
@@ -440,11 +459,17 @@ export default function IdProjectPage({ id }: { id: string }) {
     return dup;
   }, [costRows]);
   const costGroups = useMemo(() => {
+    // Key ignores punctuation and bracketed suffixes so "Daco Interior Pte Ltd"
+    // and "Daco Interior Pte Ltd (202136676G)" are ONE contractor bucket
+    // (guru 2026-10-12 — variants were splitting groups apart).
+    const keyOf = (n: any) => String(n || "—").toUpperCase().replace(/\(.*?\)/g, "").replace(/[^A-Z0-9]/g, "") || "—";
     const map = new Map<string, { name: string; rows: any[]; total: number }>();
     for (const c of costRows) {
-      const key = (c.supplierName || "—").trim().toUpperCase();
+      const key = keyOf(c.supplierName);
       const g = map.get(key) || { name: c.supplierName || "No contractor", rows: [], total: 0 };
       g.rows.push(c);
+      // Prefer the shortest variant as the display name (usually the clean one).
+      if (c.supplierName && c.supplierName.length < g.name.length) g.name = c.supplierName;
       if (c.status !== "rejected") g.total += Number(c.amount) || 0;
       map.set(key, g);
     }
@@ -568,7 +593,7 @@ export default function IdProjectPage({ id }: { id: string }) {
                 Subcontractor & supplier costs
               </Typography>
               <Box sx={{ flex: 1 }} />
-              <Button size="small" variant={groupBySupplier ? "contained" : "outlined"} color={groupBySupplier ? "primary" : "inherit"} onClick={() => setGroupBySupplier((v) => !v)} sx={{ textTransform: "none" }}>
+              <Button size="small" variant={groupBySupplier ? "contained" : "outlined"} color={groupBySupplier ? "primary" : "inherit"} onClick={toggleGroupBySupplier} sx={{ textTransform: "none" }}>
                 {groupBySupplier ? "Grouped by contractor" : "Group by contractor"}
               </Button>
               <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={() => setCostDialog({ open: true, editing: null })} sx={{ textTransform: "none" }}>
