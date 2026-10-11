@@ -293,7 +293,9 @@ export default function MassCostUpload({ open, onClose, onSaved }: { open: boole
                   const isPdf = src.startsWith("data:application/pdf") || /\.pdf($|\?)/i.test(src);
                   if (!src) return <Box sx={{ bgcolor: "action.hover", borderRadius: 1, minHeight: 320, display: "flex", alignItems: "center", justifyContent: "center", color: "text.disabled", fontSize: 13 }}>No preview</Box>;
                   return isPdf ? (
-                    <Box component="iframe" src={src} title="Invoice" sx={{ width: "100%", height: { xs: 320, md: 520 }, border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "#525659" }} />
+                    // Strip the browser PDF viewer's chrome (toolbar + thumbnail
+                    // rail ate half the pane — guru 2026-10-11): fit page to width.
+                    <Box component="iframe" src={`${src}#toolbar=0&navpanes=0&view=FitH&zoom=page-width`} title="Invoice" sx={{ width: "100%", height: { xs: 360, md: 560 }, border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "#525659" }} />
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
                     <Box sx={{ maxHeight: { xs: 320, md: 520 }, overflow: "auto", border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "#525659", p: 1, textAlign: "center" }}>
