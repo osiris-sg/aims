@@ -453,9 +453,7 @@ export default function GLWorkspace() {
             Print
           </Button>
         </Stack>
-        <PaperSheet>
-          <GeneralLedgerDocument doc={glDoc} organization={organization} />
-        </PaperSheet>
+        <GeneralLedgerDocument doc={glDoc} organization={organization} />
         <ReportPrintCss />
       </Box>
     );
@@ -792,85 +790,169 @@ function GlDocRow({
   );
 }
 
+// One printed line of the document, pre-rendered for pagination.
+type GlDocItem =
+  | { kind: "account"; code: string; name: string; contd?: boolean }
+  | { kind: "line"; cells: [string, string, string, string, string, string, string]; bold?: boolean; topRule?: boolean }
+  | { kind: "total"; debit: number; credit: number; balance: number }
+  | { kind: "note" };
+
+// Lines that fit under the repeated page header on one A4 sheet.
+const GL_LINES_PER_PAGE = 36;
+
+function buildGlItems(doc: GlDoc): GlDocItem[] {
+  const items: GlDocItem[] = [];
+  let totDebit = 0;
+  let totCredit = 0;
+  for (const g of doc.groups) {
+    const opening = g.openingBalance ?? 0;
+    const subDebit = g.totalDebit + (opening > 0 ? opening : 0);
+    const subCredit = g.totalCredit + (opening < 0 ? -opening : 0);
+    const closing = g.closingBalance ?? 0;
+    totDebit += subDebit;
+    totCredit += subCredit;
+    items.push({ kind: "account", code: g.code, name: g.name });
+    if (doc.fromDate) {
+      items.push({
+        kind: "line",
+        cells: [
+          formatShortDate(doc.fromDate),
+          "BALANCE B/F",
+          "BALANCE B/F",
+          "",
+          opening > 0 ? docFmt(opening) : "",
+          opening < 0 ? docFmt(-opening) : "",
+          docFmt(opening),
+        ],
+      });
+    }
+    for (const r of g.rows) {
+      items.push({
+        kind: "line",
+        cells: [
+          formatShortDate(r.date),
+          r.reference || r.journalNumber || "",
+          r.description || "",
+          r.journalNumber || "",
+          r.debit ? docFmt(r.debit) : "",
+          r.credit ? docFmt(r.credit) : "",
+          docFmt(r.runningBalance),
+        ],
+      });
+    }
+    items.push({
+      kind: "line",
+      cells: ["", "", "", "SUB-TOTAL", subDebit ? docFmt(subDebit) : "", subCredit ? docFmt(subCredit) : "", docFmt(closing)],
+      bold: true,
+      topRule: true,
+    });
+  }
+  const R = (n: number) => Math.round(n * 100) / 100;
+  items.push({ kind: "total", debit: R(totDebit), credit: R(totCredit), balance: R(totDebit - totCredit) });
+  items.push({ kind: "note" });
+  return items;
+}
+
+// Greedy A4 pagination: never leave an account header or a SUB-TOTAL stranded
+// at a page edge; long accounts continue on the next page with a (cont'd)
+// header, like the legacy multi-page print.
+function paginateGlItems(items: GlDocItem[]): GlDocItem[][] {
+  const pages: GlDocItem[][] = [];
+  let cur: GlDocItem[] = [];
+  let currentAccount: { code: string; name: string } | null = null;
+  const flush = () => {
+    if (cur.length) pages.push(cur);
+    cur = [];
+  };
+  for (const it of items) {
+    if (it.kind === "account") currentAccount = { code: it.code, name: it.name };
+    if (cur.length >= GL_LINES_PER_PAGE) {
+      flush();
+      // Continuing inside an account's rows → repeat its header.
+      if (it.kind === "line" && currentAccount) {
+        cur.push({ kind: "account", code: currentAccount.code, name: currentAccount.name, contd: true });
+      }
+    }
+    // Keep an account header with at least its first row.
+    if (it.kind === "account" && cur.length >= GL_LINES_PER_PAGE - 1) flush();
+    cur.push(it);
+  }
+  flush();
+  return pages.length ? pages : [[]];
+}
+
 function GeneralLedgerDocument({ doc, organization }: { doc: GlDoc; organization: any }) {
+  const pages = useMemo(() => paginateGlItems(buildGlItems(doc)), [doc]);
   return (
-    <Box>
-      <ReportHeader organization={organization} date={doc.toDate} title="GENERAL LEDGER" />
+    <>
+      {pages.map((pageItems, pageIdx) => (
+        <PaperSheet key={pageIdx} breakAfter={pageIdx < pages.length - 1}>
+          <ReportHeader organization={organization} date={doc.toDate} title="GENERAL LEDGER" />
 
-      {/* Filter meta lines, like the legacy print header */}
-      <Box sx={{ display: "flex", gap: 4, fontSize: "0.8125rem" }}>
-        <Box sx={{ flex: 1 }}>
-          From Date : <Box component="span" sx={{ fontWeight: 600 }}>{formatShortDate(doc.fromDate || doc.toDate)}</Box>
-        </Box>
-        <Box sx={{ flex: 1 }}>
-          To Date : <Box component="span" sx={{ fontWeight: 600 }}>{formatShortDate(doc.toDate)}</Box>
-        </Box>
-      </Box>
-      <Box sx={{ display: "flex", gap: 4, fontSize: "0.8125rem", mb: 0.5 }}>
-        <Box sx={{ flex: 1 }}>
-          From Account : <Box component="span" sx={{ fontWeight: 600 }}>{doc.fromAccount}</Box>
-        </Box>
-        <Box sx={{ flex: 1 }}>
-          To Account : <Box component="span" sx={{ fontWeight: 600 }}>{doc.toAccount}</Box>
-        </Box>
-        <Box>Page No : 1</Box>
-      </Box>
-
-      {/* Column header rule */}
-      <Box sx={{ borderTop: "1px solid #000", borderBottom: "1px solid #000", py: 0.4, mb: 0.5 }}>
-        <GlDocRow cells={["Date", "Reference", "Remarks", "X-Reference", "Debit", "Credit", "Balance"]} bold />
-      </Box>
-
-      {doc.groups.length === 0 && (
-        <Box sx={{ py: 3, textAlign: "center", color: "#555" }}>No activity in this range.</Box>
-      )}
-
-      {doc.groups.map((g) => {
-        const opening = g.openingBalance ?? 0;
-        const subDebit = g.totalDebit + (opening > 0 ? opening : 0);
-        const subCredit = g.totalCredit + (opening < 0 ? -opening : 0);
-        const closing = g.closingBalance ?? 0;
-        return (
-          <Box key={g.accountId} sx={{ mb: 1.25, breakInside: "avoid" }}>
-            <Box sx={{ display: "flex", gap: 2, fontSize: "0.8125rem", fontWeight: 700, py: 0.4 }}>
-              <Box sx={{ width: 72 }}>{g.code}</Box>
-              <Box>{g.name.toUpperCase()}</Box>
+          {/* Filter meta lines, repeated on every page like the legacy print */}
+          <Box sx={{ display: "flex", gap: 4, fontSize: "0.8125rem" }}>
+            <Box sx={{ flex: 1 }}>
+              From Date : <Box component="span" sx={{ fontWeight: 600 }}>{formatShortDate(doc.fromDate || doc.toDate)}</Box>
             </Box>
-            {doc.fromDate && (
-              <GlDocRow
-                cells={[
-                  formatShortDate(doc.fromDate),
-                  "BALANCE B/F",
-                  "BALANCE B/F",
-                  "",
-                  opening > 0 ? docFmt(opening) : "",
-                  opening < 0 ? docFmt(-opening) : "",
-                  docFmt(opening),
-                ]}
-              />
-            )}
-            {g.rows.map((r, i) => (
-              <GlDocRow
-                key={i}
-                cells={[
-                  formatShortDate(r.date),
-                  r.reference || r.journalNumber || "",
-                  r.description || "",
-                  r.journalNumber || "",
-                  r.debit ? docFmt(r.debit) : "",
-                  r.credit ? docFmt(r.credit) : "",
-                  docFmt(r.runningBalance),
-                ]}
-              />
-            ))}
-            <GlDocRow
-              cells={["", "", "", "SUB-TOTAL", subDebit ? docFmt(subDebit) : "", subCredit ? docFmt(subCredit) : "", docFmt(closing)]}
-              bold
-              topRule
-            />
+            <Box sx={{ flex: 1 }}>
+              To Date : <Box component="span" sx={{ fontWeight: 600 }}>{formatShortDate(doc.toDate)}</Box>
+            </Box>
           </Box>
-        );
-      })}
-    </Box>
+          <Box sx={{ display: "flex", gap: 4, fontSize: "0.8125rem", mb: 0.5 }}>
+            <Box sx={{ flex: 1 }}>
+              From Account : <Box component="span" sx={{ fontWeight: 600 }}>{doc.fromAccount}</Box>
+            </Box>
+            <Box sx={{ flex: 1 }}>
+              To Account : <Box component="span" sx={{ fontWeight: 600 }}>{doc.toAccount}</Box>
+            </Box>
+            <Box>Page No : {pageIdx + 1}</Box>
+          </Box>
+
+          {/* Column header rule */}
+          <Box sx={{ borderTop: "1px solid #000", borderBottom: "1px solid #000", py: 0.4, mb: 0.5 }}>
+            <GlDocRow cells={["Date", "Reference", "Remarks", "X-Reference", "Debit", "Credit", "Balance"]} bold />
+          </Box>
+
+          {pageIdx === 0 && doc.groups.length === 0 && (
+            <Box sx={{ py: 3, textAlign: "center", color: "#555" }}>No activity in this range.</Box>
+          )}
+
+          {pageItems.map((it, i) => {
+            if (it.kind === "account") {
+              return (
+                <Box key={i} sx={{ display: "flex", gap: 2, fontSize: "0.8125rem", fontWeight: 700, py: 0.4, mt: i === 0 ? 0 : 0.75 }}>
+                  <Box sx={{ width: 72 }}>{it.code}</Box>
+                  <Box>
+                    {it.name.toUpperCase()}
+                    {it.contd ? " (CONT'D)" : ""}
+                  </Box>
+                </Box>
+              );
+            }
+            if (it.kind === "line") {
+              return <GlDocRow key={i} cells={it.cells} bold={it.bold} topRule={it.topRule} />;
+            }
+            if (it.kind === "total") {
+              return (
+                <Box key={i} sx={{ mt: 1 }}>
+                  <GlDocRow
+                    cells={["", "", "", "TOTAL", docFmt(it.debit), docFmt(it.credit), docFmt(it.balance)]}
+                    bold
+                    topRule
+                    bottomRule
+                  />
+                </Box>
+              );
+            }
+            return (
+              <Box key={i} sx={{ display: "flex", gap: 6, fontSize: "0.75rem", mt: 1, pt: 0.5, borderTop: "1px solid #000" }}>
+                <Box>Note: All figures shown are in local currency</Box>
+                <Box>(SGD)</Box>
+              </Box>
+            );
+          })}
+        </PaperSheet>
+      ))}
+    </>
   );
 }

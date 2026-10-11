@@ -139,7 +139,7 @@ export default function TrialBalancePage() {
           <TextField
             size="small"
             type="date"
-            label="As Of Date"
+            label="Cut-Off Date"
             InputLabelProps={{ shrink: true }}
             value={asOfDate}
             onChange={(e) => setAsOfDate(e.target.value)}
@@ -192,21 +192,24 @@ export default function TrialBalancePage() {
 
       {/* Document-style preview — only this prints */}
       {!loading && data && (
-        <PaperSheet>
-          <TrialBalanceDocument
-            organization={organization}
-            asOfDate={data.asOfDate || asOfDate}
-            rows={visible}
-            totals={totals}
-            filtered={Boolean(filter.trim())}
-          />
-        </PaperSheet>
+        <TrialBalanceDocument
+          organization={organization}
+          asOfDate={data.asOfDate || asOfDate}
+          rows={visible}
+          totals={totals}
+          filtered={Boolean(filter.trim())}
+        />
       )}
 
       <ReportPrintCss />
     </Box>
   );
 }
+
+// A4 pagination (guru 2026-10-11, rule for EVERY paper report): each page
+// repeats the full header with its own Page No; the grand TOTAL and the
+// local-currency note close the last page.
+const TB_LINES_PER_PAGE = 38;
 
 function TrialBalanceDocument({
   organization,
@@ -221,59 +224,79 @@ function TrialBalanceDocument({
   totals: { debit: number; credit: number; balanced: boolean };
   filtered: boolean;
 }) {
+  const pages = useMemo(() => {
+    const out: NetRow[][] = [];
+    for (let i = 0; i < rows.length; i += TB_LINES_PER_PAGE) out.push(rows.slice(i, i + TB_LINES_PER_PAGE));
+    return out.length ? out : [[]];
+  }, [rows]);
+
   return (
-    <Box>
-      <ReportHeader organization={organization} date={asOfDate} title="TRIAL BALANCE" />
+    <>
+      {pages.map((pageRows, pageIdx) => {
+        const last = pageIdx === pages.length - 1;
+        return (
+          <PaperSheet key={pageIdx} breakAfter={!last}>
+            <ReportHeader organization={organization} date={asOfDate} title="TRIAL BALANCE" />
 
-      {/* Meta line */}
-      <Box sx={{ display: "flex", gap: 4, fontSize: "0.8125rem", mb: 0.5 }}>
-        <Box sx={{ flex: 1 }}>
-          As at:{" "}
-          <Box component="span" sx={{ fontWeight: 600 }}>
-            {formatShortDate(asOfDate)}
-          </Box>
-        </Box>
-        <Chip
-          size="small"
-          variant="outlined"
-          className="no-print"
-          label={totals.balanced ? "Balanced ✓" : "OUT OF BALANCE"}
-          color={totals.balanced ? "success" : "error"}
-          sx={{ fontWeight: 700 }}
-        />
-        <Box sx={{ textAlign: "right" }}>Page No : 1</Box>
-      </Box>
+            {/* Meta line — repeated on every page (legacy wording) */}
+            <Box sx={{ display: "flex", gap: 4, fontSize: "0.8125rem", mb: 0.5 }}>
+              <Box sx={{ flex: 1 }}>
+                Cut-Off-Date :{" "}
+                <Box component="span" sx={{ fontWeight: 600 }}>
+                  {formatShortDate(asOfDate)}
+                </Box>
+              </Box>
+              {pageIdx === 0 && (
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  className="no-print"
+                  label={totals.balanced ? "Balanced ✓" : "OUT OF BALANCE"}
+                  color={totals.balanced ? "success" : "error"}
+                  sx={{ fontWeight: 700 }}
+                />
+              )}
+              <Box sx={{ textAlign: "right" }}>Page No : {pageIdx + 1}</Box>
+            </Box>
 
-      {/* Column header rule */}
-      <Box sx={{ borderTop: "1px solid #000", borderBottom: "1px solid #000", py: 0.5, mb: 0.5 }}>
-        <TbRow code="A/C No." name="Description" debit="Debit" credit="Credit" bold />
-      </Box>
+            {/* Column header rule */}
+            <Box sx={{ borderTop: "1px solid #000", borderBottom: "1px solid #000", py: 0.5, mb: 0.5 }}>
+              <TbRow code="Account" name="Description" debit="Debit" credit="Credit" bold />
+            </Box>
 
-      {rows.length === 0 && (
-        <Box sx={{ py: 3, textAlign: "center", color: "#555" }}>No posted activity for this date.</Box>
-      )}
+            {pageIdx === 0 && rows.length === 0 && (
+              <Box sx={{ py: 3, textAlign: "center", color: "#555" }}>No posted activity for this date.</Box>
+            )}
 
-      {rows.map((r) => (
-        <TbRow
-          key={r.accountId}
-          code={r.code}
-          name={r.name}
-          debit={r.netDebit ? fmt(r.netDebit) : ""}
-          credit={r.netCredit ? fmt(r.netCredit) : ""}
-        />
-      ))}
+            {pageRows.map((r) => (
+              <TbRow
+                key={r.accountId}
+                code={r.code}
+                name={r.name}
+                debit={r.netDebit ? fmt(r.netDebit) : ""}
+                credit={r.netCredit ? fmt(r.netCredit) : ""}
+              />
+            ))}
 
-      <Box sx={{ height: 8 }} />
-      <TbRow
-        code=""
-        name={filtered ? "TOTAL (ALL ACCOUNTS)" : "TOTAL"}
-        debit={fmt(totals.debit)}
-        credit={fmt(totals.credit)}
-        bold
-        topRule
-        bottomRule
-      />
-    </Box>
+            {last && (
+              <>
+                <Box sx={{ height: 8 }} />
+                {/* Legacy print: TOTAL sits in the Account column, double rules */}
+                <TbRow
+                  code="TOTAL"
+                  name={filtered ? "(ALL ACCOUNTS)" : ""}
+                  debit={fmt(totals.debit)}
+                  credit={fmt(totals.credit)}
+                  bold
+                  topRule
+                  bottomRule
+                />
+              </>
+            )}
+          </PaperSheet>
+        );
+      })}
+    </>
   );
 }
 

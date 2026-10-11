@@ -24,12 +24,15 @@ export const formatShortDate = (d: Date | string) =>
 
 // White A4-sized paper that frames the printable report content. Deliberately
 // white-on-black in BOTH themes — it is a document on paper, not app chrome.
-export function PaperSheet({ children }: { children: React.ReactNode }) {
+// `breakAfter` marks a non-final sheet of a multi-page report: printing then
+// starts the next sheet on a fresh page (single-sheet reports pass nothing).
+export function PaperSheet({ children, breakAfter }: { children: React.ReactNode; breakAfter?: boolean }) {
   return (
     // Phone: the A4 sheet scrolls inside this container, page body doesn't
     <Box sx={{ display: "flex", justifyContent: { xs: "flex-start", md: "center" }, py: 1, overflowX: "auto" }}>
       <Paper
         data-print-paper
+        {...(breakAfter ? { "data-print-break": "1" } : {})}
         elevation={2}
         sx={{
           width: "210mm",
@@ -88,6 +91,9 @@ export function ReportPrintCss() {
           box-shadow: none !important;
           margin: 0 !important;
           padding: 20mm !important;
+        }
+        [data-print-break="1"] {
+          break-after: page;
         }
       }
     `}</style>
