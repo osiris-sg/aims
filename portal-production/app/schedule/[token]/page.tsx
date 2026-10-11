@@ -9,7 +9,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Alert, Box, Button, CircularProgress, Container, Paper, Stack, Typography, useMediaQuery } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Container, GlobalStyles, Paper, Stack, Typography, useMediaQuery } from "@mui/material";
 import PrintIcon from "@mui/icons-material/PrintOutlined";
 
 type Day = { iso: string; dow: string; holiday: string | null; work: string[]; notes: string[] };
@@ -75,15 +75,34 @@ export default function PublicSchedulePage() {
   // Weeks with anything on them (skip fully-empty trailing weeks visually).
   const weeks = useMemo(() => (data?.weeks || []).filter((w) => w.days.some((d) => d.work.length || d.notes.length || d.holiday)), [data]);
 
+  // The portal paints <body> with var(--surface), which is near-black in dark
+  // mode. This page only ever painted its OWN box, so a viewer whose theme is
+  // dark got black gutters and a black band below the schedule once the content
+  // ran past one viewport (guru 2026-10-12). Pin the DOCUMENT light: this is
+  // the client's document, not the portal UI, and it is a single light look by
+  // design. !important because globals.css styles `body` directly.
+  const lightCanvas = (
+    <GlobalStyles
+      styles={{
+        "html, body": {
+          backgroundColor: "#f3f4f6 !important",
+          colorScheme: "light",
+        },
+      }}
+    />
+  );
+
   if (error)
     return (
       <Box sx={{ minHeight: "100vh", bgcolor: "#f3f4f6", p: 2 }}>
+        {lightCanvas}
         <Alert severity="warning">{error} — please ask your designer for an updated link.</Alert>
       </Box>
     );
   if (!data)
     return (
       <Box sx={{ minHeight: "100vh", bgcolor: "#f3f4f6", display: "flex", justifyContent: "center", pt: 12 }}>
+        {lightCanvas}
         <CircularProgress />
       </Box>
     );
@@ -134,6 +153,7 @@ export default function PublicSchedulePage() {
     // an explicit width this page shrank to its content (1200px) and sat
     // pinned to the LEFT with a dead white gutter (guru 2026-09-13).
     <Box sx={{ minHeight: "100vh", width: "100%", bgcolor: "#f3f4f6", color: C.ink, pb: 6 }}>
+      {lightCanvas}
       {/* header */}
       <Box sx={{ bgcolor: "#ffffff", borderBottom: `2px solid ${C.ink}` }}>
         <Container maxWidth="lg" sx={{ py: 2 }}>

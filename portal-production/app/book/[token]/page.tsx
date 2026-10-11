@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Alert, Box, Button, CircularProgress, Container, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, TextField, Typography } from "@mui/material";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
+import { GlobalStyles } from "@mui/material";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 
 // Client-facing page: ALWAYS light, whatever the phone's theme — the portal's
@@ -182,6 +183,11 @@ function PublicBookingPageInner() {
 export default function PublicBookingPage() {
   return (
     <ThemeProvider theme={lightTheme}>
+      {/* The light theme only governs MUI components; globals.css still paints
+          <body> with var(--surface) and leaves colorScheme dark, so native
+          inputs and overscroll stayed dark. Pin the canvas light like the other
+          client-facing links (/pay, /schedule, /sign). */}
+      <GlobalStyles styles={{ "html, body": { backgroundColor: "#f3f4f6 !important", colorScheme: "light" } }} />
       <PublicBookingPageInner />
     </ThemeProvider>
   );

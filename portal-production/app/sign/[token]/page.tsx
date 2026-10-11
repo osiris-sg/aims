@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { Alert, Box, Button, Checkbox, CircularProgress, Container, FormControlLabel, Paper, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Checkbox, CircularProgress, Container, FormControlLabel, Paper, Stack, TextField, Typography, GlobalStyles } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DownloadIcon from "@mui/icons-material/Download";
 import SignatureCanvas from "react-signature-canvas";
@@ -164,6 +164,12 @@ export default function PublicSignPage() {
 
   const shell = (children: React.ReactNode) => (
     <Box sx={{ minHeight: "100vh", bgcolor: "#f3f4f6", color: "#111", py: { xs: 2, md: 5 } }}>
+      {/* The portal paints <body> with var(--surface) — near-black in dark mode.
+          A client-facing link is a single light document, so pin the CANVAS
+          light too; otherwise the gutters and everything past one viewport
+          render black (guru 2026-10-12). !important: globals.css styles `body`
+          directly. */}
+      <GlobalStyles styles={{ "html, body": { backgroundColor: "#f3f4f6 !important", colorScheme: "light" } }} />
       <Container maxWidth="lg">{children}</Container>
     </Box>
   );

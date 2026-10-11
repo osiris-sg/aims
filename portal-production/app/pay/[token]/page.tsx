@@ -8,8 +8,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import {
-  Accordion, AccordionDetails, AccordionSummary, Box, Chip, CircularProgress, Paper, Stack, Typography,
-} from "@mui/material";
+  Accordion, AccordionDetails, AccordionSummary, Box, Chip, CircularProgress, Paper, Stack, Typography, GlobalStyles } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
 const fmt = (n: number) =>
@@ -57,6 +56,12 @@ export default function PublicPayPage() {
   if (error) {
     return (
       <Box sx={{ minHeight: "100vh", width: "100%", flex: 1, display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "#f4f5f7" }}>
+      {/* The portal paints <body> with var(--surface) — near-black in dark mode.
+          A client-facing link is a single light document, so pin the CANVAS
+          light too; otherwise the gutters and everything past one viewport
+          render black (guru 2026-10-12). !important: globals.css styles `body`
+          directly. */}
+      <GlobalStyles styles={{ "html, body": { backgroundColor: "#f4f5f7 !important", colorScheme: "light" } }} />
         <Paper variant="outlined" sx={{ p: 4, borderRadius: 2 }}>
           <Typography>{error}</Typography>
         </Paper>
