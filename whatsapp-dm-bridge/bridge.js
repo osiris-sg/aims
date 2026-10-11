@@ -50,17 +50,43 @@ function clearChromiumLocks(dir) {
     }
   }
 }
+/**
+ * Wipe the stored session so the next boot asks for a fresh QR.
+ *
+ * A login that is interrupted part-way — a crash, an OOM kill — can leave the
+ * LocalAuth store half-written: enough for the library to try restoring it,
+ * not enough to authenticate, so it fails in `inject` on every boot and no QR
+ * is ever offered. There is no shell on this host, so recovery has to be a
+ * flag: set RESET_SESSION=1, let it boot once, then REMOVE the variable
+ * (leaving it set would throw the link away on every future restart).
+ */
+function resetSession(dir) {
+  try {
+    fs.rmSync(dir, { force: true, recursive: true });
+    console.log(`🧹 RESET_SESSION — cleared ${dir}; a fresh QR follows`);
+    console.log('   ⚠ remove RESET_SESSION now, or the next restart unlinks the phone');
+  } catch (err) {
+    console.error(`⚠ could not clear ${dir}: ${err.message}`);
+  }
+}
+if (process.env.RESET_SESSION === '1') resetSession(SESSION_DIR);
 clearChromiumLocks(SESSION_DIR);
 
-// Pin the WhatsApp Web build when WA_WEB_VERSION is set.
+// Pin the WhatsApp Web build when WA_WEB_VERSION is set. LEAVE IT UNSET.
 //
-// The group bridge, whose session was established in August, still restores
-// and authenticates fine. A FRESH link made today did not complete: the phone
-// accepted it, the client never authenticated, and WhatsApp revoked it minutes
-// later. Same library, same image, same host — the only difference is old
-// session versus new handshake, which points at the web build having moved on.
-// Pinning to a known snapshot is the documented remedy. Snapshots:
-// https://github.com/wppconnect-team/wa-version (html/<version>.html)
+// It is here only as an escape hatch. The first link attempts failed for a
+// reason that had nothing to do with the web build: this service was created
+// on the `starter` plan (512Mi) while the group bridge runs `standard` (2GB),
+// and Chromium was OOM-killed mid-login every 40-90 seconds — six times in
+// four minutes. Render's EVENTS showed `oomKilled { memoryLimit: "512Mi" }`
+// the whole time; the LOGS showed only "Instance restarted", which is why the
+// crash loop read as a WhatsApp-side revocation and sent the investigation
+// after the library and the web build instead.
+//
+// Pinning a snapshot that disagrees with the live client is not harmless: the
+// page reloads under the library and `Client.inject` dies with "Execution
+// context was destroyed". If a link will not complete, check the service plan
+// and the service events BEFORE touching this.
 const WA_WEB_VERSION = process.env.WA_WEB_VERSION;
 const webVersionCache = WA_WEB_VERSION
   ? {
@@ -155,4 +181,33 @@ client.on('message_create', async (msg) => {
   }
 });
 
-client.initialize();
+/**
+ * Boot, and survive a failed boot.
+ *
+ * `initialize()` rejecting used to take the whole process down as an unhandled
+ * rejection, so one bad startup became a restart loop and the real message was
+ * buried under "Instance restarted". Retry with a backoff instead, and clear
+ * the Chromium locks each time — a killed container leaves them behind and
+ * they are what makes the SECOND attempt fail for a different reason than the
+ * first.
+ */
+let bootAttempt = 0;
+async function boot() {
+  bootAttempt += 1;
+  try {
+    await client.initialize();
+  } catch (err) {
+    const wait = Math.min(60_000, 5_000 * bootAttempt);
+    console.error(`✖ initialize failed (attempt ${bootAttempt}): ${err && err.message ? err.message : err}`);
+    console.error(`   retrying in ${Math.round(wait / 1000)}s`);
+    clearChromiumLocks(SESSION_DIR);
+    setTimeout(boot, wait);
+  }
+}
+boot();
+
+// Never let a stray rejection kill a long-lived relay; log it and keep the
+// linked device alive.
+process.on('unhandledRejection', (err) => {
+  console.error('⚠ unhandled rejection:', err && err.message ? err.message : err);
+});
