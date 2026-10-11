@@ -181,6 +181,19 @@ export class ProjectCostingController {
     return this.service.addCost(id, orgId(req), body, actorName(req));
   }
 
+  // WhatsApp bulk-mode intake: queued invoices reviewed in the mass-intake pane.
+  @Get('costs/intake')
+  @Permissions('projects:update')
+  listIntake(@Req() req: RequestWithOrganization) {
+    return this.service.listIntake(orgId(req));
+  }
+
+  @Post('costs/intake/:intakeId/resolve')
+  @Permissions('projects:update')
+  resolveIntake(@Param('intakeId') intakeId: string, @Body() body: any, @Req() req: RequestWithOrganization) {
+    return this.service.resolveIntake(orgId(req), intakeId, body || {}, actorName(req));
+  }
+
   // Mass upload: extract with no project chosen; suggests one by address.
   @Post('costs/extract-any')
   @Permissions('projects:update')

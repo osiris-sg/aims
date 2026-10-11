@@ -395,6 +395,26 @@ export class OperatorService {
       return;
     }
 
+    // BULK INVOICE MODE (guru 2026-10-11, temp): she said "I'm going to send
+    // bulk invoices" — every upload is extracted and QUEUED for the portal's
+    // "Upload invoices" review pane. No per-invoice confirm, no agent turn.
+    if (up && session.bulkInvoiceMode) {
+      try {
+        const r = await this.tools.queueBulkInvoice(ctx, up);
+        session.pendingUpload = null;
+        await this.saveSession(msg.channel, msg.channelUserId, session);
+        const ex = up.extracted || ({} as any);
+        const money = ex.amount != null ? ` ${ex.currency || 'SGD'} ${Number(ex.amount).toFixed(2)}` : '';
+        await adapter.sendText(
+          msg.chatId,
+          `📥 Queued #${r.queued}: ${ex.supplierName || up.filename || 'invoice'}${money}${r.matchedProjectName ? ` → ${r.matchedProjectName}` : ' → no project match yet'}. Review in Projects → Upload invoices. Say "done" to leave bulk mode.`,
+        );
+      } catch {
+        await adapter.sendText(msg.chatId, "That one didn't queue — send it again, or say \"done\" to leave bulk mode.");
+      }
+      return;
+    }
+
     const e = up?.extracted;
     if (!up || e?.amount == null) {
       // Keep the stored file around — the next message may name what it really
@@ -584,7 +604,7 @@ export class OperatorService {
       const resp = await this.anthropic.messages.create({
         model: MODEL,
         max_tokens: 2000,
-        system: this.systemPrompt(ctx),
+        system: this.systemPrompt(ctx) + (session.bulkInvoiceMode ? '\n\nBULK INVOICE MODE IS ON: the user is sending contractor invoices in bulk; each upload auto-queues to the portal review pane without confirmation. When they say they are done/finished, call bulk_invoice_mode with on=false.' : ''),
         tools: toolDefs,
         messages,
       });
@@ -607,6 +627,10 @@ export class OperatorService {
       for (const use of toolUses) {
         await showStatus(TOOL_STATUS[use.name] || `⚙️ Working on ${use.name.replace(/_/g, ' ')}...`);
         const outcome = await this.tools.execute(ctx, use.name, use.input);
+        if ((outcome.result as any)?.__bulkInvoiceMode !== undefined) {
+          session.bulkInvoiceMode = !!(outcome.result as any).__bulkInvoiceMode;
+          await this.saveSession(msg.channel, msg.channelUserId, session);
+        }
         if (outcome.preview) {
           await adapter.sendDocument(
             msg.chatId,

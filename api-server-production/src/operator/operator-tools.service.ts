@@ -124,6 +124,19 @@ export class OperatorToolsService {
     private readonly appointments: AppointmentsService,
   ) {}
 
+  /** Bulk mode: extract-and-queue one uploaded invoice into the portal's
+   *  mass-intake review pane (guru 2026-10-11). */
+  async queueBulkInvoice(ctx: OperatorContext, up: NonNullable<OperatorContext['upload']>) {
+    const r = await this.costing.queueIntake(ctx.organizationId, {
+      attachmentUrl: up.attachmentUrl,
+      attachmentKey: up.attachmentKey,
+      filename: up.filename || null,
+      extraction: up.extracted || null,
+      uploadedBy: ctx.actor?.name || ctx.actor?.email || null,
+    });
+    return { queued: r.queued, matchedProjectName: r.matchedProjectName };
+  }
+
   /** Extract a just-uploaded invoice/receipt (project-agnostic) and store the
    *  original, so the turn's tools can turn it into a project cost. Returns the
    *  data to stamp on ctx.upload. Never throws — extraction failures still keep
@@ -679,6 +692,30 @@ export class OperatorToolsService {
             createdAt: new Date().toISOString(),
           };
           return { pending, result: { ok: true, confirm: pending.summary } };
+        },
+      },
+
+      {
+        name: 'bulk_invoice_mode',
+        description:
+          'Switch BULK INVOICE MODE on or off. On: every uploaded supplier invoice is read and queued straight to the portal "Upload invoices" review pane, with no per-invoice confirmation. Turn it ON when the user says they are about to send many contractor invoices; turn it OFF when they say done/finished.',
+        permissions: ['projects:read'],
+        input_schema: {
+          type: 'object',
+          properties: { on: { type: 'boolean', description: 'true = enter bulk mode, false = leave it' } },
+          required: ['on'],
+        },
+        run: async (ctx, { on }) => {
+          const queued = await this.prisma.invoiceIntake.count({ where: { organizationId: ctx.organizationId, status: 'queued' } });
+          return {
+            result: {
+              ok: true,
+              __bulkInvoiceMode: !!on,
+              note: on
+                ? 'Bulk mode is ON. Tell the user: send the invoices one after another, each gets a one-line queue receipt, review them later in Projects -> Upload invoices, and say done to finish.'
+                : `Bulk mode is OFF. ${queued} invoice(s) are waiting for review in Projects -> Upload invoices.`,
+            },
+          };
         },
       },
 

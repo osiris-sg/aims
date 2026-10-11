@@ -462,6 +462,85 @@ export class ProjectCostingService {
     };
   }
 
+  // ── WhatsApp bulk invoice intake (guru 2026-10-11, temp feature) ──────
+  /** Queue an extracted invoice from the agent's bulk mode — no confirm flow;
+   *  it waits in the portal's "Upload invoices" pane for review. */
+  async queueIntake(
+    organizationId: string,
+    dto: { attachmentUrl?: string | null; attachmentKey?: string | null; filename?: string | null; extraction?: any; uploadedBy?: string | null },
+  ) {
+    const siteAddress = dto.extraction?.siteAddress || null;
+    let matchedProjectId: string | null = null;
+    let matchedProjectName: string | null = null;
+    if (siteAddress) {
+      const projects = await this.prisma.project.findMany({
+        where: { organizationId, status: { not: 'completed' } },
+        select: { id: true, name: true, address: true },
+      });
+      const { matchProjectByAddress } = await import('../common/address-match');
+      const m = matchProjectByAddress(siteAddress, projects.map((p) => ({ ...p, customer: null })));
+      if (m) {
+        matchedProjectId = m.id;
+        matchedProjectName = m.name;
+      }
+    }
+    const row = await this.prisma.invoiceIntake.create({
+      data: {
+        organizationId,
+        attachmentUrl: dto.attachmentUrl || null,
+        attachmentKey: dto.attachmentKey || null,
+        filename: dto.filename || null,
+        extraction: dto.extraction ?? undefined,
+        matchedProjectId,
+        matchedProjectName,
+        uploadedBy: dto.uploadedBy || null,
+      },
+    });
+    const queued = await this.prisma.invoiceIntake.count({ where: { organizationId, status: 'queued' } });
+    return { ...row, queued };
+  }
+
+  async listIntake(organizationId: string) {
+    return this.prisma.invoiceIntake.findMany({ where: { organizationId, status: 'queued' }, orderBy: { createdAt: 'asc' }, take: 100 });
+  }
+
+  /** Confirm files the cost on the chosen project (same path as the portal
+   *  mass intake); skip just parks the row. Both close the intake item. */
+  async resolveIntake(
+    organizationId: string,
+    intakeId: string,
+    dto: { action: 'confirm' | 'skip'; projectId?: string; date?: string | null; supplierName?: string | null; description?: string | null; invoiceNo?: string | null; amount?: number; sectionId?: string | null },
+    actorName?: string,
+  ) {
+    const row = await this.prisma.invoiceIntake.findFirst({ where: { id: intakeId, organizationId } });
+    if (!row) throw new NotFoundException('Intake item not found');
+    if (row.status !== 'queued') throw new BadRequestException(`Already ${row.status}`);
+    if (dto.action === 'skip') {
+      return this.prisma.invoiceIntake.update({ where: { id: intakeId }, data: { status: 'skipped' } });
+    }
+    if (!dto.projectId) throw new BadRequestException('Pick a project to file this invoice against');
+    const ex: any = row.extraction || {};
+    const created = await this.addCost(
+      dto.projectId,
+      organizationId,
+      {
+        date: dto.date ?? ex.date ?? null,
+        supplierName: dto.supplierName ?? ex.supplierName ?? null,
+        description: dto.description ?? ex.description ?? (ex.supplierName ? `${ex.supplierName} invoice` : 'Invoice'),
+        invoiceNo: dto.invoiceNo ?? ex.invoiceNo ?? null,
+        amount: dto.amount ?? Number(ex.amount) ?? 0,
+        sectionId: dto.sectionId || null,
+        attachmentUrl: row.attachmentUrl,
+        attachmentKey: row.attachmentKey,
+        source: 'whatsapp-bulk',
+        status: 'approved',
+      } as any,
+      actorName,
+    );
+    await this.prisma.invoiceIntake.update({ where: { id: intakeId }, data: { status: 'confirmed', resolvedCostId: created.id } });
+    return created; // carries duplicateWarning
+  }
+
   // ── milestones / collections ──────────────────────────────────────────
   async addMilestone(projectId: string, organizationId: string, dto: MilestoneDto) {
     await this.project(projectId, organizationId);

@@ -3319,6 +3319,29 @@ model OperatorLinkCode {
 }
 
 // Per-sender conversation state: recent turns + any draft awaiting confirmation.
+// WhatsApp BULK invoice intake (guru 2026-10-11, temp feature): in bulk mode
+// the agent skips the per-invoice confirm flow and queues each extracted
+// invoice here; the portal's "Upload invoices" mass-intake pane lists the
+// queued rows for review (confirm files the ProjectCost, skip discards).
+model InvoiceIntake {
+  id                 String   @id @default(uuid())
+  organizationId     String
+  status             String   @default("queued") // queued | confirmed | skipped
+  attachmentUrl      String?
+  attachmentKey      String?
+  filename           String?
+  extraction         Json? // supplierName/invoiceNo/date/amount/description/siteAddress
+  matchedProjectId   String?  @db.Uuid
+  matchedProjectName String?
+  source             String   @default("whatsapp")
+  uploadedBy         String?
+  resolvedCostId     String?  @db.Uuid
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([organizationId, status])
+}
+
 model OperatorSession {
   id            String   @id @default(uuid())
   channel       String

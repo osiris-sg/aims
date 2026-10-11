@@ -31,6 +31,9 @@ type QItem = {
   amount?: string;
   description?: string;
   projectId?: string | null;
+  /** Set when the row came from the WhatsApp agent's BULK mode queue — confirm/
+   *  skip then resolve the server-side intake item instead of plain addCost. */
+  intakeId?: string;
 };
 
 const EXTRACT_CONCURRENCY = 2;
@@ -75,6 +78,32 @@ export default function MassCostUpload({ open, onClose, onSaved }: { open: boole
     if (!open) return;
     setItems([]);
     api.list({ page: 1, limit: 100 }).then((r) => setProjects((r.docs || []).map((p: any) => ({ id: p.id, name: p.name })))).catch(() => {});
+    // Invoices queued from WhatsApp bulk mode (guru 2026-10-11): already
+    // extracted server-side — they drop straight into the review flow.
+    api
+      .request<any[]>(`/projects/costs/intake`)
+      .then((rows) => {
+        if (!Array.isArray(rows) || !rows.length) return;
+        const fromWa: QItem[] = rows.map((r: any) => {
+          const ex = r.extraction || {};
+          return {
+            key: `intake-${r.id}`,
+            intakeId: r.id,
+            name: r.filename || ex.supplierName || "WhatsApp invoice",
+            status: "ready" as const,
+            extract: { ...ex, attachmentUrl: r.attachmentUrl, attachmentKey: r.attachmentKey, matchedProjectId: r.matchedProjectId },
+            supplierName: ex.supplierName || "",
+            invoiceNo: ex.invoiceNo || "",
+            date: ex.date || "",
+            amount: ex.amount != null ? String(ex.amount) : "",
+            description: ex.description || "",
+            projectId: r.matchedProjectId || null,
+          };
+        });
+        setItems((ls) => [...fromWa, ...ls]);
+        toast.info(`${fromWa.length} invoice${fromWa.length === 1 ? "" : "s"} queued from WhatsApp — review below`);
+      })
+      .catch(() => {});
   }, [open, api]);
 
   const patchItem = useCallback((key: string, patch: Partial<QItem>) => {
@@ -174,6 +203,26 @@ export default function MassCostUpload({ open, onClose, onSaved }: { open: boole
     if (!current?.projectId) return toast.error("Pick a project first");
     patchItem(current.key, { status: "saving" });
     try {
+      if (current.intakeId) {
+        const saved: any = await api.request(`/projects/costs/intake/${current.intakeId}/resolve`, {
+          method: "POST",
+          body: JSON.stringify({
+            action: "confirm",
+            projectId: current.projectId,
+            supplierName: current.supplierName || null,
+            invoiceNo: current.invoiceNo || null,
+            date: current.date || null,
+            amount: Number(current.amount) || 0,
+            description: current.description || current.supplierName || "Invoice",
+          }),
+        });
+        if (saved?.duplicateWarning) {
+          const d = saved.duplicateWarning;
+          toast.warn(`⚠ Possible duplicate: ${d.supplierName || "this supplier"} invoice ${d.invoiceNo} is already filed${d.projectName ? ` on ${d.projectName}` : ""} (S$ ${Number(d.amount).toFixed(2)})`, { autoClose: 10000 });
+        }
+        patchItem(current.key, { status: "done" });
+        return;
+      }
       const saved: any = await api.addCost(current.projectId, {
         supplierName: current.supplierName || null,
         invoiceNo: current.invoiceNo || null,
@@ -268,7 +317,14 @@ export default function MassCostUpload({ open, onClose, onSaved }: { open: boole
                   </Stack>
                   <TextField label="Description" size="small" fullWidth multiline minRows={2} value={current.description} onChange={(e) => patchItem(current.key, { description: e.target.value })} />
                   <Stack direction="row" spacing={1} justifyContent="flex-end">
-                    <Button size="small" onClick={() => patchItem(current.key, { status: "skipped" })} sx={{ textTransform: "none", color: "text.secondary" }}>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        if (current.intakeId) api.request(`/projects/costs/intake/${current.intakeId}/resolve`, { method: "POST", body: JSON.stringify({ action: "skip" }) }).catch(() => {});
+                        patchItem(current.key, { status: "skipped" });
+                      }}
+                      sx={{ textTransform: "none", color: "text.secondary" }}
+                    >
                       Skip
                     </Button>
                     <Button size="small" variant="contained" onClick={confirmCurrent} disabled={!current.projectId || !Number(current.amount)} sx={{ textTransform: "none" }}>

@@ -62,7 +62,7 @@ const VERB_ACTIONS: Record<string, string> = {
   'link-project': 'LINK', link: 'LINK', 'claim-scheduled': 'CLAIM', 'ack-all': 'ACKNOWLEDGE',
   // Delivery group posts (2026-09-30): the post worker claims a post and
   // reports it sent; the office retries a failed or skipped one.
-  claim: 'CLAIM', done: 'POSTED', retry: 'RETRY',
+  claim: 'CLAIM', done: 'POSTED', retry: 'RETRY', resolve: 'CONFIRM',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
   // Field delivery verbs (2026-09): the customer sign-off (full or partial, and
   // the guest link's), the return sign-off, ad-hoc acknowledge, install skip, and

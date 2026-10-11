@@ -1771,6 +1771,27 @@ model WhatsAppAppointment {
   @@index([reminderStatus, remindAt])
 }
 
+// WhatsApp BULK invoice intake (guru 2026-10-11, temp feature): queued
+// invoices from the agent's bulk mode, reviewed in the portal mass-intake.
+model InvoiceIntake {
+  id                 String   @id @default(uuid())
+  organizationId     String
+  status             String   @default("queued") // queued | confirmed | skipped
+  attachmentUrl      String?
+  attachmentKey      String?
+  filename           String?
+  extraction         Json?
+  matchedProjectId   String?  @db.Uuid
+  matchedProjectName String?
+  source             String   @default("whatsapp")
+  uploadedBy         String?
+  resolvedCostId     String?  @db.Uuid
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([organizationId, status])
+}
+
 model AdAccountConnection {
   id             String    @id @default(uuid())
   organizationId String    @unique

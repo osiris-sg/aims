@@ -135,6 +135,9 @@ export interface SessionState {
   actingAs?: { userId: string; label: string } | null;
   /** An uploaded invoice awaiting a project pick (tapped from buttons). */
   pendingUpload?: OperatorContext['upload'] | null;
+  /** Bulk invoice mode (guru 2026-10-11): uploads queue straight to the portal
+   *  mass-intake, no per-invoice confirm. Toggled by the bulk_invoice_mode tool. */
+  bulkInvoiceMode?: boolean;
   pendingUploadAt?: string | null;
   /** Finished cards (confirmed/cancelled) — a re-tap on an old button answers
    *  honestly instead of "expired" or silently redoing the action. */
