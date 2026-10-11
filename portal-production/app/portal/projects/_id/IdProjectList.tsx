@@ -47,6 +47,15 @@ export default function IdProjectList() {
   // assigned lead, a referral, or the designer's own client.
   const [createOpen, setCreateOpen] = useState(false);
   const [massUploadOpen, setMassUploadOpen] = useState(false);
+  // WhatsApp bulk-mode queue size (guru 2026-10-11): surfaces as a count on
+  // the Upload-invoices button so queued invoices are impossible to miss.
+  const [intakeCount, setIntakeCount] = useState(0);
+  const loadIntakeCount = useCallback(() => {
+    api.request<any[]>(`/projects/costs/intake`).then((rows) => setIntakeCount(Array.isArray(rows) ? rows.length : 0)).catch(() => {});
+  }, [api]);
+  useEffect(() => {
+    loadIntakeCount();
+  }, [loadIntakeCount]);
   // Dashboard's "Create project" deep-links here with ?new=1 → open the dialog.
   const searchParams = useSearchParams();
   useEffect(() => {
@@ -212,7 +221,7 @@ export default function IdProjectList() {
       <PageTable
         onRowClick={(r: any) => router.push(`/portal/projects/${r.id}`)}
         tableName="Projects"
-        buttonName="Upload invoices"
+        buttonName={intakeCount > 0 ? `Upload invoices (${intakeCount} from WhatsApp)` : "Upload invoices"}
         onAddClick={() => setMassUploadOpen(true)}
         subTitle="Every signed quotation becomes a project — costing, payments and profit live here"
         columns={columns as any}
@@ -273,7 +282,7 @@ export default function IdProjectList() {
           </Button>
         </DialogActions>
       </Dialog>
-      <MassCostUpload open={massUploadOpen} onClose={() => setMassUploadOpen(false)} onSaved={load} />
+      <MassCostUpload open={massUploadOpen} onClose={() => { setMassUploadOpen(false); loadIntakeCount(); }} onSaved={load} />
       <DeleteItemDialogNoConfirm
         open={!!toDelete}
         onCancel={() => setToDelete(null)}

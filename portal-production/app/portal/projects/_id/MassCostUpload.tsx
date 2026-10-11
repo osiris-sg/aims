@@ -253,7 +253,7 @@ export default function MassCostUpload({ open, onClose, onSaved }: { open: boole
   };
 
   return (
-    <Dialog open={open} onClose={close} fullWidth maxWidth="sm" PaperProps={{ sx: { borderRadius: 2 } }}>
+    <Dialog open={open} onClose={close} fullWidth maxWidth="lg" PaperProps={{ sx: { borderRadius: 2 } }}>
       <DialogTitle>Upload supplier invoices</DialogTitle>
       <DialogContent dividers>
         {items.length === 0 ? (
@@ -284,7 +284,24 @@ export default function MassCostUpload({ open, onClose, onSaved }: { open: boole
             </Box>
 
             {current ? (
-              <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 2 }}>
+              <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 2, display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1fr) 420px" }, gap: 2, alignItems: "start" }}>
+                {/* The invoice itself, inline (guru 2026-10-11: no "View file"
+                    round-trip to another tab). Local files preview from their
+                    dataUri; WhatsApp-queued ones from the stored attachment. */}
+                {(() => {
+                  const src = current.dataUri || current.extract?.attachmentUrl || "";
+                  const isPdf = src.startsWith("data:application/pdf") || /\.pdf($|\?)/i.test(src);
+                  if (!src) return <Box sx={{ bgcolor: "action.hover", borderRadius: 1, minHeight: 320, display: "flex", alignItems: "center", justifyContent: "center", color: "text.disabled", fontSize: 13 }}>No preview</Box>;
+                  return isPdf ? (
+                    <Box component="iframe" src={src} title="Invoice" sx={{ width: "100%", height: { xs: 320, md: 520 }, border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "#525659" }} />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <Box sx={{ maxHeight: { xs: 320, md: 520 }, overflow: "auto", border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "#525659", p: 1, textAlign: "center" }}>
+                      <img src={src} alt="Invoice" style={{ maxWidth: "100%" }} />
+                    </Box>
+                  );
+                })()}
+                <Box sx={{ minWidth: 0 }}>
                 <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
                   <Chip size="small" label={current.name} sx={{ maxWidth: 260 }} />
                   {current.extract?.siteAddress && (
@@ -309,11 +326,6 @@ export default function MassCostUpload({ open, onClose, onSaved }: { open: boole
                   <Stack direction="row" spacing={1}>
                     <TextField label="Amount (S$)" size="small" value={current.amount} onChange={(e) => { if (/^[0-9]*\.?[0-9]*$/.test(e.target.value)) patchItem(current.key, { amount: e.target.value }); }} inputProps={{ inputMode: "decimal" }} sx={{ width: 160 }} />
                     <TextField label="Date" size="small" value={current.date} onChange={(e) => patchItem(current.key, { date: e.target.value })} sx={{ width: 160 }} />
-                    {current.extract?.attachmentUrl && (
-                      <Button size="small" href={current.extract.attachmentUrl} target="_blank" rel="noreferrer" sx={{ textTransform: "none" }}>
-                        View file
-                      </Button>
-                    )}
                   </Stack>
                   <TextField label="Description" size="small" fullWidth multiline minRows={2} value={current.description} onChange={(e) => patchItem(current.key, { description: e.target.value })} />
                   <Stack direction="row" spacing={1} justifyContent="flex-end">
@@ -332,6 +344,7 @@ export default function MassCostUpload({ open, onClose, onSaved }: { open: boole
                     </Button>
                   </Stack>
                 </Stack>
+                </Box>
               </Box>
             ) : allSettled ? (
               <Alert icon={<CheckCircleIcon fontSize="inherit" />} severity="success">
