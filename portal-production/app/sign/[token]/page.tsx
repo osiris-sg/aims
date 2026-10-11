@@ -221,7 +221,11 @@ export default function PublicSignPage() {
         </Alert>
       )}
 
-      <Paper elevation={0} sx={{ border: "1px solid #ddd", borderRadius: 2, overflow: "hidden", mb: 3, bgcolor: "#fff", p: { xs: 1.5, md: 3 } }}>
+      {/* Document LEFT, signature RIGHT (guru 2026-10-11): the sign panel is
+          sticky beside the document on desktop so the client never scrolls to
+          the bottom to sign. Stacks back to one column on phones. */}
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: signed ? "1fr" : "minmax(0, 1fr) 400px" }, gap: 3, alignItems: "start" }}>
+      <Paper elevation={0} sx={{ border: "1px solid #ddd", borderRadius: 2, overflow: "hidden", bgcolor: "#fff", p: { xs: 1.5, md: 3 }, minWidth: 0 }}>
         {/* The srcDoc HTML is only <style> + <div class="idq"> — no <body>
             margin, no max-width — so the document renders flush; the Paper
             padding (12/24px) gives it breathing room. Height auto-fits the
@@ -238,7 +242,7 @@ export default function PublicSignPage() {
       </Paper>
 
       {!signed && (
-        <Paper elevation={0} sx={{ border: "1px solid #ddd", borderRadius: 2, p: { xs: 2, md: 3 }, bgcolor: "#fff" }}>
+        <Paper elevation={0} sx={{ border: "1px solid #ddd", borderRadius: 2, p: { xs: 2, md: 3 }, bgcolor: "#fff", position: { md: "sticky" }, top: { md: 16 } }}>
           <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
             {t("accept")}
           </Typography>
@@ -290,6 +294,7 @@ export default function PublicSignPage() {
           </Typography>
         </Paper>
       )}
+      </Box>
     </>,
   );
 }

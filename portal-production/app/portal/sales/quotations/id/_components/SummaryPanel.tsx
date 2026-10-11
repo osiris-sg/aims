@@ -21,7 +21,10 @@ interface Props {
 }
 
 const Row = ({ label, value, strong, muted }: { label: React.ReactNode; value: React.ReactNode; strong?: boolean; muted?: boolean }) => (
-  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 0.5 }}>
+  // py 0.25, not 0.5: the rail has to show Summary, every discount, Grand Total
+  // AND the internal margin block without the user scrolling for them
+  // (guru 2026-10-11). Each row saved here is a row that stays on screen.
+  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 0.25 }}>
     <Typography variant={strong ? "subtitle1" : "body2"} sx={{ fontWeight: strong ? 800 : 400, color: muted ? "text.secondary" : "text.primary" }}>
       {label}
     </Typography>
@@ -60,6 +63,7 @@ function DecimalField({ value, onCommit, disabled, width, startAdornment, endAdo
 }
 
 export default function SummaryPanel({ quote, internalView, readOnly, onChange, onEditTerms, onJumpToItem }: Props) {
+  const [showAllLow, setShowAllLow] = useState(false);
   const t = quoteTotals(quote);
   const floor = quote.settings.marginFloorPct;
 
@@ -67,12 +71,12 @@ export default function SummaryPanel({ quote, internalView, readOnly, onChange, 
     onChange({ ...quote, summary: { ...quote.summary, discounts: quote.summary.discounts.map((d) => (d.id === id ? { ...d, ...patch } : d)) } });
 
   return (
-    <Paper variant="outlined" sx={{ borderRadius: 2, p: 2, position: { xl: "sticky" }, top: { xl: 72 }, minWidth: 0 }}>
-      <Typography variant="overline" sx={{ color: "text.secondary" }}>
+    <Paper variant="outlined" sx={{ borderRadius: 2, p: 1.5, position: { xl: "sticky" }, top: { xl: 72 }, minWidth: 0 }}>
+      <Typography variant="overline" sx={{ color: "text.secondary", display: "block", lineHeight: 1.6 }}>
         Summary
       </Typography>
       <Row label="Total Amount" value={money(t.total)} />
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 0.5 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 0.25 }}>
         <Stack direction="row" spacing={0.75} alignItems="center">
           <Typography variant="body2">Professional Design Fee</Typography>
           <DecimalField value={quote.summary.designFeePct} onCommit={(n) => onChange({ ...quote, summary: { ...quote.summary, designFeePct: n } })} disabled={readOnly} width={34} endAdornment={<InputAdornment position="end">%</InputAdornment>} />
@@ -82,60 +86,102 @@ export default function SummaryPanel({ quote, internalView, readOnly, onChange, 
         </Typography>
       </Stack>
       {quote.summary.discounts.map((d) => (
-        <Stack key={d.id} direction="row" spacing={0.75} alignItems="center" sx={{ py: 0.5 }}>
-          <TextField size="small" fullWidth placeholder="Discount label" value={d.label} disabled={readOnly} onChange={(e) => setDiscount(d.id, { label: e.target.value })} inputProps={{ style: { padding: "4px 8px", fontSize: 13 } }} />
+        <Stack key={d.id} direction="row" spacing={0.5} alignItems="center" sx={{ py: 0.25 }}>
+          {/* title= so the full name is still readable when the rail clips it. */}
+          <TextField size="small" fullWidth placeholder="Discount label" value={d.label} disabled={readOnly} title={d.label} onChange={(e) => setDiscount(d.id, { label: e.target.value })} inputProps={{ style: { padding: "2px 6px", fontSize: 12 } }} />
           <DecimalField value={d.amount} onCommit={(n) => setDiscount(d.id, { amount: n })} disabled={readOnly} width={78} startAdornment={<InputAdornment position="start">−$</InputAdornment>} />
           {!readOnly && (
-            <IconButton size="small" onClick={() => onChange({ ...quote, summary: { ...quote.summary, discounts: quote.summary.discounts.filter((x) => x.id !== d.id) } })} sx={{ color: "text.disabled" }}>
-              <DeleteIcon sx={{ fontSize: 16 }} />
+            <IconButton size="small" onClick={() => onChange({ ...quote, summary: { ...quote.summary, discounts: quote.summary.discounts.filter((x) => x.id !== d.id) } })} sx={{ color: "text.disabled", p: 0.25 }}>
+              <DeleteIcon sx={{ fontSize: 15 }} />
             </IconButton>
           )}
         </Stack>
       ))}
       {!readOnly && (
-        <Button size="small" startIcon={<AddIcon />} sx={{ textTransform: "none", color: "text.secondary" }} onClick={() => onChange({ ...quote, summary: { ...quote.summary, discounts: [...quote.summary.discounts, { id: newId(), label: "Complimentary Discount", amount: 0 }] } })}>
+        <Button size="small" startIcon={<AddIcon />} sx={{ textTransform: "none", color: "text.secondary", py: 0.25, minHeight: 0 }} onClick={() => onChange({ ...quote, summary: { ...quote.summary, discounts: [...quote.summary.discounts, { id: newId(), label: "Complimentary Discount", amount: 0 }] } })}>
           Add discount
         </Button>
       )}
-      <Divider sx={{ my: 1 }} />
+      <Divider sx={{ my: 0.75 }} />
       <Row label="Grand Total" value={`S$ ${money(t.grand)}`} strong />
 
       {internalView && (
-        <Box sx={{ mt: 1.5, pt: 1.5, borderTop: 1, borderColor: "divider" }}>
-          <Typography variant="overline" sx={{ color: "text.secondary" }}>
+        <Box sx={{ mt: 1, pt: 1, borderTop: 1, borderColor: "divider" }}>
+          <Typography variant="overline" sx={{ color: "text.secondary", display: "block", lineHeight: 1.6 }}>
             Internal
           </Typography>
-          <Row label="Total cost" value={money(t.totalCost)} muted />
-          <Row label="Margin" value={t.anyCost ? `${money(t.grand - t.totalCost)} · ${pct(t.marginPct)}` : "no costs yet"} muted={!t.anyCost} />
-          <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mb: 1 }}>
-            Guideline {quote.settings.marginGuidelinePct}% · floor {floor}% (margin on price)
+          {/* Cost and margin sit SIDE BY SIDE rather than on two rows, and the
+              guideline/floor note rides under the margin instead of taking a
+              line of its own — the rail has to end above the fold
+              (guru 2026-10-11). */}
+          <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ py: 0.25 }}>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1.3 }}>
+                Total cost
+              </Typography>
+              <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", color: "text.secondary" }}>
+                {money(t.totalCost)}
+              </Typography>
+            </Box>
+            <Box sx={{ flex: 1.3, minWidth: 0, textAlign: "right" }}>
+              <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1.3 }}>
+                Margin
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, color: !t.anyCost ? "text.secondary" : t.breach ? "warning.main" : "text.primary" }}
+              >
+                {t.anyCost ? `${money(t.grand - t.totalCost)} · ${pct(t.marginPct)}` : "no costs yet"}
+              </Typography>
+            </Box>
+          </Stack>
+          <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mb: 0.75, lineHeight: 1.3 }}>
+            Guideline {quote.settings.marginGuidelinePct}% · floor {floor}%
           </Typography>
           {t.breach ? (
-            <Alert severity="warning" variant="outlined" sx={{ "& .MuiAlert-message": { width: "100%" } }}>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                Below the {floor}% floor — management will be notified on save.
+            // Dense alert, and only the worst THREE offending lines by default:
+            // six of them pushed Payment terms off the bottom of the rail. The
+            // rest are one click away rather than always costing height
+            // (guru 2026-10-11).
+            <Alert
+              severity="warning"
+              variant="outlined"
+              sx={{ py: 0.25, px: 1, "& .MuiAlert-message": { width: "100%", py: 0.5 }, "& .MuiAlert-icon": { py: 0.5, mr: 1 } }}
+            >
+              <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>
+                Below the {floor}% floor — management notified on save.
               </Typography>
-              {t.lowLines.slice(0, 6).map((l) => (
-                <Typography key={l.itemId} variant="caption" component="div" sx={{ cursor: "pointer", "&:hover": { textDecoration: "underline" } }} onClick={() => onJumpToItem(l.itemId)}>
-                  {l.sectionLetter}{l.no} · {pct(l.marginPct)} · {l.description.slice(0, 48)}
-                  {l.description.length > 48 ? "…" : ""}
+              {t.lowLines.slice(0, showAllLow ? t.lowLines.length : 3).map((l) => (
+                <Typography
+                  key={l.itemId}
+                  variant="caption"
+                  component="div"
+                  sx={{ cursor: "pointer", lineHeight: 1.4, "&:hover": { textDecoration: "underline" } }}
+                  onClick={() => onJumpToItem(l.itemId)}
+                >
+                  {l.sectionLetter}{l.no} · {pct(l.marginPct)} · {l.description.slice(0, 32)}
+                  {l.description.length > 32 ? "…" : ""}
                 </Typography>
               ))}
-              {t.lowLines.length > 6 && (
-                <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                  +{t.lowLines.length - 6} more
+              {t.lowLines.length > 3 && (
+                <Typography
+                  variant="caption"
+                  onClick={() => setShowAllLow((v) => !v)}
+                  sx={{ color: "text.secondary", cursor: "pointer", textDecoration: "underline" }}
+                >
+                  {showAllLow ? "show fewer" : `+${t.lowLines.length - 3} more`}
                 </Typography>
               )}
             </Alert>
           ) : t.anyCost ? (
-            <Alert severity="success" variant="outlined">
-              Margins within guideline.
+            <Alert severity="success" variant="outlined" sx={{ py: 0, px: 1, "& .MuiAlert-message": { py: 0.5 }, "& .MuiAlert-icon": { py: 0.5, mr: 1 } }}>
+              <Typography variant="caption">Margins within guideline.</Typography>
             </Alert>
           ) : null}
         </Box>
       )}
 
-      <Button fullWidth size="small" variant="text" startIcon={<GavelIcon />} onClick={onEditTerms} sx={{ mt: 1.5, textTransform: "none" }}>
+      <Button fullWidth size="small" variant="text" startIcon={<GavelIcon />} onClick={onEditTerms} sx={{ mt: 1, textTransform: "none", py: 0.25, minHeight: 0 }}>
         Payment terms & T&Cs
       </Button>
     </Paper>
