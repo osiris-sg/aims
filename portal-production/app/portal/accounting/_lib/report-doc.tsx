@@ -72,14 +72,15 @@ export function ReportHeader({
   );
 }
 
-// Print CSS — hide app chrome, show only the paper. Render once per page.
+// Print CSS — ONLY the paper prints. Everything that is not a paper sheet,
+// inside one, or an ancestor of one is removed (kills the nav bar, sidebar,
+// Guide-assistant bubble, toasts — anything, marked .no-print or not), and the
+// ancestor chain collapses to zero-chrome wrappers so no stray padding spills
+// the sheet onto a phantom extra page. Render once per report page.
 export function ReportPrintCss() {
   return (
     <style jsx global>{`
       @media print {
-        .no-print {
-          display: none !important;
-        }
         @page {
           size: A4;
           margin: 0;
@@ -87,10 +88,31 @@ export function ReportPrintCss() {
         body {
           background: white !important;
         }
+        .no-print {
+          display: none !important;
+        }
+        body *:not([data-print-paper]):not([data-print-paper] *):not(:has([data-print-paper])) {
+          display: none !important;
+        }
+        body *:has([data-print-paper]) {
+          display: block !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          width: auto !important;
+          max-width: none !important;
+          border: 0 !important;
+          box-shadow: none !important;
+          background: white !important;
+          overflow: visible !important;
+        }
         [data-print-paper] {
           box-shadow: none !important;
           margin: 0 !important;
           padding: 20mm !important;
+          width: 210mm !important;
+          /* content defines the height — a fixed 297mm min-height rounds past
+             one physical page and prints a blank trailing sheet */
+          min-height: auto !important;
         }
         [data-print-break="1"] {
           break-after: page;

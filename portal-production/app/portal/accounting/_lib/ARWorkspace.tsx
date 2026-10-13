@@ -39,7 +39,9 @@ import SearchIcon from "@mui/icons-material/Search";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
 import { useGetCustomers } from "@/app/portal/hooks/api";
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import JournalEntryDialog from "./JournalEntryDialog";
+import { ReportPrintExportButton } from "./report-export";
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -93,6 +95,7 @@ type SoaTx = {
 export default function ARWorkspace() {
   const router = useRouter();
   const { request } = useAccountingApi();
+  const { organization } = useOrganization();
   // Phone: the debtor-ledger dialog goes full-screen below sm
   const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
 
@@ -444,6 +447,26 @@ export default function ARWorkspace() {
         <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => setJvOpen(true)}>
           Journal Voucher
         </Button>
+        <ReportPrintExportButton
+          size="medium"
+          getModel={() => {
+            if (!rows.length) return null;
+            const data = visibleRows.map((r) => [
+              codeById.get(r.contactId) || "",
+              r.contactName,
+              fmt(r.total),
+              r.currency || "SGD",
+              r.currency ? fmt(r.foreignTotal || 0) : fmt(r.total),
+            ]);
+            data.push(["TOTAL", "", fmt(search ? visibleTotal : grandTotal), "", ""]);
+            return {
+              title: "Customer Balances",
+              orgName: organization?.name || "",
+              metaLines: [`Cut-Off-Date : ${new Date(cutOff).toLocaleDateString("en-GB")}`],
+              tables: [{ headers: ["Customer Code", "Name", "Amount", "Curr", "Foreign Amount"], rows: data, boldRows: [data.length - 1] }],
+            };
+          }}
+        />
         <Button variant="outlined" startIcon={<AssessmentOutlinedIcon />} onClick={() => setReportsOpen(true)}>
           View Reports
         </Button>

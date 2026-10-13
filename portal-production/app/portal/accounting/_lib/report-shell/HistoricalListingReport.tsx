@@ -13,10 +13,10 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Autocomplete, Box, TextField, Typography } from "@mui/material";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../api";
-import { useGetCustomers } from "@/app/portal/hooks/api";
 import ReportShell, { downloadCsv } from "./ReportShell";
 import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
 import { DateRangeSelect } from "./DateRangeSelect";
+import { soaSummaryOf, useSideContacts, type ReportSide } from "./side";
 
 const R = (n: number) => Math.round(n * 100) / 100;
 const fmtAbs = (n: number) =>
@@ -49,9 +49,9 @@ type DebtorBlock = {
   totalCredit: number;
 };
 
-export default function HistoricalListingReport() {
+export default function HistoricalListingReport({ side = "receivable" }: { side?: ReportSide }) {
   const { request } = useAccountingApi();
-  const { customers = [] } = useGetCustomers({ limit: 1000 });
+  const { sorted: sortedCustomers, codeOf, words } = useSideContacts(side);
 
   const [from, setFrom] = useState(yearStartISO());
   const [to, setTo] = useState(() => monthEndISO(new Date().toISOString().slice(0, 10)));
@@ -59,14 +59,6 @@ export default function HistoricalListingReport() {
   const [toCustomer, setToCustomer] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [blocks, setBlocks] = useState<DebtorBlock[] | null>(null);
-
-  const sortedCustomers = useMemo(
-    () =>
-      [...(customers || [])].sort((a: any, b: any) =>
-        String(a.customerCode || "").localeCompare(String(b.customerCode || "")),
-      ),
-    [customers],
-  );
 
   // Legacy default: the range runs from the FIRST to the LAST customer code.
   useEffect(() => {
@@ -77,22 +69,19 @@ export default function HistoricalListingReport() {
 
   const load = useCallback(async () => {
     if (!fromCustomer && !toCustomer) {
-      toast.warn("Pick the debtor range first");
+      toast.warn(`Pick the ${words.party.toLowerCase()} range first`);
       return;
     }
     const a = fromCustomer || toCustomer;
     const b = toCustomer || fromCustomer;
-    const [lo, hi] =
-      String(a.customerCode || "").localeCompare(String(b.customerCode || "")) <= 0
-        ? [a.customerCode || "", b.customerCode || ""]
-        : [b.customerCode || "", a.customerCode || ""];
+    const [lo, hi] = codeOf(a).localeCompare(codeOf(b)) <= 0 ? [codeOf(a), codeOf(b)] : [codeOf(b), codeOf(a)];
     let targets = sortedCustomers.filter((c: any) => {
-      const code = String(c.customerCode || "");
+      const code = codeOf(c);
       return code && code.localeCompare(lo) >= 0 && code.localeCompare(hi) <= 0;
     });
     if (!targets.length) targets = [a];
     if (targets.length > 100) {
-      toast.warn(`Range covers ${targets.length} debtors — showing the first 100`);
+      toast.warn(`Range covers ${targets.length} ${words.partyPlural} — showing the first 100`);
       targets = targets.slice(0, 100);
     }
     setLoading(true);
@@ -103,16 +92,17 @@ export default function HistoricalListingReport() {
         const chunk = targets.slice(i, i + chunkSize);
         const soas = await Promise.all(
           chunk.map((c: any) =>
-            request(`/statements/soa`, {
+            request(words.soaUrl, {
               method: "POST",
-              body: JSON.stringify({ customerId: c.id, startDate: from, endDate: to, format: "json" }),
+              body: JSON.stringify({ [words.soaIdKey]: c.id, startDate: from, endDate: to, format: "json" }),
             }).catch(() => null),
           ),
         );
         chunk.forEach((c: any, j: number) => {
           const soa = unwrap(soas[j]);
           const txs: any[] = soa?.transactions || [];
-          const opening = R(Number(soa?.statement?.openingBalance) || 0);
+          const sum = soaSummaryOf(soa);
+          const opening = R(sum.opening);
           if (!txs.length && Math.abs(opening) < 0.005 && targets.length > 1) return;
           const rows = txs.map((t) => ({
             reference: t.reference || "",
@@ -122,12 +112,12 @@ export default function HistoricalListingReport() {
             credit: Number(t.credit) || 0,
           }));
           built.push({
-            code: c.customerCode || "",
+            code: codeOf(c),
             name: c.name || "",
             currency: String(c.currency || "SGD").toUpperCase(),
             rows,
             opening,
-            closing: R(Number(soa?.statement?.currentBalance) || 0),
+            closing: R(sum.closing),
             totalDebit: R(opening + rows.reduce((s, r) => s + r.debit, 0)),
             totalCredit: R(rows.reduce((s, r) => s + r.credit, 0)),
           });
@@ -224,7 +214,7 @@ export default function HistoricalListingReport() {
       }
       body.push([bl.code, bl.name, "SUB-TOTAL", "", "", bl.totalDebit.toFixed(2), bl.totalCredit.toFixed(2)]);
     }
-    downloadCsv(`Debtor-Historical-Listing-${from}-${to}.csv`, [
+    downloadCsv(`${words.party}-Historical-Listing-${from}-${to}.csv`, [
       ["Code", "Name", "Reference", "Date", "Remarks", "Debit", "Credit"],
       ...body,
     ]);
@@ -239,43 +229,43 @@ export default function HistoricalListingReport() {
         size="small"
         sx={{ width: 260, mt: 0.25 }}
         options={sortedCustomers}
-        getOptionLabel={(o: any) => `${o.customerCode ? `${o.customerCode} — ` : ""}${o.name || ""}`}
+        getOptionLabel={(o: any) => `${codeOf(o) ? `${codeOf(o)} — ` : ""}${o.name || ""}`}
         isOptionEqualToValue={(o: any, v: any) => o?.id === v?.id}
         value={value}
         onChange={(_, v) => onChange(v)}
-        renderInput={(p) => <TextField {...p} placeholder="Search customer" />}
+        renderInput={(p) => <TextField {...p} placeholder={`Search ${words.contactNoun}`} />}
       />
     </Box>
   );
 
   return (
     <ReportShell
-      title="Debtor Historical Listing"
+      title={`${words.party} Historical Listing`}
       loading={loading}
       onUpdate={() => load()}
       filters={
         <>
           <DateRangeSelect label="Period" from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
-          {customerPicker("From Debtor", fromCustomer, setFromCustomer)}
-          {customerPicker("To Debtor", toCustomer, setToCustomer)}
+          {customerPicker(`From ${words.party}`, fromCustomer, setFromCustomer)}
+          {customerPicker(`To ${words.party}`, toCustomer, setToCustomer)}
         </>
       }
       headerLines={
         blocks
           ? [
               `From Date : ${fmtDate(from)}   To Date : ${fmtDate(to)}`,
-              `From Debtor : ${fromCustomer?.customerCode || "—"}   To Debtor : ${toCustomer?.customerCode || "—"}`,
+              `From ${words.party} : ${codeOf(fromCustomer) || "—"}   To ${words.party} : ${codeOf(toCustomer) || "—"}`,
             ]
           : []
       }
-      footerInfo={blocks ? `${blocks.length} debtor${blocks.length === 1 ? "" : "s"}` : ""}
+      footerInfo={blocks ? `${blocks.length} ${blocks.length === 1 ? words.party.toLowerCase() : words.partyPlural}` : ""}
       onExportCsv={blocks?.length ? exportCsv : undefined}
     >
       {blocks ? (
         <ReportTable columns={columns} rows={rows} />
       ) : (
         <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
-          Pick the period and debtor range, then press Update.
+          Pick the period and the range, then press Update.
         </Typography>
       )}
     </ReportShell>

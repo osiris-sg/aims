@@ -18,11 +18,12 @@ import {
   Alert,
   CircularProgress,
 } from '@mui/material';
-import { Download as DownloadIcon, Print as PrintIcon } from '@mui/icons-material';
 import { useGetCustomers } from '@/app/portal/hooks/api';
 import { useGenerateSOA } from '@/app/portal/hooks/api';
+import { useOrganization } from '@/app/portal/hooks/useOrganization';
 import PageTable from '@/components/PageTable';
 import { useClientSort } from '@/components/clientSort';
+import { ReportPrintExportButton } from '@/app/portal/accounting/_lib/report-export';
 
 interface Customer {
   id: string;
@@ -76,6 +77,7 @@ interface StatementData {
 }
 
 export default function StatementOfAccountPage() {
+  const { organization } = useOrganization();
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -145,39 +147,49 @@ export default function StatementOfAccountPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRun, selectedCustomer]);
 
-  const downloadCSV = async () => {
-    if (!selectedCustomer) return;
-
-    try {
-      const params = new URLSearchParams({
-        customerId: selectedCustomer,
-        format: 'csv',
-      });
-
-      if (startDate) params.append('startDate', startDate);
-      if (endDate) params.append('endDate', endDate);
-
-      // Direct download approach
-      const apiUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:3001';
-      window.open(`${apiUrl}/statements/soa?${params.toString()}`, '_blank');
-    } catch (e) {
-      console.error('Failed to download CSV:', e);
-    }
+  // Standard print/export (CLAUDE.md report standard): one model drives
+  // Print (PDF w/ print dialog), Save as PDF, .xlsx and CSV. Replaces the old
+  // broken Export CSV (window.open GET against a POST endpoint) and the raw
+  // window.print() of the app screen.
+  const exportModel = () => {
+    if (!statementData) return null;
+    const rows = statementData.transactions.map((t) => [
+      formatDate(t.date),
+      t.reference || '',
+      t.description || '',
+      t.debit > 0 ? fmt2(t.debit) : '',
+      t.credit > 0 ? fmt2(t.credit) : '',
+      fmt2(t.balance),
+    ]);
+    rows.push([
+      '',
+      'TOTAL',
+      '',
+      fmt2(statementData.statement.totalDebit),
+      fmt2(statementData.statement.totalCredit),
+      fmt2(statementData.statement.currentBalance),
+    ]);
+    return {
+      title: 'Statement of Account',
+      orgName: organization?.name || '',
+      metaLines: [
+        `To : ${statementData.customer.name}`,
+        `Period : ${startDate ? formatDate(startDate) : 'start'} to ${endDate ? formatDate(endDate) : 'today'}`,
+        `Balance B/F : ${fmt2(statementData.statement.openingBalance)}`,
+      ],
+      tables: [{ headers: ['Date', 'Reference', 'Description', 'Debit', 'Credit', 'Balance'], rows, boldRows: [rows.length - 1] }],
+      note: 'This is a computer generated Statement. No signature is required.',
+    };
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(amount);
-  };
+  // Money/date house style: 2dp (SGD books), en-GB dates — the old page
+  // rendered USD currency and US dates.
+  const fmt2 = (n: number) =>
+    (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formatCurrency = (amount: number) => fmt2(amount);
 
   const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('en-US');
+    return new Date(date).toLocaleDateString('en-GB');
   };
 
   const transactions: Transaction[] = statementData?.transactions || [];
@@ -330,22 +342,7 @@ export default function StatementOfAccountPage() {
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', gap: 1, '@media print': { display: 'none' } }}>
-                <Button
-                  variant="outlined"
-                  startIcon={<DownloadIcon />}
-                  onClick={downloadCSV}
-                  size="small"
-                >
-                  Export CSV
-                </Button>
-                <Button
-                  variant="outlined"
-                  startIcon={<PrintIcon />}
-                  onClick={handlePrint}
-                  size="small"
-                >
-                  Print
-                </Button>
+                <ReportPrintExportButton getModel={exportModel} />
               </Box>
             </Box>
 

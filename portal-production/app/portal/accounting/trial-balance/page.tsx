@@ -15,13 +15,12 @@ import {
   Typography,
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import PrintIcon from "@mui/icons-material/Print";
-import DownloadIcon from "@mui/icons-material/Download";
 import SearchIcon from "@mui/icons-material/Search";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { PaperSheet, ReportHeader, ReportPrintCss, fmt, formatShortDate } from "../_lib/report-doc";
+import { ReportPrintExportButton } from "../_lib/report-export";
 
 type Row = {
   accountId: string;
@@ -102,23 +101,18 @@ export default function TrialBalancePage() {
     return rows;
   }, [netRows, filter, showZero]);
 
-  const exportCsv = () => {
-    if (!data) return;
-    const esc = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
-    const lines = [
-      ["A/C No.", "Description", "Debit", "Credit"].join(","),
-      ...visible.map((r) =>
-        [esc(r.code), esc(r.name), r.netDebit ? r.netDebit.toFixed(2) : "", r.netCredit ? r.netCredit.toFixed(2) : ""].join(","),
-      ),
-      ["", "TOTAL", totals.debit.toFixed(2), totals.credit.toFixed(2)].join(","),
-    ];
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `trial-balance-${asOfDate}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // Standard export model (CLAUDE.md report standard): PDF / .xlsx / CSV all
+  // derive from the same rows the paper document shows.
+  const exportModel = () => {
+    if (!data) return null;
+    const rows = visible.map((r) => [r.code, r.name, r.netDebit ? fmt(r.netDebit) : "", r.netCredit ? fmt(r.netCredit) : ""]);
+    rows.push(["TOTAL", filter.trim() ? "(ALL ACCOUNTS)" : "", fmt(totals.debit), fmt(totals.credit)]);
+    return {
+      title: "Trial Balance",
+      orgName: organization?.name || "",
+      metaLines: [`Cut-Off-Date : ${formatShortDate(asOfDate)}`],
+      tables: [{ headers: ["Account", "Description", "Debit", "Credit"], rows, boldRows: [rows.length - 1] }],
+    };
   };
 
   return (
@@ -175,12 +169,7 @@ export default function TrialBalancePage() {
           <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
             Refresh
           </Button>
-          <Button startIcon={<PrintIcon />} variant="outlined" size="small" onClick={() => window.print()}>
-            Print
-          </Button>
-          <Button startIcon={<DownloadIcon />} variant="outlined" size="small" onClick={exportCsv}>
-            Export
-          </Button>
+          <ReportPrintExportButton getModel={exportModel} onPrint={() => window.print()} />
         </Stack>
       </Paper>
 

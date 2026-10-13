@@ -36,12 +36,18 @@ export const PayableInvoices = () => <InvoiceReport side="payable" basePath={AP_
 export const PayableInvoiceDetail = () => <InvoiceReport side="payable" level="detail" basePath={AP_BASE} />;
 export const ContactTransactionsSummary = () => <ContactTransactionsReport basePath={AR_BASE} />;
 export const DebtorStatement = () => <DebtorStatementReportInner />;
+// AP legacy set — the AR reports' creditor twins (guru 2026-10-14).
+export const CreditorStatement = () => <DebtorStatementReportInner side="payable" />;
 export const AuditTrail = () => <AuditTrailReportInner />;
 export const ReceiptListing = () => <ReceiptListingReportInner />;
 export const SummaryAgeing = () => <SummaryAgeingReportInner />;
 export const DetailedAgeing = () => <DetailedAgeingReportInner />;
 export const DebtorListing = () => <DebtorListingReportInner />;
 export const HistoricalListing = () => <HistoricalListingReportInner />;
+export const ApSummaryAgeing = () => <SummaryAgeingReportInner side="payable" />;
+export const ApDetailedAgeing = () => <DetailedAgeingReportInner side="payable" />;
+export const CreditorListing = () => <DebtorListingReportInner side="payable" />;
+export const ApHistoricalListing = () => <HistoricalListingReportInner side="payable" />;
 export const JvListing = () => <JvListingReportInner />;
 export const PvListing = () => <PvListingReportInner />;
 export const IncomeExpensesByContact = () => <IncomeExpenseByContactReport basePath={AR_BASE} />;

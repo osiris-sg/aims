@@ -12,10 +12,10 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Autocomplete, Box, TextField, Typography } from "@mui/material";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../api";
-import { useGetCustomers } from "@/app/portal/hooks/api";
 import ReportShell, { downloadCsv } from "./ReportShell";
 import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
 import { FilterSelect } from "./DateRangeSelect";
+import { useSideContacts, type ReportSide } from "./side";
 
 const R = (n: number) => Math.round(n * 100) / 100;
 const unwrap = (r: any) => {
@@ -54,9 +54,9 @@ function bucketIndex(docDate: string, cutISO: string) {
   return Math.min(Math.max(diff, 0), N_MONTHS); // N_MONTHS = "& Older"
 }
 
-export default function SummaryAgeingReport() {
+export default function SummaryAgeingReport({ side = "receivable" }: { side?: ReportSide }) {
   const { request } = useAccountingApi();
-  const { customers = [] } = useGetCustomers({ limit: 1000 });
+  const { sorted: sortedCustomers, byId: customerById, codeOf, words } = useSideContacts(side);
 
   const [fromCustomer, setFromCustomer] = useState<any>(null);
   const [toCustomer, setToCustomer] = useState<any>(null);
@@ -64,19 +64,6 @@ export default function SummaryAgeingReport() {
   const [details, setDetails] = useState<"summary" | "details">("summary");
   const [loading, setLoading] = useState(false);
   const [groups, setGroups] = useState<Array<{ contactId: string; contactName: string; docs: AgedDoc[] }> | null>(null);
-
-  const sortedCustomers = useMemo(
-    () =>
-      [...(customers || [])].sort((a: any, b: any) =>
-        String(a.customerCode || "").localeCompare(String(b.customerCode || "")),
-      ),
-    [customers],
-  );
-  const customerById = useMemo(() => {
-    const m = new Map<string, any>();
-    for (const c of sortedCustomers) m.set(c.id, c);
-    return m;
-  }, [sortedCustomers]);
 
   // Legacy default: the range runs from the FIRST to the LAST customer code.
   useEffect(() => {
@@ -88,7 +75,7 @@ export default function SummaryAgeingReport() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await request(`/statements/aged?side=receivable&asOf=${asOf}&level=detail&ageingBy=documentDate`);
+      const res = await request(`/statements/aged?side=${words.agedSide}&asOf=${asOf}&level=detail&ageingBy=documentDate`);
       setGroups(unwrap(res)?.groups || []);
     } catch (e: any) {
       toast.error(e?.message || "Failed to load the ageing analysis");
@@ -105,11 +92,11 @@ export default function SummaryAgeingReport() {
   // Customer-code range filter (blank = all).
   const filteredGroups = useMemo(() => {
     if (!groups) return null;
-    const withCode = groups.map((g) => ({ ...g, code: customerById.get(g.contactId)?.customerCode || "" }));
+    const withCode = groups.map((g) => ({ ...g, code: codeOf(customerById.get(g.contactId)) }));
     let out = withCode;
     if (fromCustomer || toCustomer) {
-      const a = String((fromCustomer || toCustomer)?.customerCode || "");
-      const b = String((toCustomer || fromCustomer)?.customerCode || "");
+      const a = codeOf(fromCustomer || toCustomer);
+      const b = codeOf(toCustomer || fromCustomer);
       const [lo, hi] = a.localeCompare(b) <= 0 ? [a, b] : [b, a];
       out = withCode.filter((g) => g.code && g.code.localeCompare(lo) >= 0 && g.code.localeCompare(hi) <= 0);
     }
@@ -180,7 +167,7 @@ export default function SummaryAgeingReport() {
 
   const exportCsv = () => {
     if (!filteredGroups) return;
-    downloadCsv(`Summary-Ageing-Analysis-${asOf}.csv`, [
+    downloadCsv(`${words.party}-Summary-Ageing-Analysis-${asOf}.csv`, [
       ["CODE", "NAME", ...cols.map((c) => `${c.label} ${c.sub}`), "& >", "BALANCE"],
       ...filteredGroups.map((g) => {
         const buckets = Array(N_MONTHS + 1).fill(0);
@@ -202,24 +189,24 @@ export default function SummaryAgeingReport() {
         size="small"
         sx={{ width: 260, mt: 0.25 }}
         options={sortedCustomers}
-        getOptionLabel={(o: any) => `${o.customerCode ? `${o.customerCode} — ` : ""}${o.name || ""}`}
+        getOptionLabel={(o: any) => `${codeOf(o) ? `${codeOf(o)} — ` : ""}${o.name || ""}`}
         isOptionEqualToValue={(o: any, v: any) => o?.id === v?.id}
         value={value}
         onChange={(_, v) => onChange(v)}
-        renderInput={(p) => <TextField {...p} placeholder="Search customer" />}
+        renderInput={(p) => <TextField {...p} placeholder={`Search ${words.contactNoun}`} />}
       />
     </Box>
   );
 
   return (
     <ReportShell
-      title="Debtor Summary Ageing Analysis"
+      title={`${words.party} Summary Ageing Analysis`}
       loading={loading}
       onUpdate={() => load()}
       filters={
         <>
-          {customerPicker("From customer", fromCustomer, setFromCustomer)}
-          {customerPicker("To customer", toCustomer, setToCustomer)}
+          {customerPicker(`From ${words.contactNoun}`, fromCustomer, setFromCustomer)}
+          {customerPicker(`To ${words.contactNoun}`, toCustomer, setToCustomer)}
           <Box>
             <Typography variant="caption" sx={{ fontWeight: 700 }}>
               Period ending
@@ -245,7 +232,7 @@ export default function SummaryAgeingReport() {
         </>
       }
       headerLines={filteredGroups ? [`Period ending ${fmtDate(asOf)}`] : []}
-      footerInfo={filteredGroups ? `${filteredGroups.length} customer${filteredGroups.length === 1 ? "" : "s"}` : ""}
+      footerInfo={filteredGroups ? `${filteredGroups.length} ${words.contactNoun}${filteredGroups.length === 1 ? "" : "s"}` : ""}
       onExportCsv={filteredGroups?.length ? exportCsv : undefined}
     >
       {filteredGroups ? (

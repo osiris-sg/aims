@@ -96,6 +96,31 @@ List tables follow the Deliveries-tab pattern (`app/portal/deliveries/page.tsx`)
   the menu then opens at the TOP-LEFT corner (guru 2026-09-14, full sweep).
   Stable toolbar/button dropdowns outside tables may keep `anchorEl`.
 
+## Report print & export standard (EVERY report — no exceptions, guru 2026-10-13)
+
+Every accounting/report surface offers ONE control — `ReportPrintExportButton` from
+`portal-production/app/portal/accounting/_lib/report-export.tsx`, a single
+**"Print / Export"** button opening ONE menu of output destinations (the legacy
+software's "Output Destinations" prompt, modernised — guru: think like the
+accountant, Print and a separate Export→PDF read as the same thing twice):
+- **Print** — the ACTUAL DOCUMENT on paper. Paper-document pages pass
+  `onPrint={() => window.print()}` (prints just their A4 `PaperSheet`); everything
+  else defaults to generating the PDF and opening it with the print dialog. NEVER
+  `window.print()` a raw app screen (dark theme + nav + filters is not a document).
+- **Save as PDF** — jsPDF file download: letterhead + ruled tables + page numbers.
+- **Export to Excel (.xlsx)** — REAL workbook via SheetJS (never HTML renamed .xls).
+- **Export to CSV (.csv)**. All money cells 2dp.
+Never render separate Print and Export buttons side by side.
+
+Implementation: build one `ReportExportModel` ({title, orgName, metaLines, tables
+[{heading, headers, rows, boldRows}], note}) per report and hand it to the shared
+helpers — never write a bespoke exporter. ReportShell reports get all of this
+automatically (the shell captures its rendered tables via `domToExportModel`); paper
+document pages pass their own model (see trial-balance/page.tsx as reference).
+Paper documents must also follow the A4 pagination rule: pages split at ~A4 height,
+EVERY page repeats the full header (org, date, title, filter meta) with its own
+"Page No : n", grand TOTAL row (double-ruled) on the last page.
+
 ## Development Commands
 
 ### Backend (api-server-production/)

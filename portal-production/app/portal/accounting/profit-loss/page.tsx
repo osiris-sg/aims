@@ -18,14 +18,13 @@ import {
   Typography,
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import PrintIcon from "@mui/icons-material/Print";
-import DownloadIcon from "@mui/icons-material/Download";
 import LockIcon from "@mui/icons-material/Lock";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import CloseWizardDialog from "../_lib/CloseWizardDialog";
 import { PaperSheet, ReportHeader, ReportPrintCss, fmt, formatShortDate } from "../_lib/report-doc";
+import { ReportPrintExportButton, type ReportExportTable } from "../_lib/report-export";
 
 type Section = {
   title: string;
@@ -140,6 +139,68 @@ export default function ProfitLossPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cutOffDate, request]);
 
+  // Standard export model (CLAUDE.md report standard) for the ACTIVE tab —
+  // PDF / .xlsx / CSV mirror what the paper document shows.
+  const exportModel = () => {
+    const orgName = organization?.name || "";
+    if (tab === "PL" && pl) {
+      const rows: string[][] = [];
+      const bold: number[] = [];
+      const section = (s: Section, hideHeader?: boolean) => {
+        if (!hideHeader) { bold.push(rows.length); rows.push([s.title.toUpperCase(), "", "", ""]); }
+        for (const r of s.rows) rows.push([`  ${r.name}`, ...r.values.map(fmt)]);
+        bold.push(rows.length);
+        rows.push([s.subtotal.label, ...s.subtotal.values.map(fmt)]);
+      };
+      section(pl.sales);
+      section(pl.cogs, true);
+      bold.push(rows.length);
+      rows.push([pl.grossProfit.label, ...pl.grossProfit.values.map(fmt)]);
+      section(pl.otherIncome);
+      section(pl.expenses);
+      section(pl.tax);
+      bold.push(rows.length);
+      rows.push([pl.operationalNet.label, ...pl.operationalNet.values.map(fmt)]);
+      const table: ReportExportTable = { headers: ["Description", ...pl.columns.map((c) => c.label)], rows, boldRows: bold };
+      const from = new Date(new Date(pl.cutOffDate).getFullYear(), 0, 1);
+      return {
+        title: "Profit and Loss",
+        orgName,
+        metaLines: [`Period From : ${formatShortDate(from)}`, `Period To : ${formatShortDate(pl.cutOffDate)}`],
+        tables: [table],
+      };
+    }
+    if (tab === "BS" && bs) {
+      const rows: string[][] = [];
+      const bold: number[] = [];
+      const block = (title: string, sections: BsSection[], total: number, totalLabel: string) => {
+        bold.push(rows.length);
+        rows.push([title, ""]);
+        for (const s of sections) {
+          if (s.rows.length === 0 && s.total === 0) continue;
+          rows.push([`  ${s.title.toUpperCase()}`, ""]);
+          for (const r of s.rows) rows.push([`    ${(r.code.startsWith("__") ? "" : `${r.code}  `) + r.name}`, fmt(r.balance)]);
+          bold.push(rows.length);
+          rows.push([`  TOTAL ${s.title.toUpperCase()}`, fmt(s.total)]);
+        }
+        bold.push(rows.length);
+        rows.push([totalLabel, fmt(total)]);
+      };
+      block("ASSETS", bs.assets.sections, bs.assets.total, "TOTAL ASSETS");
+      block("LIABILITIES", bs.liabilities.sections, bs.liabilities.total, "TOTAL LIABILITIES");
+      block("EQUITY", [bs.equity], bs.equity.total, "TOTAL EQUITY");
+      bold.push(rows.length);
+      rows.push(["TOTAL LIABILITIES AND EQUITY", fmt(bs.totals.totalLiabilitiesAndEquity)]);
+      return {
+        title: "Balance Sheet",
+        orgName,
+        metaLines: [`As at : ${formatShortDate(bs.asOfDate)}`],
+        tables: [{ headers: ["Description", "Balance"], rows, boldRows: bold }],
+      };
+    }
+    return null;
+  };
+
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       {/* Page title — hidden on print */}
@@ -241,17 +302,7 @@ export default function ProfitLossPage() {
             <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
               Refresh
             </Button>
-            <Button startIcon={<PrintIcon />} variant="outlined" size="small" onClick={() => window.print()}>
-              Print
-            </Button>
-            <Button
-              startIcon={<DownloadIcon />}
-              variant="outlined"
-              size="small"
-              onClick={() => toast.info("CSV export coming soon")}
-            >
-              Export
-            </Button>
+            <ReportPrintExportButton getModel={exportModel} onPrint={() => window.print()} />
           </Stack>
         </Box>
       </Paper>
@@ -275,16 +326,8 @@ export default function ProfitLossPage() {
       )}
 
       {/* Document-style preview area — only this prints */}
-      {!loading && tab === "PL" && pl && (
-        <PaperSheet>
-          <ProfitLossDocument pl={pl} organization={organization} />
-        </PaperSheet>
-      )}
-      {!loading && tab === "BS" && bs && (
-        <PaperSheet>
-          <BalanceSheetDocument bs={bs} organization={organization} />
-        </PaperSheet>
-      )}
+      {!loading && tab === "PL" && pl && <ProfitLossDocument pl={pl} organization={organization} />}
+      {!loading && tab === "BS" && bs && <BalanceSheetDocument bs={bs} organization={organization} />}
 
       <ReportPrintCss />
 
@@ -299,97 +342,77 @@ export default function ProfitLossPage() {
   );
 }
 
+// A4 pagination (guru 2026-10-11, rule for EVERY paper report): rows chunk
+// into pages, each page repeats the full header with its own Page No, and the
+// final summary row closes the last page.
+const DOC_LINES_PER_PAGE = 34;
+
+function chunkLines(lines: React.ReactNode[], perPage = DOC_LINES_PER_PAGE): React.ReactNode[][] {
+  const pages: React.ReactNode[][] = [];
+  for (let i = 0; i < lines.length; i += perPage) pages.push(lines.slice(i, i + perPage));
+  return pages.length ? pages : [[]];
+}
+
 function ProfitLossDocument({ pl, organization }: { pl: PnlReport; organization: any }) {
   // Period boundaries — the legacy shows Period From / Period To at the top.
   // We treat From as start-of-year and To as the cut-off (matches the YTD column).
   const cut = new Date(pl.cutOffDate);
   const periodFrom = new Date(cut.getFullYear(), 0, 1);
 
-  return (
-    <Box>
-      <ReportHeader organization={organization} date={pl.cutOffDate} title="PROFIT AND LOSS" />
-
-      {/* Period meta line */}
-      <Box
-        sx={{
-          display: "flex",
-          gap: 4,
-          fontSize: "0.8125rem",
-          mb: 0.5,
-        }}
-      >
-        <Box sx={{ flex: 1 }}>
-          <Box component="span">Period From :</Box>{" "}
-          <Box component="span" sx={{ fontWeight: 600 }}>
-            {formatShortDate(periodFrom)}
-          </Box>
-        </Box>
-        <Box sx={{ flex: 1 }}>
-          <Box component="span">Period To :</Box>{" "}
-          <Box component="span" sx={{ fontWeight: 600 }}>
-            {formatShortDate(pl.cutOffDate)}
-          </Box>
-        </Box>
-        <Box sx={{ textAlign: "right" }}>Page No : 1</Box>
-      </Box>
-
-      {/* Column headers */}
-      <Box sx={{ borderTop: "1px solid #000", borderBottom: "1px solid #000", py: 0.5, mb: 0.5 }}>
-        <ReportRow
-          left="Description"
-          values={pl.columns.map((c) => c.label)}
-          bold
-          underlinePerCell={false}
-        />
-      </Box>
-
-      <PnlSection section={pl.sales} />
-      <Box sx={{ height: 6 }} />
-      <PnlSection section={pl.cogs} hideHeader />
-      <Box sx={{ height: 6 }} />
-
-      <ReportSubtotalRow
-        label={pl.grossProfit.label}
-        values={pl.grossProfit.values.map(fmt)}
-        topRule
-      />
-
-      <Box sx={{ height: 6 }} />
-      <PnlSection section={pl.otherIncome} />
-      <Box sx={{ height: 6 }} />
-      <PnlSection section={pl.expenses} />
-
-      <Box sx={{ height: 6 }} />
-      <PnlSection section={pl.tax} />
-
-      <Box sx={{ height: 8 }} />
-      <ReportSubtotalRow
-        label={pl.operationalNet.label}
-        values={pl.operationalNet.values.map(fmt)}
-        topRule
-        bottomRule
-        emphasize
-      />
-    </Box>
+  // Flatten the statement into uniform lines, then paginate. The legacy shows
+  // section headers and subtotals even at 0.
+  const lines: React.ReactNode[] = [];
+  let k = 0;
+  const pushSection = (section: Section, hideHeader?: boolean) => {
+    if (!hideHeader) lines.push(<ReportRow key={k++} left={section.title.toUpperCase()} values={[]} bold sectionLabel />);
+    for (const r of section.rows) lines.push(<ReportRow key={k++} left={r.name} values={r.values.map(fmt)} indent />);
+    lines.push(<ReportSubtotalRow key={k++} label={section.subtotal.label} values={section.subtotal.values.map(fmt)} topRule />);
+  };
+  pushSection(pl.sales);
+  pushSection(pl.cogs, true);
+  lines.push(<ReportSubtotalRow key={k++} label={pl.grossProfit.label} values={pl.grossProfit.values.map(fmt)} topRule />);
+  pushSection(pl.otherIncome);
+  pushSection(pl.expenses);
+  pushSection(pl.tax);
+  lines.push(
+    <Box key={k++} sx={{ mt: 1 }}>
+      <ReportSubtotalRow label={pl.operationalNet.label} values={pl.operationalNet.values.map(fmt)} topRule bottomRule emphasize />
+    </Box>,
   );
-}
+  const pages = chunkLines(lines);
 
-function PnlSection({ section, hideHeader }: { section: Section; hideHeader?: boolean }) {
-  // Always render — the legacy shows section headers and subtotals even at 0.
   return (
-    <Box>
-      {!hideHeader && (
-        <ReportRow left={section.title.toUpperCase()} values={[]} bold sectionLabel />
-      )}
-      {section.rows.map((r) => (
-        <ReportRow key={r.code} left={r.name} values={r.values.map(fmt)} indent />
+    <>
+      {pages.map((pageLines, pageIdx) => (
+        <PaperSheet key={pageIdx} breakAfter={pageIdx < pages.length - 1}>
+          <ReportHeader organization={organization} date={pl.cutOffDate} title="PROFIT AND LOSS" />
+
+          {/* Period meta line — repeated on every page */}
+          <Box sx={{ display: "flex", gap: 4, fontSize: "0.8125rem", mb: 0.5 }}>
+            <Box sx={{ flex: 1 }}>
+              <Box component="span">Period From :</Box>{" "}
+              <Box component="span" sx={{ fontWeight: 600 }}>
+                {formatShortDate(periodFrom)}
+              </Box>
+            </Box>
+            <Box sx={{ flex: 1 }}>
+              <Box component="span">Period To :</Box>{" "}
+              <Box component="span" sx={{ fontWeight: 600 }}>
+                {formatShortDate(pl.cutOffDate)}
+              </Box>
+            </Box>
+            <Box sx={{ textAlign: "right" }}>Page No : {pageIdx + 1}</Box>
+          </Box>
+
+          {/* Column headers */}
+          <Box sx={{ borderTop: "1px solid #000", borderBottom: "1px solid #000", py: 0.5, mb: 0.5 }}>
+            <ReportRow left="Description" values={pl.columns.map((c) => c.label)} bold underlinePerCell={false} />
+          </Box>
+
+          {pageLines}
+        </PaperSheet>
       ))}
-      <ReportSubtotalRow
-        label={section.subtotal.label}
-        values={section.subtotal.values.map(fmt)}
-        topRule
-      />
-    </Box>
+    </>
   );
 }
 
@@ -467,101 +490,76 @@ function ReportSubtotalRow({
 }
 
 function BalanceSheetDocument({ bs, organization }: { bs: BsReport; organization: any }) {
-  return (
-    <Box>
-      <ReportHeader organization={organization} date={bs.asOfDate} title="BALANCE SHEET" />
-
-      <Box
-        sx={{
-          display: "flex",
-          gap: 4,
-          fontSize: "0.8125rem",
-          mb: 0.5,
-        }}
-      >
-        <Box sx={{ flex: 1 }}>
-          As at:{" "}
-          <Box component="span" sx={{ fontWeight: 600 }}>
-            {formatShortDate(bs.asOfDate)}
-          </Box>
-        </Box>
-        <Chip
-          size="small"
-          variant="outlined"
-          label={bs.totals.balanced ? "Balanced ✓" : "OUT OF BALANCE"}
-          color={bs.totals.balanced ? "success" : "error"}
-          sx={{ fontWeight: 700 }}
-        />
-        <Box sx={{ textAlign: "right" }}>Page No : 1</Box>
-      </Box>
-
-      {/* Header rule */}
-      <Box sx={{ borderTop: "1px solid #000", borderBottom: "1px solid #000", py: 0.5, mb: 1 }}>
-        <BsRow left="Description" right="Balance" bold />
-      </Box>
-
-      {/* Assets */}
-      <BsBlock title="ASSETS" sections={bs.assets.sections} total={bs.assets.total} totalLabel="TOTAL ASSETS" />
-
-      <Box sx={{ height: 12 }} />
-
-      {/* Liabilities */}
-      <BsBlock
-        title="LIABILITIES"
-        sections={bs.liabilities.sections}
-        total={bs.liabilities.total}
-        totalLabel="TOTAL LIABILITIES"
-      />
-
-      <Box sx={{ height: 12 }} />
-
-      {/* Equity */}
-      <BsBlock title="EQUITY" sections={[bs.equity]} total={bs.equity.total} totalLabel="TOTAL EQUITY" />
-
-      <Box sx={{ height: 12 }} />
-      <BsRow
-        left="TOTAL LIABILITIES AND EQUITY"
-        right={fmt(bs.totals.totalLiabilitiesAndEquity)}
-        bold
-        topRule
-        bottomRule
-      />
-    </Box>
+  // Flatten blocks into uniform lines, then paginate like the P&L.
+  const lines: React.ReactNode[] = [];
+  let k = 0;
+  const pushBlock = (title: string, sections: BsSection[], total: number, totalLabel: string) => {
+    lines.push(<BsRow key={k++} left={title} right="" bold sectionLabel />);
+    for (const s of sections) {
+      if (s.rows.length === 0 && s.total === 0) continue;
+      lines.push(<BsRow key={k++} left={s.title} right="" subSection indent />);
+      for (const r of s.rows) {
+        lines.push(
+          <BsRow key={k++} left={(r.code.startsWith("__") ? "" : `${r.code}  `) + r.name} right={fmt(r.balance)} indent={2} />,
+        );
+      }
+      lines.push(
+        <Box key={k++} sx={{ mb: 1 }}>
+          <BsRow left={`TOTAL ${s.title.toUpperCase()}`} right={fmt(s.total)} bold topRule indent />
+        </Box>,
+      );
+    }
+    lines.push(
+      <Box key={k++} sx={{ mb: 1.5 }}>
+        <BsRow left={totalLabel} right={fmt(total)} bold topRule />
+      </Box>,
+    );
+  };
+  pushBlock("ASSETS", bs.assets.sections, bs.assets.total, "TOTAL ASSETS");
+  pushBlock("LIABILITIES", bs.liabilities.sections, bs.liabilities.total, "TOTAL LIABILITIES");
+  pushBlock("EQUITY", [bs.equity], bs.equity.total, "TOTAL EQUITY");
+  lines.push(
+    <Box key={k++} sx={{ mt: 1 }}>
+      <BsRow left="TOTAL LIABILITIES AND EQUITY" right={fmt(bs.totals.totalLiabilitiesAndEquity)} bold topRule bottomRule />
+    </Box>,
   );
-}
+  const pages = chunkLines(lines);
 
-function BsBlock({
-  title,
-  sections,
-  total,
-  totalLabel,
-}: {
-  title: string;
-  sections: BsSection[];
-  total: number;
-  totalLabel: string;
-}) {
   return (
-    <Box>
-      <BsRow left={title} right="" bold sectionLabel />
-      {sections.map((s) =>
-        s.rows.length === 0 && s.total === 0 ? null : (
-          <Box key={s.title} sx={{ mb: 1 }}>
-            <BsRow left={s.title} right="" subSection indent />
-            {s.rows.map((r) => (
-              <BsRow
-                key={r.code}
-                left={(r.code.startsWith("__") ? "" : `${r.code}  `) + r.name}
-                right={fmt(r.balance)}
-                indent={2}
+    <>
+      {pages.map((pageLines, pageIdx) => (
+        <PaperSheet key={pageIdx} breakAfter={pageIdx < pages.length - 1}>
+          <ReportHeader organization={organization} date={bs.asOfDate} title="BALANCE SHEET" />
+
+          <Box sx={{ display: "flex", gap: 4, fontSize: "0.8125rem", mb: 0.5 }}>
+            <Box sx={{ flex: 1 }}>
+              As at:{" "}
+              <Box component="span" sx={{ fontWeight: 600 }}>
+                {formatShortDate(bs.asOfDate)}
+              </Box>
+            </Box>
+            {pageIdx === 0 && (
+              <Chip
+                size="small"
+                variant="outlined"
+                className="no-print"
+                label={bs.totals.balanced ? "Balanced ✓" : "OUT OF BALANCE"}
+                color={bs.totals.balanced ? "success" : "error"}
+                sx={{ fontWeight: 700 }}
               />
-            ))}
-            <BsRow left={`TOTAL ${s.title.toUpperCase()}`} right={fmt(s.total)} bold topRule indent />
+            )}
+            <Box sx={{ textAlign: "right" }}>Page No : {pageIdx + 1}</Box>
           </Box>
-        ),
-      )}
-      <BsRow left={totalLabel} right={fmt(total)} bold topRule />
-    </Box>
+
+          {/* Header rule */}
+          <Box sx={{ borderTop: "1px solid #000", borderBottom: "1px solid #000", py: 0.5, mb: 1 }}>
+            <BsRow left="Description" right="Balance" bold />
+          </Box>
+
+          {pageLines}
+        </PaperSheet>
+      ))}
+    </>
   );
 }
 

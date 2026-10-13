@@ -45,6 +45,7 @@ import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { PaperSheet, ReportHeader, ReportPrintCss, fmt as docFmt, formatShortDate } from "./report-doc";
+import { ReportPrintExportButton, type ReportExportModel, type ReportExportTable } from "./report-export";
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -449,9 +450,11 @@ export default function GLWorkspace() {
             </Typography>
           )}
           <Box sx={{ flex: 1 }} />
-          <Button startIcon={<PrintIcon />} variant="contained" size="small" onClick={() => window.print()}>
-            Print
-          </Button>
+          <ReportPrintExportButton
+            variant="contained"
+            getModel={() => glExportModel(glDoc, organization?.name || "")}
+            onPrint={() => window.print()}
+          />
         </Stack>
         <GeneralLedgerDocument doc={glDoc} organization={organization} />
         <ReportPrintCss />
@@ -534,9 +537,23 @@ export default function GLWorkspace() {
         >
           Accounts Payable
         </Button>
-        <Button variant="outlined" startIcon={<PrintIcon />} onClick={openPrintDialog}>
-          Print
-        </Button>
+        {/* Print = the legacy GENERAL LEDGER prompt (date + account range) →
+            paper document; the other destinations export the balances table. */}
+        <ReportPrintExportButton
+          size="medium"
+          onPrint={openPrintDialog}
+          getModel={() => {
+            if (!netRows.length) return null;
+            const rows = visibleRows.map((r) => [r.code, r.name, r.netDebit ? fmt(r.netDebit) : "", r.netCredit ? fmt(r.netCredit) : ""]);
+            rows.push(["TOTAL", "", fmt(totals.debit), fmt(totals.credit)]);
+            return {
+              title: "General Ledger Balances",
+              orgName: organization?.name || "",
+              metaLines: [`Cut-Off-Date : ${new Date(cutOff).toLocaleDateString("en-GB")}`],
+              tables: [{ headers: ["Account", "Description", "Debit", "Credit"], rows, boldRows: [rows.length - 1] }],
+            };
+          }}
+        />
         <Button variant="outlined" startIcon={<AssessmentOutlinedIcon />} onClick={() => setReportsOpen(true)}>
           View Reports
         </Button>
@@ -851,6 +868,42 @@ function buildGlItems(doc: GlDoc): GlDocItem[] {
   items.push({ kind: "total", debit: R(totDebit), credit: R(totCredit), balance: R(totDebit - totCredit) });
   items.push({ kind: "note" });
   return items;
+}
+
+// Export model (CLAUDE.md report standard): same lines as the paper document,
+// one table per account plus the grand TOTAL.
+function glExportModel(doc: GlDoc, orgName: string): ReportExportModel {
+  const headers = ["Date", "Reference", "Remarks", "X-Reference", "Debit", "Credit", "Balance"];
+  const tables: ReportExportTable[] = [];
+  let note: string | undefined;
+  let cur: ReportExportTable | null = null;
+  for (const it of buildGlItems(doc)) {
+    if (it.kind === "account") {
+      cur = { heading: `${it.code}  ${it.name.toUpperCase()}`, headers, rows: [], boldRows: [] };
+      tables.push(cur);
+    } else if (it.kind === "line" && cur) {
+      if (it.bold) cur.boldRows!.push(cur.rows.length);
+      cur.rows.push([...it.cells]);
+    } else if (it.kind === "total") {
+      tables.push({
+        headers,
+        rows: [["", "", "", "TOTAL", docFmt(it.debit), docFmt(it.credit), docFmt(it.balance)]],
+        boldRows: [0],
+      });
+    } else if (it.kind === "note") {
+      note = "Note: All figures shown are in local currency (SGD)";
+    }
+  }
+  return {
+    title: "General Ledger",
+    orgName,
+    metaLines: [
+      `From Date : ${formatShortDate(doc.fromDate || doc.toDate)}   To Date : ${formatShortDate(doc.toDate)}`,
+      `From Account : ${doc.fromAccount}   To Account : ${doc.toAccount}`,
+    ],
+    tables,
+    note,
+  };
 }
 
 // Greedy A4 pagination: never leave an account header or a SUB-TOTAL stranded

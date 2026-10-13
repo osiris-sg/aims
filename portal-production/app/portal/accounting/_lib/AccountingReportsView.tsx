@@ -38,6 +38,7 @@ import {
   AgedReceivablesSummary, AgedReceivablesDetail, AgedPayablesSummary, AgedPayablesDetail,
   ReceivableInvoices, ReceivableInvoiceDetail, PayableInvoices, PayableInvoiceDetail,
   ContactTransactionsSummary, IncomeExpensesByContact, DebtorStatement, AuditTrail, ReceiptListing, SummaryAgeing, DetailedAgeing, DebtorListing, HistoricalListing, JvListing, PvListing,
+  CreditorStatement, ApSummaryAgeing, ApDetailedAgeing, CreditorListing, ApHistoricalListing,
   GeneralLedgerDetail, GeneralLedgerSummary,
   AccountTransactions, ExpenseListing, TrialBalanceReport, JournalReport, BankSummary,
   ProfitLoss, BalanceSheet, ForeignBankListing, GSTReturn,
@@ -86,6 +87,12 @@ export const REPORTS: ReportEntry[] = [
   { key: "soa", label: "Customer Statement", description: "Per-customer statement of account", category: "Receivables", Component: StatementOfAccountPage },
   { key: "debtor-statement", label: "Debtor Statement", description: "Legacy statement-of-account — open items, running balance and monthly ageing", category: "Receivables", Component: DebtorStatement },
   { key: "receipt-listing", label: "Receipts Listing", description: "Official receipts for a period, grouped by deposit-to bank account", category: "Receivables", Component: ReceiptListing },
+  // AP legacy set — creditor twins of the AR reports (guru 2026-10-14).
+  { key: "creditor-statement", label: "Statement-Of-Accounts", description: "Legacy creditor statement — open items, running balance and monthly ageing", category: "Payables", Component: CreditorStatement },
+  { key: "ap-summary-ageing", label: "Creditor Summary Ageing Analysis", description: "Outstanding per supplier bucketed by calendar month, with contact info", category: "Payables", Component: ApSummaryAgeing },
+  { key: "ap-detailed-ageing", label: "Creditor Detailed Ageing Analysis", description: "Every outstanding bill per supplier, aged by calendar month with running balance", category: "Payables", Component: ApDetailedAgeing },
+  { key: "creditor-listing", label: "Creditor Listing", description: "Every creditor's balance as at a cut-off date — local and foreign amounts, DR/CR", category: "Payables", Component: CreditorListing },
+  { key: "ap-historical-listing", label: "Creditor Historical Listing", description: "Per-creditor transaction history for a period with BALANCE B/F and sub-totals", category: "Payables", Component: ApHistoricalListing },
   { key: "pv-listing", label: "Payment Voucher Listing", description: "Bill payments for a period, grouped by paid-from bank account", category: "Payables", Component: PvListing },
   { key: "summary-ageing", label: "Summary Ageing Analysis", description: "Outstanding per customer bucketed by calendar month, with customer contact info", category: "Receivables", Component: SummaryAgeing },
   { key: "detailed-ageing", label: "Detailed Ageing Analysis", description: "Every outstanding document per customer, aged by calendar month with running balance", category: "Receivables", Component: DetailedAgeing },
@@ -290,7 +297,7 @@ function ReportsInner({
   const rawTab = searchParams.get("tab");
   // Legacy-UX-only reports: hidden from the directory (and unresolvable via
   // ?tab=) for orgs without the enableLegacyAccountingUx flag.
-  const LEGACY_ONLY_REPORT_KEYS = ["debtor-statement", "audit-trail", "receipt-listing", "summary-ageing", "detailed-ageing", "debtor-listing", "historical-listing", "jv-listing", "pv-listing"];
+  const LEGACY_ONLY_REPORT_KEYS = ["debtor-statement", "audit-trail", "receipt-listing", "summary-ageing", "detailed-ageing", "debtor-listing", "historical-listing", "jv-listing", "pv-listing", "creditor-statement", "ap-summary-ageing", "ap-detailed-ageing", "creditor-listing", "ap-historical-listing"];
   const visibleReports = useMemo(
     () => (isLegacyAccountingUxEnabled ? REPORTS : REPORTS.filter((r) => !LEGACY_ONLY_REPORT_KEYS.includes(r.key))),
     // eslint-disable-next-line react-hooks/exhaustive-deps

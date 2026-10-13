@@ -40,7 +40,9 @@ import SearchIcon from "@mui/icons-material/Search";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
 import { useGetSuppliers } from "@/app/portal/hooks/api/useSuppliers";
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import JournalEntryDialog from "./JournalEntryDialog";
+import { ReportPrintExportButton } from "./report-export";
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -57,11 +59,11 @@ const AP_REPORTS: { key: string; label: string; description: string; tab?: strin
   { key: "purchase-journal-listing", label: "Purchase Journal Listing", description: "All supplier invoices (bills) — the purchase journal", href: "/portal/accounting/payables/purchase-journal" },
   { key: "pv-listing", label: "Payment Voucher Listing", description: "Payment vouchers for a period, grouped by paid-from bank account", tab: "pv-listing" },
   { key: "jv-listing", label: "Journal Voucher Listing", description: "Every journal line for a period — Unconfirmed and Confirmed vouchers", tab: "jv-listing" },
-  { key: "creditor-statement", label: "Statement-Of-Accounts", description: "Legacy creditor statement — open items, running balance and monthly ageing", hint: "Being built — guru's spec next" },
-  { key: "ap-summary-ageing", label: "Summary Ageing Analysis", description: "Outstanding per supplier bucketed by calendar month, with contact info", hint: "Being built — guru's spec next" },
-  { key: "ap-detailed-ageing", label: "Detailed Ageing Analysis", description: "Every outstanding document per supplier, aged by calendar month with running balance", hint: "Being built — guru's spec next" },
-  { key: "creditor-listing", label: "Creditor Listing", description: "Every creditor's balance as at a cut-off date — local and foreign amounts, DR/CR", hint: "Being built — guru's spec next" },
-  { key: "ap-historical-listing", label: "Historical Listing", description: "Per-creditor transaction history for a period with BALANCE B/F and sub-totals", hint: "Being built — guru's spec next" },
+  { key: "creditor-statement", label: "Statement-Of-Accounts", description: "Legacy creditor statement — open items, running balance and monthly ageing", tab: "creditor-statement" },
+  { key: "ap-summary-ageing", label: "Summary Ageing Analysis", description: "Outstanding per supplier bucketed by calendar month, with contact info", tab: "ap-summary-ageing" },
+  { key: "ap-detailed-ageing", label: "Detailed Ageing Analysis", description: "Every outstanding document per supplier, aged by calendar month with running balance", tab: "ap-detailed-ageing" },
+  { key: "creditor-listing", label: "Creditor Listing", description: "Every creditor's balance as at a cut-off date — local and foreign amounts, DR/CR", tab: "creditor-listing" },
+  { key: "ap-historical-listing", label: "Historical Listing", description: "Per-creditor transaction history for a period with BALANCE B/F and sub-totals", tab: "ap-historical-listing" },
 ];
 
 type AgedRow = {
@@ -85,6 +87,7 @@ type LedgerTx = {
 export default function APWorkspace() {
   const router = useRouter();
   const { request } = useAccountingApi();
+  const { organization } = useOrganization();
   // Phone: the creditor-ledger dialog goes full-screen below sm
   const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
 
@@ -256,12 +259,16 @@ export default function APWorkspace() {
                   {fmt(ledger?.opening ?? 0)}
                 </Typography>
               </Paper>
-              {/* Same spot as AR's Statement of Accounts button; deep-links into
-                  the creditor SOA report once that report is built. */}
+              {/* Same spot as AR's Statement of Accounts button — deep-links into
+                  the creditor SOA report with this supplier + period prefilled. */}
               <Button
                 variant="outlined"
                 startIcon={<ReceiptLongOutlinedIcon />}
-                onClick={() => toast.info("Creditor Statement-Of-Accounts report is being built — guru's spec next")}
+                onClick={() =>
+                  router.push(
+                    `/portal/accounting/payables?tab=creditor-statement&contactId=${selected.id}&asOf=${cutOff}`,
+                  )
+                }
               >
                 Statement of Accounts
               </Button>
@@ -396,6 +403,26 @@ export default function APWorkspace() {
         >
           Purchase Journal
         </Button>
+        <ReportPrintExportButton
+          size="medium"
+          getModel={() => {
+            if (!rows.length) return null;
+            const data = visibleRows.map((r) => [
+              codeById.get(r.contactId) || "",
+              r.contactName,
+              fmt(r.total),
+              r.currency || "SGD",
+              r.currency ? fmt(r.foreignTotal || 0) : fmt(r.total),
+            ]);
+            data.push(["TOTAL", "", fmt(search ? visibleTotal : grandTotal), "", ""]);
+            return {
+              title: "Supplier Balances",
+              orgName: organization?.name || "",
+              metaLines: [`Cut-Off-Date : ${new Date(cutOff).toLocaleDateString("en-GB")}`],
+              tables: [{ headers: ["Supplier Code", "Name", "Amount", "Curr", "Foreign Amount"], rows: data, boldRows: [data.length - 1] }],
+            };
+          }}
+        />
         <Button variant="outlined" startIcon={<AssessmentOutlinedIcon />} onClick={() => setReportsOpen(true)}>
           View Reports
         </Button>

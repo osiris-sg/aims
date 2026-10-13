@@ -39,11 +39,11 @@ import autoTable from "jspdf-autotable";
 import JSZip from "jszip";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../api";
-import { useGetCustomers } from "@/app/portal/hooks/api";
 import { useOrganization } from "@hooks/useOrganization";
 import ReportShell, { downloadCsv } from "./ReportShell";
 import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
 import { FilterSelect } from "./DateRangeSelect";
+import { soaSummaryOf, useSideContacts, type ReportSide } from "./side";
 
 const R = (n: number) => Math.round(n * 100) / 100;
 const fmt = (n: number) =>
@@ -97,9 +97,9 @@ type CustomerStatement = {
   buckets: ReturnType<typeof bucketizeByMonth>;
 };
 
-export default function DebtorStatementReport() {
+export default function DebtorStatementReport({ side = "receivable" }: { side?: ReportSide }) {
   const { request } = useAccountingApi();
-  const { customers = [] } = useGetCustomers({ limit: 1000 });
+  const { sorted: sortedCustomers, codeOf, words } = useSideContacts(side);
   const searchParams = useSearchParams();
 
   const [fromCustomer, setFromCustomer] = useState<any>(null);
@@ -115,33 +115,22 @@ export default function DebtorStatementReport() {
   const [monthDetail, setMonthDetail] = useState<{ label: string; docs: AgedDoc[] } | null>(null);
   const { organization } = useOrganization();
 
-  const sortedCustomers = useMemo(
-    () =>
-      [...(customers || [])].sort((a: any, b: any) =>
-        String(a.customerCode || "").localeCompare(String(b.customerCode || "")),
-      ),
-    [customers],
-  );
-
   const load = useCallback(
     async (fromC = fromCustomer, toC = toCustomer, cut = asOf, sc = scope) => {
       if (!fromC?.id && !toC?.id) {
-        toast.warn("Pick the customer range first");
+        toast.warn(`Pick the ${words.contactNoun} range first`);
         return;
       }
       const a = fromC || toC;
       const b = toC || fromC;
-      const [lo, hi] =
-        String(a.customerCode || "").localeCompare(String(b.customerCode || "")) <= 0
-          ? [a.customerCode || "", b.customerCode || ""]
-          : [b.customerCode || "", a.customerCode || ""];
+      const [lo, hi] = codeOf(a).localeCompare(codeOf(b)) <= 0 ? [codeOf(a), codeOf(b)] : [codeOf(b), codeOf(a)];
       let targets = sortedCustomers.filter((c: any) => {
-        const code = String(c.customerCode || "");
+        const code = codeOf(c);
         return code && code.localeCompare(lo) >= 0 && code.localeCompare(hi) <= 0;
       });
       if (!targets.length) targets = [a];
       if (targets.length > 50) {
-        toast.warn(`Range covers ${targets.length} customers — showing the first 50`);
+        toast.warn(`Range covers ${targets.length} ${words.contactNoun}s — showing the first 50`);
         targets = targets.slice(0, 50);
       }
       setLoading(true);
@@ -149,8 +138,8 @@ export default function DebtorStatementReport() {
         const prevEnd = prevMonthEndISO(cut);
         // One aged-detail call per as-of covers EVERY customer in the range.
         const [agedPrevRaw, agedNowRaw] = await Promise.all([
-          request(`/statements/aged?side=receivable&asOf=${prevEnd}&level=detail&ageingBy=documentDate`),
-          request(`/statements/aged?side=receivable&asOf=${cut}&level=detail&ageingBy=documentDate`),
+          request(`/statements/aged?side=${words.agedSide}&asOf=${prevEnd}&level=detail&ageingBy=documentDate`),
+          request(`/statements/aged?side=${words.agedSide}&asOf=${cut}&level=detail&ageingBy=documentDate`),
         ]);
         const prevByContact = new Map<string, AgedDoc[]>(
           ((unwrap(agedPrevRaw)?.groups || []) as any[]).map((g: any) => [g.contactId, g.docs || []]),
@@ -166,9 +155,9 @@ export default function DebtorStatementReport() {
           const chunk = targets.slice(i, i + chunkSize);
           const soas = await Promise.all(
             chunk.map((c: any) =>
-              request(`/statements/soa`, {
+              request(words.soaUrl, {
                 method: "POST",
-                body: JSON.stringify({ customerId: c.id, startDate: monthStartISO(cut), endDate: cut, format: "json" }),
+                body: JSON.stringify({ [words.soaIdKey]: c.id, startDate: monthStartISO(cut), endDate: cut, format: "json" }),
               }).catch(() => null),
             ),
           );
@@ -183,10 +172,10 @@ export default function DebtorStatementReport() {
             if (sc === "outstanding") {
               for (const d of prevDocs) {
                 run = R(run + (Number(d.total) || 0));
-                rows.push({ reference: d.number, date: d.date, remarks: d.reference || "INVOICE", debit: Number(d.total) || 0, credit: 0, running: run });
+                rows.push({ reference: d.number, date: d.date, remarks: d.reference || (side === "payable" ? "SUPPLIER INVOICE" : "INVOICE"), debit: Number(d.total) || 0, credit: 0, running: run });
               }
             } else {
-              run = R(Number(soa?.statement?.openingBalance) || 0);
+              run = R(soaSummaryOf(soa).opening);
               rows.push({ reference: "", date: null, remarks: "BALANCE B/F", debit: 0, credit: 0, running: run });
             }
             for (const t of monthTxs) {
@@ -205,7 +194,7 @@ export default function DebtorStatementReport() {
             const hasContent = rows.some((r) => r.debit || r.credit || Math.abs(r.running) > 0.005);
             if (!hasContent && targets.length > 1) return;
             built.push({
-              customer: { id: c.id, name: c.name || "", code: c.customerCode || "" },
+              customer: { id: c.id, name: c.name || "", code: codeOf(c) },
               rows,
               totalDebit: R(rows.reduce((s, r) => s + r.debit, 0)),
               totalCredit: R(rows.reduce((s, r) => s + r.credit, 0)),
@@ -356,7 +345,7 @@ export default function DebtorStatementReport() {
       const blob = await zip.generateAsync({ type: "blob" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `Debtor-Statements-${asOf}.zip`;
+      a.download = `${words.party}-Statements-${asOf}.zip`;
       a.click();
       URL.revokeObjectURL(a.href);
       toast.success(`${statements.length} statement PDF${statements.length === 1 ? "" : "s"} zipped`);
@@ -369,8 +358,8 @@ export default function DebtorStatementReport() {
 
   const exportCsv = () => {
     if (!statements?.length) return;
-    downloadCsv(`Statement-Of-Accounts-${asOf}.csv`, [
-      ["Customer", "Code", "Reference", "Date", "Remarks", "Debit", "Credit", "Balance"],
+    downloadCsv(`${words.party}-Statement-Of-Accounts-${asOf}.csv`, [
+      [side === "payable" ? "Supplier" : "Customer", "Code", "Reference", "Date", "Remarks", "Debit", "Credit", "Balance"],
       ...statements.flatMap((s) => [
         ...s.rows.map((r) => [s.customer.name, s.customer.code, r.reference, r.date || "", r.remarks, r.debit.toFixed(2), r.credit.toFixed(2), r.running.toFixed(2)]),
         [s.customer.name, s.customer.code, "TOTAL", "", "", s.totalDebit.toFixed(2), s.totalCredit.toFixed(2), s.closing.toFixed(2)],
@@ -387,11 +376,11 @@ export default function DebtorStatementReport() {
         size="small"
         sx={{ width: 280, mt: 0.25 }}
         options={sortedCustomers}
-        getOptionLabel={(o: any) => `${o.customerCode ? `${o.customerCode} — ` : ""}${o.name || ""}`}
+        getOptionLabel={(o: any) => `${codeOf(o) ? `${codeOf(o)} — ` : ""}${o.name || ""}`}
         isOptionEqualToValue={(o: any, v: any) => o?.id === v?.id}
         value={value}
         onChange={(_, v) => onChange(v)}
-        renderInput={(p) => <TextField {...p} placeholder="Search customer" />}
+        renderInput={(p) => <TextField {...p} placeholder={`Search ${words.contactNoun}`} />}
       />
     </Box>
   );
@@ -403,11 +392,11 @@ export default function DebtorStatementReport() {
       onUpdate={() => load()}
       filters={
         <>
-          {customerPicker("From customer", fromCustomer, (v) => {
+          {customerPicker(`From ${words.contactNoun}`, fromCustomer, (v) => {
             setFromCustomer(v);
             if (!toCustomer) setToCustomer(v);
           })}
-          {customerPicker("To customer", toCustomer, (v) => {
+          {customerPicker(`To ${words.contactNoun}`, toCustomer, (v) => {
             setToCustomer(v);
             if (!fromCustomer) setFromCustomer(v);
           })}
@@ -458,7 +447,7 @@ export default function DebtorStatementReport() {
       }
       footerInfo={
         statements?.length
-          ? `Customer ${current + 1} of ${statements.length} · Range total owed ${fmt(grandOwed)}`
+          ? `${side === "payable" ? "Supplier" : "Customer"} ${current + 1} of ${statements.length} · Range total owed ${fmt(grandOwed)}`
           : ""
       }
       onExportCsv={statements?.length ? exportCsv : undefined}
@@ -472,14 +461,14 @@ export default function DebtorStatementReport() {
                 {/* One customer per view (guru 2026-07-24) — step through the
                     range with ‹ ›; long statements paginate in their PDF. */}
                 <Stack direction="row" alignItems="center" gap={1} sx={{ mb: 1.5 }}>
-                  <Tooltip title="Previous customer">
+                  <Tooltip title={`Previous ${words.contactNoun}`}>
                     <span>
                       <IconButton size="small" onClick={() => setCurrent((c) => Math.max(0, c - 1))} disabled={current === 0}>
                         <NavigateBeforeIcon />
                       </IconButton>
                     </span>
                   </Tooltip>
-                  <Tooltip title="Next customer">
+                  <Tooltip title={`Next ${words.contactNoun}`}>
                     <span>
                       <IconButton
                         size="small"
@@ -572,7 +561,7 @@ export default function DebtorStatementReport() {
         </>
       ) : (
         <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
-          Pick a customer range and press Update to build the statements.
+          Pick a range and press Update to build the statements.
         </Typography>
       )}
     </ReportShell>

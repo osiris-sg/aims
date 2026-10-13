@@ -7,13 +7,12 @@
 import React, { useRef, useState } from "react";
 import {
   Box, Button, CircularProgress, FormControlLabel, InputAdornment,
-  Menu, MenuItem, Stack, Switch, TextField, Tooltip, Typography,
+  Stack, Switch, TextField, Typography,
 } from "@mui/material";
-import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
-import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
-import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
 import SearchIcon from "@mui/icons-material/Search";
 import { ReportSearchContext } from "./ReportTable";
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import { ReportPrintExportButton, domToExportModel } from "../report-export";
 
 export interface ReportShellProps {
   title: string;
@@ -41,27 +40,14 @@ export default function ReportShell({
   // report filters its rows live (guru 2026-07-15: search on ALL reports).
   const [reportSearch, setReportSearch] = useState("");
 
-  // Export dropdown. Excel export is generic: it serialises the rendered
-  // report tables from the DOM into an Excel-compatible HTML .xls, so every
-  // report gets it without a per-report exporter.
-  const [exportAnchor, setExportAnchor] = useState<null | HTMLElement>(null);
+  // Print & export per the report standard (CLAUDE.md "Report print & export
+  // standard"): the rendered tables are captured generically from the DOM into
+  // one export model, so every report gets PDF/.xlsx/CSV — and Print opens the
+  // GENERATED DOCUMENT with the print dialog, never the raw app screen.
+  const { organization } = useOrganization();
   const reportContentRef = useRef<HTMLDivElement | null>(null);
-  const exportExcel = () => {
-    const tables = reportContentRef.current?.querySelectorAll("table");
-    if (!tables || tables.length === 0) return;
-    const tableHtml = Array.from(tables).map((t) => t.outerHTML).join("<br/>");
-    const html =
-      `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">` +
-      `<head><meta charset="utf-8"/><style>td,th{font-family:Helvetica,Arial,sans-serif;font-size:11pt;}</style></head>` +
-      `<body><b>${title}</b><br/>${(headerLines || []).join("<br/>")}<br/><br/>${tableHtml}</body></html>`;
-    const blob = new Blob(["﻿", html], { type: "application/vnd.ms-excel" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${title.replace(/[^\w-]+/g, "_").toLowerCase()}.xls`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const captureModel = () =>
+    domToExportModel(reportContentRef.current, title, organization?.name || "", headerLines);
   // NOTE: the hosting section page already shows "Back to X | <Report name>",
   // so the shell renders no header of its own — the report card carries the
   // title (guru, 2026-07-10).
@@ -148,37 +134,7 @@ export default function ReportShell({
               )}
             </Box>
             <Typography variant="body2" color="text.secondary">{footerInfo || ""}</Typography>
-            <Stack direction="row" gap={1}>
-              <Tooltip title="Print / save as PDF">
-                <Button size="small" variant="outlined" startIcon={<PrintOutlinedIcon />} onClick={() => window.print()}>Print</Button>
-              </Tooltip>
-              {/* Export dropdown — pick the destination format (guru 2026-07-27). */}
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<FileDownloadOutlinedIcon />}
-                endIcon={<ArrowDropDownIcon />}
-                onClick={(e) => setExportAnchor(e.currentTarget)}
-              >
-                Export
-              </Button>
-              <Menu anchorEl={exportAnchor} open={!!exportAnchor} onClose={() => setExportAnchor(null)}
-                anchorOrigin={{ vertical: "top", horizontal: "right" }}
-                transformOrigin={{ vertical: "bottom", horizontal: "right" }}
-              >
-                {onExportCsv && (
-                  <MenuItem onClick={() => { setExportAnchor(null); onExportCsv(); }}>
-                    CSV (.csv)
-                  </MenuItem>
-                )}
-                <MenuItem onClick={() => { setExportAnchor(null); exportExcel(); }}>
-                  Excel (.xls)
-                </MenuItem>
-                <MenuItem onClick={() => { setExportAnchor(null); window.print(); }}>
-                  PDF (print dialog)
-                </MenuItem>
-              </Menu>
-            </Stack>
+            <ReportPrintExportButton getModel={captureModel} onExportCsv={onExportCsv} />
           </Box>
         </Box>
       </Box>
