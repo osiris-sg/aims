@@ -6,6 +6,7 @@ import { CustomersService } from '../customers/customers.service';
 import { PostingQueueService } from '../posting-queue/posting-queue.service';
 import { AUTO_POST_INGEST_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 import { IngestBatchDto, IngestClient, IngestInvoice } from './dto/ingest-batch.dto';
+import { stampDocumentMoney } from '../common/document-money';
 
 // ---------------------------------------------------------------------------
 // Biofuel weighbridge JSON batch ingestion.
@@ -221,6 +222,10 @@ export class IngestionService {
       subTotal,
       gstAmount,
       nettTotal,
+      // Canonical GST-inclusive gross (totalWithTax + legacy twin) — without
+      // it the SOA/statement readers that trust stamped keys drop the invoice
+      // (BIPL-JPSG-* missing from mid-month statements, 2026-10-13).
+      ...stampDocumentMoney({}, { gross: nettTotal }),
       documentInfo: {
         documentNumber: invoiceNumber,
         date: invoiceDate.toISOString(),
@@ -398,6 +403,7 @@ export class IngestionService {
       subTotal,
       gstAmount,
       nettTotal,
+      ...stampDocumentMoney({}, { gross: nettTotal }),
       documentInfo: {
         documentNumber: inv.invoiceNumber,
         date: docDateIso,

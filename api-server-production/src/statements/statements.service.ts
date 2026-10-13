@@ -1,6 +1,6 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
-import { amountPaidOf, grossOf, grossStampOf, outstandingOf, owedOf } from '../common/document-money';
+import { amountPaidOf, grossOf, outstandingOf, owedOf } from '../common/document-money';
 import { docRef, refWith } from '../common/doc-ref';
 import { GenerateSOADto } from './dto/generate-soa.dto';
 
@@ -68,7 +68,11 @@ export class StatementsService {
         const c: any = doc.config || {};
         if (c.voided) continue;
         const d = c.date ? new Date(c.date) : doc.createdAt;
-        const gross = R(grossStampOf(c) ?? c.totalAmount ?? 0);
+        // grossOf = full fallback chain (totalWithTax → nettTotal → xeroGross →
+        // totalAmount → documentInfo.nettTotal). Ingested invoices carry only
+        // nettTotal, so the stamped-keys-only read dropped them from the SOA
+        // (BIPL-JPSG-* vanishing when the period ended mid-month, 2026-10-13).
+        const gross = R(grossOf(c) ?? 0);
         if (gross <= 0) continue;
         if (doc.type === 'INVOICE') {
           add(d, { date: d, reference: docRef(doc.type, doc.name || '(no #)'), description: `Invoice ${doc.name || ''}`.trim(), transactionType: 'INVOICE', debit: gross, credit: 0, balance: 0, documentType: 'INVOICE' }, gross);
@@ -382,7 +386,7 @@ export class StatementsService {
     for (const b of bills) {
       const c: any = b.config || {};
       const d = c.date ? new Date(c.date) : b.createdAt;
-      const gross = grossStampOf(c) ?? c.totalAmount ?? 0;
+      const gross = grossOf(c) ?? 0;
       if (gross <= 0) continue;
 
       // Anything before startDate rolls into opening.
@@ -519,7 +523,7 @@ export class StatementsService {
       if (date && (date < sd || date > ed)) continue;
       const cId = c.customerId || c.customer?.id || 'unknown';
       const cName = c.customer?.name || 'Unknown customer';
-      const gross = grossStampOf(c) || 0;
+      const gross = grossOf(c) || 0;
       const balance = owedOf(c);
       const paid = gross - balance;
       const row = byCustomer.get(cId) || { name: cName, invoiceCount: 0, totalSales: 0, totalPaid: 0, outstanding: 0 };
@@ -577,7 +581,7 @@ export class StatementsService {
       if (date && (date < sd || date > ed)) continue;
       const sId = c.supplierId || c.supplier?.id || 'unknown';
       const sName = c.supplier?.name || 'Unknown supplier';
-      const gross = grossStampOf(c) || 0;
+      const gross = grossOf(c) || 0;
       const balance = owedOf(c);
       const paid = gross - balance;
       const row = bySupplier.get(sId) || { name: sName, billCount: 0, totalPurchases: 0, totalPaid: 0, outstanding: 0 };
