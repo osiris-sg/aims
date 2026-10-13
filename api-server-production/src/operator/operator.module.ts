@@ -21,6 +21,7 @@ import { InventoriesModule } from '../inventories/inventories.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { ProjectCostingModule } from '../project-costing/project-costing.module';
 import { OperatorController } from './operator.controller';
+import { OperatorWebController } from './operator-web.controller';
 import { XeroSyncModule } from '../xero-sync/xero-sync.module';
 import { BankRecModule } from '../bank-rec/bank-rec.module';
 import { OperatorService } from './operator.service';
@@ -28,6 +29,7 @@ import { OperatorAuthService } from './operator-auth.service';
 import { OperatorToolsService } from './operator-tools.service';
 import { TelegramAdapter } from './adapters/telegram.adapter';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
+import { WebAdapter } from './adapters/web.adapter';
 
 /**
  * AIMS Operator — a chat agent (Telegram first, WhatsApp later) that executes
@@ -64,8 +66,8 @@ import { AuthModule } from '../auth/auth.module'; // provides 'ClerkClient' for 
     XeroSyncModule, // confirm_invoices_from_xero tool
     BankRecModule, // bank_rec_checkpoint tool
   ],
-  controllers: [OperatorController],
-  providers: [OperatorService, OperatorAuthService, OperatorToolsService, TelegramAdapter, WhatsAppAdapter, PrismaService],
-  exports: [OperatorService, OperatorAuthService, WhatsAppAdapter],
+  controllers: [OperatorController, OperatorWebController],
+  providers: [OperatorService, OperatorAuthService, OperatorToolsService, TelegramAdapter, WhatsAppAdapter, WebAdapter, PrismaService],
+  exports: [OperatorService, OperatorAuthService, WhatsAppAdapter, WebAdapter],
 })
 export class OperatorModule {}

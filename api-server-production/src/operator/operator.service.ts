@@ -7,6 +7,8 @@ import { OperatorAuthService } from './operator-auth.service';
 import { OperatorToolsService } from './operator-tools.service';
 import { TelegramAdapter } from './adapters/telegram.adapter';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
+import { WebAdapter } from './adapters/web.adapter';
+import { APP_KNOWLEDGE } from '../guide/app-knowledge';
 import {
   ChannelAdapter,
   InboundMessage,
@@ -14,6 +16,7 @@ import {
   OperatorContext,
   PendingAction,
   SessionState,
+  TranscriptItem,
 } from './operator.types';
 
 // Financial actions run through this agent, so tool selection has to be right.
@@ -28,6 +31,27 @@ const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 // A held financial confirmation DOES expire — "confirm" tapped days after the
 // fact must not silently post something the user has forgotten about.
 const PENDING_TTL_MS = 30 * 60 * 1000;
+// Display transcript cap per conversation (the model history is separate and
+// much shorter).
+const TRANSCRIPT_MAX = 300;
+
+// Tools whose result is a document worth putting in the web chat's side panel.
+// `fresh` = the tool changed it, so the panel re-renders instead of reusing a
+// cached PDF.
+const PANEL_DOC_TOOLS: Record<string, boolean> = {
+  create_quotation: true,
+  create_invoice: true,
+  create_invoice_from_quotation: true,
+  edit_document: true,
+  translate_quotation: true,
+  create_delivery_order: true,
+  create_credit_note: true,
+  confirm_document: false,
+  confirm_invoice: false,
+  preview_document: false,
+  get_document: false,
+  email_document: false,
+};
 
 // What the user sees while a tool runs, so the bot never looks frozen.
 const TOOL_STATUS: Record<string, string> = {
@@ -81,6 +105,7 @@ export class OperatorService {
     private readonly tools: OperatorToolsService,
     private readonly telegram: TelegramAdapter,
     private readonly whatsapp: WhatsAppAdapter,
+    private readonly web: WebAdapter,
   ) {
     const key = process.env.ANTHROPIC_API_KEY;
     this.anthropic = key ? new Anthropic({ apiKey: key }) : null;
@@ -89,6 +114,7 @@ export class OperatorService {
   private adapterFor(channel: OperatorChannel): ChannelAdapter {
     if (channel === 'telegram') return this.telegram;
     if (channel === 'whatsapp') return this.whatsapp;
+    if (channel === 'web') return this.web;
     throw new Error(`No adapter for channel ${channel}`);
   }
 
@@ -108,7 +134,10 @@ export class OperatorService {
   private readonly chatQueues = new Map<string, Promise<void>>();
 
   async handleInbound(msg: InboundMessage): Promise<void> {
-    const key = `${msg.channel}:${msg.channelUserId}`;
+    // Keyed by the CONVERSATION, not the channel: a WhatsApp thread continued
+    // from the web shares one queue with the phone, so the two never interleave.
+    const { channel: sc, channelUserId: su } = this.sessionOf(msg);
+    const key = `${sc}:${su}`;
     const prev = this.chatQueues.get(key) ?? Promise.resolve();
     const next = prev.then(
       () => this.handleInboundSerial(msg),
@@ -127,7 +156,7 @@ export class OperatorService {
 
   /** Entry point: one inbound chat message, end to end. */
   private async handleInboundSerial(msg: InboundMessage): Promise<void> {
-    const adapter = this.adapterFor(msg.channel);
+    const adapter = this.recording(this.adapterFor(msg.channel), msg);
     // WhatsApp replies route back out through the business number that received
     // the inbound — prime the adapter before any send in this request.
     if (msg.channel === 'whatsapp' && msg.businessPhoneNumberId) {
@@ -137,6 +166,18 @@ export class OperatorService {
 
     const text = (msg.text || '').trim();
 
+    // The web chat is signed in already, and switches org through the portal's
+    // own switcher: the chat-app identity commands do not apply there.
+    if (msg.channel === 'web' && /^\/(link|orgs?)\b/i.test(text)) {
+      await adapter.sendText(
+        msg.chatId,
+        /^\/link/i.test(text)
+          ? 'No linking needed here: the dashboard chat already knows who you are.'
+          : 'Switch organization with the org switcher at the top of the dashboard.',
+      );
+      return;
+    }
+
     // /link is the only command available before an identity exists.
     if (/^\/link\b/i.test(text)) {
       const code = text.split(/\s+/)[1] || '';
@@ -145,7 +186,9 @@ export class OperatorService {
       return;
     }
 
-    const resolved = await this.auth.resolve(msg.channel, msg.channelUserId);
+    const resolved = msg.presetCtx
+      ? { ok: true, ctx: msg.presetCtx, reason: undefined as any, options: undefined as any }
+      : await this.auth.resolve(msg.channel, msg.channelUserId);
 
     if (!resolved.ok || !resolved.ctx) {
       if (resolved.reason === 'unlinked') {
@@ -174,6 +217,9 @@ export class OperatorService {
     }
     let ctx: OperatorContext = resolved.ctx;
 
+    // What the user said or tapped, for the display transcript.
+    await this.recordInbound(msg, text);
+
     // Button taps
     if (msg.callbackData) {
       await this.handleCallback(ctx, adapter, msg, msg.callbackData);
@@ -200,7 +246,7 @@ export class OperatorService {
         .extractUpload(ctx.organizationId, msg.attachment.dataUri, msg.attachment.mimetype, msg.attachment.filename)
         .catch(() => null);
       if (status) await adapter.deleteMessage?.(msg.chatId, status).catch(() => null);
-      const session = await this.loadSession(msg.channel, msg.channelUserId);
+      const session = await this.loadSession(...this.sk(msg));
       await this.handleUpload(ctx, adapter, msg, session, up);
       return;
     }
@@ -216,7 +262,7 @@ export class OperatorService {
     // osirisadmin only, and it deliberately drops the admin bypass: the point
     // is to hit the same walls they hit. /whoami shows where you are.
     if (/^\/(as|actas|whoami)\b/i.test(text)) {
-      const sess = await this.loadSession(msg.channel, msg.channelUserId);
+      const sess = await this.loadSession(...this.sk(msg));
       const arg = text.replace(/^\/(as|actas|whoami)\b/i, '').trim();
 
       if (/^\/whoami\b/i.test(text)) {
@@ -234,7 +280,7 @@ export class OperatorService {
       }
       if (/^(off|stop|end|exit|me)$/i.test(arg)) {
         sess.actingAs = null;
-        await this.saveSession(msg.channel, msg.channelUserId, sess);
+        await this.saveSession(...this.sk(msg), sess);
         await adapter.sendText(msg.chatId, '✅ Back to yourself.');
         return;
       }
@@ -253,7 +299,7 @@ export class OperatorService {
       }
       const t = matches[0];
       sess.actingAs = { userId: t.userId, label: t.name !== '(no name)' ? t.name : t.email || t.userId };
-      await this.saveSession(msg.channel, msg.channelUserId, sess);
+      await this.saveSession(...this.sk(msg), sess);
       await adapter.sendText(
         msg.chatId,
         `👤 Acting as ${sess.actingAs.label} (${t.roles}) in ${ctx.organizationName}.\n` +
@@ -285,7 +331,7 @@ export class OperatorService {
     }
 
     // A typed yes/no answering a held confirmation
-    const session = await this.loadSession(msg.channel, msg.channelUserId);
+    const session = await this.loadSession(...this.sk(msg));
 
     // INTERNAL TROUBLESHOOTING: an osirisadmin can act as another user in this
     // org to reproduce what they see. Swap the context before anything runs, so
@@ -295,13 +341,19 @@ export class OperatorService {
     if (session.actingAs) {
       ctx = await this.auth.contextAs(ctx, session.actingAs.userId, session.actingAs.label);
     }
+    // A typed answer acts on the NEWEST held card and takes it out of the
+    // held list, exactly like a tap would. Clearing only the single slot left
+    // the card live: its Confirm button still worked after a typed "no", and a
+    // typed "yes" followed by a tap ran the action twice (found 2026-10-14).
     if (session.pendingAction && /^(yes|y|confirm|ok|okay|go ahead|do it)\b/i.test(text)) {
-      await this.executePending(ctx, adapter, msg, session);
+      const chosen = this.takePending(session, session.pendingAction.id || '');
+      if (chosen) await this.executePending(ctx, adapter, msg, session, chosen);
       return;
     }
     if (session.pendingAction && /^(no|n|cancel|stop|nevermind|never mind)\b/i.test(text)) {
-      session.pendingAction = null;
-      await this.saveSession(msg.channel, msg.channelUserId, session);
+      const dropped = this.takePending(session, session.pendingAction.id || '');
+      if (dropped) this.markDone(session, dropped, 'cancelled');
+      await this.saveSession(...this.sk(msg), session);
       await adapter.sendText(msg.chatId, 'Cancelled. Nothing was changed.');
       return;
     }
@@ -357,7 +409,7 @@ export class OperatorService {
     // branches save before returning.
     if (up) {
       this.rememberUpload(session, up);
-      await this.saveSession(msg.channel, msg.channelUserId, session);
+      await this.saveSession(...this.sk(msg), session);
     }
 
     // A delivery held for want of its order? Then this upload IS that order.
@@ -384,7 +436,7 @@ export class OperatorService {
         session.pendingAction = held;
         session.pendingUpload = null;
         this.holdPending(session, held);
-        await this.saveSession(msg.channel, msg.channelUserId, session);
+        await this.saveSession(...this.sk(msg), session);
         await this.sendPendingCard(adapter, msg.chatId, held);
         return;
       }
@@ -402,7 +454,7 @@ export class OperatorService {
       try {
         const r = await this.tools.queueBulkInvoice(ctx, up);
         session.pendingUpload = null;
-        await this.saveSession(msg.channel, msg.channelUserId, session);
+        await this.saveSession(...this.sk(msg), session);
         const ex = up.extracted || ({} as any);
         const money = ex.amount != null ? ` ${ex.currency || 'SGD'} ${Number(ex.amount).toFixed(2)}` : '';
         await adapter.sendText(
@@ -416,12 +468,25 @@ export class OperatorService {
     }
 
     const e = up?.extracted;
+    // A caption sent WITH the file says what the user wants ("what is this?",
+    // "add it to the work library"): let the agent answer it, with the file
+    // already in the conversation, instead of the canned "couldn't read an
+    // amount" line that ignores what they wrote.
+    const caption = (msg.text || '').trim();
+    if (up && caption && this.anthropic && (e?.amount == null || !(await isOrgFeatureEnabled(this.prisma, ctx.organizationId, CHAT_UPLOAD_PROJECT_COST_FLAG)))) {
+      session.pendingUpload = up;
+      (session as any).pendingUploadAt = new Date().toISOString();
+      await this.saveSession(...this.sk(msg), session);
+      ctx.upload = up;
+      await this.runAgent(ctx, adapter, msg, session, caption);
+      return;
+    }
     if (!up || e?.amount == null) {
       // Keep the stored file around — the next message may name what it really
       // is (e.g. "this is a contractor price list, add it to the work library").
       if (up) {
         session.pendingUpload = up;
-        await this.saveSession(msg.channel, msg.channelUserId, session);
+        await this.saveSession(...this.sk(msg), session);
       }
       await adapter.sendText(
         msg.chatId,
@@ -437,7 +502,7 @@ export class OperatorService {
     const costUploadOn = await isOrgFeatureEnabled(this.prisma, ctx.organizationId, CHAT_UPLOAD_PROJECT_COST_FLAG);
     if (!costUploadOn) {
       session.pendingUpload = up;
-      await this.saveSession(msg.channel, msg.channelUserId, session);
+      await this.saveSession(...this.sk(msg), session);
       const money = e?.amount != null ? ` (${e.currency || 'SGD'} ${Number(e.amount).toFixed(2)})` : '';
       await adapter.sendText(
         msg.chatId,
@@ -467,7 +532,7 @@ export class OperatorService {
       ctx.upload = up;
       session.pendingUpload = up;
       (session as any).pendingUploadAt = new Date().toISOString();
-      await this.saveSession(msg.channel, msg.channelUserId, session);
+      await this.saveSession(...this.sk(msg), session);
       await this.runAgent(
         ctx,
         adapter,
@@ -500,10 +565,10 @@ export class OperatorService {
       if (outcome.pending) {
         session.pendingAction = outcome.pending;
         this.holdPending(session, outcome.pending);
-        await this.saveSession(msg.channel, msg.channelUserId, session);
+        await this.saveSession(...this.sk(msg), session);
         await this.sendPendingCard(adapter, msg.chatId, outcome.pending);
       } else {
-        await this.saveSession(msg.channel, msg.channelUserId, session);
+        await this.saveSession(...this.sk(msg), session);
         await adapter.sendText(msg.chatId, outcome.result?.error || "I couldn't record that cost.");
       }
       return;
@@ -513,7 +578,7 @@ export class OperatorService {
     session.pendingUpload = up;
     (session as any).pendingUploadAt = new Date().toISOString();
     session.pendingAction = null;
-    await this.saveSession(msg.channel, msg.channelUserId, session);
+    await this.saveSession(...this.sk(msg), session);
     const prompt = `Which project should I charge ${who} (${money}) to?`;
     if (projects.length > 3 && adapter.sendList) {
       // More than 3 → a scrollable list (up to 10).
@@ -563,6 +628,7 @@ export class OperatorService {
     msg: InboundMessage,
     session: SessionState,
     text: string,
+    opts: { quietIfIdle?: boolean } = {},
   ): Promise<void> {
     if (!this.anthropic) {
       await adapter.sendText(msg.chatId, 'The assistant is not configured (missing ANTHROPIC_API_KEY).');
@@ -604,7 +670,7 @@ export class OperatorService {
       const resp = await this.anthropic.messages.create({
         model: MODEL,
         max_tokens: 2000,
-        system: this.systemPrompt(ctx) + (session.bulkInvoiceMode ? '\n\nBULK INVOICE MODE IS ON: the user is sending contractor invoices in bulk; each upload auto-queues to the portal review pane without confirmation. When they say they are done/finished, call bulk_invoice_mode with on=false.' : ''),
+        system: (this.systemPrompt(ctx) + this.webPrompt(ctx)) + (session.bulkInvoiceMode ? '\n\nBULK INVOICE MODE IS ON: the user is sending contractor invoices in bulk; each upload auto-queues to the portal review pane without confirmation. When they say they are done/finished, call bulk_invoice_mode with on=false.' : ''),
         tools: toolDefs,
         messages,
       });
@@ -619,7 +685,11 @@ export class OperatorService {
           .join('')
           .trim();
         await clearStatus();
-        if (say) await adapter.sendText(msg.chatId, say);
+        // After a confirmation the model is told to stay silent when nothing
+        // is left, yet it often restates "X confirmed." The user already has
+        // that line, so a short no-action reply on the first round is dropped.
+        const restating = opts.quietIfIdle && round === 0 && say.length < 160;
+        if (say && !restating) await adapter.sendText(msg.chatId, say);
         break;
       }
 
@@ -629,7 +699,7 @@ export class OperatorService {
         const outcome = await this.tools.execute(ctx, use.name, use.input);
         if ((outcome.result as any)?.__bulkInvoiceMode !== undefined) {
           session.bulkInvoiceMode = !!(outcome.result as any).__bulkInvoiceMode;
-          await this.saveSession(msg.channel, msg.channelUserId, session);
+          await this.saveSession(...this.sk(msg), session);
         }
         if (outcome.preview) {
           await adapter.sendDocument(
@@ -637,7 +707,16 @@ export class OperatorService {
             outcome.preview.url,
             outcome.preview.filename,
             outcome.preview.caption,
+            outcome.preview.documentId,
           );
+        }
+        if (adapter.sendUi) {
+          if (outcome.ui) await adapter.sendUi(msg.chatId, outcome.ui).catch(() => null);
+          const r: any = outcome.result || {};
+          const docId = outcome.preview?.documentId || outcome.pending?.documentId || r.documentId || r.document?.id;
+          if (docId && use.name in PANEL_DOC_TOOLS && !r.error) {
+            await adapter.sendUi(msg.chatId, { type: 'document', documentId: docId, fresh: PANEL_DOC_TOOLS[use.name] }).catch(() => null);
+          }
         }
         if (outcome.pending) pendingFromTools = outcome.pending;
         if ((outcome as any).choice) choiceFromTools = (outcome as any).choice;
@@ -669,7 +748,7 @@ export class OperatorService {
     session.history = this.trimHistory(messages) as SessionState['history'];
     if (pendingFromTools) this.holdPending(session, pendingFromTools);
     else session.pendingAction = null;
-    await this.saveSession(msg.channel, msg.channelUserId, session);
+    await this.saveSession(...this.sk(msg), session);
 
     if (choiceFromTools) {
       await adapter.sendButtons(
@@ -689,7 +768,7 @@ export class OperatorService {
       await clearStatus();
       session.history = [];
       session.pendingAction = null;
-      await this.saveSession(msg.channel, msg.channelUserId, session);
+      await this.saveSession(...this.sk(msg), session);
       await adapter.sendText(
         msg.chatId,
         'Sorry, something went wrong on my side and I have reset our conversation. Please send that again.',
@@ -749,6 +828,8 @@ export class OperatorService {
       `8. PUNCTUATION: never use em dashes or en dashes ("—", "–") in your replies OR in any text you write into a document (line item descriptions, notes, terms). Use a comma, a full stop, a colon or brackets instead. Ordinary hyphens inside words (e.g. "Fan-Coil") are fine.`,
       `9. FULL DASHBOARD ACCESS: you can read ANYTHING the user's web dashboard shows, even without a dedicated tool. When asked about commissions, earnings, targets, dashboards, reports, schedules, quests, leads or any other screen's numbers: call api_docs with keywords to find the right GET endpoint, then api_get to fetch it (their permissions are enforced automatically). Examples: designer commissions/revenue live at /id-projects/dashboard; a project's P&L incl. commission at /projects/<id>/costing. NEVER answer "I don't have a tool for that" before trying api_docs.`,
       `10. CHANGING THINGS WITHOUT A DEDICATED TOOL: if no tool covers an action the user wants, do NOT invent one out of a tool that looks close (that is how a delivery schedule became a priced document). Search api_docs for the POST/PATCH/PUT endpoint, build the body from the {field*:type} list it returns, then call api_write with a plain-English summary of what will change. It does not fire immediately: the user sees your summary and taps Confirm. If the call comes back with a validation error, read the field names in it and fix the body rather than giving up. Money and irreversible actions (confirming invoices, posting bills, recording payments, deleting) are blocked there by design, so use their dedicated tools.`,
+      `12. NEVER mention tool names or internal mechanics to the user (no "create_customer", "api_get", "the tool"). Speak in terms of what AIMS does: "I'll add the customer", "the invoice list".`,
+      `13. NON-FINANCIAL CREATES NEED NO PERMISSION: adding a customer, a supplier, a draft document or a note is safe and reversible. When the details are clear, do it and report the result in one line; only ask when something is genuinely ambiguous or missing. Do not read the details back and ask "shall I go ahead?". The confirm gate (rule 3) is for money and finality, not for drafts and master data.`,
       `11. RETRY, DON'T REMEMBER FAILURES: tool errors are often transient (deploys, config changes between messages). When the user asks again for something that failed earlier in this chat, ALWAYS call the tool again fresh. NEVER claim you "tried again" unless you actually called the tool this turn, and never present an old error as the current state.`,
     ].join('\n');
   }
@@ -841,7 +922,7 @@ export class OperatorService {
       // The label the user tapped re-enters as ordinary text, so the model
       // picks up exactly where it left off with no special-casing.
       const picked = data.slice('choice:'.length);
-      const choiceSession = await this.loadSession(msg.channel, msg.channelUserId);
+      const choiceSession = await this.loadSession(...this.sk(msg));
       await this.runAgent(ctx, adapter, { ...msg, text: picked, callbackData: undefined }, choiceSession, picked);
       return;
     }
@@ -859,9 +940,9 @@ export class OperatorService {
         await adapter.sendText(msg.chatId, 'That user is no longer in this organization.');
         return;
       }
-      const sess = await this.loadSession(msg.channel, msg.channelUserId);
+      const sess = await this.loadSession(...this.sk(msg));
       sess.actingAs = { userId: found.userId, label: found.name !== '(no name)' ? found.name : found.email || found.userId };
-      await this.saveSession(msg.channel, msg.channelUserId, sess);
+      await this.saveSession(...this.sk(msg), sess);
       await adapter.sendText(
         msg.chatId,
         `👤 Acting as ${sess.actingAs.label} (${found.roles}) in ${ctx.organizationName}.\n` +
@@ -875,7 +956,7 @@ export class OperatorService {
       return;
     }
 
-    const session = await this.loadSession(msg.channel, msg.channelUserId);
+    const session = await this.loadSession(...this.sk(msg));
 
     // Project chosen for an uploaded invoice's cost.
     if (data.startsWith('costproj:')) {
@@ -891,10 +972,10 @@ export class OperatorService {
       if (outcome.pending) {
         session.pendingAction = outcome.pending;
         this.holdPending(session, outcome.pending);
-        await this.saveSession(msg.channel, msg.channelUserId, session);
+        await this.saveSession(...this.sk(msg), session);
         await this.sendPendingCard(adapter, msg.chatId, outcome.pending);
       } else {
-        await this.saveSession(msg.channel, msg.channelUserId, session);
+        await this.saveSession(...this.sk(msg), session);
         await adapter.sendText(msg.chatId, outcome.result?.error || "I couldn't record that cost.");
       }
       return;
@@ -904,7 +985,7 @@ export class OperatorService {
       const id = data.startsWith('cancel:') ? data.slice(7) : '';
       const dropped = this.takePending(session, id);
       if (dropped) this.markDone(session, dropped, 'cancelled');
-      await this.saveSession(msg.channel, msg.channelUserId, session);
+      await this.saveSession(...this.sk(msg), session);
       const done = !dropped && (session.doneActions || []).find((d) => d.id === id);
       await adapter.sendText(
         msg.chatId,
@@ -930,7 +1011,7 @@ export class OperatorService {
   private async sendPendingCard(adapter: ChannelAdapter, chatId: string, pending: PendingAction): Promise<void> {
     if (pending.attachment?.url) {
       await adapter
-        .sendDocument(chatId, pending.attachment.url, pending.attachment.filename || 'invoice.pdf', '📎 This is what you are confirming:')
+        .sendDocument(chatId, pending.attachment.url, pending.attachment.filename || 'invoice.pdf', '📎 This is what you are confirming:', pending.documentId)
         .catch(() => null);
     }
     await adapter.sendButtons(chatId, `${pending.summary}\n\nConfirm?`, [
@@ -983,6 +1064,9 @@ export class OperatorService {
     chosen?: PendingAction,
   ): Promise<void> {
     const pending = chosen ?? session.pendingAction!;
+    // Whatever path led here, the card is spent: drop it from the held list so
+    // a later tap on the same button cannot run it a second time.
+    session.pendingActions = (session.pendingActions || []).filter((p) => p.id !== pending.id);
     let res: { ok: boolean; message: string };
     try {
       res = await this.tools.runPending(ctx, pending);
@@ -1005,7 +1089,10 @@ export class OperatorService {
       (session as any).pendingUploadAt = null;
     }
     this.markDone(session, pending, res.ok ? 'confirmed' : 'failed');
-    await this.saveSession(msg.channel, msg.channelUserId, session);
+    await this.saveSession(...this.sk(msg), session);
+    if (res.ok && pending.documentId && adapter.sendUi) {
+      await adapter.sendUi(msg.chatId, { type: 'document', documentId: pending.documentId, fresh: true }).catch(() => null);
+    }
     // The card "becomes confirmed": the reply always leads with the outcome.
     await adapter.sendText(msg.chatId, res.ok ? (/^✅/.test(res.message) ? res.message : `✅ Confirmed — ${res.message}`) : res.message);
 
@@ -1029,7 +1116,7 @@ export class OperatorService {
     outcome: string,
   ): Promise<void> {
     try {
-      const session = await this.loadSession(msg.channel, msg.channelUserId);
+      const session = await this.loadSession(...this.sk(msg));
       await this.runAgent(
         ctx,
         adapter,
@@ -1038,12 +1125,225 @@ export class OperatorService {
         `[system] The user tapped Confirm and this completed: ${done.summary} -> ${outcome}\n` +
           `If anything from their earlier request is still outstanding (another document to confirm, a second invoice, a remaining step), do it now. ` +
           `If nothing remains, say nothing further — do NOT repeat the confirmation or start new work.`,
+        { quietIfIdle: true },
       );
     } catch (e: any) {
       // The action itself already succeeded and was reported; a failed
       // continuation must not make it look otherwise.
       this.logger.warn(`continueAfterConfirm failed: ${e?.message}`);
     }
+  }
+
+  // ── Web channel ───────────────────────────────────────────────────────────
+
+  /** Extra system prompt for the dashboard chat. Empty on chat apps. */
+  private webPrompt(ctx: OperatorContext): string {
+    if (ctx.channel !== 'web') return '';
+    const screens = (ctx.web?.screens || []).map((s) => `${s.label}: ${s.path}`).join('\n');
+    return [
+      ``,
+      ``,
+      `WEB DASHBOARD CHAT: this conversation is in the AIMS web dashboard, not a phone. Rule 5 is relaxed here: you may use **bold**, short bullet lists and small markdown tables. Still short.`,
+      `The screen has a SIDE PANEL. Any document you create, edit or preview opens there automatically with a live preview, so say "it's open on the right" instead of describing it line by line.`,
+      `SIDE PANEL RIGHT NOW: ${this.panelState(ctx)}. You cannot see the panel, only this line. When the user asks to see, show, open or preview a document, ALWAYS call preview_document (even if you showed it earlier): the user may have closed the panel. Never say something is open on the right unless this line says so or you just called a tool that opens it.`,
+      `To show the user a dashboard screen (a list, a report, a settings page) call open_screen with its path: it opens in the side panel and the chat stays open. Use it whenever the user wants to SEE or work on a screen. For "where is X" / "how do I change X" questions, OPEN the screen straight away (do not ask "want me to open it?") and answer in one line that says which tab or button to use.`,
+      `Rule 8 holds here too: no em dashes or en dashes anywhere, including inside bullet lists; write "AsiaDealHub: S$8,000.00 (31 to 60 days overdue)".`,
+      `For a list or report the user asked about, prefer show_view (a table or stat tiles in the side panel) over a long chat message, then summarise in one line.`,
+      `Screens this user may open (label: path):`,
+      screens || '(none sent)',
+      ``,
+      `HOW THE APP WORKS (for "how do I" questions; answer in one or two lines and open the screen):`,
+      APP_KNOWLEDGE,
+    ].join('\n');
+  }
+
+  private panelState(ctx: OperatorContext): string {
+    const p = ctx.web?.panel;
+    if (!p) return 'closed (nothing is showing)';
+    if (p.type === 'document') return `showing document ${p.documentId}`;
+    if (p.type === 'screen') return `showing the screen ${p.path}`;
+    return `showing a table "${p.title}"`;
+  }
+
+  /** Where this message's conversation is stored. */
+  private sessionOf(msg: InboundMessage): { channel: OperatorChannel; channelUserId: string } {
+    return msg.session ?? { channel: msg.channel, channelUserId: msg.channelUserId };
+  }
+
+  private sk(msg: InboundMessage): [OperatorChannel, string] {
+    const s = this.sessionOf(msg);
+    return [s.channel, s.channelUserId];
+  }
+
+  /** Wrap an adapter so every reply is also written to the display transcript. */
+  private recording(adapter: ChannelAdapter, msg: InboundMessage): ChannelAdapter {
+    const [channel, channelUserId] = this.sk(msg);
+    const via = msg.channel;
+    const rec = (item: Partial<TranscriptItem>) =>
+      this.appendTranscript(channel, channelUserId, [{ role: 'assistant', kind: 'text', via, ...item } as TranscriptItem]);
+    // A WhatsApp thread continued from the dashboard: the phone gets a copy of
+    // each reply too, so the conversation reads the same on both. Best-effort;
+    // a missing connection (dev) or a Graph error never breaks the web reply.
+    const mirror =
+      msg.channel === 'web' && channel === 'whatsapp'
+        ? async (fn: () => Promise<void>) => {
+            try {
+              const org = msg.presetCtx?.organizationId;
+              if (org && (await this.whatsapp.primeForOrg(channelUserId, org))) await fn();
+            } catch (e: any) {
+              this.logger.warn(`whatsapp mirror skipped: ${e?.message}`);
+            }
+          }
+        : null;
+    const w: ChannelAdapter = {
+      channel: adapter.channel,
+      parse: (b) => adapter.parse(b),
+      sendText: async (c, t) => {
+        await adapter.sendText(c, t);
+        await rec({ kind: 'text', text: t });
+        if (mirror) await mirror(() => this.whatsapp.sendText(channelUserId, `💻 ${t}`));
+      },
+      sendDocument: async (c, url, filename, caption, documentId) => {
+        await adapter.sendDocument(c, url, filename, caption);
+        // Prefer the id the caller knows; otherwise pick the uuid out of the
+        // S3 key (rendered PDFs are keyed `<docId>_<timestamp>.pdf`).
+        const fromUrl = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[^/?]*\.pdf/i.exec(url)?.[1];
+        await rec({ kind: 'document', url, filename, text: caption, documentId: documentId || fromUrl });
+        if (mirror) await mirror(() => this.whatsapp.sendDocument(channelUserId, url, filename, caption));
+      },
+      sendButtons: async (c, t, b) => {
+        await adapter.sendButtons(c, t, b);
+        await rec({ kind: 'buttons', text: t, buttons: b });
+        // Buttons stay on the web: a tap must land on the screen that holds them.
+        if (mirror) await mirror(() => this.whatsapp.sendText(channelUserId, `💻 ${t}\n(answer on the dashboard)`));
+      },
+    };
+    if (adapter.sendList) {
+      w.sendList = async (c, t, label, rows) => {
+        await adapter.sendList!(c, t, label, rows);
+        await rec({ kind: 'list', text: t, buttons: rows.map((r) => ({ label: r.title, data: r.id })) });
+      };
+    }
+    if (adapter.answerCallback) w.answerCallback = (id, t) => adapter.answerCallback!(id, t);
+    if (adapter.sendTyping) w.sendTyping = (c) => adapter.sendTyping!(c);
+    if (adapter.sendStatus) w.sendStatus = (c, t) => adapter.sendStatus!(c, t);
+    if (adapter.editStatus) w.editStatus = (c, id, t) => adapter.editStatus!(c, id, t);
+    if (adapter.deleteMessage) w.deleteMessage = (c, id) => adapter.deleteMessage!(c, id);
+    if (adapter.sendUi) {
+      w.sendUi = async (c, e) => {
+        await adapter.sendUi!(c, e);
+        // Remembered so reopening the chat brings its panel back.
+        await this.patchThreadMeta(channel, channelUserId, { lastPanel: e }).catch(() => null);
+      };
+    }
+    return w;
+  }
+
+  /** Record what the user sent: their words, the button they tapped, or the file. */
+  private async recordInbound(msg: InboundMessage, text: string): Promise<void> {
+    const [channel, channelUserId] = this.sk(msg);
+    let shown = text;
+    if (msg.callbackData) {
+      const d = msg.callbackData;
+      if (d.startsWith('confirm:')) shown = 'Confirm';
+      else if (d.startsWith('cancel:') || d === 'cancel') shown = 'Cancel';
+      else if (d.startsWith('choice:')) shown = d.slice(7);
+      else {
+        // Find the label of the button that carried this payload.
+        const row = await this.prisma.operatorSession.findUnique({
+          where: { channel_channelUserId: { channel, channelUserId } },
+          select: { state: true },
+        });
+        const items: TranscriptItem[] = ((row?.state as any)?.transcript || []).slice().reverse();
+        shown = items.flatMap((i) => i.buttons || []).find((b) => b.data === d)?.label || 'Selected an option';
+      }
+    } else if (msg.attachment) {
+      shown = `📎 ${msg.attachment.filename || 'Uploaded a file'}${text ? `\n${text}` : ''}`;
+    }
+    if (!shown) return;
+    await this.appendTranscript(channel, channelUserId, [
+      { role: 'user', kind: 'text', text: msg.fromVoice ? `🎙️ ${shown}` : shown, via: msg.channel } as TranscriptItem,
+    ]);
+  }
+
+  /**
+   * Append to a conversation's display transcript. The ONLY writer of
+   * `transcript`: saveSession carries the stored copy over, so a whole-session
+   * save made from an older in-memory copy can never drop lines written since.
+   */
+  async appendTranscript(channel: OperatorChannel, channelUserId: string, items: TranscriptItem[]): Promise<void> {
+    try {
+      const row = await this.prisma.operatorSession.findUnique({
+        where: { channel_channelUserId: { channel, channelUserId } },
+      });
+      const state: any = (row?.state as any) || { history: [] };
+      // A conversation from before transcripts existed starts from what its
+      // model history can still show.
+      const base: TranscriptItem[] = Array.isArray(state.transcript)
+        ? state.transcript
+        : OperatorService.transcriptFromHistory(state.history || [], channel);
+      const now = new Date().toISOString();
+      const stamped = items.map((i, n) => ({
+        ...i,
+        id: i.id || `t${Date.now().toString(36)}${n}${Math.random().toString(36).slice(2, 6)}`,
+        at: i.at || now,
+      }));
+      state.transcript = [...base, ...stamped].slice(-TRANSCRIPT_MAX);
+      const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+      await this.prisma.operatorSession.upsert({
+        where: { channel_channelUserId: { channel, channelUserId } },
+        update: { state },
+        create: { channel, channelUserId, state, expiresAt },
+      });
+    } catch (e: any) {
+      this.logger.warn(`transcript append failed: ${e?.message}`);
+    }
+  }
+
+  /** Best-effort display lines from model history (no timestamps, no files). */
+  static transcriptFromHistory(history: any[], via: OperatorChannel): TranscriptItem[] {
+    const out: TranscriptItem[] = [];
+    (history || []).forEach((m: any, i: number) => {
+      let text = '';
+      if (typeof m?.content === 'string') text = m.content;
+      else if (Array.isArray(m?.content)) {
+        if (m.content.some((b: any) => b?.type === 'tool_result')) return;
+        text = m.content.filter((b: any) => b?.type === 'text').map((b: any) => b.text).join('');
+      }
+      text = (text || '').trim();
+      if (!text || text.startsWith('[system]')) return;
+      if (m.role === 'user' && text.startsWith('[the user forwarded a document]')) {
+        text = `📎 ${text.replace('[the user forwarded a document]', '').trim()}`;
+      }
+      if (m.role === 'user' && text.startsWith('I just uploaded a supplier invoice')) return;
+      out.push({ id: `h${i}`, at: '', role: m.role === 'user' ? 'user' : 'assistant', kind: 'text', text, via });
+    });
+    return out;
+  }
+
+  /** A conversation's stored state, for the web chat to render. */
+  async readThread(channel: OperatorChannel, channelUserId: string): Promise<{ state: SessionState; updatedAt: Date } | null> {
+    const row = await this.prisma.operatorSession.findUnique({
+      where: { channel_channelUserId: { channel, channelUserId } },
+    });
+    if (!row) return null;
+    const state = await this.loadSession(channel, channelUserId);
+    if (!Array.isArray(state.transcript)) state.transcript = OperatorService.transcriptFromHistory(state.history, channel);
+    return { state, updatedAt: row.updatedAt };
+  }
+
+  /** Rename / tag a web thread without touching its conversation. */
+  async patchThreadMeta(channel: OperatorChannel, channelUserId: string, meta: { title?: string; organizationId?: string; lastPanel?: any }): Promise<void> {
+    const row = await this.prisma.operatorSession.findUnique({
+      where: { channel_channelUserId: { channel, channelUserId } },
+    });
+    const state: any = (row?.state as any) || { history: [] };
+    Object.assign(state, meta);
+    await this.prisma.operatorSession.upsert({
+      where: { channel_channelUserId: { channel, channelUserId } },
+      update: { state },
+      create: { channel, channelUserId, state, expiresAt: new Date(Date.now() + SESSION_TTL_MS) },
+    });
   }
 
   // ── Session ───────────────────────────────────────────────────────────────
@@ -1088,6 +1388,13 @@ export class OperatorService {
 
   private async saveSession(channel: OperatorChannel, channelUserId: string, state: SessionState): Promise<void> {
     const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+    // The transcript, title and org tag are written by their own methods;
+    // carry the STORED copies over so this save cannot roll them back.
+    const stored = await this.prisma.operatorSession
+      .findUnique({ where: { channel_channelUserId: { channel, channelUserId } }, select: { state: true } })
+      .catch(() => null);
+    const prev: any = (stored?.state as any) || {};
+    state = { ...state, transcript: prev.transcript, title: prev.title, organizationId: prev.organizationId, lastPanel: prev.lastPanel } as SessionState;
     await this.prisma.operatorSession
       .upsert({
         where: { channel_channelUserId: { channel, channelUserId } },

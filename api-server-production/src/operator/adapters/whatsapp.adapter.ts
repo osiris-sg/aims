@@ -63,6 +63,20 @@ export class WhatsAppAdapter implements ChannelAdapter {
     return this.config.get<string>('WHATSAPP.API_VERSION') || 'v23.0';
   }
 
+  /** Point replies for this chat at the org's connected business number, for
+   *  sends that are not answering an inbound (the dashboard chat continuing a
+   *  WhatsApp thread). An inbound-primed context is left alone. */
+  async primeForOrg(chatId: string, organizationId: string): Promise<boolean> {
+    if (this.replyFrom.has(chatId)) return true;
+    const conn = await this.prisma.whatsAppConnection.findFirst({
+      where: { organizationId, status: 'CONNECTED' },
+      select: { phoneNumberId: true },
+    });
+    if (!conn) return false;
+    this.replyFrom.set(chatId, conn.phoneNumberId);
+    return true;
+  }
+
   private async connFor(chatId: string) {
     const phoneNumberId = this.replyFrom.get(chatId);
     if (!phoneNumberId) return null;

@@ -101,6 +101,10 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // field-service frequency and a fleet map, instead of the generic cards.
   // Default OFF.
   enableOpsDashboard: false,
+  // Chat home (guru 2026-10-13): the portal landing page is the AIMS
+  // assistant (same brain as the WhatsApp operator), with a Chat/Dashboard
+  // toggle in the top bar. Default OFF.
+  enableAimsChat: false,
   // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.
   // A maintenance date per asset, which deployed units are done this cycle, and
   // a reminder 7 days before (push to field techs + office bell). Default OFF.
@@ -189,6 +193,7 @@ export function useOrganizationFeatures() {
     isAppointmentBookingEnabled: features.enableAppointmentBooking ?? false,
     isAdsInsightsEnabled: features.enableAdsInsights ?? false,
     isOpsDashboardEnabled: features.enableOpsDashboard ?? false,
+    isAimsChatEnabled: features.enableAimsChat ?? false,
     isMaintenanceDatesEnabled: features.enableMaintenanceDates ?? false,
     isDeliveryGroupPostsEnabled: features.enableDeliveryGroupPosts ?? false,
   };

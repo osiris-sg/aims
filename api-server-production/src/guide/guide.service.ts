@@ -72,6 +72,7 @@ Spotlight anchors you may use in walkthrough steps (anchor field):
 - On the Finance Hub (/portal/accounting): "finance-ask-ai" (Ask AI button), "new-journal-entry", "close-period"
 - "bankrec-upload" — the "Upload PDF statement" button on Bank Reconciliation
 - "maintenance-schedule-button": the "Schedule maintenance" button on Service Reports -> Maintenance Dates (/portal/maintenance-reports/dates)
+- Chat home (/portal on chat-first orgs): "chat-home" (the whole screen), "chat-new" (New chat button), "chat-input" (message box), "chat-composer" (message box frame incl. 📎), "chat-prompts" (suggested prompts), "chat-panel" (side panel), "chat-panel-open-editor" (Open in editor button in the panel), "home-view-toggle" (Chat | Dashboard switch in the top bar)
 - "ar-official-receipt" — the "Official Receipt" button on Accounts Receivable (opens the receipt editor)
 - In the Official Receipt editor: "or-amount" (Receipt Amount field), "or-offset-grid" (Offset Transactions grid — allocate against invoices)
 - Inside the document editor only: "editor-customer" (customer field), "editor-add-item" (Add Item button), "editor-confirm" (Confirm button), "editor-send-email" (Send Email button — invoices/quotations), "editor-save" (Save button), "editor-preview" (Preview/Edit toggle), "editor-more-menu" (the ⋮ more-actions menu — Print/PDF, Duplicate, Create Revision, History & notes live in it), "editor-ask-ai" (Ask AI button)

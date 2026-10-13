@@ -386,6 +386,52 @@ export class OperatorAuthService {
     };
   }
 
+  /**
+   * Context for the dashboard chat: the Clerk session already proved who the
+   * user is, and the guard already chose the active org (membership org, or
+   * the admin's X-Active-Org-Id switch). Only the org-scoped roles are read.
+   */
+  async contextForWeb(
+    clerkUserId: string,
+    org: { id: string; name: string },
+    actor: { name?: string; email?: string },
+    isOsirisAdmin: boolean,
+  ): Promise<OperatorContext> {
+    const roles = await this.prisma.userRole.findMany({
+      where: { userId: clerkUserId, organizationId: org.id, isActive: true },
+      select: { role: { select: { name: true, permissions: { select: { resource: true, action: true } } } } },
+    });
+    return {
+      organizationId: org.id,
+      organizationName: org.name,
+      clerkUserId,
+      actor: { id: clerkUserId, name: actor.name, email: actor.email },
+      roles: roles.filter((r) => r.role).map((r) => ({ name: r.role!.name, permissions: r.role!.permissions })),
+      isOsirisAdmin,
+      channel: 'web',
+      channelUserId: clerkUserId,
+    };
+  }
+
+  /** The WhatsApp numbers this user's operator chats run under, in this org.
+   *  Used by the web chat to show and continue their WhatsApp thread. */
+  async whatsappChatIdsForUser(clerkUserId: string, organizationId: string): Promise<string[]> {
+    const [ids, profiles] = await Promise.all([
+      this.prisma.operatorIdentity.findMany({
+        where: { channel: 'whatsapp', clerkUserId, verified: true },
+        select: { channelUserId: true },
+      }),
+      this.prisma.organizationMemberProfile.findMany({
+        where: { userId: clerkUserId, organizationId, whatsappNumber: { not: null } },
+        select: { whatsappNumber: true },
+      }),
+    ]);
+    const out = new Set<string>();
+    ids.forEach((i) => out.add(i.channelUserId));
+    profiles.forEach((p) => this.numberVariants(p.whatsappNumber || '').forEach((v) => out.add(v)));
+    return [...out];
+  }
+
   async setOrganization(channel: OperatorChannel, channelUserId: string, organizationId: string) {
     const existing = await this.prisma.operatorIdentity.findUnique({
       where: { channel_channelUserId: { channel, channelUserId } },

@@ -14,6 +14,8 @@ import { useAuth } from "@clerk/nextjs";
 import FieldOnlyGuard from "./components/FieldOnlyGuard";
 import GuideAssistant from "./components/GuideAssistant/GuideAssistant";
 import TopNavBar from "@/components/TopNav/TopNavBar";
+import { useOrganizationFeatures } from "./hooks/useOrganizationFeatures";
+import { HOME_VIEW_EVENT, readHomeView } from "./chat/homeView";
 
 interface Props {
   children: React.ReactNode;
@@ -24,6 +26,18 @@ export default function Layout(props: Props) {
   const router = useRouter();
   const { mode } = useThemeMode();
   const { isLoaded, isSignedIn } = useAuth();
+  // Embedded mode (?embed=1): a portal page shown inside the chat home's side
+  // panel. No top bar, no mobile drawer, no Guide bubble: the host page has
+  // them. Read from window, not useSearchParams, so no Suspense boundary is
+  // needed around the whole portal.
+  const [embed, setEmbed] = useState(false);
+  useEffect(() => {
+    try {
+      setEmbed(new URLSearchParams(window.location.search).get("embed") === "1");
+    } catch {
+      /* no window */
+    }
+  }, [pathname]);
 
   // Bounce to sign-in once Clerk confirms there's no session. Without this,
   // a stale tab after sign-out sits on the portal showing 401s indefinitely.
@@ -76,7 +90,7 @@ export default function Layout(props: Props) {
                 minHeight: "100vh",
               }}
             >
-              <PortalChrome isDocumentPage={isDocumentPage} />
+              {!embed && <PortalChrome isDocumentPage={isDocumentPage} />}
 
               <Box
                 sx={{
@@ -90,11 +104,11 @@ export default function Layout(props: Props) {
                   height: "100%",
                 }}
               >
-                <TopNavBar />
+                {!embed && <TopNavBar />}
                 {children}
               </Box>
               {/* AIMS Guide bubble (bottom-right) — global for every org. */}
-              <GuideAssistant />
+              {!embed && <GuideBubble pathname={pathname} />}
               <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme={mode} />
             </Box>
           </SidebarProvider>
@@ -112,4 +126,19 @@ function PortalChrome({ isDocumentPage: _isDocumentPage }: { isDocumentPage: boo
   // Desktop navigation is the Xero-style top bar (guru 2026-08-30, global —
   // the left rail is retired). AppNavbar remains the mobile hamburger bar.
   return <AppNavbar />;
+}
+
+// The Guide bubble stays off the chat home: the assistant there answers
+// "how do I" itself and can open the screen. Everywhere else it shows.
+function GuideBubble({ pathname }: { pathname: string | null }) {
+  const { isAimsChatEnabled } = useOrganizationFeatures();
+  const [view, setView] = useState<"chat" | "dashboard">("chat");
+  useEffect(() => {
+    const sync = () => setView(readHomeView());
+    sync();
+    window.addEventListener(HOME_VIEW_EVENT, sync);
+    return () => window.removeEventListener(HOME_VIEW_EVENT, sync);
+  }, [pathname]);
+  if (pathname === "/portal" && isAimsChatEnabled && view === "chat") return null;
+  return <GuideAssistant />;
 }

@@ -29,6 +29,9 @@ const SKIP_PATHS = [
   // claim/done calls are the meaningful rows and still log.
   '/wa-post/heartbeat',
   '/wa-post/groups',
+  // Dashboard chat (2026-10-13): the message stream and thread reads are not
+  // actions. What the agent DOES is logged per tool (OperatorToolsService.log).
+  '/operator/web/',
 ];
 
 // Background GETs fired on page load / tab focus, not user intent.

@@ -27,7 +27,8 @@ import { LeadsService } from '../leads/leads.service';
 import { S3Service } from '../common/services/s3.service';
 import { OperatorAuthService } from './operator-auth.service';
 import { PublicDocumentService } from '../public-document/public-document.service';
-import { OperatorContext, PendingAction } from './operator.types';
+import { OperatorContext, PendingAction, WebUiEvent } from './operator.types';
+import { ActionLogService } from '../action-log/action-log.service';
 import { cleanText } from './text.util';
 
 /** What a tool hands back to the loop. `pending` asks the caller to raise a
@@ -37,6 +38,8 @@ export interface ToolOutcome {
   pending?: PendingAction;
   /** A document PDF to push to the user before the model's final text. */
   preview?: { documentId: string; url: string; filename: string; caption: string };
+  /** Web chat only: something for the side panel (a screen, a table). */
+  ui?: WebUiEvent;
 }
 
 interface ToolDef {
@@ -47,6 +50,19 @@ interface ToolDef {
   input_schema: Anthropic.Tool['input_schema'];
   run: (ctx: OperatorContext, args: any) => Promise<ToolOutcome>;
 }
+
+// Operator audit verbs → Activity Log action chips (same vocabulary as the
+// interceptor's VERB_ACTIONS, so the log reads the same whichever path wrote it).
+const OPERATOR_ACTION_MAP: Record<string, string> = {
+  CREATED: 'CREATE',
+  EDITED: 'UPDATE',
+  UPDATED: 'UPDATE',
+  STATUS_CHANGED: 'CONFIRM',
+  APPROVED: 'APPROVE',
+  PAYMENT: 'PAY',
+  SENT: 'SEND',
+  ERROR: 'ERROR',
+};
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -122,6 +138,7 @@ export class OperatorToolsService {
     private readonly auth: OperatorAuthService,
     private readonly advances: AdvancesService,
     private readonly appointments: AppointmentsService,
+    private readonly actionLog: ActionLogService,
   ) {}
 
   /** Bulk mode: extract-and-queue one uploaded invoice into the portal's
@@ -239,8 +256,11 @@ export class OperatorToolsService {
   }
 
   /** Tool definitions handed to Claude (schema only — no implementations). */
+  private static readonly WEB_ONLY = new Set(['open_screen', 'show_view']);
+
   definitions(ctx: OperatorContext): Anthropic.Tool[] {
     return this.tools()
+      .filter((t) => ctx.channel === 'web' || !OperatorToolsService.WEB_ONLY.has(t.name))
       .filter((t) => this.auth.hasPermission(ctx, t.permissions))
       .map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
   }
@@ -248,6 +268,7 @@ export class OperatorToolsService {
   async execute(ctx: OperatorContext, name: string, args: any): Promise<ToolOutcome> {
     const tool = this.tools().find((t) => t.name === name);
     if (!tool) return { result: { error: `Unknown tool ${name}` } };
+    if (OperatorToolsService.WEB_ONLY.has(name) && ctx.channel !== 'web') return { result: { error: `${name} only works in the dashboard chat.` } };
     if (!this.auth.hasPermission(ctx, tool.permissions)) {
       return { result: { error: `You do not have permission to ${name} (needs ${tool.permissions.join(', ')}).` } };
     }
@@ -1946,6 +1967,60 @@ export class OperatorToolsService {
         },
       },
 
+      // ── Web dashboard chat only ─────────────────────────────────────────
+      // These present something in the chat home's side panel. They are
+      // hidden on chat apps (no panel there), see definitions().
+      {
+        name: 'open_screen',
+        description:
+          'WEB ONLY. Open a dashboard screen in the side panel next to the chat (a list, a report, settings, a document editor). Use when the user wants to see or work on a screen, or asks where something is. `path` must be one of the screen paths you were given, or a document editor path returned by get_document_link.',
+        permissions: [],
+        input_schema: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Portal path starting with /portal' },
+            title: { type: 'string', description: 'Short label for the panel header' },
+          },
+          required: ['path'],
+        },
+        run: async (ctx, { path, title }) => {
+          const p = String(path || '');
+          if (!p.startsWith('/portal')) return { result: { error: 'Path must start with /portal' } };
+          const allowed = (ctx.web?.screens || []).some((s) => p === s.path || p.startsWith(s.path + '/') || p.startsWith(s.path + '?'));
+          const isDoc = /^\/portal\/(documents|invoices|sales|accounting)\//.test(p);
+          if (!allowed && !isDoc) return { result: { error: 'That screen is not available to this user.' } };
+          return { result: { opened: p }, ui: { type: 'screen', path: p, title } };
+        },
+      },
+      {
+        name: 'show_view',
+        description:
+          'WEB ONLY. Show a small table and/or stat tiles in the side panel, for lists and report figures you fetched (max 50 rows, 8 columns). Money as formatted strings with 2 decimals. Then give the user a one-line summary in chat.',
+        permissions: [],
+        input_schema: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            stats: {
+              type: 'array',
+              items: { type: 'object', properties: { label: { type: 'string' }, value: { type: 'string' } }, required: ['label', 'value'] },
+            },
+            columns: { type: 'array', items: { type: 'string' } },
+            rows: { type: 'array', items: { type: 'array', items: { type: ['string', 'number', 'null'] } } },
+            note: { type: 'string' },
+          },
+          required: ['title'],
+        },
+        run: async (_ctx, args) => {
+          const columns = (args.columns || []).slice(0, 8).map(String);
+          const rows = (args.rows || []).slice(0, 50).map((r: any[]) => (Array.isArray(r) ? r.slice(0, columns.length || 8) : [String(r)]));
+          return {
+            result: { shown: true },
+            ui: { type: 'view', title: String(args.title || 'View'), stats: (args.stats || []).slice(0, 6), columns, rows, note: args.note },
+          };
+        },
+      },
+
       {
         name: 'ask_choice',
         description:
@@ -2887,5 +2962,21 @@ export class OperatorToolsService {
         details: { detail, channel: ctx.channel, via: 'operator' },
       })
       .catch(() => null);
+    // The Activity Log sees HTTP requests only; the agent's writes happen
+    // inside tools, so they are stamped here as the user, via the chat channel.
+    void this.actionLog.log({
+      actorType: 'USER',
+      actorId: ctx.actor.id || 'operator',
+      actorName: ctx.impersonating ? `${ctx.actor.name || ctx.actor.id} (driven by ${ctx.impersonating.label})` : ctx.actor.name,
+      actorEmail: ctx.actor.email,
+      organizationId: ctx.organizationId,
+      channel: `chat:${ctx.channel}`,
+      method: 'TOOL',
+      path: `/operator/${ctx.channel}`,
+      action: OPERATOR_ACTION_MAP[action] || action,
+      resource,
+      resourceId,
+      details: { name: resourceName, detail, via: 'operator', channel: ctx.channel },
+    });
   }
 }

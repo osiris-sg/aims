@@ -175,6 +175,40 @@ export const GUIDES: Guide[] = [
       'How to issue a credit note against a customer or invoice: where Credit Notes live and how to create and confirm one.',
   }),
   {
+    id: 'use-chat-home',
+    title: 'Use the AIMS chat home',
+    description:
+      'How to use the chat assistant on the home page: ask AIMS to create a quotation or invoice, open a screen, run a report, confirm an action, or switch back to the classic dashboard. NOT for the help bubble.',
+    route: '/portal',
+    steps: [
+      {
+        route: '/portal',
+        selector: '[data-tour="chat-input"]',
+        title: 'Just tell it what you need',
+        body: 'Type a request like "create a quotation for Acme, 2 fan coil units" or "which invoices are overdue?". Enter sends; Shift+Enter adds a line.',
+      },
+      {
+        selector: '[data-tour="chat-prompts"]',
+        title: 'Starter prompts',
+        body: 'These are picked for your role. Click one to send it.',
+      },
+      {
+        selector: '[data-tour="chat-new"]',
+        title: 'Chats are kept',
+        body: 'Every conversation is saved on the left. Start a fresh one here; use the ⋯ on a chat to rename or delete it.',
+      },
+      {
+        selector: '[data-tour="home-view-toggle"]',
+        title: 'Back to the classic dashboard',
+        body: 'Switch between the chat and the dashboard here. AIMS remembers your choice.',
+      },
+      {
+        title: 'Nothing final without you',
+        body: 'Documents the assistant creates open on the right as a live preview. Confirming, posting, paying or emailing always shows a Confirm / Cancel card first.',
+      },
+    ],
+  },
+  {
     id: 'add-customer',
     title: 'Add a Customer',
     description:

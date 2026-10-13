@@ -15,8 +15,6 @@ import {
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import Image from "next/image";
 import { UserButton, useUser } from "@clerk/nextjs";
-import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
-import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import GlobalSearch from "./GlobalSearch";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
@@ -30,6 +28,10 @@ import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
 import logo from "@/components/Sidebar/aims-logo.png";
+import { SETTINGS_MENU, resolveSubmenuRoute, submenuLabel, useNavModules } from "./useNavModules";
+import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
+import GridViewOutlinedIcon from "@mui/icons-material/GridViewOutlined";
+import { HOME_VIEW_EVENT, readHomeView, writeHomeView, type HomeView } from "@/app/portal/chat/homeView";
 
 // Deliberate hardcoded org check pending a general per-org nav-logo solution.
 // CIEL gets its cream mark (transparent PNG on the dark navy bar); ~2.2:1, so
@@ -37,21 +39,6 @@ import logo from "@/components/Sidebar/aims-logo.png";
 // already whitelisted in next.config.mjs images.domains.
 const CIEL_ORG_ID = "09e55c23-e031-4254-8152-a373597b2cb3";
 const CIEL_NAV_LOGO = "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/logos/ciel-logo-cream.png";
-
-// Mirrors DynamicSidebarContent — keep the two in sync.
-const HIDDEN_MODULES = new Set<string>(["CUSTOMERS", "SUPPLIERS"]);
-const HIDDEN_SUBMENUS: Record<string, string[]> = {
-  INVENTORY: ["products", "list"],
-};
-const ORDER_OVERRIDE: Record<string, number> = { SALES: 0.5 };
-// Secondary group — mirrors the sidebar's "Organization Settings" block
-// (company profile / accounting setup / Master Files hub). Not module-gated,
-// same as the sidebar.
-const SETTINGS_MENU = [
-  { label: "Company Profile", path: "/portal/settings/company-profile" },
-  { label: "Accounting Setup", path: "/portal/settings/accounting-setup" },
-  { label: "Master Files", path: "/portal/masterfiles" },
-];
 
 // Admin-only org switcher, folded into the bar next to the brand (Xero puts
 // the org name there). Replaces the old below-bar "Viewing organization" row
@@ -157,64 +144,23 @@ export default function TopNavBar() {
   const { user } = useUser();
   const { organization } = useOrganization(); // active org (respects admin "view as")
   const { mode, toggleMode } = useThemeMode();
-  const { modules } = useConfiguration();
-  const { isModuleAllowed, userRoles } = useUserPermissions();
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled } = useOrganizationFeatures();
-  const isAdminUser =
-    userRoles.length === 0 ||
-    userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  // Org administration is master-tier only (hierarchy access, guru 2026-09-25):
-  // a user holding ONLY scoped roles (Designer / Junior / Senior Manager)
-  // doesn't get the Org Settings menu. Mirrors role-tier.ts on the server.
-  const SCOPED_ROLES = ["Designer", "Junior Manager", "Senior Manager"];
-  const isMasterTier = userRoles.length === 0 || userRoles.some((r: any) => !SCOPED_ROLES.includes(r?.name));
+  const { isAimsChatEnabled } = useOrganizationFeatures();
+  const { navModules, isMasterTier } = useNavModules();
+  // Chat home ⇄ classic dashboard (chat-first orgs only). Remembered per browser.
+  const [homeView, setHomeView] = React.useState<HomeView>("chat");
+  React.useEffect(() => {
+    const sync = () => setHomeView(readHomeView());
+    sync();
+    window.addEventListener(HOME_VIEW_EVENT, sync);
+    return () => window.removeEventListener(HOME_VIEW_EVENT, sync);
+  }, [rawPathname]);
+  const switchHome = (v: HomeView) => {
+    writeHomeView(v);
+    setHomeView(v);
+    router.push("/portal");
+  };
 
   const [openMenu, setOpenMenu] = React.useState<{ code: string; anchor: HTMLElement } | null>(null);
-
-  const orderKey = (m: any) => ORDER_OVERRIDE[m.moduleCode] ?? m.sortOrder ?? 999;
-  const navModules = (modules || [])
-    .filter((m: any) => m.enabled)
-    .filter((m: any) => isModuleAllowed(m.moduleCode))
-    .filter((m: any) => !HIDDEN_MODULES.has(m.moduleCode))
-    .map((m: any) => {
-      const hide = HIDDEN_SUBMENUS[m.moduleCode];
-      const subMenus = (m.config as any)?.subMenus;
-      if (!Array.isArray(subMenus)) return m;
-      const filtered = subMenus.filter((s: any) => {
-        if (typeof s === "object" && s?.adminOnly && !isAdminUser) return false;
-        const key = typeof s === "string" ? s : s?.key;
-        // CRM → Marketing rides on the enableAdsInsights org flag.
-        if (key === "marketing" && m.moduleCode === "CRM" && !isAdsInsightsEnabled) return false;
-        // Role-gated submenu (guru 2026-09-28: e.g. CIEL hides the WhatsApp
-        // CRM pages from the Marketing-role user). Admin-ish users (no org
-        // roles / admin roles) always pass.
-        if (typeof s === "object" && Array.isArray(s.roles) && userRoles.length > 0 && !isAdminUser) {
-          if (!userRoles.some((r: any) => s.roles.includes(r?.name))) return false;
-        }
-        return !hide?.includes(key);
-      });
-      // Service Reports -> Maintenance Dates rides on the enableMaintenanceDates
-      // org flag (display only, same as DynamicSidebarContent).
-      if (
-        m.moduleCode === "MAINTENANCE" &&
-        isMaintenanceDatesEnabled &&
-        !filtered.some((s: any) => (typeof s === "string" ? s : s?.key) === "dates")
-      ) {
-        filtered.push({ key: "dates", label: "Maintenance Dates" });
-      }
-      return { ...m, config: { ...(m.config as any), subMenus: filtered } };
-    })
-    .sort((a: any, b: any) => orderKey(a) - orderKey(b));
-
-  // Same submenu-route rules as the sidebar.
-  const resolveSubmenuRoute = (module: any, submenu: any): string => {
-    if (typeof submenu === "object" && submenu?.href) return submenu.href;
-    const submenuKey = typeof submenu === "string" ? submenu : submenu.key;
-    if (submenuKey === "list") return module.config.route;
-    if (submenuKey === "extraction" && module.moduleCode === "DOCUMENTS") return "/portal/document-extraction";
-    return `${module.config.route}/${submenuKey}`;
-  };
-  const submenuLabel = (s: any) => (typeof s === "string" ? s : s?.label || s?.key || "");
 
   const isModuleActive = (m: any): boolean => {
     const route: string = m.config?.route || "";
@@ -366,6 +312,41 @@ export default function TopNavBar() {
       </Stack>
 
       <Stack direction="row" alignItems="center" gap={1} sx={{ flexShrink: 0, ml: 1 }}>
+        {isAimsChatEnabled && (
+          <Stack
+            direction="row"
+            data-tour="home-view-toggle"
+            sx={{ bgcolor: "rgba(255,255,255,0.08)", borderRadius: 999, p: "3px", mr: 0.5 }}
+          >
+            {([
+              { v: "chat", label: "Chat", Icon: ChatBubbleOutlineIcon },
+              { v: "dashboard", label: "Dashboard", Icon: GridViewOutlinedIcon },
+            ] as const).map(({ v, label, Icon }) => {
+              const active = rawPathname === "/portal" && homeView === v;
+              return (
+                <Button
+                  key={v}
+                  size="small"
+                  onClick={() => switchHome(v)}
+                  startIcon={<Icon sx={{ fontSize: "0.95rem !important" }} />}
+                  title={label}
+                  sx={{
+                    height: 26, px: 1.25, borderRadius: 999, textTransform: "none", fontSize: "0.75rem", minWidth: 0,
+                    // Icons only until the bar has room for the words (the
+                    // module strip must not lose "Accounting" to the toggle).
+                    "& .MuiButton-startIcon": { mr: { xs: 0, xl: 0.75 }, ml: 0 },
+                    "& .toggle-label": { display: { xs: "none", xl: "inline" } },
+                    color: active ? "#041627" : "rgba(255,255,255,0.85)",
+                    bgcolor: active ? "#FFFFFF" : "transparent",
+                    "&:hover": { bgcolor: active ? "#FFFFFF" : "rgba(255,255,255,0.12)" },
+                  }}
+                >
+                  <span className="toggle-label">{label}</span>
+                </Button>
+              );
+            })}
+          </Stack>
+        )}
         <GlobalSearch />
         <TopNavOrgSwitcher />
         <NotificationBell />
