@@ -133,7 +133,10 @@ async function checkSchema(s: string, hasDoc: boolean) {
   for (const { org, controls } of orgs) {
     const c = (controls as Record<string, string>) || {};
     for (const [side, code, docFilter] of [
-      ["AR", c.debtorControl, `d.type in ('INVOICE') and lower(coalesce(d.config->>'status','')) in ('confirmed','pending_payment','partially_paid','overdue')`],
+      // Xero-imported invoices carry xeroStatus, not config.status — count
+      // AUTHORISED ones as open like the AP side does, or re-imported orgs
+      // (dev Biofuel) read "open-doc outstanding 0.00" by construction.
+      ["AR", c.debtorControl, `d.type in ('INVOICE') and (lower(coalesce(d.config->>'status','')) in ('confirmed','pending_payment','partially_paid','overdue') or d.config->>'xeroStatus' = 'AUTHORISED')`],
       ["AP", c.creditorControl, `d.type in ('BILL') and (d.config->>'billStatus' = 'POSTED' or d.config->>'xeroStatus' = 'AUTHORISED')`],
     ] as const) {
       if (!code) continue;
