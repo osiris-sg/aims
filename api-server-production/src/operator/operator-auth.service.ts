@@ -91,15 +91,27 @@ export class OperatorAuthService {
     // Also recognised: a WhatsApp number an admin set on a user's member profile
     // (User Management → WhatsApp number). Cheap — whatsappNumber is indexed.
     if (channel === 'whatsapp') {
-      const digits = String(channelUserId).replace(/\D/g, '');
-      if (!digits) return false;
+      const variants = this.numberVariants(channelUserId);
+      if (!variants.length) return false;
       const prof = await this.prisma.organizationMemberProfile.findFirst({
-        where: { whatsappNumber: digits },
+        where: { whatsappNumber: { in: variants } },
         select: { id: true },
       });
       return !!prof;
     }
     return false;
+  }
+
+  /** The spellings a Singapore number may be stored under: with and without
+   *  the 65 prefix (profiles saved from the admin page sometimes lack it —
+   *  guru 2026-10-13, Ryann's 91331398 vs WhatsApp's 6591331398). */
+  private numberVariants(raw: string): string[] {
+    const digits = String(raw).replace(/\D/g, '');
+    if (!digits) return [];
+    const v = new Set<string>([digits]);
+    if (digits.startsWith('65') && digits.length === 10) v.add(digits.slice(2));
+    if (digits.length === 8) v.add('65' + digits);
+    return [...v];
   }
 
   async resolve(channel: OperatorChannel, channelUserId: string): Promise<ResolveResult> {
@@ -117,10 +129,10 @@ export class OperatorAuthService {
     // 2) Self-serve link — a WhatsApp number an admin set on the user's member
     //    profile (User Management → WhatsApp number). No manual registration.
     if (channel === 'whatsapp') {
-      const digits = String(channelUserId).replace(/\D/g, '');
-      if (digits) {
+      const variants = this.numberVariants(channelUserId);
+      if (variants.length) {
         const profiles = await this.prisma.organizationMemberProfile.findMany({
-          where: { whatsappNumber: digits },
+          where: { whatsappNumber: { in: variants } },
           select: { userId: true, organizationId: true },
         });
         const users = [...new Set(profiles.map((p) => p.userId))];
@@ -131,7 +143,7 @@ export class OperatorAuthService {
           return this.resolveForUser(users[0], orgId, channel, channelUserId);
         }
         if (users.length > 1) {
-          this.logger.warn(`WhatsApp number ${digits} is set on ${users.length} different users — ignoring.`);
+          this.logger.warn(`WhatsApp number ${variants[0]} is set on ${users.length} different users — ignoring.`);
         }
       }
     }
@@ -287,9 +299,8 @@ export class OperatorAuthService {
     });
     let clerkUserId = identity?.clerkUserId;
     if (!clerkUserId && channel === 'whatsapp') {
-      const digits = String(channelUserId).replace(/\D/g, '');
       const prof = await this.prisma.organizationMemberProfile.findFirst({
-        where: { whatsappNumber: digits },
+        where: { whatsappNumber: { in: this.numberVariants(channelUserId) } },
         select: { userId: true },
       });
       clerkUserId = prof?.userId;
@@ -387,9 +398,8 @@ export class OperatorAuthService {
     // Member-profile user with no identity row yet: create one to persist the
     // org they just chose (look up who this number belongs to in that org).
     if (channel === 'whatsapp') {
-      const digits = String(channelUserId).replace(/\D/g, '');
       const prof = await this.prisma.organizationMemberProfile.findFirst({
-        where: { whatsappNumber: digits, organizationId },
+        where: { whatsappNumber: { in: this.numberVariants(channelUserId) }, organizationId },
         select: { userId: true },
       });
       if (prof) {
