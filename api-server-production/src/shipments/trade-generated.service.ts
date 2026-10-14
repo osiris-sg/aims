@@ -11,6 +11,7 @@ import { GenHeader, GenRef, renderGeneratedHtml } from './trade-generated.html';
 import { buildCustomerCoaJp, COA_JP_COLUMNS, CoaFormatError, parseCoaPdfText, pdfText } from './trade-coa';
 import {
   addBusinessDays,
+  dueBusinessDays,
   amountOf,
   defaultLmeMonth,
   DeliveryProfile,
@@ -304,6 +305,7 @@ export class TradeGeneratedService {
       const line = s.contractLine;
       const h = invoiceHeaderDefaults({
         today,
+        docType: 'INVOICE_2',
         org: org ?? { name: '' },
         customerName: s.customer?.jpName || s.customer?.name || '',
         grades: [line?.grade ?? ''],
@@ -440,11 +442,11 @@ export class TradeGeneratedService {
     return this.render(docType, header, columns ?? [], rows ?? [], { draft, seal });
   }
 
-  /** 請求書 due date: `invoiceDueBusinessDays` (default 7) Japanese bank business days after the issue date. */
-  async dueDateFor(organizationId: string, issueDate: string): Promise<{ issueDate: string; dueDate: string; businessDays: number }> {
+  /** 請求書 due date: Japanese bank business days after the issue date — Invoice #1 7, Invoice #2 6 (see dueBusinessDays). */
+  async dueDateFor(organizationId: string, issueDate: string, docType?: string): Promise<{ issueDate: string; dueDate: string; businessDays: number }> {
     assertIsoDate(issueDate, 'issueDate');
     const settings = await this.config.getSettings(organizationId);
-    const days = Number((settings.docDefaults as DocDefaults | undefined)?.invoiceDueBusinessDays ?? 7);
+    const days = dueBusinessDays((settings.docDefaults as DocDefaults | undefined) ?? {}, docType);
     return { issueDate, dueDate: addBusinessDays(issueDate, days), businessDays: days };
   }
 
@@ -534,10 +536,15 @@ export class TradeGeneratedService {
     );
     // Every other record it belongs to (Invoice #1 billing several contracts), each tagged with its own step.
     for (const o of more) {
-      await this.files.addLinks(organizationId, file.id, {
-        ...(o.contractId ? { contractIds: [o.contractId] } : { shipmentIds: [o.shipmentId] }),
-        ...(o.stepId ? { stepId: o.stepId } : {}),
-      } as any);
+      await this.files.addLinks(
+        organizationId,
+        file.id,
+        {
+          ...(o.contractId ? { contractIds: [o.contractId] } : { shipmentIds: [o.shipmentId] }),
+          ...(o.stepId ? { stepId: o.stepId } : {}),
+        } as any,
+        actor,
+      );
     }
     return this.prisma.tradeGeneratedDoc.update({
       where: { id, organizationId },

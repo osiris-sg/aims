@@ -9,6 +9,7 @@
  *    grade / weight / POD / shipment-vs-B/L differences).
  */
 import { z } from 'zod';
+import { DepositDueUnit, parseDepositDue } from './trade-deposit';
 
 // ── zod helpers: tolerate "1,209,585.00", "", "null" from the model ────────
 const blankToNull = (v: unknown) => (v === undefined || v === null || (typeof v === 'string' && ['', 'null', 'n/a', 'na', '-'].includes(v.trim().toLowerCase())) ? null : v);
@@ -320,6 +321,9 @@ export interface ContractDraft {
   depositPercent: number | null;
   depositAmount: number | null;
   depositDueNote: string | null;
+  /** The note as a term: "within 3 business days" → 3 / BUSINESS; null when it isn't a day count. */
+  depositDueDays: number | null;
+  depositDueUnit: DepositDueUnit | null;
   lines: Array<{ grade: string | null; sizeSpec: string | null; product: string | null; quantityMt: number | null; tolerancePct: number | null; supplierPremium: number | null }>;
 }
 
@@ -346,6 +350,8 @@ export function contractDraftFromPi(pi: PiRaw, parties: { suppliers: Array<{ id:
     depositPercent: pay.depositPercent,
     depositAmount: pi.amountPayable,
     depositDueNote: pay.depositDueNote,
+    depositDueDays: parseDepositDue(pay.depositDueNote)?.days ?? null,
+    depositDueUnit: parseDepositDue(pay.depositDueNote)?.unit ?? null,
     lines: pi.lines.map((l) => ({
       grade: gradeOf(l.grade, l.description),
       sizeSpec: sizeSpecOf(l.sizeRaw, l.lengthRaw),

@@ -2,8 +2,10 @@
 "use client";
 
 // Trade documents table + the row actions shared with the Documents library:
-// View (signed URL in a new tab), Add link, Unlink, Delete. Clicking a row
-// views the file; secondary actions sit behind a click-anchored kebab.
+// View (the in-app viewer: PDF pages / image, with download), Add link,
+// Unlink, Delete. Each row shows the file's first-page thumbnail (a type icon
+// for Office / Outlook files); clicking the row or the thumbnail opens the
+// viewer; secondary actions sit behind a click-anchored kebab.
 
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
@@ -13,11 +15,11 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { toast } from "../_lib/toast";
 import Table from "@/components/Table";
 import type { FileFilters, TradeFile, TradeFileLink } from "../_lib/api";
-import { useShipmentsApi } from "../_lib/api";
 import { useContracts, useShipments, useTradeFiles, useTradeMutation } from "../_lib/hooks";
 import { blLabel, fmtBytes, fmtDate, fmtDateTime } from "../_lib/format";
 import { ConfirmDialog, EmptyState } from "./bits";
 import FileUploadDialog, { type LinkTarget } from "./FileUploadDialog";
+import { FileThumb, useFileViewer } from "./FilePreview";
 
 const linkLabel = (l: TradeFileLink) => (l.contractId ? `Contract ${l.contract?.contractNo ?? ""}` : `Shipment ${blLabel(l.shipment?.blNumber)}`);
 const linkHref = (l: TradeFileLink) => (l.contractId ? `/portal/shipments/contracts/${l.contractId}` : `/portal/shipments/${l.shipmentId}`);
@@ -53,7 +55,6 @@ export const LinkChips = ({ links, currentId }: { links: TradeFileLink[]; curren
 
 /** Row menu + dialogs for trade files. Render `dialogs` once next to the table. */
 export function useFileActions(currentId?: string) {
-  const api = useShipmentsApi();
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; file: TradeFile } | null>(null);
   const [addFor, setAddFor] = useState<TradeFile | null>(null);
   const [unlinkFor, setUnlinkFor] = useState<TradeFile | null>(null);
@@ -78,18 +79,8 @@ export function useFileActions(currentId?: string) {
     }
   };
 
-  const view = async (f: TradeFile) => {
-    // Open the tab synchronously so the popup blocker allows it, then point it at the signed URL.
-    const tab = typeof window !== "undefined" ? window.open("", "_blank") : null;
-    try {
-      const r = await api.fileUrl(f.id);
-      if (tab) tab.location.href = r.url;
-      else window.open(r.url, "_blank", "noopener");
-    } catch (e: any) {
-      tab?.close();
-      toast.error(e?.message || "Could not open the file");
-    }
-  };
+  const { open: openViewer, viewer } = useFileViewer();
+  const view = (f: Pick<TradeFile, "id" | "fileName" | "mimeType" | "hasThumb">) => openViewer({ id: f.id, fileName: f.fileName, mimeType: f.mimeType, hasThumb: f.hasThumb });
 
   const openMenu = (e: React.MouseEvent, file: TradeFile) => {
     e.stopPropagation();
@@ -122,6 +113,7 @@ export function useFileActions(currentId?: string) {
         </MenuItem>
       </Menu>
       <AddLinkDialog file={addFor} onClose={() => setAddFor(null)} />
+      {viewer}
       <UnlinkDialog
         file={unlinkFor}
         currentId={currentId}
@@ -148,6 +140,12 @@ export function useFileActions(currentId?: string) {
 
   const columns = useMemo(
     () => [
+      {
+        id: "preview",
+        header: "",
+        enableSorting: false,
+        cell: ({ row }: any) => <FileThumb file={row.original} width={40} onOpen={(f) => view({ ...row.original, ...f })} />,
+      },
       { id: "docType", header: "Document type", cell: ({ row }: any) => <Chip size="small" variant="outlined" label={row.original.docTypeLabel} /> },
       {
         id: "fileName",

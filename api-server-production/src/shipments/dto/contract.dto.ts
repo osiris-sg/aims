@@ -1,7 +1,8 @@
 import { PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsDateString, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsDateString, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { IsTradeDate } from './trade-date';
+import { DEPOSIT_DUE_UNITS } from '../trade-deposit';
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -50,6 +51,9 @@ export class CreateContractDto {
   /** When omitted on create it is piAmount × depositPercent. */
   @IsOptional() @IsNumber() @Min(0) depositAmount?: number | null;
   @IsOptional() @IsString() @MaxLength(500) depositDueNote?: string | null;
+  /** Deposit due N days after the PI date (default on create: 3 business days, Vedanta's PI terms). */
+  @IsOptional() @IsInt() @Min(0) @Max(365) depositDueDays?: number | null;
+  @IsOptional() @IsIn(DEPOSIT_DUE_UNITS) depositDueUnit?: 'BUSINESS' | 'CALENDAR' | null;
   @IsOptional() @IsDateString() @IsTradeDate() depositPaidAt?: string | null;
   @IsOptional() @IsString() @MaxLength(5000) notes?: string | null;
 

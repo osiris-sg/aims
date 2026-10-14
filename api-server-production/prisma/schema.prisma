@@ -3631,7 +3631,10 @@ model Contract {
   piAmount           Decimal?          @db.Decimal(16, 2)
   depositPercent     Decimal?          @default(10) @db.Decimal(5, 2)
   depositAmount      Decimal?          @db.Decimal(16, 2)
-  depositDueNote     String? // e.g. "within 5 business days"
+  depositDueNote     String? // e.g. "within 5 business days" (legacy free text; see depositDueDays)
+  /// Deposit due: N business (Japanese bank) or calendar days after the PI date.
+  depositDueDays     Int?
+  depositDueUnit     String? // "BUSINESS" | "CALENDAR"
   depositPaidAt      DateTime?
   status             TradeRecordStatus @default(OPEN)
   notes              String?
@@ -3751,6 +3754,10 @@ model TradeStepTemplate {
   description      String?
   sortOrder        Int
   requiredDocTypes String[] // TradeDocType.code values (validated in the service)
+  /// Doc types offered under the step's collapsed "Optional" heading (never required).
+  optionalDocTypes String[]       @default([])
+  /// Record fields the step also needs before it completes (e.g. shipment "blNumber").
+  requiredFields   String[]       @default([])
   isOngoing        Boolean        @default(false) // ongoing step never blocks completion
   isActive         Boolean        @default(true)
   createdAt        DateTime       @default(now())
@@ -3773,8 +3780,12 @@ model TradeStep {
   displayNo        String?
   sortOrder        Int
   requiredDocTypes String[]
+  optionalDocTypes String[]        @default([])
+  requiredFields   String[]        @default([])
   isOngoing        Boolean
   status           TradeStepStatus @default(NOT_STARTED)
+  /// Reopened by hand: not auto-completed again until one of its documents / fields changes.
+  holdOpen         Boolean         @default(false)
   skipReason       String?
   updatedById      String?
   updatedByName    String?
@@ -3803,6 +3814,8 @@ model TradeFile {
   uploadedById   String
   uploadedByName String?
   notes          String?
+  /// First-page / image thumbnail (PNG) stored next to the file; null = none (Office files, or not made yet).
+  thumbKey       String?
   createdAt      DateTime @default(now())
 
   links       TradeFileLink[]

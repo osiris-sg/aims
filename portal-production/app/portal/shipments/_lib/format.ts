@@ -72,7 +72,7 @@ export const STEP_STATUS: Record<StepStatus, { label: string; color: "default" |
   SKIPPED: { label: "Skipped (legacy)", color: "secondary" },
 };
 
-export const blLabel = (bl?: string | null) => bl || "(no B/L yet)";
+export const blLabel = (bl?: string | null) => bl || "B/L pending";
 
 /** Doc types that can be met by an in-app invoice instead of an uploaded file. */
 export const INVOICE_DOC_TYPES = ["INVOICE_1", "INVOICE_2"];
@@ -124,3 +124,15 @@ export const stepLabel = (s: { title: string; displayNo?: string | null }, posit
   const no = s.displayNo?.trim() || (position ? String(position) : "");
   return no ? `${no}. ${s.title}` : s.title;
 };
+
+/** Calendar date (stored UTC midnight, or YYYY-MM-DD) as DD/MM/YYYY — ADH's own date style. */
+export const fmtDmy = (d?: string | null) => {
+  if (!d) return "—";
+  const x = new Date(/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T00:00:00Z` : d);
+  if (isNaN(x.getTime())) return "—";
+  return `${pad(x.getUTCDate())}/${pad(x.getUTCMonth() + 1)}/${x.getUTCFullYear()}`;
+};
+
+/** "3 business days" / "10 calendar days" — the contract's deposit term. */
+export const depositTermLabel = (days?: number | null, unit?: string | null) =>
+  days === null || days === undefined ? null : `${days} ${unit === "CALENDAR" ? "calendar" : "business"} day${days === 1 ? "" : "s"}`;

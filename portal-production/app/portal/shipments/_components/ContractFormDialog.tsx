@@ -7,15 +7,18 @@
 // validates both, the contract number's uniqueness and "at least one line".
 // "Fill from PI" reads the supplier's PI (AI) and prefills sections 1, 3 and 4,
 // highlighting what it filled and showing the PDF alongside; on save the PI
-// file is linked to the contract and its "Set up PI payment" step.
+// file is linked to the contract and its "Set up PI payment" step. A new
+// contract also gets shipment #1 (B/L pending) — the deal page opens on it.
+// Deposit due is a number of business / calendar days after the PI date
+// (default 3 business days, Vedanta's terms) with the date shown beside it.
 
 import React, { useEffect, useState } from "react";
-import { Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Grid2, IconButton, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography, useMediaQuery } from "@mui/material";
+import { Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Grid2, IconButton, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography, useMediaQuery } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
-import { useShipmentsApi, type Contract, type ContractDraft, type ContractInput, type ContractLineInput, type Party, type PiExtraction } from "../_lib/api";
-import { toDateInput } from "../_lib/format";
+import { useShipmentsApi, type Contract, type ContractDraft, type ContractInput, type ContractLineInput, type DepositDueUnit, type Party, type PiExtraction } from "../_lib/api";
+import { fmtDmy, toDateInput } from "../_lib/format";
 import { useCustomers, useSuppliers, useTradeMutation, useTradeSettings } from "../_lib/hooks";
 import { filledSx, PdfDropZone, SourcePdfPane } from "./PdfDrop";
 import { anyDateError, guardDate } from "../_lib/dates";
@@ -38,7 +41,8 @@ type TextKey =
   | "piAmount"
   | "depositPercent"
   | "depositAmount"
-  | "depositDueNote"
+  | "depositDueDays"
+  | "depositDueUnit"
   | "depositPaidAt";
 type Form = Record<TextKey, string>;
 
@@ -63,7 +67,9 @@ const EMPTY: Form = {
   piAmount: "",
   depositPercent: "10",
   depositAmount: "",
-  depositDueNote: "",
+  // Vedanta's PI terms: "10% Adv with 3 business days".
+  depositDueDays: "3",
+  depositDueUnit: "BUSINESS",
   depositPaidAt: "",
 };
 
@@ -100,7 +106,9 @@ const fromContract = (c: Contract): Form => ({
   piAmount: str(c.piAmount),
   depositPercent: str(c.depositPercent),
   depositAmount: str(c.depositAmount),
-  depositDueNote: c.depositDueNote ?? "",
+  // A free-text term that didn't parse stays blank (shown under the field as it was written).
+  depositDueDays: c.depositDueDays == null ? "" : String(c.depositDueDays),
+  depositDueUnit: c.depositDueUnit ?? "BUSINESS",
   depositPaidAt: toDateInput(c.depositPaidAt),
 });
 
@@ -222,7 +230,11 @@ export default function ContractFormDialog({
       put("piAmount", d.piAmount);
       put("depositPercent", d.depositPercent);
       put("depositAmount", d.depositAmount ?? autoDeposit(String(d.piAmount ?? ""), String(d.depositPercent ?? 10)));
-      put("depositDueNote", d.depositDueNote);
+      // The PI's payment terms as a day count; otherwise the default stays.
+      if (d.depositDueDays != null) {
+        put("depositDueDays", d.depositDueDays);
+        put("depositDueUnit", d.depositDueUnit ?? "BUSINESS");
+      }
       return next;
     });
     // The PI prints its own "amount payable": keep it even if it isn't exactly PI × %.
@@ -309,10 +321,11 @@ export default function ContractFormDialog({
   const numberError = (s: string, allowNegative = false) => s.trim() !== "" && (!Number.isFinite(Number(s)) || (!allowNegative && Number(s) < 0));
   const monthError = (k: "shipmentMonth" | "deliveryMonth") => form[k].trim() !== "" && !MONTH.test(form[k].trim());
   const currencyError = !/^[A-Z]{3}$/.test(form.currency.trim());
+  const dueDaysError = form.depositDueDays.trim() !== "" && !(Number.isInteger(Number(form.depositDueDays)) && Number(form.depositDueDays) >= 0 && Number(form.depositDueDays) <= 365);
   const pctError = numberError(form.depositPercent) || (form.depositPercent.trim() !== "" && Number(form.depositPercent) > 100);
   const lineError = (l: LineRow) => numberError(l.quantityMt) || numberError(l.tolerancePct) || Number(l.tolerancePct) > 100 || numberError(l.supplierPremium, true) || numberError(l.clientPremium, true);
   const missing = !form.contractNo.trim() || !form.supplierId || !form.customerId;
-  const invalid = missing || monthError("shipmentMonth") || monthError("deliveryMonth") || anyDateError(form.piDate, form.depositPaidAt, form.shipmentMonth, form.deliveryMonth) || currencyError || pctError || ["piAmount", "depositAmount"].some((k) => numberError(form[k as TextKey])) || !lines.length || lines.some(lineError);
+  const invalid = dueDaysError || missing || monthError("shipmentMonth") || monthError("deliveryMonth") || anyDateError(form.piDate, form.depositPaidAt, form.shipmentMonth, form.deliveryMonth) || currencyError || pctError || ["piAmount", "depositAmount"].some((k) => numberError(form[k as TextKey])) || !lines.length || lines.some(lineError);
   const totalQty = lines.reduce((s, l) => s + (Number(l.quantityMt) || 0), 0);
 
   const submit = async () => {
@@ -337,7 +350,8 @@ export default function ContractFormDialog({
       piAmount: num(form.piAmount),
       depositPercent: num(form.depositPercent),
       depositAmount: num(form.depositAmount),
-      depositDueNote: text(form.depositDueNote),
+      depositDueDays: form.depositDueDays.trim() === "" ? null : Number(form.depositDueDays),
+      depositDueUnit: form.depositDueDays.trim() === "" ? null : (form.depositDueUnit as DepositDueUnit),
       depositPaidAt: form.depositPaidAt || null,
       ...(source && !contract ? { piFileId: source.fileId } : {}),
       lines: lines.map((l): ContractLineInput => ({
@@ -573,7 +587,20 @@ export default function ContractFormDialog({
                     }
                   />
                 </Grid2>
-                <Grid2 size={{ xs: 12, sm: 8 }}>{tf("depositDueNote", "Deposit due", { placeholder: "e.g. within 5 business days" })}</Grid2>
+                <Grid2 size={{ xs: 12, sm: 8 }}>
+                  <DepositDueField
+                    days={form.depositDueDays}
+                    unit={form.depositDueUnit}
+                    piDate={form.piDate}
+                    filled={filled.has("depositDueDays")}
+                    legacyNote={contract && contract.depositDueDays == null ? contract.depositDueNote : null}
+                    error={dueDaysError}
+                    onChange={(days, unit) => {
+                      unfill("depositDueDays");
+                      setForm((f) => ({ ...f, depositDueDays: days, depositDueUnit: unit }));
+                    }}
+                  />
+                </Grid2>
                 <Grid2 size={{ xs: 12, sm: 4 }}>{dateTf("depositPaidAt", "Deposit paid on")}</Grid2>
               </Grid2>
             </Section>
@@ -594,5 +621,83 @@ export default function ContractFormDialog({
         </Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+/**
+ * Deposit due: N + Business days / Calendar days after the PI date, with the
+ * computed date beside it (business days skip Japanese bank holidays — the API
+ * works it out, as for 請求書 due dates).
+ */
+function DepositDueField({
+  days,
+  unit,
+  piDate,
+  filled,
+  legacyNote,
+  error,
+  onChange,
+}: {
+  days: string;
+  unit: string;
+  piDate: string;
+  filled: boolean;
+  legacyNote: string | null;
+  error: boolean;
+  onChange: (days: string, unit: string) => void;
+}) {
+  const api = useShipmentsApi();
+  const [due, setDue] = useState<string | null>(null);
+  useEffect(() => {
+    const n = Number(days);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(piDate) || days.trim() === "" || !Number.isInteger(n) || n < 0 || n > 365) {
+      setDue(null);
+      return;
+    }
+    let live = true;
+    const t = setTimeout(() => {
+      api
+        .depositDue(piDate, n, unit as DepositDueUnit)
+        .then((r) => live && setDue(r.dueDate))
+        .catch(() => live && setDue(null));
+    }, 250);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [api, days, unit, piDate]);
+  return (
+    <Box>
+      <Stack direction="row" spacing={1} alignItems="flex-start">
+        <TextField
+          label="Deposit due"
+          type="number"
+          size="small"
+          value={days}
+          onChange={(e) => onChange(e.target.value, unit)}
+          inputProps={{ min: 0, max: 365, step: 1 }}
+          error={error}
+          sx={{ width: 120, ...filledSx(filled) }}
+        />
+        <TextField select size="small" label="Unit" value={unit} onChange={(e) => onChange(days, e.target.value)} sx={{ width: 170, ...filledSx(filled) }}>
+          <MenuItem value="BUSINESS">Business days</MenuItem>
+          <MenuItem value="CALENDAR">Calendar days</MenuItem>
+        </TextField>
+        <Box sx={{ pt: 1, minWidth: 0 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>
+            {due ? `→ due ${fmtDmy(due)}` : piDate ? "" : "after the PI date"}
+          </Typography>
+        </Box>
+      </Stack>
+      {error ? (
+        <Typography variant="caption" color="error">
+          A whole number of days, 0–365
+        </Typography>
+      ) : legacyNote ? (
+        <Typography variant="caption" color="text.secondary">
+          Written on the contract as: “{legacyNote}”
+        </Typography>
+      ) : null}
+    </Box>
   );
 }

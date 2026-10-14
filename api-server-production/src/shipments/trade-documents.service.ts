@@ -2,8 +2,9 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../common/prisma.service';
 import { LinkTradeDocumentDto } from './dto/trade-document.dto';
 import { documentLinkState, parseIdList } from './shipments.rules';
-import { Db, DOC_LINK_SELECT, documentSummary, isVoided, TradeConfigService } from './trade-config.service';
-import { ownerOf, TradeFilesService } from './trade-files.service';
+import { TradeActor } from './shipments.request';
+import { Db, DOC_LINK_SELECT, documentSummary, isVoided, TradeConfigService, TradeOwner } from './trade-config.service';
+import { ownerOf, ownersOfTargets, TradeFilesService } from './trade-files.service';
 
 /** Sales document types an in-app trade invoice can be. */
 export const INVOICE_DOCUMENT_TYPES = ['INVOICE', 'TI', 'TI2'];
@@ -21,13 +22,14 @@ export class TradeDocumentsService {
     private readonly files: TradeFilesService,
   ) {}
 
-  async link(organizationId: string, dto: LinkTradeDocumentDto) {
+  async link(organizationId: string, dto: LinkTradeDocumentDto, actor: TradeActor | null = null) {
     const contractIds = parseIdList(dto.contractIds);
     const shipmentIds = parseIdList(dto.shipmentIds);
     const docType = (dto.docType || '').trim();
     if (!contractIds.length && !shipmentIds.length && !dto.stepId) {
       throw new BadRequestException('Give at least one contract, shipment or step to link');
     }
+    let owners: TradeOwner[] = [];
     await this.prisma.$transaction(async (tx: Db) => {
       await this.config.assertActiveDocType(organizationId, docType, tx);
       const doc = await tx.document.findFirst({
@@ -42,11 +44,12 @@ export class TradeDocumentsService {
         select: { id: true, contractId: true, shipmentId: true, stepId: true },
       });
       const stepFor = (ownerId: string) => (targets.step && (targets.step.contractId ?? targets.step.shipmentId) === ownerId ? targets.step.id : null);
-      const owners = [
+      owners = ownersOfTargets(targets);
+      const rowsFor = [
         ...targets.contracts.map((c) => ({ contractId: c.id, shipmentId: null })),
         ...targets.shipments.map((s) => ({ contractId: null, shipmentId: s.id })),
       ];
-      for (const o of owners) {
+      for (const o of rowsFor) {
         const ownerId = (o.contractId ?? o.shipmentId) as string;
         const prior = existing.find((l) => (l.contractId ?? l.shipmentId) === ownerId);
         const stepId = stepFor(ownerId);
@@ -58,6 +61,8 @@ export class TradeDocumentsService {
         }
       }
     });
+    // A confirmed invoice completes the step that needs it (a draft doesn't count yet).
+    await this.config.syncSteps(this.prisma, organizationId, owners, actor, { docTypes: [docType] });
     const rows = await this.prisma.tradeDocumentLink.findMany({
       where: { organizationId, documentId: dto.documentId },
       orderBy: { createdAt: 'asc' },

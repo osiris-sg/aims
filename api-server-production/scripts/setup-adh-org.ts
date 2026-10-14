@@ -283,14 +283,35 @@ const TRADE_SETTINGS = {
   } as Record<string, unknown>,
 };
 
-type StepSpec = { scope: 'CONTRACT' | 'SHIPMENT'; sortOrder: number; code: string; displayNo: string; title: string; requiredDocTypes: string[]; isOngoing?: boolean };
+type StepSpec = {
+  scope: 'CONTRACT' | 'SHIPMENT';
+  sortOrder: number;
+  code: string;
+  displayNo: string;
+  title: string;
+  requiredDocTypes: string[];
+  /** Offered under the step's collapsed "Optional" heading (never required). Default ['OTHER']. */
+  optionalDocTypes?: string[];
+  /** Record fields the step needs before it auto-completes (shipment step 2: the B/L details). */
+  requiredFields?: string[];
+  isOngoing?: boolean;
+};
 const STEP_TEMPLATES: StepSpec[] = [
-  { scope: 'CONTRACT', sortOrder: 10, code: 'PI_PAYMENT', displayNo: '1', title: 'Set up PI payment', requiredDocTypes: ['PI', 'DEPOSIT_PROOF'] },
+  { scope: 'CONTRACT', sortOrder: 10, code: 'PI_PAYMENT', displayNo: '1', title: 'Set up PI payment', requiredDocTypes: ['PI', 'DEPOSIT_PROOF'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
   { scope: 'CONTRACT', sortOrder: 20, code: 'INVOICE_1', displayNo: '2', title: 'Issue Invoice #1', requiredDocTypes: ['INVOICE_1'] },
-  { scope: 'SHIPMENT', sortOrder: 10, code: 'BL_DRAFT_APPROVAL', displayNo: '2', title: 'Approve B/L draft (Vedanta)', requiredDocTypes: ['BL_DRAFT'] },
+  {
+    scope: 'SHIPMENT',
+    sortOrder: 10,
+    code: 'BL_DRAFT_APPROVAL',
+    displayNo: '2',
+    title: 'Approve B/L draft (Vedanta)',
+    requiredDocTypes: ['BL_DRAFT'],
+    // The B/L details are entered here (inline form / "Fill from B/L draft").
+    requiredFields: ['blNumber', 'contractLineId'],
+  },
   { scope: 'SHIPMENT', sortOrder: 20, code: 'SHIPPING_DOCS', displayNo: '3', title: 'Receive shipping documents', requiredDocTypes: ['BL', 'CI', 'PL', 'COA', 'COO', 'INSURANCE'] },
   { scope: 'SHIPMENT', sortOrder: 30, code: 'CUSTOMER_DOCS', displayNo: '4', title: 'Create customer documents', requiredDocTypes: ['CUSTOMER_COA', 'CUSTOMER_PL'] },
-  { scope: 'SHIPMENT', sortOrder: 40, code: 'SEND_DOCS_SCHEDULE', displayNo: '5', title: 'Send documents & ask schedule', requiredDocTypes: [] },
+  { scope: 'SHIPMENT', sortOrder: 40, code: 'SEND_DOCS_SCHEDULE', displayNo: '5', title: 'Send documents & ask schedule', requiredDocTypes: [], optionalDocTypes: ['DELIVERY_SCHEDULE', 'OTHER'] },
   { scope: 'SHIPMENT', sortOrder: 50, code: 'CI_PAYMENT', displayNo: '6', title: 'Set up CI payment', requiredDocTypes: ['CI_PAYMENT_PROOF'] },
   { scope: 'SHIPMENT', sortOrder: 60, code: 'CUSTOMS_TAX_ESTIMATE', displayNo: '7', title: 'Customs documents & tax estimate', requiredDocTypes: ['SGJP_IV_PL', 'TAX_ESTIMATE'] },
   { scope: 'SHIPMENT', sortOrder: 70, code: 'TAX_FUNDS', displayNo: '8', title: 'Prepare import-tax funds', requiredDocTypes: [] },
@@ -711,14 +732,23 @@ async function main() {
   header('9', 'Step templates');
   const docCodes = new Set(DOC_TYPES.map(([c]) => c));
   for (const s of STEP_TEMPLATES) {
-    const bad = s.requiredDocTypes.filter((d) => !docCodes.has(d));
+    const bad = [...s.requiredDocTypes, ...(s.optionalDocTypes ?? [])].filter((d) => !docCodes.has(d));
     if (bad.length) throw new Error(`step ${s.code} requires unknown doc types: ${bad.join(', ')}`);
   }
   const haveSteps = new Map<string, any>(
     orgExists ? (await tradeRead(() => org.tradeStepTemplate.findMany({ where: { organizationId: orgId } }), [])).map((t: any) => [`${t.scope}:${t.code}`, t]) : [],
   );
   for (const s of STEP_TEMPLATES) {
-    const data = { title: s.title, displayNo: s.displayNo, sortOrder: s.sortOrder, requiredDocTypes: s.requiredDocTypes, isOngoing: !!s.isOngoing, isActive: true };
+    const data = {
+      title: s.title,
+      displayNo: s.displayNo,
+      sortOrder: s.sortOrder,
+      requiredDocTypes: s.requiredDocTypes,
+      optionalDocTypes: s.optionalDocTypes ?? ['OTHER'],
+      requiredFields: s.requiredFields ?? [],
+      isOngoing: !!s.isOngoing,
+      isActive: true,
+    };
     const cur = haveSteps.get(`${s.scope}:${s.code}`);
     const same =
       cur &&
@@ -727,7 +757,9 @@ async function main() {
       cur.sortOrder === data.sortOrder &&
       cur.isOngoing === data.isOngoing &&
       cur.isActive &&
-      JSON.stringify(cur.requiredDocTypes) === JSON.stringify(data.requiredDocTypes);
+      JSON.stringify(cur.requiredDocTypes) === JSON.stringify(data.requiredDocTypes) &&
+      JSON.stringify(cur.optionalDocTypes ?? []) === JSON.stringify(data.optionalDocTypes) &&
+      JSON.stringify(cur.requiredFields ?? []) === JSON.stringify(data.requiredFields);
     if (same) continue;
     if (APPLY) {
       await org.tradeStepTemplate.upsert({
@@ -738,7 +770,7 @@ async function main() {
     }
     write(
       'stepTemplate',
-      `${cur ? 'update' : 'create'} ${s.scope.padEnd(8)} ${String(s.sortOrder).padStart(3)} #${s.displayNo.padEnd(3)} ${s.code.padEnd(20)} [${s.requiredDocTypes.join(', ')}]${s.isOngoing ? ' ongoing' : ''}`,
+      `${cur ? 'update' : 'create'} ${s.scope.padEnd(8)} ${String(s.sortOrder).padStart(3)} #${s.displayNo.padEnd(3)} ${s.code.padEnd(20)} [${s.requiredDocTypes.join(', ')}]${s.requiredFields?.length ? ` +fields ${s.requiredFields.join('/')}` : ''}${s.isOngoing ? ' ongoing' : ''}`,
     );
   }
 

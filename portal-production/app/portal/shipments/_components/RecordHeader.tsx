@@ -3,12 +3,12 @@
 // Detail-page header for a contract or shipment: title, status, subtitle and
 // the Complete / Cancel / Reopen actions (each behind a confirm dialog that
 // shows the backend's refusal, e.g. the steps still open). Complete stays
-// disabled, with the unfinished steps in its tooltip, until every non-ongoing
-// step is Done (the backend's completion rule).
+// disabled until every non-ongoing step is Done and nothing else blocks it
+// (a contract: its open shipments); what is missing is written under the title.
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Box, Button, IconButton, Stack, Tooltip, Typography } from "@mui/material";
+import { Box, Button, IconButton, Stack, Typography } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { toast } from "../_lib/toast";
 import type { CurrentStep, RecordStatus, TradeStep } from "../_lib/api";
@@ -29,6 +29,7 @@ export default function RecordHeader({
   onComplete,
   onCancel,
   onReopen,
+  blockers = [],
 }: {
   kind: "contract" | "shipment";
   title: string;
@@ -43,6 +44,8 @@ export default function RecordHeader({
   onComplete: () => Promise<unknown>;
   onCancel: () => Promise<unknown>;
   onReopen: () => Promise<unknown>;
+  /** Other things Complete waits for (a contract: "shipment 198GX04822"). */
+  blockers?: string[];
 }) {
   const router = useRouter();
   const [confirm, setConfirm] = useState<Act | null>(null);
@@ -76,6 +79,7 @@ export default function RecordHeader({
   const c = confirm ? text[confirm] : null;
   const main = steps.filter((s) => !s.isOngoing).sort((a, b) => a.sortOrder - b.sortOrder);
   const notDone = main.filter((s) => s.status !== "DONE").map((s) => stepLabel(s, main.indexOf(s) + 1));
+  const waiting = [...notDone.map((n) => `step ${n}`), ...blockers];
 
   return (
     <Box sx={{ mb: 2 }}>
@@ -102,13 +106,9 @@ export default function RecordHeader({
             <Button variant="outlined" color="error" onClick={() => setConfirm("cancel")}>
               Cancel {kind}
             </Button>
-            <Tooltip title={notDone.length ? `Not done: ${notDone.join(", ")}` : ""}>
-              <span>
-                <Button variant="contained" color={notDone.length ? "inherit" : "success"} disabled={notDone.length > 0} onClick={() => setConfirm("complete")}>
-                  Complete
-                </Button>
-              </span>
-            </Tooltip>
+            <Button variant="contained" color={waiting.length ? "inherit" : "success"} disabled={waiting.length > 0} onClick={() => setConfirm("complete")}>
+              Complete {kind}
+            </Button>
           </>
         ) : (
           <Button variant="contained" onClick={() => setConfirm("reopen")}>
@@ -117,6 +117,11 @@ export default function RecordHeader({
         )}
       </Stack>
       {subtitle && <Box sx={{ mt: 0.75, ml: { xs: 0, md: 5 } }}>{subtitle}</Box>}
+      {status === "OPEN" && waiting.length > 0 && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, ml: { xs: 0, md: 5 } }}>
+          To complete the {kind}: finish {waiting.length > 3 ? `${waiting.slice(0, 3).join(", ")} and ${waiting.length - 3} more` : waiting.join(", ")}
+        </Typography>
+      )}
 
       <ConfirmDialog
         open={!!c}

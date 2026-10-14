@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, Req, 
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { LinkTradeDocumentDto, SearchInvoicesQuery } from './dto/trade-document.dto';
-import { orgIdOf, TradeRequest } from './shipments.request';
+import { actorOf, orgIdOf, TradeRequest } from './shipments.request';
 import { TradeDocumentsService } from './trade-documents.service';
 
 @Controller('trade-documents')
@@ -14,7 +14,7 @@ export class TradeDocumentsController {
   @Post('links')
   @Permissions('shipments:update')
   link(@Body() dto: LinkTradeDocumentDto, @Req() req: TradeRequest) {
-    return this.docs.link(orgIdOf(req), dto);
+    return this.docs.link(orgIdOf(req), dto, actorOf(req));
   }
 
   @Delete('links/:id')

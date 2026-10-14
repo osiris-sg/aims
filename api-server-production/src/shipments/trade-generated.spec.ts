@@ -420,7 +420,7 @@ describe('TradeGeneratedService — ADH 請求書 finalize (Sales Document)', ()
     expect(pdf.generatePdfFromHtml.mock.calls[0][0]).not.toContain('class="wm"'); // final PDF: no DRAFT watermark
     expect(files.upload.mock.calls[0][2]).toMatchObject({ docType: 'INVOICE_1', contractIds: ['c1'], stepId: 'step-c1' });
     // Every other contract billed is linked too, tagged with its own step (its Files tab + step chip).
-    expect(files.addLinks).toHaveBeenCalledWith(ORG, 'pdf-1', { contractIds: ['c2'], stepId: 'step-c2' });
+    expect(files.addLinks).toHaveBeenCalledWith(ORG, 'pdf-1', { contractIds: ['c2'], stepId: 'step-c2' }, expect.objectContaining({ id: 'u1' }));
     expect(prisma.tradeGeneratedDoc.update.mock.calls[0][0].data).toMatchObject({ status: 'FINAL', number: 'ADH-INV-2026-0001', documentId: 'doc-1', finalFileId: 'pdf-1' });
     expect(r.number).toBe('ADH-INV-2026-0001');
   });

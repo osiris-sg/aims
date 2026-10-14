@@ -42,10 +42,17 @@ export class TradeFilesController {
     return this.files.getUrl(orgIdOf(req), id);
   }
 
+  /** Signed URL of the file's first-page / image thumbnail ({ url: null } when it has none). */
+  @Get(':id/thumb')
+  @Permissions('shipments:read')
+  thumbUrl(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
+    return this.files.thumbUrl(orgIdOf(req), id);
+  }
+
   @Post(':id/links')
   @Permissions('shipments:update')
   addLinks(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AddTradeFileLinksDto, @Req() req: TradeRequest) {
-    return this.files.addLinks(orgIdOf(req), id, dto);
+    return this.files.addLinks(orgIdOf(req), id, dto, actorOf(req));
   }
 
   @Delete(':id/links/:linkId')

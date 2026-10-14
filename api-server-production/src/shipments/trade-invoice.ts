@@ -119,6 +119,8 @@ export interface DocDefaults {
   invoiceTaxRate?: number;
   invoiceUnit?: string;
   invoiceDueBusinessDays?: number;
+  /** Invoice #2 (2回目) due: ADH's "6営業日以内" — default 6. */
+  invoice2DueBusinessDays?: number;
   productJa?: Record<string, string>;
   sgSellerBlock?: string;
   siTo?: string;
@@ -218,6 +220,8 @@ export function helperRemarks(
     totalPremium: String(roundTo(n(l.premium) + n(l.upcharge), 4)),
   };
   vars.upcharge = up ? upchargeTemplate.replace(/\{(\w+)\}/g, (_, k) => (k === 'upcharge' ? fmt(l.upcharge) : (vars[k] ?? ''))) : '';
+  // LME not typed yet: leave out its "(…USD)" figure instead of printing "(0USD)".
+  if (!has(l.lme)) template = template.replace(/\(\{LME\}[^)]*\)/g, '');
   const s = template.replace(/\{(\w+)\}/g, (all, k) => (k in vars ? vars[k] : all));
   return !template.includes('{upcharge}') && up ? `${s} +${fmt(l.upcharge)}(Upcharge)` : s;
 }
@@ -381,8 +385,15 @@ export function defaultBank(d: DocDefaults): BankAccount | null {
   return list.find((b) => b.id === d.defaultBankId) ?? list[0] ?? null;
 }
 
+/** Business days to the 請求書 due date: Invoice #1 7 (invoiceDueBusinessDays), Invoice #2 6 (invoice2DueBusinessDays). */
+export function dueBusinessDays(d: DocDefaults, docType?: string | null): number {
+  return Number(docType === 'INVOICE_2' ? (d.invoice2DueBusinessDays ?? 6) : (d.invoiceDueBusinessDays ?? 7));
+}
+
 export function invoiceHeaderDefaults(opts: {
   today: string;
+  /** INVOICE_1 (default) or INVOICE_2 — sets the due-date default. */
+  docType?: string;
   org: { name: string; address?: string | null; registrationNumber?: string | null };
   customerName: string;
   grades: string[];
@@ -393,7 +404,7 @@ export function invoiceHeaderDefaults(opts: {
 }): InvoiceHeader {
   const d = opts.defaults;
   const bank = defaultBank(d);
-  const due = addBusinessDays(opts.today, d.invoiceDueBusinessDays ?? 7);
+  const due = addBusinessDays(opts.today, dueBusinessDays(d, opts.docType));
   const productJa = (opts.products.map((p) => d.productJa?.[p] ?? p)[0] ?? '') || '';
   return {
     title: '請　求　書',

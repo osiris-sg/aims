@@ -3,7 +3,9 @@
 
 // Upload one or more trade documents. Each file becomes its own TradeFile with
 // the same doc type and link targets. Files are checked against the backend's
-// size/type allow-list first, then uploaded one by one with progress.
+// size/type allow-list first and previewed (first page of a PDF, the image, or
+// a type icon), then uploaded one by one with progress. A step row's drop zone
+// opens it with the dropped files already in the list.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -30,7 +32,9 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import CloseIcon from "@mui/icons-material/Close";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
-import { TRADE_FILE_EXTENSIONS, TRADE_FILE_MAX_BYTES } from "../_lib/api";
+import { TRADE_FILE_EXTENSIONS, TRADE_FILE_MAX_BYTES, type TradeFile } from "../_lib/api";
+import { toast } from "../_lib/toast";
+import { LocalPreview } from "./FilePreview";
 import { useContracts, useDocTypes, useShipments, useTradeMutation } from "../_lib/hooks";
 import { blLabel, fmtBytes } from "../_lib/format";
 
@@ -52,6 +56,10 @@ export default function FileUploadDialog({
   defaultTargets = [],
   docType: presetDocType,
   stepId,
+  initialFiles,
+  onUploaded,
+  announceSteps = true,
+  title,
 }: {
   open: boolean;
   onClose: () => void;
@@ -61,6 +69,13 @@ export default function FileUploadDialog({
   /** Uploading for a step: the file is tagged with it (and linked to its record). */
   stepId?: string;
   stepTitle?: string;
+  /** Files dropped on a step row: listed (and previewed) as soon as the dialog opens. */
+  initialFiles?: File[] | null;
+  /** After every file uploaded: e.g. Replace removes the old one. */
+  onUploaded?: (files: TradeFile[]) => void | Promise<void>;
+  /** Toast "Step N complete" for steps the upload completed (the deal page announces them itself). */
+  announceSteps?: boolean;
+  title?: string;
 }) {
   const docTypes = useDocTypes();
   const contracts = useContracts({ status: "OPEN", pageSize: 100 }, open);
@@ -94,6 +109,7 @@ export default function FileUploadDialog({
     setTargets(defaultTargets);
     setNotes("");
     setRows([]);
+    if (initialFiles?.length) addFiles(initialFiles);
     setError(null);
     setBusy(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -114,7 +130,7 @@ export default function FileUploadDialog({
 
   const activeDocTypes = (docTypes.data ?? []).filter((d) => d.isActive || d.code === docType);
 
-  const addFiles = (list: FileList | null) => {
+  function addFiles(list: FileList | File[] | null) {
     if (!list) return;
     const added = Array.from(list).map<Row>((file) => {
       const err = precheck(file);
@@ -122,7 +138,7 @@ export default function FileUploadDialog({
     });
     setRows((rs) => [...rs.filter((r) => r.status !== "done"), ...added]);
     if (inputRef.current) inputRef.current.value = "";
-  };
+  }
 
   const pending = rows.filter((r) => r.status === "ready");
   const doneCount = rows.filter((r) => r.status === "done").length;
@@ -134,26 +150,38 @@ export default function FileUploadDialog({
     if (!targets.length && !stepId) return setError("Link the file to at least one contract or shipment");
     setBusy(true);
     let failed = 0;
+    const uploaded: TradeFile[] = [];
+    const completed: string[] = [];
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       if (row.status !== "ready") continue;
       setRows((rs) => rs.map((r, j) => (j === i ? { ...r, status: "uploading", pct: 0 } : r)));
       try {
-        await upload.mutateAsync({ row, index: i });
+        const f = await upload.mutateAsync({ row, index: i });
+        uploaded.push(f);
+        completed.push(...(f.completedSteps ?? []));
         setRows((rs) => rs.map((r, j) => (j === i ? { ...r, status: "done", pct: 100 } : r)));
       } catch (e: any) {
         failed++;
         setRows((rs) => rs.map((r, j) => (j === i ? { ...r, status: "error", error: e?.message || "Upload failed" } : r)));
       }
     }
+    if (uploaded.length && onUploaded) {
+      try {
+        await onUploaded(uploaded);
+      } catch (e: any) {
+        toast.error(e?.message || "Uploaded, but the old file could not be removed");
+      }
+    }
     setBusy(false);
+    if (announceSteps) for (const label of [...new Set(completed)]) toast.success(`Step ${label} complete`);
     const hadPrecheckErrors = rows.some((r) => r.status === "error");
     if (!failed && !hadPrecheckErrors) onClose();
   };
 
   return (
     <Dialog open={open} onClose={() => !busy && onClose()} maxWidth="sm" fullWidth>
-      <DialogTitle>Upload documents</DialogTitle>
+      <DialogTitle>{title ?? "Upload documents"}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
           {error && <Alert severity="error">{error}</Alert>}
@@ -209,6 +237,9 @@ export default function FileUploadDialog({
                     ) : null
                   }
                 >
+                  <Box sx={{ mr: 1.5, py: 0.5 }}>
+                    <LocalPreview file={r.file} width={72} />
+                  </Box>
                   <ListItemText
                     primary={
                       <Stack direction="row" spacing={1} alignItems="center">

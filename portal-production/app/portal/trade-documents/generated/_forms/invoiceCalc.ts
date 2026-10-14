@@ -62,6 +62,8 @@ export function helperRemarks(l: InvoiceLine, lmeMonth: string, template = "LME 
   const up = has(l.upcharge) && Number(l.upcharge) !== 0;
   const vars: Record<string, string> = { month, LME: fmt(l.lme), QMJP: fmt(l.qmjp), q: quarterOf(lmeMonth), premium: fmt(l.premium), grade: l.grade ?? "", totalPremium: String(roundTo(n(l.premium) + n(l.upcharge), 4)) };
   vars.upcharge = up ? upchargeTemplate.replace(/\{(\w+)\}/g, (_, k) => (k === "upcharge" ? fmt(l.upcharge) : (vars[k] ?? ""))) : "";
+  // LME not typed yet: leave out its "(…USD)" figure instead of printing "(0USD)".
+  if (!has(l.lme)) template = template.replace(/\(\{LME\}[^)]*\)/g, "");
   const s = template.replace(/\{(\w+)\}/g, (all, k) => (k in vars ? vars[k] : all));
   return !template.includes("{upcharge}") && up ? `${s} +${fmt(l.upcharge)}(Upcharge)` : s;
 }

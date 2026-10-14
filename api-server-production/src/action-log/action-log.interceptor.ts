@@ -32,6 +32,8 @@ const SKIP_PATHS = [
   // Dashboard chat (2026-10-13): the message stream and thread reads are not
   // actions. What the agent DOES is logged per tool (OperatorToolsService.log).
   '/operator/web/',
+  // Shipments file thumbnails: one signed-URL GET per thumbnail on screen (only route with /thumb).
+  '/thumb',
 ];
 
 // Background GETs fired on page load / tab focus, not user intent.
@@ -47,6 +49,7 @@ const SKIP_GET_PATHS = [
   '/whatsapp/group-approvals/approved',
   '/whatsapp/group-reminders/due',
   '/wa-post/jobs', // the post worker's poll
+  '/contracts/deposit-due', // contract form's live due-date preview
 ];
 
 // POST endpoints that are actually list/read queries ("POST / = list" is a

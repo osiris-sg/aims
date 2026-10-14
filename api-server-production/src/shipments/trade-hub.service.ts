@@ -44,6 +44,9 @@ export interface HubRow {
   date: string;
   /** Extra handles the portal needs for the row actions. */
   fileId?: string | null;
+  /** The file behind the row (an upload, or a generated document's final PDF): for its thumbnail. */
+  mimeType?: string | null;
+  hasThumb?: boolean;
   document?: { id: string; type: string; templateId: string } | null;
   shipmentId?: string | null;
 }
@@ -78,6 +81,8 @@ export class TradeHubService {
           id: true,
           docType: true,
           fileName: true,
+          mimeType: true,
+          thumbKey: true,
           uploadedByName: true,
           createdAt: true,
           links: {
@@ -147,6 +152,8 @@ export class TradeHubService {
         createdBy: f.uploadedByName,
         date: f.createdAt.toISOString(),
         fileId: f.id,
+        mimeType: f.mimeType,
+        hasThumb: !!f.thumbKey,
       });
     }
 
@@ -242,6 +249,8 @@ export class TradeHubService {
         createdBy: g.createdByName,
         date: g.updatedAt.toISOString(),
         fileId: g.finalFileId,
+        mimeType: g.finalFileId ? (fileById.get(g.finalFileId)?.mimeType ?? 'application/pdf') : null,
+        hasThumb: g.finalFileId ? !!fileById.get(g.finalFileId)?.thumbKey : false,
         shipmentId: g.shipment?.id ?? null,
       });
     }

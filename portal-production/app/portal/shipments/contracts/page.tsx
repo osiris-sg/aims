@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-// Contracts list (supplier contract / PI level). Row click opens the contract.
+// Contracts list (supplier contract / PI level) — secondary to the Shipments
+// tracker. Row click opens the deal page (the contract with its shipments).
 
 import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -177,15 +178,6 @@ export default function ContractsPage() {
           Open
         </MenuItem>
         <MenuItem
-          onClick={() => {
-            const r = menu!.row;
-            setMenu(null);
-            router.push(`/portal/shipments/contracts/${r.id}?tab=shipments`);
-          }}
-        >
-          View shipments
-        </MenuItem>
-        <MenuItem
           sx={{ color: "error.main" }}
           onClick={() => {
             const r = menu!.row;
@@ -200,7 +192,7 @@ export default function ContractsPage() {
       <ConfirmDialog
         open={!!toDelete}
         title={`Delete contract ${toDelete?.contractNo ?? ""}?`}
-        body="Only a contract without shipments can be deleted. Its steps and document links are removed; the files stay in the Documents library. This can't be undone."
+        body="Its shipments go with it when nothing is on them yet; a shipment with documents must be deleted first. Steps and document links are removed; the files stay in the Documents library. This can&apos;t be undone."
         confirmLabel="Delete"
         destructive
         onClose={() => setToDelete(null)}

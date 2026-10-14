@@ -118,8 +118,8 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
   };
 
   // Dates follow each other until typed by hand ("auto"): issue date → payment
-  // due date (the org's business days, Japanese holidays skipped — computed by
-  // the API) → each line's 取引年月日.
+  // due date (the org's business days — Invoice #1 7, Invoice #2 6 — Japanese
+  // holidays skipped, computed by the API) → each line's 取引年月日.
   const api = useShipmentsApi();
   const dueSeq = useRef(0);
   const followDue = (due: string) => setRows((rs) => rs.map((l) => (l.dueDateManual ? l : { ...l, dueDate: due })));
@@ -127,7 +127,7 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
     if (!issueDate || tradeDateError(issueDate)) return;
     const seq = ++dueSeq.current;
     try {
-      const r = await api.invoiceDueDate(issueDate);
+      const r = await api.invoiceDueDate(issueDate, doc.docType);
       if (seq !== dueSeq.current) return; // a later issue date won
       setHeader({ dueDate: r.dueDate, dueDateManual: false });
       followDue(r.dueDate);

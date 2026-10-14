@@ -1,15 +1,19 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { TradeActor } from './shipments.request';
-import { hasExactlyOneOwner, missingDocTypes, stepLabel } from './shipments.rules';
+import { fieldRequirements, hasExactlyOneOwner, missingDocTypes, stepLabel } from './shipments.rules';
 import { Db, TradeConfigService } from './trade-config.service';
 
 type StepAction = 'start' | 'complete' | 'reopen';
 
 /**
- * Step status changes. No ordering is enforced between steps; the rules are:
- * the parent contract/shipment must be OPEN, DONE needs every required doc
- * type linked to the same parent. Steps can't be skipped.
+ * Step status changes by hand. No ordering is enforced between steps; the
+ * rules are: the parent contract/shipment must be OPEN, DONE needs every
+ * required doc type linked to the same parent and every required field filled.
+ * Steps can't be skipped. Most steps complete by themselves
+ * (TradeConfigService.syncSteps); "complete" here is "Mark done" for steps
+ * with nothing to tick and for a reopened step. Reopen holds the step open
+ * until one of its documents / fields changes.
  */
 @Injectable()
 export class TradeStepsService {
@@ -40,10 +44,11 @@ export class TradeStepsService {
           displayNo: true,
           status: true,
           requiredDocTypes: true,
+          requiredFields: true,
           contractId: true,
           shipmentId: true,
-          contract: { select: { contractNo: true, status: true } },
-          shipment: { select: { blNumber: true, status: true } },
+          contract: true,
+          shipment: true,
         },
       });
       if (!step) throw new NotFoundException('Step not found');
@@ -76,7 +81,11 @@ export class TradeStepsService {
             const labels = await this.config.docTypeLabels(organizationId, tx);
             throw new BadRequestException(`Cannot complete "${stepLabel(step)}": missing required document(s) on this ${owner.kind}: ${missing.map((c) => labels.get(c) ?? c).join(', ')}`);
           }
-          data = { status: 'DONE', completedAt: now, skipReason: null, ...stamp };
+          const emptyFields = fieldRequirements(step.requiredFields, (step.contract ?? step.shipment) as Record<string, unknown>).filter((f) => !f.satisfied);
+          if (emptyFields.length) {
+            throw new BadRequestException(`Cannot complete "${stepLabel(step)}": fill in ${emptyFields.map((f) => f.label).join(', ')} on this ${owner.kind} first`);
+          }
+          data = { status: 'DONE', completedAt: now, skipReason: null, holdOpen: false, ...stamp };
           break;
         }
         case 'reopen':
@@ -84,10 +93,13 @@ export class TradeStepsService {
           if (step.status !== 'DONE' && step.status !== 'SKIPPED') {
             throw new BadRequestException(`"${stepLabel(step)}" is ${label(step.status)} — only a done step can be reopened`);
           }
-          data = { status: 'IN_PROGRESS', completedAt: null, skipReason: null, ...stamp };
+          // Held open: auto-complete leaves it until one of its documents / fields changes.
+          data = { status: 'IN_PROGRESS', completedAt: null, skipReason: null, holdOpen: true, ...stamp };
           break;
       }
       await tx.tradeStep.update({ where: { id, organizationId }, data });
+      // The next open step becomes current (and anything already satisfied completes).
+      await this.config.syncSteps(tx, organizationId, [step.contractId ? { contractId: step.contractId } : { shipmentId: step.shipmentId! }], actor);
       return this.read(tx, organizationId, id);
     });
   }
@@ -104,8 +116,11 @@ export class TradeStepsService {
         displayNo: true,
         sortOrder: true,
         requiredDocTypes: true,
+        optionalDocTypes: true,
+        requiredFields: true,
         isOngoing: true,
         status: true,
+        holdOpen: true,
         updatedById: true,
         updatedByName: true,
         completedAt: true,

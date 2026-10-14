@@ -32,6 +32,7 @@ import { TradeConfigService } from '../src/shipments/trade-config.service';
 import { TradeDocumentsService } from '../src/shipments/trade-documents.service';
 import { TradeGeneratedService } from '../src/shipments/trade-generated.service';
 import { TradeFilesService } from '../src/shipments/trade-files.service';
+import { TradeThumbsService } from '../src/shipments/trade-thumbs.service';
 import { TradeStepsService } from '../src/shipments/trade-steps.service';
 import { TradeExtractService } from '../src/shipments/trade-extract.service';
 import * as XLSX from 'xlsx';
@@ -106,10 +107,11 @@ async function main() {
   const prisma = new PrismaService();
   const s3 = new S3Service(new ConfigService());
   const config = new TradeConfigService(prisma);
-  const contracts = new ContractsService(prisma, config);
   const shipments = new ShipmentsService(prisma, config);
+  const contracts = new ContractsService(prisma, config, shipments);
   const steps = new TradeStepsService(prisma, config);
-  const files = new TradeFilesService(prisma, s3, config);
+  const thumbs = new TradeThumbsService(prisma, s3);
+  const files = new TradeFilesService(prisma, s3, config, thumbs);
   const docs = new TradeDocumentsService(prisma, config, files);
   const appCtx = APPLY || CLEANUP_ONLY ? await NestFactory.createApplicationContext(SmokeModule, { logger: ['error'] }) : null;
   const gen = appCtx ? appCtx.get(TradeGeneratedService) : (null as unknown as TradeGeneratedService);
@@ -234,6 +236,28 @@ async function main() {
       );
       (Number(contract.depositAmount) === 10000 ? pass : fail)('deposit = PI amount × 10 %', String(contract.depositAmount));
       (contract.currentStep?.label === '1. Set up PI payment' ? pass : fail)('contract current step uses the ADH number', contract.currentStep?.label ?? 'none');
+      // Deal page: deposit due as days + unit (default 3 business days) with the computed date; shipment #1 comes with the contract.
+      (contract.depositDueDays === 3 && contract.depositDueUnit === 'BUSINESS' && contract.depositDueNote === '3 business days' ? pass : fail)(
+        'deposit due defaults to 3 business days',
+        `${contract.depositDueDays} ${contract.depositDueUnit} "${contract.depositDueNote}"`,
+      );
+      {
+        const due = contracts.depositDue('2026-06-30', '3', 'BUSINESS');
+        (due.dueDate === '2026-07-03' ? pass : fail)('deposit due date: PI 30/06/2026 + 3 business days = 03/07/2026', String(due.dueDate));
+      }
+      (contract.shipments.length === 1 && contract.shipments[0].blNumber === null && contract.shipments[0].contractLineId === null ? pass : fail)(
+        'new contract comes with shipment #1 (B/L pending; 2 lines → line picked on step 2)',
+        JSON.stringify(contract.shipments.map((x: any) => ({ bl: x.blNumber, line: x.contractLineId }))),
+      );
+      {
+        const s1: any = contract.shipments[0] ? await shipments.getById(ORG_ID, contract.shipments[0].id, actor) : null;
+        const s1Step2 = s1?.steps.find((x: any) => x.code === 'BL_DRAFT_APPROVAL');
+        (s1Step2?.status === 'IN_PROGRESS' && JSON.stringify(s1Step2.requiredFields) === JSON.stringify(['blNumber', 'contractLineId']) ? pass : fail)(
+          'shipment #1: step 2 is current (In progress, no Start) and needs the B/L no. + product line',
+          `${s1Step2?.status} ${JSON.stringify(s1Step2?.requiredFields)}`,
+        );
+        await expectReject('complete the contract while its shipments are open', () => contracts.complete(ORG_ID, contract.id), /complete its shipment\(s\) first/);
+      }
       // Cancelled Fill from PI: the unsaved PDF (+ its extraction) goes; a saved one is refused.
       replies.push({ contractNo: 'SMOKE-CANCELLED', lines: [] });
       const cancelled = await expectOk('read a PI that is then cancelled (mock model)', () => extract.extract(ORG_ID, 'PI', { file: pdfFile('SMOKE-PI-CANCEL.pdf') }, actor));
@@ -250,7 +274,14 @@ async function main() {
         piLink ? `step ${piLink.stepId}` : 'not linked',
       );
 
-      await expectReject('shipment on a 2-line contract without a line', () => shipments.create(ORG_ID, { contractId: contract.id }, actor), /several product lines/);
+      {
+        // "Add shipment": no form — the B/L and the line come on its step 2.
+        const added: any = await expectOk('Add shipment (2-line contract, no line yet)', () => shipments.create(ORG_ID, { contractId: contract.id }, actor));
+        (added && added.contractLineId === null && added.blNumber === null && added.steps.length === 13 ? pass : fail)('added shipment: B/L pending, line open, 13 steps', added ? `${added.blNumber} ${added.contractLineId}` : 'none');
+        const deal = await contracts.getById(ORG_ID, contract.id);
+        (deal.shipments.length === 2 ? pass : fail)('deal page lists both shipments', `${deal.shipments.length}`);
+        if (added) await expectOk('delete the added shipment', () => shipments.remove(ORG_ID, added.id));
+      }
       const line2 = contract.lines[1];
       const shipment = await expectOk('create shipment on line 2', () => shipments.create(ORG_ID, { contractId: contract.id, contractLineId: line2.id, blNumber: BL_NUMBER, totalPieces: 600 }, actor));
       if (!shipment) return;
@@ -298,8 +329,16 @@ async function main() {
       const url = await expectOk('signed URL', () => files.getUrl(ORG_ID, uploaded.id));
       if (url && !url.url.includes(`shipments/${ORG_ID}/`)) fail('signed URL key prefix', url.url);
 
-      const done = await expectOk('complete BL_DRAFT_APPROVAL with the file', () => steps.complete(ORG_ID, blStep.id, actor));
-      if (done) (done.status === 'DONE' && done.completedAt ? pass : fail)('step is DONE with completedAt', done.status);
+      // Auto-complete: B/L no. + line were set when the shipment was created, so the draft completes step 2.
+      ((uploaded as any).completedSteps?.includes('2. Approve B/L draft (Vedanta)') ? pass : fail)('auto-complete: the upload completes step 2 (reported for the toast)', JSON.stringify((uploaded as any).completedSteps));
+      const done = (await shipments.getById(ORG_ID, shipment.id)).steps.find((x: any) => x.id === blStep.id) as any;
+      (done?.status === 'DONE' && done.completedAt && done.updatedByName === actor.name ? pass : fail)('step is DONE with completedAt and who', `${done?.status} ${done?.updatedByName}`);
+      await expectReject('"Mark done" on an already-done step', () => steps.complete(ORG_ID, blStep.id, actor), /already done/);
+      ((uploaded as any).hasThumb === true ? pass : fail)('upload made a first-page thumbnail', String((uploaded as any).hasThumb));
+      {
+        const t = await expectOk('thumbnail signed URL', () => files.thumbUrl(ORG_ID, uploaded.id));
+        (t?.url && t.url.includes(`shipments/${ORG_ID}/`) && t.url.includes('.thumb.png') ? pass : fail)('thumbnail stored next to the file', t?.url ? 'ok' : 'none');
+      }
       if (done) {
         const page = await shipments.list(ORG_ID, { currentStep: 'SHIPPING_DOCS' });
         const row = page.items.find((r: any) => r.id === shipment.id);
@@ -503,6 +542,11 @@ async function main() {
         fail('POST /trade-steps/:id/skip is not routed', `API not reachable at ${API_URL}: ${(e as Error).message}`);
       }
 
+      {
+        const md: any = await expectOk('"Mark done" on 5. Send documents & ask schedule (nothing to upload)', () => steps.complete(ORG_ID, sendStep.id, actor));
+        (md?.status === 'DONE' ? pass : fail)('step 5 is DONE by hand', md?.status);
+        await expectOk('reopen step 5', () => steps.reopen(ORG_ID, sendStep.id, actor));
+      }
       await expectReject(
         'complete the shipment with steps still open (ADH numbers in the message)',
         () => shipments.complete(ORG_ID, shipment.id),
@@ -746,7 +790,12 @@ async function main() {
       }
       const inv1Doc: any = await inApp('INVOICE_1', { contractId: contract.id });
       if (inv1Doc) {
-        const rev: any = await expectOk('INVOICE_1: edit again (step not done)', () => gen.revert(ORG_ID, inv1Doc.id));
+        // Finalizing completed step 2 by itself, so "Edit again" needs the step reopened first.
+        const inv1Step = (await contracts.getById(ORG_ID, contract.id)).steps.find((x: any) => x.code === 'INVOICE_1') as any;
+        (inv1Step?.status === 'DONE' ? pass : fail)('INVOICE_1: finalize auto-completed "2. Issue Invoice #1"', inv1Step?.status);
+        await expectReject('INVOICE_1: edit again while the step is done', () => gen.revert(ORG_ID, inv1Doc.id), /reopen/);
+        if (inv1Step) await expectOk('INVOICE_1: reopen the step', () => steps.reopen(ORG_ID, inv1Step.id, actor));
+        const rev: any = await expectOk('INVOICE_1: edit again (step reopened)', () => gen.revert(ORG_ID, inv1Doc.id));
         const d1 = await prisma.document.findFirst({ where: { id: inv1Doc.documentId }, select: { status: true } });
         (rev?.status === 'DRAFT' && d1?.status === 'unconfirmed' ? pass : fail)('INVOICE_1: back to draft, Sales invoice unconfirmed (stops counting)', d1?.status);
         const again: any = await expectOk('INVOICE_1: finalize again', () => gen.finalize(ORG_ID, inv1Doc.id, actor));
@@ -758,6 +807,10 @@ async function main() {
           );
         }
         (again?.number === inv1Doc.number ? pass : fail)('INVOICE_1: keeps its invoice number', `${inv1Doc.number} → ${again?.number}`);
+        {
+          const st = (await contracts.getById(ORG_ID, contract.id)).steps.find((x: any) => x.code === 'INVOICE_1') as any;
+          (st?.status === 'DONE' && !st.holdOpen ? pass : fail)('INVOICE_1: finalizing again completes the reopened step (its document changed)', `${st?.status} hold=${st?.holdOpen}`);
+        }
         // Invoice #2 after Invoice #1 is final: its １回目の金額 is what Invoice #1 billed for line 2 (6063), tax incl.
         const inv2Doc: any = await inApp('INVOICE_2', { shipmentId: shipment.id });
         if (inv2Doc) {
@@ -801,6 +854,8 @@ async function main() {
 
       // Cleanup path through the services: reopen the step, then the file may go.
       await expectOk('reopen BL_DRAFT_APPROVAL', () => steps.reopen(ORG_ID, blStep.id, actor));
+      // Steps that completed themselves earlier lost their documents in the purge above: reopen them too.
+      for (const st of (await shipments.getById(ORG_ID, shipment.id)).steps.filter((x: any) => x.status === 'DONE')) await steps.reopen(ORG_ID, st.id, actor);
       await expectOk('delete the file (DB + S3)', () => files.remove(ORG_ID, uploaded.id));
       await expectOk('delete the shipment', () => shipments.remove(ORG_ID, shipment.id));
       await expectOk('delete the contract', () => contracts.remove(ORG_ID, contract.id));
@@ -876,13 +931,16 @@ async function cleanup(prisma: any, s3: S3Service, contractId: string | null) {
     select: { fileId: true },
   });
   const fileIds = [...new Set(links.map((l: { fileId: string }) => l.fileId))];
+  // The smoke's files on its records, plus any of its files left unlinked by an aborted run.
   const smokeFiles = await prisma.tradeFile.findMany({
-    where: { organizationId: ORG_ID, id: { in: fileIds }, uploadedById: actor.id },
-    select: { id: true, s3Key: true },
+    where: { organizationId: ORG_ID, uploadedById: actor.id, OR: [{ id: { in: fileIds } }, { links: { none: {} } }] },
+    select: { id: true, s3Key: true, thumbKey: true },
   });
   for (const f of smokeFiles) {
+    await prisma.tradeExtraction.deleteMany({ where: { organizationId: ORG_ID, fileId: f.id } });
     await prisma.tradeFile.delete({ where: { id: f.id, organizationId: ORG_ID } });
     await s3.deleteFile(f.s3Key).catch((e: Error) => console.warn(`  S3 delete failed for ${f.s3Key}: ${e.message}`));
+    if (f.thumbKey) await s3.deleteFile(f.thumbKey).catch(() => undefined);
   }
   if (shipIds.length) await prisma.shipment.deleteMany({ where: { organizationId: ORG_ID, id: { in: shipIds } } });
   if (contract) await prisma.contract.deleteMany({ where: { organizationId: ORG_ID, id: contract.id } });

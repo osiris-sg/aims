@@ -28,13 +28,14 @@ export class TradeGeneratedController {
 
   /**
    * 請求書 payment due date for an issue date: the org's business-day count
-   * (docDefaults.invoiceDueBusinessDays, default 7) of Japanese bank business
-   * days (weekends, public holidays, 12/31–1/3 skipped).
+   * (Invoice #1: docDefaults.invoiceDueBusinessDays, default 7; Invoice #2:
+   * invoice2DueBusinessDays, default 6) of Japanese bank business days
+   * (weekends, public holidays, 12/31–1/3 skipped).
    */
   @Get('due-date')
   @Permissions('shipments:read')
-  dueDate(@Query('issueDate') issueDate: string, @Req() req: TradeRequest) {
-    return this.gen.dueDateFor(orgIdOf(req), issueDate);
+  dueDate(@Query('issueDate') issueDate: string, @Query('docType') docType: string | undefined, @Req() req: TradeRequest) {
+    return this.gen.dueDateFor(orgIdOf(req), issueDate, docType);
   }
 
   /** Live-preview HTML (same template as the PDF). A POST that only reads. */

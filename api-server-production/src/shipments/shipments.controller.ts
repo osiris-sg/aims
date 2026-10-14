@@ -25,13 +25,13 @@ export class ShipmentsController {
   @Get(':id')
   @Permissions('shipments:read')
   getById(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
-    return this.shipments.getById(orgIdOf(req), id);
+    return this.shipments.getById(orgIdOf(req), id, actorOf(req));
   }
 
   @Patch(':id')
   @Permissions('shipments:update')
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateShipmentDto, @Req() req: TradeRequest) {
-    return this.shipments.update(orgIdOf(req), id, dto);
+    return this.shipments.update(orgIdOf(req), id, dto, actorOf(req));
   }
 
   @Delete(':id')
@@ -49,6 +49,6 @@ export class ShipmentsController {
   @Post(':id/reopen')
   @Permissions('shipments:update')
   reopen(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
-    return this.shipments.reopen(orgIdOf(req), id);
+    return this.shipments.reopen(orgIdOf(req), id, actorOf(req));
   }
 }

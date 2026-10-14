@@ -54,7 +54,20 @@ export type DocDefaults = Record<string, any> & {
   sizeInch?: Record<string, string>;
 };
 export type TradeSettings = { defaultConsignee: string | null; defaultNotifyParty: string | null; docDefaults: DocDefaults; updatedAt: string | null };
-export type StepTemplate = { id: string; scope: "CONTRACT" | "SHIPMENT"; code: string; title: string; displayNo?: string | null; sortOrder: number; requiredDocTypes: string[]; isOngoing: boolean; isActive: boolean };
+export type StepTemplate = {
+  id: string;
+  scope: "CONTRACT" | "SHIPMENT";
+  code: string;
+  title: string;
+  displayNo?: string | null;
+  sortOrder: number;
+  requiredDocTypes: string[];
+  optionalDocTypes?: string[];
+  requiredFields?: string[];
+  isOngoing: boolean;
+  isActive: boolean;
+};
+export type DepositDueUnit = "BUSINESS" | "CALENDAR";
 // ── AI extraction (PI → contract, B/L draft → shipment + checks) ────────────
 export type ContractDraft = {
   contractNo: string | null;
@@ -72,6 +85,9 @@ export type ContractDraft = {
   depositPercent: number | null;
   depositAmount: number | null;
   depositDueNote: string | null;
+  /** The PI's payment terms as a day count ("within 3 business days"), null when they aren't one. */
+  depositDueDays?: number | null;
+  depositDueUnit?: DepositDueUnit | null;
   lines: Array<{ grade: string | null; sizeSpec: string | null; product: string | null; quantityMt: number | null; tolerancePct: number | null; supplierPremium: number | null }>;
 };
 export type ShipmentDraft = {
@@ -147,14 +163,21 @@ export type TradeStep = {
   displayNo?: string | null;
   sortOrder: number;
   requiredDocTypes: string[];
+  /** Offered under the step's collapsed "Optional" heading; never required. */
+  optionalDocTypes?: string[];
+  /** Record fields the step needs too (shipment step 2: blNumber, contractLineId). */
+  requiredFields?: string[];
   isOngoing: boolean;
   status: StepStatus;
+  /** Reopened by hand: won't auto-complete again until one of its documents / fields changes ("Mark done" does it). */
+  holdOpen?: boolean;
   updatedById: string | null;
   updatedByName: string | null;
   completedAt: string | null;
   updatedAt: string;
   /** Per required doc type: linked files, live linked documents (in-app invoices), met or not. */
   requirements?: Array<{ docType: string; files: number; documents: number; satisfied: boolean }>;
+  fieldRequirements?: Array<{ field: string; label: string; satisfied: boolean }>;
 };
 
 /** Summary of an in-app Sales Document (invoice). */
@@ -278,6 +301,8 @@ export type HubRow = {
   createdBy: string | null;
   date: string;
   fileId?: string | null;
+  mimeType?: string | null;
+  hasThumb?: boolean;
   document?: { id: string; type: string; templateId: string } | null;
   shipmentId?: string | null;
 };
@@ -288,7 +313,7 @@ export type RecordFileLink = {
   id: string;
   stepId: string | null;
   createdAt: string;
-  file: { id: string; docType: string; fileName: string; mimeType: string; sizeBytes: number; uploadedByName: string | null; notes: string | null; createdAt: string };
+  file: { id: string; docType: string; fileName: string; mimeType: string; sizeBytes: number; uploadedByName: string | null; notes: string | null; createdAt: string; hasThumb?: boolean };
 };
 
 export type ContractListItem = {
@@ -324,6 +349,10 @@ export type Contract = ContractListItem & {
   depositPercent: Num;
   depositAmount: Num;
   depositDueNote: string | null;
+  depositDueDays: number | null;
+  depositDueUnit: DepositDueUnit | null;
+  /** PI date + the term (YYYY-MM-DD); null without a PI date or term. */
+  depositDueDate: string | null;
   depositPaidAt: string | null;
   notes: string | null;
   updatedAt: string;
@@ -331,10 +360,13 @@ export type Contract = ContractListItem & {
     id: string;
     blNumber: string | null;
     vessel: string | null;
+    voyageNo?: string | null;
     etd: string | null;
     eta: string | null;
+    netWeightMt?: Num;
     status: RecordStatus;
     contractLineId: string | null;
+    createdAt?: string;
     progress: Progress;
     currentStep: CurrentStep;
   }>;
@@ -345,6 +377,7 @@ export type Contract = ContractListItem & {
 
 export type ShipmentListItem = {
   id: string;
+  contractId: string;
   blNumber: string | null;
   vessel: string | null;
   voyageNo: string | null;
@@ -440,6 +473,7 @@ export type TradeFile = {
   uploadedByName: string | null;
   notes: string | null;
   createdAt: string;
+  hasThumb?: boolean;
   links: TradeFileLink[];
 };
 
@@ -467,6 +501,8 @@ export type ContractInput = {
   depositPercent?: number | null;
   depositAmount?: number | null;
   depositDueNote?: string | null;
+  depositDueDays?: number | null;
+  depositDueUnit?: DepositDueUnit | null;
   depositPaidAt?: string | null;
   notes?: string | null;
   lines?: ContractLineInput[];
@@ -587,6 +623,8 @@ export function useShipmentsApi() {
       createContract: (body: ContractInput) => call<Contract>(`/contracts`, "POST", body),
       updateContract: (id: string, body: ContractInput) => call<Contract>(`/contracts/${id}`, "PATCH", body),
       deleteContract: (id: string) => call<{ id: string; deleted: boolean }>(`/contracts/${id}`, "DELETE"),
+      /** PI date + term → due date (business days skip Japanese bank holidays). */
+      depositDue: (piDate: string, days: number, unit: DepositDueUnit) => call<{ dueDate: string | null }>(`/contracts/deposit-due${qs({ piDate, days, unit })}`),
       completeContract: (id: string) => call<Contract>(`/contracts/${id}/complete`, "POST"),
       reopenContract: (id: string) => call<Contract>(`/contracts/${id}/reopen`, "POST"),
 
@@ -608,13 +646,15 @@ export function useShipmentsApi() {
       // ── Files ────────────────────────────────────────────────────────────
       listFiles: (f: FileFilters = {}) => call<Paged<TradeFile>>(`/trade-files${qs(f)}`),
       fileUrl: (id: string) => call<{ url: string; fileName: string; mimeType: string; expiresIn: number }>(`/trade-files/${id}/url`),
+      /** Signed URL of the file's thumbnail; url null = none (Office / Outlook files, or not rendered). */
+      fileThumb: (id: string) => call<{ url: string | null; expiresIn: number }>(`/trade-files/${id}/thumb`),
       addLinks: (id: string, t: LinkTargets) => call<TradeFile>(`/trade-files/${id}/links`, "POST", t),
       removeLink: (id: string, linkId: string) => call<TradeFile>(`/trade-files/${id}/links/${linkId}`, "DELETE"),
       deleteFile: (id: string) => call<{ id: string; deleted: boolean }>(`/trade-files/${id}`, "DELETE"),
       uploadFile: async (
         input: { file: File; docType: string; notes?: string } & LinkTargets,
         onProgress?: (pct: number) => void,
-      ): Promise<TradeFile> => {
+      ): Promise<TradeFile & { completedSteps?: string[] }> => {
         const token = await getToken();
         if (!token) throw new Error("Not signed in");
         const form = new FormData();
@@ -633,7 +673,7 @@ export function useShipmentsApi() {
             timeout: 120000,
             onUploadProgress: (e) => onProgress?.(e.total ? Math.round((e.loaded / e.total) * 100) : 0),
           });
-          return (res.data?.data ?? res.data) as TradeFile;
+          return (res.data?.data ?? res.data) as TradeFile & { completedSteps?: string[] };
         } catch (e: any) {
           const status = e?.response?.status;
           if (status === 413) throw new Error("File is larger than 25 MB");
@@ -683,7 +723,7 @@ export function useShipmentsApi() {
       getGenerated: (id: string) => call<GeneratedDoc>(`/trade-generated/${id}`),
       updateGenerated: (id: string, body: { header?: GenHeader; columns?: GenColumn[]; rows?: GenRow[] }) => call<GeneratedDoc>(`/trade-generated/${id}`, "PATCH", body),
       /** 請求書 due date for an issue date (the org's business days, Japanese bank holidays skipped). */
-      invoiceDueDate: (issueDate: string) => call<{ issueDate: string; dueDate: string; businessDays: number }>(`/trade-generated/due-date${qs({ issueDate })}`),
+      invoiceDueDate: (issueDate: string, docType?: string) => call<{ issueDate: string; dueDate: string; businessDays: number }>(`/trade-generated/due-date${qs({ issueDate, docType })}`),
       previewGenerated: (body: { docType: string; header: any; columns: any[]; rows: any[]; draft?: boolean }) => call<{ html: string }>(`/trade-generated/preview`, "POST", body),
       finalizeGenerated: (id: string) => call<GeneratedDoc>(`/trade-generated/${id}/finalize`, "POST"),
       revertGenerated: (id: string) => call<GeneratedDoc>(`/trade-generated/${id}/revert`, "POST"),

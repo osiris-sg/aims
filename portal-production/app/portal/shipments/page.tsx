@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-// Shipments list (one row per B/L). Row click opens the shipment; the kebab
-// holds the secondary actions.
+// Shipments list — the main tracker: one row per shipment (B/L pending until
+// it is entered on step 2) with its contract and current step. Row click opens
+// the deal page on that shipment. "New contract" starts a deal (the contract
+// arrives with shipment #1); more shipments are added on the deal page.
 
 import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -15,8 +17,11 @@ import type { ShipmentListItem } from "./_lib/api";
 import { useCustomers, useShipments, useStepTemplates, useTradeMutation } from "./_lib/hooks";
 import { blLabel, fmtDay, fmtMt, stepLabel } from "./_lib/format";
 import { ConfirmDialog, CurrentStepCell, EmptyState, ProgressCell, RecordStatusChip } from "./_components/bits";
-import ShipmentFormDialog from "./_components/ShipmentFormDialog";
+import ContractFormDialog from "./_components/ContractFormDialog";
 import { useDebounced } from "./_components/useDebounced";
+
+/** The deal page, on this shipment. */
+const dealHref = (r: ShipmentListItem) => `/portal/shipments/contracts/${r.contractId ?? r.contract?.id}?shipment=${r.id}`;
 
 const STATUS_OPTIONS = [
   { value: "OPEN", label: "Open" },
@@ -108,7 +113,7 @@ export default function ShipmentsPage() {
     <Box sx={{ p: { xs: 1.5, md: 3 }, height: "100%" }}>
       <PageTable
         tableName="Shipments"
-        buttonName="New shipment"
+        buttonName="New contract"
         onAddClick={() => setCreateOpen(true)}
         columns={columns}
         data={items}
@@ -133,8 +138,8 @@ export default function ShipmentsPage() {
         filterConfig={filterConfig}
         pageCount={list.data?.totalPages ?? 1}
         totalDocs={list.data?.total}
-        onRowClick={(r: ShipmentListItem) => router.push(`/portal/shipments/${r.id}`)}
-        rowHref={(r: ShipmentListItem) => `/portal/shipments/${r.id}`}
+        onRowClick={(r: ShipmentListItem) => router.push(dealHref(r))}
+        rowHref={(r: ShipmentListItem) => dealHref(r)}
         noSelectionColumn
         manualSorting
         hideTable={!list.isLoading && !list.isError && !items.length}
@@ -145,7 +150,7 @@ export default function ShipmentsPage() {
             filtered ? (
               <EmptyState title="No shipments match these filters" />
             ) : (
-              <EmptyState title="No shipments yet" action={<Button variant="contained" onClick={() => setCreateOpen(true)}>New shipment</Button>} />
+              <EmptyState title="No shipments yet — start with the contract" action={<Button variant="contained" onClick={() => setCreateOpen(true)}>New contract</Button>} />
             )
           ) : undefined
         }
@@ -156,22 +161,11 @@ export default function ShipmentsPage() {
           onClick={() => {
             const r = menu!.row;
             setMenu(null);
-            router.push(`/portal/shipments/${r.id}`);
+            router.push(dealHref(r));
           }}
         >
           Open
         </MenuItem>
-        {menu?.row.contract && (
-          <MenuItem
-            onClick={() => {
-              const r = menu!.row;
-              setMenu(null);
-              router.push(`/portal/shipments/contracts/${r.contract!.id}`);
-            }}
-          >
-            Open contract
-          </MenuItem>
-        )}
         <MenuItem
           sx={{ color: "error.main" }}
           onClick={() => {
@@ -197,7 +191,7 @@ export default function ShipmentsPage() {
         }}
       />
 
-      <ShipmentFormDialog open={createOpen} onClose={() => setCreateOpen(false)} onSaved={(s) => router.push(`/portal/shipments/${s.id}`)} />
+      <ContractFormDialog open={createOpen} onClose={() => setCreateOpen(false)} onSaved={(c) => router.push(`/portal/shipments/contracts/${c.id}`)} />
     </Box>
   );
 }

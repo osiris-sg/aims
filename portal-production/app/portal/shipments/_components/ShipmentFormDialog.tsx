@@ -9,6 +9,9 @@
 // whose grade matches, shows the PDF alongside and, on save, links the PDF as
 // the shipment's B/L draft (step "Approve B/L draft") — its check panel then
 // compares consignee / notify party etc. with the contract.
+// `inline`: the same form without the dialog, on shipment step 2 of the deal
+// page (a new contract's shipment starts with the B/L pending); there "Fill
+// from B/L draft" stores the draft on the shipment's step 2 straight away.
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Grid2, MenuItem, TextField, Typography, useMediaQuery } from "@mui/material";
@@ -66,6 +69,7 @@ export default function ShipmentFormDialog({
   shipment,
   contract: presetContract,
   onSaved,
+  inline = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -74,6 +78,8 @@ export default function ShipmentFormDialog({
   /** Preselect (and lock) this contract when opened from a contract page. */
   contract?: ContractRef | null;
   onSaved?: (s: Shipment) => void;
+  /** Render the form in place (deal page, shipment step 2) instead of a dialog; needs `shipment`. */
+  inline?: boolean;
 }) {
   const [form, setForm] = useState<Form>({ ...EMPTY, currency: "USD" });
   const [contractId, setContractId] = useState<string>("");
@@ -92,7 +98,7 @@ export default function ShipmentFormDialog({
   const contracts = useContracts({ status: "OPEN", pageSize: 100 }, pickContract);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open && !inline) return;
     setError(null);
     setTouched(false);
     setSource(null);
@@ -109,7 +115,7 @@ export default function ShipmentFormDialog({
     }
     // Reset only when the dialog opens or the record changes, not on every refetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, shipment?.id, presetContract?.id]);
+  }, [open, shipment?.id, presetContract?.id, inline]);
 
   const options: ContractListItem[] = useMemo(() => contracts.data?.items ?? [], [contracts.data]);
   const selected = options.find((c) => c.id === contractId) ?? null;
@@ -170,10 +176,17 @@ export default function ShipmentFormDialog({
     setSource({ fileId: x.fileId, fileName: x.file?.fileName ?? "B/L draft", draft: d, existingShipmentId: r.existingShipmentId });
   };
 
-  const discard = (fileId: string) => void api.discardSource(fileId).catch(() => undefined);
+  // Inline, the draft is already stored on the shipment's step 2: never discard it.
+  const discard = (fileId: string) => (inline ? undefined : void api.discardSource(fileId).catch(() => undefined));
   const cancel = () => {
     if (source) discard(source.fileId);
     setSource(null);
+    if (inline && shipment) {
+      setForm(fromShipment(shipment));
+      setLineId(shipment.contractLineId ?? "");
+      setFilled(new Set());
+      setTouched(false);
+    }
     onClose();
   };
 
@@ -183,7 +196,9 @@ export default function ShipmentFormDialog({
     setReading(true);
     setError(null);
     try {
-      const x = await api.extractBlDraft({ file, ...(presetContract?.id || contractId ? { contractId: presetContract?.id ?? contractId } : {}) });
+      const x = await api.extractBlDraft(
+        inline && shipment ? { file, shipmentId: shipment.id } : { file, ...(presetContract?.id || contractId ? { contractId: presetContract?.id ?? contractId } : {}) },
+      );
       if (x.status !== "DONE") {
         setError(`Could not read ${file.name}: ${x.error || "unknown error"}. The PDF was stored — fill the form by hand.`);
         setSource({ fileId: x.fileId, fileName: file.name, draft: null, existingShipmentId: null });
@@ -217,6 +232,7 @@ export default function ShipmentFormDialog({
     try {
       const saved = await save.mutateAsync(body);
       onSaved?.(saved);
+      if (inline) setFilled(new Set());
       onClose();
     } catch (e: any) {
       setError(e?.message || "Could not save the shipment");
@@ -227,13 +243,11 @@ export default function ShipmentFormDialog({
     <TextField label={label} fullWidth size="small" value={form[k]} onChange={set(k)} sx={filledSx(filled.has(k))} {...guardDate(extra, form[k])} />
   );
 
-  return (
-    <Dialog open={open} onClose={() => !save.isPending && !reading && cancel()} maxWidth={source ? "xl" : "md"} fullWidth>
-      <DialogTitle>{shipment ? `Edit shipment ${shipment.blNumber ?? ""}`.trim() : "New shipment"}</DialogTitle>
-      <DialogContent dividers>
+  const body = (
+    <>
         <Grid2 container spacing={2}>
         <Grid2 size={side ? 7 : 12}>
-        {!shipment && (
+        {(!shipment || inline) && (
           <Box sx={{ mb: 2 }}>
             <PdfDropZone
               title={source ? "Read another B/L draft" : "Fill from B/L draft"}
@@ -260,6 +274,9 @@ export default function ShipmentFormDialog({
           </Alert>
         )}
         <Grid2 container spacing={2}>
+          {/* Inline on the deal page the contract and customer are already on screen. */}
+          {!inline && (
+            <>
           <Grid2 size={{ xs: 12, sm: 6 }}>
             {pickContract ? (
               <Autocomplete
@@ -289,6 +306,8 @@ export default function ShipmentFormDialog({
           <Grid2 size={{ xs: 12, sm: 6 }}>
             <TextField label="Customer" fullWidth size="small" value={customerName ?? ""} disabled placeholder="From the contract" InputLabelProps={{ shrink: true }} />
           </Grid2>
+            </>
+          )}
 
           <Grid2 size={{ xs: 12, sm: 8 }}>
             <TextField
@@ -330,7 +349,7 @@ export default function ShipmentFormDialog({
               </Typography>
             </Divider>
           </Grid2>
-          <Grid2 size={{ xs: 12, sm: 3 }}>{tf("blNumber", "B/L no.", { autoFocus: true })}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 3 }}>{tf("blNumber", "B/L no.", { autoFocus: !inline })}</Grid2>
           <Grid2 size={{ xs: 12, sm: 3 }}>{tf("shippingLine", "Shipping line")}</Grid2>
           <Grid2 size={{ xs: 12, sm: 3 }}>{tf("vessel", "Vessel")}</Grid2>
           <Grid2 size={{ xs: 12, sm: 3 }}>{tf("voyageNo", "Voyage no.")}</Grid2>
@@ -394,15 +413,33 @@ export default function ShipmentFormDialog({
           </Grid2>
         )}
         </Grid2>
-      </DialogContent>
-      <DialogActions>
+      </>
+  );
+  const actions = (
+    <>
         <Button onClick={cancel} disabled={save.isPending || reading}>
-          Cancel
+          {inline ? "Reset" : "Cancel"}
         </Button>
         <Button variant="contained" onClick={submit} disabled={save.isPending || reading}>
-          {save.isPending ? "Saving…" : shipment ? "Save changes" : "Create shipment"}
+          {save.isPending ? "Saving…" : inline ? "Save B/L details" : shipment ? "Save changes" : "Create shipment"}
         </Button>
-      </DialogActions>
+      </>
+  );
+
+  if (inline) {
+    return (
+      <Box>
+        {body}
+        <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: 2 }}>{actions}</Box>
+      </Box>
+    );
+  }
+
+  return (
+    <Dialog open={open} onClose={() => !save.isPending && !reading && cancel()} maxWidth={source ? "xl" : "md"} fullWidth>
+      <DialogTitle>{shipment ? `Edit shipment ${shipment.blNumber ?? ""}`.trim() : "New shipment"}</DialogTitle>
+      <DialogContent dividers>{body}</DialogContent>
+      <DialogActions>{actions}</DialogActions>
     </Dialog>
   );
 }

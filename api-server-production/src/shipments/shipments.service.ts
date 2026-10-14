@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CreateShipmentDto, ListShipmentsQuery, UpdateShipmentDto } from './dto/shipment.dto';
-import { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, STEP_SUMMARY_SELECT } from './contracts.service';
+import { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, shapeFileLinks, STEP_SELECT, STEP_SUMMARY_SELECT } from './trade-selects';
 import { TradeActor } from './shipments.request';
 import { blockingSteps, currentStepOf, lineLabel, progressOf, stepLabels } from './shipments.rules';
 import { latestBlCheck } from './trade-extract.service';
@@ -44,6 +44,7 @@ export class ShipmentsService {
       netWeightMt: true,
       status: true,
       createdAt: true,
+      contractId: true,
       contract: { select: { id: true, contractNo: true } },
       contractLine: { select: CONTRACT_LINE_SELECT },
       customer: { select: { id: true, name: true } },
@@ -71,7 +72,9 @@ export class ShipmentsService {
     return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
   }
 
-  async getById(organizationId: string, id: string) {
+  /** Detail; with an actor, auto-complete runs first (e.g. an invoice confirmed in the invoice editor). */
+  async getById(organizationId: string, id: string, actor?: TradeActor) {
+    if (actor) await this.config.syncSteps(this.prisma, organizationId, [{ shipmentId: id }], actor);
     const s = await this.prisma.shipment.findFirst({
       where: { id, organizationId },
       include: {
@@ -89,23 +92,7 @@ export class ShipmentsService {
         },
         contractLine: { select: CONTRACT_LINE_SELECT },
         customer: { select: { id: true, name: true, customerCode: true } },
-        steps: {
-          orderBy: { sortOrder: 'asc' },
-          select: {
-            id: true,
-            code: true,
-            title: true,
-            displayNo: true,
-            sortOrder: true,
-            requiredDocTypes: true,
-            isOngoing: true,
-            status: true,
-            updatedById: true,
-            updatedByName: true,
-            completedAt: true,
-            updatedAt: true,
-          },
-        },
+        steps: { orderBy: { sortOrder: 'asc' }, select: STEP_SELECT },
         fileLinks: { orderBy: { createdAt: 'desc' }, select: FILE_LINK_SELECT },
         docLinks: { orderBy: { createdAt: 'desc' }, select: DOC_LINK_SELECT },
       },
@@ -113,47 +100,23 @@ export class ShipmentsService {
     if (!s) throw new NotFoundException('Shipment not found');
     const { steps, docLinks } = await this.config.decorateRecord(organizationId, s);
     const blCheck = await latestBlCheck(this.prisma, organizationId, id);
-    return { ...s, steps, docLinks, productLine: s.contractLine ? lineLabel(s.contractLine) : null, progress: progressOf(s.steps), currentStep: currentStepOf(s.steps), blCheck };
+    return {
+      ...s,
+      steps,
+      docLinks,
+      fileLinks: shapeFileLinks(s.fileLinks),
+      productLine: s.contractLine ? lineLabel(s.contractLine) : null,
+      progress: progressOf(s.steps),
+      currentStep: currentStepOf(s.steps),
+      blCheck,
+    };
   }
 
   async create(organizationId: string, dto: CreateShipmentDto, actor: TradeActor) {
     const blNumber = optText(dto.blNumber) ?? null;
     try {
-      const id = await this.prisma.$transaction(async (tx: Db) => {
-        const contract = await tx.contract.findFirst({
-          where: { id: dto.contractId, organizationId },
-          select: { id: true, contractNo: true, status: true, customerId: true, currency: true, deliveryMonth: true, lines: { orderBy: { sortOrder: 'asc' }, select: CONTRACT_LINE_SELECT } },
-        });
-        if (!contract) throw new BadRequestException('Contract not found in this organization');
-        if (contract.status === 'CANCELLED') {
-          throw new BadRequestException(`Contract ${contract.contractNo} is cancelled — reopen it before adding shipments`);
-        }
-        const customerId = dto.customerId || contract.customerId;
-        if (dto.customerId) await this.assertCustomer(tx, organizationId, dto.customerId);
-        if (blNumber) await this.assertBlFree(tx, organizationId, blNumber);
-        const line = pickLine(contract.lines, dto.contractLineId);
-        const fields = this.fields(dto);
-        // Commodity / size prefill from the product line; delivery month from the contract.
-        if (line && dto.commodity === undefined) fields.commodity = commodityOf(line);
-        if (line && dto.sizeSpec === undefined) fields.sizeSpec = line.sizeSpec ?? null;
-        if (dto.deliveryMonth === undefined) fields.deliveryMonth = contract.deliveryMonth ?? null;
-        const created = await tx.shipment.create({
-          data: {
-            organizationId,
-            contractId: contract.id,
-            contractLineId: line?.id ?? null,
-            customerId,
-            blNumber,
-            currency: dto.currency || contract.currency || 'USD',
-            ...fields,
-            createdById: actor.id,
-          },
-          select: { id: true },
-        });
-        await this.config.snapshotSteps(tx, organizationId, 'SHIPMENT', { shipmentId: created.id });
-        if (dto.blDraftFileId) await this.config.linkSourceFile(tx, organizationId, dto.blDraftFileId, 'BL_DRAFT', { shipmentId: created.id }, 'BL_DRAFT_APPROVAL');
-        return created.id as string;
-      });
+      const id = await this.prisma.$transaction((tx: Db) => this.createInTx(tx, organizationId, dto, actor));
+      await this.config.syncSteps(this.prisma, organizationId, [{ shipmentId: id }], actor);
       return this.getById(organizationId, id);
     } catch (e) {
       if (isUniqueViolation(e)) throw new BadRequestException(`B/L number "${blNumber}" is already used by another shipment`);
@@ -161,7 +124,49 @@ export class ShipmentsService {
     }
   }
 
-  async update(organizationId: string, id: string, dto: UpdateShipmentDto) {
+  /**
+   * One shipment row + its steps, inside the caller's transaction. Used by
+   * "Add shipment" and by a new contract (its shipment #1, B/L pending): the
+   * B/L, vessel and weights are filled in on shipment step 2.
+   */
+  async createInTx(tx: Db, organizationId: string, dto: CreateShipmentDto, actor: TradeActor): Promise<string> {
+    const blNumber = optText(dto.blNumber) ?? null;
+    const contract = await tx.contract.findFirst({
+      where: { id: dto.contractId, organizationId },
+      select: { id: true, contractNo: true, status: true, customerId: true, currency: true, deliveryMonth: true, lines: { orderBy: { sortOrder: 'asc' }, select: CONTRACT_LINE_SELECT } },
+    });
+    if (!contract) throw new BadRequestException('Contract not found in this organization');
+    if (contract.status === 'CANCELLED') {
+      throw new BadRequestException(`Contract ${contract.contractNo} is cancelled — reopen it before adding shipments`);
+    }
+    const customerId = dto.customerId || contract.customerId;
+    if (dto.customerId) await this.assertCustomer(tx, organizationId, dto.customerId);
+    if (blNumber) await this.assertBlFree(tx, organizationId, blNumber);
+    const line = pickLine(contract.lines, dto.contractLineId);
+    const fields = this.fields(dto);
+    // Commodity / size prefill from the product line; delivery month from the contract.
+    if (line && dto.commodity === undefined) fields.commodity = commodityOf(line);
+    if (line && dto.sizeSpec === undefined) fields.sizeSpec = line.sizeSpec ?? null;
+    if (dto.deliveryMonth === undefined) fields.deliveryMonth = contract.deliveryMonth ?? null;
+    const created = await tx.shipment.create({
+      data: {
+        organizationId,
+        contractId: contract.id,
+        contractLineId: line?.id ?? null,
+        customerId,
+        blNumber,
+        currency: dto.currency || contract.currency || 'USD',
+        ...fields,
+        createdById: actor.id,
+      },
+      select: { id: true },
+    });
+    await this.config.snapshotSteps(tx, organizationId, 'SHIPMENT', { shipmentId: created.id });
+    if (dto.blDraftFileId) await this.config.linkSourceFile(tx, organizationId, dto.blDraftFileId, 'BL_DRAFT', { shipmentId: created.id }, 'BL_DRAFT_APPROVAL');
+    return created.id as string;
+  }
+
+  async update(organizationId: string, id: string, dto: UpdateShipmentDto, actor: TradeActor | null = null) {
     const blNumber = optText(dto.blNumber);
     try {
       await this.prisma.$transaction(async (tx: Db) => {
@@ -196,6 +201,8 @@ export class ShipmentsService {
       if (isUniqueViolation(e)) throw new BadRequestException(`B/L number "${blNumber}" is already used by another shipment`);
       throw e;
     }
+    // Step 2's B/L fields (requiredFields) complete it once its B/L draft is there too.
+    await this.config.syncSteps(this.prisma, organizationId, [{ shipmentId: id }], actor, { fields: Object.keys(dto) });
     return this.getById(organizationId, id);
   }
 
@@ -237,7 +244,7 @@ export class ShipmentsService {
    * a COMPLETED contract is reopened with it (reported as reopenedContract so
    * the portal can say so); a cancelled contract is left alone.
    */
-  async reopen(organizationId: string, id: string) {
+  async reopen(organizationId: string, id: string, actor: TradeActor | null = null) {
     let reopenedContract: string | null = null;
     await this.prisma.$transaction(async (tx: Db) => {
       const s = await tx.shipment.findFirst({ where: { id, organizationId }, select: { blNumber: true, status: true, contract: { select: { id: true, contractNo: true, status: true } } } });
@@ -249,7 +256,7 @@ export class ShipmentsService {
         reopenedContract = s.contract.contractNo;
       }
     });
-    return { ...(await this.getById(organizationId, id)), reopenedContract };
+    return { ...(await this.getById(organizationId, id, actor ?? undefined)), reopenedContract };
   }
 
   // ── helpers ─────────────────────────────────────────────────────────────
@@ -300,16 +307,18 @@ export class ShipmentsService {
 
 type LineRow = { id: string; grade: string | null; product: string | null; sizeSpec: string | null };
 
-/** The line a new shipment ships: the one asked for, else the contract's only line. */
-function pickLine<L extends LineRow>(lines: L[], requested: string | null | undefined): L | null {
+/**
+ * The line a new shipment ships: the one asked for, else the contract's only
+ * line; with several lines and none asked for it stays empty and is picked on
+ * shipment step 2 (a required field there).
+ */
+export function pickLine<L extends LineRow>(lines: L[], requested: string | null | undefined): L | null {
   if (requested) {
     const l = lines.find((x) => x.id === requested);
     if (!l) throw new BadRequestException("That product line is not on this shipment's contract");
     return l;
   }
-  if (lines.length === 1) return lines[0];
-  if (lines.length > 1) throw new BadRequestException('This contract has several product lines — pick the one this shipment ships');
-  return null;
+  return lines.length === 1 ? lines[0] : null;
 }
 
 /** "Aluminium Billet 6063" — the line's product + grade, as the shipment's commodity. */

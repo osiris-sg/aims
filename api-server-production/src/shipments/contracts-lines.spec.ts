@@ -53,10 +53,14 @@ function contractDb(opts: { settings?: any; lines?: any[] } = {}) {
     supplier: { findFirst: jest.fn().mockResolvedValue({ id: 'sup' }) },
     customer: { findFirst: jest.fn().mockResolvedValue({ id: 'cus' }) },
     contract: {
-      findFirst: jest.fn().mockResolvedValue(null),
+      // By contract no. (uniqueness check): none; by id (shipment #1 reads its contract): the new one.
+      findFirst: jest.fn().mockImplementation(({ where }: any) =>
+        Promise.resolve(where?.contractNo ? null : { id: 'c1', contractNo: 'C', status: 'OPEN', customerId: 'cus', currency: 'USD', deliveryMonth: null, lines: [] }),
+      ),
       create: jest.fn().mockResolvedValue({ id: 'c1' }),
       update: jest.fn().mockResolvedValue({}),
     },
+    shipment: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 's1' }) },
     contractLine: {
       findMany: jest.fn().mockImplementation(() => Promise.resolve(lines)),
       create: jest.fn().mockResolvedValue({}),
@@ -68,9 +72,10 @@ function contractDb(opts: { settings?: any; lines?: any[] } = {}) {
   const prisma: any = { ...tx, $transaction: (fn: any) => fn(tx) };
   const config: any = {
     snapshotSteps: jest.fn(),
+    syncSteps: jest.fn().mockResolvedValue([]),
     getSettings: jest.fn().mockResolvedValue({ defaultConsignee: opts.settings?.defaultConsignee ?? null, defaultNotifyParty: opts.settings?.defaultNotifyParty ?? null }),
   };
-  const svc = new ContractsService(prisma, config);
+  const svc = new ContractsService(prisma, config, new ShipmentsService(prisma, config));
   jest.spyOn(svc, 'getById').mockResolvedValue({} as any);
   return { tx, svc };
 }
@@ -147,7 +152,7 @@ describe('ShipmentsService.create — product line', () => {
       shipment: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 's1' }) },
     };
     const prisma: any = { $transaction: (fn: any) => fn(tx) };
-    const svc = new ShipmentsService(prisma, { snapshotSteps: jest.fn() } as any);
+    const svc = new ShipmentsService(prisma, { snapshotSteps: jest.fn(), syncSteps: jest.fn().mockResolvedValue([]) } as any);
     jest.spyOn(svc, 'getById').mockResolvedValue({} as any);
     return { tx, svc };
   }
@@ -161,9 +166,11 @@ describe('ShipmentsService.create — product line', () => {
     await svc.create(ORG, { contractId: 'c1', commodity: 'Billet', sizeSpec: '6"' } as any, actor);
     expect(tx.shipment.create.mock.calls[0][0].data).toMatchObject({ contractLineId: 'L2', commodity: 'Billet', sizeSpec: '6"' });
   });
-  it('requires a line when the contract has several, and refuses a line from another contract', async () => {
-    await expect(setup([L1, L2]).svc.create(ORG, { contractId: 'c1' } as any, actor)).rejects.toThrow(BadRequestException);
-    await expect(setup([L1, L2]).svc.create(ORG, { contractId: 'c1' } as any, actor)).rejects.toThrow('several product lines');
+  it('"Add shipment" on a contract with several lines leaves the line for step 2; a line from another contract is refused', async () => {
+    const { tx, svc } = setup([L1, L2]);
+    await svc.create(ORG, { contractId: 'c1' } as any, actor);
+    expect(tx.shipment.create.mock.calls[0][0].data).toMatchObject({ contractLineId: null, blNumber: null });
+    await expect(setup([L1]).svc.create(ORG, { contractId: 'c1', contractLineId: 'other' } as any, actor)).rejects.toThrow(BadRequestException);
     await expect(setup([L1]).svc.create(ORG, { contractId: 'c1', contractLineId: 'other' } as any, actor)).rejects.toThrow('not on this shipment');
   });
 });

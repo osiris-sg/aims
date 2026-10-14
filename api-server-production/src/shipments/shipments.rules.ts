@@ -296,3 +296,77 @@ export function docDateErrors(header: unknown, rows: unknown): string[] {
   });
   return out;
 }
+
+// ── Auto-complete ───────────────────────────────────────────────────────────
+// A step completes by itself once every required document type is present on
+// its record and every required record field is filled. Steps with nothing
+// required (ADH 5, 8, 13) are "Mark done" by hand; ongoing steps never
+// complete. A step reopened by hand (holdOpen) waits until one of its own
+// documents / fields changes, so "Reopen" can be used to replace a file.
+
+/** Field names a step can require, with the label shown in "Still needed". */
+export const STEP_FIELD_LABELS: Record<string, string> = {
+  blNumber: 'B/L no.',
+  contractLineId: 'Product line',
+  vessel: 'Vessel',
+  voyageNo: 'Voyage no.',
+  etd: 'ETD',
+  eta: 'Latest ETA',
+  netWeightMt: 'Net weight',
+  grossWeightMt: 'Gross weight',
+  totalBundles: 'Bundles',
+  portOfLoading: 'Port of loading',
+  portOfDischarge: 'Port of discharge',
+  telexReleaseCode: 'Telex release code',
+  depositPaidAt: 'Deposit paid on',
+};
+export const fieldLabel = (f: string) => STEP_FIELD_LABELS[f] ?? f;
+
+const filled = (v: unknown) => v !== null && v !== undefined && !(typeof v === 'string' && v.trim() === '');
+
+/** Per required field: filled on the record or not. */
+export function fieldRequirements(required: string[] | null | undefined, record: Record<string, unknown> | null | undefined) {
+  return [...new Set(required ?? [])].map((field) => ({ field, label: fieldLabel(field), satisfied: filled(record?.[field]) }));
+}
+
+export interface AutoStep {
+  id: string;
+  status: string;
+  isOngoing: boolean;
+  sortOrder: number;
+  requiredDocTypes: string[];
+  requiredFields?: string[] | null;
+  holdOpen?: boolean | null;
+}
+
+/** Something to tick: at least one required document type or field. */
+export const hasRequirements = (s: Pick<AutoStep, 'requiredDocTypes' | 'requiredFields'>) => s.requiredDocTypes.length > 0 || (s.requiredFields?.length ?? 0) > 0;
+
+/** Everything the step requires is there (doc types present, fields filled). */
+export function stepSatisfied(s: Pick<AutoStep, 'requiredDocTypes' | 'requiredFields'>, present: Iterable<string>, record: Record<string, unknown> | null | undefined): boolean {
+  return missingDocTypes(s.requiredDocTypes, present).length === 0 && fieldRequirements(s.requiredFields, record).every((f) => f.satisfied);
+}
+
+/**
+ * What auto-complete does to a record's steps: which to mark DONE, which holds
+ * to release (a changed doc type / field the held step requires), and which
+ * step becomes the current one (IN_PROGRESS when it was NOT_STARTED).
+ */
+export function autoCompletePlan<T extends AutoStep>(
+  steps: T[],
+  present: Iterable<string>,
+  record: Record<string, unknown> | null | undefined,
+  changed: { docTypes?: string[]; fields?: string[] } = {},
+): { complete: T[]; release: T[]; start: T | null } {
+  const have = [...present];
+  const touched = (s: T) => s.requiredDocTypes.some((d) => changed.docTypes?.includes(d)) || (s.requiredFields ?? []).some((f) => changed.fields?.includes(f));
+  const release = steps.filter((s) => s.holdOpen && touched(s));
+  const held = (s: T) => !!s.holdOpen && !release.includes(s);
+  const complete = steps.filter((s) => !s.isOngoing && s.status !== 'DONE' && !held(s) && hasRequirements(s) && stepSatisfied(s, have, record));
+  const after = (s: T) => (complete.includes(s) ? 'DONE' : s.status);
+  const next = steps
+    .filter((s) => !s.isOngoing)
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .find((s) => after(s) !== 'DONE');
+  return { complete, release, start: next && next.status === 'NOT_STARTED' ? next : null };
+}

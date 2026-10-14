@@ -5,7 +5,8 @@ import { S3Service } from '../common/services/s3.service';
 import { AddTradeFileLinksDto, ListTradeFilesQuery, UploadTradeFileDto } from './dto/trade-file.dto';
 import { TradeActor } from './shipments.request';
 import { decodeUploadName, isUuid, parseIdList, resolveTradeFileMime, sanitizeFileName, TRADE_FILE_MAX_BYTES } from './shipments.rules';
-import { Db, optText, pageArgs, RemovalOwner, TradeConfigService } from './trade-config.service';
+import { Db, optText, pageArgs, RemovalOwner, TradeConfigService, TradeOwner } from './trade-config.service';
+import { TradeThumbsService } from './trade-thumbs.service';
 
 const SIGNED_URL_TTL = 600; // 10 minutes
 
@@ -38,6 +39,7 @@ export class TradeFilesService {
     private readonly prisma: PrismaService,
     private readonly s3: S3Service,
     private readonly config: TradeConfigService,
+    private readonly thumbs: TradeThumbsService,
   ) {}
 
   static keyPrefix(organizationId: string) {
@@ -67,11 +69,13 @@ export class TradeFilesService {
       throw new HttpException(`Could not store the file: ${(e as Error)?.message || 'storage error'}`, HttpStatus.BAD_GATEWAY);
     }
 
+    let owners: TradeOwner[] = [];
     try {
       await this.prisma.$transaction(async (tx: Db) => {
         // Re-check inside the transaction: a record may have closed meanwhile.
         await this.config.assertActiveDocType(organizationId, docType, tx);
         const targets = await this.resolveTargets(tx, organizationId, contractIds, shipmentIds, dto.stepId);
+        owners = ownersOfTargets(targets);
         await tx.tradeFile.create({
           data: {
             id: fileId,
@@ -94,7 +98,11 @@ export class TradeFilesService {
       await this.s3.deleteFile(key).catch((err) => this.logger.warn(`Could not remove orphan upload ${key}: ${err?.message}`));
       throw e;
     }
-    return this.getById(organizationId, fileId);
+    // Best effort: a file that can't be rendered just shows its type icon.
+    await this.thumbs.make(organizationId, fileId, file.buffer);
+    // Steps that now have every required document complete by themselves.
+    const completedSteps = await this.config.syncSteps(this.prisma, organizationId, owners, actor, { docTypes: [docType] });
+    return { ...(await this.getById(organizationId, fileId)), completedSteps };
   }
 
   async list(organizationId: string, query: ListTradeFilesQuery) {
@@ -136,14 +144,14 @@ export class TradeFilesService {
       this.prisma.tradeFile.count({ where }),
       this.config.docTypeLabels(organizationId),
     ]);
-    const items = rows.map((f) => ({ ...f, docTypeLabel: labels.get(f.docType) ?? f.docType }));
+    const items = rows.map((f) => shapeFile(f, labels));
     return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
   }
 
   async getById(organizationId: string, id: string) {
     const [f, labels] = await Promise.all([this.prisma.tradeFile.findFirst({ where: { id, organizationId }, select: this.fileSelect() }), this.config.docTypeLabels(organizationId)]);
     if (!f) throw new NotFoundException('File not found');
-    return { ...f, docTypeLabel: labels.get(f.docType) ?? f.docType };
+    return shapeFile(f, labels);
   }
 
   /** Short-lived download URL; the key must sit under this org's prefix (as orders.service does). */
@@ -160,19 +168,23 @@ export class TradeFilesService {
     return { url, fileName: f.fileName, mimeType: f.mimeType, expiresIn: SIGNED_URL_TTL };
   }
 
-  async addLinks(organizationId: string, id: string, dto: AddTradeFileLinksDto) {
+  async addLinks(organizationId: string, id: string, dto: AddTradeFileLinksDto, actor: TradeActor | null = null) {
     const contractIds = parseIdList(dto.contractIds);
     const shipmentIds = parseIdList(dto.shipmentIds);
     if (!contractIds.length && !shipmentIds.length && !dto.stepId) {
       throw new BadRequestException('Give at least one contract, shipment or step to link');
     }
+    let owners: TradeOwner[] = [];
+    let docType = '';
     await this.prisma.$transaction(async (tx: Db) => {
       const f = await tx.tradeFile.findFirst({
         where: { id, organizationId },
-        select: { id: true, links: { select: { id: true, contractId: true, shipmentId: true, stepId: true } } },
+        select: { id: true, docType: true, links: { select: { id: true, contractId: true, shipmentId: true, stepId: true } } },
       });
       if (!f) throw new NotFoundException('File not found');
       const targets = await this.resolveTargets(tx, organizationId, contractIds, shipmentIds, dto.stepId);
+      owners = ownersOfTargets(targets);
+      docType = f.docType;
       const existing = new Set<string>(f.links.map((l: { contractId: string | null; shipmentId: string | null }) => l.contractId ?? l.shipmentId));
       const rows = this.linkRows(organizationId, id, targets, existing);
       if (rows.length) await tx.tradeFileLink.createMany({ data: rows });
@@ -185,7 +197,13 @@ export class TradeFilesService {
         }
       }
     });
-    return this.getById(organizationId, id);
+    const completedSteps = await this.config.syncSteps(this.prisma, organizationId, owners, actor, { docTypes: [docType] });
+    return { ...(await this.getById(organizationId, id)), completedSteps };
+  }
+
+  /** Signed URL of the file's thumbnail ({ url: null } when it has none). */
+  thumbUrl(organizationId: string, id: string) {
+    return this.thumbs.url(organizationId, id);
   }
 
   async removeLink(organizationId: string, fileId: string, linkId: string) {
@@ -208,11 +226,13 @@ export class TradeFilesService {
   }
 
   async remove(organizationId: string, id: string) {
+    let thumbKey: string | null = null;
     const key = await this.prisma.$transaction(async (tx: Db) => {
       const f = await tx.tradeFile.findFirst({
         where: { id, organizationId },
         select: {
           s3Key: true,
+          thumbKey: true,
           links: {
             select: {
               contractId: true,
@@ -226,8 +246,10 @@ export class TradeFilesService {
       if (!f) throw new NotFoundException('File not found');
       await this.config.assertRemovalKeepsDoneSteps(tx, organizationId, f.links.map(ownerOf), { fileId: id }, 'delete this document');
       await tx.tradeFile.delete({ where: { id, organizationId } }); // links cascade
+      thumbKey = f.thumbKey;
       return f.s3Key as string;
     });
+    await this.thumbs.removeObject(thumbKey);
     try {
       await this.s3.deleteFile(key);
     } catch (e) {
@@ -247,6 +269,7 @@ export class TradeFilesService {
       uploadedById: true,
       uploadedByName: true,
       notes: true,
+      thumbKey: true,
       createdAt: true,
       links: { orderBy: { createdAt: 'asc' as const }, select: LINK_SELECT },
     };
@@ -296,6 +319,15 @@ export class TradeFilesService {
 
 
 }
+
+/** API shape of a file row: the doc type's label, and hasThumb instead of the storage key. */
+function shapeFile<F extends { docType: string; thumbKey?: string | null }>(f: F, labels: Map<string, string>) {
+  const { thumbKey, ...rest } = f;
+  return { ...rest, docTypeLabel: labels.get(f.docType) ?? f.docType, hasThumb: !!thumbKey };
+}
+
+/** The contracts / shipments a file was just linked to. */
+export const ownersOfTargets = (t: Targets): TradeOwner[] => [...t.contracts.map((c) => ({ contractId: c.id })), ...t.shipments.map((s) => ({ shipmentId: s.id }))];
 
 export function ownerOf(link: {
   contractId: string | null;

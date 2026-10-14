@@ -19,6 +19,7 @@ import { TradeExtractController } from './trade-extract.controller';
 import { TradeExtractService } from './trade-extract.service';
 import { TradeFilesController } from './trade-files.controller';
 import { TradeFilesService } from './trade-files.service';
+import { TradeThumbsService } from './trade-thumbs.service';
 import { TradeStepsController } from './trade-steps.controller';
 import { TradeStepsService } from './trade-steps.service';
 
@@ -48,6 +49,7 @@ import { TradeStepsService } from './trade-steps.service';
     ShipmentsService,
     TradeStepsService,
     TradeFilesService,
+    TradeThumbsService,
     TradeConfigService,
     TradeDocumentsService,
     TradeGeneratedService,

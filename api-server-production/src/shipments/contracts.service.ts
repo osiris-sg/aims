@@ -1,65 +1,27 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { ContractLineDto, CreateContractDto, ListContractsQuery, UpdateContractDto } from './dto/contract.dto';
+import { CreateShipmentDto } from './dto/shipment.dto';
 import { TradeActor } from './shipments.request';
 import { blockingSteps, currentStepOf, depositOf, linesSummary, progressOf, stepLabels } from './shipments.rules';
 import { Db, DOC_LINK_SELECT, isUniqueViolation, optText, pageArgs, TradeConfigService } from './trade-config.service';
+import { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, shapeFileLinks, STEP_SELECT, STEP_SUMMARY_SELECT } from './trade-selects';
+import { ShipmentsService } from './shipments.service';
+import { DEFAULT_DEPOSIT_DUE, depositDueDate, depositDueText, parseDepositDue } from './trade-deposit';
 
-const STEP_SELECT = {
-  id: true,
-  code: true,
-  title: true,
-  displayNo: true,
-  sortOrder: true,
-  requiredDocTypes: true,
-  isOngoing: true,
-  status: true,
-  updatedById: true,
-  updatedByName: true,
-  completedAt: true,
-  updatedAt: true,
-};
+export { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, STEP_SELECT, STEP_SUMMARY_SELECT } from './trade-selects';
 
-export const CONTRACT_LINE_SELECT = {
-  id: true,
-  grade: true,
-  product: true,
-  sizeSpec: true,
-  quantityMt: true,
-  tolerancePct: true,
-  supplierPremium: true,
-  clientPremium: true,
-  sortOrder: true,
-  notes: true,
-};
-
-/** Steps as needed for progress + "current step". */
-export const STEP_SUMMARY_SELECT = { code: true, title: true, displayNo: true, sortOrder: true, status: true, isOngoing: true };
-
-export const FILE_LINK_SELECT = {
-  id: true,
-  stepId: true,
-  createdAt: true,
-  file: {
-    select: {
-      id: true,
-      docType: true,
-      fileName: true,
-      mimeType: true,
-      sizeBytes: true,
-      uploadedByName: true,
-      notes: true,
-      createdAt: true,
-    },
-  },
-};
-
-/** Contracts: the supplier contract / PI level, before any B/L exists. */
+/**
+ * Contracts: the supplier contract / PI level. A contract and its shipments
+ * are one deal: a new contract gets shipment #1 straight away (B/L pending,
+ * filled in on shipment step 2), and "Add shipment" adds more.
+ */
 @Injectable()
 export class ContractsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: TradeConfigService,
+    private readonly shipments: ShipmentsService,
   ) {}
 
   async list(organizationId: string, query: ListContractsQuery) {
@@ -94,6 +56,7 @@ export class ContractsService {
     ]);
     const items = rows.map(({ steps, _count, ...c }) => ({
       ...c,
+      depositDueDate: depositDueDate(c.piDate, c.depositDueDays, c.depositDueUnit),
       linesSummary: linesSummary(c.lines ?? []),
       totalQuantityMt: totalQty(c.lines ?? []),
       shipmentCount: _count?.shipments ?? 0,
@@ -103,7 +66,12 @@ export class ContractsService {
     return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
   }
 
-  async getById(organizationId: string, id: string) {
+  /** Detail; with an actor, auto-complete runs first on the contract and its shipments. */
+  async getById(organizationId: string, id: string, actor?: TradeActor) {
+    if (actor) {
+      const ships: Array<{ id: string }> = await this.prisma.shipment.findMany({ where: { organizationId, contractId: id }, select: { id: true } });
+      await this.config.syncSteps(this.prisma, organizationId, [{ contractId: id }, ...ships.map((x) => ({ shipmentId: x.id }))], actor);
+    }
     const c = await this.prisma.contract.findFirst({
       where: { id, organizationId },
       include: {
@@ -116,10 +84,13 @@ export class ContractsService {
             id: true,
             blNumber: true,
             vessel: true,
+            voyageNo: true,
             etd: true,
             eta: true,
+            netWeightMt: true,
             status: true,
             contractLineId: true,
+            createdAt: true,
             steps: { select: STEP_SUMMARY_SELECT },
           },
         },
@@ -135,6 +106,8 @@ export class ContractsService {
       ...rest,
       steps,
       docLinks,
+      fileLinks: shapeFileLinks(c.fileLinks),
+      depositDueDate: depositDueDate(c.piDate, c.depositDueDays, c.depositDueUnit),
       linesSummary: linesSummary(c.lines),
       totalQuantityMt: totalQty(c.lines),
       progress: progressOf(c.steps),
@@ -156,6 +129,13 @@ export class ContractsService {
         if (dto.consignee === undefined) fields.consignee = defaults.defaultConsignee;
         if (dto.notifyParty === undefined) fields.notifyParty = defaults.defaultNotifyParty;
         if (dto.depositAmount === undefined) fields.depositAmount = depositOf(dto.piAmount, dto.depositPercent ?? 10);
+        // Deposit due: as sent, else read from the PI's wording, else Vedanta's 3 business days.
+        if (dto.depositDueDays === undefined) {
+          const due = parseDepositDue(dto.depositDueNote) ?? DEFAULT_DEPOSIT_DUE;
+          fields.depositDueDays = due.days;
+          fields.depositDueUnit = due.unit;
+          if (dto.depositDueNote === undefined) fields.depositDueNote = depositDueText(due.days, due.unit);
+        }
         const created = await tx.contract.create({
           data: {
             organizationId,
@@ -170,16 +150,18 @@ export class ContractsService {
         await this.syncLines(tx, organizationId, created.id, dto.lines);
         await this.config.snapshotSteps(tx, organizationId, 'CONTRACT', { contractId: created.id });
         if (dto.piFileId) await this.config.linkSourceFile(tx, organizationId, dto.piFileId, 'PI', { contractId: created.id }, 'PI_PAYMENT');
+        // Shipment #1 of the deal, B/L pending.
+        await this.shipments.createInTx(tx, organizationId, { contractId: created.id } as CreateShipmentDto, actor);
         return created.id as string;
       });
-      return this.getById(organizationId, id);
+      return this.getById(organizationId, id, actor);
     } catch (e) {
       if (isUniqueViolation(e)) throw new BadRequestException(`Contract number "${contractNo}" already exists`);
       throw e;
     }
   }
 
-  async update(organizationId: string, id: string, dto: UpdateContractDto) {
+  async update(organizationId: string, id: string, dto: UpdateContractDto, actor: TradeActor | null = null) {
     const contractNo = dto.contractNo === undefined ? undefined : dto.contractNo.trim();
     if (contractNo === '') throw new BadRequestException('Contract number cannot be empty');
     try {
@@ -204,6 +186,7 @@ export class ContractsService {
       if (isUniqueViolation(e)) throw new BadRequestException(`Contract number "${contractNo}" already exists`);
       throw e;
     }
+    await this.config.syncSteps(this.prisma, organizationId, [{ contractId: id }], actor, { fields: Object.keys(dto) });
     return this.getById(organizationId, id);
   }
 
@@ -211,13 +194,19 @@ export class ContractsService {
     await this.prisma.$transaction(async (tx: Db) => {
       const c = await tx.contract.findFirst({
         where: { id, organizationId },
-        select: { id: true, contractNo: true, _count: { select: { shipments: true } } },
+        select: {
+          id: true,
+          contractNo: true,
+          shipments: { select: { id: true, blNumber: true, _count: { select: { fileLinks: true, docLinks: true, generatedDocs: true } } } },
+        },
       });
       if (!c) throw new NotFoundException('Contract not found');
-      const n = c._count?.shipments ?? 0;
-      if (n > 0) {
-        throw new BadRequestException(`Contract ${c.contractNo} has ${n} shipment(s) — delete them first`);
+      // Shipments with nothing on them yet (e.g. the automatic shipment #1) go with the contract.
+      const used = c.shipments.filter((x: { _count: { fileLinks: number; docLinks: number; generatedDocs: number } }) => x._count.fileLinks + x._count.docLinks + x._count.generatedDocs > 0);
+      if (used.length) {
+        throw new BadRequestException(`Contract ${c.contractNo} has shipment(s) with documents (${used.map((x: { blNumber: string | null }) => x.blNumber || 'B/L pending').join(', ')}) — delete them first`);
       }
+      if (c.shipments.length) await tx.shipment.deleteMany({ where: { organizationId, contractId: id } });
       // Steps and file links cascade; the files themselves stay in the Documents library.
       await tx.contract.delete({ where: { id, organizationId } });
     });
@@ -233,9 +222,17 @@ export class ContractsService {
           contractNo: true,
           status: true,
           steps: { orderBy: { sortOrder: 'asc' }, select: { id: true, title: true, displayNo: true, sortOrder: true, status: true, isOngoing: true, requiredDocTypes: true } },
+          shipments: { orderBy: { createdAt: 'asc' }, select: { blNumber: true, status: true } },
         },
       });
       if (!c) throw new NotFoundException('Contract not found');
+      // The deal is complete when every (not cancelled) shipment is.
+      const openShipments = c.shipments.filter((x: { status: string }) => x.status === 'OPEN');
+      if (openShipments.length) {
+        throw new BadRequestException(
+          `Cannot complete contract ${c.contractNo}: complete its shipment(s) first — ${openShipments.map((x: { blNumber: string | null }) => x.blNumber || 'B/L pending').join(', ')}`,
+        );
+      }
       if (c.status === 'COMPLETED') throw new BadRequestException(`Contract ${c.contractNo} is already completed`);
       if (c.status === 'CANCELLED') throw new BadRequestException(`Contract ${c.contractNo} is cancelled — reopen it first`);
       const blocking = blockingSteps(c.steps);
@@ -247,14 +244,23 @@ export class ContractsService {
     return this.getById(organizationId, id);
   }
 
-  async reopen(organizationId: string, id: string) {
+  async reopen(organizationId: string, id: string, actor: TradeActor | null = null) {
     await this.prisma.$transaction(async (tx: Db) => {
       const c = await tx.contract.findFirst({ where: { id, organizationId }, select: { contractNo: true, status: true } });
       if (!c) throw new NotFoundException('Contract not found');
       if (c.status === 'OPEN') throw new BadRequestException(`Contract ${c.contractNo} is already open`);
       await tx.contract.update({ where: { id, organizationId }, data: { status: 'OPEN' } });
     });
-    return this.getById(organizationId, id);
+    return this.getById(organizationId, id, actor ?? undefined);
+  }
+
+  /** PI date + N business / calendar days (the form's preview of what getById computes). */
+  depositDue(piDate: string, days: string, unit: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(piDate ?? '')) throw new BadRequestException('piDate must be YYYY-MM-DD');
+    const n = Number(days);
+    if (!Number.isInteger(n) || n < 0 || n > 365) throw new BadRequestException('days must be a whole number 0–365');
+    if (unit !== 'BUSINESS' && unit !== 'CALENDAR') throw new BadRequestException('unit must be BUSINESS or CALENDAR');
+    return { piDate, days: n, unit, dueDate: depositDueDate(piDate, n, unit) };
   }
 
   // ── helpers ─────────────────────────────────────────────────────────────
@@ -325,9 +331,12 @@ export class ContractsService {
       const v = optText(dto[k]);
       if (v !== undefined) out[k] = v;
     }
-    for (const k of ['piAmount', 'depositPercent', 'depositAmount'] as const) {
+    for (const k of ['piAmount', 'depositPercent', 'depositAmount', 'depositDueDays'] as const) {
       if (dto[k] !== undefined) out[k] = dto[k];
     }
+    if (dto.depositDueUnit !== undefined) out.depositDueUnit = dto.depositDueUnit || null;
+    // Keep the words in depositDueNote too (lists / exports that still read the note).
+    if (dto.depositDueDays !== undefined && dto.depositDueNote === undefined) out.depositDueNote = depositDueText(dto.depositDueDays, dto.depositDueUnit ?? 'BUSINESS');
     for (const k of ['piDate', 'depositPaidAt'] as const) {
       if (dto[k] !== undefined) out[k] = dto[k] ? new Date(dto[k] as string) : null;
     }

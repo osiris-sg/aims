@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { Box, Button, Grid2, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
 import EditIcon from "@mui/icons-material/EditOutlined";
 import type { Contract } from "../_lib/api";
-import { fmtDateTime, fmtDay, fmtMoney, fmtMonth, fmtMt } from "../_lib/format";
+import { depositTermLabel, fmtDateTime, fmtDay, fmtDmy, fmtMoney, fmtMonth, fmtMt } from "../_lib/format";
 import { Field } from "./bits";
 import ContractFormDialog from "./ContractFormDialog";
 
@@ -146,7 +146,14 @@ export default function ContractOverview({ contract: c }: { contract: Contract }
             <Field label="Deposit paid on" value={c.depositPaidAt ? fmtDay(c.depositPaidAt) : null} />
           </Cell>
           <Grid2 size={12}>
-            <Field label="Deposit due" value={c.depositDueNote} />
+            <Field
+              label="Deposit due"
+              value={
+                depositTermLabel(c.depositDueDays, c.depositDueUnit)
+                  ? `${depositTermLabel(c.depositDueDays, c.depositDueUnit)} after the PI date${c.depositDueDate ? ` → ${fmtDmy(c.depositDueDate)}` : ""}`
+                  : c.depositDueNote
+              }
+            />
           </Grid2>
         </Grid2>
       </Section>

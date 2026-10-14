@@ -22,16 +22,23 @@ export class ContractsController {
     return this.contracts.create(orgIdOf(req), dto, actorOf(req));
   }
 
+  /** Deposit due date for a PI date + term (business days skip Japanese bank holidays), for the contract form. */
+  @Get('deposit-due')
+  @Permissions('shipments:read')
+  depositDue(@Query('piDate') piDate: string, @Query('days') days: string, @Query('unit') unit: string) {
+    return this.contracts.depositDue(piDate, days, unit);
+  }
+
   @Get(':id')
   @Permissions('shipments:read')
   getById(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
-    return this.contracts.getById(orgIdOf(req), id);
+    return this.contracts.getById(orgIdOf(req), id, actorOf(req));
   }
 
   @Patch(':id')
   @Permissions('shipments:update')
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateContractDto, @Req() req: TradeRequest) {
-    return this.contracts.update(orgIdOf(req), id, dto);
+    return this.contracts.update(orgIdOf(req), id, dto, actorOf(req));
   }
 
   @Delete(':id')
@@ -49,6 +56,6 @@ export class ContractsController {
   @Post(':id/reopen')
   @Permissions('shipments:update')
   reopen(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
-    return this.contracts.reopen(orgIdOf(req), id);
+    return this.contracts.reopen(orgIdOf(req), id, actorOf(req));
   }
 }

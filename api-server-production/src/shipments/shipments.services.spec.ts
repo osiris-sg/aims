@@ -44,6 +44,9 @@ describe('TradeStepsService.complete', () => {
       tradeDocumentLink: { findMany: jest.fn().mockResolvedValue(docLinks) },
       document: { findMany: jest.fn().mockResolvedValue(docs) },
       tradeDocType: docTypes,
+      // syncSteps after the change reads the record; null = nothing more to do here.
+      shipment: { findFirst: jest.fn().mockResolvedValue(null) },
+      contract: { findFirst: jest.fn().mockResolvedValue(null) },
     });
     const service = new TradeStepsService(prisma, new TradeConfigService(prisma));
     return { prisma, service };
@@ -129,7 +132,7 @@ describe('TradeFilesService.removeLink', () => {
       tradeDocType: docTypes,
     });
     const s3: any = { deleteFile: jest.fn() };
-    const service = new TradeFilesService(prisma, s3, new TradeConfigService(prisma));
+    const service = new TradeFilesService(prisma, s3, new TradeConfigService(prisma), { make: jest.fn(async () => null) } as any);
     return { prisma, service };
   }
 
@@ -179,7 +182,7 @@ describe('TradeDocumentsService.unlink', () => {
       tradeDocType: { findMany: jest.fn().mockResolvedValue([{ code: 'INVOICE_1', label: 'Invoice #1' }]) },
     });
     const config = new TradeConfigService(prisma);
-    const service = new TradeDocumentsService(prisma, config, new TradeFilesService(prisma, {} as any, config));
+    const service = new TradeDocumentsService(prisma, config, new TradeFilesService(prisma, {} as any, config, { make: jest.fn(async () => null) } as any));
     return { prisma, service };
   }
 

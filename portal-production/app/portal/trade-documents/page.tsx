@@ -22,6 +22,7 @@ import { blLabel, categoryLabel, DOC_CATEGORIES, documentHref, fmtDate, fmtDateT
 import { ConfirmDialog, EmptyState } from "@/app/portal/shipments/_components/bits";
 import { AddLinkDialog, UnlinkDialog } from "@/app/portal/shipments/_components/FilesTable";
 import FileUploadDialog from "@/app/portal/shipments/_components/FileUploadDialog";
+import { FileThumb, FileTypeIcon, useFileViewer } from "@/app/portal/shipments/_components/FilePreview";
 import { useDebounced } from "@/app/portal/shipments/_components/useDebounced";
 
 const HERE = "/portal/trade-documents";
@@ -98,18 +99,11 @@ export default function TradeDocumentsHubPage() {
   };
   const deleteGenerated = useTradeMutation((a, id: string) => a.deleteGenerated(id));
 
-  const viewFile = async (fileId: string) => {
-    const tab = window.open("", "_blank");
-    try {
-      const r = await api.fileUrl(fileId);
-      if (tab) tab.location.href = r.url;
-    } catch (e: any) {
-      tab?.close();
-      toast.error(e?.message || "Could not open the file");
-    }
-  };
+  // Files open in the in-app viewer (PDF pages / image, with download).
+  const { open: openViewer, viewer } = useFileViewer();
+  const viewFile = (r: HubRow) => r.fileId && openViewer({ id: r.fileId, fileName: r.name, mimeType: r.mimeType ?? "", hasThumb: r.hasThumb });
   const open = (r: HubRow) => {
-    if (r.kind === "file" && r.fileId) return viewFile(r.fileId);
+    if (r.kind === "file" && r.fileId) return viewFile(r);
     if (r.kind === "invoice" && r.document) return router.push(documentHref(r.document, HERE));
     if (r.kind === "generated") return router.push(`/portal/trade-documents/generated/${r.id}?from=${encodeURIComponent(HERE)}`);
   };
@@ -134,6 +128,21 @@ export default function TradeDocumentsHubPage() {
 
   const columns = useMemo(
     () => [
+      {
+        id: "preview",
+        header: "",
+        enableSorting: false,
+        cell: ({ row }: any) => {
+          const r: HubRow = row.original;
+          return r.fileId ? (
+            <FileThumb file={{ id: r.fileId, fileName: r.name, mimeType: r.mimeType ?? "", hasThumb: r.hasThumb }} width={40} onOpen={() => viewFile(r)} />
+          ) : (
+            <Box sx={{ width: 40, display: "flex", justifyContent: "center" }}>
+              <FileTypeIcon fileName={r.name} mimeType={r.kind === "invoice" ? "application/pdf" : undefined} size={22} />
+            </Box>
+          );
+        },
+      },
       { id: "category", header: "Category", cell: ({ row }: any) => <Typography variant="body2" sx={{ whiteSpace: "nowrap" }}>{categoryLabel(row.original.category)}</Typography> },
       { id: "docType", header: "Doc type", cell: ({ row }: any) => <Chip size="small" variant="outlined" label={row.original.docTypeLabel} /> },
       {
@@ -294,7 +303,7 @@ export default function TradeDocumentsHubPage() {
 
       <Menu anchorReference="anchorPosition" anchorPosition={menu?.pos} open={!!menu} onClose={() => setMenu(null)}>
         {m?.kind === "file" && [
-          <MenuItem key="view" onClick={pick((r) => r.fileId && viewFile(r.fileId))}>View</MenuItem>,
+          <MenuItem key="view" onClick={pick((r) => viewFile(r))}>View</MenuItem>,
           ...(m.docType === "BL_DRAFT" ? [<MenuItem key="extract" onClick={pick((r) => void recheckBl(r))}>Extract / re-check</MenuItem>] : []),
           <MenuItem key="add" onClick={pick(setAddFor)}>Add link</MenuItem>,
           <MenuItem key="unlink" onClick={pick(setUnlinkFor)} disabled={!m.links.length}>Unlink</MenuItem>,
@@ -306,7 +315,7 @@ export default function TradeDocumentsHubPage() {
         ]}
         {m?.kind === "generated" && [
           <MenuItem key="open" onClick={pick(open)}>Open</MenuItem>,
-          <MenuItem key="pdf" onClick={pick((r) => r.fileId && viewFile(r.fileId))} disabled={!m.fileId}>View PDF</MenuItem>,
+          <MenuItem key="pdf" onClick={pick((r) => viewFile(r))} disabled={!m.fileId}>View PDF</MenuItem>,
           <MenuItem
             key="download"
             onClick={pick((r) =>
@@ -345,6 +354,7 @@ export default function TradeDocumentsHubPage() {
         }}
       />
       <FileUploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} />
+      {viewer}
     </Box>
   );
 }

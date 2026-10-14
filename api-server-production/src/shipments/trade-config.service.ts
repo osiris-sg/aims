@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { grossOf } from '../common/document-money';
 import { PrismaService } from '../common/prisma.service';
-import { documentLinkState, hasExactlyOneOwner, stepLabel, stepRequirements, stepsBrokenByRemoval } from './shipments.rules';
+import { TradeActor } from './shipments.request';
+import { autoCompletePlan, documentLinkState, fieldRequirements, hasExactlyOneOwner, stepLabel, stepLabels, stepRequirements, stepsBrokenByRemoval } from './shipments.rules';
 
 /** A Prisma client or interactive-transaction client. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -65,6 +66,8 @@ export class TradeConfigService {
         description: true,
         sortOrder: true,
         requiredDocTypes: true,
+        optionalDocTypes: true,
+        requiredFields: true,
         isOngoing: true,
         isActive: true,
       },
@@ -177,9 +180,9 @@ export class TradeConfigService {
    * For a contract/shipment detail: describe its document links and give each
    * step `requirements` (per required type: files, live documents, satisfied).
    */
-  async decorateRecord<S extends { requiredDocTypes: string[] }>(
+  async decorateRecord<S extends { requiredDocTypes: string[]; requiredFields?: string[] }>(
     organizationId: string,
-    rec: { steps: S[]; fileLinks: Array<{ file: { docType: string } }>; docLinks: DocLinkRow[] },
+    rec: { steps: S[]; fileLinks: Array<{ file: { docType: string } }>; docLinks: DocLinkRow[] } & Record<string, unknown>,
     db: Db = this.prisma,
   ) {
     const docLinks = await this.describeDocLinks(db, organizationId, rec.docLinks);
@@ -187,8 +190,52 @@ export class TradeConfigService {
     const docTypes = docLinks.filter((l) => l.satisfies).map((l) => l.docType);
     return {
       docLinks,
-      steps: rec.steps.map((s) => ({ ...s, requirements: stepRequirements(s.requiredDocTypes, fileTypes, docTypes) })),
+      steps: rec.steps.map((s) => ({
+        ...s,
+        requirements: stepRequirements(s.requiredDocTypes, fileTypes, docTypes),
+        // Record fields the step needs (shipment step 2: B/L no. + product line).
+        fieldRequirements: fieldRequirements(s.requiredFields, rec),
+      })),
     };
+  }
+
+  /**
+   * Auto-complete (the server side of the step cards): on each contract /
+   * shipment, mark DONE every step whose required documents and fields are
+   * all there, release reopened steps whose own documents / fields changed,
+   * and make the first open step the current one (IN_PROGRESS). Closed
+   * records are left alone. Returns the labels of the steps it completed.
+   */
+  async syncSteps(db: Db, organizationId: string, owners: TradeOwner[], actor: TradeActor | null, changed: { docTypes?: string[]; fields?: string[] } = {}): Promise<string[]> {
+    const done: string[] = [];
+    const seen = new Set<string>();
+    for (const owner of owners) {
+      const key = owner.contractId ?? owner.shipmentId;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const record = owner.contractId
+        ? await db.contract.findFirst({ where: { id: owner.contractId, organizationId } })
+        : await db.shipment.findFirst({ where: { id: owner.shipmentId, organizationId } });
+      if (!record || record.status !== 'OPEN') continue;
+      const steps: Array<{ id: string; title: string; displayNo: string | null; status: string; isOngoing: boolean; sortOrder: number; requiredDocTypes: string[]; requiredFields: string[]; holdOpen: boolean }> =
+        await db.tradeStep.findMany({
+          where: { organizationId, ...(owner.contractId ? { contractId: owner.contractId } : { shipmentId: owner.shipmentId }) },
+          orderBy: { sortOrder: 'asc' },
+          select: { id: true, title: true, displayNo: true, status: true, isOngoing: true, sortOrder: true, requiredDocTypes: true, requiredFields: true, holdOpen: true },
+        });
+      if (!steps.length) continue;
+      const plan = autoCompletePlan(steps, await this.presentDocTypes(db, organizationId, owner), record, changed);
+      const stamp = { updatedById: actor?.id ?? null, updatedByName: actor?.name ?? 'Auto' };
+      const now = new Date();
+      for (const s of plan.release) if (!plan.complete.includes(s)) await db.tradeStep.update({ where: { id: s.id, organizationId }, data: { holdOpen: false } });
+      for (const s of plan.complete) {
+        await db.tradeStep.update({ where: { id: s.id, organizationId }, data: { status: 'DONE', completedAt: now, skipReason: null, holdOpen: false, ...stamp } });
+      }
+      if (plan.start) await db.tradeStep.update({ where: { id: plan.start.id, organizationId }, data: { status: 'IN_PROGRESS', ...stamp } });
+      const labels = stepLabels(steps);
+      done.push(...plan.complete.map((s) => labels.get(s.id) ?? stepLabel(s)));
+    }
+    return done;
   }
 
   /** Ids (of `ids`) whose Document exists in the org and counts (confirmed, not voided). */
@@ -255,11 +302,11 @@ export class TradeConfigService {
   /** Copy the org's active templates of `scope` onto a new contract/shipment as TradeStep rows. */
   async snapshotSteps(db: Db, organizationId: string, scope: TradeScope, owner: TradeOwner) {
     if (!hasExactlyOneOwner(owner)) throw new BadRequestException('A step belongs to exactly one contract or shipment');
-    const templates: Array<{ id: string; code: string; title: string; displayNo: string | null; sortOrder: number; requiredDocTypes: string[]; isOngoing: boolean }> =
+    const templates: Array<{ id: string; code: string; title: string; displayNo: string | null; sortOrder: number; requiredDocTypes: string[]; optionalDocTypes: string[]; requiredFields: string[]; isOngoing: boolean }> =
       await db.tradeStepTemplate.findMany({
         where: { organizationId, scope, isActive: true },
         orderBy: { sortOrder: 'asc' },
-        select: { id: true, code: true, title: true, displayNo: true, sortOrder: true, requiredDocTypes: true, isOngoing: true },
+        select: { id: true, code: true, title: true, displayNo: true, sortOrder: true, requiredDocTypes: true, optionalDocTypes: true, requiredFields: true, isOngoing: true },
       });
     if (!templates.length) return 0;
     await db.tradeStep.createMany({
@@ -273,6 +320,8 @@ export class TradeConfigService {
         displayNo: t.displayNo,
         sortOrder: t.sortOrder,
         requiredDocTypes: t.requiredDocTypes,
+        optionalDocTypes: t.optionalDocTypes ?? [],
+        requiredFields: t.requiredFields ?? [],
         isOngoing: t.isOngoing,
       })),
     });
