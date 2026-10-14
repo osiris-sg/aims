@@ -59,6 +59,8 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Chat home (2026-10-13): the portal landing page is the AIMS assistant
   // (same brain as the WhatsApp operator) with a Dashboard toggle. Default OFF.
   enableAimsChat: false,
+  // Admin → org → Manage Templates → Design: per-template look knobs (colour, font, logo, blocks).
+  enableTemplateDesign: false,
   // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.
   // Plan a maintenance date per asset, see which deployed units are done, and a
   // reminder 7 days before (push to field techs + office bell). Default OFF.

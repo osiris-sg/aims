@@ -518,16 +518,15 @@ export class DocumentsController {
         throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
       }
 
-      // Generate HTML based on document type
-      let html: string;
-      if (body.documentType === 'TI') {
-        // Tax Invoice
-        html = this.pdfGeneratorService.generateInvoiceHtml({ documentType: body.documentType, ...body.data });
-      } else {
-        // For other document types, we'll use the invoice template for now
-        // You can create separate templates for each type later
-        html = this.pdfGeneratorService.generateInvoiceHtml({ documentType: body.documentType, ...body.data });
-      }
+      // One renderer for every type; the ported layouts pick themselves by
+      // documentType. The template's design knobs ride along.
+      const styled = await this.documentsService.designForDocument(body.documentId, organizationId);
+      const html = this.pdfGeneratorService.generateInvoiceHtml({
+        documentType: body.documentType,
+        ...body.data,
+        design: styled.design,
+        logoUrl: styled.logoUrl,
+      });
 
       // Generate PDF from HTML
       const pdfBuffer = await this.pdfGeneratorService.generatePdfFromHtml(html);

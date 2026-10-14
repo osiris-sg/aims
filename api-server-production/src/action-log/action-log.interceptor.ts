@@ -52,7 +52,7 @@ const SKIP_GET_PATHS = [
 // POST endpoints that are actually list/read queries ("POST / = list" is a
 // house convention) — log them as VIEW, not CREATE.
 const VIEW_POST_RE =
-  /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview)$/;
+  /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview|documentTemplates\/variants\/[^/]+\/design-preview)$/;
 
 // Path verb segment → semantic action (checked against the LAST static segment).
 const VERB_ACTIONS: Record<string, string> = {

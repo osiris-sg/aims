@@ -13,8 +13,11 @@ import {
   makeDi,
   money,
   numberToWords,
+  logoBlock,
+  designFooter,
   richContent,
 } from './shared';
+import { DEFAULT_DESIGN, DocumentDesign } from './design';
 
 const DEFAULT_INTERNAL_COLUMNS = ['discountPrice', 'costPrice'];
 
@@ -38,7 +41,7 @@ const FALLBACK_LABELS: Record<string, string> = {
 const alignFor = (col: string): string =>
   col === 'quantity' ? 'center' : ['unitPrice', 'salePrice', 'listPrice', 'amount'].includes(col) ? 'right' : 'left';
 
-export function renderQuotationBody(data: any, organization: any): string {
+export function renderQuotationBody(data: any, organization: any, design: DocumentDesign = DEFAULT_DESIGN): string {
   const di = makeDi(data);
   const items = groupDeliveryLines(data?.items || []);
 
@@ -56,7 +59,8 @@ export function renderQuotationBody(data: any, organization: any): string {
   const coRegNo = company.coRegNo ? ` Co. Reg No. : ${escapeHtml(company.coRegNo)}` : '';
   const fax = company.fax ? ` Fax: ${escapeHtml(company.fax)}` : '';
   const header = `
-  <div style="text-align:center;margin-bottom:16px;">
+  ${logoBlock(data?.logoUrl, design.logoPosition)}
+  <div style="text-align:${design.headerAlign};margin-bottom:16px;">
     <p style="font-size:18px;font-weight:700;margin-bottom:2.4px;letter-spacing:0.5px;">${escapeHtml(company.name || organization?.name || '')}</p>
     <p style="font-size:13px;margin-bottom:1.6px;">GST Reg No: ${escapeHtml(company.gstRegNo || organization?.registrationNumber || '')}${coRegNo}</p>
     <p style="font-size:13px;margin-bottom:1.6px;">${escapeHtml(company.address || organization?.address || '')}</p>
@@ -88,7 +92,7 @@ export function renderQuotationBody(data: any, organization: any): string {
     </div>
     <div style="width:45%;display:flex;justify-content:flex-end;padding-left:32px;">
       <div style="line-height:1.4;">
-        <p style="font-size:16px;font-weight:700;margin-bottom:8px;">QUOTATION</p>
+        <p class="doc-title" style="font-size:16px;font-weight:700;margin-bottom:8px;">${escapeHtml(design.titleText || 'QUOTATION')}</p>
         ${detailRows}
       </div>
     </div>
@@ -136,7 +140,7 @@ export function renderQuotationBody(data: any, organization: any): string {
   // Behind the SAME guard as the totals. This is the total spelled out —
   // "Singapore Dollars Eight Thousand…" — so leaving it while the figures are
   // hidden states the total in prose and defeats the switch entirely.
-  const inWords = !showTotals
+  const inWords = !showTotals || !design.showAmountInWords
     ? ''
     : `<div style="margin-top:16px;margin-bottom:16px;"><p style="font-size:13px;">${escapeHtml(numberToWords(finalAmount))}</p></div>`;
 
@@ -164,7 +168,9 @@ export function renderQuotationBody(data: any, organization: any): string {
   const closing = hasDocTypeDefaults
     ? tncBlock + notesBlock
     : `<p style="font-size:13px;margin-bottom:16px;">Hope the above Quotation meets your requirement. Pls contact us if you have any doubt.</p>` +
-      `<p style="font-size:13px;font-style:italic;margin-bottom:24px;">This is a computer generated Quotation. No signature is required.</p>` +
+      (design.showGeneratedNote
+        ? `<p style="font-size:13px;font-style:italic;margin-bottom:24px;">This is a computer generated Quotation. No signature is required.</p>`
+        : '') +
       notesBlock +
       tncBlock;
 
@@ -174,7 +180,7 @@ export function renderQuotationBody(data: any, organization: any): string {
        </div>`
     : '';
 
-  return header + partyRow + attn + intro + table + totals + inWords + closing + footerMsgBlock;
+  return header + partyRow + attn + intro + table + totals + inWords + closing + footerMsgBlock + designFooter(design);
 }
 
 /**

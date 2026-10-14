@@ -4,7 +4,7 @@
  * bot, public pay page, emailed documents) match what users see and print in
  * the portal.
  *
- * Ported so far: QUOTATION, INVOICE (standard non-Biofuel layout).
+ * Ported so far: QUOTATION, INVOICE (standard non-Biofuel layout), CREDIT_NOTE / DEBIT_NOTE.
  * Every other type returns null and the caller keeps using the legacy generic
  * layout — so nothing regresses while the remaining types are ported one by
  * one (DO, PO/PR, CN/DN, OR, SO, stock adjustments).
@@ -15,6 +15,7 @@ import { renderInvoiceBody } from './invoice';
 import { renderIdQuotationBody } from './id-quotation';
 import { renderIdVoBody } from './id-vo';
 import { renderNoteBody } from './note';
+import { DocumentDesign, resolveDesign } from './design';
 
 /** Interior-design quotation (config.templateVariant 'ID' / config.quote tree). */
 const isIdQuotation = (data: any): boolean =>
@@ -47,6 +48,9 @@ export function isPortedType(type: string): boolean {
  */
 export function renderDocumentHtml(type: string, data: any, organization?: any): string | null {
   const t = String(type || '').toUpperCase();
+  // Design knobs come from the document's template (DocumentTemplate.styleConfig),
+  // resolved by the caller into data.design. Absent = today's stock look.
+  const design: DocumentDesign = resolveDesign(data?.design);
   // Print language (ID quotation only for now): 'zh' renders the Chinese
   // version — static labels from the built-in dictionary, free text from the
   // document's cached config.quoteZh translation map.
@@ -54,19 +58,19 @@ export function renderDocumentHtml(type: string, data: any, organization?: any):
   if (QUOTATION_TYPES.includes(t)) {
     const org = organization || data?.organization || data?.company || {};
     if (isIdQuotation(data)) {
-      return pageShell(renderIdQuotationBody({ ...(data || {}), quote: data?.quote || data?.config?.quote }, org, lang));
+      return pageShell(renderIdQuotationBody({ ...(data || {}), quote: data?.quote || data?.config?.quote }, org, lang), design);
     }
-    return pageShell(renderQuotationBody(data || {}, org));
+    return pageShell(renderQuotationBody(data || {}, org, design), design);
   }
   if (INVOICE_TYPES.includes(t)) {
-    return pageShell(renderInvoiceBody(data || {}, organization || data?.organization || data?.company || {}));
+    return pageShell(renderInvoiceBody(data || {}, organization || data?.organization || data?.company || {}, design), design);
   }
   if (VO_TYPES.includes(t)) {
-    return pageShell(renderIdVoBody(data || {}, organization || data?.organization || data?.company || {}));
+    return pageShell(renderIdVoBody(data || {}, organization || data?.organization || data?.company || {}), design);
   }
   if (CREDIT_NOTE_TYPES.includes(t) || DEBIT_NOTE_TYPES.includes(t)) {
     const org = organization || data?.organization || data?.company || {};
-    return pageShell(renderNoteBody(data || {}, org, CREDIT_NOTE_TYPES.includes(t) ? 'credit' : 'debit'));
+    return pageShell(renderNoteBody(data || {}, org, CREDIT_NOTE_TYPES.includes(t) ? 'credit' : 'debit', design), design);
   }
   return null;
 }

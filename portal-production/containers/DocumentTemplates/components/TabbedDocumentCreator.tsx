@@ -760,6 +760,9 @@ export default function TabbedDocumentCreator({
   // Active template's display name — drives the Stock Card rental/sales lock
   // (guru 2026-08-03: a "… Rental …" template must only offer rental items).
   const [activeTemplateName, setActiveTemplateName] = useState<string>("");
+  // The template's design knobs (styleConfig) for the preview, fetched via the
+  // design route, which also serves templates borrowed from the shared pool.
+  const [templateDesign, setTemplateDesign] = useState<any>(null);
   const [isLoadingFieldConfig, setIsLoadingFieldConfig] = useState(true);
 
   const { getToken } = useAuth();
@@ -1158,6 +1161,7 @@ export default function TabbedDocumentCreator({
     const effectiveTemplateId = templateId || existingData?.documentTemplateId || existingData?.templateId;
     if (!effectiveTemplateId) {
       setActiveTemplateName("");
+      setTemplateDesign(null);
       return;
     }
     let cancelled = false;
@@ -1170,10 +1174,17 @@ export default function TabbedDocumentCreator({
           const activeOrgId = window.sessionStorage.getItem("aims-admin-active-org");
           if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
         }
-        const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/documentTemplates/${effectiveTemplateId}`, { headers });
+        const [res, dres] = await Promise.all([
+          fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/documentTemplates/${effectiveTemplateId}`, { headers }),
+          fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/documentTemplates/variants/${effectiveTemplateId}/design`, { headers }).catch(() => null),
+        ]);
         const json = await res.json();
         const tpl = json?.data ?? json;
-        if (!cancelled) setActiveTemplateName(tpl?.name || "");
+        const djson = dres && dres.ok ? await dres.json().catch(() => null) : null;
+        if (!cancelled) {
+          setActiveTemplateName(tpl?.name || "");
+          setTemplateDesign(djson?.data?.design ?? djson?.design ?? tpl?.styleConfig ?? null);
+        }
       } catch {
         if (!cancelled) setActiveTemplateName("");
       }
@@ -7035,6 +7046,7 @@ export default function TabbedDocumentCreator({
                     : {}),
                 }}
                 organization={organization}
+                design={templateDesign}
                 // Field-tech delivery reports linked to this document. When
                 // present and non-empty AND documentType === 'DO', the preview
                 // renders a Proof of Delivery section at the bottom (photos +

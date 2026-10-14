@@ -104,6 +104,7 @@ import EmailIngestionTab from "./EmailIngestionTab";
 import ApiKeysTab from "./ApiKeysTab";
 import { FEATURE_FLAG_DEFAULTS } from "@/app/portal/hooks/useOrganizationFeatures";
 import WhatsAppGroupPicker from "@/components/deliveries/WhatsAppGroupPicker";
+import TemplateDesignDialog from "./TemplateDesignDialog";
 
 // Icon mapping for Material-UI icons
 const iconMap: Record<string, React.ComponentType> = {
@@ -266,6 +267,8 @@ export default function OrganizationDetailPage() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<any>(null);
+  // Manage Templates → Design (per-template look knobs), behind enableTemplateDesign.
+  const [designTemplate, setDesignTemplate] = useState<any>(null);
   const [mockData, setMockData] = useState<any>(null);
   // Inline template rename (Manage Templates dialog)
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
@@ -1399,6 +1402,7 @@ export default function OrganizationDetailPage() {
                         variant="outlined"
                         onClick={() => handleManageTemplates(docType.code)}
                         disabled={!Array.isArray(enabledDocumentTypes) || !enabledDocumentTypes.includes(docType.code)}
+                        data-tour="manage-templates"
                       >
                         Manage Templates
                       </Button>
@@ -2159,6 +2163,19 @@ export default function OrganizationDetailPage() {
                             >
                               Preview
                             </Button>
+                            {/* Design is editable by the owner org or an org that activated the template. */}
+                            {(uiConfigForm.features?.enableTemplateDesign ?? FEATURE_FLAG_DEFAULTS.enableTemplateDesign) &&
+                              (template.isActive || template.organizationId === organizationId) && (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<ThemeIcon />}
+                                onClick={() => setDesignTemplate(template)}
+                                data-tour="template-design"
+                              >
+                                Design
+                              </Button>
+                            )}
                             {template.isActive ? (
                               <>
                                 {!template.isPrimary && (
@@ -2209,6 +2226,16 @@ export default function OrganizationDetailPage() {
           <Button onClick={() => setTemplateDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      <TemplateDesignDialog
+        open={!!designTemplate}
+        templateId={designTemplate?.id ?? null}
+        templateName={designTemplate?.name || (designTemplate ? resolveTemplateVariant(designTemplate, selectedDocType) : "")}
+        shared={!!designTemplate?.ownerOrganizationName}
+        organizationId={organizationId}
+        onClose={() => setDesignTemplate(null)}
+        onSaved={() => handleManageTemplates(selectedDocType)}
+      />
 
       {/* TEMPLATE PREVIEW DIALOG */}
       <Dialog

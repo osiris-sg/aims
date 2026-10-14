@@ -8,11 +8,12 @@
  * Literal strings, labels, column widths and the totals maths mirror the
  * portal so the side panel, the emailed PDF and the printed page agree.
  */
-import { descriptionText, escapeHtml, formatDate, infoRow, makeDi, numberToWords, richContent } from './shared';
+import { descriptionText, designFooter, escapeHtml, formatDate, infoRow, logoBlock, makeDi, numberToWords, richContent } from './shared';
+import { DEFAULT_DESIGN, DocumentDesign, fillerRowPx } from './design';
 
 export type NoteKind = 'credit' | 'debit';
 
-export function renderNoteBody(data: any, organization: any, kind: NoteKind): string {
+export function renderNoteBody(data: any, organization: any, kind: NoteKind, design: DocumentDesign = DEFAULT_DESIGN): string {
   const di = makeDi(data);
   const items: any[] = Array.isArray(data?.items) ? data.items : [];
   const company = data?.company || {};
@@ -45,7 +46,8 @@ export function renderNoteBody(data: any, organization: any, kind: NoteKind): st
   const coReg = company.coRegNo ? ` Co. Reg No: ${escapeHtml(company.coRegNo)}` : '';
   const fax = company.fax ? ` Fax: ${escapeHtml(company.fax)}` : '';
   const header = `
-  <div style="text-align:center;margin-bottom:16px;">
+  ${logoBlock(data?.logoUrl, design.logoPosition)}
+  <div style="text-align:${design.headerAlign};margin-bottom:16px;">
     <p style="font-size:18px;font-weight:700;margin-bottom:2.4px;letter-spacing:0.5px;">${escapeHtml(company.name || organization?.name || '')}</p>
     <p style="font-size:13px;margin-bottom:1.6px;">GST Reg No: ${escapeHtml(company.gstRegNo || organization?.registrationNumber || '')}${coReg}</p>
     <p style="font-size:13px;margin-bottom:1.6px;">${escapeHtml(company.address || organization?.address || '')}</p>
@@ -86,7 +88,7 @@ export function renderNoteBody(data: any, organization: any, kind: NoteKind): st
     </div>
     <div style="width:45%;display:flex;justify-content:flex-end;padding-left:32px;">
       <div style="line-height:1.4;">
-        <p style="font-size:16px;font-weight:700;margin-bottom:8px;">${title}</p>
+        <p class="doc-title" style="font-size:16px;font-weight:700;margin-bottom:8px;">${escapeHtml(design.titleText || title)}</p>
         ${detailRows}
       </div>
     </div>
@@ -110,7 +112,7 @@ export function renderNoteBody(data: any, organization: any, kind: NoteKind): st
   const filler =
     items.length < 5
       ? Array.from({ length: 5 - items.length })
-          .map(() => `<tr style="height:40px;"><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>`)
+          .map(() => `<tr style="height:${fillerRowPx(design)}px;"><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>`)
           .join('')
       : '';
   const table = `
@@ -159,19 +161,21 @@ export function renderNoteBody(data: any, organization: any, kind: NoteKind): st
     </div>`;
 
   const totals = `
-  <div style="display:flex;justify-content:space-between;border-top:1px solid #000;padding-top:8px;page-break-inside:avoid;break-inside:avoid;">
+  <div class="doc-rule" style="display:flex;justify-content:space-between;border-top:1px solid #000;padding-top:8px;page-break-inside:avoid;break-inside:avoid;">
     ${totalsLeft}${totalsRight}
   </div>`;
 
-  const inWords = `
-  <div style="margin-top:16px;border-bottom:2px solid #000;padding-bottom:8px;">
+  const inWords = design.showAmountInWords
+    ? `
+  <div class="doc-rule" style="margin-top:16px;border-bottom:2px solid #000;padding-bottom:8px;">
     <p style="font-size:13px;font-weight:500;">${escapeHtml(numberToWords(finalTotal))}</p>
-  </div>`;
+  </div>`
+    : '';
 
   // Due date only when the terms carry days (the portal shows the same).
   const termDays = parseInt(String(di('paymentTerms') ?? '').replace(/\D/g, ''), 10) || 0;
   let dueLine = '';
-  if (di('date') && termDays > 0) {
+  if (design.showDueDate && di('date') && termDays > 0) {
     const due = new Date(di('date'));
     due.setDate(due.getDate() + termDays);
     dueLine = `<p style="font-size:13px;font-weight:700;margin-bottom:4px;">Due Date: ${escapeHtml(
@@ -189,22 +193,25 @@ export function renderNoteBody(data: any, organization: any, kind: NoteKind): st
   const banks = [bank, ...(Array.isArray(bank?.additionalBanks) ? bank.additionalBanks : [])].filter(
     (b: any) => b && (b.accountName || b.accountNumber || b.bankName),
   );
-  const bankBlock = banks.length
+  const bankBlock = banks.length && design.showBankDetails
     ? `<div style="font-size:13px;line-height:1.6;">
          ${banks.map(oneBank).join(`<p style="font-size:13px;font-weight:700;margin:4px 0;">OR</p>`)}
          ${organization?.registrationNumber ? `<p style="font-size:13px;">PayNow to UEN: ${escapeHtml(organization.registrationNumber)}</p>` : ''}
        </div>`
     : `<p style="font-size:13px;">&nbsp;</p>`;
 
+  const generated = design.showGeneratedNote
+    ? `<div style="text-align:right;">
+        <p style="font-size:13px;font-style:italic;">This is a computer generated ${noun}.</p>
+        <p style="font-size:13px;font-style:italic;">No signature is required.</p>
+      </div>`
+    : '';
   const footerRow = `
-  <div style="margin-top:16px;border-top:2px solid #000;padding-top:12px;">
+  <div class="doc-rule" style="margin-top:16px;border-top:2px solid #000;padding-top:12px;">
     ${dueLine}
     <div style="display:flex;justify-content:space-between;gap:16px;">
       <div style="flex:1;max-width:55%;">${bankBlock}</div>
-      <div style="text-align:right;">
-        <p style="font-size:13px;font-style:italic;">This is a computer generated ${noun}.</p>
-        <p style="font-size:13px;font-style:italic;">No signature is required.</p>
-      </div>
+      ${generated}
     </div>`;
 
   const notesBlock =
@@ -222,7 +229,7 @@ export function renderNoteBody(data: any, organization: any, kind: NoteKind): st
        </div>`
     : '';
 
-  const footer = footerRow + notesBlock + footerMsgBlock + `</div>`;
+  const footer = footerRow + notesBlock + footerMsgBlock + designFooter(design) + `</div>`;
 
   return header + partyRow + table + reasonBlock + `<div style="margin-top:auto;">` + totals + inWords + footer + `</div>`;
 }

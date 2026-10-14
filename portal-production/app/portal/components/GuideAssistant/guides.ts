@@ -209,6 +209,35 @@ export const GUIDES: Guide[] = [
     ],
   },
   {
+    id: 'design-document-template',
+    title: 'Change how documents look',
+    description:
+      'How to change the look of quotations, invoices, credit notes and debit notes for an organization: accent colour, font, logo position, title, which blocks print (due date, bank details, amount in words), footer line. Admin Panel → organization → Document Types → Manage Templates → Design. NOT for editing the fields of a template.',
+    route: '/portal/admin/organizations',
+    steps: [
+      {
+        selector: '[data-tour="manage-templates"]',
+        title: 'Open the templates for a document type',
+        body: 'In the organization\'s Document Types tab, click Manage Templates on the row you want (Invoice, Quotation, Credit Note).',
+      },
+      {
+        selector: '[data-tour="template-design"]',
+        title: 'Design',
+        body: 'Each template card has a Design button. Shared templates say which organization made them; a design change shows for every organization that uses the template.',
+      },
+      {
+        selector: '[data-tour="template-design-knobs"]',
+        title: 'Pick the look',
+        body: 'Accent colour, font, logo position, company block alignment, the title, which blocks print, a shaded table header and a footer line. The sample on the right re-renders as you change things and is exactly what prints.',
+      },
+      {
+        selector: '[data-tour="template-design-save"]',
+        title: 'Save',
+        body: 'Save design applies it to the editor preview, the PDF in the chat side panel, emailed PDFs and the pay page. Reset to standard look puts everything back.',
+      },
+    ],
+  },
+  {
     id: 'add-customer',
     title: 'Add a Customer',
     description:

@@ -580,12 +580,13 @@ export class OperatorToolsService {
           properties: { documentId: { type: 'string' } },
           required: ['documentId'],
         },
-        run: async (ctx, { documentId }) => {
-          const doc = await this.prisma.document.findFirst({
-            where: { id: documentId, organizationId: ctx.organizationId },
-            select: { id: true, name: true, type: true, config: true },
-          });
+        run: async (ctx, { documentId: idOrNumber }) => {
+          // Accept the document NUMBER too ("show me TI2202610-003"): a raw
+          // number in the uuid column throws 22P02 and the whole turn died
+          // without a reply (found 2026-10-15 on the chat home).
+          const doc = await this.findDoc(ctx.organizationId, idOrNumber);
           if (!doc) return { result: { error: 'Document not found in this organization' } };
+          const documentId = doc.id;
           // DELIVERY ORDERS are not rendered by the backend PDF: that generic
           // layout carries no customer signature, no proof of delivery and no
           // Pending lines, and it is cached. Share the SAME signed DO view the

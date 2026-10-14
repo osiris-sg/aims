@@ -16,6 +16,35 @@ import { resolveRateMerges } from "./quotationItemGroups";
 // - Carlito is loaded via Next.js font optimization and available via --font-carlito CSS variable
 
 // Helper to convert S3 key to full URL
+import { accentTint, DESIGN_FONTS, fillerRowPx, resolveDesign, type DocumentDesign, type LogoPosition } from "@/app/portal/documents/design";
+
+// ── Design-knob helpers (shared by the TI2 / CN-DN / QO branches) ─────────
+/** Letterhead logo per the logo-position knob; nothing when off or missing. */
+function DocLogo({ src, position }: { src?: string; position: LogoPosition }) {
+  if (!src || position === "none") return null;
+  const justify = position === "left" ? "flex-start" : position === "right" ? "flex-end" : "center";
+  return (
+    <Box sx={{ display: "flex", justifyContent: justify, mb: 1 }}>
+      <img src={src} alt="" style={{ maxHeight: 56, maxWidth: 220, objectFit: "contain" }} />
+    </Box>
+  );
+}
+/** One extra centred line at the foot of the page. */
+function DesignFooterText({ text, accent }: { text: string; accent: string }) {
+  return (
+    <Box sx={{ mt: 1, pt: 0.5, borderTop: `1px solid ${accent}`, textAlign: "center" }}>
+      <Typography sx={{ fontSize: "0.6875rem", color: "#444" }}>{text}</Typography>
+    </Box>
+  );
+}
+/** Accent colour on the rules and (optionally) a tinted table header. */
+const designPaperSx = (d: DocumentDesign) => ({
+  "& .MuiTableHead-root .MuiTableCell-root": {
+    borderBottomColor: `${d.accentColor} !important`,
+    ...(d.tableHeaderFill ? { backgroundColor: accentTint(d.accentColor, 0.1) } : {}),
+  },
+});
+
 const getResourceUrl = (key: string | undefined | null): string | undefined => {
   if (!key) return undefined;
   // If it's already a full URL, return as-is
@@ -164,6 +193,8 @@ interface CleanDocumentPreviewProps {
   documentType: "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "INVOICE" | string;
   data: any;
   organization?: any;
+  // The template's design knobs (styleConfig), raw. Resolved inside.
+  design?: any;
   // Field-tech delivery reports linked to this document via documentId. When
   // present and non-empty, the DO layout renders a "Proof of Delivery" section
   // (photos + signature per report). Optional — older callers (template
@@ -197,6 +228,9 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
   // Create a scoped theme that resets all typography weights back to normal
   // so the global bold (fontWeight 600) theme doesn't leak into print output.
   const parentTheme = useTheme();
+  // The design knobs' font has to live in the THEME: MUI Typography variants
+  // carry the theme family and would override a Paper-level fontFamily.
+  const designFont = DESIGN_FONTS[resolveDesign(props.design ?? props.data?.design).fontFamily];
   const docTheme = useMemo(
     () =>
       createTheme({
@@ -219,6 +253,7 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
         },
         typography: {
           ...parentTheme.typography,
+          fontFamily: designFont,
           fontWeightRegular: 400,
           h1: { ...parentTheme.typography.h1, fontWeight: 700 },
           h2: { ...parentTheme.typography.h2, fontWeight: 600 },
@@ -239,9 +274,14 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
               // palette.text.primary (light grey in dark mode), washing out the
               // printed line-item table. Belt-and-suspenders with the palette
               // override above.
-              root: { fontWeight: 400, color: "#000" },
+              root: { fontWeight: 400, color: "#000", fontFamily: designFont },
               head: { fontWeight: 600, color: "#000" },
             },
+          },
+          // The spread variants above each carry the PARENT theme's family, so
+          // the design font has to be applied at the component level too.
+          MuiTypography: {
+            styleOverrides: { root: { fontFamily: designFont } },
           },
           // A printed document is STATIC — it must not carry the app theme's
           // interactive row hover/selected background (dark in dark mode), which
@@ -257,7 +297,7 @@ export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
           },
         },
       }),
-    [parentTheme]
+    [parentTheme, designFont]
   );
 
   return (
@@ -421,7 +461,10 @@ function groupDeliveryLines(raw: any[], isReturn = false): any[] {
   return out;
 }
 
-function CleanDocumentPreviewInner({ documentType, data, organization, maintenanceReports, publicShareToken, onSignRequest }: CleanDocumentPreviewProps) {
+function CleanDocumentPreviewInner({ documentType, data, organization, maintenanceReports, publicShareToken, onSignRequest, design }: CleanDocumentPreviewProps) {
+  // Design knobs from the document's template (DocumentTemplate.styleConfig).
+  // Absent = the stock look, so every existing caller renders unchanged.
+  const dsn = resolveDesign(design ?? data?.design);
   // DO/RDO Timeline: the route popup opens keyed on the DO_START report id, the
   // same trigger the editor header uses. Screen only.
   const [routeOpen, setRouteOpen] = useState(false);
@@ -881,7 +924,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               {/* Add empty rows for spacing */}
               {items.length < 5 &&
                 Array.from({ length: 5 - items.length }).map((_, index) => (
-                  <TableRow key={`empty-${index}`} sx={{ height: 40 }}>
+                  <TableRow key={`empty-${index}`} sx={{ height: fillerRowPx(dsn) }}>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
@@ -1191,7 +1234,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               {/* Add empty rows for spacing */}
               {items.length < 5 &&
                 Array.from({ length: 5 - items.length }).map((_, index) => (
-                  <TableRow key={`empty-${index}`} sx={{ height: 40 }}>
+                  <TableRow key={`empty-${index}`} sx={{ height: fillerRowPx(dsn) }}>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
@@ -1636,7 +1679,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           margin: "0 auto",
           p: "20mm",
           backgroundColor: "white",
-          fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
+          fontFamily: DESIGN_FONTS[dsn.fontFamily],
+          ...designPaperSx(dsn),
           fontWeight: 400,
           fontSize: "0.8125rem",
           lineHeight: 1.6,
@@ -1669,7 +1713,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           </Box>
         ) : (
           /* Company Header - Centered */
-          <Box sx={{ textAlign: "center", mb: 2 }}>
+          <>
+          <DocLogo src={getResourceUrl(data.logo || organization?.logo)} position={dsn.logoPosition} />
+          <Box sx={{ textAlign: dsn.headerAlign, mb: 2 }}>
             <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
               {data.company?.name || organization?.name || "ELSHIS INTERNATIONAL PTE LTD"}
             </Typography>
@@ -1690,6 +1736,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               {data.company?.fax && ` Fax: ${data.company.fax}`}
             </Typography>
           </Box>
+          </>
         )}
 
         {/* Customer and Invoice Details Section */}
@@ -1737,8 +1784,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           <Box sx={{ width: "45%", display: "flex", justifyContent: "flex-end", pl: 4 }}>
             <Box sx={{ lineHeight: 1.4 }}>
             {/* Tax Invoice Title */}
-            <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>
-              TAX INVOICE
+            <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1, color: dsn.accentColor }}>
+              {dsn.titleText || "TAX INVOICE"}
             </Typography>
             <InfoRow label="GST Reg No." value={data.company?.gstRegNo || organization?.registrationNumber} minWidth="85px" />
             <InfoRow label="INVOICE NO." value={data.documentInfo?.documentNumber} minWidth="85px" />
@@ -1813,7 +1860,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               {/* Add empty rows for spacing */}
               {items.length < 5 &&
                 Array.from({ length: 5 - items.length }).map((_, index) => (
-                  <TableRow key={`empty-${index}`} sx={{ height: 40 }}>
+                  <TableRow key={`empty-${index}`} sx={{ height: fillerRowPx(dsn) }}>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
@@ -1997,7 +2044,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             return result.trim() + ' ONLY.';
           };
 
-          return (
+          return !dsn.showAmountInWords ? null : (
             <Box sx={{ mt: 2, borderBottom: "2px solid #000", pb: 1 }}>
               <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
                 S'PORE DOLLAR {numberToWords(finalTotal)}
@@ -2013,7 +2060,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             const invoiceDate = data.documentInfo?.date;
             const terms = data.documentInfo?.paymentTerms;
             const termDays = parseInt(String(terms).replace(/\D/g, '')) || 0;
-            if (invoiceDate && termDays > 0) {
+            if (dsn.showDueDate && invoiceDate && termDays > 0) {
               const due = new Date(invoiceDate);
               due.setDate(due.getDate() + termDays);
               const formatted = due.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -2028,7 +2075,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
           {/* Left - Bank Details from Organization */}
           <Box sx={{ flex: 1, maxWidth: "55%" }}>
-            <OrgBankFooter organization={organization} />
+            {dsn.showBankDetails && <OrgBankFooter organization={organization} />}
           </Box>
 
           {/* Center - PayNow QR */}
@@ -2039,14 +2086,14 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           )}
 
           {/* Right - Computer generated notice */}
-          <Box sx={{ textAlign: "right" }}>
+          {dsn.showGeneratedNote && (<Box sx={{ textAlign: "right" }}>
             <Typography sx={{ fontSize: "0.8125rem", fontStyle: "italic" }}>
               This is a computer generated Invoice.
             </Typography>
             <Typography sx={{ fontSize: "0.8125rem", fontStyle: "italic" }}>
               No signature is required.
             </Typography>
-          </Box>
+          </Box>)}
         </Box>
 
         {/* Notes & T&C side by side */}
@@ -2067,6 +2114,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           </Box>
         )}
 
+        {dsn.footerText && <DesignFooterText text={dsn.footerText} accent={dsn.accentColor} />}
         {/* Closing footer message — pulled from per-doc-type defaults
             (Company Profile → Doc Defaults) or per-doc override. Sits below
             Notes / T&Cs, above the signature block. */}
@@ -2914,7 +2962,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               {/* Add empty rows for spacing */}
               {items.length < 5 &&
                 Array.from({ length: 5 - items.length }).map((_, index) => (
-                  <TableRow key={`empty-${index}`} sx={{ height: 40 }}>
+                  <TableRow key={`empty-${index}`} sx={{ height: fillerRowPx(dsn) }}>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
@@ -3259,7 +3307,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           margin: "0 auto",
           p: "20mm",
           backgroundColor: "white",
-          fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
+          fontFamily: DESIGN_FONTS[dsn.fontFamily],
+          ...designPaperSx(dsn),
           fontWeight: 400,
           fontSize: "0.8125rem",
           lineHeight: 1.6,
@@ -3274,7 +3323,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         }}
       >
         {/* Company Header - Centered */}
-        <Box sx={{ textAlign: "center", mb: 2 }}>
+        <DocLogo src={getResourceUrl(data.logo || organization?.logo)} position={dsn.logoPosition} />
+        <Box sx={{ textAlign: dsn.headerAlign, mb: 2 }}>
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
@@ -3327,8 +3377,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           <Box sx={{ width: "45%", display: "flex", justifyContent: "flex-end", pl: 4 }}>
             <Box sx={{ lineHeight: 1.4 }}>
               {/* Title */}
-              <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>
-                {isCreditNote ? "CREDIT NOTE" : "DEBIT NOTE"}
+              <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1, color: dsn.accentColor }}>
+                {dsn.titleText || (isCreditNote ? "CREDIT NOTE" : "DEBIT NOTE")}
               </Typography>
               <InfoRow label={isCreditNote ? "Credit Note No." : "Debit Note No."} value={data.documentInfo?.documentNumber} />
               <InfoRow label="Date" value={formatDate(data.documentInfo?.date)} />
@@ -3402,7 +3452,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
 
               {items.length < 5 &&
                 Array.from({ length: 5 - items.length }).map((_, index) => (
-                  <TableRow key={`empty-${index}`} sx={{ height: 40 }}>
+                  <TableRow key={`empty-${index}`} sx={{ height: fillerRowPx(dsn) }}>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
@@ -3542,7 +3592,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               return result.trim() + ' ONLY.';
             };
 
-            return (
+            return !dsn.showAmountInWords ? null : (
               <Box sx={{ mt: 2, borderBottom: "2px solid #000", pb: 1 }}>
                 <Typography sx={{ fontSize: "0.8125rem", fontWeight: 500 }}>
                   S'PORE DOLLAR {numberToWords(finalTotal)}
@@ -3558,7 +3608,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               const invoiceDate = data.documentInfo?.date;
               const terms = data.documentInfo?.paymentTerms;
               const termDays = parseInt(String(terms).replace(/\D/g, '')) || 0;
-              if (invoiceDate && termDays > 0) {
+              if (dsn.showDueDate && invoiceDate && termDays > 0) {
                 const due = new Date(invoiceDate);
                 due.setDate(due.getDate() + termDays);
                 const formatted = due.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -3573,20 +3623,21 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
             {/* Left - Bank Details from Organization */}
             <Box sx={{ flex: 1, maxWidth: "55%" }}>
-              <OrgBankFooter organization={organization} />
+              {dsn.showBankDetails && <OrgBankFooter organization={organization} />}
             </Box>
 
             {/* Right - Computer generated notice */}
-            <Box sx={{ textAlign: "right" }}>
+            {dsn.showGeneratedNote && (<Box sx={{ textAlign: "right" }}>
               <Typography sx={{ fontSize: "0.8125rem", fontStyle: "italic" }}>
                 This is a computer generated {isCreditNote ? "Credit Note" : "Debit Note"}.
               </Typography>
               <Typography sx={{ fontSize: "0.8125rem", fontStyle: "italic" }}>
                 No signature is required.
               </Typography>
-            </Box>
+            </Box>)}
           </Box>
 
+          {dsn.footerText && <DesignFooterText text={dsn.footerText} accent={dsn.accentColor} />}
           {/* Notes & T&C side by side */}
           {(data.note || data.termsAndConditions) && (
             <Box sx={{ display: "flex", gap: 2, mt: 1 }}>
@@ -3739,7 +3790,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               {/* Add empty rows for spacing */}
               {items.length < 5 &&
                 Array.from({ length: 5 - items.length }).map((_, index) => (
-                  <TableRow key={`empty-${index}`} sx={{ height: 40 }}>
+                  <TableRow key={`empty-${index}`} sx={{ height: fillerRowPx(dsn) }}>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
@@ -4013,7 +4064,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
 
               {items.length < 5 &&
                 Array.from({ length: 5 - items.length }).map((_, index) => (
-                  <TableRow key={`empty-${index}`} sx={{ height: 40 }}>
+                  <TableRow key={`empty-${index}`} sx={{ height: fillerRowPx(dsn) }}>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
                     <TableCell>&nbsp;</TableCell>
@@ -4266,7 +4317,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           margin: "0 auto",
           p: "20mm",
           backgroundColor: "white",
-          fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
+          fontFamily: DESIGN_FONTS[dsn.fontFamily],
+          ...designPaperSx(dsn),
           fontWeight: 400,
           fontSize: "0.8125rem",
           lineHeight: 1.6,
@@ -4352,7 +4404,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         ) : (
           <>
         {/* Company Header - Centered */}
-        <Box sx={{ textAlign: "center", mb: 2 }}>
+        <DocLogo src={getResourceUrl(data.logo || organization?.logo)} position={dsn.logoPosition} />
+        <Box sx={{ textAlign: dsn.headerAlign, mb: 2 }}>
           <Typography sx={{ fontSize: "1.125rem", fontWeight: 700, mb: 0.3, letterSpacing: "0.5px" }}>
             {data.company?.name || organization?.name || ""}
           </Typography>
@@ -4386,8 +4439,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           <Box sx={{ width: "45%", display: "flex", justifyContent: "flex-end", pl: 4 }}>
             <Box sx={{ lineHeight: 1.4 }}>
               {/* Quotation Title */}
-              <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1 }}>
-                QUOTATION
+              <Typography sx={{ fontSize: "1rem", fontWeight: 700, mb: 1, color: dsn.accentColor }}>
+                {dsn.titleText || "QUOTATION"}
               </Typography>
               <InfoRow label="UEN" value={data.customer?.gstRegNo || data.company?.gstRegNo || organization?.registrationNumber} minWidth="110px" fontSize="0.875rem" />
               <Box sx={{ display: "flex" }}>
@@ -4858,7 +4911,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
 
           {/* Amount in Words — hidden for Biofuel quotations (their template
               omits the words line); still shown for all other orgs. */}
-          {!isBiofuelQuotation && (
+          {!isBiofuelQuotation && dsn.showAmountInWords && (
             <Box sx={{ mt: 2, mb: 2 }}>
               <Typography sx={{ fontSize: "0.8125rem" }}>
                 {numberToWords(finalAmount)}
@@ -5023,7 +5076,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
 
                 {/* Computer Generated Notice — suppressed once the org has its
                     own configured footer (which carries the equivalent line). */}
-                {!hasDocTypeDefaults && (
+                {!hasDocTypeDefaults && dsn.showGeneratedNote && (
                   <Typography sx={{ fontSize: "0.8125rem", fontStyle: "italic", mb: 3 }}>
                     This is a computer generated Quotation. No signature is required.
                   </Typography>
@@ -5049,6 +5102,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               italic with a dashed rule, matching the TI2/DO footer. Only
               renders when configured, so orgs without docTypeDefaults are
               unaffected. */}
+          {dsn.footerText && <DesignFooterText text={dsn.footerText} accent={dsn.accentColor} />}
           {(data.footerMessage || data.documentInfo?.footerMessage) && (
             <Box sx={{ mt: 2, pt: 1, borderTop: "1px dashed", borderColor: "rgba(0,0,0,0.15)", pageBreakInside: "avoid", breakInside: "avoid" }}>
               <RichContent

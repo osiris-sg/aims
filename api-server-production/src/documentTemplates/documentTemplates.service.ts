@@ -6,10 +6,101 @@ import { UpdateDocumentTemplateDto } from './dto/update-documentTemplate.dto';
 import { DeleteDocumentTemplateDto } from './dto/delete-documentTemplate.dto';
 import { TemplateFieldConfigDto } from './dto/update-field-definitions.dto';
 import { TEMPLATE_FIELD_DEFINITIONS, getTemplateFields } from './templateFieldDefinitions';
+import { S3Service } from 'src/common/services/s3.service';
+import { renderDocumentHtml } from 'src/common/services/document-html';
+import { DEFAULT_DESIGN, DocumentDesign, resolveDesign } from 'src/common/services/document-html/design';
 
 @Injectable()
 export class DocumentTemplatesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private s3: S3Service,
+  ) {}
+
+  // ── Design knobs (DocumentTemplate.styleConfig) ─────────────────────────
+
+  /** A template may be edited by the org that owns it or by any org that has activated it (shared pool). */
+  private async templateForOrg(id: string, organizationId: string) {
+    const t = await this.prisma.documentTemplate.findUnique({
+      where: { id },
+      select: { id: true, type: true, templateVariant: true, organizationId: true, config: true, styleConfig: true, name: true },
+    });
+    if (!t) throw new HttpException('Template not found', HttpStatus.NOT_FOUND);
+    if (t.organizationId !== organizationId) {
+      const active = await this.prisma.organizationActiveTemplate.findFirst({ where: { organizationId, templateId: id }, select: { id: true } });
+      if (!active) throw new HttpException('This template is not available to your organization', HttpStatus.FORBIDDEN);
+    }
+    return t;
+  }
+
+  async getDesign(id: string, organizationId: string): Promise<{ design: DocumentDesign; defaults: DocumentDesign }> {
+    const t = await this.templateForOrg(id, organizationId);
+    return { design: resolveDesign(t.styleConfig), defaults: DEFAULT_DESIGN };
+  }
+
+  /** Save the knobs. Edits propagate to every org that activated the template, like the rest of a shared template. */
+  async updateDesign(id: string, organizationId: string, raw: any): Promise<{ design: DocumentDesign }> {
+    await this.templateForOrg(id, organizationId);
+    const design = resolveDesign(raw);
+    await this.prisma.documentTemplate.update({ where: { id }, data: { styleConfig: design as any } });
+    return { design };
+  }
+
+  /**
+   * The admin preview: a sample document of this template's type rendered by
+   * the SAME server renderer that makes the PDFs, with the knobs applied (the
+   * unsaved ones passed in, else the saved ones). Replaces the old
+   * layoutConfig.htmlTemplate preview, which showed a design nothing printed.
+   */
+  async designPreviewHtml(id: string, organizationId: string, rawDesign?: any): Promise<{ html: string; ported: boolean }> {
+    const t = await this.templateForOrg(id, organizationId);
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { id: true, name: true, address: true, phoneNumber: true, registrationNumber: true, bankDetails: true, logo: true },
+    });
+    const design = resolveDesign(rawDesign ?? t.styleConfig);
+    let logoUrl: string | null = null;
+    if (design.logoPosition !== 'none' && org?.logo) {
+      logoUrl = /^(https?:|data:)/i.test(org.logo) ? org.logo : await this.s3.getSignedUrl(org.logo, 3600).catch(() => null);
+    }
+    const cfg: any = t.config || {};
+    const type = String(t.templateVariant && t.templateVariant !== 'Default' ? t.templateVariant : t.type).toUpperCase();
+    const items = [
+      { description: 'Sample service line, 8 hours on site', quantity: 8, unitPrice: 120, amount: 960 },
+      { description: 'Sample product line', quantity: 2, unitPrice: 450, amount: 900 },
+    ];
+    const documentInfo = {
+      documentNumber: 'SAMPLE-0001',
+      date: new Date().toISOString().slice(0, 10),
+      paymentTerms: '30 DAYS',
+      currency: 'SGD',
+      gstPercent: 9,
+      taxApplicable: 'Y',
+      absorbTax: 'N',
+      invoiceNo: /CN|DN|CREDIT|DEBIT/.test(type) ? 'TI-0001' : undefined,
+      reason: /CN|DN|CREDIT|DEBIT/.test(type) ? 'Quantity corrected after site check' : undefined,
+    };
+    const data: any = {
+      documentType: type,
+      name: 'SAMPLE-0001',
+      organization: org,
+      company: { name: org?.name, address: org?.address, phoneNumber: org?.phoneNumber, gstRegNo: org?.registrationNumber },
+      customer: { name: 'Sample Customer Pte Ltd', address: '1 Example Avenue\nSingapore 123456', customerCode: 'C0001' },
+      customerName: 'Sample Customer Pte Ltd',
+      items,
+      documentInfo,
+      ...(Array.isArray(cfg.tableColumnOrder) ? { tableColumnOrder: cfg.tableColumnOrder } : {}),
+      ...(cfg.columnLabels ? { columnLabels: cfg.columnLabels } : {}),
+      design,
+      logoUrl,
+    };
+    const html = renderDocumentHtml(type, data, org);
+    if (html) return { html, ported: true };
+    return {
+      ported: false,
+      html: `<!DOCTYPE html><html><body style="font-family:Helvetica,Arial,sans-serif;padding:32px;color:#444;font-size:14px;"><p><b>${t.name || t.type}</b> prints with the standard layout for its type. Design options apply to quotations, invoices, credit notes and debit notes.</p></body></html>`,
+    };
+  }
 
   async getDocumentTemplates(getDocumentTemplateDto: GetDocumentTemplateDto, organizationId: string) {
     try {

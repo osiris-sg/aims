@@ -8,9 +8,21 @@
  * CSS. MUI spacing unit = 8px; htmlFontSize = 16 (so 0.8125rem = 13px).
  */
 
+import { accentTint, DEFAULT_DESIGN, DESIGN_FONTS, DocumentDesign } from './design';
+
 /** The family the portal ACTUALLY renders in: MUI's Typography variants override
  *  the Paper's Carlito with the theme family, so text is Helvetica/Arial. */
 export const FONT_STACK = `'Helvetica Neue', Helvetica, Arial, sans-serif`;
+
+/**
+ * Letterhead logo per the design knob. `logoUrl` is resolved by the caller
+ * (a signed S3 URL for the org logo); nothing prints when it is missing.
+ */
+export function logoBlock(logoUrl: string | null | undefined, position: DocumentDesign['logoPosition']): string {
+  if (!logoUrl || position === 'none') return '';
+  const align = position === 'left' ? 'flex-start' : position === 'right' ? 'flex-end' : 'center';
+  return `<div style="display:flex;justify-content:${align};margin-bottom:8px;"><img src="${escapeHtml(logoUrl)}" alt="" style="max-height:56px;max-width:220px;object-fit:contain;" /></div>`;
+}
 
 export const escapeHtml = (v: any): string =>
   String(v ?? '')
@@ -214,7 +226,10 @@ export function groupDeliveryLines(raw: any[]): any[] {
 /** Page shell. Server PDFs use the printed geometry (@page margin, no padding)
  *  rather than the on-screen 20mm padding — the portal's print CSS does the
  *  same via `[data-print-paper]{padding:0}`. */
-export function pageShell(body: string): string {
+export function pageShell(body: string, design?: DocumentDesign): string {
+  const d = design || DEFAULT_DESIGN;
+  const accent = d.accentColor;
+  const headFill = d.tableHeaderFill ? `thead th { background: ${accentTint(accent, 0.1)}; }` : '';
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8" />
 <style>
@@ -223,8 +238,14 @@ export function pageShell(body: string): string {
   @page { size: A4; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
+  /* Design knobs (DocumentTemplate.styleConfig): accent colour and font. */
+  :root { --doc-accent: ${escapeHtml(accent)}; }
+  .doc-title { color: var(--doc-accent); }
+  .doc-rule { border-color: var(--doc-accent) !important; }
+  thead th { border-bottom-color: var(--doc-accent) !important; }
+  ${headFill}
   body {
-    font-family: ${FONT_STACK};
+    font-family: ${DESIGN_FONTS[d.fontFamily] || FONT_STACK};
     font-weight: 400;
     font-size: 13px;
     line-height: 1.6;
@@ -248,4 +269,15 @@ export function pageShell(body: string): string {
   .doc { width: 100%; display: flex; flex-direction: column; min-height: 257mm; }
 </style>
 </head><body><div class="doc">${body}</div></body></html>`;
+}
+
+/**
+ * The design's footer line. Each body appends it INSIDE its pinned bottom
+ * block (the margin-top:auto one), so it shares the page band instead of
+ * being pushed onto a second page after it.
+ */
+export function designFooter(design?: DocumentDesign): string {
+  const d = design || DEFAULT_DESIGN;
+  if (!d.footerText) return '';
+  return `<div style="margin-top:8px;padding-top:4px;border-top:1px solid ${escapeHtml(d.accentColor)};text-align:center;font-size:11px;color:#444;">${escapeHtml(d.footerText)}</div>`;
 }

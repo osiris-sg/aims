@@ -24,6 +24,7 @@ import { AuditService } from 'src/common/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as moment from 'moment';
 import { isPortedType, PORTED_PDF_MARGIN } from '../common/services/document-html';
+import { resolveDesign } from '../common/services/document-html/design';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 
 // Who performed a document action — derived from req.user in the controller.
@@ -6530,6 +6531,37 @@ export class DocumentsService {
   // Reusable: signed URL for the document PDF, generating + uploading it if
   // absent. `prefetched` lets sendInvoiceEmail pass what it already loaded;
   // the public-pay endpoint calls with nothing and we fetch here.
+  /**
+   * Design knobs for a document's PDF: its template's styleConfig, plus a
+   * fetchable logo URL when the design asks for one. Templates are a cross-org
+   * shared pool, so the lookup is by id alone (the document already points at
+   * it). Never throws: a missing template means the stock look.
+   */
+  async designForTemplate(documentTemplateId: string | null | undefined, organization: any): Promise<{ design: any; logoUrl: string | null }> {
+    let raw: any = null;
+    if (documentTemplateId) {
+      raw = (
+        await this.prisma.documentTemplate.findUnique({ where: { id: documentTemplateId }, select: { styleConfig: true } }).catch(() => null)
+      )?.styleConfig;
+    }
+    const design = resolveDesign(raw);
+    let logoUrl: string | null = null;
+    const key = organization?.logo;
+    if (design.logoPosition !== 'none' && key) {
+      logoUrl = /^(https?:|data:)/i.test(String(key)) ? String(key) : await this.s3Service.getSignedUrl(String(key), 3600).catch(() => null);
+    }
+    return { design, logoUrl };
+  }
+
+  /** Same, starting from a document id (the editor's generate-pdf call). */
+  async designForDocument(documentId: string | undefined, organizationId: string): Promise<{ design: any; logoUrl: string | null }> {
+    if (!documentId) return { design: resolveDesign(null), logoUrl: null };
+    const doc = await this.prisma.document
+      .findFirst({ where: { id: documentId, organizationId }, select: { documentTemplateId: true, organization: { select: { logo: true } } } })
+      .catch(() => null);
+    return this.designForTemplate(doc?.documentTemplateId, doc?.organization);
+  }
+
   async getOrGeneratePdfUrl(
     documentId: string,
     organizationId: string,
@@ -6580,11 +6612,14 @@ export class DocumentsService {
             dueDate,
           };
         }
+        const styled = await this.designForTemplate(p.document.documentTemplateId, p.document.organization);
         const html = this.pdfGeneratorService.generateInvoiceHtml({
           // Selects the ported portal layout for this type (falls back to the
           // legacy generic layout for types not ported yet).
           documentType: p.document.type,
           ...(p.config || {}),
+          design: styled.design,
+          logoUrl: styled.logoUrl,
           // The number lives on Document.name, not in config — the renderer
           // falls back to it for the "QUOTATION NO." / header line.
           name: p.document.name,
@@ -6902,10 +6937,13 @@ export class DocumentsService {
     const documentInfo = config.documentInfo || { documentNumber: document.name };
     const items: any[] = Array.isArray(config.items) ? config.items : [];
     const isQuotation = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(document.type).toUpperCase());
+    const styled = await this.designForTemplate(document.documentTemplateId, document.organization);
     const html = this.pdfGeneratorService.generateInvoiceHtml({
       documentType: document.type,
       lang: lang === 'zh' ? 'zh' : 'en',
       ...config,
+      design: styled.design,
+      logoUrl: styled.logoUrl,
       name: document.name,
       organization: document.organization,
       company: document.organization,

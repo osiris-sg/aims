@@ -76,6 +76,32 @@ export class DocumentTemplatesController {
     return await this.documentTemplatesService.getMockDataForType(type);
   }
 
+  // ── Design knobs (Admin → org → Manage Templates → Design) ──────────────
+  @Get('variants/:id/design')
+  @Permissions('documentTemplates:read')
+  async getDesign(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return await this.documentTemplatesService.getDesign(id, organizationId);
+  }
+
+  @Post('variants/:id/design')
+  @Permissions('documentTemplates:update')
+  async updateDesign(@Param('id') id: string, @Body() body: any, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return await this.documentTemplatesService.updateDesign(id, organizationId, body?.design ?? body);
+  }
+
+  /** Sample document rendered with the given (unsaved) knobs. */
+  @Post('variants/:id/design-preview')
+  @Permissions('documentTemplates:read')
+  async designPreview(@Param('id') id: string, @Body() body: any, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return await this.documentTemplatesService.designPreviewHtml(id, organizationId, body?.design);
+  }
+
   // Generic :id route must come AFTER all specific routes
   @Get(':id')
   @Permissions('documentTemplates:read-one')
