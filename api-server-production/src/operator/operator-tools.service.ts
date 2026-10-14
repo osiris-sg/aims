@@ -198,6 +198,7 @@ export class OperatorToolsService {
         description: description || null,
         currency: extracted?.currency ?? 'SGD',
         siteAddress: extracted?.siteAddress ?? null,
+        billTo: extracted?.billTo ?? null,
       },
       lines: Array.isArray(extracted?.lines) ? extracted.lines : null,
       taxAmount: Number(extracted?.taxAmount) || null,
@@ -612,7 +613,15 @@ export class OperatorToolsService {
               documentId,
               url,
               filename: `${doc.name || doc.type}.pdf`,
-              caption: `${doc.type} ${doc.name || ''} | ${cfg.customerName || cfg.customer?.name || ''} | total ${total}`,
+              // Reads as a line a person would write, not a record dump
+              // ("Credit note CN202610-001 · Nettbox · SGD 100.00").
+              caption: [
+                `${String(doc.type || 'Document').replace(/_/g, ' ').toLowerCase().replace(/^./, (c) => c.toUpperCase())} ${doc.name || ''}`.trim(),
+                cfg.customerName || cfg.customer?.name || '',
+                `${cfg.currency || cfg.documentInfo?.currency || 'SGD'} ${(Number(total) || 0).toFixed(2)}`,
+              ]
+                .filter(Boolean)
+                .join(' · '),
             },
           };
         },
@@ -2132,12 +2141,14 @@ export class OperatorToolsService {
       {
         name: 'create_credit_note',
         description:
-          'Create a DRAFT credit note for a customer (refund or reduction of a previous invoice). Confirming it posts a reversing journal.',
+          'Create a DRAFT credit note for a customer (refund or reduction of a previous invoice). Confirming it posts a reversing journal. Pass the invoice it corrects as againstInvoice and the reason as reason: both print on the note.',
         permissions: ['documents:create-basic'],
         input_schema: {
           type: 'object',
           properties: {
             customerId: { type: 'string' },
+            againstInvoice: { type: 'string', description: 'Number of the invoice this credit note corrects, e.g. TI2202608-002' },
+            reason: { type: 'string', description: 'Why the credit is given, one line' },
             items: {
               type: 'array',
               items: {
@@ -2498,6 +2509,10 @@ export class OperatorToolsService {
       absorbTax,
       poNo: args.poNo || '',
       referenceNo: args.referenceNo || '',
+      // Credit / debit notes: the invoice they correct and why. The note
+      // layout prints both ("Invoice No." row and a Reason block).
+      ...(args.againstInvoice ? { invoiceNo: cleanText(String(args.againstInvoice)) } : {}),
+      ...(args.reason ? { reason: cleanText(String(args.reason)) } : {}),
     };
 
     // Totals/date live BOTH at top level and under documentInfo — different

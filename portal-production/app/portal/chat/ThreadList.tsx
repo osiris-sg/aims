@@ -92,7 +92,7 @@ export default function ThreadList({ threads, loading, error, onRetry, activeId,
             </Typography>
           )}
           <Typography noWrap sx={{ fontSize: "0.72rem", color: "text.secondary" }}>
-            {isWa ? `Continue your chat with the AIMS line${t.number ? ` (+${t.number})` : ""}` : t.preview || "Empty chat"}
+            {isWa ? `Continue your chat with the AIMS line${t.number ? ` (+${t.number})` : ""}` : (t.preview || "").replace(/[*_`#>]+/g, "") || "Empty chat"}
           </Typography>
         </Box>
         {!isWa && (

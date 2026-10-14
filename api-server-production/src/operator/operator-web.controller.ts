@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { PrismaService } from '../common/prisma.service';
 import { DocumentsService } from '../documents/documents.service';
-import { OperatorService } from './operator.service';
+import { OperatorService, titleFromText } from './operator.service';
 import { OperatorAuthService } from './operator-auth.service';
 import { WebAdapter } from './adapters/web.adapter';
 import { InboundMessage, OperatorChannel, TranscriptItem } from './operator.types';
@@ -19,6 +19,8 @@ interface WebMessageBody {
   text?: string;
   callbackData?: string;
   attachment?: { dataUri: string; mimetype: string; filename?: string };
+  /** Several files at once (the composer allows up to 5 per message). */
+  attachments?: Array<{ dataUri: string; mimetype: string; filename?: string }>;
   /** The dashboard screens this user can open (filtered by the portal). */
   screens?: Array<{ label: string; path: string }>;
   /** What the side panel shows at send time (null = closed). */
@@ -128,6 +130,8 @@ export class OperatorWebController {
     const chatId = `${session.channel}:${session.channelUserId}:${Date.now().toString(36)}`;
     this.web.open(chatId, emit);
     const text = (body.text || '').trim();
+    const okFile = (a: any) => a && typeof a.dataUri === 'string' && a.dataUri.startsWith('data:') && typeof a.mimetype === 'string';
+    const attachments = (Array.isArray(body.attachments) ? body.attachments : body.attachment ? [body.attachment] : []).filter(okFile).slice(0, 5);
     const msg: InboundMessage = {
       channel: 'web',
       channelUserId: req.user!.id,
@@ -135,25 +139,39 @@ export class OperatorWebController {
       text,
       displayName: ctx.actor.name,
       callbackData: body.callbackData || undefined,
-      attachment: body.attachment?.dataUri ? body.attachment : undefined,
+      attachment: attachments[0],
+      attachments: attachments.length > 1 ? attachments : undefined,
       session,
       presetCtx: ctx,
     };
     try {
-      // The first line of a new chat names it, like every chat app.
-      if (session.channel === 'web' && text && !body.callbackData) {
+      // The first line of a new chat names it, like every chat app. A quick
+      // heuristic title lands before the reply so the list is never blank;
+      // a small model then writes the real one from the first exchange.
+      let needsTitle = false;
+      const firstLine = text || (attachments.length ? attachments.map((a) => a.filename || 'file').join(', ') : '');
+      if (session.channel === 'web' && firstLine && !body.callbackData) {
         const row = await this.prisma.operatorSession.findUnique({
           where: { channel_channelUserId: { channel: 'web', channelUserId: session.channelUserId } },
           select: { state: true },
         });
         if (!(row?.state as any)?.title) {
-          await this.operator.patchThreadMeta('web', session.channelUserId, { title: text.replace(/\s+/g, ' ').slice(0, 60) });
+          needsTitle = true;
+          await this.operator.patchThreadMeta('web', session.channelUserId, { title: titleFromText(firstLine) || firstLine.slice(0, 60) });
         }
       }
       await this.operator.handleInbound(msg);
       // Anything held for confirmation after this turn, so the page can show it.
       const thread = await this.operator.readThread(session.channel, session.channelUserId);
       emit({ type: 'pending', actions: thread?.state.pendingActions || [] });
+      if (needsTitle) {
+        const reply = (thread?.state.transcript || [])
+          .filter((t) => t.role === 'assistant' && t.text)
+          .slice(-1)[0]?.text;
+        const title = await this.operator.suggestTitle(firstLine, reply);
+        await this.operator.patchThreadMeta('web', session.channelUserId, { title });
+        emit({ type: 'title', id: threadId, title });
+      }
     } catch (e: any) {
       this.logger.error(`web chat failed: ${e?.message}`);
       emit({ type: 'error', message: 'Something went wrong on my side. Please send that again.' });

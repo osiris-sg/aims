@@ -38,6 +38,32 @@ const TRANSCRIPT_MAX = 300;
 // Tools whose result is a document worth putting in the web chat's side panel.
 // `fresh` = the tool changed it, so the panel re-renders instead of reusing a
 // cached PDF.
+/** House rule: no em dashes in anything a user reads. The model is told so
+ *  (rule 8) and still slips them in; this is the backstop on every reply.
+ *  "a — b" and "a—b" become "a, b". A spaced en dash goes the same way; a
+ *  tight one ("31–60 days") is a range and stays. */
+export const plainDashes = (t: string): string =>
+  typeof t === 'string' ? t.replace(/\s*—\s*/g, ', ').replace(/\s+–\s+/g, ', ').replace(/([.,:;!?])\s*,\s/g, '$1 ') : t;
+
+/** A chat's name from its first line, as a human would type it: pasted
+ *  tables, markdown and symbols stripped, the first few real words kept. */
+export function titleFromText(text: string): string {
+  const cleaned = String(text || '')
+    .replace(/[│┃┆┇┊┋║|┌┐└┘├┤┬┴┼─━═╔╗╚╝╠╣╦╩╬╭╮╰╯]+/g, ' ')
+    .replace(/[*_`#>~]+/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  // Lead with the first clause that has real words in it, not with the
+  // numbers of a pasted table.
+  const words = cleaned.split(' ').filter((w) => /[a-z]/i.test(w));
+  if (words.length < 2) return '';
+  const start = cleaned.indexOf(words[0]);
+  let title = cleaned.slice(start).split(/[.!?\n]/)[0].trim();
+  if (title.length > 60) title = title.slice(0, 57).replace(/\s+\S*$/, '') + '…';
+  return title.charAt(0).toUpperCase() + title.slice(1);
+}
+
 const PANEL_DOC_TOOLS: Record<string, boolean> = {
   create_quotation: true,
   create_invoice: true,
@@ -239,15 +265,22 @@ export class OperatorService {
     // An uploaded file (photo/PDF of an invoice) → extract it and file it as a
     // project cost: match the invoice's site address to a project, else offer
     // the projects as tappable buttons.
-    if (msg.attachment) {
+    const files = msg.attachments?.length ? msg.attachments : msg.attachment ? [msg.attachment] : [];
+    if (files.length) {
       await adapter.sendTyping?.(msg.chatId).catch(() => null);
-      const status = (await adapter.sendStatus?.(msg.chatId, '📎 Reading the uploaded invoice...')) ?? null;
-      const up = await this.tools
-        .extractUpload(ctx.organizationId, msg.attachment.dataUri, msg.attachment.mimetype, msg.attachment.filename)
-        .catch(() => null);
+      const status =
+        (await adapter.sendStatus?.(msg.chatId, files.length > 1 ? `📎 Reading ${files.length} files...` : '📎 Reading the uploaded file...')) ?? null;
+      // Every file is read in parallel. All but the last are written straight
+      // into the conversation; the last one goes through handleUpload, which
+      // records it too and then decides what to do (run the caption, hold
+      // the file, or file it as a cost), so a batch behaves like one upload.
+      const ups = await Promise.all(
+        files.map((f) => this.tools.extractUpload(ctx.organizationId, f.dataUri, f.mimetype, f.filename).catch(() => null)),
+      );
       if (status) await adapter.deleteMessage?.(msg.chatId, status).catch(() => null);
       const session = await this.loadSession(...this.sk(msg));
-      await this.handleUpload(ctx, adapter, msg, session, up);
+      for (const up of ups.slice(0, -1)) if (up) this.rememberUpload(session, up);
+      await this.handleUpload(ctx, adapter, msg, session, ups[ups.length - 1]);
       return;
     }
 
@@ -386,15 +419,29 @@ export class OperatorService {
     const parts = [
       up.filename ? `file: ${up.filename}` : null,
       e.supplierName ? `from: ${e.supplierName}` : null,
+      e.billTo ? `bill to: ${e.billTo}` : null,
       e.invoiceNo ? `no: ${e.invoiceNo}` : null,
-      e.amount != null ? `amount: ${e.currency || 'SGD'} ${Number(e.amount).toFixed(2)}` : 'amount: not readable',
+      e.amount != null ? `total: ${e.currency || 'SGD'} ${Number(e.amount).toFixed(2)}` : 'total: not readable',
+      up.taxAmount ? `tax: ${Number(up.taxAmount).toFixed(2)}` : null,
       e.date ? `date: ${e.date}` : null,
-      e.description ? `lines: ${String(e.description).slice(0, 160)}` : null,
     ].filter(Boolean);
-    session.history = [
-      ...(session.history || []),
-      { role: 'user' as const, content: `[the user forwarded a document] ${parts.join(' | ')}` },
-    ].slice(-40);
+    // The line items, in full. A one-line summary was all the model got
+    // before, so "recreate this invoice in AIMS" ended in a request for the
+    // quantities that were on the page the whole time (guru 2026-10-15).
+    const lines = (up.lines || [])
+      .slice(0, 40)
+      .map((l: any, i: number) => {
+        const desc = String(l.description || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+        const qty = l.quantity != null && l.quantity !== '' ? Number(l.quantity) : null;
+        const unit = l.unitPrice != null && l.unitPrice !== '' ? Number(l.unitPrice) : null;
+        const amt = l.amount != null && l.amount !== '' ? Number(l.amount) : null;
+        const maths = [qty != null ? `qty ${qty}` : null, unit != null ? `@ ${unit.toFixed(2)}` : null, amt != null ? `= ${amt.toFixed(2)}` : null]
+          .filter(Boolean)
+          .join(' ');
+        return `  ${i + 1}. ${desc}${maths ? ` (${maths})` : ''}`;
+      });
+    const body = parts.join(' | ') + (lines.length ? `\nlines:\n${lines.join('\n')}` : '');
+    session.history = [...(session.history || []), { role: 'user' as const, content: `[the user forwarded a document] ${body}` }].slice(-40);
   }
 
   private async handleUpload(
@@ -504,9 +551,10 @@ export class OperatorService {
       session.pendingUpload = up;
       await this.saveSession(...this.sk(msg), session);
       const money = e?.amount != null ? ` (${e.currency || 'SGD'} ${Number(e.amount).toFixed(2)})` : '';
+      const n = msg.attachments?.length || 1;
       await adapter.sendText(
         msg.chatId,
-        `Got the file${money}. What should I do with it?`,
+        n > 1 ? `Got ${n} files, the last one${money}. What should I do with them?` : `Got the file${money}. What should I do with it?`,
       );
       return;
     }
@@ -1198,7 +1246,8 @@ export class OperatorService {
     const w: ChannelAdapter = {
       channel: adapter.channel,
       parse: (b) => adapter.parse(b),
-      sendText: async (c, t) => {
+      sendText: async (c, raw) => {
+        const t = plainDashes(raw);
         await adapter.sendText(c, t);
         await rec({ kind: 'text', text: t });
         if (mirror) await mirror(() => this.whatsapp.sendText(channelUserId, `💻 ${t}`));
@@ -1257,8 +1306,9 @@ export class OperatorService {
         const items: TranscriptItem[] = ((row?.state as any)?.transcript || []).slice().reverse();
         shown = items.flatMap((i) => i.buttons || []).find((b) => b.data === d)?.label || 'Selected an option';
       }
-    } else if (msg.attachment) {
-      shown = `📎 ${msg.attachment.filename || 'Uploaded a file'}${text ? `\n${text}` : ''}`;
+    } else if (msg.attachments?.length || msg.attachment) {
+      const names = (msg.attachments?.length ? msg.attachments : [msg.attachment!]).map((a) => `📎 ${a.filename || 'Uploaded a file'}`);
+      shown = `${names.join('\n')}${text ? `\n${text}` : ''}`;
     }
     if (!shown) return;
     await this.appendTranscript(channel, channelUserId, [
@@ -1313,7 +1363,7 @@ export class OperatorService {
       text = (text || '').trim();
       if (!text || text.startsWith('[system]')) return;
       if (m.role === 'user' && text.startsWith('[the user forwarded a document]')) {
-        text = `📎 ${text.replace('[the user forwarded a document]', '').trim()}`;
+        text = `📎 ${text.replace('[the user forwarded a document]', '').split('\n')[0].trim()}`;
       }
       if (m.role === 'user' && text.startsWith('I just uploaded a supplier invoice')) return;
       out.push({ id: `h${i}`, at: '', role: m.role === 'user' ? 'user' : 'assistant', kind: 'text', text, via });
@@ -1322,6 +1372,38 @@ export class OperatorService {
   }
 
   /** A conversation's stored state, for the web chat to render. */
+  /** Name a chat the way ChatGPT does: a few words from what the user
+   *  wanted, written by a small model. Falls back to the heuristic title. */
+  async suggestTitle(userText: string, reply?: string): Promise<string> {
+    const fallback = titleFromText(userText) || 'New chat';
+    if (!this.anthropic) return fallback;
+    try {
+      const res = await this.anthropic.messages.create({
+        model: 'claude-haiku-4-5',
+        max_tokens: 30,
+        system:
+          'Name a chat in 3 to 6 plain words, like a tab title: what the user wants done, no quotes, no trailing full stop, no dashes, no emoji. Output the title only.',
+        messages: [
+          {
+            role: 'user',
+            content: `User's first message:\n${String(userText || '').slice(0, 1500)}\n\nAssistant's reply:\n${String(reply || '').slice(0, 600)}`,
+          },
+        ],
+      });
+      const text = res.content.find((b) => b.type === 'text');
+      const title = (text && 'text' in text ? String((text as any).text) : '')
+        .split('\n')[0]
+        .replace(/^["'“”]+|["'“”.]+$/g, '')
+        .replace(/[—–]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 60);
+      return title.length >= 3 ? title : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
   async readThread(channel: OperatorChannel, channelUserId: string): Promise<{ state: SessionState; updatedAt: Date } | null> {
     const row = await this.prisma.operatorSession.findUnique({
       where: { channel_channelUserId: { channel, channelUserId } },

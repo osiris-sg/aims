@@ -176,7 +176,7 @@ export default function SidePanel({ event, onClose }: Props) {
           <Stack direction="row" alignItems="center" gap={1} sx={{ minWidth: 0 }}>
             <Box sx={{ minWidth: 0 }}>
               <Typography noWrap sx={{ fontWeight: 700, fontSize: "0.9rem" }}>
-                {preview.type} {preview.number}
+                {(preview.type || "Document").replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase())} {preview.number}
               </Typography>
               <Typography noWrap sx={{ fontSize: "0.75rem", color: "text.secondary" }}>
                 {[preview.customer, money(preview.total, preview.currency)].filter(Boolean).join(" · ")}

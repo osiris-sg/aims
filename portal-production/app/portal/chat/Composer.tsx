@@ -9,6 +9,11 @@ import CloseIcon from "@mui/icons-material/Close";
 import type { SendInput } from "./useOperatorChat";
 
 const MAX_MB = 15;
+// The API body limit is 15 MB, so a batch has to fit under it as a whole.
+const MAX_TOTAL_MB = 14;
+const MAX_FILES = 5;
+
+type Picked = { dataUri: string; mimetype: string; filename: string; size: number };
 
 interface Props {
   disabled?: boolean;
@@ -20,33 +25,58 @@ interface Props {
 
 export default function Composer({ disabled, sending, placeholder, onSend, onStop }: Props) {
   const [text, setText] = useState("");
-  const [file, setFile] = useState<{ dataUri: string; mimetype: string; filename: string } | null>(null);
+  const [files, setFiles] = useState<Picked[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  const pick = (f: File | undefined) => {
+  // Several files at once: a drop of three invoices or a multi-select in the
+  // picker (guru 2026-10-15: "i cant upload more than one").
+  const pick = (list: FileList | File[] | null | undefined) => {
     setFileError(null);
-    if (!f) return;
-    if (f.size > MAX_MB * 1024 * 1024) {
-      setFileError(`That file is over ${MAX_MB} MB.`);
-      return;
+    const incoming = Array.from(list || []);
+    if (!incoming.length) return;
+    const accepted: File[] = [];
+    let total = files.reduce((s, f) => s + f.size, 0);
+    for (const f of incoming) {
+      if (files.length + accepted.length >= MAX_FILES) {
+        setFileError(`Up to ${MAX_FILES} files per message.`);
+        break;
+      }
+      if (!/^(image\/|application\/pdf)/.test(f.type)) {
+        setFileError(`${f.name}: send a photo or a PDF.`);
+        continue;
+      }
+      if (f.size > MAX_MB * 1024 * 1024) {
+        setFileError(`${f.name} is over ${MAX_MB} MB.`);
+        continue;
+      }
+      if (total + f.size > MAX_TOTAL_MB * 1024 * 1024) {
+        setFileError(`Together the files are over ${MAX_TOTAL_MB} MB. Send them in two messages.`);
+        break;
+      }
+      if (files.some((x) => x.filename === f.name && x.size === f.size)) continue;
+      total += f.size;
+      accepted.push(f);
     }
-    if (!/^(image\/|application\/pdf)/.test(f.type)) {
-      setFileError("Send a photo or a PDF.");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => setFile({ dataUri: String(reader.result), mimetype: f.type, filename: f.name });
-    reader.readAsDataURL(f);
+    accepted.forEach((f) => {
+      const reader = new FileReader();
+      reader.onload = () =>
+        setFiles((prev) =>
+          prev.length >= MAX_FILES || prev.some((x) => x.filename === f.name && x.size === f.size)
+            ? prev
+            : [...prev, { dataUri: String(reader.result), mimetype: f.type, filename: f.name, size: f.size }],
+        );
+      reader.readAsDataURL(f);
+    });
   };
 
   const submit = () => {
     if (sending || disabled) return;
     const t = text.trim();
-    if (!t && !file) return;
-    onSend({ text: t, attachment: file || undefined });
+    if (!t && !files.length) return;
+    onSend({ text: t, attachments: files.length ? files.map(({ dataUri, mimetype, filename }) => ({ dataUri, mimetype, filename })) : undefined });
     setText("");
-    setFile(null);
+    setFiles([]);
   };
 
   return (
@@ -56,7 +86,7 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault();
-          pick(e.dataTransfer.files?.[0]);
+          pick(e.dataTransfer.files);
         }}
         sx={{
           border: "1px solid",
@@ -69,19 +99,24 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
           "&:focus-within": { borderColor: "primary.main" },
         }}
       >
-        {file && (
-          <Chip
-            size="small"
-            label={file.filename}
-            onDelete={() => setFile(null)}
-            deleteIcon={<CloseIcon />}
-            sx={{ mb: 1, maxWidth: "100%" }}
-          />
+        {!!files.length && (
+          <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mb: 1 }}>
+            {files.map((f) => (
+              <Chip
+                key={`${f.filename}-${f.size}`}
+                size="small"
+                label={f.filename}
+                onDelete={() => setFiles((prev) => prev.filter((x) => x !== f))}
+                deleteIcon={<CloseIcon />}
+                sx={{ maxWidth: 260 }}
+              />
+            ))}
+          </Stack>
         )}
         <Stack direction="row" alignItems="flex-end" gap={1}>
-          <Tooltip title="Attach a photo or PDF (an invoice, a price list)">
+          <Tooltip title="Attach photos or PDFs (invoices, a price list). Up to 5 at once.">
             <span>
-              <IconButton size="small" disabled={disabled || sending} onClick={() => fileRef.current?.click()} aria-label="Attach file">
+              <IconButton size="small" disabled={disabled || sending} onClick={() => fileRef.current?.click()} aria-label="Attach files">
                 <AttachFileIcon fontSize="small" />
               </IconButton>
             </span>
@@ -90,9 +125,10 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
             ref={fileRef}
             type="file"
             hidden
+            multiple
             accept="image/*,application/pdf"
             onChange={(e) => {
-              pick(e.target.files?.[0]);
+              pick(e.target.files);
               e.target.value = "";
             }}
           />
@@ -105,6 +141,14 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
             disabled={disabled}
             placeholder={placeholder || "Ask AIMS anything, or tell it what to do…"}
             onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              // Pasted screenshots land as files, like in any chat app.
+              const items = Array.from(e.clipboardData?.files || []);
+              if (items.length) {
+                e.preventDefault();
+                pick(items);
+              }
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
@@ -124,7 +168,7 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
             <IconButton
               size="small"
               onClick={submit}
-              disabled={disabled || (!text.trim() && !file)}
+              disabled={disabled || (!text.trim() && !files.length)}
               aria-label="Send"
               sx={{
                 bgcolor: "primary.main",

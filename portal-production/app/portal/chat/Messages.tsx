@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { Box, Button, Chip, Stack, Typography, alpha } from "@mui/material";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
+import AttachFileIcon from "@mui/icons-material/AttachFile";
 import CheckRoundedIcon from "@mui/icons-material/CheckRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -36,6 +37,22 @@ function render(md: string): string {
 const docIdOf = (m: ChatItem): string | undefined =>
   m.documentId || /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[^/?]*\.pdf/i.exec(m.url || "")?.[1];
 
+// A user line is plain text, but two shapes need their own treatment: the
+// "📎 file" lines an upload leaves at the top, and a pasted table (box
+// drawing or pipes), which falls apart in a proportional font.
+const FILE_LINE = /^📎\s*(.+)$/;
+const splitUserText = (text: string): { files: string[]; body: string } => {
+  const lines = (text || "").split("\n");
+  const files: string[] = [];
+  while (lines.length && FILE_LINE.test(lines[0])) files.push(lines.shift()!.replace(FILE_LINE, "$1").trim());
+  return { files, body: lines.join("\n").trim() };
+};
+const looksTabular = (text: string): boolean => {
+  if (/[│┌┐└┘├┤┬┴┼─━═║╔╗╚╝]/.test(text)) return true;
+  const rows = text.split("\n").filter((l) => (l.match(/\|/g) || []).length >= 2);
+  return rows.length >= 3;
+};
+
 const timeOf = (iso?: string) => {
   if (!iso) return "";
   const d = new Date(iso);
@@ -53,7 +70,8 @@ export const MARKDOWN_SX = {
   "& li": { mb: 0.25 },
   "& code": { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: "0.85em", px: 0.5, borderRadius: 0.5, bgcolor: "action.hover" },
   "& pre": { p: 1.25, borderRadius: 1.5, overflowX: "auto", bgcolor: "action.hover" },
-  "& table": { borderCollapse: "collapse", my: 1, fontSize: "0.8125rem" },
+  // A wide table scrolls inside the bubble instead of squashing its columns.
+  "& table": { borderCollapse: "collapse", my: 1, fontSize: "0.8125rem", display: "block", width: "max-content", maxWidth: "100%", overflowX: "auto" },
   "& th, & td": { border: "1px solid", borderColor: "divider", px: 1, py: 0.5, textAlign: "left" },
   "& th": { fontWeight: 600, bgcolor: "action.hover" },
   "& a": { color: "primary.main" },
@@ -93,6 +111,8 @@ export default function Messages({ items, pending, status, sending, channel, onT
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, px: { xs: 2, md: 3 }, py: 2 }}>
       {items.map((m, idx) => {
         const mine = m.role === "user";
+        const user = mine ? splitUserText(m.text || "") : null;
+        const tabular = !!user && looksTabular(user.body);
         const confirmId = m.buttons?.find((b) => b.data.startsWith("confirm:"))?.data.slice(8);
         const isConfirmCard = !!confirmId;
         const live = isConfirmCard ? livePending.has(confirmId!) : idx === lastButtonsIdx && !sending;
@@ -100,7 +120,7 @@ export default function Messages({ items, pending, status, sending, channel, onT
           <Stack key={m.id} direction="row" justifyContent={mine ? "flex-end" : "flex-start"} alignItems="flex-end" gap={1}>
             <Box
               sx={{
-                maxWidth: { xs: "92%", md: "78%" },
+                maxWidth: { xs: "92%", md: tabular ? "92%" : "78%" },
                 minWidth: 0,
                 px: 1.75,
                 py: 1.25,
@@ -134,13 +154,51 @@ export default function Messages({ items, pending, status, sending, channel, onT
                   </Box>
                 </Button>
               )}
-              {m.text && (
-                mine ? (
-                  <Typography sx={{ whiteSpace: "pre-wrap", fontSize: "inherit", lineHeight: "inherit" }}>{m.text}</Typography>
-                ) : (
-                  <Box sx={MARKDOWN_SX} dangerouslySetInnerHTML={{ __html: render(m.text) }} />
-                )
+              {mine && user && (
+                <>
+                  {!!user.files.length && (
+                    <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mb: user.body ? 1 : 0 }}>
+                      {user.files.map((f, i) => (
+                        <Chip
+                          key={`${f}-${i}`}
+                          size="small"
+                          icon={/\.pdf$/i.test(f) ? <PictureAsPdfOutlinedIcon /> : <AttachFileIcon />}
+                          label={f}
+                          sx={{
+                            maxWidth: "100%",
+                            bgcolor: (t) => alpha(t.palette.primary.contrastText, 0.18),
+                            color: "inherit",
+                            "& .MuiChip-icon": { color: "inherit" },
+                          }}
+                        />
+                      ))}
+                    </Stack>
+                  )}
+                  {user.body &&
+                    (tabular ? (
+                      <Box
+                        component="pre"
+                        sx={{
+                          m: 0,
+                          px: 1,
+                          py: 0.75,
+                          borderRadius: 1.5,
+                          bgcolor: (t) => alpha(t.palette.primary.contrastText, 0.12),
+                          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                          fontSize: "0.78rem",
+                          lineHeight: 1.45,
+                          overflowX: "auto",
+                          whiteSpace: "pre",
+                        }}
+                      >
+                        {user.body}
+                      </Box>
+                    ) : (
+                      <Typography sx={{ whiteSpace: "pre-wrap", fontSize: "inherit", lineHeight: "inherit" }}>{user.body}</Typography>
+                    ))}
+                </>
               )}
+              {!mine && m.text && <Box sx={MARKDOWN_SX} dangerouslySetInnerHTML={{ __html: render(m.text) }} />}
               {(m.kind === "buttons" || m.kind === "list") && !!m.buttons?.length && (
                 <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mt: 1.25 }}>
                   {m.buttons.map((b) => {

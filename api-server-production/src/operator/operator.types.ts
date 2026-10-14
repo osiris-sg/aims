@@ -53,6 +53,9 @@ export interface InboundMessage {
   /** An uploaded file (photo/PDF) the user sent, already downloaded by the
    *  channel. dataUri is `data:<mime>;base64,<...>`. */
   attachment?: { dataUri: string; mimetype: string; filename?: string };
+  /** Several files in one message (web composer). The first one is also
+   *  mirrored into `attachment` so single-file readers keep working. */
+  attachments?: Array<{ dataUri: string; mimetype: string; filename?: string }>;
   /** True when `text` came from transcribing a voice note — the operator echoes
    *  what it heard so the user can catch a mis-transcription. */
   fromVoice?: boolean;
@@ -136,6 +139,9 @@ export interface OperatorContext {
       description?: string | null;
       currency?: string | null;
       siteAddress?: string | null;
+      /** The party the document is addressed to ("Bill To"). On a sales
+       *  invoice the user forwards, this is the customer. */
+      billTo?: string | null;
     };
     /** Raw line items + tax, for creating the linked Bill (AP) draft. */
     lines?: Array<{ description?: string; quantity?: number; unitPrice?: number; amount?: number }> | null;

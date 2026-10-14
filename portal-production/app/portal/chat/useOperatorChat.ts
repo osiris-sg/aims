@@ -57,7 +57,8 @@ export type PanelEvent =
 export interface SendInput {
   text?: string;
   callbackData?: string;
-  attachment?: { dataUri: string; mimetype: string; filename?: string };
+  /** One or more files (photos or PDFs) sent with the message. */
+  attachments?: Array<{ dataUri: string; mimetype: string; filename?: string }>;
 }
 
 const API = process.env.NEXT_PUBLIC_BACKEND_API_URL;
@@ -207,7 +208,8 @@ export function useOperatorChat(screens: Array<{ label: string; path: string }>,
     async (input: SendInput) => {
       if (sending) return;
       const text = (input.text || "").trim();
-      if (!text && !input.callbackData && !input.attachment) return;
+      const files = input.attachments || [];
+      if (!text && !input.callbackData && !files.length) return;
       lastSend.current = input;
       setSending(true);
       setError(null);
@@ -220,8 +222,8 @@ export function useOperatorChat(screens: Array<{ label: string; path: string }>,
             : input.callbackData.startsWith("choice:")
               ? input.callbackData.slice(7)
               : ""
-        : input.attachment
-          ? `📎 ${input.attachment.filename || "Uploaded a file"}${text ? `\n${text}` : ""}`
+        : files.length
+          ? `${files.map((f) => `📎 ${f.filename || "Uploaded a file"}`).join("\n")}${text ? `\n${text}` : ""}`
           : text;
       if (shown) {
         setItems((prev) => [...prev, { id: `u${Date.now()}`, at: now, role: "user", kind: "text", text: shown, via: "web", local: true }]);
@@ -239,7 +241,7 @@ export function useOperatorChat(screens: Array<{ label: string; path: string }>,
             threadId: threadRef.current || undefined,
             text,
             callbackData: input.callbackData,
-            attachment: input.attachment,
+            attachments: files.length ? files : undefined,
             screens: screensRef.current,
             // What the user is looking at, so the agent never assumes.
             panel: panelRef.current
@@ -287,6 +289,9 @@ export function useOperatorChat(screens: Array<{ label: string; path: string }>,
               setStatus(evt.text || null);
             } else if (evt.type === "ui") {
               setPanel(evt.event);
+            } else if (evt.type === "title") {
+              // The chat got its real name after the first exchange.
+              setThreads((prev) => prev.map((t) => (t.id === evt.id ? { ...t, title: evt.title } : t)));
             } else if (evt.type === "pending") {
               setPending(evt.actions || []);
             } else if (evt.type === "error") {
