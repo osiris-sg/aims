@@ -20,6 +20,15 @@ export const ROUTES = {
   CUSTOMER_INFORMATION: "/portal/customer-information",
   SUPPLIERS: "/portal/suppliers",
 
+  SHIPMENTS: "/portal/shipments",
+  SHIPMENT_CONTRACTS: "/portal/shipments/contracts",
+  // Old Shipments → Documents route; redirects to TRADE_DOCUMENTS.
+  SHIPMENT_DOCUMENTS: "/portal/shipments/documents",
+  // Trade documents hub (per-org DOCUMENTS route, e.g. ADH Japan).
+  TRADE_DOCUMENTS: "/portal/trade-documents",
+  // Stand-alone Invoices module (per-org INVOICES route, e.g. ADH Japan).
+  INVOICING: "/portal/invoicing",
+
   INVOICES: "/portal/invoices",
 
   // Sales routes

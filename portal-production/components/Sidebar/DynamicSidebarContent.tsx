@@ -30,6 +30,7 @@ import {
   ErrorOutline,
   ShoppingCart,
   LocalShipping,
+  DirectionsBoat,
   Storefront,
   AccountBalance,
   ReceiptLong,
@@ -59,6 +60,7 @@ const iconMap: Record<string, React.ComponentType> = {
   SettingsRounded,
   ShoppingCart,
   LocalShipping,
+  DirectionsBoat,
   Storefront,
   AccountBalance,
   ReceiptLong,
@@ -420,6 +422,11 @@ export default function DynamicSidebarContent() {
     return menuItem;
   };
 
+  // Accounting Setup only makes sense for orgs with the ACCOUNTING module (its
+  // page would otherwise create an empty accounting settings row). Mirrored in
+  // useNavModules' settingsMenu (top bar + chat home).
+  const accountingEnabled = isModuleEnabled('ACCOUNTING');
+
   // Secondary items (Settings, etc.) — supports nested submenus like main modules
   const secondaryItems: Array<{
     id: string;
@@ -436,7 +443,7 @@ export default function DynamicSidebarContent() {
         { key: 'company-profile', label: 'Company Profile', path: '/portal/settings/company-profile' },
         { key: 'accounting-setup', label: 'Accounting Setup', path: '/portal/settings/accounting-setup' },
         { key: 'masterfiles', label: 'Master Files', path: '/portal/masterfiles' },
-      ],
+      ].filter((s) => s.key !== 'accounting-setup' || accountingEnabled),
     },
   ];
 

@@ -25,8 +25,8 @@ model Organization {
   name                     String                     @unique
   // Delivery group posts (2026-09-30): the fallback WhatsApp group when a
   // delivery's project and customer have none.
-  deliveryOpsGroupId   String?
-  deliveryOpsGroupName String?
+  deliveryOpsGroupId       String?
+  deliveryOpsGroupName     String?
   createdAt                DateTime                   @default(now())
   updatedAt                DateTime                   @updatedAt
   address                  String?
@@ -256,39 +256,47 @@ model Inventory {
 }
 
 model Customer {
-  id              String            @id @default(uuid()) @db.Uuid
-  customerCode    String? // Auto-generated code like CA001, CB002
-  name            String
-  email           String?
-  phone           String?
-  address         String?
-  gstRegNo        String? // Customer's GST/Tax registration number
+  id                String            @id @default(uuid()) @db.Uuid
+  customerCode      String? // Auto-generated code like CA001, CB002
+  name              String
+  email             String?
+  phone             String?
+  address           String?
+  gstRegNo          String? // Customer's GST/Tax registration number
+  // Japanese legal name / address / contact (Shipments, 2026-10): printed on
+  // the JP trade documents (請求書 name only; 計量検収票 / 納品書兼… name +
+  // address + contact). English documents keep `name`.
+  jpName            String?
+  jpAddress         String?
+  jpContact         String?
   // Trading currency (one per customer code — a customer trading in two
   // currencies gets two customer codes). Documents inherit this; GL converts
   // to base at the accountant's standing rate (AccountingSetting.currencyRates).
-  currency        String            @default("SGD")
-  salesmanId      String? // Reference to UserOrganization.id for the assigned salesman
+  currency          String            @default("SGD")
+  salesmanId        String? // Reference to UserOrganization.id for the assigned salesman
   // Xero pull-sync: ContactID from Xero (null = not yet synced).
-  xeroId          String?           @unique
-  xeroLastSyncAt  DateTime?
+  xeroId            String?           @unique
+  xeroLastSyncAt    DateTime?
   // Delivery group posts (2026-09-30): the WhatsApp group a signed delivery
   // is posted to (Project first, then Customer, then the org ops group).
   whatsappGroupId   String?
   whatsappGroupName String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  organizationId  String
-  organization    Organization      @relation(fields: [organizationId], references: [id])
-  salesman        UserOrganization? @relation(fields: [salesmanId], references: [id])
-  siteOffices     SiteOffice[]
-  priceHistories  PriceHistory[] // Track price history for this customer
-  payments        Payment[]
-  transactions    Transaction[]
-  customerBalance CustomerBalance?  @relation("CustomerToBalance")
-  projects        Project[]         @relation("CustomerProjects")
-  orders          Order[]           @relation("CustomerOrders")
-  contacts        CustomerContact[]
-  deliveries      Delivery[]
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  organizationId    String
+  organization      Organization      @relation(fields: [organizationId], references: [id])
+  salesman          UserOrganization? @relation(fields: [salesmanId], references: [id])
+  siteOffices       SiteOffice[]
+  priceHistories    PriceHistory[] // Track price history for this customer
+  payments          Payment[]
+  transactions      Transaction[]
+  customerBalance   CustomerBalance?  @relation("CustomerToBalance")
+  projects          Project[]         @relation("CustomerProjects")
+  orders            Order[]           @relation("CustomerOrders")
+  contacts          CustomerContact[]
+  deliveries        Delivery[]
+  contracts         Contract[]        @relation("CustomerContracts")
+  shipments         Shipment[]        @relation("CustomerShipments")
 
   @@unique([email, organizationId])
   @@unique([id, organizationId])
@@ -317,6 +325,7 @@ model Supplier {
   organization   Organization  @relation(fields: [organizationId], references: [id])
   bills          Bill[]
   billPayments   BillPayment[]
+  contracts      Contract[]    @relation("SupplierContracts")
 
   @@unique([email, organizationId])
   @@unique([id, organizationId])
@@ -675,7 +684,7 @@ model RevenueItem {
   includes            Json? // [{ text: string, qty?: number }]
   unitCost            Float? // default cost per uom (what the subcontractor charges)
   uom                 String? // sqft | ft | nos | trip | lot
-  pricingMode         String   @default("priced") // priced | inclusive | complimentary
+  pricingMode         String  @default("priced") // priced | inclusive | complimentary
   supplierName        String? // which contractor's price list the unitCost came from
 
   @@index([organizationId, isActive])
@@ -789,26 +798,26 @@ model DesignerBookingLink {
 }
 
 model DesignerAdvance {
-  id              String    @id @default(uuid())
-  organizationId  String
-  projectId       String?   @db.Uuid
-  projectName     String?
-  requestedById   String
-  requestedByName String?
-  amount          Float
-  reason          String?
+  id               String    @id @default(uuid())
+  organizationId   String
+  projectId        String?   @db.Uuid
+  projectName      String?
+  requestedById    String
+  requestedByName  String?
+  amount           Float
+  reason           String?
   // Signatures (guru 2026-10-07): the designer signs the request, management
   // signs the approval — stored as small PNG data-URLs for the record.
   requestSignature String?
   approveSignature String?
-  status          String    @default("pending") // pending | approved | declined | paid
-  decidedById     String?
-  decidedByName   String?
-  decidedAt       DateTime?
-  decisionNote    String?
-  paidAt          DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  status           String    @default("pending") // pending | approved | declined | paid
+  decidedById      String?
+  decidedByName    String?
+  decidedAt        DateTime?
+  decisionNote     String?
+  paidAt           DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([organizationId, status])
   @@index([organizationId, requestedById])
@@ -839,7 +848,7 @@ model Lead {
   // ALL the lead's numbers, normalized digits, in entry order (guru 2026-09-21:
   // "he can continue to add multiple"). phone/whatsappPhone mirror the first
   // two for the older single-number code paths.
-  phones               String[] @default([])
+  phones               String[]  @default([])
   phoneVerified        Boolean   @default(false)
   location             String?
   propertyType         String? // HDB | Resale Private Condo | ...
@@ -908,13 +917,13 @@ model LeadAttachment {
 // "schedule" — the live weekly calendar). Mirrors DocumentShareLink: crypto
 // token, no expiry, soft revoke only. The client always sees the LATEST data.
 model ProjectShareLink {
-  id         String    @id @default(uuid())
-  token      String    @unique
-  projectId  String    @db.Uuid
-  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  kind       String    @default("schedule")
-  createdAt  DateTime  @default(now())
-  revokedAt  DateTime?
+  id        String    @id @default(uuid())
+  token     String    @unique
+  projectId String    @db.Uuid
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind      String    @default("schedule")
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
 
   @@index([projectId])
 }
@@ -990,16 +999,16 @@ model QuestMediaRequest {
 }
 
 model OrganizationMemberProfile {
-  id             String   @id @default(uuid())
-  organizationId String
-  userId         String // Clerk user id
-  whatsappNumber String? // digits only, e.g. 6591234567
-  commissionPct  Float? // default share of project profit for this designer
+  id                String   @id @default(uuid())
+  organizationId    String
+  userId            String // Clerk user id
+  whatsappNumber    String? // digits only, e.g. 6591234567
+  commissionPct     Float? // default share of project profit for this designer
   yearlySalesTarget Float? // manager-set sales target (contract value signed per year)
-  signatureImage String? // saved signature (PNG data URL) for one-tap counter-signing
-  teamId         String? // hierarchy (CIEL 09-19): the Team this member belongs to
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  signatureImage    String? // saved signature (PNG data URL) for one-tap counter-signing
+  teamId            String? // hierarchy (CIEL 09-19): the Team this member belongs to
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@unique([organizationId, userId])
   @@index([whatsappNumber])
@@ -1027,19 +1036,19 @@ model Team {
 // kind: work (spans startDate..endDate, skips Sundays), note (a reminder
 // pinned to one day, e.g. "Kitchen hood & hob must be confirmed"), holiday.
 model ProjectScheduleItem {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
-  projectId      String   @db.Uuid
-  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId      String    @db.Uuid
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   label          String
-  kind           String   @default("work") // work | note | holiday
+  kind           String    @default("work") // work | note | holiday
   startDate      DateTime
   endDate        DateTime
-  sortOrder      Int      @default(0)
+  sortOrder      Int       @default(0)
   notes          String?
   reminderSentAt DateTime? // 9am designer WhatsApp ("send before video+photo") sent
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([organizationId, projectId])
   @@index([projectId, startDate])
@@ -1286,51 +1295,51 @@ model UserOrganization {
 }
 
 model Project {
-  id               String              @id @default(uuid()) @db.Uuid
-  projectNumber    String? // e.g. PRJ-2026-001
-  name             String
-  description      String?
+  id                String                @id @default(uuid()) @db.Uuid
+  projectNumber     String? // e.g. PRJ-2026-001
+  name              String
+  description       String?
   // Optional plain delivery/site address for the project (free text). Preferred
   // over the linked SiteOffice.address as the "Deliver To" source for scheduled
   // deliveries. Additive/nullable.
-  address          String?
-  organizationId   String?
-  customerId       String?             @db.Uuid // direct FK; siteOffice still optional
-  customerPoNumber String?
+  address           String?
+  organizationId    String?
+  customerId        String?               @db.Uuid // direct FK; siteOffice still optional
+  customerPoNumber  String?
   // Delivery group posts (2026-09-30): the WhatsApp group a signed delivery
   // is posted to (Project first, then Customer, then the org ops group).
   whatsappGroupId   String?
   whatsappGroupName String?
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
-  startDate        DateTime?
-  endDate          DateTime?
-  status           ProjectStatus       @default(pending)
-  siteOfficeId     String?             @db.Uuid
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  startDate         DateTime?
+  endDate           DateTime?
+  status            ProjectStatus         @default(pending)
+  siteOfficeId      String?               @db.Uuid
   // ---- Interior-design project fields (CIEL, 2026-08) — null for other orgs ----
-  designer         String? // designer in charge (name; user link comes with commissions)
-  stage            String? // signed | design | works | carpentry | handover | completed
-  commissionPct    Float? // designer's share of project profit (their sheet: 50%)
-  assignments      Assignment[]
-  documents        Document[]
-  deployments      ProjectDeployment[]
-  deliveries       Delivery[]
-  contacts         ProjectContact[]
-  designerUserId   String? // Clerk user id of the designer in charge (drives WhatsApp routing)
+  designer          String? // designer in charge (name; user link comes with commissions)
+  stage             String? // signed | design | works | carpentry | handover | completed
+  commissionPct     Float? // designer's share of project profit (their sheet: 50%)
+  assignments       Assignment[]
+  documents         Document[]
+  deployments       ProjectDeployment[]
+  deliveries        Delivery[]
+  contacts          ProjectContact[]
+  designerUserId    String? // Clerk user id of the designer in charge (drives WhatsApp routing)
   // Management-only supplier rebate override for THIS project (CIEL 09-16):
   // suppliers quietly rebate ~10% of invoiced costs back to the firm; costs
   // stay booked at full value (designer commission unaffected), the rebate is
   // company profit visible to management only. null → per-supplier % → 10.
-  rebatePct        Float?
-  source           String? // where the project came from: lead | referral | self (CIEL 09-01)
-  leadId           String? @db.Uuid // the Lead this project was converted from
-  costs            ProjectCost[]
-  milestones       ProjectMilestone[]
-  scheduleItems    ProjectScheduleItem[]
-  shareLinks       ProjectShareLink[]
-  organization     Organization?       @relation(fields: [organizationId], references: [id])
-  siteOffice       SiteOffice?         @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
-  customer         Customer?           @relation("CustomerProjects", fields: [customerId], references: [id])
+  rebatePct         Float?
+  source            String? // where the project came from: lead | referral | self (CIEL 09-01)
+  leadId            String?               @db.Uuid // the Lead this project was converted from
+  costs             ProjectCost[]
+  milestones        ProjectMilestone[]
+  scheduleItems     ProjectScheduleItem[]
+  shareLinks        ProjectShareLink[]
+  organization      Organization?         @relation(fields: [organizationId], references: [id])
+  siteOffice        SiteOffice?           @relation("SiteOfficeProjects", fields: [siteOfficeId], references: [id])
+  customer          Customer?             @relation("CustomerProjects", fields: [customerId], references: [id])
 
   @@unique([projectNumber, organizationId])
   @@index([organizationId, status])
@@ -3108,20 +3117,20 @@ enum DeliveryOrigin {
 }
 
 model Delivery {
-  id             String            @id @default(uuid()) @db.Uuid
-  organizationId String
+  id                String            @id @default(uuid()) @db.Uuid
+  organizationId    String
   // Per-org serial (paper-trail analogue, same pattern as MSR.reportNumber).
   // Assigned at creation — required, unlike MSR's nullable historic rows.
-  deliveryNumber Int
+  deliveryNumber    Int
   // OUTBOUND (normal delivery) or RETURN (reverse — collecting rentals back to
   // stock). Additive with a default so every existing run reads as OUTBOUND.
-  direction      DeliveryDirection @default(OUTBOUND)
-  status         DeliveryRunStatus @default(in_progress)
+  direction         DeliveryDirection @default(OUTBOUND)
+  status            DeliveryRunStatus @default(in_progress)
   // Nullable so an office-SCHEDULED run can exist before any rider picks it up.
   // The rider claims it at scan-to-bind (sets riderUserId, status → in_progress).
   // Every rider-started run sets it at creation as before.
-  riderUserId    String?
-  riderName      String?
+  riderUserId       String?
+  riderName         String?
   // DRIVER HANDOFF (2026-09): who delivers the CURRENT trip of a scheduled run.
   // SELF = the rider; DRIVER = handed to another driver via a drv_ share link
   // (QR). Cleared at each sign-off so the next trip asks again. vehicleNumber
@@ -3131,21 +3140,21 @@ model Delivery {
   handoffMode       String?
   handedOffAt       DateTime?
   handedOffByUserId String?
-  projectId      String?           @db.Uuid
-  customerId     String?           @db.Uuid
-  siteAddress    String? // free-text drop site when no project is linked yet
-  notes          String?
+  projectId         String?           @db.Uuid
+  customerId        String?           @db.Uuid
+  siteAddress       String? // free-text drop site when no project is linked yet
+  notes             String?
   // Office-scheduled runs: the target delivery date/time. Null for ad-hoc runs
   // recorded live in the field. A run with scheduledFor set + status `scheduled`
   // is waiting for a rider to pick it up.
-  scheduledFor   DateTime?
+  scheduledFor      DateTime?
   // Office DRAFT: a partly-filled schedule the office can come back to. A draft
   // is NOT a real scheduled run — it is excluded from every rider-facing query,
   // from claim/merge/fold/cancel, and it mints NO Delivery Order. The DO is
   // created only when the draft is promoted to a real schedule. Boolean rather
   // than a DeliveryRunStatus value on purpose: adding an enum value means
   // ALTER TYPE ADD VALUE, which has stopped backend deploys before.
-  isDraft        Boolean           @default(false)
+  isDraft           Boolean           @default(false)
   /// AD_HOC marks a run a rider started from a scan with no scheduled run to
   /// join. Set at CREATION only — existing rows keep the SCHEDULED default, so
   /// nothing is reclassified. Deliberately not inferred from `projectId IS
@@ -3156,16 +3165,16 @@ model Delivery {
   /// An AD_HOC run completes down a third path: its DO is created but NOT
   /// committed, so the unit stays `reserved` until the office attaches a
   /// project and the deployment is created.
-  origin         DeliveryOrigin    @default(SCHEDULED)
+  origin            DeliveryOrigin    @default(SCHEDULED)
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may
   // still serve) and dropped in a later cleanup.
-  documentId     String?           @db.Uuid
-  startedAt      DateTime          @default(now())
-  completedAt    DateTime?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  documentId        String?           @db.Uuid
+  startedAt         DateTime          @default(now())
+  completedAt       DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   organization Organization               @relation(fields: [organizationId], references: [id])
   project      Project?                   @relation(fields: [projectId], references: [id])
@@ -3181,17 +3190,17 @@ model Delivery {
 }
 
 model DeliveryItem {
-  id             String         @id @default(uuid()) @db.Uuid
-  deliveryId     String         @db.Uuid
-  delivery       Delivery       @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  id             String                     @id @default(uuid()) @db.Uuid
+  deliveryId     String                     @db.Uuid
+  delivery       Delivery                   @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
   // A catalog-resolved line carries assetId (+ inventoryId for tracked units).
   // A FREE-TYPED line has BOTH null — description-only, awaiting office
   // resolution to a real asset/unit. Plain UUIDs (no FK) — mirrors how
   // DocumentItem references stock without hard coupling.
-  assetId        String?        @db.Uuid
-  inventoryId    String?        @db.Uuid
+  assetId        String?                    @db.Uuid
+  inventoryId    String?                    @db.Uuid
   description    String?
-  quantity       Int            @default(1)
+  quantity       Int                        @default(1)
   // Class for a FREE-TYPED line only (no assetId to read it from). NULL on
   // catalog-backed lines — those resolve the class through their Asset.
   assetClass     AssetClass?
@@ -3200,8 +3209,8 @@ model DeliveryItem {
   // Walk order. DeliveryItem has no createdAt and its id is a random uuid, so
   // there was no way to step through a run's items in the order the office
   // entered them. Written at schedule time; 0 for rows created before this.
-  sortOrder      Int            @default(0)
-  deliveryStatus DeliveryStatus @default(not_delivered)
+  sortOrder      Int                        @default(0)
+  deliveryStatus DeliveryStatus             @default(not_delivered)
   // Set when the rider CONSCIOUSLY passes an item over during the walk-through.
   // Not inferable: `not_delivered` alone conflates "skipped" with "not reached
   // yet", which the basket's Delivering / Skipped split has to tell apart.
@@ -3209,14 +3218,14 @@ model DeliveryItem {
   deliveringAt   DateTime?
   deliveredAt    DateTime?
   completedAt    DateTime?
-  installSkipped Boolean        @default(false)
+  installSkipped Boolean                    @default(false)
   // THE LINK (per-item, 2026-08) — the DO this ITEM fulfils. One run's items
   // may fulfil different DOs. SetNull: deleting a (draft) DO un-links the
   // items and they fall back into the office queue. No documentItemId — the
   // row-level binding already exists physically via DocumentItem.inventoryId;
   // (documentId, inventoryId) recovers it, same join stamping/deduction use.
-  documentId     String?        @db.Uuid
-  document       Document?      @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  documentId     String?                    @db.Uuid
+  document       Document?                  @relation(fields: [documentId], references: [id], onDelete: SetNull)
   // Deliberately NO deductedAt — stock deduction is the DO's job, performed
   // at link time through the existing DocumentItem claim.
   // Proof MSRs (DO_START/DO_ACK) captured against THIS line — the inverse of
@@ -3478,30 +3487,30 @@ model AdInsight {
 // (Dr clearing / Cr revenue, reference = the STAR_ order id) so the ticket
 // service's accounting always tallies. One connection per org.
 model AirwallexConnection {
-  id             String  @id @default(uuid())
-  organizationId String  @unique
+  id                  String    @id @default(uuid())
+  organizationId      String    @unique
   // Airwallex API credentials (x-client-id + x-api-key → bearer token).
   // clientId nullable: key can be seeded first, sync stays off until both set.
-  clientId       String?
-  apiKey         String
-  apiBase        String  @default("https://api.airwallex.com")
+  clientId            String?
+  apiKey              String
+  apiBase             String    @default("https://api.airwallex.com")
   // Only intents whose merchant_order_id / metadata.order_id starts with this
   // prefix belong to this org's ticket service.
-  orderPrefix    String  @default("STAR-")
+  orderPrefix         String    @default("STAR-")
   // Posting map (codes resolved in the org's chart of accounts).
-  clearingAccountCode String @default("CA103")
-  revenueAccountCode  String @default("SS002")
-  feeAccountCode      String @default("EX041")
-  refundAccountCode   String @default("CS003")
-  enabled        Boolean   @default(false)
+  clearingAccountCode String    @default("CA103")
+  revenueAccountCode  String    @default("SS002")
+  feeAccountCode      String    @default("EX041")
+  refundAccountCode   String    @default("CS003")
+  enabled             Boolean   @default(false)
   // Poll cursors per stream: only records created at/after these are fetched.
-  syncFrom       DateTime?
-  refundsFrom    DateTime?
-  feesFrom       DateTime?
-  lastSyncAt     DateTime?
-  lastError      String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  syncFrom            DateTime?
+  refundsFrom         DateTime?
+  feesFrom            DateTime?
+  lastSyncAt          DateTime?
+  lastError           String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 }
 
 /// Outbox (2026-09-30): one row per delivery SIGN-OFF to post into the
@@ -3552,4 +3561,372 @@ model WhatsAppGroup {
   updatedAt      DateTime @updatedAt
 
   @@unique([organizationId, groupId])
+}
+
+// ─── Shipments module (ADH Japan, 2026-10) ──────────────────────────────────
+// Two-level trade tracking: Contract (supplier contract / PI, pre-shipment) →
+// Shipment (one per Bill of Lading, created when the B/L draft arrives).
+// Steps are snapshotted from the org's TradeStepTemplate onto each record.
+// Files are S3 uploads tagged with a TradeDocType code and may link to several
+// Contracts/Shipments via TradeFileLink. No Organization relation: like the
+// other post-tenancy models, Organization lives in the platform schema.
+
+enum TradeStepStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  DONE
+  SKIPPED
+}
+
+enum TradeStepScope {
+  CONTRACT
+  SHIPMENT
+}
+
+enum TradeGeneratedDocStatus {
+  DRAFT
+  FINAL
+}
+
+enum TradeRecordStatus {
+  OPEN
+  COMPLETED
+  CANCELLED
+}
+
+/// Per-org list of file document types (PI, BL_DRAFT, COA, …). A table, not a
+/// Prisma enum, so orgs can add types without an ALTER TYPE.
+model TradeDocType {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String
+  code           String
+  label          String
+  /// Hub grouping: SUPPLIER | CUSTOMER | INVOICES | CUSTOMS_LOGISTICS | PAYMENTS | OTHER
+  category       String   @default("OTHER")
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, code])
+}
+
+model Contract {
+  id                 String            @id @default(uuid()) @db.Uuid
+  organizationId     String
+  contractNo         String // supplier contract no., e.g. "454003422"
+  piNumber           String? // e.g. "9331004128"
+  piDate             DateTime?
+  supplierId         String            @db.Uuid
+  customerId         String            @db.Uuid
+  destinationPort    String?
+  destinationCountry String?           @default("Japan")
+  incoterm           String? // e.g. "CIF"
+  shipmentMonth      String? // "YYYY-MM"
+  deliveryMonth      String? // "YYYY-MM"
+  currency           String            @default("USD")
+  /// B/L instructions (multi-line); default from TradeSetting on create.
+  consignee          String?
+  notifyParty        String?
+  piAmount           Decimal?          @db.Decimal(16, 2)
+  depositPercent     Decimal?          @default(10) @db.Decimal(5, 2)
+  depositAmount      Decimal?          @db.Decimal(16, 2)
+  depositDueNote     String? // e.g. "within 5 business days"
+  depositPaidAt      DateTime?
+  status             TradeRecordStatus @default(OPEN)
+  notes              String?
+  createdById        String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  supplier      Supplier            @relation("SupplierContracts", fields: [supplierId], references: [id])
+  customer      Customer            @relation("CustomerContracts", fields: [customerId], references: [id])
+  lines         ContractLine[]
+  shipments     Shipment[]
+  steps         TradeStep[]
+  fileLinks     TradeFileLink[]
+  docLinks      TradeDocumentLink[]
+  generatedDocs TradeGeneratedDoc[]
+
+  @@unique([organizationId, contractNo])
+  @@index([organizationId, status])
+  @@index([organizationId, supplierId])
+  @@index([organizationId, customerId])
+}
+
+/// One product line of a contract (grade / size / quantity / premiums). A
+/// shipment ships one line (Shipment.contractLineId).
+model ContractLine {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String
+  contractId      String   @db.Uuid
+  grade           String? // e.g. "6063"
+  product         String? // e.g. "Aluminium Billet"
+  sizeSpec        String? // e.g. "203 MM X 5800 MM"
+  quantityMt      Decimal? @db.Decimal(14, 3)
+  tolerancePct    Decimal  @default(5) @db.Decimal(5, 2)
+  /// USD per tonne: Vedanta's premium, and ADH's premium to the client.
+  supplierPremium Decimal? @db.Decimal(12, 2)
+  clientPremium   Decimal? @db.Decimal(12, 2)
+  sortOrder       Int
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  contract  Contract   @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  shipments Shipment[]
+
+  @@index([organizationId, contractId])
+}
+
+/// Org-level trade defaults (one row per org): B/L instruction texts copied
+/// into new contracts.
+model TradeSetting {
+  id                 String   @id @default(uuid()) @db.Uuid
+  organizationId     String   @unique
+  defaultConsignee   String?
+  defaultNotifyParty String?
+  /// Default texts for documents created in-app (From block, bank, invoice conditions, …), keyed by name.
+  docDefaults        Json?
+  updatedAt          DateTime @updatedAt
+}
+
+model Shipment {
+  id                String            @id @default(uuid()) @db.Uuid
+  organizationId    String
+  contractId        String            @db.Uuid
+  /// The contract product line this B/L ships (required in the UI when the contract has lines).
+  contractLineId    String?           @db.Uuid
+  customerId        String?           @db.Uuid
+  blNumber          String? // NULL until known; Postgres treats NULLs as distinct in the unique
+  vessel            String?
+  voyageNo          String?
+  shippingLine      String?
+  etd               DateTime?
+  eta               DateTime? // "Latest ETA"
+  actualArrivalDate DateTime?
+  deliveryMonth     String? // "YYYY-MM", defaults from the contract
+  portOfLoading     String?
+  portOfDischarge   String?
+  netWeightMt       Decimal?          @db.Decimal(14, 3)
+  grossWeightMt     Decimal?          @db.Decimal(14, 3)
+  totalBundles      Int?
+  totalPieces       Int?
+  containerCount    Int?
+  hsCode            String?
+  countryOfOrigin   String?
+  commodity         String?
+  sizeSpec          String?
+  ciNumber          String?
+  ciAmount          Decimal?          @db.Decimal(16, 2)
+  telexReleaseCode  String?
+  currency          String            @default("USD")
+  status            TradeRecordStatus @default(OPEN)
+  notes             String?
+  createdById       String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  contract      Contract            @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  contractLine  ContractLine?       @relation(fields: [contractLineId], references: [id], onDelete: SetNull)
+  customer      Customer?           @relation("CustomerShipments", fields: [customerId], references: [id])
+  steps         TradeStep[]
+  fileLinks     TradeFileLink[]
+  docLinks      TradeDocumentLink[]
+  generatedDocs TradeGeneratedDoc[]
+
+  @@unique([organizationId, blNumber])
+  @@index([organizationId, contractId])
+  @@index([organizationId, status])
+}
+
+model TradeStepTemplate {
+  id               String         @id @default(uuid()) @db.Uuid
+  organizationId   String
+  scope            TradeStepScope
+  code             String
+  title            String
+  /// Org numbering shown to users ("9"); null = position in the list.
+  displayNo        String?
+  description      String?
+  sortOrder        Int
+  requiredDocTypes String[] // TradeDocType.code values (validated in the service)
+  isOngoing        Boolean        @default(false) // ongoing step never blocks completion
+  isActive         Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@unique([organizationId, scope, code])
+}
+
+/// One step instance on a Contract OR a Shipment (exactly one of contractId /
+/// shipmentId is set — enforced in the service; db push can't add a CHECK).
+/// title/sortOrder/requiredDocTypes/isOngoing are snapshotted from the template.
+model TradeStep {
+  id               String          @id @default(uuid()) @db.Uuid
+  organizationId   String
+  contractId       String?         @db.Uuid
+  shipmentId       String?         @db.Uuid
+  templateId       String?         @db.Uuid // traceability only, no FK
+  code             String
+  title            String
+  displayNo        String?
+  sortOrder        Int
+  requiredDocTypes String[]
+  isOngoing        Boolean
+  status           TradeStepStatus @default(NOT_STARTED)
+  skipReason       String?
+  updatedById      String?
+  updatedByName    String?
+  completedAt      DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  contract  Contract?           @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  shipment  Shipment?           @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  fileLinks TradeFileLink[]
+  docLinks  TradeDocumentLink[]
+
+  @@unique([contractId, code])
+  @@unique([shipmentId, code])
+  @@index([organizationId, status])
+}
+
+model TradeFile {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String
+  docType        String // TradeDocType.code
+  s3Key          String   @unique // built server-side under the org prefix
+  fileName       String
+  mimeType       String
+  sizeBytes      Int
+  uploadedById   String
+  uploadedByName String?
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  links       TradeFileLink[]
+  extractions TradeExtraction[]
+
+  @@index([organizationId, docType, createdAt])
+}
+
+model TradeFileLink {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String
+  fileId         String   @db.Uuid
+  contractId     String?  @db.Uuid
+  shipmentId     String?  @db.Uuid
+  stepId         String?  @db.Uuid
+  createdAt      DateTime @default(now())
+
+  file     TradeFile  @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  contract Contract?  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  shipment Shipment?  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  step     TradeStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
+  @@unique([fileId, contractId])
+  @@unique([fileId, shipmentId])
+  @@index([organizationId, contractId])
+  @@index([organizationId, shipmentId])
+}
+
+/// An in-app Sales Document (e.g. an INVOICE) counted as a trade document of
+/// `docType` on a contract or shipment. documentId is a plain uuid (no FK):
+/// a deleted Document leaves the link behind so it can be shown as "deleted"
+/// and stop satisfying the step.
+model TradeDocumentLink {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String
+  documentId     String   @db.Uuid
+  docType        String
+  contractId     String?  @db.Uuid
+  shipmentId     String?  @db.Uuid
+  stepId         String?  @db.Uuid
+  createdAt      DateTime @default(now())
+
+  contract Contract?  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  shipment Shipment?  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  step     TradeStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
+  @@unique([documentId, contractId])
+  @@unique([documentId, shipmentId])
+  @@index([organizationId, contractId])
+  @@index([organizationId, shipmentId])
+}
+
+/// A trade document drafted in-app (Customer PL / Customer COA for now; more
+/// templates such as SG→JP IV/PL or Shipping Instructions can be added by
+/// docType). Prefilled from a supplier spreadsheet (sourceFileId), edited as
+/// header + columns + rows, and finalized into a PDF TradeFile (finalFileId)
+/// linked to the shipment, which is what satisfies the step.
+model TradeGeneratedDoc {
+  id             String                  @id @default(uuid()) @db.Uuid
+  organizationId String
+  /// The record it belongs to: a shipment (PL / COA / SG→JP / SI / Invoice #2) or a contract (Invoice #1).
+  shipmentId     String?                 @db.Uuid
+  contractId     String?                 @db.Uuid
+  docType        String
+  number         String?
+  status         TradeGeneratedDocStatus @default(DRAFT)
+  header         Json
+  columns        Json
+  rows           Json
+  sourceFileId   String?                 @db.Uuid
+  finalFileId    String?                 @db.Uuid
+  /// Invoices: the Sales Document (type INVOICE) created / confirmed on Finalize.
+  documentId     String?                 @db.Uuid
+  createdById    String
+  createdByName  String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  shipment Shipment? @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, shipmentId])
+  @@index([organizationId, contractId])
+}
+
+enum TradeExtractionKind {
+  PI
+  BL_DRAFT
+}
+
+enum TradeExtractionStatus {
+  PENDING
+  DONE
+  FAILED
+}
+
+/// One AI read of a trade PDF (PI → contract draft, B/L draft → shipment draft
+/// + consignee/notify checks). Re-extracting adds a row; the newest wins.
+model TradeExtraction {
+  id                 String                @id @default(uuid()) @db.Uuid
+  organizationId     String
+  fileId             String                @db.Uuid
+  kind               TradeExtractionKind
+  status             TradeExtractionStatus @default(PENDING)
+  /// Validated model output + the derived contract/shipment draft.
+  result             Json?
+  /// B/L draft: advisory checks against the shipment / contract.
+  checks             Json?
+  error              String?
+  model              String?
+  inputTokens        Int?
+  outputTokens       Int?
+  durationMs         Int?
+  /// What the checks were run against (plain ids; the file link is the FK).
+  shipmentId         String?               @db.Uuid
+  contractId         String?               @db.Uuid
+  acknowledgedById   String?
+  acknowledgedByName String?
+  acknowledgedAt     DateTime?
+  createdById        String
+  createdAt          DateTime              @default(now())
+
+  file TradeFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, fileId, createdAt])
+  @@index([organizationId, shipmentId])
 }

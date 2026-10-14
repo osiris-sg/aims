@@ -28,6 +28,7 @@ import InvoiceVariantDrawer from "./components/InvoiceVariantDrawer";
 import InvoiceStatistics from "./components/InvoiceStatistics";
 import RecordPaymentDialog from "./components/RecordPaymentDialog";
 import { useXeroConnection } from "./hooks/useXeroConnection";
+import { docGrossTotal } from "@/helpers/docTotal";
 
 interface Document {
   id: string;
@@ -185,23 +186,7 @@ export default function InvoicesPage() {
 
   // Read the invoice's gross total from its config blob. Documents store the
   // form data under config.summary / config.nettTotal / etc. — try a few.
-  const getInvoiceTotal = (doc: any): number => {
-    const cfg = doc?.config || {};
-    const candidates = [cfg?.summary?.grandTotal, cfg?.nettTotal, cfg?.grandTotal, cfg?.total, cfg?.summary?.total];
-    for (const c of candidates) {
-      const n = parseFloat(c);
-      if (!isNaN(n) && n > 0) return n;
-    }
-    // Fallback: sum line items if present.
-    if (Array.isArray(cfg.items)) {
-      const sum = cfg.items.reduce((s: number, it: any) => {
-        const amt = parseFloat(it.amount) || parseFloat(it.quantity) * parseFloat(it.unitPrice) || 0;
-        return s + amt;
-      }, 0);
-      if (sum > 0) return sum;
-    }
-    return 0;
-  };
+  const getInvoiceTotal = (doc: any): number => docGrossTotal(doc?.config);
 
   const getDueDate = (doc: any): Date | null => {
     const d = doc?.config?.dueDate;

@@ -48,6 +48,20 @@ export class CreateCustomerDto {
   @IsString()
   gstRegNo?: string | null;
 
+  // Japanese legal name / address / contact — only orgs whose per-org schema
+  // has these columns (Shipments / ADH Japan) show and send them.
+  @IsOptional()
+  @IsString()
+  jpName?: string | null;
+
+  @IsOptional()
+  @IsString()
+  jpAddress?: string | null;
+
+  @IsOptional()
+  @IsString()
+  jpContact?: string | null;
+
   // Trading currency — one per customer code; docs inherit it, GL converts at
   // the standing rate.
   @IsOptional()

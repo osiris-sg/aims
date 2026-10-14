@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Box, CircularProgress } from "@mui/material";
+import { Alert, Box, Button, CircularProgress } from "@mui/material";
+import { useClerk } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { useOrganization } from "../hooks/useOrganization";
 
@@ -19,7 +20,8 @@ import { useOrganization } from "../hooks/useOrganization";
 export default function FieldOnlyGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { getToken } = useAuth();
-  const { organization, isLoaded: orgLoaded } = useOrganization();
+  const { organization, isLoaded: orgLoaded, error: orgError } = useOrganization();
+  const { signOut } = useClerk();
   const [checked, setChecked] = useState(false);
   const [allow, setAllow] = useState(false);
 
@@ -60,6 +62,27 @@ export default function FieldOnlyGuard({ children }: { children: React.ReactNode
       cancelled = true;
     };
   }, [orgLoaded, organization?.id, getToken, router]);
+
+  // The org load finished without an org (e.g. 403 "User is not assigned to
+  // any organization"): the effect above never runs, so show the reason
+  // instead of spinning forever.
+  if (orgLoaded && !organization?.id && orgError) {
+    return (
+      <Box sx={{ minHeight: "100vh", width: "100%", flex: 1, display: "flex", alignItems: "center", justifyContent: "center", p: 2 }}>
+        <Alert
+          severity="warning"
+          sx={{ maxWidth: 520 }}
+          action={
+            <Button color="inherit" size="small" sx={{ whiteSpace: "nowrap" }} onClick={() => signOut({ redirectUrl: "/sign-in" })}>
+              Sign out
+            </Button>
+          }
+        >
+          {orgError}
+        </Alert>
+      </Box>
+    );
+  }
 
   if (!checked || !allow) {
     return (
