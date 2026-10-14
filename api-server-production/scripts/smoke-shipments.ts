@@ -39,6 +39,7 @@ import * as XLSX from 'xlsx';
 import { amountOf, defaultLmeMonth, invoiceTotals, roundTo, toInvoiceLines, unitPriceOf } from '../src/shipments/trade-invoice';
 import { TradeHubService } from '../src/shipments/trade-hub.service';
 import { jpParty } from '../src/shipments/trade-generated.service';
+import { backfillDocRefs } from './backfill-doc-refs';
 
 const ORG_ID = process.env.SMOKE_ORG_ID || '222c6494-96ae-42d0-9283-1b5eabf47b42'; // Asia Deal Hub Japan LLC (dev)
 const CONTRACT_NO = 'TEST-454003422';
@@ -50,6 +51,10 @@ const CLEANUP_ONLY = process.argv.includes('--cleanup');
 const actor = { id: 'smoke-shipments', name: 'Shipments smoke test' };
 
 // A minimal valid one-page PDF.
+/** The 出庫・納入依頼書 宛先 as the service defaults it (Document settings → 宛先, else 三井倉庫 株式会社 御中). */
+const siAddresseeOf = (d: any) => d?.siAddressee ?? (d?.siWarehouseTo || d?.siTo ? `${d.siWarehouseTo ?? d.siTo} 御中` : '三井倉庫 株式会社 御中');
+/** A COA .XLS in Vedanta's tab-delimited export (the summary: casts with weights + chemistry). */
+const COA_TSV = Buffer.from(['Cast No\tNo of Bundle\tNet Wt\tFe\tSi\tMg', 'SMK1001\t1\t2.549\t0.12\t0.45\t0.55', ''].join('\r\n'));
 const DUMMY_PDF = Buffer.from(
   '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
     '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n',
@@ -662,7 +667,7 @@ async function main() {
           const site = (dd.deliveryProfiles ?? []).find((p: any) => customer.name.toLowerCase().includes(String(p.customerName).toLowerCase()));
           (h0.layout === 2 &&
             h0.title === '出庫・納入依頼書' &&
-            h0.toName === (dd.siWarehouseTo ?? '') &&
+            h0.toName === siAddresseeOf(dd) &&
             h0.carrier === (dd.siCarrier ?? '') &&
             (!site || (r0.destination === site.siteName && h0.remarks.startsWith('指定荷卸し場→')))
             ? pass
@@ -691,8 +696,8 @@ async function main() {
         }
         if (docType === 'INVOICE_2') {
           const rs = g.rows as any[];
-          (h0.variant === 'final' && rs.length === 4 && rs[2].taxable === false && rs[3].unitPrice === (dd.invoice2OtherPerMt ?? 40) && typeof h0.invoice1Amount === 'number' ? pass : fail)(
-            'INVOICE_2: final price + 通関、車輸送料 + 通関 (課税対象外) + 他諸掛 40 USD/MT, １回目の金額 from Invoice #1',
+          (h0.variant === 'final' && rs.length === 4 && rs[2].taxable === false && rs[3].unit === '式' && rs[3].quantity === 1 && typeof h0.invoice1Amount === 'number' ? pass : fail)(
+            'INVOICE_2: final price + 通関、車輸送料 + 通関 (課税対象外) + 他諸掛 (1 式 = net × 40 USD/MT), １回目の金額 from Invoice #1',
             `${rs.length} lines, 1回目 ${h0.invoice1Amount}`,
           );
           (unitPriceOf(rs[0]) === null ? pass : fail)('INVOICE_2: no unit price until the LME is typed (not QMJP + premium)', String(unitPriceOf(rs[0])));
@@ -710,7 +715,7 @@ async function main() {
             { ...rows[0], lme: 3155.98, qmjp: 395, premium: 230, quantity: 30.112 },
             { ...rows[1], unitPrice: 1650.4 },
             { ...rows[2], unitPrice: 74.21 },
-            { ...rows[3], quantity: 30.112 },
+            { ...rows[3], quantity: 1, unitPrice: 1204.48 }, // 他諸掛 = ROUNDDOWN(30.112 × 40, 2)
           ];
         await gen.update(ORG_ID, g.id, { header, rows });
         if (docType === 'CUSTOMER_PL') {
@@ -765,7 +770,7 @@ async function main() {
         const hubSvc = new TradeHubService(prisma, config);
         const mine = await hubSvc.list(ORG_ID, { shipmentId: shipment.id, pageSize: '100' });
         const si = mine.items.find((r) => r.docType === 'SHIPPING_INSTRUCTIONS');
-        (si && si.customerName === customer.name && si.recipient === ((settingsNow.docDefaults as any)?.siWarehouseTo || null) ? pass : fail)(
+        (si && si.customerName === customer.name && si.recipient === siAddresseeOf(settingsNow.docDefaults as any) ? pass : fail)(
           'hub: SI row — Customer is the contract customer, Recipient the warehouse',
           `${si?.customerName} / ${si?.recipient}`,
         );
@@ -837,9 +842,100 @@ async function main() {
           );
         }
       }
+      // ── Round 5–12: document IDs, hub search, COA pick, finalize block, A/N read ──
+      {
+        const seq = (await prisma.shipment.findFirst({ where: { id: shipment.id }, select: { seqNo: true } }))?.seqNo;
+        const first = (await prisma.shipment.findFirst({ where: { contractId: contract.id }, orderBy: { createdAt: 'asc' }, select: { id: true, seqNo: true } }))!;
+        (first.seqNo === 1 && seq && seq > 1 ? pass : fail)('doc IDs: shipments numbered by creation (#1 = the one that came with the contract)', `#1=${first.seqNo}, ${BL_NUMBER}=#${seq}`);
+        const blFile = await prisma.tradeFile.findFirst({ where: { id: uploaded.id }, select: { docRef: true } });
+        (blFile?.docRef === `${CONTRACT_NO}-${seq}-BLD` ? pass : fail)('doc IDs: an uploaded B/L draft → <contract>-<shipment>-BLD', String(blFile?.docRef));
+        if (piX?.fileId) {
+          const pi = await prisma.tradeFile.findFirst({ where: { id: piX.fileId }, select: { docRef: true } });
+          (pi?.docRef === `${CONTRACT_NO}-PI` ? pass : fail)('doc IDs: the PI on the contract → <contract>-PI', String(pi?.docRef));
+        }
+        const gens = await prisma.tradeGeneratedDoc.findMany({ where: { organizationId: ORG_ID, OR: [{ shipmentId: shipment.id }, { contractId: contract.id }] }, orderBy: { createdAt: 'asc' }, select: { docType: true, docRef: true, finalFileId: true } });
+        const want: Record<string, string> = { CUSTOMER_PL: `${CONTRACT_NO}-${seq}-CPL`, CUSTOMER_COA: `${CONTRACT_NO}-${seq}-CCOA`, SHIPPING_INSTRUCTIONS: `${CONTRACT_NO}-${seq}-SI`, INVOICE_2: `${CONTRACT_NO}-${seq}-INV2`, INVOICE_1: `${CONTRACT_NO}-INV1` };
+        const bad = gens.filter((g) => want[g.docType] && g.docRef !== want[g.docType]);
+        const sgjp = gens.filter((g) => g.docType === 'SGJP_IV_PL').map((g) => g.docRef);
+        (gens.length && !bad.length && sgjp[0] === `${CONTRACT_NO}-${seq}-SGJP` && sgjp[1] === `${CONTRACT_NO}-${seq}-SGJP-2` ? pass : fail)(
+          'doc IDs: in-app documents (…-CPL, -CCOA, -SI, -INV2, -INV1; a second SG→JP → -SGJP-2)',
+          gens.map((g) => g.docRef).join(', '),
+        );
+        const finalPdfs = await prisma.tradeFile.findMany({ where: { id: { in: gens.map((g) => g.finalFileId).filter(Boolean) as string[] } }, select: { id: true, docRef: true } });
+        (finalPdfs.length && finalPdfs.every((f: any) => gens.some((g) => g.finalFileId === f.id && g.docRef === f.docRef)) ? pass : fail)('doc IDs: a finalized PDF carries its in-app document\'s ID', `${finalPdfs.length} PDF(s)`);
+        const hubHit = await new TradeHubService(prisma, config).list(ORG_ID, { q: `${CONTRACT_NO}-${seq}-CPL`, pageSize: '20' });
+        (hubHit.items.length >= 1 && hubHit.items.every((r) => r.docRef?.startsWith(`${CONTRACT_NO}-${seq}-CPL`)) ? pass : fail)('doc IDs: Documents hub search finds a document by its ID', `${hubHit.items.length} row(s)`);
+        const fileHit = await files.list(ORG_ID, { q: `${CONTRACT_NO}-${seq}-BLD` } as any);
+        (fileHit.items.some((f: any) => f.id === uploaded.id) ? pass : fail)('doc IDs: Files search finds a file by its ID', `${fileHit.items.length} row(s)`);
+        const nullBefore = await prisma.tradeFile.count({ where: { organizationId: ORG_ID, docRef: null } });
+        const dry = await expectOk('doc IDs: backfill dry run', () => backfillDocRefs(prisma, config, ORG_ID, false));
+        const nullAfter = await prisma.tradeFile.count({ where: { organizationId: ORG_ID, docRef: null } });
+        (dry && nullBefore === nullAfter ? pass : fail)('doc IDs: the dry run writes nothing', `${dry?.files ?? '?'} file(s) / ${dry?.generated ?? '?'} doc(s) would be numbered; untouched ${nullBefore} = ${nullAfter}`);
+
+        // COA source auto-pick: the .XLS (summary) beats a PDF that is no summary.
+        const coaXls = await expectOk('COA: upload a COA .XLS (tab-delimited)', () =>
+          files.upload(ORG_ID, { originalname: 'COA.XLS', mimetype: 'application/vnd.ms-excel', size: COA_TSV.length, buffer: COA_TSV } as Express.Multer.File, { docType: 'COA', shipmentIds: [shipment.id] }, actor),
+        );
+        const coaPdf = await expectOk('COA: upload a COA PDF', () => files.upload(ORG_ID, pdfFile('COA_9000000000.pdf'), { docType: 'COA', shipmentIds: [shipment.id] }, actor));
+        const srcs: any[] = (await expectOk('COA: ranked sources', () => gen.sources(ORG_ID, shipment.id, 'CUSTOMER_COA'))) ?? [];
+        (srcs[0]?.id === coaXls?.id && srcs[0]?.best && /COA summary/.test(srcs[0]?.label) && srcs.some((x) => x.id === coaPdf?.id && !x.best) ? pass : fail)(
+          'COA: the summary spreadsheet is picked first and labelled; the PDF goes under "Use a different file"',
+          srcs.map((x) => `${x.fileName}: ${x.label}${x.best ? ' (best)' : ''}`).join(' | '),
+        );
+        for (const f of [coaXls, coaPdf]) if (f) await files.remove(ORG_ID, f.id);
+
+        // Finalize block: an SG→JP invoice without its LME (and so a US$0 total) is refused, naming what is missing.
+        const sg3: any = await expectOk('finalize block: create a third SG→JP invoice', () => gen.createBlank(ORG_ID, { docType: 'SGJP_IV_PL', shipmentId: shipment.id }, actor));
+        if (sg3) {
+          await gen.update(ORG_ID, sg3.id, { rows: [{ ...(sg3.rows as any[])[0], lme: null, unitPrice: null, quantity: 10 }] });
+          await expectReject('finalize block: SG→JP with no LME / US$0 total → refused, listing what is missing', () => gen.finalize(ORG_ID, sg3.id, actor), /Can't finalize: .*(LME|unit price).*US\$0\.00/);
+          await gen.remove(ORG_ID, sg3.id);
+        }
+
+        // Arrival notice (mocked model reply): the draft and only the blank shipment fields are offered.
+        replies.push({ blNumber: BL_NUMBER, vessel: 'WAN HAI 366', voyageNo: 'E049', eta: '2026-09-04', cyTerminal: 'BC鈴江', grossWeightKg: 307004, netWeightKg: 305804, totalBundles: 120, totalPieces: 600, containers: [{ containerNo: 'TEST1234567', sealNo: 'S1', size: '20SD86' }], charges: [{ code: 'THC', amount: 232800, currency: 'JPY', collect: true }] });
+        const an: any = await expectOk('A/N: read an arrival notice dropped on its row (mock model)', () => extract.extract(ORG_ID, 'AN', { file: pdfFile('AN-smoke.pdf'), shipmentId: shipment.id }, actor));
+        const cur: any = await prisma.shipment.findFirst({ where: { id: shipment.id } });
+        const fill = an?.result?.fill ?? {};
+        const offeredOnlyBlank = Object.keys(fill).every((k) => cur[k] === null || cur[k] === undefined || cur[k] === '');
+        (an?.status === 'DONE' && an.result.draft.containerCount === 1 && an.result.draft.chargesCollect[0]?.amount === 232800 && offeredOnlyBlank && !an.result.blMismatch ? pass : fail)(
+          'A/N: draft read (vessel, ETA, containers, charges collect); only blank fields offered',
+          `fill ${JSON.stringify(fill)}`,
+        );
+        if (an?.fileId) {
+          const anFile = await prisma.tradeFile.findFirst({ where: { id: an.fileId }, select: { docType: true, docRef: true } });
+          (anFile?.docType === 'ARRIVAL_NOTICE' && anFile.docRef === `${CONTRACT_NO}-${seq}-AN` ? pass : fail)('A/N: stored as ARRIVAL_NOTICE with its doc ID', `${anFile?.docType} ${anFile?.docRef}`);
+          await prisma.tradeExtraction.deleteMany({ where: { fileId: an.fileId } });
+          await files.remove(ORG_ID, an.fileId);
+        }
+      }
       if (invoiceId) await expectOk('delete the throwaway invoice Document', () => prisma.document.delete({ where: { id: invoiceId!, organizationId: ORG_ID } }));
       // After the throwaway invoice is gone, so the INVOICE counter can go back to 1.
       await expectOk('remove the in-app documents, their PDFs and Sales invoices', () => purgeInApp(prisma, s3, contract.id, [shipment.id]));
+      // ── Auto-complete: the last step completes the shipment, the last shipment the deal; tabs ──
+      {
+        const others = await prisma.shipment.findMany({ where: { contractId: contract.id, id: { not: shipment.id }, status: 'OPEN' }, select: { id: true } });
+        await prisma.shipment.updateMany({ where: { id: { in: others.map((o: any) => o.id) } }, data: { status: 'CANCELLED' } });
+        await prisma.tradeStep.updateMany({ where: { contractId: contract.id }, data: { status: 'DONE', holdOpen: false } });
+        await prisma.tradeStep.updateMany({ where: { shipmentId: shipment.id, code: { not: 'XERO_HANDOFF' } }, data: { status: 'DONE', holdOpen: false } });
+        const last = await prisma.tradeStep.findFirst({ where: { shipmentId: shipment.id, code: 'XERO_HANDOFF' }, select: { id: true } });
+        const pendingBefore = await shipments.list(ORG_ID, { bucket: 'pending', contractId: contract.id } as any);
+        (pendingBefore.items.some((x: any) => x.id === shipment.id) && pendingBefore.counts.completed === others.length ? pass : fail)(
+          'tabs: an open shipment is under Pending; cancelled ones count under Completed',
+          JSON.stringify(pendingBefore.counts),
+        );
+        if (last) await expectOk('auto-complete: "Mark done" on the last open step (13. Xero handoff)', () => steps.complete(ORG_ID, last.id, actor));
+        const sNow = await prisma.shipment.findFirst({ where: { id: shipment.id }, select: { status: true } });
+        const cNow0 = await prisma.contract.findFirst({ where: { id: contract.id }, select: { status: true } });
+        (sNow?.status === 'COMPLETED' ? pass : fail)('auto-complete: all steps done → the shipment completes', String(sNow?.status));
+        (cNow0?.status === 'COMPLETED' ? pass : fail)('auto-complete: every shipment complete (others cancelled) → the deal completes', String(cNow0?.status));
+        const done = await shipments.list(ORG_ID, { bucket: 'completed', contractId: contract.id } as any);
+        const pend = await shipments.list(ORG_ID, { bucket: 'pending', contractId: contract.id } as any);
+        (done.items.some((x: any) => x.id === shipment.id) && !pend.items.length && done.counts.completed === others.length + 1 && done.counts.pending === 0 ? pass : fail)(
+          'tabs: the completed shipment moves to Completed (with the cancelled ones); Pending is empty',
+          JSON.stringify(done.counts),
+        );
+      }
       await expectReject('delete the contract while it has a shipment', () => contracts.remove(ORG_ID, contract.id), /shipment/);
 
       // Reopening a shipment whose contract is COMPLETED reopens the contract too (states set directly: the smoke's steps aren't all done).

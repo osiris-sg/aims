@@ -18,10 +18,12 @@ export class ShipmentsService {
   async list(organizationId: string, query: ListShipmentsQuery) {
     const { page, pageSize, skip, take } = pageArgs(query.page, query.pageSize);
     const q = query.q?.trim();
+    const bucketStatus = query.bucket === 'pending' ? { status: 'OPEN' as const } : query.bucket === 'completed' ? { status: { in: ['COMPLETED', 'CANCELLED'] as Array<'COMPLETED' | 'CANCELLED'> } } : {};
     const where = {
       organizationId,
       ...(query.contractId ? { contractId: query.contractId } : {}),
       ...(query.customerId ? { customerId: query.customerId } : {}),
+      ...bucketStatus,
       ...(query.status ? { status: query.status as 'OPEN' | 'COMPLETED' | 'CANCELLED' } : {}),
       ...(q
         ? {
@@ -65,11 +67,25 @@ export class ShipmentsService {
       const all = (await this.prisma.shipment.findMany({ where, orderBy, select })).map(shape);
       const want = query.currentStep;
       const hit = all.filter((s: any) => (want === 'COMPLETED' ? s.currentStep === null && s.progress.total > 0 : s.currentStep?.code === want));
-      return { items: hit.slice(skip, skip + take), total: hit.length, page, pageSize, totalPages: Math.ceil(hit.length / pageSize) };
+      return { items: hit.slice(skip, skip + take), total: hit.length, page, pageSize, totalPages: Math.ceil(hit.length / pageSize), counts: await this.bucketCounts(organizationId, where) };
     }
-    const [rows, total] = await Promise.all([this.prisma.shipment.findMany({ where, orderBy, skip, take, select }), this.prisma.shipment.count({ where })]);
+    const [rows, total, counts] = await Promise.all([
+      this.prisma.shipment.findMany({ where, orderBy, skip, take, select }),
+      this.prisma.shipment.count({ where }),
+      this.bucketCounts(organizationId, where),
+    ]);
     const items = rows.map(shape);
-    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
+    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize), counts };
+  }
+
+  /** Tab counts (Pending / Completed) under the other filters. */
+  private async bucketCounts(organizationId: string, where: Record<string, unknown>) {
+    const { status: _s, ...rest } = where as { status?: unknown };
+    const [pending, completed] = await Promise.all([
+      this.prisma.shipment.count({ where: { ...rest, organizationId, status: 'OPEN' } }),
+      this.prisma.shipment.count({ where: { ...rest, organizationId, status: { in: ['COMPLETED', 'CANCELLED'] } } }),
+    ]);
+    return { pending, completed };
   }
 
   /** Detail; with an actor, auto-complete runs first (e.g. an invoice confirmed in the invoice editor). */
@@ -148,9 +164,12 @@ export class ShipmentsService {
     if (line && dto.commodity === undefined) fields.commodity = commodityOf(line);
     if (line && dto.sizeSpec === undefined) fields.sizeSpec = line.sizeSpec ?? null;
     if (dto.deliveryMonth === undefined) fields.deliveryMonth = contract.deliveryMonth ?? null;
+    // Shipment number within the deal (#1, #2 …) — part of its documents' IDs.
+    const last: { seqNo: number | null } | null = await tx.shipment.findFirst({ where: { organizationId, contractId: contract.id }, orderBy: { seqNo: { sort: 'desc', nulls: 'last' } }, select: { seqNo: true } });
     const created = await tx.shipment.create({
       data: {
         organizationId,
+        seqNo: (last?.seqNo ?? 0) + 1,
         contractId: contract.id,
         contractLineId: line?.id ?? null,
         customerId,

@@ -23,7 +23,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { useShipmentsApi } from "../_lib/api";
 import { SHIPMENT_KEYS } from "../_lib/hooks";
 
-export type PreviewFile = { id: string; fileName: string; mimeType: string; hasThumb?: boolean };
+export type PreviewFile = { id: string; fileName: string; mimeType: string; hasThumb?: boolean; docRef?: string | null };
 
 const extOf = (name: string) => (/\.([a-z0-9]+)$/i.exec(name)?.[1] ?? "").toLowerCase();
 const isPdf = (f: { fileName: string; mimeType?: string }) => f.mimeType === "application/pdf" || extOf(f.fileName) === "pdf";
@@ -119,7 +119,12 @@ export function FileViewer({ file, onClose }: { file: PreviewFile | null; onClos
     <Dialog open={!!file} onClose={onClose} maxWidth="lg" fullWidth>
       <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1, pr: 6 }}>
         {file && <FileTypeIcon fileName={file.fileName} mimeType={file.mimeType} size={22} />}
-        <Typography component="span" variant="h6" noWrap sx={{ minWidth: 0 }}>
+        {file?.docRef && (
+          <Typography component="span" variant="h6" sx={{ fontFamily: "monospace", fontWeight: 800, whiteSpace: "nowrap" }}>
+            {file.docRef}
+          </Typography>
+        )}
+        <Typography component="span" variant={file?.docRef ? "body1" : "h6"} color={file?.docRef ? "text.secondary" : undefined} noWrap sx={{ minWidth: 0 }}>
           {file?.fileName}
         </Typography>
         <IconButton aria-label="Close" onClick={onClose} sx={{ position: "absolute", right: 8, top: 8 }}>

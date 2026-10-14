@@ -1331,6 +1331,10 @@ model ContractLine {
   /// USD per tonne: Vedanta's premium, and ADH's premium to the client.
   supplierPremium Decimal? @db.Decimal(12, 2)
   clientPremium   Decimal? @db.Decimal(12, 2)
+  /// Price parts (USD/MT) the 請求書 / SG→JP pricing helper starts from when Invoice #1 has none.
+  qmjp            Decimal? @db.Decimal(12, 2)
+  billetPremium   Decimal? @db.Decimal(12, 2)
+  upcharge        Decimal? @db.Decimal(12, 2)
   sortOrder       Int
   notes           String?
   createdAt       DateTime @default(now())
@@ -1358,6 +1362,8 @@ model Shipment {
   id                String            @id @default(uuid()) @db.Uuid
   organizationId    String
   contractId        String            @db.Uuid
+  /// Shipment number within its contract (1, 2, …) — part of document IDs.
+  seqNo             Int?
   /// The contract product line this B/L ships (required in the UI when the contract has lines).
   contractLineId    String?           @db.Uuid
   customerId        String?           @db.Uuid
@@ -1476,12 +1482,15 @@ model TradeFile {
   notes          String?
   /// First-page / image thumbnail (PNG) stored next to the file; null = none (Office files, or not made yet).
   thumbKey       String?
+  /// Document ID "<contract>-<shipment no>-<type>" (e.g. 454003255-1-PL), assigned on upload.
+  docRef         String?
   createdAt      DateTime @default(now())
 
   links       TradeFileLink[]
   extractions TradeExtraction[]
 
   @@index([organizationId, docType, createdAt])
+  @@index([organizationId, docRef])
 }
 
 model TradeFileLink {
@@ -1541,6 +1550,8 @@ model TradeGeneratedDoc {
   contractId     String?                 @db.Uuid
   docType        String
   number         String?
+  /// Document ID \"<contract>-<shipment no>-<type>\" (e.g. 454003255-1-CPL); the PDF keeps its own document number.
+  docRef         String?
   status         TradeGeneratedDocStatus @default(DRAFT)
   header         Json
   columns        Json
@@ -1557,6 +1568,7 @@ model TradeGeneratedDoc {
   shipment Shipment? @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
   contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
 
+  @@index([organizationId, docRef])
   @@index([organizationId, shipmentId])
   @@index([organizationId, contractId])
 }
@@ -1564,6 +1576,7 @@ model TradeGeneratedDoc {
 enum TradeExtractionKind {
   PI
   BL_DRAFT
+  AN
 }
 
 enum TradeExtractionStatus {

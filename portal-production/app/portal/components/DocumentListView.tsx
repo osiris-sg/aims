@@ -63,6 +63,8 @@ interface Props {
   fromPath?: string;
   /** Hide the "All … for this organization" line under the title (stand-alone Invoices module). */
   hideSubtitle?: boolean;
+  /** "issue": show and sort by the document's issue date instead of its created date (newest first). */
+  dateColumn?: "created" | "issue";
 }
 
 interface DocumentRow {
@@ -72,6 +74,7 @@ interface DocumentRow {
   templateId: string;
   status: string;
   createdAt: string;
+  issueDate?: string;
   associated_customer?: string;
   associated_item?: string;
   config?: any;
@@ -173,6 +176,7 @@ export default function DocumentListView({
   createDocumentType,
   fromPath,
   hideSubtitle,
+  dateColumn = "created",
 }: Props) {
   const router = useRouter();
   const { getToken } = useAuth();
@@ -186,7 +190,7 @@ export default function DocumentListView({
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
-  const [sorting, setSorting] = useState<any[]>([]);
+  const [sorting, setSorting] = useState<any[]>(dateColumn === "issue" ? [{ id: "issueDate", desc: true }] : []);
   const [filters, setFilters] = useState<any>({
     status: "",
     customerId: "",
@@ -207,7 +211,7 @@ export default function DocumentListView({
   // Column-header sort → server sort field (name/status/createdAt only; the
   // JSON-derived Customer/Item columns aren't server-sortable, so their sort is
   // disabled in the column defs below).
-  const sortColMap: Record<string, string> = { name: "name", status: "status", createdAt: "createdAt" };
+  const sortColMap: Record<string, string> = { name: "name", status: "status", createdAt: "createdAt", issueDate: "issueDate" };
   const sortState = sorting[0];
   const sortBy = sortState ? sortColMap[sortState.id] : undefined;
   const sortDir = sortState ? (sortState.desc ? "desc" : "asc") : undefined;
@@ -309,13 +313,21 @@ export default function DocumentListView({
       pxWidth: 150,
       cell: ({ row }: any) => <StatusChip status={row.original.status} />,
     },
-    {
-      accessorKey: "createdAt",
-      header: "Created",
-      nowrap: true,
-      pxWidth: 120,
-      cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
-    },
+    dateColumn === "issue"
+      ? {
+          accessorKey: "issueDate",
+          header: "Issue date",
+          nowrap: true,
+          pxWidth: 120,
+          cell: ({ row }: any) => moment(row.original.issueDate || row.original.createdAt).format("DD/MM/YYYY"),
+        }
+      : {
+          accessorKey: "createdAt",
+          header: "Created",
+          nowrap: true,
+          pxWidth: 120,
+          cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
+        },
     {
       // Row-click opens the document; the kebab holds secondary actions
       // (CLAUDE.md table pattern — inline action-icon columns retired).

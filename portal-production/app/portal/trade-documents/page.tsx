@@ -22,7 +22,7 @@ import { blLabel, categoryLabel, DOC_CATEGORIES, documentHref, fmtDate, fmtDateT
 import { ConfirmDialog, EmptyState } from "@/app/portal/shipments/_components/bits";
 import { AddLinkDialog, UnlinkDialog } from "@/app/portal/shipments/_components/FilesTable";
 import FileUploadDialog from "@/app/portal/shipments/_components/FileUploadDialog";
-import { FileThumb, FileTypeIcon, useFileViewer } from "@/app/portal/shipments/_components/FilePreview";
+import { useFileViewer } from "@/app/portal/shipments/_components/FilePreview";
 import { useDebounced } from "@/app/portal/shipments/_components/useDebounced";
 
 const HERE = "/portal/trade-documents";
@@ -101,7 +101,7 @@ export default function TradeDocumentsHubPage() {
 
   // Files open in the in-app viewer (PDF pages / image, with download).
   const { open: openViewer, viewer } = useFileViewer();
-  const viewFile = (r: HubRow) => r.fileId && openViewer({ id: r.fileId, fileName: r.name, mimeType: r.mimeType ?? "", hasThumb: r.hasThumb });
+  const viewFile = (r: HubRow) => r.fileId && openViewer({ id: r.fileId, fileName: r.name, mimeType: r.mimeType ?? "", hasThumb: r.hasThumb, docRef: r.docRef });
   const open = (r: HubRow) => {
     if (r.kind === "file" && r.fileId) return viewFile(r);
     if (r.kind === "invoice" && r.document) return router.push(documentHref(r.document, HERE));
@@ -120,28 +120,16 @@ export default function TradeDocumentsHubPage() {
     [docTypes.data, contracts.data, shipments.data, customers.data, category],
   );
 
-  const statusChip = (r: HubRow) => {
-    if (!r.status) return <Typography variant="caption" color="text.secondary">—</Typography>;
-    const color = r.status === "Confirmed" || r.status === "Final" ? "success" : r.status === "Draft" ? "warning" : "error";
-    return <Chip size="small" variant="outlined" color={color as any} label={r.status} />;
-  };
-
   const columns = useMemo(
     () => [
       {
-        id: "preview",
-        header: "",
-        enableSorting: false,
-        cell: ({ row }: any) => {
-          const r: HubRow = row.original;
-          return r.fileId ? (
-            <FileThumb file={{ id: r.fileId, fileName: r.name, mimeType: r.mimeType ?? "", hasThumb: r.hasThumb }} width={40} onOpen={() => viewFile(r)} />
-          ) : (
-            <Box sx={{ width: 40, display: "flex", justifyContent: "center" }}>
-              <FileTypeIcon fileName={r.name} mimeType={r.kind === "invoice" ? "application/pdf" : undefined} size={22} />
-            </Box>
-          );
-        },
+        id: "docRef",
+        header: "Document ID",
+        cell: ({ row }: any) => (
+          <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 700, whiteSpace: "nowrap" }}>
+            {row.original.docRef || "—"}
+          </Typography>
+        ),
       },
       { id: "category", header: "Category", cell: ({ row }: any) => <Typography variant="body2" sx={{ whiteSpace: "nowrap" }}>{categoryLabel(row.original.category)}</Typography> },
       { id: "docType", header: "Doc type", cell: ({ row }: any) => <Chip size="small" variant="outlined" label={row.original.docTypeLabel} /> },
@@ -154,8 +142,6 @@ export default function TradeDocumentsHubPage() {
           </Typography>
         ),
       },
-      { id: "source", header: "Source", cell: ({ row }: any) => <Typography variant="body2" sx={{ whiteSpace: "nowrap" }}>{row.original.source === "IN_APP" ? "Created in-app" : "Uploaded"}</Typography> },
-      { id: "status", header: "Status", cell: ({ row }: any) => statusChip(row.original) },
       {
         id: "links",
         header: "Linked to",

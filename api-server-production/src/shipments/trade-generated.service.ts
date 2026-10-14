@@ -8,11 +8,13 @@ import { DocumentTemplatesService } from '../documentTemplates/documentTemplates
 import { TradeActor } from './shipments.request';
 import { docDateErrors, stepLabel, tradeDateError, tradeToday } from './shipments.rules';
 import { GenHeader, GenRef, renderGeneratedHtml } from './trade-generated.html';
-import { buildCustomerCoaJp, COA_JP_COLUMNS, CoaFormatError, parseCoaPdfText, pdfText } from './trade-coa';
+import { buildCustomerCoaJp, classifyCoaText, COA_JP_COLUMNS, CoaFormatError, CoaSourceKind, parseCoaPdfText, pdfText } from './trade-coa';
 import {
   addBusinessDays,
   dueBusinessDays,
   amountOf,
+  finalizeMessage,
+  invoiceFinalizeProblems,
   defaultLmeMonth,
   DeliveryProfile,
   DocDefaults,
@@ -37,6 +39,7 @@ import {
   SgjpHeader,
   SgjpHeaderV2,
   SgjpItem,
+  sgjpFinalizeProblems,
   sgjpInvoiceNo,
   SiHeader,
   SiHeaderV2,
@@ -91,6 +94,7 @@ const GEN_SELECT = {
   sourceFileId: true,
   finalFileId: true,
   documentId: true,
+  docRef: true,
   createdById: true,
   createdByName: true,
   createdAt: true,
@@ -119,12 +123,42 @@ export class TradeGeneratedService {
   async sources(organizationId: string, shipmentId: string, docType: string) {
     const t = this.template(docType);
     if (!t.sourceDocType) return [];
-    const files: Array<{ id: string; fileName: string; createdAt: Date; uploadedByName: string | null }> = await this.prisma.tradeFile.findMany({
+    const files: Array<{ id: string; fileName: string; createdAt: Date; uploadedByName: string | null; docRef: string | null }> = await this.prisma.tradeFile.findMany({
       where: { organizationId, docType: t.sourceDocType, links: { some: { shipmentId } } },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, fileName: true, createdAt: true, uploadedByName: true },
+      select: { id: true, fileName: true, createdAt: true, uploadedByName: true, docRef: true },
     });
-    return files.filter((f) => isSource(f.fileName, t.sourcePdf));
+    const list = files.filter((f) => isSource(f.fileName, t.sourcePdf));
+    // Best source first, labelled by what it holds: a spreadsheet (PL.XLS / COA.XLS) or the COA
+    // summary PDF before Vedanta's per-cast test report (chemistry only).
+    const ranked = await Promise.all(
+      list.map(async (f) => {
+        const isPdf = /\.pdf$/i.test(f.fileName);
+        let kind: 'spreadsheet' | CoaSourceKind = isPdf ? 'unknown' : 'spreadsheet';
+        if (isPdf) {
+          try {
+            const row = await this.prisma.tradeFile.findFirst({ where: { id: f.id, organizationId }, select: { s3Key: true } });
+            kind = classifyCoaText(await pdfText(await this.s3.downloadFile(row!.s3Key)));
+          } catch {
+            kind = 'unknown';
+          }
+        }
+        const coa = docType === 'CUSTOMER_COA';
+        const label =
+          kind === 'report'
+            ? 'Test report: chemistry only'
+            : kind === 'summary' || (kind === 'spreadsheet' && coa)
+              ? 'COA summary: weights + chemistry'
+              : kind === 'spreadsheet'
+                ? 'Packing list spreadsheet: containers + weights'
+                : coa
+                  ? 'COA PDF'
+                  : 'Packing list PDF';
+        const rank = kind === 'spreadsheet' || kind === 'summary' ? 0 : kind === 'unknown' ? 1 : 2;
+        return { ...f, kind, label, rank };
+      }),
+    );
+    return ranked.sort((a, b) => a.rank - b.rank || b.createdAt.getTime() - a.createdAt.getTime()).map(({ rank, ...f }, i) => ({ ...f, best: i === 0 }));
   }
 
   async list(organizationId: string, filter: { shipmentId?: string; contractId?: string } = {}) {
@@ -319,13 +353,15 @@ export class TradeGeneratedService {
         lmeMonth,
         variant: 'final',
         invoice1No: inv1?.number ?? null,
-        invoice1Amount: inv1 ? roundTo(amountOf(inv1.line) * (1 + (inv1.taxRate ?? h.taxRate) / 100), 2) : null,
+        // What Invoice #1 billed for this product, tax incl.; blank (with a hint in the form) when it billed nothing.
+        invoice1Amount: inv1 && amountOf(inv1.line) !== 0 ? roundTo(amountOf(inv1.line) * (1 + (inv1.taxRate ?? h.taxRate) / 100), 2) : null,
       } satisfies InvoiceHeader;
       rows = invoice2FinalLines({
         netWeightMt: s.netWeightMt,
         line,
         contract: { id: s.contract.id, contractNo: s.contract.contractNo },
-        invoice1Line: inv1?.line ?? null,
+        // Price parts: Invoice #1's line for this product, else the contract line's.
+        invoice1Line: pricePartsOf(inv1?.line ?? null, line),
         defaults,
         dueDate: h.dueDate,
         lmeMonth,
@@ -365,9 +401,7 @@ export class TradeGeneratedService {
         hsCode: s.hsCode ?? '',
         terms: s.contract.incoterm ?? 'CIF',
         lme: null,
-        qmjp: inv1?.line.qmjp ?? null,
-        premium: inv1?.line.premium ?? null,
-        upcharge: inv1?.line.upcharge ?? null,
+        ...pricePartsOf(inv1?.line ?? null, s.contractLine),
         unitPrice: null,
         quantity: net,
         bundles: s.totalBundles ?? pl?.bundles ?? null,
@@ -384,7 +418,8 @@ export class TradeGeneratedService {
       const h: SiHeaderV2 = {
         layout: 2,
         requestDate: today,
-        toName: defaults.siWarehouseTo ?? defaults.siTo ?? '',
+        // 宛先 line incl. 御中 — a document setting (ADH's sheets use both "三井倉庫 株式会社 御中" and "三井倉庫 御中").
+        toName: defaults.siAddressee ?? (defaults.siWarehouseTo || defaults.siTo ? `${defaults.siWarehouseTo ?? defaults.siTo} 御中` : '三井倉庫 株式会社 御中'),
         issuerName: defaults.siIssuerName ?? org?.name ?? '',
         title: '出庫・納入依頼書',
         vessel: s.vessel ?? '',
@@ -409,11 +444,13 @@ export class TradeGeneratedService {
       rows = [row];
     }
 
+    const docRef = await this.config.docRefFor(this.prisma, organizationId, owner as any, input.docType);
     return this.prisma.tradeGeneratedDoc.create({
       data: {
         organizationId,
         ...owner,
         docType: input.docType,
+        docRef,
         header: header as any,
         columns: columns as any,
         rows: rows as any,
@@ -492,7 +529,7 @@ export class TradeGeneratedService {
     assertDocDates(g.header, rows);
     const gh = (g.header ?? {}) as { layout?: unknown; analysisDate?: unknown };
     if (g.docType === 'CUSTOMER_COA' && gh.layout === 'jp' && !String(gh.analysisDate ?? '').trim()) {
-      throw new BadRequestException('Enter the analysis date (分析 日付) before finalizing — the source file has no date');
+      throw new BadRequestException("Can't finalize: enter the analysis date (分析 日付).");
     }
     const owners = await this.ownersOf(organizationId, g);
 
@@ -502,11 +539,16 @@ export class TradeGeneratedService {
     if (t.kind === 'invoice') {
       const lines = toInvoiceLines(rows);
       if (!lines.some((l) => l.description.trim() || amountOf(l) !== 0)) throw new BadRequestException('Add at least one invoice line');
+      // No unpriced lines and no US$0.00 invoice (a blank Invoice #1 used to finalize at 0).
+      const problems = invoiceFinalizeProblems(lines, Number((header as InvoiceHeader).taxRate ?? 10));
+      if (problems.length) throw new BadRequestException(finalizeMessage(problems));
       const doc = await this.ensureSalesInvoice(organizationId, g, header as InvoiceHeader, lines, owners, actor);
       documentId = doc.id;
       number = doc.name;
       header = { ...header, invoiceNo: doc.name };
     } else if (t.kind === 'sgjp' && header?.layout === 2) {
+      const problems = sgjpFinalizeProblems(rows as SgjpItem[]);
+      if (problems.length) throw new BadRequestException(finalizeMessage(problems));
       // The SG→JP invoice no. (ADH + yyyymmdd) is the document number; split arrivals need different numbers.
       number = String(header.invoiceNo ?? '').trim() || `${t.short}-${g.shipment?.blNumber || g.id.slice(0, 8)}`;
       const clash = await this.prisma.tradeGeneratedDoc.findFirst({
@@ -533,6 +575,8 @@ export class TradeGeneratedService {
         notes: 'Created in-app',
       } as any,
       actor,
+      // The PDF carries the in-app document's ID (454003255-1-CPL); an older document without one takes the PDF's.
+      { docRef: (g as { docRef?: string | null }).docRef ?? null },
     );
     // Every other record it belongs to (Invoice #1 billing several contracts), each tagged with its own step.
     for (const o of more) {
@@ -548,7 +592,7 @@ export class TradeGeneratedService {
     }
     return this.prisma.tradeGeneratedDoc.update({
       where: { id, organizationId },
-      data: { status: 'FINAL', number, header, finalFileId: file.id, documentId },
+      data: { status: 'FINAL', number, header, finalFileId: file.id, documentId, ...((g as { docRef?: string | null }).docRef ? {} : { docRef: (file as { docRef?: string | null }).docRef ?? null }) },
       select: GEN_SELECT,
     });
   }
@@ -667,7 +711,9 @@ export class TradeGeneratedService {
         // The invoice editor / list read the tax-inclusive total from nettTotal (flat and documentInfo).
         nettTotal: gross,
         // Same keys the invoice editor writes (Y/N select, gstPercent).
-        documentInfo: { taxApplicable: 'Y', gstPercent: h.taxRate, subtotal, gstAmount: totals.tax, nettTotal: gross, currency: h.currency || 'USD' },
+        // documentInfo.date / date: the invoice editor's and the Invoices list's issue date.
+        documentInfo: { taxApplicable: 'Y', gstPercent: h.taxRate, subtotal, gstAmount: totals.tax, nettTotal: gross, currency: h.currency || 'USD', date: h.issueDate, dueDate: h.dueDate },
+        date: h.issueDate,
         issueDate: h.issueDate,
         dueDate: h.dueDate,
         tradeGeneratedDocId: g.id,
@@ -826,7 +872,7 @@ export class TradeGeneratedService {
         status: true,
         shipmentMonth: true,
         customer: { select: { id: true, name: true, address: true, jpName: true, jpAddress: true, jpContact: true } },
-        lines: { orderBy: { sortOrder: 'asc' }, select: { id: true, grade: true, product: true, sizeSpec: true, quantityMt: true, tolerancePct: true } },
+        lines: { orderBy: { sortOrder: 'asc' }, select: { id: true, grade: true, product: true, sizeSpec: true, quantityMt: true, tolerancePct: true, qmjp: true, billetPremium: true, upcharge: true } },
       },
     });
     if (!c) throw new NotFoundException('Contract not found');
@@ -858,7 +904,7 @@ export class TradeGeneratedService {
         currency: true,
         customer: { select: { id: true, name: true, address: true, jpName: true, jpAddress: true, jpContact: true } },
         contract: { select: { id: true, contractNo: true, incoterm: true, destinationPort: true, consignee: true, shipmentMonth: true, supplier: { select: { name: true, address: true } } } },
-        contractLine: { select: { id: true, grade: true, product: true, sizeSpec: true, quantityMt: true, tolerancePct: true } },
+        contractLine: { select: { id: true, grade: true, product: true, sizeSpec: true, quantityMt: true, tolerancePct: true, qmjp: true, billetPremium: true, upcharge: true } },
       },
     });
     if (!s) throw new NotFoundException('Shipment not found');
@@ -1078,5 +1124,22 @@ export function customerDocHeader(
     origin: (s.countryOfOrigin ?? '').toUpperCase(),
     hsCode: s.hsCode ?? '',
     applicant: d.customerPlApplicant ?? '',
+  };
+}
+
+/**
+ * QMJP / billet premium / upcharge for a pricing helper: Invoice #1's line for
+ * the product when it has them, else the contract line's (a blank or unpriced
+ * Invoice #1 used to leave SG→JP and Invoice #2 empty).
+ */
+export function pricePartsOf(
+  inv1: { qmjp?: number | null; premium?: number | null; upcharge?: number | null } | null,
+  line: { qmjp?: unknown; billetPremium?: unknown; upcharge?: unknown } | null | undefined,
+): { qmjp: number | null; premium: number | null; upcharge: number | null } {
+  const v = (x: unknown) => (x === null || x === undefined || x === '' || !Number.isFinite(Number(x)) ? null : Number(x));
+  return {
+    qmjp: v(inv1?.qmjp) ?? v(line?.qmjp),
+    premium: v(inv1?.premium) ?? v(line?.billetPremium),
+    upcharge: v(inv1?.upcharge) ?? v(line?.upcharge),
   };
 }

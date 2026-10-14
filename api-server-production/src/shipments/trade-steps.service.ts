@@ -99,7 +99,8 @@ export class TradeStepsService {
       }
       await tx.tradeStep.update({ where: { id, organizationId }, data });
       // The next open step becomes current (and anything already satisfied completes).
-      await this.config.syncSteps(tx, organizationId, [step.contractId ? { contractId: step.contractId } : { shipmentId: step.shipmentId! }], actor);
+      // "Mark done" may be the last step: the shipment (and the deal) complete with it.
+      await this.config.syncSteps(tx, organizationId, [step.contractId ? { contractId: step.contractId } : { shipmentId: step.shipmentId! }], actor, {}, { closeCheck: action === 'complete' });
       return this.read(tx, organizationId, id);
     });
   }

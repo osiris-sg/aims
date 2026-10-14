@@ -17,7 +17,10 @@
 // When every required row is done the server completes the step by itself
 // (the page toasts it and opens the next card). Steps with nothing required
 // get "Mark done"; a reopened step waits for "Mark done" (or a changed
-// document). Optional documents sit under a collapsed "Optional" heading.
+// document). Optional documents sit under a collapsed "Optional" heading: the
+// step's own optional types (step 3: extra PL / COA …), only files uploaded
+// for this step, and they can still be added once the step is done. Every
+// file / in-app document shows its document ID (454003255-1-CPL).
 
 import React, { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -31,7 +34,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import LinkIcon from "@mui/icons-material/Link";
 import DownloadIcon from "@mui/icons-material/Download";
 import { toast } from "../_lib/toast";
-import { useShipmentsApi, type BlCheckSummary, type GeneratedDoc, type GenSource, type RecordDocLink, type RecordFileLink, type TradeStep } from "../_lib/api";
+import { useShipmentsApi, type BlCheckSummary, type GeneratedDoc, type GenSource, type RecordDocLink, type RecordFileLink, type TradeFile, type TradeStep } from "../_lib/api";
 import { useDocTypeLabels, useTradeMutation } from "../_lib/hooks";
 import { documentHref, fmtDate, fmtDateTime, GENERATED_DOC_TYPES, INVOICE_DOC_TYPES, stepLabel } from "../_lib/format";
 import { ConfirmDialog } from "./bits";
@@ -95,6 +98,7 @@ export default function StepCards({
   fieldsTitle = "Details",
   blCheck = null,
   numberFrom,
+  onFileUploaded,
 }: {
   steps: TradeStep[];
   owner: LinkTarget;
@@ -117,6 +121,8 @@ export default function StepCards({
   blCheck?: BlCheckSummary | null;
   /** Position numbering fallback offset (steps without the org's own number). */
   numberFrom?: number;
+  /** After a file is uploaded on a row (the deal page reads a B/L draft / arrival notice with AI). */
+  onFileUploaded?: (docType: string, files: TradeFile[]) => void;
 }) {
   const api = useShipmentsApi();
   const router = useRouter();
@@ -145,12 +151,22 @@ export default function StepCards({
   const canCreate = (docType: string) => GENERATED_DOC_TYPES[docType]?.scope === owner.kind;
 
   const reqOf = (s: TradeStep, docType: string) => s.requirements?.find((r) => r.docType === docType);
+  const byAge = (a: RecordFileLink, b: RecordFileLink) => a.file.createdAt.localeCompare(b.file.createdAt);
+  const isOptional = (s: TradeStep, docType: string) => (s.optionalDocTypes ?? []).includes(docType);
+  /** A required row: every file of its type on the record — just the first when the type is also optional here (the rest show under Optional). */
   const stateOf = (s: TradeStep, docType: string): DocState => {
-    const files = fileLinks.filter((l) => l.file.docType === docType);
+    const all = fileLinks.filter((l) => l.file.docType === docType).sort(byAge);
+    const files = isOptional(s, docType) && s.requiredDocTypes.includes(docType) ? all.slice(0, 1) : all;
     const docs = docLinks.filter((l) => l.docType === docType);
     const gens = generatedDocs.filter((g) => g.docType === docType);
     const r = reqOf(s, docType);
     return { done: r ? r.satisfied : files.length > 0 || docs.some((d) => d.satisfies), files, docs, gens };
+  };
+  /** An optional row: only files uploaded for this step (plus a required type's extra files). */
+  const optionalStateOf = (s: TradeStep, docType: string): DocState => {
+    const required = s.requiredDocTypes.includes(docType) ? stateOf(s, docType).files.map((l) => l.id) : [];
+    const files = fileLinks.filter((l) => l.file.docType === docType && !required.includes(l.id) && (l.stepId === s.id || required.length > 0)).sort(byAge);
+    return { done: files.length > 0, files, docs: [], gens: [] };
   };
   const fieldsDone = (s: TradeStep) => (s.fieldRequirements ?? []).every((f) => f.satisfied);
   const stillNeeded = (s: TradeStep) => [
@@ -254,8 +270,9 @@ export default function StepCards({
           <Stack spacing={1} sx={{ mt: 1.25, ml: 3.5 }}>
             {st.files.map((l) => (
               <Stack key={l.id} direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ xs: "flex-start", sm: "center" }}>
-                <FileThumb file={{ id: l.file.id, fileName: l.file.fileName, mimeType: l.file.mimeType, hasThumb: l.file.hasThumb }} width={72} onOpen={view} />
+                <FileThumb file={{ id: l.file.id, fileName: l.file.fileName, mimeType: l.file.mimeType, hasThumb: l.file.hasThumb, docRef: l.file.docRef }} width={72} onOpen={view} />
                 <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <DocRef value={l.file.docRef} />
                   <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: "break-word" }}>
                     {l.file.fileName}
                   </Typography>
@@ -265,7 +282,7 @@ export default function StepCards({
                   </Typography>
                 </Box>
                 <Stack direction="row" spacing={1}>
-                  <Button size="small" variant="outlined" onClick={() => view({ id: l.file.id, fileName: l.file.fileName, mimeType: l.file.mimeType, hasThumb: l.file.hasThumb })}>
+                  <Button size="small" variant="outlined" onClick={() => view({ id: l.file.id, fileName: l.file.fileName, mimeType: l.file.mimeType, hasThumb: l.file.hasThumb, docRef: l.file.docRef })}>
                     View
                   </Button>
                   {recordOpen && (
@@ -311,9 +328,10 @@ export default function StepCards({
           {st.gens.map((g) => (
             <Stack key={g.id} direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ xs: "flex-start", sm: "center" }}>
               {g.finalFileId ? (
-                <FileThumb file={{ id: g.finalFileId, fileName: `${g.number ?? label(docType)}.pdf`, mimeType: "application/pdf" }} width={72} onOpen={view} />
+                <FileThumb file={{ id: g.finalFileId, fileName: `${g.number ?? label(docType)}.pdf`, mimeType: "application/pdf", docRef: g.docRef }} width={72} onOpen={view} />
               ) : null}
               <Box sx={{ minWidth: 0, flex: 1 }}>
+                <DocRef value={g.docRef} />
                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
                     {g.number ?? label(docType)}
@@ -345,10 +363,13 @@ export default function StepCards({
             .filter((l) => !gensFinal.some((g) => g.finalFileId === l.file.id) && !st.docs.some((d) => d.inAppFileId === l.file.id))
             .map((l) => (
               <Stack key={l.id} direction="row" spacing={1.5} alignItems="center">
-                <FileThumb file={{ id: l.file.id, fileName: l.file.fileName, mimeType: l.file.mimeType, hasThumb: l.file.hasThumb }} width={72} onOpen={view} />
-                <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: "break-word" }}>
-                  {l.file.fileName}
-                </Typography>
+                <FileThumb file={{ id: l.file.id, fileName: l.file.fileName, mimeType: l.file.mimeType, hasThumb: l.file.hasThumb, docRef: l.file.docRef }} width={72} onOpen={view} />
+                <Box sx={{ minWidth: 0 }}>
+                  <DocRef value={l.file.docRef} />
+                  <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: "break-word" }}>
+                    {l.file.fileName}
+                  </Typography>
+                </Box>
               </Stack>
             ))}
           {showCreate && (
@@ -394,7 +415,9 @@ export default function StepCards({
     const extra = fileLinks.filter((l) => l.stepId === s.id && !shownTypes.has(l.file.docType));
     const canMarkDone = recordOpen && !isDone && !s.isOngoing && (!hasRequirements(s) || (!!s.holdOpen && needed.length === 0));
     const line = context.stepLine?.(s);
-    const optCount = optional.filter((d) => stateOf(s, d).files.length).length + extra.length;
+    // Optional rows: the step's optional types, plus a required type that may repeat (step 3: extra PL / COA).
+    const optRows = (s.optionalDocTypes ?? []).filter((d) => !s.requiredDocTypes.includes(d) || isOptional(s, d));
+    const optCount = optRows.reduce((n, d) => n + optionalStateOf(s, d).files.length, 0) + extra.length;
     return (
       <Paper
         id={`step-${s.id}`}
@@ -427,26 +450,22 @@ export default function StepCards({
         <Stack spacing={1.25} sx={{ mt: 2 }}>
           {(s.requiredFields?.length ?? 0) > 0 && fieldsRow(s)}
           {s.requiredDocTypes.map((d) => (canCreate(d) ? createRow(s, d, stateOf(s, d)) : uploadRow(s, d, stateOf(s, d))))}
-          {!hasRequirements(s) && !s.isOngoing && (
-            <Typography variant="body2" color="text.secondary">
-              Nothing to upload for this step — mark it done when it&apos;s finished.
-            </Typography>
-          )}
           {owner.kind === "shipment" && s.code === "BL_DRAFT_APPROVAL" && blCheck && <BlCheckPanel check={blCheck} shipmentId={owner.id} canEdit={recordOpen} />}
         </Stack>
 
-        {(optional.length > 0 || extra.length > 0) && (
+        {(optRows.length > 0 || extra.length > 0) && (
           <Box sx={{ mt: 1.5 }}>
             <Button size="small" color="inherit" onClick={() => setOptOpen((o) => ({ ...o, [s.id]: !o[s.id] }))} endIcon={<ExpandMoreIcon sx={{ transform: optOpen[s.id] ? "rotate(180deg)" : "none", transition: "transform .2s" }} />}>
               Optional{optCount ? ` (${optCount})` : ""}
             </Button>
             <Collapse in={!!optOpen[s.id]} unmountOnExit>
               <Stack spacing={1.25} sx={{ mt: 1 }}>
-                {optional.map((d) => uploadRow(s, d, stateOf(s, d), true))}
+                {optRows.map((d) => uploadRow(s, d, optionalStateOf(s, d), true))}
                 {extra.map((l) => (
                   <Stack key={l.id} direction="row" spacing={1.5} alignItems="center">
-                    <FileThumb file={{ id: l.file.id, fileName: l.file.fileName, mimeType: l.file.mimeType, hasThumb: l.file.hasThumb }} width={56} onOpen={view} />
+                    <FileThumb file={{ id: l.file.id, fileName: l.file.fileName, mimeType: l.file.mimeType, hasThumb: l.file.hasThumb, docRef: l.file.docRef }} width={56} onOpen={view} />
                     <Box>
+                      <DocRef value={l.file.docRef} />
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
                         {l.file.fileName}
                       </Typography>
@@ -539,26 +558,43 @@ export default function StepCards({
       )}
 
       <Menu anchorReference="anchorPosition" anchorPosition={more?.pos} open={!!more} onClose={() => setMore(null)}>
+        {/* Made from Vedanta's file: the best one is picked (COA summary / .XLS before the test report); the others under "Use a different file". */}
         {more && GENERATED_DOC_TYPES[more.docType]?.source && owner.kind === "shipment" && (
           <MenuItem
+            data-tour="create-from-source"
             disabled={more.sources === null || !more.sources.length || !!creating}
             onClick={() => {
               const m = more!;
               setMore(null);
-              if (!m.sources) return;
-              if (m.sources.length === 1) void createFromSource(m.docType, m.sources[0].id);
-              else setPickSource({ docType: m.docType, sources: m.sources });
+              if (m.sources?.length) void createFromSource(m.docType, m.sources[0].id);
             }}
           >
             <ListItemIcon>{more.sources === null ? <CircularProgress size={16} /> : <PostAddIcon fontSize="small" />}</ListItemIcon>
             <ListItemText
-              primary="Create from Vedanta file"
+              primary={more.sources?.length ? `Create from ${more.sources[0].label ?? "Vedanta file"}` : "Create from Vedanta file"}
               secondary={
-                more.sources !== null && !more.sources.length
-                  ? `Upload Vedanta's ${GENERATED_DOC_TYPES[more.docType].sourceLabel} (${GENERATED_DOC_TYPES[more.docType].sourceFiles ?? "spreadsheet"}) on this shipment first`
-                  : null
+                more.sources === null
+                  ? "Finding Vedanta's files…"
+                  : !more.sources.length
+                    ? `Upload Vedanta's ${GENERATED_DOC_TYPES[more.docType].sourceLabel} (${GENERATED_DOC_TYPES[more.docType].sourceFiles ?? "spreadsheet"}) on this shipment first`
+                    : more.sources[0].fileName
               }
             />
+          </MenuItem>
+        )}
+        {more && (more.sources?.length ?? 0) > 1 && (
+          <MenuItem
+            disabled={!!creating}
+            onClick={() => {
+              const m = more!;
+              setMore(null);
+              setPickSource({ docType: m.docType, sources: m.sources!.slice(1) });
+            }}
+          >
+            <ListItemIcon>
+              <ExpandMoreIcon fontSize="small" />
+            </ListItemIcon>
+            Use a different file…
           </MenuItem>
         )}
         <MenuItem
@@ -590,7 +626,7 @@ export default function StepCards({
       </Menu>
 
       <Dialog open={!!pickSource} onClose={() => setPickSource(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Which {pickSource ? GENERATED_DOC_TYPES[pickSource.docType]?.sourceLabel : ""} file?</DialogTitle>
+        <DialogTitle>Use a different {pickSource ? GENERATED_DOC_TYPES[pickSource.docType]?.sourceLabel : ""} file</DialogTitle>
         <DialogContent dividers>
           <List dense disablePadding>
             {(pickSource?.sources ?? []).map((f) => (
@@ -603,7 +639,10 @@ export default function StepCards({
                   void createFromSource(p.docType, f.id);
                 }}
               >
-                <ListItemText primary={f.fileName} secondary={`${fmtDate(f.createdAt)}${f.uploadedByName ? ` · ${f.uploadedByName}` : ""}`} />
+                <ListItemText
+                  primary={f.label ?? f.fileName}
+                  secondary={`${f.label ? `${f.fileName} · ` : ""}${fmtDate(f.createdAt)}${f.uploadedByName ? ` · ${f.uploadedByName}` : ""}`}
+                />
               </ListItemButton>
             ))}
           </List>
@@ -622,13 +661,12 @@ export default function StepCards({
         defaultTargets={[owner]}
         initialFiles={upload?.files ?? null}
         announceSteps={false}
-        onUploaded={
-          upload?.replace
-            ? async () => {
-                await removeOld.mutateAsync(upload.replace!);
-              }
-            : undefined
-        }
+        onUploaded={async (files) => {
+          const u = upload;
+          if (!u) return;
+          if (u.replace) await removeOld.mutateAsync(u.replace);
+          onFileUploaded?.(u.docType, files);
+        }}
       />
       <LinkInvoiceDialog open={!!linkExisting} onClose={() => setLinkExisting(null)} docType={linkExisting?.docType ?? ""} stepId={linkExisting?.step.id} owner={owner} />
       <ConfirmDialog
@@ -643,6 +681,16 @@ export default function StepCards({
       />
       {viewer}
     </Box>
+  );
+}
+
+/** The document ID above a file / in-app document ("454003255-1-CPL"). */
+function DocRef({ value }: { value?: string | null }) {
+  if (!value) return null;
+  return (
+    <Typography variant="caption" sx={{ display: "block", fontFamily: "monospace", fontWeight: 700, color: "primary.main", letterSpacing: 0.2 }}>
+      {value}
+    </Typography>
   );
 }
 

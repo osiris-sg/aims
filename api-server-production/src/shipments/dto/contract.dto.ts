@@ -17,6 +17,10 @@ export class ContractLineDto {
   /** USD per tonne. */
   @IsOptional() @IsNumber() supplierPremium?: number | null;
   @IsOptional() @IsNumber() clientPremium?: number | null;
+  /** Price parts (USD/MT) the 請求書 / SG→JP pricing helper starts from. */
+  @IsOptional() @IsNumber() qmjp?: number | null;
+  @IsOptional() @IsNumber() billetPremium?: number | null;
+  @IsOptional() @IsNumber() upcharge?: number | null;
   @IsOptional() @IsString() @MaxLength(2000) notes?: string | null;
 }
 

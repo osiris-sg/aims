@@ -148,3 +148,17 @@ export async function pdfText(buf: Buffer): Promise<string> {
   const r = await new PDFParse({ data: buf }).getText();
   return String(r?.text ?? '');
 }
+
+/** What a COA source holds — decides which one "Create from Vedanta file" uses first. */
+export type CoaSourceKind = 'summary' | 'report' | 'unknown';
+/**
+ * Vedanta sends two COA PDFs: the summary (COA_集計: one row per cast with net /
+ * gross weight, bundles, pieces and chemistry) and the per-cast test report
+ * ("TEST REPORT", chemistry only). The summary is the better source.
+ */
+export function classifyCoaText(text: string): CoaSourceKind {
+  const t = text ?? '';
+  if (/cast\s*no/i.test(t) && /net\s*wt/i.test(t) && /bundle/i.test(t)) return 'summary';
+  if (/test\s*report|test\s*certificate/i.test(t)) return 'report';
+  return 'unknown';
+}

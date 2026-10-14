@@ -46,7 +46,8 @@ export class TradeFilesService {
     return `shipments/${organizationId}/`;
   }
 
-  async upload(organizationId: string, file: Express.Multer.File | undefined, dto: UploadTradeFileDto, actor: TradeActor) {
+  /** `opts.docRef`: the in-app document's ID for its finalized PDF (otherwise the next free one is assigned). */
+  async upload(organizationId: string, file: Express.Multer.File | undefined, dto: UploadTradeFileDto, actor: TradeActor, opts: { docRef?: string | null } = {}) {
     if (!file) throw new BadRequestException('Please attach a file');
     const fileName = decodeUploadName(file.originalname || 'upload');
     const mimeType = resolveTradeFileMime(fileName, file.mimetype);
@@ -70,12 +71,20 @@ export class TradeFilesService {
     }
 
     let owners: TradeOwner[] = [];
+    let docRef: string | null = null;
     try {
       await this.prisma.$transaction(async (tx: Db) => {
         // Re-check inside the transaction: a record may have closed meanwhile.
         await this.config.assertActiveDocType(organizationId, docType, tx);
         const targets = await this.resolveTargets(tx, organizationId, contractIds, shipmentIds, dto.stepId);
         owners = ownersOfTargets(targets);
+        // Document ID from the record it was uploaded for (the step's record, else the first shipment / contract).
+        const refOwner: TradeOwner | undefined = targets.step
+          ? targets.step.shipmentId
+            ? { shipmentId: targets.step.shipmentId }
+            : { contractId: targets.step.contractId! }
+          : (owners.find((o) => o.shipmentId) ?? owners[0]);
+        docRef = opts.docRef ?? (refOwner ? await this.config.docRefFor(tx, organizationId, refOwner, docType) : null);
         await tx.tradeFile.create({
           data: {
             id: fileId,
@@ -88,6 +97,7 @@ export class TradeFilesService {
             uploadedById: actor.id ?? 'unknown',
             uploadedByName: actor.name,
             notes: optText(dto.notes) ?? null,
+            docRef,
           },
         });
         const links = this.linkRows(organizationId, fileId, targets, new Set());
@@ -129,7 +139,8 @@ export class TradeFilesService {
     const where = {
       organizationId,
       ...(query.docType ? { docType: query.docType } : {}),
-      ...(q ? { fileName: { contains: q, mode: 'insensitive' as const } } : {}),
+      // Search by file name or document ID ("454003255-1-PL").
+      ...(q ? { OR: [{ fileName: { contains: q, mode: 'insensitive' as const } }, { docRef: { contains: q, mode: 'insensitive' as const } }] } : {}),
       ...(Object.keys(createdAt).length ? { createdAt } : {}),
       ...(and.length ? { AND: and } : {}),
     };
@@ -188,6 +199,7 @@ export class TradeFilesService {
       const existing = new Set<string>(f.links.map((l: { contractId: string | null; shipmentId: string | null }) => l.contractId ?? l.shipmentId));
       const rows = this.linkRows(organizationId, id, targets, existing);
       if (rows.length) await tx.tradeFileLink.createMany({ data: rows });
+      if (owners[0]) await this.config.ensureFileDocRef(tx, organizationId, id, owners.find((o) => o.shipmentId) ?? owners[0]);
       // Already linked to the step's parent: just tag that link with the step.
       if (targets.step) {
         const ownerId = targets.step.contractId ?? targets.step.shipmentId;
@@ -270,6 +282,7 @@ export class TradeFilesService {
       uploadedByName: true,
       notes: true,
       thumbKey: true,
+      docRef: true,
       createdAt: true,
       links: { orderBy: { createdAt: 'asc' as const }, select: LINK_SELECT },
     };

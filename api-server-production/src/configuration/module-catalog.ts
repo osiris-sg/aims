@@ -235,7 +235,6 @@ export const MODULE_CATALOG: CatalogModule[] = [
       route: '/portal/shipments',
       subMenus: [
         { key: 'list', label: 'Shipments' },
-        { key: 'contracts', label: 'Contracts' },
         // Trade documents live in their own hub (/portal/trade-documents), set
         // per org via the DOCUMENTS module row (see scripts/setup-adh-org.ts).
       ],

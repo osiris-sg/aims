@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { grossOf } from '../common/document-money';
 import { PrismaService } from '../common/prisma.service';
 import { TradeActor } from './shipments.request';
+import { docRefBase, nextDocRef } from './trade-docref';
 import { autoCompletePlan, documentLinkState, fieldRequirements, hasExactlyOneOwner, stepLabel, stepLabels, stepRequirements, stepsBrokenByRemoval } from './shipments.rules';
 
 /** A Prisma client or interactive-transaction client. */
@@ -206,7 +207,14 @@ export class TradeConfigService {
    * and make the first open step the current one (IN_PROGRESS). Closed
    * records are left alone. Returns the labels of the steps it completed.
    */
-  async syncSteps(db: Db, organizationId: string, owners: TradeOwner[], actor: TradeActor | null, changed: { docTypes?: string[]; fields?: string[] } = {}): Promise<string[]> {
+  async syncSteps(
+    db: Db,
+    organizationId: string,
+    owners: TradeOwner[],
+    actor: TradeActor | null,
+    changed: { docTypes?: string[]; fields?: string[] } = {},
+    opts: { closeCheck?: boolean; closed?: { shipments: string[]; contracts: string[] } } = {},
+  ): Promise<string[]> {
     const done: string[] = [];
     const seen = new Set<string>();
     for (const owner of owners) {
@@ -234,8 +242,38 @@ export class TradeConfigService {
       if (plan.start) await db.tradeStep.update({ where: { id: plan.start.id, organizationId }, data: { status: 'IN_PROGRESS', ...stamp } });
       const labels = stepLabels(steps);
       done.push(...plan.complete.map((s) => labels.get(s.id) ?? stepLabel(s)));
+      // A step finished just now (auto or "Mark done") may finish the record — and the deal.
+      if (plan.complete.length || opts.closeCheck) {
+        const allDone = steps.every((s) => s.isOngoing || s.status === 'DONE' || plan.complete.includes(s));
+        if (owner.shipmentId && allDone) {
+          await db.shipment.update({ where: { id: owner.shipmentId, organizationId }, data: { status: 'COMPLETED' } });
+          opts.closed?.shipments.push(owner.shipmentId);
+          await this.closeDealIfDone(db, organizationId, record.contractId, opts.closed);
+        } else if (owner.contractId && allDone) {
+          await this.closeDealIfDone(db, organizationId, owner.contractId, opts.closed);
+        }
+      }
     }
     return done;
+  }
+
+  /**
+   * The deal (contract) completes by itself when its own steps are all done and
+   * every shipment is completed (cancelled ones don't count; at least one must
+   * be completed). Manual Complete / Reopen stay available.
+   */
+  async closeDealIfDone(db: Db, organizationId: string, contractId: string, closed?: { contracts: string[] }) {
+    const c = await db.contract.findFirst({
+      where: { id: contractId, organizationId },
+      select: { status: true, steps: { select: { status: true, isOngoing: true } }, shipments: { select: { status: true } } },
+    });
+    if (!c || c.status !== 'OPEN') return;
+    const stepsDone = c.steps.every((s: { status: string; isOngoing: boolean }) => s.isOngoing || s.status === 'DONE');
+    const ships = c.shipments.filter((x: { status: string }) => x.status !== 'CANCELLED');
+    if (stepsDone && ships.length > 0 && ships.every((x: { status: string }) => x.status === 'COMPLETED')) {
+      await db.contract.update({ where: { id: contractId, organizationId }, data: { status: 'COMPLETED' } });
+      closed?.contracts.push(contractId);
+    }
   }
 
   /** Ids (of `ids`) whose Document exists in the org and counts (confirmed, not voided). */
@@ -296,7 +334,57 @@ export class TradeConfigService {
     if (file.docType !== docType) throw new BadRequestException(`${file.fileName} is filed as ${file.docType}, not ${docType}`);
     const step = await db.tradeStep.findFirst({ where: { organizationId, ...owner, code: stepCode }, select: { id: true } });
     await db.tradeFileLink.create({ data: { organizationId, fileId, contractId: owner.contractId ?? null, shipmentId: owner.shipmentId ?? null, stepId: step?.id ?? null } });
+    await this.ensureFileDocRef(db, organizationId, fileId, owner);
     await db.tradeExtraction.updateMany({ where: { organizationId, fileId }, data: owner.contractId ? { contractId: owner.contractId } : { shipmentId: owner.shipmentId } });
+  }
+
+  /**
+   * The document ID for a new document of `docType` on this contract / shipment
+   * (see trade-docref.ts): the next free "<contract>-<shipment no>-<code>"
+   * across uploaded files and in-app documents. A shipment created before
+   * shipment numbers existed gets its number first.
+   */
+  async docRefFor(db: Db, organizationId: string, owner: TradeOwner, docType: string): Promise<string | null> {
+    let contractNo: string | null = null;
+    let seqNo: number | null = null;
+    if (owner.shipmentId) {
+      const s = await db.shipment.findFirst({ where: { id: owner.shipmentId, organizationId }, select: { id: true, seqNo: true, contractId: true, contract: { select: { contractNo: true } } } });
+      if (!s) return null;
+      contractNo = s.contract?.contractNo ?? null;
+      seqNo = s.seqNo ?? (await this.ensureSeqNo(db, organizationId, s.contractId, s.id));
+    } else if (owner.contractId) {
+      const c = await db.contract.findFirst({ where: { id: owner.contractId, organizationId }, select: { contractNo: true } });
+      contractNo = c?.contractNo ?? null;
+    }
+    if (!contractNo) return null;
+    const base = docRefBase({ contractNo, seqNo }, docType);
+    const [files, gens]: [Array<{ docRef: string | null }>, Array<{ docRef: string | null }>] = await Promise.all([
+      db.tradeFile.findMany({ where: { organizationId, docRef: { startsWith: base } }, select: { docRef: true } }),
+      db.tradeGeneratedDoc.findMany({ where: { organizationId, docRef: { startsWith: base } }, select: { docRef: true } }),
+    ]);
+    return nextDocRef(base, [...files, ...gens].map((r) => r.docRef));
+  }
+
+  /** Number the contract's shipments 1, 2, … by creation (only those still without one); returns this shipment's. */
+  async ensureSeqNo(db: Db, organizationId: string, contractId: string, shipmentId: string): Promise<number> {
+    const ships: Array<{ id: string; seqNo: number | null }> = await db.shipment.findMany({ where: { organizationId, contractId }, orderBy: { createdAt: 'asc' }, select: { id: true, seqNo: true } });
+    let next = Math.max(0, ...ships.map((x) => x.seqNo ?? 0));
+    let mine = ships.find((x) => x.id === shipmentId)?.seqNo ?? null;
+    for (const x of ships) {
+      if (x.seqNo) continue;
+      next += 1;
+      await db.shipment.update({ where: { id: x.id }, data: { seqNo: next } });
+      if (x.id === shipmentId) mine = next;
+    }
+    return mine ?? next;
+  }
+
+  /** Give a file its document ID if it has none yet (it was stored before it was linked to a record). */
+  async ensureFileDocRef(db: Db, organizationId: string, fileId: string, owner: TradeOwner) {
+    const f = await db.tradeFile.findFirst({ where: { id: fileId, organizationId }, select: { docRef: true, docType: true } });
+    if (!f || f.docRef) return;
+    const ref = await this.docRefFor(db, organizationId, owner, f.docType);
+    if (ref) await db.tradeFile.update({ where: { id: fileId }, data: { docRef: ref } });
   }
 
   /** Copy the org's active templates of `scope` onto a new contract/shipment as TradeStep rows. */

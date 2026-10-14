@@ -68,7 +68,8 @@ export function helperRemarks(l: InvoiceLine, lmeMonth: string, template = "LME 
   return !template.includes("{upcharge}") && up ? `${s} +${fmt(l.upcharge)}(Upcharge)` : s;
 }
 
-export function invoiceTotals(rows: InvoiceLine[], taxRate: unknown, fxRate: unknown) {
+/** Mirrors the backend (trade-invoice.ts); `final` = Invoice #2: ¥ tax = ROUND(US$ tax × FX, 0), as ADH's 2回目 sheet. */
+export function invoiceTotals(rows: InvoiceLine[], taxRate: unknown, fxRate: unknown, variant?: "final") {
   const rate = n(taxRate) / 100;
   const sum = (pick: (l: InvoiceLine) => boolean) => roundTo(rows.reduce((a, l) => a + (pick(l) ? amountOf(l) : 0), 0), 2);
   const taxable = sum((l) => l.taxable !== false);
@@ -76,7 +77,7 @@ export function invoiceTotals(rows: InvoiceLine[], taxRate: unknown, fxRate: unk
   const subtotal = roundTo(taxable + nonTaxable, 2);
   const tax = roundDown(taxable * rate, 2);
   const total = roundTo(subtotal + tax, 2);
-  const jpy = has(fxRate) && Number(fxRate) > 0 ? (() => { const s = roundTo(taxable * Number(fxRate), 0); const t = roundDown(s * rate, 0); return { subtotal: s, tax: t, total: s + t }; })() : null;
+  const jpy = has(fxRate) && Number(fxRate) > 0 ? (() => { const s = roundTo(taxable * Number(fxRate), 0); const t = variant === "final" ? roundTo(tax * Number(fxRate), 0) : roundDown(s * rate, 0); return { subtotal: s, tax: t, total: s + t }; })() : null;
   return { subtotal, taxable, nonTaxable, tax, total, jpy };
 }
 

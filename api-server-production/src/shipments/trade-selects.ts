@@ -27,6 +27,9 @@ export const CONTRACT_LINE_SELECT = {
   tolerancePct: true,
   supplierPremium: true,
   clientPremium: true,
+  qmjp: true,
+  billetPremium: true,
+  upcharge: true,
   sortOrder: true,
   notes: true,
 };
@@ -48,6 +51,7 @@ export const FILE_LINK_SELECT = {
       uploadedByName: true,
       notes: true,
       thumbKey: true,
+      docRef: true,
       createdAt: true,
     },
   },

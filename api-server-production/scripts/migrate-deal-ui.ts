@@ -29,8 +29,12 @@ const actor = { id: 'migrate-deal-ui', name: 'Migration' };
 /** Mirrors STEP_TEMPLATES in setup-adh-org.ts (optional docs default to ['OTHER']). */
 const TEMPLATE_EXTRAS: Record<string, { optionalDocTypes?: string[]; requiredFields?: string[] }> = {
   'CONTRACT:PI_PAYMENT': { optionalDocTypes: ['CONTRACT', 'OTHER'] },
-  'SHIPMENT:BL_DRAFT_APPROVAL': { requiredFields: ['blNumber', 'contractLineId'] },
+  'SHIPMENT:BL_DRAFT_APPROVAL': { requiredFields: ['blNumber', 'contractLineId'], optionalDocTypes: ['ARRIVAL_NOTICE', 'OTHER'] },
+  'SHIPMENT:SHIPPING_DOCS': { optionalDocTypes: ['PL', 'COA', 'OTHER'] },
   'SHIPMENT:SEND_DOCS_SCHEDULE': { optionalDocTypes: ['DELIVERY_SCHEDULE', 'OTHER'] },
+  'SHIPMENT:AN_INSTRUCTIONS': { optionalDocTypes: ['DELIVERY_SCHEDULE', 'OTHER'] },
+  'SHIPMENT:LOGISTICS_PAYMENT': { optionalDocTypes: ['VENDOR_INVOICE', 'PAYMENT_PROOF', 'OTHER'] },
+  'SHIPMENT:DELIVERY_CHANGES': { optionalDocTypes: ['DELIVERY_SCHEDULE', 'OTHER'] },
 };
 const extrasFor = (scope: string, code: string) => {
   const x = TEMPLATE_EXTRAS[`${scope}:${code}`] ?? {};

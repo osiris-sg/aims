@@ -725,3 +725,115 @@ export function issueCount(checks: BlCheck[]): number {
     return n + 1;
   }, 0);
 }
+
+// ── Arrival notice ──────────────────────────────────────────────────────────
+// The shipping line's arrival notice (WAN HAI's A/N): vessel arriving at the
+// destination, ETA, CY terminal, containers + seals, weights, bundles, pieces
+// and the charges collect. A transhipped cargo prints the feeder vessel too —
+// the arriving one is the "VSL/VOY" line.
+export const AN_SCHEMA = z.object({
+  blNumber: nstr.default(null),
+  vessel: nstr.default(null),
+  voyageNo: nstr.default(null),
+  eta: nstr.default(null),
+  cyTerminal: nstr.default(null),
+  portOfLoading: nstr.default(null),
+  portOfDischarge: nstr.default(null),
+  grossWeightKg: nnum.default(null),
+  netWeightKg: nnum.default(null),
+  totalBundles: nint.default(null),
+  totalPieces: nint.default(null),
+  containers: z
+    .array(z.object({ containerNo: nstr.default(null), sealNo: nstr.default(null), size: nstr.default(null) }))
+    .nullable()
+    .default([])
+    .transform((v) => v ?? []),
+  charges: z
+    .array(z.object({ code: nstr.default(null), amount: nnum.default(null), currency: nstr.default(null), collect: z.boolean().nullable().default(null) }))
+    .nullable()
+    .default([])
+    .transform((v) => v ?? []),
+});
+export type AnRaw = z.infer<typeof AN_SCHEMA>;
+
+export const AN_SYSTEM_PROMPT =
+  'You read shipping-line Arrival Notices (A/N) for containerised aluminium billet cargo arriving in Japan. The PDF may be a scanned image — read the page images. Transcribe exactly what is printed; never invent values — use null when absent. Output STRICT JSON only.';
+
+export const AN_USER_PROMPT = `Extract this Arrival Notice into exactly this JSON (null when absent):
+{
+  "blNumber": "B/L number",
+  "vessel": "the vessel ARRIVING at the destination — the \\"VSL/VOY\\" line (not a feeder / first vessel), name only",
+  "voyageNo": "its voyage number only",
+  "eta": "estimated arrival date as YYYY-MM-DD",
+  "cyTerminal": "CY terminal as printed (name, without phone / fax)",
+  "portOfLoading": "as printed",
+  "portOfDischarge": "as printed",
+  "grossWeightKg": "total gross weight in KG as a number",
+  "netWeightKg": "total net weight in KG as a number, if printed",
+  "totalBundles": "total bundles (BDL) as a number",
+  "totalPieces": "total pieces as a number, if printed",
+  "containers": [{ "containerNo": "e.g. BMOU1217219", "sealNo": "seal no.", "size": "e.g. 20SD86" }],
+  "charges": [{ "code": "charge code, e.g. THC / DOC", "amount": "number", "currency": "e.g. JPY", "collect": "true when in the COLLECT column, false when prepaid" }]
+}`;
+
+/** What the A/N gives the shipment (MT, as the shipment stores weights) plus the rest for display. */
+export interface ArrivalNoticeDraft {
+  blNumber: string | null;
+  vessel: string | null;
+  voyageNo: string | null;
+  eta: string | null;
+  cyTerminal: string | null;
+  portOfLoading: string | null;
+  portOfDischarge: string | null;
+  grossWeightMt: number | null;
+  netWeightMt: number | null;
+  totalBundles: number | null;
+  totalPieces: number | null;
+  containerCount: number | null;
+  containers: Array<{ containerNo: string | null; sealNo: string | null; size: string | null }>;
+  charges: Array<{ code: string | null; amount: number | null; currency: string | null; collect: boolean | null }>;
+  /** Sum of the collect charges per currency ("JPY 232,800"). */
+  chargesCollect: Array<{ currency: string; amount: number }>;
+}
+
+const kgToMt = (kg: number | null) => (kg === null || !Number.isFinite(kg) ? null : Math.round(kg) / 1000);
+
+export function arrivalNoticeDraft(an: AnRaw): ArrivalNoticeDraft {
+  const containers = an.containers.filter((c) => c.containerNo).map((c) => ({ containerNo: c.containerNo ?? null, sealNo: c.sealNo ?? null, size: c.size ?? null }));
+  const charges = an.charges.map((c) => ({ code: c.code ?? null, amount: c.amount ?? null, currency: c.currency ?? null, collect: c.collect ?? null }));
+  const totals = new Map<string, number>();
+  for (const c of charges) {
+    if (c.collect !== true || c.amount === null) continue;
+    const cur = (c.currency ?? '').toUpperCase() || '—';
+    totals.set(cur, Math.round(((totals.get(cur) ?? 0) + c.amount) * 100) / 100);
+  }
+  return {
+    blNumber: an.blNumber?.replace(/\s+/g, '') || null,
+    vessel: an.vessel,
+    voyageNo: an.voyageNo,
+    eta: isoDate(an.eta),
+    cyTerminal: an.cyTerminal,
+    portOfLoading: an.portOfLoading,
+    portOfDischarge: an.portOfDischarge,
+    grossWeightMt: kgToMt(an.grossWeightKg),
+    netWeightMt: kgToMt(an.netWeightKg),
+    totalBundles: an.totalBundles,
+    totalPieces: an.totalPieces,
+    containerCount: containers.length || null,
+    containers,
+    charges,
+    chargesCollect: [...totals].map(([currency, amount]) => ({ currency, amount })),
+  };
+}
+
+/** Shipment fields still blank that the A/N can fill (the user confirms before anything is written). */
+export const AN_FILL_FIELDS = ['vessel', 'voyageNo', 'eta', 'grossWeightMt', 'netWeightMt', 'totalBundles', 'totalPieces', 'containerCount', 'portOfLoading', 'portOfDischarge'] as const;
+export function anFillable(draft: ArrivalNoticeDraft, shipment: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of AN_FILL_FIELDS) {
+    const v = draft[k];
+    const cur = shipment[k];
+    if (v !== null && v !== undefined && (cur === null || cur === undefined || cur === '')) out[k] = v;
+  }
+  return out;
+}

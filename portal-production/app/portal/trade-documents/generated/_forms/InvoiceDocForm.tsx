@@ -86,7 +86,7 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
   const banks: Array<{ id: string; label: string; block: string }> = Array.isArray(dd.banks) && dd.banks.length ? dd.banks : dd.invoiceBankBlock ? [{ id: "default", label: String(dd.invoiceBankBlock).split("\n")[0], block: dd.invoiceBankBlock }] : [];
   const unit: string = dd.invoiceUnit ?? "トン";
   const [pick, setPick] = useState(false);
-  const totals = useMemo(() => invoiceTotals(rows, h.taxRate, h.fxRate), [rows, h.taxRate, h.fxRate]);
+  const totals = useMemo(() => invoiceTotals(rows, h.taxRate, h.fxRate, isFinal2 ? "final" : undefined), [rows, h.taxRate, h.fxRate, isFinal2]);
   /** Subject from the billed grades with the org's template: "{grade}" gives one line per grade, "{grades}" joins them ("6005・6063"). Mirrors the API's invoiceSubject. */
   const autoSubject = (lines: InvoiceLine[]) => {
     const grades = [...new Set(lines.map((l) => l.grade).filter((g): g is string => !!g))];
@@ -238,7 +238,14 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
           {isFinal2 && (
             <>
               <Grid2 size={{ xs: 12, sm: 6 }}>{tf("invoice1No", "Invoice #1 no. (１回目)")}</Grid2>
-              <Grid2 size={{ xs: 12, sm: 6 }}>{numTf("invoice1Amount", "１回目の金額 (tax incl., US$)", { inputProps: { step: "0.01" }, helperText: "What Invoice #1 billed for this product; ２回目 = 合計 − this" })}</Grid2>
+              <Grid2 size={{ xs: 12, sm: 6 }}>{numTf("invoice1Amount", "１回目の金額 (tax incl., US$)", {
+                  inputProps: { step: "0.01" },
+                  FormHelperTextProps: h.invoice1Amount == null ? { sx: { color: "warning.main" } } : undefined,
+                  helperText:
+                    h.invoice1Amount == null
+                      ? "No matching Invoice #1 line was found — enter what Invoice #1 billed for this product (tax incl.)"
+                      : "From Invoice #1's line for this product (tax incl.); ２回目 = 合計 − this",
+                })}</Grid2>
             </>
           )}
         </Grid2>

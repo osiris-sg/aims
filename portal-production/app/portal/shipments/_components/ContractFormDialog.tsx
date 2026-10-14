@@ -46,7 +46,8 @@ type TextKey =
   | "depositPaidAt";
 type Form = Record<TextKey, string>;
 
-type LineKey = "grade" | "sizeSpec" | "product" | "quantityMt" | "tolerancePct" | "supplierPremium" | "clientPremium";
+// qmjp / billetPremium / upcharge: the client price parts the invoices fall back to when Invoice #1 has none.
+type LineKey = "grade" | "sizeSpec" | "product" | "quantityMt" | "tolerancePct" | "supplierPremium" | "clientPremium" | "qmjp" | "billetPremium" | "upcharge";
 type LineRow = Record<LineKey, string> & { id?: string; key: string };
 
 const EMPTY: Form = {
@@ -83,6 +84,9 @@ const newLine = (over: Partial<LineRow> = {}): LineRow => ({
   tolerancePct: "5",
   supplierPremium: "",
   clientPremium: "",
+  qmjp: "",
+  billetPremium: "",
+  upcharge: "",
   ...over,
 });
 
@@ -123,6 +127,9 @@ const linesFrom = (c: Contract): LineRow[] =>
     tolerancePct: str(l.tolerancePct),
     supplierPremium: str(l.supplierPremium),
     clientPremium: str(l.clientPremium),
+    qmjp: str(l.qmjp),
+    billetPremium: str(l.billetPremium),
+    upcharge: str(l.upcharge),
   }));
 
 const num = (s: string) => (s.trim() === "" ? null : Number(s));
@@ -136,7 +143,7 @@ const autoDeposit = (amount: string, pct: string) => {
 };
 
 /** Product-line table columns (px): grade, size, product, qty, tolerance, Vedanta premium, client premium, remove. */
-const LINE_COLS = [90, 180, 170, 100, 90, 130, 130, 44];
+const LINE_COLS = [90, 170, 160, 100, 90, 120, 120, 100, 110, 100, 44];
 const LINE_TABLE_MIN = LINE_COLS.reduce((a, b) => a + b, 0);
 
 const Section = ({ n, title, action, children }: { n: number; title: string; action?: React.ReactNode; children: React.ReactNode }) => (
@@ -323,7 +330,7 @@ export default function ContractFormDialog({
   const currencyError = !/^[A-Z]{3}$/.test(form.currency.trim());
   const dueDaysError = form.depositDueDays.trim() !== "" && !(Number.isInteger(Number(form.depositDueDays)) && Number(form.depositDueDays) >= 0 && Number(form.depositDueDays) <= 365);
   const pctError = numberError(form.depositPercent) || (form.depositPercent.trim() !== "" && Number(form.depositPercent) > 100);
-  const lineError = (l: LineRow) => numberError(l.quantityMt) || numberError(l.tolerancePct) || Number(l.tolerancePct) > 100 || numberError(l.supplierPremium, true) || numberError(l.clientPremium, true);
+  const lineError = (l: LineRow) => numberError(l.quantityMt) || numberError(l.tolerancePct) || Number(l.tolerancePct) > 100 || numberError(l.supplierPremium, true) || numberError(l.clientPremium, true) || numberError(l.qmjp, true) || numberError(l.billetPremium, true) || numberError(l.upcharge, true);
   const missing = !form.contractNo.trim() || !form.supplierId || !form.customerId;
   const invalid = dueDaysError || missing || monthError("shipmentMonth") || monthError("deliveryMonth") || anyDateError(form.piDate, form.depositPaidAt, form.shipmentMonth, form.deliveryMonth) || currencyError || pctError || ["piAmount", "depositAmount"].some((k) => numberError(form[k as TextKey])) || !lines.length || lines.some(lineError);
   const totalQty = lines.reduce((s, l) => s + (Number(l.quantityMt) || 0), 0);
@@ -363,6 +370,9 @@ export default function ContractFormDialog({
         tolerancePct: num(l.tolerancePct),
         supplierPremium: num(l.supplierPremium),
         clientPremium: num(l.clientPremium),
+        qmjp: num(l.qmjp),
+        billetPremium: num(l.billetPremium),
+        upcharge: num(l.upcharge),
       })),
     };
     try {
@@ -433,7 +443,14 @@ export default function ContractFormDialog({
 
   return (
     <Dialog open={open} onClose={() => !save.isPending && !reading && cancel()} maxWidth={source ? "xl" : "lg"} fullWidth>
-      <DialogTitle>{contract ? `Edit contract ${contract.contractNo}` : "New contract"}</DialogTitle>
+      <DialogTitle>
+        {contract ? `Edit contract ${contract.contractNo}` : "New Shipment"}
+        {!contract && (
+          <Typography variant="body2" color="text.secondary">
+            Start with the contract — shipment #1 is created with it (B/L pending).
+          </Typography>
+        )}
+      </DialogTitle>
       <DialogContent dividers>
         <Grid2 container spacing={2}>
           <Grid2 size={side ? 7 : 12}>
@@ -513,6 +530,9 @@ export default function ContractFormDialog({
                       <TableCell align="right">Tolerance %</TableCell>
                       <TableCell align="right">Vedanta premium (USD/t)</TableCell>
                       <TableCell align="right">Client premium (USD/t)</TableCell>
+                      <TableCell align="right">QMJP (USD/t)</TableCell>
+                      <TableCell align="right">Billet premium (USD/t)</TableCell>
+                      <TableCell align="right">Upcharge (USD/t)</TableCell>
                       <TableCell />
                     </TableRow>
                   </TableHead>
@@ -526,6 +546,9 @@ export default function ContractFormDialog({
                         {lineCell(l, "tolerancePct", { numeric: true })}
                         {lineCell(l, "supplierPremium", { numeric: true, allowNegative: true })}
                         {lineCell(l, "clientPremium", { numeric: true, allowNegative: true })}
+                        {lineCell(l, "qmjp", { numeric: true, allowNegative: true })}
+                        {lineCell(l, "billetPremium", { numeric: true, allowNegative: true })}
+                        {lineCell(l, "upcharge", { numeric: true, allowNegative: true })}
                         <TableCell sx={{ px: 0.5, width: 40 }}>
                           <Tooltip title={lines.length === 1 ? "A contract needs at least one product line" : "Remove line"}>
                             <span>
@@ -544,7 +567,7 @@ export default function ContractFormDialog({
                       <TableCell align="right" sx={{ px: 1.5, fontWeight: 700, borderBottom: 0, fontVariantNumeric: "tabular-nums" }}>
                         {totalQty.toLocaleString("en-US", { maximumFractionDigits: 3 })} MT
                       </TableCell>
-                      <TableCell colSpan={4} sx={{ borderBottom: 0 }} />
+                      <TableCell colSpan={7} sx={{ borderBottom: 0 }} />
                     </TableRow>
                   </TableBody>
                 </Table>
@@ -617,7 +640,7 @@ export default function ContractFormDialog({
           Cancel
         </Button>
         <Button variant="contained" onClick={submit} disabled={save.isPending || reading}>
-          {save.isPending ? "Saving…" : contract ? "Save changes" : "Create contract"}
+          {save.isPending ? "Saving…" : contract ? "Save changes" : "Create shipment"}
         </Button>
       </DialogActions>
     </Dialog>

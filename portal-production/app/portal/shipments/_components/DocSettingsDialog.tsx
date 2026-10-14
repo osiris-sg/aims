@@ -19,8 +19,8 @@ import { toast } from "../_lib/toast";
 const SEAL_MAX = 1024 * 1024;
 const newId = (prefix: string) => `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-type Issuers = { invoiceFromBlock: string; customerDocIssuerName: string; customerDocIssuerAddress: string; customerDocContact: string; siIssuerName: string };
-const ISSUER_KEYS: Array<keyof Issuers> = ["invoiceFromBlock", "customerDocIssuerName", "customerDocIssuerAddress", "customerDocContact", "siIssuerName"];
+type Issuers = { invoiceFromBlock: string; customerDocIssuerName: string; customerDocIssuerAddress: string; customerDocContact: string; siIssuerName: string; siAddressee: string };
+const ISSUER_KEYS: Array<keyof Issuers> = ["invoiceFromBlock", "customerDocIssuerName", "customerDocIssuerAddress", "customerDocContact", "siIssuerName", "siAddressee"];
 
 const Section = ({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) => (
   <Box sx={{ mb: 3 }}>
@@ -39,7 +39,7 @@ export default function DocSettingsDialog({ open, onClose }: { open: boolean; on
   const settings = useTradeSettings(open);
   const [banks, setBanks] = useState<BankAccount[]>([]);
   const [defaultBankId, setDefaultBankId] = useState<string>("");
-  const [issuers, setIssuers] = useState<Issuers>({ invoiceFromBlock: "", customerDocIssuerName: "", customerDocIssuerAddress: "", customerDocContact: "", siIssuerName: "" });
+  const [issuers, setIssuers] = useState<Issuers>({ invoiceFromBlock: "", customerDocIssuerName: "", customerDocIssuerAddress: "", customerDocContact: "", siIssuerName: "", siAddressee: "" });
   const [seal, setSeal] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<DeliveryProfile[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -155,6 +155,7 @@ export default function DocSettingsDialog({ open, onClose }: { open: boolean; on
             <Grid2 size={{ xs: 12, sm: 6 }}>{iss("customerDocContact", "担当 (contact)")}</Grid2>
             <Grid2 size={12}>{iss("customerDocIssuerAddress", "Issuer address", { multiline: true, minRows: 2 })}</Grid2>
             <Grid2 size={12}>{iss("siIssuerName", "出庫・納入依頼書 — issuer / 出荷主")}</Grid2>
+            <Grid2 size={12}>{iss("siAddressee", "出庫・納入依頼書 — 宛先 (warehouse)", { placeholder: "三井倉庫 株式会社 御中", helperText: "Blank = 三井倉庫 株式会社 御中" })}</Grid2>
           </Grid2>
         </Section>
         <Divider sx={{ mb: 2 }} />

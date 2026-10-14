@@ -319,10 +319,10 @@ export function renderSgjpV2Html(h: SgjpHeaderV2, items: SgjpItem[], opts: { dra
   <tbody>${items
     .map(
       (i, k) =>
-        `<tr><td class="c">${k + 1}</td><td class="pre">${br(i.goods)}<br>HS Code: ${esc(i.hsCode)}${i.terms ? ` ${esc(i.terms)}` : ''}</td><td class="num">${money(sgjpUnitPrice(i))}</td><td class="num">${money(num(i.quantity), 3)}</td><td class="num">${money(sgjpItemAmount(i))}</td></tr>`,
+        `<tr><td class="c">${k + 1}</td><td class="pre">${br(i.goods)}<br>HS Code: ${esc(i.hsCode)}${i.terms ? ` ${esc(i.terms)}` : ''}</td><td class="num">${money(sgjpUnitPrice(i))}</td><td class="num">${money(num(i.quantity), 3)}</td><td class="num">${usdAmount(sgjpItemAmount(i))}</td></tr>`,
     )
-    .join('')}</tbody>
-  <tfoot><tr><td colspan="3">TOTAL</td><td class="num">${money(t.quantity, 3)}</td><td class="num">${money(t.amount)}</td></tr></tfoot>
+    .join('')}
+  <tr class="tot"><td colspan="3">TOTAL</td><td class="num">${money(t.quantity, 3)}</td><td class="num">${usdAmount(t.amount)}</td></tr></tbody>
 </table>
 <h2>PACKING DETAILS</h2>
 <table class="grid pk">
@@ -333,8 +333,8 @@ export function renderSgjpV2Html(h: SgjpHeaderV2, items: SgjpItem[], opts: { dra
       (i, k) =>
         `<tr><td class="c">${k + 1}</td><td class="pre">${br(i.goods)}${has(i.bundles) ? `- ${qty(num(i.bundles))} Bundles` : ''}<br>HS Code: ${esc(i.hsCode)}</td><td class="num">${has(i.pieces) ? `${qty(num(i.pieces))} PCS` : ''}</td><td class="num">${money(num(i.netMt), 3)}</td><td class="num">${money(num(i.grossMt), 3)}</td><td class="pre">${br(i.dimension)}</td></tr>`,
     )
-    .join('')}</tbody>
-  <tfoot><tr><td>TOTAL :</td><td>${qty(t.bundles)}  Bundle only</td><td></td><td class="num">${money(t.netMt, 3)}</td><td class="num">${money(t.grossMt, 3)}</td><td></td></tr></tfoot>
+    .join('')}
+  <tr class="tot"><td>TOTAL :</td><td>${qty(t.bundles)}  Bundle only</td><td></td><td class="num">${money(t.netMt, 3)}</td><td class="num">${money(t.grossMt, 3)}</td><td></td></tr></tbody>
 </table>
 <div class="sign pre">${br(h.signBlock)}</div>`;
   const css = `
@@ -352,7 +352,7 @@ table.grid { width: 100%; table-layout: fixed; margin-top: 3mm; }
 .grid th { border: 1px solid #333; background: #eee; padding: 1.5mm; font-weight: 700; }
 .grid td { border: 1px solid #333; padding: 1.5mm; vertical-align: top; }
 .grid td.c { text-align: center; }
-.grid tfoot td { font-weight: 700; }
+.grid tfoot td, .grid tr.tot td { font-weight: 700; }
 .sign { margin: 10mm 0 0 auto; width: 70mm; font-size: 8pt; border-top: 1px solid #111; padding-top: 1.5mm; }
 `;
   return docShell({ title: `INVOICE & PACKING LIST ${h.invoiceNo ?? ''}`.trim(), css, body, draft: opts.draft });
@@ -417,8 +417,8 @@ export function renderSiV2Html(h: SiHeaderV2, rows: SiRowV2[], opts: { draft?: b
       .replace(/^<br>/, '');
   const notes = (h.remarks ?? '').split(/\r?\n/);
   const body = `
-<div class="req">手配依頼日<span>${jpDate(h.requestDate)}</span></div>
-<div class="to">${esc(h.toName)} 御中</div>
+<div class="req">手配依頼日<span>${slashDay(h.requestDate)}</span></div>
+<div class="to">${esc(addressee(h.toName))}</div>
 <div class="iss">${esc(h.issuerName)}</div>
 <h1>${esc(h.title || '出庫・納入依頼書')}</h1>
 <table class="kv">
@@ -427,7 +427,7 @@ export function renderSiV2Html(h: SiHeaderV2, rows: SiRowV2[], opts: { draft?: b
 </table>
 <table class="grid">
   <colgroup><col style="width:11%"><col style="width:12%"><col style="width:36%"><col style="width:16%"><col style="width:8%"><col style="width:17%"></colgroup>
-  <thead><tr><th>出荷日</th><th>納入日</th><th>納入先</th><th>ビレット</th><th>束　数</th><th>重 量</th></tr></thead>
+  <thead><tr><th>出荷日</th><th>納入日</th><th>納入先</th><th>ビレット</th><th>束数</th><th>重 量</th></tr></thead>
   <tbody>${rows
     .map(
       (r, i) =>
@@ -459,4 +459,32 @@ table.rem { width: 100%; margin-top: 6mm; } .rem th { width: 24%; border: 1px so
 .rem td { border-bottom: 1px solid #111; padding: 1mm 0 1mm 4mm; height: 6.5mm; } .rem td.ind { padding-left: 9mm; } .rem td.nb { border: 0; }
 `;
   return docShell({ title: h.title || '出庫・納入依頼書', css, body, draft: opts.draft });
+}
+
+/** What stops a SG→JP invoice from being finalized: an item without a unit price (or without its LME) and a US$0.00 total. */
+export function sgjpFinalizeProblems(items: SgjpItem[]): string[] {
+  const problems: string[] = [];
+  items.forEach((it, i) => {
+    if (!(it.goods ?? '').trim() && !has(it.quantity)) return;
+    if (sgjpUnitPrice(it) !== null) return;
+    const helper = [it.qmjp, it.premium, it.upcharge].some(has);
+    problems.push(helper ? `item ${i + 1} needs the LME` : `item ${i + 1} needs a unit price`);
+  });
+  if (sgjpTotals(items).amount === 0) problems.push('the total is US$0.00');
+  return problems;
+}
+
+/** "US$459,412.52" — the SG→JP amount cells, as ADH's sheet prints them. */
+function usdAmount(v: number | null): string {
+  return v === null ? '' : `US$${money(v)}`;
+}
+/** "2026-09-01" → "2026/9/1" (出庫・納入依頼書's request date). */
+function slashDay(d: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d ?? '');
+  return m ? `${m[1]}/${Number(m[2])}/${Number(m[3])}` : esc(d ?? '');
+}
+/** The 宛先 line is a setting with its own 御中 ("三井倉庫 株式会社 御中"); an older name-only value gets 御中 added. */
+export function addressee(toName: string | null | undefined): string {
+  const t = (toName ?? '').trim();
+  return !t || /御中$/.test(t) ? t : `${t} 御中`;
 }

@@ -69,7 +69,7 @@ export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose
   return (
     <>
       <Dialog open={open && !review} onClose={close} maxWidth="lg" fullWidth>
-        <DialogTitle>New contracts from PIs</DialogTitle>
+        <DialogTitle>New shipments from PIs</DialogTitle>
         <DialogContent dividers>
           <PdfDropZone
             multiple

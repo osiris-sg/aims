@@ -36,6 +36,14 @@ export class TradeExtractController {
     return this.extract.extract(orgIdOf(req), 'BL_DRAFT', { file, fileId: dto.fileId, shipmentId: dto.shipmentId, contractId: dto.contractId }, actorOf(req));
   }
 
+  /** Arrival notice → vessel / ETA / CY / containers / weights / charges collect, and the blank shipment fields it can fill. */
+  @Post('an')
+  @Permissions('shipments:create')
+  @UseInterceptors(pdfOrImage)
+  an(@UploadedFile() file: Express.Multer.File | undefined, @Body() dto: ExtractBlDraftDto, @Req() req: TradeRequest) {
+    return this.extract.extract(orgIdOf(req), 'AN', { file, fileId: dto.fileId, shipmentId: dto.shipmentId }, actorOf(req));
+  }
+
   @Get(':id')
   @Permissions('shipments:read')
   get(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {

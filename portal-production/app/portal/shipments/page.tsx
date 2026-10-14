@@ -3,57 +3,68 @@
 
 // Shipments list — the main tracker: one row per shipment (B/L pending until
 // it is entered on step 2) with its contract and current step. Row click opens
-// the deal page on that shipment. "New contract" starts a deal (the contract
-// arrives with shipment #1); more shipments are added on the deal page.
+// the deal page on that shipment. "New Shipment" starts a deal (the contract
+// form; the contract arrives with shipment #1, B/L pending); more shipments are
+// added on the deal page. Tabs split Pending (open) from Completed (completed
+// or cancelled); the Contract filter (also ?contractId=) replaces the old
+// Contracts menu entry.
 
 import React, { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Alert, Box, Button, IconButton, Menu, MenuItem, Typography } from "@mui/material";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Alert, Box, Button, IconButton, Menu, MenuItem, Tab, Tabs, Typography } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
+import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { toast } from "./_lib/toast";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
 import type { ShipmentListItem } from "./_lib/api";
-import { useCustomers, useShipments, useStepTemplates, useTradeMutation } from "./_lib/hooks";
+import { useContracts, useCustomers, useShipments, useStepTemplates, useTradeMutation } from "./_lib/hooks";
 import { blLabel, fmtDay, fmtMt, stepLabel } from "./_lib/format";
 import { ConfirmDialog, CurrentStepCell, EmptyState, ProgressCell, RecordStatusChip } from "./_components/bits";
 import ContractFormDialog from "./_components/ContractFormDialog";
+import BlDefaultsDialog from "./_components/BlDefaultsDialog";
+import DocSettingsDialog from "./_components/DocSettingsDialog";
+import PiBulkDialog from "./_components/PiBulkDialog";
 import { useDebounced } from "./_components/useDebounced";
 
 /** The deal page, on this shipment. */
 const dealHref = (r: ShipmentListItem) => `/portal/shipments/contracts/${r.contractId ?? r.contract?.id}?shipment=${r.id}`;
 
-const STATUS_OPTIONS = [
-  { value: "OPEN", label: "Open" },
-  { value: "COMPLETED", label: "Completed" },
-  { value: "CANCELLED", label: "Cancelled" },
-];
-
 export default function ShipmentsPage() {
   const router = useRouter();
+  const params = useSearchParams();
+  const [bucket, setBucket] = useState<"pending" | "completed">(params?.get("tab") === "completed" ? "completed" : "pending");
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState<{ status: string; customerId: string; currentStep: string }>({ status: "", customerId: "", currentStep: "" });
+  const [filters, setFilters] = useState<{ contractId: string; customerId: string; currentStep: string }>({ contractId: params?.get("contractId") ?? "", customerId: "", currentStep: "" });
   const q = useDebounced(search);
   const list = useShipments({
     page,
     pageSize: limit,
     q: q || undefined,
-    status: filters.status || undefined,
+    bucket,
+    contractId: filters.contractId || undefined,
     customerId: filters.customerId || undefined,
     currentStep: filters.currentStep || undefined,
   });
   const customers = useCustomers();
+  const contracts = useContracts({ pageSize: 100 });
   const templates = useStepTemplates("SHIPMENT");
   const [createOpen, setCreateOpen] = useState(false);
+  // Moved here with the Contracts menu entry: bulk PIs, B/L defaults, document settings.
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [settingsMenu, setSettingsMenu] = useState<HTMLElement | null>(null);
+  const [defaultsOpen, setDefaultsOpen] = useState(false);
+  const [docSettingsOpen, setDocSettingsOpen] = useState(false);
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; row: ShipmentListItem } | null>(null);
   const [toDelete, setToDelete] = useState<ShipmentListItem | null>(null);
   const del = useTradeMutation((api, id: string) => api.deleteShipment(id));
 
   const filterConfig: FilterField[] = useMemo(
     () => [
-      { type: "select", key: "status", label: "Status", options: STATUS_OPTIONS },
+      { type: "select", key: "contractId", label: "Contract", options: (contracts.data?.items ?? []).map((c) => ({ value: c.id, label: [c.contractNo, c.customer?.name].filter(Boolean).join(" · ") })) },
       { type: "select", key: "customerId", label: "Customer", options: (customers.data ?? []).map((c) => ({ value: c.id, label: c.name })) },
       {
         type: "select",
@@ -69,7 +80,7 @@ export default function ShipmentsPage() {
         ],
       },
     ],
-    [customers.data, templates.data],
+    [contracts.data, customers.data, templates.data],
   );
 
   const columns = useMemo(
@@ -107,13 +118,27 @@ export default function ShipmentsPage() {
   );
 
   const items = list.data?.items ?? [];
-  const filtered = !!(q || filters.status || filters.customerId || filters.currentStep);
+  const filtered = !!(q || filters.contractId || filters.customerId || filters.currentStep);
+  const counts = list.data?.counts;
+  const tabs = (
+    <Tabs
+      value={bucket}
+      onChange={(_, v) => {
+        setBucket(v);
+        setPage(1);
+      }}
+      sx={{ minHeight: 40, "& .MuiTab-root": { minHeight: 40, textTransform: "none" } }}
+    >
+      <Tab value="pending" label={`Pending${counts ? ` (${counts.pending})` : ""}`} data-tour="shipments-tab-pending" />
+      <Tab value="completed" label={`Completed${counts ? ` (${counts.completed})` : ""}`} data-tour="shipments-tab-completed" />
+    </Tabs>
+  );
 
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, height: "100%" }}>
       <PageTable
         tableName="Shipments"
-        buttonName="New contract"
+        buttonName="New Shipment"
         onAddClick={() => setCreateOpen(true)}
         columns={columns}
         data={items}
@@ -132,10 +157,18 @@ export default function ShipmentsPage() {
         }}
         filters={filters}
         setFilters={(f) => {
-          setFilters({ status: f.status ?? "", customerId: f.customerId ?? "", currentStep: f.currentStep ?? "" });
+          setFilters({ contractId: f.contractId ?? "", customerId: f.customerId ?? "", currentStep: f.currentStep ?? "" });
           setPage(1);
         }}
         filterConfig={filterConfig}
+        actionButtons={[
+          <Button key="from-pis" variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={() => setBulkOpen(true)}>
+            New shipments from PIs
+          </Button>,
+          <Button key="settings" variant="outlined" startIcon={<SettingsOutlinedIcon />} onClick={(e) => setSettingsMenu(e.currentTarget)}>
+            Settings
+          </Button>,
+        ]}
         pageCount={list.data?.totalPages ?? 1}
         totalDocs={list.data?.total}
         onRowClick={(r: ShipmentListItem) => router.push(dealHref(r))}
@@ -144,15 +177,20 @@ export default function ShipmentsPage() {
         manualSorting
         hideTable={!list.isLoading && !list.isError && !items.length}
         headerContent={
-          list.isError ? (
-            <Alert severity="error">{(list.error as Error)?.message || "Could not load shipments"}</Alert>
-          ) : !list.isLoading && !items.length ? (
-            filtered ? (
-              <EmptyState title="No shipments match these filters" />
-            ) : (
-              <EmptyState title="No shipments yet — start with the contract" action={<Button variant="contained" onClick={() => setCreateOpen(true)}>New contract</Button>} />
-            )
-          ) : undefined
+          <>
+            {tabs}
+            {list.isError ? (
+              <Alert severity="error">{(list.error as Error)?.message || "Could not load shipments"}</Alert>
+            ) : !list.isLoading && !items.length ? (
+              filtered ? (
+                <EmptyState title="No shipments match these filters" />
+              ) : bucket === "completed" ? (
+                <EmptyState title="No completed shipments yet" />
+              ) : (
+                <EmptyState title="No pending shipments — start a new deal" action={<Button variant="contained" onClick={() => setCreateOpen(true)}>New Shipment</Button>} />
+              )
+            ) : null}
+          </>
         }
       />
 
@@ -191,6 +229,28 @@ export default function ShipmentsPage() {
         }}
       />
 
+      {/* A stable toolbar button (outside the table), so anchorEl is fine here. */}
+      <Menu anchorEl={settingsMenu} open={!!settingsMenu} onClose={() => setSettingsMenu(null)}>
+        <MenuItem
+          onClick={() => {
+            setSettingsMenu(null);
+            setDefaultsOpen(true);
+          }}
+        >
+          B/L defaults
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            setSettingsMenu(null);
+            setDocSettingsOpen(true);
+          }}
+        >
+          Document settings
+        </MenuItem>
+      </Menu>
+      <BlDefaultsDialog open={defaultsOpen} onClose={() => setDefaultsOpen(false)} />
+      <DocSettingsDialog open={docSettingsOpen} onClose={() => setDocSettingsOpen(false)} />
+      <PiBulkDialog open={bulkOpen} onClose={() => setBulkOpen(false)} />
       <ContractFormDialog open={createOpen} onClose={() => setCreateOpen(false)} onSaved={(c) => router.push(`/portal/shipments/contracts/${c.id}`)} />
     </Box>
   );

@@ -5,6 +5,11 @@ import { DocumentExtractionService } from '../document-extraction/document-extra
 import { TradeActor } from './shipments.request';
 import { Db } from './trade-config.service';
 import {
+  AN_SCHEMA,
+  AN_SYSTEM_PROMPT,
+  AN_USER_PROMPT,
+  anFillable,
+  arrivalNoticeDraft,
   BL_SCHEMA,
   BL_SYSTEM_PROMPT,
   BL_USER_PROMPT,
@@ -22,8 +27,15 @@ import {
 } from './trade-extract.rules';
 import { TradeFilesService } from './trade-files.service';
 
-export type ExtractKind = 'PI' | 'BL_DRAFT';
-const DOC_TYPE: Record<ExtractKind, string> = { PI: 'PI', BL_DRAFT: 'BL_DRAFT' };
+export type ExtractKind = 'PI' | 'BL_DRAFT' | 'AN';
+const DOC_TYPE: Record<ExtractKind, string> = { PI: 'PI', BL_DRAFT: 'BL_DRAFT', AN: 'ARRIVAL_NOTICE' };
+/** The step a newly uploaded source PDF is tagged with. */
+const STEP_CODE: Partial<Record<ExtractKind, string>> = { BL_DRAFT: 'BL_DRAFT_APPROVAL', AN: 'AN_INSTRUCTIONS' };
+const PROMPTS: Record<ExtractKind, [string, string]> = {
+  PI: [PI_SYSTEM_PROMPT, PI_USER_PROMPT],
+  BL_DRAFT: [BL_SYSTEM_PROMPT, BL_USER_PROMPT],
+  AN: [AN_SYSTEM_PROMPT, AN_USER_PROMPT],
+};
 const READABLE = /^(application\/pdf|image\/(png|jpe?g|webp))$/;
 
 /** Sonnet list price (USD per million tokens) — only for the cost shown in reports/logs. */
@@ -77,7 +89,7 @@ export class TradeExtractService {
     // 1. The source file: a new upload goes through the normal trade-file path.
     let fileId = input.fileId;
     if (input.file) {
-      const stepId = input.shipmentId && kind === 'BL_DRAFT' ? await this.stepId(input.shipmentId, 'BL_DRAFT_APPROVAL') : undefined;
+      const stepId = input.shipmentId && STEP_CODE[kind] ? await this.stepId(input.shipmentId, STEP_CODE[kind]!) : undefined;
       const uploaded = await this.files.upload(
         organizationId,
         input.file,
@@ -101,10 +113,11 @@ export class TradeExtractService {
     const started = Date.now();
     try {
       const buffer = await this.s3.downloadFile(file.s3Key);
-      const out = await this.extractor.extractStructured({ buffer, mimetype: file.mimeType }, kind === 'PI' ? PI_SYSTEM_PROMPT : BL_SYSTEM_PROMPT, kind === 'PI' ? PI_USER_PROMPT : BL_USER_PROMPT, {
+      const out = await this.extractor.extractStructured({ buffer, mimetype: file.mimeType }, PROMPTS[kind][0], PROMPTS[kind][1], {
         maxTokens: 4000,
       });
-      const result = kind === 'PI' ? await this.piResult(organizationId, out.data) : await this.blResult(organizationId, out.data, input);
+      const result =
+        kind === 'PI' ? await this.piResult(organizationId, out.data) : kind === 'AN' ? await this.anResult(organizationId, out.data, input) : await this.blResult(organizationId, out.data, input);
       const checks = kind === 'BL_DRAFT' && input.shipmentId ? await computeBlChecks(this.prisma, organizationId, input.shipmentId, result.draft as ShipmentDraft) : null;
       await this.prisma.tradeExtraction.update({
         where: { id: row.id },
@@ -177,6 +190,15 @@ export class TradeExtractService {
     const draft = contractDraftFromPi(pi, { suppliers, customers });
     const existing = draft.contractNo ? await this.prisma.contract.findFirst({ where: { organizationId, contractNo: draft.contractNo }, select: { id: true, contractNo: true } }) : null;
     return { raw: pi, draft, existingContractId: existing?.id ?? null };
+  }
+
+  /** Arrival notice → draft + the blank shipment fields it can fill (the user confirms in the portal). */
+  private async anResult(organizationId: string, raw: unknown, input: { shipmentId?: string }) {
+    const draft = arrivalNoticeDraft(parseWith(AN_SCHEMA, raw, 'arrival notice'));
+    const shipment = input.shipmentId ? await this.prisma.shipment.findFirst({ where: { id: input.shipmentId, organizationId } }) : null;
+    const fill = shipment ? anFillable(draft, shipment as unknown as Record<string, unknown>) : {};
+    const blMismatch = !!(shipment?.blNumber && draft.blNumber && shipment.blNumber !== draft.blNumber);
+    return { raw, draft, fill, blMismatch };
   }
 
   private async blResult(organizationId: string, raw: unknown, input: { shipmentId?: string; contractId?: string }) {

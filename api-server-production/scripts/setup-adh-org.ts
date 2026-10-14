@@ -127,7 +127,6 @@ const ENABLED_MODULES: Array<{ code: string; route?: string; icon?: string; sort
     sortOrder: -3, // first — before the global Sales pin (0.5)
     subMenus: [
       { key: 'list', label: 'Shipments' },
-      { key: 'contracts', label: 'Contracts' },
     ],
   },
   {
@@ -298,7 +297,7 @@ type StepSpec = {
 };
 const STEP_TEMPLATES: StepSpec[] = [
   { scope: 'CONTRACT', sortOrder: 10, code: 'PI_PAYMENT', displayNo: '1', title: 'Set up PI payment', requiredDocTypes: ['PI', 'DEPOSIT_PROOF'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
-  { scope: 'CONTRACT', sortOrder: 20, code: 'INVOICE_1', displayNo: '2', title: 'Issue Invoice #1', requiredDocTypes: ['INVOICE_1'] },
+  { scope: 'CONTRACT', sortOrder: 20, code: 'INVOICE_1', displayNo: '2', title: 'Issue Invoice #1', requiredDocTypes: ['INVOICE_1'], optionalDocTypes: ['OTHER'] },
   {
     scope: 'SHIPMENT',
     sortOrder: 10,
@@ -308,13 +307,14 @@ const STEP_TEMPLATES: StepSpec[] = [
     requiredDocTypes: ['BL_DRAFT'],
     // The B/L details are entered here (inline form / "Fill from B/L draft").
     requiredFields: ['blNumber', 'contractLineId'],
+    optionalDocTypes: ['ARRIVAL_NOTICE', 'OTHER'],
   },
-  { scope: 'SHIPMENT', sortOrder: 20, code: 'SHIPPING_DOCS', displayNo: '3', title: 'Receive shipping documents', requiredDocTypes: ['BL', 'CI', 'PL', 'COA', 'COO', 'INSURANCE'] },
-  { scope: 'SHIPMENT', sortOrder: 30, code: 'CUSTOMER_DOCS', displayNo: '4', title: 'Create customer documents', requiredDocTypes: ['CUSTOMER_COA', 'CUSTOMER_PL'] },
+  { scope: 'SHIPMENT', sortOrder: 20, code: 'SHIPPING_DOCS', displayNo: '3', title: 'Receive shipping documents', requiredDocTypes: ['BL', 'CI', 'PL', 'COA', 'COO', 'INSURANCE'], optionalDocTypes: ['PL', 'COA', 'OTHER'] },
+  { scope: 'SHIPMENT', sortOrder: 30, code: 'CUSTOMER_DOCS', displayNo: '4', title: 'Create customer documents', requiredDocTypes: ['CUSTOMER_COA', 'CUSTOMER_PL'], optionalDocTypes: ['OTHER'] },
   { scope: 'SHIPMENT', sortOrder: 40, code: 'SEND_DOCS_SCHEDULE', displayNo: '5', title: 'Send documents & ask schedule', requiredDocTypes: [], optionalDocTypes: ['DELIVERY_SCHEDULE', 'OTHER'] },
-  { scope: 'SHIPMENT', sortOrder: 50, code: 'CI_PAYMENT', displayNo: '6', title: 'Set up CI payment', requiredDocTypes: ['CI_PAYMENT_PROOF'] },
-  { scope: 'SHIPMENT', sortOrder: 60, code: 'CUSTOMS_TAX_ESTIMATE', displayNo: '7', title: 'Customs documents & tax estimate', requiredDocTypes: ['SGJP_IV_PL', 'TAX_ESTIMATE'] },
-  { scope: 'SHIPMENT', sortOrder: 70, code: 'TAX_FUNDS', displayNo: '8', title: 'Prepare import-tax funds', requiredDocTypes: [] },
+  { scope: 'SHIPMENT', sortOrder: 50, code: 'CI_PAYMENT', displayNo: '6', title: 'Set up CI payment', requiredDocTypes: ['CI_PAYMENT_PROOF'], optionalDocTypes: ['OTHER'] },
+  { scope: 'SHIPMENT', sortOrder: 60, code: 'CUSTOMS_TAX_ESTIMATE', displayNo: '7', title: 'Customs documents & tax estimate', requiredDocTypes: ['SGJP_IV_PL', 'TAX_ESTIMATE'], optionalDocTypes: ['OTHER'] },
+  { scope: 'SHIPMENT', sortOrder: 70, code: 'TAX_FUNDS', displayNo: '8', title: 'Prepare import-tax funds', requiredDocTypes: [], optionalDocTypes: ['OTHER'] },
   {
     scope: 'SHIPMENT',
     sortOrder: 80,
@@ -322,12 +322,13 @@ const STEP_TEMPLATES: StepSpec[] = [
     displayNo: '9',
     title: 'Send arrival notice & shipping instructions',
     requiredDocTypes: ['ARRIVAL_NOTICE', 'SHIPPING_INSTRUCTIONS', 'TELEX_RELEASE', 'DELIVERY_SCHEDULE'],
+    optionalDocTypes: ['DELIVERY_SCHEDULE', 'OTHER'],
   },
-  { scope: 'SHIPMENT', sortOrder: 90, code: 'IMPORT_PERMIT', displayNo: '10', title: 'Store & send import permit', requiredDocTypes: ['IMPORT_PERMIT'] },
-  { scope: 'SHIPMENT', sortOrder: 100, code: 'INVOICE_2', displayNo: '11', title: 'Issue Invoice #2', requiredDocTypes: ['INVOICE_2'] },
-  { scope: 'SHIPMENT', sortOrder: 110, code: 'LOGISTICS_PAYMENT', displayNo: '12', title: 'Pay transport & storage costs', requiredDocTypes: ['VENDOR_INVOICE', 'PAYMENT_PROOF'] },
-  { scope: 'SHIPMENT', sortOrder: 120, code: 'XERO_HANDOFF', displayNo: '13', title: 'Prepare Xero handoff', requiredDocTypes: [] },
-  { scope: 'SHIPMENT', sortOrder: 130, code: 'DELIVERY_CHANGES', displayNo: '14', title: 'Coordinate delivery changes', requiredDocTypes: [], isOngoing: true },
+  { scope: 'SHIPMENT', sortOrder: 90, code: 'IMPORT_PERMIT', displayNo: '10', title: 'Store & send import permit', requiredDocTypes: ['IMPORT_PERMIT'], optionalDocTypes: ['OTHER'] },
+  { scope: 'SHIPMENT', sortOrder: 100, code: 'INVOICE_2', displayNo: '11', title: 'Issue Invoice #2', requiredDocTypes: ['INVOICE_2'], optionalDocTypes: ['OTHER'] },
+  { scope: 'SHIPMENT', sortOrder: 110, code: 'LOGISTICS_PAYMENT', displayNo: '12', title: 'Pay transport & storage costs', requiredDocTypes: ['VENDOR_INVOICE', 'PAYMENT_PROOF'], optionalDocTypes: ['VENDOR_INVOICE', 'PAYMENT_PROOF', 'OTHER'] },
+  { scope: 'SHIPMENT', sortOrder: 120, code: 'XERO_HANDOFF', displayNo: '13', title: 'Prepare Xero handoff', requiredDocTypes: [], optionalDocTypes: ['OTHER'] },
+  { scope: 'SHIPMENT', sortOrder: 130, code: 'DELIVERY_CHANGES', displayNo: '14', title: 'Coordinate delivery changes', requiredDocTypes: [], isOngoing: true, optionalDocTypes: ['DELIVERY_SCHEDULE', 'OTHER'] },
 ];
 
 // Supplier/Customer have no UEN column; gstRegNo is a GST number, so the UEN is

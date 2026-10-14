@@ -98,6 +98,10 @@ export interface DocDefaults {
   invoiceFxNote?: string;
   invoiceConditions?: string;
   invoicePaymentTerms?: string;
+  /** Invoice #2 (2回目): its own 諸条件 / 支払い条件 / 件名 (ADH's sheet: "6営業日以内", only the 納入条件 line, "6005 アルミニウムビレット品"). */
+  invoice2Conditions?: string;
+  invoice2PaymentTerms?: string;
+  invoice2SubjectTemplate?: string;
   invoiceBankBlock?: string;
   /** Bank accounts an invoice can print (the first, or defaultBankId, is preselected). */
   banks?: BankAccount[];
@@ -148,6 +152,8 @@ export interface DocDefaults {
   siWarehouseTo?: string;
   siIssuerName?: string;
   siWarehouseName?: string;
+  /** 出庫・納入依頼書 宛先 line incl. 御中 (default "三井倉庫 株式会社 御中"). */
+  siAddressee?: string;
   siCarrier?: string;
   siBilletLabel?: string;
   deliveryProfiles?: DeliveryProfile[];
@@ -227,6 +233,8 @@ export function helperRemarks(
 }
 
 export interface InvoiceTotals {
+  /** 税率別内訳 税込金額 (US$): taxable + tax (Invoice #1); 合計 incl. the non-taxable amount (Invoice #2, as ADH's 2回目 sheet). */
+  breakdownGross: number;
   /** Every line (小計). */
   subtotal: number;
   /** 課税対象金額 / 課税以外金額 (equal to subtotal / 0 when every line is taxable). */
@@ -239,7 +247,13 @@ export interface InvoiceTotals {
   jpy: { subtotal: number; tax: number; total: number } | null;
 }
 
-export function invoiceTotals(rows: InvoiceLine[], taxRate: number, fxRate: number | null): InvoiceTotals {
+/**
+ * Invoice totals. `variant: 'final'` (Invoice #2) follows ADH's 2回目 sheet
+ * (請求書正式ビレット…2回目.xlsx, 編集用): 税込金額 = 合計 (=F23, incl. the
+ * non-taxable 通関), ¥税抜 = ROUND(FX × 課税対象, 0), ¥消費税 = ROUND(FX × US$消費税, 0),
+ * ¥税込 = their sum. Invoice #1 keeps its own rule (tax truncated from the yen figure).
+ */
+export function invoiceTotals(rows: InvoiceLine[], taxRate: number, fxRate: number | null, variant?: 'final'): InvoiceTotals {
   const rate = n(taxRate) / 100;
   const amounts = rows.map(amountOf);
   const sum = (pick: (l: InvoiceLine) => boolean) =>
@@ -272,11 +286,12 @@ export function invoiceTotals(rows: InvoiceLine[], taxRate: number, fxRate: numb
       ? (() => {
           const fx = Number(fxRate);
           const s = roundTo(taxable * fx, 0);
-          const t = roundDown(s * rate, 0);
+          const t = variant === 'final' ? roundTo(tax * fx, 0) : roundDown(s * rate, 0);
           return { subtotal: s, tax: t, total: s + t };
         })()
       : null;
-  return { subtotal, taxable, nonTaxable, tax, total, perProduct, jpy };
+  const breakdownGross = variant === 'final' ? total : roundTo(taxable + tax, 2);
+  return { breakdownGross, subtotal, taxable, nonTaxable, tax, total, perProduct, jpy };
 }
 
 // ── dates ───────────────────────────────────────────────────────────────────
@@ -350,6 +365,10 @@ export interface PrefillContractLine {
   quantityMt: unknown;
   tolerancePct: unknown;
   clientPremium?: unknown;
+  /** Price parts (USD/MT) the helper starts from. */
+  qmjp?: unknown;
+  billetPremium?: unknown;
+  upcharge?: unknown;
 }
 
 /** "8 Inch" for a size whose mm figure is in docDefaults.sizeInch ({ "203": "8 inch" }); the size itself otherwise. */
@@ -413,7 +432,7 @@ export function invoiceHeaderDefaults(opts: {
     registrationNo: opts.org.registrationNumber ?? '',
     toName: opts.customerName,
     toSuffix: '御中',
-    subject: invoiceSubject(d.invoiceSubjectTemplate, opts.grades, productJa),
+    subject: invoiceSubject(opts.docType === 'INVOICE_2' ? (d.invoice2SubjectTemplate ?? '{grade} {product}品') : d.invoiceSubjectTemplate, opts.grades, productJa),
     fromBlock: d.invoiceFromBlock ?? [opts.org.name, opts.org.address].filter(Boolean).join('\n'),
     dueDate: due,
     dueLine: d.invoiceDueLine ?? '{date} までにお支払いをお願い致します。',
@@ -421,8 +440,8 @@ export function invoiceHeaderDefaults(opts: {
     fxRate: null,
     fxNote: fill(d.invoiceFxNote ?? '円/USD 税関{range} 外国為替相場参照', { range: customsWeek(opts.today) }),
     lmeMonth: opts.lmeMonth ?? '',
-    conditions: d.invoiceConditions ?? '',
-    paymentTerms: d.invoicePaymentTerms ?? '',
+    conditions: opts.docType === 'INVOICE_2' ? (d.invoice2Conditions ?? '・納入条件ートラック積替え貴社指定先に納入（車上渡し）') : (d.invoiceConditions ?? ''),
+    paymentTerms: opts.docType === 'INVOICE_2' ? (d.invoice2PaymentTerms ?? '・請求書発行　6営業日以内　弊社指定口座振込') : (d.invoicePaymentTerms ?? ''),
     bankBlock: bank?.block ?? '',
     bankId: bank?.id ?? null,
     showSeal: true,
@@ -442,9 +461,10 @@ export function invoice1Line(contract: { id: string; contractNo: string }, l: Pr
     remarks: '',
     dueDate,
     lme: null,
-    qmjp: null,
-    premium: null,
-    upcharge: null,
+    // The contract line's price parts start the helper (the LME is typed).
+    qmjp: num(l.qmjp),
+    premium: num(l.billetPremium),
+    upcharge: num(l.upcharge),
     autoRemarks: true,
     contractId: contract.id,
     contractNo: contract.contractNo,
@@ -556,9 +576,10 @@ export function invoice2FinalLines(opts: {
       ...base,
       ...noHelper,
       description: d.invoice2OtherLabel ?? '他諸掛\n　課税対象　消費税率10％',
-      quantity: net,
-      unit,
-      unitPrice: perMt,
+      // As ADH's 6005 2回目 sheet: 1 式 at ROUNDDOWN(net × 40, 2) (the rate and tonnage are in 備考).
+      quantity: 1,
+      unit: '式',
+      unitPrice: net === null ? null : roundDown(net * perMt, 2),
       remarks: fill(d.invoice2OtherRemarks ?? '{rate}USD/ton\n（{qty}トン/月)', { rate: perMt, qty: qtyText(net) }),
       taxable: true,
     },
@@ -570,6 +591,11 @@ export function invoice2FinalLines(opts: {
 const slashDate = (d: string | null | undefined) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d ?? '');
   return m ? `${m[1]}/${Number(m[2])}/${Number(m[3])}` : esc(d ?? '');
+};
+/** "2026-10-12" → "10/12/26" (m/d/yy — how ADH's 2回目 sheet prints its dates). */
+export const shortDate = (d: string | null | undefined) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d ?? '');
+  return m ? `${Number(m[2])}/${Number(m[3])}/${m[1].slice(2)}` : esc(d ?? '');
 };
 /** "US$1,862,584.68" — no space, as on ADH's invoices. */
 const usd = (v: number) => `US$${money(v)}`;
@@ -599,32 +625,37 @@ const COLS = '<colgroup><col style="width:33%"><col style="width:12.8%"><col sty
  * 税率別内訳 with the FX note, the due line, 条件, 支払い条件 and the bank.
  */
 export function renderInvoiceHtml(h: InvoiceHeader, rows: InvoiceLine[], opts: { draft?: boolean; seal?: string | null } = {}): string {
-  const t = invoiceTotals(rows, h.taxRate, h.fxRate);
   const final = h.variant === 'final';
+  const t = invoiceTotals(rows, h.taxRate, h.fxRate, final ? 'final' : undefined);
+  // Invoice #2 prints like ADH's 2回目 sheet: dates m/d/yy, negative 合計(税込) in brackets "(US$11,380.29)".
+  const day = final ? shortDate : slashDate;
   // Invoice #2: what is still owed after Invoice #1 (negative = refund).
   const first = has(h.invoice1Amount) ? Number(h.invoice1Amount) : null;
   const diff = final ? roundTo(t.total - (first ?? 0), 2) : t.total;
   const seal = h.showSeal !== false && opts.seal && /^data:image\/(png|jpe?g);base64,/.test(opts.seal) ? opts.seal : null;
   const rate = `${n(h.taxRate)}%`;
-  const dueLine = (h.dueLine ?? '').replace('{date}', slashDate(h.dueDate));
+  const dueLine = (h.dueLine ?? '').replace('{date}', (h.variant === 'final' ? shortDate : slashDate)(h.dueDate));
   const dates = [...new Set(rows.map((l) => l.dueDate ?? ''))];
   const oneDate = rows.length > 0 && dates.length === 1;
   const body = `
-<div class="meta">番号：&nbsp;${esc(h.invoiceNo ?? '（確定時に採番）')}<br>発行日：&nbsp;${slashDate(h.issueDate)}${h.registrationNo ? `<br>登録番号：${esc(h.registrationNo)}` : ''}</div>
+<div class="meta">番号：&nbsp;${esc(h.invoiceNo ?? '（確定時に採番）')}<br>発行日：&nbsp;${day(h.issueDate)}${h.registrationNo ? `<br>登録番号：${esc(h.registrationNo)}` : ''}</div>
 <div class="title">${esc((h.title || '請求書').replace(/[\s　]+/g, ''))}</div>
 <div class="to">${esc(h.toName)}　${esc(h.toSuffix || '御中')}</div>
 <div class="parties">
   <div class="subject"><span class="lbl">件名：</span><div class="pre">${br(h.subject)}</div></div>
   <div class="from pre">${br(h.fromBlock)}${seal ? `<img class="seal" src="${seal}" alt="">` : ''}</div>
 </div>
-<div class="grand"><span>合計(税込)</span><span class="num">${usd(diff)}</span></div>
+<div class="grand"><span>合計(税込)</span><span class="num${final && diff < 0 ? ' neg' : ''}">${final && diff < 0 ? `(${usd(-diff)})` : usd(diff)}</span></div>
 <table class="grid">${COLS}
-  <thead><tr><th>摘要</th><th>数量<br>（トン）</th><th>単価(US$/MT)</th><th>金額(US$)</th><th>備考</th><th class="dh">取引年月日<br>(支払い期日)</th></tr></thead>
+  <thead><tr><th>摘要</th>${final ? '<th>数量</th><th>単価（USD）</th><th>金額（USD）</th>' : '<th>数量<br>（トン）</th><th>単価(US$/MT)</th><th>金額(US$)</th>'}<th>備考</th><th class="dh">取引年月日<br>(支払い期日)</th></tr></thead>
   <tbody>
   ${rows
     .map((l, i) => {
-      const date = oneDate ? (i === 0 ? `<td class="date" rowspan="${rows.length}">${jpDate(l.dueDate)}</td>` : '') : `<td class="date">${l.dueDate ? jpDate(l.dueDate) : ''}</td>`;
-      return `<tr><td class="desc pre">${br(l.description)}</td><td class="num">${tons(l.quantity)}</td><td class="num">${money(unitPriceOf(l))}</td><td class="num">${money(amountOf(l))}</td><td class="rem pre">${br(l.remarks)}</td>${date}</tr>`;
+      const lineDate = (d: string | null | undefined) => (final ? shortDate(d) : jpDate(d));
+      const date = oneDate ? (i === 0 ? `<td class="date" rowspan="${rows.length}">${lineDate(l.dueDate)}</td>` : '') : `<td class="date">${l.dueDate ? lineDate(l.dueDate) : ''}</td>`;
+      // Invoice #2's 式 lines show a whole quantity ("1"), as ADH's sheet.
+      const q = final && l.unit !== (rows[0]?.unit ?? 'トン') && Number.isInteger(Number(l.quantity)) ? String(Number(l.quantity)) : tons(l.quantity);
+      return `<tr><td class="desc pre">${br(l.description)}</td><td class="num">${q}</td><td class="num">${money(unitPriceOf(l))}</td><td class="num">${money(amountOf(l))}</td><td class="rem pre">${br(l.remarks)}</td>${date}</tr>`;
     })
     .join('')}
   </tbody>
@@ -644,7 +675,7 @@ ${
   )
     .map(
       ([k, v], i) =>
-        `<tr><td></td><td colspan="2" class="lb${i === 3 || i === 5 ? ' tot' : ''}">${k}</td><td class="num v${i === 3 || i === 5 ? ' tot' : ''}">${money(v)}</td><td colspan="2"></td></tr>`,
+        `<tr><td></td><td colspan="2" class="lb${i === 3 || i === 5 ? ' tot' : ''}">${k}</td><td class="num v${i === 3 || i === 5 ? ' tot' : ''}${v !== null && v < 0 ? ' neg' : ''}">${money(v)}</td><td colspan="2"></td></tr>`,
     )
     .join('')}
 </table>`
@@ -663,15 +694,21 @@ ${
     <div>税率別内訳</div>
     <table>
       <tr class="hd"><td></td><td>税抜金額</td><td>消費税額</td><td>税込金額</td></tr>
-      <tr><td>${rate}</td><td class="num">${usd(t.taxable)}</td><td class="num">${usd(t.tax)}</td><td class="num">${usd(roundTo(t.taxable + t.tax, 2))}</td></tr>
+      <tr><td>${rate}</td><td class="num">${usd(t.taxable)}</td><td class="num">${usd(t.tax)}</td><td class="num">${usd(t.breakdownGross)}</td></tr>
       ${t.jpy ? `<tr><td>${rate}</td><td class="num">¥${money(t.jpy.subtotal, 0)}</td><td class="num">¥${money(t.jpy.tax, 0)}</td><td class="num">¥${money(t.jpy.total, 0)}</td></tr>` : ''}
     </table>
   </div>
   ${t.jpy ? `<div class="fx"><div>※円貨</div><div>${esc(Number(h.fxRate).toLocaleString('en-US', { maximumFractionDigits: 4 }))} ${esc(h.fxNote)}</div></div>` : ''}
 </div>
 ${dueLine ? `<p class="due">${dueLine}</p>` : ''}
-${h.conditions ? `<div class="sec">条件</div><div class="txt pre">${br(h.conditions)}</div>` : ''}
-${h.paymentTerms ? `<div class="sec2">支払い条件</div><div class="txt pre">${br(h.paymentTerms)}</div>` : ''}
+${
+  final
+    ? h.conditions || h.paymentTerms
+      ? `<div class="sec">諸条件</div><div class="txt pre">${br([h.conditions, h.paymentTerms].filter(Boolean).join('\n'))}</div>`
+      : ''
+    : `${h.conditions ? `<div class="sec">条件</div><div class="txt pre">${br(h.conditions)}</div>` : ''}
+${h.paymentTerms ? `<div class="sec2">支払い条件</div><div class="txt pre">${br(h.paymentTerms)}</div>` : ''}`
+}
 ${h.bankBlock ? `<div class="sec2 bank-t">弊社指定口座</div><table class="bank">${bankRows(h.bankBlock)}</table>` : ''}
 `;
   const css = `
@@ -700,6 +737,7 @@ table.grid, table.sums { width: 100%; table-layout: fixed; }
 .sums td.lb { text-align: right; border: 1px solid #555; border-right: 0; }
 .sums td.v { border: 1px solid #555; }
 .sums td.tot { border-top: 1px solid #111; }
+.neg { color: #c00000; } /* ADH's sheet prints negatives in red */
 .bd { display: flex; align-items: flex-end; gap: 12mm; margin-top: 4mm; font-size: 6pt; color: #222; }
 .bdl { width: 55%; }
 .bdl table { width: 100%; border-top: 1px solid #777; margin-top: 1px; }
@@ -740,3 +778,26 @@ export function toInvoiceLines(rows: unknown): InvoiceLine[] {
     taxable: r?.taxable !== false,
   }));
 }
+
+// ── finalize guard ──────────────────────────────────────────────────────────
+const lineNo = (i: number) => `line ${i + 1}`;
+/**
+ * What stops an invoice (Invoice #1 / #2) from being finalized: a billed line
+ * without a unit price — "needs the LME" when the pricing helper is in use —
+ * and a total of US$0.00. Lines with nothing on them are ignored.
+ */
+export function invoiceFinalizeProblems(rows: InvoiceLine[], taxRate: number): string[] {
+  const problems: string[] = [];
+  rows.forEach((l, i) => {
+    const used = (l.description ?? '').trim() !== '' || has(l.quantity) || has(l.amountOverride);
+    if (!used || has(l.amountOverride)) return;
+    if (unitPriceOf(l) !== null) return;
+    const helper = [l.lme, l.qmjp, l.premium, l.upcharge].some(has);
+    problems.push(helper ? `${lineNo(i)} needs the LME` : `${lineNo(i)} needs a unit price`);
+  });
+  if (invoiceTotals(rows, taxRate, null).total === 0) problems.push('the total is US$0.00');
+  return problems;
+}
+
+/** "Can't finalize: line 1 needs the LME; the total is US$0.00." */
+export const finalizeMessage = (problems: string[]) => `Can't finalize: ${problems.join('; ')}.`;

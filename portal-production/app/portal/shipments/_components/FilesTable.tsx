@@ -146,6 +146,15 @@ export function useFileActions(currentId?: string) {
         enableSorting: false,
         cell: ({ row }: any) => <FileThumb file={row.original} width={40} onOpen={(f) => view({ ...row.original, ...f })} />,
       },
+      {
+        id: "docRef",
+        header: "Document ID",
+        cell: ({ row }: any) => (
+          <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 700, whiteSpace: "nowrap" }}>
+            {row.original.docRef || "—"}
+          </Typography>
+        ),
+      },
       { id: "docType", header: "Document type", cell: ({ row }: any) => <Chip size="small" variant="outlined" label={row.original.docTypeLabel} /> },
       {
         id: "fileName",

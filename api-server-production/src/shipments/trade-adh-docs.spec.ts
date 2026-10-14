@@ -108,9 +108,13 @@ describe('Invoice #2 (2回目) — ADH 6063 305.804 t', () => {
       '合計 1,303,821.69',
       '１回目の金額 1,333,246.20',
       '２回目の金額(差額) -29,424.51',
-      '合計(税込) US$-29,424.51',
-      'US$1,185,224.99 US$118,522.49 US$1,303,747.48',
-      '¥188,450,773 ¥18,845,077 ¥207,295,850',
+      // Negative 差額 as ADH's sheet formats it: "US$"#,##0.00_);[Red]("US$"…) → (US$29,424.51) in red.
+      '合計(税込) (US$29,424.51)',
+      // 税率別内訳 as the 6005 2回目 sheet (the rule implemented): 税込 = 合計 (incl. the non-taxable 通関),
+      // ¥ tax = ROUND(US$ tax × FX, 0). ADH's 6063 sheet differs (税込 = taxable + tax = 1,303,747.48,
+      // ¥ tax = ¥ taxable × 10% = 18,845,077.3) — reported to ADH, see trade-invoice2-samples.spec.ts.
+      'US$1,185,224.99 US$118,522.49 US$1,303,821.69',
+      '¥188,450,773 ¥18,845,076 ¥207,295,849',
     ])
       expect(text).toContain(s);
   });
@@ -128,11 +132,11 @@ describe('Invoice #2 (2回目) — ADH 6063 305.804 t', () => {
       [305.804, true],
       [1, true],
       [1, false],
-      [305.804, true],
+      [1, true], // 他諸掛: 1 式 at ROUNDDOWN(net × 40, 2), as the 6005 sheet
     ]);
     expect(lines[0].description).toBe('Aluminium Billet - 6063 as per Specification of 8 Inch-\n300MT +- 5% Tolerance\n製品仕様は貴社指定仕様');
     expect(lines[0]).toMatchObject({ qmjp: 351.5, premium: 230, lme: null, autoRemarks: true });
-    expect(lines[3]).toMatchObject({ unitPrice: 40, remarks: '40USD/ton\n（305.804トン/月)' });
+    expect(lines[3]).toMatchObject({ unit: '式', unitPrice: 12232.16, remarks: '40USD/ton\n（305.804トン/月)' });
     expect(lines[2].description).toContain('課税対象外');
   });
 });
@@ -202,8 +206,8 @@ describe('SG→JP INVOICE & PACKING LIST (ADH layout)', () => {
       '(Country Of Origin)',
       '(Vessel) RACHA BHUM / 211E',
       'C/No. DESCRIPTION UNIT PRICE QUANTITY TOTAL PRICE',
-      'Aluminium Billet Alloy 6063-8 inch HS Code: 7601.20 CIF 3,780.98 305.804 1,156,238.80',
-      'TOTAL 305.804 1,156,238.80',
+      'Aluminium Billet Alloy 6063-8 inch HS Code: 7601.20 CIF 3,780.98 305.804 US$1,156,238.80',
+      'TOTAL 305.804 US$1,156,238.80',
       'PACKING DETAILS',
       "Q'TY Net Weight(MT) Gross Weight(MT) Dimention",
       'Aluminium Billet Alloy 6063-8 inch- 120 Bundles HS Code: 7601.20 600 PCS 305.804 307.004 5800mm length, 8 inch diameter',
@@ -252,14 +256,14 @@ describe('出庫・納入依頼書 (ADH layout)', () => {
     ]);
     const text = strip(html);
     for (const s of [
-      '手配依頼日 2026年9月1日',
+      '手配依頼日 2026/9/1',
       '三井倉庫 株式会社 御中',
       '出庫・納入依頼書',
       '本船 RACHA BHUM',
       '海事№ 211E',
       'B/L № 末尾・・・04630',
       '倉庫名 三井倉庫/本牧A倉庫',
-      '出荷日 納入日 納入先 ビレット 束 数 重 量',
+      '出荷日 納入日 納入先 ビレット 束数 重 量',
       '9/7 9/8 SUS福島工場 ロングビレット 203 X 5800 16 総重量 307.004トン (正味重量 305.804トン)',
       '出 荷 主 アジアディールハブジャパン合同会社',
       '運送会社 三井倉庫手配便',

@@ -315,6 +315,9 @@ export class ContractsService {
         tolerancePct: l.tolerancePct ?? 5,
         supplierPremium: l.supplierPremium ?? null,
         clientPremium: l.clientPremium ?? null,
+        qmjp: l.qmjp ?? null,
+        billetPremium: l.billetPremium ?? null,
+        upcharge: l.upcharge ?? null,
         notes: optText(l.notes) ?? null,
         sortOrder: i + 1,
       };

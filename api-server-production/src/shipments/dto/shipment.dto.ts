@@ -54,6 +54,8 @@ export class ListShipmentsQuery {
   @IsOptional() @IsUUID() contractId?: string;
   @IsOptional() @IsUUID() customerId?: string;
   @IsOptional() @IsIn(['OPEN', 'COMPLETED', 'CANCELLED']) status?: string;
+  /** List tab: pending = OPEN, completed = COMPLETED + CANCELLED. */
+  @IsOptional() @IsIn(['pending', 'completed']) bucket?: 'pending' | 'completed';
   /** A step code (the shipment's current step), or COMPLETED (every step done). */
   @IsOptional() @IsString() @MaxLength(100) currentStep?: string;
   @IsOptional() @IsString() q?: string;

@@ -225,8 +225,9 @@ ${partiesJp(h)}
             )
             .join('') + `<tr><td>Sub Total</td><td></td><td></td><td>${money(sum(g.rows, 'netMt'), 3)}</td><td>${money(sum(g.rows, 'grossMt'), 3)}</td></tr>`,
       )
-      .join('')}</tbody>
-    <tfoot><tr><td colspan="3">TOTAL</td><td>${money(t.net, 3)}</td><td>${money(t.gross, 3)}</td></tr></tfoot>
+      .join('')}
+    <!-- Grand total: a last body row, not a <tfoot> (Chrome repeats a tfoot at the foot of every printed page). -->
+    <tr class="grand"><td colspan="3">TOTAL</td><td>${money(t.net, 3)}</td><td>${money(t.gross, 3)}</td></tr></tbody>
   </table>
 </div>`;
   const css = `${JP_CSS}
@@ -238,7 +239,7 @@ table.kv { font-family: "Times New Roman", serif; font-size: 7.6pt; }
 table.grid { width: 100%; margin-top: 3mm; font-family: "Times New Roman", serif; font-size: 7.6pt; }
 .grid th { background: #d9d9d9; border: 1px solid #555; padding: 1.5mm; }
 .grid td { border: 1px solid #555; padding: .8mm 1.5mm; text-align: center; }
-.grid tfoot td { background: #bfbfbf; font-weight: 700; border-width: 1.5px; }
+.grid tr.grand td { background: #bfbfbf; font-weight: 700; border-width: 1.5px; }
 thead { display: table-header-group; } tr { page-break-inside: avoid; }
 `;
   return docShell({ title: h.title || '計量検収票', css, body, draft: opts.draft });

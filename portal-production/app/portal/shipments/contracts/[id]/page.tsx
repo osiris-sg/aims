@@ -8,7 +8,10 @@
 // shipment #1 (B/L pending, entered on its step 2); "Add shipment" adds
 // another, and a switcher appears once there are several. When the server
 // completes a step (every required document in), the page says so and opens
-// the next card. ?shipment= selects a shipment, ?tab= the tab.
+// the next card. When the last step of a shipment is done the server completes
+// it; when every shipment of the deal is complete the deal completes too and
+// the page returns to the Shipments list. Manual Complete / Reopen stay in the
+// ⋮ menus. ?shipment= selects a shipment, ?tab= the tab.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -17,7 +20,7 @@ import AddIcon from "@mui/icons-material/Add";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { toast } from "../../_lib/toast";
 import { useContract, useContractGeneratedDocs, useGeneratedDocs, useShipment, useTradeMutation } from "../../_lib/hooks";
-import { recordFileCount, type Contract, type Shipment, type TradeStep } from "../../_lib/api";
+import { recordFileCount, useShipmentsApi, type AnExtraction, type BlExtraction, type Contract, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
 import { blLabel, depositTermLabel, fmtDmy, fmtMoney, fmtMt, stepLabel } from "../../_lib/format";
 import RecordHeader from "../../_components/RecordHeader";
 import ContractOverview from "../../_components/ContractOverview";
@@ -27,6 +30,7 @@ import ShipmentFormDialog from "../../_components/ShipmentFormDialog";
 import FilesTable from "../../_components/FilesTable";
 import LinkedDocuments from "../../_components/LinkedDocuments";
 import { ConfirmDialog, CurrentStepCell, ProgressCell, RecordStatusChip } from "../../_components/bits";
+import ExtractApplyDialog, { type ApplyRow } from "../../_components/ExtractApplyDialog";
 
 const TABS = ["journey", "details", "files"] as const;
 const byOrder = (a: TradeStep, b: TradeStep) => a.sortOrder - b.sortOrder;
@@ -64,6 +68,13 @@ export default function DealPage() {
       v.act === "complete" ? api.completeShipment(v.id) : v.act === "cancel" ? api.updateShipment(v.id, { status: "CANCELLED" }) : v.act === "reopen" ? api.reopenShipment(v.id) : api.deleteShipment(v.id),
   );
   const [shipMenu, setShipMenu] = useState<{ left: number; top: number } | null>(null);
+  const api = useShipmentsApi();
+  const applyShip = useTradeMutation((api, v: { id: string; patch: Record<string, unknown> }) => api.updateShipment(v.id, v.patch));
+  // A B/L draft / arrival notice dropped on its row: read with AI, then offered here.
+  const [offer, setOffer] = useState<{ title: string; intro: string; warning: string | null; rows: ApplyRow[]; extra?: React.ReactNode } | null>(null);
+  // The inline B/L form keeps its own state: remount it once applied values are back from the server.
+  const [formKey, setFormKey] = useState(0);
+  const remountAfter = useRef<string | null>(null);
   const [shipConfirm, setShipConfirm] = useState<"complete" | "cancel" | "reopen" | "delete" | null>(null);
 
   // ── one open card across the whole journey ───────────────────────────────
@@ -79,6 +90,36 @@ export default function DealPage() {
   };
   // A new shipment / deal: back to following the current step.
   useEffect(() => setUserPicked(false), [id, shipmentId]);
+
+  // The deal / shipment completed by the server (last step done), not from a ⋮
+  // menu: say so; a completed deal goes back to the Shipments list.
+  const manual = useRef(false);
+  const lastStatus = useRef<{ key: string; contract?: string; shipment?: string }>({ key: "" });
+  useEffect(() => {
+    if (!c || (shipmentId && !s)) return;
+    const key = `${id}:${shipmentId ?? ""}`;
+    const was = lastStatus.current;
+    lastStatus.current = { key, contract: c.status, shipment: s?.status };
+    if (was.key !== key || (was.contract === c.status && was.shipment === s?.status)) return;
+    // A status change the user asked for from a ⋮ menu: nothing to announce.
+    if (manual.current) {
+      manual.current = false;
+      return;
+    }
+    if (was.contract === "OPEN" && c.status === "COMPLETED") {
+      toast.success(`Deal ${c.contractNo} completed — all shipments are done`);
+      router.push("/portal/shipments");
+    } else if (was.shipment === "OPEN" && s?.status === "COMPLETED") {
+      toast.success(`Shipment ${blLabel(s.blNumber)} completed — all its steps are done`);
+    }
+  }, [c, s, id, shipmentId, router]);
+
+  useEffect(() => {
+    if (remountAfter.current && s && s.updatedAt !== remountAfter.current) {
+      remountAfter.current = null;
+      setFormKey((k) => k + 1);
+    }
+  }, [s]);
 
   // Steps the server completed since the last refresh: say so, open the next card.
   const prev = useRef<Map<string, string> | null>(null);
@@ -126,7 +167,42 @@ export default function DealPage() {
   const shipCtx = s ? shipmentContext(c, s) : {};
   const fileCount = recordFileCount(c) + (s ? recordFileCount(s) : 0);
 
+  /** A B/L draft / arrival notice uploaded on its step row: read it and offer its values. */
+  const readUploaded = async (docType: string, files: TradeFile[]) => {
+    const f = files[0];
+    if (!s || !f || (docType !== "BL_DRAFT" && docType !== "ARRIVAL_NOTICE")) return;
+    const what = docType === "BL_DRAFT" ? "B/L draft" : "arrival notice";
+    const t = toast.info(`Reading the ${what} (${f.fileName})…`, { autoClose: false });
+    try {
+      if (docType === "BL_DRAFT") {
+        const x = await api.extractBlDraft({ fileId: f.id, shipmentId: s.id });
+        if (x.status !== "DONE" || !x.result) throw new Error(x.error || "the AI read failed");
+        setOffer({
+          title: "Apply the B/L draft to the B/L details?",
+          intro: `Read from ${f.fileName}. The B/L check against the contract is shown on step 2.`,
+          warning: null,
+          rows: blRows(s, x),
+        });
+      } else {
+        const x = await api.extractAn({ fileId: f.id, shipmentId: s.id });
+        if (x.status !== "DONE" || !x.result) throw new Error(x.error || "the AI read failed");
+        setOffer({
+          title: "Fill the shipment from the arrival notice?",
+          intro: `Read from ${f.fileName}. Only blank shipment fields are offered.`,
+          warning: x.result.blMismatch ? `This notice is for B/L ${x.result.draft.blNumber}, not ${s.blNumber}. Check it is the right file.` : null,
+          rows: anRows(s, x),
+          extra: anFacts(x),
+        });
+      }
+    } catch (e: any) {
+      toast.error(`Could not read the ${what}: ${e?.message || "unknown error"}. The file is stored — fill the fields by hand.`);
+    } finally {
+      toast.dismiss(t);
+    }
+  };
+
   const doShip = async (act: "complete" | "cancel" | "reopen" | "delete") => {
+    manual.current = true;
     const r: any = await shipAction.mutateAsync({ id: s!.id, act });
     if (act === "delete") {
       toast.success("Shipment deleted");
@@ -138,7 +214,7 @@ export default function DealPage() {
     <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1100, mx: "auto" }}>
       <RecordHeader
         kind="contract"
-        title={c.contractNo}
+        title={dealTitle(c)}
         status={c.status}
         backHref="/portal/shipments"
         progress={c.progress}
@@ -149,6 +225,7 @@ export default function DealPage() {
         onComplete={() => complete.mutateAsync(c.id)}
         onCancel={() => cancel.mutateAsync(c.id)}
         onReopen={() => reopen.mutateAsync(c.id)}
+        onActed={() => (manual.current = true)}
         subtitle={
           <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
             <Typography variant="body2" color="text.secondary">
@@ -178,7 +255,7 @@ export default function DealPage() {
         <Stack spacing={3}>
           <Box>
             <Typography variant="overline" color="text.secondary">
-              Contract
+              Deal setup
             </Typography>
             <StepCards
               steps={c.steps}
@@ -199,7 +276,7 @@ export default function DealPage() {
               <Typography variant="overline" color="text.secondary" sx={{ flex: 1 }}>
                 {shipments.length > 1 ? `Shipments (${shipments.length})` : "Shipment"}
               </Typography>
-              {c.status !== "CANCELLED" && (
+              {c.status === "OPEN" && (
                 <Button
                   startIcon={<AddIcon />}
                   variant="outlined"
@@ -282,10 +359,11 @@ export default function DealPage() {
                   openId={shown}
                   onOpen={onOpen}
                   context={shipCtx}
+                  onFileUploaded={(d, f) => void readUploaded(d, f)}
                   blCheck={s.blCheck}
                   fieldsTitle="B/L details"
                   fieldsSummary={blSummary(s)}
-                  fieldsForm={() => <ShipmentFormDialog inline open shipment={s} onClose={() => undefined} onSaved={() => toast.success("B/L details saved")} />}
+                  fieldsForm={() => <ShipmentFormDialog key={formKey} inline open shipment={s} onClose={() => undefined} onSaved={() => toast.success("B/L details saved")} />}
                 />
               </>
             )}
@@ -369,6 +447,20 @@ export default function DealPage() {
           Delete shipment
         </MenuItem>
       </Menu>
+      <ExtractApplyDialog
+        open={!!offer}
+        title={offer?.title ?? ""}
+        intro={offer?.intro}
+        warning={offer?.warning}
+        rows={offer?.rows ?? NO_ROWS}
+        extra={offer?.extra}
+        onClose={() => setOffer(null)}
+        onApply={async (patch) => {
+          remountAfter.current = s?.updatedAt ?? null;
+          await applyShip.mutateAsync({ id: s!.id, patch });
+          toast.success("Shipment updated from the document");
+        }}
+      />
       <ConfirmDialog
         open={!!shipConfirm}
         title={shipConfirm && s ? `${shipConfirm === "delete" ? "Delete" : shipConfirm === "complete" ? "Complete" : shipConfirm === "cancel" ? "Cancel" : "Reopen"} shipment B/L ${s.blNumber || "pending"}?` : ""}
@@ -380,6 +472,101 @@ export default function DealPage() {
       />
     </Box>
   );
+}
+
+const NO_ROWS: ApplyRow[] = [];
+
+const BL_FIELDS: Array<[keyof Shipment & string, string]> = [
+  ["blNumber", "B/L no."],
+  ["shippingLine", "Shipping line"],
+  ["vessel", "Vessel"],
+  ["voyageNo", "Voyage"],
+  ["etd", "ETD"],
+  ["portOfLoading", "Port of loading"],
+  ["portOfDischarge", "Port of discharge"],
+  ["netWeightMt", "Net weight (MT)"],
+  ["grossWeightMt", "Gross weight (MT)"],
+  ["totalBundles", "Bundles"],
+  ["totalPieces", "Pieces"],
+  ["containerCount", "Containers"],
+  ["hsCode", "HS code"],
+  ["countryOfOrigin", "Country of origin"],
+  ["commodity", "Commodity"],
+  ["sizeSpec", "Size"],
+];
+const AN_LABELS: Record<string, string> = {
+  vessel: "Vessel",
+  voyageNo: "Voyage",
+  eta: "ETA",
+  grossWeightMt: "Gross weight (MT)",
+  netWeightMt: "Net weight (MT)",
+  totalBundles: "Bundles",
+  totalPieces: "Pieces",
+  containerCount: "Containers",
+  portOfLoading: "Port of loading",
+  portOfDischarge: "Port of discharge",
+};
+const shown = (v: unknown) => (v === null || v === undefined || v === "" ? null : /^\d{4}-\d{2}-\d{2}/.test(String(v)) ? String(v).slice(0, 10) : String(v));
+const same = (a: unknown, b: unknown) => {
+  const x = shown(a);
+  const y = shown(b);
+  if (x === null || y === null) return x === y;
+  return Number.isFinite(Number(x)) && Number.isFinite(Number(y)) ? Number(x) === Number(y) : x.trim().toUpperCase() === y.trim().toUpperCase();
+};
+
+/** B/L draft values that differ from the shipment (the contract line too, when the shipment has none). */
+function blRows(s: Shipment, x: BlExtraction): ApplyRow[] {
+  const d = x.result!.draft as Record<string, unknown>;
+  const rows: ApplyRow[] = BL_FIELDS.filter(([k]) => shown(d[k]) !== null && !same(d[k], s[k])).map(([k, label]) => ({ key: k, label, current: shown(s[k]), next: shown(d[k])!, value: d[k] }));
+  const lineId = x.result!.contractLineId;
+  if (lineId && !s.contractLineId) {
+    const l = s.contract?.lines?.find((y) => y.id === lineId);
+    rows.push({ key: "contractLineId", label: "Product line", current: null, next: l ? [l.grade, l.product].filter(Boolean).join(" ") || "line" : "matched line", value: lineId });
+  }
+  return rows;
+}
+
+/** Arrival-notice values for the shipment's blank fields (the server decides which are blank). */
+function anRows(s: Shipment, x: AnExtraction): ApplyRow[] {
+  return Object.entries(x.result!.fill ?? {}).map(([k, v]) => ({ key: k, label: AN_LABELS[k] ?? k, current: shown((s as any)[k]), next: shown(v) ?? "", value: v }));
+}
+
+/** What the notice says that has no shipment field: CY terminal, containers + seals, charges collect. */
+function anFacts(x: AnExtraction): React.ReactNode {
+  const d = x.result!.draft;
+  const lines = [
+    d.cyTerminal && `CY terminal: ${d.cyTerminal}`,
+    d.containers.length ? `Containers: ${d.containers.map((c) => [c.containerNo, c.sealNo && `seal ${c.sealNo}`].filter(Boolean).join(" ")).join(", ")}` : null,
+    d.chargesCollect.length ? `Charges collect: ${d.chargesCollect.map((c) => `${c.currency} ${c.amount.toLocaleString("en-US")}`).join(" + ")}` : null,
+  ].filter(Boolean) as string[];
+  if (!lines.length) return null;
+  return (
+    <Box>
+      <Typography variant="overline" color="text.secondary">
+        Also on the notice
+      </Typography>
+      {lines.map((l) => (
+        <Typography key={l} variant="body2">
+          {l}
+        </Typography>
+      ))}
+    </Box>
+  );
+}
+
+/** "SUS Co., Ltd." → "SUS": the customer's name without the company-form suffixes. */
+const shortName = (name?: string | null) =>
+  (name ?? "")
+    .replace(/株式会社|合同会社|有限会社/g, "")
+    .replace(/[,.]?\s*\b(co|ltd|limited|inc|corp|corporation|company|pte|pvt|llc|gmbh|kk)\b\.?/gi, "")
+    .replace(/[\s,.]+$/, "")
+    .trim() || null;
+
+/** "454003255 · SUS · 6005 · 120 MT": contract no., customer (short name), grade(s), total quantity. */
+function dealTitle(c: Contract): string {
+  const grades = Array.from(new Set((c.lines ?? []).map((l) => l.grade).filter(Boolean)));
+  const qty = c.totalQuantityMt != null ? `${Number(c.totalQuantityMt).toLocaleString("en-US", { maximumFractionDigits: 3 })} MT` : null;
+  return [c.contractNo, shortName(c.customer?.name), grades.join("/") || null, qty].filter(Boolean).join(" · ");
 }
 
 /** What each contract step / document is about, from the contract itself. */

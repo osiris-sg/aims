@@ -29,6 +29,10 @@ export type ContractLine = {
   tolerancePct: Num;
   supplierPremium: Num;
   clientPremium: Num;
+  /** Price parts the invoices fall back to when Invoice #1 has none. */
+  qmjp?: Num;
+  billetPremium?: Num;
+  upcharge?: Num;
   sortOrder: number;
   notes: string | null;
 };
@@ -41,6 +45,9 @@ export type ContractLineInput = {
   tolerancePct?: number | null;
   supplierPremium?: number | null;
   clientPremium?: number | null;
+  qmjp?: number | null;
+  billetPremium?: number | null;
+  upcharge?: number | null;
   notes?: string | null;
 };
 export type BankAccount = { id: string; label: string; block: string };
@@ -119,7 +126,7 @@ export type BlCheck = { key: string; label: string; status: "ok" | "issue" | "mi
 export type Extraction = {
   id: string;
   fileId: string;
-  kind: "PI" | "BL_DRAFT";
+  kind: "PI" | "BL_DRAFT" | "AN";
   status: "PENDING" | "DONE" | "FAILED";
   result:
     | ({ raw: Record<string, unknown> } & (
@@ -138,6 +145,28 @@ export type Extraction = {
 export type PiExtraction = Extraction & { result: { raw: Record<string, unknown>; draft: ContractDraft; existingContractId: string | null } | null };
 export type BlExtraction = Extraction & {
   result: { raw: Record<string, unknown>; draft: ShipmentDraft; contractId: string | null; contractLineId: string | null; existingShipmentId: string | null } | null;
+};
+/** Arrival notice read (AI): the arriving vessel, containers, weights, charges collect. */
+export type ArrivalNoticeDraft = {
+  blNumber: string | null;
+  vessel: string | null;
+  voyageNo: string | null;
+  eta: string | null;
+  cyTerminal: string | null;
+  portOfLoading: string | null;
+  portOfDischarge: string | null;
+  grossWeightMt: number | null;
+  netWeightMt: number | null;
+  totalBundles: number | null;
+  totalPieces: number | null;
+  containerCount: number | null;
+  containers: Array<{ containerNo: string | null; sealNo: string | null; size: string | null }>;
+  charges: Array<{ code: string | null; amount: number | null; currency: string | null; collect: boolean | null }>;
+  chargesCollect: Array<{ currency: string; amount: number }>;
+};
+export type AnExtraction = Omit<Extraction, "result"> & {
+  /** `fill`: values for the shipment's blank fields only; `blMismatch`: the notice is for another B/L. */
+  result: { raw: Record<string, unknown>; draft: ArrivalNoticeDraft; fill: Partial<Record<string, string | number>>; blMismatch: boolean } | null;
 };
 /** The shipment's latest B/L draft check (re-run against the shipment as it is now). */
 export type BlCheckSummary = {
@@ -250,6 +279,8 @@ export type GeneratedForDocument = {
   id: string;
   docType: string;
   number: string | null;
+  /** Document ID ("454003255-1-CPL"); the number printed on the PDF is `number`. */
+  docRef?: string | null;
   status: "DRAFT" | "FINAL";
   documentId: string;
   finalFileId: string | null;
@@ -263,6 +294,8 @@ export type GeneratedDoc = {
   contractId: string | null;
   docType: "CUSTOMER_PL" | "CUSTOMER_COA" | "INVOICE_1" | "INVOICE_2" | "SGJP_IV_PL" | "SHIPPING_INSTRUCTIONS" | string;
   number: string | null;
+  /** Document ID ("454003255-1-CPL"); the number printed on the PDF is `number`. */
+  docRef?: string | null;
   status: "DRAFT" | "FINAL";
   /** Shape depends on the template (Customer PL / COA: GenHeader; others: their own forms). */
   header: any;
@@ -280,7 +313,8 @@ export type GeneratedDoc = {
   /** Only on create: what the import noticed (e.g. hidden empty columns). */
   importNotes?: string[];
 };
-export type GenSource = { id: string; fileName: string; createdAt: string; uploadedByName: string | null };
+/** A file a document can be made from; the server ranks them (best first) and says what each holds. */
+export type GenSource = { id: string; fileName: string; createdAt: string; uploadedByName: string | null; kind?: string; label?: string; best?: boolean; docRef?: string | null };
 
 export type HubLink = { contractId: string | null; shipmentId: string | null; contractNo: string | null; blNumber: string | null; linkId?: string };
 export type HubRow = {
@@ -291,6 +325,8 @@ export type HubRow = {
   docType: string;
   docTypeLabel: string;
   name: string;
+  /** Document ID ("454003255-1-CPL"); null for linked Sales invoices. */
+  docRef: string | null;
   source: "UPLOADED" | "IN_APP";
   status: string | null;
   links: HubLink[];
@@ -313,7 +349,7 @@ export type RecordFileLink = {
   id: string;
   stepId: string | null;
   createdAt: string;
-  file: { id: string; docType: string; fileName: string; mimeType: string; sizeBytes: number; uploadedByName: string | null; notes: string | null; createdAt: string; hasThumb?: boolean };
+  file: { id: string; docType: string; fileName: string; mimeType: string; sizeBytes: number; uploadedByName: string | null; notes: string | null; createdAt: string; hasThumb?: boolean; docRef?: string | null };
 };
 
 export type ContractListItem = {
@@ -474,6 +510,8 @@ export type TradeFile = {
   notes: string | null;
   createdAt: string;
   hasThumb?: boolean;
+  /** Document ID ("454003255-1-PL-2"). */
+  docRef?: string | null;
   links: TradeFileLink[];
 };
 
@@ -544,7 +582,7 @@ export type ShipmentInput = {
 export type LinkTargets = { contractIds?: string[]; shipmentIds?: string[]; stepId?: string };
 
 export type ContractFilters = { status?: string; supplierId?: string; customerId?: string; q?: string; page?: number; pageSize?: number };
-export type ShipmentFilters = { status?: string; contractId?: string; customerId?: string; currentStep?: string; q?: string; page?: number; pageSize?: number };
+export type ShipmentFilters = { status?: string; bucket?: "pending" | "completed"; contractId?: string; customerId?: string; currentStep?: string; q?: string; page?: number; pageSize?: number };
 export type FileFilters = { docType?: string; contractId?: string; shipmentId?: string; customerId?: string; q?: string; from?: string; to?: string; page?: number; pageSize?: number };
 
 /** Mirrors the backend allow-list (shipments.rules.ts) for a quick client-side check. */
@@ -598,7 +636,7 @@ export function useShipmentsApi() {
     };
 
     // Multipart POST with the Clerk token + admin org header (like uploadFile).
-    const postExtract = async <T>(kind: "pi" | "bl-draft", input: { file?: File; fileId?: string; shipmentId?: string; contractId?: string }): Promise<T> => {
+    const postExtract = async <T>(kind: "pi" | "bl-draft" | "an", input: { file?: File; fileId?: string; shipmentId?: string; contractId?: string }): Promise<T> => {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const form = new FormData();
@@ -629,7 +667,7 @@ export function useShipmentsApi() {
       reopenContract: (id: string) => call<Contract>(`/contracts/${id}/reopen`, "POST"),
 
       // ── Shipments ────────────────────────────────────────────────────────
-      listShipments: (f: ShipmentFilters = {}) => call<Paged<ShipmentListItem>>(`/shipments${qs(f)}`),
+      listShipments: (f: ShipmentFilters = {}) => call<Paged<ShipmentListItem> & { counts?: { pending: number; completed: number } }>(`/shipments${qs(f)}`),
       getShipment: (id: string) => call<Shipment>(`/shipments/${id}`),
       createShipment: (body: ShipmentInput) => call<Shipment>(`/shipments`, "POST", body),
       updateShipment: (id: string, body: ShipmentInput) => call<Shipment>(`/shipments/${id}`, "PATCH", body),
@@ -686,6 +724,7 @@ export function useShipmentsApi() {
       extractPi: (input: { file?: File; fileId?: string }) => postExtract<PiExtraction>("pi", input),
       /** Read a B/L draft into a shipment draft (+ checks when shipmentId is given). ~15 s. */
       extractBlDraft: (input: { file?: File; fileId?: string; shipmentId?: string; contractId?: string }) => postExtract<BlExtraction>("bl-draft", input),
+      extractAn: (input: { file?: File; fileId?: string; shipmentId?: string }) => postExtract<AnExtraction>("an", input),
       getExtraction: (id: string) => call<Extraction>(`/trade-extract/${id}`),
       acknowledgeExtraction: (id: string) => call<Extraction>(`/trade-extract/${id}/acknowledge`, "POST"),
       /** Cancelled Fill from PI / B/L draft: remove the unsaved source PDF (server refuses once it is attached). */

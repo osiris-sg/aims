@@ -44,6 +44,8 @@ export interface HubRow {
   date: string;
   /** Extra handles the portal needs for the row actions. */
   fileId?: string | null;
+  /** Document ID ("454003255-1-CPL"); null for a Sales invoice linked from outside the trade module. */
+  docRef: string | null;
   /** The file behind the row (an upload, or a generated document's final PDF): for its thumbnail. */
   mimeType?: string | null;
   hasThumb?: boolean;
@@ -83,6 +85,7 @@ export class TradeHubService {
           fileName: true,
           mimeType: true,
           thumbKey: true,
+          docRef: true,
           uploadedByName: true,
           createdAt: true,
           links: {
@@ -115,6 +118,7 @@ export class TradeHubService {
           id: true,
           docType: true,
           number: true,
+          docRef: true,
           status: true,
           header: true,
           finalFileId: true,
@@ -152,6 +156,7 @@ export class TradeHubService {
         createdBy: f.uploadedByName,
         date: f.createdAt.toISOString(),
         fileId: f.id,
+        docRef: f.docRef ?? null,
         mimeType: f.mimeType,
         hasThumb: !!f.thumbKey,
       });
@@ -178,6 +183,7 @@ export class TradeHubService {
         key: `invoice:${documentId}`,
         kind: 'invoice',
         id: documentId,
+        docRef: null,
         category: cat(docType),
         docType,
         docTypeLabel: label(docType),
@@ -249,6 +255,7 @@ export class TradeHubService {
         createdBy: g.createdByName,
         date: g.updatedAt.toISOString(),
         fileId: g.finalFileId,
+        docRef: g.docRef ?? null,
         mimeType: g.finalFileId ? (fileById.get(g.finalFileId)?.mimeType ?? 'application/pdf') : null,
         hasThumb: g.finalFileId ? !!fileById.get(g.finalFileId)?.thumbKey : false,
         shipmentId: g.shipment?.id ?? null,
@@ -267,7 +274,7 @@ export class TradeHubService {
       (!query.customerId || r.customerIds.includes(query.customerId)) &&
       (!from || new Date(r.date) >= from) &&
       (!to || new Date(r.date) <= to) &&
-      (!q || r.name.toLowerCase().includes(q) || (r.customerName ?? '').toLowerCase().includes(q) || (r.recipient ?? '').toLowerCase().includes(q) || r.docTypeLabel.toLowerCase().includes(q));
+      (!q || r.name.toLowerCase().includes(q) || (r.docRef ?? '').toLowerCase().includes(q) || (r.customerName ?? '').toLowerCase().includes(q) || (r.recipient ?? '').toLowerCase().includes(q) || r.docTypeLabel.toLowerCase().includes(q));
     const visible = rows.filter(matchesOthers);
     const filtered = visible.filter((r) => !query.category || r.category === query.category);
     filtered.sort((a, b) => b.date.localeCompare(a.date));
