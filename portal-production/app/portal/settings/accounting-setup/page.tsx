@@ -29,6 +29,7 @@ import SellIcon from "@mui/icons-material/Sell";
 import PercentIcon from "@mui/icons-material/Percent";
 import TaxRatesTab from "./components/TaxRatesTab";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
+import { showAccountingSetup } from "@/helpers/settingsVisibility";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -44,10 +45,10 @@ function TabPanel({ children, value, index }: TabPanelProps) {
   );
 }
 
-// Orgs without the ACCOUNTING module get a notice instead of the page, so a
-// direct link never calls GET /accounting/settings (which creates the
-// settings row on first read). Orgs with ACCOUNTING are unaffected. If the
-// module config fails to load we fall through to the page as before.
+// Trade orgs (SHIPMENTS on, ACCOUNTING off) get a notice instead of the page,
+// so a direct link never calls GET /accounting/settings (which creates the
+// settings row on first read). Every other org is unaffected. If the module
+// config fails to load we fall through to the page as before.
 export default function AccountingSetupPage() {
   const { loading, error, isModuleEnabled } = useConfiguration();
   if (loading) {
@@ -57,7 +58,7 @@ export default function AccountingSetupPage() {
       </Box>
     );
   }
-  if (!error && !isModuleEnabled("ACCOUNTING")) {
+  if (!error && !showAccountingSetup(isModuleEnabled)) {
     return (
       <Box sx={{ p: { xs: 1.5, md: 3 } }}>
         <Typography variant="h5" sx={{ fontWeight: 700, mb: 2 }}>

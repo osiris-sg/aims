@@ -31,9 +31,9 @@ describe('#1 negative totals are real amounts', () => {
 });
 
 describe('#2 customer Japanese legal name / address / contact', () => {
-  const SUS = { name: 'SUS Co., Ltd.', address: null, jpName: 'SUS株式会社', jpAddress: '〒962-0728 福島県須賀川市虹の台21-1', jpContact: '福島製造グループ 押出チーム 有馬 英幸 (TEL 0248-89-1210)' };
+  const SUS = { name: 'SUS Co., Ltd.', address: null, jpName: 'SUS株式会社', jpAddress: '〒100-0001 東京都千代田区試験町1-1', jpContact: '製造部 試験 太郎 (TEL 03-0000-0000)' };
   it('jpParty: the Japanese fields when any is set (no English address mixed in), else the English record', () => {
-    expect(jpParty(SUS)).toEqual({ name: 'SUS株式会社', address: '〒962-0728 福島県須賀川市虹の台21-1', contact: '福島製造グループ 押出チーム 有馬 英幸 (TEL 0248-89-1210)' });
+    expect(jpParty(SUS)).toEqual({ name: 'SUS株式会社', address: '〒100-0001 東京都千代田区試験町1-1', contact: '製造部 試験 太郎 (TEL 03-0000-0000)' });
     expect(jpParty({ name: 'SUS Co., Ltd.', address: 'Tokyo', jpName: 'SUS株式会社' })).toEqual({ name: 'SUS株式会社', address: null, contact: null });
     expect(jpParty({ name: 'Kato', address: '  ', jpName: null })).toEqual({ name: 'Kato', address: null, contact: null });
   });
@@ -66,8 +66,8 @@ describe('#2 customer Japanese legal name / address / contact', () => {
       expect(h.to).toEqual({ name: 'SUS株式会社', address: SUS.jpAddress, contact: SUS.jpContact });
       const text = strip(renderGeneratedHtml(t, h, [], [{ batch: 'B1', netMt: 1, grossMt: 1, bundles: 1, netwt: 1 }]));
       expect(text).toContain('SUS株式会社　御中');
-      expect(text).toContain('〒962-0728 福島県須賀川市虹の台21-1');
-      expect(text).toContain('有馬 英幸 (TEL 0248-89-1210)');
+      expect(text).toContain('〒100-0001 東京都千代田区試験町1-1');
+      expect(text).toContain('試験 太郎 (TEL 03-0000-0000)');
       expect(text).not.toContain('SUS Co., Ltd.');
     }
   });

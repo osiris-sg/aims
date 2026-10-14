@@ -9,6 +9,7 @@
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { showAccountingSetup } from "@/helpers/settingsVisibility";
 
 // Mirrors DynamicSidebarContent — keep the two in sync.
 const HIDDEN_MODULES = new Set<string>(["CUSTOMERS", "SUPPLIERS"]);
@@ -19,8 +20,7 @@ const ORDER_OVERRIDE: Record<string, number> = { SALES: 0.5 };
 
 // Secondary group — mirrors the sidebar's "Organization Settings" block
 // (company profile / accounting setup / Master Files hub). Accounting Setup is
-// dropped when the org's ACCOUNTING module is off (useNavModules →
-// settingsMenu), same as the sidebar.
+// dropped only for trade orgs (showAccountingSetup), same as the sidebar.
 export const SETTINGS_MENU = [
   { label: "Company Profile", path: "/portal/settings/company-profile" },
   { label: "Accounting Setup", path: "/portal/settings/accounting-setup" },
@@ -51,10 +51,8 @@ export const submenuLabel = (s: any) => (typeof s === "string" ? s : s?.label ||
 export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
-  // Accounting Setup only for orgs with the ACCOUNTING module (its page would
-  // otherwise create an empty accounting settings row) — same rule as
-  // DynamicSidebarContent's Organization Settings group.
-  const settingsMenu = SETTINGS_MENU.filter((s) => s.path !== "/portal/settings/accounting-setup" || isModuleEnabled("ACCOUNTING"));
+  // Same rule as DynamicSidebarContent's Organization Settings group.
+  const settingsMenu = SETTINGS_MENU.filter((s) => s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled));
   const { isAdsInsightsEnabled, isMaintenanceDatesEnabled } = useOrganizationFeatures();
 
   const isAdminUser =

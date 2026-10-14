@@ -18,6 +18,11 @@
  *   ... --confirm-prod            required with --apply when DATABASE_URL is prod
  *   ... --seal=<path.png|jpg>     set the company seal printed on 請求書 (kept out of the repo;
  *                                 without it an existing seal is left as is)
+ *   ... --customers=<path.json>   customer details kept out of the repo (pattern *.customers.json is
+ *                                 gitignored): { "customers": [{ "name", "jpName", "jpAddress", "jpContact" }],
+ *                                 "deliveryProfiles": [{ "id", "customerName", "siteName", "address", "notes" }] }.
+ *                                 jp* fill blanks on the customer matched by name; delivery profiles replace
+ *                                 those with the same id. Without it, customer details are left as they are.
  */
 import 'dotenv/config';
 import * as fs from 'fs';
@@ -38,6 +43,8 @@ const CONFIRM_PROD = argv.includes('--confirm-prod');
 const LINK_OSIRIS_ADMINS = argv.includes('--link-osiris-admins');
 const TARGET = argv.find((a) => a.startsWith('--target='))?.split('=')[1] as 'public' | 'tenancy' | undefined;
 const SEAL_PATH = argv.find((a) => a.startsWith('--seal='))?.slice('--seal='.length);
+const CUSTOMERS_PATH = argv.find((a) => a.startsWith('--customers='))?.slice('--customers='.length);
+const CUSTOMER_FILE = CUSTOMERS_PATH ? readCustomerFile(CUSTOMERS_PATH) : undefined;
 
 // Known Neon endpoints (HANDOFF.md §3a): dev = ep-steep-truth, staging = ep-odd-truth, prod = ep-icy-moon.
 const PROD_HOST = 'ep-icy-moon';
@@ -265,15 +272,7 @@ const TRADE_SETTINGS = {
     siWarehouseName: '三井倉庫/本牧A倉庫',
     siCarrier: '三井倉庫手配便',
     siBilletLabel: 'ロングビレット',
-    deliveryProfiles: [
-      {
-        id: 'sus-fukushima',
-        customerName: 'SUS',
-        siteName: 'SUS福島工場',
-        address: '福島県須賀川市虹の台21-1',
-        notes: 'AM7:30より作業開始、下側の敷地へ搬入（看板表記Ａより入場）\nバンド切れ外れはリバンドル\nトラック荷台左右に積載（真ん中はNG）',
-      },
-    ],
+    // deliveryProfiles (customer delivery sites) come from --customers.
   } as Record<string, unknown>,
 };
 
@@ -310,15 +309,9 @@ const SUPPLIERS = [
   { name: 'Mitsui Soko Co., Ltd.', currency: 'JPY', note: 'warehouse' },
   { name: 'Asia Deal Hub Pte. Ltd.', currency: 'USD', note: 'intra-company, UEN 201931733Z (no UEN field — not stored)' },
 ];
+// Japanese name / address / contact (printed on the Japanese documents) come from --customers.
 const CUSTOMERS = [
-  // jp*: printed on the Japanese documents (請求書 name only; 計量検収票 / 納品書兼… name + address + contact).
-  {
-    name: 'SUS Co., Ltd.',
-    currency: 'USD',
-    jpName: 'SUS株式会社',
-    jpAddress: '〒962-0728 福島県須賀川市虹の台21-1',
-    jpContact: '福島製造グループ 押出チーム 有馬 英幸 (TEL 0248-89-1210)',
-  },
+  { name: 'SUS Co., Ltd.', currency: 'USD' },
   { name: 'Kato Light Metal Industry Co., Ltd.', currency: 'USD' },
   { name: 'Houei', currency: 'USD' },
 ];
@@ -704,7 +697,18 @@ async function main() {
   const curSettings = orgExists ? await tradeRead(() => org.tradeSetting.findUnique({ where: { organizationId: orgId } }), null) : null;
   // The script's keys win; keys it doesn't define (the seal, anything added in the app) are kept.
   const seal = SEAL_PATH ? sealDataUrl(SEAL_PATH) : undefined;
-  const desiredDefaults: Record<string, unknown> = { ...((curSettings?.docDefaults as Record<string, unknown> | null) ?? {}), ...TRADE_SETTINGS.docDefaults, ...(seal ? { sealImage: seal } : {}) };
+  const curDefaults = (curSettings?.docDefaults as Record<string, unknown> | null) ?? {};
+  // --customers delivery profiles replace the ones with the same id; others are kept.
+  const fileProfiles = CUSTOMER_FILE?.deliveryProfiles;
+  const deliveryProfiles = fileProfiles?.length
+    ? [...((curDefaults.deliveryProfiles as Array<{ id: string }> | undefined) ?? []).filter((p) => !fileProfiles.some((f) => f.id === p.id)), ...fileProfiles]
+    : undefined;
+  const desiredDefaults: Record<string, unknown> = {
+    ...curDefaults,
+    ...TRADE_SETTINGS.docDefaults,
+    ...(seal ? { sealImage: seal } : {}),
+    ...(deliveryProfiles ? { deliveryProfiles } : {}),
+  };
   const desired = { ...TRADE_SETTINGS, docDefaults: desiredDefaults };
   if (
     curSettings &&
@@ -719,7 +723,7 @@ async function main() {
     }
     write(
       'tradeSetting',
-      `${curSettings ? 'update' : 'create'} consignee "${TRADE_SETTINGS.defaultConsignee.split('\n')[0]}…", notify party "${TRADE_SETTINGS.defaultNotifyParty.split('\n')[0]}…", ${Object.keys(TRADE_SETTINGS.docDefaults).length} document texts${seal ? ', seal image' : ''}`,
+      `${curSettings ? 'update' : 'create'} consignee "${TRADE_SETTINGS.defaultConsignee.split('\n')[0]}…", notify party "${TRADE_SETTINGS.defaultNotifyParty.split('\n')[0]}…", ${Object.keys(TRADE_SETTINGS.docDefaults).length} document texts${seal ? ', seal image' : ''}${fileProfiles?.length ? `, ${fileProfiles.length} delivery profile(s) from --customers` : ''}`,
     );
   }
 
@@ -761,7 +765,11 @@ async function main() {
     write(model, `create ${code} "${c.name}" (${c.currency})${c.note ? ` — ${c.note}` : ''}`);
   };
   for (const s of SUPPLIERS) await ensureContact('supplier', s);
-  for (const c of CUSTOMERS) await ensureContact('customer', c);
+  if (!CUSTOMER_FILE) info('customer Japanese name / address / contact left as they are (pass --customers=<json> to fill them)');
+  for (const c of CUSTOMERS) {
+    const detail = CUSTOMER_FILE?.customers?.find((d) => d.name.toLowerCase() === c.name.toLowerCase());
+    await ensureContact('customer', { ...c, jpName: detail?.jpName, jpAddress: detail?.jpAddress, jpContact: detail?.jpContact });
+  }
 
   // ── 11. Access ────────────────────────────────────────────────────────────
   header('11', 'Access');
@@ -835,6 +843,18 @@ main()
     process.exit(1);
   })
   .finally(() => process.exit(process.exitCode ?? 0));
+
+type CustomerFile = {
+  customers?: Array<{ name: string; jpName?: string; jpAddress?: string; jpContact?: string }>;
+  deliveryProfiles?: Array<{ id: string; customerName: string; siteName: string; address: string; notes?: string }>;
+};
+/** --customers=<file>: customer details kept out of the repo (see the header). */
+function readCustomerFile(file: string): CustomerFile {
+  const data = JSON.parse(fs.readFileSync(path.resolve(file), 'utf8')) as CustomerFile;
+  for (const c of data.customers ?? []) if (!c?.name) throw new Error('--customers: every customer needs a "name"');
+  for (const p of data.deliveryProfiles ?? []) if (!p?.id || !p.siteName) throw new Error('--customers: every delivery profile needs "id" and "siteName"');
+  return data;
+}
 
 /** --seal=<file>: a PNG / JPEG (≤ 1 MB) as a data: URL for docDefaults.sealImage. */
 function sealDataUrl(file: string): string {

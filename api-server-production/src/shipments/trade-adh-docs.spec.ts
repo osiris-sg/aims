@@ -223,11 +223,11 @@ describe('出庫・納入依頼書 (ADH layout)', () => {
     expect(blTail('123')).toBe('123');
     expect(billetSize('203 MM X 5800 MM')).toBe('203 X 5800');
     expect(billetSize('203MM×5800MM')).toBe('203 X 5800');
-    const profiles = [{ id: 'p1', customerName: 'SUS', siteName: 'SUS福島工場', address: '福島県須賀川市虹の台21-1', notes: 'AM7:30より作業開始\nバンド切れ外れはリバンドル\n' }];
+    const profiles = [{ id: 'p1', customerName: 'SUS', siteName: 'SUS福島工場', address: '東京都千代田区試験町1-1', notes: 'AM7:30より作業開始\nバンド切れ外れはリバンドル\n' }];
     const p = deliveryProfileFor(profiles, 'SUS Co., Ltd.');
     expect(p?.siteName).toBe('SUS福島工場');
     expect(deliveryProfileFor(profiles, 'Other KK')).toBeNull();
-    expect(deliveryRemarks(p!)).toBe('指定荷卸し場→　SUS福島工場　福島県須賀川市虹の台21-1\nAM7:30より作業開始\nバンド切れ外れはリバンドル');
+    expect(deliveryRemarks(p!)).toBe('指定荷卸し場→　SUS福島工場　東京都千代田区試験町1-1\nAM7:30より作業開始\nバンド切れ外れはリバンドル');
   });
   it('prints the request, vessel / voyage / B/L tail / warehouse, one row per truck day, the merged weight cell and 備考', () => {
     const h: SiHeaderV2 = {
@@ -244,7 +244,7 @@ describe('出庫・納入依頼書 (ADH layout)', () => {
       netWeightMt: 305.804,
       shipper: 'アジアディールハブジャパン合同会社',
       carrier: '三井倉庫手配便',
-      remarks: '指定荷卸し場→　SUS福島工場　福島県須賀川市虹の台21-1\nトラック荷台左右に積載（真ん中はNG）',
+      remarks: '指定荷卸し場→　SUS福島工場　東京都千代田区試験町1-1\nトラック荷台左右に積載（真ん中はNG）',
     };
     const html = renderSiV2Html(h, [
       { shipDate: '2026-09-07', deliveryDate: '2026-09-08', destination: 'SUS福島工場', billet: 'ロングビレット203 X 5800', bundles: 16 },
@@ -263,7 +263,7 @@ describe('出庫・納入依頼書 (ADH layout)', () => {
       '9/7 9/8 SUS福島工場 ロングビレット 203 X 5800 16 総重量 307.004トン (正味重量 305.804トン)',
       '出 荷 主 アジアディールハブジャパン合同会社',
       '運送会社 三井倉庫手配便',
-      '備 考 ・ 指定荷卸し場→ SUS福島工場 福島県須賀川市虹の台21-1 トラック荷台左右に積載（真ん中はNG）',
+      '備 考 ・ 指定荷卸し場→ SUS福島工場 東京都千代田区試験町1-1 トラック荷台左右に積載（真ん中はNG）',
     ])
       expect(text).toContain(s);
     expect(html).toContain('rowspan="2"');
