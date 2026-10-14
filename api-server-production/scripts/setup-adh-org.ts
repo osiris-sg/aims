@@ -23,6 +23,11 @@
  *                                 "deliveryProfiles": [{ "id", "customerName", "siteName", "address", "notes" }] }.
  *                                 jp* fill blanks on the customer matched by name; delivery profiles replace
  *                                 those with the same id. Without it, customer details are left as they are.
+ *   ... --resolution-report=<file.csv>  write the org × template-type resolution, before vs after (step 0)
+ *
+ * Step 0 (before any write) compares, for every org × document type, the template the app
+ * resolves before vs after this run's new templates. The run stops if a new template is
+ * isDefault: true or any other org's resolution would change (templates are a cross-org pool).
  */
 import 'dotenv/config';
 import * as fs from 'fs';
@@ -33,6 +38,7 @@ import ws = require('ws');
 import { DEFAULT_DOCUMENT_TEMPLATES } from '../src/organizations/default-templates';
 import { DEFAULT_ORG_FEATURES } from '../src/organizations/default-features';
 import { MODULE_CATALOG } from '../src/configuration/module-catalog';
+import { checkTemplatePlan, type TemplateRow } from './lib/template-resolution';
 
 neonConfig.webSocketConstructor = ws as unknown as typeof WebSocket;
 
@@ -45,6 +51,7 @@ const TARGET = argv.find((a) => a.startsWith('--target='))?.split('=')[1] as 'pu
 const SEAL_PATH = argv.find((a) => a.startsWith('--seal='))?.slice('--seal='.length);
 const CUSTOMERS_PATH = argv.find((a) => a.startsWith('--customers='))?.slice('--customers='.length);
 const CUSTOMER_FILE = CUSTOMERS_PATH ? readCustomerFile(CUSTOMERS_PATH) : undefined;
+const RESOLUTION_REPORT = argv.find((a) => a.startsWith('--resolution-report='))?.slice('--resolution-report='.length);
 
 // Known Neon endpoints (HANDOFF.md §3a): dev = ep-steep-truth, staging = ep-odd-truth, prod = ep-icy-moon.
 const PROD_HOST = 'ep-icy-moon';
@@ -316,6 +323,10 @@ const CUSTOMERS = [
   { name: 'Houei', currency: 'USD' },
 ];
 
+// The org's templates are its own active ones; isDefault stays false so they
+// never become the cross-org fallback (checked by step 0 before any write).
+const TEMPLATE_IS_DEFAULT = false;
+
 const USERS_TO_ADD = ['sayaka.matsuki', 'toshiro.takekoshi', 'natsumi', 'finance'].map((u) => `${u}@asiadealhub.com`);
 
 const TRADE_TABLES = ['TradeDocType', 'Contract', 'Shipment', 'TradeStepTemplate', 'TradeStep', 'TradeFile', 'TradeFileLink'];
@@ -429,6 +440,56 @@ async function main() {
   const tradeReady = orgReady && missingTrade.length === 0 && !!org.tradeDocType;
   const orgRead = async <T>(fn: () => Promise<T>, empty: T): Promise<T> => (orgReady ? fn() : empty);
   const tradeRead = async <T>(fn: () => Promise<T>, empty: T): Promise<T> => (tradeReady ? fn() : empty);
+
+  // ── 0. Template resolution guard (before any write) ───────────────────────
+  header('0', 'Template resolution guard (every org × type, before vs after)');
+  const existingOrg = await plat.organization.findUnique({ where: { name: ORG_NAME }, select: { id: true } });
+  const guardOrgId: string = existingOrg?.id ?? PLACEHOLDER_ORG_ID;
+  const templateTypes = DEFAULT_DOCUMENT_TEMPLATES.map((t) => t.type);
+  const allTemplates: TemplateRow[] = await plat.documentTemplate.findMany({
+    where: { type: { in: templateTypes } },
+    select: { id: true, organizationId: true, type: true, isActive: true, isDefault: true, createdAt: true },
+  });
+  const ownTypes = new Set(allTemplates.filter((t) => t.organizationId === guardOrgId).map((t) => t.type));
+  const plannedAt = new Date();
+  // The rows step 6 creates — isDefault: false, so they never become another org's fallback.
+  const plannedTemplates: TemplateRow[] = DEFAULT_DOCUMENT_TEMPLATES.filter((t) => !ownTypes.has(t.type)).map((t, i) => ({
+    id: `<planned-${t.type}>`,
+    organizationId: guardOrgId,
+    type: t.type,
+    isActive: true,
+    isDefault: TEMPLATE_IS_DEFAULT,
+    createdAt: new Date(plannedAt.getTime() + i),
+  }));
+  const orgList: Array<{ id: string; name: string }> = await plat.organization.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+  const templateCheck = checkTemplatePlan({
+    ownOrgId: guardOrgId,
+    orgIds: orgList.map((o) => o.id),
+    types: templateTypes,
+    templates: allTemplates,
+    selections: await plat.organizationActiveTemplate.findMany({ where: { type: { in: templateTypes } }, select: { organizationId: true, type: true, templateId: true, isPrimary: true } }),
+    planned: plannedTemplates,
+  });
+  const orgName = (id: string) => (id === guardOrgId ? ORG_NAME : (orgList.find((o) => o.id === id)?.name ?? id));
+  const ownerOf = (tid: string | null) => (tid ? (tid.startsWith('<planned-') ? `${ORG_NAME} (new)` : orgName(allTemplates.find((t) => t.id === tid)?.organizationId ?? '?')) : 'none');
+  for (const id of [...new Set(templateCheck.cells.map((c) => c.organizationId))]) {
+    const cells = templateCheck.cells.filter((c) => c.organizationId === id);
+    const changed = cells.filter((c) => c.before !== c.after);
+    info(`${orgName(id).padEnd(34)} ${changed.length ? `${changed.length}/${cells.length} change → ${[...new Set(changed.map((c) => ownerOf(c.after)))].join(', ')}` : `${cells.length}/${cells.length} identical`}`);
+  }
+  if (RESOLUTION_REPORT) {
+    const q = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const lines = ['org,type,before_template,before_owner,after_template,after_owner,identical'];
+    for (const c of templateCheck.cells) lines.push([orgName(c.organizationId), c.type, c.before ?? '', ownerOf(c.before), c.after ?? '', ownerOf(c.after), String(c.before === c.after)].map(q).join(','));
+    fs.writeFileSync(path.resolve(RESOLUTION_REPORT), lines.join('\n') + '\n');
+    info(`resolution report → ${RESOLUTION_REPORT}`);
+  }
+  if (templateCheck.errors.length) {
+    console.error('\n❌ Template guard failed — nothing written:');
+    for (const e of templateCheck.errors) console.error(`   - ${e}`);
+    process.exit(1);
+  }
+  info(`✓ only "${ORG_NAME}" changes; ${plannedTemplates.length} new template(s), all isDefault: false`);
 
   // ── 1. Organization (+ tenancy registry) ──────────────────────────────────
   header('1', 'Organization');
@@ -600,7 +661,8 @@ async function main() {
         designName: 'Default',
         description: `${t.name} document template`,
         isActive: true,
-        isDefault: true,
+        // Never true: an isDefault template is every template-less org's fallback (step 0).
+        isDefault: TEMPLATE_IS_DEFAULT,
         ...(t.config ? { config: t.config } : {}),
       })),
     });
