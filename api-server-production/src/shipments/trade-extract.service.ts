@@ -26,6 +26,9 @@ import {
   shipmentDraftFromBl,
 } from './trade-extract.rules';
 import { TradeFilesService } from './trade-files.service';
+import * as XLSX from 'xlsx';
+import { Classification, classifyByName, classifyPrompt, classifySheetText, combineClassification, isSpreadsheet } from './trade-classify';
+import { decodeUploadName, resolveTradeFileMime } from './shipments.rules';
 
 export type ExtractKind = 'PI' | 'BL_DRAFT' | 'AN';
 const DOC_TYPE: Record<ExtractKind, string> = { PI: 'PI', BL_DRAFT: 'BL_DRAFT', AN: 'ARRIVAL_NOTICE' };
@@ -138,6 +141,36 @@ export class TradeExtractService {
       await this.prisma.tradeExtraction.update({ where: { id: row.id }, data: { status: 'FAILED', error: msg.slice(0, 2000), durationMs: Date.now() - started } });
     }
     return this.get(organizationId, row.id);
+  }
+
+  /**
+   * Bulk upload with AI sorting: classify one dropped file into one of the
+   * step's document types (file name + spreadsheet header + Claude for PDFs /
+   * images). Nothing is stored — the portal uploads the confirmed files the
+   * normal way. The AI read is best effort: on failure the name rules decide.
+   */
+  async classify(organizationId: string, file: Express.Multer.File, allowed: string[]): Promise<Classification & { fileName: string }> {
+    if (!file) throw new BadRequestException('Attach the file to classify');
+    const types = [...new Set(allowed.filter((t) => typeof t === 'string' && /^[A-Z0-9_]{2,40}$/.test(t)))];
+    if (!types.length) throw new BadRequestException('Give the step\'s document types');
+    const fileName = decodeUploadName(file.originalname);
+    const name = classifyByName(fileName);
+    let sheet: ReturnType<typeof classifySheetText> = null;
+    let ai: Record<string, unknown> | null = null;
+    if (isSpreadsheet(fileName)) {
+      sheet = classifySheetText(sheetText(file.buffer));
+    } else {
+      const mime = resolveTradeFileMime(fileName, file.mimetype) ?? file.mimetype;
+      if (READABLE.test(mime)) {
+        try {
+          const [system, user] = classifyPrompt(types);
+          ai = (await this.extractor.extractStructured({ buffer: file.buffer, mimetype: mime }, system, user, { maxTokens: 300 })).data;
+        } catch (e) {
+          this.logger.warn(`classify ${fileName}: AI read failed (${(e as Error)?.message}) — using the file name`);
+        }
+      }
+    }
+    return { fileName, ...combineClassification(types, name, sheet, ai) };
   }
 
   async get(organizationId: string, id: string) {
@@ -295,4 +328,19 @@ export async function latestBlCheck(db: Db, organizationId: string, shipmentId: 
     acknowledgedAt: x.acknowledgedAt,
     containers: draft.containers,
   };
+}
+
+/** A spreadsheet's first sheet as tab-separated text (Vedanta's .XLS is already text; .xlsx is parsed). */
+export function sheetText(buffer: Buffer): string {
+  const head = buffer.subarray(0, 4).toString('latin1');
+  if (head.startsWith('PK') || head.startsWith('\xD0\xCF')) {
+    try {
+      const wb = XLSX.read(buffer, { type: 'buffer', sheetRows: 30 });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      return ws ? XLSX.utils.sheet_to_csv(ws, { FS: '\t' }) : '';
+    } catch {
+      return '';
+    }
+  }
+  return buffer.subarray(0, 20000).toString('utf8');
 }

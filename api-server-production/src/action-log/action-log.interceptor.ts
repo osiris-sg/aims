@@ -71,7 +71,7 @@ const VERB_ACTIONS: Record<string, string> = {
   // reports it sent; the office retries a failed or skipped one.
   claim: 'CLAIM', done: 'POSTED', retry: 'RETRY', resolve: 'CONFIRM',
   // Shipments: AI reads of a PI / B/L draft, and acknowledging the B/L check.
-  pi: 'EXTRACT', 'bl-draft': 'EXTRACT', an: 'EXTRACT', acknowledge: 'ACKNOWLEDGE',
+  pi: 'EXTRACT', 'bl-draft': 'EXTRACT', an: 'EXTRACT', classify: 'EXTRACT', acknowledge: 'ACKNOWLEDGE',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
   // Field delivery verbs (2026-09): the customer sign-off (full or partial, and
   // the guest link's), the return sign-off, ad-hoc acknowledge, install skip, and

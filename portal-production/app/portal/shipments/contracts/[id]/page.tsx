@@ -108,7 +108,7 @@ export default function DealPage() {
     }
     if (was.contract === "OPEN" && c.status === "COMPLETED") {
       toast.success(`Deal ${c.contractNo} completed — all shipments are done`);
-      router.push("/portal/shipments");
+      router.push("/portal/shipments?tab=completed");
     } else if (was.shipment === "OPEN" && s?.status === "COMPLETED") {
       toast.success(`Shipment ${blLabel(s.blNumber)} completed — all its steps are done`);
     }

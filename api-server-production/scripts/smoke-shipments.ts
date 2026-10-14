@@ -175,7 +175,7 @@ async function main() {
       'read a 2nd B/L draft → shipment on the 6005 line, PDF linked to "2. Approve B/L draft (Vedanta)"; delete it',
       'cancelled Fill from PI → source PDF + extraction discarded; a saved PI cannot be discarded',
       'in-app documents (Customer PL / COA, SG→JP IV/PL, shipping instructions, Invoice #2 on the shipment; Invoice #1 on the contract):',
-      '  create blank → download draft PDF (DRAFT watermark) → finalize → step requirement met → download final PDF',
+      '  create blank → download draft PDF (no watermark) → finalize → step requirement met → download final PDF',
       '  invoices: Sales invoice created + confirmed (ADH-INV-…); Invoice #1 edit again → unconfirmed → finalize again (same number)',
       '  Invoices tab view: Sales invoice → its 請求書 (final PDF, editor, contract / shipment links)',
       'clean up: reopen steps, unlink invoice, delete invoice Document, file (+S3), shipment, contract',
@@ -702,6 +702,12 @@ async function main() {
           );
           (unitPriceOf(rs[0]) === null ? pass : fail)('INVOICE_2: no unit price until the LME is typed (not QMJP + premium)', String(unitPriceOf(rs[0])));
         }
+        // Round 13: a blank Customer PL / COA / SI can't be finalized (the prod run finalized an empty COA).
+        if (docType === 'CUSTOMER_PL' || docType === 'CUSTOMER_COA' || docType === 'SHIPPING_INSTRUCTIONS') {
+          if (docType === 'CUSTOMER_COA') await gen.update(ORG_ID, g.id, { header: { ...g.header, analysisDate: '2026-07-22' } });
+          await expectReject(`${docType}: finalize the blank document → refused, saying what is missing`, () => gen.finalize(ORG_ID, g.id, actor), /Can't finalize: .*(rows|row|bundle)/);
+          if (docType === 'CUSTOMER_COA') await gen.update(ORG_ID, g.id, { header: g.header });
+        }
         // What a user would type.
         let header = g.header;
         let rows = g.rows as any[];
@@ -727,9 +733,9 @@ async function main() {
           await gen.update(ORG_ID, g.id, { header });
         }
         const draftPdf = await expectOk(`${docType}: download draft PDF`, () => gen.pdfFor(ORG_ID, g.id));
-        const watermarked = gen.previewHtml(docType, header, g.columns, rows, true).includes('class="wm">DRAFT');
-        (draftPdf && draftPdf.buffer.subarray(0, 4).toString() === '%PDF' && draftPdf.fileName.endsWith('-DRAFT.pdf') && watermarked ? pass : fail)(
-          `${docType}: draft PDF is a PDF with the DRAFT watermark`,
+        const watermarked = gen.previewHtml(docType, header, g.columns, rows, true).includes('class="wm"');
+        (draftPdf && draftPdf.buffer.subarray(0, 4).toString() === '%PDF' && draftPdf.fileName.endsWith('-DRAFT.pdf') && !watermarked ? pass : fail)(
+          `${docType}: draft PDF is a PDF, no DRAFT watermark`,
           `${draftPdf?.fileName} ${draftPdf ? Math.round(draftPdf.buffer.length / 1024) : 0} KB`,
         );
         const before = await requirement(docType, owner);
@@ -887,9 +893,33 @@ async function main() {
         // Finalize block: an SG→JP invoice without its LME (and so a US$0 total) is refused, naming what is missing.
         const sg3: any = await expectOk('finalize block: create a third SG→JP invoice', () => gen.createBlank(ORG_ID, { docType: 'SGJP_IV_PL', shipmentId: shipment.id }, actor));
         if (sg3) {
+          // Round 13: QMJP by quarter — the SG→JP takes the shipment month's quarter from the org table (2026-07 → 3Q).
+          const q3 = (settingsNow.docDefaults as any)?.qmjpByQuarter?.['2026-3Q'];
+          const prefilled = (sg3.rows as any[])[0]?.qmjp;
+          (q3 === undefined || Number(prefilled) === Number(q3) ? pass : fail)('QMJP by quarter: SG→JP prefills the shipment month\'s quarter (2026-3Q), not Invoice #1\'s', `${prefilled} vs table ${q3 ?? '(no table on this org)'}`);
           await gen.update(ORG_ID, sg3.id, { rows: [{ ...(sg3.rows as any[])[0], lme: null, unitPrice: null, quantity: 10 }] });
           await expectReject('finalize block: SG→JP with no LME / US$0 total → refused, listing what is missing', () => gen.finalize(ORG_ID, sg3.id, actor), /Can't finalize: .*(LME|unit price).*US\$0\.00/);
           await gen.remove(ORG_ID, sg3.id);
+        }
+
+        // Round 13: Replace keeps the document ID; bulk classification (mocked model for the PDF, columns for the sheet).
+        {
+          const before = await prisma.tradeFile.findFirst({ where: { id: uploaded.id }, select: { docRef: true } });
+          const rep: any = await expectOk('Replace: upload a replacement B/L draft', () =>
+            files.upload(ORG_ID, pdfFile('BLD-replacement.pdf'), { docType: 'BL_DRAFT', shipmentIds: [shipment.id], replacesFileId: uploaded.id } as any, actor),
+          );
+          (rep && rep.docRef === before?.docRef ? pass : fail)('Replace keeps the document ID (no -2 counter)', `${before?.docRef} → ${rep?.docRef}`);
+          if (rep) await files.remove(ORG_ID, rep.id);
+          const step3 = ['BL', 'CI', 'PL', 'COA', 'COO', 'INSURANCE', 'OTHER'];
+          replies.push({ docType: 'COO', variant: null, confidence: 0.93, reason: 'Certificate of origin' });
+          const c1: any = await expectOk('bulk sort: classify a PDF (mock model)', () => extract.classify(ORG_ID, pdfFile('COO_9000000000.pdf'), step3));
+          const c2: any = await expectOk('bulk sort: classify a spreadsheet', () =>
+            extract.classify(ORG_ID, { originalname: 'COA.XLS', mimetype: 'application/vnd.ms-excel', size: COA_TSV.length, buffer: COA_TSV } as Express.Multer.File, step3),
+          );
+          (c1?.docType === 'COO' && c1.source === 'name+ai' && c2?.docType === 'COA' && c2.variant === 'COA summary' && c2.source === 'sheet' ? pass : fail)(
+            'bulk sort: name + AI agree on the COO; COA.XLS sorted by its columns as the COA summary',
+            `${c1?.docType}/${c1?.source} · ${c2?.docType}/${c2?.variant}/${c2?.source}`,
+          );
         }
 
         // Arrival notice (mocked model reply): the draft and only the blank shipment fields are offered.

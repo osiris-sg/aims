@@ -197,20 +197,26 @@ export const useCustomers = (enabled = true) => {
  * Wraps an api call in a mutation that refreshes every Shipments query on
  * success. Errors are left to the caller (they carry the backend's message).
  */
+/** Longest a mutation waits for the lists / records it changed to refetch. */
+export const REFRESH_WAIT_MS = 4000;
+
 export function useTradeMutation<TVars, TResult>(fn: (api: ReturnType<typeof useShipmentsApi>, vars: TVars) => Promise<TResult>) {
   const api = useShipmentsApi();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (vars: TVars) => fn(api, vars),
     onSuccess: async () => {
-      await Promise.all([
+      const refresh = Promise.all([
         qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.contracts }),
         qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.shipments }),
         qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.files }),
         qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.generated }),
         qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.hub }),
         qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.config }),
-      ]);
+      ]).catch(() => undefined);
+      // Wait for fresh data, but never hold a dialog on "Uploading…" / "Working…" because
+      // one refetch is slow or paused: the rest arrives in the background.
+      await Promise.race([refresh, new Promise((r) => setTimeout(r, REFRESH_WAIT_MS))]);
     },
   });
 }

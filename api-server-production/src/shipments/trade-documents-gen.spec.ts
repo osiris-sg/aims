@@ -201,7 +201,7 @@ describe('Japanese font + layout', () => {
     expect(css.length).toBeLessThan(japaneseFontCss('請求書 アジアディールハブジャパン合同会社 東京都港区赤坂').length + 1);
     expect(japaneseFontCss('')).toBe('');
   });
-  it('the 請求書 HTML carries the font, the numbers and (as a draft) the watermark', () => {
+  it('the 請求書 HTML carries the font and the numbers, and no DRAFT watermark even as a draft', () => {
     const h = { ...invoiceHeaderDefaults({ today: '2026-07-01', org: { name: 'ADH' }, customerName: 'SUS', grades: ['6005', '6063'], products: [], defaults: {} }), fxRate: 161.67 };
     const html = renderInvoiceHtml(h, [L6005, L6063], { draft: true });
     expect(html).toContain('@font-face');
@@ -209,7 +209,7 @@ describe('Japanese font + layout', () => {
     expect(html).toContain('>請求書</div>');
     expect(html).toContain('US$1,862,584.68');
     expect(html).toContain('¥301,124,065');
-    expect(html).toContain('class="wm">DRAFT');
+    expect(html).not.toContain('class="wm"');
     expect(renderInvoiceHtml(h, [L6005], { draft: false })).not.toContain('class="wm"');
   });
   it('SG→JP: amount = net × price; packing rows grouped per container; Shipping Instructions totals', () => {

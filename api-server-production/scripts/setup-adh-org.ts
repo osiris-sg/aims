@@ -121,7 +121,8 @@ const ENSURED_PERMISSIONS = [
 // ADH's own rows put its trade modules BELOW that with negative sortOrders —
 // the global rule and every other org stay untouched. User Management (8) and
 // Audit (9) keep their catalog order.
-const ENABLED_MODULES: Array<{ code: string; route?: string; icon?: string; sortOrder?: number; subMenus?: Array<{ key: string; label: string }> }> = [
+// hideInMenu: the module stays ON (routes, data, permissions) but is left out of the menus.
+const ENABLED_MODULES: Array<{ code: string; route?: string; icon?: string; sortOrder?: number; hideInMenu?: boolean; subMenus?: Array<{ key: string; label: string }> }> = [
   {
     code: 'SHIPMENTS',
     sortOrder: -3, // first — before the global Sales pin (0.5)
@@ -145,6 +146,9 @@ const ENABLED_MODULES: Array<{ code: string; route?: string; icon?: string; sort
   },
   {
     code: 'SALES',
+    // Trade invoices are stored as Sales invoices, so the module must stay on;
+    // ADH works from Invoices / Shipments, so it is not in the menu.
+    hideInMenu: true,
     subMenus: [
       { key: 'quotations', label: 'Quotation' },
       { key: 'credit-notes', label: 'Credit Note' },
@@ -154,6 +158,9 @@ const ENABLED_MODULES: Array<{ code: string; route?: string; icon?: string; sort
   { code: 'USER_MANAGEMENT' },
   { code: 'AUDIT' },
 ];
+
+/** QMJP (Quarterly Main Japanese Port premium, US$/MT) per quarter, as ADH's invoices quote it. */
+const QMJP_BY_QUARTER: Record<string, number> = { '2026-2Q': 351.5, '2026-3Q': 395 };
 
 const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableActionLog: true,
@@ -636,6 +643,7 @@ async function main() {
       ...cat.config,
       ...(wanted?.route ? { route: wanted.route } : {}),
       ...(wanted?.subMenus ? { subMenus: wanted.subMenus } : {}),
+      ...(wanted?.hideInMenu ? { hideInMenu: true } : {}),
     };
     const row = { enabled, displayName: cat.displayName, icon: wanted?.icon ?? cat.icon, sortOrder: wanted?.sortOrder ?? cat.sortOrder, config };
     if (APPLY) {
@@ -647,7 +655,7 @@ async function main() {
     }
     write(
       'module',
-      `${cat.moduleCode.padEnd(20)} ${enabled ? 'ON ' : 'off'}${enabled ? `  order ${row.sortOrder}` : ''}${wanted?.route ? `  ${wanted.route}` : ''}${wanted?.subMenus ? `  (${wanted.subMenus.map((s) => s.key).join(', ')})` : ''}`,
+      `${cat.moduleCode.padEnd(20)} ${enabled ? 'ON ' : 'off'}${enabled ? `  order ${row.sortOrder}` : ''}${wanted?.route ? `  ${wanted.route}` : ''}${wanted?.subMenus ? `  (${wanted.subMenus.map((s) => s.key).join(', ')})` : ''}${wanted?.hideInMenu ? '  [hidden from menu]' : ''}`,
     );
   }
 
@@ -803,6 +811,8 @@ async function main() {
     ...TRADE_SETTINGS.docDefaults,
     ...(seal ? { sealImage: seal } : {}),
     ...(deliveryProfiles ? { deliveryProfiles } : {}),
+    // QMJP by quarter: seeded quarters fill gaps; values edited in the app win.
+    qmjpByQuarter: { ...QMJP_BY_QUARTER, ...((curDefaults.qmjpByQuarter as Record<string, number> | undefined) ?? {}) },
   };
   const desired = { ...TRADE_SETTINGS, docDefaults: desiredDefaults };
   if (

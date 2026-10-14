@@ -1,14 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-// Org settings for the documents made in-app (TradeSetting.docDefaults):
-// bank accounts an invoice can print (one is the default), the issuer printed
-// on each template (請求書 / customer documents / 出庫・納入依頼書), the company
-// seal on 請求書, and customer delivery profiles for 出庫・納入依頼書. Existing
-// documents keep what they were created with.
+// Org settings for the documents made in-app (TradeSetting.docDefaults), shown
+// in Org Settings → Shipping & documents: bank accounts an invoice can print
+// (one is the default), the issuer printed on each template (請求書 / customer
+// documents / 出庫・納入依頼書) and the 出庫・納入依頼書 宛先, the company seal on
+// 請求書, customer delivery profiles for 出庫・納入依頼書, and QMJP by quarter
+// (the invoices' price helper). Existing documents keep what they were created with.
 
 import React, { useEffect, useState } from "react";
-import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Grid2, IconButton, Radio, Stack, TextField, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Divider, Grid2, IconButton, Radio, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import UploadIcon from "@mui/icons-material/UploadFile";
@@ -35,8 +36,14 @@ const Section = ({ title, action, children }: { title: string; action?: React.Re
   </Box>
 );
 
-export default function DocSettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const settings = useTradeSettings(open);
+type QmjpRow = { key: string; quarter: string; value: string };
+const QUARTER = /^\d{4}-[1-4]Q$/;
+
+export default function DocSettingsForm() {
+  const settings = useTradeSettings(true);
+  // Edits are kept while the settings refetch in the background; a save reloads them.
+  const [dirty, setDirty] = useState(false);
+  const [qmjp, setQmjp] = useState<QmjpRow[]>([]);
   const [banks, setBanks] = useState<BankAccount[]>([]);
   const [defaultBankId, setDefaultBankId] = useState<string>("");
   const [issuers, setIssuers] = useState<Issuers>({ invoiceFromBlock: "", customerDocIssuerName: "", customerDocIssuerAddress: "", customerDocContact: "", siIssuerName: "", siAddressee: "" });
@@ -46,7 +53,7 @@ export default function DocSettingsDialog({ open, onClose }: { open: boolean; on
   const save = useTradeMutation((api, docDefaults: Record<string, unknown>) => api.updateSettings({ docDefaults }));
 
   useEffect(() => {
-    if (!open || !settings.data) return;
+    if (!settings.data || dirty) return;
     const d = settings.data.docDefaults ?? {};
     // Orgs set up before the bank list have one bank text: start the list from it.
     const list: BankAccount[] = Array.isArray(d.banks) && d.banks.length ? d.banks : d.invoiceBankBlock ? [{ id: "default", label: String(d.invoiceBankBlock).split("\n")[0], block: d.invoiceBankBlock }] : [];
@@ -55,8 +62,10 @@ export default function DocSettingsDialog({ open, onClose }: { open: boolean; on
     setIssuers(Object.fromEntries(ISSUER_KEYS.map((k) => [k, String(d[k] ?? "")])) as Issuers);
     setSeal(typeof d.sealImage === "string" ? d.sealImage : null);
     setProfiles((d.deliveryProfiles ?? []).map((p) => ({ ...p })));
+    const table = (d.qmjpByQuarter ?? {}) as Record<string, number>;
+    setQmjp(Object.keys(table).sort().map((q) => ({ key: q, quarter: q, value: String(table[q]) })));
     setError(null);
-  }, [open, settings.data]);
+  }, [settings.data, dirty]);
 
   const pickSeal = (file: File | undefined) => {
     if (!file) return;
@@ -74,6 +83,10 @@ export default function DocSettingsDialog({ open, onClose }: { open: boolean; on
     setError(null);
     if (banks.some((b) => !b.label.trim() || !b.block.trim())) return setError("Every bank account needs a name and its text");
     if (profiles.some((p) => !p.siteName.trim())) return setError("Every delivery profile needs a site name");
+    const q = qmjp.filter((r) => r.quarter.trim() || r.value.trim());
+    if (q.some((r) => !QUARTER.test(r.quarter.trim()))) return setError('QMJP quarters look like 2026-3Q');
+    if (q.some((r) => r.value.trim() === "" || !Number.isFinite(Number(r.value)) || Number(r.value) < 0)) return setError("Every QMJP quarter needs a number");
+    if (new Set(q.map((r) => r.quarter.trim())).size !== q.length) return setError("Each QMJP quarter only once");
     try {
       await save.mutateAsync({
         banks: banks.map((b) => ({ id: b.id, label: b.label.trim(), block: b.block })),
@@ -81,9 +94,10 @@ export default function DocSettingsDialog({ open, onClose }: { open: boolean; on
         ...Object.fromEntries(ISSUER_KEYS.map((k) => [k, issuers[k].trim() ? issuers[k] : null])),
         sealImage: seal,
         deliveryProfiles: profiles.map((p) => ({ ...p, customerName: p.customerName.trim(), siteName: p.siteName.trim(), address: p.address.trim() })),
+        qmjpByQuarter: Object.fromEntries(q.map((r) => [r.quarter.trim(), Number(r.value)])),
       });
+      setDirty(false);
       toast.success("Document settings saved");
-      onClose();
     } catch (e: any) {
       setError(e?.message || "Could not save the settings");
     }
@@ -98,9 +112,7 @@ export default function DocSettingsDialog({ open, onClose }: { open: boolean; on
   );
 
   return (
-    <Dialog open={open} onClose={() => !save.isPending && onClose()} maxWidth="md" fullWidth>
-      <DialogTitle>Document settings</DialogTitle>
-      <DialogContent dividers>
+    <Box onChangeCapture={() => setDirty(true)} onClickCapture={(e) => (e.target as HTMLElement).closest("button") && setDirty(true)}>
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
@@ -215,15 +227,69 @@ export default function DocSettingsDialog({ open, onClose }: { open: boolean; on
             ))}
           </Stack>
         </Section>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} disabled={save.isPending}>
-          Cancel
-        </Button>
-        <Button variant="contained" onClick={submit} disabled={save.isPending || loading}>
-          {save.isPending ? "Saving…" : "Save settings"}
-        </Button>
-      </DialogActions>
-    </Dialog>
+        <Divider sx={{ mb: 2 }} />
+
+        <Section
+          title="QMJP by quarter (US$/MT)"
+          action={
+            <Button size="small" startIcon={<AddIcon />} onClick={() => setQmjp((rs) => [...rs, { key: newId("q"), quarter: "", value: "" }])} disabled={loading}>
+              Add quarter
+            </Button>
+          }
+        >
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+            Invoice #1 takes the QMJP of its LME month&apos;s quarter; the SG→JP invoice and Invoice #2 take the shipment month&apos;s quarter. A quarter not listed falls back to the contract line.
+          </Typography>
+          <Stack spacing={1} data-tour="settings-qmjp">
+            {qmjp.map((r, i) => (
+              <Stack key={r.key} direction="row" spacing={1} alignItems="center">
+                <TextField
+                  size="small"
+                  label="Quarter"
+                  placeholder="2026-3Q"
+                  value={r.quarter}
+                  error={!!r.quarter.trim() && !QUARTER.test(r.quarter.trim())}
+                  onChange={(e) => setQmjp((rs) => rs.map((x, j) => (j === i ? { ...x, quarter: e.target.value.toUpperCase() } : x)))}
+                  sx={{ width: 160 }}
+                />
+                <TextField
+                  size="small"
+                  type="number"
+                  label="QMJP"
+                  value={r.value}
+                  inputProps={{ step: "0.01", min: 0, style: { textAlign: "right" } }}
+                  onChange={(e) => setQmjp((rs) => rs.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
+                  sx={{ width: 160 }}
+                />
+                <Tooltip title="Remove quarter">
+                  <IconButton aria-label="Remove quarter" onClick={() => setQmjp((rs) => rs.filter((_, j) => j !== i))}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            ))}
+            {!qmjp.length && (
+              <Typography variant="body2" color="text.secondary">
+                No quarters yet.
+              </Typography>
+            )}
+          </Stack>
+        </Section>
+
+        <Stack direction="row" justifyContent="flex-end" spacing={1}>
+          <Button
+            disabled={save.isPending || !dirty}
+            onClick={() => {
+              setDirty(false);
+              void settings.refetch();
+            }}
+          >
+            Discard changes
+          </Button>
+          <Button variant="contained" onClick={submit} disabled={save.isPending || loading}>
+            {save.isPending ? "Saving…" : "Save document settings"}
+          </Button>
+        </Stack>
+    </Box>
   );
 }

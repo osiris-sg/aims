@@ -8,7 +8,6 @@ import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Box, Button, IconButton, Menu, MenuItem, Typography } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
-import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { toast } from "../_lib/toast";
 import PageTable from "@/components/PageTable";
@@ -17,8 +16,6 @@ import type { ContractListItem } from "../_lib/api";
 import { useContracts, useCustomers, useSuppliers, useTradeMutation } from "../_lib/hooks";
 import { fmtMonth, fmtMt } from "../_lib/format";
 import { ConfirmDialog, CurrentStepCell, EmptyState, ProgressCell, RecordStatusChip } from "../_components/bits";
-import BlDefaultsDialog from "../_components/BlDefaultsDialog";
-import DocSettingsDialog from "../_components/DocSettingsDialog";
 import PiBulkDialog from "../_components/PiBulkDialog";
 import ContractFormDialog from "../_components/ContractFormDialog";
 import { useDebounced } from "../_components/useDebounced";
@@ -49,8 +46,6 @@ export default function ContractsPage() {
   const suppliers = useSuppliers();
   const customers = useCustomers();
   const [createOpen, setCreateOpen] = useState(false);
-  const [defaultsOpen, setDefaultsOpen] = useState(false);
-  const [docSettingsOpen, setDocSettingsOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; row: ContractListItem } | null>(null);
   const [toDelete, setToDelete] = useState<ContractListItem | null>(null);
@@ -133,12 +128,6 @@ export default function ContractsPage() {
           <Button key="from-pis" variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={() => setBulkOpen(true)}>
             New contracts from PIs
           </Button>,
-          <Button key="bl-defaults" variant="outlined" startIcon={<SettingsOutlinedIcon />} onClick={() => setDefaultsOpen(true)}>
-            B/L defaults
-          </Button>,
-          <Button key="doc-settings" variant="outlined" startIcon={<SettingsOutlinedIcon />} onClick={() => setDocSettingsOpen(true)}>
-            Document settings
-          </Button>,
         ]}
         pageCount={list.data?.totalPages ?? 1}
         totalDocs={list.data?.total}
@@ -202,8 +191,6 @@ export default function ContractsPage() {
         }}
       />
 
-      <BlDefaultsDialog open={defaultsOpen} onClose={() => setDefaultsOpen(false)} />
-      <DocSettingsDialog open={docSettingsOpen} onClose={() => setDocSettingsOpen(false)} />
       <PiBulkDialog open={bulkOpen} onClose={() => setBulkOpen(false)} />
       <ContractFormDialog open={createOpen} onClose={() => setCreateOpen(false)} onSaved={(c) => router.push(`/portal/shipments/contracts/${c.id}`)} />
     </Box>

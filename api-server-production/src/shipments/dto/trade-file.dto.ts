@@ -17,6 +17,9 @@ export class UploadTradeFileDto {
   @IsOptional() @IsUUID() stepId?: string;
 
   @IsOptional() @IsString() @MaxLength(2000) notes?: string;
+
+  /** Replace: the file this upload replaces — the new file takes its document ID (…-BL stays …-BL). */
+  @IsOptional() @IsUUID() replacesFileId?: string;
 }
 
 export class AddTradeFileLinksDto {

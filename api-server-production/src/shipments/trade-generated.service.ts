@@ -25,6 +25,7 @@ import {
   invoiceTotals,
   renderInvoiceHtml,
   roundTo,
+  qmjpForMonth,
   toInvoiceLines,
   unitPriceOf,
 } from './trade-invoice';
@@ -330,7 +331,7 @@ export class TradeGeneratedService {
         lmeMonth: defaultLmeMonth('INVOICE_1', c.shipmentMonth),
       });
       header = h;
-      rows = c.lines.map((l) => invoice1Line({ id: c.id, contractNo: c.contractNo }, l, defaults, h.dueDate));
+      rows = c.lines.map((l) => invoice1Line({ id: c.id, contractNo: c.contractNo }, l, defaults, h.dueDate, h.lmeMonth));
     } else if (t.kind === 'invoice') {
       // Invoice #2 as ADH issues it: final price on the actual net weight, customs / transport / other costs,
       // and the 差額 against what Invoice #1 billed for this product.
@@ -360,8 +361,9 @@ export class TradeGeneratedService {
         netWeightMt: s.netWeightMt,
         line,
         contract: { id: s.contract.id, contractNo: s.contract.contractNo },
-        // Price parts: Invoice #1's line for this product, else the contract line's.
-        invoice1Line: pricePartsOf(inv1?.line ?? null, line),
+        // Price parts: Invoice #1's line for this product, else the contract line's; QMJP from the
+        // quarter of the shipment month (the org's QMJP table) — not Invoice #1's quarter.
+        invoice1Line: pricePartsOf(inv1?.line ?? null, line, qmjpForMonth(defaults, s.contract.shipmentMonth)),
         defaults,
         dueDate: h.dueDate,
         lmeMonth,
@@ -401,7 +403,7 @@ export class TradeGeneratedService {
         hsCode: s.hsCode ?? '',
         terms: s.contract.incoterm ?? 'CIF',
         lme: null,
-        ...pricePartsOf(inv1?.line ?? null, s.contractLine),
+        ...pricePartsOf(inv1?.line ?? null, s.contractLine, qmjpForMonth(defaults, s.contract.shipmentMonth)),
         unitPrice: null,
         quantity: net,
         bundles: s.totalBundles ?? pl?.bundles ?? null,
@@ -462,7 +464,7 @@ export class TradeGeneratedService {
   }
 
   // ── render ──────────────────────────────────────────────────────────────
-  /** The document's HTML (preview and PDF share it); drafts carry the DRAFT watermark. */
+  /** The document's HTML (preview and PDF share it); drafts print like the final document. */
   render(docType: string, header: unknown, columns: unknown, rows: unknown, opts: { draft?: boolean; seal?: string | null } = {}): string {
     const t = this.template(docType);
     const list = Array.isArray(rows) ? rows : [];
@@ -496,7 +498,7 @@ export class TradeGeneratedService {
 
   /**
    * Download PDF: a FINAL document returns the stored PDF; a DRAFT is rendered
-   * now with the diagonal DRAFT watermark.
+   * now (no watermark; the file name ends in -DRAFT).
    */
   async pdfFor(organizationId: string, id: string): Promise<{ buffer: Buffer; fileName: string }> {
     const g = await this.get(organizationId, id);
@@ -531,6 +533,8 @@ export class TradeGeneratedService {
     if (g.docType === 'CUSTOMER_COA' && gh.layout === 'jp' && !String(gh.analysisDate ?? '').trim()) {
       throw new BadRequestException("Can't finalize: enter the analysis date (分析 日付).");
     }
+    const blank = blankDocProblems(g.docType, g.header, rows);
+    if (blank.length) throw new BadRequestException(finalizeMessage(blank));
     const owners = await this.ownersOf(organizationId, g);
 
     let number = g.number;
@@ -1135,11 +1139,42 @@ export function customerDocHeader(
 export function pricePartsOf(
   inv1: { qmjp?: number | null; premium?: number | null; upcharge?: number | null } | null,
   line: { qmjp?: unknown; billetPremium?: unknown; upcharge?: unknown } | null | undefined,
+  /** QMJP of the shipment month's quarter (org table): wins over Invoice #1's, which is an earlier quarter. */
+  quarterQmjp: number | null = null,
 ): { qmjp: number | null; premium: number | null; upcharge: number | null } {
   const v = (x: unknown) => (x === null || x === undefined || x === '' || !Number.isFinite(Number(x)) ? null : Number(x));
   return {
-    qmjp: v(inv1?.qmjp) ?? v(line?.qmjp),
+    qmjp: quarterQmjp ?? v(inv1?.qmjp) ?? v(line?.qmjp),
     premium: v(inv1?.premium) ?? v(line?.billetPremium),
     upcharge: v(inv1?.upcharge) ?? v(line?.upcharge),
   };
+}
+
+/**
+ * A blank in-app document must not be finalized (a Customer COA went out with
+ * no rows and 0 bundles): Customer PL / COA need rows with data and bundles,
+ * shipping instructions at least one delivery row. Invoices have their own
+ * check (invoiceFinalizeProblems). Messages read "Can't finalize: …".
+ */
+export function blankDocProblems(docType: string, header: unknown, rows: unknown[]): string[] {
+  const h = (header ?? {}) as Record<string, unknown>;
+  const rs = (rows ?? []) as Array<Record<string, unknown>>;
+  const num = (v: unknown) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? 0 : Number(v));
+  const text = (v: unknown) => String(v ?? '').trim() !== '';
+  const problems: string[] = [];
+  if (docType === 'CUSTOMER_PL') {
+    const filled = rs.filter((r) => text(r.batch) || text(r.container) || num(r.netMt ?? r.netwt) > 0);
+    if (!filled.length) problems.push('add the packing rows (batch, container, net weight)');
+    else if (filled.reduce((a, r) => a + num(r.netMt ?? r.netwt), 0) <= 0) problems.push('the total net weight is 0');
+  } else if (docType === 'CUSTOMER_COA') {
+    const filled = rs.filter((r) => text(r.batch) || num(r.netwt ?? r.netMt) > 0);
+    if (!filled.length) problems.push('add the analysis rows (cast / batch and its chemistry)');
+    const bundles = h.bundles !== null && h.bundles !== undefined && h.bundles !== '' ? num(h.bundles) : rs.reduce((a, r) => a + num(r.bundles), 0);
+    if (bundles <= 0) problems.push('the bundle count (バンドル数) is 0');
+  } else if (docType === 'SHIPPING_INSTRUCTIONS') {
+    const filled = rs.filter((r) => text(r.shipDate) || text(r.deliveryDate) || num(r.bundles) > 0);
+    if (!filled.length) problems.push('add at least one delivery row (出荷日 · 納入日 · 束数)');
+    else if (filled.reduce((a, r) => a + num(r.bundles), 0) <= 0) problems.push('the bundles (束数) total 0');
+  }
+  return problems;
 }

@@ -90,6 +90,8 @@ export interface DeliveryProfile {
 
 /** Org defaults for in-app documents (TradeSetting.docDefaults). All optional. */
 export interface DocDefaults {
+  /** QMJP (US$/MT) per quarter: { "2026-2Q": 351.5, "2026-3Q": 395 } (Org Settings → Shipping & documents). */
+  qmjpByQuarter?: Record<string, number>;
   invoiceFromBlock?: string;
   invoiceSubjectTemplate?: string;
   invoiceLineTemplate?: string;
@@ -196,6 +198,18 @@ export const quarterOf = (month: string) => {
   const m = /^\d{4}-(\d{2})$/.exec(month ?? '');
   return m ? String(Math.ceil(Number(m[1]) / 3)) : '';
 };
+
+/** "2026-07" → "2026-3Q" (the key of the QMJP table). */
+export const quarterKey = (month: string | null | undefined) => {
+  const m = /^(\d{4})-(\d{2})$/.exec(month ?? '');
+  return m ? `${m[1]}-${Math.ceil(Number(m[2]) / 3)}Q` : '';
+};
+
+/** The QMJP of a month's quarter from the org's table; null when the quarter isn't in it. */
+export function qmjpForMonth(defaults: DocDefaults, month: string | null | undefined): number | null {
+  const v = defaults.qmjpByQuarter?.[quarterKey(month)];
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
 
 /**
  * Price build-up for 備考, e.g. ADH's "LME Cash 2026/6月平均(3458.64USD) +351.5(2QMJP)
@@ -450,7 +464,7 @@ export function invoiceHeaderDefaults(opts: {
 }
 
 /** Invoice #1: one line per contract product line (description from the org's template). */
-export function invoice1Line(contract: { id: string; contractNo: string }, l: PrefillContractLine, defaults: DocDefaults, dueDate: string): InvoiceLine {
+export function invoice1Line(contract: { id: string; contractNo: string }, l: PrefillContractLine, defaults: DocDefaults, dueDate: string, lmeMonth?: string | null): InvoiceLine {
   const tpl = defaults.invoiceLineTemplate ?? 'Aluminium Billet - {grade} as per Specification of {size}\n{qty}MT +- {tol}% Tolerance';
   return {
     description: fill(tpl, { grade: l.grade ?? '', size: l.sizeSpec ?? '', inch: inchLabel(l.sizeSpec, defaults), qty: num(l.quantityMt) ?? '', tol: num(l.tolerancePct) ?? '' }),
@@ -461,8 +475,9 @@ export function invoice1Line(contract: { id: string; contractNo: string }, l: Pr
     remarks: '',
     dueDate,
     lme: null,
-    // The contract line's price parts start the helper (the LME is typed).
-    qmjp: num(l.qmjp),
+    // The contract line's price parts start the helper (the LME is typed); QMJP is the
+    // quarter of the LME month from the org's table when it has one.
+    qmjp: qmjpForMonth(defaults, lmeMonth) ?? num(l.qmjp),
     premium: num(l.billetPremium),
     upcharge: num(l.upcharge),
     autoRemarks: true,

@@ -419,7 +419,7 @@ describe('TradeGeneratedService — ADH 請求書 finalize (Sales Document)', ()
       ['c2', 'step-c2', 'INVOICE_1'],
     ]);
     expect(pdf.generatePdfFromHtml.mock.calls[0][0]).toContain('ADH-INV-2026-0001');
-    expect(pdf.generatePdfFromHtml.mock.calls[0][0]).not.toContain('class="wm"'); // final PDF: no DRAFT watermark
+    expect(pdf.generatePdfFromHtml.mock.calls[0][0]).not.toContain('class="wm"'); // no watermark on any PDF
     expect(files.upload.mock.calls[0][2]).toMatchObject({ docType: 'INVOICE_1', contractIds: ['c1'], stepId: 'step-c1' });
     // Every other contract billed is linked too, tagged with its own step (its Files tab + step chip).
     expect(files.addLinks).toHaveBeenCalledWith(ORG, 'pdf-1', { contractIds: ['c2'], stepId: 'step-c2' }, expect.objectContaining({ id: 'u1' }));

@@ -56,6 +56,7 @@ export default function FileUploadDialog({
   defaultTargets = [],
   docType: presetDocType,
   stepId,
+  replacesFileId,
   initialFiles,
   onUploaded,
   announceSteps = true,
@@ -68,6 +69,8 @@ export default function FileUploadDialog({
   docType?: string;
   /** Uploading for a step: the file is tagged with it (and linked to its record). */
   stepId?: string;
+  /** Replace: the file this upload replaces (the new file keeps its document ID). */
+  replacesFileId?: string;
   stepTitle?: string;
   /** Files dropped on a step row: listed (and previewed) as soon as the dialog opens. */
   initialFiles?: File[] | null;
@@ -94,6 +97,7 @@ export default function FileUploadDialog({
         docType,
         notes,
         stepId,
+        replacesFileId,
         contractIds: targets.filter((t) => t.kind === "contract").map((t) => t.id),
         shipmentIds: targets.filter((t) => t.kind === "shipment").map((t) => t.id),
       },

@@ -67,6 +67,10 @@ export function FileThumb({ file, width = 96, onOpen }: { file: PreviewFile; wid
     enabled: !!organization?.id && file.hasThumb !== false && (isPdf(file) || isImage(file)),
     staleTime: 8 * 60_000,
     queryFn: () => api.fileThumb(file.id),
+    // A thumbnail that isn't there (deleted / replaced file → 404) just shows the type icon:
+    // never retry it — React Query pauses retries while the window is unfocused, and a
+    // pending retry kept upload / delete dialogs on "Uploading…" / "Working…".
+    retry: false,
   });
   const url = q.data?.url ?? null;
   return (

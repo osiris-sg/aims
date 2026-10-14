@@ -168,6 +168,16 @@ export type AnExtraction = Omit<Extraction, "result"> & {
   /** `fill`: values for the shipment's blank fields only; `blMismatch`: the notice is for another B/L. */
   result: { raw: Record<string, unknown>; draft: ArrivalNoticeDraft; fill: Partial<Record<string, string | number>>; blMismatch: boolean } | null;
 };
+/** Bulk upload with AI sorting: the detected type of one dropped file (primary = the file the required row shows). */
+export type FileClassification = {
+  fileName: string;
+  docType: string;
+  variant: string | null;
+  primary: boolean;
+  confidence: number;
+  source: "name" | "sheet" | "ai" | "name+ai" | "none";
+  reason: string;
+};
 /** The shipment's latest B/L draft check (re-run against the shipment as it is now). */
 export type BlCheckSummary = {
   extractionId: string;
@@ -704,7 +714,7 @@ export function useShipmentsApi() {
       removeLink: (id: string, linkId: string) => call<TradeFile>(`/trade-files/${id}/links/${linkId}`, "DELETE"),
       deleteFile: (id: string) => call<{ id: string; deleted: boolean }>(`/trade-files/${id}`, "DELETE"),
       uploadFile: async (
-        input: { file: File; docType: string; notes?: string } & LinkTargets,
+        input: { file: File; docType: string; notes?: string; replacesFileId?: string } & LinkTargets,
         onProgress?: (pct: number) => void,
       ): Promise<TradeFile & { completedSteps?: string[] }> => {
         const token = await getToken();
@@ -716,6 +726,8 @@ export function useShipmentsApi() {
         if (input.shipmentIds?.length) form.append("shipmentIds", JSON.stringify(input.shipmentIds));
         if (input.stepId) form.append("stepId", input.stepId);
         if (input.notes?.trim()) form.append("notes", input.notes.trim());
+        // Replace: the new file keeps the replaced one's document ID.
+        if (input.replacesFileId) form.append("replacesFileId", input.replacesFileId);
         const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
         const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
         if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
@@ -739,6 +751,24 @@ export function useShipmentsApi() {
       /** Read a B/L draft into a shipment draft (+ checks when shipmentId is given). ~15 s. */
       extractBlDraft: (input: { file?: File; fileId?: string; shipmentId?: string; contractId?: string }) => postExtract<BlExtraction>("bl-draft", input),
       extractAn: (input: { file?: File; fileId?: string; shipmentId?: string }) => postExtract<AnExtraction>("an", input),
+      /** Bulk upload with AI sorting: which of the step's types is this file? Nothing is stored. */
+      classifyFile: async (file: File, docTypes: string[]): Promise<FileClassification> => {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const form = new FormData();
+        form.append("file", file);
+        form.append("docTypes", JSON.stringify(docTypes));
+        const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+        const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
+        if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+        try {
+          const res = await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/trade-extract/classify`, form, { headers, timeout: 120000 });
+          return (res.data?.data ?? res.data) as FileClassification;
+        } catch (e: any) {
+          if (e?.response?.status === 413) throw new Error("File is larger than 25 MB");
+          throw new Error(errorText(e?.response?.data?.message ?? e?.message, "Could not read the file"));
+        }
+      },
       getExtraction: (id: string) => call<Extraction>(`/trade-extract/${id}`),
       acknowledgeExtraction: (id: string) => call<Extraction>(`/trade-extract/${id}/acknowledge`, "POST"),
       /** Cancelled Fill from PI / B/L draft: remove the unsaved source PDF (server refuses once it is attached). */
@@ -754,7 +784,7 @@ export function useShipmentsApi() {
       generatedForContract: (contractId: string) => call<GeneratedDoc[]>(`/trade-generated${qs({ contractId })}`),
       /** A blank document of any template, prefilled from its shipment (or contract for Invoice #1). */
       createBlankGenerated: (body: { docType: string; shipmentId?: string; contractId?: string }) => call<GeneratedDoc>(`/trade-generated/blank`, "POST", body),
-      /** Download PDF: the stored PDF when final, else a DRAFT-watermarked render. Saves it to the user's downloads. */
+      /** Download PDF: the stored PDF when final, else a render of the draft (no watermark). Saves it to the user's downloads. */
       downloadGeneratedPdf: async (id: string) => {
         const { blob, name } = await generatedPdf(id);
         const url = URL.createObjectURL(blob);

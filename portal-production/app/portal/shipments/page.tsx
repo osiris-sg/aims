@@ -13,7 +13,6 @@ import React, { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Alert, Box, Button, IconButton, Menu, MenuItem, Tab, Tabs, Typography } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
-import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { toast } from "./_lib/toast";
 import PageTable from "@/components/PageTable";
@@ -23,8 +22,6 @@ import { useContracts, useCustomers, useShipments, useStepTemplates, useTradeMut
 import { blLabel, fmtDay, fmtMt, stepLabel } from "./_lib/format";
 import { ConfirmDialog, CurrentStepCell, EmptyState, ProgressCell, RecordStatusChip } from "./_components/bits";
 import ContractFormDialog from "./_components/ContractFormDialog";
-import BlDefaultsDialog from "./_components/BlDefaultsDialog";
-import DocSettingsDialog from "./_components/DocSettingsDialog";
 import PiBulkDialog from "./_components/PiBulkDialog";
 import { useDebounced } from "./_components/useDebounced";
 
@@ -53,11 +50,9 @@ export default function ShipmentsPage() {
   const contracts = useContracts({ pageSize: 100 });
   const templates = useStepTemplates("SHIPMENT");
   const [createOpen, setCreateOpen] = useState(false);
-  // Moved here with the Contracts menu entry: bulk PIs, B/L defaults, document settings.
+  // Bulk PIs is an action, so it stays here; B/L defaults and document settings live in
+  // Org Settings → Shipping & documents.
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [settingsMenu, setSettingsMenu] = useState<HTMLElement | null>(null);
-  const [defaultsOpen, setDefaultsOpen] = useState(false);
-  const [docSettingsOpen, setDocSettingsOpen] = useState(false);
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; row: ShipmentListItem } | null>(null);
   const [toDelete, setToDelete] = useState<ShipmentListItem | null>(null);
   const del = useTradeMutation((api, id: string) => api.deleteShipment(id));
@@ -165,9 +160,6 @@ export default function ShipmentsPage() {
           <Button key="from-pis" variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={() => setBulkOpen(true)}>
             New shipments from PIs
           </Button>,
-          <Button key="settings" variant="outlined" startIcon={<SettingsOutlinedIcon />} onClick={(e) => setSettingsMenu(e.currentTarget)}>
-            Settings
-          </Button>,
         ]}
         pageCount={list.data?.totalPages ?? 1}
         totalDocs={list.data?.total}
@@ -229,27 +221,6 @@ export default function ShipmentsPage() {
         }}
       />
 
-      {/* A stable toolbar button (outside the table), so anchorEl is fine here. */}
-      <Menu anchorEl={settingsMenu} open={!!settingsMenu} onClose={() => setSettingsMenu(null)}>
-        <MenuItem
-          onClick={() => {
-            setSettingsMenu(null);
-            setDefaultsOpen(true);
-          }}
-        >
-          B/L defaults
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            setSettingsMenu(null);
-            setDocSettingsOpen(true);
-          }}
-        >
-          Document settings
-        </MenuItem>
-      </Menu>
-      <BlDefaultsDialog open={defaultsOpen} onClose={() => setDefaultsOpen(false)} />
-      <DocSettingsDialog open={docSettingsOpen} onClose={() => setDocSettingsOpen(false)} />
       <PiBulkDialog open={bulkOpen} onClose={() => setBulkOpen(false)} />
       <ContractFormDialog open={createOpen} onClose={() => setCreateOpen(false)} onSaved={(c) => router.push(`/portal/shipments/contracts/${c.id}`)} />
     </Box>

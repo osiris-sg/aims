@@ -37,6 +37,21 @@ export class TradeExtractController {
   }
 
   /** Arrival notice → vessel / ETA / CY / containers / weights / charges collect, and the blank shipment fields it can fill. */
+  /** Bulk upload with AI sorting: which of the step's types is this file? (multipart: file, docTypes = JSON array). Nothing stored. */
+  @Post('classify')
+  @Permissions('shipments:create')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: TRADE_FILE_MAX_BYTES, files: 1 } }))
+  classify(@UploadedFile() file: Express.Multer.File | undefined, @Body('docTypes') docTypes: string, @Req() req: TradeRequest) {
+    let types: unknown = [];
+    try {
+      types = JSON.parse(docTypes ?? '[]');
+    } catch {
+      throw new BadRequestException('docTypes must be a JSON array');
+    }
+    if (!Array.isArray(types)) throw new BadRequestException('docTypes must be a JSON array');
+    return this.extract.classify(orgIdOf(req), file as Express.Multer.File, types as string[]);
+  }
+
   @Post('an')
   @Permissions('shipments:create')
   @UseInterceptors(pdfOrImage)

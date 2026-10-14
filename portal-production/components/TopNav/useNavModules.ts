@@ -9,7 +9,7 @@
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
-import { showAccountingSetup } from "@/helpers/settingsVisibility";
+import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
 
 // Mirrors DynamicSidebarContent — keep the two in sync.
 const HIDDEN_MODULES = new Set<string>(["CUSTOMERS", "SUPPLIERS"]);
@@ -23,6 +23,7 @@ const ORDER_OVERRIDE: Record<string, number> = { SALES: 0.5 };
 // dropped only for trade orgs (showAccountingSetup), same as the sidebar.
 export const SETTINGS_MENU = [
   { label: "Company Profile", path: "/portal/settings/company-profile" },
+  { label: "Shipping & documents", path: "/portal/settings/shipping" },
   { label: "Accounting Setup", path: "/portal/settings/accounting-setup" },
   { label: "Master Files", path: "/portal/masterfiles" },
 ];
@@ -52,7 +53,11 @@ export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
-  const settingsMenu = SETTINGS_MENU.filter((s) => s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled));
+  const settingsMenu = SETTINGS_MENU.filter(
+    (s) =>
+      (s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled)) &&
+      (s.path !== "/portal/settings/shipping" || showShippingSettings(isModuleEnabled)),
+  );
   const { isAdsInsightsEnabled, isMaintenanceDatesEnabled } = useOrganizationFeatures();
 
   const isAdminUser =
@@ -65,6 +70,7 @@ export function useNavModules() {
     .filter((m: any) => m.enabled)
     .filter((m: any) => isModuleAllowed(m.moduleCode))
     .filter((m: any) => !HIDDEN_MODULES.has(m.moduleCode))
+    .filter((m: any) => shownInMenu(m))
     .map((m: any) => {
       const hide = HIDDEN_SUBMENUS[m.moduleCode];
       const subMenus = (m.config as any)?.subMenus;

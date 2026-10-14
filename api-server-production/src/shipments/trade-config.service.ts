@@ -497,6 +497,16 @@ export function mergeDocDefaults(current: Record<string, unknown>, patch: Record
       if (!m) throw new BadRequestException('The seal must be a PNG or JPEG image');
       if (Buffer.from(m[2], 'base64').length > SEAL_MAX_BYTES) throw new BadRequestException('The seal image must be 1 MB or smaller');
       out[k] = v;
+    } else if (k === 'qmjpByQuarter') {
+      // { "2026-2Q": 351.5, "2026-3Q": 395 } — QMJP (US$/MT) per quarter.
+      if (typeof v !== 'object' || Array.isArray(v)) throw new BadRequestException('qmjpByQuarter must map quarters ("2026-3Q") to numbers');
+      const out2: Record<string, number> = {};
+      for (const [q, n] of Object.entries(v as Record<string, unknown>)) {
+        if (!/^\d{4}-[1-4]Q$/.test(q)) throw new BadRequestException(`QMJP quarter "${q}" must look like 2026-3Q`);
+        if (typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > 100000) throw new BadRequestException(`QMJP for ${q} must be a number`);
+        out2[q] = n;
+      }
+      out[k] = out2;
     } else if (k === 'productJa' || k === 'sizeInch') {
       if (typeof v !== 'object' || Array.isArray(v) || !Object.values(v as object).every((x) => isText(x, 200))) throw new BadRequestException(`${k} must map text to text`);
       out[k] = v;

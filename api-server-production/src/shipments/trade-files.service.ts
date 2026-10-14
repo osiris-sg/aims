@@ -84,7 +84,11 @@ export class TradeFilesService {
             ? { shipmentId: targets.step.shipmentId }
             : { contractId: targets.step.contractId! }
           : (owners.find((o) => o.shipmentId) ?? owners[0]);
-        docRef = opts.docRef ?? (refOwner ? await this.config.docRefFor(tx, organizationId, refOwner, docType) : null);
+        // Replace keeps the replaced file's ID (same type, same org); a genuinely new file gets the next one.
+        const replaced = dto.replacesFileId
+          ? await tx.tradeFile.findFirst({ where: { id: dto.replacesFileId, organizationId, docType }, select: { docRef: true } })
+          : null;
+        docRef = opts.docRef ?? replaced?.docRef ?? (refOwner ? await this.config.docRefFor(tx, organizationId, refOwner, docType) : null);
         await tx.tradeFile.create({
           data: {
             id: fileId,

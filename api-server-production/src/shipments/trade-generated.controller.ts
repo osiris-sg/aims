@@ -60,7 +60,7 @@ export class TradeGeneratedController {
     return this.gen.createBlank(orgIdOf(req), dto, actorOf(req));
   }
 
-  /** Download PDF: the stored PDF when final, else rendered now with a DRAFT watermark. */
+  /** Download PDF: the stored PDF when final, else rendered now (no watermark). */
   @Get(':id/pdf')
   @Permissions('shipments:read')
   async pdf(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest, @Res() res: Response) {

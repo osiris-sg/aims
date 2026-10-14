@@ -6,7 +6,7 @@
 // SG→JP invoice & packing list, shipping instructions) — with a live preview
 // rendered by the same server template as the PDF.
 // Save draft keeps it editable; Download PDF works any time (a draft carries a
-// diagonal DRAFT watermark); Finalize renders the PDF, stores it on the record
+// same layout as the final document, no watermark); Finalize renders the PDF, stores it on the record
 // (which ticks the step; invoices also create + confirm the Sales invoice) and
 // locks it; "Edit again" unlocks it (refused while a done step still needs it).
 
@@ -19,7 +19,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { toast } from "../../../shipments/_lib/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useShipmentsApi } from "@/app/portal/shipments/_lib/api";
-import { SHIPMENT_KEYS, useDocTypeLabels, useGeneratedDoc } from "@/app/portal/shipments/_lib/hooks";
+import { SHIPMENT_KEYS, useDocTypeLabels, useGeneratedDoc, REFRESH_WAIT_MS } from "@/app/portal/shipments/_lib/hooks";
 import { ConfirmDialog } from "@/app/portal/shipments/_components/bits";
 import { useDebounced } from "@/app/portal/shipments/_components/useDebounced";
 import TableDocForm from "../_forms/TableDocForm";
@@ -73,7 +73,7 @@ export default function GeneratedDocEditorPage() {
   })();
   const where = g?.shipmentId ? "the shipment" : "the contract";
 
-  // Live preview: debounced, rendered server-side by the PDF template (DRAFT watermark until final).
+  // Live preview: debounced, rendered server-side by the PDF template.
   const previewInput = useDebounced(useMemo(() => (header && g ? { docType: g.docType, header, columns, rows, draft: !isFinal } : null), [header, columns, rows, g, isFinal]), 500);
   useEffect(() => {
     if (!previewInput) return;
@@ -105,13 +105,15 @@ export default function GeneratedDocEditorPage() {
   };
 
   const refresh = async () => {
-    await Promise.all([
+    const all = Promise.all([
       qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.generated }),
       qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.shipments }),
       qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.contracts }),
       qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.hub }),
       qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.files }),
-    ]);
+    ]).catch(() => undefined);
+    // Never hold a dialog on "Working…" for a slow / paused refetch (same cap as useTradeMutation).
+    await Promise.race([all, new Promise((r) => setTimeout(r, REFRESH_WAIT_MS))]);
   };
   const persist = async () => {
     if (!g || !header || !dirty) return;
@@ -224,7 +226,7 @@ export default function GeneratedDocEditorPage() {
         <Grid2 size={{ xs: 12, lg: 5 }}>
           <Paper variant="outlined" sx={{ p: 1, position: { lg: "sticky" }, top: { lg: 16 } }}>
             <Typography variant="subtitle2" sx={{ px: 1, pb: 1 }}>
-              Preview{isFinal ? "" : " (DRAFT watermark until finalized)"}
+              Preview{isFinal ? "" : " (draft)"}
             </Typography>
             {/* White page in both themes: it is a print preview. */}
             <Box component="iframe" title="Document preview" srcDoc={html} sx={{ width: "100%", height: { xs: 520, lg: "calc(100vh - 200px)" }, border: 1, borderColor: "divider", borderRadius: 1, bgcolor: "#fff" }} />

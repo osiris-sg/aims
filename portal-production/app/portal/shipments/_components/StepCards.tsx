@@ -43,6 +43,7 @@ import FileUploadDialog, { type LinkTarget } from "./FileUploadDialog";
 import { FileThumb, useFileViewer } from "./FilePreview";
 import LinkInvoiceDialog from "./LinkInvoiceDialog";
 import { DocLinkChip } from "./LinkedDocuments";
+import BulkDropDialog, { bulkDocTypes } from "./BulkDropDialog";
 
 /** One short line under each document title (what it is / where it comes from). */
 const DOC_HINTS: Record<string, string> = {
@@ -136,6 +137,8 @@ export default function StepCards({
   const [reopenAsk, setReopenAsk] = useState<TradeStep | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [optOpen, setOptOpen] = useState<Record<string, boolean>>({});
+  // Bulk upload with AI sorting: files dropped on a step's "Drop all documents here" zone.
+  const [bulk, setBulk] = useState<{ step: TradeStep; files: File[] } | null>(null);
   const change = useTradeMutation((a, v: { id: string; action: "complete" | "reopen" }) => (v.action === "complete" ? a.completeStep(v.id) : a.reopenStep(v.id)));
   const removeOld = useTradeMutation(async (a, old: RecordFileLink) => {
     const after = await a.removeLink(old.file.id, old.id);
@@ -448,6 +451,16 @@ export default function StepCards({
         </Stack>
 
         <Stack spacing={1.25} sx={{ mt: 2 }}>
+          {recordOpen && s.requiredDocTypes.filter((d) => !canCreate(d)).length >= 2 && (
+            <Box data-tour="step-bulk-drop">
+              <DropZone
+                big
+                title="Drop all documents here"
+                hint="Drop every file for this step at once — each is read and sorted into its row (you confirm the types first)."
+                onFiles={(files) => setBulk({ step: s, files })}
+              />
+            </Box>
+          )}
           {(s.requiredFields?.length ?? 0) > 0 && fieldsRow(s)}
           {s.requiredDocTypes.map((d) => (canCreate(d) ? createRow(s, d, stateOf(s, d)) : uploadRow(s, d, stateOf(s, d))))}
           {owner.kind === "shipment" && s.code === "BL_DRAFT_APPROVAL" && blCheck && <BlCheckPanel check={blCheck} shipmentId={owner.id} canEdit={recordOpen} />}
@@ -658,6 +671,7 @@ export default function StepCards({
         title={upload ? `${upload.replace ? "Replace" : "Upload"} ${label(upload.docType)}` : undefined}
         docType={upload?.docType}
         stepId={upload?.step.id}
+        replacesFileId={upload?.replace?.file.id}
         defaultTargets={[owner]}
         initialFiles={upload?.files ?? null}
         announceSteps={false}
@@ -667,6 +681,13 @@ export default function StepCards({
           if (u.replace) await removeOld.mutateAsync(u.replace);
           onFileUploaded?.(u.docType, files);
         }}
+      />
+      <BulkDropDialog
+        files={bulk?.files ?? null}
+        step={bulk?.step ?? null}
+        owner={owner}
+        docTypes={bulk ? bulkDocTypes(bulk.step, canCreate) : []}
+        onClose={() => setBulk(null)}
       />
       <LinkInvoiceDialog open={!!linkExisting} onClose={() => setLinkExisting(null)} docType={linkExisting?.docType ?? ""} stepId={linkExisting?.step.id} owner={owner} />
       <ConfirmDialog
@@ -694,8 +715,8 @@ function DocRef({ value }: { value?: string | null }) {
   );
 }
 
-/** Large drag-and-drop area with a "Choose file" button. */
-function DropZone({ onFiles }: { onFiles: (files: File[]) => void }) {
+/** Large drag-and-drop area with a "Choose file" button (`big`: the step's "Drop all documents here" zone). */
+function DropZone({ onFiles, big = false, title, hint }: { onFiles: (files: File[]) => void; big?: boolean; title?: string; hint?: string }) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   return (
@@ -712,21 +733,26 @@ function DropZone({ onFiles }: { onFiles: (files: File[]) => void }) {
         if (files.length) onFiles(files);
       }}
       sx={{
-        mt: 1.25,
-        ml: { xs: 0, sm: 3.5 },
-        p: 3,
+        mt: big ? 0 : 1.25,
+        ml: big ? 0 : { xs: 0, sm: 3.5 },
+        p: big ? 4 : 3,
         border: 2,
         borderStyle: "dashed",
-        borderColor: over ? "primary.main" : "divider",
+        borderColor: over ? "primary.main" : big ? "primary.light" : "divider",
         borderRadius: 2,
-        bgcolor: over ? "action.hover" : "transparent",
+        bgcolor: over ? "action.hover" : big ? "rgba(46,125,50,0.04)" : "transparent",
         textAlign: "center",
         transition: "border-color .15s, background-color .15s",
       }}
     >
-      <CloudUploadOutlinedIcon sx={{ fontSize: 36, color: "text.secondary" }} />
+      <CloudUploadOutlinedIcon sx={{ fontSize: big ? 44 : 36, color: big ? "primary.main" : "text.secondary" }} />
+      {title && (
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+          {title}
+        </Typography>
+      )}
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-        Drag &amp; drop the file here
+        {hint ?? "Drag & drop the file here"}
       </Typography>
       <input
         ref={input}
@@ -739,8 +765,8 @@ function DropZone({ onFiles }: { onFiles: (files: File[]) => void }) {
           if (files.length) onFiles(files);
         }}
       />
-      <Button variant="contained" startIcon={<UploadFileIcon />} onClick={() => input.current?.click()}>
-        Choose file
+      <Button variant={big ? "outlined" : "contained"} startIcon={<UploadFileIcon />} onClick={() => input.current?.click()}>
+        {big ? "Choose files" : "Choose file"}
       </Button>
     </Box>
   );
