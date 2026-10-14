@@ -179,6 +179,14 @@ export class TradeFilesService {
     return { url, fileName: f.fileName, mimeType: f.mimeType, expiresIn: SIGNED_URL_TTL };
   }
 
+  /** The file's bytes, for the in-app viewer (pdf.js renders them; no cross-origin fetch of the signed URL). */
+  async getContent(organizationId: string, id: string) {
+    const f = await this.prisma.tradeFile.findFirst({ where: { id, organizationId }, select: { s3Key: true, fileName: true, mimeType: true } });
+    if (!f) throw new NotFoundException('File not found');
+    if (!f.s3Key.startsWith(TradeFilesService.keyPrefix(organizationId))) throw new ForbiddenException('File not in this organization');
+    return { buffer: await this.s3.downloadFile(f.s3Key), fileName: f.fileName, mimeType: f.mimeType };
+  }
+
   async addLinks(organizationId: string, id: string, dto: AddTradeFileLinksDto, actor: TradeActor | null = null) {
     const contractIds = parseIdList(dto.contractIds);
     const shipmentIds = parseIdList(dto.shipmentIds);

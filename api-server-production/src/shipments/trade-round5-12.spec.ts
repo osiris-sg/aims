@@ -515,3 +515,24 @@ describe('Arrival Notice extraction → shipment fields', () => {
     180_000,
   );
 });
+
+// ── In-app viewer: file bytes through the API ───────────────────────────────
+describe('TradeFilesService.getContent (in-app PDF viewer)', () => {
+  const { TradeFilesService } = jest.requireActual('./trade-files.service');
+  const svc = (row: any) => {
+    const prisma: any = { tradeFile: { findFirst: jest.fn().mockResolvedValue(row) } };
+    const s3: any = { downloadFile: jest.fn(async () => Buffer.from('%PDF-1.4')) };
+    return { s3, service: new TradeFilesService(prisma, s3, new TradeConfigService(prisma), { make: jest.fn() } as any) };
+  };
+  it("returns the stored bytes with the file's name and type", async () => {
+    const { service, s3 } = svc({ s3Key: `shipments/${ORG}/2026/x_PI.pdf`, fileName: 'PI.pdf', mimeType: 'application/pdf' });
+    const r = await service.getContent(ORG, 'f1');
+    expect(r).toMatchObject({ fileName: 'PI.pdf', mimeType: 'application/pdf' });
+    expect(r.buffer.toString()).toBe('%PDF-1.4');
+    expect(s3.downloadFile).toHaveBeenCalledWith(`shipments/${ORG}/2026/x_PI.pdf`);
+  });
+  it("refuses a missing file and a key outside the org's prefix", async () => {
+    await expect(svc(null).service.getContent(ORG, 'f1')).rejects.toThrow(/not found/i);
+    await expect(svc({ s3Key: 'shipments/other-org/x.pdf', fileName: 'x.pdf', mimeType: 'application/pdf' }).service.getContent(ORG, 'f1')).rejects.toThrow(/not in this organization/i);
+  });
+});

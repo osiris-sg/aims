@@ -89,9 +89,11 @@ export default function ShipmentFormDialog({
   const [source, setSource] = useState<{ fileId: string; fileName: string; draft: ShipmentDraft | null; existingShipmentId: string | null } | null>(null);
   const [filled, setFilled] = useState<Set<string>>(new Set());
   const [reading, setReading] = useState(false);
-  // PDF beside the form only on wide screens; below ~1400px it stacks above it.
+  // The PDF being read right now: shown in the side panel at once (not the previous source).
+  const [readingFile, setReadingFile] = useState<File | null>(null);
+  // PDF beside the form (about half the width) only on wide screens; below ~1400px it stacks above it.
   const wide = useMediaQuery("(min-width:1400px)");
-  const side = !!source && wide;
+  const side = (!!source || !!readingFile) && wide;
   const [error, setError] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
   const pickContract = open && !shipment && !presetContract;
@@ -194,6 +196,7 @@ export default function ShipmentFormDialog({
     // "Read another B/L draft": the previous unsaved upload is dropped.
     if (source) discard(source.fileId);
     setReading(true);
+    setReadingFile(file);
     setError(null);
     try {
       const x = await api.extractBlDraft(
@@ -207,6 +210,7 @@ export default function ShipmentFormDialog({
       setError(e?.message || "Could not read the B/L draft");
     } finally {
       setReading(false);
+      setReadingFile(null);
     }
   };
 
@@ -246,7 +250,7 @@ export default function ShipmentFormDialog({
   const body = (
     <>
         <Grid2 container spacing={2}>
-        <Grid2 size={side ? 7 : 12}>
+        <Grid2 size={side ? 6 : 12}>
         {(!shipment || inline) && (
           <Box sx={{ mb: 2 }}>
             <PdfDropZone
@@ -402,10 +406,10 @@ export default function ShipmentFormDialog({
           <Grid2 size={12}>{tf("notes", "Notes", { multiline: true, minRows: 2 })}</Grid2>
         </Grid2>
         </Grid2>
-        {source && (
-          <Grid2 size={side ? 5 : 12} sx={{ order: side ? 0 : -1 }}>
-            <SourcePdfPane fileId={source.fileId} fileName={source.fileName} stacked={!side} />
-            {source.draft?.containers?.length ? (
+        {(source || readingFile) && (
+          <Grid2 size={side ? 6 : 12} sx={{ order: side ? 0 : -1 }}>
+            <SourcePdfPane fileId={source?.fileId} fileName={source?.fileName} file={readingFile} stacked={!side} />
+            {source?.draft?.containers?.length ? (
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
                 Containers: {source.draft.containers.map((c) => c.containerNo).filter(Boolean).join(", ")}
               </Typography>
@@ -436,7 +440,7 @@ export default function ShipmentFormDialog({
   }
 
   return (
-    <Dialog open={open} onClose={() => !save.isPending && !reading && cancel()} maxWidth={source ? "xl" : "md"} fullWidth>
+    <Dialog open={open} onClose={() => !save.isPending && !reading && cancel()} maxWidth={source || readingFile ? "xl" : "md"} fullWidth>
       <DialogTitle>{shipment ? `Edit shipment ${shipment.blNumber ?? ""}`.trim() : "New shipment"}</DialogTitle>
       <DialogContent dividers>{body}</DialogContent>
       <DialogActions>{actions}</DialogActions>

@@ -16,6 +16,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import { toast } from "@/app/portal/shipments/_lib/toast";
 import { useShipmentsApi } from "@/app/portal/shipments/_lib/api";
 import { useDocTypeLabels, useGeneratedForDocument } from "@/app/portal/shipments/_lib/hooks";
+import DocPages from "@/app/portal/shipments/_components/DocPages";
 
 export default function TradeInvoiceViewerPage() {
   const { documentId } = useParams<{ documentId: string }>();
@@ -25,7 +26,7 @@ export default function TradeInvoiceViewerPage() {
   const label = useDocTypeLabels();
   const q = useGeneratedForDocument(documentId);
   const g = q.data;
-  const [pdf, setPdf] = useState<{ url: string; name: string } | null>(null);
+  const [pdf, setPdf] = useState<{ blob: Blob; name: string } | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -33,23 +34,19 @@ export default function TradeInvoiceViewerPage() {
   const backHref = from && from.startsWith("/portal") ? from : "/portal/invoicing";
   const here = `/portal/trade-documents/invoice/${documentId}${from ? `?from=${encodeURIComponent(from)}` : ""}`;
 
-  // Load the PDF (stored copy when final, else a DRAFT render) into an object URL for the frame.
+  // Load the PDF (stored copy when final, else a DRAFT render); DocPages renders it in-app.
   useEffect(() => {
     if (!g?.id) return;
-    let url: string | null = null;
     let cancelled = false;
     setPdfError(null);
     api
       .generatedPdf(g.id)
       .then(({ blob, name }) => {
-        if (cancelled) return;
-        url = URL.createObjectURL(blob);
-        setPdf({ url, name });
+        if (!cancelled) setPdf({ blob, name });
       })
       .catch((e: Error) => !cancelled && setPdfError(e.message));
     return () => {
       cancelled = true;
-      if (url) URL.revokeObjectURL(url);
     };
   }, [api, g?.id, g?.status]);
 
@@ -126,7 +123,9 @@ export default function TradeInvoiceViewerPage() {
         {pdfError ? (
           <Alert severity="error">{pdfError}</Alert>
         ) : pdf ? (
-          <Box component="iframe" title={pdf.name} src={pdf.url} sx={{ width: "100%", height: { xs: "70vh", md: "calc(100vh - 200px)" }, border: 0, display: "block", bgcolor: "#fff" }} />
+          <Box sx={{ height: { xs: "70vh", md: "calc(100vh - 200px)" } }}>
+            <DocPages src={{ blob: pdf.blob }} fileName={pdf.name} mimeType="application/pdf" />
+          </Box>
         ) : (
           <Box sx={{ p: 6, display: "flex", justifyContent: "center" }}>
             <CircularProgress />

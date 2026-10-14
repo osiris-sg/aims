@@ -1,14 +1,13 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 // Small shared pieces for "Fill from PI / B/L draft": a drop zone for the
 // source PDF(s), the side-by-side PDF viewer, and the highlight style for
 // fields the AI filled in.
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { Box, Button, CircularProgress, Paper, Typography, type SxProps, type Theme } from "@mui/material";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
-import { useShipmentsApi } from "../_lib/api";
+import DocPages from "./DocPages";
 
 const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp";
 const okFile = (f: File) => /\.(pdf|png|jpe?g|webp)$/i.test(f.name);
@@ -74,48 +73,30 @@ export function PdfDropZone({
   );
 }
 
-/** The stored source PDF next to the form (signed URL, refreshed per file). */
-export function SourcePdfPane({ fileId, fileName, stacked = false }: { fileId: string; fileName?: string | null; stacked?: boolean }) {
-  const api = useShipmentsApi();
-  const [url, setUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let live = true;
-    setUrl(null);
-    setError(null);
-    api
-      .fileUrl(fileId)
-      .then((r) => live && setUrl(r.url))
-      .catch((e: any) => live && setError(e?.message || "Could not open the PDF"));
-    return () => {
-      live = false;
-    };
-  }, [api, fileId]);
+/**
+ * The source PDF next to the form, rendered in-app (DocPages: pages fitted to
+ * the panel width, zoom, full screen). `file` = the PDF being read right now
+ * (shown at once, before it is stored); else the stored file.
+ */
+export function SourcePdfPane({ fileId, fileName, file, stacked = false }: { fileId?: string | null; fileName?: string | null; file?: File | null; stacked?: boolean }) {
+  const name = file?.name ?? fileName ?? "Source PDF";
   return (
     <Box
       sx={{
         // Beside the form: sticky, full height. Stacked above it: a fixed-height strip.
         position: stacked ? "static" : "sticky",
         top: 0,
-        height: stacked ? 420 : "calc(100vh - 220px)",
+        height: stacked ? 480 : "calc(100vh - 220px)",
         display: "flex",
         flexDirection: "column",
         gap: 0.5,
       }}
     >
-      <Typography variant="caption" color="text.secondary" noWrap title={fileName ?? undefined}>
-        {fileName ?? "Source PDF"}
+      <Typography variant="caption" color="text.secondary" noWrap title={name}>
+        {file ? `Reading ${name}…` : name}
       </Typography>
-      <Box sx={{ flex: 1, border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden", bgcolor: "background.default" }}>
-        {url ? (
-          <iframe title="Source PDF" src={url} style={{ width: "100%", height: "100%", border: 0 }} />
-        ) : (
-          <Box sx={{ p: 2 }}>
-            <Typography variant="body2" color={error ? "error" : "text.secondary"}>
-              {error ?? "Loading…"}
-            </Typography>
-          </Box>
-        )}
+      <Box sx={{ flex: 1, minHeight: 0, border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden", bgcolor: "background.default" }}>
+        <DocPages src={file ? { file } : fileId ? { fileId } : null} fileName={name} mimeType={file?.type || undefined} />
       </Box>
     </Box>
   );

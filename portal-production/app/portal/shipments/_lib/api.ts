@@ -683,6 +683,20 @@ export function useShipmentsApi() {
 
       // ── Files ────────────────────────────────────────────────────────────
       listFiles: (f: FileFilters = {}) => call<Paged<TradeFile>>(`/trade-files${qs(f)}`),
+      /** The stored file's bytes (the in-app viewer renders PDFs / images from them). */
+      fileContent: async (id: string): Promise<Blob> => {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+        const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
+        if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+        try {
+          const res = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/trade-files/${id}/content`, { headers, responseType: "blob", timeout: 120000 });
+          return res.data as Blob;
+        } catch (e: any) {
+          throw new Error(errorText(e?.response?.status === 404 ? "File not found" : e?.message, "Could not open the file"));
+        }
+      },
       fileUrl: (id: string) => call<{ url: string; fileName: string; mimeType: string; expiresIn: number }>(`/trade-files/${id}/url`),
       /** Signed URL of the file's thumbnail; url null = none (Office / Outlook files, or not rendered). */
       fileThumb: (id: string) => call<{ url: string | null; expiresIn: number }>(`/trade-files/${id}/thumb`),

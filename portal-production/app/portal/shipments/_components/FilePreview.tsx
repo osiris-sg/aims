@@ -9,7 +9,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Dialog, DialogContent, DialogTitle, IconButton, Stack, Typography } from "@mui/material";
 import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import TableChartOutlinedIcon from "@mui/icons-material/TableChartOutlined";
@@ -18,10 +18,10 @@ import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import InsertDriveFileOutlinedIcon from "@mui/icons-material/InsertDriveFileOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import DownloadIcon from "@mui/icons-material/Download";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { useOrganization } from "@hooks/useOrganization";
 import { useShipmentsApi } from "../_lib/api";
 import { SHIPMENT_KEYS } from "../_lib/hooks";
+import DocPages, { FirstPagePreview } from "./DocPages";
 
 export type PreviewFile = { id: string; fileName: string; mimeType: string; hasThumb?: boolean; docRef?: string | null };
 
@@ -96,25 +96,35 @@ export function FileThumb({ file, width = 96, onOpen }: { file: PreviewFile; wid
   );
 }
 
-/** A larger viewer: the PDF (all pages, the browser's viewer) or the image, with download. */
+/**
+ * A larger viewer: PDFs and images rendered in-app (pages fitted to the width,
+ * stacked, zoom, click for full screen — see DocPages); other types show their
+ * icon and a Download button.
+ */
 export function FileViewer({ file, onClose }: { file: PreviewFile | null; onClose: () => void }) {
   const api = useShipmentsApi();
-  const [url, setUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!file) return;
-    let live = true;
-    setUrl(null);
-    setError(null);
-    api
-      .fileUrl(file.id)
-      .then((r) => live && setUrl(r.url))
-      .catch((e) => live && setError(e?.message || "Could not open the file"));
-    return () => {
-      live = false;
-    };
-  }, [api, file]);
   const viewable = !!file && (isPdf(file) || isImage(file));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => setError(null), [file]);
+  const downloadOther = async () => {
+    // Not rendered in-app (Excel, Word, Outlook): fetch the bytes and save them under the file's name.
+    setBusy(true);
+    try {
+      const blob = await api.fileContent(file!.id);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = file!.fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    } catch (e) {
+      setError((e as Error)?.message || "Could not download the file");
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <Dialog open={!!file} onClose={onClose} maxWidth="lg" fullWidth>
       <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1, pr: 6 }}>
@@ -131,61 +141,22 @@ export function FileViewer({ file, onClose }: { file: PreviewFile | null; onClos
           <CloseIcon />
         </IconButton>
       </DialogTitle>
-      <DialogContent dividers sx={{ p: 0, bgcolor: "action.hover" }}>
-        {error ? (
-          <Alert severity="error" sx={{ m: 2 }}>
-            {error}
-          </Alert>
-        ) : !url ? (
-          <Box sx={{ display: "flex", justifyContent: "center", py: 10 }}>
-            <CircularProgress />
-          </Box>
-        ) : file && isPdf(file) ? (
-          <Box component="iframe" src={url} title={file.fileName} sx={{ display: "block", width: "100%", height: "78vh", border: 0, bgcolor: "#fff" }} />
-        ) : file && isImage(file) ? (
-          <Box sx={{ display: "flex", justifyContent: "center", p: 2 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={url} alt={file.fileName} style={{ maxWidth: "100%", maxHeight: "76vh", objectFit: "contain", background: "#fff" }} />
-          </Box>
+      <DialogContent dividers sx={{ p: 0 }}>
+        {file && viewable ? (
+          <DocPages src={{ fileId: file.id }} fileName={file.fileName} mimeType={file.mimeType} height="80vh" />
         ) : (
           <Stack alignItems="center" spacing={1.5} sx={{ py: 8 }}>
             {file && <FileTypeIcon fileName={file.fileName} mimeType={file.mimeType} size={64} />}
             <Typography variant="body2" color="text.secondary">
               No preview for this file type — download it to open it.
             </Typography>
+            {error && <Alert severity="error">{error}</Alert>}
+            <Button variant="contained" startIcon={busy ? <CircularProgress size={16} color="inherit" /> : <DownloadIcon />} disabled={busy} onClick={() => void downloadOther()}>
+              Download
+            </Button>
           </Stack>
         )}
       </DialogContent>
-      <DialogActions>
-        {url && viewable && (
-          <Button startIcon={<OpenInNewIcon />} onClick={() => window.open(url, "_blank", "noopener")}>
-            Open in new tab
-          </Button>
-        )}
-        <Button
-          variant="contained"
-          startIcon={<DownloadIcon />}
-          disabled={!url}
-          onClick={async () => {
-            // The signed URL is cross-origin, so fetch it and save the blob under the file's name.
-            try {
-              const res = await fetch(url!);
-              const blob = await res.blob();
-              const a = document.createElement("a");
-              a.href = URL.createObjectURL(blob);
-              a.download = file!.fileName;
-              document.body.appendChild(a);
-              a.click();
-              a.remove();
-              setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-            } catch {
-              window.open(url!, "_blank", "noopener");
-            }
-          }}
-        >
-          Download
-        </Button>
-      </DialogActions>
     </Dialog>
   );
 }
@@ -208,14 +179,10 @@ export function LocalPreview({ file, width = 96 }: { file: File; width?: number 
         // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top" }} />
       ) : isPdf(f) ? (
-        // The browser's PDF viewer at page 1, fitted to the width, without its toolbar; not interactive.
-        <Box
-          component="iframe"
-          src={`${url}#page=1&toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
-          title={file.name}
-          tabIndex={-1}
-          sx={{ position: "absolute", top: 0, left: 0, width: width * 3, height: height * 3, border: 0, transform: "scale(0.3333)", transformOrigin: "top left", pointerEvents: "none" }}
-        />
+        // First page rendered in-app (pdf.js), fitted to the thumbnail width.
+        <Box sx={{ position: "absolute", top: 0, left: 0 }}>
+          <FirstPagePreview file={file} width={width} />
+        </Box>
       ) : (
         <FileTypeIcon fileName={file.name} mimeType={file.type} size={Math.round(width / 2.6)} />
       )}

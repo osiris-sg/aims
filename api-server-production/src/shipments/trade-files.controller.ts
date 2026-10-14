@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -40,6 +41,18 @@ export class TradeFilesController {
   @Permissions('shipments:read')
   getUrl(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
     return this.files.getUrl(orgIdOf(req), id);
+  }
+
+  /** The file itself (the in-app viewer renders PDFs / images from these bytes). */
+  @Get(':id/content')
+  @Permissions('shipments:read')
+  async content(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest, @Res() res: Response) {
+    // Raw bytes (as trade-generated :id/pdf): bypasses the global {success,data} envelope.
+    const f = await this.files.getContent(orgIdOf(req), id);
+    res.setHeader('Content-Type', f.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(f.fileName)}`);
+    res.setHeader('Content-Length', String(f.buffer.length));
+    res.end(f.buffer);
   }
 
   /** Signed URL of the file's first-page / image thumbnail ({ url: null } when it has none). */

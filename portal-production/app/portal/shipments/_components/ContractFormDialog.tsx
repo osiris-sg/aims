@@ -180,9 +180,11 @@ export default function ContractFormDialog({
   const [source, setSource] = useState<{ fileId: string; fileName: string; existingContractId: string | null; owned?: boolean } | null>(null);
   const [filled, setFilled] = useState<Set<string>>(new Set());
   const [reading, setReading] = useState(false);
-  // PDF beside the form only on wide screens; below ~1400px it stacks above it.
+  // The PDF being read right now: shown in the side panel at once (not the previous source).
+  const [readingFile, setReadingFile] = useState<File | null>(null);
+  // PDF beside the form (about half the width) only on wide screens; below ~1400px it stacks above it.
   const wide = useMediaQuery("(min-width:1400px)");
-  const side = !!source && wide;
+  const side = (!!source || !!readingFile) && wide;
   const [form, setForm] = useState<Form>(EMPTY);
   const [lines, setLines] = useState<LineRow[]>([newLine()]);
   // Deposit follows PI amount × % until the user types their own figure.
@@ -281,6 +283,7 @@ export default function ContractFormDialog({
     // "Read another PI": the previous unsaved upload is dropped.
     if (source?.owned) discard(source.fileId);
     setReading(true);
+    setReadingFile(file);
     setError(null);
     try {
       const x = await api.extractPi({ file });
@@ -292,6 +295,7 @@ export default function ContractFormDialog({
       setError(e?.message || "Could not read the PI");
     } finally {
       setReading(false);
+      setReadingFile(null);
     }
   };
   const unfill = (k: string) =>
@@ -442,7 +446,7 @@ export default function ContractFormDialog({
   );
 
   return (
-    <Dialog open={open} onClose={() => !save.isPending && !reading && cancel()} maxWidth={source ? "xl" : "lg"} fullWidth>
+    <Dialog open={open} onClose={() => !save.isPending && !reading && cancel()} maxWidth={source || readingFile ? "xl" : "lg"} fullWidth>
       <DialogTitle>
         {contract ? `Edit contract ${contract.contractNo}` : "New Shipment"}
         {!contract && (
@@ -453,7 +457,7 @@ export default function ContractFormDialog({
       </DialogTitle>
       <DialogContent dividers>
         <Grid2 container spacing={2}>
-          <Grid2 size={side ? 7 : 12}>
+          <Grid2 size={side ? 6 : 12}>
             {!contract && (
               <Box sx={{ mb: 2 }}>
                 <PdfDropZone
@@ -628,9 +632,9 @@ export default function ContractFormDialog({
               </Grid2>
             </Section>
           </Grid2>
-          {source && (
-            <Grid2 size={side ? 5 : 12} sx={{ order: side ? 0 : -1 }}>
-              <SourcePdfPane fileId={source.fileId} fileName={source.fileName} stacked={!side} />
+          {(source || readingFile) && (
+            <Grid2 size={side ? 6 : 12} sx={{ order: side ? 0 : -1 }}>
+              <SourcePdfPane fileId={source?.fileId} fileName={source?.fileName} file={readingFile} stacked={!side} />
             </Grid2>
           )}
         </Grid2>
