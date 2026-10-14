@@ -1,0 +1,57 @@
+/**
+ * Shared HTML shell for every in-app trade document: the embedded Japanese
+ * font (only the glyphs the page uses), A4 base styles, and the diagonal
+ * DRAFT watermark printed on every page until the document is finalized.
+ */
+import { DOC_FONT_STACK, japaneseFontCss } from './trade-doc-font';
+
+export const esc = (v: unknown) =>
+  String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+/** Multi-line text → escaped HTML with <br>. */
+export const lines = (v: unknown) => esc(v).replace(/\r?\n/g, '<br>');
+
+const stripTags = (html: string) => html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ');
+
+export function docShell(opts: { title: string; css: string; body: string; draft?: boolean }): string {
+  const watermark = opts.draft ? '<div class="wm">DRAFT</div>' : '';
+  // Glyphs needed: the visible text plus the watermark / fallback characters.
+  const fontCss = japaneseFontCss(`${stripTags(opts.body)}${opts.title}DRAFT0123456789.,-()%/:`);
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${esc(opts.title)}</title><style>
+${fontCss}
+@page { size: A4; margin: 12mm 11mm 14mm 11mm; }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-family: ${DOC_FONT_STACK}; color: #111; font-size: 9pt; line-height: 1.35; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+@media screen { body { padding: 10mm 9mm; background: #fff; } }
+.wm { position: fixed; top: 38%; left: 0; right: 0; text-align: center; transform: rotate(-32deg); font-size: 120pt; font-weight: 700; letter-spacing: .12em; color: rgba(200, 30, 30, 0.13); z-index: 9999; pointer-events: none; }
+table { border-collapse: collapse; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.muted { color: #555; }
+.pre { white-space: pre-line; }
+${opts.css}
+</style></head><body>${watermark}${opts.body}</body></html>`;
+}
+
+// ── formatting shared by the templates ─────────────────────────────────────
+const sign = (n: number) => (n < 0 ? '-' : '');
+/** 1,234.56 (2 dp), negative with a leading minus; '' for null. */
+export const money = (v: number | null | undefined, dp = 2) =>
+  v === null || v === undefined || !Number.isFinite(v) ? '' : `${sign(v)}${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
+/** Quantities: up to 3 dp, no trailing zeros. */
+export const qty = (v: number | null | undefined) => (v === null || v === undefined || !Number.isFinite(v) ? '' : `${sign(v)}${Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 3 })}`);
+/** "2026-07-10" → "2026年7月10日". */
+export const jpDate = (d: string | null | undefined) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d ?? '');
+  return m ? `${m[1]}年${Number(m[2])}月${Number(m[3])}日` : esc(d ?? '');
+};
+/** "2026-07-10" → "10 Jul 2026". */
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export const enDate = (d: string | null | undefined) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d ?? '');
+  return m ? `${Number(m[3])} ${MON[Number(m[2]) - 1]} ${m[1]}` : esc(d ?? '');
+};

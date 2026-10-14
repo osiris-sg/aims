@@ -9,6 +9,7 @@
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { showAccountingSetup } from "@/helpers/settingsVisibility";
 
 // Mirrors DynamicSidebarContent — keep the two in sync.
 const HIDDEN_MODULES = new Set<string>(["CUSTOMERS", "SUPPLIERS"]);
@@ -18,7 +19,8 @@ const HIDDEN_SUBMENUS: Record<string, string[]> = {
 const ORDER_OVERRIDE: Record<string, number> = { SALES: 0.5 };
 
 // Secondary group — mirrors the sidebar's "Organization Settings" block
-// (company profile / accounting setup / Master Files hub). Not module-gated.
+// (company profile / accounting setup / Master Files hub). Accounting Setup is
+// dropped only for trade orgs (showAccountingSetup), same as the sidebar.
 export const SETTINGS_MENU = [
   { label: "Company Profile", path: "/portal/settings/company-profile" },
   { label: "Accounting Setup", path: "/portal/settings/accounting-setup" },
@@ -47,8 +49,10 @@ export function resolveSubmenuRoute(module: any, submenu: any): string {
 export const submenuLabel = (s: any) => (typeof s === "string" ? s : s?.label || s?.key || "");
 
 export function useNavModules() {
-  const { modules } = useConfiguration();
+  const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
+  // Same rule as DynamicSidebarContent's Organization Settings group.
+  const settingsMenu = SETTINGS_MENU.filter((s) => s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled));
   const { isAdsInsightsEnabled, isMaintenanceDatesEnabled } = useOrganizationFeatures();
 
   const isAdminUser =
@@ -100,7 +104,7 @@ export function useNavModules() {
       if (!screens.some((x) => x.path === path)) screens.push({ label: `${label} › ${submenuLabel(s)}`, path, module: m.moduleCode });
     }
   }
-  if (isMasterTier) for (const s of SETTINGS_MENU) screens.push({ label: `Org Settings › ${s.label}`, path: s.path, module: "SETTINGS" });
+  if (isMasterTier) for (const s of settingsMenu) screens.push({ label: `Org Settings › ${s.label}`, path: s.path, module: "SETTINGS" });
 
-  return { navModules, screens, isAdminUser, isMasterTier, userRoles, hasPermission };
+  return { navModules, screens, settingsMenu, isAdminUser, isMasterTier, userRoles, hasPermission };
 }

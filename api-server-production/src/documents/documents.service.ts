@@ -1210,6 +1210,11 @@ export class DocumentsService {
         // deployment/recurring anchoring keyed off the order (guru 2026-09-28,
         // BI202609212 lost saleOrderId on its first edit).
         'saleOrderId',
+        // Document currency. Templates without a currency field (e.g. ADH
+        // Japan's invoice) never send it, so a bare save dropped the currency
+        // a creator had set (Shipments "Create invoice" → contract currency,
+        // 2026-10). Only an existing value is kept; none is invented.
+        'currency',
       ];
       // Only meaningful when the caller actually sent a config. A status-only
       // save (dto.config absent → configAsPlainObject null) has nothing to

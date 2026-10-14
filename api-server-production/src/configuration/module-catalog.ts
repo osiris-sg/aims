@@ -224,6 +224,24 @@ export const MODULE_CATALOG: CatalogModule[] = [
     config: { route: '/portal/deliveries' },
   },
   {
+    // Shipments (2026-10, ADH Japan): Contract → Shipment trade tracking with
+    // per-org step templates and typed file uploads. Opt-in per org.
+    moduleCode: 'SHIPMENTS',
+    displayName: 'Shipments',
+    icon: 'DirectionsBoat',
+    sortOrder: 16,
+    defaultEnabled: false,
+    config: {
+      route: '/portal/shipments',
+      subMenus: [
+        { key: 'list', label: 'Shipments' },
+        { key: 'contracts', label: 'Contracts' },
+        // Trade documents live in their own hub (/portal/trade-documents), set
+        // per org via the DOCUMENTS module row (see scripts/setup-adh-org.ts).
+      ],
+    },
+  },
+  {
     moduleCode: 'ADMIN',
     displayName: 'Admin Panel',
     icon: 'AdminPanelSettings',

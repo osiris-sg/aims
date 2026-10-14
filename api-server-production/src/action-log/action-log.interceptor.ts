@@ -51,8 +51,9 @@ const SKIP_GET_PATHS = [
 
 // POST endpoints that are actually list/read queries ("POST / = list" is a
 // house convention) — log them as VIEW, not CREATE.
+// trade-generated/preview (Shipments, 2026-10): renders live-preview HTML only.
 const VIEW_POST_RE =
-  /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview)$/;
+  /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview|trade-generated\/preview)$/;
 
 // Path verb segment → semantic action (checked against the LAST static segment).
 const VERB_ACTIONS: Record<string, string> = {
@@ -66,6 +67,8 @@ const VERB_ACTIONS: Record<string, string> = {
   // Delivery group posts (2026-09-30): the post worker claims a post and
   // reports it sent; the office retries a failed or skipped one.
   claim: 'CLAIM', done: 'POSTED', retry: 'RETRY', resolve: 'CONFIRM',
+  // Shipments: AI reads of a PI / B/L draft, and acknowledging the B/L check.
+  pi: 'EXTRACT', 'bl-draft': 'EXTRACT', acknowledge: 'ACKNOWLEDGE',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
   // Field delivery verbs (2026-09): the customer sign-off (full or partial, and
   // the guest link's), the return sign-off, ad-hoc acknowledge, install skip, and
@@ -104,6 +107,10 @@ const VERB_ACTIONS: Record<string, string> = {
   translate: 'UPDATE',
   // Marketing (Meta ads): connect/disconnect the ad account, pull insights.
   connect: 'UPDATE', disconnect: 'UPDATE', // `sync` is already mapped above
+  // Shipments (2026-10): contract/shipment/step reopen. start, complete and
+  // link are mapped above; trade-file and trade-document links are resolved in
+  // resolveAction.
+  reopen: 'REOPEN', unlink: 'UNLINK',
   update: 'UPDATE', create: 'CREATE', delete: 'DELETE',
 };
 
@@ -228,6 +235,9 @@ export class ActionLogInterceptor implements NestInterceptor {
     for (let i = segments.length - 1; i >= 0; i--) {
       const s = segments[i];
       if (UUID_RE.test(s) || /^\d+$/.test(s)) continue;
+      // POST /trade-files/:id/links and POST /trade-documents/links add links;
+      // DELETE .../links/:linkId removes one.
+      if (s === 'links') return method === 'DELETE' ? 'UNLINK' : method === 'POST' ? 'LINK' : METHOD_ACTION[method] || 'UNKNOWN';
       if (VERB_ACTIONS[s]) return VERB_ACTIONS[s];
       break;
     }
