@@ -26,7 +26,7 @@ import moment from "moment";
 import { toast } from "react-toastify";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
-import { request } from "@/helpers/request";
+import { request, withActiveOrg } from "@/helpers/request";
 import StatusChip from "@/components/StatusChip";
 
 interface Document {
@@ -254,8 +254,13 @@ export default function SalesDocumentList({
     },
   ];
 
-  const openDocument = (doc: any) =>
-    router.push(`/portal/documents/${doc.documentType}/${doc.templateId}/${doc.id}`);
+  // One builder for the click handler and the row's real <a href>, so a
+  // left-click and "open in new tab" always agree. withActiveOrg keeps the
+  // admin "viewing as" org, which a new tab does not inherit from
+  // sessionStorage (guru 2026-10-15).
+  const documentUrl = (doc: any) =>
+    withActiveOrg(`/portal/documents/${doc.documentType}/${doc.templateId}/${doc.id}`);
+  const openDocument = (doc: any) => router.push(documentUrl(doc));
   const downloadDocument = (doc: any) =>
     window.open(`/portal/documents/view/${doc.documentType}/${doc.templateId}/${doc.id}?autoprint=true`, "_blank");
 
@@ -376,6 +381,8 @@ export default function SalesDocumentList({
       )}
       <PageTable
         onRowClick={openDocument}
+        // Real row links → Chrome's native "Open link in new tab" on right-click.
+        rowHref={documentUrl}
         columns={baseColumns}
         data={filteredDocuments}
         tableName={title}

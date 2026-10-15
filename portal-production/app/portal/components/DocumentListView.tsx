@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
-import { request } from "@/helpers/request";
+import { request, withActiveOrg } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import StatusChip from "@/components/StatusChip";
@@ -367,12 +367,23 @@ export default function DocumentListView({
     },
   ];
 
-  const openDocument = (doc: any) => {
+  // ONE url builder for both the click handler and the row's real <a href>, so
+  // a left-click and an "open in new tab" can never disagree about where a row
+  // goes (guru 2026-10-15).
+  //
+  // withActiveOrg matters here: the admin "viewing as <org>" override lives in
+  // sessionStorage, which a NEW TAB does not inherit — without the ?aorg= the
+  // document opens against the admin's home org and fails to load.
+  const documentUrl = (doc: any) => {
     const from = fromPath ? `?from=${encodeURIComponent(fromPath)}` : "";
     // Invoices finalized from an in-app trade document (e.g. the 請求書 template) open as that PDF.
-    if (doc.config?.tradeGeneratedDocId) return router.push(`/portal/trade-documents/invoice/${doc.id}${from}`);
-    router.push(`/portal/documents/${doc.documentType}/${doc.templateId}/${doc.id}${from}`);
+    const path = doc.config?.tradeGeneratedDocId
+      ? `/portal/trade-documents/invoice/${doc.id}${from}`
+      : `/portal/documents/${doc.documentType}/${doc.templateId}/${doc.id}${from}`;
+    return withActiveOrg(path);
   };
+
+  const openDocument = (doc: any) => router.push(documentUrl(doc));
 
   const serializeDate = (d: Date | null) => (d ? JSON.parse(JSON.stringify(d)) : null);
   const handleSetFilters = (newFilters: any) => {
@@ -408,6 +419,11 @@ export default function DocumentListView({
         columns={columns}
         data={docs}
         onRowClick={openDocument}
+        // Makes each row a REAL link, so right-click offers Chrome's own
+        // "Open link in new tab / new window / copy link" and ⌘/middle-click
+        // open a tab natively — the same behaviour Xero has. Plain left-clicks
+        // still route through onRowClick for client-side navigation.
+        rowHref={documentUrl}
         manualSorting
         sorting={sorting}
         onSortingChange={setSorting}

@@ -7,6 +7,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { withActiveOrg } from "@/helpers/request";
 import { Box, Chip, Typography } from "@mui/material";
 import moment from "moment";
 import { toast } from "react-toastify";
@@ -103,6 +104,10 @@ export default function IdQuotationList() {
     }
   };
 
+  // Shared by the row click, the kebab "Open" and the row link so all three
+  // point at the same place; withActiveOrg survives a new tab.
+  const quotationUrl = (d: any) => withActiveOrg(`/portal/sales/quotations/id/${d.id}`);
+
   const columns = useMemo(
     () => [
       {
@@ -176,7 +181,7 @@ export default function IdQuotationList() {
         cell: ({ row }: any) => <Typography variant="body2">{moment(row.original.createdAt).format("DD MMM YYYY")}</Typography>,
       },
       kebabColumn((d: any) => [
-        { label: "Open", onClick: () => router.push(`/portal/sales/quotations/id/${d.id}`) },
+        { label: "Open", onClick: () => router.push(quotationUrl(d)) },
         ...(["draft", "unconfirmed"].includes(d.status)
           ? [{ label: "Delete", destructive: true, onClick: () => setToDelete(d) }]
           : []),
@@ -196,7 +201,9 @@ export default function IdQuotationList() {
   return (
     <MainCard>
       <PageTable
-        onRowClick={(d: any) => router.push(`/portal/sales/quotations/id/${d.id}`)}
+        onRowClick={(d: any) => router.push(quotationUrl(d))}
+        // Real row links → native "Open link in new tab" on right-click.
+        rowHref={quotationUrl}
         tableName="Quotations"
         subTitle="Letter of Intent & Appointment for Renovation Works"
         columns={columns as any}

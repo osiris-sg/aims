@@ -185,7 +185,12 @@ export default function Table(props: Props) {
                       draggable={false}
                       aria-label="Open record"
                       onClick={(e: React.MouseEvent) => {
-                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+                          // As above: browser opens the tab, but the card's own
+                          // onClick must not also navigate this one.
+                          e.stopPropagation();
+                          return;
+                        }
                         e.preventDefault();
                         e.stopPropagation();
                         if (onRowClick) onRowClick(row.original);
@@ -457,7 +462,15 @@ export default function Table(props: Props) {
                             draggable={false}
                             aria-label="Open record"
                             onClick={(e: React.MouseEvent) => {
-                              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+                                // Let the BROWSER handle it (new tab / window),
+                                // but stop the bubble: the <tr> also has an
+                                // onRowClick, which otherwise navigated THIS tab
+                                // as well, so ⌘-click moved the list and opened
+                                // a tab (guru 2026-10-15, found while testing).
+                                e.stopPropagation();
+                                return;
+                              }
                               e.preventDefault();
                               e.stopPropagation();
                               if (onRowClick) onRowClick(row.original);
