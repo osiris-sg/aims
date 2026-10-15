@@ -116,23 +116,42 @@ export default function Messages({ items, pending, status, sending, channel, onT
         const confirmId = m.buttons?.find((b) => b.data.startsWith("confirm:"))?.data.slice(8);
         const isConfirmCard = !!confirmId;
         const live = isConfirmCard ? livePending.has(confirmId!) : idx === lastButtonsIdx && !sending;
+        // A reply with a document or buttons is a card; a plain reply is text
+        // across the whole column, the ChatGPT way, so the conversation and
+        // the composer share the same edges (guru 2026-10-15: "not centered").
+        const card = !mine && (m.kind === "document" || !!m.buttons?.length);
         return (
           <Stack key={m.id} direction="row" justifyContent={mine ? "flex-end" : "flex-start"} alignItems="flex-end" gap={1}>
             <Box
               sx={{
-                maxWidth: { xs: "92%", md: tabular ? "92%" : "78%" },
                 minWidth: 0,
-                px: 1.75,
-                py: 1.25,
-                borderRadius: 3,
-                borderTopRightRadius: mine ? 6 : 24,
-                borderTopLeftRadius: mine ? 24 : 6,
                 fontSize: "0.9rem",
                 lineHeight: 1.55,
                 wordBreak: "break-word",
                 ...(mine
-                  ? { bgcolor: "primary.main", color: "primary.contrastText", backgroundImage: "none" }
-                  : { bgcolor: "background.paper", border: "1px solid", borderColor: "divider", color: "text.primary" }),
+                  ? {
+                      maxWidth: { xs: "92%", md: tabular ? "92%" : "78%" },
+                      px: 1.75,
+                      py: 1.25,
+                      borderRadius: 3,
+                      borderTopRightRadius: 6,
+                      bgcolor: "primary.main",
+                      color: "primary.contrastText",
+                      backgroundImage: "none",
+                    }
+                  : card
+                    ? {
+                        maxWidth: "100%",
+                        px: 1.75,
+                        py: 1.25,
+                        borderRadius: 3,
+                        borderTopLeftRadius: 6,
+                        bgcolor: "background.paper",
+                        border: "1px solid",
+                        borderColor: "divider",
+                        color: "text.primary",
+                      }
+                    : { width: "100%", px: 0.5, py: 0.5, color: "text.primary" }),
               }}
             >
               {m.kind === "document" && (
@@ -222,7 +241,7 @@ export default function Messages({ items, pending, status, sending, channel, onT
                   })}
                 </Stack>
               )}
-              <Stack direction="row" alignItems="center" justifyContent="flex-end" gap={0.5} sx={{ mt: 0.5, opacity: 0.6 }}>
+              <Stack direction="row" alignItems="center" justifyContent={mine || card ? "flex-end" : "flex-start"} gap={0.5} sx={{ mt: 0.5, opacity: 0.6 }}>
                 {m.via === "whatsapp" && channel === "whatsapp" && <WhatsAppIcon sx={{ fontSize: "0.8rem" }} titleAccess="Sent on WhatsApp" />}
                 <Typography sx={{ fontSize: "0.65rem" }}>{timeOf(m.at)}</Typography>
               </Stack>
