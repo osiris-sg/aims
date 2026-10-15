@@ -16,7 +16,7 @@ export class TradeGeneratedController {
   @Get()
   @Permissions('shipments:read')
   list(@Query() q: ListGeneratedQuery, @Req() req: TradeRequest) {
-    return this.gen.list(orgIdOf(req), { shipmentId: q.shipmentId, contractId: q.contractId });
+    return this.gen.list(orgIdOf(req), { shipmentId: q.shipmentId, contractId: q.contractId, orderId: q.orderId });
   }
 
   /** Supplier spreadsheets on a shipment that can prefill a docType. */
@@ -43,8 +43,9 @@ export class TradeGeneratedController {
   @Permissions('shipments:read')
   @Header('Content-Type', 'application/json')
   async preview(@Body() dto: PreviewGeneratedDocDto, @Req() req: TradeRequest) {
-    const seal = GENERATED_TEMPLATES[dto.docType]?.kind === 'invoice' ? await this.gen.sealFor(orgIdOf(req)) : null;
-    return { html: this.gen.previewHtml(dto.docType, dto.header, dto.columns, dto.rows, dto.draft ?? true, seal) };
+    const kind = GENERATED_TEMPLATES[dto.docType]?.kind;
+    const seal = kind === 'invoice' || kind === 'single' ? await this.gen.sealFor(orgIdOf(req)) : null;
+    return { html: await this.gen.previewHtml(dto.docType, dto.header, dto.columns, dto.rows, dto.draft ?? true, seal, orgIdOf(req)) };
   }
 
   @Post()
@@ -84,6 +85,14 @@ export class TradeGeneratedController {
   @Permissions('shipments:read')
   get(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
     return this.gen.get(orgIdOf(req), id);
+  }
+
+  /** Invoice #2 / single invoice: the estimator's cost lines for the covered shipments (JPY, and USD at the FX). Never applied server-side. */
+  @Get(':id/cost-suggestion')
+  @Permissions('shipments:read')
+  costSuggestion(@Param('id', ParseUUIDPipe) id: string, @Query('fxRate') fxRate: string | undefined, @Req() req: TradeRequest) {
+    const fx = fxRate !== undefined && fxRate !== '' && Number.isFinite(Number(fxRate)) ? Number(fxRate) : null;
+    return this.gen.costSuggestion(orgIdOf(req), id, fx);
   }
 
   @Patch(':id')

@@ -24,6 +24,8 @@ const ORDER_OVERRIDE: Record<string, number> = { SALES: 0.5 };
 export const SETTINGS_MENU = [
   { label: "Company Profile", path: "/portal/settings/company-profile" },
   { label: "Shipping & documents", path: "/portal/settings/shipping" },
+  // Customer profiles (billing mode, port, trucks, templates) — Shipments orgs only.
+  { label: "Customers", path: "/portal/settings/customers" },
   { label: "Accounting Setup", path: "/portal/settings/accounting-setup" },
   { label: "Master Files", path: "/portal/masterfiles" },
 ];
@@ -56,7 +58,7 @@ export function useNavModules() {
   const settingsMenu = SETTINGS_MENU.filter(
     (s) =>
       (s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled)) &&
-      (s.path !== "/portal/settings/shipping" || showShippingSettings(isModuleEnabled)),
+      ((s.path !== "/portal/settings/shipping" && s.path !== "/portal/settings/customers") || showShippingSettings(isModuleEnabled)),
   );
   const { isAdsInsightsEnabled, isMaintenanceDatesEnabled } = useOrganizationFeatures();
 

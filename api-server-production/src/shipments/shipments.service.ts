@@ -3,11 +3,13 @@ import { PrismaService } from '../common/prisma.service';
 import { CreateShipmentDto, ListShipmentsQuery, UpdateShipmentDto } from './dto/shipment.dto';
 import { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, shapeFileLinks, STEP_SELECT, STEP_SUMMARY_SELECT } from './trade-selects';
 import { TradeActor } from './shipments.request';
-import { blockingSteps, currentStepOf, lineLabel, progressOf, stepLabels } from './shipments.rules';
+import { blockingSteps, currentStepOf, lineLabel, orderLabel, progressOf, shipmentRef, stepLabels } from './shipments.rules';
+import { actualsTable, cleanCosts, estimate, ShipmentCosts } from './trade-estimator';
+import { ORDER_SUMMARY_SELECT } from './trade-selects';
 import { latestBlCheck } from './trade-extract.service';
 import { Db, DOC_LINK_SELECT, isUniqueViolation, optText, pageArgs, TradeConfigService } from './trade-config.service';
 
-/** Shipments: one per Bill of Lading, always under a contract. */
+/** Shipments: one per Bill of Lading, under an order ("#19-1"; before orders: under a contract). */
 @Injectable()
 export class ShipmentsService {
   constructor(
@@ -22,7 +24,9 @@ export class ShipmentsService {
     const where = {
       organizationId,
       ...(query.contractId ? { contractId: query.contractId } : {}),
+      ...(query.orderId ? { orderId: query.orderId } : {}),
       ...(query.customerId ? { customerId: query.customerId } : {}),
+      ...(query.uninvoiced === 'true' ? { id: { notIn: await this.invoicedShipmentIds(organizationId) } } : {}),
       ...bucketStatus,
       ...(query.status ? { status: query.status as 'OPEN' | 'COMPLETED' | 'CANCELLED' } : {}),
       ...(q
@@ -47,7 +51,10 @@ export class ShipmentsService {
       status: true,
       createdAt: true,
       contractId: true,
+      orderId: true,
+      seqNo: true,
       contract: { select: { id: true, contractNo: true } },
+      order: { select: { id: true, year: true, orderNo: true, grade: true, product: true, size: true, qtyMt: true } },
       contractLine: { select: CONTRACT_LINE_SELECT },
       customer: { select: { id: true, name: true } },
       steps: { select: STEP_SUMMARY_SELECT },
@@ -56,8 +63,10 @@ export class ShipmentsService {
     const shape = ({ steps, ...s }: any) => ({
       ...s,
       contractNo: s.contract?.contractNo ?? null,
+      orderLabel: orderLabel(s.order),
+      ref: shipmentRef(s.order?.orderNo, s.seqNo),
       customerName: s.customer?.name ?? null,
-      productLine: s.contractLine ? lineLabel(s.contractLine) : null,
+      productLine: s.order ? lineLabel({ grade: s.order.grade, product: s.order.product, sizeSpec: s.order.size, quantityMt: s.order.qtyMt }) : s.contractLine ? lineLabel(s.contractLine) : null,
       progress: progressOf(steps ?? []),
       currentStep: currentStepOf(steps ?? []),
     });
@@ -76,6 +85,15 @@ export class ShipmentsService {
     ]);
     const items = rows.map(shape);
     return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize), counts };
+  }
+
+  /** Shipments already billed by a FINAL Invoice #2 / single invoice (own record or "covers"). */
+  async invoicedShipmentIds(organizationId: string): Promise<string[]> {
+    const gens: Array<{ shipmentId: string | null; coversShipmentIds: string[] }> = await this.prisma.tradeGeneratedDoc.findMany({
+      where: { organizationId, status: 'FINAL', docType: { in: ['INVOICE_2', 'INVOICE_SINGLE'] } },
+      select: { shipmentId: true, coversShipmentIds: true },
+    });
+    return [...new Set(gens.flatMap((g) => [g.shipmentId, ...(g.coversShipmentIds ?? [])]).filter((x): x is string => !!x))];
   }
 
   /** Tab counts (Pending / Completed) under the other filters. */
@@ -106,6 +124,7 @@ export class ShipmentsService {
             customer: { select: { id: true, name: true } },
           },
         },
+        order: { select: { ...ORDER_SUMMARY_SELECT, customer: { select: { id: true, name: true } } } },
         contractLine: { select: CONTRACT_LINE_SELECT },
         customer: { select: { id: true, name: true, customerCode: true } },
         steps: { orderBy: { sortOrder: 'asc' }, select: STEP_SELECT },
@@ -116,12 +135,22 @@ export class ShipmentsService {
     if (!s) throw new NotFoundException('Shipment not found');
     const { steps, docLinks } = await this.config.decorateRecord(organizationId, s);
     const blCheck = await latestBlCheck(this.prisma, organizationId, id);
+    // Steps 7 / 8 / 12: the cost + import tax estimate and the actuals, with the customer's truck size and customs rate.
+    const settings = await this.config.getSettings(organizationId);
+    const profile = await this.config.profileOf(organizationId, s.order?.customerId ?? s.customerId);
+    const costs = (s.costs ?? {}) as ShipmentCosts;
+    const est = estimate(s, costs, settings.estimatorRates, profile);
     return {
       ...s,
       steps,
       docLinks,
       fileLinks: shapeFileLinks(s.fileLinks),
-      productLine: s.contractLine ? lineLabel(s.contractLine) : null,
+      ref: shipmentRef(s.order?.orderNo, s.seqNo),
+      orderLabel: orderLabel(s.order),
+      profile,
+      estimate: est,
+      actuals: actualsTable(est, costs, settings.estimatorRates),
+      productLine: s.order ? lineLabel({ grade: s.order.grade, product: s.order.product, sizeSpec: s.order.size, quantityMt: s.order.qtyMt }) : s.contractLine ? lineLabel(s.contractLine) : null,
       progress: progressOf(s.steps),
       currentStep: currentStepOf(s.steps),
       blCheck,
@@ -147,40 +176,56 @@ export class ShipmentsService {
    */
   async createInTx(tx: Db, organizationId: string, dto: CreateShipmentDto, actor: TradeActor): Promise<string> {
     const blNumber = optText(dto.blNumber) ?? null;
-    const contract = await tx.contract.findFirst({
-      where: { id: dto.contractId, organizationId },
-      select: { id: true, contractNo: true, status: true, customerId: true, currency: true, deliveryMonth: true, lines: { orderBy: { sortOrder: 'asc' }, select: CONTRACT_LINE_SELECT } },
-    });
-    if (!contract) throw new BadRequestException('Contract not found in this organization');
-    if (contract.status === 'CANCELLED') {
+    if (!dto.orderId && !dto.contractId) throw new BadRequestException('A shipment belongs to an order — pass orderId');
+    const order = dto.orderId
+      ? await tx.tradeOrder.findFirst({
+          where: { id: dto.orderId, organizationId },
+          select: { id: true, orderNo: true, status: true, customerId: true, contractId: true, currency: true, deliveryMonth: true, product: true, grade: true, size: true },
+        })
+      : null;
+    if (dto.orderId && !order) throw new BadRequestException('Order not found in this organization');
+    if (order && order.status === 'CANCELLED') throw new BadRequestException(`Order #${order.orderNo} is cancelled — reopen it before adding shipments`);
+    const contractId = order ? order.contractId : dto.contractId;
+    const contract = contractId
+      ? await tx.contract.findFirst({
+          where: { id: contractId, organizationId },
+          select: { id: true, contractNo: true, status: true, customerId: true, currency: true, deliveryMonth: true, lines: { orderBy: { sortOrder: 'asc' }, select: CONTRACT_LINE_SELECT } },
+        })
+      : null;
+    if (contractId && !contract) throw new BadRequestException('Contract not found in this organization');
+    if (!order && contract?.status === 'CANCELLED') {
       throw new BadRequestException(`Contract ${contract.contractNo} is cancelled — reopen it before adding shipments`);
     }
-    const customerId = dto.customerId || contract.customerId;
+    const customerId = dto.customerId || order?.customerId || contract?.customerId || null;
     if (dto.customerId) await this.assertCustomer(tx, organizationId, dto.customerId);
     if (blNumber) await this.assertBlFree(tx, organizationId, blNumber);
-    const line = pickLine(contract.lines, dto.contractLineId);
+    // The contract line: as asked, else the one of the order's grade, else the contract's only line.
+    const lines = contract?.lines ?? [];
+    const line = dto.contractLineId ? pickLine(lines, dto.contractLineId) : order ? (lines.find((l: { grade: string | null }) => order.grade && l.grade === order.grade) ?? (lines.length === 1 ? lines[0] : null)) : pickLine(lines, null);
     const fields = this.fields(dto);
-    // Commodity / size prefill from the product line; delivery month from the contract.
-    if (line && dto.commodity === undefined) fields.commodity = commodityOf(line);
-    if (line && dto.sizeSpec === undefined) fields.sizeSpec = line.sizeSpec ?? null;
-    if (dto.deliveryMonth === undefined) fields.deliveryMonth = contract.deliveryMonth ?? null;
-    // Shipment number within the deal (#1, #2 …) — part of its documents' IDs.
-    const last: { seqNo: number | null } | null = await tx.shipment.findFirst({ where: { organizationId, contractId: contract.id }, orderBy: { seqNo: { sort: 'desc', nulls: 'last' } }, select: { seqNo: true } });
+    // Commodity / size from the order (else the product line); delivery month from the order / contract.
+    if (dto.commodity === undefined) fields.commodity = order && (order.product || order.grade) ? [order.product, order.grade].filter(Boolean).join(' ') : line ? commodityOf(line) : null;
+    if (dto.sizeSpec === undefined) fields.sizeSpec = order?.size ?? line?.sizeSpec ?? null;
+    if (dto.deliveryMonth === undefined) fields.deliveryMonth = order?.deliveryMonth ?? contract?.deliveryMonth ?? null;
+    // Shipment number within the order ("#19-1", "#19-2" …) — part of its documents' IDs.
+    const parent = order ? { orderId: order.id } : { contractId: contract!.id };
+    const last: { seqNo: number | null } | null = await tx.shipment.findFirst({ where: { organizationId, ...parent }, orderBy: { seqNo: { sort: 'desc', nulls: 'last' } }, select: { seqNo: true } });
     const created = await tx.shipment.create({
       data: {
         organizationId,
         seqNo: (last?.seqNo ?? 0) + 1,
-        contractId: contract.id,
+        orderId: order?.id ?? null,
+        contractId: contract?.id ?? null,
         contractLineId: line?.id ?? null,
         customerId,
         blNumber,
-        currency: dto.currency || contract.currency || 'USD',
+        currency: dto.currency || order?.currency || contract?.currency || 'USD',
         ...fields,
         createdById: actor.id,
       },
       select: { id: true },
     });
-    await this.config.snapshotSteps(tx, organizationId, 'SHIPMENT', { shipmentId: created.id });
+    await this.config.snapshotSteps(tx, organizationId, 'SHIPMENT', { shipmentId: created.id }, await this.config.profileOf(organizationId, customerId, tx));
     if (dto.blDraftFileId) await this.config.linkSourceFile(tx, organizationId, dto.blDraftFileId, 'BL_DRAFT', { shipmentId: created.id }, 'BL_DRAFT_APPROVAL');
     return created.id as string;
   }
@@ -191,13 +236,13 @@ export class ShipmentsService {
       await this.prisma.$transaction(async (tx: Db) => {
         const existing = await tx.shipment.findFirst({
           where: { id, organizationId },
-          select: { id: true, blNumber: true, contract: { select: { lines: { select: { id: true, grade: true, sizeSpec: true } } } } },
+          select: { id: true, blNumber: true, costs: true, contract: { select: { lines: { select: { id: true, grade: true, sizeSpec: true } } } } },
         });
         if (!existing) throw new NotFoundException('Shipment not found');
         if (dto.contractLineId !== undefined) {
           const lines = existing.contract?.lines ?? [];
           if (dto.contractLineId === null || dto.contractLineId === '') {
-            if (lines.length) throw new BadRequestException('Pick the contract product line this shipment ships');
+            // Under an order the product comes from the order; the contract line is optional.
           } else if (!lines.some((l: { id: string }) => l.id === dto.contractLineId)) {
             throw new BadRequestException("That product line is not on this shipment's contract");
           }
@@ -212,6 +257,7 @@ export class ShipmentsService {
             ...(dto.customerId !== undefined ? { customerId: dto.customerId || null } : {}),
             ...(dto.currency ? { currency: dto.currency } : {}),
             ...this.fields(dto),
+            ...(dto.costs !== undefined ? { costs: mergeCosts(existing.costs, dto.costs) as any } : {}),
             ...(dto.status === 'CANCELLED' ? { status: 'CANCELLED' } : {}),
           },
         });
@@ -266,11 +312,20 @@ export class ShipmentsService {
   async reopen(organizationId: string, id: string, actor: TradeActor | null = null) {
     let reopenedContract: string | null = null;
     await this.prisma.$transaction(async (tx: Db) => {
-      const s = await tx.shipment.findFirst({ where: { id, organizationId }, select: { blNumber: true, status: true, contract: { select: { id: true, contractNo: true, status: true } } } });
+      const s = await tx.shipment.findFirst({
+        where: { id, organizationId },
+        select: { blNumber: true, status: true, contract: { select: { id: true, contractNo: true, status: true } }, order: { select: { id: true, orderNo: true, status: true } } },
+      });
       if (!s) throw new NotFoundException('Shipment not found');
       if (s.status === 'OPEN') throw new BadRequestException(`${s.blNumber ? `Shipment ${s.blNumber}` : 'This shipment'} is already open`);
       await tx.shipment.update({ where: { id, organizationId }, data: { status: 'OPEN' } });
-      if (s.contract?.status === 'COMPLETED') {
+      // Under an order: a completed order reopens with its shipment (reported as reopenedContract, "#19", for the toast).
+      if (s.order) {
+        if (s.order.status === 'COMPLETED') {
+          await tx.tradeOrder.update({ where: { id: s.order.id, organizationId }, data: { status: 'OPEN' } });
+          reopenedContract = `#${s.order.orderNo}`;
+        }
+      } else if (s.contract?.status === 'COMPLETED') {
         await tx.contract.update({ where: { id: s.contract.id, organizationId }, data: { status: 'OPEN' } });
         reopenedContract = s.contract.contractNo;
       }
@@ -344,3 +399,12 @@ export function pickLine<L extends LineRow>(lines: L[], requested: string | null
 export const commodityOf = (l: { product: string | null; grade: string | null }) => [l.product, l.grade].filter(Boolean).join(' ') || null;
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Merge a costs patch (validated) into the stored costs; `actual` merges one level deep. */
+export function mergeCosts(current: unknown, patch: unknown): ShipmentCosts {
+  const cur = (current && typeof current === 'object' ? current : {}) as ShipmentCosts;
+  const p = cleanCosts(patch, (m) => {
+    throw new BadRequestException(m);
+  });
+  return { ...cur, ...p, ...(p.actual ? { actual: { ...(cur.actual ?? {}), ...p.actual } } : {}) };
+}

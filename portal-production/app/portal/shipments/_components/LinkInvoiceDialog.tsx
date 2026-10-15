@@ -9,7 +9,7 @@ import React, { useEffect, useState } from "react";
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItemButton, ListItemText, TextField, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "../_lib/toast";
-import { useShipmentsApi, type DocSummary } from "../_lib/api";
+import { linkTargetsOf, useShipmentsApi, type DocSummary } from "../_lib/api";
 import { useDocTypeLabels, useTradeMutation } from "../_lib/hooks";
 import { DOC_STATUS_LABEL, fmtDate, fmtMoney } from "../_lib/format";
 import { useDebounced } from "./useDebounced";
@@ -25,7 +25,7 @@ export default function LinkInvoiceDialog({
   onClose: () => void;
   docType: string;
   stepId?: string;
-  owner: { kind: "contract" | "shipment"; id: string; label: string };
+  owner: { kind: "contract" | "shipment" | "order"; id: string; label: string };
 }) {
   const api = useShipmentsApi();
   const label = useDocTypeLabels();
@@ -39,7 +39,7 @@ export default function LinkInvoiceDialog({
     queryFn: () => api.searchInvoices(term),
   });
   const link = useTradeMutation((a, d: DocSummary) =>
-    a.linkDocument({ documentId: d.id, docType, stepId, ...(owner.kind === "contract" ? { contractIds: [owner.id] } : { shipmentIds: [owner.id] }) }),
+    a.linkDocument({ documentId: d.id, docType, stepId, ...linkTargetsOf([owner]) }),
   );
 
   useEffect(() => {

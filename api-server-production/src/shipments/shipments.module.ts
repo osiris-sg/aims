@@ -6,6 +6,8 @@ import { DocumentTemplatesModule } from '../documentTemplates/documentTemplates.
 import { PrismaService } from '../common/prisma.service';
 import { ContractsController } from './contracts.controller';
 import { ContractsService } from './contracts.service';
+import { OrdersController } from './orders.controller';
+import { OrdersService } from './orders.service';
 import { ShipmentsController } from './shipments.controller';
 import { ShipmentsService } from './shipments.service';
 import { TradeConfigController } from './trade-config.controller';
@@ -24,7 +26,7 @@ import { TradeStepsController } from './trade-steps.controller';
 import { TradeStepsService } from './trade-steps.service';
 
 /**
- * Shipments (ADH Japan, 2026-10): Contract → Shipment trade tracking with
+ * Shipments (ADH Japan, 2026-10): Contract → Order ("#19") → Shipment ("#19-1") trade tracking with
  * per-org step templates, typed file uploads and links to in-app invoices
  * (TradeDocumentLink), in-app generated documents (Customer PL / COA from the
  * supplier spreadsheets) and the trade Documents hub. Gated per org by the
@@ -34,6 +36,7 @@ import { TradeStepsService } from './trade-steps.service';
 @Module({
   imports: [CommonModule, DocumentExtractionModule, DocumentsModule, DocumentTemplatesModule],
   controllers: [
+    OrdersController,
     ContractsController,
     ShipmentsController,
     TradeStepsController,
@@ -45,6 +48,7 @@ import { TradeStepsService } from './trade-steps.service';
     TradeExtractController,
   ],
   providers: [
+    OrdersService,
     ContractsService,
     ShipmentsService,
     TradeStepsService,
@@ -57,6 +61,6 @@ import { TradeStepsService } from './trade-steps.service';
     TradeExtractService,
     PrismaService,
   ],
-  exports: [ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService],
+  exports: [OrdersService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService],
 })
 export class ShipmentsModule {}

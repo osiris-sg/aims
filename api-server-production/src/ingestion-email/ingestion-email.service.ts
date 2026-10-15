@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { LeadsService, looksLikeLeadEmail } from '../leads/leads.service';
 import { createHash } from 'crypto';
 import AdmZip = require('adm-zip');
@@ -11,6 +11,7 @@ import { DocumentsService } from '../documents/documents.service';
 import { DocumentExtractionService, DocumentType } from '../document-extraction/document-extraction.service';
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import { emailFolder, parseMailDate, reconstructEml, safeKeyName, StoredAttachment, StoredEmailMeta } from './email-store';
+import { EmailTriageService, hashedMessageId } from './email-triage.service';
 
 // Provider-agnostic inbound payload — same shape as bills-inbound.
 export interface InboundEmailPayload {
@@ -25,6 +26,11 @@ export interface InboundEmailPayload {
   date?: string; // the email's Date header
   rawBase64?: string; // original MIME, when it fits the request
   meta?: { skippedAttachments?: Array<{ filename: string | null; size?: number; reason?: string }> };
+  // Header To / Cc and the thread headers (triage: counterparty, thread fallback).
+  headerTo?: string[];
+  cc?: string[];
+  inReplyTo?: string;
+  references?: string[];
 }
 
 type InboundResult =
@@ -72,6 +78,7 @@ export class IngestionEmailService {
     private readonly documents: DocumentsService,
     private readonly extraction: DocumentExtractionService,
     private readonly leads: LeadsService,
+    @Optional() private readonly triage?: EmailTriageService,
   ) {}
 
   async handleInbound(payload: InboundEmailPayload): Promise<InboundResult> {
@@ -113,12 +120,19 @@ export class IngestionEmailService {
     }
 
     // 4. Dedup — the log row IS the idempotency anchor. A retry of the same
-    //    message hits the (org, messageId) unique and short-circuits here.
+    //    message hits the (org, messageId) unique and short-circuits here. A
+    //    purged (not shipment) email keeps only its hashed Message-ID: that dedupes too.
+    const purged = await this.prisma.emailIngestLog.findFirst({ where: { organizationId, messageId: hashedMessageId(messageId) }, select: { id: true } });
+    if (purged) return { ok: false, reason: 'duplicate' };
     const log = await this.createLog(organizationId, messageId, payload, 'RECEIVED', null, attachmentCount);
     if (!log) return { ok: false, reason: 'duplicate' };
 
-    // 4b. Store-only intake: keep the .eml + attachments, nothing else.
-    if (config.routingMode === 'STORE') return this.storeOnly(organizationId, log.id, log.createdAt, messageId, payload);
+    // 4b. Intake (STORE / TRIAGE / AUTO): keep the .eml + attachments; TRIAGE / AUTO then triage it in the background.
+    if (config.routingMode === 'STORE' || config.routingMode === 'TRIAGE' || config.routingMode === 'AUTO') {
+      const stored = await this.storeOnly(organizationId, log.id, log.createdAt, messageId, payload);
+      if (config.routingMode !== 'STORE' && stored.ok && this.triage) this.triage.schedule(organizationId, log.id);
+      return stored;
+    }
 
     // 5. Hard rules — deterministic, evaluated once per email on the envelope,
     //    before any AI call. IGNORE drops the email; FORCE_* pins the doc type
@@ -772,7 +786,13 @@ export class IngestionEmailService {
         attachmentNames: attachments.map((a) => a.name),
         attachments,
         skippedAttachments: payload.meta?.skippedAttachments ?? [],
-      };
+        // For triage (deleted with the rest if the email turns out not to be shipment mail).
+        headerTo: (payload.headerTo ?? []).slice(0, 50),
+        cc: (payload.cc ?? []).slice(0, 50),
+        inReplyTo: payload.inReplyTo ?? null,
+        references: (payload.references ?? []).slice(0, 50),
+        bodyText: (payload.text ?? '').slice(0, 8000),
+      } as StoredEmailMeta;
       await this.prisma.emailIngestLog.update({
         where: { id: logId },
         data: { status: 'STORED', reason: 'store-only', attachmentCount: attachments.length, rawMeta: meta as unknown as Prisma.InputJsonValue },

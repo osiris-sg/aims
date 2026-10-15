@@ -40,6 +40,7 @@ import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import { useContract, useContracts, useTradeSettings } from "@/app/portal/shipments/_lib/hooks";
 import { useShipmentsApi } from "@/app/portal/shipments/_lib/api";
+import { toast } from "@/app/portal/shipments/_lib/toast";
 import { lineLabel } from "@/app/portal/shipments/_lib/format";
 import type { DocFormProps } from "./types";
 import { amountOf, awaitingLme, helperRemarks, helperUsed, invoiceTotals, lineFromContractLine, roundTo, toNum, unitPriceOf, usd, type InvoiceLine } from "./invoiceCalc";
@@ -96,8 +97,8 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
     return tpl.split("{grades}").join(grades.join("・")).split("{product}").join(product);
   };
 
-  // Invoice #1 may also bill the same customer's other open contracts.
-  const own = useContract(doc.contractId ?? undefined);
+  // Invoice #1 may also bill the same customer's other open contracts (contract-era invoices; an order's Invoice #1 bills the order).
+  const own = useContract(doc.orderId ? undefined : (doc.contractId ?? undefined));
   const customerId = own.data?.customerId;
   const others = useContracts({ customerId, status: "OPEN", pageSize: 100 }, !!customerId && pick);
 
@@ -154,6 +155,30 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
         <Chip size="small" color="info" variant="outlined" label="auto" sx={{ height: 20, fontSize: 11 }} />
       </Tooltip>
     );
+
+  /** Invoice #2 cost lines from the estimator (JPY → USD at the FX); only lines with no typed price / amount are filled. */
+  const suggest = async () => {
+    try {
+      const sug = await api.costSuggestion(doc.id, h.fxRate);
+      if (sug.taxableUsd === null) return;
+      setRows((rs) =>
+        rs.map((l) => {
+          const typed = l.unitPrice !== null && l.unitPrice !== undefined ? true : l.amountOverride !== null && l.amountOverride !== undefined;
+          if (typed || helperUsed(l)) return l;
+          if (/通関、車輸送料/.test(l.description) && l.taxable !== false) {
+            return { ...l, unitPrice: sug.taxableUsd };
+          }
+          if (/^通関/.test(l.description) && l.taxable === false) {
+            return { ...l, unitPrice: sug.nonTaxableUsd };
+          }
+          return l;
+        }),
+      );
+      toast.info(`Estimator for ${sug.shipments} shipment(s): ¥${Math.round(sug.taxableJpy).toLocaleString("en-US")} taxable, ¥${Math.round(sug.nonTaxableJpy).toLocaleString("en-US")} non-taxable — lines already typed were kept.`);
+    } catch (e: any) {
+      toast.error(e?.message || "Could not get the estimate");
+    }
+  };
 
   const tf = (k: keyof InvoiceHeader, label: string, extra: Record<string, any> = {}) => (
     <TextField size="small" fullWidth label={label} value={(h[k] as any) ?? ""} disabled={disabled} onChange={(e) => setH({ [k]: e.target.value } as any)} {...guardDate(extra, h[k])} />
@@ -255,7 +280,16 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
         <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
           <Typography variant="subtitle2">Lines</Typography>
           <Box sx={{ flex: 1 }} />
-          {!disabled && doc.docType === "INVOICE_1" && (
+          {!disabled && doc.docType === "INVOICE_2" && (
+            <Tooltip title="Fill the 通関、車輸送料 / 通関 lines from the cost estimator of the covered shipment(s), converted at this invoice's FX. Lines you typed are left alone.">
+              <span>
+                <Button size="small" variant="outlined" onClick={() => void suggest()} disabled={!h.fxRate} data-tour="invoice-suggest-costs">
+                  Suggest costs from estimator
+                </Button>
+              </span>
+            </Tooltip>
+          )}
+          {!disabled && doc.docType === "INVOICE_1" && !doc.orderId && (
             <Button size="small" startIcon={<PlaylistAddIcon />} onClick={() => setPick(true)} disabled={!customerId}>
               Add lines from another contract
             </Button>

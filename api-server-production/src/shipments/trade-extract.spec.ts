@@ -306,6 +306,7 @@ describe('TradeExtractService (model mocked)', () => {
       supplier: { findMany: jest.fn().mockResolvedValue([{ id: 'sup-v', name: 'Vedanta Aluminium Metal Limited' }]) },
       customer: { findMany: jest.fn().mockResolvedValue([]) },
       contract: { findFirst: jest.fn().mockResolvedValue(null) },
+      tradeOrder: { findFirst: jest.fn().mockResolvedValue(null) },
     };
     const extractor = {
       extractStructured: jest

@@ -21,6 +21,7 @@ export default function InvoicingPage() {
       fromPath="/portal/invoicing"
       hideSubtitle
       dateColumn="issue"
+      showCovers
     />
   );
 }

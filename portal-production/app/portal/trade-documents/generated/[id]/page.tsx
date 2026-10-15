@@ -25,13 +25,15 @@ import { useDebounced } from "@/app/portal/shipments/_components/useDebounced";
 import TableDocForm from "../_forms/TableDocForm";
 import InvoiceDocForm from "../_forms/InvoiceDocForm";
 import { SgjpDocForm, SiDocForm } from "../_forms/LogisticsDocForms";
+import SingleInvoiceForm from "../_forms/SingleInvoiceForm";
 
-type Kind = "table" | "invoice" | "sgjp" | "si";
+type Kind = "table" | "invoice" | "single" | "sgjp" | "si";
 const KIND: Record<string, Kind> = {
   CUSTOMER_PL: "table",
   CUSTOMER_COA: "table",
   INVOICE_1: "invoice",
   INVOICE_2: "invoice",
+  INVOICE_SINGLE: "single",
   SGJP_IV_PL: "sgjp",
   SHIPPING_INSTRUCTIONS: "si",
 };
@@ -66,12 +68,20 @@ export default function GeneratedDocEditorPage() {
   const g = q.data;
   const kind: Kind = (g && KIND[g.docType]) || "table";
   const isFinal = g?.status === "FINAL";
-  const recordHref = g?.shipmentId ? `/portal/shipments/${g.shipmentId}?tab=steps` : g?.contractId ? `/portal/shipments/contracts/${g.contractId}?tab=steps` : "/portal/trade-documents";
+  const recordHref = g?.shipmentId
+    ? `/portal/shipments/${g.shipmentId}`
+    : g?.orderId
+      ? `/portal/shipments/orders/${g.orderId}`
+      : g?.contractId
+        ? `/portal/shipments/contracts/${g.contractId}?tab=steps`
+        : "/portal/trade-documents";
   const backHref = (() => {
     const from = params?.get("from");
     return from && from.startsWith("/portal") ? from : recordHref;
   })();
-  const where = g?.shipmentId ? "the shipment" : "the contract";
+  const where = g?.shipmentId ? "the shipment" : g?.orderId ? "the order" : "the contract";
+  // 計量検収票 with Kato's body (a page of Vedanta's container PL) has no typed rows.
+  const attachBody = g?.docType === "CUSTOMER_PL" && header?.bodyMode === "attach";
 
   // Live preview: debounced, rendered server-side by the PDF template.
   const previewInput = useDebounced(useMemo(() => (header && g ? { docType: g.docType, header, columns, rows, draft: !isFinal } : null), [header, columns, rows, g, isFinal]), 500);
@@ -190,6 +200,17 @@ export default function GeneratedDocEditorPage() {
             Contract {g.contract.contractNo}
           </Typography>
         )}
+        {g.order && (
+          <Typography variant="body2" color="text.secondary">
+            Order #{g.order.orderNo}
+          </Typography>
+        )}
+        {(g.covers?.length ?? 0) > 1 && <Chip size="small" variant="outlined" label={`Covers ${g.covers!.map((c) => c.ref).join(", ")}`} data-tour="invoice-covers-chip" />}
+        {g.templateLabel && <Chip size="small" variant="outlined" label={g.templateLabel} />}
+        {/* Editor only — never printed on the PDF. */}
+        {g.formatConfirmed === false && (
+          <Chip size="small" color="warning" label="format not yet confirmed" data-tour="format-not-confirmed-chip" title="Copied from the Kato layout — replaced when ADH sends this customer's own sample" />
+        )}
         <Box sx={{ flex: 1 }} />
         {!isFinal && (
           <Button color="error" onClick={() => setConfirm("delete")} disabled={!!busy}>
@@ -212,7 +233,7 @@ export default function GeneratedDocEditorPage() {
             Edit again
           </Button>
         ) : (
-          <Button variant="contained" color="success" onClick={() => setConfirm("finalize")} disabled={!!busy || !rows.length}>
+          <Button variant="contained" color="success" onClick={() => setConfirm("finalize")} disabled={!!busy || (!rows.length && !attachBody)}>
             Finalize
           </Button>
         )}
@@ -220,7 +241,17 @@ export default function GeneratedDocEditorPage() {
 
       <Grid2 container spacing={2}>
         <Grid2 size={{ xs: 12, lg: 7 }}>
-          {kind === "invoice" ? <InvoiceDocForm {...formProps} /> : kind === "sgjp" ? <SgjpDocForm {...formProps} /> : kind === "si" ? <SiDocForm {...formProps} /> : <TableDocForm {...formProps} />}
+          {kind === "invoice" ? (
+            <InvoiceDocForm {...formProps} />
+          ) : kind === "single" ? (
+            <SingleInvoiceForm {...formProps} />
+          ) : kind === "sgjp" ? (
+            <SgjpDocForm {...formProps} />
+          ) : kind === "si" ? (
+            <SiDocForm {...formProps} />
+          ) : (
+            <TableDocForm {...formProps} />
+          )}
         </Grid2>
 
         <Grid2 size={{ xs: 12, lg: 5 }}>
@@ -242,7 +273,7 @@ export default function GeneratedDocEditorPage() {
         onConfirm={async () => {
           await persist();
           const f = await api.finalizeGenerated(g.id);
-          toast.success(kind === "invoice" ? `Finalized — invoice ${f.number ?? ""} confirmed` : `Finalized — PDF stored on ${where}`);
+          toast.success(kind === "invoice" || kind === "single" ? `Finalized — invoice ${f.number ?? ""} confirmed` : `Finalized — PDF stored on ${where}`);
           await refresh();
         }}
       />
@@ -260,7 +291,7 @@ export default function GeneratedDocEditorPage() {
       <ConfirmDialog
         open={confirm === "delete"}
         title="Delete this draft?"
-        body={kind === "invoice" && g.documentId ? "The draft and its unconfirmed Sales invoice are removed." : "The draft is removed. Any supplier file it was created from stays on the shipment."}
+        body={(kind === "invoice" || kind === "single") && g.documentId ? "The draft and its unconfirmed Sales invoice are removed." : "The draft is removed. Any supplier file it was created from stays on the shipment."}
         confirmLabel="Delete"
         destructive
         onClose={() => setConfirm(null)}

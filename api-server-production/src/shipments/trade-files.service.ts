@@ -1,11 +1,11 @@
 import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { S3Service } from '../common/services/s3.service';
 import { AddTradeFileLinksDto, ListTradeFilesQuery, UploadTradeFileDto } from './dto/trade-file.dto';
 import { TradeActor } from './shipments.request';
 import { decodeUploadName, isUuid, parseIdList, resolveTradeFileMime, sanitizeFileName, TRADE_FILE_MAX_BYTES } from './shipments.rules';
-import { Db, optText, pageArgs, RemovalOwner, TradeConfigService, TradeOwner } from './trade-config.service';
+import { Db, optText, ownerIdOf, pageArgs, RemovalOwner, TradeConfigService, TradeOwner } from './trade-config.service';
 import { TradeThumbsService } from './trade-thumbs.service';
 
 const SIGNED_URL_TTL = 600; // 10 minutes
@@ -14,16 +14,19 @@ const LINK_SELECT = {
   id: true,
   contractId: true,
   shipmentId: true,
+  orderId: true,
   stepId: true,
   createdAt: true,
   contract: { select: { contractNo: true } },
-  shipment: { select: { blNumber: true } },
+  shipment: { select: { blNumber: true, seqNo: true, order: { select: { orderNo: true } } } },
+  order: { select: { orderNo: true, year: true } },
 };
 
 interface Targets {
   contracts: Array<{ id: string; contractNo: string }>;
   shipments: Array<{ id: string; blNumber: string | null }>;
-  step: { id: string; contractId: string | null; shipmentId: string | null } | null;
+  orders: Array<{ id: string; orderNo: number }>;
+  step: { id: string; contractId: string | null; shipmentId: string | null; orderId: string | null } | null;
 }
 
 /**
@@ -47,7 +50,13 @@ export class TradeFilesService {
   }
 
   /** `opts.docRef`: the in-app document's ID for its finalized PDF (otherwise the next free one is assigned). */
-  async upload(organizationId: string, file: Express.Multer.File | undefined, dto: UploadTradeFileDto, actor: TradeActor, opts: { docRef?: string | null } = {}) {
+  async upload(
+    organizationId: string,
+    file: Express.Multer.File | undefined,
+    dto: UploadTradeFileDto,
+    actor: TradeActor,
+    opts: { docRef?: string | null; source?: 'UPLOAD' | 'GENERATED' | 'EMAIL'; emailLogId?: string | null; sha256?: string | null } = {},
+  ) {
     if (!file) throw new BadRequestException('Please attach a file');
     const fileName = decodeUploadName(file.originalname || 'upload');
     const mimeType = resolveTradeFileMime(fileName, file.mimetype);
@@ -56,10 +65,11 @@ export class TradeFilesService {
     const docType = (dto.docType || '').trim();
     const contractIds = parseIdList(dto.contractIds);
     const shipmentIds = parseIdList(dto.shipmentIds);
+    const orderIds = parseIdList(dto.orderIds);
 
     // Validate before touching S3 so a bad request stores nothing.
     await this.config.assertActiveDocType(organizationId, docType);
-    await this.resolveTargets(this.prisma, organizationId, contractIds, shipmentIds, dto.stepId);
+    await this.resolveTargets(this.prisma, organizationId, contractIds, shipmentIds, dto.stepId, orderIds);
 
     const fileId = randomUUID();
     const key = `${TradeFilesService.keyPrefix(organizationId)}${new Date().getUTCFullYear()}/${fileId}_${sanitizeFileName(fileName)}`;
@@ -76,14 +86,16 @@ export class TradeFilesService {
       await this.prisma.$transaction(async (tx: Db) => {
         // Re-check inside the transaction: a record may have closed meanwhile.
         await this.config.assertActiveDocType(organizationId, docType, tx);
-        const targets = await this.resolveTargets(tx, organizationId, contractIds, shipmentIds, dto.stepId);
+        const targets = await this.resolveTargets(tx, organizationId, contractIds, shipmentIds, dto.stepId, orderIds);
         owners = ownersOfTargets(targets);
-        // Document ID from the record it was uploaded for (the step's record, else the first shipment / contract).
+        // Document ID from the record it was uploaded for (the step's record, else the first shipment / order / contract).
         const refOwner: TradeOwner | undefined = targets.step
           ? targets.step.shipmentId
             ? { shipmentId: targets.step.shipmentId }
-            : { contractId: targets.step.contractId! }
-          : (owners.find((o) => o.shipmentId) ?? owners[0]);
+            : targets.step.orderId
+              ? { orderId: targets.step.orderId }
+              : { contractId: targets.step.contractId! }
+          : (owners.find((o) => o.shipmentId) ?? owners.find((o) => o.orderId) ?? owners[0]);
         // Replace keeps the replaced file's ID (same type, same org); a genuinely new file gets the next one.
         const replaced = dto.replacesFileId
           ? await tx.tradeFile.findFirst({ where: { id: dto.replacesFileId, organizationId, docType }, select: { docRef: true } })
@@ -102,6 +114,9 @@ export class TradeFilesService {
             uploadedByName: actor.name,
             notes: optText(dto.notes) ?? null,
             docRef,
+            source: opts.source ?? 'UPLOAD',
+            emailLogId: opts.emailLogId ?? null,
+            sha256: opts.sha256 ?? sha256Of(file.buffer),
           },
         });
         const links = this.linkRows(organizationId, fileId, targets, new Set());
@@ -124,10 +139,11 @@ export class TradeFilesService {
     const and: Record<string, unknown>[] = [];
     if (query.contractId) and.push({ links: { some: { contractId: query.contractId } } });
     if (query.shipmentId) and.push({ links: { some: { shipmentId: query.shipmentId } } });
+    if (query.orderId) and.push({ links: { some: { OR: [{ orderId: query.orderId }, { shipment: { orderId: query.orderId } }] } } });
     if (query.customerId) {
       and.push({
         links: {
-          some: { OR: [{ contract: { customerId: query.customerId } }, { shipment: { customerId: query.customerId } }] },
+          some: { OR: [{ contract: { customerId: query.customerId } }, { shipment: { customerId: query.customerId } }, { order: { customerId: query.customerId } }] },
         },
       });
     }
@@ -194,28 +210,29 @@ export class TradeFilesService {
   async addLinks(organizationId: string, id: string, dto: AddTradeFileLinksDto, actor: TradeActor | null = null) {
     const contractIds = parseIdList(dto.contractIds);
     const shipmentIds = parseIdList(dto.shipmentIds);
-    if (!contractIds.length && !shipmentIds.length && !dto.stepId) {
-      throw new BadRequestException('Give at least one contract, shipment or step to link');
+    const orderIds = parseIdList(dto.orderIds);
+    if (!contractIds.length && !shipmentIds.length && !orderIds.length && !dto.stepId) {
+      throw new BadRequestException('Give at least one order, shipment or step to link');
     }
     let owners: TradeOwner[] = [];
     let docType = '';
     await this.prisma.$transaction(async (tx: Db) => {
       const f = await tx.tradeFile.findFirst({
         where: { id, organizationId },
-        select: { id: true, docType: true, links: { select: { id: true, contractId: true, shipmentId: true, stepId: true } } },
+        select: { id: true, docType: true, links: { select: { id: true, contractId: true, shipmentId: true, orderId: true, stepId: true } } },
       });
       if (!f) throw new NotFoundException('File not found');
-      const targets = await this.resolveTargets(tx, organizationId, contractIds, shipmentIds, dto.stepId);
+      const targets = await this.resolveTargets(tx, organizationId, contractIds, shipmentIds, dto.stepId, orderIds);
       owners = ownersOfTargets(targets);
       docType = f.docType;
-      const existing = new Set<string>(f.links.map((l: { contractId: string | null; shipmentId: string | null }) => l.contractId ?? l.shipmentId));
+      const existing = new Set<string>(f.links.map((l: { contractId: string | null; shipmentId: string | null; orderId: string | null }) => ownerIdOf(l)));
       const rows = this.linkRows(organizationId, id, targets, existing);
       if (rows.length) await tx.tradeFileLink.createMany({ data: rows });
-      if (owners[0]) await this.config.ensureFileDocRef(tx, organizationId, id, owners.find((o) => o.shipmentId) ?? owners[0]);
+      if (owners[0]) await this.config.ensureFileDocRef(tx, organizationId, id, owners.find((o) => o.shipmentId) ?? owners.find((o) => o.orderId) ?? owners[0]);
       // Already linked to the step's parent: just tag that link with the step.
       if (targets.step) {
-        const ownerId = targets.step.contractId ?? targets.step.shipmentId;
-        const link = f.links.find((l: { contractId: string | null; shipmentId: string | null }) => (l.contractId ?? l.shipmentId) === ownerId);
+        const ownerId = ownerIdOf(targets.step);
+        const link = f.links.find((l: { contractId: string | null; shipmentId: string | null; orderId: string | null }) => ownerIdOf(l) === ownerId);
         if (link && link.stepId !== targets.step.id) {
           await tx.tradeFileLink.update({ where: { id: link.id, organizationId }, data: { stepId: targets.step.id } });
         }
@@ -238,8 +255,10 @@ export class TradeFilesService {
           id: true,
           contractId: true,
           shipmentId: true,
+          orderId: true,
           contract: { select: { contractNo: true, status: true } },
           shipment: { select: { blNumber: true, status: true } },
+          order: { select: { orderNo: true, status: true } },
         },
       });
       if (!link) throw new NotFoundException('Link not found on this file');
@@ -261,8 +280,10 @@ export class TradeFilesService {
             select: {
               contractId: true,
               shipmentId: true,
+              orderId: true,
               contract: { select: { contractNo: true, status: true } },
               shipment: { select: { blNumber: true, status: true } },
+              order: { select: { orderNo: true, status: true } },
             },
           },
         },
@@ -295,6 +316,8 @@ export class TradeFilesService {
       notes: true,
       thumbKey: true,
       docRef: true,
+      source: true,
+      emailLogId: true,
       createdAt: true,
       links: { orderBy: { createdAt: 'asc' as const }, select: LINK_SELECT },
     };
@@ -305,18 +328,24 @@ export class TradeFilesService {
    * (completed/cancelled records take no new documents until reopened). A
    * stepId adds its own contract/shipment to the targets.
    */
-  async resolveTargets(db: Db, organizationId: string, contractIds: string[], shipmentIds: string[], stepId?: string): Promise<Targets> {
-    const bad = [...contractIds, ...shipmentIds].filter((x) => !isUuid(x));
+  async resolveTargets(db: Db, organizationId: string, contractIds: string[], shipmentIds: string[], stepId?: string, orderIds: string[] = []): Promise<Targets> {
+    const bad = [...contractIds, ...shipmentIds, ...orderIds].filter((x) => !isUuid(x));
     if (bad.length) throw new BadRequestException(`Invalid id(s): ${bad.join(', ')}`);
     const cIds = new Set(contractIds);
     const sIds = new Set(shipmentIds);
+    const oIds = new Set(orderIds);
     let step: Targets['step'] = null;
     if (stepId) {
-      step = await db.tradeStep.findFirst({ where: { id: stepId, organizationId }, select: { id: true, contractId: true, shipmentId: true } });
+      step = await db.tradeStep.findFirst({ where: { id: stepId, organizationId }, select: { id: true, contractId: true, shipmentId: true, orderId: true } });
       if (!step) throw new BadRequestException('Step not found in this organization');
       if (step.contractId) cIds.add(step.contractId);
       if (step.shipmentId) sIds.add(step.shipmentId);
+      if (step.orderId) oIds.add(step.orderId);
     }
+    const orders: Array<{ id: string; orderNo: number; status: string }> = oIds.size
+      ? await db.tradeOrder.findMany({ where: { organizationId, id: { in: [...oIds] } }, select: { id: true, orderNo: true, status: true } })
+      : [];
+    if (orders.length !== oIds.size) throw new BadRequestException('One or more orders were not found in this organization');
     const contracts: Array<{ id: string; contractNo: string; status: string }> = cIds.size
       ? await db.contract.findMany({ where: { organizationId, id: { in: [...cIds] } }, select: { id: true, contractNo: true, status: true } })
       : [];
@@ -326,19 +355,21 @@ export class TradeFilesService {
     if (contracts.length !== cIds.size) throw new BadRequestException('One or more contracts were not found in this organization');
     if (shipments.length !== sIds.size) throw new BadRequestException('One or more shipments were not found in this organization');
     const closed = [
+      ...orders.filter((o) => o.status !== 'OPEN').map((o) => `order #${o.orderNo} (${o.status.toLowerCase()})`),
       ...contracts.filter((c) => c.status !== 'OPEN').map((c) => `contract ${c.contractNo} (${c.status.toLowerCase()})`),
       ...shipments.filter((s) => s.status !== 'OPEN').map((s) => `shipment ${s.blNumber ?? '(no B/L)'} (${s.status.toLowerCase()})`),
     ];
     if (closed.length) throw new BadRequestException(`Reopen before adding documents: ${closed.join(', ')}`);
-    return { contracts, shipments, step };
+    return { contracts, shipments, orders, step };
   }
 
-  /** One link row per target not already linked; each has exactly one of contractId / shipmentId. */
+  /** One link row per target not already linked; each has exactly one of contractId / shipmentId / orderId. */
   private linkRows(organizationId: string, fileId: string, t: Targets, existing: Set<string>) {
-    const stepFor = (ownerId: string) => (t.step && (t.step.contractId ?? t.step.shipmentId) === ownerId ? t.step.id : null);
+    const stepFor = (ownerId: string) => (t.step && ownerIdOf(t.step) === ownerId ? t.step.id : null);
     return [
-      ...t.contracts.filter((c) => !existing.has(c.id)).map((c) => ({ organizationId, fileId, contractId: c.id, shipmentId: null, stepId: stepFor(c.id) })),
-      ...t.shipments.filter((s) => !existing.has(s.id)).map((s) => ({ organizationId, fileId, contractId: null, shipmentId: s.id, stepId: stepFor(s.id) })),
+      ...(t.orders ?? []).filter((o) => !existing.has(o.id)).map((o) => ({ organizationId, fileId, contractId: null, shipmentId: null, orderId: o.id, stepId: stepFor(o.id) })),
+      ...t.contracts.filter((c) => !existing.has(c.id)).map((c) => ({ organizationId, fileId, contractId: c.id, shipmentId: null, orderId: null, stepId: stepFor(c.id) })),
+      ...t.shipments.filter((s) => !existing.has(s.id)).map((s) => ({ organizationId, fileId, contractId: null, shipmentId: s.id, orderId: null, stepId: stepFor(s.id) })),
     ];
   }
 
@@ -351,19 +382,29 @@ function shapeFile<F extends { docType: string; thumbKey?: string | null }>(f: F
   return { ...rest, docTypeLabel: labels.get(f.docType) ?? f.docType, hasThumb: !!thumbKey };
 }
 
-/** The contracts / shipments a file was just linked to. */
-export const ownersOfTargets = (t: Targets): TradeOwner[] => [...t.contracts.map((c) => ({ contractId: c.id })), ...t.shipments.map((s) => ({ shipmentId: s.id }))];
+/** The orders / contracts / shipments a file was just linked to. */
+export const ownersOfTargets = (t: Targets): TradeOwner[] => [
+  ...(t.orders ?? []).map((o) => ({ orderId: o.id })),
+  ...t.contracts.map((c) => ({ contractId: c.id })),
+  ...t.shipments.map((s) => ({ shipmentId: s.id })),
+];
 
 export function ownerOf(link: {
   contractId: string | null;
   shipmentId: string | null;
+  orderId?: string | null;
   contract?: { contractNo: string; status: string } | null;
   shipment?: { blNumber: string | null; status: string } | null;
+  order?: { orderNo: number; status: string } | null;
 }): RemovalOwner {
+  if (link.orderId) return { orderId: link.orderId, label: `order #${link.order?.orderNo ?? ''}`, status: link.order?.status ?? 'OPEN' };
   return link.contractId
     ? { contractId: link.contractId, label: `contract ${link.contract?.contractNo}`, status: link.contract?.status ?? 'OPEN' }
     : { shipmentId: link.shipmentId!, label: `shipment ${link.shipment?.blNumber ?? '(no B/L)'}`, status: link.shipment?.status ?? 'OPEN' };
 }
+
+/** sha256 of a file's bytes (hex) — the email intake skips a file it already has. */
+export const sha256Of = (buf: Buffer) => createHash('sha256').update(buf).digest('hex');
 
 function parseDay(v: string, name: string): Date {
   const d = new Date(v);

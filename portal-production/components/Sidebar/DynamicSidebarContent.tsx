@@ -443,9 +443,10 @@ export default function DynamicSidebarContent() {
       subMenus: [
         { key: 'company-profile', label: 'Company Profile', path: '/portal/settings/company-profile' },
         { key: 'shipping', label: 'Shipping & documents', path: '/portal/settings/shipping' },
+        { key: 'customer-profiles', label: 'Customers', path: '/portal/settings/customers' },
         { key: 'accounting-setup', label: 'Accounting Setup', path: '/portal/settings/accounting-setup' },
         { key: 'masterfiles', label: 'Master Files', path: '/portal/masterfiles' },
-      ].filter((s) => (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'shipping' || showShippingSettings(isModuleEnabled))),
+      ].filter((s) => (s.key !== 'accounting-setup' || accountingSetupShown) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled))),
     },
   ];
 

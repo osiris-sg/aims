@@ -3,8 +3,11 @@ import { IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matc
 import { IsTradeDate } from './trade-date';
 
 export class CreateShipmentDto {
-  @IsUUID()
-  contractId: string;
+  /** The order this B/L ships ("#19-1"). Required for new shipments; contractId alone is the pre-orders path. */
+  @IsOptional() @IsUUID() orderId?: string;
+
+  /** Legacy (before orders): a contract without an order. Taken from the order otherwise. */
+  @IsOptional() @IsUUID() contractId?: string;
 
   /** The contract product line this B/L ships. Defaults to the only line; required when the contract has several. */
   @IsOptional() @IsUUID() contractLineId?: string | null;
@@ -43,8 +46,14 @@ export class CreateShipmentDto {
   @IsOptional() @IsString() @MaxLength(5000) notes?: string | null;
 }
 
-/** contractId is fixed at creation: steps and file links hang off the shipment. */
-export class UpdateShipmentDto extends PartialType(OmitType(CreateShipmentDto, ['contractId'] as const)) {
+/** "Add shipment" on an order (POST /orders/:id/shipments): the order comes from the URL. */
+export class AddShipmentDto extends OmitType(CreateShipmentDto, ['orderId', 'contractId'] as const) {}
+
+/** orderId / contractId are fixed at creation: steps and file links hang off the shipment. */
+export class UpdateShipmentDto extends PartialType(OmitType(CreateShipmentDto, ['contractId', 'orderId'] as const)) {
+  /** Estimator inputs and step 12 actuals (validated in the service). */
+  @IsOptional() costs?: unknown;
+
   @IsOptional()
   @IsIn(['CANCELLED'], { message: 'status can only be set to CANCELLED here (use complete / reopen)' })
   status?: 'CANCELLED';
@@ -52,6 +61,9 @@ export class UpdateShipmentDto extends PartialType(OmitType(CreateShipmentDto, [
 
 export class ListShipmentsQuery {
   @IsOptional() @IsUUID() contractId?: string;
+  @IsOptional() @IsUUID() orderId?: string;
+  /** Invoice #2 shipment picker: shipments not yet covered by a FINAL Invoice #2 / single invoice. */
+  @IsOptional() @IsIn(['true', 'false']) uninvoiced?: string;
   @IsOptional() @IsUUID() customerId?: string;
   @IsOptional() @IsIn(['OPEN', 'COMPLETED', 'CANCELLED']) status?: string;
   /** List tab: pending = OPEN, completed = COMPLETED + CANCELLED. */

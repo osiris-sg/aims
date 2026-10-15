@@ -1,4 +1,4 @@
-import { Controller, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { actorOf, orgIdOf, TradeRequest } from './shipments.request';
@@ -25,5 +25,12 @@ export class TradeStepsController {
   @Permissions('shipments:update')
   reopen(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
     return this.steps.reopen(orgIdOf(req), id, actorOf(req));
+  }
+
+  /** Tick / untick a sub-task ("Sent to customer" …) — evidence only, never blocks the step. */
+  @Post(':id/subtasks/:key')
+  @Permissions('shipments:update')
+  subtask(@Param('id', ParseUUIDPipe) id: string, @Param('key') key: string, @Body() body: { done?: boolean }, @Req() req: TradeRequest) {
+    return this.steps.setSubtask(orgIdOf(req), id, key, body?.done !== false, actorOf(req));
   }
 }

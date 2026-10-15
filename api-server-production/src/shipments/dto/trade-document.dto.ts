@@ -11,6 +11,7 @@ export class LinkTradeDocumentDto {
 
   @IsOptional() contractIds?: unknown;
   @IsOptional() shipmentIds?: unknown;
+  @IsOptional() orderIds?: unknown;
 
   /** Step the document was created for; its contract/shipment is linked automatically. */
   @IsOptional() @IsUUID() stepId?: string;

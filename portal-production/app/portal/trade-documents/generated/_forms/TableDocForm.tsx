@@ -7,7 +7,8 @@
 // rows × ~20 columns, and 2,000+ MUI inputs froze the page.
 
 import React, { useMemo } from "react";
-import { Box, Button, Checkbox, Divider, FormControlLabel, Grid2, IconButton, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Checkbox, Divider, FormControlLabel, Grid2, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
+import { useTradeFiles } from "@/app/portal/shipments/_lib/hooks";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
 import type { GenColumn, GenHeader, GenRow } from "@/app/portal/shipments/_lib/api";
@@ -46,6 +47,7 @@ export default function TableDocForm({ doc: g, header, rows, columns, disabled: 
 
   return (
     <>
+      {g.docType === "CUSTOMER_PL" && jp && <AttachBodyPanel shipmentId={g.shipmentId} header={header} disabled={isFinal} setH={setH} />}
           {jp ? (
           <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
             <Typography variant="subtitle2" sx={{ mb: 1.5 }}>
@@ -263,5 +265,59 @@ export default function TableDocForm({ doc: g, header, rows, columns, disabled: 
             )}
           </Paper>
     </>
+  );
+}
+
+/**
+ * 計量検収票 body (Kato's layout): a page of Vedanta's container packing list
+ * ("INVOICE NO. 以降 VEDANTA印影まで"), cropped top / bottom if needed — or the
+ * typed table below as the fallback.
+ */
+function AttachBodyPanel({ shipmentId, header, disabled, setH }: { shipmentId: string | null; header: GenHeader; disabled: boolean; setH: (p: Partial<GenHeader>) => void }) {
+  const files = useTradeFiles({ shipmentId: shipmentId ?? undefined, docType: "PL", pageSize: 50 }, !!shipmentId);
+  const options = (files.data?.items ?? []).filter((f) => f.mimeType === "application/pdf" || f.mimeType.startsWith("image/"));
+  const mode = header.bodyMode ?? "table";
+  const crop = header.attachCrop ?? { top: 0, bottom: 0 };
+  const pct = (v?: number) => Math.round((v ?? 0) * 100);
+  return (
+    <Paper variant="outlined" sx={{ p: 2, mb: 2 }} data-tour="customer-pl-attach-body">
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }} sx={{ mb: mode === "attach" ? 1.5 : 0 }}>
+        <Typography variant="subtitle2" sx={{ flex: 1 }}>
+          Body
+        </Typography>
+        <ToggleButtonGroup size="small" exclusive value={mode} disabled={disabled} onChange={(_, v) => v && setH({ bodyMode: v })}>
+          <ToggleButton value="attach">Page of Vedanta&apos;s container PL</ToggleButton>
+          <ToggleButton value="table">Typed table</ToggleButton>
+        </ToggleButtonGroup>
+      </Stack>
+      {mode === "attach" && (
+        <>
+          {!options.length && !files.isLoading && <Alert severity="warning">Upload Vedanta&apos;s container packing list (PDF) on step 3 first — or use the typed table.</Alert>}
+          <Grid2 container spacing={1.5}>
+            <Grid2 size={{ xs: 12, sm: 6 }}>
+              <TextField select size="small" fullWidth label="Container PL file" value={options.some((f) => f.id === header.attachFileId) ? header.attachFileId : ""} disabled={disabled} onChange={(e) => setH({ attachFileId: e.target.value })}>
+                {options.map((f) => (
+                  <MenuItem key={f.id} value={f.id}>
+                    {f.fileName}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid2>
+            <Grid2 size={{ xs: 4, sm: 2 }}>
+              <TextField size="small" fullWidth type="number" label="Page" value={header.attachPage ?? 1} disabled={disabled} inputProps={{ min: 1 }} onChange={(e) => setH({ attachPage: Math.max(1, Number(e.target.value) || 1) })} />
+            </Grid2>
+            <Grid2 size={{ xs: 4, sm: 2 }}>
+              <TextField size="small" fullWidth type="number" label="Crop top %" value={pct(crop.top)} disabled={disabled} inputProps={{ min: 0, max: 90 }} onChange={(e) => setH({ attachCrop: { ...crop, top: Math.min(90, Math.max(0, Number(e.target.value) || 0)) / 100 } })} />
+            </Grid2>
+            <Grid2 size={{ xs: 4, sm: 2 }}>
+              <TextField size="small" fullWidth type="number" label="Crop bottom %" value={pct(crop.bottom)} disabled={disabled} inputProps={{ min: 0, max: 90 }} onChange={(e) => setH({ attachCrop: { ...crop, bottom: Math.min(90, Math.max(0, Number(e.target.value) || 0)) / 100 } })} />
+            </Grid2>
+          </Grid2>
+          <Typography variant="caption" color="text.secondary">
+            The page is printed in the frame from INVOICE NO. to the Vedanta seal (crop to fit). The typed table below is kept as the fallback.
+          </Typography>
+        </>
+      )}
+    </Paper>
   );
 }

@@ -32,13 +32,13 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import CloseIcon from "@mui/icons-material/Close";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
-import { TRADE_FILE_EXTENSIONS, TRADE_FILE_MAX_BYTES, type TradeFile } from "../_lib/api";
+import { linkTargetsOf, targetGroup, TRADE_FILE_EXTENSIONS, TRADE_FILE_MAX_BYTES, type TradeFile } from "../_lib/api";
 import { toast } from "../_lib/toast";
 import { LocalPreview } from "./FilePreview";
-import { useContracts, useDocTypes, useShipments, useTradeMutation } from "../_lib/hooks";
+import { useOrders, useDocTypes, useShipments, useTradeMutation } from "../_lib/hooks";
 import { blLabel, fmtBytes } from "../_lib/format";
 
-export type LinkTarget = { kind: "contract" | "shipment"; id: string; label: string };
+export type LinkTarget = { kind: "contract" | "shipment" | "order"; id: string; label: string };
 
 type Row = { file: File; status: "ready" | "uploading" | "done" | "error"; pct: number; error?: string };
 
@@ -81,7 +81,7 @@ export default function FileUploadDialog({
   title?: string;
 }) {
   const docTypes = useDocTypes();
-  const contracts = useContracts({ status: "OPEN", pageSize: 100 }, open);
+  const orders = useOrders({ bucket: "pending", pageSize: 100 }, open);
   const shipments = useShipments({ status: "OPEN", pageSize: 100 }, open);
   const [docType, setDocType] = useState("");
   const [targets, setTargets] = useState<LinkTarget[]>([]);
@@ -98,8 +98,7 @@ export default function FileUploadDialog({
         notes,
         stepId,
         replacesFileId,
-        contractIds: targets.filter((t) => t.kind === "contract").map((t) => t.id),
-        shipmentIds: targets.filter((t) => t.kind === "shipment").map((t) => t.id),
+        ...linkTargetsOf(targets),
       },
       (pct) => setRows((rs) => rs.map((r, i) => (i === v.index ? { ...r, pct } : r))),
     ),
@@ -121,8 +120,8 @@ export default function FileUploadDialog({
 
   const options: LinkTarget[] = useMemo(() => {
     const out: LinkTarget[] = [
-      ...(contracts.data?.items ?? []).map((c) => ({ kind: "contract" as const, id: c.id, label: `Contract ${c.contractNo}` })),
-      ...(shipments.data?.items ?? []).map((s) => ({ kind: "shipment" as const, id: s.id, label: `Shipment ${blLabel(s.blNumber)}${s.contractNo ? ` · ${s.contractNo}` : ""}` })),
+      ...(orders.data?.items ?? []).map((o) => ({ kind: "order" as const, id: o.id, label: `Order ${o.label}${o.customerName ? ` · ${o.customerName}` : ""}` })),
+      ...(shipments.data?.items ?? []).map((s) => ({ kind: "shipment" as const, id: s.id, label: `Shipment ${s.ref || blLabel(s.blNumber)}${s.blNumber && s.ref ? ` · B/L ${s.blNumber}` : ""}` })),
     ];
     // Keep defaults selectable even if they're not in the first page of results.
     defaultTargets.forEach((d) => {
@@ -130,7 +129,7 @@ export default function FileUploadDialog({
     });
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contracts.data, shipments.data, defaultKey]);
+  }, [orders.data, shipments.data, defaultKey]);
 
   const activeDocTypes = (docTypes.data ?? []).filter((d) => d.isActive || d.code === docType);
 
@@ -201,10 +200,10 @@ export default function FileUploadDialog({
             options={options}
             value={targets}
             onChange={(_, v) => setTargets(v)}
-            groupBy={(o) => (o.kind === "contract" ? "Contracts" : "Shipments")}
+            groupBy={(o) => targetGroup(o.kind)}
             getOptionLabel={(o) => o.label}
             isOptionEqualToValue={(a, b) => a.id === b.id}
-            loading={contracts.isLoading || shipments.isLoading}
+            loading={orders.isLoading || shipments.isLoading}
             disabled={busy}
             renderTags={(value, getTagProps) => value.map((o, i) => <Chip size="small" label={o.label} {...getTagProps({ index: i })} key={o.id} />)}
             renderInput={(p) => <TextField {...p} label="Link to" size="small" />}

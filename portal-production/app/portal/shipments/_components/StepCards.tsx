@@ -1,7 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-// Steps of one contract or shipment as cards (the deal page's timeline).
+// Steps of one order or shipment as cards (the order page's timeline).
+// Steps that don't apply to the customer (profile) fold to a greyed
+// "N/A (customer profile)" line; "sent" sub-tasks (Sent to customer …) are
+// ticked by hand or by the email intake and never block a step. Invoice #2 /
+// the single invoice ask which shipments of the customer they cover.
 //
 // There is no Start: the current step (first one not done) is the large open
 // card; done steps fold to one line ("✓ 1. Set up PI payment · user · date",
@@ -24,7 +28,9 @@
 
 import React, { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Box, Button, ButtonBase, Chip, CircularProgress, Collapse, Divider, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Stack, Typography, Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
+import { Box, Button, ButtonBase, Checkbox, Chip, CircularProgress, Collapse, Divider, FormControlLabel, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Stack, Typography, Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
+import BlockIcon from "@mui/icons-material/Block";
+import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
@@ -35,7 +41,7 @@ import LinkIcon from "@mui/icons-material/Link";
 import DownloadIcon from "@mui/icons-material/Download";
 import { toast } from "../_lib/toast";
 import { useShipmentsApi, type BlCheckSummary, type GeneratedDoc, type GenSource, type RecordDocLink, type RecordFileLink, type TradeFile, type TradeStep } from "../_lib/api";
-import { useDocTypeLabels, useTradeMutation } from "../_lib/hooks";
+import { useDocTypeLabels, useShipments, useTradeMutation } from "../_lib/hooks";
 import { documentHref, fmtDate, fmtDateTime, GENERATED_DOC_TYPES, INVOICE_DOC_TYPES, stepLabel } from "../_lib/format";
 import { ConfirmDialog } from "./bits";
 import BlCheckPanel from "./BlCheckPanel";
@@ -68,7 +74,8 @@ const DOC_HINTS: Record<string, string> = {
   TELEX_RELEASE: "Telex release / surrender notice",
   DELIVERY_SCHEDULE: "The customer's delivery schedule",
   IMPORT_PERMIT: "Import permit (輸入許可書)",
-  INVOICE_2: "ADH 請求書 for the final price, customs and transport (2回目)",
+  INVOICE_2: "ADH 請求書 for the final price, customs and transport (2回目) — can cover several shipments of the customer",
+  INVOICE_SINGLE: "ADH 請求書 (one invoice, Kato / Hoei): billet + 通関、車輸送料 + 通関 — once the B/L and CI are in",
   VENDOR_INVOICE: "Warehouse / transport invoices (e.g. Mitsui Soko)",
   PAYMENT_PROOF: "Bank transfer slip for those invoices",
   OTHER: "Anything else for this step",
@@ -100,6 +107,8 @@ export default function StepCards({
   blCheck = null,
   numberFrom,
   onFileUploaded,
+  stepExtra,
+  customerId,
 }: {
   steps: TradeStep[];
   owner: LinkTarget;
@@ -124,6 +133,10 @@ export default function StepCards({
   numberFrom?: number;
   /** After a file is uploaded on a row (the deal page reads a B/L draft / arrival notice with AI). */
   onFileUploaded?: (docType: string, files: TradeFile[]) => void;
+  /** A panel under a step's rows (estimator on steps 7 / 8 / 12, reconciliation on 13). */
+  stepExtra?: (s: TradeStep) => React.ReactNode;
+  /** The record's customer (the covers picker lists its other shipments). */
+  customerId?: string | null;
 }) {
   const api = useShipmentsApi();
   const router = useRouter();
@@ -140,6 +153,9 @@ export default function StepCards({
   // Bulk upload with AI sorting: files dropped on a step's "Drop all documents here" zone.
   const [bulk, setBulk] = useState<{ step: TradeStep; files: File[] } | null>(null);
   const change = useTradeMutation((a, v: { id: string; action: "complete" | "reopen" }) => (v.action === "complete" ? a.completeStep(v.id) : a.reopenStep(v.id)));
+  const tick = useTradeMutation((a, v: { id: string; key: string; done: boolean }) => a.setSubtask(v.id, v.key, v.done));
+  // Invoice #2 / single invoice: which shipments of the customer it covers (picked before creating it).
+  const [covers, setCovers] = useState<{ docType: string } | null>(null);
   const removeOld = useTradeMutation(async (a, old: RecordFileLink) => {
     const after = await a.removeLink(old.file.id, old.id);
     // Linked nowhere else: the replaced file goes; otherwise it stays on the other records.
@@ -148,6 +164,7 @@ export default function StepCards({
 
   const sorted = [...steps].sort((a, b) => a.sortOrder - b.sortOrder);
   const main = sorted.filter((s) => !s.isOngoing);
+  // Numbering ignores N/A steps only when the org has no own step numbers (displayNo).
   const ongoing = sorted.filter((s) => s.isOngoing);
   const titleOf = (s: TradeStep) => stepLabel(s, s.isOngoing ? undefined : (numberFrom ?? 0) + main.indexOf(s) + 1);
   const editorHref = (id: string) => `/portal/trade-documents/generated/${id}?from=${encodeURIComponent(returnTo)}`;
@@ -189,10 +206,16 @@ export default function StepCards({
     }
   };
 
-  const createBlank = async (docType: string) => {
+  const createBlank = async (docType: string, coversShipmentIds?: string[]) => {
+    // Invoice #2 / single invoice on a shipment: ask which of the customer's shipments it covers first.
+    if (!coversShipmentIds && owner.kind === "shipment" && GENERATED_DOC_TYPES[docType]?.covers) return setCovers({ docType });
     setCreating(docType);
     try {
-      const g = await api.createBlankGenerated({ docType, ...(owner.kind === "contract" ? { contractId: owner.id } : { shipmentId: owner.id }) });
+      const g = await api.createBlankGenerated({
+        docType,
+        ...(owner.kind === "contract" ? { contractId: owner.id } : owner.kind === "order" ? { orderId: owner.id } : { shipmentId: owner.id }),
+        ...(coversShipmentIds ? { coversShipmentIds } : {}),
+      });
       router.push(editorHref(g.id));
     } catch (e: any) {
       toast.error(e?.message || "Could not create the document");
@@ -464,6 +487,33 @@ export default function StepCards({
           {(s.requiredFields?.length ?? 0) > 0 && fieldsRow(s)}
           {s.requiredDocTypes.map((d) => (canCreate(d) ? createRow(s, d, stateOf(s, d)) : uploadRow(s, d, stateOf(s, d))))}
           {owner.kind === "shipment" && s.code === "BL_DRAFT_APPROVAL" && blCheck && <BlCheckPanel check={blCheck} shipmentId={owner.id} canEdit={recordOpen} />}
+          {(s.subtasks ?? []).length > 0 && (
+            <Paper variant="outlined" sx={{ px: 2, py: 1 }} data-tour="step-subtasks">
+              {(s.subtasks ?? []).map((t) => (
+                <Stack key={t.key} direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                  {t.na ? (
+                    <Typography variant="body2" color="text.disabled" sx={{ py: 0.75 }}>
+                      <BlockIcon sx={{ fontSize: 16, verticalAlign: "-3px", mr: 0.75 }} />
+                      {t.label} — N/A (customer profile)
+                    </Typography>
+                  ) : (
+                    <FormControlLabel
+                      control={<Checkbox size="small" checked={!!t.done} disabled={!recordOpen || tick.isPending} onChange={(e) => void tick.mutateAsync({ id: s.id, key: t.key, done: e.target.checked }).catch((err) => toast.error(err?.message || "Could not update"))} />}
+                      label={<Typography variant="body2">{t.label}</Typography>}
+                    />
+                  )}
+                  {t.done && (
+                    <Typography variant="caption" color="text.secondary">
+                      {t.source === "EMAIL" ? <MailOutlineIcon sx={{ fontSize: 14, verticalAlign: "-2px", mr: 0.5 }} /> : null}
+                      {t.source === "EMAIL" ? "from an email" : t.by ? `by ${t.by}` : ""}
+                      {t.at ? ` · ${fmtDateTime(t.at)}` : ""}
+                    </Typography>
+                  )}
+                </Stack>
+              ))}
+            </Paper>
+          )}
+          {stepExtra?.(s)}
         </Stack>
 
         {(optRows.length > 0 || extra.length > 0) && (
@@ -556,7 +606,18 @@ export default function StepCards({
     );
   };
 
-  const item = (s: TradeStep) => (openId === s.id ? card(s) : line(s));
+  /** A step that doesn't apply to this customer: collapsed, greyed, never blocks. */
+  const naLine = (s: TradeStep) => (
+    <Box key={s.id} id={`step-${s.id}`} sx={{ px: 1.5, py: 0.75, display: "flex", alignItems: "center", gap: 1.25, opacity: 0.7 }}>
+      <BlockIcon fontSize="small" sx={{ color: "text.disabled" }} />
+      <Typography variant="body2" color="text.disabled" sx={{ textDecoration: "line-through" }}>
+        {titleOf(s)}
+      </Typography>
+      <Chip size="small" variant="outlined" label="N/A (customer profile)" data-tour="step-na-chip" />
+    </Box>
+  );
+
+  const item = (s: TradeStep) => (s.notApplicable ? naLine(s) : openId === s.id ? card(s) : line(s));
 
   return (
     <Box>
@@ -689,6 +750,19 @@ export default function StepCards({
         docTypes={bulk ? bulkDocTypes(bulk.step, canCreate) : []}
         onClose={() => setBulk(null)}
       />
+      <CoversDialog
+        open={!!covers}
+        docType={covers?.docType ?? ""}
+        primaryId={owner.id}
+        customerId={customerId ?? null}
+        label={covers ? label(covers.docType) : ""}
+        onClose={() => setCovers(null)}
+        onConfirm={(ids) => {
+          const c = covers!;
+          setCovers(null);
+          void createBlank(c.docType, ids);
+        }}
+      />
       <LinkInvoiceDialog open={!!linkExisting} onClose={() => setLinkExisting(null)} docType={linkExisting?.docType ?? ""} stepId={linkExisting?.step.id} owner={owner} />
       <ConfirmDialog
         open={!!reopenAsk}
@@ -794,5 +868,64 @@ function FieldsRow({ title, done, summary, canEdit, form, labels }: { title: str
       </Typography>
       {showForm && form && <Box sx={{ mt: 1.5 }}>{form}</Box>}
     </>
+  );
+}
+
+/**
+ * Invoice #2 / single invoice: which shipments it bills. The current one is
+ * always in; other open, not-yet-invoiced shipments of the same customer can
+ * be added (even from other orders: "6005_56.197t+6063_260.224t").
+ */
+function CoversDialog({ open, docType, primaryId, customerId, label, onClose, onConfirm }: { open: boolean; docType: string; primaryId: string; customerId: string | null; label: string; onClose: () => void; onConfirm: (ids: string[]) => void }) {
+  const list = useShipments({ customerId: customerId ?? undefined, uninvoiced: "true", status: "OPEN", pageSize: 100 }, open && !!customerId);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  React.useEffect(() => {
+    if (open) setPicked(new Set([primaryId]));
+  }, [open, primaryId]);
+  const rows = (list.data?.items ?? []).filter((x) => x.id === primaryId || true);
+  const toggle = (id: string) =>
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      n.add(primaryId);
+      return n;
+    });
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        {label}: which shipments does it cover?
+        <Typography variant="body2" color="text.secondary">
+          One invoice can bill several shipments of this customer — including shipments of other orders. Finalizing it completes step 11 on each.
+        </Typography>
+      </DialogTitle>
+      <DialogContent dividers data-tour="invoice-covers-picker">
+        {list.isLoading ? (
+          <CircularProgress size={22} />
+        ) : !rows.length ? (
+          <Typography variant="body2">Only this shipment is open and not invoiced yet.</Typography>
+        ) : (
+          <List dense disablePadding>
+            {rows.map((x) => (
+              <ListItemButton key={x.id} onClick={() => x.id !== primaryId && toggle(x.id)} disabled={x.id === primaryId}>
+                <ListItemIcon>
+                  <Checkbox edge="start" size="small" checked={picked.has(x.id)} disabled={x.id === primaryId} />
+                </ListItemIcon>
+                <ListItemText
+                  primary={`${x.ref || "Shipment"}${x.blNumber ? ` · B/L ${x.blNumber}` : " · B/L pending"}${x.id === primaryId ? " (this shipment)" : ""}`}
+                  secondary={[x.productLine, x.netWeightMt != null ? `${Number(x.netWeightMt).toLocaleString("en-US", { maximumFractionDigits: 3 })} MT net` : null].filter(Boolean).join(" · ")}
+                />
+              </ListItemButton>
+            ))}
+          </List>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={() => onConfirm([primaryId, ...[...picked].filter((x) => x !== primaryId)])} disabled={!docType}>
+          Create invoice ({picked.size} shipment{picked.size === 1 ? "" : "s"})
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }

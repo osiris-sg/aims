@@ -107,7 +107,7 @@ export default function ShipmentFormDialog({
     setFilled(new Set());
     if (shipment) {
       setForm(fromShipment(shipment));
-      setContractId(shipment.contractId);
+      setContractId(shipment.contractId ?? "");
       setLineId(shipment.contractLineId ?? "");
     } else {
       setForm({ ...EMPTY, currency: presetContract?.currency || "USD", deliveryMonth: presetContract?.deliveryMonth ?? "" });

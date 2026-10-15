@@ -22,6 +22,9 @@ export const ROUTES = {
 
   SHIPMENTS: "/portal/shipments",
   SHIPMENT_CONTRACTS: "/portal/shipments/contracts",
+  SHIPMENT_ORDER: "/portal/shipments/orders",
+  SHIPMENT_INBOX: "/portal/shipments/inbox",
+  SETTINGS_CUSTOMERS: "/portal/settings/customers",
   // Old Shipments → Documents route; redirects to TRADE_DOCUMENTS.
   SHIPMENT_DOCUMENTS: "/portal/shipments/documents",
   // Trade documents hub (per-org DOCUMENTS route, e.g. ADH Japan).

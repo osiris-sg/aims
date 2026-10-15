@@ -156,6 +156,8 @@ export default function DealPage() {
       </Box>
     );
   }
+  // Since orders a contract is the yearly LTC master: its lines (default premiums) and its orders.
+  if ((c.orders?.length ?? 0) > 0 || (!c.steps.length && !c.shipments.length)) return <ContractMaster contract={c} />;
 
   const here = `/portal/shipments/contracts/${c.id}${shipmentId ? `?shipment=${shipmentId}` : ""}`;
   const hereTab = (t: string) => `${here}${here.includes("?") ? "&" : "?"}tab=${t}`;
@@ -475,6 +477,45 @@ export default function DealPage() {
 }
 
 const NO_ROWS: ApplyRow[] = [];
+
+/** A contract as the yearly master (LTC): parties, product lines with default premiums, and the orders under it. */
+function ContractMaster({ contract: c }: { contract: Contract }) {
+  const router = useRouter();
+  return (
+    <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1100, mx: "auto" }}>
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+        <Button onClick={() => router.push("/portal/shipments/contracts")}>← Contracts</Button>
+        <Typography variant="h5" sx={{ fontWeight: 800 }}>
+          Contract {c.contractNo}
+        </Typography>
+        <RecordStatusChip status={c.status} />
+      </Stack>
+      <Stack spacing={3}>
+        <ContractOverview contract={c} />
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            Orders on this contract ({c.orders?.length ?? 0})
+          </Typography>
+          {!(c.orders ?? []).length ? (
+            <Typography variant="body2" color="text.secondary">
+              No orders yet — create one from Orders → New Order and pick this contract.
+            </Typography>
+          ) : (
+            <Stack spacing={0.5}>
+              {(c.orders ?? []).map((o) => (
+                <Button key={o.id} sx={{ justifyContent: "flex-start", textTransform: "none" }} onClick={() => router.push(`/portal/shipments/orders/${o.id}`)}>
+                  <b>#{o.orderNo}</b>&nbsp;· {o.customer?.name ?? "—"} · {[o.shipMonth, o.deliveryMonth].filter(Boolean).join(" → ")} · {o.grade ?? "—"} · {o.qtyMt != null ? `${fmtMt(o.qtyMt)} MT` : "—"} · client premium {o.clientPremium ?? "—"}
+                  &nbsp;
+                  <RecordStatusChip status={o.status} />
+                </Button>
+              ))}
+            </Stack>
+          )}
+        </Paper>
+      </Stack>
+    </Box>
+  );
+}
 
 const BL_FIELDS: Array<[keyof Shipment & string, string]> = [
   ["blNumber", "B/L no."],

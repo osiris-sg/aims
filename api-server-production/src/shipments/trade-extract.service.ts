@@ -222,7 +222,9 @@ export class TradeExtractService {
     ]);
     const draft = contractDraftFromPi(pi, { suppliers, customers });
     const existing = draft.contractNo ? await this.prisma.contract.findFirst({ where: { organizationId, contractNo: draft.contractNo }, select: { id: true, contractNo: true } }) : null;
-    return { raw: pi, draft, existingContractId: existing?.id ?? null };
+    // An order already made from this PI (same PI no.) — the New Order form warns instead of creating it twice.
+    const order = draft.piNumber ? await this.prisma.tradeOrder.findFirst({ where: { organizationId, piNo: draft.piNumber }, select: { id: true, orderNo: true, year: true } }) : null;
+    return { raw: pi, draft, existingContractId: existing?.id ?? null, existingOrder: order ? { id: order.id, label: `#${order.orderNo}`, year: order.year } : null };
   }
 
   /** Arrival notice → draft + the blank shipment fields it can fill (the user confirms in the portal). */
@@ -274,17 +276,27 @@ export async function computeBlChecks(db: Db, organizationId: string, shipmentId
       containerCount: true,
       hsCode: true,
       countryOfOrigin: true,
+      orderId: true,
       contract: { select: { contractNo: true, consignee: true, notifyParty: true, destinationPort: true } },
       contractLine: { select: { id: true, grade: true, quantityMt: true, tolerancePct: true } },
+      order: { select: { grade: true, qtyMt: true, tolPct: true, consignee: true, notifyParty: true, destinationPort: true, contract: { select: { contractNo: true } } } },
     },
   });
   if (!s) return [];
-  const others: Array<{ netWeightMt: unknown }> = s.contractLineId
-    ? await db.shipment.findMany({ where: { organizationId, contractLineId: s.contractLineId, NOT: { id: s.id } }, select: { netWeightMt: true } })
-    : [];
+  // Under an order: its B/L instructions, product and quantity (shipped elsewhere = its other shipments); else the contract line's.
+  const others: Array<{ netWeightMt: unknown }> = s.orderId
+    ? await db.shipment.findMany({ where: { organizationId, orderId: s.orderId, NOT: { id: s.id } }, select: { netWeightMt: true } })
+    : s.contractLineId
+      ? await db.shipment.findMany({ where: { organizationId, contractLineId: s.contractLineId, NOT: { id: s.id } }, select: { netWeightMt: true } })
+      : [];
   const shipped = others.reduce((n, o) => n + (Number(o.netWeightMt) || 0), 0);
-  const { contract, contractLine, ...fields } = s;
-  return blDraftChecks({ draft, contract, line: contractLine, lineShippedElsewhereMt: shipped, shipment: fields as any });
+  const { contract, contractLine, order, orderId: _o, ...fields } = s;
+  void _o;
+  const terms = order
+    ? { contractNo: order.contract?.contractNo ?? contract?.contractNo ?? '', consignee: order.consignee, notifyParty: order.notifyParty, destinationPort: order.destinationPort }
+    : contract;
+  const line = order ? { grade: order.grade, quantityMt: order.qtyMt, tolerancePct: order.tolPct } : contractLine;
+  return blDraftChecks({ draft, contract: terms, line, lineShippedElsewhereMt: shipped, shipment: fields as any });
 }
 
 /**

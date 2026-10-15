@@ -1,5 +1,7 @@
 /**
- * Document IDs for trade documents: "<contract no>-<shipment no>-<type code>"
+ * Document IDs for trade documents. Since orders (2026-10): "{yy}-{order no}-
+ * {shipment no}-{type}" on a shipment (26-19-1-CPL) and "{yy}-{order no}-{type}"
+ * on an order (26-19-INV1). Before orders: "<contract no>-<shipment no>-<type code>"
  * (454003255-1-CPL), or "<contract no>-<type code>" for a document that sits
  * on the contract (454003255-PI, 454003255-INV1). A repeat of the same type on
  * the same record gets a counter (454003255-1-SGJP-2). The ID is assigned on
@@ -32,6 +34,7 @@ export const DOC_REF_CODES: Record<string, string> = {
   DELIVERY_SCHEDULE: 'DSCH',
   IMPORT_PERMIT: 'PERMIT',
   INVOICE_2: 'INV2',
+  INVOICE_SINGLE: 'INV',
   VENDOR_INVOICE: 'VINV',
   PAYMENT_PROOF: 'PAY',
   OTHER: 'OTHER',
@@ -43,6 +46,13 @@ export const docRefCode = (docType: string) => DOC_REF_CODES[docType] ?? docType
 export function docRefBase(owner: { contractNo: string; seqNo?: number | null }, docType: string): string {
   const seq = owner.seqNo ?? null;
   return seq ? `${owner.contractNo}-${seq}-${docRefCode(docType)}` : `${owner.contractNo}-${docRefCode(docType)}`;
+}
+
+/** Order-era ID before any repeat counter: "26-19-1-CPL" on a shipment, "26-19-INV1" on an order. */
+export function orderDocRefBase(owner: { year: number; orderNo: number; seqNo?: number | null }, docType: string): string {
+  const yy = String(owner.year % 100).padStart(2, '0');
+  const seq = owner.seqNo ?? null;
+  return seq ? `${yy}-${owner.orderNo}-${seq}-${docRefCode(docType)}` : `${yy}-${owner.orderNo}-${docRefCode(docType)}`;
 }
 
 /**

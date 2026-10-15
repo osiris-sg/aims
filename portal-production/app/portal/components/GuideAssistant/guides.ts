@@ -209,6 +209,54 @@ export const GUIDES: Guide[] = [
     ],
   },
   {
+    id: 'create-trade-order',
+    title: 'Start an order (Shipments)',
+    module: 'SHIPMENTS',
+    description:
+      'How to create a new order ("#19") in Shipments — from scratch with the New Order form or from an existing PI file (Fill from PI) — pick the contract so the premiums default, then add its shipments (#19-1) on the order page. NOT for uploading shipping documents to an existing shipment.',
+    route: '/portal/shipments',
+    steps: [
+      {
+        route: '/portal/shipments',
+        selector: '[data-tour="shipments-tab-pending"]',
+        title: 'Orders',
+        body: 'Each row is an order (#19): customer, contract, ship → delivery month, product and quantity. The arrow next to #19 lists its shipments.',
+      },
+      {
+        title: 'New Order',
+        body: 'Click "New Order" (top-right). Drop the PI on "Fill from PI" to fill the form from an existing PI file, or type it in. Pick the contract: the premiums come from its line and stay editable.',
+      },
+      {
+        selector: '[data-tour="order-add-shipment"]',
+        title: 'Add shipments',
+        body: 'On the order page, "Add shipment" adds #19-1, #19-2 … — the B/L details go on each shipment\'s step 2.',
+        patient: true,
+      },
+    ],
+  },
+  {
+    id: 'trade-email-inbox',
+    title: 'Check the email inbox (Shipments)',
+    module: 'SHIPMENTS',
+    description:
+      'How the shipments email intake works: Shipments → Inbox lists the forwarded emails the AI matched to orders / shipments — accept suggestions, assign unmatched ones, undo, or delete mail that is not about a shipment.',
+    route: '/portal/shipments/inbox',
+    steps: [
+      {
+        route: '/portal/shipments/inbox',
+        selector: '[data-tour="inbox-tabs"]',
+        title: 'Four tabs',
+        body: 'Suggested: matched, waiting for Accept. Unmatched: assign an order / shipment from the ⋮ menu. Processed: done — Undo is always there. Unsure: kept 14 days for you to check.',
+      },
+      {
+        selector: '[data-tour="inbox-table"]',
+        title: 'Each email',
+        body: 'Date, sent / received, who it is with, the subject, the order / shipment it matched and what it does. Click a row for the details.',
+        patient: true,
+      },
+    ],
+  },
+  {
     id: 'design-document-template',
     title: 'Change how documents look',
     description:

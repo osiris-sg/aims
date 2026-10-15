@@ -72,6 +72,8 @@ const VERB_ACTIONS: Record<string, string> = {
   claim: 'CLAIM', done: 'POSTED', retry: 'RETRY', resolve: 'CONFIRM',
   // Shipments: AI reads of a PI / B/L draft, and acknowledging the B/L check.
   pi: 'EXTRACT', 'bl-draft': 'EXTRACT', an: 'EXTRACT', classify: 'EXTRACT', acknowledge: 'ACKNOWLEDGE',
+  // Orders (2026-10): a step's "sent" sub-task ticked / unticked; the email inbox's accept / undo / assign.
+  subtasks: 'UPDATE', undo: 'UNDO', accept: 'APPROVE', dismiss: 'IGNORE', retriage: 'RUN',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
   // Field delivery verbs (2026-09): the customer sign-off (full or partial, and
   // the guest link's), the return sign-off, ad-hoc acknowledge, install skip, and
@@ -241,6 +243,8 @@ export class ActionLogInterceptor implements NestInterceptor {
       // POST /trade-files/:id/links and POST /trade-documents/links add links;
       // DELETE .../links/:linkId removes one.
       if (s === 'links') return method === 'DELETE' ? 'UNLINK' : method === 'POST' ? 'LINK' : METHOD_ACTION[method] || 'UNKNOWN';
+      // POST /trade-steps/:id/subtasks/:key ticks a sub-task: the key is data, not a verb.
+      if (i > 0 && segments[i - 1] === 'subtasks') return 'UPDATE';
       if (VERB_ACTIONS[s]) return VERB_ACTIONS[s];
       break;
     }

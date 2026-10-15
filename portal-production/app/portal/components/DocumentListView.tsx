@@ -65,6 +65,8 @@ interface Props {
   hideSubtitle?: boolean;
   /** "issue": show and sort by the document's issue date instead of its created date (newest first). */
   dateColumn?: "created" | "issue";
+  /** Trade invoices (Shipments orgs): a "Covers" column — the orders / shipments the invoice bills ("#9-1, #9-2"). */
+  showCovers?: boolean;
 }
 
 interface DocumentRow {
@@ -177,6 +179,7 @@ export default function DocumentListView({
   fromPath,
   hideSubtitle,
   dateColumn = "created",
+  showCovers = false,
 }: Props) {
   const router = useRouter();
   const { getToken } = useAuth();
@@ -285,6 +288,17 @@ export default function DocumentListView({
       },
     },
     // "Associated Item" dropped from all document lists (2026-07-13, guru).
+    ...(showCovers
+      ? [
+          {
+            // Stamped by the in-app 請求書 on Finalize (config.tradeCovers): "#11" for Invoice #1, "#9-1, #9-2" for an Invoice #2 over two shipments.
+            accessorKey: "covers",
+            header: "Covers",
+            enableSorting: false,
+            cell: ({ row }: { row: { original: { config?: unknown } } }) => String((row.original.config as { tradeCovers?: string } | undefined)?.tradeCovers || "—"),
+          },
+        ]
+      : []),
     {
       // Gross total from the config blob — same candidate order as the AR
       // invoice list's getInvoiceTotal (guru 2026-08-18: show the amount).

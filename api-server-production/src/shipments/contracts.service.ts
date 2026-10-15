@@ -12,9 +12,11 @@ import { DEFAULT_DEPOSIT_DUE, depositDueDate, depositDueText, parseDepositDue } 
 export { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, STEP_SELECT, STEP_SUMMARY_SELECT } from './trade-selects';
 
 /**
- * Contracts: the supplier contract / PI level. A contract and its shipments
- * are one deal: a new contract gets shipment #1 straight away (B/L pending,
- * filled in on shipment step 2), and "Add shipment" adds more.
+ * Contracts: the yearly supplier contract (LTC, e.g. Vedanta 454003255) with
+ * its product lines and default premiums. Since orders (2026-10) many orders
+ * ("#19") sit under one contract and carry the PI, the steps and the
+ * shipments; a contract alone has no steps and no shipments of its own
+ * (contracts from before orders keep theirs).
  */
 @Injectable()
 export class ContractsService {
@@ -49,7 +51,7 @@ export class ContractsService {
           customer: { select: { id: true, name: true, customerCode: true } },
           lines: { orderBy: { sortOrder: 'asc' }, select: CONTRACT_LINE_SELECT },
           steps: { select: STEP_SUMMARY_SELECT },
-          _count: { select: { shipments: true } },
+          _count: { select: { shipments: true, orders: true } },
         },
       }),
       this.prisma.contract.count({ where }),
@@ -60,6 +62,7 @@ export class ContractsService {
       linesSummary: linesSummary(c.lines ?? []),
       totalQuantityMt: totalQty(c.lines ?? []),
       shipmentCount: _count?.shipments ?? 0,
+      orderCount: _count?.orders ?? 0,
       progress: progressOf(steps ?? []),
       currentStep: currentStepOf(steps ?? []),
     }));
@@ -97,6 +100,10 @@ export class ContractsService {
         steps: { orderBy: { sortOrder: 'asc' }, select: STEP_SELECT },
         fileLinks: { orderBy: { createdAt: 'desc' }, select: FILE_LINK_SELECT },
         docLinks: { orderBy: { createdAt: 'desc' }, select: DOC_LINK_SELECT },
+        orders: {
+          orderBy: [{ year: 'desc' }, { orderNo: 'desc' }],
+          select: { id: true, year: true, orderNo: true, status: true, shipMonth: true, deliveryMonth: true, grade: true, qtyMt: true, clientPremium: true, customer: { select: { id: true, name: true } } },
+        },
       },
     });
     if (!c) throw new NotFoundException('Contract not found');
@@ -148,10 +155,11 @@ export class ContractsService {
           select: { id: true },
         });
         await this.syncLines(tx, organizationId, created.id, dto.lines);
-        await this.config.snapshotSteps(tx, organizationId, 'CONTRACT', { contractId: created.id });
-        if (dto.piFileId) await this.config.linkSourceFile(tx, organizationId, dto.piFileId, 'PI', { contractId: created.id }, 'PI_PAYMENT');
-        // Shipment #1 of the deal, B/L pending.
-        await this.shipments.createInTx(tx, organizationId, { contractId: created.id } as CreateShipmentDto, actor);
+        // Orgs still on the contract-level flow (CONTRACT step templates active) keep their steps and shipment #1;
+        // with orders the contract is just the LTC master and orders carry the deal.
+        const steps = await this.config.snapshotSteps(tx, organizationId, 'CONTRACT', { contractId: created.id });
+        if (dto.piFileId && steps) await this.config.linkSourceFile(tx, organizationId, dto.piFileId, 'PI', { contractId: created.id }, 'PI_PAYMENT');
+        if (steps) await this.shipments.createInTx(tx, organizationId, { contractId: created.id } as CreateShipmentDto, actor);
         return created.id as string;
       });
       return this.getById(organizationId, id, actor);
@@ -198,9 +206,11 @@ export class ContractsService {
           id: true,
           contractNo: true,
           shipments: { select: { id: true, blNumber: true, _count: { select: { fileLinks: true, docLinks: true, generatedDocs: true } } } },
+          _count: { select: { orders: true } },
         },
       });
       if (!c) throw new NotFoundException('Contract not found');
+      if (c._count.orders) throw new BadRequestException(`Contract ${c.contractNo} has ${c._count.orders} order(s) — delete or move them first`);
       // Shipments with nothing on them yet (e.g. the automatic shipment #1) go with the contract.
       const used = c.shipments.filter((x: { _count: { fileLinks: number; docLinks: number; generatedDocs: number } }) => x._count.fileLinks + x._count.docLinks + x._count.generatedDocs > 0);
       if (used.length) {

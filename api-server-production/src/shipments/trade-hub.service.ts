@@ -11,6 +11,7 @@ export interface HubQuery {
   docType?: string;
   contractId?: string;
   shipmentId?: string;
+  orderId?: string;
   customerId?: string;
   source?: string;
   from?: string;
@@ -20,7 +21,20 @@ export interface HubQuery {
   pageSize?: string;
 }
 
-type HubLink = { contractId: string | null; shipmentId: string | null; contractNo: string | null; blNumber: string | null; linkId?: string };
+type HubLink = { contractId: string | null; shipmentId: string | null; orderId?: string | null; contractNo: string | null; blNumber: string | null; ref?: string | null; linkId?: string };
+
+/** A file / invoice link as the hub shows it: contract no., B/L, and the order / shipment ref ("#19", "#19-1"). */
+const hubLink = (l: any, linkId?: string): HubLink => ({
+  linkId,
+  contractId: l.contractId ?? null,
+  shipmentId: l.shipmentId ?? null,
+  orderId: l.orderId ?? null,
+  contractNo: l.contract?.contractNo ?? null,
+  blNumber: l.shipment?.blNumber ?? null,
+  ref: l.orderId ? `#${l.order?.orderNo ?? ''}` : l.shipment?.order ? `#${l.shipment.order.orderNo}${l.shipment.seqNo ? `-${l.shipment.seqNo}` : ''}` : null,
+});
+const linkCustomerId = (l: any) => l.order?.customerId ?? l.contract?.customerId ?? l.shipment?.customerId;
+const linkCustomerName = (l: any) => l.order?.customer?.name ?? l.contract?.customer?.name ?? l.shipment?.customer?.name;
 
 export interface HubRow {
   /** file:<id> | invoice:<documentId> | generated:<id> */
@@ -93,8 +107,10 @@ export class TradeHubService {
               id: true,
               contractId: true,
               shipmentId: true,
+              orderId: true,
               contract: { select: { contractNo: true, customerId: true, customer: { select: { name: true } } } },
-              shipment: { select: { blNumber: true, customerId: true, customer: { select: { name: true } } } },
+              shipment: { select: { blNumber: true, seqNo: true, customerId: true, customer: { select: { name: true } }, order: { select: { orderNo: true } } } },
+              order: { select: { orderNo: true, customerId: true, customer: { select: { name: true } } } },
             },
           },
         },
@@ -107,9 +123,11 @@ export class TradeHubService {
           docType: true,
           contractId: true,
           shipmentId: true,
+          orderId: true,
           createdAt: true,
           contract: { select: { contractNo: true, customerId: true, customer: { select: { name: true } } } },
-          shipment: { select: { blNumber: true, customerId: true, customer: { select: { name: true } } } },
+          shipment: { select: { blNumber: true, seqNo: true, customerId: true, customer: { select: { name: true } }, order: { select: { orderNo: true } } } },
+          order: { select: { orderNo: true, customerId: true, customer: { select: { name: true } } } },
         },
       }),
       this.prisma.tradeGeneratedDoc.findMany({
@@ -126,9 +144,13 @@ export class TradeHubService {
           createdByName: true,
           updatedAt: true,
           rows: true,
-          shipment: { select: { id: true, blNumber: true, customerId: true, contractId: true, customer: { select: { name: true } }, contract: { select: { contractNo: true } } } },
-          // Invoice #1 belongs to a contract, not a shipment.
+          shipment: {
+            select: { id: true, blNumber: true, seqNo: true, customerId: true, contractId: true, orderId: true, customer: { select: { name: true } }, contract: { select: { contractNo: true } }, order: { select: { orderNo: true } } },
+          },
+          // Invoice #1 belongs to an order (contract-era ones to a contract), not a shipment.
           contract: { select: { id: true, contractNo: true, customerId: true, customer: { select: { name: true } } } },
+          order: { select: { id: true, orderNo: true, customerId: true, customer: { select: { name: true } } } },
+          coversShipmentIds: true,
         },
       }),
     ]);
@@ -149,9 +171,9 @@ export class TradeHubService {
         name: f.fileName,
         source: 'UPLOADED',
         status: null,
-        links: f.links.map((l) => ({ linkId: l.id, contractId: l.contractId, shipmentId: l.shipmentId, contractNo: l.contract?.contractNo ?? null, blNumber: l.shipment?.blNumber ?? null })),
-        customerIds: [...new Set(f.links.map((l) => l.contract?.customerId ?? l.shipment?.customerId).filter(Boolean) as string[])],
-        customerName: f.links.map((l) => l.contract?.customer?.name ?? l.shipment?.customer?.name).find(Boolean) ?? null,
+        links: f.links.map((l) => hubLink(l, l.id)),
+        customerIds: [...new Set(f.links.map(linkCustomerId).filter(Boolean) as string[])],
+        customerName: f.links.map(linkCustomerName).find(Boolean) ?? null,
         recipient: null,
         createdBy: f.uploadedByName,
         date: f.createdAt.toISOString(),
@@ -190,9 +212,9 @@ export class TradeHubService {
         name: s?.number ?? '(deleted invoice)',
         source: 'IN_APP',
         status: state.state === 'confirmed' ? 'Confirmed' : state.state === 'draft' ? 'Draft' : state.state === 'voided' ? 'Voided' : 'Deleted',
-        links: links.map((l) => ({ linkId: l.id, contractId: l.contractId, shipmentId: l.shipmentId, contractNo: l.contract?.contractNo ?? null, blNumber: l.shipment?.blNumber ?? null })),
-        customerIds: [...new Set(links.map((l) => l.contract?.customerId ?? l.shipment?.customerId).filter(Boolean) as string[])],
-        customerName: links.map((l) => l.contract?.customer?.name ?? l.shipment?.customer?.name).find(Boolean) ?? s?.customerName ?? null,
+        links: links.map((l) => hubLink(l, l.id)),
+        customerIds: [...new Set(links.map(linkCustomerId).filter(Boolean) as string[])],
+        customerName: links.map(linkCustomerName).find(Boolean) ?? s?.customerName ?? null,
         recipient: null,
         // The editor stamps who last worked on it (savedBy is often empty).
         createdBy: (d?.config as any)?.savedBy || (d?.config as any)?.confirmedBy || (d?.config as any)?.lastUsedBy || null,
@@ -203,16 +225,22 @@ export class TradeHubService {
 
     for (const g of generated) {
       const header = (g.header as any) ?? {};
+      const shipRef = (sh: { seqNo: number | null; order: { orderNo: number } | null } | null) => (sh?.order ? `#${sh.order.orderNo}${sh.seqNo ? `-${sh.seqNo}` : ''}` : null);
       const links: HubLink[] = g.shipment
         ? [
-            { contractId: g.shipment.contractId, shipmentId: null, contractNo: g.shipment.contract?.contractNo ?? null, blNumber: null },
-            { contractId: null, shipmentId: g.shipment.id, contractNo: null, blNumber: g.shipment.blNumber },
+            ...(g.shipment.contractId ? [{ contractId: g.shipment.contractId, shipmentId: null, contractNo: g.shipment.contract?.contractNo ?? null, blNumber: null }] : []),
+            ...(g.shipment.orderId ? [{ contractId: null, shipmentId: null, orderId: g.shipment.orderId, contractNo: null, blNumber: null, ref: `#${g.shipment.order?.orderNo}` }] : []),
+            { contractId: null, shipmentId: g.shipment.id, contractNo: null, blNumber: g.shipment.blNumber, ref: shipRef(g.shipment) },
           ]
-        : g.contract
-          ? [{ contractId: g.contract.id, shipmentId: null, contractNo: g.contract.contractNo, blNumber: null }]
-          : [];
-      const customerIds = new Set([g.shipment?.customerId ?? g.contract?.customerId].filter(Boolean) as string[]);
-      const customerNames = [g.shipment?.customer?.name ?? g.contract?.customer?.name];
+        : g.order
+          ? [{ contractId: null, shipmentId: null, orderId: g.order.id, contractNo: null, blNumber: null, ref: `#${g.order.orderNo}` }]
+          : g.contract
+            ? [{ contractId: g.contract.id, shipmentId: null, contractNo: g.contract.contractNo, blNumber: null }]
+            : [];
+      // An Invoice #2 / single invoice covering several shipments belongs to each.
+      for (const sid of g.coversShipmentIds ?? []) if (!links.some((x) => x.shipmentId === sid)) links.push({ contractId: null, shipmentId: sid, contractNo: null, blNumber: null });
+      const customerIds = new Set([g.shipment?.customerId ?? g.order?.customerId ?? g.contract?.customerId].filter(Boolean) as string[]);
+      const customerNames = [g.shipment?.customer?.name ?? g.order?.customer?.name ?? g.contract?.customer?.name];
       // Invoice #1 billing several contracts belongs to each of them: the
       // finalized PDF is linked to all; a draft names them on its lines.
       const extra = new Set<string>();
@@ -271,6 +299,7 @@ export class TradeHubService {
       (!query.source || r.source === query.source) &&
       (!query.contractId || r.links.some((l) => l.contractId === query.contractId)) &&
       (!query.shipmentId || r.links.some((l) => l.shipmentId === query.shipmentId)) &&
+      (!query.orderId || r.links.some((l) => l.orderId === query.orderId)) &&
       (!query.customerId || r.customerIds.includes(query.customerId)) &&
       (!from || new Date(r.date) >= from) &&
       (!to || new Date(r.date) <= to) &&

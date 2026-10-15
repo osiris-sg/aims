@@ -448,10 +448,10 @@ export default function ContractFormDialog({
   return (
     <Dialog open={open} onClose={() => !save.isPending && !reading && cancel()} maxWidth={source || readingFile ? "xl" : "lg"} fullWidth>
       <DialogTitle>
-        {contract ? `Edit contract ${contract.contractNo}` : "New Shipment"}
+        {contract ? `Edit contract ${contract.contractNo}` : "New contract"}
         {!contract && (
           <Typography variant="body2" color="text.secondary">
-            Start with the contract — shipment #1 is created with it (B/L pending).
+            The master contract (LTC). Orders are created from it — each order then gets its shipments.
           </Typography>
         )}
       </DialogTitle>
@@ -644,7 +644,7 @@ export default function ContractFormDialog({
           Cancel
         </Button>
         <Button variant="contained" onClick={submit} disabled={save.isPending || reading}>
-          {save.isPending ? "Saving…" : contract ? "Save changes" : "Create shipment"}
+          {save.isPending ? "Saving…" : contract ? "Save changes" : "Create contract"}
         </Button>
       </DialogActions>
     </Dialog>
