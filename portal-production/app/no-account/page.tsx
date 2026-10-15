@@ -6,7 +6,7 @@ import { useAuth, useClerk, useUser } from "@clerk/nextjs";
 import { Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
 import Image from "next/image";
 import logo from "@/components/Sidebar/aims-logo.png";
-import { SITECLOCK_URL } from "@/components/TopNav/AppSwitcher";
+import { SITECLOCK_FROM_AIMS_URL } from "@/components/TopNav/AppSwitcher";
 
 /**
  * "No AIMS account" landing (AIMS ↔ SiteClock link, 2026-10).
@@ -94,7 +94,7 @@ export default function NoAccountPage() {
           </Typography>
         )}
         <Stack spacing={1} sx={{ width: "100%", pt: 1 }}>
-          <Button variant="contained" href={SITECLOCK_URL} fullWidth>
+          <Button variant="contained" href={SITECLOCK_FROM_AIMS_URL} fullWidth>
             Go to SiteClock
           </Button>
           <Button variant="text" color="inherit" fullWidth onClick={() => signOut({ redirectUrl: "/sign-in" })}>

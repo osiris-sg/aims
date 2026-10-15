@@ -17,6 +17,8 @@ import Image from "next/image";
 import logo from "@/components/Sidebar/aims-logo.png";
 
 export const SITECLOCK_URL = "https://siteclock.osiris.sg";
+// ?from=aims makes SiteClock sync the AIMS session once on that visit (direct visits never sync)
+export const SITECLOCK_FROM_AIMS_URL = SITECLOCK_URL + "/?from=aims";
 
 type AppTile = {
   key: string;
@@ -39,7 +41,7 @@ const APPS: AppTile[] = [
   {
     key: "siteclock",
     label: "SiteClock",
-    href: SITECLOCK_URL,
+    href: SITECLOCK_FROM_AIMS_URL,
     external: true,
     color: "#0e7490",
     icon: <AccessTimeRoundedIcon sx={{ color: "#FFFFFF", fontSize: 26 }} />,
