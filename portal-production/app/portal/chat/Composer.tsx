@@ -106,7 +106,9 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
           position: "relative",
           border: "1px solid",
           borderColor: focused ? `rgba(${CYAN},0.7)` : `rgba(${CYAN},0.22)`,
-          borderRadius: 7,
+          // A pill while it is one line; a rounded card once file chips or
+          // several lines stack inside it, or the chips sit in the curve.
+          borderRadius: files.length || text.includes("\n") ? 3 : 7,
           bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(255,255,255,0.035)" : "rgba(255,255,255,0.85)"),
           backdropFilter: "blur(10px)",
           boxShadow: (t) =>
@@ -137,7 +139,7 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
         }}
       >
         {!!files.length && (
-          <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mb: 1 }}>
+          <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mb: 1, mt: 0.5, px: 0.75 }}>
             {files.map((f) => (
               <Chip
                 key={`${f.filename}-${f.size}`}
@@ -145,7 +147,7 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
                 label={f.filename}
                 onDelete={() => setFiles((prev) => prev.filter((x) => x !== f))}
                 deleteIcon={<CloseIcon />}
-                sx={{ maxWidth: 260 }}
+                sx={{ maxWidth: 260, bgcolor: "rgba(85,233,255,0.12)", "& .MuiChip-deleteIcon": { color: "text.secondary" } }}
               />
             ))}
           </Stack>
