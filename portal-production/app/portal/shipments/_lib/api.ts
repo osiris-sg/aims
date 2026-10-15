@@ -60,6 +60,23 @@ export type DocDefaults = Record<string, any> & {
   deliveryProfiles?: DeliveryProfile[];
   sizeInch?: Record<string, string>;
 };
+/** Org Settings → Shipping & documents: the store-only email intake (GET /email-intake). */
+export type IntakeEmail = {
+  id: string;
+  receivedAt: string;
+  date: string | null;
+  from: string;
+  subject: string | null;
+  messageId: string;
+  status: string;
+  reason: string | null;
+  hasEml: boolean;
+  emlSource: "raw" | "reconstructed" | null;
+  attachments: Array<{ index: number; name: string; contentType: string; size: number }>;
+  attachmentNames: string[];
+};
+export type EmailIntake = { address: string | null; addressNote: string | null; enabled: boolean; mode: string | null; emails: IntakeEmail[] };
+
 export type TradeSettings = { defaultConsignee: string | null; defaultNotifyParty: string | null; docDefaults: DocDefaults; updatedAt: string | null };
 export type StepTemplate = {
   id: string;
@@ -819,6 +836,9 @@ export function useShipmentsApi() {
       docTypes: () => call<DocType[]>(`/trade-config/doc-types`),
       stepTemplates: (scope?: "CONTRACT" | "SHIPMENT") => call<StepTemplate[]>(`/trade-config/step-templates${qs({ scope })}`),
       settings: () => call<TradeSettings>(`/trade-config/settings`),
+      emailIntake: () => call<EmailIntake>(`/email-intake`),
+      /** Short-lived link to a stored email's .eml, or attachment n. */
+      emailIntakeFile: (id: string, attachment?: number) => call<{ url: string }>(`/email-intake/${id}/file${qs({ attachment })}`),
       updateSettings: (body: { defaultConsignee?: string | null; defaultNotifyParty?: string | null; docDefaults?: Record<string, unknown> }) => call<TradeSettings>(`/trade-config/settings`, "PATCH", body),
       suppliers: async () => {
         const r = await call<{ docs?: Party[] }>(`/suppliers`, "POST", { page: 1, limit: 500, search: "" });

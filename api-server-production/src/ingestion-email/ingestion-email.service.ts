@@ -9,6 +9,8 @@ import { S3Service } from '../common/services/s3.service';
 import { BillsService } from '../bills/bills.service';
 import { DocumentsService } from '../documents/documents.service';
 import { DocumentExtractionService, DocumentType } from '../document-extraction/document-extraction.service';
+import { runAsOrg } from '../common/tenancy/tenant-context';
+import { emailFolder, parseMailDate, reconstructEml, safeKeyName, StoredAttachment, StoredEmailMeta } from './email-store';
 
 // Provider-agnostic inbound payload — same shape as bills-inbound.
 export interface InboundEmailPayload {
@@ -18,6 +20,11 @@ export interface InboundEmailPayload {
   text?: string;
   messageId?: string;
   attachments?: Array<{ contentType: string; contentBase64: string; filename?: string }>;
+  // Sent by the Cloudflare worker; used by the store-only intake (email-store.ts).
+  envelopeFrom?: string;
+  date?: string; // the email's Date header
+  rawBase64?: string; // original MIME, when it fits the request
+  meta?: { skippedAttachments?: Array<{ filename: string | null; size?: number; reason?: string }> };
 }
 
 type InboundResult =
@@ -80,6 +87,14 @@ export class IngestionEmailService {
     });
     if (!org) return { ok: false, reason: 'unknown-org' };
 
+    // The webhook is public (no org in the request context): run the rest
+    // inside the addressed org so per-org tenancy reaches its schema.
+    return runAsOrg(organizationId, () => this.inboundForOrg(org, payload));
+  }
+
+  private async inboundForOrg(org: { id: string; name: string; registrationNumber: string | null }, payload: InboundEmailPayload): Promise<InboundResult> {
+    const organizationId = org.id;
+
     // 2. Per-org config gate.
     const config = await this.prisma.emailIngestConfig.findUnique({ where: { organizationId } });
     if (!config || !config.enabled) return { ok: false, reason: 'ingestion-disabled' };
@@ -101,6 +116,9 @@ export class IngestionEmailService {
     //    message hits the (org, messageId) unique and short-circuits here.
     const log = await this.createLog(organizationId, messageId, payload, 'RECEIVED', null, attachmentCount);
     if (!log) return { ok: false, reason: 'duplicate' };
+
+    // 4b. Store-only intake: keep the .eml + attachments, nothing else.
+    if (config.routingMode === 'STORE') return this.storeOnly(organizationId, log.id, log.createdAt, messageId, payload);
 
     // 5. Hard rules — deterministic, evaluated once per email on the envelope,
     //    before any AI call. IGNORE drops the email; FORCE_* pins the doc type
@@ -709,6 +727,62 @@ export class IngestionEmailService {
     if (list.length === 0) return true; // empty allow-list = accept all
     if (!fromEmail) return false;
     return list.some((entry) => (entry.startsWith('@') ? fromEmail.endsWith(entry) : fromEmail === entry));
+  }
+
+  /**
+   * routingMode STORE: the .eml (raw MIME from the worker, else rebuilt) and
+   * every attachment go to S3 under email-intake/{org}/{yyyy}/{mm}/{logId}/;
+   * the log row becomes STORED with the keys in rawMeta. No classification.
+   * If S3 fails the log row is removed and the error rethrown (→ 500), so the
+   * worker's retry is not swallowed by the Message-ID dedupe.
+   */
+  private async storeOnly(organizationId: string, logId: string, receivedAt: Date, messageId: string, payload: InboundEmailPayload): Promise<InboundResult> {
+    const folder = emailFolder(organizationId, logId, receivedAt);
+    const date = parseMailDate(payload.date);
+    try {
+      const attachments: StoredAttachment[] = [];
+      const used = new Set<string>();
+      for (const [i, a] of (payload.attachments || []).entries()) {
+        if (!a?.contentBase64) continue;
+        let name = safeKeyName(a.filename, `attachment-${i + 1}`);
+        while (used.has(name.toLowerCase())) name = `${i + 1}-${name}`;
+        used.add(name.toLowerCase());
+        const body = Buffer.from(a.contentBase64, 'base64');
+        const key = `${folder}attachments/${name}`;
+        await this.s3.uploadFile(key, body, a.contentType || 'application/octet-stream');
+        attachments.push({ name: a.filename || name, contentType: a.contentType || 'application/octet-stream', size: body.length, key });
+      }
+      const raw = payload.rawBase64 ? Buffer.from(payload.rawBase64, 'base64') : null;
+      const eml =
+        raw && raw.length
+          ? raw
+          : reconstructEml({ from: payload.from, to: payload.to, subject: payload.subject, date, messageId, text: payload.text, attachments: payload.attachments || [] });
+      const emlKey = `${folder}message.eml`;
+      await this.s3.uploadFile(emlKey, eml, 'message/rfc822');
+
+      const meta: StoredEmailMeta = {
+        mode: 'STORE',
+        to: payload.to,
+        envelopeFrom: payload.envelopeFrom || null,
+        date,
+        messageId,
+        emlKey,
+        emlSource: raw && raw.length ? 'raw' : 'reconstructed',
+        emlSize: eml.length,
+        attachmentNames: attachments.map((a) => a.name),
+        attachments,
+        skippedAttachments: payload.meta?.skippedAttachments ?? [],
+      };
+      await this.prisma.emailIngestLog.update({
+        where: { id: logId },
+        data: { status: 'STORED', reason: 'store-only', attachmentCount: attachments.length, rawMeta: meta as unknown as Prisma.InputJsonValue },
+      });
+      return { ok: true, created: [], logId, notes: `stored ${attachments.length} attachment(s)` };
+    } catch (e: any) {
+      this.logger.error(`[ingest-email] org=${organizationId} store failed: ${e?.message}`, e?.stack);
+      await this.prisma.emailIngestLog.delete({ where: { id: logId } }).catch(() => undefined);
+      throw e;
+    }
   }
 
   /** RECEIVED/IGNORED log row; null when (org, messageId) already exists. */

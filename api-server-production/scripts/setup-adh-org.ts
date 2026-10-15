@@ -162,6 +162,11 @@ const ENABLED_MODULES: Array<{ code: string; route?: string; icon?: string; sort
 /** QMJP (Quarterly Main Japanese Port premium, US$/MT) per quarter, as ADH's invoices quote it. */
 const QMJP_BY_QUARTER: Record<string, number> = { '2026-2Q': 351.5, '2026-3Q': 395 };
 
+// Email intake: every email to docs+{orgId}@<EMAIL_INGEST_DOMAIN> is stored
+// (.eml + attachments in S3, listed in Org Settings → Shipping & documents);
+// nothing is classified yet. All senders: forwards keep the original From.
+const EMAIL_INTAKE = { enabled: true, routingMode: 'STORE', watchedSenders: [] as string[] };
+
 const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableActionLog: true,
   enableConfirmQuotation: false, // keeps quotation confirm from auto-creating Orders
@@ -830,6 +835,22 @@ async function main() {
       'tradeSetting',
       `${curSettings ? 'update' : 'create'} consignee "${TRADE_SETTINGS.defaultConsignee.split('\n')[0]}…", notify party "${TRADE_SETTINGS.defaultNotifyParty.split('\n')[0]}…", ${Object.keys(TRADE_SETTINGS.docDefaults).length} document texts${seal ? ', seal image' : ''}${fileProfiles?.length ? `, ${fileProfiles.length} delivery profile(s) from --customers` : ''}`,
     );
+  }
+
+  // ── 9c. Email intake (store only) ─────────────────────────────────────────
+  header('9c', 'Email intake (store only — docs+{orgId}@ address)');
+  const curIntake = orgExists ? await orgRead(() => org.emailIngestConfig.findUnique({ where: { organizationId: orgId } }), null) : null;
+  if (curIntake && curIntake.enabled === EMAIL_INTAKE.enabled && curIntake.routingMode === EMAIL_INTAKE.routingMode) {
+    info(`email intake already on (${EMAIL_INTAKE.routingMode}); senders kept: ${JSON.stringify(curIntake.watchedSenders)}`);
+  } else {
+    if (APPLY) {
+      await org.emailIngestConfig.upsert({
+        where: { organizationId: orgId },
+        update: { enabled: EMAIL_INTAKE.enabled, routingMode: EMAIL_INTAKE.routingMode },
+        create: { organizationId: orgId, ...EMAIL_INTAKE },
+      });
+    }
+    write('emailIntake', `${curIntake ? 'update' : 'create'} EmailIngestConfig enabled, routingMode ${EMAIL_INTAKE.routingMode} (store .eml + attachments, no processing)${curIntake ? '' : ', all senders'}`);
   }
 
   // ── 10. Master files ──────────────────────────────────────────────────────

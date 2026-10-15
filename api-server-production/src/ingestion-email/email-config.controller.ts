@@ -74,7 +74,7 @@ export class EmailConfigController {
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean);
     }
-    if (body.routingMode !== undefined) data.routingMode = body.routingMode === 'FIXED' ? 'FIXED' : 'AI';
+    if (body.routingMode !== undefined) data.routingMode = body.routingMode === 'FIXED' || body.routingMode === 'STORE' ? body.routingMode : 'AI'; // STORE = keep the email only (email-store.ts)
     if (body.defaultDocType !== undefined) {
       data.defaultDocType = body.defaultDocType === 'BILL' || body.defaultDocType === 'INVOICE' ? body.defaultDocType : null;
     }

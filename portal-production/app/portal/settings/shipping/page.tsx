@@ -5,6 +5,7 @@
 // trade documents print — bank accounts, issuers and the 出庫・納入依頼書 宛先,
 // the company seal, delivery profiles and QMJP by quarter. Moved here from the
 // Shipments page (2026-10); "New shipments from PIs" stays there (an action).
+// Email intake: the org's forwarding address + the emails received (read-only).
 
 import React from "react";
 import { Alert, Box, Paper, Stack, Typography } from "@mui/material";
@@ -12,6 +13,7 @@ import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { showShippingSettings } from "@/helpers/settingsVisibility";
 import BlDefaultsForm from "@/app/portal/shipments/_components/BlDefaultsForm";
 import DocSettingsForm from "@/app/portal/shipments/_components/DocSettingsForm";
+import EmailIntakePanel from "@/app/portal/shipments/_components/EmailIntakePanel";
 import TradeTheme from "@/app/portal/shipments/_components/TradeTheme";
 
 const Section = ({ title, hint, children, tour }: { title: string; hint: string; children: React.ReactNode; tour?: string }) => (
@@ -54,6 +56,13 @@ export default function ShippingSettingsPage() {
             tour="settings-doc-settings"
           >
             <DocSettingsForm />
+          </Section>
+          <Section
+            title="Email intake"
+            hint="Forward shipping emails to this address. Each email is kept with its attachments; nothing is filed into deals yet."
+            tour="settings-email-intake"
+          >
+            <EmailIntakePanel />
           </Section>
         </Stack>
       </Box>
