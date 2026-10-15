@@ -92,14 +92,14 @@ export default function ThreadList({ threads, loading, error, onRetry, activeId,
             </Typography>
           )}
           <Typography noWrap sx={{ fontSize: "0.72rem", color: "text.secondary" }}>
-            {isWa ? `Continue your chat with the AIMS line${t.number ? ` (+${t.number})` : ""}` : (t.preview || "").replace(/[*_`#>]+/g, "") || "Empty chat"}
+            {isWa ? `Continue your WhatsApp conversation with AIMEE${t.number ? ` (+${t.number})` : ""}` : (t.preview || "").replace(/[*_`#>]+/g, "") || "Nothing said yet"}
           </Typography>
         </Box>
         {!isWa && (
           <IconButton
             className="thread-more"
             size="small"
-            aria-label="Chat options"
+            aria-label="Conversation options"
             onClick={(e) => {
               e.stopPropagation();
               setMenu({ pos: { left: e.clientX, top: e.clientY }, t });
@@ -124,10 +124,10 @@ export default function ThreadList({ threads, loading, error, onRetry, activeId,
           data-tour="chat-new"
           sx={{ textTransform: "none", borderRadius: 2.5, boxShadow: "none" }}
         >
-          New chat
+          New conversation
         </Button>
-        <Tooltip title="Hide chats">
-          <IconButton size="small" onClick={onCollapse} aria-label="Hide chat list">
+        <Tooltip title="Hide conversations">
+          <IconButton size="small" onClick={onCollapse} aria-label="Hide conversation list">
             <ChevronLeftIcon fontSize="small" />
           </IconButton>
         </Tooltip>
@@ -160,13 +160,13 @@ export default function ThreadList({ threads, loading, error, onRetry, activeId,
               <Typography sx={{ px: 1.5, py: 2, fontSize: "0.8rem", color: "text.secondary" }}>
                 {error ? (
                   <>
-                    Couldn&apos;t load your chats.{" "}
+                    Couldn&apos;t load your conversations.{" "}
                     <Box component="button" onClick={onRetry} sx={{ background: "none", border: 0, p: 0, color: "primary.main", cursor: "pointer", font: "inherit" }}>
                       Retry
                     </Box>
                   </>
                 ) : (
-                  "No chats yet. Your conversations will appear here."
+                  "Nothing yet. Your conversations with AIMEE will appear here."
                 )}
               </Typography>
             )}
@@ -200,7 +200,7 @@ export default function ThreadList({ threads, loading, error, onRetry, activeId,
       </Menu>
 
       <Dialog open={!!confirmDelete} onClose={() => setConfirmDelete(null)} PaperProps={{ sx: { borderRadius: 3, maxWidth: 360 } }}>
-        <DialogTitle sx={{ fontWeight: 700, pb: 0.5 }}>Delete this chat?</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 700, pb: 0.5 }}>Delete this conversation?</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: "0.875rem", color: "text.secondary" }}>
             “{confirmDelete?.title}” will be removed. Documents it created are not affected.

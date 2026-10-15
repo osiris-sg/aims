@@ -29,9 +29,8 @@ import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
 import logo from "@/components/Sidebar/aims-logo.png";
 import { resolveSubmenuRoute, submenuLabel, useNavModules } from "./useNavModules";
-import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
-import GridViewOutlinedIcon from "@mui/icons-material/GridViewOutlined";
-import { HOME_VIEW_EVENT, readHomeView, writeHomeView, type HomeView } from "@/app/portal/chat/homeView";
+import { HOME_VIEW_EVENT, closeAimee, openAimee, readHomeView, type HomeView } from "@/app/portal/chat/homeView";
+import AimeeFace from "@/app/portal/chat/AimeeFace";
 
 // Deliberate hardcoded org check pending a general per-org nav-logo solution.
 // CIEL gets its cream mark (transparent PNG on the dark navy bar); ~2.2:1, so
@@ -163,18 +162,28 @@ export default function TopNavBar() {
   const { mode, toggleMode } = useThemeMode();
   const { isAimsChatEnabled } = useOrganizationFeatures();
   const { navModules, isMasterTier, settingsMenu } = useNavModules();
-  // Chat home ⇄ classic dashboard (chat-first orgs only). Remembered per browser.
-  const [homeView, setHomeView] = React.useState<HomeView>("chat");
+  // AIMEE in the top bar (orgs with enableAimsChat): her face opens the
+  // assistant from any page; while it is open the same face takes you back.
+  const [homeView, setHomeView] = React.useState<HomeView>("dashboard");
   React.useEffect(() => {
     const sync = () => setHomeView(readHomeView());
     sync();
     window.addEventListener(HOME_VIEW_EVENT, sync);
     return () => window.removeEventListener(HOME_VIEW_EVENT, sync);
   }, [rawPathname]);
-  const switchHome = (v: HomeView) => {
-    writeHomeView(v);
-    setHomeView(v);
-    router.push("/portal");
+  const aimeeOpen = rawPathname === "/portal" && homeView === "aimee";
+  const pressAimee = (e: React.MouseEvent<HTMLElement>) => {
+    if (aimeeOpen) {
+      router.replace("/portal", { scroll: false });
+      closeAimee();
+      return;
+    }
+    if (rawPathname === "/portal") {
+      const r = e.currentTarget.getBoundingClientRect();
+      openAimee({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    } else {
+      router.push("/portal?aimee=1");
+    }
   };
 
   const [openMenu, setOpenMenu] = React.useState<{ code: string; anchor: HTMLElement } | null>(null);
@@ -330,39 +339,35 @@ export default function TopNavBar() {
 
       <Stack direction="row" alignItems="center" gap={1} sx={{ flexShrink: 0, ml: 1 }}>
         {isAimsChatEnabled && (
-          <Stack
-            direction="row"
-            data-tour="home-view-toggle"
-            sx={{ bgcolor: "rgba(255,255,255,0.08)", borderRadius: 999, p: "3px", mr: 0.5 }}
-          >
-            {([
-              { v: "chat", label: "Chat", Icon: ChatBubbleOutlineIcon },
-              { v: "dashboard", label: "Dashboard", Icon: GridViewOutlinedIcon },
-            ] as const).map(({ v, label, Icon }) => {
-              const active = rawPathname === "/portal" && homeView === v;
-              return (
-                <Button
-                  key={v}
-                  size="small"
-                  onClick={() => switchHome(v)}
-                  startIcon={<Icon sx={{ fontSize: "0.95rem !important" }} />}
-                  title={label}
-                  sx={{
-                    height: 26, px: 1.25, borderRadius: 999, textTransform: "none", fontSize: "0.75rem", minWidth: 0,
-                    // Icons only until the bar has room for the words (the
-                    // module strip must not lose "Accounting" to the toggle).
-                    "& .MuiButton-startIcon": { mr: { xs: 0, xl: 0.75 }, ml: 0 },
-                    "& .toggle-label": { display: { xs: "none", xl: "inline" } },
-                    color: active ? "#041627" : "rgba(255,255,255,0.85)",
-                    bgcolor: active ? "#FFFFFF" : "transparent",
-                    "&:hover": { bgcolor: active ? "#FFFFFF" : "rgba(255,255,255,0.12)" },
-                  }}
-                >
-                  <span className="toggle-label">{label}</span>
-                </Button>
-              );
-            })}
-          </Stack>
+          <Tooltip title={aimeeOpen ? "Back to the dashboard" : "AIMEE"}>
+            <Box
+              component="button"
+              type="button"
+              onClick={pressAimee}
+              aria-label={aimeeOpen ? "Back to the dashboard" : "Open AIMEE"}
+              data-tour="home-view-toggle"
+              sx={{
+                all: "unset",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 0.75,
+                height: 30,
+                pl: "3px",
+                pr: { xs: "3px", xl: 1.25 },
+                mr: 0.5,
+                borderRadius: 999,
+                bgcolor: aimeeOpen ? "rgba(85,233,255,0.18)" : "rgba(255,255,255,0.08)",
+                boxShadow: aimeeOpen ? "0 0 0 1px rgba(85,233,255,0.5)" : "none",
+                "&:hover": { bgcolor: "rgba(255,255,255,0.16)" },
+                "&:focus-visible": { outline: "2px solid rgba(85,233,255,0.8)" },
+                "& .aimee-nav-label": { display: { xs: "none", xl: "inline" }, color: "rgba(255,255,255,0.9)", fontSize: "0.75rem", fontWeight: 700, letterSpacing: "0.06em" },
+              }}
+            >
+              <AimeeFace size={26} hover />
+              <span className="aimee-nav-label">AIMEE</span>
+            </Box>
+          </Tooltip>
         )}
         <GlobalSearch />
         <TopNavOrgSwitcher />

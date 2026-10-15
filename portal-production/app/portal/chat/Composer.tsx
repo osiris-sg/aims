@@ -21,10 +21,17 @@ interface Props {
   placeholder?: string;
   onSend: (input: SendInput) => void;
   onStop: () => void;
+  /** True while the user has the box focused with something typed (AIMEE listens). */
+  onTyping?: (active: boolean) => void;
 }
 
-export default function Composer({ disabled, sending, placeholder, onSend, onStop }: Props) {
-  const [text, setText] = useState("");
+export default function Composer({ disabled, sending, placeholder, onSend, onStop, onTyping }: Props) {
+  const [text, setTextState] = useState("");
+  const [focused, setFocused] = useState(false);
+  const setText = (v: string) => {
+    setTextState(v);
+    onTyping?.(focused && v.trim().length > 0);
+  };
   const [files, setFiles] = useState<Picked[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -139,8 +146,16 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
             autoFocus
             value={text}
             disabled={disabled}
-            placeholder={placeholder || "Ask AIMS anything, or tell it what to do…"}
+            placeholder={placeholder || "Tell AIMEE what you need…"}
             onChange={(e) => setText(e.target.value)}
+            onFocus={() => {
+              setFocused(true);
+              onTyping?.(text.trim().length > 0);
+            }}
+            onBlur={() => {
+              setFocused(false);
+              onTyping?.(false);
+            }}
             onPaste={(e) => {
               // Pasted screenshots land as files, like in any chat app.
               const items = Array.from(e.clipboardData?.files || []);

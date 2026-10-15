@@ -1,14 +1,18 @@
 "use client";
 
-// The chat home: the portal landing page for chat-first orgs. Three columns,
-// all full-width and full-height under the top bar: past chats | the
-// conversation | a side panel for the document or screen being worked on.
-// Same brain as the WhatsApp operator (POST /operator/web/message).
+// AIMEE, open: the assistant that drives AIMS, over the dashboard. Three
+// columns, all full-width and full-height under the top bar: past
+// conversations | the conversation | a side panel for the document or screen
+// being worked on. Same brain as the WhatsApp operator
+// (POST /operator/web/message). AIMEE's face in the header reacts to what is
+// going on: listening while the user types, scanning while it thinks, happy
+// when the reply lands.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Box, Button, Drawer, IconButton, Stack, Tooltip, Typography, useMediaQuery, useTheme } from "@mui/material";
 import MenuOpenIcon from "@mui/icons-material/MenuOpen";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
+import GridViewOutlinedIcon from "@mui/icons-material/GridViewOutlined";
 import { useNavModules } from "@/components/TopNav/useNavModules";
 import { useOperatorChat, type ThreadSummary } from "./useOperatorChat";
 import ThreadList from "./ThreadList";
@@ -16,16 +20,49 @@ import Messages from "./Messages";
 import Composer from "./Composer";
 import SidePanel from "./SidePanel";
 import EmptyState from "./EmptyState";
+import AimeeFace, { type AimeeMood } from "./AimeeFace";
 
 const RAIL_KEY = "aims:chat-rail";
 const PANEL_KEY = "aims:chat-panel-width";
 const NAV_H = 52;
 
-export default function ChatHome() {
+interface Props {
+  /** Back to the dashboard. */
+  onClose?: () => void;
+  /** Sent as the first message right after opening (typed into the strip). */
+  initialPrompt?: string;
+}
+
+export default function ChatHome({ onClose, initialPrompt }: Props) {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const { screens } = useNavModules();
   const chat = useOperatorChat(screens, { restorePanel: isDesktop });
+
+  // The line typed into the strip above the dashboard goes out once.
+  const sentInitial = useRef(false);
+  useEffect(() => {
+    if (!initialPrompt || sentInitial.current) return;
+    sentInitial.current = true;
+    chat.send({ text: initialPrompt });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPrompt]);
+
+  // Face mood: thinking beats listening beats a short happy flash after a reply.
+  const [typing, setTyping] = useState(false);
+  const [happyUntil, setHappyUntil] = useState(0);
+  const lastCount = useRef(chat.items.length);
+  useEffect(() => {
+    const last = chat.items[chat.items.length - 1];
+    if (chat.items.length > lastCount.current && last && last.role !== "user" && !chat.sending) {
+      setHappyUntil(Date.now() + 2200);
+      const t = window.setTimeout(() => setHappyUntil(0), 2200);
+      lastCount.current = chat.items.length;
+      return () => window.clearTimeout(t);
+    }
+    lastCount.current = chat.items.length;
+  }, [chat.items, chat.sending]);
+  const mood: AimeeMood = chat.sending ? "thinking" : chat.error ? "sad" : happyUntil > Date.now() ? "happy" : typing ? "listening" : "idle";
 
   const [railOpen, setRailOpen] = useState(true);
   const [railDrawer, setRailDrawer] = useState(false);
@@ -140,21 +177,44 @@ export default function ChatHome() {
 
       {/* Conversation */}
       <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", position: "relative" }}>
-        <Stack direction="row" alignItems="center" gap={0.5} sx={{ px: 1, pt: 1, minHeight: 40 }}>
+        <Stack direction="row" alignItems="center" gap={1} sx={{ px: 1.5, pt: 1, minHeight: 48 }} data-tour="aimee-header">
           {(!railOpen || !isDesktop) && (
-            <Tooltip title="Show chats">
-              <IconButton size="small" onClick={() => (isDesktop ? toggleRail(true) : setRailDrawer(true))} aria-label="Show chat list">
+            <Tooltip title="Show conversations">
+              <IconButton size="small" onClick={() => (isDesktop ? toggleRail(true) : setRailDrawer(true))} aria-label="Show conversation list">
                 <MenuOpenIcon fontSize="small" sx={{ transform: "scaleX(-1)" }} />
               </IconButton>
             </Tooltip>
           )}
+          <Stack direction="row" alignItems="center" gap={1} sx={{ minWidth: 0 }}>
+            <AimeeFace size={36} mood={mood} wake />
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.85rem", fontWeight: 800, letterSpacing: "0.06em", lineHeight: 1.1 }}>AIMEE</Typography>
+              <Typography noWrap sx={{ fontSize: "0.7rem", color: "text.secondary", lineHeight: 1.2 }}>
+                {mood === "thinking" ? chat.status || "On it…" : mood === "listening" ? "Listening…" : mood === "happy" ? "Done." : mood === "sad" ? "Something went wrong." : "Ready when you are."}
+              </Typography>
+            </Box>
+          </Stack>
           {chat.channel === "whatsapp" && chat.threadId && (
-            <Stack direction="row" alignItems="center" gap={0.75} sx={{ px: 1.25, py: 0.5, borderRadius: 999, bgcolor: "action.hover" }}>
+            <Stack direction="row" alignItems="center" gap={0.75} sx={{ px: 1.25, py: 0.5, borderRadius: 999, bgcolor: "action.hover", display: { xs: "none", lg: "flex" } }}>
               <WhatsAppIcon sx={{ fontSize: 16, color: "#25D366" }} />
               <Typography sx={{ fontSize: "0.75rem" }}>
-                Your WhatsApp chat, continued here. Replies are copied to your phone.
+                Your WhatsApp conversation, continued here. Replies are copied to your phone.
               </Typography>
             </Stack>
+          )}
+          <Box sx={{ flex: 1 }} />
+          {onClose && (
+            <Button
+              size="small"
+              variant="outlined"
+              color="inherit"
+              startIcon={<GridViewOutlinedIcon sx={{ fontSize: "1rem !important" }} />}
+              onClick={onClose}
+              data-tour="aimee-close"
+              sx={{ textTransform: "none", borderRadius: 999, fontSize: "0.78rem", borderColor: "divider", px: 1.5 }}
+            >
+              Dashboard
+            </Button>
           )}
         </Stack>
 
@@ -194,7 +254,7 @@ export default function ChatHome() {
         )}
         <Box sx={{ maxWidth: panelOpen ? 760 : 860, mx: "auto", width: "100%" }}>
           {/* Keyed by thread so a draft (text or attached file) never carries into another chat. */}
-          <Composer key={chat.threadId ?? "new"} sending={chat.sending} onSend={chat.send} onStop={chat.stop} />
+          <Composer key={chat.threadId ?? "new"} sending={chat.sending} onSend={chat.send} onStop={chat.stop} onTyping={setTyping} />
         </Box>
       </Box>
 

@@ -124,7 +124,7 @@ export function useOperatorChat(screens: Array<{ label: string; path: string }>,
       const token = await getToken();
       if (!token) return;
       const res = await request({ path: "/operator/web/threads", method: "GET" }, {}, token);
-      if (res && res.success === false) throw new Error(res.message || "Could not load chats");
+      if (res && res.success === false) throw new Error(res.message || "Could not load conversations");
       const list: ThreadSummary[] = res?.data?.threads || res?.threads || [];
       setThreads(list);
       setThreadsError(false);

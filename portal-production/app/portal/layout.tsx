@@ -128,17 +128,17 @@ function PortalChrome({ isDocumentPage: _isDocumentPage }: { isDocumentPage: boo
   return <AppNavbar />;
 }
 
-// The Guide bubble stays off the chat home: the assistant there answers
-// "how do I" itself and can open the screen. Everywhere else it shows.
+// The Guide bubble stays hidden while AIMEE is open: AIMEE answers "how do
+// I" itself and can open the screen. Everywhere else it shows.
 function GuideBubble({ pathname }: { pathname: string | null }) {
   const { isAimsChatEnabled } = useOrganizationFeatures();
-  const [view, setView] = useState<"chat" | "dashboard">("chat");
+  const [view, setView] = useState<"aimee" | "dashboard">("dashboard");
   useEffect(() => {
     const sync = () => setView(readHomeView());
     sync();
     window.addEventListener(HOME_VIEW_EVENT, sync);
     return () => window.removeEventListener(HOME_VIEW_EVENT, sync);
   }, [pathname]);
-  if (pathname === "/portal" && isAimsChatEnabled && view === "chat") return null;
+  if (pathname === "/portal" && isAimsChatEnabled && view === "aimee") return null;
   return <GuideAssistant />;
 }

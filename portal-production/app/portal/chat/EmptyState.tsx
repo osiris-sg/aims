@@ -1,13 +1,12 @@
 "use client";
 
-// What a fresh chat shows: a greeting, prompts that fit this user's role, and
+// What AIMEE shows before anything is said: a greeting, prompts that fit this user's role, and
 // the modules they can reach, as cards. Everything here is derived from the
 // same module + permission rules the navigation uses, so a role only sees
 // what it can actually do.
 
 import React from "react";
 import { Box, Chip, Stack, Typography } from "@mui/material";
-import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import AccountBalanceOutlinedIcon from "@mui/icons-material/AccountBalanceOutlined";
 import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
@@ -21,6 +20,7 @@ import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import GridViewOutlinedIcon from "@mui/icons-material/GridViewOutlined";
 import { useUser } from "@clerk/nextjs";
 import { useNavModules } from "@/components/TopNav/useNavModules";
+import AimeeFace from "./AimeeFace";
 
 const ICONS: Record<string, React.ElementType> = {
   SALES: ReceiptLongOutlinedIcon,
@@ -87,14 +87,14 @@ export default function EmptyState({ onPrompt, onOpenScreen }: Props) {
   return (
     <Box sx={{ px: { xs: 2, md: 3 }, py: { xs: 3, md: 5 }, maxWidth: 860, mx: "auto", width: "100%" }}>
       <Stack alignItems="center" sx={{ textAlign: "center", mb: 3 }}>
-        <Box sx={{ width: 44, height: 44, borderRadius: "50%", display: "grid", placeItems: "center", mb: 1.5, bgcolor: "primary.main", color: "primary.contrastText" }}>
-          <AutoAwesomeIcon fontSize="small" />
+        <Box sx={{ mb: 1.5 }}>
+          <AimeeFace size={104} mood="idle" wake hover />
         </Box>
         <Typography sx={{ fontSize: { xs: "1.35rem", md: "1.6rem" }, fontWeight: 700, letterSpacing: "-0.01em" }}>
-          {greet}{first ? `, ${first}` : ""}.
+          {greet}{first ? `, ${first}` : ""}. I'm AIMEE.
         </Typography>
         <Typography sx={{ color: "text.secondary", mt: 0.5, fontSize: "0.95rem" }}>
-          Ask a question, create a document, or run a report. Anything final waits for your confirmation.
+          Ask me a question, have me draft a document, or run a report. Anything final waits for your OK.
         </Typography>
       </Stack>
 
