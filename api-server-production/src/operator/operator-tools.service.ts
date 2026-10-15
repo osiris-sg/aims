@@ -176,9 +176,12 @@ export class OperatorToolsService {
         : mimetype.includes('webp')
           ? 'image/webp'
           : 'image/jpeg') as any;
-    const [attachmentUrl, extracted] = await Promise.all([
+    const [attachmentUrl, extracted, reading] = await Promise.all([
       this.s3.uploadFile(key, Buffer.from(raw, 'base64'), media).catch(() => null),
       this.bills.extractFromFile(organizationId, dataUri, media).catch(() => null as any),
+      // A plain reading of the file, so a screenshot that is not an invoice
+      // still reaches the assistant as what it shows.
+      this.bills.describeFile(dataUri, media).catch(() => null),
     ]);
     const lines: any[] = Array.isArray(extracted?.lines) ? extracted.lines : [];
     const description = lines.length
@@ -202,6 +205,7 @@ export class OperatorToolsService {
       },
       lines: Array.isArray(extracted?.lines) ? extracted.lines : null,
       taxAmount: Number(extracted?.taxAmount) || null,
+      reading: reading || null,
     };
   }
 

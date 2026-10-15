@@ -421,7 +421,7 @@ export class OperatorService {
       e.supplierName ? `from: ${e.supplierName}` : null,
       e.billTo ? `bill to: ${e.billTo}` : null,
       e.invoiceNo ? `no: ${e.invoiceNo}` : null,
-      e.amount != null ? `total: ${e.currency || 'SGD'} ${Number(e.amount).toFixed(2)}` : 'total: not readable',
+      e.amount != null ? `total: ${e.currency || 'SGD'} ${Number(e.amount).toFixed(2)}` : up.reading ? null : 'total: not readable',
       up.taxAmount ? `tax: ${Number(up.taxAmount).toFixed(2)}` : null,
       e.date ? `date: ${e.date}` : null,
     ].filter(Boolean);
@@ -440,7 +440,10 @@ export class OperatorService {
           .join(' ');
         return `  ${i + 1}. ${desc}${maths ? ` (${maths})` : ''}`;
       });
-    const body = parts.join(' | ') + (lines.length ? `\nlines:\n${lines.join('\n')}` : '');
+    // What the file shows, for anything that is not an invoice (a screenshot
+    // of a list, a chat, a report): the model answers from it directly.
+    const reading = up.reading ? `\nwhat it shows: ${up.reading.replace(/\s+/g, ' ').trim().slice(0, 1200)}` : '';
+    const body = parts.join(' | ') + (lines.length ? `\nlines:\n${lines.join('\n')}` : '') + reading;
     session.history = [...(session.history || []), { role: 'user' as const, content: `[the user forwarded a document] ${body}` }].slice(-40);
   }
 
@@ -535,9 +538,14 @@ export class OperatorService {
         session.pendingUpload = up;
         await this.saveSession(...this.sk(msg), session);
       }
+      // A file that is not an invoice but could be read: say what it looks
+      // like and ask what to do, instead of the invoice-amount line.
+      const seen = up?.reading?.split('\n')[0]?.trim().replace(/\.$/, '');
       await adapter.sendText(
         msg.chatId,
-        "I couldn't read an invoice amount from that file. If it's a supplier invoice, reply with the amount (and the project). If it's a contractor PRICE LIST, say \"add it to the work library\" and I'll import the rates.",
+        seen && !/unreadable|cannot read|can't read/i.test(seen)
+          ? `📎 ${seen}. What would you like me to do with it?`
+          : "I couldn't read an invoice amount from that file. If it's a supplier invoice, reply with the amount (and the project). If it's a contractor PRICE LIST, say \"add it to the work library\" and I'll import the rates.",
       );
       return;
     }

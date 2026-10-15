@@ -900,6 +900,36 @@ export class BillsService {
   }
 
   /**
+   * What a forwarded file SHOWS, for the assistant. The invoice extractors
+   * only know invoices; a pasted screenshot of a list, a chat or a report
+   * came through to AIMEE as "total: not readable" (guru 2026-10-15). This
+   * reads any image or PDF the way a colleague would describe it: what it
+   * is, then the key text on it. Never throws; null when it cannot be read.
+   */
+  async describeFile(base64Data: string, mediaType: 'application/pdf' | 'image/jpeg' | 'image/png' | 'image/webp' = 'image/png'): Promise<string | null> {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return null;
+    const commaIdx = base64Data.indexOf(',');
+    const headerMatch = base64Data.match(/^data:([a-zA-Z/+]+);base64,/);
+    const data = commaIdx >= 0 && headerMatch ? base64Data.slice(commaIdx + 1) : base64Data;
+    const detectedMedia = (headerMatch?.[1] as any) ?? mediaType;
+    const client = new Anthropic({ apiKey });
+    const system = `You describe a file for a colleague who cannot see it. First line: what it is (an invoice, a screenshot of a table or list, a chat, a report, a photo of ...). Then the key text on it, transcribed as a compact list: names, document numbers, dates, amounts, statuses, column headers and rows. Keep numbers exact. Plain text, no markdown, at most 160 words. If it is unreadable say so in one line.`;
+    const content: any[] = [];
+    if (detectedMedia === 'application/pdf') content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } });
+    else content.push({ type: 'image', source: { type: 'base64', media_type: detectedMedia, data } });
+    content.push({ type: 'text', text: 'Describe this file.' });
+    try {
+      const response = await client.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 400, system, messages: [{ role: 'user', content }] });
+      const text = response.content.find((b) => b.type === 'text');
+      const out = text && text.type === 'text' ? text.text.trim() : '';
+      return out || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * FAST header-only extraction for project costing (guru/Mike 2026-10-07:
    * "takes quite long to upload one invoice"). The costing flow only needs
    * supplier / number / date / total / site address — not the word-for-word

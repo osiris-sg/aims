@@ -146,6 +146,8 @@ export interface OperatorContext {
     /** Raw line items + tax, for creating the linked Bill (AP) draft. */
     lines?: Array<{ description?: string; quantity?: number; unitPrice?: number; amount?: number }> | null;
     taxAmount?: number | null;
+    /** What the file shows, in words (any image or PDF, not only invoices). */
+    reading?: string | null;
   };
 }
 
