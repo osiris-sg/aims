@@ -431,9 +431,17 @@ export class WhatsAppAgentService {
     groups: Array<{ id: string; name: string }>,
     nowIso: string,
     thisGroupName?: string | null,
+    /** What is already on his schedule. Passed in as FACT rather than left to
+     *  the model's memory: asked what he had scheduled, it answered "each
+     *  conversation starts fresh for me", then a minute later invented a
+     *  reminder for the wrong client (guru 2026-10-15). */
+    scheduled: Array<{ ref: number; id: string; groupName: string; whenText: string; recurrence: string; preview: string }> = [],
   ): Promise<{
     reply: string;
-    plan: { message: string; groupIds: string[]; whenIso: string | null; recurrence: string } | null;
+    plan:
+      | { kind: 'send'; message: string; groupIds: string[]; whenIso: string | null; recurrence: string }
+      | { kind: 'cancel'; ids: string[]; labels: string[] }
+      | null;
   } | null> {
     if (!this.anthropic) throw new BadRequestException('AI agent is not configured (missing ANTHROPIC_API_KEY)');
 
@@ -450,6 +458,14 @@ export class WhatsAppAgentService {
       'When you have all three, call propose_send. Do NOT say you have sent or scheduled anything — he confirms first, and the system handles it.',
       'ALWAYS call propose_send again after ANY change he asks for (different wording, extra group, new time). NEVER write the plan out yourself as text: only the tool call registers it, so a plan you merely describe cannot be confirmed and his "ok" does nothing.',
       'Keep every reply to one or two short lines. No preamble, no restating what he said, no em dashes.',
+      scheduled.length
+        ? `Already scheduled, by reference number:\n${scheduled
+            .map((r) => `#${r.ref} ${r.groupName} — ${r.whenText}${r.recurrence !== 'NONE' ? ` (${r.recurrence.toLowerCase()})` : ''}: "${r.preview}"`)
+            .join('\n')}`
+        : 'Nothing is scheduled at the moment.',
+      'That list is the truth about what is scheduled. Answer questions about it from the list. NEVER say you have no record, that you cannot remember, or that each conversation starts fresh: you are being shown exactly what is pending.',
+      'You CAN cancel a scheduled message: call propose_cancel with its reference number. NEVER tell him to delete it in WhatsApp himself, and never mention WhatsApp\'s own scheduled-message feature; these live in AIMS and he cannot see them there.',
+      'If he describes a scheduled message you cannot find in the list, say so plainly and show him what IS scheduled for that chat. Do not guess a client name or a date.',
       'If he is not asking you to send anything, just answer him briefly.',
     ].join('\n\n');
 
@@ -467,6 +483,18 @@ export class WhatsAppAgentService {
             recurrence: { type: 'string', description: 'NONE | DAILY | WEEKLY | MONTHLY. Default NONE.' },
           },
           required: ['message', 'groupNumbers', 'when'],
+        },
+      },
+      {
+        name: 'propose_cancel',
+        description:
+          'Propose cancelling one or more already-scheduled messages, for him to confirm. Use the reference numbers from the scheduled list.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            refs: { type: 'array', items: { type: 'number' }, description: 'Reference numbers from the scheduled list.' },
+          },
+          required: ['refs'],
         },
       },
     ];
@@ -488,9 +516,26 @@ export class WhatsAppAgentService {
       .map((b) => b.text)
       .join('')
       .trim();
-    const use = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'propose_send');
-    if (!use) return { reply: say || 'Sorry, I did not follow that.', plan: null };
+    const used = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
+    if (!used) return { reply: say || 'Sorry, I did not follow that.', plan: null };
 
+    if (used.name === 'propose_cancel') {
+      const refs: number[] = [...new Set(((used.input as any)?.refs || []).map((n: any) => Number(n)))] as number[];
+      const picked = refs.map((n) => scheduled.find((r) => r.ref === n)).filter(Boolean) as typeof scheduled;
+      if (!picked.length) return { reply: 'I could not tell which one you mean. Which reminder should go?', plan: null };
+      return {
+        reply: say,
+        plan: {
+          kind: 'cancel',
+          ids: picked.map((r) => r.id),
+          labels: picked.map(
+            (r) => `${r.groupName} — ${r.whenText}${r.recurrence !== 'NONE' ? ` (${r.recurrence.toLowerCase()})` : ''}`,
+          ),
+        },
+      };
+    }
+
+    const use = used;
     const a: any = use.input || {};
     const groupIds = [
       ...new Set((a.groupNumbers || []).map((n: any) => groups[Number(n) - 1]?.id).filter(Boolean) as string[]),
@@ -504,6 +549,7 @@ export class WhatsAppAgentService {
     return {
       reply: say,
       plan: {
+        kind: 'send',
         message: String(a.message || '').trim(),
         groupIds,
         whenIso,

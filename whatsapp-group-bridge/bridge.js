@@ -458,12 +458,29 @@ async function captureAppointment(msg, chatId, group, clientName) {
       month: 'short',
       timeZone: 'Asia/Singapore',
     });
-    console.log(`   📅 appointment ${appt.updated ? 'updated' : 'captured'} ${appt.id} (${when})`);
-    const summary =
+    const day = new Date(appt.startsAt).toLocaleDateString('en-GB', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      timeZone: 'Asia/Singapore',
+    });
+    console.log(
+      `   📅 appointment ${appt.updated ? 'updated' : 'captured'} ${appt.id} ` +
+        `(${appt.needsTime ? `${day}, no time yet` : when})`,
+    );
+    // Three outcomes, and only the first ever reaches the client. `needsTime`
+    // means the message named a day but no clock time: AIMS refuses to invent
+    // one, so ask him. `skipped` means there is no moment left before the
+    // appointment to remind at.
+    const head =
       `📅 ${appt.updated ? 'Updated' : 'Noted'}: ${appt.topic || 'appointment'}${appt.venue ? ` at ${appt.venue}` : ''}\n` +
-      `${when}${appt.tentative ? ' (tentative)' : ''}\n` +
-      `Chat: ${group?.name || chatId}\n\n` +
-      `I'll remind ${clientName || 'them'} in the group on ${remind} 🙏🏻`;
+      `${appt.needsTime ? day : when}${appt.tentative ? ' (tentative)' : ''}\n` +
+      `Chat: ${group?.name || chatId}\n\n`;
+    const summary = appt.needsTime
+      ? `${head}What time? Reply with the time and I'll set the reminder. Nothing goes to ${clientName || 'them'} until then 🙏🏻`
+      : appt.skipped
+        ? `${head}That's too soon for a reminder, so I'll leave it be.`
+        : `${head}I'll remind ${clientName || 'them'} in the group on ${remind} 🙏🏻`;
     // Confirm/Cancel buttons can only come from the Cloud API number, so ask
     // AIMS to send it. Cancel disarms the reminder before it ever posts.
     let buttoned = false;

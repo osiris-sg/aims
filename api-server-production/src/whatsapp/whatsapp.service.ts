@@ -880,13 +880,27 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
    * When to remind: three days before the appointment at 9am. If that moment
    * has already passed (the advisor booked it late, or it is only days away),
    * remind the next morning instead so the client still hears from us.
+   *
+   * Returns null when there is no honest moment left to remind at. That case
+   * used to fall through to `now + 60s`, directly under a comment promising it
+   * never scheduled a reminder after the appointment — so a meeting already in
+   * the past got a reminder one minute later. Clement was told on Wednesday
+   * evening about a Wednesday 9am Zoom (guru 2026-10-15).
    */
-  private computeRemindAt(startsAt: Date): Date {
+  private computeRemindAt(startsAt: Date): Date | null {
+    const now = Date.now();
+    if (startsAt.getTime() <= now) return null; // already happened — nothing to remind about
+
     const threeDaysBefore = this.nineAmSgt(new Date(startsAt.getTime() - 3 * 24 * 60 * 60 * 1000));
-    if (threeDaysBefore.getTime() > Date.now()) return threeDaysBefore;
-    const tomorrow = this.nineAmSgt(new Date(Date.now() + 24 * 60 * 60 * 1000));
-    // Never schedule a reminder after the appointment itself.
-    return tomorrow.getTime() < startsAt.getTime() ? tomorrow : new Date(Date.now() + 60_000);
+    if (threeDaysBefore.getTime() > now) return threeDaysBefore;
+
+    const tomorrow = this.nineAmSgt(new Date(now + 24 * 60 * 60 * 1000));
+    if (tomorrow.getTime() < startsAt.getTime()) return tomorrow;
+
+    // Sooner than tomorrow morning: remind shortly, but only if that still
+    // lands before the appointment.
+    const soon = new Date(now + 60_000);
+    return soon.getTime() < startsAt.getTime() ? soon : null;
   }
 
   /**
@@ -921,8 +935,16 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     if (!parsed?.isAppointment || !parsed.date) return null;
 
     // Times are written in Singapore local time; store the UTC instant.
+    //
+    // A missing time used to default to 09:00, which INVENTED a time nobody
+    // said: "zoom today, after work" became 9am, eight hours in the past, and
+    // the client was reminded about a meeting that had never been set for then
+    // (guru 2026-10-15). When the model cannot find a clock time we hold the
+    // appointment and ask Denzel for one instead of guessing.
+    const needsTime = !parsed.time;
     const startsAt = new Date(`${parsed.date}T${parsed.time || '09:00'}:00+08:00`);
     if (Number.isNaN(startsAt.getTime())) return null;
+    const remindAt = this.computeRemindAt(startsAt);
 
     const data = {
       organizationId,
@@ -934,8 +956,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       venue: parsed.venue,
       tentative: parsed.tentative,
       clientName: args.clientName || null,
-      remindAt: this.computeRemindAt(startsAt),
-      reminderStatus: 'PENDING',
+      // NEEDS_TIME and SKIPPED are both inert: dueGroupReminders only looks at
+      // PENDING, so neither can reach a client. NEEDS_TIME is waiting on
+      // Denzel; SKIPPED had no moment left to remind at.
+      remindAt: remindAt ?? startsAt,
+      reminderStatus: needsTime ? 'NEEDS_TIME' : remindAt ? 'PENDING' : 'SKIPPED',
       remindedAt: null,
       error: null,
       sourceMessage: body.slice(0, 2000),
@@ -950,7 +975,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(
       `${updatesExisting ? 'Updated' : 'Captured'} appointment ${row.id} for ${groupId} at ${startsAt.toISOString()}`,
     );
-    return { ...row, updated: !!updatesExisting };
+    return { ...row, updated: !!updatesExisting, needsTime, skipped: !needsTime && !remindAt };
   }
 
   /**
@@ -961,7 +986,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   async dueGroupReminders(organizationId: string) {
     const now = new Date();
     const appointments = await this.prisma.whatsAppAppointment.findMany({
-      where: { organizationId, reminderStatus: 'PENDING', remindAt: { lte: now } },
+      // `startsAt > now` is the backstop. remindAt alone was not enough: a row
+      // whose remindAt had slipped (or was mis-set) fired on the next poll no
+      // matter how long the appointment itself had been over.
+      where: { organizationId, reminderStatus: 'PENDING', remindAt: { lte: now }, startsAt: { gt: now } },
       orderBy: { remindAt: 'asc' },
       take: 20,
     });
@@ -1223,6 +1251,91 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     return { id: created.id, stored: true };
   }
 
+  /**
+   * Remember that we asked Denzel for an appointment's time, so his reply is
+   * read as the answer. Kept on the PA session (OperatorSession) rather than in
+   * the bridge, for the same reason the pending plan lives here: a bridge
+   * restart would silently forget it.
+   */
+  private async awaitApptTime(ownerNumber: string, appointmentId: string) {
+    const key = this.paSessionKey(ownerNumber);
+    const row = await this.prisma.operatorSession.findUnique({ where: { channel_channelUserId: key } });
+    const state: any = (row?.state as any) || {};
+    const next = { ...state, awaitingApptTime: { id: appointmentId, at: new Date().toISOString() } };
+    await this.prisma.operatorSession.upsert({
+      where: { channel_channelUserId: key },
+      update: { state: next, expiresAt: new Date(Date.now() + 30 * 86400_000) },
+      create: { ...key, state: next, expiresAt: new Date(Date.now() + 30 * 86400_000) },
+    });
+  }
+
+  /**
+   * Denzel answering "what time?". Returns a reply when it was handled, null
+   * when his message was about something else entirely — in which case the
+   * question stays open and the message falls through to the normal PA chat.
+   */
+  private async resolveApptTime(args: {
+    organizationId: string;
+    from: string;
+    text: string;
+    waiting: { id: string };
+    state: any;
+  }): Promise<{ reply: string } | null> {
+    const appt = await this.prisma.whatsAppAppointment.findFirst({
+      where: { id: args.waiting.id, organizationId: args.organizationId },
+    });
+    const key = this.paSessionKey(args.from);
+    const forget = async (appended?: string) => {
+      const { awaitingApptTime, ...rest } = args.state || {};
+      const history = appended
+        ? [...(rest.history || []), { role: 'user', content: args.text }, { role: 'assistant', content: appended }].slice(-12)
+        : rest.history;
+      await this.prisma.operatorSession.upsert({
+        where: { channel_channelUserId: key },
+        update: { state: { ...rest, history }, expiresAt: new Date(Date.now() + 30 * 86400_000) },
+        create: { ...key, state: { ...rest, history }, expiresAt: new Date(Date.now() + 30 * 86400_000) },
+      });
+    };
+
+    // Cancelled or re-captured while we waited — drop the question quietly.
+    if (!appt || appt.reminderStatus !== 'NEEDS_TIME') {
+      await forget();
+      return null;
+    }
+
+    const dateSgt = appt.startsAt.toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
+    // Reuse the appointment extractor rather than hand-rolling a time parser:
+    // it already resolves "9pm", "9.30", "after lunch" against a known date.
+    const parsed = await this.agent
+      .extractAppointment(`Meeting on ${dateSgt} at ${args.text}`, new Date().toISOString())
+      .catch(() => null);
+    if (!parsed?.time) return null; // not a time — let the PA answer normally
+
+    const startsAt = new Date(`${dateSgt}T${parsed.time}:00+08:00`);
+    if (Number.isNaN(startsAt.getTime())) return null;
+    const remindAt = this.computeRemindAt(startsAt);
+    await this.prisma.whatsAppAppointment.update({
+      where: { id: appt.id },
+      data: {
+        startsAt,
+        timeText: parsed.timeText || args.text.trim().slice(0, 100),
+        remindAt: remindAt ?? startsAt,
+        reminderStatus: remindAt ? 'PENDING' : 'SKIPPED',
+      },
+    });
+
+    const when = startsAt.toLocaleString('en-GB', {
+      weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit',
+      timeZone: 'Asia/Singapore',
+    });
+    const reply = remindAt
+      ? `Got it, ${when}. I'll remind ${appt.clientName || 'them'} on ` +
+        `${remindAt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Singapore' })} \uD83D\uDE4F`
+      : `Got it, ${when}. That is too soon for a reminder, so I'll leave it be.`;
+    await forget(reply);
+    return { reply };
+  }
+
   private paSessionKey(from: string) {
     return { channel: 'wa-pa', channelUserId: String(from).replace(/\D/g, '') };
   }
@@ -1254,6 +1367,20 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const thisGroupName = args.thisGroupId
       ? args.groups.find((g) => g.id === args.thisGroupId)?.name || null
       : null;
+    // An open "what time?" takes the message first: he is answering a question
+    // we asked. resolveApptTime returns null when the reply is not a time, so
+    // an unrelated message still reaches the PA normally.
+    if (state.awaitingApptTime?.id) {
+      const resolved = await this.resolveApptTime({
+        organizationId: args.organizationId,
+        from: args.from,
+        text: args.text,
+        waiting: state.awaitingApptTime,
+        state,
+      });
+      if (resolved) return { reply: resolved.reply };
+    }
+
     // A bare ok/no answers the plan on the session. Decided HERE because the
     // plan lives here: the bridge used to keep its own "a plan is open" flag,
     // which a restart silently desynced from the truth.
@@ -1262,12 +1389,44 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       return this.paConfirm({ organizationId: args.organizationId, from: args.from, approve });
     }
 
-    const out = await this.agent.paConverse(history, args.text, args.groups, new Date().toISOString(), thisGroupName);
+    // Hand the model what is actually pending. Without it, asked what he had
+    // scheduled, it claimed to have no record and then invented one.
+    const pendingScheduled = await this.prisma.whatsAppScheduledMessage.findMany({
+      where: { organizationId: args.organizationId, status: 'PENDING', to: { endsWith: '@g.us' } },
+      orderBy: { scheduledAt: 'asc' },
+      take: 40,
+    });
+    const scheduledForModel = pendingScheduled.map((r, i) => ({
+      ref: i + 1,
+      id: r.id,
+      groupName: args.groups.find((g) => g.id === r.to)?.name || r.to,
+      whenText: r.scheduledAt.toLocaleString('en-GB', {
+        weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+        timeZone: 'Asia/Singapore',
+      }),
+      recurrence: r.recurrence || 'NONE',
+      preview: (r.body || '').replace(/\s+/g, ' ').slice(0, 60),
+    }));
+
+    const out = await this.agent.paConverse(
+      history,
+      args.text,
+      args.groups,
+      new Date().toISOString(),
+      thisGroupName,
+      scheduledForModel,
+    );
     if (!out) return { reply: null };
 
     let reply = out.reply;
     let pendingPlan: any = null;
-    if (out.plan) {
+    if (out.plan?.kind === 'cancel') {
+      const labels = out.plan.labels;
+      pendingPlan = { ...out.plan, names: labels, createdAt: new Date().toISOString(), planId: `pl${Date.now().toString(36)}` };
+      reply =
+        `Cancel ${labels.length} scheduled message${labels.length > 1 ? 's' : ''}:\n` +
+        `${labels.map((n) => `• ${n}`).join('\n')}\n\nReply *ok* to cancel, or *no* to keep.`;
+    } else if (out.plan) {
       const names = out.plan.groupIds.map((id) => args.groups.find((g) => g.id === id)?.name || id);
       const whenText = out.plan.whenIso
         ? new Date(out.plan.whenIso).toLocaleString('en-GB', {
@@ -1294,12 +1453,16 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     const nextHistory = [...history, { role: 'user' as const, content: args.text }];
     if (reply) nextHistory.push({ role: 'assistant' as const, content: reply });
+    // Spread the existing state FIRST. Listing the keys by hand dropped every
+    // other flag on the session each turn — the Operator lost bulk-invoice mode
+    // to exactly this, so an open "what time?" would not have survived either.
+    const nextState = { ...state, history: nextHistory.slice(-12), pendingPlan };
     await this.prisma.operatorSession.upsert({
       where: { channel_channelUserId: key },
-      update: { state: { history: nextHistory.slice(-12), pendingPlan }, expiresAt: new Date(Date.now() + 30 * 86400_000) },
+      update: { state: nextState, expiresAt: new Date(Date.now() + 30 * 86400_000) },
       create: {
         ...key,
-        state: { history: nextHistory.slice(-12), pendingPlan },
+        state: nextState,
         expiresAt: new Date(Date.now() + 30 * 86400_000),
       },
     });
@@ -1384,15 +1547,33 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
     const clear = async (appended: string) => {
       const history = [...(state.history || []), { role: 'assistant', content: appended }].slice(-12);
+      // Spread first: listing the keys dropped every other flag on the session.
       await this.prisma.operatorSession.update({
         where: { channel_channelUserId: key },
-        data: { state: { history, pendingPlan: null } },
+        data: { state: { ...state, history, pendingPlan: null } },
       });
     };
 
     if (!args.approve) {
       await clear('Dropped.');
-      return { reply: '👍 Dropped.', posts: [] };
+      return { reply: plan.kind === 'cancel' ? '👍 Kept it.' : '👍 Dropped.', posts: [] };
+    }
+
+    // Cancelling existing reminders. The PA used to tell him it could not do
+    // this and to delete it in WhatsApp himself, which was wrong twice over:
+    // it can, and WhatsApp has no idea these exist (guru 2026-10-15).
+    if (plan.kind === 'cancel') {
+      const { count } = await this.prisma.whatsAppScheduledMessage.updateMany({
+        where: { id: { in: plan.ids }, organizationId: args.organizationId, status: 'PENDING' },
+        data: { status: 'CANCELLED' },
+      });
+      await clear('Cancelled.');
+      return {
+        reply: count
+          ? `✅ Cancelled ${count} scheduled message${count > 1 ? 's' : ''}.`
+          : 'Those were already gone, nothing to cancel.',
+        posts: [],
+      };
     }
 
     if (!plan.whenIso) {
@@ -1551,6 +1732,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       to = (config?.ownerNotifyNumber || '').replace(/\D/g, '');
     }
     if (!to) return { ok: false, error: 'no owner number configured' };
+
+    // Captured without a clock time: arm the PA chat so his next message is
+    // read as the answer to "what time?" rather than as ordinary chatter.
+    if (appt.reminderStatus === 'NEEDS_TIME') await this.awaitApptTime(to, appt.id);
 
     const text = opts.text || `Noted: ${appt.topic || 'appointment'}`;
     const payload = {
