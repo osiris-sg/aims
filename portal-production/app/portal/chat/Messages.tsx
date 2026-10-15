@@ -1,5 +1,6 @@
 "use client";
 
+import AimeeFace from "./AimeeFace";
 import React, { useEffect, useMemo, useRef } from "react";
 import { Box, Button, Chip, Stack, Typography, alpha } from "@mui/material";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
@@ -121,7 +122,12 @@ export default function Messages({ items, pending, status, sending, channel, onT
         // the composer share the same edges (guru 2026-10-15: "not centered").
         const card = !mine && (m.kind === "document" || !!m.buttons?.length);
         return (
-          <Stack key={m.id} direction="row" justifyContent={mine ? "flex-end" : "flex-start"} alignItems="flex-end" gap={1}>
+          <Stack key={m.id} direction="row" justifyContent={mine ? "flex-end" : "flex-start"} alignItems="flex-start" gap={1}>
+            {!mine && (
+              <Box sx={{ pt: card ? 0.5 : 0.25, flexShrink: 0 }}>
+                <AimeeFace size={26} track={false} />
+              </Box>
+            )}
             <Box
               sx={{
                 minWidth: 0,
@@ -135,9 +141,9 @@ export default function Messages({ items, pending, status, sending, channel, onT
                       py: 1.25,
                       borderRadius: 3,
                       borderTopRightRadius: 6,
-                      bgcolor: "primary.main",
-                      color: "primary.contrastText",
-                      backgroundImage: "none",
+                      color: "#06202a",
+                      backgroundImage: "linear-gradient(135deg, #bff4ff 0%, #7fe3f7 100%)",
+                      boxShadow: "0 4px 16px rgba(85,233,255,0.18)",
                     }
                   : card
                     ? {
@@ -151,7 +157,7 @@ export default function Messages({ items, pending, status, sending, channel, onT
                         borderColor: "divider",
                         color: "text.primary",
                       }
-                    : { width: "100%", px: 0.5, py: 0.5, color: "text.primary" }),
+                    : { flex: 1, minWidth: 0, px: 0.5, py: 0.5, color: "text.primary" }),
               }}
             >
               {m.kind === "document" && (
@@ -251,7 +257,8 @@ export default function Messages({ items, pending, status, sending, channel, onT
       })}
 
       {(status || sending) && (
-        <Stack direction="row" alignItems="center" gap={1} sx={{ pl: 0.5 }}>
+        <Stack direction="row" alignItems="center" gap={1} sx={{ pl: 0 }}>
+          <AimeeFace size={26} mood="thinking" track={false} />
           <Box sx={{ display: "flex", gap: 0.5, "& span": { width: 6, height: 6, borderRadius: "50%", bgcolor: "text.secondary", animation: "aimsDot 1.2s infinite" }, "& span:nth-of-type(2)": { animationDelay: "0.2s" }, "& span:nth-of-type(3)": { animationDelay: "0.4s" }, "@keyframes aimsDot": { "0%, 80%, 100%": { opacity: 0.25 }, "40%": { opacity: 1 } } }}>
             <span /><span /><span />
           </Box>

@@ -7,6 +7,10 @@ import ArrowUpwardRoundedIcon from "@mui/icons-material/ArrowUpwardRounded";
 import StopRoundedIcon from "@mui/icons-material/StopRounded";
 import CloseIcon from "@mui/icons-material/Close";
 import type { SendInput } from "./useOperatorChat";
+import AimeeFace, { type AimeeMood } from "./AimeeFace";
+
+// AIMEE's eye colour, used for every live accent on the box.
+const CYAN = "85,233,255";
 
 const MAX_MB = 15;
 // The API body limit is 15 MB, so a batch has to fit under it as a whole.
@@ -86,8 +90,11 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
     setFiles([]);
   };
 
+  // The face in the box is the one the user looks at while typing.
+  const mood: AimeeMood = sending ? "thinking" : focused && text.trim() ? "listening" : "idle";
+
   return (
-    <Box sx={{ px: { xs: 2, md: 3 }, pb: 2, pt: 1 }}>
+    <Box sx={{ px: { xs: 2, md: 3 }, pb: 1.5, pt: 1 }}>
       <Box
         data-tour="chat-composer"
         onDragOver={(e) => e.preventDefault()}
@@ -96,14 +103,37 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
           pick(e.dataTransfer.files);
         }}
         sx={{
+          position: "relative",
           border: "1px solid",
-          borderColor: "divider",
-          borderRadius: 4,
-          bgcolor: "background.paper",
-          boxShadow: (t) => (t.palette.mode === "dark" ? "0 2px 12px rgba(0,0,0,0.35)" : "0 2px 12px rgba(0,0,0,0.06)"),
-          px: 1.5,
-          py: 1,
-          "&:focus-within": { borderColor: "primary.main" },
+          borderColor: focused ? `rgba(${CYAN},0.7)` : `rgba(${CYAN},0.22)`,
+          borderRadius: 7,
+          bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(255,255,255,0.035)" : "rgba(255,255,255,0.85)"),
+          backdropFilter: "blur(10px)",
+          boxShadow: (t) =>
+            focused
+              ? `0 0 0 4px rgba(${CYAN},0.12), 0 10px 32px rgba(${CYAN},${t.palette.mode === "dark" ? 0.12 : 0.18})`
+              : t.palette.mode === "dark"
+                ? "0 6px 24px rgba(0,0,0,0.35)"
+                : "0 6px 24px rgba(16,24,40,0.07)",
+          px: 1.25,
+          py: 0.75,
+          transition: "border-color .2s, box-shadow .25s",
+          // A ring breathes out of the box while AIMEE works on the message.
+          "&::after": {
+            content: '""',
+            position: "absolute",
+            inset: -1,
+            borderRadius: "inherit",
+            pointerEvents: "none",
+            border: `2px solid rgba(${CYAN},0.55)`,
+            opacity: 0,
+            animation: sending ? "aimeeWorking 1.5s ease-out infinite" : "none",
+          },
+          "@keyframes aimeeWorking": {
+            "0%": { opacity: 0.8, transform: "scale(1)" },
+            "100%": { opacity: 0, transform: "scale(1.035, 1.25)" },
+          },
+          "@media (prefers-reduced-motion: reduce)": { "&::after": { animation: "none" } },
         }}
       >
         {!!files.length && (
@@ -120,14 +150,10 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
             ))}
           </Stack>
         )}
-        <Stack direction="row" alignItems="flex-end" gap={1}>
-          <Tooltip title="Attach photos or PDFs (invoices, a price list). Up to 5 at once.">
-            <span>
-              <IconButton size="small" disabled={disabled || sending} onClick={() => fileRef.current?.click()} aria-label="Attach files">
-                <AttachFileIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
+        <Stack direction="row" alignItems="center" gap={1}>
+          <Box sx={{ alignSelf: "flex-end", pb: 0.25, pl: 0.25 }}>
+            <AimeeFace size={30} mood={mood} />
+          </Box>
           <input
             ref={fileRef}
             type="file"
@@ -171,8 +197,15 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
               }
             }}
             inputProps={{ "aria-label": "Message", "data-tour": "chat-input" }}
-            sx={{ fontSize: "0.95rem", py: 0.5, flex: 1 }}
+            sx={{ fontSize: "0.95rem", py: 0.75, flex: 1 }}
           />
+          <Tooltip title="Attach photos or PDFs (invoices, a price list). Up to 5 at once.">
+            <span>
+              <IconButton size="small" disabled={disabled || sending} onClick={() => fileRef.current?.click()} aria-label="Attach files" sx={{ color: "text.secondary" }}>
+                <AttachFileIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
           {sending ? (
             <Tooltip title="Stop">
               <IconButton size="small" onClick={onStop} sx={{ bgcolor: "text.primary", color: "background.paper", "&:hover": { bgcolor: "text.secondary" } }} aria-label="Stop">
@@ -186,10 +219,14 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
               disabled={disabled || (!text.trim() && !files.length)}
               aria-label="Send"
               sx={{
-                bgcolor: "primary.main",
-                color: "primary.contrastText",
-                "&:hover": { bgcolor: "primary.dark" },
-                "&.Mui-disabled": { bgcolor: "action.disabledBackground", color: "action.disabled" },
+                width: 36,
+                height: 36,
+                color: "#06202a",
+                backgroundImage: `linear-gradient(135deg, rgb(${CYAN}) 0%, #2bb8d6 100%)`,
+                boxShadow: `0 4px 14px rgba(${CYAN},0.35)`,
+                transition: "transform .15s, box-shadow .15s",
+                "&:hover": { transform: "translateY(-1px)", boxShadow: `0 6px 18px rgba(${CYAN},0.5)` },
+                "&.Mui-disabled": { backgroundImage: "none", bgcolor: "action.disabledBackground", color: "action.disabled", boxShadow: "none" },
               }}
             >
               <ArrowUpwardRoundedIcon fontSize="small" />
@@ -197,8 +234,8 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
           )}
         </Stack>
       </Box>
-      <Typography sx={{ mt: 0.75, fontSize: "0.7rem", color: fileError ? "error.main" : "text.secondary", textAlign: "center" }}>
-        {fileError || "Enter to send, Shift+Enter for a new line. Anything final asks you to confirm first."}
+      <Typography sx={{ mt: 0.75, fontSize: "0.68rem", color: fileError ? "error.main" : "text.secondary", opacity: fileError ? 1 : 0.7, textAlign: "center" }}>
+        {fileError || "Enter to send · Shift+Enter for a new line · anything final asks you first"}
       </Typography>
     </Box>
   );

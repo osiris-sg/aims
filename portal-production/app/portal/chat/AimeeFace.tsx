@@ -25,7 +25,7 @@ interface Props {
   className?: string;
 }
 
-const EYE = { w: 14, h: 18, rx: 6, y: 41, lx: 29, rx2: 57 } as const;
+const EYE = { w: 16, h: 21, rx: 7, y: 39, lx: 27, rx2: 57 } as const;
 
 export default function AimeeFace({ size = 48, mood = "idle", track = true, wake = false, hover = false, className }: Props) {
   const theme = useTheme();
@@ -181,8 +181,8 @@ export default function AimeeFace({ size = 48, mood = "idle", track = true, wake
             </g>
             {/* Happy arcs sit where the eyes were */}
             <g className="aimee-smile" filter={`url(#glow-${uid})`} stroke="#9df3ff" strokeWidth="4.5" strokeLinecap="round" fill="none">
-              <path d="M30 51 Q36 43 42 51" />
-              <path d="M58 51 Q64 43 70 51" />
+              <path d="M28 51 Q35 42 42 51" />
+              <path d="M58 51 Q65 42 72 51" />
             </g>
           </g>
         </g>

@@ -12,16 +12,23 @@ import AimeeBar from "./chat/AimeeBar";
 // get AIMEE on top of it: a strip with her face and an "Ask AIMEE" pill.
 // Pressing either opens the assistant over the dashboard with a circular
 // reveal that grows out of the face; "Dashboard" in its header shrinks it back.
+//
+// The reveal is driven with the Web Animations API from a frame AFTER the
+// assistant has mounted: a CSS animation on the same element starts its clock
+// while React is still busy mounting the conversation, so it was a third of
+// the way through before the first paint. The dashboard stays mounted (hidden)
+// under AIMEE for the same reason: closing has nothing to build.
 type Phase = "dashboard" | "opening" | "aimee" | "closing";
-const REVEAL_MS = 620;
+const REVEAL_MS = 640;
 
 export default function Page() {
   const { isAimsChatEnabled, isLoading } = useOrganizationFeatures();
   const router = useRouter();
   const [phase, setPhase] = useState<Phase | null>(null);
-  const [origin, setOrigin] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [prompt, setPrompt] = useState<string | undefined>();
-  const timer = useRef<number | null>(null);
+  const origin = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const overlay = useRef<HTMLDivElement | null>(null);
+  const anim = useRef<Animation | null>(null);
   const reduced = useRef(false);
 
   useEffect(() => {
@@ -30,36 +37,67 @@ export default function Page() {
     // ?aimee=1 (the face in the top bar, pressed on another page).
     const q = new URLSearchParams(window.location.search);
     const wantsAimee = !!q.get("chat") || q.get("aimee") === "1";
-    if (wantsAimee) openAimee({ instant: true });
-    else setPhase(readHomeView() === "aimee" ? "aimee" : "dashboard");
+    // (The listener below is not registered yet, so the phase is set here too.)
+    if (wantsAimee) {
+      openAimee({ instant: true });
+      setPhase("aimee");
+    } else setPhase(readHomeView() === "aimee" ? "aimee" : "dashboard");
 
     const onChange = (e: Event) => {
       const d = (e as CustomEvent<AimeeOpenDetail>).detail;
-      if (timer.current) window.clearTimeout(timer.current);
+      anim.current?.cancel();
       if (d.view === "aimee") {
         setPrompt(d.prompt);
         if (d.instant || reduced.current) {
           setPhase("aimee");
           return;
         }
-        setOrigin({ x: d.x ?? window.innerWidth / 2, y: d.y ?? window.innerHeight / 2 });
+        origin.current = { x: d.x ?? window.innerWidth / 2, y: d.y ?? window.innerHeight / 2 };
         setPhase("opening");
-        timer.current = window.setTimeout(() => setPhase("aimee"), REVEAL_MS);
       } else {
-        if (reduced.current) {
-          setPhase("dashboard");
-          return;
-        }
-        setPhase((p) => (p === "aimee" || p === "opening" ? "closing" : p));
-        timer.current = window.setTimeout(() => setPhase("dashboard"), REVEAL_MS);
+        setPhase((p) => (p === "dashboard" ? p : reduced.current ? "dashboard" : "closing"));
       }
     };
     window.addEventListener(HOME_VIEW_EVENT, onChange);
     return () => {
       window.removeEventListener(HOME_VIEW_EVENT, onChange);
-      if (timer.current) window.clearTimeout(timer.current);
+      anim.current?.cancel();
     };
   }, []);
+
+  // Run the reveal once the overlay is on screen.
+  useEffect(() => {
+    if (phase !== "opening" && phase !== "closing") return;
+    const el = overlay.current;
+    const done = () => setPhase(phase === "opening" ? "aimee" : "dashboard");
+    if (!el || typeof el.animate !== "function") {
+      done();
+      return;
+    }
+    const { x, y } = origin.current;
+    const r = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y)) + 40;
+    const small = `circle(0px at ${x}px ${y}px)`;
+    const big = `circle(${Math.round(r)}px at ${x}px ${y}px)`;
+    el.style.clipPath = phase === "opening" ? small : big;
+    let fallback = 0;
+    const raf = window.requestAnimationFrame(() => {
+      const a = el.animate(phase === "opening" ? [{ clipPath: small }, { clipPath: big }] : [{ clipPath: big }, { clipPath: small }], {
+        duration: REVEAL_MS,
+        easing: phase === "opening" ? "cubic-bezier(.2,.7,.2,1)" : "cubic-bezier(.6,0,.8,.4)",
+        fill: "forwards",
+      });
+      anim.current = a;
+      a.onfinish = () => {
+        anim.current = null;
+        done();
+      };
+      fallback = window.setTimeout(done, REVEAL_MS + 300);
+    });
+    return () => {
+      window.cancelAnimationFrame(raf);
+      if (fallback) window.clearTimeout(fallback);
+    };
+  }, [phase]);
 
   const close = useCallback(() => {
     // Drop ?chat= / ?aimee= so a reload lands on the dashboard.
@@ -71,38 +109,28 @@ export default function Page() {
   if (!isAimsChatEnabled) return <DashboardOverview />;
 
   const aimeeShown = phase !== "dashboard";
-  const clip = phase === "opening" ? "aimeeOpen" : phase === "closing" ? "aimeeClose" : undefined;
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
-      {phase !== "aimee" && (
-        <>
-          <AimeeBar />
-          <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "& > div:first-of-type": { pt: 2 } }}>
-            <DashboardOverview />
-          </Box>
-        </>
-      )}
+      <Box
+        aria-hidden={phase === "aimee"}
+        sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, visibility: phase === "aimee" ? "hidden" : "visible" }}
+      >
+        <AimeeBar />
+        <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "& > div:first-of-type": { pt: 2 } }}>
+          <DashboardOverview />
+        </Box>
+      </Box>
 
       {aimeeShown && (
         <Box
+          ref={overlay}
           sx={{
             position: "fixed",
             inset: 0,
             zIndex: (t) => t.zIndex.appBar - 1,
             pointerEvents: "none",
-            "--ax": `${origin.x}px`,
-            "--ay": `${origin.y}px`,
-            clipPath: phase === "aimee" ? "none" : `circle(0px at var(--ax) var(--ay))`,
-            animation: clip ? `${clip} ${REVEAL_MS}ms cubic-bezier(.65,0,.35,1) forwards` : "none",
-            "@keyframes aimeeOpen": {
-              from: { clipPath: "circle(0px at var(--ax) var(--ay))" },
-              to: { clipPath: "circle(160vmax at var(--ax) var(--ay))" },
-            },
-            "@keyframes aimeeClose": {
-              from: { clipPath: "circle(160vmax at var(--ax) var(--ay))" },
-              to: { clipPath: "circle(0px at var(--ax) var(--ay))" },
-            },
+            willChange: phase === "aimee" ? "auto" : "clip-path",
           }}
         >
           <Box sx={{ position: "absolute", top: { xs: 64, md: 52 }, left: 0, right: 0, bottom: 0, pointerEvents: "auto", bgcolor: "background.default" }}>

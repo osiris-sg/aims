@@ -34,9 +34,11 @@ export default function AimeeBar() {
     <Box
       data-tour="aimee-bar"
       sx={{
-        mx: { xs: 2, md: 4 },
+        // Same gutters and max width as the dashboard cards below it.
+        mx: "auto",
+        width: { xs: "calc(100% - 32px)", md: "calc(100% - 64px)" },
+        maxWidth: "var(--page-max-width)",
         mt: { xs: "5rem", md: 2.5 },
-        mb: -1,
         px: { xs: 1.5, md: 2 },
         py: { xs: 1.5, md: 1.5 },
         borderRadius: 4,
