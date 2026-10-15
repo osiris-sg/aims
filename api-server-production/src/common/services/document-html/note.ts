@@ -8,7 +8,7 @@
  * Literal strings, labels, column widths and the totals maths mirror the
  * portal so the side panel, the emailed PDF and the printed page agree.
  */
-import { descriptionText, designFooter, escapeHtml, formatDate, infoRow, logoBlock, makeDi, numberToWords, richContent } from './shared';
+import { billToText, descriptionText, designFooter, escapeHtml, formatDate, infoRow, logoBlock, makeDi, numberToWords, richContent } from './shared';
 import { DEFAULT_DESIGN, DocumentDesign, fillerRowPx } from './design';
 
 export type NoteKind = 'credit' | 'debit';
@@ -82,7 +82,7 @@ export function renderNoteBody(data: any, organization: any, kind: NoteKind, des
       <div style="margin-bottom:24px;">
         <p style="font-size:13px;font-weight:600;margin-bottom:4px;">Bill To :</p>
         <p style="font-size:13px;font-weight:600;">${escapeHtml(customer.name || data?.customerName || '')}</p>
-        <p style="font-size:13px;white-space:pre-line;">${escapeHtml(data?.billTo || customer.address || data?.customerAddress || '')}</p>
+        <p style="font-size:13px;white-space:pre-line;">${escapeHtml(billToText(data?.billTo || customer.address || data?.customerAddress || '', customer.name || data?.customerName))}</p>
       </div>
       ${deliverTo}
     </div>
