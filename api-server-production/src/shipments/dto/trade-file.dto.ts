@@ -12,8 +12,9 @@ export class UploadTradeFileDto {
 
   @IsOptional() contractIds?: unknown;
   @IsOptional() shipmentIds?: unknown;
+  @IsOptional() orderIds?: unknown;
 
-  /** Optional step the file was uploaded for; its contract/shipment is linked automatically. */
+  /** Optional step the file was uploaded for; its order / shipment is linked automatically. */
   @IsOptional() @IsUUID() stepId?: string;
 
   @IsOptional() @IsString() @MaxLength(2000) notes?: string;
@@ -25,6 +26,7 @@ export class UploadTradeFileDto {
 export class AddTradeFileLinksDto {
   @IsOptional() contractIds?: unknown;
   @IsOptional() shipmentIds?: unknown;
+  @IsOptional() orderIds?: unknown;
   @IsOptional() @IsUUID() stepId?: string;
 }
 
@@ -32,6 +34,7 @@ export class ListTradeFilesQuery {
   @IsOptional() @IsString() docType?: string;
   @IsOptional() @IsUUID() contractId?: string;
   @IsOptional() @IsUUID() shipmentId?: string;
+  @IsOptional() @IsUUID() orderId?: string;
   @IsOptional() @IsUUID() customerId?: string;
   @IsOptional() @IsString() q?: string;
   @IsOptional() @IsDateString() from?: string;

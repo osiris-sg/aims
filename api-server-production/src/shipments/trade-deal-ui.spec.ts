@@ -157,7 +157,8 @@ function contractDb(opts: { shipments?: any[] } = {}) {
     shipment: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 's1' }) },
   };
   const prisma: any = { ...tx, $transaction: (fn: any) => fn(tx) };
-  const config: any = { snapshotSteps: jest.fn(), syncSteps: jest.fn().mockResolvedValue([]), getSettings: jest.fn().mockResolvedValue({}) };
+  // snapshotSteps returns how many contract-level steps it made: > 0 = an org still on the contract-level flow.
+  const config: any = { snapshotSteps: jest.fn().mockResolvedValue(2), syncSteps: jest.fn().mockResolvedValue([]), getSettings: jest.fn().mockResolvedValue({}), profileOf: jest.fn().mockResolvedValue({ billingMode: 'TWO_STAGE', docVariants: {} }) };
   const svc = new ContractsService(prisma, config, new ShipmentsService(prisma, config));
   jest.spyOn(svc, 'getById').mockResolvedValue({} as any);
   return { tx, svc, config };
@@ -165,7 +166,7 @@ function contractDb(opts: { shipments?: any[] } = {}) {
 
 describe('the deal: contract + shipments', () => {
   const dto = { contractNo: 'C1', supplierId: 'sup', customerId: 'cus', lines: [{ grade: '6063' }] } as any;
-  it('a new contract defaults the deposit to 3 business days and gets shipment #1 (B/L pending)', async () => {
+  it('a new contract (contract-level flow) defaults the deposit to 3 business days and gets shipment #1 (B/L pending)', async () => {
     const { tx, config } = await (async () => {
       const x = contractDb();
       await x.svc.create(ORG, dto, actor);
@@ -174,7 +175,14 @@ describe('the deal: contract + shipments', () => {
     expect(tx.contract.create.mock.calls[0][0].data).toMatchObject({ depositDueDays: 3, depositDueUnit: 'BUSINESS', depositDueNote: '3 business days' });
     expect(tx.shipment.create).toHaveBeenCalledTimes(1);
     expect(tx.shipment.create.mock.calls[0][0].data).toMatchObject({ contractId: 'c1', blNumber: null, contractLineId: 'L1' });
-    expect(config.snapshotSteps).toHaveBeenCalledWith(tx, ORG, 'SHIPMENT', { shipmentId: 's1' });
+    expect(config.snapshotSteps).toHaveBeenCalledWith(tx, ORG, 'SHIPMENT', { shipmentId: 's1' }, expect.objectContaining({ billingMode: 'TWO_STAGE' }));
+  });
+  it('with orders (no contract-level steps) a contract is just the LTC master: no steps, no shipment', async () => {
+    const x = contractDb();
+    x.config.snapshotSteps.mockResolvedValue(0);
+    await x.svc.create(ORG, dto, actor);
+    expect(x.tx.contract.create).toHaveBeenCalledTimes(1);
+    expect(x.tx.shipment.create).not.toHaveBeenCalled();
   });
   it('reads the deposit term from the PI wording when given', async () => {
     const { tx, svc } = contractDb();

@@ -11,6 +11,8 @@ function makeService(config: Record<string, unknown> | null, opts: { failS3?: bo
     organization: { findUnique: jest.fn(async () => ({ id: ORG, name: 'Asia Deal Hub Japan LLC', registrationNumber: null })) },
     emailIngestConfig: { findUnique: jest.fn(async () => config) },
     emailIngestLog: {
+      // Purged-email dedupe check (hashed Message-ID): none here.
+      findFirst: jest.fn(async () => null),
       create: jest.fn(async ({ data }) => {
         if (logs.some((l) => l.organizationId === data.organizationId && l.messageId === data.messageId)) throw Object.assign(new Error('dup'), { code: 'P2002' });
         const row = { id: `log-${logs.length + 1}`, createdAt: new Date('2026-10-15T03:00:00Z'), ...data };

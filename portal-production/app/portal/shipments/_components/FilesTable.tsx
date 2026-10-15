@@ -14,27 +14,32 @@ import MoreVertIcon from "@mui/icons-material/MoreVert";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { toast } from "../_lib/toast";
 import Table from "@/components/Table";
-import type { FileFilters, TradeFile, TradeFileLink } from "../_lib/api";
-import { useContracts, useShipments, useTradeFiles, useTradeMutation } from "../_lib/hooks";
+import { linkTargetsOf, targetGroup, type FileFilters, type TradeFile, type TradeFileLink } from "../_lib/api";
+import { useOrders, useShipments, useTradeFiles, useTradeMutation } from "../_lib/hooks";
 import { blLabel, fmtBytes, fmtDate, fmtDateTime } from "../_lib/format";
 import { ConfirmDialog, EmptyState } from "./bits";
 import FileUploadDialog, { type LinkTarget } from "./FileUploadDialog";
 import { FileThumb, useFileViewer } from "./FilePreview";
 
-const linkLabel = (l: TradeFileLink) => (l.contractId ? `Contract ${l.contract?.contractNo ?? ""}` : `Shipment ${blLabel(l.shipment?.blNumber)}`);
-const linkHref = (l: TradeFileLink) => (l.contractId ? `/portal/shipments/contracts/${l.contractId}` : `/portal/shipments/${l.shipmentId}`);
+const linkLabel = (l: TradeFileLink) =>
+  l.orderId
+    ? `Order #${l.order?.orderNo ?? ""}`
+    : l.contractId
+      ? `Contract ${l.contract?.contractNo ?? ""}`
+      : `Shipment ${l.shipment?.order ? `#${l.shipment.order.orderNo}${l.shipment.seqNo ? `-${l.shipment.seqNo}` : ""}` : blLabel(l.shipment?.blNumber)}`;
+const linkHref = (l: TradeFileLink) => (l.orderId ? `/portal/shipments/orders/${l.orderId}` : l.contractId ? `/portal/shipments/contracts/${l.contractId}` : `/portal/shipments/${l.shipmentId}`);
 
 export const LinkChips = ({ links, currentId }: { links: TradeFileLink[]; currentId?: string }) =>
   links.length ? (
     <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
       {links.map((l) => {
-        const isCurrent = !!currentId && (l.contractId ?? l.shipmentId) === currentId;
+        const isCurrent = !!currentId && (l.orderId ?? l.contractId ?? l.shipmentId) === currentId;
         return (
           <Chip
             key={l.id}
             size="small"
             variant="outlined"
-            color={l.contractId ? "primary" : "info"}
+            color={l.orderId || l.contractId ? "primary" : "info"}
             label={linkLabel(l)}
             component={Link}
             href={linkHref(l)}
@@ -247,16 +252,16 @@ export default function FilesTable({ filter, currentId, uploadTargets, canUpload
 
 export function AddLinkDialog({ file, onClose }: { file: TradeFile | null; onClose: () => void }) {
   const open = !!file;
-  const contracts = useContracts({ status: "OPEN", pageSize: 100 }, open);
+  const orders = useOrders({ bucket: "pending", pageSize: 100 }, open);
   const shipments = useShipments({ status: "OPEN", pageSize: 100 }, open);
   const [targets, setTargets] = useState<LinkTarget[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const add = useTradeMutation((a, v: { id: string; contractIds: string[]; shipmentIds: string[] }) => a.addLinks(v.id, { contractIds: v.contractIds, shipmentIds: v.shipmentIds }));
+  const add = useTradeMutation((a, v: { id: string; targets: LinkTarget[] }) => a.addLinks(v.id, linkTargetsOf(v.targets)));
 
-  const linked = new Set((file?.links ?? []).map((l) => l.contractId ?? l.shipmentId));
+  const linked = new Set((file?.links ?? []).map((l) => l.orderId ?? l.contractId ?? l.shipmentId));
   const options: LinkTarget[] = [
-    ...(contracts.data?.items ?? []).map((c) => ({ kind: "contract" as const, id: c.id, label: `Contract ${c.contractNo}` })),
-    ...(shipments.data?.items ?? []).map((s) => ({ kind: "shipment" as const, id: s.id, label: `Shipment ${blLabel(s.blNumber)}${s.contractNo ? ` · ${s.contractNo}` : ""}` })),
+    ...(orders.data?.items ?? []).map((o) => ({ kind: "order" as const, id: o.id, label: `Order ${o.label}${o.customerName ? ` · ${o.customerName}` : ""}` })),
+    ...(shipments.data?.items ?? []).map((s) => ({ kind: "shipment" as const, id: s.id, label: `Shipment ${s.ref || blLabel(s.blNumber)}${s.blNumber && s.ref ? ` · B/L ${s.blNumber}` : ""}` })),
   ].filter((o) => !linked.has(o.id));
 
   const close = () => {
@@ -268,11 +273,7 @@ export function AddLinkDialog({ file, onClose }: { file: TradeFile | null; onClo
   const submit = async () => {
     setError(null);
     try {
-      await add.mutateAsync({
-        id: file!.id,
-        contractIds: targets.filter((t) => t.kind === "contract").map((t) => t.id),
-        shipmentIds: targets.filter((t) => t.kind === "shipment").map((t) => t.id),
-      });
+      await add.mutateAsync({ id: file!.id, targets });
       toast.success("Links added");
       setTargets([]);
       onClose();
@@ -295,10 +296,10 @@ export function AddLinkDialog({ file, onClose }: { file: TradeFile | null; onClo
           options={options}
           value={targets}
           onChange={(_, v) => setTargets(v)}
-          groupBy={(o) => (o.kind === "contract" ? "Contracts" : "Shipments")}
+          groupBy={(o) => targetGroup(o.kind)}
           getOptionLabel={(o) => o.label}
           isOptionEqualToValue={(a, b) => a.id === b.id}
-          loading={contracts.isLoading || shipments.isLoading}
+          loading={orders.isLoading || shipments.isLoading}
           renderInput={(p) => <TextField {...p} label="Also link to" size="small" sx={{ mt: 1 }} />}
         />
       </DialogContent>
@@ -320,7 +321,7 @@ export function UnlinkDialog({ file, currentId, onClose, onConfirm }: { file: Tr
   const [error, setError] = useState<string | null>(null);
   const links = file?.links ?? [];
   // Default to the record the user is on, else the only link.
-  const fallback = links.find((l) => (l.contractId ?? l.shipmentId) === currentId)?.id ?? (links.length === 1 ? links[0].id : "");
+  const fallback = links.find((l) => (l.orderId ?? l.contractId ?? l.shipmentId) === currentId)?.id ?? (links.length === 1 ? links[0].id : "");
   const selected = linkId || fallback;
 
   const close = () => {

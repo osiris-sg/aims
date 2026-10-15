@@ -8,6 +8,7 @@
 // 請求書, customer delivery profiles for 出庫・納入依頼書, and QMJP by quarter
 // (the invoices' price helper). Existing documents keep what they were created with.
 
+import Link from "next/link";
 import React, { useEffect, useState } from "react";
 import { Alert, Box, Button, Divider, Grid2, IconButton, Radio, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -106,7 +107,6 @@ export default function DocSettingsForm() {
   const loading = settings.isLoading;
   const mono = { style: { fontFamily: "monospace", fontSize: 12.5 } };
   const setBank = (i: number, patch: Partial<BankAccount>) => setBanks((bs) => bs.map((b, j) => (j === i ? { ...b, ...patch } : b)));
-  const setProfile = (i: number, patch: Partial<DeliveryProfile>) => setProfiles((ps) => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   const iss = (k: keyof Issuers, label: string, extra: Record<string, any> = {}) => (
     <TextField size="small" fullWidth label={label} value={issuers[k]} disabled={loading} onChange={(e) => setIssuers((x) => ({ ...x, [k]: e.target.value }))} {...extra} />
   );
@@ -190,42 +190,12 @@ export default function DocSettingsForm() {
         </Section>
         <Divider sx={{ mb: 2 }} />
 
-        <Section
-          title="Delivery profiles (出庫・納入依頼書)"
-          action={
-            <Button size="small" startIcon={<AddIcon />} onClick={() => setProfiles((ps) => [...ps, { id: newId("site"), customerName: "", siteName: "", address: "", notes: "" }])} disabled={loading}>
-              Add profile
-            </Button>
-          }
-        >
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-            Picked automatically when the shipment&apos;s customer name contains &quot;Customer&quot;; fills 納入先 and the 備考 lines.
+        <Section title="Delivery sites (出庫・納入依頼書)">
+          <Typography variant="body2" color="text.secondary">
+            Each customer&apos;s delivery site (納入先, address, 備考 lines) is now part of its profile in{" "}
+            <Link href="/portal/settings/customers">Org Settings → Customers</Link>
+            {profiles.length ? ` — ${profiles.length} older site(s) here are still used for customers without one.` : "."}
           </Typography>
-          <Stack spacing={1.5}>
-            {profiles.map((p, i) => (
-              <Stack key={p.id} direction="row" spacing={1} alignItems="flex-start">
-                <Grid2 container spacing={1} sx={{ flex: 1 }}>
-                  <Grid2 size={{ xs: 12, sm: 4 }}>
-                    <TextField size="small" fullWidth label="Customer" value={p.customerName} onChange={(e) => setProfile(i, { customerName: e.target.value })} />
-                  </Grid2>
-                  <Grid2 size={{ xs: 12, sm: 8 }}>
-                    <TextField size="small" fullWidth label="Site name (納入先)" value={p.siteName} onChange={(e) => setProfile(i, { siteName: e.target.value })} />
-                  </Grid2>
-                  <Grid2 size={12}>
-                    <TextField size="small" fullWidth label="Address" value={p.address} onChange={(e) => setProfile(i, { address: e.target.value })} />
-                  </Grid2>
-                  <Grid2 size={12}>
-                    <TextField size="small" fullWidth multiline minRows={2} label="Notes (one 備考 line each)" value={p.notes} onChange={(e) => setProfile(i, { notes: e.target.value })} />
-                  </Grid2>
-                </Grid2>
-                <Tooltip title="Remove profile">
-                  <IconButton aria-label="Remove profile" onClick={() => setProfiles((ps) => ps.filter((_, j) => j !== i))}>
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </Stack>
-            ))}
-          </Stack>
         </Section>
         <Divider sx={{ mb: 2 }} />
 

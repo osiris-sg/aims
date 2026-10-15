@@ -1,0 +1,25 @@
+From: Toshiro Takekoshi <toshiro.takekoshi@asiadealhub.com>
+To: purchasing@kato.example.jp
+Subject: =?UTF-8?B?6KuL5rGC5pu46YCB5LuYIDnmnIjntI3lhaU2MDA144O8NDB0?=
+Date: Tue, 18 Aug 2026 11:00:00 +0900
+Message-ID: <kato-inv-0004@asiadealhub.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b-outbound-kato-invoice"
+
+--b-outbound-kato-invoice
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+5Yqg6Jek6Lu96YeR5bGe5bel5qWt5qCq5byP5Lya56S+IOW+oeS4rQroq4vmsYLmm7jjgpLpgIHk
+u5jjgYTjgZ/jgZfjgb7jgZnjgIIoZHVtbXkgZml4dHVyZSk=
+--b-outbound-kato-invoice
+Content-Type: application/pdf; name="=?UTF-8?B?6KuL5rGC5pu4X+WKoOiXpOi7vemHkeWxnuanmDYwMDVfNDAuODI1dC5wZGY=?="
+Content-Disposition: attachment; filename="=?UTF-8?B?6KuL5rGC5pu4X+WKoOiXpOi7vemHkeWxnuanmDYwMDVfNDAuODI1dC5wZGY=?="
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqIDIgMCBv
+Ymo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iaiAzIDAgb2JqPDwvVHlw
+ZS9QYWdlL1BhcmVudCAyIDAgUi9NZWRpYUJveFswIDAgMjAwIDEwMF0+PmVuZG9iagp0cmFpbGVy
+PDwvUm9vdCAxIDAgUj4+CiUlRU9GCiDoq4vmsYLmm7hf5Yqg6Jek6Lu96YeR5bGe5qeYNjAwNV80
+MC44MjV0LnBkZg==
+--b-outbound-kato-invoice--

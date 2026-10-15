@@ -2,15 +2,30 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { grossOf } from '../common/document-money';
 import { PrismaService } from '../common/prisma.service';
 import { TradeActor } from './shipments.request';
-import { docRefBase, nextDocRef } from './trade-docref';
-import { autoCompletePlan, documentLinkState, fieldRequirements, hasExactlyOneOwner, stepLabel, stepLabels, stepRequirements, stepsBrokenByRemoval } from './shipments.rules';
+import { docRefBase, nextDocRef, orderDocRefBase } from './trade-docref';
+import { autoCompletePlan, countsForProgress, documentLinkState, fieldRequirements, hasExactlyOneOwner, stepLabel, stepLabels, stepRequirements, stepsBrokenByRemoval } from './shipments.rules';
+import { CustomerProfile, mergeProfiles, naStepCodes, profileFor, stepOverride, subtasksFor } from './trade-profile';
+import { ratesOf } from './trade-estimator';
 
 /** A Prisma client or interactive-transaction client. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Db = any;
 
-export type TradeScope = 'CONTRACT' | 'SHIPMENT';
-export type TradeOwner = { contractId: string; shipmentId?: undefined } | { shipmentId: string; contractId?: undefined };
+export type TradeScope = 'CONTRACT' | 'SHIPMENT' | 'ORDER';
+/** The record a step / file link / document link hangs off: an order (since 2026-10), a shipment, or a legacy contract. */
+export type TradeOwner =
+  | { contractId: string; shipmentId?: undefined; orderId?: undefined }
+  | { shipmentId: string; contractId?: undefined; orderId?: undefined }
+  | { orderId: string; contractId?: undefined; shipmentId?: undefined };
+
+/** Prisma where-fragment for an owner. */
+export const ownerWhere = (o: { contractId?: string | null; shipmentId?: string | null; orderId?: string | null }) =>
+  o.orderId ? { orderId: o.orderId } : o.shipmentId ? { shipmentId: o.shipmentId } : { contractId: o.contractId as string };
+/** The owner's id (whichever kind). */
+export const ownerIdOf = (o: { contractId?: string | null; shipmentId?: string | null; orderId?: string | null }) => (o.orderId ?? o.shipmentId ?? o.contractId) as string;
+/** A row's owner (link / step) as a TradeOwner. */
+export const toOwner = (o: { contractId?: string | null; shipmentId?: string | null; orderId?: string | null }): TradeOwner =>
+  o.orderId ? { orderId: o.orderId } : o.shipmentId ? { shipmentId: o.shipmentId } : { contractId: o.contractId as string };
 
 export interface DocLinkRow {
   id: string;
@@ -19,15 +34,17 @@ export interface DocLinkRow {
   stepId: string | null;
   contractId?: string | null;
   shipmentId?: string | null;
+  orderId?: string | null;
   createdAt: Date;
 }
 
-export const DOC_LINK_SELECT = { id: true, documentId: true, docType: true, stepId: true, contractId: true, shipmentId: true, createdAt: true };
+export const DOC_LINK_SELECT = { id: true, documentId: true, docType: true, stepId: true, contractId: true, shipmentId: true, orderId: true, createdAt: true };
 
 /** A contract/shipment a file or document link is being removed from. */
 export interface RemovalOwner {
   contractId?: string;
   shipmentId?: string;
+  orderId?: string;
   label: string;
   status: string;
 }
@@ -52,8 +69,8 @@ export class TradeConfigService {
   }
 
   listStepTemplates(organizationId: string, scope?: string) {
-    if (scope && scope !== 'CONTRACT' && scope !== 'SHIPMENT') {
-      throw new BadRequestException('scope must be CONTRACT or SHIPMENT');
+    if (scope && scope !== 'CONTRACT' && scope !== 'SHIPMENT' && scope !== 'ORDER') {
+      throw new BadRequestException('scope must be ORDER, SHIPMENT or CONTRACT');
     }
     return this.prisma.tradeStepTemplate.findMany({
       where: { organizationId, ...(scope ? { scope: scope as TradeScope } : {}) },
@@ -77,17 +94,33 @@ export class TradeConfigService {
 
   /** Org trade defaults (B/L instruction texts); empty values when never set. */
   async getSettings(organizationId: string, db: Db = this.prisma) {
-    const row = await db.tradeSetting.findUnique({ where: { organizationId }, select: { defaultConsignee: true, defaultNotifyParty: true, docDefaults: true, updatedAt: true } });
+    const row = await db.tradeSetting.findUnique({
+      where: { organizationId },
+      select: { defaultConsignee: true, defaultNotifyParty: true, docDefaults: true, customerProfiles: true, estimatorRates: true, updatedAt: true },
+    });
     return {
       defaultConsignee: row?.defaultConsignee ?? null,
       defaultNotifyParty: row?.defaultNotifyParty ?? null,
       /** Default texts for in-app documents (From block, bank, invoice conditions …). */
       docDefaults: (row?.docDefaults as Record<string, unknown> | null) ?? {},
+      /** Per-customer profiles keyed by customer id (see trade-profile.ts). */
+      customerProfiles: (row?.customerProfiles as Record<string, CustomerProfile> | null) ?? {},
+      /** Estimator rates with the defaults filled in (see trade-estimator.ts). */
+      estimatorRates: ratesOf(row?.estimatorRates),
       updatedAt: row?.updatedAt ?? null,
     };
   }
 
-  async updateSettings(organizationId: string, dto: { defaultConsignee?: string | null; defaultNotifyParty?: string | null; docDefaults?: Record<string, unknown> }) {
+  /** A customer's profile (TWO_STAGE defaults when it has none). */
+  async profileOf(organizationId: string, customerId: string | null | undefined, db: Db = this.prisma): Promise<CustomerProfile> {
+    const row = await db.tradeSetting.findUnique({ where: { organizationId }, select: { customerProfiles: true } });
+    return profileFor(row?.customerProfiles, customerId);
+  }
+
+  async updateSettings(
+    organizationId: string,
+    dto: { defaultConsignee?: string | null; defaultNotifyParty?: string | null; docDefaults?: Record<string, unknown>; customerProfiles?: Record<string, unknown>; estimatorRates?: Record<string, unknown> },
+  ) {
     const data: Record<string, unknown> = {};
     for (const k of ['defaultConsignee', 'defaultNotifyParty'] as const) {
       const v = optText(dto[k]);
@@ -97,7 +130,18 @@ export class TradeConfigService {
       const cur = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { docDefaults: true } });
       data.docDefaults = mergeDocDefaults((cur?.docDefaults as Record<string, unknown> | null) ?? {}, dto.docDefaults);
     }
+    if (dto.customerProfiles !== undefined) {
+      const cur = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { customerProfiles: true } });
+      data.customerProfiles = mergeProfiles(cur?.customerProfiles, dto.customerProfiles, (m) => {
+        throw new BadRequestException(m);
+      });
+    }
+    if (dto.estimatorRates !== undefined) data.estimatorRates = cleanRates(dto.estimatorRates);
     await this.prisma.tradeSetting.upsert({ where: { organizationId }, update: data as any, create: { organizationId, ...(data as any) } });
+    // A changed profile re-marks the N/A steps of the customer's open orders / shipments.
+    if (dto.customerProfiles !== undefined) {
+      for (const customerId of Object.keys(dto.customerProfiles ?? {})) await this.applyProfileToCustomer(this.prisma, organizationId, customerId);
+    }
     return this.getSettings(organizationId);
   }
 
@@ -123,14 +167,14 @@ export class TradeConfigService {
    * not voided, not deleted). `exclude` drops one file or one document link (to test a removal).
    */
   async presentDocTypes(db: Db, organizationId: string, owner: TradeOwner, exclude: { fileId?: string; docLinkId?: string } = {}): Promise<string[]> {
-    const ownerWhere = owner.contractId ? { contractId: owner.contractId } : { shipmentId: owner.shipmentId };
+    const where = ownerWhere(owner);
     const [files, docLinks]: [Array<{ file: { docType: string } }>, Array<{ docType: string; documentId: string }>] = await Promise.all([
       db.tradeFileLink.findMany({
-        where: { organizationId, ...ownerWhere, ...(exclude.fileId ? { NOT: { fileId: exclude.fileId } } : {}) },
+        where: { organizationId, ...where, ...(exclude.fileId ? { NOT: { fileId: exclude.fileId } } : {}) },
         select: { file: { select: { docType: true } } },
       }),
       db.tradeDocumentLink.findMany({
-        where: { organizationId, ...ownerWhere, ...(exclude.docLinkId ? { NOT: { id: exclude.docLinkId } } : {}) },
+        where: { organizationId, ...where, ...(exclude.docLinkId ? { NOT: { id: exclude.docLinkId } } : {}) },
         select: { docType: true, documentId: true },
       }),
     ]);
@@ -213,24 +257,36 @@ export class TradeConfigService {
     owners: TradeOwner[],
     actor: TradeActor | null,
     changed: { docTypes?: string[]; fields?: string[] } = {},
-    opts: { closeCheck?: boolean; closed?: { shipments: string[]; contracts: string[] } } = {},
+    opts: { closeCheck?: boolean; closed?: { shipments: string[]; contracts: string[]; orders?: string[] } } = {},
   ): Promise<string[]> {
     const done: string[] = [];
     const seen = new Set<string>();
     for (const owner of owners) {
-      const key = owner.contractId ?? owner.shipmentId;
+      const key = ownerIdOf(owner);
       if (!key || seen.has(key)) continue;
       seen.add(key);
-      const record = owner.contractId
-        ? await db.contract.findFirst({ where: { id: owner.contractId, organizationId } })
-        : await db.shipment.findFirst({ where: { id: owner.shipmentId, organizationId } });
+      const record = owner.orderId
+        ? await db.tradeOrder.findFirst({ where: { id: owner.orderId, organizationId } })
+        : owner.contractId
+          ? await db.contract.findFirst({ where: { id: owner.contractId, organizationId } })
+          : await db.shipment.findFirst({ where: { id: owner.shipmentId, organizationId } });
       if (!record || record.status !== 'OPEN') continue;
-      const steps: Array<{ id: string; title: string; displayNo: string | null; status: string; isOngoing: boolean; sortOrder: number; requiredDocTypes: string[]; requiredFields: string[]; holdOpen: boolean }> =
-        await db.tradeStep.findMany({
-          where: { organizationId, ...(owner.contractId ? { contractId: owner.contractId } : { shipmentId: owner.shipmentId }) },
-          orderBy: { sortOrder: 'asc' },
-          select: { id: true, title: true, displayNo: true, status: true, isOngoing: true, sortOrder: true, requiredDocTypes: true, requiredFields: true, holdOpen: true },
-        });
+      const steps: Array<{
+        id: string;
+        title: string;
+        displayNo: string | null;
+        status: string;
+        isOngoing: boolean;
+        notApplicable: boolean;
+        sortOrder: number;
+        requiredDocTypes: string[];
+        requiredFields: string[];
+        holdOpen: boolean;
+      }> = await db.tradeStep.findMany({
+        where: { organizationId, ...ownerWhere(owner) },
+        orderBy: { sortOrder: 'asc' },
+        select: { id: true, title: true, displayNo: true, status: true, isOngoing: true, notApplicable: true, sortOrder: true, requiredDocTypes: true, requiredFields: true, holdOpen: true },
+      });
       if (!steps.length) continue;
       const plan = autoCompletePlan(steps, await this.presentDocTypes(db, organizationId, owner), record, changed);
       const stamp = { updatedById: actor?.id ?? null, updatedByName: actor?.name ?? 'Auto' };
@@ -244,11 +300,14 @@ export class TradeConfigService {
       done.push(...plan.complete.map((s) => labels.get(s.id) ?? stepLabel(s)));
       // A step finished just now (auto or "Mark done") may finish the record — and the deal.
       if (plan.complete.length || opts.closeCheck) {
-        const allDone = steps.every((s) => s.isOngoing || s.status === 'DONE' || plan.complete.includes(s));
+        const allDone = steps.every((s) => !countsForProgress(s) || s.status === 'DONE' || plan.complete.includes(s));
         if (owner.shipmentId && allDone) {
           await db.shipment.update({ where: { id: owner.shipmentId, organizationId }, data: { status: 'COMPLETED' } });
           opts.closed?.shipments.push(owner.shipmentId);
-          await this.closeDealIfDone(db, organizationId, record.contractId, opts.closed);
+          if (record.orderId) await this.closeOrderIfDone(db, organizationId, record.orderId, opts.closed);
+          else if (record.contractId) await this.closeDealIfDone(db, organizationId, record.contractId, opts.closed);
+        } else if (owner.orderId && allDone) {
+          await this.closeOrderIfDone(db, organizationId, owner.orderId, opts.closed);
         } else if (owner.contractId && allDone) {
           await this.closeDealIfDone(db, organizationId, owner.contractId, opts.closed);
         }
@@ -273,6 +332,25 @@ export class TradeConfigService {
     if (stepsDone && ships.length > 0 && ships.every((x: { status: string }) => x.status === 'COMPLETED')) {
       await db.contract.update({ where: { id: contractId, organizationId }, data: { status: 'COMPLETED' } });
       closed?.contracts.push(contractId);
+    }
+  }
+
+  /**
+   * An order completes by itself when its own steps are all done (N/A and
+   * ongoing ones don't count) and every shipment under it is completed
+   * (cancelled ones don't count; at least one must be completed).
+   */
+  async closeOrderIfDone(db: Db, organizationId: string, orderId: string, closed?: { orders?: string[] }) {
+    const o = await db.tradeOrder.findFirst({
+      where: { id: orderId, organizationId },
+      select: { status: true, steps: { select: { status: true, isOngoing: true, notApplicable: true } }, shipments: { select: { status: true } } },
+    });
+    if (!o || o.status !== 'OPEN') return;
+    const stepsDone = o.steps.every((s: { status: string; isOngoing: boolean; notApplicable: boolean }) => !countsForProgress(s) || s.status === 'DONE');
+    const ships = o.shipments.filter((x: { status: string }) => x.status !== 'CANCELLED');
+    if (stepsDone && ships.length > 0 && ships.every((x: { status: string }) => x.status === 'COMPLETED')) {
+      await db.tradeOrder.update({ where: { id: orderId, organizationId }, data: { status: 'COMPLETED' } });
+      closed?.orders?.push(orderId);
     }
   }
 
@@ -304,11 +382,11 @@ export class TradeConfigService {
       if (o.status !== 'OPEN') {
         throw new BadRequestException(`Can't ${verb}: ${o.label} is ${o.status.toLowerCase()} — reopen it first`);
       }
-      const owner: TradeOwner = o.contractId ? { contractId: o.contractId } : { shipmentId: o.shipmentId! };
-      const doneSteps: Array<{ id: string; title: string; displayNo: string | null; status: string; isOngoing: boolean; requiredDocTypes: string[] }> = await db.tradeStep.findMany({
-        where: { organizationId, ...owner, status: 'DONE' },
+      const owner: TradeOwner = toOwner(o);
+      const doneSteps: Array<{ id: string; title: string; displayNo: string | null; status: string; isOngoing: boolean; notApplicable: boolean; requiredDocTypes: string[] }> = await db.tradeStep.findMany({
+        where: { organizationId, ...ownerWhere(owner), status: 'DONE' },
         orderBy: { sortOrder: 'asc' },
-        select: { id: true, title: true, displayNo: true, status: true, isOngoing: true, requiredDocTypes: true },
+        select: { id: true, title: true, displayNo: true, status: true, isOngoing: true, notApplicable: true, requiredDocTypes: true },
       });
       if (!doneSteps.length) continue;
       const broken = stepsBrokenByRemoval(doneSteps, await this.presentDocTypes(db, organizationId, owner, exclude));
@@ -332,10 +410,15 @@ export class TradeConfigService {
     const file = await db.tradeFile.findFirst({ where: { id: fileId, organizationId }, select: { id: true, docType: true, fileName: true } });
     if (!file) throw new BadRequestException('The source file was not found');
     if (file.docType !== docType) throw new BadRequestException(`${file.fileName} is filed as ${file.docType}, not ${docType}`);
-    const step = await db.tradeStep.findFirst({ where: { organizationId, ...owner, code: stepCode }, select: { id: true } });
-    await db.tradeFileLink.create({ data: { organizationId, fileId, contractId: owner.contractId ?? null, shipmentId: owner.shipmentId ?? null, stepId: step?.id ?? null } });
+    const step = await db.tradeStep.findFirst({ where: { organizationId, ...ownerWhere(owner), code: stepCode }, select: { id: true } });
+    const linked = await db.tradeFileLink.findFirst({ where: { organizationId, fileId, ...ownerWhere(owner) }, select: { id: true } });
+    if (!linked) {
+      await db.tradeFileLink.create({
+        data: { organizationId, fileId, contractId: owner.contractId ?? null, shipmentId: owner.shipmentId ?? null, orderId: owner.orderId ?? null, stepId: step?.id ?? null },
+      });
+    }
     await this.ensureFileDocRef(db, organizationId, fileId, owner);
-    await db.tradeExtraction.updateMany({ where: { organizationId, fileId }, data: owner.contractId ? { contractId: owner.contractId } : { shipmentId: owner.shipmentId } });
+    await db.tradeExtraction.updateMany({ where: { organizationId, fileId }, data: ownerWhere(owner) });
   }
 
   /**
@@ -345,19 +428,29 @@ export class TradeConfigService {
    * shipment numbers existed gets its number first.
    */
   async docRefFor(db: Db, organizationId: string, owner: TradeOwner, docType: string): Promise<string | null> {
-    let contractNo: string | null = null;
-    let seqNo: number | null = null;
-    if (owner.shipmentId) {
-      const s = await db.shipment.findFirst({ where: { id: owner.shipmentId, organizationId }, select: { id: true, seqNo: true, contractId: true, contract: { select: { contractNo: true } } } });
+    let base: string | null = null;
+    if (owner.orderId) {
+      const o = await db.tradeOrder.findFirst({ where: { id: owner.orderId, organizationId }, select: { year: true, orderNo: true } });
+      if (o) base = orderDocRefBase({ year: o.year, orderNo: o.orderNo }, docType);
+    } else if (owner.shipmentId) {
+      const s = await db.shipment.findFirst({
+        where: { id: owner.shipmentId, organizationId },
+        select: { id: true, seqNo: true, contractId: true, orderId: true, contract: { select: { contractNo: true } }, order: { select: { year: true, orderNo: true } } },
+      });
       if (!s) return null;
-      contractNo = s.contract?.contractNo ?? null;
-      seqNo = s.seqNo ?? (await this.ensureSeqNo(db, organizationId, s.contractId, s.id));
+      if (s.order) {
+        // "26-19-1-CPL": order year + number + the shipment's number in the order.
+        const seqNo = s.seqNo ?? (await this.ensureSeqNo(db, organizationId, { orderId: s.orderId }, s.id));
+        base = orderDocRefBase({ year: s.order.year, orderNo: s.order.orderNo, seqNo }, docType);
+      } else if (s.contract?.contractNo) {
+        const seqNo = s.seqNo ?? (await this.ensureSeqNo(db, organizationId, { contractId: s.contractId }, s.id));
+        base = docRefBase({ contractNo: s.contract.contractNo, seqNo }, docType);
+      }
     } else if (owner.contractId) {
       const c = await db.contract.findFirst({ where: { id: owner.contractId, organizationId }, select: { contractNo: true } });
-      contractNo = c?.contractNo ?? null;
+      if (c?.contractNo) base = docRefBase({ contractNo: c.contractNo, seqNo: null }, docType);
     }
-    if (!contractNo) return null;
-    const base = docRefBase({ contractNo, seqNo }, docType);
+    if (!base) return null;
     const [files, gens]: [Array<{ docRef: string | null }>, Array<{ docRef: string | null }>] = await Promise.all([
       db.tradeFile.findMany({ where: { organizationId, docRef: { startsWith: base } }, select: { docRef: true } }),
       db.tradeGeneratedDoc.findMany({ where: { organizationId, docRef: { startsWith: base } }, select: { docRef: true } }),
@@ -365,9 +458,10 @@ export class TradeConfigService {
     return nextDocRef(base, [...files, ...gens].map((r) => r.docRef));
   }
 
-  /** Number the contract's shipments 1, 2, … by creation (only those still without one); returns this shipment's. */
-  async ensureSeqNo(db: Db, organizationId: string, contractId: string, shipmentId: string): Promise<number> {
-    const ships: Array<{ id: string; seqNo: number | null }> = await db.shipment.findMany({ where: { organizationId, contractId }, orderBy: { createdAt: 'asc' }, select: { id: true, seqNo: true } });
+  /** Number the order's (or legacy contract's) shipments 1, 2, … by creation (only those still without one); returns this shipment's. */
+  async ensureSeqNo(db: Db, organizationId: string, parent: { orderId?: string | null; contractId?: string | null }, shipmentId: string): Promise<number> {
+    const where = parent.orderId ? { orderId: parent.orderId } : { contractId: parent.contractId };
+    const ships: Array<{ id: string; seqNo: number | null }> = await db.shipment.findMany({ where: { organizationId, ...where }, orderBy: { createdAt: 'asc' }, select: { id: true, seqNo: true } });
     let next = Math.max(0, ...ships.map((x) => x.seqNo ?? 0));
     let mine = ships.find((x) => x.id === shipmentId)?.seqNo ?? null;
     for (const x of ships) {
@@ -387,9 +481,16 @@ export class TradeConfigService {
     if (ref) await db.tradeFile.update({ where: { id: fileId }, data: { docRef: ref } });
   }
 
-  /** Copy the org's active templates of `scope` onto a new contract/shipment as TradeStep rows. */
-  async snapshotSteps(db: Db, organizationId: string, scope: TradeScope, owner: TradeOwner) {
-    if (!hasExactlyOneOwner(owner)) throw new BadRequestException('A step belongs to exactly one contract or shipment');
+  /**
+   * Copy the org's active templates of `scope` onto a new order / shipment as
+   * TradeStep rows, shaped by the customer's profile: steps that don't apply
+   * are marked N/A, SINGLE billing issues INVOICE_SINGLE on step 11, and
+   * "sent" sub-tasks are attached (N/A ones flagged).
+   */
+  async snapshotSteps(db: Db, organizationId: string, scope: TradeScope, owner: TradeOwner, profile?: CustomerProfile) {
+    if (!hasExactlyOneOwner(owner)) throw new BadRequestException('A step belongs to exactly one order, shipment or contract');
+    const p = profile ?? profileFor(null, null);
+    const na = new Set(naStepCodes(p, scope));
     const templates: Array<{ id: string; code: string; title: string; displayNo: string | null; sortOrder: number; requiredDocTypes: string[]; optionalDocTypes: string[]; requiredFields: string[]; isOngoing: boolean }> =
       await db.tradeStepTemplate.findMany({
         where: { organizationId, scope, isActive: true },
@@ -398,22 +499,76 @@ export class TradeConfigService {
       });
     if (!templates.length) return 0;
     await db.tradeStep.createMany({
-      data: templates.map((t) => ({
-        organizationId,
-        contractId: owner.contractId ?? null,
-        shipmentId: owner.shipmentId ?? null,
-        templateId: t.id,
-        code: t.code,
-        title: t.title,
-        displayNo: t.displayNo,
-        sortOrder: t.sortOrder,
-        requiredDocTypes: t.requiredDocTypes,
-        optionalDocTypes: t.optionalDocTypes ?? [],
-        requiredFields: t.requiredFields ?? [],
-        isOngoing: t.isOngoing,
-      })),
+      data: templates.map((t) => {
+        const o = stepOverride(p, t.code);
+        const subtasks = subtasksFor(t.code, p);
+        return {
+          organizationId,
+          contractId: owner.contractId ?? null,
+          shipmentId: owner.shipmentId ?? null,
+          orderId: owner.orderId ?? null,
+          templateId: t.id,
+          code: t.code,
+          title: o.title ?? t.title,
+          displayNo: t.displayNo,
+          sortOrder: t.sortOrder,
+          requiredDocTypes: o.requiredDocTypes ?? t.requiredDocTypes,
+          optionalDocTypes: t.optionalDocTypes ?? [],
+          requiredFields: t.requiredFields ?? [],
+          isOngoing: t.isOngoing,
+          notApplicable: na.has(t.code),
+          ...(subtasks ? { subtasks: subtasks as any } : {}),
+        };
+      }),
     });
     return templates.length;
+  }
+
+  /**
+   * Re-apply a customer's profile to the not-yet-done steps of its open orders
+   * and shipments: N/A flags, step 11's invoice type and N/A sub-tasks. Done
+   * steps are left as they are.
+   */
+  async applyProfileToCustomer(db: Db, organizationId: string, customerId: string) {
+    const p = await this.profileOf(organizationId, customerId, db);
+    const orders: Array<{ id: string; shipments: Array<{ id: string; status: string }> }> = await db.tradeOrder.findMany({
+      where: { organizationId, customerId, status: 'OPEN' },
+      select: { id: true, shipments: { select: { id: true, status: true } } },
+    });
+    for (const o of orders) {
+      await this.applyProfile(db, organizationId, { orderId: o.id }, 'ORDER', p);
+      for (const s of o.shipments.filter((x) => x.status === 'OPEN')) await this.applyProfile(db, organizationId, { shipmentId: s.id }, 'SHIPMENT', p);
+    }
+  }
+
+  async applyProfile(db: Db, organizationId: string, owner: TradeOwner, scope: TradeScope, p: CustomerProfile) {
+    const na = new Set(naStepCodes(p, scope));
+    const steps: Array<{ id: string; code: string; status: string; notApplicable: boolean; title: string; requiredDocTypes: string[]; subtasks: unknown }> = await db.tradeStep.findMany({
+      where: { organizationId, ...ownerWhere(owner) },
+      select: { id: true, code: true, status: true, notApplicable: true, title: true, requiredDocTypes: true, subtasks: true },
+    });
+    const templates: Array<{ code: string; title: string; requiredDocTypes: string[] }> = await db.tradeStepTemplate.findMany({
+      where: { organizationId, scope },
+      select: { code: true, title: true, requiredDocTypes: true },
+    });
+    for (const s of steps) {
+      if (s.status === 'DONE') continue;
+      const t = templates.find((x) => x.code === s.code);
+      const o = stepOverride(p, s.code);
+      const data: Record<string, unknown> = {};
+      if (s.notApplicable !== na.has(s.code)) data.notApplicable = na.has(s.code);
+      const want = o.requiredDocTypes ?? t?.requiredDocTypes;
+      if (want && JSON.stringify(want) !== JSON.stringify(s.requiredDocTypes)) data.requiredDocTypes = want;
+      const title = o.title ?? t?.title;
+      if (title && title !== s.title) data.title = title;
+      const fresh = subtasksFor(s.code, p);
+      if (fresh) {
+        const cur = Array.isArray(s.subtasks) ? (s.subtasks as Array<{ key: string; done?: boolean }>) : [];
+        const merged = fresh.map((f) => ({ ...f, ...(cur.find((c) => c.key === f.key) ?? {}), na: f.na }));
+        if (JSON.stringify(merged) !== JSON.stringify(cur)) data.subtasks = merged;
+      }
+      if (Object.keys(data).length) await db.tradeStep.update({ where: { id: s.id }, data });
+    }
   }
 }
 
@@ -465,6 +620,27 @@ export function optText(v: unknown): string | null | undefined {
   if (v === null) return null;
   const s = String(v).trim();
   return s === '' ? null : s;
+}
+
+/** Estimator rates patch: numbers ≥ 0 (truckRates: { "<t>": yen }); unknown keys refused. */
+export function cleanRates(v: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const NUMS = ['taxMultiplier', 'customsPerMt', 'blFee', 'storagePerContainer', 'storagePerMt', 'washingPerContainer', 'detentionPerContainer', 'importTaxRate'];
+  for (const [k, x] of Object.entries(v ?? {})) {
+    if (k === 'truckRates') {
+      if (!x || typeof x !== 'object' || Array.isArray(x)) throw new BadRequestException('truckRates must map tonnes to yen');
+      const t: Record<string, number> = {};
+      for (const [cap, yen] of Object.entries(x as Record<string, unknown>)) {
+        if (!/^\d+$/.test(cap) || typeof yen !== 'number' || !Number.isFinite(yen) || yen < 0) throw new BadRequestException(`Truck rate for ${cap}t must be a number`);
+        t[cap] = yen;
+      }
+      out.truckRates = t;
+    } else if (NUMS.includes(k)) {
+      if (typeof x !== 'number' || !Number.isFinite(x) || x < 0) throw new BadRequestException(`${k} must be a number`);
+      out[k] = x;
+    } else throw new BadRequestException(`Unknown estimator rate "${k}"`);
+  }
+  return out;
 }
 
 const SEAL_MAX_BYTES = 1024 * 1024;

@@ -6,9 +6,10 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useOrganization } from "@hooks/useOrganization";
-import { useShipmentsApi, type ContractFilters, type FileFilters, type HubFilters, type ShipmentFilters } from "./api";
+import { useShipmentsApi, type ContractFilters, type FileFilters, type HubFilters, type OrderFilters, type ShipmentFilters } from "./api";
 
 export const SHIPMENT_KEYS = {
+  orders: ["trade-orders"] as const,
   contracts: ["trade-contracts"] as const,
   shipments: ["trade-shipments"] as const,
   files: ["trade-files"] as const,
@@ -41,6 +42,49 @@ export const useContract = (id?: string) => {
     queryKey: [...SHIPMENT_KEYS.contracts, orgId, "detail", id],
     enabled: !!orgId && !!id,
     queryFn: () => api.getContract(id!),
+  });
+};
+
+export const useOrders = (f: OrderFilters, enabled = true) => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({
+    queryKey: [...SHIPMENT_KEYS.orders, orgId, "list", f],
+    enabled: !!orgId && enabled,
+    placeholderData: keepPreviousData,
+    queryFn: () => api.listOrders(f),
+  });
+};
+
+export const useOrder = (id?: string) => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({
+    queryKey: [...SHIPMENT_KEYS.orders, orgId, "detail", id],
+    enabled: !!orgId && !!id,
+    queryFn: () => api.getOrder(id!),
+  });
+};
+
+/** Step 13: the order's reconciliation (documents + typed payments / actuals → profit). */
+export const useReconciliation = (orderId?: string, enabled = true) => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({
+    queryKey: [...SHIPMENT_KEYS.orders, orgId, "reconciliation", orderId],
+    enabled: !!orgId && !!orderId && enabled,
+    queryFn: () => api.reconciliation(orderId!),
+  });
+};
+
+/** In-app documents of an order (Invoice #1). */
+export const useOrderGeneratedDocs = (orderId?: string) => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({
+    queryKey: [...SHIPMENT_KEYS.generated, orgId, "order", orderId],
+    enabled: !!orgId && !!orderId,
+    queryFn: () => api.generatedForOrder(orderId!),
   });
 };
 
@@ -141,7 +185,7 @@ export const useDocTypes = () => {
   });
 };
 
-export const useStepTemplates = (scope: "CONTRACT" | "SHIPMENT") => {
+export const useStepTemplates = (scope: "CONTRACT" | "SHIPMENT" | "ORDER") => {
   const api = useShipmentsApi();
   const orgId = useOrgId();
   return useQuery({
@@ -207,6 +251,7 @@ export function useTradeMutation<TVars, TResult>(fn: (api: ReturnType<typeof use
     mutationFn: (vars: TVars) => fn(api, vars),
     onSuccess: async () => {
       const refresh = Promise.all([
+        qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.orders }),
         qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.contracts }),
         qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.shipments }),
         qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.files }),

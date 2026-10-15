@@ -27,6 +27,7 @@ import { PrismaService } from '../src/common/prisma.service';
 import { S3Service } from '../src/common/services/s3.service';
 import { runAsOrg } from '../src/common/tenancy/tenant-context';
 import { ContractsService } from '../src/shipments/contracts.service';
+import { OrdersService } from '../src/shipments/orders.service';
 import { ShipmentsService } from '../src/shipments/shipments.service';
 import { TradeConfigService } from '../src/shipments/trade-config.service';
 import { TradeDocumentsService } from '../src/shipments/trade-documents.service';
@@ -36,13 +37,16 @@ import { TradeThumbsService } from '../src/shipments/trade-thumbs.service';
 import { TradeStepsService } from '../src/shipments/trade-steps.service';
 import { TradeExtractService } from '../src/shipments/trade-extract.service';
 import * as XLSX from 'xlsx';
-import { amountOf, defaultLmeMonth, invoiceTotals, roundTo, toInvoiceLines, unitPriceOf } from '../src/shipments/trade-invoice';
+import { defaultLmeMonth, invoiceTotals, roundTo, toInvoiceLines, unitPriceOf } from '../src/shipments/trade-invoice';
 import { TradeHubService } from '../src/shipments/trade-hub.service';
 import { jpParty } from '../src/shipments/trade-generated.service';
 import { backfillDocRefs } from './backfill-doc-refs';
 
 const ORG_ID = process.env.SMOKE_ORG_ID || '222c6494-96ae-42d0-9283-1b5eabf47b42'; // Asia Deal Hub Japan LLC (dev)
 const CONTRACT_NO = 'TEST-454003422';
+/** The smoke order: year 2099 keeps it apart from real order numbers (document IDs "99-<no>-…"). */
+const ORDER_YEAR = 2099;
+const KATO_CONTRACT_NO = 'TEST-454003598';
 const BL_NUMBER = 'TEST-198GX04630';
 const INVOICE_PREFIX = 'SMOKE-INV-';
 const API_URL = process.env.SMOKE_API_URL || 'http://localhost:4040';
@@ -114,6 +118,7 @@ async function main() {
   const config = new TradeConfigService(prisma);
   const shipments = new ShipmentsService(prisma, config);
   const contracts = new ContractsService(prisma, config, shipments);
+  const orders = new OrdersService(prisma, config, shipments);
   const steps = new TradeStepsService(prisma, config);
   const thumbs = new TradeThumbsService(prisma, s3);
   const files = new TradeFilesService(prisma, s3, config, thumbs);
@@ -131,7 +136,9 @@ async function main() {
 
   await runAsOrg(ORG_ID, async () => {
     const leftover = await prisma.contract.findFirst({ where: { organizationId: ORG_ID, contractNo: CONTRACT_NO }, select: { id: true } });
-    const leftoverShip = await prisma.shipment.findFirst({ where: { organizationId: ORG_ID, blNumber: BL_NUMBER }, select: { id: true } });
+    const leftoverShip =
+      (await prisma.shipment.findFirst({ where: { organizationId: ORG_ID, blNumber: BL_NUMBER }, select: { id: true } })) ??
+      (await prisma.tradeOrder.findFirst({ where: { organizationId: ORG_ID, year: ORDER_YEAR }, select: { id: true } }));
     if (CLEANUP_ONLY) {
       await cleanup(prisma, s3, leftover?.id ?? null);
       return;
@@ -172,7 +179,7 @@ async function main() {
       'no skip: service method gone, POST /trade-steps/:id/skip not routed',
       'complete the shipment                            → expect refused (other steps open), ADH step numbers in the message',
       're-check the uploaded B/L draft (mock model)     → Tax ID missing; acknowledge',
-      'read a 2nd B/L draft → shipment on the 6005 line, PDF linked to "2. Approve B/L draft (Vedanta)"; delete it',
+      'read a 2nd B/L draft → shipment on the 6005 line, PDF linked to "3a. Approve B/L draft (Vedanta)"; delete it',
       'cancelled Fill from PI → source PDF + extraction discarded; a saved PI cannot be discarded',
       'in-app documents (Customer PL / COA, SG→JP IV/PL, shipping instructions, Invoice #2 on the shipment; Invoice #1 on the contract):',
       '  create blank → download draft PDF (no watermark) → finalize → step requirement met → download final PDF',
@@ -231,38 +238,49 @@ async function main() {
       );
       if (!contract) return;
       contractId = contract.id;
-      const contractSteps = contract.steps.map((s) => s.code).join(', ');
-      (contract.steps.length ? pass : fail)('contract steps snapshotted', contractSteps || 'none');
+      // Since orders the contract is the yearly LTC master: no steps, no shipment of its own.
+      (contract.steps.length === 0 && contract.shipments.length === 0 ? pass : fail)('contract (LTC) has no steps and no shipment of its own', `${contract.steps.length} step(s), ${contract.shipments.length} shipment(s)`);
       const settings = await config.getSettings(ORG_ID);
       (contract.lines.length === 2 && contract.linesSummary === '6005 · 50 MT, 6063 · 30 MT' ? pass : fail)('2 product lines saved, list summary', String(contract.linesSummary));
-      (settings.defaultConsignee && contract.consignee === settings.defaultConsignee && contract.notifyParty === settings.defaultNotifyParty ? pass : fail)(
-        'consignee / notify party default from the org trade settings',
-        String(contract.consignee).split('\n')[0],
+      // The order (the deal): PI, deposit, steps 0 / 1 / 2 / 13; the shipments under it.
+      const nextNo = await orders.nextOrderNo(ORG_ID, ORDER_YEAR);
+      const order0 = await expectOk('create the order (contract picked: parties + premiums default from its 6063 line)', () =>
+        orders.create(
+          ORG_ID,
+          { year: ORDER_YEAR, contractId: contract.id, shipMonth: '2026-07', deliveryMonth: '2026-09', grade: '6063', qtyMt: 30, piNo: 'SMOKE-PI-1', piDate: '2026-06-30', piAmount: 100000, piFileId: piX?.fileId },
+          actor,
+        ),
       );
-      (Number(contract.depositAmount) === 10000 ? pass : fail)('deposit = PI amount × 10 %', String(contract.depositAmount));
-      (contract.currentStep?.label === '1. Set up PI payment' ? pass : fail)('contract current step uses the ADH number', contract.currentStep?.label ?? 'none');
-      // Deal page: deposit due as days + unit (default 3 business days) with the computed date; shipment #1 comes with the contract.
-      (contract.depositDueDays === 3 && contract.depositDueUnit === 'BUSINESS' && contract.depositDueNote === '3 business days' ? pass : fail)(
-        'deposit due defaults to 3 business days',
-        `${contract.depositDueDays} ${contract.depositDueUnit} "${contract.depositDueNote}"`,
+      if (!order0) return;
+      let order: any = order0;
+      (order.orderNo === nextNo && order.label === `#${nextNo}` && order.customerId === customer.id && order.supplierId === supplier.id && order.size === '152MM' ? pass : fail)(
+        'order: next free number, customer / supplier / size from the contract',
+        `${order.label} ${order.size}`,
+      );
+      (JSON.stringify(order.steps.map((x: any) => x.code)) === JSON.stringify(['CHECK_CONTRACT', 'PI_PAYMENT', 'INVOICE_1', 'XERO_HANDOFF']) ? pass : fail)(
+        'order steps 0 / 1 / 2 / 13 snapshotted',
+        order.steps.map((x: any) => `${x.displayNo}.${x.code}`).join(', '),
+      );
+      (settings.defaultConsignee && order.consignee === settings.defaultConsignee && order.notifyParty === settings.defaultNotifyParty ? pass : fail)(
+        'consignee / notify party default from the contract / org trade settings',
+        String(order.consignee).split('\n')[0],
+      );
+      (Number(order.depositAmount) === 10000 ? pass : fail)('deposit = PI amount × 10 %', String(order.depositAmount));
+      (order.currentStep?.label === '0. Check contract' ? pass : fail)('step 0 "Check contract" is current while the client premium is missing', order.currentStep?.label ?? 'none');
+      order = await orders.update(ORG_ID, order.id, { clientPremium: 230, supplierPremium: 205 }, actor);
+      (order.currentStep?.label === '1. Set up PI payment' && order.steps.find((x: any) => x.code === 'CHECK_CONTRACT')?.status === 'DONE' ? pass : fail)(
+        'premium confirmed → step 0 completes by itself, step 1 is current',
+        order.currentStep?.label ?? 'none',
+      );
+      (order.depositDueDays === 3 && order.depositDueUnit === 'BUSINESS' && order.depositDueDate === '2026-07-03' ? pass : fail)(
+        'deposit due defaults to 3 business days (PI 30/06/2026 → 03/07/2026)',
+        `${order.depositDueDays} ${order.depositDueUnit} ${order.depositDueDate}`,
       );
       {
         const due = contracts.depositDue('2026-06-30', '3', 'BUSINESS');
         (due.dueDate === '2026-07-03' ? pass : fail)('deposit due date: PI 30/06/2026 + 3 business days = 03/07/2026', String(due.dueDate));
       }
-      (contract.shipments.length === 1 && contract.shipments[0].blNumber === null && contract.shipments[0].contractLineId === null ? pass : fail)(
-        'new contract comes with shipment #1 (B/L pending; 2 lines → line picked on step 2)',
-        JSON.stringify(contract.shipments.map((x: any) => ({ bl: x.blNumber, line: x.contractLineId }))),
-      );
-      {
-        const s1: any = contract.shipments[0] ? await shipments.getById(ORG_ID, contract.shipments[0].id, actor) : null;
-        const s1Step2 = s1?.steps.find((x: any) => x.code === 'BL_DRAFT_APPROVAL');
-        (s1Step2?.status === 'IN_PROGRESS' && JSON.stringify(s1Step2.requiredFields) === JSON.stringify(['blNumber', 'contractLineId']) ? pass : fail)(
-          'shipment #1: step 2 is current (In progress, no Start) and needs the B/L no. + product line',
-          `${s1Step2?.status} ${JSON.stringify(s1Step2?.requiredFields)}`,
-        );
-        await expectReject('complete the contract while its shipments are open', () => contracts.complete(ORG_ID, contract.id), /complete its shipment\(s\) first/);
-      }
+      (order.shipments.length === 0 ? pass : fail)('a new order has no shipment until "Add shipment"', `${order.shipments.length}`);
       // Cancelled Fill from PI: the unsaved PDF (+ its extraction) goes; a saved one is refused.
       replies.push({ contractNo: 'SMOKE-CANCELLED', lines: [] });
       const cancelled = await expectOk('read a PI that is then cancelled (mock model)', () => extract.extract(ORG_ID, 'PI', { file: pdfFile('SMOKE-PI-CANCEL.pdf') }, actor));
@@ -271,30 +289,36 @@ async function main() {
         const left = (await prisma.tradeFile.count({ where: { id: cancelled.fileId } })) + (await prisma.tradeExtraction.count({ where: { fileId: cancelled.fileId } }));
         (left === 0 ? pass : fail)('cancelled PI: file + extraction removed', `${left} row(s) left`);
       }
-      if (piX?.fileId) await expectReject('discard the PI saved with the contract', () => extract.discardSource(ORG_ID, piX.fileId, actor), /attached to a contract or shipment/);
-      const piStep = contract.steps.find((s) => s.code === 'PI_PAYMENT');
-      const piLink = contract.fileLinks.find((l) => l.file.id === piX?.fileId);
+      if (piX?.fileId) await expectReject('discard the PI saved with the order', () => extract.discardSource(ORG_ID, piX.fileId, actor), /attached to a contract or shipment/);
+      const piStep = order.steps.find((s: any) => s.code === 'PI_PAYMENT');
+      const piLink = order.fileLinks.find((l: any) => l.file.id === piX?.fileId);
       (piLink && piLink.file.docType === 'PI' && piLink.stepId === piStep?.id ? pass : fail)(
-        'PI file linked to the contract as PI on "1. Set up PI payment"',
+        'PI file linked to the order as PI on "1. Set up PI payment"',
         piLink ? `step ${piLink.stepId}` : 'not linked',
       );
 
       {
-        // "Add shipment": no form — the B/L and the line come on its step 2.
-        const added: any = await expectOk('Add shipment (2-line contract, no line yet)', () => shipments.create(ORG_ID, { contractId: contract.id }, actor));
-        (added && added.contractLineId === null && added.blNumber === null && added.steps.length === 13 ? pass : fail)('added shipment: B/L pending, line open, 13 steps', added ? `${added.blNumber} ${added.contractLineId}` : 'none');
-        const deal = await contracts.getById(ORG_ID, contract.id);
-        (deal.shipments.length === 2 ? pass : fail)('deal page lists both shipments', `${deal.shipments.length}`);
+        // "Add shipment": no form — the B/L comes on its step 2; the product line follows the order's grade.
+        const added: any = await expectOk('Add shipment (#n-1, B/L pending)', () => orders.addShipment(ORG_ID, order.id, {}, actor));
+        (added && added.ref === `#${order.orderNo}-1` && added.contractLineId === contract.lines[1].id && added.blNumber === null && added.steps.length === 12 ? pass : fail)(
+          'added shipment: #n-1, B/L pending, line of the order\'s grade, 12 steps',
+          added ? `${added.ref} ${added.blNumber} ${added.steps.length}` : 'none',
+        );
+        const s2 = added?.steps.find((x: any) => x.code === 'BL_DRAFT_APPROVAL');
+        (s2?.status === 'IN_PROGRESS' && JSON.stringify(s2.requiredFields) === JSON.stringify(['blNumber']) ? pass : fail)('shipment step 2 is current and needs the B/L no.', `${s2?.status} ${JSON.stringify(s2?.requiredFields)}`);
+        const deal = await orders.getById(ORG_ID, order.id);
+        (deal.shipments.length === 1 ? pass : fail)('order page lists the shipment', `${deal.shipments.length}`);
+        await expectReject('complete the order while its shipments are open', () => orders.complete(ORG_ID, order.id), /complete its shipment\(s\) first/);
         if (added) await expectOk('delete the added shipment', () => shipments.remove(ORG_ID, added.id));
       }
       const line2 = contract.lines[1];
-      const shipment = await expectOk('create shipment on line 2', () => shipments.create(ORG_ID, { contractId: contract.id, contractLineId: line2.id, blNumber: BL_NUMBER, totalPieces: 600 }, actor));
+      const shipment = await expectOk('Add shipment with its B/L (line of the order\'s grade)', () => orders.addShipment(ORG_ID, order.id, { blNumber: BL_NUMBER, totalPieces: 600 }, actor));
       if (!shipment) return;
-      (shipment.contractLineId === line2.id && shipment.commodity === 'Aluminium Billet 6063' && shipment.sizeSpec === '152MM' && shipment.deliveryMonth === '2026-09' ? pass : fail)(
-        'commodity / size from line 2, delivery month from the contract',
+      (shipment.contractLineId === line2.id && shipment.commodity === 'Aluminium Billet 6063' && shipment.sizeSpec === '152MM' && shipment.deliveryMonth === '2026-09' && shipment.orderId === order.id ? pass : fail)(
+        'commodity / size / delivery month from the order',
         `${shipment.commodity} / ${shipment.sizeSpec} / ${shipment.deliveryMonth}`,
       );
-      (shipment.currentStep?.label === '2. Approve B/L draft (Vedanta)' ? pass : fail)('shipment current step uses the ADH number + new title', shipment.currentStep?.label ?? 'none');
+      (shipment.currentStep?.label === '3a. Approve B/L draft (Vedanta)' ? pass : fail)('shipment current step uses the ADH number + new title', shipment.currentStep?.label ?? 'none');
       const an = shipment.steps.find((s) => s.code === 'AN_INSTRUCTIONS');
       (an && JSON.stringify(an.requiredDocTypes) === JSON.stringify(['ARRIVAL_NOTICE', 'SHIPPING_INSTRUCTIONS', 'TELEX_RELEASE', 'DELIVERY_SCHEDULE']) ? pass : fail)(
         'arrival-notice step needs 4 documents',
@@ -305,10 +329,10 @@ async function main() {
         () => contracts.update(ORG_ID, contract.id, { lines: [{ id: contract.lines[0].id, grade: '6005', quantityMt: 50 }] }),
         /shipment\(s\) TEST-198GX04630 ship it/,
       );
-      (shipment.customer?.id === customer.id ? pass : fail)('shipment customer defaults to the contract customer', shipment.customer?.name ?? 'none');
-      (shipment.steps.length === 13 ? pass : fail)('shipment steps snapshotted', `${shipment.steps.length} steps`);
+      (shipment.customer?.id === customer.id ? pass : fail)('shipment customer defaults to the order customer', shipment.customer?.name ?? 'none');
+      (shipment.steps.length === 12 && !shipment.steps.some((x: any) => x.code === 'XERO_HANDOFF') ? pass : fail)('shipment steps snapshotted (13 is on the order now)', `${shipment.steps.length} steps`);
 
-      await expectReject('duplicate B/L number refused', () => shipments.create(ORG_ID, { contractId: contract.id, blNumber: BL_NUMBER }, actor), /already used/);
+      await expectReject('duplicate B/L number refused', () => orders.addShipment(ORG_ID, order.id, { blNumber: BL_NUMBER }, actor), /already used/);
 
       const blStep = shipment.steps.find((s) => s.code === 'BL_DRAFT_APPROVAL');
       const sendStep = shipment.steps.find((s) => s.code === 'SEND_DOCS_SCHEDULE');
@@ -334,8 +358,8 @@ async function main() {
       const url = await expectOk('signed URL', () => files.getUrl(ORG_ID, uploaded.id));
       if (url && !url.url.includes(`shipments/${ORG_ID}/`)) fail('signed URL key prefix', url.url);
 
-      // Auto-complete: B/L no. + line were set when the shipment was created, so the draft completes step 2.
-      ((uploaded as any).completedSteps?.includes('2. Approve B/L draft (Vedanta)') ? pass : fail)('auto-complete: the upload completes step 2 (reported for the toast)', JSON.stringify((uploaded as any).completedSteps));
+      // Auto-complete: the B/L no. was set when the shipment was created, so the draft completes step 3a.
+      ((uploaded as any).completedSteps?.includes('3a. Approve B/L draft (Vedanta)') ? pass : fail)('auto-complete: the upload completes step 3a (reported for the toast)', JSON.stringify((uploaded as any).completedSteps));
       const done = (await shipments.getById(ORG_ID, shipment.id)).steps.find((x: any) => x.id === blStep.id) as any;
       (done?.status === 'DONE' && done.completedAt && done.updatedByName === actor.name ? pass : fail)('step is DONE with completedAt and who', `${done?.status} ${done?.updatedByName}`);
       await expectReject('"Mark done" on an already-done step', () => steps.complete(ORG_ID, blStep.id, actor), /already done/);
@@ -347,7 +371,7 @@ async function main() {
       if (done) {
         const page = await shipments.list(ORG_ID, { currentStep: 'SHIPPING_DOCS' });
         const row = page.items.find((r: any) => r.id === shipment.id);
-        (row?.currentStep?.label === '3. Receive shipping documents' ? pass : fail)('current step advances; list filter by current step', row?.currentStep?.label ?? 'not in filtered list');
+        (row?.currentStep?.label === '3b. Receive shipping documents' ? pass : fail)('current step advances; list filter by current step', row?.currentStep?.label ?? 'not in filtered list');
       }
 
       if (link) {
@@ -356,9 +380,9 @@ async function main() {
       await expectReject('delete the BL_DRAFT file while the step is DONE', () => files.remove(ORG_ID, uploaded.id), new RegExp(blStep.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 
       // ── In-app invoice satisfies a step (TradeDocumentLink) ──────────────
-      const inv1 = contract.steps.find((s) => s.code === 'INVOICE_1');
+      const inv1 = order.steps.find((s: any) => s.code === 'INVOICE_1');
       let invoiceId: string | null = null;
-      if (!inv1) fail('find INVOICE_1 contract step', contract.steps.map((s) => s.code).join(', '));
+      if (!inv1) fail('find INVOICE_1 order step', order.steps.map((s: any) => s.code).join(', '));
       else {
         await expectReject('complete INVOICE_1 with no file or invoice', () => steps.complete(ORG_ID, inv1.id, actor), /Invoice #1/);
         const invoice = await expectOk('create throwaway INVOICE Document', () =>
@@ -377,19 +401,19 @@ async function main() {
         if (invoice) {
           invoiceId = invoice.id;
           const linked = await expectOk('link the invoice as INVOICE_1 via the step', () => docs.link(ORG_ID, { documentId: invoice.id, docType: 'INVOICE_1', stepId: inv1.id }));
-          const dl = linked?.find((l) => l.contractId === contract.id);
+          const dl = linked?.find((l) => l.orderId === order.id);
           (dl && dl.stepId === inv1.id && !dl.satisfies && dl.state === 'draft' && dl.document?.number === invoice.name ? pass : fail)(
-            'draft invoice linked to the contract, tagged with the step, not counting yet',
+            'draft invoice linked to the order, tagged with the step, not counting yet',
             dl ? `${dl.document?.number} · ${dl.state} · ${dl.document?.currency} ${dl.document?.total}` : 'no link',
           );
           await expectReject('complete INVOICE_1 while the invoice is a draft', () => steps.complete(ORG_ID, inv1.id, actor), /Invoice #1/);
           await expectOk('confirm the throwaway invoice', () => prisma.document.update({ where: { id: invoice.id, organizationId: ORG_ID }, data: { status: 'confirmed' } }));
-          const detail = await contracts.getById(ORG_ID, contract.id);
-          const req = detail.steps.find((s) => s.id === inv1.id)?.requirements?.[0];
-          (req?.satisfied && req.documents === 1 ? pass : fail)('contract detail: INVOICE_1 requirement met by 1 document', JSON.stringify(req));
+          const detail: any = await orders.getById(ORG_ID, order.id);
+          const req = detail.steps.find((s: any) => s.id === inv1.id)?.requirements?.[0];
+          (req?.satisfied && req.documents === 1 ? pass : fail)('order detail: INVOICE_1 requirement met by 1 document', JSON.stringify(req));
           const inv1Done = await expectOk('complete INVOICE_1 with the linked invoice', () => steps.complete(ORG_ID, inv1.id, actor));
           if (inv1Done) (inv1Done.status === 'DONE' ? pass : fail)('INVOICE_1 is DONE', inv1Done.status);
-          if (dl) await expectReject('unlink the invoice while INVOICE_1 is DONE', () => docs.unlink(ORG_ID, dl.id), /Issue Invoice #1/);
+          if (dl) await expectReject('unlink the invoice while INVOICE_1 is DONE', () => docs.unlink(ORG_ID, dl.id), /Invoice #1/);
           await expectOk('reopen INVOICE_1', () => steps.reopen(ORG_ID, inv1.id, actor));
           if (dl) await expectOk('unlink the invoice once reopened', () => docs.unlink(ORG_ID, dl.id));
         }
@@ -521,7 +545,7 @@ async function main() {
               h.vendor === (dd.customerCoaVendor ?? '')
               ? pass
               : fail)('COA header: 納品書兼分析試験成績報告書, 品種, issuer, 1BD本数, ベンダー from the org settings', `${h.productLine} / ${h.issuer?.name} / ${h.piecesPerBundle} / ${h.vendor}`);
-            const html = gen.previewHtml('CUSTOMER_COA', draftCoa.header, draftCoa.columns, draftCoa.rows, true);
+            const html = await gen.previewHtml('CUSTOMER_COA', draftCoa.header, draftCoa.columns, draftCoa.rows, true);
             (['品種', 'バンドル数', 'トータル本数', '分析試験成績', 'ベンダー', 'OTTOT'].every((t) => html.includes(t)) ? pass : fail)("COA preview prints ADH's labels");
             await expectOk('delete the Customer COA draft', () => gen.remove(ORG_ID, draftCoa.id));
           }
@@ -555,7 +579,7 @@ async function main() {
       await expectReject(
         'complete the shipment with steps still open (ADH numbers in the message)',
         () => shipments.complete(ORG_ID, shipment.id),
-        /not done: 3\. Receive shipping documents, 4\. Create customer documents/,
+        /not done: 3b\. Receive shipping documents, 4\. Create customer documents/,
       );
 
       // ── B/L draft read (mocked) ───────────────────────────────────────────
@@ -607,17 +631,13 @@ async function main() {
         JSON.stringify({ line: blRes?.contractLineId, net: blRes?.draft?.netWeightMt }),
       );
       const ship2 = await expectOk('create shipment from the B/L draft', () =>
-        shipments.create(
-          ORG_ID,
-          { contractId: contract.id, contractLineId: blRes.contractLineId, blDraftFileId: blX!.fileId, blNumber: blRes.draft.blNumber, netWeightMt: blRes.draft.netWeightMt },
-          actor,
-        ),
+        orders.addShipment(ORG_ID, order.id, { contractLineId: blRes.contractLineId, blDraftFileId: blX!.fileId, blNumber: blRes.draft.blNumber, netWeightMt: blRes.draft.netWeightMt }, actor),
       );
       if (ship2) {
         const step2 = ship2.steps.find((s) => s.code === 'BL_DRAFT_APPROVAL');
         const link = ship2.fileLinks.find((l) => l.file.id === blX!.fileId);
         (link?.stepId === step2?.id && step2?.requirements?.[0]?.satisfied ? pass : fail)(
-          'B/L draft linked to "2. Approve B/L draft (Vedanta)" (requirement met)',
+          'B/L draft linked to "3a. Approve B/L draft (Vedanta)" (requirement met)',
           JSON.stringify(step2?.requirements),
         );
         (ship2.blCheck?.extractionId === blX!.id ? pass : fail)('its B/L check is shown on the new shipment', ship2.blCheck ? `${ship2.blCheck.issueCount} issue(s)` : 'none');
@@ -625,12 +645,12 @@ async function main() {
         await expectOk('delete its B/L draft file (DB + S3, extraction rows cascade)', () => files.remove(ORG_ID, blX!.fileId));
       }
       // ── In-app documents: create blank → draft PDF → finalize → step satisfied ──
-      const requirement = async (docType: string, owner: { shipmentId?: string; contractId?: string }) => {
-        const rec: any = owner.shipmentId ? await shipments.getById(ORG_ID, owner.shipmentId) : await contracts.getById(ORG_ID, owner.contractId!);
+      const requirement = async (docType: string, owner: { shipmentId?: string; orderId?: string }) => {
+        const rec: any = owner.shipmentId ? await shipments.getById(ORG_ID, owner.shipmentId) : await orders.getById(ORG_ID, owner.orderId!);
         const step = rec.steps.find((st: any) => st.requiredDocTypes.includes(docType));
         return { step, req: step?.requirements?.find((r: any) => r.docType === docType) };
       };
-      const inApp = async (docType: string, owner: { shipmentId?: string; contractId?: string }) => {
+      const inApp = async (docType: string, owner: { shipmentId?: string; orderId?: string }) => {
         const g: any = await expectOk(`${docType}: create blank (prefilled)`, () => gen.createBlank(ORG_ID, { docType, ...owner }, actor));
         if (!g) return null;
         // Prefills: ADH's layouts and the org's document settings.
@@ -664,7 +684,8 @@ async function main() {
             ? pass
             : fail)('SGJP_IV_PL: ADH layout — invoice no. ADH+yyyymmdd, Shipper / Consignee / Seller blocks, one item "… Alloy 6063 …" CIF', `${h0.invoiceNo} / ${r0.goods}`);
         if (docType === 'SHIPPING_INSTRUCTIONS') {
-          const site = (dd.deliveryProfiles ?? []).find((p: any) => customer.name.toLowerCase().includes(String(p.customerName).toLowerCase()));
+          const prof = (settingsNow.customerProfiles as any)?.[customer.id]?.deliveryProfile;
+          const site = prof ?? (dd.deliveryProfiles ?? []).find((p: any) => customer.name.toLowerCase().includes(String(p.customerName).toLowerCase()));
           (h0.layout === 2 &&
             h0.title === '出庫・納入依頼書' &&
             h0.toName === siAddresseeOf(dd) &&
@@ -675,11 +696,11 @@ async function main() {
         }
         if (docType === 'INVOICE_1' || docType === 'INVOICE_2') {
           (h0.toName === (customer.jpName || customer.name) ? pass : fail)(`${docType}: 請求書 addressed to the Japanese legal name (name only)`, h0.toName);
-          const c: any = await contracts.getById(ORG_ID, contract.id);
-          const want = defaultLmeMonth(docType, c.shipmentMonth);
+          const c: any = await orders.getById(ORG_ID, order.id);
+          const want = defaultLmeMonth(docType, c.shipMonth);
           (h0.lmeMonth === want ? pass : fail)(
-            `${docType}: LME month from the contract's shipment month (${docType === 'INVOICE_1' ? 'month before' : 'the month'}), never today`,
-            `${h0.lmeMonth || '(blank)'} vs ${want || '(blank)'}; shipment month ${c.shipmentMonth ?? '—'}`,
+            `${docType}: LME month from the order's ship month (${docType === 'INVOICE_1' ? 'month before' : 'the month'}), never today`,
+            `${h0.lmeMonth || '(blank)'} vs ${want || '(blank)'}; ship month ${c.shipMonth ?? '—'}`,
           );
         }
         if (docType === 'INVOICE_1') {
@@ -689,7 +710,7 @@ async function main() {
             `${h0.bankId}`,
           );
           const seal = await gen.sealFor(ORG_ID);
-          (!seal || gen.previewHtml(docType, h0, [], g.rows, true, seal).includes('class="seal"') ? pass : fail)(
+          (!seal || (await gen.previewHtml(docType, h0, [], g.rows, true, seal)).includes('class="seal"') ? pass : fail)(
             'INVOICE_1: the org seal prints beside the From block',
             seal ? 'seal set' : 'no seal in the settings',
           );
@@ -733,7 +754,7 @@ async function main() {
           await gen.update(ORG_ID, g.id, { header });
         }
         const draftPdf = await expectOk(`${docType}: download draft PDF`, () => gen.pdfFor(ORG_ID, g.id));
-        const watermarked = gen.previewHtml(docType, header, g.columns, rows, true).includes('class="wm"');
+        const watermarked = (await gen.previewHtml(docType, header, g.columns, rows, true)).includes('class="wm"');
         (draftPdf && draftPdf.buffer.subarray(0, 4).toString() === '%PDF' && draftPdf.fileName.endsWith('-DRAFT.pdf') && !watermarked ? pass : fail)(
           `${docType}: draft PDF is a PDF, no DRAFT watermark`,
           `${draftPdf?.fileName} ${draftPdf ? Math.round(draftPdf.buffer.length / 1024) : 0} KB`,
@@ -799,11 +820,11 @@ async function main() {
           (f2?.number === `${sg2.header.invoiceNo}-2` && finals === 2 ? pass : fail)('SGJP_IV_PL: two final SG→JP invoices on the shipment', `${finals} final, ${f2?.number}`);
         }
       }
-      const inv1Doc: any = await inApp('INVOICE_1', { contractId: contract.id });
+      const inv1Doc: any = await inApp('INVOICE_1', { orderId: order.id });
       if (inv1Doc) {
         // Finalizing completed step 2 by itself, so "Edit again" needs the step reopened first.
-        const inv1Step = (await contracts.getById(ORG_ID, contract.id)).steps.find((x: any) => x.code === 'INVOICE_1') as any;
-        (inv1Step?.status === 'DONE' ? pass : fail)('INVOICE_1: finalize auto-completed "2. Issue Invoice #1"', inv1Step?.status);
+        const inv1Step = (await orders.getById(ORG_ID, order.id)).steps.find((x: any) => x.code === 'INVOICE_1') as any;
+        (inv1Step?.status === 'DONE' ? pass : fail)('INVOICE_1: finalize auto-completed "2. Issue and send Invoice #1"', inv1Step?.status);
         await expectReject('INVOICE_1: edit again while the step is done', () => gen.revert(ORG_ID, inv1Doc.id), /reopen/);
         if (inv1Step) await expectOk('INVOICE_1: reopen the step', () => steps.reopen(ORG_ID, inv1Step.id, actor));
         const rev: any = await expectOk('INVOICE_1: edit again (step reopened)', () => gen.revert(ORG_ID, inv1Doc.id));
@@ -811,39 +832,39 @@ async function main() {
         (rev?.status === 'DRAFT' && d1?.status === 'unconfirmed' ? pass : fail)('INVOICE_1: back to draft, Sales invoice unconfirmed (stops counting)', d1?.status);
         const again: any = await expectOk('INVOICE_1: finalize again', () => gen.finalize(ORG_ID, inv1Doc.id, actor));
         {
-          const hubRow = (await new TradeHubService(prisma, config).list(ORG_ID, { contractId: contract.id, source: 'IN_APP', pageSize: '100' })).items.find((r) => r.id === inv1Doc.id);
-          (hubRow && hubRow.links.some((l) => l.contractId === contract.id) && hubRow.customerName === customer.name && hubRow.recipient === null ? pass : fail)(
-            'hub: Invoice #1 row linked to its contract, Customer = the customer, no Recipient',
-            hubRow ? `${hubRow.links.map((l) => l.contractNo).join(',')} / ${hubRow.customerName}` : 'missing',
+          const hubRow = (await new TradeHubService(prisma, config).list(ORG_ID, { orderId: order.id, source: 'IN_APP', pageSize: '100' })).items.find((r) => r.id === inv1Doc.id);
+          (hubRow && hubRow.links.some((l) => l.orderId === order.id) && hubRow.customerName === customer.name && hubRow.recipient === null ? pass : fail)(
+            'hub: Invoice #1 row linked to its order, Customer = the customer, no Recipient',
+            hubRow ? `${hubRow.links.map((l) => l.ref).join(',')} / ${hubRow.customerName}` : 'missing',
           );
         }
         (again?.number === inv1Doc.number ? pass : fail)('INVOICE_1: keeps its invoice number', `${inv1Doc.number} → ${again?.number}`);
         {
-          const st = (await contracts.getById(ORG_ID, contract.id)).steps.find((x: any) => x.code === 'INVOICE_1') as any;
+          const st = (await orders.getById(ORG_ID, order.id)).steps.find((x: any) => x.code === 'INVOICE_1') as any;
           (st?.status === 'DONE' && !st.holdOpen ? pass : fail)('INVOICE_1: finalizing again completes the reopened step (its document changed)', `${st?.status} hold=${st?.holdOpen}`);
         }
-        // Invoice #2 after Invoice #1 is final: its １回目の金額 is what Invoice #1 billed for line 2 (6063), tax incl.
+        // Invoice #2 after Invoice #1 is final: its １回目の金額 is what Invoice #1 billed the order, tax incl.
         const inv2Doc: any = await inApp('INVOICE_2', { shipmentId: shipment.id });
         if (inv2Doc) {
-          const l2 = toInvoiceLines(again?.rows ?? inv1Doc.rows).find((l) => l.grade === '6063');
-          const expected = l2 ? roundTo(amountOf(l2) * 1.1, 2) : null;
-          (Number((inv2Doc.header as any).invoice1Amount) === expected ? pass : fail)(
-            'INVOICE_2: １回目の金額 = Invoice #1 6063 line × 1.1',
-            `${(inv2Doc.header as any).invoice1Amount} vs ${expected}`,
-          );
+          const src = again ?? inv1Doc;
+          const expected = invoiceTotals(toInvoiceLines(src.rows), Number((src.header as any).taxRate ?? 10), null).total;
+          (Number((inv2Doc.header as any).invoice1Amount) === expected ? pass : fail)('INVOICE_2: １回目の金額 = the order\'s Invoice #1 total (tax incl.)', `${(inv2Doc.header as any).invoice1Amount} vs ${expected}`);
+          (JSON.stringify(inv2Doc.coversShipmentIds) === JSON.stringify([shipment.id]) ? pass : fail)('INVOICE_2: covers its shipment', JSON.stringify(inv2Doc.coversShipmentIds));
+          const cfg2: any = (await prisma.document.findFirst({ where: { id: inv2Doc.documentId }, select: { config: true } }))?.config;
+          (cfg2?.tradeCovers === `#${order.orderNo}-${shipment.seqNo}` ? pass : fail)('Invoices tab "Covers": the Sales invoice says which shipment it bills', String(cfg2?.tradeCovers));
         }
         // Invoices tab → View: the Sales invoice resolves to its 請求書 (PDF + editor + contract link).
         const view: any = await expectOk('INVOICE_1: Invoices tab view resolves the 請求書 by Sales invoice', () => gen.byDocument(ORG_ID, inv1Doc.documentId));
         const cfg: any = (await prisma.document.findFirst({ where: { id: inv1Doc.documentId }, select: { config: true } }))?.config;
-        (view?.id === inv1Doc.id && view.status === 'FINAL' && view.finalFileId && view.contracts.some((c: any) => c.id === contract.id) && cfg?.tradeGeneratedDocId === inv1Doc.id ? pass : fail)(
-          'INVOICE_1: the list row carries tradeGeneratedDocId; the view has the final PDF and the contract link',
-          `${view?.number} contracts=${view?.contracts?.map((c: any) => c.contractNo).join(',')}`,
+        (view?.id === inv1Doc.id && view.status === 'FINAL' && view.finalFileId && view.orders.some((o: any) => o.id === order.id) && cfg?.tradeGeneratedDocId === inv1Doc.id && cfg?.tradeCovers === `#${order.orderNo}` ? pass : fail)(
+          'INVOICE_1: the list row carries tradeGeneratedDocId + Covers "#n"; the view has the final PDF and the order link',
+          `${view?.number} orders=${view?.orders?.map((o: any) => o.label).join(',')} covers=${cfg?.tradeCovers}`,
         );
         const ship2Doc = await prisma.tradeGeneratedDoc.findFirst({ where: { organizationId: ORG_ID, shipmentId: shipment.id, docType: 'INVOICE_2' }, select: { documentId: true } });
         if (ship2Doc?.documentId) {
           const v2: any = await gen.byDocument(ORG_ID, ship2Doc.documentId);
-          (v2.shipments.some((x: any) => x.id === shipment.id) && v2.contracts.some((c: any) => c.id === contract.id) ? pass : fail)(
-            "INVOICE_2: the view links its shipment and that shipment's contract",
+          (v2.shipments.some((x: any) => x.id === shipment.id) && v2.orders.some((o: any) => o.id === order.id) ? pass : fail)(
+            "INVOICE_2: the view links its shipment and that shipment's order",
             `${v2.number}`,
           );
         }
@@ -851,27 +872,28 @@ async function main() {
       // ── Round 5–12: document IDs, hub search, COA pick, finalize block, A/N read ──
       {
         const seq = (await prisma.shipment.findFirst({ where: { id: shipment.id }, select: { seqNo: true } }))?.seqNo;
-        const first = (await prisma.shipment.findFirst({ where: { contractId: contract.id }, orderBy: { createdAt: 'asc' }, select: { id: true, seqNo: true } }))!;
-        (first.seqNo === 1 && seq && seq > 1 ? pass : fail)('doc IDs: shipments numbered by creation (#1 = the one that came with the contract)', `#1=${first.seqNo}, ${BL_NUMBER}=#${seq}`);
+        // New format: "{yy}-{order no}-{shipment no}-{TYPE}" on a shipment, "{yy}-{order no}-{TYPE}" on the order.
+        const P = `${String(ORDER_YEAR % 100).padStart(2, '0')}-${order.orderNo}`;
+        (seq === 1 ? pass : fail)('doc IDs: shipments numbered within the order (the deleted #n-1 freed its number)', `${BL_NUMBER}=#${order.orderNo}-${seq}`);
         const blFile = await prisma.tradeFile.findFirst({ where: { id: uploaded.id }, select: { docRef: true } });
-        (blFile?.docRef === `${CONTRACT_NO}-${seq}-BLD` ? pass : fail)('doc IDs: an uploaded B/L draft → <contract>-<shipment>-BLD', String(blFile?.docRef));
+        (blFile?.docRef === `${P}-${seq}-BLD` ? pass : fail)('doc IDs: an uploaded B/L draft → {yy}-{order}-{shipment}-BLD', String(blFile?.docRef));
         if (piX?.fileId) {
           const pi = await prisma.tradeFile.findFirst({ where: { id: piX.fileId }, select: { docRef: true } });
-          (pi?.docRef === `${CONTRACT_NO}-PI` ? pass : fail)('doc IDs: the PI on the contract → <contract>-PI', String(pi?.docRef));
+          (pi?.docRef === `${P}-PI` ? pass : fail)('doc IDs: the PI on the order → {yy}-{order}-PI', String(pi?.docRef));
         }
-        const gens = await prisma.tradeGeneratedDoc.findMany({ where: { organizationId: ORG_ID, OR: [{ shipmentId: shipment.id }, { contractId: contract.id }] }, orderBy: { createdAt: 'asc' }, select: { docType: true, docRef: true, finalFileId: true } });
-        const want: Record<string, string> = { CUSTOMER_PL: `${CONTRACT_NO}-${seq}-CPL`, CUSTOMER_COA: `${CONTRACT_NO}-${seq}-CCOA`, SHIPPING_INSTRUCTIONS: `${CONTRACT_NO}-${seq}-SI`, INVOICE_2: `${CONTRACT_NO}-${seq}-INV2`, INVOICE_1: `${CONTRACT_NO}-INV1` };
+        const gens = await prisma.tradeGeneratedDoc.findMany({ where: { organizationId: ORG_ID, OR: [{ shipmentId: shipment.id }, { orderId: order.id }] }, orderBy: { createdAt: 'asc' }, select: { docType: true, docRef: true, finalFileId: true } });
+        const want: Record<string, string> = { CUSTOMER_PL: `${P}-${seq}-CPL`, CUSTOMER_COA: `${P}-${seq}-CCOA`, SHIPPING_INSTRUCTIONS: `${P}-${seq}-SI`, INVOICE_2: `${P}-${seq}-INV2`, INVOICE_1: `${P}-INV1` };
         const bad = gens.filter((g) => want[g.docType] && g.docRef !== want[g.docType]);
         const sgjp = gens.filter((g) => g.docType === 'SGJP_IV_PL').map((g) => g.docRef);
-        (gens.length && !bad.length && sgjp[0] === `${CONTRACT_NO}-${seq}-SGJP` && sgjp[1] === `${CONTRACT_NO}-${seq}-SGJP-2` ? pass : fail)(
-          'doc IDs: in-app documents (…-CPL, -CCOA, -SI, -INV2, -INV1; a second SG→JP → -SGJP-2)',
+        (gens.length && !bad.length && sgjp[0] === `${P}-${seq}-SGJP` && sgjp[1] === `${P}-${seq}-SGJP-2` ? pass : fail)(
+          'doc IDs: in-app documents (…-CPL, -CCOA, -SI, -INV2 on the shipment, -INV1 on the order; a second SG→JP → -SGJP-2)',
           gens.map((g) => g.docRef).join(', '),
         );
         const finalPdfs = await prisma.tradeFile.findMany({ where: { id: { in: gens.map((g) => g.finalFileId).filter(Boolean) as string[] } }, select: { id: true, docRef: true } });
         (finalPdfs.length && finalPdfs.every((f: any) => gens.some((g) => g.finalFileId === f.id && g.docRef === f.docRef)) ? pass : fail)('doc IDs: a finalized PDF carries its in-app document\'s ID', `${finalPdfs.length} PDF(s)`);
-        const hubHit = await new TradeHubService(prisma, config).list(ORG_ID, { q: `${CONTRACT_NO}-${seq}-CPL`, pageSize: '20' });
-        (hubHit.items.length >= 1 && hubHit.items.every((r) => r.docRef?.startsWith(`${CONTRACT_NO}-${seq}-CPL`)) ? pass : fail)('doc IDs: Documents hub search finds a document by its ID', `${hubHit.items.length} row(s)`);
-        const fileHit = await files.list(ORG_ID, { q: `${CONTRACT_NO}-${seq}-BLD` } as any);
+        const hubHit = await new TradeHubService(prisma, config).list(ORG_ID, { q: `${P}-${seq}-CPL`, pageSize: '20' });
+        (hubHit.items.length >= 1 && hubHit.items.every((r) => r.docRef?.startsWith(`${P}-${seq}-CPL`)) ? pass : fail)('doc IDs: Documents hub search finds a document by its ID', `${hubHit.items.length} row(s)`);
+        const fileHit = await files.list(ORG_ID, { q: `${P}-${seq}-BLD` } as any);
         (fileHit.items.some((f: any) => f.id === uploaded.id) ? pass : fail)('doc IDs: Files search finds a file by its ID', `${fileHit.items.length} row(s)`);
         const nullBefore = await prisma.tradeFile.count({ where: { organizationId: ORG_ID, docRef: null } });
         const dry = await expectOk('doc IDs: backfill dry run', () => backfillDocRefs(prisma, config, ORG_ID, false));
@@ -934,48 +956,47 @@ async function main() {
         );
         if (an?.fileId) {
           const anFile = await prisma.tradeFile.findFirst({ where: { id: an.fileId }, select: { docType: true, docRef: true } });
-          (anFile?.docType === 'ARRIVAL_NOTICE' && anFile.docRef === `${CONTRACT_NO}-${seq}-AN` ? pass : fail)('A/N: stored as ARRIVAL_NOTICE with its doc ID', `${anFile?.docType} ${anFile?.docRef}`);
+          (anFile?.docType === 'ARRIVAL_NOTICE' && anFile.docRef === `${P}-${seq}-AN` ? pass : fail)('A/N: stored as ARRIVAL_NOTICE with its doc ID', `${anFile?.docType} ${anFile?.docRef}`);
           await prisma.tradeExtraction.deleteMany({ where: { fileId: an.fileId } });
           await files.remove(ORG_ID, an.fileId);
         }
       }
       if (invoiceId) await expectOk('delete the throwaway invoice Document', () => prisma.document.delete({ where: { id: invoiceId!, organizationId: ORG_ID } }));
       // After the throwaway invoice is gone, so the INVOICE counter can go back to 1.
-      await expectOk('remove the in-app documents, their PDFs and Sales invoices', () => purgeInApp(prisma, s3, contract.id, [shipment.id]));
+      await expectOk('remove the in-app documents, their PDFs and Sales invoices', () => purgeInApp(prisma, s3, order.id, [shipment.id]));
       // ── Auto-complete: the last step completes the shipment, the last shipment the deal; tabs ──
       {
-        const others = await prisma.shipment.findMany({ where: { contractId: contract.id, id: { not: shipment.id }, status: 'OPEN' }, select: { id: true } });
+        const others = await prisma.shipment.findMany({ where: { orderId: order.id, id: { not: shipment.id }, status: 'OPEN' }, select: { id: true } });
         await prisma.shipment.updateMany({ where: { id: { in: others.map((o: any) => o.id) } }, data: { status: 'CANCELLED' } });
-        await prisma.tradeStep.updateMany({ where: { contractId: contract.id }, data: { status: 'DONE', holdOpen: false } });
-        await prisma.tradeStep.updateMany({ where: { shipmentId: shipment.id, code: { not: 'XERO_HANDOFF' } }, data: { status: 'DONE', holdOpen: false } });
-        const last = await prisma.tradeStep.findFirst({ where: { shipmentId: shipment.id, code: 'XERO_HANDOFF' }, select: { id: true } });
-        const pendingBefore = await shipments.list(ORG_ID, { bucket: 'pending', contractId: contract.id } as any);
-        (pendingBefore.items.some((x: any) => x.id === shipment.id) && pendingBefore.counts.completed === others.length ? pass : fail)(
-          'tabs: an open shipment is under Pending; cancelled ones count under Completed',
-          JSON.stringify(pendingBefore.counts),
-        );
-        if (last) await expectOk('auto-complete: "Mark done" on the last open step (13. Xero handoff)', () => steps.complete(ORG_ID, last.id, actor));
+        await prisma.tradeStep.updateMany({ where: { orderId: order.id, code: { not: 'XERO_HANDOFF' } }, data: { status: 'DONE', holdOpen: false } });
+        await prisma.tradeStep.updateMany({ where: { shipmentId: shipment.id, code: { not: 'TAX_FUNDS' } }, data: { status: 'DONE', holdOpen: false } });
+        const last = await prisma.tradeStep.findFirst({ where: { shipmentId: shipment.id, code: 'TAX_FUNDS' }, select: { id: true } });
+        const xero = await prisma.tradeStep.findFirst({ where: { orderId: order.id, code: 'XERO_HANDOFF' }, select: { id: true } });
+        const pendingBefore = await orders.list(ORG_ID, { bucket: 'pending', q: `#${order.orderNo}` } as any);
+        (pendingBefore.items.some((x: any) => x.id === order.id) ? pass : fail)('Orders tabs: an open order is under Pending', JSON.stringify(pendingBefore.counts));
+        if (last) await expectOk('auto-complete: "Mark done" on the shipment\'s last open step (8. import-tax funds)', () => steps.complete(ORG_ID, last.id, actor));
         const sNow = await prisma.shipment.findFirst({ where: { id: shipment.id }, select: { status: true } });
-        const cNow0 = await prisma.contract.findFirst({ where: { id: contract.id }, select: { status: true } });
+        const oMid = await prisma.tradeOrder.findFirst({ where: { id: order.id }, select: { status: true } });
         (sNow?.status === 'COMPLETED' ? pass : fail)('auto-complete: all steps done → the shipment completes', String(sNow?.status));
-        (cNow0?.status === 'COMPLETED' ? pass : fail)('auto-complete: every shipment complete (others cancelled) → the deal completes', String(cNow0?.status));
-        const done = await shipments.list(ORG_ID, { bucket: 'completed', contractId: contract.id } as any);
-        const pend = await shipments.list(ORG_ID, { bucket: 'pending', contractId: contract.id } as any);
-        (done.items.some((x: any) => x.id === shipment.id) && !pend.items.length && done.counts.completed === others.length + 1 && done.counts.pending === 0 ? pass : fail)(
-          'tabs: the completed shipment moves to Completed (with the cancelled ones); Pending is empty',
+        (oMid?.status === 'OPEN' ? pass : fail)('the order stays open while its step 13 is open', String(oMid?.status));
+        if (xero) await expectOk('auto-complete: "Mark done" 13. Prepare data for Xero reconciliation', () => steps.complete(ORG_ID, xero.id, actor));
+        const oNow0 = await prisma.tradeOrder.findFirst({ where: { id: order.id }, select: { status: true } });
+        (oNow0?.status === 'COMPLETED' ? pass : fail)('auto-complete: order steps done + every shipment complete → the order completes', String(oNow0?.status));
+        const done = await orders.list(ORG_ID, { bucket: 'completed', q: `#${order.orderNo}` } as any);
+        (done.items.some((x: any) => x.id === order.id && x.shipments.some((sh: any) => sh.id === shipment.id && sh.ref === `#${order.orderNo}-${shipment.seqNo}`)) ? pass : fail)(
+          'Orders tabs: the completed order moves to Completed; its row lists the shipment #n-k',
           JSON.stringify(done.counts),
         );
       }
-      await expectReject('delete the contract while it has a shipment', () => contracts.remove(ORG_ID, contract.id), /shipment/);
+      await expectReject('delete the contract while it has an order', () => contracts.remove(ORG_ID, contract.id), /order/);
 
-      // Reopening a shipment whose contract is COMPLETED reopens the contract too (states set directly: the smoke's steps aren't all done).
+      // Reopening a shipment whose order is COMPLETED reopens the order too.
       await prisma.shipment.update({ where: { id: shipment.id }, data: { status: 'COMPLETED' } });
-      await prisma.contract.update({ where: { id: contract.id }, data: { status: 'COMPLETED' } });
-      const reopened: any = await expectOk('reopen the shipment under a completed contract', () => shipments.reopen(ORG_ID, shipment.id));
-      const cNow = await prisma.contract.findFirst({ where: { id: contract.id }, select: { status: true } });
-      (reopened?.status === 'OPEN' && reopened?.reopenedContract === CONTRACT_NO && cNow?.status === 'OPEN' ? pass : fail)(
-        'the completed contract is reopened with it (reported for the toast)',
-        `shipment ${reopened?.status}, contract ${cNow?.status}, reopenedContract ${reopened?.reopenedContract}`,
+      const reopened: any = await expectOk('reopen the shipment under a completed order', () => shipments.reopen(ORG_ID, shipment.id));
+      const oNow = await prisma.tradeOrder.findFirst({ where: { id: order.id }, select: { status: true } });
+      (reopened?.status === 'OPEN' && reopened?.reopenedContract === `#${order.orderNo}` && oNow?.status === 'OPEN' ? pass : fail)(
+        'the completed order is reopened with it (reported for the toast)',
+        `shipment ${reopened?.status}, order ${oNow?.status}, reopened ${reopened?.reopenedContract}`,
       );
 
       // Cleanup path through the services: reopen the step, then the file may go.
@@ -984,9 +1005,15 @@ async function main() {
       for (const st of (await shipments.getById(ORG_ID, shipment.id)).steps.filter((x: any) => x.status === 'DONE')) await steps.reopen(ORG_ID, st.id, actor);
       await expectOk('delete the file (DB + S3)', () => files.remove(ORG_ID, uploaded.id));
       await expectOk('delete the shipment', () => shipments.remove(ORG_ID, shipment.id));
+      for (const st of ((await orders.getById(ORG_ID, order.id)).steps as any[]).filter((x: any) => x.status === 'DONE')) await steps.reopen(ORG_ID, st.id, actor).catch(() => undefined);
+      if (piX?.fileId) await prisma.tradeFileLink.deleteMany({ where: { organizationId: ORG_ID, fileId: piX.fileId, orderId: order.id } });
+      await expectOk('delete the order', () => orders.remove(ORG_ID, order.id));
       await expectOk('delete the contract', () => contracts.remove(ORG_ID, contract.id));
       if (piX?.fileId) await expectOk('delete the PI file (DB + S3)', () => files.remove(ORG_ID, piX.fileId));
       contractId = null;
+
+      // ── Orders round: two shipments on one Invoice #2, Kato SINGLE flow, estimator, reconciliation ──
+      await orderCases({ prisma, s3, config, orders, contracts, shipments, steps, files, gen, customer, supplier });
     } finally {
       if (contractId) {
         console.log('\n⚠ Run stopped early — removing what it created');
@@ -1004,6 +1031,125 @@ async function main() {
   }
 }
 
+/**
+ * Orders round (2026-10): an order with 2 shipments → one Invoice #2 covering
+ * both (step 11 done on each); a Kato (SINGLE billing) order — Invoice #1 N/A,
+ * import permit not sent, INVOICE_SINGLE only once the B/L and CI are in, the
+ * sample's figures (40.825 t, FX 159 → US$176,050.94); the estimator on a
+ * shipment; the step 13 reconciliation (profit = d − a − b − c).
+ */
+async function orderCases(x: any) {
+  const { prisma, config, orders, contracts, shipments, steps, files, gen, customer, supplier } = x;
+  const pdf = (name: string) => ({ originalname: name, mimetype: 'application/pdf', size: DUMMY_PDF.length, buffer: DUMMY_PDF }) as Express.Multer.File;
+  // A: SUS, two B/Ls under one order, one Invoice #2.
+  const cA: any = await expectOk('orders: contract (LTC) for the two-shipment order', () =>
+    contracts.create(ORG_ID, { contractNo: CONTRACT_NO, supplierId: supplier.id, customerId: customer.id, lines: [{ grade: '6063', product: 'Aluminium Billet', sizeSpec: '203 MM X 5800 MM', quantityMt: 300, billetPremium: 230 }] }, actor),
+  );
+  if (!cA) return;
+  const oA: any = await expectOk('orders: order with client premium from the contract line', () => orders.create(ORG_ID, { year: ORDER_YEAR, contractId: cA.id, shipMonth: '2026-07', deliveryMonth: '2026-09', grade: '6063', qtyMt: 300 }, actor));
+  if (!oA) return;
+  (Number(oA.clientPremium) === 230 ? pass : fail)('orders: client premium defaults from the contract line (230)', String(oA.clientPremium));
+  const a: any = await expectOk('orders: shipment #n-1', () => orders.addShipment(ORG_ID, oA.id, { blNumber: 'TEST-SM-A', netWeightMt: 262.45, grossWeightMt: 263.48 }, actor));
+  const b: any = await expectOk('orders: shipment #n-2', () => orders.addShipment(ORG_ID, oA.id, { blNumber: 'TEST-SM-B', netWeightMt: 40.775, grossWeightMt: 41.0 }, actor));
+  if (!a || !b) return;
+  (a.ref === `#${oA.orderNo}-1` && b.ref === `#${oA.orderNo}-2` ? pass : fail)('orders: shipments numbered #n-1, #n-2', `${a.ref}, ${b.ref}`);
+  // Estimator on #n-1 (262.45 MT net / 263.48 gross): customs ¥808,346, 13 trucks → ¥1,401,400.
+  {
+    const est: any = (await shipments.update(ORG_ID, a.id, { costs: { thc: 540000, docFee: 6000, equipmentFee: 27000, cifUsd: 1156396.23, fxRate: 159 } } as any, actor)).estimate;
+    (est?.customs === 808346 && est.trucks === 13 && est.trucking === 13 * 107800 && est.customsTotal === 808346 + 11800 + 573000 && est.importTax.estimate === 18386700 ? pass : fail)(
+      'estimator: #9-1 numbers — customs ¥808,346, 13 trucks, est. 通関・車輸送, import tax ¥18,386,700 at 159.00',
+      JSON.stringify({ customs: est?.customs, trucks: est?.trucks, trucking: est?.trucking, total: est?.customsTotal, tax: est?.importTax?.estimate }),
+    );
+  }
+  const inv2: any = await expectOk('Invoice #2 covering #n-1 + #n-2', () => gen.createBlank(ORG_ID, { docType: 'INVOICE_2', shipmentId: a.id, coversShipmentIds: [a.id, b.id] }, actor));
+  if (inv2) {
+    const rows = inv2.rows as any[];
+    (JSON.stringify(inv2.coversShipmentIds) === JSON.stringify([a.id, b.id]) && rows.length === 5 && rows[0].quantity === 262.45 && rows[1].quantity === 40.775 && Number(rows[0].premium) === 230 ? pass : fail)(
+      'Invoice #2: a final-price line per covered shipment + the three cost lines',
+      `${rows.length} lines; qty ${rows[0].quantity} + ${rows[1].quantity}`,
+    );
+    const priced = rows.map((l: any, i: number) => (i < 2 ? { ...l, lme: 3155.98 } : i === 2 ? { ...l, unitPrice: 1650.4 } : i === 3 ? { ...l, unitPrice: 74.21 } : { ...l, unitPrice: roundTo(303.225 * 40, 2) }));
+    await gen.update(ORG_ID, inv2.id, { rows: priced });
+    const fin: any = await expectOk('Invoice #2 (two shipments): finalize', () => gen.finalize(ORG_ID, inv2.id, actor));
+    if (fin) {
+      const sa: any = await shipments.getById(ORG_ID, a.id);
+      const sb: any = await shipments.getById(ORG_ID, b.id);
+      const done = (sh: any) => sh.steps.find((st: any) => st.code === 'INVOICE_2')?.status;
+      (done(sa) === 'DONE' && done(sb) === 'DONE' ? pass : fail)('finalizing the Invoice #2 completes step 11 on BOTH covered shipments', `${done(sa)} / ${done(sb)}`);
+      const cfg: any = (await prisma.document.findFirst({ where: { id: fin.documentId }, select: { config: true } }))?.config;
+      (cfg?.tradeCovers === `#${oA.orderNo}-1, #${oA.orderNo}-2` ? pass : fail)('Invoices tab "Covers": #n-1, #n-2', String(cfg?.tradeCovers));
+      const uninvoiced = await shipments.list(ORG_ID, { uninvoiced: 'true', customerId: customer.id, pageSize: '100' } as any);
+      (!uninvoiced.items.some((x: any) => x.id === a.id || x.id === b.id) ? pass : fail)('covered shipments drop out of the "not yet invoiced" picker', `${uninvoiced.items.length} left`);
+      await expectReject('a second Invoice #2 for an already invoiced shipment is refused', () => gen.createBlank(ORG_ID, { docType: 'INVOICE_2', shipmentId: b.id }, actor), /Already invoiced/);
+      // Step 13: profit = d − a − b − c on this order's own documents.
+      const rec0: any = await orders.updateReconciliation(ORG_ID, oA.id, { piPaid: 120958.5, ciPaid: 1027635.21, otherCostsUsd: 1000 });
+      const tot = invoiceTotals(toInvoiceLines(priced), Number(fin.header?.taxRate ?? 10), null, 'final').total;
+      (rec0.d === tot && rec0.profit === roundTo(tot - 120958.5 - 1027635.21 - 1000, 2) ? pass : fail)('reconciliation: d = the Invoice #2 total, profit = d − a − b − c', `d ${rec0.d} profit ${rec0.profit}`);
+      // Back to draft so the covered steps can be cleaned.
+      for (const sh of [sa, sb]) {
+        const st = sh.steps.find((y: any) => y.code === 'INVOICE_2');
+        if (st) await steps.reopen(ORG_ID, st.id, actor);
+      }
+    }
+  }
+  // B: Kato — SINGLE billing.
+  const kato = await prisma.customer.findFirst({ where: { organizationId: ORG_ID, name: { startsWith: 'Kato' } }, select: { id: true, name: true } });
+  const profile = kato ? await config.profileOf(ORG_ID, kato.id) : null;
+  if (!kato || profile?.billingMode !== 'SINGLE') {
+    fail('Kato SINGLE flow', 'Kato customer / SINGLE profile missing — run setup-adh-org.ts');
+  } else {
+    const cK: any = await expectOk('Kato: contract 454003598-like (6005, premium 285)', () =>
+      contracts.create(ORG_ID, { contractNo: KATO_CONTRACT_NO, supplierId: supplier.id, customerId: kato.id, lines: [{ grade: '6005', product: 'Aluminium Billet', sizeSpec: '203 MM X 5800 MM', quantityMt: 40, billetPremium: 285 }] }, actor),
+    );
+    const oK: any = cK ? await expectOk('Kato: order (Sep 26 → Nov 26, 6005 40 MT)', () => orders.create(ORG_ID, { year: ORDER_YEAR, contractId: cK.id, shipMonth: '2026-07', deliveryMonth: '2026-11', grade: '6005', qtyMt: 40 }, actor)) : null;
+    if (oK) {
+      const inv1 = oK.steps.find((st: any) => st.code === 'INVOICE_1');
+      (inv1?.notApplicable && oK.progress.total === 3 ? pass : fail)('Kato: step 2 Invoice #1 is N/A (customer profile) and not counted', `${inv1?.notApplicable} ${JSON.stringify(oK.progress)}`);
+      const k: any = await expectOk('Kato: shipment #n-1', () => orders.addShipment(ORG_ID, oK.id, { blNumber: 'TEST-SM-K', netWeightMt: 40.825, grossWeightMt: 41.2 }, actor));
+      if (k) {
+        const s11 = k.steps.find((st: any) => st.code === 'INVOICE_2');
+        const s10 = k.steps.find((st: any) => st.code === 'IMPORT_PERMIT');
+        (s11?.title === 'Issue invoice (single)' && JSON.stringify(s11.requiredDocTypes) === '["INVOICE_SINGLE"]' && s10?.subtasks?.[0]?.na === true ? pass : fail)(
+          'Kato: step 11 issues INVOICE_SINGLE; step 10 "send to customer" is N/A',
+          `${s11?.title} ${JSON.stringify(s11?.requiredDocTypes)} ${JSON.stringify(s10?.subtasks)}`,
+        );
+        await expectReject('Kato: single invoice before the B/L and CI are in → refused', () => gen.createBlank(ORG_ID, { docType: 'INVOICE_SINGLE', shipmentId: k.id }, actor), /B\/L and CI/);
+        await files.upload(ORG_ID, pdf('KATO-BL.pdf'), { docType: 'BL', shipmentIds: [k.id] }, actor);
+        await files.upload(ORG_ID, pdf('KATO-CI.pdf'), { docType: 'CI', shipmentIds: [k.id] }, actor);
+        await shipments.update(ORG_ID, k.id, { costs: { thc: 78000 } } as any, actor);
+        const g: any = await expectOk('Kato: create the single invoice (no import permit needed)', () => gen.createBlank(ORG_ID, { docType: 'INVOICE_SINGLE', shipmentId: k.id }, actor));
+        if (g) {
+          const rs = g.rows as any[];
+          (rs.length === 4 && rs[1].jpyAmount === 206062.5 && rs[2].jpyAmount === 89800 && rs[3].unitPrice === 40 && Number(rs[0].premium) === 285 && Number(rs[0].qmjp) === 395 ? pass : fail)(
+            'INVOICE_SINGLE prefill: 通関、車輸送料 ¥206,062.5 (40.825 × 2,300 + 4 trucks × 26,000 + 40.825 × 200), 通関 ¥89,800, 他諸掛 40/MT, premium 285, QMJP 3Q 395',
+            JSON.stringify(rs.map((l) => l.jpyAmount ?? l.unitPrice ?? l.premium)),
+          );
+          (/\d{4}-\d{2}-\d{2}/.test(g.header.dueDate) && g.header.subject.includes('6005') ? pass : fail)('INVOICE_SINGLE header: 件名, due date (5 business days)', `${g.header.subject} / ${g.header.dueDate}`);
+          await gen.update(ORG_ID, g.id, { header: { ...g.header, fxRate: 159 }, rows: [{ ...rs[0], lme: 3155.98 }, ...rs.slice(1)] });
+          const fin: any = await expectOk('Kato: finalize the single invoice', () => gen.finalize(ORG_ID, g.id, actor));
+          if (fin) {
+            const cfg: any = (await prisma.document.findFirst({ where: { id: fin.documentId }, select: { config: true } }))?.config;
+            (Number(cfg?.nettTotal) === 176050.94 ? pass : fail)('INVOICE_SINGLE total US$176,050.94 (the Kato sample)', String(cfg?.nettTotal));
+            const sk: any = await shipments.getById(ORG_ID, k.id);
+            (sk.steps.find((st: any) => st.code === 'INVOICE_2')?.status === 'DONE' ? pass : fail)('Kato: step 11 done by the single invoice', '');
+            const st = sk.steps.find((y: any) => y.code === 'INVOICE_2');
+            if (st) await steps.reopen(ORG_ID, st.id, actor);
+          }
+        }
+        const cpl: any = await files.upload(ORG_ID, pdf('PACKING_LIST_CONTAINER_TEST.pdf'), { docType: 'PL', shipmentIds: [k.id] }, actor);
+        const pl: any = await expectOk('Kato: Customer PL uses the Kato template (container-PL page as the body)', () => gen.createBlank(ORG_ID, { docType: 'CUSTOMER_PL', shipmentId: k.id }, actor));
+        (pl?.templateKey === 'CUSTOMER_PL_KATO' && pl.header.bodyMode === 'attach' && pl.header.attachFileId === cpl?.id ? pass : fail)('Kato: CUSTOMER_PL_KATO, body = the container PL page', `${pl?.templateKey} ${pl?.header?.bodyMode}`);
+        if (pl) {
+          const html = await gen.previewHtml('CUSTOMER_PL', pl.header, pl.columns, pl.rows, true, null, ORG_ID);
+          (/<img src="data:image\/png;base64,/.test(html) ? pass : fail)('Kato: the PL page is rendered into the 計量検収票 frame', html.includes('frame') ? 'frame' : 'no frame');
+        }
+      }
+    }
+  }
+  // Clean up this round (documents, files, shipments, orders, contracts).
+  await expectOk('orders round: clean up (documents, files, shipments, orders, contracts)', () => cleanup(prisma, x.s3, null));
+}
+
 /** Remove the smoke contract, its shipments, their steps/links, and the files (DB + S3) only they used. */
 /**
  * In-app documents of the smoke records: the Sales invoices behind ADH 請求書
@@ -1012,8 +1158,8 @@ async function main() {
  * was before the run (the org may keep real / demo invoices — the smoke must
  * not leave a gap in their numbering), else to 1 when no invoice is left.
  */
-async function purgeInApp(prisma: any, s3: S3Service, contractId: string | null, shipmentIds: string[]) {
-  const owners = [...(contractId ? [{ contractId }] : []), ...shipmentIds.map((shipmentId) => ({ shipmentId }))];
+async function purgeInApp(prisma: any, s3: S3Service, orderId: string | null, shipmentIds: string[]) {
+  const owners = [...(orderId ? [{ orderId }] : []), ...shipmentIds.map((shipmentId) => ({ shipmentId }))];
   if (!owners.length) return;
   const generated = await prisma.tradeGeneratedDoc.findMany({ where: { organizationId: ORG_ID, OR: owners }, select: { id: true, documentId: true } });
   const docIds = generated.map((g: { documentId: string | null }) => g.documentId).filter(Boolean) as string[];
@@ -1046,14 +1192,17 @@ let numberingBefore: { id: string; nextSerial: number; lastResetKey: string | nu
 
 async function cleanup(prisma: any, s3: S3Service, contractId: string | null) {
   const contract = contractId ? { id: contractId } : await prisma.contract.findFirst({ where: { organizationId: ORG_ID, contractNo: CONTRACT_NO }, select: { id: true } });
+  const smokeOrders: Array<{ id: string }> = await prisma.tradeOrder.findMany({ where: { organizationId: ORG_ID, year: ORDER_YEAR }, select: { id: true } });
+  const orderIds = smokeOrders.map((o) => o.id);
   const ships = await prisma.shipment.findMany({
-    where: { organizationId: ORG_ID, OR: [{ blNumber: BL_NUMBER }, ...(contract ? [{ contractId: contract.id }] : [])] },
+    where: { organizationId: ORG_ID, OR: [{ blNumber: { startsWith: 'TEST-' } }, { orderId: { in: orderIds } }, ...(contract ? [{ contractId: contract.id }] : [])] },
     select: { id: true },
   });
   const shipIds = ships.map((s: { id: string }) => s.id);
-  await purgeInApp(prisma, s3, contract?.id ?? null, shipIds);
+  for (const oid of orderIds) await purgeInApp(prisma, s3, oid, []);
+  await purgeInApp(prisma, s3, null, shipIds);
   const links = await prisma.tradeFileLink.findMany({
-    where: { organizationId: ORG_ID, OR: [{ shipmentId: { in: shipIds } }, ...(contract ? [{ contractId: contract.id }] : [])] },
+    where: { organizationId: ORG_ID, OR: [{ shipmentId: { in: shipIds } }, { orderId: { in: orderIds } }, ...(contract ? [{ contractId: contract.id }] : [])] },
     select: { fileId: true },
   });
   const fileIds = [...new Set(links.map((l: { fileId: string }) => l.fileId))];
@@ -1069,7 +1218,10 @@ async function cleanup(prisma: any, s3: S3Service, contractId: string | null) {
     if (f.thumbKey) await s3.deleteFile(f.thumbKey).catch(() => undefined);
   }
   if (shipIds.length) await prisma.shipment.deleteMany({ where: { organizationId: ORG_ID, id: { in: shipIds } } });
+  if (orderIds.length) await prisma.tradeOrder.deleteMany({ where: { organizationId: ORG_ID, id: { in: orderIds } } });
   if (contract) await prisma.contract.deleteMany({ where: { organizationId: ORG_ID, id: contract.id } });
+  const kato = await prisma.contract.findFirst({ where: { organizationId: ORG_ID, contractNo: KATO_CONTRACT_NO }, select: { id: true } });
+  if (kato) await prisma.contract.deleteMany({ where: { organizationId: ORG_ID, id: kato.id } });
   // Document links cascade with the contract/shipment; the throwaway invoices go by name.
   const invoices = await prisma.document.deleteMany({ where: { organizationId: ORG_ID, name: { startsWith: INVOICE_PREFIX } } });
   console.log(`  cleanup: ${smokeFiles.length} file(s), ${shipIds.length} shipment(s), ${contract ? 1 : 0} contract, ${invoices.count} invoice document(s) removed`);

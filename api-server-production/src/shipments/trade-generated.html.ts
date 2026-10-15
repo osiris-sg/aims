@@ -53,6 +53,16 @@ export interface GenHeader {
   weightUnit?: string;
   analysisDate?: string;
   vendor?: string;
+  /**
+   * 計量検収票 body: 'attach' = a page of Vedanta's container PL (Kato's
+   * layout — "スクリーンショット貼付エリア"), 'table' = the typed table (fallback).
+   */
+  bodyMode?: 'attach' | 'table';
+  attachFileId?: string | null;
+  attachPage?: number | null;
+  attachCrop?: { top?: number; bottom?: number } | null;
+  /** Render-time only (never stored): the attached page as a data: URL. */
+  attachImage?: string | null;
 }
 
 const esc = (v: unknown) =>
@@ -198,6 +208,7 @@ function renderCustomerPlJp(h: GenHeader, rows: GenRow[], opts: { draft?: boolea
   const sum = (rs: GenRow[], k: string) => round3(rs.reduce((a, r) => a + (Number(r[k]) || 0), 0));
   const t = { net: sum(rows, 'netMt'), gross: sum(rows, 'grossMt') };
   const kv = (k: string, v: string) => `<tr><th>${k}</th><td>${v}</td></tr>`;
+  if (h.bodyMode === 'attach') return renderCustomerPlAttach(h, opts);
   const body = `
 <div class="top"><span>${esc(h.formLabel ?? '')}</span><span>${jpDate(h.date)}</span></div>
 <div class="ttl">${esc(h.title || '計量検収票')}</div>
@@ -241,6 +252,32 @@ table.grid { width: 100%; margin-top: 3mm; font-family: "Times New Roman", serif
 .grid td { border: 1px solid #555; padding: .8mm 1.5mm; text-align: center; }
 .grid tr.grand td { background: #bfbfbf; font-weight: 700; border-width: 1.5px; }
 thead { display: table-header-group; } tr { page-break-inside: avoid; }
+`;
+  return docShell({ title: h.title || '計量検収票', css, body, draft: opts.draft });
+}
+
+/**
+ * Kato's 計量検収票: the same top block (様式, date, title, 宛先 / issuer), and
+ * as body the attached page of Vedanta's container packing list ("INVOICE NO.
+ * 以降 VEDANTA印影まで"), fitted to the frame. Without a page yet the frame
+ * shows where it goes (finalize refuses it).
+ */
+function renderCustomerPlAttach(h: GenHeader, opts: { draft?: boolean }): string {
+  const img = h.attachImage && /^data:image\/(png|jpe?g);base64,/.test(h.attachImage) ? h.attachImage : null;
+  const body = `
+<div class="top"><span>${esc(h.formLabel ?? '')}</span><span>${jpDate(h.date)}</span></div>
+<div class="ttl">${esc(h.title || '計量検収票')}</div>
+${partiesJp(h)}
+<div class="frame">${
+    img
+      ? `<img src="${img}" alt="">`
+      : `<div class="ph">Vedanta書類PL Container スクリーンショット貼付エリア<br>INVOICE NO. 以降　VEDANTA印影まで<br><small>Attach a page of Vedanta's container packing list</small></div>`
+  }</div>`;
+  const css = `${JP_CSS}
+.ttl { color: #9a2a2a; }
+.frame { border: 1.5px solid #111; padding: 2mm; min-height: 150mm; display: flex; align-items: flex-start; justify-content: center; }
+.frame img { width: 100%; height: auto; max-height: 205mm; object-fit: contain; }
+.frame .ph { margin: auto; text-align: center; color: #777; font-size: 10pt; line-height: 2; }
 `;
   return docShell({ title: h.title || '計量検収票', css, body, draft: opts.draft });
 }

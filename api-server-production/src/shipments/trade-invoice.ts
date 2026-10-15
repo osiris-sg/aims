@@ -127,6 +127,8 @@ export interface DocDefaults {
   invoiceDueBusinessDays?: number;
   /** Invoice #2 (2回目) due: ADH's "6営業日以内" — default 6. */
   invoice2DueBusinessDays?: number;
+  /** Single invoice (Kato / Hoei): "請求書発行後５営業日以内" — default 5. */
+  invoiceSingleDueBusinessDays?: number;
   productJa?: Record<string, string>;
   sgSellerBlock?: string;
   siTo?: string;
@@ -418,8 +420,9 @@ export function defaultBank(d: DocDefaults): BankAccount | null {
   return list.find((b) => b.id === d.defaultBankId) ?? list[0] ?? null;
 }
 
-/** Business days to the 請求書 due date: Invoice #1 7 (invoiceDueBusinessDays), Invoice #2 6 (invoice2DueBusinessDays). */
+/** Business days to the 請求書 due date: Invoice #1 7, Invoice #2 6, single invoice 5 (docDefaults *DueBusinessDays, all editable). */
 export function dueBusinessDays(d: DocDefaults, docType?: string | null): number {
+  if (docType === 'INVOICE_SINGLE') return Number(d.invoiceSingleDueBusinessDays ?? 5);
   return Number(docType === 'INVOICE_2' ? (d.invoice2DueBusinessDays ?? 6) : (d.invoiceDueBusinessDays ?? 7));
 }
 

@@ -80,6 +80,11 @@ export default {
       text: parsed.text || undefined,
       messageId: message.headers.get('message-id') || parsed.messageId || undefined,
       date: message.headers.get('date') || parsed.date || undefined,
+      // Triage (shipment intake): who else is on it, and the thread headers.
+      headerTo: (parsed.to || []).map((a) => a.address).filter(Boolean),
+      cc: (parsed.cc || []).map((a) => a.address).filter(Boolean),
+      inReplyTo: message.headers.get('in-reply-to') || parsed.inReplyTo || undefined,
+      references: (message.headers.get('references') || parsed.references || '').split(/\s+/).filter(Boolean).slice(0, 50),
       attachments,
       ...(rawBytes.byteLength <= MAX_RAW_BYTES ? { rawBase64: toBase64(rawBytes) } : {}),
       // Extra field the webhook tolerates; keeps skips observable server-side.

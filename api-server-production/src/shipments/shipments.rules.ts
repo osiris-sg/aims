@@ -17,7 +17,12 @@ export interface StepLike {
   status: string;
   isOngoing: boolean;
   requiredDocTypes: string[];
+  /** "N/A (customer profile)": never blocks, never counted, never auto-completed. */
+  notApplicable?: boolean | null;
 }
+
+/** A step that counts toward progress / completion: not ongoing and not N/A for the customer. */
+export const countsForProgress = (s: { isOngoing: boolean; notApplicable?: boolean | null }) => !s.isOngoing && !s.notApplicable;
 
 /** Required doc-type codes with no file of that type in `present`. */
 export function missingDocTypes(required: string[], present: Iterable<string>): string[] {
@@ -31,7 +36,7 @@ export function missingDocTypes(required: string[], present: Iterable<string>): 
  * reopened and completed.)
  */
 export function blockingSteps<T extends StepLike>(steps: T[]): T[] {
-  return steps.filter((s) => !s.isOngoing && s.status !== 'DONE');
+  return steps.filter((s) => countsForProgress(s) && s.status !== 'DONE');
 }
 
 /**
@@ -41,14 +46,14 @@ export function blockingSteps<T extends StepLike>(steps: T[]): T[] {
 export function stepsBrokenByRemoval<T extends StepLike>(steps: T[], presentAfter: Iterable<string>): Array<{ step: T; missing: string[] }> {
   const have = new Set(presentAfter);
   return steps
-    .filter((s) => s.status === 'DONE')
+    .filter((s) => s.status === 'DONE' && !s.notApplicable)
     .map((step) => ({ step, missing: missingDocTypes(step.requiredDocTypes, have) }))
     .filter((r) => r.missing.length > 0);
 }
 
 /** {done,total} over non-ongoing steps; only DONE counts. */
-export function progressOf(steps: Array<{ status: string; isOngoing: boolean }>): { done: number; total: number } {
-  const counted = steps.filter((s) => !s.isOngoing);
+export function progressOf(steps: Array<{ status: string; isOngoing: boolean; notApplicable?: boolean | null }>): { done: number; total: number } {
+  const counted = steps.filter(countsForProgress);
   return { done: counted.filter((s) => s.status === 'DONE').length, total: counted.length };
 }
 
@@ -86,10 +91,24 @@ export function stepRequirements(required: string[], fileTypes: Iterable<string>
   });
 }
 
-/** TradeStep / TradeFileLink invariant: exactly one of contractId / shipmentId. */
-export function hasExactlyOneOwner(row: { contractId?: string | null; shipmentId?: string | null }): boolean {
-  return !!row.contractId !== !!row.shipmentId;
+/** TradeStep / TradeFileLink invariant: exactly one of contractId / shipmentId / orderId. */
+export function hasExactlyOneOwner(row: { contractId?: string | null; shipmentId?: string | null; orderId?: string | null }): boolean {
+  return [row.contractId, row.shipmentId, row.orderId].filter(Boolean).length === 1;
 }
+
+// ── Orders ("#19") and shipments under them ("#19-1") ──────────────────────
+/** "#19" — how ADH names an order. */
+export const orderLabel = (o: { orderNo: number | null | undefined } | null | undefined) => (o?.orderNo ? `#${o.orderNo}` : '');
+/** "#19-1" — shipment 1 of order #19; "" without an order; "#19" when the shipment has no number yet. */
+export const shipmentRef = (orderNo: number | null | undefined, seqNo: number | null | undefined) => (orderNo ? (seqNo ? `#${orderNo}-${seqNo}` : `#${orderNo}`) : '');
+/** "Sep 26" for "2026-09" (the task list's month labels). */
+export function monthShort(month: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(month ?? '');
+  if (!m) return '';
+  return `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m[2]) - 1]} ${m[1].slice(2)}`;
+}
+/** "Sep 26 → Nov 26". */
+export const monthsLabel = (ship: string | null | undefined, delivery: string | null | undefined) => [monthShort(ship), monthShort(delivery)].filter(Boolean).join(' → ');
 
 // ── File allow-list ─────────────────────────────────────────────────────────
 // MIME types per extension (same idea as leads.service ATTACH_ALLOWED_TYPES).
@@ -181,10 +200,10 @@ export const isUuid = (v: string) => UUID_RE.test(v);
  * sortOrder) that is not DONE. `position` is its 1-based place among the
  * record's non-ongoing steps. null = every step is done ("Completed").
  */
-export function currentStepOf<T extends { code: string; title: string; status: string; isOngoing: boolean; sortOrder: number; displayNo?: string | null }>(
+export function currentStepOf<T extends { code: string; title: string; status: string; isOngoing: boolean; sortOrder: number; displayNo?: string | null; notApplicable?: boolean | null }>(
   steps: T[],
 ): { code: string; title: string; position: number; displayNo: string | null; label: string } | null {
-  const counted = steps.filter((s) => !s.isOngoing).sort((a, b) => a.sortOrder - b.sortOrder);
+  const counted = steps.filter(countsForProgress).sort((a, b) => a.sortOrder - b.sortOrder);
   const i = counted.findIndex((s) => s.status !== 'DONE');
   if (i < 0) return null;
   const s = counted[i];
@@ -201,8 +220,8 @@ export function stepLabel(s: { title: string; displayNo?: string | null }, posit
 }
 
 /** Labels for a whole step list (position fallback counts non-ongoing steps by sortOrder). */
-export function stepLabels<T extends { id: string; title: string; isOngoing: boolean; displayNo?: string | null; sortOrder?: number }>(steps: T[]): Map<string, string> {
-  const counted = steps.filter((s) => !s.isOngoing).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+export function stepLabels<T extends { id: string; title: string; isOngoing: boolean; displayNo?: string | null; sortOrder?: number; notApplicable?: boolean | null }>(steps: T[]): Map<string, string> {
+  const counted = steps.filter(countsForProgress).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   const out = new Map<string, string>();
   for (const s of steps) {
     const i = counted.indexOf(s);
@@ -337,6 +356,7 @@ export interface AutoStep {
   requiredDocTypes: string[];
   requiredFields?: string[] | null;
   holdOpen?: boolean | null;
+  notApplicable?: boolean | null;
 }
 
 /** Something to tick: at least one required document type or field. */
@@ -362,10 +382,10 @@ export function autoCompletePlan<T extends AutoStep>(
   const touched = (s: T) => s.requiredDocTypes.some((d) => changed.docTypes?.includes(d)) || (s.requiredFields ?? []).some((f) => changed.fields?.includes(f));
   const release = steps.filter((s) => s.holdOpen && touched(s));
   const held = (s: T) => !!s.holdOpen && !release.includes(s);
-  const complete = steps.filter((s) => !s.isOngoing && s.status !== 'DONE' && !held(s) && hasRequirements(s) && stepSatisfied(s, have, record));
+  const complete = steps.filter((s) => countsForProgress(s) && s.status !== 'DONE' && !held(s) && hasRequirements(s) && stepSatisfied(s, have, record));
   const after = (s: T) => (complete.includes(s) ? 'DONE' : s.status);
   const next = steps
-    .filter((s) => !s.isOngoing)
+    .filter(countsForProgress)
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .find((s) => after(s) !== 'DONE');
   return { complete, release, start: next && next.status === 'NOT_STARTED' ? next : null };

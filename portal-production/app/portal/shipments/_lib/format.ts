@@ -75,7 +75,7 @@ export const STEP_STATUS: Record<StepStatus, { label: string; color: "default" |
 export const blLabel = (bl?: string | null) => bl || "B/L pending";
 
 /** Doc types that can be met by an in-app invoice instead of an uploaded file. */
-export const INVOICE_DOC_TYPES = ["INVOICE_1", "INVOICE_2"];
+export const INVOICE_DOC_TYPES = ["INVOICE_1", "INVOICE_2", "INVOICE_SINGLE"];
 
 /** Editor URL for an in-app document; ?from= brings Back (and the nav highlight) to `from`. */
 export const documentHref = (d: { type: string; templateId: string; id: string }, from?: string) =>
@@ -100,11 +100,13 @@ export const categoryLabel = (code: string) => DOC_CATEGORIES.find((c) => c.code
  * which record they belong to, the "Create" menu wording, and — Customer PL /
  * COA — the supplier spreadsheet that can prefill them.
  */
-export const GENERATED_DOC_TYPES: Record<string, { scope: "shipment" | "contract"; createLabel: string; source?: string; sourceLabel?: string; sourceFiles?: string; multiple?: boolean }> = {
+export const GENERATED_DOC_TYPES: Record<string, { scope: "shipment" | "contract" | "order"; createLabel: string; source?: string; sourceLabel?: string; sourceFiles?: string; multiple?: boolean; covers?: boolean }> = {
   CUSTOMER_PL: { scope: "shipment", createLabel: "Create blank (計量検収票)", source: "PL", sourceLabel: "packing list", sourceFiles: "spreadsheet (.xls, .xlsx, .csv or .txt)" },
   CUSTOMER_COA: { scope: "shipment", createLabel: "Create blank (納品書兼分析試験成績報告書)", source: "COA", sourceLabel: "COA", sourceFiles: "COA spreadsheet (COA.XLS) or COA PDF (COA_集計 / Vedanta's COA)" },
-  INVOICE_1: { scope: "contract", createLabel: "Create ADH invoice (請求書)" },
-  INVOICE_2: { scope: "shipment", createLabel: "Create ADH invoice (請求書)" },
+  INVOICE_1: { scope: "order", createLabel: "Create ADH invoice (請求書)" },
+  // Invoice #2 / the single invoice can bill several shipments of the customer (picked when creating it).
+  INVOICE_2: { scope: "shipment", createLabel: "Create ADH invoice (請求書)", covers: true },
+  INVOICE_SINGLE: { scope: "shipment", createLabel: "Create invoice (請求書, single)", covers: true },
   // A shipment arriving in two lots (先着 / 後着) gets one per arrival.
   SGJP_IV_PL: { scope: "shipment", createLabel: "Create SG→JP invoice & packing list", multiple: true },
   SHIPPING_INSTRUCTIONS: { scope: "shipment", createLabel: "Create 出庫・納入依頼書" },
@@ -136,3 +138,14 @@ export const fmtDmy = (d?: string | null) => {
 /** "3 business days" / "10 calendar days" — the contract's deposit term. */
 export const depositTermLabel = (days?: number | null, unit?: string | null) =>
   days === null || days === undefined ? null : `${days} ${unit === "CALENDAR" ? "calendar" : "business"} day${days === 1 ? "" : "s"}`;
+
+/** "¥1,526,676" (yen, no decimals); "—" for null. */
+export const fmtYen = (v: number | null | undefined) => (v === null || v === undefined || !Number.isFinite(v) ? "—" : `¥${Math.round(v).toLocaleString("en-US")}`);
+/** "US$18,042.43"; "—" for null. */
+export const fmtUsd = (v: number | null | undefined) =>
+  v === null || v === undefined || !Number.isFinite(v) ? "—" : `${v < 0 ? "-" : ""}US$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** "Sep 26" for "2026-09". */
+export const monthShort = (m?: string | null) => {
+  const x = /^(\d{4})-(\d{2})$/.exec(m ?? "");
+  return x ? `${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(x[2]) - 1]} ${x[1].slice(2)}` : "";
+};

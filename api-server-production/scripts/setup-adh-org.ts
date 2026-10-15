@@ -19,7 +19,7 @@
  *   ... --seal=<path.png|jpg>     set the company seal printed on 請求書 (kept out of the repo;
  *                                 without it an existing seal is left as is)
  *   ... --customers=<path.json>   customer details kept out of the repo (pattern *.customers.json is
- *                                 gitignored): { "customers": [{ "name", "jpName", "jpAddress", "jpContact" }],
+ *                                 gitignored): { "customers": [{ "name", "jpName", "jpAddress", "jpContact", "emailDomains" }],
  *                                 "deliveryProfiles": [{ "id", "customerName", "siteName", "address", "notes" }] }.
  *                                 jp* fill blanks on the customer matched by name; delivery profiles replace
  *                                 those with the same id. Without it, customer details are left as they are.
@@ -39,6 +39,9 @@ import { DEFAULT_DOCUMENT_TEMPLATES } from '../src/organizations/default-templat
 import { DEFAULT_ORG_FEATURES } from '../src/organizations/default-features';
 import { MODULE_CATALOG } from '../src/configuration/module-catalog';
 import { checkTemplatePlan, type TemplateRow } from './lib/template-resolution';
+import { backfillOrders } from '../src/shipments/trade-orders-backfill';
+import { DEFAULT_RATES } from '../src/shipments/trade-estimator';
+import { defaultSingleRemarks, type CustomerProfile } from '../src/shipments/trade-profile';
 
 neonConfig.webSocketConstructor = ws as unknown as typeof WebSocket;
 
@@ -127,7 +130,9 @@ const ENABLED_MODULES: Array<{ code: string; route?: string; icon?: string; sort
     code: 'SHIPMENTS',
     sortOrder: -3, // first — before the global Sales pin (0.5)
     subMenus: [
-      { key: 'list', label: 'Shipments' },
+      // Orders (Contract → Order → Shipment) and the triaged email inbox (/portal/shipments/inbox).
+      { key: 'list', label: 'Orders' },
+      { key: 'inbox', label: 'Inbox' },
     ],
   },
   {
@@ -165,7 +170,10 @@ const QMJP_BY_QUARTER: Record<string, number> = { '2026-2Q': 351.5, '2026-3Q': 3
 // Email intake: every email to docs+{orgId}@<EMAIL_INGEST_DOMAIN> is stored
 // (.eml + attachments in S3, listed in Org Settings → Shipping & documents);
 // nothing is classified yet. All senders: forwards keep the original From.
+// Since triage (2026-10): dev runs AUTO, prod starts in TRIAGE (suggestions only) until switched in the app.
+// The script only moves a STORE row on; a mode chosen in the app is left alone.
 const EMAIL_INTAKE = { enabled: true, routingMode: 'STORE', watchedSenders: [] as string[] };
+const intakeModeFor = (isProd: boolean) => (isProd ? 'TRIAGE' : 'AUTO');
 
 const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableActionLog: true,
@@ -206,6 +214,7 @@ const DOC_TYPES: Array<[string, string, DocCategory]> = [
   ['DELIVERY_SCHEDULE', 'Delivery schedule', 'CUSTOMS_LOGISTICS'],
   ['IMPORT_PERMIT', 'Import permit', 'CUSTOMS_LOGISTICS'],
   ['INVOICE_2', 'Invoice #2', 'INVOICES'],
+  ['INVOICE_SINGLE', 'Invoice (single)', 'INVOICES'],
   ['VENDOR_INVOICE', 'Vendor invoice', 'PAYMENTS'],
   ['PAYMENT_PROOF', 'Payment proof', 'PAYMENTS'],
   ['OTHER', 'Other', 'OTHER'],
@@ -295,7 +304,7 @@ const TRADE_SETTINGS = {
 };
 
 type StepSpec = {
-  scope: 'CONTRACT' | 'SHIPMENT';
+  scope: 'CONTRACT' | 'SHIPMENT' | 'ORDER';
   sortOrder: number;
   code: string;
   displayNo: string;
@@ -307,21 +316,27 @@ type StepSpec = {
   requiredFields?: string[];
   isOngoing?: boolean;
 };
+// Contract → Order → Shipment (2026-10): order steps 0, 1, 2, 13; shipment steps 2–12, 14.
+// Contract-level templates from before orders are deactivated (not deleted) below.
 const STEP_TEMPLATES: StepSpec[] = [
-  { scope: 'CONTRACT', sortOrder: 10, code: 'PI_PAYMENT', displayNo: '1', title: 'Set up PI payment', requiredDocTypes: ['PI', 'DEPOSIT_PROOF'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
-  { scope: 'CONTRACT', sortOrder: 20, code: 'INVOICE_1', displayNo: '2', title: 'Issue Invoice #1', requiredDocTypes: ['INVOICE_1'], optionalDocTypes: ['OTHER'] },
+  // 0: link / upload the contract and confirm the premiums (auto-completes once the order has its contract and client premium).
+  { scope: 'ORDER', sortOrder: 5, code: 'CHECK_CONTRACT', displayNo: '0', title: 'Check contract', requiredDocTypes: [], requiredFields: ['contractId', 'clientPremium'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
+  { scope: 'ORDER', sortOrder: 10, code: 'PI_PAYMENT', displayNo: '1', title: 'Set up PI payment', requiredDocTypes: ['PI', 'DEPOSIT_PROOF'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
+  { scope: 'ORDER', sortOrder: 20, code: 'INVOICE_1', displayNo: '2', title: 'Issue and send Invoice #1', requiredDocTypes: ['INVOICE_1'], optionalDocTypes: ['OTHER'] },
+  { scope: 'ORDER', sortOrder: 130, code: 'XERO_HANDOFF', displayNo: '13', title: 'Prepare data for Xero reconciliation', requiredDocTypes: [], optionalDocTypes: ['OTHER'] },
   {
     scope: 'SHIPMENT',
     sortOrder: 10,
     code: 'BL_DRAFT_APPROVAL',
-    displayNo: '2',
+    // ADH's own list numbers shipment work 3–10 (order step 2 is Invoice #1): the B/L draft is 3a, the shipping docs 3b.
+    displayNo: '3a',
     title: 'Approve B/L draft (Vedanta)',
     requiredDocTypes: ['BL_DRAFT'],
-    // The B/L details are entered here (inline form / "Fill from B/L draft").
-    requiredFields: ['blNumber', 'contractLineId'],
+    // The B/L details are entered here (inline form / "Fill from B/L draft"); the product comes from the order.
+    requiredFields: ['blNumber'],
     optionalDocTypes: ['ARRIVAL_NOTICE', 'OTHER'],
   },
-  { scope: 'SHIPMENT', sortOrder: 20, code: 'SHIPPING_DOCS', displayNo: '3', title: 'Receive shipping documents', requiredDocTypes: ['BL', 'CI', 'PL', 'COA', 'COO', 'INSURANCE'], optionalDocTypes: ['PL', 'COA', 'OTHER'] },
+  { scope: 'SHIPMENT', sortOrder: 20, code: 'SHIPPING_DOCS', displayNo: '3b', title: 'Receive shipping documents', requiredDocTypes: ['BL', 'CI', 'PL', 'COA', 'COO', 'INSURANCE'], optionalDocTypes: ['PL', 'COA', 'OTHER'] },
   { scope: 'SHIPMENT', sortOrder: 30, code: 'CUSTOMER_DOCS', displayNo: '4', title: 'Create customer documents', requiredDocTypes: ['CUSTOMER_COA', 'CUSTOMER_PL'], optionalDocTypes: ['OTHER'] },
   { scope: 'SHIPMENT', sortOrder: 40, code: 'SEND_DOCS_SCHEDULE', displayNo: '5', title: 'Send documents & ask schedule', requiredDocTypes: [], optionalDocTypes: ['DELIVERY_SCHEDULE', 'OTHER'] },
   { scope: 'SHIPMENT', sortOrder: 50, code: 'CI_PAYMENT', displayNo: '6', title: 'Set up CI payment', requiredDocTypes: ['CI_PAYMENT_PROOF'], optionalDocTypes: ['OTHER'] },
@@ -337,9 +352,9 @@ const STEP_TEMPLATES: StepSpec[] = [
     optionalDocTypes: ['DELIVERY_SCHEDULE', 'OTHER'],
   },
   { scope: 'SHIPMENT', sortOrder: 90, code: 'IMPORT_PERMIT', displayNo: '10', title: 'Store & send import permit', requiredDocTypes: ['IMPORT_PERMIT'], optionalDocTypes: ['OTHER'] },
-  { scope: 'SHIPMENT', sortOrder: 100, code: 'INVOICE_2', displayNo: '11', title: 'Issue Invoice #2', requiredDocTypes: ['INVOICE_2'], optionalDocTypes: ['OTHER'] },
+  // 11: Invoice #2 (TWO_STAGE) — or the single invoice for a SINGLE-billing customer (set per step from the customer profile).
+  { scope: 'SHIPMENT', sortOrder: 100, code: 'INVOICE_2', displayNo: '11', title: 'Issue Invoice #2', requiredDocTypes: ['INVOICE_2'], optionalDocTypes: ['INVOICE_SINGLE', 'OTHER'] },
   { scope: 'SHIPMENT', sortOrder: 110, code: 'LOGISTICS_PAYMENT', displayNo: '12', title: 'Pay transport & storage costs', requiredDocTypes: ['VENDOR_INVOICE', 'PAYMENT_PROOF'], optionalDocTypes: ['VENDOR_INVOICE', 'PAYMENT_PROOF', 'OTHER'] },
-  { scope: 'SHIPMENT', sortOrder: 120, code: 'XERO_HANDOFF', displayNo: '13', title: 'Prepare Xero handoff', requiredDocTypes: [], optionalDocTypes: ['OTHER'] },
   { scope: 'SHIPMENT', sortOrder: 130, code: 'DELIVERY_CHANGES', displayNo: '14', title: 'Coordinate delivery changes', requiredDocTypes: [], isOngoing: true, optionalDocTypes: ['DELIVERY_SCHEDULE', 'OTHER'] },
 ];
 
@@ -357,13 +372,54 @@ const CUSTOMERS = [
   { name: 'Houei', currency: 'USD' },
 ];
 
+// Customer profiles (TradeSetting.customerProfiles, Org Settings → Customers), keyed here by the customer's
+// name. Addresses / delivery sites come from --customers (adh.customers.json, never committed).
+// Values edited in the app win: only customers without a profile, and blank keys, are filled.
+const PROFILE_SEED: Record<string, Omit<CustomerProfile, 'customerId'>> = {
+  'SUS Co., Ltd.': {
+    key: 'SUS',
+    label: 'SUS',
+    billingMode: 'TWO_STAGE',
+    sendImportPermit: true,
+    port: 'Yokohama',
+    truckCapacityT: 20,
+    customsRatePerMt: 2800,
+    emailDomains: [],
+    docVariants: { CUSTOMER_PL: 'CUSTOMER_PL_SUS', CUSTOMER_COA: 'CUSTOMER_COA_SUS', INVOICE: 'INVOICE_2' },
+  },
+  'Kato Light Metal Industry Co., Ltd.': {
+    key: 'KATO',
+    label: '加藤軽金属工業',
+    billingMode: 'SINGLE',
+    sendImportPermit: false,
+    port: 'Nagoya',
+    truckCapacityT: 10,
+    customsRatePerMt: 2300,
+    emailDomains: [], // from --customers (emailDomains) — contacts stay out of the repo
+    docVariants: { CUSTOMER_PL: 'CUSTOMER_PL_KATO', CUSTOMER_COA: 'CUSTOMER_COA_KATO', INVOICE: 'INVOICE_SINGLE' },
+    invoiceRemarks: defaultSingleRemarks('名古屋'),
+  },
+  Houei: {
+    key: 'HOEI',
+    label: 'Hoei',
+    billingMode: 'SINGLE',
+    sendImportPermit: false,
+    port: 'Nagoya',
+    truckCapacityT: 10,
+    customsRatePerMt: 2300,
+    emailDomains: [],
+    docVariants: { CUSTOMER_PL: 'CUSTOMER_PL_HOEI', CUSTOMER_COA: 'CUSTOMER_COA_HOEI', INVOICE: 'INVOICE_SINGLE' },
+    invoiceRemarks: defaultSingleRemarks('名古屋'),
+  },
+};
+
 // The org's templates are its own active ones; isDefault stays false so they
 // never become the cross-org fallback (checked by step 0 before any write).
 const TEMPLATE_IS_DEFAULT = false;
 
 const USERS_TO_ADD = ['sayaka.matsuki', 'toshiro.takekoshi', 'natsumi', 'finance'].map((u) => `${u}@asiadealhub.com`);
 
-const TRADE_TABLES = ['TradeDocType', 'Contract', 'Shipment', 'TradeStepTemplate', 'TradeStep', 'TradeFile', 'TradeFileLink'];
+const TRADE_TABLES = ['TradeDocType', 'Contract', 'TradeOrder', 'Shipment', 'TradeStepTemplate', 'TradeStep', 'TradeFile', 'TradeFileLink'];
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const writes: string[] = [];
@@ -788,6 +844,26 @@ async function main() {
     );
   }
 
+  // Templates no longer in the list (the contract-level steps before orders, shipment step 13): deactivated, not deleted.
+  const listed = new Set(STEP_TEMPLATES.map((x) => `${x.scope}:${x.code}`));
+  for (const [key, cur] of haveSteps) {
+    if (listed.has(key) || !cur.isActive) continue;
+    if (APPLY) await org.tradeStepTemplate.update({ where: { id: cur.id }, data: { isActive: false } });
+    write('stepTemplate', `deactivate ${key} (${cur.title}) — kept for existing records`);
+  }
+
+  // Steps snapshot their template's number: renumbered templates relabel the existing steps (label only — status/files untouched).
+  if (orgExists) {
+    for (const s of STEP_TEMPLATES) {
+      const owner = s.scope === 'ORDER' ? { orderId: { not: null } } : { shipmentId: { not: null } };
+      const where = { organizationId: orgId, code: s.code, ...owner, NOT: { displayNo: s.displayNo } };
+      const n = await tradeRead(() => org.tradeStep.count({ where }), 0);
+      if (!n) continue;
+      if (APPLY) await org.tradeStep.updateMany({ where, data: { displayNo: s.displayNo } });
+      write('tradeStep', `renumber ${n} ${s.scope.toLowerCase()} step(s) ${s.code} → #${s.displayNo}`);
+    }
+  }
+
   // jsonb reorders object keys, so compare with sorted keys.
   const sortKeys = (v: any): any =>
     Array.isArray(v)
@@ -838,19 +914,20 @@ async function main() {
   }
 
   // ── 9c. Email intake (store only) ─────────────────────────────────────────
-  header('9c', 'Email intake (store only — docs+{orgId}@ address)');
+  header('9c', 'Email intake (docs+{orgId}@ address: STORE → TRIAGE on prod / AUTO on dev)');
   const curIntake = orgExists ? await orgRead(() => org.emailIngestConfig.findUnique({ where: { organizationId: orgId } }), null) : null;
-  if (curIntake && curIntake.enabled === EMAIL_INTAKE.enabled && curIntake.routingMode === EMAIL_INTAKE.routingMode) {
-    info(`email intake already on (${EMAIL_INTAKE.routingMode}); senders kept: ${JSON.stringify(curIntake.watchedSenders)}`);
+  const wantMode = intakeModeFor(isProd);
+  if (curIntake && curIntake.enabled && curIntake.routingMode !== 'STORE') {
+    info(`email intake on (${curIntake.routingMode}) — left as set in the app; senders: ${JSON.stringify(curIntake.watchedSenders)}`);
   } else {
     if (APPLY) {
       await org.emailIngestConfig.upsert({
         where: { organizationId: orgId },
-        update: { enabled: EMAIL_INTAKE.enabled, routingMode: EMAIL_INTAKE.routingMode },
-        create: { organizationId: orgId, ...EMAIL_INTAKE },
+        update: { enabled: true, routingMode: wantMode },
+        create: { organizationId: orgId, ...EMAIL_INTAKE, routingMode: wantMode },
       });
     }
-    write('emailIntake', `${curIntake ? 'update' : 'create'} EmailIngestConfig enabled, routingMode ${EMAIL_INTAKE.routingMode} (store .eml + attachments, no processing)${curIntake ? '' : ', all senders'}`);
+    write('emailIntake', `${curIntake ? 'update' : 'create'} EmailIngestConfig enabled, routingMode ${curIntake?.routingMode ?? '—'} → ${wantMode}${curIntake ? '' : ', all senders'}`);
   }
 
   // ── 10. Master files ──────────────────────────────────────────────────────
@@ -895,6 +972,69 @@ async function main() {
   for (const c of CUSTOMERS) {
     const detail = CUSTOMER_FILE?.customers?.find((d) => d.name.toLowerCase() === c.name.toLowerCase());
     await ensureContact('customer', { ...c, jpName: detail?.jpName, jpAddress: detail?.jpAddress, jpContact: detail?.jpContact });
+  }
+
+  // ── 10b. Customer profiles + estimator rates ──────────────────────────────
+  header('10b', 'Customer profiles + estimator rates');
+  const tsRow = orgExists ? await tradeRead(() => org.tradeSetting.findUnique({ where: { organizationId: orgId } }), null) : null;
+  const curProfiles = ((tsRow?.customerProfiles as Record<string, CustomerProfile> | null) ?? {}) as Record<string, CustomerProfile>;
+  const nextProfiles: Record<string, CustomerProfile> = { ...curProfiles };
+  // Legacy delivery profiles (docDefaults.deliveryProfiles) move into the customer's profile.
+  const legacySites = [...(((tsRow?.docDefaults as Record<string, unknown> | null)?.deliveryProfiles as Array<any> | undefined) ?? []), ...(CUSTOMER_FILE?.deliveryProfiles ?? [])];
+  for (const [name, seed] of Object.entries(PROFILE_SEED)) {
+    const cust = orgExists ? await orgRead(() => org.customer.findFirst({ where: { organizationId: orgId, name: { equals: name, mode: 'insensitive' } }, select: { id: true } }), null) : null;
+    if (!cust) {
+      info(`profile for "${name}": customer not created yet${APPLY ? '' : ' (dry run)'} — set on the next run`);
+      continue;
+    }
+    const site = legacySites.find((p) => p?.customerName && name.toLowerCase().includes(String(p.customerName).toLowerCase()));
+    const cur = curProfiles[cust.id];
+    const want: CustomerProfile = {
+      customerId: cust.id,
+      ...seed,
+      emailDomains: CUSTOMER_FILE?.customers?.find((c) => c.name.toLowerCase() === name.toLowerCase())?.emailDomains ?? seed.emailDomains,
+      deliveryProfile: site ? { siteName: site.siteName, address: site.address, notes: site.notes ?? '' } : null,
+    };
+    // App edits win: keep every key already set, fill the rest.
+    const merged = cur ? ({ ...want, ...Object.fromEntries(Object.entries(cur).filter(([, v]) => v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && !v.length))) } as CustomerProfile) : want;
+    if (cur && sameJson(cur, merged)) {
+      info(`profile "${seed.key}" set (${merged.billingMode}, ${merged.port ?? '—'}, ${merged.truckCapacityT}t)`);
+      continue;
+    }
+    nextProfiles[cust.id] = merged;
+    write(
+      'profile',
+      `${cur ? 'fill' : 'create'} ${seed.key}: ${merged.billingMode}, import permit ${merged.sendImportPermit ? 'sent' : 'not sent'}, ${merged.port} ${merged.truckCapacityT}t ¥${merged.customsRatePerMt}/MT, templates ${Object.values(merged.docVariants).join('/')}${merged.deliveryProfile ? `, delivery site "${merged.deliveryProfile.siteName}"` : ''}`,
+    );
+  }
+  const curRates = (tsRow?.estimatorRates as Record<string, unknown> | null) ?? null;
+  const wantRates = { ...DEFAULT_RATES, ...(curRates ?? {}) };
+  if (curRates && sameJson(curRates, wantRates)) info('estimator rates set');
+  else write('estimatorRates', `${curRates ? 'fill' : 'set'} estimator rates: customs ¥${wantRates.customsPerMt}/MT ×${wantRates.taxMultiplier}, B/L ¥${wantRates.blFee}, trucks ${JSON.stringify(wantRates.truckRates)}, storage ¥${wantRates.storagePerContainer}/CNT ¥${wantRates.storagePerMt}/MT, washing ¥${wantRates.washingPerContainer}/CNT, detention ¥${wantRates.detentionPerContainer}/CNT, import tax ${wantRates.importTaxRate * 100}%`);
+  if (APPLY && orgExists && tradeReady && (!sameJson(curProfiles, nextProfiles) || !curRates || !sameJson(curRates, wantRates))) {
+    await org.tradeSetting.upsert({
+      where: { organizationId: orgId },
+      update: { customerProfiles: nextProfiles as any, estimatorRates: wantRates as any },
+      create: { organizationId: orgId, customerProfiles: nextProfiles as any, estimatorRates: wantRates as any },
+    });
+  }
+
+  // ── 10c. Orders backfill (deals from before orders → Order + shipments) ───
+  header('10c', 'Orders backfill (Contract → Order → Shipment)');
+  if (!tradeReady || !org.tradeOrder) {
+    info('TradeOrder table / client not ready — push the schema first');
+  } else {
+    const bf = await backfillOrders(org, orgId, { apply: APPLY, write, info });
+    if (!bf.orders.length) info('nothing to backfill (every shipment has an order)');
+    // Existing Customer PL / COA drafts and PDFs were made with the Kato layout: tag them.
+    const untagged = await org.tradeGeneratedDoc.count({ where: { organizationId: orgId, docType: { in: ['CUSTOMER_PL', 'CUSTOMER_COA'] }, templateKey: null } });
+    if (untagged) {
+      if (APPLY) {
+        await org.tradeGeneratedDoc.updateMany({ where: { organizationId: orgId, docType: 'CUSTOMER_PL', templateKey: null }, data: { templateKey: 'CUSTOMER_PL_KATO' } });
+        await org.tradeGeneratedDoc.updateMany({ where: { organizationId: orgId, docType: 'CUSTOMER_COA', templateKey: null }, data: { templateKey: 'CUSTOMER_COA_KATO' } });
+      }
+      write('templateKey', `tag ${untagged} existing Customer PL / COA document(s) with the Kato template key`);
+    }
   }
 
   // ── 11. Access ────────────────────────────────────────────────────────────
@@ -971,7 +1111,7 @@ main()
   .finally(() => process.exit(process.exitCode ?? 0));
 
 type CustomerFile = {
-  customers?: Array<{ name: string; jpName?: string; jpAddress?: string; jpContact?: string }>;
+  customers?: Array<{ name: string; jpName?: string; jpAddress?: string; jpContact?: string; emailDomains?: string[] }>;
   deliveryProfiles?: Array<{ id: string; customerName: string; siteName: string; address: string; notes?: string }>;
 };
 /** --customers=<file>: customer details kept out of the repo (see the header). */

@@ -1,0 +1,15 @@
+From: Metals Weekly <news@metals-weekly.example>
+To: sayaka.matsuki@asiadealhub.com
+Subject: This week in aluminium markets
+Date: Wed, 19 Aug 2026 07:00:00 +0000
+Message-ID: <newsletter-0005@metals-weekly.example>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b-newsletter"
+
+--b-newsletter
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+TWFya2V0IHVwZGF0ZTogTE1FIGFsdW1pbml1bSByb3NlIDIlIC4uLiBVbnN1YnNjcmliZSBoZXJl
+LiAoZHVtbXkgZml4dHVyZSk=
+--b-newsletter--

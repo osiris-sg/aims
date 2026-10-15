@@ -25,6 +25,12 @@ export type StoredEmailMeta = {
   attachmentNames: Array<string | null>;
   attachments: StoredAttachment[];
   skippedAttachments: Array<{ filename: string | null; size?: number; reason?: string }>;
+  /** Triage inputs (worker headers + the text body), removed when the email is purged. */
+  headerTo?: string[];
+  cc?: string[];
+  inReplyTo?: string | null;
+  references?: string[];
+  bodyText?: string;
 };
 
 /** A file name safe as an S3 key segment (keeps Japanese characters, drops path / control chars). */

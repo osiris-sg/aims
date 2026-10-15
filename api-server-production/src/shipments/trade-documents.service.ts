@@ -3,7 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { LinkTradeDocumentDto } from './dto/trade-document.dto';
 import { documentLinkState, parseIdList } from './shipments.rules';
 import { TradeActor } from './shipments.request';
-import { Db, DOC_LINK_SELECT, documentSummary, isVoided, TradeConfigService, TradeOwner } from './trade-config.service';
+import { Db, DOC_LINK_SELECT, documentSummary, isVoided, ownerIdOf, TradeConfigService, TradeOwner } from './trade-config.service';
 import { ownerOf, ownersOfTargets, TradeFilesService } from './trade-files.service';
 
 /** Sales document types an in-app trade invoice can be. */
@@ -25,9 +25,10 @@ export class TradeDocumentsService {
   async link(organizationId: string, dto: LinkTradeDocumentDto, actor: TradeActor | null = null) {
     const contractIds = parseIdList(dto.contractIds);
     const shipmentIds = parseIdList(dto.shipmentIds);
+    const orderIds = parseIdList(dto.orderIds);
     const docType = (dto.docType || '').trim();
-    if (!contractIds.length && !shipmentIds.length && !dto.stepId) {
-      throw new BadRequestException('Give at least one contract, shipment or step to link');
+    if (!contractIds.length && !shipmentIds.length && !orderIds.length && !dto.stepId) {
+      throw new BadRequestException('Give at least one order, shipment or step to link');
     }
     let owners: TradeOwner[] = [];
     await this.prisma.$transaction(async (tx: Db) => {
@@ -38,20 +39,21 @@ export class TradeDocumentsService {
       });
       if (!doc) throw new BadRequestException('Document not found in this organization');
       if (isVoided(doc.config)) throw new BadRequestException(`${doc.name ?? 'This document'} is voided and can't be linked`);
-      const targets = await this.files.resolveTargets(tx, organizationId, contractIds, shipmentIds, dto.stepId);
-      const existing: Array<{ id: string; contractId: string | null; shipmentId: string | null; stepId: string | null }> = await tx.tradeDocumentLink.findMany({
+      const targets = await this.files.resolveTargets(tx, organizationId, contractIds, shipmentIds, dto.stepId, orderIds);
+      const existing: Array<{ id: string; contractId: string | null; shipmentId: string | null; orderId: string | null; stepId: string | null }> = await tx.tradeDocumentLink.findMany({
         where: { organizationId, documentId: doc.id },
-        select: { id: true, contractId: true, shipmentId: true, stepId: true },
+        select: { id: true, contractId: true, shipmentId: true, orderId: true, stepId: true },
       });
-      const stepFor = (ownerId: string) => (targets.step && (targets.step.contractId ?? targets.step.shipmentId) === ownerId ? targets.step.id : null);
+      const stepFor = (ownerId: string) => (targets.step && ownerIdOf(targets.step) === ownerId ? targets.step.id : null);
       owners = ownersOfTargets(targets);
       const rowsFor = [
-        ...targets.contracts.map((c) => ({ contractId: c.id, shipmentId: null })),
-        ...targets.shipments.map((s) => ({ contractId: null, shipmentId: s.id })),
+        ...targets.orders.map((o) => ({ contractId: null, shipmentId: null, orderId: o.id })),
+        ...targets.contracts.map((c) => ({ contractId: c.id, shipmentId: null, orderId: null })),
+        ...targets.shipments.map((s) => ({ contractId: null, shipmentId: s.id, orderId: null })),
       ];
       for (const o of rowsFor) {
-        const ownerId = (o.contractId ?? o.shipmentId) as string;
-        const prior = existing.find((l) => (l.contractId ?? l.shipmentId) === ownerId);
+        const ownerId = ownerIdOf(o);
+        const prior = existing.find((l) => ownerIdOf(l) === ownerId);
         const stepId = stepFor(ownerId);
         if (prior) {
           // Already linked here: retag it (doc type / step) instead of duplicating.
@@ -79,8 +81,10 @@ export class TradeDocumentsService {
           id: true,
           contractId: true,
           shipmentId: true,
+          orderId: true,
           contract: { select: { contractNo: true, status: true } },
           shipment: { select: { blNumber: true, status: true } },
+          order: { select: { orderNo: true, status: true } },
         },
       });
       if (!link) throw new NotFoundException('Document link not found');

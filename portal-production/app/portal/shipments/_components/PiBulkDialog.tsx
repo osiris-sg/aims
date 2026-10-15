@@ -1,18 +1,19 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-// "New contracts from PIs": drop several PI PDFs → each is stored and read by
-// AI → one draft contract per PI → "Review & create" opens the normal contract
-// form prefilled (same as Fill from PI). A PI whose contract number already
-// exists is flagged and skipped. Closing the dialog removes the PDFs of PIs
-// that were not created (they stay only when a contract was saved from them).
+// "New orders from PIs": drop several PI PDFs → each is stored and read by AI
+// → one draft order per PI → "Review & create" opens the New Order form
+// prefilled (same as Fill from PI; its contract is matched by number). A PI
+// already on an order (same PI no.) is flagged and skipped. Closing the dialog
+// removes the PDFs of PIs that were not created (they stay only when an order
+// was saved from them).
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
-import { useShipmentsApi, type Contract, type PiExtraction } from "../_lib/api";
+import { useShipmentsApi, type Order, type PiExtraction } from "../_lib/api";
 import { fmtMoney, fmtMonth } from "../_lib/format";
-import ContractFormDialog from "./ContractFormDialog";
+import OrderFormDialog from "./OrderFormDialog";
 import { PdfDropZone } from "./PdfDrop";
 
 type Row = {
@@ -21,7 +22,7 @@ type Row = {
   state: "reading" | "ready" | "exists" | "failed" | "created";
   extraction?: PiExtraction;
   error?: string;
-  created?: Contract;
+  created?: Order;
   file?: File;
 };
 
@@ -39,7 +40,7 @@ export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose
     try {
       const x = await api.extractPi(row.extraction ? { fileId: row.extraction.fileId } : { file: row.file! });
       if (x.status !== "DONE" || !x.result) update(row.key, { state: "failed", extraction: x, error: x.error || "Could not read this PI" });
-      else update(row.key, { state: x.result.existingContractId ? "exists" : "ready", extraction: x });
+      else update(row.key, { state: (x.result as any).existingOrder ? "exists" : "ready", extraction: { ...x, fileName: row.fileName } as any });
     } catch (e: any) {
       update(row.key, { state: "failed", error: e?.message || "Could not read this PI" });
     }
@@ -60,7 +61,7 @@ export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose
   const busy = rows.some((r) => r.state === "reading");
   const close = () => {
     if (busy) return;
-    // PIs not turned into a contract (skipped, failed, or never reviewed) are removed again.
+    // PIs not turned into an order (skipped, failed, or never reviewed) are removed again.
     for (const r of rows) if (r.state !== "created" && r.extraction?.fileId) void api.discardSource(r.extraction.fileId).catch(() => undefined);
     setRows([]);
     onClose();
@@ -69,7 +70,7 @@ export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose
   return (
     <>
       <Dialog open={open && !review} onClose={close} maxWidth="lg" fullWidth>
-        <DialogTitle>New shipments from PIs</DialogTitle>
+        <DialogTitle>New orders from PIs</DialogTitle>
         <DialogContent dividers>
           <PdfDropZone
             multiple
@@ -111,7 +112,7 @@ export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose
                       <TableCell>
                         {r.state === "reading" && <CircularProgress size={16} />}
                         {r.state === "ready" && <Chip size="small" variant="outlined" color="info" label="Ready to review" />}
-                        {r.state === "exists" && <Chip size="small" variant="outlined" color="warning" label="Contract already exists — skipped" />}
+                        {r.state === "exists" && <Chip size="small" variant="outlined" color="warning" label="Already on an order (same PI) — skipped" />}
                         {r.state === "created" && <Chip size="small" variant="outlined" color="success" label="Created" />}
                         {r.state === "failed" && (
                           <Typography variant="caption" color="error">
@@ -126,12 +127,12 @@ export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose
                           </Button>
                         )}
                         {r.state === "created" && r.created && (
-                          <Button size="small" onClick={() => router.push(`/portal/shipments/contracts/${r.created!.id}`)}>
+                          <Button size="small" onClick={() => router.push(`/portal/shipments/orders/${r.created!.id}`)}>
                             Open
                           </Button>
                         )}
-                        {r.state === "exists" && r.extraction?.result?.existingContractId && (
-                          <Button size="small" onClick={() => router.push(`/portal/shipments/contracts/${(r.extraction!.result as any).existingContractId}`)}>
+                        {r.state === "exists" && (r.extraction?.result as any)?.existingOrder && (
+                          <Button size="small" onClick={() => router.push(`/portal/shipments/orders/${(r.extraction!.result as any).existingOrder.id}`)}>
                             Open existing
                           </Button>
                         )}
@@ -155,12 +156,12 @@ export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose
           </Button>
         </DialogActions>
       </Dialog>
-      <ContractFormDialog
+      <OrderFormDialog
         open={!!review}
         prefill={review?.extraction ?? null}
         onClose={() => setReview(null)}
-        onSaved={(c) => {
-          if (review) update(review.key, { state: "created", created: c });
+        onSaved={(o) => {
+          if (review) update(review.key, { state: "created", created: o });
         }}
       />
     </>

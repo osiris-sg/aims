@@ -10,6 +10,8 @@ export const STEP_SELECT = {
   optionalDocTypes: true,
   requiredFields: true,
   isOngoing: true,
+  notApplicable: true,
+  subtasks: true,
   status: true,
   holdOpen: true,
   updatedById: true,
@@ -35,7 +37,7 @@ export const CONTRACT_LINE_SELECT = {
 };
 
 /** Steps as needed for progress + "current step". */
-export const STEP_SUMMARY_SELECT = { code: true, title: true, displayNo: true, sortOrder: true, status: true, isOngoing: true };
+export const STEP_SUMMARY_SELECT = { code: true, title: true, displayNo: true, sortOrder: true, status: true, isOngoing: true, notApplicable: true };
 
 export const FILE_LINK_SELECT = {
   id: true,
@@ -52,9 +54,36 @@ export const FILE_LINK_SELECT = {
       notes: true,
       thumbKey: true,
       docRef: true,
+      source: true,
+      emailLogId: true,
       createdAt: true,
     },
   },
+};
+
+/** The order fields every list / detail shows. */
+export const ORDER_SUMMARY_SELECT = {
+  id: true,
+  year: true,
+  orderNo: true,
+  contractId: true,
+  customerId: true,
+  supplierId: true,
+  shipMonth: true,
+  deliveryMonth: true,
+  product: true,
+  grade: true,
+  size: true,
+  qtyMt: true,
+  tolPct: true,
+  supplierPremium: true,
+  clientPremium: true,
+  upcharge: true,
+  piNo: true,
+  piDate: true,
+  piAmount: true,
+  depositPct: true,
+  status: true,
 };
 
 

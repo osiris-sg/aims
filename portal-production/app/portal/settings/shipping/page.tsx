@@ -14,6 +14,7 @@ import { showShippingSettings } from "@/helpers/settingsVisibility";
 import BlDefaultsForm from "@/app/portal/shipments/_components/BlDefaultsForm";
 import DocSettingsForm from "@/app/portal/shipments/_components/DocSettingsForm";
 import EmailIntakePanel from "@/app/portal/shipments/_components/EmailIntakePanel";
+import EstimatorRatesForm from "@/app/portal/shipments/_components/EstimatorRatesForm";
 import TradeTheme from "@/app/portal/shipments/_components/TradeTheme";
 
 const Section = ({ title, hint, children, tour }: { title: string; hint: string; children: React.ReactNode; tour?: string }) => (
@@ -56,6 +57,13 @@ export default function ShippingSettingsPage() {
             tour="settings-doc-settings"
           >
             <DocSettingsForm />
+          </Section>
+          <Section
+            title="Estimator rates"
+            hint="Courier cost + import tax estimator (shipment steps 7, 8, 12) and the invoices' due days. Port, truck size and customs rate per customer are in Org Settings → Customers."
+            tour="settings-estimator"
+          >
+            <EstimatorRatesForm />
           </Section>
           <Section
             title="Email intake"

@@ -296,6 +296,7 @@ model Customer {
   contacts          CustomerContact[]
   deliveries        Delivery[]
   contracts         Contract[]        @relation("CustomerContracts")
+  tradeOrders       TradeOrder[]      @relation("CustomerOrders")
   shipments         Shipment[]        @relation("CustomerShipments")
 
   @@unique([email, organizationId])
@@ -326,6 +327,7 @@ model Supplier {
   bills          Bill[]
   billPayments   BillPayment[]
   contracts      Contract[]    @relation("SupplierContracts")
+  tradeOrders    TradeOrder[]  @relation("SupplierOrders")
 
   @@unique([email, organizationId])
   @@unique([id, organizationId])
@@ -2819,7 +2821,7 @@ model PassTrackerEntry {
 }
 
 model EmailIngestLog {
-  id                 String  @id @default(uuid())
+  id                 String    @id @default(uuid())
   organizationId     String
   // Provider Message-ID when supplied; else synthesized from a payload hash
   // so provider retries dedupe onto the same row.
@@ -2829,9 +2831,30 @@ model EmailIngestLog {
   status             String // RECEIVED | PARSED | IGNORED | FAILED
   reason             String?
   // Document ids created from this email (BILL and/or INVOICE drafts).
-  createdDocumentIds Json    @default("[]")
-  attachmentCount    Int     @default(0)
+  createdDocumentIds Json      @default("[]")
+  attachmentCount    Int       @default(0)
   rawMeta            Json?
+  // ── Triage (routingMode TRIAGE / AUTO) ─────────────────────────────────
+  /// SHIPMENT | NOT_SHIPMENT | UNSURE (NOT_SHIPMENT rows keep only a hashed Message-ID, date, verdict, counterparty).
+  verdict            String?
+  /// IN | OUT (OUT = sent from the org's own domain).
+  direction          String?
+  counterparty       String?
+  /// Validated AI output (keys, attachments[], suggestedSteps[]).
+  triage             Json?
+  /// SUGGESTED | UNMATCHED | PROCESSED | UNSURE | UNDONE | PURGED — the Email inbox tab.
+  inboxState         String?
+  /// Matched order / shipment (plain ids; the inbox can reassign).
+  orderId            String?   @db.Uuid
+  shipmentId         String?   @db.Uuid
+  /// What PROCESS did (files attached, fields filled, steps completed, sub-tasks ticked) — each undoable.
+  actions            Json?
+  /// Thread fallback: In-Reply-To / References / normalized subject.
+  threadKey          String?
+  inReplyTo          String?
+  emailDate          DateTime?
+  /// UNSURE rows are purged after this (14 days).
+  purgeAfter         DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2840,6 +2863,8 @@ model EmailIngestLog {
 
   @@unique([organizationId, messageId])
   @@index([organizationId, createdAt])
+  @@index([organizationId, inboxState])
+  @@index([organizationId, threadKey])
 }
 
 // Async intake job for the normal-user /submit flow. A submission uploads N
@@ -3581,6 +3606,7 @@ enum TradeStepStatus {
 enum TradeStepScope {
   CONTRACT
   SHIPMENT
+  ORDER
 }
 
 enum TradeGeneratedDocStatus {
@@ -3646,6 +3672,7 @@ model Contract {
   customer      Customer            @relation("CustomerContracts", fields: [customerId], references: [id])
   lines         ContractLine[]
   shipments     Shipment[]
+  orders        TradeOrder[]
   steps         TradeStep[]
   fileLinks     TradeFileLink[]
   docLinks      TradeDocumentLink[]
@@ -3654,6 +3681,68 @@ model Contract {
   @@unique([organizationId, contractNo])
   @@index([organizationId, status])
   @@index([organizationId, supplierId])
+  @@index([organizationId, customerId])
+}
+
+/// An order (ADH's "#19"): one customer, one ship month and one quantity of one
+/// product, under an optional yearly supplier contract (LTC). Shipments (one per
+/// B/L, "#19-1", "#19-2") sit under it; its own steps are 0–2 and 13. The
+/// client premium lives here (it changes per order); the contract line is only
+/// its default. Displayed "#{orderNo}"; unique per org + year.
+model TradeOrder {
+  id              String            @id @default(uuid()) @db.Uuid
+  organizationId  String
+  year            Int
+  orderNo         Int
+  contractId      String?           @db.Uuid
+  customerId      String            @db.Uuid
+  supplierId      String            @db.Uuid
+  shipMonth       String? // "YYYY-MM"
+  deliveryMonth   String? // "YYYY-MM"
+  product         String? // e.g. "Aluminium Billet"
+  grade           String? // e.g. "6063"
+  size            String? // e.g. "203 MM X 5800 MM"
+  qtyMt           Decimal?          @db.Decimal(14, 3)
+  tolPct          Decimal?          @default(5) @db.Decimal(5, 2)
+  /// USD per tonne.
+  supplierPremium Decimal?          @db.Decimal(12, 2)
+  clientPremium   Decimal?          @db.Decimal(12, 2)
+  upcharge        Decimal?          @db.Decimal(12, 2)
+  piNo            String?
+  piDate          DateTime?
+  piAmount        Decimal?          @db.Decimal(16, 2)
+  depositPct      Decimal?          @default(10) @db.Decimal(5, 2)
+  /// Deposit details (step 1), as on the contract before orders existed.
+  depositAmount   Decimal?          @db.Decimal(16, 2)
+  depositDueDays  Int?
+  depositDueUnit  String? // "BUSINESS" | "CALENDAR"
+  depositPaidAt   DateTime?
+  currency        String            @default("USD")
+  incoterm        String?
+  destinationPort String?
+  /// B/L instructions (multi-line); default from the contract / TradeSetting.
+  consignee       String?
+  notifyParty     String?
+  status          TradeRecordStatus @default(OPEN)
+  notes           String?
+  /// Step 13 inputs that aren't documents (PI / CI paid, import tax actual, Mitsui Soko actuals …).
+  reconciliation  Json?
+  createdById     String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  contract      Contract?           @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  customer      Customer            @relation("CustomerOrders", fields: [customerId], references: [id])
+  supplier      Supplier            @relation("SupplierOrders", fields: [supplierId], references: [id])
+  shipments     Shipment[]
+  steps         TradeStep[]
+  fileLinks     TradeFileLink[]
+  docLinks      TradeDocumentLink[]
+  generatedDocs TradeGeneratedDoc[]
+
+  @@unique([organizationId, year, orderNo])
+  @@index([organizationId, status])
+  @@index([organizationId, contractId])
   @@index([organizationId, customerId])
 }
 
@@ -3695,14 +3784,21 @@ model TradeSetting {
   defaultNotifyParty String?
   /// Default texts for documents created in-app (From block, bank, invoice conditions, …), keyed by name.
   docDefaults        Json?
+  /// Per-customer profiles (billing mode, port, truck size, document variants …), keyed by customer id.
+  customerProfiles   Json?
+  /// Courier-cost / import-tax estimator rates (JPY), all editable in Org Settings.
+  estimatorRates     Json?
   updatedAt          DateTime @updatedAt
 }
 
 model Shipment {
   id                String            @id @default(uuid()) @db.Uuid
   organizationId    String
-  contractId        String            @db.Uuid
-  /// Shipment number within its contract (1, 2, …) — part of document IDs.
+  /// The order this B/L ships ("#19-1"); required for new shipments (nullable only for rows from before orders).
+  orderId           String?           @db.Uuid
+  /// Denormalised from the order (null when the order has no contract).
+  contractId        String?           @db.Uuid
+  /// Shipment number within its order (1, 2, … → "#19-1") — part of document IDs.
   seqNo             Int?
   /// The contract product line this B/L ships (required in the UI when the contract has lines).
   contractLineId    String?           @db.Uuid
@@ -3732,11 +3828,14 @@ model Shipment {
   currency          String            @default("USD")
   status            TradeRecordStatus @default(OPEN)
   notes             String?
+  /// Courier cost + import tax estimate and actuals (steps 7, 8, 12): trucks, AN charges, FX, CIF, Mitsui Soko actuals.
+  costs             Json?
   createdById       String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
-  contract      Contract            @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  order         TradeOrder?         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  contract      Contract?           @relation(fields: [contractId], references: [id], onDelete: Restrict)
   contractLine  ContractLine?       @relation(fields: [contractLineId], references: [id], onDelete: SetNull)
   customer      Customer?           @relation("CustomerShipments", fields: [customerId], references: [id])
   steps         TradeStep[]
@@ -3746,6 +3845,7 @@ model Shipment {
 
   @@unique([organizationId, blNumber])
   @@index([organizationId, contractId])
+  @@index([organizationId, orderId])
   @@index([organizationId, status])
 }
 
@@ -3780,6 +3880,7 @@ model TradeStep {
   organizationId   String
   contractId       String?         @db.Uuid
   shipmentId       String?         @db.Uuid
+  orderId          String?         @db.Uuid
   templateId       String?         @db.Uuid // traceability only, no FK
   code             String
   title            String
@@ -3793,6 +3894,10 @@ model TradeStep {
   /// Reopened by hand: not auto-completed again until one of its documents / fields changes.
   holdOpen         Boolean         @default(false)
   skipReason       String?
+  /// Doesn't apply to this customer's profile ("N/A (customer profile)"): shown collapsed, never blocks completion.
+  notApplicable    Boolean         @default(false)
+  /// Sub-tasks such as "sent to customer": [{ key, label, done, at, by, source, na }].
+  subtasks         Json?
   updatedById      String?
   updatedByName    String?
   completedAt      DateTime?
@@ -3801,11 +3906,13 @@ model TradeStep {
 
   contract  Contract?           @relation(fields: [contractId], references: [id], onDelete: Cascade)
   shipment  Shipment?           @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  order     TradeOrder?         @relation(fields: [orderId], references: [id], onDelete: Cascade)
   fileLinks TradeFileLink[]
   docLinks  TradeDocumentLink[]
 
   @@unique([contractId, code])
   @@unique([shipmentId, code])
+  @@index([orderId, code]) // unique per order — enforced in the service (a new unique on an existing table blocks the build's db push)
   @@index([organizationId, status])
 }
 
@@ -3824,6 +3931,11 @@ model TradeFile {
   thumbKey       String?
   /// Document ID "<contract>-<shipment no>-<type>" (e.g. 454003255-1-PL), assigned on upload.
   docRef         String?
+  /// Where it came from: UPLOAD (default), GENERATED, EMAIL (email intake — emailLogId is the EmailIngestLog row).
+  source         String   @default("UPLOAD")
+  emailLogId     String?  @db.Uuid
+  /// sha256 of the bytes (email intake skips a file it already has).
+  sha256         String?
   createdAt      DateTime @default(now())
 
   links       TradeFileLink[]
@@ -3831,6 +3943,7 @@ model TradeFile {
 
   @@index([organizationId, docType, createdAt])
   @@index([organizationId, docRef])
+  @@index([organizationId, sha256])
 }
 
 model TradeFileLink {
@@ -3839,18 +3952,22 @@ model TradeFileLink {
   fileId         String   @db.Uuid
   contractId     String?  @db.Uuid
   shipmentId     String?  @db.Uuid
+  orderId        String?  @db.Uuid
   stepId         String?  @db.Uuid
   createdAt      DateTime @default(now())
 
-  file     TradeFile  @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  contract Contract?  @relation(fields: [contractId], references: [id], onDelete: Cascade)
-  shipment Shipment?  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
-  step     TradeStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  file     TradeFile   @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  contract Contract?   @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  shipment Shipment?   @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  order    TradeOrder? @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  step     TradeStep?  @relation(fields: [stepId], references: [id], onDelete: SetNull)
 
   @@unique([fileId, contractId])
   @@unique([fileId, shipmentId])
+  @@index([fileId, orderId]) // one link per file + order — enforced in the service
   @@index([organizationId, contractId])
   @@index([organizationId, shipmentId])
+  @@index([organizationId, orderId])
 }
 
 /// An in-app Sales Document (e.g. an INVOICE) counted as a trade document of
@@ -3864,17 +3981,21 @@ model TradeDocumentLink {
   docType        String
   contractId     String?  @db.Uuid
   shipmentId     String?  @db.Uuid
+  orderId        String?  @db.Uuid
   stepId         String?  @db.Uuid
   createdAt      DateTime @default(now())
 
-  contract Contract?  @relation(fields: [contractId], references: [id], onDelete: Cascade)
-  shipment Shipment?  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
-  step     TradeStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  contract Contract?   @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  shipment Shipment?   @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  order    TradeOrder? @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  step     TradeStep?  @relation(fields: [stepId], references: [id], onDelete: SetNull)
 
   @@unique([documentId, contractId])
   @@unique([documentId, shipmentId])
+  @@index([documentId, orderId]) // one link per document + order — enforced in the service
   @@index([organizationId, contractId])
   @@index([organizationId, shipmentId])
+  @@index([organizationId, orderId])
 }
 
 /// A trade document drafted in-app (Customer PL / Customer COA for now; more
@@ -3883,34 +4004,42 @@ model TradeDocumentLink {
 /// header + columns + rows, and finalized into a PDF TradeFile (finalFileId)
 /// linked to the shipment, which is what satisfies the step.
 model TradeGeneratedDoc {
-  id             String                  @id @default(uuid()) @db.Uuid
-  organizationId String
+  id                String                  @id @default(uuid()) @db.Uuid
+  organizationId    String
   /// The record it belongs to: a shipment (PL / COA / SG→JP / SI / Invoice #2) or a contract (Invoice #1).
-  shipmentId     String?                 @db.Uuid
-  contractId     String?                 @db.Uuid
-  docType        String
-  number         String?
+  shipmentId        String?                 @db.Uuid
+  contractId        String?                 @db.Uuid
+  /// Order-level documents (Invoice #1, INVOICE_SINGLE for a SINGLE-billing customer).
+  orderId           String?                 @db.Uuid
+  /// Invoice #2 / single invoice covering several shipments of the same customer (may span orders).
+  coversShipmentIds String[]                @default([])
+  /// Template variant key (CUSTOMER_PL_KATO, INVOICE_SINGLE …) — from the customer profile on create.
+  templateKey       String?
+  docType           String
+  number            String?
   /// Document ID \"<contract>-<shipment no>-<type>\" (e.g. 454003255-1-CPL); the PDF keeps its own document number.
-  docRef         String?
-  status         TradeGeneratedDocStatus @default(DRAFT)
-  header         Json
-  columns        Json
-  rows           Json
-  sourceFileId   String?                 @db.Uuid
-  finalFileId    String?                 @db.Uuid
+  docRef            String?
+  status            TradeGeneratedDocStatus @default(DRAFT)
+  header            Json
+  columns           Json
+  rows              Json
+  sourceFileId      String?                 @db.Uuid
+  finalFileId       String?                 @db.Uuid
   /// Invoices: the Sales Document (type INVOICE) created / confirmed on Finalize.
-  documentId     String?                 @db.Uuid
-  createdById    String
-  createdByName  String?
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
+  documentId        String?                 @db.Uuid
+  createdById       String
+  createdByName     String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
 
-  shipment Shipment? @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
-  contract Contract? @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  shipment Shipment?   @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  contract Contract?   @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  order    TradeOrder? @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, docRef])
   @@index([organizationId, shipmentId])
   @@index([organizationId, contractId])
+  @@index([organizationId, orderId])
 }
 
 enum TradeExtractionKind {
@@ -3945,6 +4074,7 @@ model TradeExtraction {
   /// What the checks were run against (plain ids; the file link is the FK).
   shipmentId         String?               @db.Uuid
   contractId         String?               @db.Uuid
+  orderId            String?               @db.Uuid
   acknowledgedById   String?
   acknowledgedByName String?
   acknowledgedAt     DateTime?

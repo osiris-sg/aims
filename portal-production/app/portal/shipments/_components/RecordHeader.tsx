@@ -34,7 +34,7 @@ export default function RecordHeader({
   blockers = [],
   onActed,
 }: {
-  kind: "contract" | "shipment";
+  kind: "contract" | "shipment" | "order";
   title: string;
   status: RecordStatus;
   subtitle?: React.ReactNode;
@@ -65,13 +65,13 @@ export default function RecordHeader({
       title: `Complete ${kind} ${title}?`,
       label: `Complete ${kind}`,
       run: onComplete,
-      done: `${kind === "contract" ? "Contract" : "Shipment"} completed`,
+      done: `${kind === "contract" ? "Contract" : kind === "order" ? "Order" : "Shipment"} completed`,
     },
     cancel: {
       title: `Cancel ${kind} ${title}?`,
       label: `Cancel ${kind}`,
       run: onCancel,
-      done: `${kind === "contract" ? "Contract" : "Shipment"} cancelled`,
+      done: `${kind === "contract" ? "Contract" : kind === "order" ? "Order" : "Shipment"} cancelled`,
       destructive: true,
     },
     reopen: {
@@ -81,7 +81,7 @@ export default function RecordHeader({
       // Reopening a shipment also reopens its completed contract (the API reports it).
       done: (r) => {
         const reopened = (r as { reopenedContract?: string | null } | undefined)?.reopenedContract;
-        return reopened ? `Shipment reopened — contract ${reopened} was completed, so it was reopened too` : `${kind === "contract" ? "Contract" : "Shipment"} reopened`;
+        return reopened ? `Shipment reopened — contract ${reopened} was completed, so it was reopened too` : `${kind === "contract" ? "Contract" : kind === "order" ? "Order" : "Shipment"} reopened`;
       },
     },
   };
@@ -111,7 +111,7 @@ export default function RecordHeader({
           </Box>
         )}
         <Box sx={{ flex: 1 }} />
-        <IconButton aria-label={`${kind === "contract" ? "Deal" : "Shipment"} actions`} data-tour="deal-actions-menu" onClick={(e) => setMenu({ left: e.clientX, top: e.clientY })}>
+        <IconButton aria-label={`${kind === "contract" ? "Deal" : kind === "order" ? "Order" : "Shipment"} actions`} data-tour="deal-actions-menu" onClick={(e) => setMenu({ left: e.clientX, top: e.clientY })}>
           <MoreVertIcon />
         </IconButton>
       </Stack>

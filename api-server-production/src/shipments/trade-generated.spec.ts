@@ -296,7 +296,7 @@ describe('TradeGeneratedService finalize / edit-again rules', () => {
       expect.objectContaining({ docType: 'CUSTOMER_PL', shipmentIds: ['ship-1'], stepId: 'step-cd' }),
       expect.anything(),
       // The PDF file takes the in-app document's ID.
-      { docRef: null },
+      { docRef: null, source: 'GENERATED' },
     );
     expect(prisma.tradeGeneratedDoc.update.mock.calls[0][0].data).toMatchObject({ status: 'FINAL', number: 'CPL-BL123', finalFileId: 'pdf-file-1' });
     expect(r.status).toBe('FINAL');

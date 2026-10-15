@@ -70,7 +70,7 @@ interface IngestRule {
 interface IngestConfig {
   enabled: boolean;
   watchedSenders: string[];
-  routingMode: "AI" | "FIXED" | "STORE";
+  routingMode: "AI" | "FIXED" | "STORE" | "TRIAGE" | "AUTO";
   defaultDocType: "BILL" | "INVOICE" | null;
   rules: IngestRule[];
   aiGuidance: string;
@@ -136,7 +136,7 @@ const STATUS_CHIP_COLOR: Record<string, "success" | "default" | "error" | "info"
 const normalizeConfig = (raw: any): IngestConfig => ({
   enabled: Boolean(raw?.enabled),
   watchedSenders: Array.isArray(raw?.watchedSenders) ? raw.watchedSenders.filter((s: any) => typeof s === "string") : [],
-  routingMode: raw?.routingMode === "FIXED" || raw?.routingMode === "STORE" ? raw.routingMode : "AI",
+  routingMode: ["FIXED", "STORE", "TRIAGE", "AUTO"].includes(raw?.routingMode) ? raw.routingMode : "AI",
   defaultDocType: raw?.defaultDocType === "BILL" || raw?.defaultDocType === "INVOICE" ? raw.defaultDocType : null,
   rules: Array.isArray(raw?.rules)
     ? raw.rules
@@ -404,12 +404,14 @@ export default function EmailIngestionTab({ organizationId }: { organizationId: 
       </Typography>
       <RadioGroup
         value={config.routingMode}
-        onChange={(e) => patch({ routingMode: e.target.value === "FIXED" || e.target.value === "STORE" ? e.target.value : "AI" })}
+        onChange={(e) => patch({ routingMode: ["FIXED", "STORE", "TRIAGE", "AUTO"].includes(e.target.value) ? (e.target.value as IngestConfig["routingMode"]) : "AI" })}
         sx={{ mb: 1 }}
       >
         <FormControlLabel value="AI" control={<Radio />} label="Let AI decide Bill vs Invoice per document (recommended)" />
         <FormControlLabel value="FIXED" control={<Radio />} label="Always create the same type" />
         <FormControlLabel value="STORE" control={<Radio />} label="Store only — keep each email and its attachments, create nothing" />
+        <FormControlLabel value="TRIAGE" control={<Radio />} label="Shipments intake: TRIAGE — AI sorts each email; shipment mail is matched and suggested in Shipments → Inbox (accept by hand)" />
+        <FormControlLabel value="AUTO" control={<Radio />} label="Shipments intake: AUTO — as TRIAGE, and matched documents are filed on the order / shipment straight away (undoable)" />
       </RadioGroup>
       {config.routingMode === "FIXED" && (
         <FormControl size="small" sx={{ mb: 2, minWidth: 220 }}>

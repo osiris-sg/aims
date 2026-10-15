@@ -14,7 +14,7 @@ import React, { useEffect, useState } from "react";
 import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Select, Stack, Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from "@mui/material";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { useQueryClient } from "@tanstack/react-query";
-import { useShipmentsApi, type FileClassification, type TradeStep } from "../_lib/api";
+import { linkTargetsOf, useShipmentsApi, type FileClassification, type TradeStep } from "../_lib/api";
 import { SHIPMENT_KEYS, useDocTypeLabels } from "../_lib/hooks";
 import { toast } from "../_lib/toast";
 import { LocalPreview } from "./FilePreview";
@@ -97,7 +97,7 @@ export default function BulkDropDialog({
           file: r.file,
           docType: r.choice,
           stepId: step.id,
-          ...(owner.kind === "contract" ? { contractIds: [owner.id] } : { shipmentIds: [owner.id] }),
+          ...linkTargetsOf([owner]),
         });
         completed.push(...(f.completedSteps ?? []));
         setRows((rs) => rs.map((x, j) => (j === i ? { ...x, status: "done" } : x)));
