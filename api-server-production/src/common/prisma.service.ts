@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaNeon } from '@prisma/adapter-neon';
 import { neonConfig } from '@neondatabase/serverless';
 import ws = require('ws');
-import { TENANCY_ON } from './tenancy/tenant-context';
+import { tenancyOn } from './tenancy/tenant-context';
 import { TenancyRouter } from './tenancy/tenancy-router';
 
 // Use Neon's serverless driver: it tunnels Postgres over a WebSocket on port
@@ -31,7 +31,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     // org's own schema/client (or `platform`); this instance itself only serves
     // the archive-only legacy tables left in `public`. Off by default, so every
     // environment without TENANCY_MODE=per-org behaves exactly as before.
-    if (TENANCY_ON) {
+    if (tenancyOn()) {
       return new TenancyRouter(this).proxy();
     }
   }

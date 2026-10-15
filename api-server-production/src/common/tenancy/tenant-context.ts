@@ -17,7 +17,16 @@ export interface TenantStore {
   orgId: string | null;
 }
 
-export const TENANCY_ON = process.env.TENANCY_MODE === 'per-org';
+/**
+ * Read at call time, never at import. Nothing loads `.env` before this file is
+ * imported (ConfigModule.forRoot runs dotenv later, while app.module is being
+ * decorated), so an import-time constant only saw the flag when the launching
+ * shell happened to export it. Found 2026-10-15: an API restarted from a plain
+ * shell ran against dev with tenancy OFF and every query hit `public`.
+ * PrismaService is constructed after ConfigModule has loaded the file, so
+ * reading here is reliable.
+ */
+export const tenancyOn = (): boolean => process.env.TENANCY_MODE === 'per-org';
 
 export const tenantStorage = new AsyncLocalStorage<TenantStore>();
 
