@@ -72,6 +72,9 @@
     "@aws-sdk/s3-request-presigner": "^3.908.0",
     "@clerk/backend": "^1.24.0",
     "@clerk/clerk-sdk-node": "^4.13.23",
+    "@fontsource/noto-sans-jp": "5.3.0",
+    "@holiday-jp/holiday_jp": "2.5.2",
+    "@napi-rs/canvas": "0.1.80",
     "@neondatabase/serverless": "^1.1.0",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^4.0.0",
@@ -106,7 +109,9 @@
     "rxjs": "^7.8.1",
     "swagger-ui-express": "^5.0.1",
     "ws": "^8.21.0",
-    "xero-node": "^13.0.0"
+    "xero-node": "^13.0.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",
@@ -147,6 +152,9 @@
       "ts"
     ],
     "rootDir": "src",
+    "moduleNameMapper": {
+      "^src/(.*)$": "<rootDir>/$1"
+    },
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"

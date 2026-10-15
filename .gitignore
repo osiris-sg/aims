@@ -15,3 +15,6 @@ masterfiles-services.png
 *service-account-key*.json
 serviceAccountKey*.json
 gcp-credentials*.json
+
+# Customer details passed to setup scripts (--customers=<file>), never committed
+*.customers.json

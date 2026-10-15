@@ -28,7 +28,7 @@ import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
 import logo from "@/components/Sidebar/aims-logo.png";
-import { SETTINGS_MENU, resolveSubmenuRoute, submenuLabel, useNavModules } from "./useNavModules";
+import { resolveSubmenuRoute, submenuLabel, useNavModules } from "./useNavModules";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import GridViewOutlinedIcon from "@mui/icons-material/GridViewOutlined";
 import { HOME_VIEW_EVENT, readHomeView, writeHomeView, type HomeView } from "@/app/portal/chat/homeView";
@@ -76,7 +76,7 @@ function TopNavOrgSwitcher() {
   }, [isOsirisAdmin, getToken, realOrganization?.id]);
 
   if (!isOsirisAdmin) return null;
-  const value = orgs.find((o) => o.id === organization?.id) ?? undefined;
+  const value = orgs.find((o) => o.id === organization?.id) ?? null;
   const isOverride = !!organization && !!realOrganization && organization.id !== realOrganization.id;
 
   return (
@@ -91,7 +91,10 @@ function TopNavOrgSwitcher() {
         <Autocomplete
           size="small"
           options={orgs}
-          value={value}
+          // Always controlled: null (not undefined) until the org list loads,
+          // else MUI locks in uncontrolled mode and never shows the current
+          // org. disableClearable types value as non-null; null is fine at runtime.
+          value={value as (typeof orgs)[number]}
           getOptionLabel={(o) => o.name ?? ""}
           isOptionEqualToValue={(a, b) => a.id === b.id}
           disableClearable
@@ -141,11 +144,25 @@ function TopNavOrgSwitcher() {
 export default function TopNavBar() {
   const router = useRouter();
   const rawPathname = usePathname() || "";
+  // A record opened from a list carries ?from=<list path> (e.g. an invoice from
+  // Invoices → /portal/trade-documents/invoice/…?from=/portal/invoicing): the
+  // menu it came from stays highlighted. Read from window.location rather than
+  // useSearchParams so the layout doesn't need a Suspense boundary.
+  const [fromPath, setFromPath] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    try {
+      const f = new URLSearchParams(window.location.search).get("from");
+      setFromPath(f && f.startsWith("/portal") && !f.startsWith("//") ? f.split("?")[0] : null);
+    } catch {
+      setFromPath(null);
+    }
+  }, [rawPathname]);
+  const navPath = fromPath ?? rawPathname;
   const { user } = useUser();
   const { organization } = useOrganization(); // active org (respects admin "view as")
   const { mode, toggleMode } = useThemeMode();
   const { isAimsChatEnabled } = useOrganizationFeatures();
-  const { navModules, isMasterTier } = useNavModules();
+  const { navModules, isMasterTier, settingsMenu } = useNavModules();
   // Chat home ⇄ classic dashboard (chat-first orgs only). Remembered per browser.
   const [homeView, setHomeView] = React.useState<HomeView>("chat");
   React.useEffect(() => {
@@ -165,8 +182,8 @@ export default function TopNavBar() {
   const isModuleActive = (m: any): boolean => {
     const route: string = m.config?.route || "";
     if (!route) return false;
-    if (route === "/portal") return rawPathname === "/portal";
-    return rawPathname === route || rawPathname.startsWith(route + "/");
+    if (route === "/portal") return navPath === "/portal";
+    return navPath === route || navPath.startsWith(route + "/");
   };
 
   const go = (path: string) => {
@@ -301,7 +318,7 @@ export default function TopNavBar() {
           transformOrigin={{ vertical: "top", horizontal: "left" }}
           slotProps={{ paper: { sx: { mt: 0, minWidth: 220, borderRadius: "0 0 10px 10px" } } }}
         >
-          {SETTINGS_MENU.map((s) => (
+          {settingsMenu.map((s) => (
             <MenuItem key={s.path} onClick={() => go(s.path)} sx={{ fontSize: "0.8125rem", py: 1 }}>
               {s.label}
             </MenuItem>

@@ -45,6 +45,7 @@ import { DocumentExtractionModule } from './document-extraction/document-extract
 import { ConfigurationModule } from './configuration/configuration.module';
 import { PriceHistoryModule } from './price-history/price-history.module';
 import { OrdersModule } from './orders/orders.module';
+import { ShipmentsModule } from './shipments/shipments.module';
 import { PaymentsModule } from './payments/payments.module';
 import { RevenueItemsModule } from './revenue-items/revenue-items.module';
 import { DocumentNumberingModule } from './document-numbering/document-numbering.module';
@@ -116,6 +117,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     ConfigurationModule,
     PriceHistoryModule,
     OrdersModule,
+    ShipmentsModule,
     PaymentsModule,
     RevenueItemsModule,
     DocumentNumberingModule,

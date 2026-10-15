@@ -1681,6 +1681,27 @@ async function main() {
   }
 
   console.log('✅ Accounting permissions created successfully');
+
+  // Shipments module (contracts, shipments, trade steps, trade files)
+  const shipmentActions: Array<{ action: string; description: string }> = [
+    { action: 'read', description: 'Can view contracts, shipments, steps and trade documents' },
+    { action: 'create', description: 'Can create contracts and shipments and upload trade documents' },
+    { action: 'update', description: 'Can edit contracts/shipments and change step status' },
+    { action: 'delete', description: 'Can delete contracts, shipments and trade documents' },
+  ];
+  for (const { action, description } of shipmentActions) {
+    await prisma.permission.upsert({
+      where: { name: `shipments:${action}` },
+      update: {},
+      create: {
+        name: `shipments:${action}`,
+        description,
+        resource: 'shipments',
+        action,
+      },
+    });
+  }
+
   console.log('Seed completed successfully');
 }
 

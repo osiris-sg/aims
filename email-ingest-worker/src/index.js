@@ -14,6 +14,10 @@
 import PostalMime from 'postal-mime';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // mirror the webhook's per-attachment cap
+// The original MIME is sent too (store-only intake keeps it as the .eml) when
+// it fits: raw + attachments are both base64 in one JSON body, and the API
+// accepts 15MB. Larger messages: the API rebuilds the .eml from the parts.
+const MAX_RAW_BYTES = 5 * 1024 * 1024;
 
 /** ArrayBuffer/Uint8Array/string → base64, chunked to keep the call stack sane. */
 function toBase64(content) {
@@ -43,7 +47,9 @@ export default {
       return;
     }
 
-    const parsed = await PostalMime.parse(message.raw);
+    // Read the stream once: postal-mime parses the bytes, and they are kept for rawBase64.
+    const rawBytes = new Uint8Array(await new Response(message.raw).arrayBuffer());
+    const parsed = await PostalMime.parse(rawBytes);
 
     const attachments = [];
     const skippedAttachments = [];
@@ -73,7 +79,9 @@ export default {
       subject: parsed.subject || undefined,
       text: parsed.text || undefined,
       messageId: message.headers.get('message-id') || parsed.messageId || undefined,
+      date: message.headers.get('date') || parsed.date || undefined,
       attachments,
+      ...(rawBytes.byteLength <= MAX_RAW_BYTES ? { rawBase64: toBase64(rawBytes) } : {}),
       // Extra field the webhook tolerates; keeps skips observable server-side.
       ...(skippedAttachments.length ? { meta: { skippedAttachments } } : {}),
     };

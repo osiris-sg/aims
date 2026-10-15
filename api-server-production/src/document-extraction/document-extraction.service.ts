@@ -455,6 +455,23 @@ Return ONLY JSON: {"documentType": "INVOICE" | "BILL" | "CREDIT_NOTE_AR" | "CRED
     };
   }
 
+  /**
+   * Generic structured read for other modules (Shipments: PI / B/L draft) —
+   * same model, API key handling, PDF/image blocks and JSON parsing as every
+   * extraction here, with the caller's own prompts. Returns the raw parsed
+   * object (the caller validates it) plus model + token usage.
+   */
+  async extractStructured(
+    file: { buffer: Buffer; mimetype: string },
+    systemPrompt: string,
+    userPrompt: string,
+    opts: { maxTokens?: number } = {},
+  ): Promise<{ data: any; model: string; inputTokens: number; outputTokens: number }> {
+    let usage = { model: 'claude-sonnet-4-6', inputTokens: 0, outputTokens: 0 };
+    const data = await this._extractStructuredJson(file, systemPrompt, userPrompt, 0, { maxTokens: opts.maxTokens, onUsage: (u) => (usage = u) });
+    return { data, ...usage };
+  }
+
   // Claude-based extraction (claude-sonnet-4-6). Mirrors the bills.service
   // pattern: pass PDFs straight through as a "document" content block (no
   // pdf-to-png needed), images as an "image" block, and parse a JSON object
@@ -464,6 +481,9 @@ Return ONLY JSON: {"documentType": "INVOICE" | "BILL" | "CREDIT_NOTE_AR" | "CRED
     systemPrompt: string,
     userPrompt: string,
     temperature?: number,
+    // Optional, additive: callers that need a bigger answer or the token
+    // usage (Shipments trade extraction) pass this; existing callers don't.
+    opts?: { maxTokens?: number; onUsage?: (u: { model: string; inputTokens: number; outputTokens: number }) => void },
   ): Promise<any> {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -490,13 +510,14 @@ Return ONLY JSON: {"documentType": "INVOICE" | "BILL" | "CREDIT_NOTE_AR" | "CRED
     const client = new Anthropic({ apiKey });
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 3000,
+      max_tokens: opts?.maxTokens ?? 3000,
       // Doc extraction passes 0 (deterministic); recon omits it (unchanged).
       ...(temperature !== undefined ? { temperature } : {}),
       system: systemPrompt,
       messages: [{ role: 'user', content }],
     });
 
+    opts?.onUsage?.({ model: response.model, inputTokens: response.usage?.input_tokens ?? 0, outputTokens: response.usage?.output_tokens ?? 0 });
     const block = response.content.find((b) => b.type === 'text');
     const raw = block && 'text' in block ? (block as any).text.trim() : '';
     // Claude usually returns just the JSON object, but tolerate a stray

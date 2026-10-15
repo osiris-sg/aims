@@ -2,8 +2,10 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Box,
   Button,
+  CircularProgress,
   Divider,
   Paper,
   Tab,
@@ -26,6 +28,8 @@ import RevenueItemsTab from "./components/RevenueItemsTab";
 import SellIcon from "@mui/icons-material/Sell";
 import PercentIcon from "@mui/icons-material/Percent";
 import TaxRatesTab from "./components/TaxRatesTab";
+import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
+import { showAccountingSetup } from "@/helpers/settingsVisibility";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -41,7 +45,33 @@ function TabPanel({ children, value, index }: TabPanelProps) {
   );
 }
 
+// Trade orgs (SHIPMENTS on, ACCOUNTING off) get a notice instead of the page,
+// so a direct link never calls GET /accounting/settings (which creates the
+// settings row on first read). Every other org is unaffected. If the module
+// config fails to load we fall through to the page as before.
 export default function AccountingSetupPage() {
+  const { loading, error, isModuleEnabled } = useConfiguration();
+  if (loading) {
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+  if (!error && !showAccountingSetup(isModuleEnabled)) {
+    return (
+      <Box sx={{ p: { xs: 1.5, md: 3 } }}>
+        <Typography variant="h5" sx={{ fontWeight: 700, mb: 2 }}>
+          Accounting Setup
+        </Typography>
+        <Alert severity="info">Accounting is not enabled for this organization. Ask an administrator to turn on the Accounting module to use Accounting Setup.</Alert>
+      </Box>
+    );
+  }
+  return <AccountingSetupContent />;
+}
+
+function AccountingSetupContent() {
   const { getToken } = useAuth();
   const [tabValue, setTabValue] = useState(0);
   const [settings, setSettings] = useState<any>(null);

@@ -51,12 +51,20 @@ const DOC_STATUS_OPTIONS = [
   { value: "returned", label: "Returned" },
 ];
 import { useCreateDocumentFlow } from "./useCreateDocumentFlow";
+import { docGrossTotal } from "@/helpers/docTotal";
 
 interface Props {
   documentTypes: string[];
   documentLabel: string;
   pluralLabel?: string;
   createDocumentType: string;
+  /** When set, opened documents carry ?from=<this> so the editor's Back and the
+   *  nav highlight return here (e.g. the stand-alone Invoices module). */
+  fromPath?: string;
+  /** Hide the "All … for this organization" line under the title (stand-alone Invoices module). */
+  hideSubtitle?: boolean;
+  /** "issue": show and sort by the document's issue date instead of its created date (newest first). */
+  dateColumn?: "created" | "issue";
 }
 
 interface DocumentRow {
@@ -66,6 +74,7 @@ interface DocumentRow {
   templateId: string;
   status: string;
   createdAt: string;
+  issueDate?: string;
   associated_customer?: string;
   associated_item?: string;
   config?: any;
@@ -165,6 +174,9 @@ export default function DocumentListView({
   documentLabel,
   pluralLabel,
   createDocumentType,
+  fromPath,
+  hideSubtitle,
+  dateColumn = "created",
 }: Props) {
   const router = useRouter();
   const { getToken } = useAuth();
@@ -178,7 +190,7 @@ export default function DocumentListView({
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
-  const [sorting, setSorting] = useState<any[]>([]);
+  const [sorting, setSorting] = useState<any[]>(dateColumn === "issue" ? [{ id: "issueDate", desc: true }] : []);
   const [filters, setFilters] = useState<any>({
     status: "",
     customerId: "",
@@ -199,7 +211,7 @@ export default function DocumentListView({
   // Column-header sort → server sort field (name/status/createdAt only; the
   // JSON-derived Customer/Item columns aren't server-sortable, so their sort is
   // disabled in the column defs below).
-  const sortColMap: Record<string, string> = { name: "name", status: "status", createdAt: "createdAt" };
+  const sortColMap: Record<string, string> = { name: "name", status: "status", createdAt: "createdAt", issueDate: "issueDate" };
   const sortState = sorting[0];
   const sortBy = sortState ? sortColMap[sortState.id] : undefined;
   const sortDir = sortState ? (sortState.desc ? "desc" : "asc") : undefined;
@@ -283,19 +295,8 @@ export default function DocumentListView({
       align: "right",
       pxWidth: 130,
       cell: ({ row }: any) => {
-        const cfg: any = row.original.config || {};
-        const candidates = [cfg?.summary?.grandTotal, cfg?.nettTotal, cfg?.grandTotal, cfg?.total, cfg?.summary?.total];
-        let total = 0;
-        for (const c of candidates) {
-          const n = parseFloat(c);
-          if (!isNaN(n) && n > 0) { total = n; break; }
-        }
-        if (!total && Array.isArray(cfg.items)) {
-          total = cfg.items.reduce((sum: number, it: any) => {
-            const amt = parseFloat(it.amount) || parseFloat(it.quantity) * parseFloat(it.unitPrice) || 0;
-            return sum + amt;
-          }, 0);
-        }
+        // Sign-aware: a negative total (credit-style invoice) is a real amount.
+        const total = docGrossTotal(row.original.config);
         return total ? (
           <Box sx={{ fontVariantNumeric: "tabular-nums" }}>
             {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -312,13 +313,21 @@ export default function DocumentListView({
       pxWidth: 150,
       cell: ({ row }: any) => <StatusChip status={row.original.status} />,
     },
-    {
-      accessorKey: "createdAt",
-      header: "Created",
-      nowrap: true,
-      pxWidth: 120,
-      cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
-    },
+    dateColumn === "issue"
+      ? {
+          accessorKey: "issueDate",
+          header: "Issue date",
+          nowrap: true,
+          pxWidth: 120,
+          cell: ({ row }: any) => moment(row.original.issueDate || row.original.createdAt).format("DD/MM/YYYY"),
+        }
+      : {
+          accessorKey: "createdAt",
+          header: "Created",
+          nowrap: true,
+          pxWidth: 120,
+          cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
+        },
     {
       // Row-click opens the document; the kebab holds secondary actions
       // (CLAUDE.md table pattern — inline action-icon columns retired).
@@ -344,8 +353,12 @@ export default function DocumentListView({
     },
   ];
 
-  const openDocument = (doc: any) =>
-    router.push(`/portal/documents/${doc.documentType}/${doc.templateId}/${doc.id}`);
+  const openDocument = (doc: any) => {
+    const from = fromPath ? `?from=${encodeURIComponent(fromPath)}` : "";
+    // Invoices finalized from an in-app trade document (e.g. the 請求書 template) open as that PDF.
+    if (doc.config?.tradeGeneratedDocId) return router.push(`/portal/trade-documents/invoice/${doc.id}${from}`);
+    router.push(`/portal/documents/${doc.documentType}/${doc.templateId}/${doc.id}${from}`);
+  };
 
   const serializeDate = (d: Date | null) => (d ? JSON.parse(JSON.stringify(d)) : null);
   const handleSetFilters = (newFilters: any) => {
@@ -385,7 +398,7 @@ export default function DocumentListView({
         sorting={sorting}
         onSortingChange={setSorting}
         tableName={`${pluralLabel || documentLabel + "s"} List`}
-        subTitle={`All ${pluralLabel || documentLabel + "s"} for this organization`}
+        subTitle={hideSubtitle ? undefined : `All ${pluralLabel || documentLabel + "s"} for this organization`}
         buttonName={createDocumentType ? `Create ${documentLabel}` : undefined}
         onAddClick={createDocumentType ? handleCreate : undefined}
         buttonDisabled={creating}

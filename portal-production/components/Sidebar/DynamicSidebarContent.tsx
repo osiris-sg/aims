@@ -30,6 +30,7 @@ import {
   ErrorOutline,
   ShoppingCart,
   LocalShipping,
+  DirectionsBoat,
   Storefront,
   AccountBalance,
   ReceiptLong,
@@ -45,6 +46,7 @@ import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { getListRouteFromPathname } from "@/app/portal/components/documentRoutes";
 import { useSidebar } from "./SidebarContext";
+import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
 
 // Material UI icon mapping
 const iconMap: Record<string, React.ComponentType> = {
@@ -59,6 +61,7 @@ const iconMap: Record<string, React.ComponentType> = {
   SettingsRounded,
   ShoppingCart,
   LocalShipping,
+  DirectionsBoat,
   Storefront,
   AccountBalance,
   ReceiptLong,
@@ -206,6 +209,7 @@ export default function DynamicSidebarContent() {
     .filter(m => m.enabled)
     .filter(m => isModuleAllowed(m.moduleCode))
     .filter(m => !HIDDEN_MODULES.has(m.moduleCode))
+      .filter(m => shownInMenu(m))
     .map(m => {
       const hide = HIDDEN_SUBMENUS[m.moduleCode];
       const subMenus = (m.config as any)?.subMenus;
@@ -420,6 +424,10 @@ export default function DynamicSidebarContent() {
     return menuItem;
   };
 
+  // Accounting Setup is hidden only for trade orgs (SHIPMENTS on, ACCOUNTING
+  // off). Mirrored in useNavModules' settingsMenu (top bar + chat home).
+  const accountingSetupShown = showAccountingSetup(isModuleEnabled);
+
   // Secondary items (Settings, etc.) — supports nested submenus like main modules
   const secondaryItems: Array<{
     id: string;
@@ -434,9 +442,10 @@ export default function DynamicSidebarContent() {
       icon: 'SettingsRounded',
       subMenus: [
         { key: 'company-profile', label: 'Company Profile', path: '/portal/settings/company-profile' },
+        { key: 'shipping', label: 'Shipping & documents', path: '/portal/settings/shipping' },
         { key: 'accounting-setup', label: 'Accounting Setup', path: '/portal/settings/accounting-setup' },
         { key: 'masterfiles', label: 'Master Files', path: '/portal/masterfiles' },
-      ],
+      ].filter((s) => (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'shipping' || showShippingSettings(isModuleEnabled))),
     },
   ];
 

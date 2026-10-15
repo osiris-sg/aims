@@ -8,6 +8,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { useEffect, useState } from "react";
+import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 
 interface Salesman {
   id: string;
@@ -30,6 +31,9 @@ const customerSchema = yup.object().shape({
   phone: yup.string().notRequired(),
   address: yup.string().notRequired(),
   gstRegNo: yup.string().notRequired(),
+  jpName: yup.string().nullable().notRequired(),
+  jpAddress: yup.string().nullable().notRequired(),
+  jpContact: yup.string().nullable().notRequired(),
   currency: yup.string().notRequired(),
   salesmanId: yup.string().nullable().notRequired(),
   contacts: yup
@@ -52,6 +56,10 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
   const { getToken } = useAuth();
   const { organization } = useOrganization();
   const theme = useTheme();
+  // Japanese legal name / address / contact: only orgs on the Shipments module
+  // (their per-org schema carries the columns; other orgs never send them).
+  const { isModuleEnabled } = useConfiguration();
+  const showJp = isModuleEnabled("SHIPMENTS");
   const [salesmen, setSalesmen] = useState<Salesman[]>([]);
   const [loadingSalesmen, setLoadingSalesmen] = useState(false);
 
@@ -62,6 +70,9 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
       phone: null,
       address: null,
       gstRegNo: null,
+      jpName: null as string | null,
+      jpAddress: null as string | null,
+      jpContact: null as string | null,
       currency: "SGD",
       salesmanId: null as string | null,
       contacts: [] as { name: string; phone: string; email: string; designation: string }[],
@@ -130,6 +141,9 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             setValue("phone", customer.phone);
             setValue("address", customer.address);
             setValue("gstRegNo", customer.gstRegNo);
+            setValue("jpName", customer.jpName ?? null);
+            setValue("jpAddress", customer.jpAddress ?? null);
+            setValue("jpContact", customer.jpContact ?? null);
             setValue("currency", customer.currency || "SGD");
             setValue("salesmanId", customer.salesmanId || null);
             setValue(
@@ -163,13 +177,16 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
       const token = await getToken();
       if (!token || !organization?.id) return;
 
+      const { jpName, jpAddress, jpContact, ...rest } = data;
+      const jp = showJp ? { jpName: jpName || null, jpAddress: jpAddress || null, jpContact: jpContact || null } : {};
       const response = await request(
         {
           path: isEditMode ? "/customers/update" : "/customers/create",
           method: isEditMode ? "PUT" : "POST",
         },
         {
-          ...data,
+          ...rest,
+          ...jp,
           contacts: (data.contacts || []).filter(
             (c: { name?: string }) => c.name && c.name.trim() !== ""
           ),
@@ -202,6 +219,13 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             <FormInputBox control={control} name="phone" label="Phone" placeHolder="Enter customer phone number" />
             <FormInputBox control={control} name="address" label="Address" placeHolder="Enter customer address" />
             <FormInputBox control={control} name="gstRegNo" label="GST Reg No." placeHolder="Enter GST registration number" />
+            {showJp && (
+              <>
+                <FormInputBox control={control} name="jpName" label="Japanese legal name" placeHolder="e.g. SUS株式会社" description="Printed on Japanese documents (請求書, 計量検収票, 納品書兼…)" />
+                <FormInputBox control={control} name="jpAddress" label="Japanese address" placeHolder="〒… 都道府県…" description="Printed on the customer packing list / COA; hidden when blank" />
+                <FormInputBox control={control} name="jpContact" label="Japanese contact" placeHolder="部署 担当者 (TEL …)" />
+              </>
+            )}
             <Controller
               name="currency"
               control={control}

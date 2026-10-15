@@ -64,9 +64,12 @@ interface Props {
    *  when the page renders its OWN checkbox column (e.g. an id-keyed Set
    *  feeding a BulkActionBar, which survives paging). */
   noSelectionColumn?: boolean;
+  /** Hide the table and its paging footer (e.g. while `headerContent` shows an
+   *  empty-state card, so an empty header row isn't drawn under it). */
+  hideTable?: boolean;
 }
 export default function PageTable(props: Props) {
-  const { columns, data, tableName, subTitle, loading, buttonName, buttonDisabled, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs, renderSubComponent, actionButtons, headerContent, manualSorting, sorting, onSortingChange, onRowClick, rowHref, noSelectionColumn } = props;
+  const { columns, data, tableName, subTitle, loading, buttonName, buttonDisabled, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs, renderSubComponent, actionButtons, headerContent, manualSorting, sorting, onSortingChange, onRowClick, rowHref, noSelectionColumn, hideTable } = props;
   const { control, handleSubmit, watch } = useForm({ defaultValues: { limit, search } });
   const _limit = watch("limit");
   const _search = watch("search");
@@ -182,43 +185,47 @@ export default function PageTable(props: Props) {
           </Box>
         )}
 
-        <Box
-          sx={(t) => ({
-            // Scroll the table internally on BOTH axes when content exceeds the
-            // box. (Was `overflow: "hidden"`, which overrode overflowX and clipped
-            // rows beyond the visible height — no vertical scrollbar.) `minHeight:
-            // 0` lets this flex child shrink below its content so the inner scroll
-            // actually engages inside a bounded (flex: 1 / height: 100%) layout.
-            overflowX: "auto",
-            overflowY: "auto",
-            minHeight: 0,
-            width: "100%",
-            backgroundColor: "background.paper",
-            padding: 0,
-            borderRadius: "8px",
-            // Solid visible outline — the header band is the same grey as the
-            // page background, so a near-transparent border made the table's
-            // top edge disappear into the page. CSS var flips for dark mode.
-            border: "1px solid var(--table-grid)",
-            flex: 1,
-          })}
-        >
-          <Table columns={columns} data={data} onRowClick={onRowClick} rowHref={rowHref} onRowSelect={() => {}} loading={loading} subRowAccessor={subRowAccessor} manualSorting={manualSorting} sorting={sorting} onSortingChange={onSortingChange} isNoSelectionColumn={noSelectionColumn} />
-        </Box>
-        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", overflowX: "hidden" }}>
-          <Box sx={{ display: "flex", gap: "var(--default-gap)", alignItems: "center" }}>
-            <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              Showing
-            </Typography>
-            <FormSelectBox size="small" control={control} name="limit" menuItems={[10, 20, 50, 100].map((num) => ({ label: String(num), value: num }))} menuTitle="Page Size" />
-          </Box>
-          {totalDocs !== undefined && limit !== undefined && page !== undefined && (
-            <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              {`Showing ${(page - 1) * limit + 1}-${Math.min(page * limit, totalDocs)} out of ${totalDocs} records`}
-            </Typography>
-          )}
-          <Pagination page={page ?? 1} count={pageCount ?? 1} siblingCount={0} boundaryCount={0} onChange={(event, value) => setPage && setPage(value)} />
-        </Box>
+        {!hideTable && (
+          <>
+            <Box
+              sx={(t) => ({
+                // Scroll the table internally on BOTH axes when content exceeds the
+                // box. (Was `overflow: "hidden"`, which overrode overflowX and clipped
+                // rows beyond the visible height — no vertical scrollbar.) `minHeight:
+                // 0` lets this flex child shrink below its content so the inner scroll
+                // actually engages inside a bounded (flex: 1 / height: 100%) layout.
+                overflowX: "auto",
+                overflowY: "auto",
+                minHeight: 0,
+                width: "100%",
+                backgroundColor: "background.paper",
+                padding: 0,
+                borderRadius: "8px",
+                // Solid visible outline — the header band is the same grey as the
+                // page background, so a near-transparent border made the table's
+                // top edge disappear into the page. CSS var flips for dark mode.
+                border: "1px solid var(--table-grid)",
+                flex: 1,
+              })}
+            >
+              <Table columns={columns} data={data} onRowClick={onRowClick} rowHref={rowHref} onRowSelect={() => {}} loading={loading} subRowAccessor={subRowAccessor} manualSorting={manualSorting} sorting={sorting} onSortingChange={onSortingChange} isNoSelectionColumn={noSelectionColumn} />
+            </Box>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", overflowX: "hidden" }}>
+              <Box sx={{ display: "flex", gap: "var(--default-gap)", alignItems: "center" }}>
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                  Showing
+                </Typography>
+                <FormSelectBox size="small" control={control} name="limit" menuItems={[10, 20, 50, 100].map((num) => ({ label: String(num), value: num }))} menuTitle="Page Size" />
+              </Box>
+              {totalDocs !== undefined && limit !== undefined && page !== undefined && (
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                  {`Showing ${(page - 1) * limit + 1}-${Math.min(page * limit, totalDocs)} out of ${totalDocs} records`}
+                </Typography>
+              )}
+              <Pagination page={page ?? 1} count={pageCount ?? 1} siblingCount={0} boundaryCount={0} onChange={(event, value) => setPage && setPage(value)} />
+            </Box>
+          </>
+        )}
         {filters && setFilters && filterConfig && (
           <FilterDrawer
             openFilterDrawerStatus={openFilters}

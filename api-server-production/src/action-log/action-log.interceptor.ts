@@ -32,6 +32,8 @@ const SKIP_PATHS = [
   // Dashboard chat (2026-10-13): the message stream and thread reads are not
   // actions. What the agent DOES is logged per tool (OperatorToolsService.log).
   '/operator/web/',
+  // Shipments file thumbnails: one signed-URL GET per thumbnail on screen (only route with /thumb).
+  '/thumb',
 ];
 
 // Background GETs fired on page load / tab focus, not user intent.
@@ -47,12 +49,14 @@ const SKIP_GET_PATHS = [
   '/whatsapp/group-approvals/approved',
   '/whatsapp/group-reminders/due',
   '/wa-post/jobs', // the post worker's poll
+  '/contracts/deposit-due', // contract form's live due-date preview
 ];
 
 // POST endpoints that are actually list/read queries ("POST / = list" is a
 // house convention) — log them as VIEW, not CREATE.
+// trade-generated/preview (Shipments, 2026-10): renders live-preview HTML only.
 const VIEW_POST_RE =
-  /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview|documentTemplates\/variants\/[^/]+\/design-preview)$/;
+  /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview|documentTemplates\/variants\/[^/]+\/design-preview|trade-generated\/preview)$/;
 
 // Path verb segment → semantic action (checked against the LAST static segment).
 const VERB_ACTIONS: Record<string, string> = {
@@ -66,6 +70,8 @@ const VERB_ACTIONS: Record<string, string> = {
   // Delivery group posts (2026-09-30): the post worker claims a post and
   // reports it sent; the office retries a failed or skipped one.
   claim: 'CLAIM', done: 'POSTED', retry: 'RETRY', resolve: 'CONFIRM',
+  // Shipments: AI reads of a PI / B/L draft, and acknowledging the B/L check.
+  pi: 'EXTRACT', 'bl-draft': 'EXTRACT', an: 'EXTRACT', classify: 'EXTRACT', acknowledge: 'ACKNOWLEDGE',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
   // Field delivery verbs (2026-09): the customer sign-off (full or partial, and
   // the guest link's), the return sign-off, ad-hoc acknowledge, install skip, and
@@ -104,6 +110,10 @@ const VERB_ACTIONS: Record<string, string> = {
   translate: 'UPDATE',
   // Marketing (Meta ads): connect/disconnect the ad account, pull insights.
   connect: 'UPDATE', disconnect: 'UPDATE', // `sync` is already mapped above
+  // Shipments (2026-10): contract/shipment/step reopen. start, complete and
+  // link are mapped above; trade-file and trade-document links are resolved in
+  // resolveAction.
+  reopen: 'REOPEN', unlink: 'UNLINK',
   update: 'UPDATE', create: 'CREATE', delete: 'DELETE',
 };
 
@@ -228,6 +238,9 @@ export class ActionLogInterceptor implements NestInterceptor {
     for (let i = segments.length - 1; i >= 0; i--) {
       const s = segments[i];
       if (UUID_RE.test(s) || /^\d+$/.test(s)) continue;
+      // POST /trade-files/:id/links and POST /trade-documents/links add links;
+      // DELETE .../links/:linkId removes one.
+      if (s === 'links') return method === 'DELETE' ? 'UNLINK' : method === 'POST' ? 'LINK' : METHOD_ACTION[method] || 'UNKNOWN';
       if (VERB_ACTIONS[s]) return VERB_ACTIONS[s];
       break;
     }

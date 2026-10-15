@@ -1211,6 +1211,11 @@ export class DocumentsService {
         // deployment/recurring anchoring keyed off the order (guru 2026-09-28,
         // BI202609212 lost saleOrderId on its first edit).
         'saleOrderId',
+        // Document currency. Templates without a currency field (e.g. ADH
+        // Japan's invoice) never send it, so a bare save dropped the currency
+        // a creator had set (Shipments "Create invoice" → contract currency,
+        // 2026-10). Only an existing value is kept; none is invented.
+        'currency',
       ];
       // Only meaningful when the caller actually sent a config. A status-only
       // save (dto.config absent → configAsPlainObject null) has nothing to
@@ -3691,7 +3696,7 @@ export class DocumentsService {
       status?: string | string[];
       customerId?: string;
       createdOn?: { startDate?: string | Date | null; endDate?: string | Date | null };
-      sortBy?: 'name' | 'createdAt' | 'status' | 'type';
+      sortBy?: 'name' | 'createdAt' | 'status' | 'type' | 'issueDate';
       sortDir?: 'asc' | 'desc';
     } = {},
     callerUserId?: string,
@@ -3788,15 +3793,28 @@ export class DocumentsService {
 
       if (and.length) where.AND = and;
 
-      const sortBy = ['name', 'createdAt', 'status', 'type'].includes(opts.sortBy as string)
-        ? (opts.sortBy as string)
-        : 'createdAt';
       const sortDir = opts.sortDir === 'asc' ? 'asc' : 'desc';
-
-      const [rows, total] = await Promise.all([
-        this.prisma.document.findMany({ where, orderBy: { [sortBy]: sortDir }, skip, take: limit }),
-        this.prisma.document.count({ where }),
-      ]);
+      let rows: any[];
+      let total: number;
+      if (opts.sortBy === 'issueDate') {
+        // The issue date lives in config JSON (documentInfo.date / date / issueDate):
+        // order the matching ids in memory, then load just this page.
+        const keys = await this.prisma.document.findMany({ where, select: { id: true, createdAt: true, config: true } });
+        const sorted = keys
+          .map((d: any) => ({ id: d.id, key: documentIssueDate(d.config, d.createdAt), at: d.createdAt.getTime() }))
+          .sort((a, b) => (a.key === b.key ? a.at - b.at : a.key < b.key ? -1 : 1) * (sortDir === 'asc' ? 1 : -1));
+        const ids = sorted.slice(skip, skip + limit).map((x) => x.id);
+        const page = await this.prisma.document.findMany({ where: { id: { in: ids }, organizationId } });
+        const byId = new Map(page.map((d: any) => [d.id, d]));
+        rows = ids.map((id) => byId.get(id)).filter(Boolean);
+        total = keys.length;
+      } else {
+        const sortBy = ['name', 'createdAt', 'status', 'type'].includes(opts.sortBy as string) ? (opts.sortBy as string) : 'createdAt';
+        [rows, total] = await Promise.all([
+          this.prisma.document.findMany({ where, orderBy: { [sortBy]: sortDir }, skip, take: limit }),
+          this.prisma.document.count({ where }),
+        ]);
+      }
 
       const customerIds = rows
         .map((d: any) => (d.config as any)?.customer?.id || (d.config as any)?.customerId)
@@ -3826,6 +3844,8 @@ export class DocumentsService {
           templateId: doc.documentTemplateId,
           status: doc.status,
           createdAt: doc.createdAt,
+          // The document's own date (YYYY-MM-DD; the created date when it has none).
+          issueDate: documentIssueDate(config, doc.createdAt),
           // The project column + its resolved name (null when unset) so the
           // schedule dialog's extract can fill the project from real quotations.
           projectId: doc.projectId ?? null,
@@ -7074,4 +7094,21 @@ export class DocumentsService {
     });
     return { ok: true };
   }
+}
+
+/**
+ * A document's issue date as YYYY-MM-DD: the editor's documentInfo.date, else
+ * config.date / issueDate / invoiceDate (imports, trade invoices), else the
+ * created date. DD/MM/YYYY values are turned round.
+ */
+export function documentIssueDate(config: any, createdAt: Date): string {
+  const raw = [config?.documentInfo?.date, config?.date, config?.issueDate, config?.invoiceDate].find((v) => typeof v === 'string' && v.trim());
+  if (raw) {
+    const v = String(raw).trim();
+    const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v);
+    if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  }
+  return createdAt.toISOString().slice(0, 10);
 }
