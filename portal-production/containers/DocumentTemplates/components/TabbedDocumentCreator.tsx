@@ -187,6 +187,50 @@ const numFieldParse = (raw: string, min?: number) => {
   return min != null ? Math.max(min, n) : n;
 };
 
+// ── Confirmed-document read-only shield ────────────────────────────────────
+// A confirmed document must be READ-ONLY, not blanked out. The old treatment
+// put `pointerEvents: "none"` over whole blocks, which also made them
+// unselectable and unscrollable — staff could neither copy a figure out of a
+// confirmed quote nor scroll a long items table to read one (guru 2026-10-15).
+//
+// Instead the block stays fully alive for READING — select, copy, scroll,
+// tab through — and only the things that would CHANGE it are blocked:
+//   • beforeinput  — every text mutation (typing, IME, autofill, deletion)
+//   • paste / cut / drop — the other ways text gets in or out destructively
+//   • mutating CONTROLS (buttons, pickers, checkboxes, selects) go inert;
+//     plain inputs deliberately keep their pointer events so their value can
+//     still be highlighted and copied.
+// Copy (⌘/Ctrl+C), select-all and caret movement are untouched by design.
+const readOnlyShield = (active: boolean) =>
+  active
+    ? {
+        onBeforeInputCapture: (e: React.FormEvent) => e.preventDefault(),
+        // pointerEvents blocks the MOUSE but not the keyboard: a tab-focused
+        // Select, checkbox or switch can still be changed with Space or the
+        // arrow keys. Text fields are already covered by beforeinput, so this
+        // only guards the non-text controls — and it keeps Tab, Escape and any
+        // modifier combo (⌘C / ⌘A) working so the document stays navigable and
+        // copyable.
+        onKeyDownCapture: (e: React.KeyboardEvent) => {
+          const el = e.target as HTMLElement | null;
+          if (!el) return;
+          const isTextEntry =
+            el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.isContentEditable;
+          if (isTextEntry || e.metaKey || e.ctrlKey || e.key === "Tab" || e.key === "Escape") return;
+          e.preventDefault();
+        },
+        onPasteCapture: (e: React.ClipboardEvent) => e.preventDefault(),
+        onCutCapture: (e: React.ClipboardEvent) => e.preventDefault(),
+        onDropCapture: (e: React.DragEvent) => e.preventDefault(),
+        sx: {
+          "& .MuiButtonBase-root, & .MuiSelect-select, & [role='combobox'], & .MuiAutocomplete-root, & .MuiSwitch-root":
+            { pointerEvents: "none" },
+          // Keep the text itself readable at full contrast and selectable.
+          "& input, & textarea, & [contenteditable]": { cursor: "text", userSelect: "text" },
+        } as const,
+      }
+    : {};
+
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
@@ -4733,7 +4777,10 @@ export default function TabbedDocumentCreator({
           {templateFieldConfig?.tabs.map((tab, index) => (
             <TabPanel key={tab.tabId} value={mainTabValue} index={index}>
               <Card sx={{ flexShrink: 0, maxHeight: isOfficialReceipt ? 420 : 320, display: "flex", flexDirection: "column" }}>
-                <CardContent sx={{ p: 1, flex: 1, overflow: "auto", "&:last-child": { pb: 1 }, ...(confirmedReadOnly && { pointerEvents: "none" }) }}>
+                <CardContent
+                  {...readOnlyShield(confirmedReadOnly)}
+                  sx={{ p: 1, flex: 1, overflow: "auto", "&:last-child": { pb: 1 }, ...(readOnlyShield(confirmedReadOnly).sx || {}) }}
+                >
                   {/* Collapsed state = one-line summary card (Xero-style —
                       guru 2026-09-03): key details + chevron; click expands. */}
                   {isFieldsCollapsed && (
@@ -5682,7 +5729,10 @@ export default function TabbedDocumentCreator({
                     whole page scrolls, Xero-style (guru 2026-09-03). No inner
                     table scrollbar. */}
                 <TabPanel value={itemsTabValue} index={0} grow>
-                  <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 120, ...(confirmedReadOnly && { pointerEvents: "none" }) }}>
+                  <Box
+                    {...readOnlyShield(confirmedReadOnly)}
+                    sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 120, ...(readOnlyShield(confirmedReadOnly).sx || {}) }}
+                  >
                     <Box sx={{ display: "flex", flexDirection: "column" }}>
                       <TableContainer
                         sx={{
@@ -6898,7 +6948,12 @@ export default function TabbedDocumentCreator({
 
                 {/* ITEMS FOOTER TAB */}
                 <TabPanel value={itemsTabValue} index={1}>
-                  <Grid container spacing={2} sx={{ height: "100%", ...(confirmedReadOnly && { pointerEvents: "none" }) }}>
+                  <Grid
+                    container
+                    spacing={2}
+                    {...readOnlyShield(confirmedReadOnly)}
+                    sx={{ height: "100%", ...(readOnlyShield(confirmedReadOnly).sx || {}) }}
+                  >
                     {/* Notes - for all types */}
                     <Grid item xs={12} md={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 12 : 6} sx={{ display: "flex", flexDirection: "column" }}>
                       <Typography variant="caption" sx={{ mb: 0.5, color: "text.secondary" }}>Notes</Typography>
