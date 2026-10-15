@@ -2394,7 +2394,8 @@ export class OperatorToolsService {
 
       {
         name: 'list_recent_documents',
-        description: 'List this organization\'s most recent documents, optionally filtered by type (QUOTATION, INVOICE, DO...).',
+        description:
+          'The NEWEST documents only (up to 20, by creation time), optionally filtered by type (QUOTATION, INVOICE, DO...). It does not search: anything older, or wanted by customer, month, wording or number, needs search_documents.',
         permissions: ['documents:read'],
         input_schema: {
           type: 'object',
@@ -2419,6 +2420,91 @@ export class OperatorToolsService {
                 total: cfg.nettTotal ?? cfg.documentInfo?.nettTotal,
               };
             }),
+          };
+        },
+      },
+
+      {
+        name: 'search_documents',
+        description:
+          "Search ALL of this organization's documents (any age) by free text across the document number, customer name, reference and every line description, with optional type, status and date filters. Use this for 'invoices for April', 'the ones for Biofuel', 'anything mentioning ESS maintenance', 'INV-059'. Never say a document does not exist without searching here first.",
+        permissions: ['documents:read'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Words to look for, e.g. "April 2026", "Biofuel", "INV-059", "ESS maintenance". Every word must appear somewhere on the document.' },
+            type: { type: 'string', description: 'QUOTATION, INVOICE, CREDIT_NOTE, DEBIT_NOTE, PURCHASE_ORDER, SALES_ORDER, DELIVERY_ORDER...' },
+            status: { type: 'string', description: 'unconfirmed, confirmed, pending_payment, paid, void...' },
+            dateFrom: { type: 'string', description: 'ISO date; document date on or after' },
+            dateTo: { type: 'string', description: 'ISO date; document date on or before' },
+            limit: { type: 'number', description: 'Up to 50, default 25' },
+          },
+        },
+        run: async (ctx, { query, type, status, dateFrom, dateTo, limit }) => {
+          const words = String(query || '')
+            .split(/\s+/)
+            .map((w) => w.trim())
+            .filter((w) => w.length >= 2)
+            .slice(0, 8);
+          const params: any[] = [ctx.organizationId];
+          const where: string[] = ['"organizationId" = $1'];
+          if (type) {
+            params.push(String(type).toUpperCase());
+            where.push(`type = $${params.length}`);
+          }
+          if (status) {
+            params.push(String(status).toLowerCase());
+            where.push(`lower(status) = $${params.length}`);
+          }
+          // Document date: what is printed on it, else when it was created.
+          const dateExpr = `coalesce(nullif(config->'documentInfo'->>'date','')::date, nullif(config->>'date','')::date, "createdAt"::date)`;
+          if (dateFrom) {
+            params.push(String(dateFrom).slice(0, 10));
+            where.push(`${dateExpr} >= $${params.length}::date`);
+          }
+          if (dateTo) {
+            params.push(String(dateTo).slice(0, 10));
+            where.push(`${dateExpr} <= $${params.length}::date`);
+          }
+          for (const w of words) {
+            params.push(`%${w.replace(/[%_\\]/g, (m) => `\\${m}`)}%`);
+            where.push(`(name ILIKE $${params.length} OR config::text ILIKE $${params.length})`);
+          }
+          const take = Math.min(Math.max(Number(limit) || 25, 1), 50);
+          const rows: any[] = await this.prisma.$queryRawUnsafe(
+            `SELECT id, name, type, status, "createdAt", config->>'customerName' AS "customerName", config->'customer'->>'name' AS "customerName2",
+                    ${dateExpr} AS "docDate", config->>'referenceNo' AS "referenceNo",
+                    coalesce(config->'items', config->'lineItems', '[]'::jsonb) AS items,
+                    config->>'nettTotal' AS "nettTotal", config->'documentInfo'->>'nettTotal' AS "nettTotal2",
+                    config->>'totalWithTax' AS "totalWithTax", config->>'outstandingBalance' AS "outstandingBalance"
+             FROM "Document" WHERE ${where.join(' AND ')}
+             ORDER BY ${dateExpr} DESC, "createdAt" DESC LIMIT ${take}`,
+            ...params,
+          );
+          const lc = words.map((w) => w.toLowerCase());
+          return {
+            result: {
+              count: rows.length,
+              note: rows.length >= take ? `Showing the first ${take}; narrow the search for more.` : undefined,
+              documents: rows.map((d) => {
+                const items: any[] = Array.isArray(d.items) ? d.items : [];
+                const descs = items.map((i) => String(i?.description || i?.itemDescription || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+                const hit = descs.find((t) => lc.some((w) => t.toLowerCase().includes(w)));
+                return {
+                  id: d.id,
+                  documentNumber: d.name,
+                  type: d.type,
+                  status: d.status,
+                  date: d.docDate ? new Date(d.docDate).toISOString().slice(0, 10) : null,
+                  customer: d.customerName || d.customerName2 || null,
+                  reference: d.referenceNo || null,
+                  total: Number(d.totalWithTax ?? d.nettTotal ?? d.nettTotal2) || null,
+                  outstanding: d.outstandingBalance != null ? Number(d.outstandingBalance) : null,
+                  lines: descs.slice(0, 6),
+                  matchedLine: hit || null,
+                };
+              }),
+            },
           };
         },
       },

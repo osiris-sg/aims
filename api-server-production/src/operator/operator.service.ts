@@ -79,6 +79,24 @@ const PANEL_DOC_TOOLS: Record<string, boolean> = {
   email_document: false,
 };
 
+/**
+ * Mark the end of the conversation so far as a cache breakpoint. The last
+ * message is cloned with cache_control on its final block (a string becomes a
+ * text block); the next request then reuses everything up to it.
+ */
+function withConversationCache(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+  if (!messages.length) return messages;
+  const last = messages[messages.length - 1];
+  const mark = { type: 'ephemeral' as const };
+  let content: any;
+  if (typeof last.content === 'string') content = [{ type: 'text', text: last.content, cache_control: mark }];
+  else if (Array.isArray(last.content) && last.content.length) {
+    content = last.content.slice();
+    content[content.length - 1] = { ...content[content.length - 1], cache_control: mark };
+  } else return messages;
+  return [...messages.slice(0, -1), { ...last, content }];
+}
+
 // What the user sees while a tool runs, so the bot never looks frozen.
 const TOOL_STATUS: Record<string, string> = {
   find_customer: '🔎 Looking up the customer...',
@@ -96,6 +114,7 @@ const TOOL_STATUS: Record<string, string> = {
   aged_receivables: '📊 Running aged receivables...',
   get_document: '📂 Fetching the document...',
   list_recent_documents: '📂 Fetching recent documents...',
+  search_documents: '🔎 Searching documents...',
   update_customer: '✏️ Updating the customer...',
   find_supplier: '🔎 Looking up the supplier...',
   list_bills: '📂 Fetching bills...',
@@ -723,14 +742,34 @@ export class OperatorService {
 
     try {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      // Prompt caching (guru 2026-10-15: "the tokens cost seems like a lot").
+      // Three breakpoints: the tool list, the system prompt and the
+      // conversation so far. Each turn, and each tool round inside a turn,
+      // then re-reads the unchanged prefix at a tenth of the price instead of
+      // paying for the ~60 tool definitions and the rules again.
+      const cachedTools = toolDefs.map((t, i) => (i === toolDefs.length - 1 ? { ...t, cache_control: { type: 'ephemeral' as const } } : t));
+      const systemBlocks: Anthropic.TextBlockParam[] = [
+        { type: 'text', text: this.systemPrompt(ctx) + this.webPrompt(ctx), cache_control: { type: 'ephemeral' } },
+      ];
+      if (session.bulkInvoiceMode) {
+        systemBlocks.push({
+          type: 'text',
+          text: 'BULK INVOICE MODE IS ON: the user is sending contractor invoices in bulk; each upload auto-queues to the portal review pane without confirmation. When they say they are done/finished, call bulk_invoice_mode with on=false.',
+        });
+      }
       const resp = await this.anthropic.messages.create({
         model: MODEL,
         max_tokens: 2000,
-        system: (this.systemPrompt(ctx) + this.webPrompt(ctx)) + (session.bulkInvoiceMode ? '\n\nBULK INVOICE MODE IS ON: the user is sending contractor invoices in bulk; each upload auto-queues to the portal review pane without confirmation. When they say they are done/finished, call bulk_invoice_mode with on=false.' : ''),
-        tools: toolDefs,
-        messages,
+        system: systemBlocks,
+        tools: cachedTools,
+        messages: withConversationCache(messages),
       });
 
+      // Token accounting per round, so cache hits can be checked in the log.
+      const u: any = resp.usage || {};
+      this.logger.log(
+        `tokens in=${u.input_tokens ?? 0} cache_write=${u.cache_creation_input_tokens ?? 0} cache_read=${u.cache_read_input_tokens ?? 0} out=${u.output_tokens ?? 0}`,
+      );
       messages.push({ role: 'assistant', content: resp.content });
 
       const toolUses = resp.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
@@ -880,6 +919,7 @@ export class OperatorService {
       `5. Keep replies short and plain, because this is a chat app. No markdown tables, no headings. Use the document number when referring to a document.`,
       `6. If a tool returns an error, tell the user plainly what went wrong and what you need from them.`,
       `7. If the user refers to something loosely ("send it again", "that quotation", "the last one") and it isn't in this conversation, DON'T ask them to repeat themselves. Call list_recent_documents and act on the most recent matching document. Only ask when there is genuine ambiguity (e.g. several plausible matches).`,
+      `7c. FINDING DOCUMENTS: list_recent_documents shows only the newest 20. To find documents by month, period, customer, wording on a line, reference or number ("the April invoice", "anything for Biofuel", "INV-059"), call search_documents. NEVER tell the user a document does not exist, or that a month was never billed, unless search_documents came back empty for it. A document's period is usually in its line descriptions ("ESS Maintenance for April 2026"), not its date, so search by the words.`,
       `7b. BE SHORT (guru 2026-09-22: "always short and sweet, get to the point"). Lead with the answer or the gap, never a paragraph of preamble. When something is missing, say which field is missing in a few words and stop; do not explain the consequences at length or restate what the user just told you. When you need the user to pick between options, DO NOT write them out as "1. ... 2. ..." — call ask_choice and they tap a button. Offer to take an upload when a document would fill the gap.`,
       `8. PUNCTUATION: never use em dashes or en dashes ("—", "–") in your replies OR in any text you write into a document (line item descriptions, notes, terms). Use a comma, a full stop, a colon or brackets instead. Ordinary hyphens inside words (e.g. "Fan-Coil") are fine.`,
       `9. FULL DASHBOARD ACCESS: you can read ANYTHING the user's web dashboard shows, even without a dedicated tool. When asked about commissions, earnings, targets, dashboards, reports, schedules, quests, leads or any other screen's numbers: call api_docs with keywords to find the right GET endpoint, then api_get to fetch it (their permissions are enforced automatically). Examples: designer commissions/revenue live at /id-projects/dashboard; a project's P&L incl. commission at /projects/<id>/costing. NEVER answer "I don't have a tool for that" before trying api_docs.`,
