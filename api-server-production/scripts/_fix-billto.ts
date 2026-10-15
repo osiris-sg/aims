@@ -1,3 +1,10 @@
+// ⚠ DO NOT RE-RUN (2026-10-15). This one-off backfill wrote billTo as
+// "<customer name>\n<address>\nAttn: Accounts Dept.": the name duplicates the bold
+// name every Bill To block already prints, and for the 82 customers whose
+// master address already ends in "Attn: Accounts Dept." it doubled that line
+// (BI202610010, REC-010/018/019/065). The current writers store the address
+// only (editor addressToBillTo, ingestion, sow, api-v1, ad-hoc attach), and
+// the print-side billToText() now hides such duplicates. Kept for history.
 // Backfill billTo + customerName on Sept drafts and on every template that
 // lacks them (source: a sister template of the same customer, else the
 // customer master + "Attn: Accounts Dept.").

@@ -16,6 +16,7 @@ import {
   logoBlock,
   designFooter,
   richContent,
+  billToText,
 } from './shared';
 import { DEFAULT_DESIGN, DocumentDesign } from './design';
 
@@ -88,7 +89,7 @@ export function renderQuotationBody(data: any, organization: any, design: Docume
     <div style="width:45%;border:1px solid #000;padding:12px;">
       <p style="font-size:14px;font-weight:600;margin-bottom:4px;">To :</p>
       <p style="font-size:14px;font-weight:600;">${escapeHtml(customer.name || data?.customerName || '')}</p>
-      <p style="font-size:14px;white-space:pre-line;">${escapeHtml(data?.billTo || customer.address || data?.customerAddress || '')}</p>
+      <p style="font-size:14px;white-space:pre-line;">${escapeHtml(billToText(data?.billTo || customer.address || data?.customerAddress || '', customer.name || data?.customerName))}</p>
     </div>
     <div style="width:45%;display:flex;justify-content:flex-end;padding-left:32px;">
       <div style="line-height:1.4;">

@@ -14,6 +14,7 @@ import {
   richContent,
   logoBlock,
   designFooter,
+  billToText,
 } from './shared';
 import { DEFAULT_DESIGN, DocumentDesign, fillerRowPx } from './design';
 import { BIOFUEL_LOGO_DATA_URI } from './biofuel-assets';
@@ -120,7 +121,7 @@ export function renderInvoiceBody(data: any, organization: any, design: Document
       <div style="margin-bottom:24px;">
         <p style="font-size:13px;font-weight:600;margin-bottom:4px;">Bill To :</p>
         <p style="font-size:13px;font-weight:600;">${escapeHtml(customer.name || data?.customerName || '')}</p>
-        <p style="font-size:13px;white-space:pre-line;">${escapeHtml(data?.billTo || customer.address || data?.customerAddress || '')}</p>
+        <p style="font-size:13px;white-space:pre-line;">${escapeHtml(billToText(data?.billTo || customer.address || data?.customerAddress || '', customer.name || data?.customerName))}</p>
         ${attentionBlock}
       </div>
       ${deliverTo}
