@@ -141,9 +141,11 @@ export default function Messages({ items, pending, status, sending, channel, onT
                       py: 1.25,
                       borderRadius: 3,
                       borderTopRightRadius: 6,
-                      color: "#06202a",
-                      backgroundImage: "linear-gradient(135deg, #bff4ff 0%, #7fe3f7 100%)",
-                      boxShadow: "0 4px 16px rgba(85,233,255,0.18)",
+                      // Deep teal with white text in both themes. The pale
+                      // cyan with dark text read as washed out (guru 2026-10-15).
+                      color: "#ffffff",
+                      backgroundImage: "linear-gradient(135deg, #1a94b4 0%, #0f6b86 100%)",
+                      boxShadow: (t) => (t.palette.mode === "dark" ? "0 4px 16px rgba(26,148,180,0.28)" : "0 4px 14px rgba(15,107,134,0.22)"),
                     }
                   : card
                     ? {
@@ -191,7 +193,7 @@ export default function Messages({ items, pending, status, sending, channel, onT
                           label={f}
                           sx={{
                             maxWidth: "100%",
-                            bgcolor: (t) => alpha(t.palette.primary.contrastText, 0.18),
+                            bgcolor: "rgba(255,255,255,0.18)",
                             color: "inherit",
                             "& .MuiChip-icon": { color: "inherit" },
                           }}
@@ -208,7 +210,7 @@ export default function Messages({ items, pending, status, sending, channel, onT
                           px: 1,
                           py: 0.75,
                           borderRadius: 1.5,
-                          bgcolor: (t) => alpha(t.palette.primary.contrastText, 0.12),
+                          bgcolor: "rgba(255,255,255,0.14)",
                           fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
                           fontSize: "0.78rem",
                           lineHeight: 1.45,

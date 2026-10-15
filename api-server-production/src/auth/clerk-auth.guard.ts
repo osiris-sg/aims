@@ -168,7 +168,7 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
       // Writes are allowed too (api_write), but they are signed over the METHOD
       // and PATH as well, so a header captured from a read cannot be replayed
       // against a write. Reads keep the original payload for compatibility.
-      const WRITE_METHODS = ['POST', 'PATCH', 'PUT'];
+      const WRITE_METHODS = ['POST', 'PATCH', 'PUT', 'DELETE'];
       if (!secret || !raw || (method !== 'GET' && !WRITE_METHODS.includes(method))) return null;
       const val = Array.isArray(raw) ? raw[0] : String(raw);
       const [userId, ts, sig] = val.split('.');

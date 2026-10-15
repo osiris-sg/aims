@@ -97,7 +97,6 @@ const BLOCKED_WRITE_PATHS: RegExp[] = [
   /\/confirm(\/|$)/i,
   /\/post(\/|$)/i,
   /\/void(\/|$)/i,
-  /\/delete(\/|$)/i,
   /\/organizations(\/|$)/i, // org + feature-flag changes stay an admin action
   /\/users(\/|$)/i,
   /\/roles(\/|$)/i,
@@ -1527,12 +1526,12 @@ export class OperatorToolsService {
       {
         name: 'api_write',
         description:
-          "Call any POST/PATCH/PUT endpoint of the AIMS API as this user, for anything no dedicated tool covers. Find the path AND its body fields with api_docs first. LOOKUPS ARE FREE: AIMS lists some collections over POST rather than GET (/documents, /documents/paginated, /customers, /assets, /projects, /suppliers, /inventories...), and those run IMMEDIATELY and return their rows with no confirmation — use them to find things, e.g. POST /documents with a filter body to locate a past invoice by customer or description, then act on what comes back. Anything that CHANGES data never fires immediately: it returns a summary the user must confirm, so tell them what you are about to do. Their permissions are enforced. Money and irreversible actions (confirming invoices, posting bills, recording payments, deleting) are BLOCKED here on purpose — use the dedicated tools for those.",
+          "Call any POST/PATCH/PUT/DELETE endpoint of the AIMS API as this user, for anything no dedicated tool covers. Find the path AND its body fields with api_docs first. LOOKUPS ARE FREE: AIMS lists some collections over POST rather than GET (/documents, /documents/paginated, /customers, /assets, /projects, /suppliers, /inventories...), and those run IMMEDIATELY and return their rows with no confirmation — use them to find things, e.g. POST /documents with a filter body to locate a past invoice by customer or description, then act on what comes back. Anything that CHANGES data never fires immediately: it returns a summary the user must confirm, so tell them what you are about to do. Their permissions are enforced. Money actions (confirming invoices, posting bills, recording payments, journals, bank rec, closing) are BLOCKED here on purpose — use the dedicated tools for those. Deleting goes through here: find the DELETE endpoint with api_docs (e.g. DELETE /documents/delete/{id}) and the user confirms it.",
         permissions: [],
         input_schema: {
           type: 'object',
           properties: {
-            method: { type: 'string', description: 'POST, PATCH or PUT' },
+            method: { type: 'string', description: 'POST, PATCH, PUT or DELETE' },
             path: { type: 'string', description: "Absolute API path starting with /, e.g. '/projects/<id>/schedule'. Replace any {param} with a real id." },
             body: { type: 'object', description: 'JSON request body, built from the field list api_docs returned.' },
             summary: { type: 'string', description: 'One plain sentence telling the user what this will change, shown to them before it runs.' },
@@ -1541,8 +1540,8 @@ export class OperatorToolsService {
         },
         run: async (ctx, args) => {
           const method = String(args.method || '').toUpperCase();
-          if (!['POST', 'PATCH', 'PUT'].includes(method)) {
-            return { result: { error: 'method must be POST, PATCH or PUT.' } };
+          if (!['POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
+            return { result: { error: 'method must be POST, PATCH, PUT or DELETE.' } };
           }
           const path = String(args.path || '');
           if (!path.startsWith('/') || path.includes('..') || /:\/\//.test(path)) {
@@ -2787,7 +2786,7 @@ export class OperatorToolsService {
     for (const [path, methods] of Object.entries<any>(doc?.paths || {})) {
       for (const [m, op] of Object.entries<any>(methods || {})) {
         const method = m.toUpperCase();
-        if (!['GET', 'POST', 'PATCH', 'PUT'].includes(method)) continue;
+        if (!['GET', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) continue;
         const summary = op?.summary || '';
         const tag = op?.tags?.[0] || '';
         const body = method === 'GET' ? '' : fieldsOf(op);
@@ -2820,7 +2819,7 @@ export class OperatorToolsService {
       if (BLOCKED_WRITE_PATHS.some((re) => re.test(String(path)))) {
         return { ok: false, message: 'That endpoint is not reachable this way. Use the dedicated tool for it.' };
       }
-      const res = await this.selfCall(ctx, method, path, body);
+      const res = await this.selfCall(ctx, method, path, method === 'DELETE' && !body ? undefined : body);
       if (!res.ok) {
         // class-validator returns field-level messages, which is the agent's
         // feedback loop on endpoints that do not document a body schema. A bare
