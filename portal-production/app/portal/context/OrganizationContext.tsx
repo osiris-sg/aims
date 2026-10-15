@@ -45,9 +45,16 @@ interface OrganizationContextType {
   setActiveOrgId: (id: string | null) => void;
   isLoaded: boolean;
   error: string | null;
+  // True when the backend answered the bootstrap with "User is not assigned
+  // to any organization" (the ClerkAuthGuard 403, or the controller's
+  // success:false twin). A valid Clerk session with no AIMS membership — e.g.
+  // a SiteClock-only user, since both apps share one Clerk instance.
+  // FieldOnlyGuard sends these users to /no-account.
+  noOrganization: boolean;
 }
 
 const STORAGE_KEY = "aims-admin-active-org";
+const NO_ORG_RE = /not assigned to any organi[sz]ation/i;
 const ADMIN_ORG_NAME = "osiris-platform";
 
 const OrganizationContext = createContext<OrganizationContextType | undefined>(undefined);
@@ -64,6 +71,7 @@ function useOrganizationFetcher(enabled: boolean): OrganizationContextType {
   const [activeOrganization, setActiveOrganization] = useState<Organization | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [noOrganization, setNoOrganization] = useState(false);
   // Track which user's org we successfully fetched, so we re-fetch on
   // account switch and retry on failure within the same session.
   const fetchedForUserId = useRef<string | null>(null);
@@ -77,6 +85,7 @@ function useOrganizationFetcher(enabled: boolean): OrganizationContextType {
       setRealOrganization(null);
       setActiveOrganization(null);
       setError(null);
+      setNoOrganization(false);
       setIsLoaded(true);
       return;
     }
@@ -85,6 +94,7 @@ function useOrganizationFetcher(enabled: boolean): OrganizationContextType {
 
     try {
       setError(null);
+      setNoOrganization(false);
       const token = await getToken();
       if (!token) {
         setError("Authentication token is required");
@@ -108,10 +118,14 @@ function useOrganizationFetcher(enabled: boolean): OrganizationContextType {
           : null;
 
       if (!realOrg) {
-        setError(
+        const message =
           realResponse?.data?.message ||
-            realResponse?.message ||
-            "Failed to fetch user organization",
+          realResponse?.message ||
+          "Failed to fetch user organization";
+        setError(message);
+        setNoOrganization(
+          NO_ORG_RE.test(String(message)) ||
+            (realResponse?.details?.statusCode === 403 && NO_ORG_RE.test(String(realResponse?.details?.message ?? ""))),
         );
         setRealOrganization(null);
         setActiveOrganization(null);
@@ -225,6 +239,7 @@ function useOrganizationFetcher(enabled: boolean): OrganizationContextType {
     setActiveOrgId,
     isLoaded: enabled ? isLoaded : true,
     error,
+    noOrganization,
   };
 }
 

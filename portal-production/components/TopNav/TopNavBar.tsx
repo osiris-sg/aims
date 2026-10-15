@@ -23,6 +23,7 @@ import { request } from "@/helpers/request";
 import { Autocomplete, TextField, Chip } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import NotificationBell from "@/components/NotificationBell";
+import AppSwitcher from "./AppSwitcher";
 import { IconButton, Tooltip } from "@mui/material";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
@@ -371,6 +372,7 @@ export default function TopNavBar() {
         )}
         <GlobalSearch />
         <TopNavOrgSwitcher />
+        <AppSwitcher />
         <NotificationBell />
         <Tooltip title={mode === "dark" ? "Light mode" : "Dark mode"}>
           <IconButton size="small" onClick={toggleMode} sx={{ color: "rgba(255,255,255,0.8)" }}>

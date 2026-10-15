@@ -20,10 +20,18 @@ import { useOrganization } from "../hooks/useOrganization";
 export default function FieldOnlyGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { getToken } = useAuth();
-  const { organization, isLoaded: orgLoaded, error: orgError } = useOrganization();
+  const { organization, isLoaded: orgLoaded, error: orgError, noOrganization } = useOrganization();
   const { signOut } = useClerk();
   const [checked, setChecked] = useState(false);
   const [allow, setAllow] = useState(false);
+
+  // Valid Clerk session, no AIMS membership (the "not assigned to any
+  // organization" 403 — e.g. a SiteClock-only user, since both apps share one
+  // Clerk instance): their page is /no-account, outside /portal so this guard
+  // and the org provider never run there.
+  useEffect(() => {
+    if (orgLoaded && noOrganization) router.replace("/no-account");
+  }, [orgLoaded, noOrganization, router]);
 
   useEffect(() => {
     if (!orgLoaded || !organization?.id) return;
@@ -63,10 +71,11 @@ export default function FieldOnlyGuard({ children }: { children: React.ReactNode
     };
   }, [orgLoaded, organization?.id, getToken, router]);
 
-  // The org load finished without an org (e.g. 403 "User is not assigned to
-  // any organization"): the effect above never runs, so show the reason
-  // instead of spinning forever.
-  if (orgLoaded && !organization?.id && orgError) {
+  // The org load finished without an org for some OTHER reason (token
+  // missing, backend down): the roles effect never runs, so show the reason
+  // instead of spinning forever. (The no-membership case redirects above and
+  // keeps the spinner for the moment it takes.)
+  if (orgLoaded && !organization?.id && orgError && !noOrganization) {
     return (
       <Box sx={{ minHeight: "100vh", width: "100%", flex: 1, display: "flex", alignItems: "center", justifyContent: "center", p: 2 }}>
         <Alert
