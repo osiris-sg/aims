@@ -95,6 +95,58 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
 
   return (
     <Box sx={{ px: { xs: 2, md: 3 }, pb: 1.5, pt: 1 }}>
+      {/* Attachments live OUTSIDE the box (guru 2026-10-15), so it stays a
+          pill whatever is attached: images as thumbnails, PDFs as chips. */}
+      {!!files.length && (
+        <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mb: 1, px: 1 }}>
+          {files.map((f) =>
+            f.mimetype.startsWith("image/") ? (
+              <Box
+                key={`${f.filename}-${f.size}`}
+                sx={{
+                  position: "relative",
+                  width: 72,
+                  height: 72,
+                  borderRadius: 2.5,
+                  overflow: "hidden",
+                  border: `1px solid rgba(${CYAN},0.35)`,
+                  boxShadow: `0 4px 14px rgba(${CYAN},0.15)`,
+                  bgcolor: "background.paper",
+                }}
+              >
+                <Box component="img" src={f.dataUri} alt={f.filename} sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                <IconButton
+                  size="small"
+                  onClick={() => setFiles((prev) => prev.filter((x) => x !== f))}
+                  aria-label={`Remove ${f.filename}`}
+                  sx={{
+                    position: "absolute",
+                    top: 2,
+                    right: 2,
+                    width: 20,
+                    height: 20,
+                    bgcolor: "rgba(0,0,0,0.6)",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "rgba(0,0,0,0.8)" },
+                  }}
+                >
+                  <CloseIcon sx={{ fontSize: 13 }} />
+                </IconButton>
+              </Box>
+            ) : (
+              <Chip
+                key={`${f.filename}-${f.size}`}
+                size="small"
+                icon={<AttachFileIcon sx={{ fontSize: "0.95rem !important" }} />}
+                label={f.filename}
+                onDelete={() => setFiles((prev) => prev.filter((x) => x !== f))}
+                deleteIcon={<CloseIcon />}
+                sx={{ maxWidth: 260, height: 30, bgcolor: `rgba(${CYAN},0.12)`, "& .MuiChip-deleteIcon": { color: "text.secondary" } }}
+              />
+            ),
+          )}
+        </Stack>
+      )}
       <Box
         data-tour="chat-composer"
         onDragOver={(e) => e.preventDefault()}
@@ -106,9 +158,9 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
           position: "relative",
           border: "1px solid",
           borderColor: focused ? `rgba(${CYAN},0.7)` : `rgba(${CYAN},0.22)`,
-          // A pill while it is one line; a rounded card once file chips or
-          // several lines stack inside it, or the chips sit in the curve.
-          borderRadius: files.length || text.includes("\n") ? 3 : 7,
+          // A pill while it is one line; a rounded card once several lines
+          // stack inside it.
+          borderRadius: text.includes("\n") ? 3 : 7,
           bgcolor: (t) => (t.palette.mode === "dark" ? "rgba(255,255,255,0.035)" : "rgba(255,255,255,0.85)"),
           backdropFilter: "blur(10px)",
           boxShadow: (t) =>
@@ -138,20 +190,6 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
           "@media (prefers-reduced-motion: reduce)": { "&::after": { animation: "none" } },
         }}
       >
-        {!!files.length && (
-          <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mb: 1, mt: 0.5, px: 0.75 }}>
-            {files.map((f) => (
-              <Chip
-                key={`${f.filename}-${f.size}`}
-                size="small"
-                label={f.filename}
-                onDelete={() => setFiles((prev) => prev.filter((x) => x !== f))}
-                deleteIcon={<CloseIcon />}
-                sx={{ maxWidth: 260, bgcolor: "rgba(85,233,255,0.12)", "& .MuiChip-deleteIcon": { color: "text.secondary" } }}
-              />
-            ))}
-          </Stack>
-        )}
         <Stack direction="row" alignItems="center" gap={1}>
           <Box sx={{ alignSelf: "flex-end", pb: 0.25, pl: 0.25 }}>
             <AimeeFace size={30} mood={mood} />
