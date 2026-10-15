@@ -134,7 +134,52 @@ function getTokenClient(): PrismaClient {
   return tokenClient!;
 }
 
+/**
+ * Opt-in second-app override. The main connection shares ONE daily Xero quota
+ * with the GL wipe-and-reload, which can exhaust it for ~20h and block every
+ * other script. Set XERO_USE_APP2=1 to run against the second app
+ * ("AIMS Sync 2", scripts/_xero2-tokens.json), which has its own quota.
+ * Same tenant, so the data is identical — only the calling app differs.
+ */
+async function app2Tokens(): Promise<XeroTokens> {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const fsx = require("fs");
+  const file = __dirname + "/../_xero2-tokens.json"; // lives in scripts/, not scripts/xero-migration/
+  const read = () => JSON.parse(fsx.readFileSync(file, "utf8"));
+  const refresh = async () => {
+    const t = read();
+    const basic = Buffer.from(`${t.clientId}:${t.clientSecret}`).toString("base64");
+    const res = await fetch("https://identity.xero.com/connect/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Basic ${basic}` },
+      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: t.refreshToken }),
+    });
+    if (!res.ok) throw new Error(`app2 refresh ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const n: any = await res.json();
+    const upd = { ...t, accessToken: n.access_token, refreshToken: n.refresh_token, expiresAt: Date.now() + n.expires_in * 1000 };
+    fsx.writeFileSync(file, JSON.stringify(upd, null, 2));
+    return upd;
+  };
+  let t = read();
+  if (t.expiresAt - Date.now() < 5 * 60 * 1000) t = await refresh();
+  const tokens: XeroTokens = {
+    tenantId: t.tenantId,
+    accessToken: t.accessToken,
+    refreshToken: t.refreshToken,
+    accessTokenExpiresAt: new Date(t.expiresAt),
+    refresh: async () => {
+      const u = await refresh();
+      tokens.accessToken = u.accessToken;
+      tokens.refreshToken = u.refreshToken;
+      tokens.accessTokenExpiresAt = new Date(u.expiresAt);
+    },
+  };
+  console.log("  using Xero app2 (XERO_USE_APP2=1)");
+  return tokens;
+}
+
 export async function getXeroTokens(_dataPrisma: PrismaClient, organizationId: string): Promise<XeroTokens> {
+  if (process.env.XERO_USE_APP2 === "1") return app2Tokens();
   const prisma = getTokenClient();
   // Neon's 5432 pooler intermittently refuses fresh connections (bit the
   // nightly chain 2026-09-17 and -21) — retry the first touch a few times.

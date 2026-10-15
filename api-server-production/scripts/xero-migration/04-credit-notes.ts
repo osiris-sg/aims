@@ -207,13 +207,20 @@ async function importType(tokens: any, side: "AR" | "AP") {
       }
 
       try {
+        // The unique key is (name, organizationId, documentTemplateId) and does
+        // NOT include type. Filtering the lookup by type=CREDIT_NOTE meant a
+        // name already held by a BILL or INVOICE on this template was missed,
+        // create() then hit the constraint, and the credit note never imported.
+        // Five failed this way on 2026-10-15 — including the 2021 KTC credit
+        // note, which AIMS was holding as a NEGATIVE INVOICE. Match on
+        // name+template whatever the current type, and let the update below
+        // convert the row to CREDIT_NOTE.
         const existing = await prisma.document.findFirst({
           where: {
             organizationId: BIOFUEL_ORG_ID,
-            type: "CREDIT_NOTE",
             OR: [
               { config: { path: ["xeroCreditNoteId"], equals: cn.CreditNoteID } },
-              { name: cnNumber },
+              { name: cnNumber, documentTemplateId: tmplId },
             ],
           },
           select: { id: true },
