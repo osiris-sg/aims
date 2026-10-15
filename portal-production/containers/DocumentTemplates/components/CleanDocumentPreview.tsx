@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { billToText } from "../utils/billToText";
 import { Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Dialog, IconButton } from "@mui/material";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -1132,7 +1133,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {data.customer?.name || data.customerName || ""}
               </Typography>
               <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
-                {data.billTo || data.customer?.address || data.customerAddress || ""}
+                {billToText(data.billTo || data.customer?.address || data.customerAddress || "", data.customer?.name || data.customerName)}
               </Typography>
             </Box>
 
@@ -1371,7 +1372,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {data.customer?.name || data.customerName || ""}
               </Typography>
               <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
-                {data.billTo || data.customer?.address || ""}
+                {billToText(data.billTo || data.customer?.address || "", data.customer?.name || data.customerName)}
               </Typography>
               {data.customer?.uen && (
                 <Typography sx={{ fontSize: "0.8125rem" }}>UEN: {data.customer.uen}</Typography>
@@ -1568,7 +1569,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {data.customer?.name || data.customerName || ""}
               </Typography>
               <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
-                {data.billTo || data.customer?.address || ""}
+                {billToText(data.billTo || data.customer?.address || "", data.customer?.name || data.customerName)}
               </Typography>
               {(data.customer?.uen) && (
                 <Typography sx={{ fontSize: "0.8125rem" }}>UEN: {data.customer.uen}</Typography>
@@ -1750,7 +1751,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {data.customer?.name || data.customerName || ""}
               </Typography>
               <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
-                {data.billTo || data.customer?.address || data.customerAddress || ""}
+                {billToText(data.billTo || data.customer?.address || data.customerAddress || "", data.customer?.name || data.customerName)}
               </Typography>
               {/* Attention — from the linked point of contact (attention.*), the
                   same source the Biofuel quotation uses. Empty rows auto-hide. */}
@@ -2617,7 +2618,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                         {data.customer?.name || data.customerName || ""}
                       </Typography>
                       <Typography sx={{ fontSize: "0.875rem", whiteSpace: "pre-line" }}>
-                        {data.billTo || data.customer?.address || data.customerAddress || ""}
+                        {billToText(data.billTo || data.customer?.address || data.customerAddress || "", data.customer?.name || data.customerName)}
                       </Typography>
                     </>,
                   )}
@@ -2869,7 +2870,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {data.customer?.name || data.customerName || ""}
               </Typography>
               <Typography sx={{ fontSize: "0.875rem", whiteSpace: "pre-line" }}>
-                {data.billTo || data.customer?.address || data.customerAddress || ""}
+                {billToText(data.billTo || data.customer?.address || data.customerAddress || "", data.customer?.name || data.customerName)}
               </Typography>
             </Box>
 
@@ -3352,7 +3353,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {data.customer?.name || data.customerName || ""}
               </Typography>
               <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-line" }}>
-                {data.billTo || data.customer?.address || data.customerAddress || ""}
+                {billToText(data.billTo || data.customer?.address || data.customerAddress || "", data.customer?.name || data.customerName)}
               </Typography>
             </Box>
 
@@ -4356,7 +4357,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   {data.customer?.name || data.customerName || ""}
                 </Typography>
                 <Typography sx={{ fontSize: "0.875rem", whiteSpace: "pre-line", mb: 0.5 }}>
-                  {data.billTo || data.customer?.address || data.customerAddress || ""}
+                  {billToText(data.billTo || data.customer?.address || data.customerAddress || "", data.customer?.name || data.customerName)}
                 </Typography>
                 <InfoRow label="Attention" value={data.attention?.name} minWidth="90px" fontSize="0.875rem" />
                 <InfoRow label="Mobile" value={data.attention?.phoneNumber || data.attention?.phone || data.contactNumber} minWidth="90px" fontSize="0.875rem" />
@@ -4431,7 +4432,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               {data.customer?.name || data.customerName || ""}
             </Typography>
             <Typography sx={{ fontSize: "0.875rem", whiteSpace: "pre-line" }}>
-              {data.billTo || data.customer?.address || data.customerAddress || ""}
+              {billToText(data.billTo || data.customer?.address || data.customerAddress || "", data.customer?.name || data.customerName)}
             </Typography>
           </Box>
 
