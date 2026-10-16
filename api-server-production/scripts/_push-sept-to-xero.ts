@@ -77,7 +77,11 @@ async function xero(method: string, path: string, body?: any) {
   if (!OUTPUT_TAX) throw new Error("no 9% output TaxType found");
 
   const all = await prisma.document.findMany({ where: { organizationId: ORG, type: "INVOICE", name: ONLY ? ONLY : { gte: FROM, lte: TO } }, orderBy: { name: "asc" } });
-  const docs = all.filter(d => /^BI202609\d{3}$/.test(d.name!));
+  // The series guard protects a bare run (no --only) from sweeping in anything
+  // outside the Sept BI block. An explicit --only is the caller naming one
+  // document, so it is trusted — otherwise BIPL-JPSG-* names silently matched
+  // nothing and the push reported "0 to push" (guru 2026-10-02).
+  const docs = ONLY ? all : all.filter((d) => /^BI202609\d{3}$/.test(d.name!));
   console.log(`${docs.length} candidate doc(s) · output tax ${OUTPUT_TAX} · due ${DUE_DATE}`);
 
   const custIds = [...new Set(docs.map(d => (d.config as any)?.customerId).filter(Boolean))] as string[];
@@ -153,7 +157,12 @@ async function xero(method: string, path: string, body?: any) {
       Type: "ACCREC",
       Contact: { ContactID: cust!.xeroId },
       InvoiceNumber: d.name,
-      Reference: (c.reference || "").slice(0, 255),
+      // CLAUDE.md: config.referenceNo is CANONICAL. Reading `reference` alone
+      // (set on just 232 of 3,066 invoices) sent Xero an empty reference for
+      // almost everything (guru 2026-10-02). Use the documented fallback chain.
+      Reference: String(
+        c.documentInfo?.referenceNo ?? c.referenceNo ?? c.documentInfo?.reference ?? c.reference ?? c.xeroReference ?? "",
+      ).slice(0, 255),
       Date: (typeof c.date === "string" ? c.date : "2026-09-01").slice(0, 10),
       DueDate: DUE_DATE,
       Status: "DRAFT",
