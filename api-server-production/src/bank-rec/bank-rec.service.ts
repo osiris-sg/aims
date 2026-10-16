@@ -70,12 +70,35 @@ export class BankRecService {
   // List ChartOfAccount entries that look like bank/cash. Used by the UI's
   // account picker. Detection is delegated to JournalService.isCashOrBankAccount
   // so every cash-aware code path uses the same rule.
+  // Each account carries its OWN workload, so the picker can be a worklist.
+  // Without this the page defaulted to whichever cash account sorted first and
+  // showed "None yet — upload a statement" on an org holding 1,853 lines, with
+  // nothing to say the statements were on a different account (guru 2026-10-16).
   async listBankAccounts(organizationId: string) {
     const all = await this.prisma.chartOfAccount.findMany({
       where: { organizationId, isActive: true, category: 'BALANCE_SHEET' },
       orderBy: { code: 'asc' },
     });
-    return all.filter((a) => this.journal.isCashOrBankAccount(a));
+    const accounts = all.filter((a) => this.journal.isCashOrBankAccount(a));
+    if (accounts.length === 0) return [];
+
+    const ids = accounts.map((a) => a.id);
+    const counts = await this.prisma.bankStatementLine.groupBy({
+      by: ['bankAccountId', 'status'],
+      where: { organizationId, bankAccountId: { in: ids } },
+      _count: { _all: true },
+    });
+    const byAccount = new Map<string, { lines: number; pending: number }>();
+    for (const c of counts) {
+      const e = byAccount.get(c.bankAccountId) || { lines: 0, pending: 0 };
+      e.lines += c._count._all;
+      if (c.status === 'PENDING') e.pending += c._count._all;
+      byAccount.set(c.bankAccountId, e);
+    }
+    return accounts.map((a) => {
+      const e = byAccount.get(a.id) || { lines: 0, pending: 0 };
+      return { ...a, statementLines: e.lines, pendingLines: e.pending };
+    });
   }
 
   // List imports for an account (history).
@@ -372,20 +395,66 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
       matchedIds.length > 0
         ? await this.prisma.journalEntryLine.findMany({
             where: { id: { in: matchedIds } },
-            include: { journalEntry: { select: { id: true, journalNumber: true, entryDate: true, type: true } } },
+            include: {
+              journalEntry: {
+                select: { id: true, journalNumber: true, entryDate: true, type: true, sourceDocumentId: true },
+              },
+            },
           })
         : [];
     const matchedById = new Map(matched.map((m) => [m.id, m]));
 
+    // Resolve the SOURCE DOCUMENT behind each matched journal. A journal number
+    // means nothing to an accountant staring at a bank line — they need the
+    // invoice/bill number, the contact and the amount, and a way to open it
+    // (guru 2026-10-16).
+    const docIds = [
+      ...new Set(matched.map((m) => m.journalEntry?.sourceDocumentId).filter(Boolean) as string[]),
+    ];
+    const docs = docIds.length
+      ? await this.prisma.document.findMany({
+          where: { id: { in: docIds }, organizationId },
+          select: { id: true, name: true, type: true, documentTemplateId: true, status: true, config: true },
+        })
+      : [];
+    const docById = new Map(docs.map((d) => [d.id, this.docSummary(d as any)]));
+
+    const describe = (jl: any) => {
+      if (!jl) return null;
+      const doc = jl.journalEntry?.sourceDocumentId ? docById.get(jl.journalEntry.sourceDocumentId) ?? null : null;
+      return {
+        journalLineId: jl.id,
+        journalId: jl.journalEntry?.id ?? null,
+        journalNumber: jl.journalEntry?.journalNumber ?? null,
+        entryDate: jl.journalEntry?.entryDate ?? null,
+        journalType: jl.journalEntry?.type ?? null,
+        amount: (jl.debit || 0) - (jl.credit || 0),
+        // null when the journal was not raised from a document (a manual
+        // entry, a bank charge) — the UI then falls back to the journal.
+        document: doc,
+      };
+    };
+
     return {
       ...imp,
       lines: imp.lines.map((l) => {
-        const multi = (matchesByLine.get(l.id) || []).map((id) => matchedById.get(id)).filter(Boolean);
+        const claimedIds = [
+          ...new Set([...(matchesByLine.get(l.id) || []), ...(l.matchedJournalLineId ? [l.matchedJournalLineId] : [])]),
+        ];
+        const resolved = claimedIds.map((id) => matchedById.get(id)).filter(Boolean);
+        // A match whose journal line no longer exists. Biofuel's Xero rebuild
+        // recreated every journal and orphaned 1,822 of these, yet the row still
+        // read "MATCHED" against nothing (guru 2026-10-16). Surface it instead of
+        // rendering an empty cell.
+        const brokenMatches = claimedIds.length - resolved.length;
+        const described = resolved.map(describe);
         return {
           ...l,
-          matchedJournalLine: l.matchedJournalLineId ? matchedById.get(l.matchedJournalLineId) ?? null : multi[0] ?? null,
+          matchedJournalLine: described[0] ?? null,
           // Batch matches: all journal lines this statement line settles.
-          matchedJournalLines: multi.length ? multi : l.matchedJournalLineId ? [matchedById.get(l.matchedJournalLineId)].filter(Boolean) : [],
+          matchedJournalLines: described,
+          brokenMatches,
+          matchIntegrity: claimedIds.length === 0 ? 'NONE' : brokenMatches === 0 ? 'OK' : resolved.length === 0 ? 'BROKEN' : 'PARTIAL',
         };
       }),
     };

@@ -36,6 +36,8 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import CloseIcon from "@mui/icons-material/Close";
+import LinkOffIcon from "@mui/icons-material/LinkOff";
+import { withActiveOrg } from "@/helpers/request";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import PageTable from "@/components/PageTable";
@@ -262,6 +264,24 @@ export default function BankReconciliationPage() {
     }
   };
 
+  // Shared by the inline control in the verdict header and the legacy dialog,
+  // so the two can't drift apart.
+  const saveEndingBalance = async () => {
+    const v = endingDraft.trim() === "" ? null : parseFloat(endingDraft);
+    if (v !== null && !Number.isFinite(v)) return toast.error("Enter a valid amount");
+    try {
+      await request(`/bank-rec/imports/${activeImportId}/ending-balance`, {
+        method: "POST",
+        body: JSON.stringify({ endingBalance: v }),
+      });
+      setEndingEditOpen(false);
+      toast.success(v === null ? "Ending balance cleared" : "Ending balance set");
+      loadActive();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to save ending balance");
+    }
+  };
+
   const runAutoMatch = async () => {
     if (!activeImportId) return;
     try {
@@ -474,7 +494,7 @@ export default function BankReconciliationPage() {
     },
     {
       accessorKey: "match",
-      header: "Match / Suggestion",
+      header: "Matched to",
       cell: ({ row }: any) => {
         const line: StatementLine = row.original;
         // Paid-vs-bank drift in days — the accountant's first sanity check.
@@ -483,30 +503,82 @@ export default function BankReconciliationPage() {
           return d === 0 ? "same day" : d > 0 ? `+${d}d` : `${d}d`;
         };
         const multi: any[] = (line as any).matchedJournalLines || [];
+        const integrity = (line as any).matchIntegrity;
+
+        // A match pointing at a journal line that no longer exists. Biofuel's
+        // Xero rebuild orphaned 1,822 of these and every row still read
+        // "MATCHED" against an empty cell (guru 2026-10-16). Say so plainly —
+        // a silent blank is what made the screen untrustworthy.
+        if (integrity === "BROKEN" || integrity === "PARTIAL") {
+          return (
+            <Tooltip title="The journal this line was matched to no longer exists — most likely re-posted or re-imported. Re-run matching, or unmatch to reconcile it again.">
+              <Chip
+                size="small"
+                color="error"
+                variant="outlined"
+                icon={<LinkOffIcon sx={{ fontSize: 14 }} />}
+                label={integrity === "BROKEN" ? "Match lost" : `${(line as any).brokenMatches} of ${multi.length + (line as any).brokenMatches} lost`}
+                sx={{ fontSize: "0.68rem", height: 20 }}
+              />
+            </Tooltip>
+          );
+        }
+
+        // One row per settled document: what it is, who it's with, and a way in.
+        const entry = (m: any, key: string) => {
+          const doc = m?.document;
+          return (
+            <Box key={key} sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0, py: 0.15 }}>
+              {doc ? (
+                <>
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    color="success"
+                    label={doc.number || doc.type}
+                    onClick={(e: any) => {
+                      e.stopPropagation();
+                      window.open(
+                        withActiveOrg(`/portal/documents/${doc.type}/${doc.templateId}/${doc.id}`),
+                        "_blank",
+                        "noopener",
+                      );
+                    }}
+                    sx={{ fontSize: "0.68rem", height: 20, cursor: "pointer" }}
+                  />
+                  {doc.contact && (
+                    <Box component="span" sx={{ color: "text.secondary", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {doc.contact}
+                    </Box>
+                  )}
+                </>
+              ) : (
+                // Manual journals / bank charges have no source document.
+                <Box component="span" sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>
+                  {m?.journalNumber || "journal"}
+                </Box>
+              )}
+              <Box component="span" sx={{ color: "text.disabled", fontSize: "0.7rem", flexShrink: 0 }}>
+                {m?.entryDate ? drift(m.entryDate) : ""}
+              </Box>
+            </Box>
+          );
+        };
+
         return (
-          <Box sx={{ fontSize: "0.8125rem" }}>
+          <Box sx={{ fontSize: "0.8125rem", minWidth: 0 }}>
             {multi.length > 1 ? (
-              <Box sx={{ color: "text.secondary" }}>
-                <Box component="span" sx={{ fontWeight: 700 }}>
-                  {multi.length} journals (batch)
+              <>
+                <Box sx={{ color: "text.secondary", fontWeight: 700, fontSize: "0.7rem" }}>
+                  {multi.length} documents (batch)
                 </Box>
-                {" · paid "}
-                {(() => {
-                  const ds = multi.map((m: any) => new Date(m.journalEntry.entryDate).getTime());
-                  const lo = new Date(Math.min(...ds)).toLocaleDateString("en-GB");
-                  const hi = new Date(Math.max(...ds)).toLocaleDateString("en-GB");
-                  return lo === hi ? `${lo} (${drift(new Date(Math.min(...ds)))})` : `${lo} – ${hi}`;
-                })()}
-              </Box>
-            ) : line.matchedJournalLine ? (
-              <Box sx={{ color: "text.secondary" }}>
-                <Box component="span" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
-                  {line.matchedJournalLine.journalEntry.journalNumber}
-                </Box>
-                {" · paid "}
-                {new Date(line.matchedJournalLine.journalEntry.entryDate).toLocaleDateString("en-GB")}
-                {` (${drift(line.matchedJournalLine.journalEntry.entryDate)})`}
-              </Box>
+                {multi.slice(0, 3).map((m, i) => entry(m, String(i)))}
+                {multi.length > 3 && (
+                  <Box sx={{ color: "text.disabled", fontSize: "0.7rem" }}>+{multi.length - 3} more</Box>
+                )}
+              </>
+            ) : multi.length === 1 ? (
+              entry(multi[0], "single")
             ) : null}
             {line.status === "PENDING" && line.suggestionReason && (
               <Tooltip title={line.suggestionReason}>
@@ -588,9 +660,27 @@ export default function BankReconciliationPage() {
             sx={{ minWidth: { xs: "100%", sm: 280 } }}
           >
             {accounts.length === 0 && <MenuItem disabled>No bank accounts in chart</MenuItem>}
-            {accounts.map((a) => (
+            {/* Each option carries its own workload so the picker reads as a
+                worklist. The page used to default to whichever cash account
+                sorted first and show "None yet — upload a statement" on an org
+                holding 1,853 lines, with nothing saying the statements were on
+                a different account (guru 2026-10-16). */}
+            {accounts.map((a: any) => (
               <MenuItem key={a.id} value={a.id}>
-                {a.code} — {a.name}
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
+                  <Box component="span" sx={{ flex: 1, minWidth: 0 }}>
+                    {a.code} — {a.name}
+                  </Box>
+                  {a.pendingLines > 0 ? (
+                    <Chip size="small" color="warning" label={`${a.pendingLines} to do`} sx={{ height: 18, fontSize: "0.65rem" }} />
+                  ) : a.statementLines > 0 ? (
+                    <Chip size="small" color="success" variant="outlined" label="clear" sx={{ height: 18, fontSize: "0.65rem" }} />
+                  ) : (
+                    <Box component="span" sx={{ color: "text.disabled", fontSize: "0.7rem" }}>
+                      no statements
+                    </Box>
+                  )}
+                </Box>
               </MenuItem>
             ))}
           </TextField>
@@ -668,49 +758,99 @@ export default function BankReconciliationPage() {
         </Paper>
       )}
 
-      {/* Reconciliation summary */}
+      {/* Reconciliation verdict.
+          Bank rec exists to answer ONE question: does the bank agree with the
+          books? That answer used to sit as the FOURTH tile reading
+          "n/a (no ending balance)", while the control that unblocks it was a
+          tile truncated to "Set…" (guru 2026-10-16). The verdict now leads, and
+          when it can't be computed it says what to do and offers the input
+          inline instead of hiding it behind a tooltip. */}
       {recon && activeImport && (
-        <Stack direction="row" gap={2} flexWrap="wrap">
-          <Tooltip title="Click to set the statement's closing balance">
-            <Box
-              sx={{ cursor: "pointer" }}
-              onClick={() => {
-                setEndingDraft(recon.bankEndingBalance !== null && recon.bankEndingBalance !== undefined ? String(recon.bankEndingBalance) : "");
-                setEndingEditOpen(true);
-              }}
-            >
-              <Stat
-                label="Bank ending"
-                value={recon.bankEndingBalance !== null ? fmt(recon.bankEndingBalance) : "Set…"}
-                accent={recon.bankEndingBalance === null ? "warning" : undefined}
-              />
+        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+          <Stack direction={{ xs: "column", md: "row" }} gap={2} alignItems={{ md: "center" }}>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              {recon.reconciles === true ? (
+                <>
+                  <Typography variant="h5" sx={{ fontWeight: 800, color: "success.main" }}>
+                    Reconciled
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                    The bank and your books agree on {fmt(recon.glBalance)}.
+                  </Typography>
+                </>
+              ) : recon.reconciles === false ? (
+                <>
+                  <Typography variant="h5" sx={{ fontWeight: 800, color: "error.main" }}>
+                    Out by {fmt(Math.abs(recon.diff || 0))}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                    Bank says {fmt(recon.bankEndingBalance || 0)} · books say {fmt(recon.glBalance)}
+                    {recon.pendingCount > 0 ? ` · ${recon.pendingCount} line${recon.pendingCount === 1 ? "" : "s"} still unmatched` : ""}
+                  </Typography>
+                </>
+              ) : (
+                <>
+                  <Typography variant="h5" sx={{ fontWeight: 800 }}>
+                    Can&apos;t reconcile yet
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                    Enter the closing balance printed on the statement and this will tell you whether it agrees with your books.
+                  </Typography>
+                </>
+              )}
             </Box>
-          </Tooltip>
-          <Stat label="GL balance" value={fmt(recon.glBalance)} />
-          <Stat
-            label="Pending"
-            value={fmt(recon.pendingTotal)}
-            accent={recon.pendingCount > 0 ? "warning" : undefined}
-          />
-          <Stat
-            label="Reconciles?"
-            value={
-              recon.reconciles === null
-                ? "n/a (no ending balance)"
-                : recon.reconciles
-                ? "✓"
-                : `Diff ${fmt(recon.diff || 0)}`
-            }
-            accent={recon.reconciles === true ? "success" : recon.reconciles === false ? "error" : undefined}
-          />
-          <Box sx={{ flex: 1 }} />
-          <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={runAutoMatch}>
-            Re-run match
-          </Button>
-          <Button startIcon={<DeleteOutlineIcon />} variant="outlined" size="small" color="error" onClick={deleteImport}>
-            Delete import
-          </Button>
-        </Stack>
+
+            {/* The unblocking control, in the open rather than behind a tooltip. */}
+            <Stack direction="row" gap={1} alignItems="center" sx={{ flexWrap: "wrap" }}>
+              <TextField
+                size="small"
+                label="Statement closing balance"
+                value={endingDraft}
+                onChange={(e) => setEndingDraft(e.target.value)}
+                onFocus={() =>
+                  setEndingDraft((d) =>
+                    d !== "" ? d : recon.bankEndingBalance !== null && recon.bankEndingBalance !== undefined ? String(recon.bankEndingBalance) : "",
+                  )
+                }
+                placeholder="0.00"
+                inputProps={{ inputMode: "decimal", style: { textAlign: "right" } }}
+                sx={{ width: 200 }}
+              />
+              <Button size="small" variant="contained" onClick={saveEndingBalance} disabled={endingDraft === ""}>
+                Save
+              </Button>
+            </Stack>
+          </Stack>
+
+          <Stack direction="row" gap={3} sx={{ mt: 1.5, flexWrap: "wrap" }}>
+            <Box>
+              <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
+                Books (GL)
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+                {fmt(recon.glBalance)}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
+                Unmatched
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums", color: recon.pendingCount > 0 ? "warning.main" : "text.primary" }}
+              >
+                {fmt(recon.pendingTotal)}{recon.pendingCount > 0 ? ` · ${recon.pendingCount} line${recon.pendingCount === 1 ? "" : "s"}` : ""}
+              </Typography>
+            </Box>
+            <Box sx={{ flex: 1 }} />
+            <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={runAutoMatch}>
+              Re-run match
+            </Button>
+            <Button startIcon={<DeleteOutlineIcon />} variant="outlined" size="small" color="error" onClick={deleteImport}>
+              Delete import
+            </Button>
+          </Stack>
+        </Paper>
       )}
 
       {/* View toggle: Reconcile (Xero-style work view) vs All lines (audit table) */}
@@ -848,24 +988,7 @@ export default function BankReconciliationPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setEndingEditOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={async () => {
-              const v = endingDraft.trim() === "" ? null : parseFloat(endingDraft);
-              if (v !== null && !Number.isFinite(v)) return toast.error("Enter a valid amount");
-              try {
-                await request(`/bank-rec/imports/${activeImportId}/ending-balance`, {
-                  method: "POST",
-                  body: JSON.stringify({ endingBalance: v }),
-                });
-                setEndingEditOpen(false);
-                toast.success(v === null ? "Ending balance cleared" : "Ending balance set");
-                loadActive();
-              } catch (e: any) {
-                toast.error(e?.message || "Failed to save ending balance");
-              }
-            }}
-          >
+          <Button variant="contained" onClick={saveEndingBalance}>
             Save
           </Button>
         </DialogActions>
