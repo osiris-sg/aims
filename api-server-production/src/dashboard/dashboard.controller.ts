@@ -86,14 +86,14 @@ export class DashboardController {
   // interceptor records them as views rather than bogus CREATEs.
 
   @Get('ops/stock')
-  @Permissions('inventory:read')
+  @Permissions('inventories:read')
   @ApiOperation({ summary: 'Stock on hand by product and status' })
   async getOpsStock(@Req() req: RequestWithOrganization) {
     return await this.dashboardService.getOpsStock(this.orgOf(req));
   }
 
   @Get('ops/movements')
-  @Permissions('inventory:read')
+  @Permissions('inventories:read')
   @ApiOperation({ summary: 'Recent units in and out' })
   async getOpsMovements(@Req() req: RequestWithOrganization, @Query('limit') limit?: string) {
     const n = Math.min(Math.max(parseInt(limit || '20', 10) || 20, 1), 100);
@@ -126,7 +126,7 @@ export class DashboardController {
   }
 
   @Get('ops/map')
-  @Permissions('inventory:read')
+  @Permissions('inventories:read')
   @ApiOperation({ summary: 'Where the fleet sits, and where the team has been' })
   async getOpsMap(@Req() req: RequestWithOrganization) {
     return await this.dashboardService.getOpsMap(this.orgOf(req));
