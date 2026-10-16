@@ -28,6 +28,11 @@ export class PdfGeneratorService {
     options?: {
       margin?: { top: string; right: string; bottom: string; left: string };
       fitToPage?: { selector: string; bandMm: number };
+      /** Print "Page N of M" in the bottom margin. Reports need it on EVERY
+       *  page (guru's paper rule); documents are one page and pass nothing.
+       *  It has to be Puppeteer's footer rather than CSS, because only the
+       *  print engine knows the page count. */
+      pageNumbers?: { label?: string };
     },
   ): Promise<Buffer> {
     let browser = null;
@@ -81,10 +86,25 @@ export class PdfGeneratorService {
       if (options?.fitToPage) await this.fitToOnePage(page, options.fitToPage);
 
       // Generate PDF with A4 format
+      const footer = options?.pageNumbers;
       const pdfBuffer = await page.pdf({
         format: 'A4',
         printBackground: true,
         margin: options?.margin ?? { top: '0', right: '0', bottom: '0', left: '0' },
+        ...(footer
+          ? {
+              displayHeaderFooter: true,
+              // An empty header is deliberate: with displayHeaderFooter on and
+              // no template, Chrome prints its own title/date strip.
+              headerTemplate: '<span></span>',
+              footerTemplate:
+                `<div style="width:100%;font-size:8px;font-family:Helvetica,Arial,sans-serif;` +
+                `color:#444;padding:0 10mm;display:flex;justify-content:space-between;">` +
+                `<span>${(footer.label || '').replace(/[<>&]/g, '')}</span>` +
+                `<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>` +
+                `</div>`,
+            }
+          : {}),
       });
 
       return Buffer.from(pdfBuffer);

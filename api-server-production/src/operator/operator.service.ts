@@ -107,6 +107,7 @@ const TOOL_STATUS: Record<string, string> = {
   create_invoice: '📝 Creating the invoice...',
   create_invoice_from_quotation: '📝 Raising the invoice from the quotation...',
   preview_document: '📄 Generating the PDF preview...',
+  report_pdf: '📊 Building the report...',
   confirm_document: '🔒 Checking the document...',
   confirm_invoice: '🔒 Checking the invoice...',
   list_open_invoices: '📂 Fetching open invoices...',

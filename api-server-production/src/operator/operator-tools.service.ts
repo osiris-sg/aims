@@ -16,6 +16,7 @@ import { PaymentsService } from '../payments/payments.service';
 import { ReceiptsService } from '../receipts/receipts.service';
 import { XeroReportsService } from '../statements/xero-reports.service';
 import { StatementsService } from '../statements/statements.service';
+import { ReportPdfService } from '../report-pdf/report-pdf.service';
 import { SuppliersService } from '../suppliers/suppliers.service';
 import { BillsService } from '../bills/bills.service';
 import { InventoriesService } from '../inventories/inventories.service';
@@ -37,7 +38,7 @@ export interface ToolOutcome {
   result: any;
   pending?: PendingAction;
   /** A document PDF to push to the user before the model's final text. */
-  preview?: { documentId: string; url: string; filename: string; caption: string };
+  preview?: { documentId?: string; url: string; filename: string; caption: string };
   /** Web chat only: something for the side panel (a screen, a table). */
   ui?: WebUiEvent;
 }
@@ -121,6 +122,7 @@ export class OperatorToolsService {
     private readonly receipts: ReceiptsService,
     private readonly xeroReports: XeroReportsService,
     private readonly statements: StatementsService,
+    private readonly reportPdf: ReportPdfService,
     private readonly suppliers: SuppliersService,
     private readonly bills: BillsService,
     private readonly inventories: InventoriesService,
@@ -572,6 +574,50 @@ export class OperatorToolsService {
           required: ['customerId', 'items'],
         },
         run: async (ctx, args) => this.createSalesDraft(ctx, 'QUOTATION', args),
+      },
+
+      {
+        name: 'report_pdf',
+        description:
+          'Produce an ACCOUNTING REPORT as a PDF and send it to the user as a file. Use this whenever they ask for a statement (SOA), aged receivables/payables or a trial balance "as a PDF", "send me", "email me" or just "can I get". ' +
+          'reports: soa (customer Statement of Account, needs contactId), supplier-soa (needs contactId), aged-receivables, aged-payables, trial-balance. ' +
+          'Find the customer/supplier id first with find_customer or find_supplier. Dates are YYYY-MM-DD. ' +
+          'If the report they want is not in that list, say plainly that it has no PDF yet and offer the figures instead. Never claim a PDF cannot be sent over this channel: it can.',
+        permissions: ['statements:read'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            report: {
+              type: 'string',
+              enum: ['soa', 'supplier-soa', 'aged-receivables', 'aged-payables', 'trial-balance'],
+            },
+            contactId: { type: 'string', description: 'Customer id for soa, supplier id for supplier-soa.' },
+            from: { type: 'string', description: 'Period start, YYYY-MM-DD.' },
+            to: { type: 'string', description: 'Period end or "as at" date, YYYY-MM-DD.' },
+            level: { type: 'string', enum: ['summary', 'detail'], description: 'Aged reports only.' },
+          },
+          required: ['report'],
+        },
+        run: async (ctx, args: any) => {
+          try {
+            const out = await this.reportPdf.generate(ctx.organizationId, String(args?.report || ''), {
+              contactId: args?.contactId,
+              from: args?.from,
+              to: args?.to,
+              level: args?.level,
+            });
+            return {
+              result: { report: out.key, label: out.label, sent: true },
+              // The loop sends this as a real file attachment.
+              preview: { url: out.url, filename: out.filename, caption: out.label },
+            };
+          } catch (e: any) {
+            // Hand the model the actual reason. Left to guess, it invented one
+            // ("PDFs can't be sent over WhatsApp") and offered an email it
+            // could not send either (guru 2026-10-16).
+            return { result: { error: e?.message || 'Could not generate that report' } };
+          }
+        },
       },
 
       {

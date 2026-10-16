@@ -51,6 +51,7 @@ import { RevenueItemsModule } from './revenue-items/revenue-items.module';
 import { DocumentNumberingModule } from './document-numbering/document-numbering.module';
 import { RecurringInvoicesModule } from './recurring-invoices/recurring-invoices.module';
 import { StatementsModule } from './statements/statements.module';
+import { ReportPdfModule } from './report-pdf/report-pdf.module';
 import { EmailModule } from './email/email.module';
 import { ImportModule } from './import/import.module';
 import { AccountingModule } from './accounting/accounting.module';
@@ -123,6 +124,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     DocumentNumberingModule,
     RecurringInvoicesModule,
     StatementsModule,
+    ReportPdfModule,
     EmailModule,
     ImportModule,
     AccountingModule,

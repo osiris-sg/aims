@@ -15,6 +15,7 @@ import { PriceHistoryModule } from '../price-history/price-history.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { ReceiptsModule } from '../receipts/receipts.module';
 import { StatementsModule } from '../statements/statements.module';
+import { ReportPdfModule } from '../report-pdf/report-pdf.module';
 import { SuppliersModule } from '../suppliers/suppliers.module';
 import { BillsModule } from '../bills/bills.module';
 import { InventoriesModule } from '../inventories/inventories.module';
@@ -53,6 +54,7 @@ import { AuthModule } from '../auth/auth.module'; // provides 'ClerkClient' for 
     PaymentsModule,
     ReceiptsModule,
     StatementsModule,
+    ReportPdfModule,
     SuppliersModule,
     BillsModule,
     InventoriesModule,
