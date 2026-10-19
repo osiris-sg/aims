@@ -2024,6 +2024,13 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           this.logger.warn(`Webhook for unknown phone_number_id ${phoneNumberId} — ignoring`);
           continue;
         }
+        // A soft-disconnected line is fully inert (guru 2026-10-19: Summer's
+        // coexistence number was acting as CIEL's bot line) — no capture, no
+        // agent, no auto-replies. Reconnecting it flips status back.
+        if (connection.status !== 'CONNECTED') {
+          this.logger.log(`Webhook for ${connection.status} line ${phoneNumberId} — ignoring`);
+          continue;
+        }
 
         // Messages the business sent FROM the WhatsApp Business app (coexistence
         // echo) — log as outbound so conversation context stays complete, and
