@@ -2754,6 +2754,11 @@ export class DocumentsService {
     actor?: DocumentActor,
     nameOverride?: string,
   ) {
+    // The serial is claimed BEFORE the row is written. If the write then fails
+    // the number is gone for good — eight JPSG invoice numbers (0057-0064)
+    // were burned this way on 2026-10-19, leaving a gap an auditor will ask
+    // about. Remember what we claimed so the catch can hand it back.
+    let claimedName: string | undefined;
     try {
       console.log('Creating basic document with template ID:', documentTemplateId, 'Type:', type, 'Organization ID:', organizationId, 'Config:', config, 'ProjectId:', projectId);
 
@@ -2950,6 +2955,7 @@ export class DocumentsService {
           ? initialDocNumber.trim()
           : name;
 
+      claimedName = initialName;
       const newDocument = await this.prisma.document.create({
         data: {
           documentTemplateId,
@@ -2961,6 +2967,7 @@ export class DocumentsService {
           projectId: projectId || undefined,
         },
       });
+      claimedName = undefined; // written — the number is legitimately spent
 
       // Sync DocumentItem junction table (in case config has items)
       await this.syncDocumentItems(newDocument.id, initialConfig, organizationId);
@@ -2976,6 +2983,18 @@ export class DocumentsService {
 
       return newDocument;
     } catch (error) {
+      // Hand the serial back. releaseNumberIfLatest re-verifies inside its own
+      // transaction that this name is still the LAST one claimed, so a
+      // concurrent create that already took the next number is never clobbered
+      // — if it is no longer last, the number stays spent, which is safe.
+      if (claimedName) {
+        try {
+          const given = await this.documentNumbering.releaseNumberIfLatest(organizationId, type, claimedName);
+          if (given) console.warn(`[numbering] returned ${claimedName} after a failed create`);
+        } catch (e: any) {
+          console.warn('[numbering] could not return the serial:', e?.message);
+        }
+      }
       throw new HttpException(`Basic document creation failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
