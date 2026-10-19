@@ -7,7 +7,19 @@
  * Extracted from profit-loss/page.tsx so every statement renders identically.
  */
 
+import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Paper, Typography } from "@mui/material";
+
+// Paper typography — shared by the visible sheets AND the off-screen
+// measuring pass, so measured heights match what prints.
+export const PAPER_TYPOGRAPHY = {
+  fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
+  fontSize: "0.8125rem",
+  lineHeight: 1.5,
+} as const;
+// A4 content box: 297mm − 2 × 20mm padding (height), 210mm − 40mm (width).
+export const PAPER_CONTENT_HEIGHT = "257mm";
+export const PAPER_CONTENT_WIDTH = "170mm";
 
 export const fmt = (n: number) => {
   if (n === 0) return "0.00";
@@ -41,14 +53,124 @@ export function PaperSheet({ children, breakAfter }: { children: React.ReactNode
           p: "20mm",
           backgroundColor: "white",
           color: "#000",
-          fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
-          fontSize: "0.8125rem",
-          lineHeight: 1.5,
+          ...PAPER_TYPOGRAPHY,
         }}
       >
         {children}
       </Paper>
     </Box>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Measured A4 pagination (guru 2026-10-16: "it cuts off weirdly" — counting
+// rows per page can never be right because rows wrap and headers vary).
+// The rows are rendered ONCE off-screen at the paper's content width and
+// typography, their real pixel heights are measured, and pages are cut by a
+// pixel budget against a true 257mm box. Each page repeats `header(pageNo,
+// pageCount)`; `footer` (grand TOTAL etc.) is kept whole on the last page;
+// rows flagged `keepWithNext` (section/account headers) never end a page.
+// useLayoutEffect runs before paint, so the first frame is already paginated.
+// ---------------------------------------------------------------------------
+export function PaginatedPaper({
+  header,
+  rows,
+  footer,
+  keepWithNext,
+  measureKey,
+}: {
+  header: (pageNo: number, pageCount: number) => React.ReactNode;
+  rows: React.ReactNode[];
+  footer?: React.ReactNode;
+  /** rows[i] must not be the last row on a page (section headers) */
+  keepWithNext?: boolean[];
+  /** changes when the DATA changes — triggers a re-measure */
+  measureKey: string;
+}) {
+  const measureRef = useRef<HTMLDivElement | null>(null);
+  const [pages, setPages] = useState<number[][] | null>(null);
+
+  useLayoutEffect(() => {
+    const el = measureRef.current;
+    if (!el) return;
+    const pageBox = el.querySelector<HTMLElement>("[data-measure-page]");
+    const headerEl = el.querySelector<HTMLElement>("[data-measure-header]");
+    const footerEl = el.querySelector<HTMLElement>("[data-measure-footer]");
+    const rowEls = Array.from(el.querySelectorAll<HTMLElement>("[data-measure-row]"));
+    if (!pageBox || !headerEl) return;
+    const pageH = pageBox.offsetHeight;
+    const headerH = headerEl.offsetHeight;
+    const footerH = footerEl?.offsetHeight ?? 0;
+    const heights = rowEls.map((r) => r.offsetHeight);
+    // Safety margin for sub-pixel rounding between screen and print.
+    const budget = pageH - headerH - 12;
+
+    const out: number[][] = [];
+    let cur: number[] = [];
+    let used = 0;
+    for (let i = 0; i < heights.length; i++) {
+      const h = heights[i];
+      const glue = keepWithNext?.[i] && i + 1 < heights.length ? heights[i + 1] : 0;
+      if (cur.length && used + h + glue > budget) {
+        out.push(cur);
+        cur = [];
+        used = 0;
+      }
+      cur.push(i);
+      used += h;
+    }
+    if (footer && cur.length && used + footerH > budget) {
+      out.push(cur);
+      cur = [];
+    }
+    out.push(cur);
+    setPages(out);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [measureKey, rows.length]);
+
+  const pageCount = pages?.length ?? 1;
+
+  return (
+    <>
+      {/* Off-screen measuring pass — same width + typography as the paper. */}
+      <Box
+        ref={measureRef}
+        aria-hidden
+        className="no-print"
+        sx={{
+          position: "absolute",
+          left: -20000,
+          top: 0,
+          width: PAPER_CONTENT_WIDTH,
+          visibility: "hidden",
+          pointerEvents: "none",
+          color: "#000",
+          ...PAPER_TYPOGRAPHY,
+        }}
+      >
+        <div data-measure-page style={{ height: PAPER_CONTENT_HEIGHT }} />
+        <div data-measure-header>{header(1, 1)}</div>
+        {rows.map((r, i) => (
+          <div key={i} data-measure-row>
+            {r}
+          </div>
+        ))}
+        {footer && <div data-measure-footer>{footer}</div>}
+      </Box>
+
+      {(pages ?? [rows.map((_, i) => i)]).map((idxs, p) => {
+        const last = p === pageCount - 1;
+        return (
+          <PaperSheet key={p} breakAfter={!last}>
+            {header(p + 1, pageCount)}
+            {idxs.map((i) => (
+              <React.Fragment key={i}>{rows[i]}</React.Fragment>
+            ))}
+            {last && footer}
+          </PaperSheet>
+        );
+      })}
+    </>
   );
 }
 
