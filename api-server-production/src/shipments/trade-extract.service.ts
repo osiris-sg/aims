@@ -31,6 +31,7 @@ import {
   ShipmentDraft,
   shipmentDraftFromBl,
 } from './trade-extract.rules';
+import { fixedPremiumFromPi } from './trade-contract';
 import { TradeFilesService } from './trade-files.service';
 import { AnData, importTax, parseAnText, parsePermitText, PermitData, permitChecks, permitTotalFromFileName, sameBl } from './trade-customs';
 import { pdfText } from './trade-coa';
@@ -258,6 +259,10 @@ export class TradeExtractService {
       this.prisma.customer.findMany({ where: { organizationId }, select: { id: true, name: true } }),
     ]);
     const draft = contractDraftFromPi(pi, { suppliers, customers });
+    // Premiums are stored as the fixed part: take QMJP (quarter of the PI's pricing month) off the printed premium.
+    const ts = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { docDefaults: true } });
+    const qmjpByQuarter = ((ts?.docDefaults as { qmjpByQuarter?: Record<string, number> } | null)?.qmjpByQuarter ?? {}) as Record<string, number>;
+    draft.lines = draft.lines.map((l) => ({ ...l, supplierPremium: fixedPremiumFromPi(l.piPremium, draft.shipmentMonth, qmjpByQuarter) }));
     const existing = draft.contractNo ? await this.prisma.contract.findFirst({ where: { organizationId, contractNo: draft.contractNo }, select: { id: true, contractNo: true } }) : null;
     // An order already made from this PI (same PI no.) — the New Order form warns instead of creating it twice.
     const order = draft.piNumber ? await this.prisma.tradeOrder.findFirst({ where: { organizationId, piNo: draft.piNumber }, select: { id: true, orderNo: true, year: true } }) : null;

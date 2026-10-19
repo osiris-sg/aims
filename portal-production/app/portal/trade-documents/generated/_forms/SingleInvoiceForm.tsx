@@ -112,11 +112,9 @@ const LINE_KINDS: Array<{ value: SingleLine["kind"]; label: string }> = [
 export default function SingleInvoiceForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFormProps<SingleHeader, SingleLine>) {
   const settings = useTradeSettings();
   const dd = (settings.data as any)?.docDefaults ?? {};
-  // Only the issuing entity's accounts (ADH JP: SMBC JPY; ADH SG: DBS / Wise / CFSB).
-  const entity = doc.issuingEntity ?? "ADH_JP";
   const allBanks: Array<{ id: string; label: string; block: string; entity?: IssuingEntity }> = Array.isArray(dd.banks) && dd.banks.length ? dd.banks : [];
-  const banks = allBanks.filter((b) => bankEntity(b) === entity);
-  const bankElsewhere = !!h.bankId && allBanks.some((b) => b.id === h.bankId && bankEntity(b) !== entity);
+  // Every account, any entity: an ADH JP invoice may be paid into an ADH SG account (Kato's sample prints CFSB).
+  const banks = allBanks;
   const totals = useMemo(() => singleTotals(rows, h.taxRate, h.fxRate), [rows, h.taxRate, h.fxRate]);
   const api = useShipmentsApi();
   const dueSeq = useRef(0);
@@ -222,16 +220,6 @@ export default function SingleInvoiceForm({ doc, header: h, rows, disabled, setH
           <Grid2 size={{ xs: 12, sm: 4 }}>{tf("lmeMonth", "LME average month (shipment month)", { type: "month", InputLabelProps: { shrink: true } })}</Grid2>
           <Grid2 size={12}>{tf("conditions", "条件 / Conditions", { multiline: true, minRows: 2 })}</Grid2>
           <Grid2 size={12}>{tf("paymentBlock", "支払い条件 / Payment conditions", { multiline: true, minRows: 1 })}</Grid2>
-          {bankElsewhere && (
-            <Alert severity="warning" sx={{ mb: 1 }}>
-              The chosen bank account belongs to the other ADH entity — pick one of {entity === "ADH_JP" ? "ADH Japan's" : "ADH SG's"} accounts.
-            </Alert>
-          )}
-          {banks.length === 0 && allBanks.length > 0 && (
-            <Alert severity="info" sx={{ mb: 1 }}>
-              No bank account is tagged {entity === "ADH_JP" ? "ADH JP" : "ADH SG"} — set the entity in Org Settings → Shipping & documents → Bank accounts.
-            </Alert>
-          )}
           {banks.length > 0 && (
             <Grid2 size={{ xs: 12, sm: 6 }}>
               <TextField
@@ -248,7 +236,7 @@ export default function SingleInvoiceForm({ doc, header: h, rows, disabled, setH
               >
                 {banks.map((b) => (
                   <MenuItem key={b.id} value={b.id}>
-                    {b.label}
+                    {b.label} · {bankEntity(b) === "ADH_JP" ? "ADH JP" : "ADH SG"}
                   </MenuItem>
                 ))}
               </TextField>

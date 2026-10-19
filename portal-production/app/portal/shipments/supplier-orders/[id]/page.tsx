@@ -115,7 +115,7 @@ export default function SupplierOrderPage() {
             <Field label="Deposit paid" value={so.depositPaidAt ? fmtDmy(so.depositPaidAt) : null} />
             <Field label="QP basis" value={so.qpBasis} />
             <Field label="Provisional price / MT" value={so.provisionalPricePerMt != null ? money(so.provisionalPricePerMt) : null} />
-            <Field label="Supplier premium (USD/MT)" value={so.supplierPremium != null ? String(so.supplierPremium) : null} />
+            <Field label="Supplier premium (USD/MT, fixed part + QMJP)" value={so.supplierPremium != null ? String(so.supplierPremium) : null} />
           </Grid>
         </Paper>
 
@@ -311,7 +311,7 @@ function EditDialog({ open, so, onClose }: { open: boolean; so: SupplierOrder; o
           {field("qtyMt", "Quantity (MT)", { type: "number" })}
           {field("qpBasis", "QP basis (e.g. Average LME of MOSS (Aug'26))")}
           {field("provisionalPricePerMt", "Provisional price / MT", { type: "number" })}
-          {field("supplierPremium", "Supplier premium (USD/MT)", { type: "number" })}
+          {field("supplierPremium", "Supplier premium (USD/MT, fixed part + QMJP)", { type: "number" })}
           {field("piNo", "PI no.")}
           {field("piDate", "PI date", { type: "date", InputLabelProps: { shrink: true } })}
           {field("piAmount", "PI amount", { type: "number" })}

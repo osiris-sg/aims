@@ -264,7 +264,7 @@ thead { display: table-header-group; } tr { page-break-inside: avoid; }
  */
 function renderCustomerPlAttach(h: GenHeader, opts: { draft?: boolean }): string {
   const img = h.attachImage && /^data:image\/(png|jpe?g);base64,/.test(h.attachImage) ? h.attachImage : null;
-  const body = `
+  const body = `<div class="land">
 <div class="top"><span>${esc(h.formLabel ?? '')}</span><span>${jpDate(h.date)}</span></div>
 <div class="ttl">${esc(h.title || '計量検収票')}</div>
 ${partiesJp(h)}
@@ -272,11 +272,15 @@ ${partiesJp(h)}
     img
       ? `<img src="${img}" alt="">`
       : `<div class="ph">Vedanta書類PL Container スクリーンショット貼付エリア<br>INVOICE NO. 以降　VEDANTA印影まで<br><small>Attach a page of Vedanta's container packing list</small></div>`
-  }</div>`;
+  }</div></div>`;
+  // A4 landscape like ADH's sheet: a centred column, the pasted page fitted to the frame.
   const css = `${JP_CSS}
-.ttl { color: #9a2a2a; }
-.frame { border: 1.5px solid #111; padding: 2mm; min-height: 150mm; display: flex; align-items: flex-start; justify-content: center; }
-.frame img { width: 100%; height: auto; max-height: 205mm; object-fit: contain; }
+@page { size: A4 landscape; }
+.land { width: 190mm; margin: 0 auto; }
+.ttl { color: #9a2a2a; margin-bottom: 4mm; }
+.pj { margin-bottom: 4mm; }
+.frame { border: 1.5px solid #111; padding: 2mm; min-height: 110mm; display: flex; align-items: flex-start; justify-content: center; }
+.frame img { width: 100%; height: auto; max-height: 128mm; object-fit: contain; }
 .frame .ph { margin: auto; text-align: center; color: #777; font-size: 10pt; line-height: 2; }
 `;
   return docShell({ title: h.title || '計量検収票', css, body, draft: opts.draft });
@@ -310,7 +314,9 @@ ${partiesJp(h)}
   <table class="grid"><thead><tr>${cols.map((c) => `<th>${esc(c.label)}</th>`).join('')}</tr></thead>
   <tbody>${rows.map((r) => `<tr>${cols.map((c, i) => `<td class="${i === 0 ? '' : 'num'}">${esc(r[c.key] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table>
 </div>`;
+  // The issuer block is left-aligned on ADH's COA (centred on the 計量検収票).
   const css = `${JP_CSS}
+.pj .iss { text-align: left; }
 .toj { margin-left: 0; }
 .sec { border: 1px solid #111; margin: 3mm 3mm 0; padding-bottom: 4mm; }
 .st { border-bottom: 1px solid #111; font-weight: 700; font-size: 8pt; padding: .5mm 1mm; }

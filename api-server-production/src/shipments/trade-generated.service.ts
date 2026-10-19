@@ -114,7 +114,9 @@ const isSource = (fileName: string, pdf?: boolean) => SOURCE_EXTENSIONS.test(fil
 const PDF_MARGIN = { top: '12mm', right: '11mm', bottom: '14mm', left: '11mm' };
 /** The 請求書 follows ADH's own invoice page: wider margins. */
 const INVOICE_MARGIN = { top: '18mm', right: '17mm', bottom: '14mm', left: '20mm' };
-const marginFor = (docType: string) => (GENERATED_TEMPLATES[docType]?.kind === 'invoice' ? INVOICE_MARGIN : GENERATED_TEMPLATES[docType]?.kind === 'single' ? SINGLE_MARGIN : PDF_MARGIN);
+/** 計量検収票 with an attached Vedanta page prints A4 landscape, as ADH's Kato sample. */
+export const isLandscape = (docType: string, header: unknown) => docType === 'CUSTOMER_PL' && (header as { bodyMode?: string } | null)?.bodyMode === 'attach';
+export const marginFor = (docType: string) => (GENERATED_TEMPLATES[docType]?.kind === 'invoice' ? INVOICE_MARGIN : GENERATED_TEMPLATES[docType]?.kind === 'single' ? SINGLE_MARGIN : PDF_MARGIN);
 /** The single invoice's page (ADH's Kato sheet). */
 const SINGLE_MARGIN = { top: '14mm', right: '13mm', bottom: '14mm', left: '13mm' };
 /** Kinds that create / confirm a Sales invoice on finalize. */
@@ -578,6 +580,13 @@ export class TradeGeneratedService {
       rows = [row];
     }
 
+    // Invoices preselect the customer's own bank account (profile.defaultBankId), any entity.
+    if (header && typeof header === 'object' && 'bankId' in (header as object)) {
+      const customerId = await this.invoiceCustomerId(organizationId, owner as { orderId?: string | null; shipmentId?: string | null });
+      const bankId = customerId ? (await this.config.profileOf(organizationId, customerId)).defaultBankId : undefined;
+      const bank = bankId ? defaultBank(defaults, bankId) : null;
+      if (bank && bank.id === bankId) header = { ...(header as object), bankId: bank.id, bankBlock: bank.block } as typeof header;
+    }
     const docRef = await this.config.docRefFor(this.prisma, organizationId, owner as any, input.docType);
     return this.prisma.tradeGeneratedDoc.create({
       data: {
@@ -663,7 +672,7 @@ export class TradeGeneratedService {
     }
     const seal = isInvoiceKind(t.kind) ? await this.sealFor(organizationId) : null;
     const header = await this.hydrate(organizationId, g.docType, g.header);
-    const buffer = await this.pdf.generatePdfFromHtml(this.render(g.docType, header, g.columns, g.rows, { draft: true, seal }), { margin: marginFor(g.docType) });
+    const buffer = await this.pdf.generatePdfFromHtml(this.render(g.docType, header, g.columns, g.rows, { draft: true, seal }), { margin: marginFor(g.docType), landscape: isLandscape(g.docType, header) });
     return { buffer, fileName: `${g.number ?? t.short}-DRAFT.pdf` };
   }
 
@@ -768,7 +777,7 @@ export class TradeGeneratedService {
 
     const seal = isInvoiceKind(t.kind) ? await this.sealFor(organizationId) : null;
     const printable = await this.hydrate(organizationId, g.docType, header);
-    const pdf = await this.pdf.generatePdfFromHtml(this.render(g.docType, printable, g.columns, rows, { draft: false, seal }), { margin: marginFor(g.docType) });
+    const pdf = await this.pdf.generatePdfFromHtml(this.render(g.docType, printable, g.columns, rows, { draft: false, seal }), { margin: marginFor(g.docType), landscape: isLandscape(g.docType, printable) });
     const [primary, ...more] = owners;
     const target = (o: { contractId?: string; shipmentId?: string; orderId?: string }) =>
       o.shipmentId ? { shipmentIds: [o.shipmentId] } : o.orderId ? { orderIds: [o.orderId] } : { contractIds: [o.contractId] };
@@ -1243,7 +1252,8 @@ export class TradeGeneratedService {
     const pick = pdfs.find((f) => /container/i.test(f.fileName)) ?? pdfs[0] ?? null;
     // No PL PDF on the shipment yet: the typed table (switch to the page once Vedanta's PL is in).
     if (!pick) return { ...header, bodyMode: 'table' } as GenHeader;
-    return { ...header, bodyMode: 'attach', attachFileId: pick.id, attachPage: 1, attachCrop: { top: 0, bottom: 0 } } as GenHeader;
+    // ADH pastes Vedanta's page from "INVOICE NO." down: cut its title + producer block (~15.5 % of the page).
+    return { ...header, bodyMode: 'attach', attachFileId: pick.id, attachPage: 1, attachCrop: { top: 0.155, bottom: 0 } } as GenHeader;
   }
 
   /**

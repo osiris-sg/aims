@@ -42,6 +42,10 @@ export interface CustomerProfile {
   deliveryProfile?: Omit<DeliveryProfile, 'id' | 'customerName'> | null;
   /** Invoice 備考 block for INVOICE_SINGLE (商品 / 荷姿 / 保管倉庫 / 取扱港 / 保管条件 / 業務範囲 / 作業備考). */
   invoiceRemarks?: string;
+  /** 弊社指定口座 preselected on this customer's invoices (a docDefaults.banks id): Kato CFSB, SUS DBS. Any entity's account. */
+  defaultBankId?: string;
+  /** The default bank is provisional — shown as "check" until ADH confirms it (Hoei). */
+  defaultBankCheck?: boolean;
 }
 
 export const BILLING_MODES: BillingMode[] = ['TWO_STAGE', 'SINGLE'];
@@ -221,6 +225,7 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
     if (p.customsRatePerMt !== undefined && p.customsRatePerMt !== null && (!Number.isFinite(Number(p.customsRatePerMt)) || Number(p.customsRatePerMt) < 0)) fail('customsRatePerMt must be a number');
     for (const k of ['key', 'label', 'port'] as const) if (p[k] !== undefined && p[k] !== null && !isText(p[k], 100)) fail(`${k} must be text`);
     if (p.invoiceRemarks !== undefined && p.invoiceRemarks !== null && !isText(p.invoiceRemarks)) fail('invoiceRemarks must be text');
+    if (p.defaultBankId !== undefined && p.defaultBankId !== null && p.defaultBankId !== '' && !isText(p.defaultBankId, 100)) fail('defaultBankId must be a bank account id');
     const dv = (p.docVariants ?? {}) as DocVariants;
     for (const [k, v] of Object.entries(dv)) {
       if (!['CUSTOMER_PL', 'CUSTOMER_COA', 'INVOICE'].includes(k)) fail(`Unknown document variant "${k}"`);
@@ -242,6 +247,8 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
       docVariants: Object.fromEntries(Object.entries(dv).filter(([, v]) => !!v)) as DocVariants,
       deliveryProfile: dp ? { siteName: dp.siteName.trim(), address: dp.address.trim(), notes: dp.notes ?? '' } : null,
       invoiceRemarks: p.invoiceRemarks ?? undefined,
+      defaultBankId: p.defaultBankId?.trim() || undefined,
+      defaultBankCheck: p.defaultBankCheck === true || undefined,
     };
   }
   return out;

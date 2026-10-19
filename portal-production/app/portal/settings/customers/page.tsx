@@ -18,7 +18,7 @@ import { showShippingSettings } from "@/helpers/settingsVisibility";
 import TradeTheme from "@/app/portal/shipments/_components/TradeTheme";
 import { useCustomers, useTradeMutation, useTradeSettings } from "@/app/portal/shipments/_lib/hooks";
 import SupplierProfilesPanel from "@/app/portal/shipments/_components/SupplierProfilesPanel";
-import type { CustomerProfile } from "@/app/portal/shipments/_lib/api";
+import { bankEntity, type BankAccount, type CustomerProfile } from "@/app/portal/shipments/_lib/api";
 import { toast } from "@/app/portal/shipments/_lib/toast";
 
 const PL = [
@@ -59,7 +59,7 @@ export default function CustomerProfilesPage() {
         ) : (
           <Stack spacing={2.5}>
             {(customers.data ?? []).map((c) => (
-              <ProfileCard key={c.id} customer={c} profile={settings.data?.customerProfiles?.[c.id] ?? null} />
+              <ProfileCard key={c.id} customer={c} profile={settings.data?.customerProfiles?.[c.id] ?? null} banks={(settings.data?.docDefaults?.banks as BankAccount[] | undefined) ?? []} />
             ))}
             {!(customers.data ?? []).length && <Alert severity="info">No customers yet — add them in Master Files.</Alert>}
           </Stack>
@@ -76,7 +76,7 @@ export default function CustomerProfilesPage() {
   );
 }
 
-function ProfileCard({ customer, profile }: { customer: { id: string; name: string }; profile: CustomerProfile | null }) {
+function ProfileCard({ customer, profile, banks }: { customer: { id: string; name: string }; profile: CustomerProfile | null; banks: BankAccount[] }) {
   const initial = useMemo(() => profile ?? blank(customer.id), [profile, customer.id]);
   const [p, setP] = useState<CustomerProfile>(initial);
   const [dirty, setDirty] = useState(false);
@@ -135,6 +135,26 @@ function ProfileCard({ customer, profile }: { customer: { id: string; name: stri
           <TextField select size="small" fullWidth label="通関 rate (¥/MT)" value={p.customsRatePerMt ?? 2800} onChange={(e) => set({ customsRatePerMt: Number(e.target.value) })}>
             <MenuItem value={2800}>¥2,800 (Yokohama)</MenuItem>
             <MenuItem value={2300}>¥2,300 (Nagoya)</MenuItem>
+          </TextField>
+        </Grid2>
+        <Grid2 size={{ xs: 12, sm: 6 }}>
+          <TextField
+            select
+            size="small"
+            fullWidth
+            label="Default bank account (invoices)"
+            value={banks.some((b) => b.id === p.defaultBankId) ? p.defaultBankId : ""}
+            onChange={(e) => set({ defaultBankId: e.target.value || undefined, defaultBankCheck: undefined })}
+            helperText={p.defaultBankCheck ? "check — not confirmed by ADH yet; pick the account to confirm" : "Preselected on this customer's invoices; any entity's account"}
+            FormHelperTextProps={{ sx: p.defaultBankCheck ? { color: "warning.main" } : undefined }}
+            data-tour="settings-customer-bank"
+          >
+            <MenuItem value="">Org default</MenuItem>
+            {banks.map((b) => (
+              <MenuItem key={b.id} value={b.id}>
+                {b.label} · {bankEntity(b) === "ADH_JP" ? "ADH JP" : "ADH SG"}
+              </MenuItem>
+            ))}
           </TextField>
         </Grid2>
         <Grid2 size={{ xs: 12, sm: 6 }}>

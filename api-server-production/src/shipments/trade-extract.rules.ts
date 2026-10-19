@@ -328,7 +328,12 @@ export interface ContractDraft {
   /** The note as a term: "within 3 business days" → 3 / BUSINESS; null when it isn't a day count. */
   depositDueDays: number | null;
   depositDueUnit: DepositDueUnit | null;
-  lines: Array<{ grade: string | null; sizeSpec: string | null; product: string | null; quantityMt: number | null; tolerancePct: number | null; supplierPremium: number | null }>;
+  /**
+   * supplierPremium = the FIXED part (printed − QMJP of the quarter of the month before shipment,
+   * filled by the extract service from the org's QMJP table; null when it can't be derived);
+   * piPremium = what the PI prints (QMJP + fixed).
+   */
+  lines: Array<{ grade: string | null; sizeSpec: string | null; product: string | null; quantityMt: number | null; tolerancePct: number | null; supplierPremium: number | null; piPremium?: number | null }>;
 }
 
 export function contractDraftFromPi(pi: PiRaw, parties: { suppliers: Array<{ id: string; name: string }>; customers: Array<{ id: string; name: string }> }): ContractDraft {
@@ -363,6 +368,7 @@ export function contractDraftFromPi(pi: PiRaw, parties: { suppliers: Array<{ id:
       quantityMt: l.quantityMt,
       tolerancePct: tol,
       supplierPremium: l.premium,
+      piPremium: l.premium,
     })),
   };
 }

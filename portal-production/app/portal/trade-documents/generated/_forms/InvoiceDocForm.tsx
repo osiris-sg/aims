@@ -84,12 +84,10 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
   // Invoice #2 quotes the shipment month's LME in its own wording.
   const remarksTpl: string | undefined = (doc.docType === "INVOICE_2" && dd.invoice2RemarksTemplate) || dd.invoiceRemarksTemplate;
   const upTpl: string | undefined = dd.invoiceUpchargeTemplate;
-  // Only the issuing entity's accounts (ADH JP: SMBC JPY; ADH SG: DBS / Wise / CFSB).
-  const entity = doc.issuingEntity ?? "ADH_JP";
   const allBanks: Array<{ id: string; label: string; block: string; entity?: IssuingEntity }> =
     Array.isArray(dd.banks) && dd.banks.length ? dd.banks : dd.invoiceBankBlock ? [{ id: "default", label: String(dd.invoiceBankBlock).split("\n")[0], block: dd.invoiceBankBlock }] : [];
-  const banks = allBanks.filter((b) => bankEntity(b) === entity);
-  const bankElsewhere = !!h.bankId && allBanks.some((b) => b.id === h.bankId && bankEntity(b) !== entity);
+  // Every account, any entity: an ADH JP invoice may be paid into an ADH SG account (Kato's sample prints CFSB).
+  const banks = allBanks;
   const unit: string = dd.invoiceUnit ?? "トン";
   const [pick, setPick] = useState(false);
   const totals = useMemo(() => invoiceTotals(rows, h.taxRate, h.fxRate, isFinal2 ? "final" : undefined), [rows, h.taxRate, h.fxRate, isFinal2]);
@@ -238,16 +236,6 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
           <Grid2 size={{ xs: 12, sm: 4 }}>{tf("lmeMonth", "LME average month (remarks)", { type: "month", InputLabelProps: { shrink: true } })}</Grid2>
           <Grid2 size={12}>{tf("conditions", "Conditions / 条件", { multiline: true, minRows: 2 })}</Grid2>
           <Grid2 size={12}>{tf("paymentTerms", "Payment terms / 支払い条件", { multiline: true, minRows: 1 })}</Grid2>
-          {bankElsewhere && (
-            <Alert severity="warning" sx={{ mb: 1 }}>
-              The chosen bank account belongs to the other ADH entity — pick one of {entity === "ADH_JP" ? "ADH Japan's" : "ADH SG's"} accounts.
-            </Alert>
-          )}
-          {banks.length === 0 && allBanks.length > 0 && (
-            <Alert severity="info" sx={{ mb: 1 }}>
-              No bank account is tagged {entity === "ADH_JP" ? "ADH JP" : "ADH SG"} — set the entity in Org Settings → Shipping & documents → Bank accounts.
-            </Alert>
-          )}
           {banks.length > 0 && (
             <Grid2 size={{ xs: 12, sm: 6 }}>
               <TextField
@@ -265,7 +253,7 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
               >
                 {banks.map((b) => (
                   <MenuItem key={b.id} value={b.id}>
-                    {b.label}
+                    {b.label} · {bankEntity(b) === "ADH_JP" ? "ADH JP" : "ADH SG"}
                   </MenuItem>
                 ))}
               </TextField>

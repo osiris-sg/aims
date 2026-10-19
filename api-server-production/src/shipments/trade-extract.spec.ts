@@ -145,7 +145,7 @@ describe('schema validation', () => {
       depositAmount: 120958.5,
       depositDueNote: 'within 5 business days',
     });
-    expect(d.lines).toEqual([{ grade: '6063', sizeSpec: '203 MM (8 INCH)', product: 'Aluminium Billet', quantityMt: 300, tolerancePct: 5, supplierPremium: 556.5 }]);
+    expect(d.lines).toEqual([{ grade: '6063', sizeSpec: '203 MM (8 INCH)', product: 'Aluminium Billet', quantityMt: 300, tolerancePct: 5, supplierPremium: 556.5, piPremium: 556.5 }]);
   });
   it('picks the end customer only when the PI clearly names one', () => {
     const pi = parseWith(PI_SCHEMA, { ...PI_REPLY, customerHint: 'MARKS: SUS CO., LTD. SHIZUOKA' }, 'PI');
@@ -310,6 +310,7 @@ describe('TradeExtractService (model mocked)', () => {
       customer: { findMany: jest.fn().mockResolvedValue([]) },
       contract: { findFirst: jest.fn().mockResolvedValue(null) },
       tradeOrder: { findFirst: jest.fn().mockResolvedValue(null) },
+      tradeSetting: { findUnique: jest.fn().mockResolvedValue({ docDefaults: { qmjpByQuarter: { '2026-2Q': 351.5, '2026-3Q': 395 } } }) },
     };
     const extractor = {
       extractStructured: jest
@@ -325,6 +326,8 @@ describe('TradeExtractService (model mocked)', () => {
     expect(extractor.extractStructured.mock.calls[0][0]).toMatchObject({ mimetype: 'application/pdf' }); // PDF sent as a document block
     expect(x).toMatchObject({ status: 'DONE', model: 'claude-sonnet-4-6', inputTokens: 3000, outputTokens: 600, costUsd: 0.018 });
     expect((x.result as any).draft.contractNo).toBe('454003422');
+    // Stored premiums are the fixed part: the PI's 556.50 (July shipment → June → 2Q 351.5) becomes 205.
+    expect((x.result as any).draft.lines[0]).toMatchObject({ piPremium: 556.5, supplierPremium: 205 });
   });
   it('a model or validation failure is stored as FAILED with the message (nothing thrown)', async () => {
     const bad = await setup({ ...PI_REPLY, lines: 'none' }).svc.extract('org', 'PI', { fileId: 'f1' }, { id: 'u1', name: 'T' });

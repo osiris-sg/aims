@@ -35,7 +35,7 @@ Cloudflare dashboard → your domain → **Email → Email Routing**:
 
 1. Enable Email Routing for the domain (adds the required MX/TXT records —
    the domain's mail must be hostable by Cloudflare, e.g. a dedicated
-   subdomain like `inbound.osiris.so`).
+   subdomain like `inbound.osiris.sg`).
 2. **Routing rules** → either:
    - **Catch-all address** → action **Send to a Worker** → `aims-email-ingest`
      (simplest — the webhook itself ignores anything not addressed to

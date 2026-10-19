@@ -76,6 +76,8 @@ export interface BankAccount {
   id: string;
   label: string;
   block: string;
+  /** ADH_JP / ADH_SG — a label on the account; any entity's account may be used on any invoice. */
+  entity?: string;
 }
 
 /** A customer delivery site for shipping instructions (納入先 + 備考 lines). */
@@ -415,9 +417,14 @@ export function banksOf(d: DocDefaults): BankAccount[] {
   if (list.length) return list;
   return d.invoiceBankBlock ? [{ id: 'default', label: d.invoiceBankBlock.split('\n')[0] ?? 'Bank', block: d.invoiceBankBlock }] : [];
 }
-export function defaultBank(d: DocDefaults): BankAccount | null {
+/**
+ * The account an invoice preselects: the customer's default (profile.defaultBankId — Kato CFSB,
+ * SUS DBS), else the org default, else the first. Every account is allowed whatever the issuing
+ * entity: an ADH JP invoice may be paid into an ADH SG account (Kato's sample prints CFSB).
+ */
+export function defaultBank(d: DocDefaults, customerBankId?: string | null): BankAccount | null {
   const list = banksOf(d);
-  return list.find((b) => b.id === d.defaultBankId) ?? list[0] ?? null;
+  return (customerBankId ? list.find((b) => b.id === customerBankId) : undefined) ?? list.find((b) => b.id === d.defaultBankId) ?? list[0] ?? null;
 }
 
 /** Business days to the 請求書 due date: Invoice #1 7, Invoice #2 6, single invoice 5 (docDefaults *DueBusinessDays, all editable). */

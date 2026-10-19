@@ -249,6 +249,9 @@ describe('INVOICE_SINGLE (Kato sample: 40.825 t, FX 159.00 → US$176,050.94)', 
       currency: 'USD',
     };
     const html = renderSingleInvoiceHtml(h, rows);
+    // 税率別内訳: 税込金額 is the grand total in both rows, as on ADH's sheet (¥27,992,100 / USD 176,050.94).
+    expect(html).toContain('¥27,992,100</td></tr>');
+    expect(html).not.toContain('¥27,902,300');
     for (const s of [
       '番号：',
       '発行日：',

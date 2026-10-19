@@ -63,6 +63,28 @@ export function marginAt(schedule: unknown, month: string | null | undefined): n
 /** "2026-07" → "2026-3Q" (the docDefaults.qmjpByQuarter key). */
 export const quarterOf = (month: string) => `${month.slice(0, 4)}-${Math.floor((Number(month.slice(5, 7)) - 1) / 3) + 1}Q`;
 
+/** "2026-07" − 1 month → "2026-06". */
+const prevMonth = (month: string) => {
+  const y = Number(month.slice(0, 4));
+  const m = Number(month.slice(5, 7));
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+};
+
+/**
+ * Premiums are stored as the FIXED part only (Vedanta 6063 +205, 6005 +162; clients 6063 +230,
+ * 6005 190 + 10 upcharge); QMJP is added by quarter when pricing. A Vedanta PI prints QMJP +
+ * fixed (556.50 = 2Q 351.5 + 205) and prices on the month before the shipment month, so the
+ * fixed part = printed − QMJP of that month's quarter. Null when the quarter's QMJP isn't
+ * stored or the result isn't a plausible premium (then the user types it).
+ */
+export function fixedPremiumFromPi(printed: number | null | undefined, shipmentMonth: string | null | undefined, qmjpByQuarter: Record<string, number>): number | null {
+  if (printed === null || printed === undefined || !Number.isFinite(printed) || !shipmentMonth || !MONTH.test(shipmentMonth)) return null;
+  const q = qmjpByQuarter[quarterOf(prevMonth(shipmentMonth))];
+  if (typeof q !== 'number' || !Number.isFinite(q)) return null;
+  const fixed = Math.round((printed - q) * 100) / 100;
+  return fixed >= 0 && fixed < printed ? fixed : null;
+}
+
 export interface MarketPrices {
   /** LME cash monthly average (USD/MT), "YYYY-MM" → price. */
   lmeByMonth: Record<string, number>;

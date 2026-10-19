@@ -262,12 +262,14 @@ const TRADE_SETTINGS = {
       {
         id: 'dbs',
         label: 'DBS Bank Ltd',
+        entity: 'ADH_SG',
         block:
           'DBS Bank Ltd\nBank address\t12 Marina Boulevard Level 3 Mbfc Tower 3, Singapore 018982\nBank/Branch Code\t7171/288 (USD)\nBank SWIFT/BIC\tDBSSSGSG\nBeneficiary name\tAsia Deal Hub Pte. Ltd.\nBeneficiary Bank Account No:  2889046798',
       },
       {
         id: 'cfsb',
         label: 'Community Federal Savings Bank',
+        entity: 'ADH_SG',
         block:
           'Community Federal Savings Bank\nBank address\t30 W. 26th Street, Sixth Floor New York NY 10010 United States\nRouting number\t026073150\nBank SWIFT/BIC\tCMFGUS33\nBeneficiary name\tAsia Deal Hub Pte. Ltd.\nBeneficiary Bank Account No: 8311208644',
       },
@@ -298,6 +300,8 @@ const TRADE_SETTINGS = {
     sgjpDimension: '5800mm length, \n8 inch diameter',
     // 計量検収票 / 納品書兼分析試験成績報告書: issued by アジアディールハブ合同会社 (as on ADH's samples).
     customerDocIssuerName: 'アジアディールハブ合同会社',
+    // 請求書 (single invoice, Kato / Hoei): the issuer block exactly as on ADH's Kato invoice (with 担当).
+    singleFromBlock: 'アジアディールハブ合同会社\n〒107-0052\n東京都港区赤坂二丁目14-5\nDaiwa赤坂ビル7階\n担当：竹腰 俊朗',
     customerDocIssuerAddress: '東京都港区赤坂二丁目14-5\nDaiwa赤坂ビル7階',
     customerDocContact: '竹腰 俊朗',
     customerPlFormLabel: '様式2',
@@ -525,6 +529,7 @@ const PROFILE_SEED: Record<string, Omit<CustomerProfile, 'customerId'>> = {
     customsRatePerMt: 2800,
     emailDomains: [],
     docVariants: { CUSTOMER_PL: 'CUSTOMER_PL_SUS', CUSTOMER_COA: 'CUSTOMER_COA_SUS', INVOICE: 'INVOICE_2' },
+    defaultBankId: 'dbs',
   },
   'Kato Light Metal Industry Co., Ltd.': {
     key: 'KATO',
@@ -537,6 +542,8 @@ const PROFILE_SEED: Record<string, Omit<CustomerProfile, 'customerId'>> = {
     emailDomains: [], // from --customers (emailDomains) — contacts stay out of the repo
     docVariants: { CUSTOMER_PL: 'CUSTOMER_PL_KATO', CUSTOMER_COA: 'CUSTOMER_COA_KATO', INVOICE: 'INVOICE_SINGLE' },
     invoiceRemarks: defaultSingleRemarks('名古屋'),
+    // Kato's sample invoice prints CFSB (an ADH SG account on an ADH JP invoice).
+    defaultBankId: 'cfsb',
   },
   Houei: {
     key: 'HOEI',
@@ -549,6 +556,9 @@ const PROFILE_SEED: Record<string, Omit<CustomerProfile, 'customerId'>> = {
     emailDomains: [],
     docVariants: { CUSTOMER_PL: 'CUSTOMER_PL_HOEI', CUSTOMER_COA: 'CUSTOMER_COA_HOEI', INVOICE: 'INVOICE_SINGLE' },
     invoiceRemarks: defaultSingleRemarks('名古屋'),
+    // DBS for now — not confirmed by ADH ("check" in Settings → Customers).
+    defaultBankId: 'dbs',
+    defaultBankCheck: true,
   },
 };
 
@@ -1152,6 +1162,8 @@ async function main() {
     };
     // App edits win: keep every key already set, fill the rest.
     const merged = cur ? ({ ...want, ...Object.fromEntries(Object.entries(cur).filter(([, v]) => v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && !v.length))) } as CustomerProfile) : want;
+    // A bank picked in the app is confirmed: don't put the seed's "check" back on it.
+    if (cur?.defaultBankId && !cur.defaultBankCheck) delete merged.defaultBankCheck;
     if (cur && sameJson(cur, merged)) {
       info(`profile "${seed.key}" set (${merged.billingMode}, ${merged.port ?? '—'}, ${merged.truckCapacityT}t)`);
       continue;
@@ -1159,7 +1171,7 @@ async function main() {
     nextProfiles[cust.id] = merged;
     write(
       'profile',
-      `${cur ? 'fill' : 'create'} ${seed.key}: ${merged.billingMode}, import permit ${merged.sendImportPermit ? 'sent' : 'not sent'}, ${merged.port} ${merged.truckCapacityT}t ¥${merged.customsRatePerMt}/MT, templates ${Object.values(merged.docVariants).join('/')}${merged.deliveryProfile ? `, delivery site "${merged.deliveryProfile.siteName}"` : ''}`,
+      `${cur ? 'fill' : 'create'} ${seed.key}: ${merged.billingMode}, import permit ${merged.sendImportPermit ? 'sent' : 'not sent'}, ${merged.port} ${merged.truckCapacityT}t ¥${merged.customsRatePerMt}/MT, templates ${Object.values(merged.docVariants).join('/')}, bank ${merged.defaultBankId ?? 'org default'}${merged.defaultBankCheck ? ' (check)' : ''}${merged.deliveryProfile ? `, delivery site "${merged.deliveryProfile.siteName}"` : ''}`,
     );
   }
   const curRates = (tsRow?.estimatorRates as Record<string, unknown> | null) ?? null;
@@ -1335,6 +1347,51 @@ async function main() {
       if (APPLY) await org.tradeSetting.update({ where: { organizationId: orgId }, data: { docDefaults: { ...((fresh?.docDefaults as object) ?? {}), banks: next } as any } });
       write('entity', `tag ${untaggedBanks.length} bank account(s): ${untaggedBanks.map((b) => `${b.label} → ${bankEntity(b as { label?: string })}`).join(', ')}`);
     }
+  }
+
+  // ── 10g. Premiums = fixed part (QMJP is added by quarter when pricing) ────
+  // Stored premiums were sometimes QMJP-inclusive (a PI's 556.50 = 2Q QMJP 351.5 + 205). From
+  // round F every stored premium is the fixed part; finalized documents are never touched.
+  header('10g', 'Premiums: stored as the fixed part (QMJP added by quarter)');
+  if (!tradeReady || !org.supplierOrder) {
+    info('trade tables / client not ready — push the schema first');
+  } else {
+    const SUPPLIER_FIXED: Record<string, number> = { '556.5': 205, '513.5': 162 };
+    const CLIENT_FIXED: Record<string, number> = { '581.5': 230, '551.5': 200 };
+    const key = (v: unknown) => (v === null || v === undefined ? '' : String(Number(v)));
+    // 551.50 → 200 is the client's total fixed premium (6005: 190 + 10 upcharge): a row with its own upcharge keeps it apart.
+    const clientFixed = (v: unknown, upcharge: unknown) => (CLIENT_FIXED[key(v)] === undefined ? null : CLIENT_FIXED[key(v)] - (key(v) === '551.5' ? Number(upcharge ?? 0) : 0));
+    let moved = 0;
+    const orders: Array<{ id: string; orderNo: number; supplierPremium: unknown; clientPremium: unknown; upcharge: unknown }> = await org.tradeOrder.findMany({ where: { organizationId: orgId }, select: { id: true, orderNo: true, supplierPremium: true, clientPremium: true, upcharge: true } });
+    for (const o of orders) {
+      const sp = SUPPLIER_FIXED[key(o.supplierPremium)];
+      const cp = clientFixed(o.clientPremium, o.upcharge);
+      if (sp === undefined && cp === null) continue;
+      if (APPLY) await org.tradeOrder.update({ where: { id: o.id }, data: { ...(sp !== undefined ? { supplierPremium: sp } : {}), ...(cp !== null ? { clientPremium: cp } : {}) } });
+      write('premium', `order #${o.orderNo}: ${sp !== undefined ? `supplier ${key(o.supplierPremium)} → ${sp}` : ''}${sp !== undefined && cp !== null ? ', ' : ''}${cp !== null ? `client ${key(o.clientPremium)} → ${cp}` : ''}`);
+      moved++;
+    }
+    const sos: Array<{ id: string; year: number; soNo: number; supplierPremium: unknown }> = await org.supplierOrder.findMany({ where: { organizationId: orgId }, select: { id: true, year: true, soNo: true, supplierPremium: true } });
+    for (const so of sos) {
+      const sp = SUPPLIER_FIXED[key(so.supplierPremium)];
+      if (sp === undefined) continue;
+      if (APPLY) await org.supplierOrder.update({ where: { id: so.id }, data: { supplierPremium: sp } });
+      write('premium', `supplier order ${so.year}-S${so.soNo}: supplier ${key(so.supplierPremium)} → ${sp}`);
+      moved++;
+    }
+    const lines: Array<{ id: string; grade: string | null; supplierPremium: unknown; billetPremium: unknown; upcharge: unknown; contract: { contractNo: string } }> = await org.contractLine.findMany({
+      where: { contract: { organizationId: orgId } },
+      select: { id: true, grade: true, supplierPremium: true, billetPremium: true, upcharge: true, contract: { select: { contractNo: true } } },
+    });
+    for (const l of lines) {
+      const sp = SUPPLIER_FIXED[key(l.supplierPremium)];
+      const cp = clientFixed(l.billetPremium, l.upcharge);
+      if (sp === undefined && cp === null) continue;
+      if (APPLY) await org.contractLine.update({ where: { id: l.id }, data: { ...(sp !== undefined ? { supplierPremium: sp } : {}), ...(cp !== null ? { billetPremium: cp } : {}) } });
+      write('premium', `contract ${l.contract.contractNo} line ${l.grade ?? '—'}: ${sp !== undefined ? `supplier ${key(l.supplierPremium)} → ${sp}` : ''}${sp !== undefined && cp !== null ? ', ' : ''}${cp !== null ? `billet ${key(l.billetPremium)} → ${cp}` : ''}`);
+      moved++;
+    }
+    if (!moved) info('every stored premium is the fixed part');
   }
 
   // ── 11. Access ────────────────────────────────────────────────────────────

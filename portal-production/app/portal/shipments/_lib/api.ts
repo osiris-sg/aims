@@ -352,6 +352,10 @@ export type CustomerProfile = {
   docVariants: { CUSTOMER_PL?: string; CUSTOMER_COA?: string; INVOICE?: string };
   deliveryProfile?: { siteName: string; address: string; notes: string } | null;
   invoiceRemarks?: string;
+  /** 弊社指定口座 preselected on this customer's invoices (any entity's account). */
+  defaultBankId?: string;
+  /** Default bank not confirmed yet — shown as "check". */
+  defaultBankCheck?: boolean;
 };
 export type EstimatorRates = {
   taxMultiplier: number;

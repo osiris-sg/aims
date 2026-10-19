@@ -317,7 +317,7 @@ export function renderSingleInvoiceHtml(h: SingleInvoiceHeader, rows: SingleLine
     <div>税率別内訳</div>
     <table>
       <tr class="h"><td></td><td>税抜合計</td><td>消費税額</td><td>税込金額</td></tr>
-      ${t.jpy ? `<tr><td>${n(h.taxRate)}%</td><td class="num">¥${money(t.jpy.taxable, 0)}</td><td class="num">¥${money(t.jpy.tax, 0)}</td><td class="num">¥${money(t.jpy.taxable + t.jpy.tax, 0)}</td></tr>` : ''}
+      ${t.jpy ? `<tr><td>${n(h.taxRate)}%</td><td class="num">¥${money(t.jpy.taxable, 0)}</td><td class="num">¥${money(t.jpy.tax, 0)}</td><td class="num">¥${money(t.jpy.total, 0)}</td></tr>` : ''}
       <tr><td>${n(h.taxRate)}%</td><td class="num">USD ${money(t.usd.taxable)}</td><td class="num">USD ${money(t.usd.tax)}</td><td class="num">USD ${money(t.usd.total)}</td></tr>
     </table>
   </div>
@@ -332,7 +332,7 @@ ${h.bankBlock ? `<div class="sec2">弊社指定口座</div><table class="bank">$
 body { font-size: 8pt; }
 .meta { text-align: right; font-size: 6.6pt; line-height: 1.9; }
 .meta .k { color: #333; }
-.title { text-align: center; font-size: 13pt; font-weight: 700; letter-spacing: 1em; margin: 0 0 6mm 1em; }
+.title { text-align: center; font-size: 13pt; font-weight: 700; letter-spacing: 1em; margin: 0 0 5mm 1em; }
 .to { font-size: 9pt; font-weight: 700; margin-bottom: 4mm; }
 .parties { display: flex; justify-content: space-between; align-items: flex-end; }
 table.hd th { font-weight: 400; text-align: left; width: 26mm; padding: .6mm 0; vertical-align: top; font-size: 8pt; }
@@ -345,7 +345,7 @@ table.grid, table.sums { width: 100%; table-layout: fixed; }
 .grid th { background: #d9d9d9; border: 1px solid #555; padding: 4mm 2px; font-weight: 400; text-align: center; font-size: 7.8pt; }
 .grid td { border: 1px solid #555; padding: 3mm 2px; vertical-align: middle; font-size: 8pt; }
 .grid td.desc { font-size: 7.6pt; line-height: 1.6; }
-.grid td.rem { font-size: 6.2pt; line-height: 1.5; vertical-align: top; padding: 1mm 2px; }
+.grid td.rem { font-size: 6pt; line-height: 1.4; vertical-align: top; padding: .8mm 2px; }
 .grid tr.per td { padding: 1mm 2px; }
 .sums td { padding: .5mm 2px; font-size: 8pt; }
 .sums td.lb { text-align: right; border: 1px solid #555; }
@@ -358,9 +358,9 @@ table.grid, table.sums { width: 100%; table-layout: fixed; }
 .bdl td { padding: 0 4px; border-bottom: 1px solid #999; }
 .bdl tr.h td { text-align: right; }
 .fx { font-size: 6.2pt; line-height: 1.6; }
-.sec { font-size: 8pt; margin-top: 4mm; }
+.sec { font-size: 8pt; margin-top: 3mm; }
 .sec2 { font-size: 6.6pt; margin-top: 4mm; }
-.txt { font-size: 7.6pt; line-height: 1.75; }
+.txt { font-size: 7.6pt; line-height: 1.6; }
 table.bank { font-size: 6.2pt; line-height: 1.45; }
 table.bank td { padding: 0; vertical-align: top; }
 table.bank td.bk { width: 30mm; }

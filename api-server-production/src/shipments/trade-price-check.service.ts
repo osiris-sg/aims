@@ -59,10 +59,12 @@ export class TradePriceCheckService {
       side: 'supplier',
       basisMonth: basis,
       schedule: so.contract?.premiumSchedule,
-      mjpBased: !!so.contract?.qmjpRule,
-      fallback: { supplierPremium: n(line0?.supplierPremium) ?? n(so.supplierPremium) },
+      // Both sides price as fixed premium + QMJP by quarter; the stored premiums are the fixed part.
+      mjpBased: true,
+      fallback: { supplierPremium: n(so.supplierPremium) ?? n(line0?.supplierPremium) },
       prices: await this.prices(organizationId),
-      found: { premium: n(line?.premium) ?? n(so.supplierPremium), lme: n(line?.lme), unit: n(line?.rate) ?? n(so.provisionalPricePerMt) },
+      // The PI's printed premium (QMJP + fixed); without a PI read there is nothing to compare.
+      found: { premium: n(line?.premium), lme: n(line?.lme), unit: n(line?.rate) ?? n(so.provisionalPricePerMt) },
     });
     return { ...check, notes: [`Provisional: the PI prices on the month before the declaration (${basis ?? '—'})`, ...check.notes], source: line ? 'PI (AI read)' : 'supplier order fields' };
   }
@@ -85,7 +87,7 @@ export class TradePriceCheckService {
       side: 'supplier',
       basisMonth: s.order?.shipMonth ?? null,
       schedule: s.contract?.premiumSchedule,
-      mjpBased: !!s.contract?.qmjpRule,
+      mjpBased: true,
       fallback: { supplierPremium: n(s.order?.supplierOrder?.supplierPremium) ?? n(s.order?.supplierPremium) ?? n(line0?.supplierPremium) },
       prices: await this.prices(organizationId),
       found: { unit },

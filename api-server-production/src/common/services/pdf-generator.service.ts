@@ -33,6 +33,8 @@ export class PdfGeneratorService {
        *  It has to be Puppeteer's footer rather than CSS, because only the
        *  print engine knows the page count. */
       pageNumbers?: { label?: string };
+      /** A4 landscape (Kato's 計量検収票). Default portrait. */
+      landscape?: boolean;
     },
   ): Promise<Buffer> {
     let browser = null;
@@ -89,6 +91,7 @@ export class PdfGeneratorService {
       const footer = options?.pageNumbers;
       const pdfBuffer = await page.pdf({
         format: 'A4',
+        landscape: !!options?.landscape,
         printBackground: true,
         margin: options?.margin ?? { top: '0', right: '0', bottom: '0', left: '0' },
         ...(footer

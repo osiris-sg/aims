@@ -377,14 +377,14 @@ export default function OrderFormDialog({
               </Grid>
               <Grid item xs={12}>
                 <Typography variant="overline" color="text.secondary">
-                  Premiums (USD/MT){contract ? ` — default from contract ${contract.contractNo}` : ""}
+                  Premiums (USD/MT, fixed part — QMJP is added by quarter){contract ? ` — default from contract ${contract.contractNo}` : ""}
                 </Typography>
               </Grid>
               <Grid item xs={4}>
-                {field("supplierPremium", "Supplier premium", { type: "number" })}
+                {field("supplierPremium", "Supplier premium", { type: "number", helperText: "Fixed part (6063 +205): a PI's 556.50 = QMJP 351.5 + 205" })}
               </Grid>
               <Grid item xs={4}>
-                {field("clientPremium", "Client premium", { type: "number", helperText: "Billet premium on the invoice" })}
+                {field("clientPremium", "Client premium", { type: "number", helperText: "Fixed billet premium (6063 +230)" })}
               </Grid>
               <Grid item xs={4}>
                 {field("upcharge", "Upcharge", { type: "number" })}
