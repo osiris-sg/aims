@@ -1351,6 +1351,33 @@ export class DocumentsService {
         }
       }
 
+      // A document's NAME is its number: nameToWrite comes from the editable
+      // documentNumber field above. Two documents cannot share a number on the
+      // same template (@@unique([name, organizationId, documentTemplateId])),
+      // and Prisma's raw P2002 was being shown to the user verbatim —
+      // "Unique constraint failed on the fields: (`name`,`organizationId`,
+      // `documentTemplateId`)", which tells an accountant nothing about what to
+      // change (guru 2026-10-19, a JPSG invoice retried six times). Check first
+      // and say which document already holds the number.
+      const intendedName = confirmedDoName ?? confirmedIdqName ?? nameToWrite;
+      if (intendedName && intendedName !== existingDocument.name) {
+        const clash = await this.prisma.document.findFirst({
+          where: {
+            organizationId,
+            name: intendedName,
+            documentTemplateId: existingDocument.documentTemplateId,
+            NOT: { id },
+          },
+          select: { name: true, type: true, status: true },
+        });
+        if (clash) {
+          throw new HttpException(
+            `Document number "${intendedName}" is already used by another ${String(clash.type).toLowerCase().replace(/_/g, ' ')} (${clash.status}). Pick a different number.`,
+            HttpStatus.CONFLICT,
+          );
+        }
+      }
+
       // Update the document itself with config only
       const updatedDocument = await this.prisma.document.update({
         where: {
@@ -1368,7 +1395,7 @@ export class DocumentsService {
           status: dto.status, // DocumentStatus enum
           // A confirming placeholder DO claims its real number here; otherwise a
           // custom doc number wins, else honour dto.name.
-          name: confirmedDoName ?? confirmedIdqName ?? nameToWrite,
+          name: intendedName,
           // Link to project if projectId exists in config
           projectId: projectId || undefined,
           // Bump the optimistic-concurrency counter on every successful save so
