@@ -22,7 +22,6 @@ const FIELDS: Array<[keyof EstimatorRates, string, string?]> = [
   ["storagePerMt", "Storage ¥/MT (single invoice)", "¥"],
   ["washingPerContainer", "Washing ¥/CNT (+ tax)", "¥"],
   ["detentionPerContainer", "Detention ¥/CNT (+ tax)", "¥"],
-  ["importTaxRate", "Import tax rate on CIF", "×"],
 ];
 const DUE: Array<[string, string, number]> = [
   ["invoiceDueBusinessDays", "Invoice #1 due (business days)", 7],

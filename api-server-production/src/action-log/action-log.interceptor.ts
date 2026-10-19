@@ -50,6 +50,10 @@ const SKIP_GET_PATHS = [
   '/whatsapp/group-reminders/due',
   '/wa-post/jobs', // the post worker's poll
   '/contracts/deposit-due', // contract form's live due-date preview
+  // Round E (2026-10): read-only panels that load with the page.
+  '/trade-price-check/',
+  '/cost-variance',
+  '/trade-payments/targets',
 ];
 
 // POST endpoints that are actually list/read queries ("POST / = list" is a
@@ -74,6 +78,9 @@ const VERB_ACTIONS: Record<string, string> = {
   pi: 'EXTRACT', 'bl-draft': 'EXTRACT', an: 'EXTRACT', classify: 'EXTRACT', acknowledge: 'ACKNOWLEDGE',
   // Orders (2026-10): a step's "sent" sub-task ticked / unticked; the email inbox's accept / undo / assign.
   subtasks: 'UPDATE', undo: 'UNDO', accept: 'APPROVE', dismiss: 'IGNORE', retriage: 'RUN',
+  // Round E (2026-10): import permit read, the monthly declaration (supplier + customer orders), the inbox's
+  // "apply PI table", credits / adjustments on invoices, SI delivered ticks, alert refresh.
+  'import-permit': 'EXTRACT', declaration: 'CREATE', 'supplier-orders': 'CREATE', 'apply-credit': 'APPLY', adjustment: 'CREATE', delivered: 'UPDATE', refresh: 'RUN',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
   // Field delivery verbs (2026-09): the customer sign-off (full or partial, and
   // the guest link's), the return sign-off, ad-hoc acknowledge, install skip, and

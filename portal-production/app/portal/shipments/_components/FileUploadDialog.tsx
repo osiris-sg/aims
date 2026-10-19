@@ -38,7 +38,7 @@ import { LocalPreview } from "./FilePreview";
 import { useOrders, useDocTypes, useShipments, useTradeMutation } from "../_lib/hooks";
 import { blLabel, fmtBytes } from "../_lib/format";
 
-export type LinkTarget = { kind: "contract" | "shipment" | "order"; id: string; label: string };
+export type LinkTarget = { kind: "contract" | "shipment" | "order" | "supplierOrder"; id: string; label: string };
 
 type Row = { file: File; status: "ready" | "uploading" | "done" | "error"; pct: number; error?: string };
 

@@ -37,6 +37,17 @@ export class TradeFilesController {
     return this.files.list(orgIdOf(req), query);
   }
 
+  /** "Download shipment folder (.zip)" — the shipment's files, named after ADH's folder convention. */
+  @Get('shipment/:shipmentId/zip')
+  @Permissions('shipments:read')
+  async shipmentZip(@Param('shipmentId', ParseUUIDPipe) shipmentId: string, @Req() req: TradeRequest, @Res() res: Response) {
+    const z = await this.files.shipmentZip(orgIdOf(req), shipmentId);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(z.name)}`);
+    res.setHeader('Content-Length', String(z.buffer.length));
+    res.end(z.buffer);
+  }
+
   @Get(':id/url')
   @Permissions('shipments:read')
   getUrl(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {

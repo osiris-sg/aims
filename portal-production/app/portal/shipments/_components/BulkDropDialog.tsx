@@ -62,7 +62,7 @@ export default function BulkDropDialog({
       while (live && next < files.length) {
         const i = next++;
         try {
-          const r = await api.classifyFile(files[i], docTypes);
+          const r = await api.classifyFile(files[i], docTypes, owner.kind === "shipment" ? owner.id : undefined);
           if (live) setRows((rs) => rs.map((x, j) => (j === i ? { ...x, status: "ready", result: r, choice: r.docType } : x)));
         } catch (e) {
           if (live) setRows((rs) => rs.map((x, j) => (j === i ? { ...x, status: "ready", choice: "OTHER", error: (e as Error)?.message || "Could not read it" } : x)));

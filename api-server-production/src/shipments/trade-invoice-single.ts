@@ -12,14 +12,23 @@
  *   goods  billet: unit USD = LME (shipment-month average) + QMJP + premium (+ upcharge);
  *          amount USD = ROUND(qty × unit, 2); amount JPY = ROUND(qty × unit × FX, 0)
  *   jpy    通関、車輸送料 (taxable) / 通関 (non-taxable): typed / estimated in JPY;
- *          amount USD = ROUND(JPY / FX, 2); unit USD = ROUND(amount / qty, 2)
+ *          amount USD = ROUND(JPY / FX, 2); unit USD = ROUND(amount / qty, 2);
+ *          単価(円) = ROUND(amount USD × FX / qty, 2) — the sheet's per-line rounding, so the
+ *          per-MT yen row is 609,920.82 + 5,047.46 + 2,199.63 + 6,360 = 623,527.91 as printed
  *   usd    他諸掛 (taxable): 40 USD/MT; amount USD = ROUND(qty × 40, 2), JPY = ROUND(qty × 40 × FX, 0)
  * Tax = ROUND(taxable × 10%, 2) in USD and ROUND(... , 0) in JPY (the sheet's ROUND).
+ * 番号 defaults to the 発行日 as yyyymmdd (the sample: 2026/8/18 → 20260818); editable.
  * Sample check: 40.825 t, LME 3,155.98 + 395 + 285 = 3,835.98 → 156,603.88; 通関、車輸送料
  * ¥206,062.5 → 1,295.99; 通関 ¥89,800 → 564.78; 他諸掛 1,633.00; FX 159.00 → US$176,050.94.
  */
 import { docShell, esc, lines as br, money } from './trade-doc-shell';
 import { helperRemarks, InvoiceLine, roundTo } from './trade-invoice';
+
+/** The 番号 when none is typed: the 発行日 as yyyymmdd (2026-08-18 → "20260818"). */
+export function singleInvoiceNoFor(issueDate: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(issueDate ?? '');
+  return m ? `${m[1]}${m[2]}${m[3]}` : '';
+}
 
 export type SingleLineKind = 'goods' | 'jpy' | 'usd';
 
@@ -95,7 +104,7 @@ export function singleLineCalc(l: SingleLine, fx: number | null): SingleLineCalc
     return {
       unitUsd: q ? roundTo(amountUsd / q, 2) : null,
       amountUsd,
-      unitJpy: jpy === null || !q ? null : roundTo(jpy / q, 0),
+      unitJpy: jpy === null || !q ? null : rate === null ? roundTo(jpy / q, 2) : roundTo((amountUsd * rate) / q, 2),
       amountJpy: jpy === null ? null : roundTo(jpy, 0),
     };
   }
@@ -104,7 +113,7 @@ export function singleLineCalc(l: SingleLine, fx: number | null): SingleLineCalc
   return {
     unitUsd: unit,
     amountUsd,
-    unitJpy: unit === null || rate === null ? null : unit * rate,
+    unitJpy: unit === null || rate === null ? null : roundTo(unit * rate, 2),
     amountJpy: unit === null || q === null || rate === null ? null : roundTo(q * unit * rate, 0),
   };
 }
@@ -147,7 +156,7 @@ export function singleTotals(rows: SingleLine[], taxRate: number, fx: number | n
   );
   const perJpy = haveFx
     ? roundTo(
-        rows.reduce((a, l, i) => a + (l.kind === 'jpy' ? (has(l.jpyAmount) && n(l.quantity) ? n(l.jpyAmount) / n(l.quantity) : 0) : (calc[i].unitJpy ?? 0)), 0),
+        calc.reduce((a, c) => a + (c.unitJpy ?? 0), 0),
         2,
       )
     : null;
@@ -279,7 +288,7 @@ export function renderSingleInvoiceHtml(h: SingleInvoiceHeader, rows: SingleLine
   const sumRow = (label: string, usd: number, jpy: number | null, cls = '') =>
     `<tr class="${cls}"><td class="blank"></td><td colspan="2" class="lb">${label}</td><td class="num v">${money(usd)}</td><td colspan="2" class="num v">${jpy === null ? '' : money(jpy, 0)}</td><td class="blank"></td></tr>`;
   const body = `
-<div class="meta"><div><span class="k">番号：</span>${esc(h.invoiceNo ?? '（確定時に採番）')}</div><div><span class="k">発行日：</span>${slashDate(h.issueDate)}</div>${h.registrationNo ? `<div><span class="k">登録番号：</span>${esc(h.registrationNo)}</div>` : ''}</div>
+<div class="meta"><div><span class="k">番号：</span>${esc(h.invoiceNo?.trim() || singleInvoiceNoFor(h.issueDate) || '（確定時に採番）')}</div><div><span class="k">発行日：</span>${slashDate(h.issueDate)}</div>${h.registrationNo ? `<div><span class="k">登録番号：</span>${esc(h.registrationNo)}</div>` : ''}</div>
 <div class="title">${esc((h.title || '請求書').replace(/[\s　]+/g, ''))}</div>
 <div class="to">${esc(h.toName)}　${esc(h.toSuffix || '御中')}</div>
 <div class="parties">
@@ -356,5 +365,5 @@ table.bank { font-size: 6.2pt; line-height: 1.45; }
 table.bank td { padding: 0; vertical-align: top; }
 table.bank td.bk { width: 30mm; }
 `;
-  return docShell({ title: `請求書 ${h.invoiceNo ?? ''}`.trim(), css, body, draft: opts.draft });
+  return docShell({ title: `請求書 ${h.invoiceNo?.trim() || singleInvoiceNoFor(h.issueDate)}`.trim(), css, body, draft: opts.draft });
 }

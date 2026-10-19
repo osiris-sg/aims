@@ -199,3 +199,139 @@ export async function backfillOrders(
   }
   return result;
 }
+
+// ── Supplier orders (2026-10, round E) ─────────────────────────────────────
+/** The supplier-order step templates the backfill plans against (from the setup script, so a dry run is exact). */
+export interface SoStepSpec {
+  code: string;
+  displayNo: string;
+  title: string;
+  sortOrder: number;
+  requiredDocTypes: string[];
+  optionalDocTypes?: string[];
+  requiredFields?: string[];
+}
+
+/** Doc types that belong to the supplier side: their order file links are also linked to the supplier order. */
+const SUPPLIER_SIDE_DOCS = ['PI', 'DEPOSIT_PROOF', 'CONTRACT'];
+
+/**
+ * Every customer order without a supplier order gets one (1:1), made from the
+ * order's PI fields: its steps 0 (Check contract) and 1 (PI payment) move to
+ * the supplier order (status and history kept), missing supplier-side steps
+ * are added (DONE when the order is completed), and the order's PI / deposit /
+ * contract files are linked to the supplier order too (the order keeps its
+ * links). Nothing is deleted; re-running skips orders that already have one.
+ */
+export async function backfillSupplierOrders(
+  db: Db,
+  organizationId: string,
+  opts: { apply: boolean; templates: SoStepSpec[]; write: (step: string, msg: string) => void },
+): Promise<{ created: number; writes: number }> {
+  let writes = 0;
+  const w = (msg: string) => {
+    writes++;
+    opts.write('soBackfill', msg);
+  };
+  const orders: any[] = await db.tradeOrder.findMany({
+    where: { organizationId, supplierOrderId: null },
+    orderBy: [{ year: 'asc' }, { orderNo: 'asc' }],
+    include: {
+      contract: { select: { contractNo: true } },
+      steps: { select: { id: true, code: true, status: true } },
+      fileLinks: { select: { id: true, fileId: true, stepId: true, file: { select: { docType: true } } } },
+    },
+  });
+  if (!orders.length) return { created: 0, writes: 0 };
+  const dbTemplates: Array<{ id: string; code: string }> = opts.apply
+    ? await db.tradeStepTemplate.findMany({ where: { organizationId, scope: 'SUPPLIER_ORDER', isActive: true }, select: { id: true, code: true } })
+    : [];
+  const nextNo = new Map<number, number>();
+  const soNoFor = async (year: number) => {
+    if (!nextNo.has(year)) {
+      const last = await db.supplierOrder.findFirst({ where: { organizationId, year }, orderBy: { soNo: 'desc' }, select: { soNo: true } });
+      nextNo.set(year, last?.soNo ?? 0);
+    }
+    const n = nextNo.get(year)! + 1;
+    nextNo.set(year, n);
+    return n;
+  };
+  let created = 0;
+  for (const o of orders) {
+    const label = orderLabel(o);
+    const year = /^\d{4}-\d{2}$/.test(o.shipMonth ?? '') ? Number(o.shipMonth.slice(0, 4)) : o.year;
+    const soNo = await soNoFor(year);
+    const status = o.status === 'CANCELLED' ? 'CANCELLED' : o.status === 'COMPLETED' ? 'COMPLETED' : 'OPEN';
+    const moving = o.steps.filter((s: { code: string }) => opts.templates.some((t) => t.code === s.code));
+    const missing = opts.templates.filter((t) => !moving.some((s: { code: string }) => s.code === t.code));
+    const supplierLinks = o.fileLinks.filter((l: any) => SUPPLIER_SIDE_DOCS.includes(l.file.docType) || moving.some((s: { id: string }) => s.id === l.stepId));
+    w(
+      `${label} (${year}${o.contract?.contractNo ? `, contract ${o.contract.contractNo}` : ''}${o.piNo ? `, PI ${o.piNo}` : ''}${o.shipMonth ? `, ${o.shipMonth}` : ''}) → supplier order ${year}-S${soNo}, ${status}`,
+    );
+    if (moving.length) w(`  move ${moving.length} step(s) (${moving.map((s: { code: string }) => s.code).join(', ')}) from ${label} to the supplier order`);
+    if (missing.length) w(`  add supplier step(s): ${missing.map((t) => `${t.displayNo} ${t.code}${status === 'COMPLETED' ? ' (done)' : ''}`).join(', ')}`);
+    if (supplierLinks.length) w(`  link ${supplierLinks.length} file(s) (${[...new Set(supplierLinks.map((l: any) => l.file.docType))].join(', ')}) to the supplier order too`);
+    created++;
+    if (!opts.apply) continue;
+    const so = await db.supplierOrder.create({
+      data: {
+        organizationId,
+        year,
+        soNo,
+        supplierId: o.supplierId,
+        contractId: o.contractId,
+        declarationMonth: o.shipMonth,
+        product: o.product,
+        grade: o.grade,
+        size: o.size,
+        qtyMt: o.qtyMt,
+        supplierPremium: o.supplierPremium,
+        currency: o.currency,
+        piNo: o.piNo,
+        piDate: o.piDate,
+        piAmount: o.piAmount,
+        depositPct: o.depositPct,
+        depositAmount: o.depositAmount,
+        depositPaidAt: o.depositPaidAt,
+        status,
+        notes: `Backfilled from ${label}`,
+        createdById: o.createdById,
+      },
+      select: { id: true },
+    });
+    for (const s of moving) {
+      const t = opts.templates.find((x) => x.code === s.code)!;
+      await db.tradeStep.update({
+        where: { id: s.id },
+        data: { orderId: null, supplierOrderId: so.id, displayNo: t.displayNo, sortOrder: t.sortOrder, title: t.title, requiredFields: t.requiredFields ?? [] },
+      });
+    }
+    for (const t of missing) {
+      const done = status === 'COMPLETED';
+      await db.tradeStep.create({
+        data: {
+          organizationId,
+          supplierOrderId: so.id,
+          templateId: dbTemplates.find((x) => x.code === t.code)?.id ?? null,
+          code: t.code,
+          title: t.title,
+          displayNo: t.displayNo,
+          sortOrder: t.sortOrder,
+          requiredDocTypes: t.requiredDocTypes,
+          optionalDocTypes: t.optionalDocTypes ?? [],
+          requiredFields: t.requiredFields ?? [],
+          isOngoing: false,
+          status: done ? 'DONE' : 'NOT_STARTED',
+          completedAt: done ? new Date() : null,
+          updatedByName: done ? 'Backfill' : null,
+        },
+      });
+    }
+    for (const l of supplierLinks) {
+      const exists = await db.tradeFileLink.findFirst({ where: { organizationId, fileId: l.fileId, supplierOrderId: so.id }, select: { id: true } });
+      if (!exists) await db.tradeFileLink.create({ data: { organizationId, fileId: l.fileId, supplierOrderId: so.id, stepId: moving.some((s: { id: string }) => s.id === l.stepId) ? l.stepId : null } });
+    }
+    await db.tradeOrder.update({ where: { id: o.id }, data: { supplierOrderId: so.id } });
+  }
+  return { created, writes };
+}

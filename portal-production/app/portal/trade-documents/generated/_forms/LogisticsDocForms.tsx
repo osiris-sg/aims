@@ -12,8 +12,11 @@
 // Documents created before these layouts keep their original forms below.
 
 import React from "react";
-import { Box, Button, Grid2, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from "@mui/material";
-import { useTradeSettings } from "@/app/portal/shipments/_lib/hooks";
+import { Box, Button, Checkbox, Grid2, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from "@mui/material";
+import { useQueryClient } from "@tanstack/react-query";
+import { useShipmentsApi } from "@/app/portal/shipments/_lib/api";
+import { toast } from "@/app/portal/shipments/_lib/toast";
+import { SHIPMENT_KEYS, useTradeSettings } from "@/app/portal/shipments/_lib/hooks";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import type { DocFormProps } from "./types";
@@ -43,6 +46,7 @@ function Grid({
   setRows,
   blank,
   footer,
+  check,
 }: {
   cols: Array<{ key: string; label: string; num?: boolean; date?: boolean; width?: number }>;
   rows: any[];
@@ -50,6 +54,8 @@ function Grid({
   setRows: (fn: (rs: any[]) => any[]) => void;
   blank: () => any;
   footer?: React.ReactNode;
+  /** A tick column saved on its own (e.g. SI "delivered" — works on a final document too). */
+  check?: { key: string; label: string; onChange: (rowIndex: number, value: boolean) => void };
 }) {
   return (
     <>
@@ -62,6 +68,7 @@ function Grid({
                   {c.label}
                 </TableCell>
               ))}
+              {check && <TableCell sx={{ fontWeight: 700, width: 90 }}>{check.label}</TableCell>}
               <TableCell sx={{ width: 40 }} />
             </TableRow>
           </TableHead>
@@ -84,6 +91,11 @@ function Grid({
                     />
                   </TableCell>
                 ))}
+                {check && (
+                  <TableCell sx={{ p: 0.25 }}>
+                    <Checkbox size="small" checked={r[check.key] === true} onChange={(e) => check.onChange(i, e.target.checked)} inputProps={{ "aria-label": `${check.label} row ${i + 1}` }} />
+                  </TableCell>
+                )}
                 <TableCell sx={{ p: 0.25 }}>
                   {!disabled && (
                     <Tooltip title="Remove row">
@@ -237,7 +249,9 @@ const blTailOf = (bl: string) => {
   return t.length > 5 ? `末尾・・・${t.slice(-5)}` : t;
 };
 
-function SiAdhForm({ header: h, rows, disabled, setHeader, setRows }: DocFormProps<any, any>) {
+function SiAdhForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFormProps<any, any>) {
+  const api = useShipmentsApi();
+  const qc = useQueryClient();
   const tf = field(h, setHeader, disabled);
   const nf = numField(h, setHeader, disabled);
   const settings = useTradeSettings();
@@ -297,10 +311,24 @@ function SiAdhForm({ header: h, rows, disabled, setHeader, setRows }: DocFormPro
           disabled={disabled}
           setRows={setRows}
           blank={() => ({ shipDate: "", deliveryDate: "", destination: rows[rows.length - 1]?.destination ?? "", billet: rows[rows.length - 1]?.billet ?? "", bundles: null })}
+          check={{
+            key: "delivered",
+            label: "Delivered",
+            onChange: (i, v) => {
+              if (disabled) {
+                // Final SI: saved on its own (deliveries happen after the SI is sent).
+                void api
+                  .setDelivered(doc.id, i, v)
+                  .then(() => qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.generated }))
+                  .catch((e: any) => toast.error(e?.message || "Could not save"));
+              } else setRows((rs) => rs.map((x, j) => (j === i ? { ...x, delivered: v } : x)));
+            },
+          }}
           footer={
             <TableRow sx={{ "& td": { fontWeight: 700, fontVariantNumeric: "tabular-nums" } }}>
               <TableCell colSpan={4}>Total</TableCell>
               <TableCell align="right">{sum(rows, "bundles") || ""}</TableCell>
+              <TableCell align="left">{sum(rows.filter((r: any) => r.delivered), "bundles") || ""}</TableCell>
               <TableCell />
             </TableRow>
           }

@@ -9,6 +9,7 @@ import { fmtDateTime, fmtDay, fmtMoney, fmtMonth, fmtMt } from "../_lib/format";
 import { Field } from "./bits";
 import ShipmentFormDialog from "./ShipmentFormDialog";
 import BlCheckPanel from "./BlCheckPanel";
+import PortStoragePanel from "./PortStoragePanel";
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <Paper variant="outlined" sx={{ p: 2 }}>
@@ -32,6 +33,7 @@ export default function ShipmentOverview({ shipment: s }: { shipment: Shipment }
         </Button>
       </Stack>
       {s.blCheck && <BlCheckPanel check={s.blCheck} shipmentId={s.id} canEdit={s.status === "OPEN"} />}
+      <PortStoragePanel shipment={s} />
       <Section title="Contract">
         <Cell>
           <Field label="Contract no." value={s.contract ? <Link href={`/portal/shipments/contracts/${s.contract.id}`}>{s.contract.contractNo}</Link> : null} />

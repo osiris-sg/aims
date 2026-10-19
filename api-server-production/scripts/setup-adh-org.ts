@@ -39,9 +39,10 @@ import { DEFAULT_DOCUMENT_TEMPLATES } from '../src/organizations/default-templat
 import { DEFAULT_ORG_FEATURES } from '../src/organizations/default-features';
 import { MODULE_CATALOG } from '../src/configuration/module-catalog';
 import { checkTemplatePlan, type TemplateRow } from './lib/template-resolution';
-import { backfillOrders } from '../src/shipments/trade-orders-backfill';
+import { backfillOrders, backfillSupplierOrders } from '../src/shipments/trade-orders-backfill';
+import { bankEntity, entityFor } from '../src/shipments/trade-entity';
 import { DEFAULT_RATES } from '../src/shipments/trade-estimator';
-import { defaultSingleRemarks, type CustomerProfile } from '../src/shipments/trade-profile';
+import { defaultSingleRemarks, type CustomerProfile, type SupplierProfile } from '../src/shipments/trade-profile';
 
 neonConfig.webSocketConstructor = ws as unknown as typeof WebSocket;
 
@@ -109,7 +110,12 @@ const ENSURED_PERMISSIONS = [
   { resource: 'shipments', action: 'update', description: 'Can edit contracts/shipments and change step status' },
   { resource: 'shipments', action: 'delete', description: 'Can delete contracts, shipments and trade documents' },
   { resource: 'customers', action: 'create-by-name', description: 'Can create customers by name only (field flows)' },
+  { resource: 'shipments', action: 'money', description: 'Can see trade money: cash in / out, margin, profit, open credits (management view)' },
 ];
+// "ADH Manager" (2026-10): everything ADH Staff has, plus money (shipments:money — the manager dashboard).
+const MANAGER_ROLE_NAME = 'ADH Manager';
+const MANAGER_ROLE_DESCRIPTION = 'ADH Japan management — everything ADH Staff has, plus cash, margin, profit and credits';
+const MONEY_PERMISSIONS = ['shipments:money'];
 
 // Per-org overrides of the catalog entry, written to ADH's own module row only.
 // INVOICES: the catalog entry is the legacy /portal/invoices module (still the
@@ -130,8 +136,13 @@ const ENABLED_MODULES: Array<{ code: string; route?: string; icon?: string; sort
     code: 'SHIPMENTS',
     sortOrder: -3, // first — before the global Sales pin (0.5)
     subMenus: [
-      // Orders (Contract → Order → Shipment) and the triaged email inbox (/portal/shipments/inbox).
+      // Home (my tasks + pipeline; money for ADH Manager), Orders (customer / supplier), the monthly
+      // Declaration, Payments (cash in / out), Stock (warehouse) and the triaged email Inbox.
+      { key: 'dashboard', label: 'Home' },
       { key: 'list', label: 'Orders' },
+      { key: 'declaration', label: 'Declaration' },
+      { key: 'payments', label: 'Payments' },
+      { key: 'stock', label: 'Stock' },
       { key: 'inbox', label: 'Inbox' },
     ],
   },
@@ -217,6 +228,8 @@ const DOC_TYPES: Array<[string, string, DocCategory]> = [
   ['INVOICE_SINGLE', 'Invoice (single)', 'INVOICES'],
   ['VENDOR_INVOICE', 'Vendor invoice', 'PAYMENTS'],
   ['PAYMENT_PROOF', 'Payment proof', 'PAYMENTS'],
+  ['CUSTOMER_PO', 'Customer purchase order (発注書)', 'CUSTOMER'],
+  ['BUNDLE_LIST', 'Bundle-number list (NO.取りリスト)', 'CUSTOMS_LOGISTICS'],
   ['OTHER', 'Other', 'OTHER'],
 ];
 
@@ -304,7 +317,7 @@ const TRADE_SETTINGS = {
 };
 
 type StepSpec = {
-  scope: 'CONTRACT' | 'SHIPMENT' | 'ORDER';
+  scope: 'CONTRACT' | 'SHIPMENT' | 'ORDER' | 'SUPPLIER_ORDER';
   sortOrder: number;
   code: string;
   displayNo: string;
@@ -316,14 +329,15 @@ type StepSpec = {
   requiredFields?: string[];
   isOngoing?: boolean;
 };
-// Contract → Order → Shipment (2026-10): order steps 0, 1, 2, 13; shipment steps 2–12, 14.
-// Contract-level templates from before orders are deactivated (not deleted) below.
+// Contract → supplier order + customer order → shipment (2026-10, meeting decision):
+// supplier order (Vedanta's PI) steps 0, 1; customer order steps 2, 13; shipment steps 3a–12, 14
+// (6 = the CI payment, supplier side). Templates no longer listed are deactivated (not deleted) below.
 const STEP_TEMPLATES: StepSpec[] = [
-  // 0: link / upload the contract and confirm the premiums (auto-completes once the order has its contract and client premium).
-  { scope: 'ORDER', sortOrder: 5, code: 'CHECK_CONTRACT', displayNo: '0', title: 'Check contract', requiredDocTypes: [], requiredFields: ['contractId', 'clientPremium'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
-  { scope: 'ORDER', sortOrder: 10, code: 'PI_PAYMENT', displayNo: '1', title: 'Set up PI payment', requiredDocTypes: ['PI', 'DEPOSIT_PROOF'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
-  { scope: 'ORDER', sortOrder: 20, code: 'INVOICE_1', displayNo: '2', title: 'Issue and send Invoice #1', requiredDocTypes: ['INVOICE_1'], optionalDocTypes: ['OTHER'] },
-  { scope: 'ORDER', sortOrder: 130, code: 'XERO_HANDOFF', displayNo: '13', title: 'Prepare data for Xero reconciliation', requiredDocTypes: [], optionalDocTypes: ['OTHER'] },
+  // 0: link / upload the contract (auto-completes once the supplier order has its contract).
+  { scope: 'SUPPLIER_ORDER', sortOrder: 5, code: 'CHECK_CONTRACT', displayNo: '0', title: 'Check contract', requiredDocTypes: [], requiredFields: ['contractId'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
+  { scope: 'SUPPLIER_ORDER', sortOrder: 10, code: 'PI_PAYMENT', displayNo: '1', title: 'Set up PI payment', requiredDocTypes: ['PI', 'DEPOSIT_PROOF'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
+  { scope: 'ORDER', sortOrder: 20, code: 'INVOICE_1', displayNo: '2', title: 'Issue and send Invoice #1', requiredDocTypes: ['INVOICE_1'], optionalDocTypes: ['CUSTOMER_PO', 'OTHER'] },
+  { scope: 'ORDER', sortOrder: 130, code: 'XERO_HANDOFF', displayNo: '13', title: 'Prepare data for Xero reconciliation', requiredDocTypes: [], optionalDocTypes: ['CUSTOMER_PO', 'OTHER'] },
   {
     scope: 'SHIPMENT',
     sortOrder: 10,
@@ -349,7 +363,8 @@ const STEP_TEMPLATES: StepSpec[] = [
     displayNo: '9',
     title: 'Send arrival notice & shipping instructions',
     requiredDocTypes: ['ARRIVAL_NOTICE', 'SHIPPING_INSTRUCTIONS', 'TELEX_RELEASE', 'DELIVERY_SCHEDULE'],
-    optionalDocTypes: ['DELIVERY_SCHEDULE', 'OTHER'],
+    // Mitsui Soko's NO.取りリスト (bundle numbers) is filed here by the email intake.
+    optionalDocTypes: ['DELIVERY_SCHEDULE', 'BUNDLE_LIST', 'OTHER'],
   },
   { scope: 'SHIPMENT', sortOrder: 90, code: 'IMPORT_PERMIT', displayNo: '10', title: 'Store & send import permit', requiredDocTypes: ['IMPORT_PERMIT'], optionalDocTypes: ['OTHER'] },
   // 11: Invoice #2 (TWO_STAGE) — or the single invoice for a SINGLE-billing customer (set per step from the customer profile).
@@ -375,6 +390,130 @@ const CUSTOMERS = [
 // Customer profiles (TradeSetting.customerProfiles, Org Settings → Customers), keyed here by the customer's
 // name. Addresses / delivery sites come from --customers (adh.customers.json, never committed).
 // Values edited in the app win: only customers without a profile, and blank keys, are filled.
+// Supplier profiles (2026-10): Vedanta issues a PI and a deposit (step 1); Inalum / the Thai P1020 supplier
+// don't (hasPI false — set in Org Settings → Suppliers once they are added) and send their own document set.
+const SUPPLIER_PROFILE_SEED: Record<string, Omit<SupplierProfile, 'supplierId'>> = {
+  'Vedanta Aluminium Metal Limited': { key: 'VEDANTA', label: 'Vedanta', hasPI: true, shippingDocs: null },
+};
+
+// Contract master (2026-10). From the PIs / contract scans in ADH_Docs: Vedanta's premium is "midpoint of
+// the Main Japanese Port premium for the quarter (Platts) + N USD PMT" — the schedule holds N on the supplier
+// side and ADH's billet premium on the client side (margin = client − supplier; SUS 6063 230 − 205 = 25).
+// Unknown fields stay blank and are flagged "check" for ADH (Sayaka is updating the contract info).
+const VEDANTA = 'Vedanta Aluminium Metal Limited';
+const QP_SHIPMENT_MONTH = 'Average LME Cash Settlement Price for the month of scheduled shipment';
+const MJP_RULE = 'Midpoint of the Official Main Japanese Port premium for the quarter (Platts) + the contract premium';
+const VEDANTA_BALANCE =
+  'Provisional price within 3 working days against the provisional invoice + original B/L; final price within 2 business days against the final invoice and documents; the difference settled within 2 working days from the last day of QP.';
+type ContractSeed = {
+  contractNo: string;
+  customer: string;
+  product: string;
+  grade: string;
+  sizeSpec: string | null;
+  lineQtyMt: number | null;
+  tolerancePct: number;
+  incoterm: string;
+  destinationPort: string;
+  destinationCountry: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  annualQtyMt: number | null;
+  depositDueDays: number;
+  qpBasis: string | null;
+  balanceTerms: string | null;
+  premiumSchedule: Array<{ from: string; to: string | null; supplierPremium: number | null; clientPremium: number | null; upcharge: number | null }>;
+  checkFields: string[];
+};
+const CONTRACT_SEED: ContractSeed[] = [
+  {
+    contractNo: '454003422',
+    customer: 'SUS Co., Ltd.',
+    product: 'Aluminium Billet',
+    grade: '6063',
+    sizeSpec: '203 MM (8 inch)',
+    lineQtyMt: 300,
+    tolerancePct: 5,
+    incoterm: 'CIF',
+    destinationPort: 'Yokohama',
+    destinationCountry: 'Japan',
+    periodStart: null,
+    periodEnd: null,
+    annualQtyMt: null,
+    depositDueDays: 5,
+    qpBasis: null,
+    balanceTerms: null,
+    // PI 9331004128: premium 556.50 = 2QMJP 351.5 + 205; invoices bill 230 (#11).
+    premiumSchedule: [{ from: '2026-06', to: null, supplierPremium: 205, clientPremium: 230, upcharge: null }],
+    checkFields: ['periodStart', 'periodEnd', 'annualQtyMt', 'qpBasis', 'balanceTerms'],
+  },
+  {
+    contractNo: '454003255',
+    customer: 'SUS Co., Ltd.',
+    product: 'Aluminium Billet',
+    grade: '6005',
+    sizeSpec: '203 MM (8 inch)',
+    lineQtyMt: 120,
+    tolerancePct: 5,
+    incoterm: 'CIF',
+    destinationPort: 'Yokohama',
+    destinationCountry: 'Japan',
+    periodStart: null,
+    periodEnd: null,
+    annualQtyMt: null,
+    depositDueDays: 5,
+    qpBasis: null,
+    balanceTerms: null,
+    // PI 9331004127: premium 513.50 = 351.5 + 162; SUS 6005 invoice: 190 billet + 10 upcharge (margin 38).
+    premiumSchedule: [{ from: '2026-06', to: null, supplierPremium: 162, clientPremium: 190, upcharge: 10 }],
+    checkFields: ['periodStart', 'periodEnd', 'annualQtyMt', 'qpBasis', 'balanceTerms'],
+  },
+  {
+    contractNo: '454003598',
+    customer: 'Kato Light Metal Industry Co., Ltd.',
+    product: 'Aluminium Billet',
+    grade: '6005',
+    sizeSpec: '203 MM (8 inch)',
+    lineQtyMt: 50,
+    tolerancePct: 5,
+    incoterm: 'CIF',
+    destinationPort: 'Nagoya',
+    destinationCountry: 'Japan',
+    periodStart: '2026-07-01',
+    periodEnd: '2026-07-31',
+    annualQtyMt: 50,
+    depositDueDays: 3,
+    qpBasis: QP_SHIPMENT_MONTH,
+    balanceTerms: VEDANTA_BALANCE,
+    // Contract: MJP + 260; PI 9331004129 611.50 = 351.5 + 260. Kato orders bill 285 / 287 / 260 — per order.
+    premiumSchedule: [{ from: '2026-07', to: null, supplierPremium: 260, clientPremium: 285, upcharge: null }],
+    checkFields: ['premiumSchedule'],
+  },
+  {
+    contractNo: '454003652',
+    customer: 'Houei',
+    product: 'Aluminium Ingot',
+    grade: 'P1020',
+    sizeSpec: null,
+    lineQtyMt: 150,
+    tolerancePct: 2,
+    incoterm: 'CIF',
+    destinationPort: 'Laem Chabang',
+    destinationCountry: 'Thailand',
+    periodStart: '2026-08-01',
+    periodEnd: '2026-08-31',
+    annualQtyMt: 150,
+    depositDueDays: 3,
+    qpBasis: QP_SHIPMENT_MONTH,
+    balanceTerms: VEDANTA_BALANCE,
+    // Contract: MJP + 5; PI 9331004202 (scan, read by the AI pipeline): LME 3,260.10 + 400.00 = 3,660.10, 150 MT.
+    premiumSchedule: [{ from: '2026-08', to: null, supplierPremium: 5, clientPremium: null, upcharge: null }],
+    checkFields: ['premiumSchedule', 'sizeSpec'],
+  },
+];
+/** LME cash monthly averages (US$/MT) from ADH's invoices — the price check's basis. */
+const LME_SEED: Record<string, number> = { '2026-06': 3458.64, '2026-07': 3155.98 };
+
 const PROFILE_SEED: Record<string, Omit<CustomerProfile, 'customerId'>> = {
   'SUS Co., Ltd.': {
     key: 'SUS',
@@ -419,7 +558,7 @@ const TEMPLATE_IS_DEFAULT = false;
 
 const USERS_TO_ADD = ['sayaka.matsuki', 'toshiro.takekoshi', 'natsumi', 'finance'].map((u) => `${u}@asiadealhub.com`);
 
-const TRADE_TABLES = ['TradeDocType', 'Contract', 'TradeOrder', 'Shipment', 'TradeStepTemplate', 'TradeStep', 'TradeFile', 'TradeFileLink'];
+const TRADE_TABLES = ['TradeDocType', 'Contract', 'TradeOrder', 'SupplierOrder', 'Shipment', 'TradeStepTemplate', 'TradeStep', 'TradeFile', 'TradeFileLink'];
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const writes: string[] = [];
@@ -664,7 +803,8 @@ async function main() {
     const name = `${p.resource}:${p.action}`;
     if (!permByName.has(name)) permByName.set(name, { id: `(new) ${name}`, name, resource: p.resource });
   }
-  const granted = [...permByName.values()].filter((p) => ROLE_RESOURCES.includes(p.resource) || ROLE_EXTRA_PERMISSIONS.includes(p.name));
+  // Staff: no money; the Manager role (3b) adds it.
+  const granted = [...permByName.values()].filter((p) => (ROLE_RESOURCES.includes(p.resource) || ROLE_EXTRA_PERMISSIONS.includes(p.name)) && !MONEY_PERMISSIONS.includes(p.name));
   const leaked = granted.filter((p) => FORBIDDEN_RESOURCES.includes(p.resource));
   if (leaked.length) throw new Error(`forbidden permissions selected: ${leaked.map((p) => p.name).join(', ')}`);
   const missingExtras = ROLE_EXTRA_PERMISSIONS.filter((n) => !permByName.has(n));
@@ -693,6 +833,20 @@ async function main() {
     }
   }
   write('role', `${existingRole ? 'sync' : 'create'} "${ROLE_NAME}" — modules ${ROLE_MODULES.join('/')}, ${granted.length} permissions`);
+
+  // ── 3b. Role "ADH Manager" ────────────────────────────────────────────────
+  header('3b', `Role "${MANAGER_ROLE_NAME}"`);
+  const managerGranted = [...granted, ...[...permByName.values()].filter((p) => MONEY_PERMISSIONS.includes(p.name))];
+  const existingManager = orgExists ? await orgRead(() => org.role.findFirst({ where: { organizationId: orgId, name: MANAGER_ROLE_NAME } }), null) : null;
+  if (APPLY) {
+    const ids = (await org.permission.findMany({ where: { name: { in: managerGranted.map((p) => p.name) } }, select: { id: true } })).map((p: any) => ({ id: p.id }));
+    if (existingManager) {
+      await org.role.update({ where: { id: existingManager.id }, data: { description: MANAGER_ROLE_DESCRIPTION, allowedModules: ROLE_MODULES, permissions: { set: ids } } });
+    } else {
+      await org.role.create({ data: { organizationId: orgId, name: MANAGER_ROLE_NAME, description: MANAGER_ROLE_DESCRIPTION, allowedModules: ROLE_MODULES, permissions: { connect: ids } } });
+    }
+  }
+  write('role', `${existingManager ? 'sync' : 'create'} "${MANAGER_ROLE_NAME}" — modules ${ROLE_MODULES.join('/')}, ${managerGranted.length} permissions (staff + money)`);
 
   // ── 4. Modules ────────────────────────────────────────────────────────────
   header('4', 'Modules');
@@ -855,7 +1009,8 @@ async function main() {
   // Steps snapshot their template's number: renumbered templates relabel the existing steps (label only — status/files untouched).
   if (orgExists) {
     for (const s of STEP_TEMPLATES) {
-      const owner = s.scope === 'ORDER' ? { orderId: { not: null } } : { shipmentId: { not: null } };
+      const owner =
+        s.scope === 'SUPPLIER_ORDER' ? { supplierOrderId: { not: null } } : s.scope === 'ORDER' ? { orderId: { not: null } } : { shipmentId: { not: null } };
       const where = { organizationId: orgId, code: s.code, ...owner, NOT: { displayNo: s.displayNo } };
       const n = await tradeRead(() => org.tradeStep.count({ where }), 0);
       if (!n) continue;
@@ -1010,12 +1165,38 @@ async function main() {
   const curRates = (tsRow?.estimatorRates as Record<string, unknown> | null) ?? null;
   const wantRates = { ...DEFAULT_RATES, ...(curRates ?? {}) };
   if (curRates && sameJson(curRates, wantRates)) info('estimator rates set');
-  else write('estimatorRates', `${curRates ? 'fill' : 'set'} estimator rates: customs ¥${wantRates.customsPerMt}/MT ×${wantRates.taxMultiplier}, B/L ¥${wantRates.blFee}, trucks ${JSON.stringify(wantRates.truckRates)}, storage ¥${wantRates.storagePerContainer}/CNT ¥${wantRates.storagePerMt}/MT, washing ¥${wantRates.washingPerContainer}/CNT, detention ¥${wantRates.detentionPerContainer}/CNT, import tax ${wantRates.importTaxRate * 100}%`);
+  else write('estimatorRates', `${curRates ? 'fill' : 'set'} estimator rates: customs ¥${wantRates.customsPerMt}/MT ×${wantRates.taxMultiplier}, B/L ¥${wantRates.blFee}, trucks ${JSON.stringify(wantRates.truckRates)}, storage ¥${wantRates.storagePerContainer}/CNT ¥${wantRates.storagePerMt}/MT, washing ¥${wantRates.washingPerContainer}/CNT, detention ¥${wantRates.detentionPerContainer}/CNT, import tax = permit formula (7.8% + 22/78)`);
   if (APPLY && orgExists && tradeReady && (!sameJson(curProfiles, nextProfiles) || !curRates || !sameJson(curRates, wantRates))) {
     await org.tradeSetting.upsert({
       where: { organizationId: orgId },
       update: { customerProfiles: nextProfiles as any, estimatorRates: wantRates as any },
       create: { organizationId: orgId, customerProfiles: nextProfiles as any, estimatorRates: wantRates as any },
+    });
+  }
+
+  // Supplier profiles: the script's keys fill a profile; anything set in the app wins.
+  const curSupProfiles = ((tsRow?.supplierProfiles as Record<string, SupplierProfile> | null) ?? {}) as Record<string, SupplierProfile>;
+  const nextSupProfiles: Record<string, SupplierProfile> = { ...curSupProfiles };
+  for (const [name, seed] of Object.entries(SUPPLIER_PROFILE_SEED)) {
+    const sup = orgExists ? await orgRead(() => org.supplier.findFirst({ where: { organizationId: orgId, name: { equals: name, mode: 'insensitive' } }, select: { id: true } }), null) : null;
+    if (!sup) {
+      info(`supplier profile for "${name}": supplier not created yet${APPLY ? '' : ' (dry run)'} — set on the next run`);
+      continue;
+    }
+    const cur = curSupProfiles[sup.id];
+    const merged = cur ? ({ ...seed, ...cur, supplierId: sup.id } as SupplierProfile) : ({ ...seed, supplierId: sup.id } as SupplierProfile);
+    if (cur && sameJson(cur, merged)) {
+      info(`supplier profile "${seed.key}" set (PI ${merged.hasPI ? 'yes' : 'no'})`);
+      continue;
+    }
+    nextSupProfiles[sup.id] = merged;
+    write('supplierProfile', `${cur ? 'fill' : 'create'} ${seed.key}: PI ${merged.hasPI ? 'yes (deposit on step 1)' : 'no (step 1 N/A, CI paid in full)'}`);
+  }
+  if (APPLY && orgExists && tradeReady && !sameJson(curSupProfiles, nextSupProfiles)) {
+    await org.tradeSetting.upsert({
+      where: { organizationId: orgId },
+      update: { supplierProfiles: nextSupProfiles as any },
+      create: { organizationId: orgId, supplierProfiles: nextSupProfiles as any },
     });
   }
 
@@ -1034,6 +1215,125 @@ async function main() {
         await org.tradeGeneratedDoc.updateMany({ where: { organizationId: orgId, docType: 'CUSTOMER_COA', templateKey: null }, data: { templateKey: 'CUSTOMER_COA_KATO' } });
       }
       write('templateKey', `tag ${untagged} existing Customer PL / COA document(s) with the Kato template key`);
+    }
+  }
+
+  // ── 10d. Contract master (2026-10): pricing basis, quantities, premium schedule ─
+  header('10d', 'Contract master (premium schedule, QP / QMJP rules) + LME averages');
+  if (!tradeReady || !org.contract) {
+    info('Contract table / client not ready — push the schema first');
+  } else {
+    const vedanta = await orgRead(() => org.supplier.findFirst({ where: { organizationId: orgId, name: { equals: VEDANTA, mode: 'insensitive' } }, select: { id: true } }), null);
+    for (const c of CONTRACT_SEED) {
+      const cust = await orgRead(() => org.customer.findFirst({ where: { organizationId: orgId, name: { equals: c.customer, mode: 'insensitive' } }, select: { id: true } }), null);
+      const cur = await orgRead(() => org.contract.findFirst({ where: { organizationId: orgId, contractNo: c.contractNo } }), null);
+      const master: Record<string, unknown> = {
+        grade: c.grade,
+        sizeSpec: c.sizeSpec,
+        periodStart: c.periodStart ? new Date(c.periodStart) : null,
+        periodEnd: c.periodEnd ? new Date(c.periodEnd) : null,
+        annualQtyMt: c.annualQtyMt,
+        tolerancePct: c.tolerancePct,
+        qpBasis: c.qpBasis,
+        qmjpRule: MJP_RULE,
+        balanceTerms: c.balanceTerms,
+        premiumSchedule: c.premiumSchedule,
+      };
+      if (!cur) {
+        if (!vedanta || !cust) {
+          info(`contract ${c.contractNo}: ${!vedanta ? 'Vedanta' : c.customer} not created yet${APPLY ? '' : ' (dry run)'} — set on the next run`);
+          continue;
+        }
+        if (APPLY) {
+          await org.contract.create({
+            data: {
+              organizationId: orgId,
+              contractNo: c.contractNo,
+              supplierId: vedanta.id,
+              customerId: cust.id,
+              incoterm: c.incoterm,
+              destinationPort: c.destinationPort,
+              destinationCountry: c.destinationCountry,
+              currency: 'USD',
+              depositPercent: 10,
+              depositDueDays: c.depositDueDays,
+              depositDueUnit: 'BUSINESS',
+              ...master,
+              checkFields: c.checkFields,
+              notes: 'Contract master seeded from the PI / contract scans (2026-10)',
+              lines: { create: [{ organizationId: orgId, sortOrder: 0, product: c.product, grade: c.grade, sizeSpec: c.sizeSpec, quantityMt: c.lineQtyMt, tolerancePct: c.tolerancePct, supplierPremium: c.premiumSchedule[0]?.supplierPremium ?? null, clientPremium: c.premiumSchedule[0]?.clientPremium ?? null, billetPremium: c.premiumSchedule[0]?.clientPremium ?? null, upcharge: c.premiumSchedule[0]?.upcharge ?? null }] },
+            },
+          });
+        }
+        write('contract', `create ${c.contractNo} (${c.customer} · ${c.grade} · ${c.lineQtyMt ?? '?'} MT, ${c.destinationPort}) — check: ${c.checkFields.join(', ') || 'none'}`);
+        continue;
+      }
+      // Existing contract: only blank master fields are filled (anything set in the app wins).
+      const blank = (v: unknown) => v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length);
+      const fill = Object.fromEntries(Object.entries(master).filter(([k, v]) => !blank(v) && blank((cur as Record<string, unknown>)[k])));
+      if (blank(cur.checkFields) && c.checkFields.length) fill.checkFields = c.checkFields;
+      if (!Object.keys(fill).length) {
+        info(`contract ${c.contractNo} master set`);
+        continue;
+      }
+      if (APPLY) await org.contract.update({ where: { id: cur.id }, data: fill });
+      write('contract', `fill ${c.contractNo}: ${Object.keys(fill).join(', ')}`);
+    }
+    // LME monthly averages for the price check: months set in the app win.
+    const dd = ((tsRow?.docDefaults as Record<string, unknown> | null) ?? {}) as Record<string, unknown>;
+    const curLme = (dd.lmeByMonth as Record<string, number> | undefined) ?? {};
+    const addLme = Object.fromEntries(Object.entries(LME_SEED).filter(([m]) => curLme[m] === undefined));
+    if (!Object.keys(addLme).length) info('LME averages set');
+    else {
+      if (APPLY && orgExists) {
+        const fresh = await org.tradeSetting.findUnique({ where: { organizationId: orgId }, select: { docDefaults: true } });
+        await org.tradeSetting.update({ where: { organizationId: orgId }, data: { docDefaults: { ...((fresh?.docDefaults as object) ?? {}), lmeByMonth: { ...curLme, ...addLme } } as any } });
+      }
+      write('lme', `add LME averages ${Object.entries(addLme).map(([m, v]) => `${m} ${v}`).join(', ')}`);
+    }
+  }
+
+  // ── 10e. Supplier orders (2026-10): every customer order gets its supplier order (Vedanta's PI) ─
+  header('10e', 'Supplier orders backfill (steps 0 / 1 move to the supplier order)');
+  if (!tradeReady || !org.supplierOrder) {
+    info('SupplierOrder table / client not ready — push the schema first');
+  } else {
+    const soTemplates = STEP_TEMPLATES.filter((t) => t.scope === 'SUPPLIER_ORDER').map((t) => ({
+      code: t.code,
+      displayNo: t.displayNo,
+      title: t.title,
+      sortOrder: t.sortOrder,
+      requiredDocTypes: t.requiredDocTypes,
+      optionalDocTypes: t.optionalDocTypes ?? ['OTHER'],
+      requiredFields: t.requiredFields ?? [],
+    }));
+    const r = await backfillSupplierOrders(org, orgId, { apply: APPLY, templates: soTemplates, write });
+    if (!r.created) info('nothing to backfill (every customer order has a supplier order)');
+  }
+
+  // ── 10f. Entities (2026-10): ADH JP / ADH SG on generated documents and bank accounts ─
+  header('10f', 'Issuing entities (generated documents, bank accounts)');
+  if (!tradeReady || !org.tradeGeneratedDoc) {
+    info('TradeGeneratedDoc table / client not ready — push the schema first');
+  } else {
+    const untaggedDocs: Array<{ id: string; docType: string }> = await org.tradeGeneratedDoc.findMany({ where: { organizationId: orgId, issuingEntity: null }, select: { id: true, docType: true } });
+    if (!untaggedDocs.length) info('every generated document has its entity');
+    else {
+      const byEntity = new Map<string, string[]>();
+      for (const d of untaggedDocs) byEntity.set(entityFor(d.docType), [...(byEntity.get(entityFor(d.docType)) ?? []), d.id]);
+      for (const [entity, ids] of byEntity) {
+        if (APPLY) await org.tradeGeneratedDoc.updateMany({ where: { organizationId: orgId, id: { in: ids } }, data: { issuingEntity: entity } });
+        write('entity', `tag ${ids.length} generated document(s) ${entity}`);
+      }
+    }
+    const fresh = await tradeRead(() => org.tradeSetting.findUnique({ where: { organizationId: orgId }, select: { docDefaults: true } }), null);
+    const banks = (((fresh?.docDefaults as Record<string, unknown> | null)?.banks as Array<Record<string, unknown>> | undefined) ?? []).filter(Boolean);
+    const untaggedBanks = banks.filter((b) => b.entity !== 'ADH_JP' && b.entity !== 'ADH_SG');
+    if (!untaggedBanks.length) info(banks.length ? 'every bank account has its entity' : 'no bank accounts yet');
+    else {
+      const next = banks.map((b) => ({ ...b, entity: bankEntity(b as { label?: string; entity?: string }) }));
+      if (APPLY) await org.tradeSetting.update({ where: { organizationId: orgId }, data: { docDefaults: { ...((fresh?.docDefaults as object) ?? {}), banks: next } as any } });
+      write('entity', `tag ${untaggedBanks.length} bank account(s): ${untaggedBanks.map((b) => `${b.label} → ${bankEntity(b as { label?: string })}`).join(', ')}`);
     }
   }
 

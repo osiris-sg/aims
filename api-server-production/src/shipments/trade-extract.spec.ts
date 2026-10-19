@@ -108,6 +108,9 @@ describe('normalisers', () => {
     expect(monthOf("Jul'26")).toBe('2026-07');
     expect(gradeOf(null, 'ALUMINIUM ALLOY BILLETS ALLOY 6063V1-C 8 INCH')).toBe('6063');
     expect(gradeOf('6005A')).toBe('6005');
+    // Ingot grades keep their letter (Hoei PI 9331004202: "AL INGOT 99.7% P1020").
+    expect(gradeOf('P1020', 'AL INGOT 99.7% P1020')).toBe('P1020');
+    expect(gradeOf(null, 'Aluminium ingot P0507')).toBe('P0507');
   });
   it('B/L weights in KG become MT', () => {
     expect(toMt(40775, 'KGS')).toBe(40.775);

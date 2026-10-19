@@ -53,7 +53,9 @@ import {
 import { buildCustomerPl, CUSTOMER_PL_COLUMNS, GenColumn, GenRow, parseSheetFile, plTotals, SheetFormatError } from './trade-sheet.parser';
 import { Db, ownerWhere, TradeConfigService } from './trade-config.service';
 import { TradeFilesService } from './trade-files.service';
-import { estimate } from './trade-estimator';
+import { actualsTable, estimate } from './trade-estimator';
+import { entityFor, entityProblem } from './trade-entity';
+import { adjustmentLine, costVariance, creditIdsOf, creditLine, estimatedCostsUsd, isCreditNote } from './trade-credit';
 import { CUSTOMER_DOC_TEMPLATES, CustomerProfile, defaultSingleRemarks, templateKeyFor } from './trade-profile';
 import {
   renderSingleInvoiceHtml,
@@ -64,6 +66,8 @@ import {
   SingleLine,
   singleTotals,
   toSingleLines,
+  singleInvoiceNoFor,
+  singleLineCalc,
 } from './trade-invoice-single';
 import { attachPagePng } from './trade-attach';
 
@@ -123,6 +127,7 @@ const GEN_SELECT = {
   orderId: true,
   coversShipmentIds: true,
   templateKey: true,
+  issuingEntity: true,
   docType: true,
   number: true,
   status: true,
@@ -327,6 +332,7 @@ export class TradeGeneratedService {
           docType,
           docRef,
           templateKey,
+          issuingEntity: entityFor(docType),
           header: header as any,
           columns: built.columns as any,
           rows: built.rows as any,
@@ -340,9 +346,13 @@ export class TradeGeneratedService {
   }
 
   /** Edit a DRAFT (header / columns / rows). */
-  async update(organizationId: string, id: string, body: { header?: unknown; columns?: unknown; rows?: unknown }) {
+  async update(organizationId: string, id: string, body: { header?: unknown; columns?: unknown; rows?: unknown; issuingEntity?: string }) {
     const g = await this.get(organizationId, id);
     if (g.status !== 'DRAFT') throw new BadRequestException('This document is final — use "Edit again" first');
+    if (body.issuingEntity !== undefined) {
+      const problem = entityProblem(g.docType, body.issuingEntity);
+      if (problem) throw new BadRequestException(problem);
+    }
     if (body.columns !== undefined && !Array.isArray(body.columns)) throw new BadRequestException('columns must be a list');
     if (body.rows !== undefined && !Array.isArray(body.rows)) throw new BadRequestException('rows must be a list');
     assertDocDates(body.header, body.rows);
@@ -352,6 +362,7 @@ export class TradeGeneratedService {
         ...(body.header !== undefined ? { header: body.header as any } : {}),
         ...(body.columns !== undefined ? { columns: body.columns as any } : {}),
         ...(body.rows !== undefined ? { rows: body.rows as any } : {}),
+        ...(body.issuingEntity !== undefined ? { issuingEntity: body.issuingEntity } : {}),
       },
       select: GEN_SELECT,
     });
@@ -575,6 +586,7 @@ export class TradeGeneratedService {
         docType: input.docType,
         docRef,
         templateKey,
+        issuingEntity: entityFor(input.docType),
         coversShipmentIds: covers,
         header: header as any,
         columns: columns as any,
@@ -680,6 +692,25 @@ export class TradeGeneratedService {
     }
     const blank = blankDocProblems(g.docType, g.header, rows);
     if (blank.length) throw new BadRequestException(finalizeMessage(blank));
+    // A customer invoice is never issued by ADH SG.
+    const entityIssue = entityProblem(g.docType, (g as { issuingEntity?: string | null }).issuingEntity ?? entityFor(g.docType));
+    if (entityIssue) throw new BadRequestException(entityIssue);
+    // Invoice #1 applying credits: each must still be open (or already used by this invoice) and the same customer's.
+    const creditIds = g.docType === 'INVOICE_1' ? creditIdsOf(rows) : [];
+    if (creditIds.length) {
+      const customerId = await this.invoiceCustomerId(organizationId, g);
+      const credits: Array<{ id: string; status: string; customerId: string; usedByDocId: string | null; sourceNumber: string | null }> = await this.prisma.tradeCredit.findMany({
+        where: { organizationId, id: { in: creditIds } },
+        select: { id: true, status: true, customerId: true, usedByDocId: true, sourceNumber: true },
+      });
+      for (const cid of creditIds) {
+        const c = credits.find((x) => x.id === cid);
+        if (!c) throw new BadRequestException('A credit applied on this invoice no longer exists — remove its 前回差額充当 line');
+        if (c.customerId !== customerId) throw new BadRequestException(`Credit ${c.sourceNumber ?? ''} belongs to another customer`);
+        if (c.status === 'VOID') throw new BadRequestException(`Credit ${c.sourceNumber ?? ''} was voided — remove its line`);
+        if (c.status === 'USED' && c.usedByDocId !== g.id) throw new BadRequestException(`Credit ${c.sourceNumber ?? ''} is already used on another invoice`);
+      }
+    }
     const owners = await this.ownersOf(organizationId, g);
 
     let number = g.number;
@@ -690,6 +721,15 @@ export class TradeGeneratedService {
       const sh = header as SingleInvoiceHeader;
       const problems = singleFinalizeProblems(sl, sh.fxRate);
       if (problems.length) throw new BadRequestException(finalizeMessage(problems));
+      // The printed 番号 is ADH's own (default: the 発行日 as yyyymmdd, as on Kato's invoices); the Sales invoice keeps its number.
+      const printedNo = String(sh.invoiceNo ?? '').trim() || singleInvoiceNoFor(sh.issueDate);
+      if (printedNo) {
+        const clash = await this.prisma.tradeGeneratedDoc.findFirst({
+          where: { organizationId, docType: g.docType, status: 'FINAL', number: printedNo, id: { not: g.id } },
+          select: { id: true },
+        });
+        if (clash) throw new BadRequestException(`Another single invoice is already numbered ${printedNo} — change the 番号 (e.g. ${printedNo}_2)`);
+      }
       const tt = singleTotals(sl, sh.taxRate, sh.fxRate);
       const lines = singleAsInvoiceLines(sl, sh.fxRate, sh.dueDate);
       const doc = await this.ensureSalesInvoice(organizationId, g, { ...(sh as any), variant: undefined } as InvoiceHeader, lines, owners, actor, {
@@ -698,8 +738,8 @@ export class TradeGeneratedService {
         total: tt.usd.total,
       });
       documentId = doc.id;
-      number = doc.name;
-      header = { ...header, invoiceNo: doc.name };
+      number = printedNo || doc.name;
+      header = { ...header, invoiceNo: number, salesInvoiceNo: doc.name };
     } else if (t.kind === 'invoice') {
       const lines = toInvoiceLines(rows);
       if (!lines.some((l) => l.description.trim() || amountOf(l) !== 0)) throw new BadRequestException('Add at least one invoice line');
@@ -757,9 +797,141 @@ export class TradeGeneratedService {
         actor,
       );
     }
-    return this.prisma.tradeGeneratedDoc.update({
+    const finalized = await this.prisma.tradeGeneratedDoc.update({
       where: { id, organizationId },
       data: { status: 'FINAL', number, header, finalFileId: file.id, documentId, ...((g as { docRef?: string | null }).docRef ? {} : { docRef: (file as { docRef?: string | null }).docRef ?? null }) },
+      select: GEN_SELECT,
+    });
+    await this.bookCredits(organizationId, { ...g, number, header, rows }, creditIds);
+    return finalized;
+  }
+
+  /**
+   * Credits on finalize: a negative Invoice #2 opens (or re-opens) a credit for
+   * the customer; an Invoice #1 marks the credits it applies as used.
+   */
+  private async bookCredits(organizationId: string, g: { id: string; docType: string; number: string | null; header: any; rows: unknown; orderId?: string | null; shipmentId?: string | null }, creditIds: string[]) {
+    if (g.docType === 'INVOICE_2') {
+      const total = invoiceTotals(toInvoiceLines(g.rows), Number(g.header?.taxRate ?? 10), null, g.header?.variant === 'final' ? 'final' : undefined).total;
+      const existing = await this.prisma.tradeCredit.findFirst({ where: { organizationId, sourceDocId: g.id }, select: { id: true, status: true } });
+      if (isCreditNote(g.docType, total)) {
+        const customerId = await this.invoiceCustomerId(organizationId, g);
+        if (!customerId) return;
+        const data = { customerId, sourceNumber: g.number, amount: roundTo(Math.abs(total), 2), currency: 'USD' };
+        if (existing) await this.prisma.tradeCredit.update({ where: { id: existing.id }, data: { ...data, ...(existing.status === 'VOID' ? { status: 'OPEN' } : {}) } });
+        else await this.prisma.tradeCredit.create({ data: { organizationId, sourceDocId: g.id, ...data } });
+      } else if (existing && existing.status === 'OPEN') {
+        await this.prisma.tradeCredit.update({ where: { id: existing.id }, data: { status: 'VOID' } });
+      }
+    }
+    if (g.docType === 'INVOICE_1' && creditIds.length) {
+      await this.prisma.tradeCredit.updateMany({ where: { organizationId, id: { in: creditIds } }, data: { status: 'USED', usedByDocId: g.id, usedByNumber: g.number, usedAt: new Date() } });
+    }
+  }
+
+  /** The customer an invoice bills (its order's, else its shipment's / covered shipments'). */
+  private async invoiceCustomerId(organizationId: string, g: { orderId?: string | null; shipmentId?: string | null }): Promise<string | null> {
+    if (g.orderId) return (await this.prisma.tradeOrder.findFirst({ where: { id: g.orderId, organizationId }, select: { customerId: true } }))?.customerId ?? null;
+    if (g.shipmentId) {
+      const s = await this.prisma.shipment.findFirst({ where: { id: g.shipmentId, organizationId }, select: { customerId: true, order: { select: { customerId: true } } } });
+      return s?.order?.customerId ?? s?.customerId ?? null;
+    }
+    return null;
+  }
+
+  /**
+   * 出庫・納入依頼書: tick a delivery row delivered (any status — deliveries
+   * happen after the SI is sent). Only that row's flag changes; the Stock page
+   * subtracts delivered bundles.
+   */
+  async setDelivered(organizationId: string, id: string, rowIndex: number, delivered: boolean) {
+    const g = await this.get(organizationId, id);
+    if (g.docType !== 'SHIPPING_INSTRUCTIONS') throw new BadRequestException('Only a 出庫・納入依頼書 has delivery rows');
+    const rows = (Array.isArray(g.rows) ? [...g.rows] : []) as Array<Record<string, unknown>>;
+    if (!Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= rows.length) throw new BadRequestException('No such delivery row');
+    rows[rowIndex] = { ...rows[rowIndex], delivered, deliveredAt: delivered ? new Date().toISOString().slice(0, 10) : null };
+    return this.prisma.tradeGeneratedDoc.update({ where: { id, organizationId }, data: { rows: rows as any }, select: GEN_SELECT });
+  }
+
+  /** Open credits (credit notes not yet offset) — for Invoice #1's "Apply open credit". */
+  async credits(organizationId: string, q: { customerId?: string; status?: string; forDocId?: string }) {
+    // forDocId: the credits of that invoice's customer (Invoice #1's picker), plus any it already uses / issued.
+    let customerId = q.customerId;
+    if (q.forDocId) {
+      const g = await this.prisma.tradeGeneratedDoc.findFirst({ where: { id: q.forDocId, organizationId }, select: { orderId: true, shipmentId: true } });
+      customerId = (g ? await this.invoiceCustomerId(organizationId, g) : null) ?? '00000000-0000-0000-0000-000000000000';
+    }
+    const rows = await this.prisma.tradeCredit.findMany({
+      where: { organizationId, ...(customerId ? { customerId } : {}), ...(q.status ? { status: q.status } : {}) },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((c: any) => ({ ...c, amount: Number(c.amount) }));
+  }
+
+  /** Add a "前回差額充当" line using an open credit to an Invoice #1 draft. */
+  async applyCredit(organizationId: string, id: string, creditId: string) {
+    const g = await this.get(organizationId, id);
+    if (g.docType !== 'INVOICE_1') throw new BadRequestException('A credit is applied on an Invoice #1');
+    if (g.status !== 'DRAFT') throw new BadRequestException('This invoice is final — use "Edit again" first');
+    const c = await this.prisma.tradeCredit.findFirst({ where: { id: creditId, organizationId } });
+    if (!c) throw new NotFoundException('Credit not found');
+    if (c.status !== 'OPEN') throw new BadRequestException(`Credit ${c.sourceNumber ?? ''} is ${c.status.toLowerCase()}`);
+    const customerId = await this.invoiceCustomerId(organizationId, g);
+    if (customerId !== c.customerId) throw new BadRequestException('That credit belongs to another customer');
+    const rows = (Array.isArray(g.rows) ? g.rows : []) as Array<Record<string, unknown>>;
+    if (creditIdsOf(rows).includes(creditId)) throw new BadRequestException('That credit is already on this invoice');
+    const next = [...rows, creditLine({ id: c.id, amount: Number(c.amount), sourceNumber: c.sourceNumber })];
+    return this.prisma.tradeGeneratedDoc.update({ where: { id, organizationId }, data: { rows: next as any }, select: GEN_SELECT });
+  }
+
+  /** Estimated cost lines vs step 12 actuals for an Invoice #2 / single invoice issued on estimates. */
+  async costVarianceOf(organizationId: string, id: string) {
+    const g = await this.get(organizationId, id);
+    if (g.docType !== 'INVOICE_2' && g.docType !== 'INVOICE_SINGLE') throw new BadRequestException('Only Invoice #2 / the single invoice carry costs');
+    const h = (g.header ?? {}) as { fxRate?: number | null; costsBasis?: string };
+    const est =
+      g.docType === 'INVOICE_SINGLE'
+        ? estimatedCostsUsd(g.docType, g.rows, (r) => singleLineCalc(r as unknown as SingleLine, h.fxRate ?? null).amountUsd)
+        : estimatedCostsUsd(g.docType, g.rows, (r) => amountOf(r as unknown as InvoiceLine));
+    const ids = [...new Set([...(g.shipmentId ? [g.shipmentId] : []), ...((g.coversShipmentIds as string[] | undefined) ?? [])])];
+    const settings = await this.config.getSettings(organizationId);
+    const actuals: Array<number | null> = [];
+    for (const sid of ids) {
+      const s = await this.prisma.shipment.findFirst({ where: { id: sid, organizationId }, select: { netWeightMt: true, grossWeightMt: true, costs: true, customerId: true } });
+      if (!s) continue;
+      const costs = (s.costs ?? {}) as Record<string, unknown>;
+      const hasActual = !!costs.actual && Object.values(costs.actual as Record<string, unknown>).some((v) => typeof v === 'number' && v > 0);
+      const profile = await this.config.profileOf(organizationId, s.customerId);
+      const e = estimate(s as any, costs as any, settings.estimatorRates, profile);
+      actuals.push(hasActual ? actualsTable(e, costs as any, settings.estimatorRates).actual : null);
+    }
+    return { invoiceId: g.id, number: g.number, costsBasis: h.costsBasis ?? 'ACTUAL', ...costVariance(est, actuals, h.fxRate ?? null) };
+  }
+
+  /** "Issue adjustment": a new Invoice #2 draft billing (or crediting) the cost variance of an estimated invoice. */
+  async issueAdjustment(organizationId: string, id: string, actor: TradeActor) {
+    const v = await this.costVarianceOf(organizationId, id);
+    if (!v.complete || v.varianceUsd === null) throw new BadRequestException('The actual costs (step 12) are not all in yet');
+    if (Math.abs(v.varianceUsd) < 0.01) throw new BadRequestException('No difference to adjust');
+    const g = await this.get(organizationId, id);
+    const header = { ...((g.header as Record<string, unknown>) ?? {}), invoiceNo: null, variant: undefined, adjustmentOf: g.id, adjustmentOfNumber: g.number, costsBasis: 'ACTUAL', invoice1No: null, invoice1Amount: null, invoice1Orders: [] };
+    const docRef = await this.config.docRefFor(this.prisma, organizationId, (g.shipmentId ? { shipmentId: g.shipmentId } : { orderId: g.orderId! }) as any, 'INVOICE_2');
+    return this.prisma.tradeGeneratedDoc.create({
+      data: {
+        organizationId,
+        shipmentId: g.shipmentId ?? null,
+        orderId: g.orderId ?? null,
+        docType: 'INVOICE_2',
+        docRef,
+        templateKey: 'INVOICE_2',
+        issuingEntity: 'ADH_JP',
+        coversShipmentIds: (g.coversShipmentIds as string[] | undefined) ?? [],
+        header: header as any,
+        columns: [] as any,
+        rows: [adjustmentLine(g.number, v.varianceUsd, (header as { dueDate?: string | null }).dueDate ?? null)] as any,
+        createdById: actor.id ?? 'unknown',
+        createdByName: actor.name,
+      },
       select: GEN_SELECT,
     });
   }
@@ -785,11 +957,17 @@ export class TradeGeneratedService {
     if (done.length) {
       throw new BadRequestException(`Can't edit again: reopen ${done.map((s) => `"${stepLabel(s)}"`).join(', ')} first — it needs this document`);
     }
+    // A credit note already offset on an Invoice #1 can't change; an open one is voided until finalized again.
+    const credit = g.docType === 'INVOICE_2' ? await this.prisma.tradeCredit.findFirst({ where: { organizationId, sourceDocId: g.id }, select: { id: true, status: true, usedByNumber: true } }) : null;
+    if (credit?.status === 'USED') throw new BadRequestException(`Can't edit again: its credit is used on Invoice #1 ${credit.usedByNumber ?? ''} — edit that one again first`);
     if (g.documentId) await this.unconfirmSalesInvoice(organizationId, g.documentId);
     if (g.finalFileId) {
       const exists = await this.prisma.tradeFile.findFirst({ where: { id: g.finalFileId, organizationId }, select: { id: true } });
       if (exists) await this.files.remove(organizationId, g.finalFileId);
     }
+    if (credit?.status === 'OPEN') await this.prisma.tradeCredit.update({ where: { id: credit.id }, data: { status: 'VOID' } });
+    // An Invoice #1 back to draft gives its credits back.
+    if (g.docType === 'INVOICE_1') await this.prisma.tradeCredit.updateMany({ where: { organizationId, usedByDocId: g.id, status: 'USED' }, data: { status: 'OPEN', usedByDocId: null, usedByNumber: null, usedAt: null } });
     return this.prisma.tradeGeneratedDoc.update({ where: { id, organizationId }, data: { status: 'DRAFT', finalFileId: null }, select: GEN_SELECT });
   }
 

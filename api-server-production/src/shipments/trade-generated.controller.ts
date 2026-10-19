@@ -81,6 +81,41 @@ export class TradeGeneratedController {
     return this.gen.byDocument(orgIdOf(req), documentId);
   }
 
+  /** Open credits (negative Invoice #2s not yet offset), for Invoice #1's "Apply open credit". */
+  @Get('credits')
+  @Permissions('shipments:read')
+  credits(@Query('customerId') customerId: string | undefined, @Query('status') status: string | undefined, @Query('forDocId') forDocId: string | undefined, @Req() req: TradeRequest) {
+    return this.gen.credits(orgIdOf(req), { customerId, status, forDocId });
+  }
+
+  /** Add a 前回差額充当 line using an open credit to an Invoice #1 draft. */
+  @Post(':id/apply-credit')
+  @Permissions('shipments:update')
+  applyCredit(@Param('id', ParseUUIDPipe) id: string, @Body('creditId', ParseUUIDPipe) creditId: string, @Req() req: TradeRequest) {
+    return this.gen.applyCredit(orgIdOf(req), id, creditId);
+  }
+
+  /** 出庫・納入依頼書: mark a delivery row delivered / not (works on a final SI too). */
+  @Post(':id/delivered')
+  @Permissions('shipments:update')
+  delivered(@Param('id', ParseUUIDPipe) id: string, @Body('rowIndex') rowIndex: number, @Body('delivered') delivered: boolean, @Req() req: TradeRequest) {
+    return this.gen.setDelivered(orgIdOf(req), id, Number(rowIndex), delivered === true);
+  }
+
+  /** Estimated cost lines vs the step 12 actuals of an Invoice #2 / single invoice. */
+  @Get(':id/cost-variance')
+  @Permissions('shipments:read')
+  costVariance(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
+    return this.gen.costVarianceOf(orgIdOf(req), id);
+  }
+
+  /** "Issue adjustment": a new Invoice #2 draft for the cost variance. */
+  @Post(':id/adjustment')
+  @Permissions('shipments:create')
+  adjustment(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
+    return this.gen.issueAdjustment(orgIdOf(req), id, actorOf(req));
+  }
+
   @Get(':id')
   @Permissions('shipments:read')
   get(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {

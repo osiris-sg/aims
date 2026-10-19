@@ -61,6 +61,21 @@ export class CreateContractDto {
   @IsOptional() @IsDateString() @IsTradeDate() depositPaidAt?: string | null;
   @IsOptional() @IsString() @MaxLength(5000) notes?: string | null;
 
+  // ── Contract master (2026-10) ────────────────────────────────────────────
+  @IsOptional() @IsDateString() @IsTradeDate() periodStart?: string | null;
+  @IsOptional() @IsDateString() @IsTradeDate() periodEnd?: string | null;
+  @IsOptional() @IsString() @MaxLength(100) grade?: string | null;
+  @IsOptional() @IsString() @MaxLength(200) sizeSpec?: string | null;
+  @IsOptional() @IsNumber() @Min(0) annualQtyMt?: number | null;
+  @IsOptional() @IsNumber() @Min(0) @Max(100) tolerancePct?: number | null;
+  @IsOptional() @IsString() @MaxLength(500) balanceTerms?: string | null;
+  @IsOptional() @IsString() @MaxLength(300) qpBasis?: string | null;
+  @IsOptional() @IsString() @MaxLength(300) qmjpRule?: string | null;
+  /** [{ from: "YYYY-MM", to: "YYYY-MM" | null, supplierPremium, clientPremium, upcharge }] — validated in the service. */
+  @IsOptional() premiumSchedule?: unknown;
+  /** Fields still to be confirmed by ADH ("check"). */
+  @IsOptional() @IsArray() @IsString({ each: true }) checkFields?: string[];
+
   /** A stored PI file (e.g. from "Fill from PI"): linked to the new contract and its PI step. */
   @IsOptional() @IsUUID() piFileId?: string;
 

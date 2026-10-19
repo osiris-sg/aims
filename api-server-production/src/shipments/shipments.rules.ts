@@ -92,9 +92,12 @@ export function stepRequirements(required: string[], fileTypes: Iterable<string>
 }
 
 /** TradeStep / TradeFileLink invariant: exactly one of contractId / shipmentId / orderId. */
-export function hasExactlyOneOwner(row: { contractId?: string | null; shipmentId?: string | null; orderId?: string | null }): boolean {
-  return [row.contractId, row.shipmentId, row.orderId].filter(Boolean).length === 1;
+export function hasExactlyOneOwner(row: { contractId?: string | null; shipmentId?: string | null; orderId?: string | null; supplierOrderId?: string | null }): boolean {
+  return [row.contractId, row.shipmentId, row.orderId, row.supplierOrderId].filter(Boolean).length === 1;
 }
+
+/** A supplier order's label: its PI no. when known ("PI 9331004128"), else "S3". */
+export const supplierOrderLabel = (so: { soNo: number; piNo?: string | null } | null | undefined) => (so ? (so.piNo ? `PI ${so.piNo}` : `S${so.soNo}`) : '');
 
 // ── Orders ("#19") and shipments under them ("#19-1") ──────────────────────
 /** "#19" — how ADH names an order. */

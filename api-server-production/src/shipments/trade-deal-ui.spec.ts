@@ -158,7 +158,7 @@ function contractDb(opts: { shipments?: any[] } = {}) {
   };
   const prisma: any = { ...tx, $transaction: (fn: any) => fn(tx) };
   // snapshotSteps returns how many contract-level steps it made: > 0 = an org still on the contract-level flow.
-  const config: any = { snapshotSteps: jest.fn().mockResolvedValue(2), syncSteps: jest.fn().mockResolvedValue([]), getSettings: jest.fn().mockResolvedValue({}), profileOf: jest.fn().mockResolvedValue({ billingMode: 'TWO_STAGE', docVariants: {} }) };
+  const config: any = { snapshotSteps: jest.fn().mockResolvedValue(2), syncSteps: jest.fn().mockResolvedValue([]), getSettings: jest.fn().mockResolvedValue({}), profileOf: jest.fn().mockResolvedValue({ billingMode: 'TWO_STAGE', docVariants: {} }), supplierProfileOf: jest.fn().mockResolvedValue({ hasPI: true }) };
   const svc = new ContractsService(prisma, config, new ShipmentsService(prisma, config));
   jest.spyOn(svc, 'getById').mockResolvedValue({} as any);
   return { tx, svc, config };
@@ -175,7 +175,7 @@ describe('the deal: contract + shipments', () => {
     expect(tx.contract.create.mock.calls[0][0].data).toMatchObject({ depositDueDays: 3, depositDueUnit: 'BUSINESS', depositDueNote: '3 business days' });
     expect(tx.shipment.create).toHaveBeenCalledTimes(1);
     expect(tx.shipment.create.mock.calls[0][0].data).toMatchObject({ contractId: 'c1', blNumber: null, contractLineId: 'L1' });
-    expect(config.snapshotSteps).toHaveBeenCalledWith(tx, ORG, 'SHIPMENT', { shipmentId: 's1' }, expect.objectContaining({ billingMode: 'TWO_STAGE' }));
+    expect(config.snapshotSteps).toHaveBeenCalledWith(tx, ORG, 'SHIPMENT', { shipmentId: 's1' }, expect.objectContaining({ billingMode: 'TWO_STAGE' }), expect.objectContaining({ hasPI: true }));
   });
   it('with orders (no contract-level steps) a contract is just the LTC master: no steps, no shipment', async () => {
     const x = contractDb();

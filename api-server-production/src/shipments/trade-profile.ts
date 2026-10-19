@@ -59,15 +59,86 @@ export function profileFor(profiles: unknown, customerId: string | null | undefi
   return { ...defaultProfile(customerId), ...p, customerId, docVariants: { ...(p.docVariants ?? {}) } };
 }
 
-/** Order / shipment step codes that don't apply to this customer ("N/A (customer profile)"). */
-export function naStepCodes(p: CustomerProfile, scope: 'ORDER' | 'SHIPMENT' | 'CONTRACT'): string[] {
+// ── Supplier profiles (TradeSetting.supplierProfiles, keyed by supplier id) ──
+/**
+ * How a supplier sells: Vedanta issues a PI and takes a deposit (step 1)
+ * before the CI balance (step 6); Inalum / the Thai P1020 supplier don't —
+ * step 1 is N/A and step 6 pays the full amount. Their shipping documents
+ * differ too: only the listed types are required on step 3b.
+ */
+export interface SupplierProfile {
+  supplierId: string;
+  key?: string;
+  label?: string;
+  hasPI: boolean;
+  /** Step 3b's required document types; null = the org's template (Vedanta's set). */
+  shippingDocs?: string[] | null;
+  /** Supplier email domains (intake matching), e.g. vedanta.co.in. */
+  emailDomains?: string[];
+}
+
+/** A supplier without a profile works like Vedanta (the flow before profiles existed). */
+export function defaultSupplierProfile(supplierId: string): SupplierProfile {
+  return { supplierId, hasPI: true, shippingDocs: null };
+}
+
+export function supplierProfileFor(profiles: unknown, supplierId: string | null | undefined): SupplierProfile {
+  const map = (profiles && typeof profiles === 'object' ? profiles : {}) as Record<string, Partial<SupplierProfile>>;
+  const p = supplierId ? map[supplierId] : undefined;
+  if (!supplierId || !p) return defaultSupplierProfile(supplierId ?? '');
+  return { ...defaultSupplierProfile(supplierId), ...p, supplierId };
+}
+
+/** Validate a supplier profiles patch ({ [supplierId]: profile | null }) and merge it. */
+export function mergeSupplierProfiles(current: unknown, patch: Record<string, unknown>, fail: (msg: string) => never): Record<string, SupplierProfile> {
+  const out = { ...((current && typeof current === 'object' ? current : {}) as Record<string, SupplierProfile>) };
+  for (const [id, raw] of Object.entries(patch ?? {})) {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) fail(`Unknown supplier "${id}"`);
+    if (raw === null) {
+      delete out[id];
+      continue;
+    }
+    if (!raw || typeof raw !== 'object') fail('A supplier profile must be an object');
+    const r = raw as Record<string, unknown>;
+    const next: SupplierProfile = { ...(out[id] ?? defaultSupplierProfile(id)), supplierId: id };
+    if ('hasPI' in r) {
+      if (typeof r.hasPI !== 'boolean') fail('hasPI must be true or false');
+      next.hasPI = r.hasPI as boolean;
+    }
+    for (const k of ['key', 'label'] as const) if (k in r) next[k] = isText(r[k], 80) ? String(r[k]).trim() : fail(`${k} must be text`);
+    if ('shippingDocs' in r) {
+      if (r.shippingDocs === null) next.shippingDocs = null;
+      else if (!Array.isArray(r.shippingDocs) || !r.shippingDocs.every((d) => typeof d === 'string' && /^[A-Z0-9_]{2,40}$/.test(d))) fail('shippingDocs must be a list of document type codes');
+      else next.shippingDocs = r.shippingDocs as string[];
+    }
+    if ('emailDomains' in r) {
+      if (!Array.isArray(r.emailDomains) || !r.emailDomains.every((d) => typeof d === 'string')) fail('emailDomains must be a list');
+      next.emailDomains = (r.emailDomains as string[]).map((d) => d.trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
+    }
+    out[id] = next;
+  }
+  return out;
+}
+
+/**
+ * Step codes that don't apply ("N/A (customer profile)" / "(supplier profile)"):
+ * SINGLE billing has no Invoice #1; a supplier without a PI has no PI payment.
+ */
+export function naStepCodes(p: CustomerProfile, scope: 'ORDER' | 'SHIPMENT' | 'CONTRACT' | 'SUPPLIER_ORDER', supplier?: SupplierProfile | null): string[] {
+  if (scope === 'SUPPLIER_ORDER') return supplier && !supplier.hasPI ? ['PI_PAYMENT'] : [];
   if (p.billingMode === 'SINGLE' && scope === 'ORDER') return ['INVOICE_1'];
   return [];
 }
 
-/** Step changes for this customer: SINGLE billing issues one invoice on step 11 (INVOICE_SINGLE). */
-export function stepOverride(p: CustomerProfile, code: string): { title?: string; requiredDocTypes?: string[] } {
+/**
+ * Step changes for this customer / supplier: SINGLE billing issues one invoice
+ * on step 11 (INVOICE_SINGLE); no PI → step 6 pays the full amount; a supplier
+ * with its own document set requires only those on step 3b.
+ */
+export function stepOverride(p: CustomerProfile, code: string, supplier?: SupplierProfile | null): { title?: string; requiredDocTypes?: string[] } {
   if (p.billingMode === 'SINGLE' && code === 'INVOICE_2') return { title: 'Issue invoice (single)', requiredDocTypes: ['INVOICE_SINGLE'] };
+  if (supplier && !supplier.hasPI && code === 'CI_PAYMENT') return { title: 'Pay the CI (full amount — no PI)' };
+  if (supplier?.shippingDocs?.length && code === 'SHIPPING_DOCS') return { requiredDocTypes: supplier.shippingDocs };
   return {};
 }
 

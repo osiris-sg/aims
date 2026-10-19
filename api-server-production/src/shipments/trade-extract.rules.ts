@@ -10,10 +10,11 @@
  */
 import { z } from 'zod';
 import { DepositDueUnit, parseDepositDue } from './trade-deposit';
+import type { AnData, PermitData } from './trade-customs';
 
 // ── zod helpers: tolerate "1,209,585.00", "", "null" from the model ────────
 const blankToNull = (v: unknown) => (v === undefined || v === null || (typeof v === 'string' && ['', 'null', 'n/a', 'na', '-'].includes(v.trim().toLowerCase())) ? null : v);
-const nstr = z.preprocess((v) => {
+export const nstr = z.preprocess((v) => {
   const b = blankToNull(v);
   return b === null ? null : String(b).trim();
 }, z.string().nullable());
@@ -29,8 +30,8 @@ const toNum = (v: unknown) => {
   );
   return Number.isFinite(n) ? n : b; // leave garbage for z.number() to reject
 };
-const nnum = z.preprocess(toNum, z.number().nullable());
-const nint = z.preprocess(toNum, z.number().int().nullable());
+export const nnum = z.preprocess(toNum, z.number().nullable());
+export const nint = z.preprocess(toNum, z.number().int().nullable());
 
 export const PI_LINE_SCHEMA = z.object({
   description: nstr.default(null),
@@ -226,6 +227,9 @@ export function monthOf(...candidates: Array<string | null | undefined>): string
 /** "ALLOY 6063V1-C" → "6063". */
 export function gradeOf(...texts: Array<string | null | undefined>): string | null {
   for (const t of texts) {
+    // Primary ingot grades keep their letter: P1020, P0507 (Hoei / the Thai supplier).
+    const ingot = t ? /(?:^|[^A-Z0-9])(P[01]\d{3})(?!\d)/i.exec(t) : null;
+    if (ingot) return ingot[1].toUpperCase();
     const m = t ? /(?:^|[^0-9])([1-8]\d{3})(?!\d)/.exec(t) : null;
     if (m) return m[1];
   }
@@ -735,6 +739,10 @@ export const AN_SCHEMA = z.object({
   blNumber: nstr.default(null),
   vessel: nstr.default(null),
   voyageNo: nstr.default(null),
+  tsVessel: nstr.default(null),
+  tsVoyageNo: nstr.default(null),
+  cbm: nnum.default(null),
+  telexRelease: z.boolean().nullable().default(null),
   eta: nstr.default(null),
   cyTerminal: nstr.default(null),
   portOfLoading: nstr.default(null),
@@ -743,13 +751,23 @@ export const AN_SCHEMA = z.object({
   netWeightKg: nnum.default(null),
   totalBundles: nint.default(null),
   totalPieces: nint.default(null),
+  containerCount: nint.default(null),
   containers: z
     .array(z.object({ containerNo: nstr.default(null), sealNo: nstr.default(null), size: nstr.default(null) }))
     .nullable()
     .default([])
     .transform((v) => v ?? []),
   charges: z
-    .array(z.object({ code: nstr.default(null), amount: nnum.default(null), currency: nstr.default(null), collect: z.boolean().nullable().default(null) }))
+    .array(
+      z.object({
+        code: nstr.default(null),
+        unit: nnum.default(null),
+        rate: nnum.default(null),
+        amount: nnum.default(null),
+        currency: nstr.default(null),
+        collect: z.boolean().nullable().default(null),
+      }),
+    )
     .nullable()
     .default([])
     .transform((v) => v ?? []),
@@ -762,8 +780,12 @@ export const AN_SYSTEM_PROMPT =
 export const AN_USER_PROMPT = `Extract this Arrival Notice into exactly this JSON (null when absent):
 {
   "blNumber": "B/L number",
-  "vessel": "the vessel ARRIVING at the destination — the \\"VSL/VOY\\" line (not a feeder / first vessel), name only",
+  "vessel": "the B/L's vessel — the \\"VSL/VOY\\" line, name only",
   "voyageNo": "its voyage number only",
+  "tsVessel": "when transhipped: the vessel ARRIVING at the destination (printed between the port of loading and the port of discharge, often with its voyage glued in front, e.g. N044WAN HAI 365 → WAN HAI 365); null when the same as vessel",
+  "tsVoyageNo": "that vessel's voyage (e.g. N044)",
+  "cbm": "measurement in CBM as a number",
+  "telexRelease": "true when the notice says TELEX RELEASE / SURRENDERED",
   "eta": "estimated arrival date as YYYY-MM-DD",
   "cyTerminal": "CY terminal as printed (name, without phone / fax)",
   "portOfLoading": "as printed",
@@ -773,7 +795,7 @@ export const AN_USER_PROMPT = `Extract this Arrival Notice into exactly this JSO
   "totalBundles": "total bundles (BDL) as a number",
   "totalPieces": "total pieces as a number, if printed",
   "containers": [{ "containerNo": "e.g. BMOU1217219", "sealNo": "seal no.", "size": "e.g. 20SD86" }],
-  "charges": [{ "code": "charge code, e.g. THC / DOC", "amount": "number", "currency": "e.g. JPY", "collect": "true when in the COLLECT column, false when prepaid" }]
+  "charges": [{ "code": "charge code, e.g. THC / DOC / EQMC", "unit": "units (e.g. containers) or null", "rate": "rate per unit or null", "amount": "the line total", "currency": "e.g. JPY", "collect": "true when in the COLLECT column, false when prepaid" }]
 }`;
 
 /** What the A/N gives the shipment (MT, as the shipment stores weights) plus the rest for display. */
@@ -781,6 +803,9 @@ export interface ArrivalNoticeDraft {
   blNumber: string | null;
   vessel: string | null;
   voyageNo: string | null;
+  /** Transhipped: the vessel arriving in Japan (= 積載船 on the import permit). */
+  tsVessel: string | null;
+  tsVoyageNo: string | null;
   eta: string | null;
   cyTerminal: string | null;
   portOfLoading: string | null;
@@ -790,8 +815,10 @@ export interface ArrivalNoticeDraft {
   totalBundles: number | null;
   totalPieces: number | null;
   containerCount: number | null;
+  cbm: number | null;
+  telexRelease: boolean | null;
   containers: Array<{ containerNo: string | null; sealNo: string | null; size: string | null }>;
-  charges: Array<{ code: string | null; amount: number | null; currency: string | null; collect: boolean | null }>;
+  charges: Array<{ code: string | null; unit: number | null; rate: number | null; amount: number | null; currency: string | null; collect: boolean | null }>;
   /** Sum of the collect charges per currency ("JPY 232,800"). */
   chargesCollect: Array<{ currency: string; amount: number }>;
 }
@@ -800,7 +827,14 @@ const kgToMt = (kg: number | null) => (kg === null || !Number.isFinite(kg) ? nul
 
 export function arrivalNoticeDraft(an: AnRaw): ArrivalNoticeDraft {
   const containers = an.containers.filter((c) => c.containerNo).map((c) => ({ containerNo: c.containerNo ?? null, sealNo: c.sealNo ?? null, size: c.size ?? null }));
-  const charges = an.charges.map((c) => ({ code: c.code ?? null, amount: c.amount ?? null, currency: c.currency ?? null, collect: c.collect ?? null }));
+  const charges = an.charges.map((c) => ({
+    code: c.code ? c.code.toUpperCase() : null,
+    unit: c.unit ?? null,
+    rate: c.rate ?? null,
+    amount: c.amount ?? null,
+    currency: c.currency ?? null,
+    collect: c.collect ?? null,
+  }));
   const totals = new Map<string, number>();
   for (const c of charges) {
     if (c.collect !== true || c.amount === null) continue;
@@ -811,6 +845,8 @@ export function arrivalNoticeDraft(an: AnRaw): ArrivalNoticeDraft {
     blNumber: an.blNumber?.replace(/\s+/g, '') || null,
     vessel: an.vessel,
     voyageNo: an.voyageNo,
+    tsVessel: an.tsVessel && an.tsVessel !== an.vessel ? an.tsVessel : null,
+    tsVoyageNo: an.tsVessel && an.tsVessel !== an.vessel ? an.tsVoyageNo : null,
     eta: isoDate(an.eta),
     cyTerminal: an.cyTerminal,
     portOfLoading: an.portOfLoading,
@@ -819,11 +855,22 @@ export function arrivalNoticeDraft(an: AnRaw): ArrivalNoticeDraft {
     netWeightMt: kgToMt(an.netWeightKg),
     totalBundles: an.totalBundles,
     totalPieces: an.totalPieces,
-    containerCount: containers.length || null,
+    containerCount: containers.length || an.containerCount || null,
+    cbm: an.cbm,
+    telexRelease: an.telexRelease,
     containers,
     charges,
     chargesCollect: [...totals].map(([currency, amount]) => ({ currency, amount })),
   };
+}
+
+/** Estimator inputs (step 9) from the A/N's charge lines: THC / DOC / EQMC in JPY (EQMC is also the import-tax 加算運賃). */
+export function anCostInputs(draft: Pick<ArrivalNoticeDraft, 'charges'>): { thc: number | null; docFee: number | null; equipmentFee: number | null } {
+  const pick = (code: string) => {
+    const hits = draft.charges.filter((c) => c.code === code && (c.currency ?? 'JPY').toUpperCase() === 'JPY' && c.amount !== null);
+    return hits.length ? hits.reduce((a, c) => a + (c.amount as number), 0) : null;
+  };
+  return { thc: pick('THC'), docFee: pick('DOC'), equipmentFee: pick('EQMC') };
 }
 
 /** Shipment fields still blank that the A/N can fill (the user confirms before anything is written). */
@@ -836,4 +883,97 @@ export function anFillable(draft: ArrivalNoticeDraft, shipment: Record<string, u
     if (v !== null && v !== undefined && (cur === null || cur === undefined || cur === '')) out[k] = v;
   }
   return out;
+}
+
+/** A Wan Hai A/N read from its text layer (trade-customs.ts), in the AI read's shape. */
+export function anRawFromText(d: AnData): AnRaw {
+  return {
+    blNumber: d.blNumber,
+    vessel: d.vessel,
+    voyageNo: d.voyageNo,
+    tsVessel: d.tsVessel,
+    tsVoyageNo: d.tsVoyageNo,
+    cbm: d.cbm,
+    telexRelease: d.telexRelease,
+    eta: d.eta,
+    cyTerminal: d.cyTerminal,
+    portOfLoading: null,
+    portOfDischarge: null,
+    grossWeightKg: d.grossWeightKg,
+    netWeightKg: null,
+    totalBundles: d.bundles,
+    totalPieces: null,
+    containerCount: d.containerCount,
+    containers: [],
+    charges: d.charges.map((c) => ({ code: c.code, unit: c.unit, rate: c.rate, amount: c.total, currency: c.currency, collect: true })),
+  };
+}
+
+// ── 輸入許可書 (import permit) — the AI read for scans / other layouts ─────────
+export const PERMIT_SCHEMA = z.object({
+  declarationNo: nstr.default(null),
+  declarationDate: nstr.default(null),
+  blNumber: nstr.default(null),
+  packages: nint.default(null),
+  grossWeightKg: nnum.default(null),
+  containerCount: nint.default(null),
+  vessel: nstr.default(null),
+  invoiceNo: nstr.default(null),
+  invoiceTerms: nstr.default(null),
+  invoiceCurrency: nstr.default(null),
+  invoiceAmount: nnum.default(null),
+  addOnJpy: nnum.default(null),
+  fxRate: nnum.default(null),
+  customsValue: nnum.default(null),
+  national: nnum.default(null),
+  local: nnum.default(null),
+  total: nnum.default(null),
+});
+export type PermitRaw = z.infer<typeof PERMIT_SCHEMA>;
+
+export const PERMIT_SYSTEM_PROMPT =
+  'You read Japanese customs import permits (輸入許可書 / 輸入許可通知書, NACCS layout) for aluminium cargo. The PDF may be a scan — read the page images. Transcribe exactly what is printed; never compute or invent values — use null when absent. Output STRICT JSON only.';
+
+export const PERMIT_USER_PROMPT = `Extract this import permit into exactly this JSON (null when absent; numbers without commas or ¥):
+{
+  "declarationNo": "申告番号 (11 digits, no spaces)",
+  "declarationDate": "申告年月日 as YYYY-MM-DD",
+  "blNumber": "B/L番号 as printed",
+  "packages": "貨物個数 (number of packages)",
+  "grossWeightKg": "貨物重量 in KG",
+  "containerCount": "コンテナ本数",
+  "vessel": "積載船 (vessel name)",
+  "invoiceNo": "仕入書番号 (invoice no.)",
+  "invoiceTerms": "仕入書価格 terms, e.g. CIF",
+  "invoiceCurrency": "仕入書価格 currency, e.g. USD",
+  "invoiceAmount": "仕入書価格 amount",
+  "addOnJpy": "運賃 adjustment in JPY (the line coded E - JPY - …)",
+  "fxRate": "通貨レート (customs rate, 円 per unit of the invoice currency)",
+  "customsValue": "申告価格 / 課税価格 in JPY",
+  "national": "消費税 amount (after rounding to 100 yen)",
+  "local": "地方消費税 amount (after rounding to 100 yen)",
+  "total": "納税額合計 in JPY"
+}`;
+
+export function permitFromRaw(raw: PermitRaw): PermitData {
+  const v = <T>(x: T | undefined) => (x === undefined ? null : x);
+  return {
+    declarationNo: v(raw.declarationNo)?.replace(/\s+/g, '') ?? null,
+    declarationDate: isoDate(raw.declarationDate),
+    blNumber: v(raw.blNumber),
+    packages: v(raw.packages),
+    grossWeightKg: v(raw.grossWeightKg),
+    containerCount: v(raw.containerCount),
+    vessel: v(raw.vessel),
+    invoiceNo: raw.invoiceNo?.replace(/-+$/, '') ?? null,
+    invoiceTerms: v(raw.invoiceTerms),
+    invoiceCurrency: v(raw.invoiceCurrency),
+    invoiceAmount: v(raw.invoiceAmount),
+    addOnJpy: v(raw.addOnJpy),
+    fxRate: v(raw.fxRate),
+    customsValue: v(raw.customsValue),
+    national: v(raw.national),
+    local: v(raw.local),
+    total: v(raw.total),
+  };
 }

@@ -1,0 +1,125 @@
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../common/prisma.service';
+import { TradeConfigService } from './trade-config.service';
+import { MarketPrices, priceCheck, PriceCheck } from './trade-contract';
+import { addMonths } from './supplier-orders.service';
+
+const n = (v: unknown): number | null => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+const round2 = (v: number) => Math.round(v * 100) / 100;
+
+/**
+ * Price check (2026-10, contract master): for a PI (supplier order), a CI
+ * (shipment) or an invoice (in-app 請求書), the expected unit price from the
+ * contract — LME of the basis month + premium (+ QMJP on the client side) —
+ * against what the document says. Read-only: nothing is ever changed.
+ *
+ * Basis month: PI and Invoice #1 are provisional on the month BEFORE the
+ * shipment month (the LME known when they are issued); the CI, Invoice #2 and
+ * the single invoice use the shipment month itself.
+ */
+@Injectable()
+export class TradePriceCheckService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: TradeConfigService,
+  ) {}
+
+  private async prices(organizationId: string): Promise<MarketPrices> {
+    const s = await this.config.getSettings(organizationId);
+    const d = s.docDefaults as Record<string, unknown>;
+    return {
+      lmeByMonth: (d.lmeByMonth as Record<string, number> | undefined) ?? {},
+      qmjpByQuarter: (d.qmjpByQuarter as Record<string, number> | undefined) ?? {},
+    };
+  }
+
+  /** PI: the supplier order's PI (read by AI if it was) against the contract's supplier premium. */
+  async forSupplierOrder(organizationId: string, id: string): Promise<PriceCheck & { source: string }> {
+    const so = await this.prisma.supplierOrder.findFirst({
+      where: { id, organizationId },
+      select: {
+        grade: true,
+        declarationMonth: true,
+        supplierPremium: true,
+        provisionalPricePerMt: true,
+        contract: { select: { premiumSchedule: true, qmjpRule: true, lines: true } },
+        fileLinks: { select: { fileId: true, file: { select: { docType: true } } } },
+      },
+    });
+    if (!so) throw new NotFoundException('Supplier order not found');
+    const piFileIds = so.fileLinks.filter((l: { file: { docType: string } }) => l.file.docType === 'PI').map((l: { fileId: string }) => l.fileId);
+    const ex = piFileIds.length
+      ? await this.prisma.tradeExtraction.findFirst({ where: { organizationId, fileId: { in: piFileIds }, kind: 'PI', status: 'DONE' }, orderBy: { createdAt: 'desc' }, select: { result: true } })
+      : null;
+    const lines = (((ex?.result as { raw?: { lines?: Array<Record<string, unknown>> } } | null)?.raw?.lines ?? []) as Array<Record<string, unknown>>).filter(Boolean);
+    const line = lines.find((l) => so.grade && String(l.grade ?? '').includes(so.grade)) ?? lines[0] ?? null;
+    const basis = so.declarationMonth ? addMonths(so.declarationMonth, -1) : null;
+    const line0 = (so.contract?.lines ?? []).find((l: { grade: string | null }) => l.grade === so.grade) ?? (so.contract?.lines ?? [])[0];
+    const check = priceCheck({
+      side: 'supplier',
+      basisMonth: basis,
+      schedule: so.contract?.premiumSchedule,
+      mjpBased: !!so.contract?.qmjpRule,
+      fallback: { supplierPremium: n(line0?.supplierPremium) ?? n(so.supplierPremium) },
+      prices: await this.prices(organizationId),
+      found: { premium: n(line?.premium) ?? n(so.supplierPremium), lme: n(line?.lme), unit: n(line?.rate) ?? n(so.provisionalPricePerMt) },
+    });
+    return { ...check, notes: [`Provisional: the PI prices on the month before the declaration (${basis ?? '—'})`, ...check.notes], source: line ? 'PI (AI read)' : 'supplier order fields' };
+  }
+
+  /** CI: Vedanta's CI unit (CI amount ÷ net weight) against LME of the shipment month + supplier premium. */
+  async forShipment(organizationId: string, id: string): Promise<PriceCheck & { source: string }> {
+    const s = await this.prisma.shipment.findFirst({
+      where: { id, organizationId },
+      select: {
+        ciAmount: true,
+        netWeightMt: true,
+        order: { select: { shipMonth: true, grade: true, supplierPremium: true, supplierOrder: { select: { supplierPremium: true } } } },
+        contract: { select: { premiumSchedule: true, qmjpRule: true, lines: true } },
+      },
+    });
+    if (!s) throw new NotFoundException('Shipment not found');
+    const unit = n(s.ciAmount) !== null && n(s.netWeightMt) ? round2((n(s.ciAmount) as number) / (n(s.netWeightMt) as number)) : null;
+    const line0 = (s.contract?.lines ?? []).find((l: { grade: string | null }) => l.grade === s.order?.grade) ?? (s.contract?.lines ?? [])[0];
+    const check = priceCheck({
+      side: 'supplier',
+      basisMonth: s.order?.shipMonth ?? null,
+      schedule: s.contract?.premiumSchedule,
+      mjpBased: !!s.contract?.qmjpRule,
+      fallback: { supplierPremium: n(s.order?.supplierOrder?.supplierPremium) ?? n(s.order?.supplierPremium) ?? n(line0?.supplierPremium) },
+      prices: await this.prices(organizationId),
+      found: { unit },
+    });
+    return { ...check, source: unit === null ? 'no CI amount / net weight yet' : 'CI amount ÷ net weight' };
+  }
+
+  /** Invoice (in-app 請求書): the goods line's LME / QMJP / premium / unit against the contract's client side. */
+  async forGeneratedDoc(organizationId: string, id: string): Promise<PriceCheck & { source: string }> {
+    const g = await this.prisma.tradeGeneratedDoc.findFirst({
+      where: { id, organizationId },
+      select: {
+        docType: true,
+        rows: true,
+        order: { select: { shipMonth: true, grade: true, clientPremium: true, upcharge: true, contract: { select: { premiumSchedule: true } } } },
+        shipment: { select: { order: { select: { shipMonth: true, grade: true, clientPremium: true, upcharge: true, contract: { select: { premiumSchedule: true } } } } } },
+      },
+    });
+    if (!g) throw new NotFoundException('Document not found');
+    const o = g.order ?? g.shipment?.order ?? null;
+    const rows = (Array.isArray(g.rows) ? g.rows : []) as Array<Record<string, unknown>>;
+    // The goods line: the one priced with the helper (LME filled), else the first priced line.
+    const line = rows.find((r) => n(r.lme) !== null) ?? rows.find((r) => n(r.unitPrice) !== null) ?? null;
+    const unit = line ? (n(line.lme) !== null ? round2((n(line.lme) ?? 0) + (n(line.qmjp) ?? 0) + (n(line.premium) ?? 0) + (n(line.upcharge) ?? 0)) : n(line.unitPrice)) : null;
+    const provisional = g.docType === 'INVOICE_1';
+    const basis = o?.shipMonth ? (provisional ? addMonths(o.shipMonth, -1) : o.shipMonth) : null;
+    const check = priceCheck({
+      side: 'client',
+      basisMonth: basis,
+      schedule: o?.contract?.premiumSchedule,
+      fallback: { clientPremium: n(o?.clientPremium), upcharge: n(o?.upcharge) },
+      prices: await this.prices(organizationId),
+      found: { premium: n(line?.premium), lme: n(line?.lme), qmjp: n(line?.qmjp), unit },
+    });
+    return { ...check, notes: [...(provisional ? [`Provisional: Invoice #1 prices on the month before shipment (${basis ?? '—'})`] : []), ...check.notes], source: line ? 'the invoice’s goods line' : 'no priced line yet' };
+  }
+}

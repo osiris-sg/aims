@@ -23,6 +23,7 @@ import { useContract, useContractGeneratedDocs, useGeneratedDocs, useShipment, u
 import { recordFileCount, useShipmentsApi, type AnExtraction, type BlExtraction, type Contract, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
 import { blLabel, depositTermLabel, fmtDmy, fmtMoney, fmtMt, stepLabel } from "../../_lib/format";
 import RecordHeader from "../../_components/RecordHeader";
+import ContractTerms from "../../_components/ContractTerms";
 import ContractOverview from "../../_components/ContractOverview";
 import ShipmentOverview from "../../_components/ShipmentOverview";
 import StepCards, { type StepContext } from "../../_components/StepCards";
@@ -492,6 +493,22 @@ function ContractMaster({ contract: c }: { contract: Contract }) {
       </Stack>
       <Stack spacing={3}>
         <ContractOverview contract={c} />
+        <ContractTerms contract={c} />
+        {(c.supplierOrders ?? []).length > 0 && (
+          <Paper variant="outlined" sx={{ p: 2 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Supplier orders on this contract ({c.supplierOrders!.length})
+            </Typography>
+            <Stack spacing={0.5}>
+              {c.supplierOrders!.map((so) => (
+                <Button key={so.id} sx={{ justifyContent: "flex-start", textTransform: "none" }} onClick={() => router.push(`/portal/shipments/supplier-orders/${so.id}`)}>
+                  <b>{so.label}</b>&nbsp;· {so.declarationMonth ?? "—"} · {so.grade ?? "—"} · {so.qtyMt != null ? `${fmtMt(so.qtyMt)} MT` : "—"}&nbsp;
+                  <RecordStatusChip status={so.status} />
+                </Button>
+              ))}
+            </Stack>
+          </Paper>
+        )}
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
             Orders on this contract ({c.orders?.length ?? 0})

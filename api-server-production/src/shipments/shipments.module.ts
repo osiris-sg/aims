@@ -8,6 +8,19 @@ import { ContractsController } from './contracts.controller';
 import { ContractsService } from './contracts.service';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
+import { SupplierOrdersController } from './supplier-orders.controller';
+import { SupplierOrdersService } from './supplier-orders.service';
+import { TradePriceCheckController } from './trade-price-check.controller';
+import { TradePriceCheckService } from './trade-price-check.service';
+import { TradePaymentsController } from './trade-payments.controller';
+import { TradePaymentsService } from './trade-payments.service';
+import { TradeAlertsController } from './trade-alerts.controller';
+import { TradeAlertsService } from './trade-alerts.service';
+import { TradeDashboardController } from './trade-dashboard.controller';
+import { TradeDashboardService } from './trade-dashboard.service';
+import { ClerkClientProvider } from '../providers/clerk-client.provider';
+import { EmailModule } from '../email/email.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ShipmentsController } from './shipments.controller';
 import { ShipmentsService } from './shipments.service';
 import { TradeConfigController } from './trade-config.controller';
@@ -34,9 +47,14 @@ import { TradeStepsService } from './trade-steps.service';
  * read by AI (TradeExtractService, via the shared DocumentExtractionService).
  */
 @Module({
-  imports: [CommonModule, DocumentExtractionModule, DocumentsModule, DocumentTemplatesModule],
+  imports: [CommonModule, DocumentExtractionModule, DocumentsModule, DocumentTemplatesModule, EmailModule, NotificationsModule],
   controllers: [
     OrdersController,
+    SupplierOrdersController,
+    TradePriceCheckController,
+    TradePaymentsController,
+    TradeAlertsController,
+    TradeDashboardController,
     ContractsController,
     ShipmentsController,
     TradeStepsController,
@@ -49,6 +67,12 @@ import { TradeStepsService } from './trade-steps.service';
   ],
   providers: [
     OrdersService,
+    SupplierOrdersService,
+    TradePriceCheckService,
+    TradePaymentsService,
+    TradeAlertsService,
+    TradeDashboardService,
+    ClerkClientProvider,
     ContractsService,
     ShipmentsService,
     TradeStepsService,
@@ -61,6 +85,6 @@ import { TradeStepsService } from './trade-steps.service';
     TradeExtractService,
     PrismaService,
   ],
-  exports: [OrdersService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService],
+  exports: [OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService],
 })
 export class ShipmentsModule {}

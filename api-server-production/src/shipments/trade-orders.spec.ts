@@ -6,7 +6,7 @@
 import { blockingSteps, currentStepOf, monthsLabel, orderLabel, progressOf, shipmentRef, autoCompletePlan } from './shipments.rules';
 import { docRefCode, nextDocRef, orderDocRefBase } from './trade-docref';
 import { actualsTable, cleanCosts, DEFAULT_RATES, estimate, importTaxEstimate, ratesOf, suggestedCostLinesUsd, trucksFor } from './trade-estimator';
-import { renderSingleInvoiceHtml, SingleInvoiceHeader, SingleLine, singleFinalizeProblems, singleGoodsRemarks, singleTotals } from './trade-invoice-single';
+import { renderSingleInvoiceHtml, SingleInvoiceHeader, singleInvoiceNoFor, SingleLine, singleFinalizeProblems, singleGoodsRemarks, singleTotals } from './trade-invoice-single';
 import { dueBusinessDays, invoiceTotals, toInvoiceLines } from './trade-invoice';
 import { CUSTOMER_DOC_TEMPLATES, defaultSingleRemarks, invoiceDueDays, mergeProfiles, naStepCodes, profileFor, stepOverride, subtasksFor, templateKeyFor } from './trade-profile';
 import { reconcile } from './trade-reconcile';
@@ -115,7 +115,7 @@ describe('N/A steps (customer profile) never block', () => {
 describe('estimator (task-list formulas, JPY)', () => {
   const rates = ratesOf(null);
 
-  it('trucks = ROUND(gross / capacity): 307.004t / 20 → 15, 263.48t / 20 → 13, 40.825 / 10 → 4', () => {
+  it('trucks = ROUND(gross / capacity): 307.004t on 20t trucks (SUS) → 15, 263.48t on 20t (SUS) → 13, 40.825t on 10t (Kato) → 4', () => {
     expect(trucksFor(307.004, 20)).toBe(15);
     expect(trucksFor(263.48, 20)).toBe(13);
     expect(trucksFor(40.825, 10)).toBe(4);
@@ -146,10 +146,14 @@ describe('estimator (task-list formulas, JPY)', () => {
     expect(e.trucking).toBe(143000);
   });
 
-  it('import tax (step 8): #11 CIF × 159.00 → ¥18,386,700 (課税標準 1,000円未満, 税額 100円未満 切捨て)', () => {
-    expect(importTaxEstimate(1156396.23, 159)).toEqual({ cifJpy: 183867000, tax: 18386700 });
-    const e = estimate({ netWeightMt: 305.804 }, { cifUsd: 1156396.23, fxRate: 159, importTaxFunded: 20000000, importTaxActual: 18845077 }, rates, {});
-    expect(e.importTax).toMatchObject({ estimate: 18386700, funded: 20000000, actual: 18845077, variance: 458377 });
+  it('import tax (step 8): the permit formula — #11 SG→JP IV CIF 1,156,238.80 × 159.00 + 加算運賃 ¥27,000 (= EQMC) → ¥18,386,700', () => {
+    expect(importTaxEstimate(1156238.8, 159, 27000)).toMatchObject({ customsValue: 183868969, national: 14341700, local: 4045000, total: 18386700 });
+    // The add-on defaults to the A/N's EQMC …
+    const e = estimate({ netWeightMt: 305.804 }, { equipmentFee: 27000, cifUsd: 1156238.8, fxRate: 159, importTaxFunded: 20000000, importTaxActual: 18386700 }, rates, {});
+    expect(e.importTax).toMatchObject({ addOnJpy: 27000, addOnSource: 'EQMC', customsValue: 183868969, estimate: 18386700, funded: 20000000, actual: 18386700, variance: 0 });
+    // … and a typed 加算運賃 wins.
+    const typed = estimate({ netWeightMt: 305.804 }, { equipmentFee: 27000, customsAddOnJpy: 0, cifUsd: 1156238.8, fxRate: 159 }, rates, {});
+    expect(typed.importTax).toMatchObject({ addOnJpy: 0, addOnSource: 'typed', customsValue: 183841969 });
   });
 
   it('step 12 actuals: washing / detention per container + tax, variance per line', () => {
@@ -189,8 +193,9 @@ describe('INVOICE_SINGLE (Kato sample: 40.825 t, FX 159.00 → US$176,050.94)', 
   it('line figures match the PDF', () => {
     expect(t.lines[0]).toMatchObject({ unitUsd: 3835.98, amountUsd: 156603.88, amountJpy: 24900017 });
     expect(Math.round(t.lines[0].unitJpy!)).toBe(609921);
-    expect(t.lines[1]).toMatchObject({ unitUsd: 31.75, amountUsd: 1295.99, unitJpy: 5047, amountJpy: 206063 });
-    expect(t.lines[2]).toMatchObject({ unitUsd: 13.83, amountUsd: 564.78, unitJpy: 2200, amountJpy: 89800 });
+    // 単価(円) of a yen line = ROUND(amount USD × FX / qty, 2) as the sheet does; printed to the yen (5,047 / 2,200).
+    expect(t.lines[1]).toMatchObject({ unitUsd: 31.75, amountUsd: 1295.99, unitJpy: 5047.46, amountJpy: 206063 });
+    expect(t.lines[2]).toMatchObject({ unitUsd: 13.83, amountUsd: 564.78, unitJpy: 2199.63, amountJpy: 89800 });
     expect(t.lines[3]).toMatchObject({ unitUsd: 40, amountUsd: 1633, unitJpy: 6360, amountJpy: 259647 });
   });
 
@@ -198,6 +203,16 @@ describe('INVOICE_SINGLE (Kato sample: 40.825 t, FX 159.00 → US$176,050.94)', 
     expect(t.usd).toEqual({ nonTaxable: 564.78, taxable: 159532.87, tax: 15953.29, total: 176050.94 });
     expect(t.jpy).toEqual({ nonTaxable: 89800, taxable: 25365727, tax: 2536573, total: 27992100 });
     expect(t.perMt.usd).toBe(3921.56);
+  });
+
+  it('per-MT yen row = 623,527.91 as printed (609,920.82 + 5,047.46 + 2,199.63 + 6,360)', () => {
+    expect(t.lines[0].unitJpy).toBe(609920.82);
+    expect(t.perMt.jpy).toBe(623527.91);
+  });
+
+  it('番号 defaults to the 発行日 as yyyymmdd (2026-08-18 → 20260818)', () => {
+    expect(singleInvoiceNoFor('2026-08-18')).toBe('20260818');
+    expect(singleInvoiceNoFor('')).toBe('');
   });
 
   it('goods remarks: LME Cash 2026/7月平均(3155.98USD) +395(3QMJP) + 285(Billet Premium)', () => {

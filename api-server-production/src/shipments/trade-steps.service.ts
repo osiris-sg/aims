@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { TradeActor } from './shipments.request';
-import { fieldRequirements, hasExactlyOneOwner, missingDocTypes, stepLabel } from './shipments.rules';
-import { Db, TradeConfigService, TradeOwner } from './trade-config.service';
+import { fieldRequirements, hasExactlyOneOwner, missingDocTypes, stepLabel, supplierOrderLabel } from './shipments.rules';
+import { Db, toOwner, TradeConfigService, TradeOwner } from './trade-config.service';
 
 type StepAction = 'start' | 'complete' | 'reopen';
 
@@ -48,22 +48,26 @@ export class TradeStepsService {
           contractId: true,
           shipmentId: true,
           orderId: true,
+          supplierOrderId: true,
           notApplicable: true,
           contract: true,
           shipment: true,
           order: true,
+          supplierOrder: true,
         },
       });
       if (!step) throw new NotFoundException('Step not found');
       if (!hasExactlyOneOwner(step)) throw new BadRequestException('Step is not attached to exactly one order, shipment or contract');
-      if (step.notApplicable) throw new BadRequestException(`"${stepLabel(step)}" doesn't apply to this customer (customer profile)`);
+      if (step.notApplicable) throw new BadRequestException(`"${stepLabel(step)}" doesn't apply here (customer / supplier profile)`);
 
-      const owner = step.orderId
+      const owner = step.supplierOrderId
+        ? { kind: 'supplier order', label: `Supplier order ${supplierOrderLabel(step.supplierOrder)}`, status: step.supplierOrder?.status }
+        : step.orderId
         ? { kind: 'order', label: `Order #${step.order?.orderNo}`, status: step.order?.status }
         : step.contractId
           ? { kind: 'contract', label: `Contract ${step.contract?.contractNo}`, status: step.contract?.status }
           : { kind: 'shipment', label: step.shipment?.blNumber ? `Shipment ${step.shipment.blNumber}` : 'This shipment', status: step.shipment?.status };
-      const stepOwner: TradeOwner = step.orderId ? { orderId: step.orderId } : step.contractId ? { contractId: step.contractId } : { shipmentId: step.shipmentId! };
+      const stepOwner: TradeOwner = toOwner(step);
       if (owner.status !== 'OPEN') {
         throw new BadRequestException(`${owner.label} is ${String(owner.status).toLowerCase()} — reopen it before changing steps`);
       }
@@ -88,7 +92,7 @@ export class TradeStepsService {
             const labels = await this.config.docTypeLabels(organizationId, tx);
             throw new BadRequestException(`Cannot complete "${stepLabel(step)}": missing required document(s) on this ${owner.kind}: ${missing.map((c) => labels.get(c) ?? c).join(', ')}`);
           }
-          const emptyFields = fieldRequirements(step.requiredFields, (step.order ?? step.contract ?? step.shipment) as Record<string, unknown>).filter((f) => !f.satisfied);
+          const emptyFields = fieldRequirements(step.requiredFields, (step.supplierOrder ?? step.order ?? step.contract ?? step.shipment) as Record<string, unknown>).filter((f) => !f.satisfied);
           if (emptyFields.length) {
             throw new BadRequestException(`Cannot complete "${stepLabel(step)}": fill in ${emptyFields.map((f) => f.label).join(', ')} on this ${owner.kind} first`);
           }
@@ -141,6 +145,7 @@ export class TradeStepsService {
         contractId: true,
         shipmentId: true,
         orderId: true,
+        supplierOrderId: true,
         code: true,
         title: true,
         displayNo: true,

@@ -27,8 +27,8 @@ import { useDebounced } from "@/app/portal/shipments/_components/useDebounced";
 
 const HERE = "/portal/trade-documents";
 type DateRange = { startDate?: Date | string | null; endDate?: Date | string | null };
-type Filters = { docType: string; contractId: string; shipmentId: string; customerId: string; source: string; createdOn: DateRange };
-const EMPTY: Filters = { docType: "", contractId: "", shipmentId: "", customerId: "", source: "", createdOn: { startDate: null, endDate: null } };
+type Filters = { docType: string; contractId: string; shipmentId: string; customerId: string; source: string; entity: string; createdOn: DateRange };
+const EMPTY: Filters = { docType: "", contractId: "", shipmentId: "", customerId: "", source: "", entity: "", createdOn: { startDate: null, endDate: null } };
 const dayIso = (d?: Date | string | null, end = false) => {
   if (!d) return undefined;
   const x = new Date(d);
@@ -65,6 +65,7 @@ export default function TradeDocumentsHubPage() {
     shipmentId: filters.shipmentId || undefined,
     customerId: filters.customerId || undefined,
     source: filters.source || undefined,
+    entity: filters.entity || undefined,
     from: dayIso(filters.createdOn?.startDate),
     to: dayIso(filters.createdOn?.endDate, true),
   });
@@ -115,6 +116,7 @@ export default function TradeDocumentsHubPage() {
       { type: "select", key: "shipmentId", label: "B/L", options: (shipments.data?.items ?? []).map((s) => ({ value: s.id, label: `${blLabel(s.blNumber)}${s.contractNo ? ` · ${s.contractNo}` : ""}` })) },
       { type: "select", key: "customerId", label: "Customer", options: (customers.data ?? []).map((c) => ({ value: c.id, label: c.name })) },
       { type: "select", key: "source", label: "Source", options: [{ value: "UPLOADED", label: "Uploaded" }, { value: "IN_APP", label: "Created in-app" }] },
+      { type: "select", key: "entity", label: "Issued by", options: [{ value: "ADH_JP", label: "ADH JP (合同会社)" }, { value: "ADH_SG", label: "ADH SG (Pte. Ltd.)" }] },
       { type: "dateRange", key: "createdOn", label: "Date" },
     ],
     [docTypes.data, contracts.data, shipments.data, customers.data, category],
@@ -132,7 +134,16 @@ export default function TradeDocumentsHubPage() {
         ),
       },
       { id: "category", header: "Category", cell: ({ row }: any) => <Typography variant="body2" sx={{ whiteSpace: "nowrap" }}>{categoryLabel(row.original.category)}</Typography> },
-      { id: "docType", header: "Doc type", cell: ({ row }: any) => <Chip size="small" variant="outlined" label={row.original.docTypeLabel} /> },
+      {
+        id: "docType",
+        header: "Doc type",
+        cell: ({ row }: any) => (
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <Chip size="small" variant="outlined" label={row.original.docTypeLabel} />
+            {row.original.issuingEntity && <Chip size="small" color={row.original.issuingEntity === "ADH_SG" ? "info" : "secondary"} label={row.original.issuingEntity === "ADH_SG" ? "SG" : "JP"} data-tour="hub-entity-badge" />}
+          </Stack>
+        ),
+      },
       {
         id: "name",
         header: "Name / number",

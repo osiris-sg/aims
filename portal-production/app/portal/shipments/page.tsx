@@ -12,7 +12,8 @@
 
 import React, { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Alert, Box, Button, Chip, IconButton, Menu, MenuItem, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, IconButton, Menu, MenuItem, Stack, Tab, Tabs, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
@@ -134,6 +135,27 @@ export default function OrdersPage() {
           return r.kind === "order" ? r.monthsLabel || "—" : <Typography variant="body2" color="text.secondary">ETA {fmtDay(r.eta)}</Typography>;
         },
       },
+      {
+        id: "supplierOrder",
+        header: "Supplier order",
+        cell: ({ row }: any) => {
+          const r: Row = row.original;
+          if (r.kind !== "order") return null;
+          return r.supplierOrder ? (
+            <Chip
+              size="small"
+              variant="outlined"
+              label={r.supplierOrder.label}
+              onClick={(e) => {
+                e.stopPropagation();
+                router.push(`/portal/shipments/supplier-orders/${r.supplierOrder!.id}`);
+              }}
+            />
+          ) : (
+            "—"
+          );
+        },
+      },
       { id: "product", header: "Product", cell: ({ row }: any) => (row.original.kind === "order" ? row.original.grade || row.original.product || "—" : row.original.netWeightMt != null ? `${fmtMt(row.original.netWeightMt)} MT net` : "") },
       {
         id: "qty",
@@ -166,11 +188,24 @@ export default function OrdersPage() {
           ) : null,
       },
     ],
-    [expanded],
+    [expanded, router],
   );
 
   const filtered = !!(q || filters.contractId || filters.customerId);
   const counts = list.data?.counts;
+  const viewToggle = (
+    <ToggleButtonGroup
+      size="small"
+      exclusive
+      value="customer"
+      onChange={(_, v) => v === "supplier" && router.push("/portal/shipments/supplier-orders")}
+      data-tour="orders-view-toggle"
+      sx={{ mb: 1 }}
+    >
+      <ToggleButton value="customer">Customer orders</ToggleButton>
+      <ToggleButton value="supplier">Supplier orders</ToggleButton>
+    </ToggleButtonGroup>
+  );
   const tabs = (
     <Tabs
       value={bucket}
@@ -214,6 +249,9 @@ export default function OrdersPage() {
         }}
         filterConfig={filterConfig}
         actionButtons={[
+          <Button key="declaration" variant="outlined" startIcon={<PlaylistAddIcon />} href="/portal/shipments/declaration" data-tour="orders-declaration">
+            Declaration
+          </Button>,
           <Button key="from-pis" variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={() => setBulkOpen(true)}>
             New orders from PIs
           </Button>,
@@ -227,6 +265,7 @@ export default function OrdersPage() {
         hideTable={!list.isLoading && !list.isError && !list.data?.items?.length}
         headerContent={
           <>
+            {viewToggle}
             {tabs}
             {list.isError ? (
               <Alert severity="error">{(list.error as Error)?.message || "Could not load orders"}</Alert>

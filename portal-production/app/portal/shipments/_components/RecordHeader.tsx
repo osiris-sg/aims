@@ -19,6 +19,8 @@ import { ConfirmDialog, CurrentStepCell, ProgressCell, RecordStatusChip } from "
 
 type Act = "complete" | "cancel" | "reopen";
 
+const kindLabel = (k: string) => (k === "contract" ? "Contract" : k === "order" ? "Order" : k === "supplierOrder" ? "Supplier order" : "Shipment");
+
 export default function RecordHeader({
   kind,
   title,
@@ -34,7 +36,7 @@ export default function RecordHeader({
   blockers = [],
   onActed,
 }: {
-  kind: "contract" | "shipment" | "order";
+  kind: "contract" | "shipment" | "order" | "supplierOrder";
   title: string;
   status: RecordStatus;
   subtitle?: React.ReactNode;
@@ -65,13 +67,13 @@ export default function RecordHeader({
       title: `Complete ${kind} ${title}?`,
       label: `Complete ${kind}`,
       run: onComplete,
-      done: `${kind === "contract" ? "Contract" : kind === "order" ? "Order" : "Shipment"} completed`,
+      done: `${kindLabel(kind)} completed`,
     },
     cancel: {
       title: `Cancel ${kind} ${title}?`,
       label: `Cancel ${kind}`,
       run: onCancel,
-      done: `${kind === "contract" ? "Contract" : kind === "order" ? "Order" : "Shipment"} cancelled`,
+      done: `${kindLabel(kind)} cancelled`,
       destructive: true,
     },
     reopen: {
@@ -81,7 +83,7 @@ export default function RecordHeader({
       // Reopening a shipment also reopens its completed contract (the API reports it).
       done: (r) => {
         const reopened = (r as { reopenedContract?: string | null } | undefined)?.reopenedContract;
-        return reopened ? `Shipment reopened — contract ${reopened} was completed, so it was reopened too` : `${kind === "contract" ? "Contract" : kind === "order" ? "Order" : "Shipment"} reopened`;
+        return reopened ? `Shipment reopened — contract ${reopened} was completed, so it was reopened too` : `${kindLabel(kind)} reopened`;
       },
     },
   };
@@ -111,7 +113,7 @@ export default function RecordHeader({
           </Box>
         )}
         <Box sx={{ flex: 1 }} />
-        <IconButton aria-label={`${kind === "contract" ? "Deal" : kind === "order" ? "Order" : "Shipment"} actions`} data-tour="deal-actions-menu" onClick={(e) => setMenu({ left: e.clientX, top: e.clientY })}>
+        <IconButton aria-label={`${kind === "contract" ? "Deal" : kindLabel(kind)} actions`} data-tour="deal-actions-menu" onClick={(e) => setMenu({ left: e.clientX, top: e.clientY })}>
           <MoreVertIcon />
         </IconButton>
       </Stack>

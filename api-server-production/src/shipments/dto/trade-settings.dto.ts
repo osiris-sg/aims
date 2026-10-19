@@ -9,4 +9,8 @@ export class UpdateTradeSettingsDto {
   @IsOptional() @IsObject() customerProfiles?: Record<string, unknown>;
   /** Estimator rates to change (JPY). Checked in the service. */
   @IsOptional() @IsObject() estimatorRates?: Record<string, unknown>;
+  /** Supplier profiles to change, keyed by supplier id (hasPI, shipping documents). Checked in the service. */
+  @IsOptional() @IsObject() supplierProfiles?: Record<string, unknown>;
+  /** Alert rules (reminder offsets, free days, stuck days, digest). Checked in the service (trade-alerts.ts). */
+  @IsOptional() @IsObject() alertRules?: Record<string, unknown>;
 }

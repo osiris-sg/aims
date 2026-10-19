@@ -39,7 +39,7 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import { useContract, useContracts, useTradeSettings } from "@/app/portal/shipments/_lib/hooks";
-import { useShipmentsApi } from "@/app/portal/shipments/_lib/api";
+import { bankEntity, useShipmentsApi, type IssuingEntity } from "@/app/portal/shipments/_lib/api";
 import { toast } from "@/app/portal/shipments/_lib/toast";
 import { lineLabel } from "@/app/portal/shipments/_lib/format";
 import type { DocFormProps } from "./types";
@@ -84,7 +84,12 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
   // Invoice #2 quotes the shipment month's LME in its own wording.
   const remarksTpl: string | undefined = (doc.docType === "INVOICE_2" && dd.invoice2RemarksTemplate) || dd.invoiceRemarksTemplate;
   const upTpl: string | undefined = dd.invoiceUpchargeTemplate;
-  const banks: Array<{ id: string; label: string; block: string }> = Array.isArray(dd.banks) && dd.banks.length ? dd.banks : dd.invoiceBankBlock ? [{ id: "default", label: String(dd.invoiceBankBlock).split("\n")[0], block: dd.invoiceBankBlock }] : [];
+  // Only the issuing entity's accounts (ADH JP: SMBC JPY; ADH SG: DBS / Wise / CFSB).
+  const entity = doc.issuingEntity ?? "ADH_JP";
+  const allBanks: Array<{ id: string; label: string; block: string; entity?: IssuingEntity }> =
+    Array.isArray(dd.banks) && dd.banks.length ? dd.banks : dd.invoiceBankBlock ? [{ id: "default", label: String(dd.invoiceBankBlock).split("\n")[0], block: dd.invoiceBankBlock }] : [];
+  const banks = allBanks.filter((b) => bankEntity(b) === entity);
+  const bankElsewhere = !!h.bankId && allBanks.some((b) => b.id === h.bankId && bankEntity(b) !== entity);
   const unit: string = dd.invoiceUnit ?? "トン";
   const [pick, setPick] = useState(false);
   const totals = useMemo(() => invoiceTotals(rows, h.taxRate, h.fxRate, isFinal2 ? "final" : undefined), [rows, h.taxRate, h.fxRate, isFinal2]);
@@ -174,7 +179,9 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
           return l;
         }),
       );
-      toast.info(`Estimator for ${sug.shipments} shipment(s): ¥${Math.round(sug.taxableJpy).toLocaleString("en-US")} taxable, ¥${Math.round(sug.nonTaxableJpy).toLocaleString("en-US")} non-taxable — lines already typed were kept.`);
+      // Billed on the estimate: step 13 shows the variance once the actuals are in (AIMS only, not on the PDF).
+      setH({ costsBasis: "ESTIMATED" } as any);
+      toast.info(`Estimator for ${sug.shipments} shipment(s): ¥${Math.round(sug.taxableJpy).toLocaleString("en-US")} taxable, ¥${Math.round(sug.nonTaxableJpy).toLocaleString("en-US")} non-taxable — lines already typed were kept. Costs marked "estimated".`);
     } catch (e: any) {
       toast.error(e?.message || "Could not get the estimate");
     }
@@ -231,6 +238,16 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
           <Grid2 size={{ xs: 12, sm: 4 }}>{tf("lmeMonth", "LME average month (remarks)", { type: "month", InputLabelProps: { shrink: true } })}</Grid2>
           <Grid2 size={12}>{tf("conditions", "Conditions / 条件", { multiline: true, minRows: 2 })}</Grid2>
           <Grid2 size={12}>{tf("paymentTerms", "Payment terms / 支払い条件", { multiline: true, minRows: 1 })}</Grid2>
+          {bankElsewhere && (
+            <Alert severity="warning" sx={{ mb: 1 }}>
+              The chosen bank account belongs to the other ADH entity — pick one of {entity === "ADH_JP" ? "ADH Japan's" : "ADH SG's"} accounts.
+            </Alert>
+          )}
+          {banks.length === 0 && allBanks.length > 0 && (
+            <Alert severity="info" sx={{ mb: 1 }}>
+              No bank account is tagged {entity === "ADH_JP" ? "ADH JP" : "ADH SG"} — set the entity in Org Settings → Shipping & documents → Bank accounts.
+            </Alert>
+          )}
           {banks.length > 0 && (
             <Grid2 size={{ xs: 12, sm: 6 }}>
               <TextField

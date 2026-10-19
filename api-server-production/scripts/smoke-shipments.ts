@@ -28,6 +28,8 @@ import { S3Service } from '../src/common/services/s3.service';
 import { runAsOrg } from '../src/common/tenancy/tenant-context';
 import { ContractsService } from '../src/shipments/contracts.service';
 import { OrdersService } from '../src/shipments/orders.service';
+import { SupplierOrdersService } from '../src/shipments/supplier-orders.service';
+import { TradePaymentsService } from '../src/shipments/trade-payments.service';
 import { ShipmentsService } from '../src/shipments/shipments.service';
 import { TradeConfigService } from '../src/shipments/trade-config.service';
 import { TradeDocumentsService } from '../src/shipments/trade-documents.service';
@@ -257,21 +259,25 @@ async function main() {
         'order: next free number, customer / supplier / size from the contract',
         `${order.label} ${order.size}`,
       );
-      (JSON.stringify(order.steps.map((x: any) => x.code)) === JSON.stringify(['CHECK_CONTRACT', 'PI_PAYMENT', 'INVOICE_1', 'XERO_HANDOFF']) ? pass : fail)(
-        'order steps 0 / 1 / 2 / 13 snapshotted',
+      // Round E: steps 0 / 1 live on the supplier order the order made for itself (1:1 until a declaration shares one).
+      (JSON.stringify(order.steps.map((x: any) => x.code)) === JSON.stringify(['INVOICE_1', 'XERO_HANDOFF']) ? pass : fail)(
+        'order (customer side) steps 2 / 13 snapshotted',
         order.steps.map((x: any) => `${x.displayNo}.${x.code}`).join(', '),
+      );
+      (order.supplierOrder && JSON.stringify(order.supplierOrder.steps.map((x: any) => x.code)) === JSON.stringify(['CHECK_CONTRACT', 'PI_PAYMENT']) && order.supplierOrder.piNo === 'SMOKE-PI-1' && order.supplierOrder.label === 'PI SMOKE-PI-1' ? pass : fail)(
+        'supplier order auto-created with the PI: steps 0 / 1',
+        order.supplierOrder ? `${order.supplierOrder.label}: ${order.supplierOrder.steps.map((x: any) => `${x.displayNo}.${x.code}`).join(', ')}` : 'none',
       );
       (settings.defaultConsignee && order.consignee === settings.defaultConsignee && order.notifyParty === settings.defaultNotifyParty ? pass : fail)(
         'consignee / notify party default from the contract / org trade settings',
         String(order.consignee).split('\n')[0],
       );
       (Number(order.depositAmount) === 10000 ? pass : fail)('deposit = PI amount × 10 %', String(order.depositAmount));
-      (order.currentStep?.label === '0. Check contract' ? pass : fail)('step 0 "Check contract" is current while the client premium is missing', order.currentStep?.label ?? 'none');
-      order = await orders.update(ORG_ID, order.id, { clientPremium: 230, supplierPremium: 205 }, actor);
-      (order.currentStep?.label === '1. Set up PI payment' && order.steps.find((x: any) => x.code === 'CHECK_CONTRACT')?.status === 'DONE' ? pass : fail)(
-        'premium confirmed → step 0 completes by itself, step 1 is current',
+      (order.currentStep?.label === '1. Set up PI payment' && order.supplierOrder?.steps.find((x: any) => x.code === 'CHECK_CONTRACT')?.status === 'DONE' ? pass : fail)(
+        'contract picked → supplier-side step 0 completes by itself, step 1 is current',
         order.currentStep?.label ?? 'none',
       );
+      order = await orders.update(ORG_ID, order.id, { clientPremium: 230, supplierPremium: 205 }, actor);
       (order.depositDueDays === 3 && order.depositDueUnit === 'BUSINESS' && order.depositDueDate === '2026-07-03' ? pass : fail)(
         'deposit due defaults to 3 business days (PI 30/06/2026 → 03/07/2026)',
         `${order.depositDueDays} ${order.depositDueUnit} ${order.depositDueDate}`,
@@ -290,10 +296,10 @@ async function main() {
         (left === 0 ? pass : fail)('cancelled PI: file + extraction removed', `${left} row(s) left`);
       }
       if (piX?.fileId) await expectReject('discard the PI saved with the order', () => extract.discardSource(ORG_ID, piX.fileId, actor), /attached to a contract or shipment/);
-      const piStep = order.steps.find((s: any) => s.code === 'PI_PAYMENT');
-      const piLink = order.fileLinks.find((l: any) => l.file.id === piX?.fileId);
+      const piStep = order.supplierOrder?.steps.find((s: any) => s.code === 'PI_PAYMENT');
+      const piLink = order.supplierOrder?.fileLinks.find((l: any) => l.file.id === piX?.fileId);
       (piLink && piLink.file.docType === 'PI' && piLink.stepId === piStep?.id ? pass : fail)(
-        'PI file linked to the order as PI on "1. Set up PI payment"',
+        'PI file linked to the supplier order as PI on "1. Set up PI payment"',
         piLink ? `step ${piLink.stepId}` : 'not linked',
       );
 
@@ -879,7 +885,8 @@ async function main() {
         (blFile?.docRef === `${P}-${seq}-BLD` ? pass : fail)('doc IDs: an uploaded B/L draft → {yy}-{order}-{shipment}-BLD', String(blFile?.docRef));
         if (piX?.fileId) {
           const pi = await prisma.tradeFile.findFirst({ where: { id: piX.fileId }, select: { docRef: true } });
-          (pi?.docRef === `${P}-PI` ? pass : fail)('doc IDs: the PI on the order → {yy}-{order}-PI', String(pi?.docRef));
+          const so = await prisma.supplierOrder.findFirst({ where: { id: order.supplierOrderId }, select: { soNo: true } });
+          (pi?.docRef === `${String(ORDER_YEAR % 100).padStart(2, '0')}-S${so?.soNo}-PI` ? pass : fail)('doc IDs: the PI on the supplier order → {yy}-S{n}-PI', String(pi?.docRef));
         }
         const gens = await prisma.tradeGeneratedDoc.findMany({ where: { organizationId: ORG_ID, OR: [{ shipmentId: shipment.id }, { orderId: order.id }] }, orderBy: { createdAt: 'asc' }, select: { docType: true, docRef: true, finalFileId: true } });
         const want: Record<string, string> = { CUSTOMER_PL: `${P}-${seq}-CPL`, CUSTOMER_COA: `${P}-${seq}-CCOA`, SHIPPING_INSTRUCTIONS: `${P}-${seq}-SI`, INVOICE_2: `${P}-${seq}-INV2`, INVOICE_1: `${P}-INV1` };
@@ -1014,6 +1021,9 @@ async function main() {
 
       // ── Orders round: two shipments on one Invoice #2, Kato SINGLE flow, estimator, reconciliation ──
       await orderCases({ prisma, s3, config, orders, contracts, shipments, steps, files, gen, customer, supplier });
+
+      // ── Round E: declaration → supplier + customer orders; one payment over two PIs ──
+      await roundECases({ prisma, s3, orders, contracts, supplierOrders: new SupplierOrdersService(prisma, config, orders), payments: new TradePaymentsService(prisma), customer, supplier });
     } finally {
       if (contractId) {
         console.log('\n⚠ Run stopped early — removing what it created');
@@ -1055,7 +1065,7 @@ async function orderCases(x: any) {
   (a.ref === `#${oA.orderNo}-1` && b.ref === `#${oA.orderNo}-2` ? pass : fail)('orders: shipments numbered #n-1, #n-2', `${a.ref}, ${b.ref}`);
   // Estimator on #n-1 (262.45 MT net / 263.48 gross): customs ¥808,346, 13 trucks → ¥1,401,400.
   {
-    const est: any = (await shipments.update(ORG_ID, a.id, { costs: { thc: 540000, docFee: 6000, equipmentFee: 27000, cifUsd: 1156396.23, fxRate: 159 } } as any, actor)).estimate;
+    const est: any = (await shipments.update(ORG_ID, a.id, { costs: { thc: 540000, docFee: 6000, equipmentFee: 27000, cifUsd: 1156238.8, fxRate: 159 } } as any, actor)).estimate;
     (est?.customs === 808346 && est.trucks === 13 && est.trucking === 13 * 107800 && est.customsTotal === 808346 + 11800 + 573000 && est.importTax.estimate === 18386700 ? pass : fail)(
       'estimator: #9-1 numbers — customs ¥808,346, 13 trucks, est. 通関・車輸送, import tax ¥18,386,700 at 159.00',
       JSON.stringify({ customs: est?.customs, trucks: est?.trucks, trucking: est?.trucking, total: est?.customsTotal, tax: est?.importTax?.estimate }),
@@ -1150,6 +1160,100 @@ async function orderCases(x: any) {
   await expectOk('orders round: clean up (documents, files, shipments, orders, contracts)', () => cleanup(prisma, x.s3, null));
 }
 
+/**
+ * Round E (2026-10): the monthly declaration — two rows on one contract → two
+ * supplier orders, each with one customer order (ship = the month, delivery
+ * +2, premiums from the contract's schedule); one OUT payment split over the
+ * two PIs marks both deposits paid and shows on each order's cash view.
+ */
+async function roundECases(x: any) {
+  const { prisma, orders, contracts, supplierOrders, payments, customer, supplier } = x;
+  const c: any = await expectOk('round E: contract with a premium schedule', () =>
+    contracts.create(
+      ORG_ID,
+      {
+        contractNo: CONTRACT_NO,
+        supplierId: supplier.id,
+        customerId: customer.id,
+        grade: '6063',
+        premiumSchedule: [{ from: '2026-06', to: null, supplierPremium: 205, clientPremium: 230, upcharge: null }],
+        lines: [{ grade: '6063', product: 'Aluminium Billet', sizeSpec: '203 MM X 5800 MM', quantityMt: 3600, billetPremium: 230 }],
+      },
+      actor,
+    ),
+  );
+  if (!c) return;
+  const decl: any = await expectOk('round E: declare Aug — two rows (300 t, 40 t)', () =>
+    supplierOrders.declare(
+      ORG_ID,
+      {
+        month: '2026-08',
+        year: ORDER_YEAR,
+        qpBasis: "Average LME of MOSS (Aug'26)",
+        rows: [
+          { customerId: customer.id, contractId: c.id, qtyMt: 300, piNo: 'SMOKE-PI-E1' },
+          { customerId: customer.id, contractId: c.id, qtyMt: 40, piNo: 'SMOKE-PI-E2' },
+        ],
+      },
+      actor,
+    ),
+  );
+  if (!decl) return;
+  const made: any[] = await prisma.tradeOrder.findMany({
+    where: { organizationId: ORG_ID, id: { in: decl.created.map((r: any) => r.orderId) } },
+    select: { id: true, supplierOrderId: true, shipMonth: true, deliveryMonth: true, qtyMt: true, clientPremium: true, supplierPremium: true, supplierOrder: { select: { declarationMonth: true, piNo: true, year: true } } },
+    orderBy: { orderNo: 'asc' },
+  });
+  (made.length === 2 && made.every((o, i) => o.supplierOrderId === decl.created[i].supplierOrderId && o.supplierOrder.year === ORDER_YEAR && o.supplierOrder.declarationMonth === '2026-08') ? pass : fail)(
+    'declaration: one supplier order + one customer order per row, linked',
+    made.map((o) => `${o.supplierOrder?.piNo} → ${o.id.slice(0, 8)}`).join(', '),
+  );
+  (made.every((o) => o.shipMonth === '2026-08' && o.deliveryMonth === '2026-10' && Number(o.clientPremium) === 230 && Number(o.supplierPremium) === 205) ? pass : fail)(
+    'declaration: ship = Aug, delivery = Oct (+2), premiums from the schedule (230 / 205)',
+    made.map((o) => `${o.shipMonth}/${o.deliveryMonth} ${o.clientPremium}/${o.supplierPremium}`).join(', '),
+  );
+  await expectReject(
+    'declaration: a bad row creates nothing',
+    () => supplierOrders.declare(ORG_ID, { month: '2026-08', year: ORDER_YEAR, rows: [{ customerId: customer.id, contractId: c.id, qtyMt: 10 }, { customerId: customer.id, contractId: '00000000-0000-0000-0000-000000000000', qtyMt: 10 }] }, actor),
+    /Row 2: contract not found/,
+  );
+  const soCount = await prisma.supplierOrder.count({ where: { organizationId: ORG_ID, year: ORDER_YEAR } });
+  (soCount === 2 ? pass : fail)('declaration: the refused one left no supplier order behind', `${soCount}`);
+  const [so1, so2] = decl.created.map((r: any) => r.supplierOrderId);
+  const pay: any = await expectOk('round E: one OUT payment over the two PIs (USD 44,358.72 + 112,186.80)', () =>
+    payments.create(
+      ORG_ID,
+      {
+        direction: 'OUT',
+        paidAt: '2026-08-05',
+        amount: 156545.52,
+        currency: 'USD',
+        account: 'WISE',
+        allocations: [
+          { targetType: 'PI', targetId: so1, amount: 44358.72 },
+          { targetType: 'PI', targetId: so2, amount: 112186.8 },
+        ],
+      },
+      actor,
+    ),
+  );
+  if (pay) {
+    const paid = await prisma.supplierOrder.findMany({ where: { id: { in: [so1, so2] } }, select: { depositPaidAt: true } });
+    (paid.every((s: any) => s.depositPaidAt?.toISOString().slice(0, 10) === '2026-08-05') ? pass : fail)('payment: both PI deposits marked paid on 05/08/2026', paid.map((s: any) => s.depositPaidAt?.toISOString().slice(0, 10)).join(', '));
+    const cash: any = await payments.forOrder(ORG_ID, made[0].id);
+    (JSON.stringify(cash).includes('44358.72') ? pass : fail)("payment: the first order's cash view shows its PI part", JSON.stringify(cash).slice(0, 160));
+    await expectReject(
+      'payment: allocations over the amount are refused',
+      () => payments.update(ORG_ID, pay.id, { amount: 100 }),
+      /more than the payment/,
+    );
+    await expectOk('round E: delete the payment', () => payments.remove(ORG_ID, pay.id));
+  }
+  for (const o of made) await expectOk('round E: delete the order', () => orders.remove(ORG_ID, o.id));
+  for (const id of [so1, so2]) await expectOk('round E: delete the supplier order', () => supplierOrders.remove(ORG_ID, id));
+  await expectOk('round E: delete the contract', () => contracts.remove(ORG_ID, c.id));
+}
+
 /** Remove the smoke contract, its shipments, their steps/links, and the files (DB + S3) only they used. */
 /**
  * In-app documents of the smoke records: the Sales invoices behind ADH 請求書
@@ -1219,6 +1323,19 @@ async function cleanup(prisma: any, s3: S3Service, contractId: string | null) {
   }
   if (shipIds.length) await prisma.shipment.deleteMany({ where: { organizationId: ORG_ID, id: { in: shipIds } } });
   if (orderIds.length) await prisma.tradeOrder.deleteMany({ where: { organizationId: ORG_ID, id: { in: orderIds } } });
+  // Round E: the supplier orders the smoke orders made (same year), with their files / payments / alerts.
+  const sos: Array<{ id: string }> = await prisma.supplierOrder.findMany({ where: { organizationId: ORG_ID, year: ORDER_YEAR }, select: { id: true } });
+  if (sos.length) {
+    const soIds = sos.map((x) => x.id);
+    const soLinks = await prisma.tradeFileLink.findMany({ where: { organizationId: ORG_ID, supplierOrderId: { in: soIds } }, select: { fileId: true } });
+    const soFiles = await prisma.tradeFile.findMany({ where: { organizationId: ORG_ID, uploadedById: actor.id, id: { in: soLinks.map((l: { fileId: string }) => l.fileId) } }, select: { id: true, s3Key: true } });
+    for (const f of soFiles) {
+      await prisma.tradeExtraction.deleteMany({ where: { organizationId: ORG_ID, fileId: f.id } });
+      await prisma.tradeFile.delete({ where: { id: f.id } });
+      await s3.deleteFile(f.s3Key).catch(() => undefined);
+    }
+    await prisma.supplierOrder.deleteMany({ where: { organizationId: ORG_ID, id: { in: soIds } } });
+  }
   if (contract) await prisma.contract.deleteMany({ where: { organizationId: ORG_ID, id: contract.id } });
   const kato = await prisma.contract.findFirst({ where: { organizationId: ORG_ID, contractNo: KATO_CONTRACT_NO }, select: { id: true } });
   if (kato) await prisma.contract.deleteMany({ where: { organizationId: ORG_ID, id: kato.id } });

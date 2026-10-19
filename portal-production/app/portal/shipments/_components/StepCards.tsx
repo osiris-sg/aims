@@ -213,7 +213,7 @@ export default function StepCards({
     try {
       const g = await api.createBlankGenerated({
         docType,
-        ...(owner.kind === "contract" ? { contractId: owner.id } : owner.kind === "order" ? { orderId: owner.id } : { shipmentId: owner.id }),
+        ...(owner.kind === "contract" ? { contractId: owner.id } : owner.kind === "order" ? { orderId: owner.id } : owner.kind === "supplierOrder" ? { supplierOrderId: owner.id } : { shipmentId: owner.id }),
         ...(coversShipmentIds ? { coversShipmentIds } : {}),
       });
       router.push(editorHref(g.id));

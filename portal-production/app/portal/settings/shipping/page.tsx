@@ -15,6 +15,7 @@ import BlDefaultsForm from "@/app/portal/shipments/_components/BlDefaultsForm";
 import DocSettingsForm from "@/app/portal/shipments/_components/DocSettingsForm";
 import EmailIntakePanel from "@/app/portal/shipments/_components/EmailIntakePanel";
 import EstimatorRatesForm from "@/app/portal/shipments/_components/EstimatorRatesForm";
+import AlertRulesForm from "@/app/portal/shipments/_components/AlertRulesForm";
 import TradeTheme from "@/app/portal/shipments/_components/TradeTheme";
 
 const Section = ({ title, hint, children, tour }: { title: string; hint: string; children: React.ReactNode; tour?: string }) => (
@@ -64,6 +65,9 @@ export default function ShippingSettingsPage() {
             tour="settings-estimator"
           >
             <EstimatorRatesForm />
+          </Section>
+          <Section title="Alerts and reminders" hint="When reminders fall due, the default free time at the port, when a step counts as stuck, and the daily digest e-mail." tour="settings-alerts">
+            <AlertRulesForm />
           </Section>
           <Section
             title="Email intake"

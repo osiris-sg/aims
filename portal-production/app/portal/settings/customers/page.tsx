@@ -17,6 +17,7 @@ import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { showShippingSettings } from "@/helpers/settingsVisibility";
 import TradeTheme from "@/app/portal/shipments/_components/TradeTheme";
 import { useCustomers, useTradeMutation, useTradeSettings } from "@/app/portal/shipments/_lib/hooks";
+import SupplierProfilesPanel from "@/app/portal/shipments/_components/SupplierProfilesPanel";
 import type { CustomerProfile } from "@/app/portal/shipments/_lib/api";
 import { toast } from "@/app/portal/shipments/_lib/toast";
 
@@ -63,6 +64,13 @@ export default function CustomerProfilesPage() {
             {!(customers.data ?? []).length && <Alert severity="info">No customers yet — add them in Master Files.</Alert>}
           </Stack>
         )}
+        <Typography variant="h5" sx={{ fontWeight: 800, mt: 5 }}>
+          Suppliers
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Whether a supplier issues a PI (deposit on step 1) and which documents it sends with a shipment.
+        </Typography>
+        <SupplierProfilesPanel />
       </Box>
     </TradeTheme>
   );

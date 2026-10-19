@@ -50,7 +50,11 @@ export type ContractLineInput = {
   upcharge?: number | null;
   notes?: string | null;
 };
-export type BankAccount = { id: string; label: string; block: string };
+/** A bank account invoices can print; `entity` = the ADH company that owns it (DBS / Wise / CFSB = ADH_SG, SMBC JPY = ADH_JP). */
+export type BankAccount = { id: string; label: string; block: string; entity?: IssuingEntity };
+export type IssuingEntity = "ADH_JP" | "ADH_SG";
+/** The entity of a bank account (tagged, else guessed from its name: SMBC / 三井住友 → ADH_JP). */
+export const bankEntity = (b: { label: string; entity?: IssuingEntity }): IssuingEntity => b.entity ?? (/smbc|三井住友|sumitomo/i.test(b.label) ? "ADH_JP" : "ADH_SG");
 export type DeliveryProfile = { id: string; customerName: string; siteName: string; address: string; notes: string };
 /** Org texts for in-app documents (TradeSetting.docDefaults) — every key optional. */
 export type DocDefaults = Record<string, any> & {
@@ -85,12 +89,16 @@ export type IntakeAction = {
   reason?: string;
   filename?: string;
   docType?: string;
-  ownerKind?: "order" | "shipment";
+  ownerKind?: "order" | "shipment" | "supplierOrder";
   field?: string;
   value?: string;
   label?: string;
 };
 export type InboxRow = {
+  /** Known sender / subject rule that decided it (Wan Hai A/N, Mitsui Soko NO.取りリスト, 輸入許可書, Vedanta declaration). */
+  knownRule?: string | null;
+  supplierOrderSuggestions?: Array<{ grade: string | null; contractNo: string; customer: string | null; destination: string | null; qtyMt: number | null; qpBasis: string | null; pricePerMt: number | null; piNo: string | null }>;
+  supplierOrderResults?: Array<{ contractNo: string; piNo: string | null; supplierOrderId: string | null; action: string; reason?: string }>;
   id: string;
   date: string;
   receivedAt: string;
@@ -119,9 +127,13 @@ export type TradeSettings = {
   defaultNotifyParty: string | null;
   docDefaults: DocDefaults;
   customerProfiles: Record<string, CustomerProfile>;
+  supplierProfiles?: Record<string, SupplierProfile>;
   estimatorRates: EstimatorRates;
+  alertRules?: Partial<AlertRules>;
   updatedAt: string | null;
 };
+export type AlertRules = { taxFundingDaysBefore: number; anDaysBefore: number; detFreeDays: number; demFreeDays: number; freeTimeWarnDaysBefore: number; stuckDays: number; digestEnabled: boolean; digestHourJst: number };
+export const DEFAULT_ALERT_RULES: AlertRules = { taxFundingDaysBefore: 14, anDaysBefore: 2, detFreeDays: 4, demFreeDays: 10, freeTimeWarnDaysBefore: 1, stuckDays: 7, digestEnabled: true, digestHourJst: 8 };
 export type StepTemplate = {
   id: string;
   scope: "CONTRACT" | "SHIPMENT";
@@ -212,6 +224,9 @@ export type ArrivalNoticeDraft = {
   blNumber: string | null;
   vessel: string | null;
   voyageNo: string | null;
+  /** Transhipped: the vessel arriving in Japan (= 積載船 on the import permit). */
+  tsVessel?: string | null;
+  tsVoyageNo?: string | null;
   eta: string | null;
   cyTerminal: string | null;
   portOfLoading: string | null;
@@ -221,13 +236,48 @@ export type ArrivalNoticeDraft = {
   totalBundles: number | null;
   totalPieces: number | null;
   containerCount: number | null;
+  cbm?: number | null;
+  telexRelease?: boolean | null;
   containers: Array<{ containerNo: string | null; sealNo: string | null; size: string | null }>;
-  charges: Array<{ code: string | null; amount: number | null; currency: string | null; collect: boolean | null }>;
+  charges: Array<{ code: string | null; unit?: number | null; rate?: number | null; amount: number | null; currency: string | null; collect: boolean | null }>;
   chargesCollect: Array<{ currency: string; amount: number }>;
 };
 export type AnExtraction = Omit<Extraction, "result"> & {
   /** `fill`: values for the shipment's blank fields only; `blMismatch`: the notice is for another B/L. */
-  result: { raw: Record<string, unknown>; draft: ArrivalNoticeDraft; fill: Partial<Record<string, string | number>>; blMismatch: boolean } | null;
+  result: { raw: Record<string, unknown>; draft: ArrivalNoticeDraft; fill: Partial<Record<string, string | number>>; blMismatch: boolean; via?: "text" | "ai" } | null;
+};
+/** 輸入許可書 read (step 10): the permit's figures, the checks against the shipment and the costs it can fill. */
+export type PermitData = {
+  declarationNo: string | null;
+  declarationDate: string | null;
+  blNumber: string | null;
+  packages: number | null;
+  grossWeightKg: number | null;
+  containerCount: number | null;
+  vessel: string | null;
+  invoiceNo: string | null;
+  invoiceTerms: string | null;
+  invoiceCurrency: string | null;
+  invoiceAmount: number | null;
+  addOnJpy: number | null;
+  fxRate: number | null;
+  customsValue: number | null;
+  national: number | null;
+  local: number | null;
+  total: number | null;
+};
+export type PermitCheck = { field: string; label: string; status: "ok" | "mismatch" | "missing"; expected: string | null; found: string | null };
+export type PermitExtraction = Omit<Extraction, "result"> & {
+  result: {
+    permit: PermitData;
+    totalFrom: "text" | "ai" | "fileName" | null;
+    checks: PermitCheck[];
+    /** The permit's own CIF × rate + add-on reproduces its total (null = not enough to check). */
+    formulaOk: boolean | null;
+    sgjpInvoiceNo: string | null;
+    fill: Partial<Record<string, number>>;
+    via: "text" | "ai";
+  } | null;
 };
 /** Bulk upload with AI sorting: the detected type of one dropped file (primary = the file the required row shows). */
 export type FileClassification = {
@@ -312,7 +362,6 @@ export type EstimatorRates = {
   storagePerMt: number;
   washingPerContainer: number;
   detentionPerContainer: number;
-  importTaxRate: number;
 };
 export type ShipmentCosts = {
   trucks?: number | null;
@@ -326,6 +375,8 @@ export type ShipmentCosts = {
   other?: number | null;
   cifUsd?: number | null;
   fxRate?: number | null;
+  /** 加算運賃 (JPY); null = the A/N's EQMC. */
+  customsAddOnJpy?: number | null;
   importTaxFunded?: number | null;
   importTaxActual?: number | null;
   actual?: Partial<Record<"customs" | "blFee" | "trucking" | "storage" | "washingContainers" | "detentionContainers" | "washing" | "detention" | "other", number | null>>;
@@ -346,7 +397,21 @@ export type Estimate = {
   storage: number;
   other: number;
   total: number | null;
-  importTax: { cifUsd: number | null; fxRate: number | null; cifJpy: number | null; estimate: number | null; funded: number | null; actual: number | null; variance: number | null };
+  importTax: {
+    cifUsd: number | null;
+    fxRate: number | null;
+    cifJpy: number | null;
+    addOnJpy: number;
+    addOnSource: "typed" | "EQMC" | null;
+    customsValue: number | null;
+    taxBase: number | null;
+    national: number | null;
+    local: number | null;
+    estimate: number | null;
+    funded: number | null;
+    actual: number | null;
+    variance: number | null;
+  };
 };
 export type ActualRow = { key: string; label: string; estimate: number | null; actual: number | null; variance: number | null };
 export type ActualsTable = { rows: ActualRow[]; estimate: number; actual: number; variance: number };
@@ -392,6 +457,8 @@ export type OrderListItem = {
   upcharge: Num;
   piNo: string | null;
   status: RecordStatus;
+  /** List rows: the supplier order it is bought under. */
+  supplierOrder?: { id: string; soNo: number; piNo: string | null; status: RecordStatus; label: string } | null;
   shipmentCount: number;
   shipments: OrderShipmentRow[];
   progress: Progress;
@@ -414,8 +481,12 @@ export type Order = OrderListItem & {
   notifyParty: string | null;
   notes: string | null;
   updatedAt: string;
-  contract: { id: string; contractNo: string; status: RecordStatus; lines: ContractLine[] } | null;
+  contract: { id: string; contractNo: string; status: RecordStatus; qpBasis?: string | null; premiumSchedule?: PremiumRow[] | null; lines: ContractLine[] } | null;
   profile: CustomerProfile;
+  /** The supplier side (steps 0 / 1 on the supplier order). */
+  supplierOrder: OrderSupplierSide | null;
+  customerPoNo: string | null;
+  customerPoDate: string | null;
   steps: TradeStep[];
   fileLinks: RecordFileLink[];
   docLinks: RecordDocLink[];
@@ -454,15 +525,196 @@ export type OrderInput = Partial<{
   contractFileId: string;
   status: "CANCELLED";
 }>;
-export type OrderFilters = { bucket?: "pending" | "completed"; customerId?: string; contractId?: string; q?: string; page?: number; pageSize?: number };
+export type OrderFilters = { bucket?: "pending" | "completed"; customerId?: string; contractId?: string; supplierOrderId?: string; q?: string; page?: number; pageSize?: number };
+
+// ── Supplier orders (Vedanta's PI; steps 0 / 1) ──────────────────────────
+export type SupplierProfile = { supplierId: string; key?: string; label?: string; hasPI: boolean; shippingDocs?: string[] | null; emailDomains?: string[] };
+export type SupplierOrderListItem = {
+  id: string;
+  year: number;
+  soNo: number;
+  label: string;
+  supplierId: string;
+  supplier: Party | null;
+  contractId: string | null;
+  contractNo: string | null;
+  declarationMonth: string | null;
+  product: string | null;
+  grade: string | null;
+  size: string | null;
+  qtyMt: Num;
+  qpBasis: string | null;
+  provisionalPricePerMt: Num;
+  supplierPremium: Num;
+  currency: string;
+  piNo: string | null;
+  piDate: string | null;
+  piAmount: Num;
+  depositPct: Num;
+  depositAmount: Num;
+  depositPaidAt: string | null;
+  status: RecordStatus;
+  notes: string | null;
+  customerOrders: Array<{ id: string; year: number; orderNo: number; label: string; status: RecordStatus; qtyMt: Num; customerName: string | null }>;
+  progress: Progress;
+  currentStep: CurrentStep;
+};
+export type SupplierOrder = Omit<SupplierOrderListItem, "customerOrders"> & {
+  contract: { id: string; contractNo: string; status: RecordStatus; qpBasis: string | null; premiumSchedule: PremiumRow[] | null } | null;
+  steps: TradeStep[];
+  fileLinks: RecordFileLink[];
+  supplierProfile: SupplierProfile;
+  customerOrders: Array<{
+    id: string;
+    year: number;
+    orderNo: number;
+    label: string;
+    status: RecordStatus;
+    qtyMt: Num;
+    grade: string | null;
+    shipMonth: string | null;
+    deliveryMonth: string | null;
+    clientPremium: Num;
+    customerName: string | null;
+    shipments: Array<{ id: string; ref: string; blNumber: string | null; ciAmount: Num; ciNumber: string | null; status: RecordStatus; ciPayment: { status: string; title: string; displayNo: string | null; notApplicable: boolean } | null }>;
+  }>;
+  updatedAt: string;
+};
+/** The supplier side as embedded in an order (steps 0 / 1 with requirements, files). */
+export type OrderSupplierSide = {
+  id: string;
+  year: number;
+  soNo: number;
+  label: string;
+  piNo: string | null;
+  piDate: string | null;
+  piAmount: Num;
+  depositPct: Num;
+  depositAmount: Num;
+  depositPaidAt: string | null;
+  qpBasis: string | null;
+  declarationMonth: string | null;
+  status: RecordStatus;
+  steps: TradeStep[];
+  fileLinks: RecordFileLink[];
+  supplierProfile: SupplierProfile;
+  /** Other customer orders bought under the same supplier order. */
+  sharedWith: string[];
+};
+export type SupplierOrderInput = Partial<{
+  year: number;
+  contractId: string | null;
+  supplierId: string;
+  declarationMonth: string | null;
+  product: string | null;
+  grade: string | null;
+  size: string | null;
+  qtyMt: number | null;
+  qpBasis: string | null;
+  provisionalPricePerMt: number | null;
+  supplierPremium: number | null;
+  currency: string;
+  piNo: string | null;
+  piDate: string | null;
+  piAmount: number | null;
+  depositPct: number | null;
+  depositAmount: number | null;
+  depositPaidAt: string | null;
+  notes: string | null;
+  customerOrderIds: string[];
+  piFileId: string;
+  status: "CANCELLED";
+}>;
+export type SupplierOrderFilters = { bucket?: "pending" | "completed"; supplierId?: string; contractId?: string; declarationMonth?: string; q?: string; page?: number; pageSize?: number };
+export type DeclarationRow = { customerId: string; contractId: string; grade?: string | null; size?: string | null; qtyMt: number; clientPremium?: number | null; supplierPremium?: number | null; orderNo?: number; deliveryMonth?: string | null; piNo?: string | null };
+export type DeclarationResult = { created: Array<{ supplierOrderId: string; orderId: string; orderLabel: string | null; customerName: string | null }> };
+export type PremiumRow = { from: string; to: string | null; supplierPremium: number | null; clientPremium: number | null; upcharge: number | null };
+// ── Alerts, dashboard, stock ───────────────────────────────────────────────
+export type TradeAlert = { id: string; kind: string; key: string; dueAt: string; title: string; detail: string | null; shipmentId: string | null; orderId: string | null; supplierOrderId: string | null; linkUrl: string | null; status: "SCHEDULED" | "DUE" | "DONE" | "DISMISSED"; notifiedAt: string | null };
+export type CellState = "done" | "in_progress" | "na" | "overdue" | "not_started" | "none";
+export type Pipeline = { rows: Array<{ no: string; title: string }>; months: Array<{ month: string | null; orders: Array<{ id: string; label: string; customerName: string | null; status: RecordStatus; cells: Record<string, CellState> }> }> };
+export type Money = {
+  cashByMonth: Record<string, { in: Record<string, number>; out: Record<string, number> }>;
+  orders: Array<{ id: string; label: string; customerName: string | null; deliveryMonth: string | null; status: RecordStatus; qtyMt: number | null; margin: number | null; profit: number | null; profitStatus: "MANUAL" | "FORMULA_PENDING" }>;
+  byMonth: Record<string, { margin: number; profit: number; profitPending: boolean; orders: number }>;
+  openCredits: Array<{ id: string; sourceNumber: string | null; amount: number; currency: string; customerName: string | null; createdAt: string }>;
+};
+export type StockLine = { shipmentId: string; ref: string; blNumber: string | null; customerName: string | null; warehouse: string; bundlesIn: number | null; bundlesDelivered: number; bundlesInStock: number | null; netMtIn: number | null; netMtInStock: number | null; storageStartDate: string | null; periods: number; storageFeeEstimate: number | null };
+export type Stock = { ratePerMtPerPeriod: number; warehouses: Array<{ warehouse: string; bundlesInStock: number; netMtInStock: number; storageFeeEstimate: number; items: StockLine[] }> };
+
+// ── Credits (negative Invoice #2 = credit note) and estimated costs ────────
+export type TradeCredit = { id: string; customerId: string; sourceDocId: string; sourceNumber: string | null; amount: number; currency: string; status: "OPEN" | "USED" | "VOID"; usedByDocId: string | null; usedByNumber: string | null; usedAt: string | null; createdAt: string };
+export type CostVariance = { invoiceId: string; number: string | null; costsBasis: string; estimatedUsd: number; actualJpy: number | null; fxRate: number | null; actualUsd: number | null; varianceUsd: number | null; complete: boolean };
+
+// ── Payments (cash in / out) ───────────────────────────────────────────────
+export type PaymentAccount = "DBS" | "WISE" | "CFSB" | "SMBC_JPY" | "OTHER";
+export type AllocationTarget = "PI" | "CI" | "INVOICE" | "VENDOR_INVOICE" | "IMPORT_TAX";
+export type PaymentAllocation = { id?: string; targetType: AllocationTarget; targetId: string | null; targetLabel?: string | null; amount: number; orderId?: string | null; shipmentId?: string | null; supplierOrderId?: string | null };
+export type TradePayment = {
+  id: string;
+  direction: "IN" | "OUT";
+  paidAt: string;
+  amount: number;
+  currency: string;
+  account: PaymentAccount;
+  counterpartyType: string | null;
+  counterpartyId: string | null;
+  counterpartyName: string | null;
+  reference: string | null;
+  notes: string | null;
+  proofFileId: string | null;
+  createdByName: string | null;
+  createdAt: string;
+  allocations: PaymentAllocation[];
+  allocated: number;
+  unallocated: number;
+};
+export type PaymentInput = {
+  direction: "IN" | "OUT";
+  paidAt: string;
+  amount: number;
+  currency: string;
+  account: PaymentAccount;
+  counterpartyType?: string | null;
+  counterpartyName?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+  proofFileId?: string | null;
+  allocations: PaymentAllocation[];
+};
+export type PaymentTarget = { targetType: AllocationTarget; targetId: string; label: string; currency: string; expected: number | null; paid: number; orderId: string | null; shipmentId: string | null };
+export type PaymentFilters = { direction?: "IN" | "OUT"; account?: string; from?: string; to?: string; unallocated?: "true"; orderId?: string; q?: string; page?: number; pageSize?: number };
+export type OrderCash = {
+  orderId: string;
+  cashOut: Array<{ paymentId: string; direction: "OUT"; paidAt: string; account: string; currency: string; reference: string | null; targetType: string; label: string; amount: number }>;
+  cashIn: Array<{ paymentId: string; direction: "IN"; paidAt: string; account: string; currency: string; reference: string | null; targetType: string; label: string; amount: number }>;
+  totals: { out: Record<string, number>; in: Record<string, number> };
+  invoices: Array<{ id: string; docType: string; number: string | null; label: string; total: number; paid: number; outstanding: number; dueDate: string | null; overdue: boolean; daysOverdue: number }>;
+};
+export const ACCOUNT_LABEL: Record<PaymentAccount, string> = { DBS: "DBS (SG)", WISE: "Wise (SG)", CFSB: "CFSB (SG)", SMBC_JPY: "SMBC JPY (JP)", OTHER: "Other" };
+export const TARGET_LABEL: Record<AllocationTarget, string> = { PI: "PI deposit", CI: "CI", INVOICE: "Customer invoice", VENDOR_INVOICE: "Vendor invoice", IMPORT_TAX: "Import tax" };
+
+/** Expected vs found prices for a PI / CI / invoice (read-only check). */
+export type PriceCheck = {
+  side: "supplier" | "client";
+  basisMonth: string | null;
+  lines: Array<{ key: string; label: string; expected: number | null; found: number | null; diff: number | null; mark: "ok" | "diff" | "unknown" }>;
+  ok: boolean;
+  notes: string[];
+  source: string;
+};
 export type Reconciliation = {
   orderId: string;
   label: string;
+  /** Invoice #2 / single invoices issued on estimated costs (their variance shows on step 13). */
+  estimatedInvoices?: Array<{ id: string; number: string | null; docType: string }>;
   a: number | null;
   b: number | null;
   c: number;
   d: number | null;
   profit: number | null;
+  profitFormula: number | null;
+  profitStatus: "MANUAL" | "FORMULA_PENDING";
   costs: { importTaxUsd: number | null; mitsuiUsd: number | null; otherUsd: number };
   importTax: { estimateJpy: number | null; actualJpy: number | null; varianceJpy: number | null; fxRate: number | null };
   docs: {
@@ -588,6 +840,8 @@ export type GeneratedDoc = {
   covers?: Array<{ id: string; blNumber: string | null; ref: string }>;
   /** Customer template variant (CUSTOMER_PL_KATO …) and whether its format is confirmed — shown in the editor only. */
   templateKey?: string | null;
+  /** ADH_JP | ADH_SG — who issues it; a customer invoice can't be ADH_SG. */
+  issuingEntity?: IssuingEntity | null;
   templateLabel?: string | null;
   formatConfirmed?: boolean;
   /** Only on create: what the import noticed (e.g. hidden empty columns). */
@@ -608,6 +862,8 @@ export type HubRow = {
   /** Document ID ("454003255-1-CPL"); null for linked Sales invoices. */
   docRef: string | null;
   source: "UPLOADED" | "IN_APP";
+  /** ADH_JP | ADH_SG — the ADH company that issued it (null for supplier documents). */
+  issuingEntity?: IssuingEntity | null;
   status: string | null;
   links: HubLink[];
   customerIds: string[];
@@ -622,7 +878,7 @@ export type HubRow = {
   document?: { id: string; type: string; templateId: string } | null;
   shipmentId?: string | null;
 };
-export type HubFilters = { category?: string; docType?: string; contractId?: string; shipmentId?: string; customerId?: string; source?: string; from?: string; to?: string; q?: string; page?: number; pageSize?: number };
+export type HubFilters = { category?: string; docType?: string; contractId?: string; shipmentId?: string; customerId?: string; source?: string; entity?: string; from?: string; to?: string; q?: string; page?: number; pageSize?: number };
 
 /** A file link as embedded in a contract/shipment detail. */
 export type RecordFileLink = {
@@ -691,6 +947,23 @@ export type Contract = ContractListItem & {
   docLinks: RecordDocLink[];
   /** Orders under this contract (since orders, the contract is the yearly LTC master). */
   orders?: Array<{ id: string; year: number; orderNo: number; status: RecordStatus; shipMonth: string | null; deliveryMonth: string | null; grade: string | null; qtyMt: Num; clientPremium: Num; customer: Party | null }>;
+  // ── Contract master (2026-10) ───────────────────────────────────────────
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  grade?: string | null;
+  sizeSpec?: string | null;
+  annualQtyMt?: Num;
+  tolerancePct?: Num;
+  balanceTerms?: string | null;
+  qpBasis?: string | null;
+  qmjpRule?: string | null;
+  premiumSchedule?: PremiumRow[] | null;
+  /** Fields ADH still has to confirm ("check"). */
+  checkFields?: string[];
+  supplierOrders?: Array<{ id: string; label: string; piNo: string | null; piAmount: Num; declarationMonth: string | null; grade: string | null; qtyMt: Num; status: RecordStatus }>;
+  usage?: { orderedMt: number; annualQtyMt: number | null; remainingMt: number | null };
+  /** Client − supplier premium this month (null when the schedule has no row). */
+  marginNow?: number | null;
 };
 
 export type ShipmentListItem = {
@@ -725,6 +998,16 @@ export type ShipmentListItem = {
 export type Shipment = {
   id: string;
   contractId: string | null;
+  /** Port / storage (alerts and stock). */
+  dischargeDate?: string | null;
+  detFreeDays?: number | null;
+  demFreeDays?: number | null;
+  warehouse?: string | null;
+  storageStartDate?: string | null;
+  /** "8/6 → 8/16 → 8/17" — the ETA history. */
+  etaTrail?: string;
+  /** The carrier (from the shipping line / B/L) and its tracking page. */
+  carrier?: { code: string; name: string; url: string; prefilled: boolean } | null;
   orderId?: string | null;
   seqNo?: number | null;
   ref?: string;
@@ -819,6 +1102,17 @@ export type DocType = { id: string; code: string; label: string; category: strin
 export type Paged<T> = { items: T[]; total: number; page: number; pageSize: number; totalPages: number };
 
 export type ContractInput = {
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  grade?: string | null;
+  sizeSpec?: string | null;
+  annualQtyMt?: number | null;
+  tolerancePct?: number | null;
+  balanceTerms?: string | null;
+  qpBasis?: string | null;
+  qmjpRule?: string | null;
+  premiumSchedule?: PremiumRow[];
+  checkFields?: string[];
   contractNo?: string;
   piNumber?: string | null;
   piDate?: string | null;
@@ -881,11 +1175,11 @@ export type ShipmentInput = {
   status?: "CANCELLED";
 };
 
-export type LinkTargets = { contractIds?: string[]; shipmentIds?: string[]; orderIds?: string[]; stepId?: string };
+export type LinkTargets = { contractIds?: string[]; shipmentIds?: string[]; orderIds?: string[]; supplierOrderIds?: string[]; stepId?: string };
 
 export type ContractFilters = { status?: string; supplierId?: string; customerId?: string; q?: string; page?: number; pageSize?: number };
 export type ShipmentFilters = { status?: string; bucket?: "pending" | "completed"; contractId?: string; orderId?: string; customerId?: string; currentStep?: string; uninvoiced?: "true"; q?: string; page?: number; pageSize?: number };
-export type FileFilters = { docType?: string; contractId?: string; shipmentId?: string; orderId?: string; customerId?: string; q?: string; from?: string; to?: string; page?: number; pageSize?: number };
+export type FileFilters = { docType?: string; contractId?: string; shipmentId?: string; orderId?: string; supplierOrderId?: string; customerId?: string; q?: string; from?: string; to?: string; page?: number; pageSize?: number };
 
 /** Mirrors the backend allow-list (shipments.rules.ts) for a quick client-side check. */
 export const TRADE_FILE_MAX_BYTES = 25 * 1024 * 1024;
@@ -938,7 +1232,7 @@ export function useShipmentsApi() {
     };
 
     // Multipart POST with the Clerk token + admin org header (like uploadFile).
-    const postExtract = async <T>(kind: "pi" | "bl-draft" | "an", input: { file?: File; fileId?: string; shipmentId?: string; contractId?: string }): Promise<T> => {
+    const postExtract = async <T>(kind: "pi" | "bl-draft" | "an" | "import-permit", input: { file?: File; fileId?: string; shipmentId?: string; contractId?: string }): Promise<T> => {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const form = new FormData();
@@ -973,6 +1267,36 @@ export function useShipmentsApi() {
       getOrder: (id: string) => call<Order>(`/trade-orders/${id}`),
       nextOrderNo: (year?: number) => call<{ year: number; orderNo: number }>(`/trade-orders/next-no${qs({ year })}`),
       createOrder: (body: OrderInput) => call<Order>(`/trade-orders`, "POST", body),
+      listSupplierOrders: (f: SupplierOrderFilters = {}) => call<Paged<SupplierOrderListItem> & { counts?: { pending: number; completed: number } }>(`/supplier-orders${qs(f)}`),
+      getSupplierOrder: (id: string) => call<SupplierOrder>(`/supplier-orders/${id}`),
+      createSupplierOrder: (body: SupplierOrderInput) => call<SupplierOrder>(`/supplier-orders`, "POST", body),
+      updateSupplierOrder: (id: string, body: SupplierOrderInput) => call<SupplierOrder>(`/supplier-orders/${id}`, "PATCH", body),
+      deleteSupplierOrder: (id: string) => call<{ id: string; deleted: boolean }>(`/supplier-orders/${id}`, "DELETE"),
+      linkSupplierOrder: (id: string, orderIds: string[]) => call<SupplierOrder>(`/supplier-orders/${id}/link`, "POST", { orderIds }),
+      unlinkSupplierOrder: (id: string, orderId: string) => call<SupplierOrder>(`/supplier-orders/${id}/link/${orderId}`, "DELETE"),
+      completeSupplierOrder: (id: string) => call<SupplierOrder>(`/supplier-orders/${id}/complete`, "POST"),
+      reopenSupplierOrder: (id: string) => call<SupplierOrder>(`/supplier-orders/${id}/reopen`, "POST"),
+      declare: (body: { month: string; qpBasis?: string | null; rows: DeclarationRow[] }) => call<DeclarationResult>(`/supplier-orders/declaration`, "POST", body),
+      priceCheck: (kind: "supplier-order" | "shipment" | "generated", id: string) => call<PriceCheck>(`/trade-price-check/${kind}/${id}`),
+      credits: (f: { customerId?: string; status?: string; forDocId?: string } = {}) => call<TradeCredit[]>(`/trade-generated/credits${qs(f)}`),
+      alerts: (f: { status?: string; shipmentId?: string; orderId?: string } = {}) => call<TradeAlert[]>(`/trade-alerts${qs(f)}`),
+      myTasks: () => call<TradeAlert[]>(`/trade-alerts/my-tasks`),
+      refreshAlerts: () => call<{ planned: number; created: number; updated: number; notified: number }>(`/trade-alerts/refresh`, "POST"),
+      alertDone: (id: string) => call<TradeAlert>(`/trade-alerts/${id}/done`, "POST"),
+      alertDismiss: (id: string) => call<TradeAlert>(`/trade-alerts/${id}/dismiss`, "POST"),
+      pipeline: () => call<Pipeline>(`/trade-dashboard/pipeline`),
+      money: () => call<Money>(`/trade-dashboard/money`),
+      stock: () => call<Stock>(`/trade-dashboard/stock`),
+      applyCredit: (id: string, creditId: string) => call<GeneratedDoc>(`/trade-generated/${id}/apply-credit`, "POST", { creditId }),
+      costVariance: (id: string) => call<CostVariance>(`/trade-generated/${id}/cost-variance`),
+      issueAdjustment: (id: string) => call<GeneratedDoc>(`/trade-generated/${id}/adjustment`, "POST"),
+      setDelivered: (id: string, rowIndex: number, delivered: boolean) => call<GeneratedDoc>(`/trade-generated/${id}/delivered`, "POST", { rowIndex, delivered }),
+      listPayments: (f: PaymentFilters = {}) => call<Paged<TradePayment>>(`/trade-payments${qs(f)}`),
+      paymentTargets: (direction?: "IN" | "OUT", q?: string) => call<PaymentTarget[]>(`/trade-payments/targets${qs({ direction, q })}`),
+      orderCash: (orderId: string) => call<OrderCash>(`/trade-payments/order/${orderId}`),
+      createPayment: (body: PaymentInput) => call<TradePayment>(`/trade-payments`, "POST", body),
+      updatePayment: (id: string, body: Partial<PaymentInput>) => call<TradePayment>(`/trade-payments/${id}`, "PATCH", body),
+      deletePayment: (id: string) => call<{ id: string; deleted: boolean }>(`/trade-payments/${id}`, "DELETE"),
       updateOrder: (id: string, body: OrderInput) => call<Order>(`/trade-orders/${id}`, "PATCH", body),
       deleteOrder: (id: string) => call<{ id: string; deleted: boolean }>(`/trade-orders/${id}`, "DELETE"),
       completeOrder: (id: string) => call<Order>(`/trade-orders/${id}/complete`, "POST"),
@@ -1032,6 +1356,7 @@ export function useShipmentsApi() {
         if (input.contractIds?.length) form.append("contractIds", JSON.stringify(input.contractIds));
         if (input.shipmentIds?.length) form.append("shipmentIds", JSON.stringify(input.shipmentIds));
         if (input.orderIds?.length) form.append("orderIds", JSON.stringify(input.orderIds));
+        if (input.supplierOrderIds?.length) form.append("supplierOrderIds", JSON.stringify(input.supplierOrderIds));
         if (input.stepId) form.append("stepId", input.stepId);
         if (input.notes?.trim()) form.append("notes", input.notes.trim());
         // Replace: the new file keeps the replaced one's document ID.
@@ -1059,13 +1384,16 @@ export function useShipmentsApi() {
       /** Read a B/L draft into a shipment draft (+ checks when shipmentId is given). ~15 s. */
       extractBlDraft: (input: { file?: File; fileId?: string; shipmentId?: string; contractId?: string }) => postExtract<BlExtraction>("bl-draft", input),
       extractAn: (input: { file?: File; fileId?: string; shipmentId?: string }) => postExtract<AnExtraction>("an", input),
+      extractImportPermit: (input: { file?: File; fileId?: string; shipmentId?: string }) => postExtract<PermitExtraction>("import-permit", input),
       /** Bulk upload with AI sorting: which of the step's types is this file? Nothing is stored. */
-      classifyFile: async (file: File, docTypes: string[]): Promise<FileClassification> => {
+      classifyFile: async (file: File, docTypes: string[], shipmentId?: string): Promise<FileClassification> => {
         const token = await getToken();
         if (!token) throw new Error("Not signed in");
         const form = new FormData();
         form.append("file", file);
         form.append("docTypes", JSON.stringify(docTypes));
+        // A non-Vedanta supplier's documents are sorted by content, not file name.
+        if (shipmentId) form.append("shipmentId", shipmentId);
         const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
         const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
         if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
@@ -1109,6 +1437,26 @@ export function useShipmentsApi() {
         setTimeout(() => URL.revokeObjectURL(url), 30000);
         return name;
       },
+      /** "Download shipment folder (.zip)": the shipment's files, named after ADH's folder convention. */
+      downloadShipmentZip: async (shipmentId: string) => {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+        const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
+        if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+        const res = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/trade-files/shipment/${shipmentId}/zip`, { headers, responseType: "blob", timeout: 180000 });
+        const cd = String(res.headers["content-disposition"] ?? "");
+        const name = decodeURIComponent(/filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1] ?? "shipment.zip");
+        const url = URL.createObjectURL(new Blob([res.data as Blob], { type: "application/zip" }));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        return name;
+      },
       /** The PDF as a blob (same rules as Download PDF), for showing in the page. */
       generatedPdf,
       /** The in-app 請求書 behind a Sales invoice, with the contracts / shipments it bills. */
@@ -1116,7 +1464,7 @@ export function useShipmentsApi() {
       generatedSources: (shipmentId: string, docType: string) => call<GenSource[]>(`/trade-generated/sources${qs({ shipmentId, docType })}`),
       createGenerated: (body: { shipmentId: string; docType: string; sourceFileId: string }) => call<GeneratedDoc>(`/trade-generated`, "POST", body),
       getGenerated: (id: string) => call<GeneratedDoc>(`/trade-generated/${id}`),
-      updateGenerated: (id: string, body: { header?: GenHeader; columns?: GenColumn[]; rows?: GenRow[] }) => call<GeneratedDoc>(`/trade-generated/${id}`, "PATCH", body),
+      updateGenerated: (id: string, body: { header?: GenHeader; columns?: GenColumn[]; rows?: GenRow[]; issuingEntity?: IssuingEntity }) => call<GeneratedDoc>(`/trade-generated/${id}`, "PATCH", body),
       /** 請求書 due date for an issue date (the org's business days, Japanese bank holidays skipped). */
       invoiceDueDate: (issueDate: string, docType?: string) => call<{ issueDate: string; dueDate: string; businessDays: number }>(`/trade-generated/due-date${qs({ issueDate, docType })}`),
       previewGenerated: (body: { docType: string; header: any; columns: any[]; rows: any[]; draft?: boolean }) => call<{ html: string }>(`/trade-generated/preview`, "POST", body),
@@ -1139,6 +1487,7 @@ export function useShipmentsApi() {
       inboxUndo: (id: string) => call<InboxRow>(`/email-inbox/${id}/undo`, "POST"),
       inboxDismiss: (id: string) => call<{ id: string; purged: boolean }>(`/email-inbox/${id}/dismiss`, "POST"),
       inboxRetriage: (id: string) => call<InboxRow>(`/email-inbox/${id}/retriage`, "POST"),
+      inboxApplySupplierOrders: (id: string) => call<{ results: NonNullable<InboxRow["supplierOrderResults"]>; row: InboxRow }>(`/email-inbox/${id}/supplier-orders`, "POST"),
       /** Short-lived link to a stored email's .eml, or attachment n. */
       emailIntakeFile: (id: string, attachment?: number) => call<{ url: string }>(`/email-intake/${id}/file${qs({ attachment })}`),
       updateSettings: (body: {
@@ -1146,7 +1495,9 @@ export function useShipmentsApi() {
         defaultNotifyParty?: string | null;
         docDefaults?: Record<string, unknown>;
         customerProfiles?: Record<string, Partial<CustomerProfile> | null>;
+        supplierProfiles?: Record<string, Partial<SupplierProfile> | null>;
         estimatorRates?: Partial<EstimatorRates>;
+        alertRules?: Partial<AlertRules>;
       }) => call<TradeSettings>(`/trade-config/settings`, "PATCH", body),
       suppliers: async () => {
         const r = await call<{ docs?: Party[] }>(`/suppliers`, "POST", { page: 1, limit: 500, search: "" });
@@ -1163,14 +1514,15 @@ export function useShipmentsApi() {
 export type ShipmentsApi = ReturnType<typeof useShipmentsApi>;
 
 /** A record a file / invoice is linked to (the pickers' options). */
-export type TargetKind = "contract" | "shipment" | "order";
+export type TargetKind = "contract" | "shipment" | "order" | "supplierOrder";
 /** Split picked records into the API's id lists. */
 export const linkTargetsOf = (targets: Array<{ kind: TargetKind; id: string }>): LinkTargets => ({
   contractIds: targets.filter((t) => t.kind === "contract").map((t) => t.id),
   shipmentIds: targets.filter((t) => t.kind === "shipment").map((t) => t.id),
   orderIds: targets.filter((t) => t.kind === "order").map((t) => t.id),
+  supplierOrderIds: targets.filter((t) => t.kind === "supplierOrder").map((t) => t.id),
 });
-export const targetGroup = (k: TargetKind) => (k === "order" ? "Orders" : k === "contract" ? "Contracts" : "Shipments");
+export const targetGroup = (k: TargetKind) => (k === "order" ? "Orders" : k === "supplierOrder" ? "Supplier orders" : k === "contract" ? "Contracts" : "Shipments");
 
 /** Files-tab count: every file, plus linked documents that aren't already listed as their in-app PDF. */
 export function recordFileCount(r: { fileLinks: RecordFileLink[]; docLinks?: RecordDocLink[] }): number {

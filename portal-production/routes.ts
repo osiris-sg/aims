@@ -24,6 +24,11 @@ export const ROUTES = {
   SHIPMENT_CONTRACTS: "/portal/shipments/contracts",
   SHIPMENT_ORDER: "/portal/shipments/orders",
   SHIPMENT_INBOX: "/portal/shipments/inbox",
+  SHIPMENT_DASHBOARD: "/portal/shipments/dashboard",
+  SHIPMENT_DECLARATION: "/portal/shipments/declaration",
+  SHIPMENT_SUPPLIER_ORDERS: "/portal/shipments/supplier-orders",
+  SHIPMENT_PAYMENTS: "/portal/shipments/payments",
+  SHIPMENT_STOCK: "/portal/shipments/stock",
   SETTINGS_CUSTOMERS: "/portal/settings/customers",
   // Old Shipments → Documents route; redirects to TRADE_DOCUMENTS.
   SHIPMENT_DOCUMENTS: "/portal/shipments/documents",

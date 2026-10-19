@@ -128,7 +128,7 @@ model Customer {
 }
 
 model Supplier {
-  id             String        @id @default(uuid()) @db.Uuid
+  id             String          @id @default(uuid()) @db.Uuid
   supplierCode   String?
   name           String
   email          String?
@@ -136,17 +136,18 @@ model Supplier {
   address        String?
   gstRegNo       String?
   // Trading currency — same one-currency-per-code convention as Customer.
-  currency       String        @default("SGD")
+  currency       String          @default("SGD")
   // Xero pull-sync: ContactID from Xero (suppliers are also Contacts in Xero).
-  xeroId         String?       @unique
+  xeroId         String?         @unique
   xeroLastSyncAt DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
   organizationId String
   billPayments   BillPayment[]
-  contracts      Contract[]    @relation("SupplierContracts")
-  tradeOrders    TradeOrder[]  @relation("SupplierOrders")
-  documents      Document[]    @relation("DocumentSupplier")
+  contracts      Contract[]      @relation("SupplierContracts")
+  tradeOrders    TradeOrder[]    @relation("SupplierOrders")
+  supplierOrders SupplierOrder[] @relation("SupplierSupplierOrders")
+  documents      Document[]      @relation("DocumentSupplier")
 
   @@unique([email, organizationId])
   @@unique([id, organizationId])
@@ -1267,6 +1268,7 @@ enum TradeStepScope {
   CONTRACT
   SHIPMENT
   ORDER
+  SUPPLIER_ORDER
 }
 
 enum TradeGeneratedDocStatus {
@@ -1324,19 +1326,39 @@ model Contract {
   depositPaidAt      DateTime?
   status             TradeRecordStatus @default(OPEN)
   notes              String?
+  /// Contract master (2026-10): the term, quantity, pricing basis and premium schedule
+  /// ADH checks PIs / CIs / invoices against.
+  periodStart        DateTime?
+  periodEnd          DateTime?
+  /// Main grade / size of the contract (lines keep the per-product detail).
+  grade              String?
+  sizeSpec           String?
+  annualQtyMt        Decimal?          @db.Decimal(14, 3)
+  tolerancePct       Decimal?          @db.Decimal(5, 2)
+  /// Balance terms, e.g. "balance against CI".
+  balanceTerms       String?
+  /// Quotational period basis, e.g. "Average LME of MOSS (shipment month)".
+  qpBasis            String?
+  /// QMJP rule, e.g. "quarterly MJP of the shipment quarter".
+  qmjpRule           String?
+  /// [{ from: "YYYY-MM", to: "YYYY-MM" | null, supplierPremium, clientPremium, upcharge }] — margin = client − supplier.
+  premiumSchedule    Json?
+  /// Fields flagged "check" for ADH (unknown / read by OCR): ["annualQtyMt", "premiumSchedule", …].
+  checkFields        String[]          @default([])
   createdById        String?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 
-  supplier      Supplier            @relation("SupplierContracts", fields: [supplierId], references: [id])
-  customer      Customer            @relation("CustomerContracts", fields: [customerId], references: [id])
-  lines         ContractLine[]
-  shipments     Shipment[]
-  orders        TradeOrder[]
-  steps         TradeStep[]
-  fileLinks     TradeFileLink[]
-  docLinks      TradeDocumentLink[]
-  generatedDocs TradeGeneratedDoc[]
+  supplier       Supplier            @relation("SupplierContracts", fields: [supplierId], references: [id])
+  customer       Customer            @relation("CustomerContracts", fields: [customerId], references: [id])
+  lines          ContractLine[]
+  shipments      Shipment[]
+  orders         TradeOrder[]
+  supplierOrders SupplierOrder[]
+  steps          TradeStep[]
+  fileLinks      TradeFileLink[]
+  docLinks       TradeDocumentLink[]
+  generatedDocs  TradeGeneratedDoc[]
 
   @@unique([organizationId, contractNo])
   @@index([organizationId, status])
@@ -1387,11 +1409,17 @@ model TradeOrder {
   notes           String?
   /// Step 13 inputs that aren't documents (PI / CI paid, import tax actual, Mitsui Soko actuals …).
   reconciliation  Json?
+  /// The customer's own purchase order (Kato's 発注書) — the file is linked as CUSTOMER_PO.
+  customerPoNo    String?
+  customerPoDate  DateTime?
+  /// The supplier order (Vedanta PI) this customer order is bought under.
+  supplierOrderId String?           @db.Uuid
   createdById     String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
   contract      Contract?           @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  supplierOrder SupplierOrder?      @relation(fields: [supplierOrderId], references: [id], onDelete: SetNull)
   customer      Customer            @relation("CustomerOrders", fields: [customerId], references: [id])
   supplier      Supplier            @relation("SupplierOrders", fields: [supplierId], references: [id])
   shipments     Shipment[]
@@ -1404,6 +1432,55 @@ model TradeOrder {
   @@index([organizationId, status])
   @@index([organizationId, contractId])
   @@index([organizationId, customerId])
+  @@index([organizationId, supplierOrderId])
+}
+
+/// What ADH buys from the supplier (2026-10, meeting decision): one declaration
+/// month, contract and grade — Vedanta's PI. Customer orders (TradeOrder) are
+/// bought under it (usually 1:1). Its own steps are 0 Check contract and 1 PI
+/// payment; the CI payment (step 6) stays on each shipment. Displayed by PI no.
+/// or "S{soNo}"; soNo is unique per org + year.
+model SupplierOrder {
+  id                    String            @id @default(uuid()) @db.Uuid
+  organizationId        String
+  year                  Int
+  soNo                  Int
+  supplierId            String            @db.Uuid
+  contractId            String?           @db.Uuid
+  /// Vedanta's "Aug'26 declaration" month ("YYYY-MM").
+  declarationMonth      String?
+  product               String?
+  grade                 String?
+  size                  String?
+  qtyMt                 Decimal?          @db.Decimal(14, 3)
+  /// e.g. "Average LME of MOSS (Aug'26)".
+  qpBasis               String?
+  provisionalPricePerMt Decimal?          @db.Decimal(12, 2)
+  supplierPremium       Decimal?          @db.Decimal(12, 2)
+  currency              String            @default("USD")
+  piNo                  String?
+  piDate                DateTime?
+  piAmount              Decimal?          @db.Decimal(16, 2)
+  depositPct            Decimal?          @default(10) @db.Decimal(5, 2)
+  depositAmount         Decimal?          @db.Decimal(16, 2)
+  depositPaidAt         DateTime?
+  status                TradeRecordStatus @default(OPEN)
+  notes                 String?
+  createdById           String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  supplier       Supplier        @relation("SupplierSupplierOrders", fields: [supplierId], references: [id])
+  contract       Contract?       @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  customerOrders TradeOrder[]
+  shipments      Shipment[]
+  steps          TradeStep[]
+  fileLinks      TradeFileLink[]
+
+  @@unique([organizationId, year, soNo])
+  @@index([organizationId, status])
+  @@index([organizationId, contractId])
+  @@index([organizationId, piNo])
 }
 
 /// One product line of a contract (grade / size / quantity / premiums). A
@@ -1448,6 +1525,10 @@ model TradeSetting {
   customerProfiles   Json?
   /// Courier-cost / import-tax estimator rates (JPY), all editable in Org Settings.
   estimatorRates     Json?
+  /// Per-supplier profiles (hasPI, document set …), keyed by supplier id.
+  supplierProfiles   Json?
+  /// Alert rules (free days, reminder offsets, "stuck" days) — see trade-alerts.ts.
+  alertRules         Json?
   updatedAt          DateTime @updatedAt
 }
 
@@ -1490,11 +1571,23 @@ model Shipment {
   notes             String?
   /// Courier cost + import tax estimate and actuals (steps 7, 8, 12): trucks, AN charges, FX, CIF, Mitsui Soko actuals.
   costs             Json?
+  /// Bought under this supplier order directly (when the split differs from its order's).
+  supplierOrderId   String?           @db.Uuid
+  /// Every ETA change: [{ eta, previous, at, by, source }] ("8/6 → 8/16 → 8/17").
+  etaHistory        Json?
+  /// Discharge date and free time at the port (Wan Hai: DET 4 calendar days, DEM 10) for the free-time warning.
+  dischargeDate     DateTime?
+  detFreeDays       Int?
+  demFreeDays       Int?
+  /// Warehouse stock: where the cargo is stored (e.g. "Mitsui Soko Honmoku") and since when (storage periods 期).
+  warehouse         String?
+  storageStartDate  DateTime?
   createdById       String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
   order         TradeOrder?         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  supplierOrder SupplierOrder?      @relation(fields: [supplierOrderId], references: [id], onDelete: SetNull)
   contract      Contract?           @relation(fields: [contractId], references: [id], onDelete: Restrict)
   contractLine  ContractLine?       @relation(fields: [contractLineId], references: [id], onDelete: SetNull)
   customer      Customer?           @relation("CustomerShipments", fields: [customerId], references: [id])
@@ -1541,6 +1634,7 @@ model TradeStep {
   contractId       String?         @db.Uuid
   shipmentId       String?         @db.Uuid
   orderId          String?         @db.Uuid
+  supplierOrderId  String?         @db.Uuid
   templateId       String?         @db.Uuid // traceability only, no FK
   code             String
   title            String
@@ -1564,15 +1658,17 @@ model TradeStep {
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
-  contract  Contract?           @relation(fields: [contractId], references: [id], onDelete: Cascade)
-  shipment  Shipment?           @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
-  order     TradeOrder?         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  fileLinks TradeFileLink[]
-  docLinks  TradeDocumentLink[]
+  contract      Contract?           @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  shipment      Shipment?           @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  order         TradeOrder?         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  supplierOrder SupplierOrder?      @relation(fields: [supplierOrderId], references: [id], onDelete: Cascade)
+  fileLinks     TradeFileLink[]
+  docLinks      TradeDocumentLink[]
 
   @@unique([contractId, code])
   @@unique([shipmentId, code])
   @@index([orderId, code]) // unique per order — enforced in the service (a new unique on an existing table blocks the build's db push)
+  @@index([supplierOrderId, code])
   @@index([organizationId, status])
 }
 
@@ -1607,24 +1703,27 @@ model TradeFile {
 }
 
 model TradeFileLink {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String
-  fileId         String   @db.Uuid
-  contractId     String?  @db.Uuid
-  shipmentId     String?  @db.Uuid
-  orderId        String?  @db.Uuid
-  stepId         String?  @db.Uuid
-  createdAt      DateTime @default(now())
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String
+  fileId          String   @db.Uuid
+  contractId      String?  @db.Uuid
+  shipmentId      String?  @db.Uuid
+  orderId         String?  @db.Uuid
+  supplierOrderId String?  @db.Uuid
+  stepId          String?  @db.Uuid
+  createdAt       DateTime @default(now())
 
-  file     TradeFile   @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  contract Contract?   @relation(fields: [contractId], references: [id], onDelete: Cascade)
-  shipment Shipment?   @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
-  order    TradeOrder? @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  step     TradeStep?  @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  file          TradeFile      @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  supplierOrder SupplierOrder? @relation(fields: [supplierOrderId], references: [id], onDelete: Cascade)
+  contract      Contract?      @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  shipment      Shipment?      @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  order         TradeOrder?    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  step          TradeStep?     @relation(fields: [stepId], references: [id], onDelete: SetNull)
 
   @@unique([fileId, contractId])
   @@unique([fileId, shipmentId])
   @@index([fileId, orderId]) // one link per file + order — enforced in the service
+  @@index([organizationId, supplierOrderId])
   @@index([organizationId, contractId])
   @@index([organizationId, shipmentId])
   @@index([organizationId, orderId])
@@ -1675,6 +1774,8 @@ model TradeGeneratedDoc {
   coversShipmentIds String[]                @default([])
   /// Template variant key (CUSTOMER_PL_KATO, INVOICE_SINGLE …) — from the customer profile on create.
   templateKey       String?
+  /// The ADH company that issues it: ADH_JP (customer invoices / PL / COA / SI, Japanese) or ADH_SG (SG→JP IV/PL, anything to Vedanta).
+  issuingEntity     String?
   docType           String
   number            String?
   /// Document ID \"<contract>-<shipment no>-<type>\" (e.g. 454003255-1-CPL); the PDF keeps its own document number.
@@ -1706,6 +1807,7 @@ enum TradeExtractionKind {
   PI
   BL_DRAFT
   AN
+  IMPORT_PERMIT
 }
 
 enum TradeExtractionStatus {
@@ -1745,4 +1847,115 @@ model TradeExtraction {
 
   @@index([organizationId, fileId, createdAt])
   @@index([organizationId, shipmentId])
+}
+
+/// Cash in / out (2026-10): one bank movement (a Wise transfer, a customer's
+/// remittance) and what it paid — allocations to PIs, CIs, invoices, vendor
+/// invoices and import tax. Allocations should add up to the amount; the rest
+/// is shown as unallocated.
+model TradePayment {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String
+  /// IN (customer pays ADH) | OUT (ADH pays supplier / customs / logistics).
+  direction        String
+  paidAt           DateTime
+  amount           Decimal  @db.Decimal(16, 2)
+  currency         String
+  /// DBS | WISE | CFSB | SMBC_JPY | OTHER (entity: DBS / Wise / CFSB = ADH_SG, SMBC JPY = ADH_JP).
+  account          String
+  /// SUPPLIER | CUSTOMER | CUSTOMS | LOGISTICS | OTHER, and who.
+  counterpartyType String?
+  counterpartyId   String?  @db.Uuid
+  counterpartyName String?
+  reference        String?
+  notes            String?
+  /// The remittance slip / bank proof (TradeFile).
+  proofFileId      String?  @db.Uuid
+  createdById      String?
+  createdByName    String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  allocations TradePaymentAllocation[]
+
+  @@index([organizationId, paidAt])
+  @@index([organizationId, direction])
+}
+
+/// One part of a payment: what it paid. targetType PI (a supplier order),
+/// CI (a shipment's CI), INVOICE (a 請求書 / Sales invoice), VENDOR_INVOICE
+/// (Mitsui Soko …), IMPORT_TAX (a shipment's import tax). The order /
+/// shipment / supplier order are stored too for the per-order cash view.
+model TradePaymentAllocation {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String
+  paymentId       String   @db.Uuid
+  targetType      String
+  targetId        String?  @db.Uuid
+  targetLabel     String?
+  amount          Decimal  @db.Decimal(16, 2)
+  orderId         String?  @db.Uuid
+  shipmentId      String?  @db.Uuid
+  supplierOrderId String?  @db.Uuid
+  createdAt       DateTime @default(now())
+
+  payment TradePayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, targetType, targetId])
+  @@index([organizationId, orderId])
+  @@index([organizationId, shipmentId])
+  @@index([organizationId, supplierOrderId])
+}
+
+/// An open credit for a customer (2026-10): a negative Invoice #2 (falling LME)
+/// becomes a credit note that is offset on a later Invoice #1 ("前回差額充当").
+model TradeCredit {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String
+  customerId     String    @db.Uuid
+  /// The negative invoice (TradeGeneratedDoc) it came from.
+  sourceDocId    String    @db.Uuid
+  sourceNumber   String?
+  /// Positive amount of credit.
+  amount         Decimal   @db.Decimal(16, 2)
+  currency       String    @default("USD")
+  /// OPEN | USED | VOID
+  status         String    @default("OPEN")
+  usedByDocId    String?   @db.Uuid
+  usedByNumber   String?
+  usedAt         DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([organizationId, sourceDocId])
+  @@index([organizationId, customerId, status])
+}
+
+/// A reminder / warning (2026-10, "alerts"): scheduled from the shipment's
+/// dates (ETA − 14 days tax funding, ETA − 2 days A/N, free time ending, due
+/// dates, stuck steps). Re-scheduled when a date moves (key = kind + record).
+/// Due ones go to the bell and the daily digest.
+model TradeAlert {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String
+  /// TAX_FUNDING | AN_EXPECTED | FREE_TIME | INVOICE_DUE | PAYMENT_DUE | STEP_STUCK
+  kind            String
+  /// Dedupe / re-schedule key, e.g. "TAX_FUNDING:<shipmentId>".
+  key             String
+  dueAt           DateTime
+  title           String
+  detail          String?
+  shipmentId      String?   @db.Uuid
+  orderId         String?   @db.Uuid
+  supplierOrderId String?   @db.Uuid
+  linkUrl         String?
+  /// SCHEDULED | DUE | DONE | DISMISSED
+  status          String    @default("SCHEDULED")
+  notifiedAt      DateTime?
+  resolvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([organizationId, key])
+  @@index([organizationId, status, dueAt])
 }

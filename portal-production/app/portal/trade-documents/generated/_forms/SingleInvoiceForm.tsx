@@ -15,7 +15,7 @@ import React, { useMemo, useRef } from "react";
 import { Alert, Box, Button, Checkbox, Chip, FormControlLabel, Grid2, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableRow, TextField, Tooltip, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
-import { useShipmentsApi } from "@/app/portal/shipments/_lib/api";
+import { bankEntity, useShipmentsApi, type IssuingEntity } from "@/app/portal/shipments/_lib/api";
 import { useTradeSettings } from "@/app/portal/shipments/_lib/hooks";
 import { guardDate, tradeDateError } from "@/app/portal/shipments/_lib/dates";
 import type { DocFormProps } from "./types";
@@ -112,7 +112,11 @@ const LINE_KINDS: Array<{ value: SingleLine["kind"]; label: string }> = [
 export default function SingleInvoiceForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFormProps<SingleHeader, SingleLine>) {
   const settings = useTradeSettings();
   const dd = (settings.data as any)?.docDefaults ?? {};
-  const banks: Array<{ id: string; label: string; block: string }> = Array.isArray(dd.banks) && dd.banks.length ? dd.banks : [];
+  // Only the issuing entity's accounts (ADH JP: SMBC JPY; ADH SG: DBS / Wise / CFSB).
+  const entity = doc.issuingEntity ?? "ADH_JP";
+  const allBanks: Array<{ id: string; label: string; block: string; entity?: IssuingEntity }> = Array.isArray(dd.banks) && dd.banks.length ? dd.banks : [];
+  const banks = allBanks.filter((b) => bankEntity(b) === entity);
+  const bankElsewhere = !!h.bankId && allBanks.some((b) => b.id === h.bankId && bankEntity(b) !== entity);
   const totals = useMemo(() => singleTotals(rows, h.taxRate, h.fxRate), [rows, h.taxRate, h.fxRate]);
   const api = useShipmentsApi();
   const dueSeq = useRef(0);
@@ -176,7 +180,18 @@ export default function SingleInvoiceForm({ doc, header: h, rows, disabled, setH
         </Stack>
         <Grid2 container spacing={1.5}>
           <Grid2 size={{ xs: 12, sm: 4 }}>
-            <TextField size="small" fullWidth label="番号 / Invoice no." value={h.invoiceNo ?? ""} placeholder="Assigned on Finalize" disabled InputLabelProps={{ shrink: true }} />
+            {/* Blank = the 発行日 as yyyymmdd (Kato's numbering); type to override (e.g. 20260818_2). */}
+            <TextField
+              size="small"
+              fullWidth
+              label="番号 / Invoice no."
+              value={h.invoiceNo ?? ""}
+              placeholder={(h.issueDate ?? "").replace(/-/g, "").slice(0, 8) || "yyyymmdd of the issue date"}
+              helperText={h.invoiceNo ? undefined : "Default: the issue date (yyyymmdd)"}
+              disabled={disabled}
+              onChange={(e) => setH({ invoiceNo: e.target.value || null })}
+              InputLabelProps={{ shrink: true }}
+            />
           </Grid2>
           <Grid2 size={{ xs: 12, sm: 4 }}>{tf("issueDate", "発行日 / Issue date", { type: "date", InputLabelProps: { shrink: true }, onChange: (e: any) => void onIssueDate(e.target.value) })}</Grid2>
           <Grid2 size={{ xs: 12, sm: 4 }}>{tf("dueDate", "Payment due (5 business days)", { type: "date", InputLabelProps: { shrink: true }, onChange: (e: any) => setH({ dueDate: e.target.value, dueDateManual: true }) })}</Grid2>
@@ -207,6 +222,16 @@ export default function SingleInvoiceForm({ doc, header: h, rows, disabled, setH
           <Grid2 size={{ xs: 12, sm: 4 }}>{tf("lmeMonth", "LME average month (shipment month)", { type: "month", InputLabelProps: { shrink: true } })}</Grid2>
           <Grid2 size={12}>{tf("conditions", "条件 / Conditions", { multiline: true, minRows: 2 })}</Grid2>
           <Grid2 size={12}>{tf("paymentBlock", "支払い条件 / Payment conditions", { multiline: true, minRows: 1 })}</Grid2>
+          {bankElsewhere && (
+            <Alert severity="warning" sx={{ mb: 1 }}>
+              The chosen bank account belongs to the other ADH entity — pick one of {entity === "ADH_JP" ? "ADH Japan's" : "ADH SG's"} accounts.
+            </Alert>
+          )}
+          {banks.length === 0 && allBanks.length > 0 && (
+            <Alert severity="info" sx={{ mb: 1 }}>
+              No bank account is tagged {entity === "ADH_JP" ? "ADH JP" : "ADH SG"} — set the entity in Org Settings → Shipping & documents → Bank accounts.
+            </Alert>
+          )}
           {banks.length > 0 && (
             <Grid2 size={{ xs: 12, sm: 6 }}>
               <TextField

@@ -252,6 +252,115 @@ export const GUIDES: Guide[] = [
     ],
   },
   {
+    id: 'trade-monthly-declaration',
+    title: 'Make the monthly declaration (Shipments)',
+    module: 'SHIPMENTS',
+    description:
+      'How to create the monthly declaration to Vedanta from scratch on Shipments → Declaration (one row per customer + contract + quantity → "Create orders" makes a supplier order and a customer order per row), or create it from the PI table in a Vedanta declaration email in the Inbox. NOT for a single order (use New Order).',
+    route: '/portal/shipments/declaration',
+    steps: [
+      {
+        route: '/portal/shipments/declaration',
+        selector: '[data-tour="declaration-grid"]',
+        title: 'One row per order',
+        body: 'Pick the month, then a row per customer + contract + quantity (SUS 6063 300 t, SUS 6005 120 t, Kato 6063 40 t…). Premiums come from the contract\'s premium schedule and stay editable.',
+      },
+      {
+        selector: '[data-tour="declaration-create"]',
+        title: 'Create orders',
+        body: 'Makes one supplier order (Vedanta side, steps 0–1) and one customer order (#n, ship = the month, delivery = +2 months) per row — all rows or none.',
+      },
+      {
+        route: '/portal/shipments',
+        selector: '[data-tour="orders-view-toggle"]',
+        title: 'Supplier / Customer',
+        body: 'Switch the orders list between supplier orders (one per PI) and customer orders. A Vedanta "declaration" email in the Inbox offers the same rows from its PI table.',
+      },
+    ],
+  },
+  {
+    id: 'trade-record-payment',
+    title: 'Record a payment (Shipments)',
+    module: 'SHIPMENTS',
+    description:
+      'How to record money paid or received in Shipments → Payments and split one bank transfer over several PIs, CIs, import tax or customer invoices (e.g. one Wise transfer paying two CIs and two PIs). A PI allocation marks that deposit paid.',
+    route: '/portal/shipments/payments',
+    steps: [
+      {
+        route: '/portal/shipments/payments',
+        selector: '[data-tour="payments-page"]',
+        title: 'Payments',
+        body: 'Every transfer in and out, with what it paid. Filter by direction, account or unallocated.',
+      },
+      {
+        selector: '[data-tour="record-payment"]',
+        title: 'Record payment',
+        body: 'Date, amount, currency, account, reference and the proof — then add an allocation per PI / CI / invoice it pays. The same button sits on steps 1, 6, 8 and 12.',
+      },
+      {
+        selector: '[data-tour="payment-unallocated"]',
+        title: 'Fully allocated?',
+        body: 'Shows what is still unallocated; you cannot allocate more than the transfer.',
+        patient: true,
+      },
+    ],
+  },
+  {
+    id: 'trade-credit-note',
+    title: 'Use a credit note on the next invoice (Shipments)',
+    module: 'SHIPMENTS',
+    description:
+      'How a negative Invoice #2 becomes a credit note / open credit for the customer, and how to apply that open credit on a later Invoice #1 (adds a 前回差額充当 line). Also: issue Invoice #2 on estimated costs and the adjustment at step 13.',
+    route: '/portal/trade-documents',
+    steps: [
+      {
+        selector: '[data-tour="credit-note-chip"]',
+        title: 'Credit note',
+        body: 'An Invoice #2 whose total is negative is a credit note. Finalizing it books an open credit for that customer.',
+        patient: true,
+      },
+      {
+        selector: '[data-tour="apply-open-credit"]',
+        title: 'Apply open credit',
+        body: 'On the customer\'s next Invoice #1, "Apply open credit" adds a 前回差額充当 line (no tax) that uses the credit up.',
+        patient: true,
+      },
+      {
+        selector: '[data-tour="cost-variance"]',
+        title: 'Estimated costs',
+        body: 'Invoice #2 issued on estimated costs is compared with the actual costs at step 13 — "Issue adjustment" makes the adjustment invoice or credit note.',
+        patient: true,
+      },
+    ],
+  },
+  {
+    id: 'trade-home-alerts',
+    title: 'My tasks and the pipeline (Shipments)',
+    module: 'SHIPMENTS',
+    description:
+      'The Shipments Home page: "My tasks today" reminders (import tax funding, arrival notices, free time, due dates, stuck steps), the pipeline grid per delivery month, and — for ADH managers — cash by month, open credits and margin / profit. Reminder rules are in Settings → Shipping → Alerts.',
+    route: '/portal/shipments/dashboard',
+    steps: [
+      {
+        route: '/portal/shipments/dashboard',
+        selector: '[data-tour="my-tasks"]',
+        title: 'My tasks today',
+        body: 'Reminders due now and in the next 3 days. ✓ marks one done; ✕ dismisses it until its date moves (e.g. the ETA changes).',
+      },
+      {
+        selector: '[data-tour="pipeline-grid"]',
+        title: 'Pipeline',
+        body: 'Like the Excel: per delivery month a column per order and a row per step — green done, orange in progress, red overdue, grey N/A. Click an order to open it.',
+      },
+      {
+        selector: '[data-tour="manager-money"]',
+        title: 'Money (managers)',
+        body: 'ADH Managers also see cash in / out by month, open credits and margin & profit per order. Staff do not see this.',
+        patient: true,
+      },
+    ],
+  },
+  {
     id: 'design-document-template',
     title: 'Change how documents look',
     description:

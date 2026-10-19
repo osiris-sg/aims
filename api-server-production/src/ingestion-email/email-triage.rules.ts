@@ -39,6 +39,7 @@ export const TRIAGE_DOC_TYPES: Record<string, string | null> = {
   CUSTOMER_COA: 'CUSTOMER_COA',
   PAYMENT_PROOF: 'PAYMENT_PROOF',
   VENDOR_INVOICE: 'VENDOR_INVOICE',
+  BUNDLE_LIST: 'BUNDLE_LIST',
   OTHER: null,
 };
 /** Trade doc types filed on the order (the rest go on the shipment). */
@@ -288,4 +289,95 @@ Answer with exactly this JSON:
  "suggestedSteps": [{"step": string, "reason": string}]}
 SHIPMENT = about a specific purchase / shipment (PI, contract, B/L, shipping documents, arrival notice, import permit, invoices, delivery, payments for it). Newsletters, marketing, unrelated business → NOT_SHIPMENT. Unclear → UNSURE.`;
   return [system, user];
+}
+
+// ── Known senders / subjects (2026-10) ─────────────────────────────────────
+/** Supplier-side documents: filed on the order's supplier order (steps 0 / 1) when it has one. */
+export const SUPPLIER_ORDER_DOC_TYPES = new Set(['PI', 'CONTRACT', 'DEPOSIT_PROOF']);
+
+export interface KnownSenderHit {
+  rule: 'WANHAI_AN' | 'MITSUI_BUNDLE_LIST' | 'IMPORT_PERMIT' | 'VEDANTA_DECLARATION';
+  counterparty?: Counterparty;
+  blNo?: string | null;
+  /** filename → triage doc type (overrides the AI). */
+  attachmentTypes: Record<string, string>;
+}
+
+/**
+ * Rules for senders / subjects ADH gets every week; they win over the AI read:
+ *  - "(WEB)ARRIVAL NOTICE <BL> …" from *@wanhai.com → the PDFs are that B/L's A/N
+ *  - Mitsui Soko "NO.取りリスト" (+ CSV / Excel) → bundle-number list (step 9)
+ *  - "輸入許可書…" (subject or file name) → import permit
+ *  - Vedanta "declaration" threads → supplier-order suggestions (the PI table)
+ */
+export function knownSender(e: { from: string; subject: string | null; attachments: Array<{ name: string }> }): KnownSenderHit | null {
+  const from = emailOf(e.from);
+  const subject = e.subject ?? '';
+  const pdfs = e.attachments.filter((a) => /\.pdf$/i.test(a.name));
+  const an = /\(WEB\)\s*ARRIVAL\s+NOTICE\s+([A-Z0-9]{8,})/i.exec(subject);
+  if (an && /@(.+\.)?wanhai\.com$/i.test(from)) {
+    return { rule: 'WANHAI_AN', counterparty: 'SHIPPING_LINE', blNo: an[1].toUpperCase(), attachmentTypes: Object.fromEntries(pdfs.map((a) => [a.name, 'ARRIVAL_NOTICE'])) };
+  }
+  if (/NO\.?\s*取り\s*リスト/.test(subject) || e.attachments.some((a) => /NO\.?\s*取り\s*リスト/.test(a.name))) {
+    const lists = e.attachments.filter((a) => /\.(csv|xlsx?|pdf)$/i.test(a.name));
+    return { rule: 'MITSUI_BUNDLE_LIST', counterparty: 'MITSUI_SOKO', attachmentTypes: Object.fromEntries(lists.map((a) => [a.name, 'BUNDLE_LIST'])) };
+  }
+  const permitFiles = e.attachments.filter((a) => /輸入許可/.test(a.name.normalize('NFC')));
+  if (/輸入許可/.test(subject.normalize('NFC')) || permitFiles.length) {
+    const files = permitFiles.length ? permitFiles : pdfs;
+    return { rule: 'IMPORT_PERMIT', attachmentTypes: Object.fromEntries(files.map((a) => [a.name, 'IMPORT_PERMIT'])) };
+  }
+  if (/declaration/i.test(subject) && /vedanta/i.test(`${from} ${subject}`)) {
+    return { rule: 'VEDANTA_DECLARATION', counterparty: 'VEDANTA', attachmentTypes: Object.fromEntries(pdfs.filter((a) => /\bPI\b|933\d{7}/i.test(a.name)).map((a) => [a.name, 'PI'])) };
+  }
+  return null;
+}
+
+export interface DeclarationRow {
+  grade: string | null;
+  contractNo: string;
+  customer: string | null;
+  destination: string | null;
+  qtyMt: number | null;
+  qpBasis: string | null;
+  pricePerMt: number | null;
+  piNo: string | null;
+}
+
+/**
+ * Vedanta's PI table in a declaration reply: Grade · Contract · Customer ·
+ * Destination · Qty · QP · provisional Price/MT · PI no. — one row per line
+ * that carries a contract no. (4540xxxxx). Columns may be tab-, pipe- or
+ * multi-space-separated; unreadable cells stay null.
+ */
+export function parseDeclarationTable(body: string): DeclarationRow[] {
+  const out: DeclarationRow[] = [];
+  for (const raw of (body ?? '').split(/\r?\n/)) {
+    const line = raw.trim();
+    const contract = /\b(4540\d{5})\b/.exec(line)?.[1];
+    if (!contract) continue;
+    const cells = line
+      .split(/\t|\s*\|\s*|\s{2,}/)
+      .map((c) => c.trim())
+      .filter(Boolean);
+    const at = cells.findIndex((c) => c.includes(contract));
+    const grade = cells.slice(0, Math.max(at, 0)).find((c) => /^(P?\d{4}[A-Z]?)\b/i.test(c)) ?? (/\b(6063|6005|P1020|P0507)\b/i.exec(line)?.[1] ?? null);
+    const pi = /\b(933\d{7})\b/.exec(line)?.[1] ?? null;
+    const qp = /(Average\s+LME[^|\t]*?\([^)]*\))/i.exec(line)?.[1] ?? null;
+    const after = cells.slice(at + 1);
+    const nums = after.map((c) => Number(c.replace(/[,$]/g, ''))).filter((n) => Number.isFinite(n) && n > 0 && String(n).length < 12);
+    const qty = nums.find((n) => n < 5000) ?? null;
+    const price = nums.find((n) => n >= 1000 && n < 10000 && n !== qty) ?? null;
+    const words = after.filter((c) => !/^[\d.,$]+$/.test(c) && !/Average\s+LME/i.test(c) && !/933\d{7}/.test(c));
+    out.push({ grade: grade ? grade.toUpperCase() : null, contractNo: contract, customer: words[0] ?? null, destination: words[1] ?? null, qtyMt: qty, qpBasis: qp, pricePerMt: price, piNo: pi });
+  }
+  return out;
+}
+
+const MONTHS: Record<string, string> = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' };
+/** "Average LME of MOSS (Aug'26)" → "2026-08". */
+export function declarationMonthOf(qp: string | null | undefined): string | null {
+  const m = /\(([A-Za-z]{3})[’'`\s-]*(\d{2})\)/.exec(qp ?? '');
+  if (!m || !MONTHS[m[1].toLowerCase()]) return null;
+  return `20${m[2]}-${MONTHS[m[1].toLowerCase()]}`;
 }

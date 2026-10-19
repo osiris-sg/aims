@@ -8,7 +8,9 @@ import {
   AN_SCHEMA,
   AN_SYSTEM_PROMPT,
   AN_USER_PROMPT,
+  anCostInputs,
   anFillable,
+  anRawFromText,
   arrivalNoticeDraft,
   BL_SCHEMA,
   BL_SYSTEM_PROMPT,
@@ -19,6 +21,10 @@ import {
   issueCount,
   lineForGrade,
   parseWith,
+  permitFromRaw,
+  PERMIT_SCHEMA,
+  PERMIT_SYSTEM_PROMPT,
+  PERMIT_USER_PROMPT,
   PI_SCHEMA,
   PI_SYSTEM_PROMPT,
   PI_USER_PROMPT,
@@ -26,18 +32,28 @@ import {
   shipmentDraftFromBl,
 } from './trade-extract.rules';
 import { TradeFilesService } from './trade-files.service';
+import { AnData, importTax, parseAnText, parsePermitText, PermitData, permitChecks, permitTotalFromFileName, sameBl } from './trade-customs';
+import { pdfText } from './trade-coa';
+import { ShipmentCosts } from './trade-estimator';
+import { supplierProfileFor } from './trade-profile';
 import * as XLSX from 'xlsx';
 import { Classification, classifyByName, classifyPrompt, classifySheetText, combineClassification, isSpreadsheet } from './trade-classify';
 import { decodeUploadName, resolveTradeFileMime } from './shipments.rules';
 
-export type ExtractKind = 'PI' | 'BL_DRAFT' | 'AN';
-const DOC_TYPE: Record<ExtractKind, string> = { PI: 'PI', BL_DRAFT: 'BL_DRAFT', AN: 'ARRIVAL_NOTICE' };
+export type ExtractKind = 'PI' | 'BL_DRAFT' | 'AN' | 'IMPORT_PERMIT';
+const DOC_TYPE: Record<ExtractKind, string> = { PI: 'PI', BL_DRAFT: 'BL_DRAFT', AN: 'ARRIVAL_NOTICE', IMPORT_PERMIT: 'IMPORT_PERMIT' };
 /** The step a newly uploaded source PDF is tagged with. */
-const STEP_CODE: Partial<Record<ExtractKind, string>> = { BL_DRAFT: 'BL_DRAFT_APPROVAL', AN: 'AN_INSTRUCTIONS' };
+const STEP_CODE: Partial<Record<ExtractKind, string>> = { BL_DRAFT: 'BL_DRAFT_APPROVAL', AN: 'AN_INSTRUCTIONS', IMPORT_PERMIT: 'IMPORT_PERMIT' };
 const PROMPTS: Record<ExtractKind, [string, string]> = {
   PI: [PI_SYSTEM_PROMPT, PI_USER_PROMPT],
   BL_DRAFT: [BL_SYSTEM_PROMPT, BL_USER_PROMPT],
   AN: [AN_SYSTEM_PROMPT, AN_USER_PROMPT],
+  IMPORT_PERMIT: [PERMIT_SYSTEM_PROMPT, PERMIT_USER_PROMPT],
+};
+/** Read from the PDF's text layer first (exact, free); the AI read only when it isn't enough. */
+const TEXT_FIRST: Partial<Record<ExtractKind, (text: string) => { data: unknown; complete: boolean }>> = {
+  AN: parseAnText,
+  IMPORT_PERMIT: parsePermitText,
 };
 const READABLE = /^(application\/pdf|image\/(png|jpe?g|webp))$/;
 
@@ -116,12 +132,22 @@ export class TradeExtractService {
     const started = Date.now();
     try {
       const buffer = await this.s3.downloadFile(file.s3Key);
-      const out = await this.extractor.extractStructured({ buffer, mimetype: file.mimeType }, PROMPTS[kind][0], PROMPTS[kind][1], {
-        maxTokens: 4000,
-      });
+      const fromText = TEXT_FIRST[kind] && file.mimeType === 'application/pdf' ? await this.readText(buffer, TEXT_FIRST[kind]!) : null;
+      const out = fromText?.complete
+        ? { data: fromText.data, model: 'text-layer', inputTokens: 0, outputTokens: 0 }
+        : await this.extractor.extractStructured({ buffer, mimetype: file.mimeType }, PROMPTS[kind][0], PROMPTS[kind][1], {
+            maxTokens: 4000,
+          });
+      const via = fromText?.complete ? ('text' as const) : ('ai' as const);
       const result =
-        kind === 'PI' ? await this.piResult(organizationId, out.data) : kind === 'AN' ? await this.anResult(organizationId, out.data, input) : await this.blResult(organizationId, out.data, input);
-      const checks = kind === 'BL_DRAFT' && input.shipmentId ? await computeBlChecks(this.prisma, organizationId, input.shipmentId, result.draft as ShipmentDraft) : null;
+        kind === 'PI'
+          ? await this.piResult(organizationId, out.data)
+          : kind === 'AN'
+            ? await this.anResult(organizationId, via === 'text' ? anRawFromText(out.data as AnData) : out.data, input, via)
+            : kind === 'IMPORT_PERMIT'
+              ? await this.permitResult(organizationId, via === 'text' ? (out.data as PermitData) : permitFromRaw(parseWith(PERMIT_SCHEMA, out.data, 'import permit')), input, file.fileName, via)
+              : await this.blResult(organizationId, out.data, input);
+      const checks = kind === 'BL_DRAFT' && input.shipmentId ? await computeBlChecks(this.prisma, organizationId, input.shipmentId, (result as { draft: ShipmentDraft }).draft) : null;
       await this.prisma.tradeExtraction.update({
         where: { id: row.id },
         data: {
@@ -149,12 +175,14 @@ export class TradeExtractService {
    * images). Nothing is stored — the portal uploads the confirmed files the
    * normal way. The AI read is best effort: on failure the name rules decide.
    */
-  async classify(organizationId: string, file: Express.Multer.File, allowed: string[]): Promise<Classification & { fileName: string }> {
+  async classify(organizationId: string, file: Express.Multer.File, allowed: string[], shipmentId?: string): Promise<Classification & { fileName: string }> {
     if (!file) throw new BadRequestException('Attach the file to classify');
     const types = [...new Set(allowed.filter((t) => typeof t === 'string' && /^[A-Z0-9_]{2,40}$/.test(t)))];
     if (!types.length) throw new BadRequestException('Give the step\'s document types');
     const fileName = decodeUploadName(file.originalname);
-    const name = classifyByName(fileName);
+    // File-name rules are Vedanta's naming: a supplier with its own document set (Inalum, the Thai supplier) is read by content only.
+    const contentOnly = shipmentId ? await this.contentOnly(organizationId, shipmentId) : false;
+    const name = contentOnly ? null : classifyByName(fileName);
     let sheet: ReturnType<typeof classifySheetText> = null;
     let ai: Record<string, unknown> | null = null;
     if (isSpreadsheet(fileName)) {
@@ -171,6 +199,15 @@ export class TradeExtractService {
       }
     }
     return { fileName, ...combineClassification(types, name, sheet, ai) };
+  }
+
+  /** The shipment's supplier sends its own document set (profile: no PI, or its own step 3b list). */
+  private async contentOnly(organizationId: string, shipmentId: string): Promise<boolean> {
+    const s = await this.prisma.shipment.findFirst({ where: { id: shipmentId, organizationId }, select: { order: { select: { supplierId: true } } } });
+    if (!s?.order?.supplierId) return false;
+    const row = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { supplierProfiles: true } });
+    const p = supplierProfileFor(row?.supplierProfiles, s.order.supplierId);
+    return !p.hasPI || !!p.shippingDocs?.length;
   }
 
   async get(organizationId: string, id: string) {
@@ -227,13 +264,69 @@ export class TradeExtractService {
     return { raw: pi, draft, existingContractId: existing?.id ?? null, existingOrder: order ? { id: order.id, label: `#${order.orderNo}`, year: order.year } : null };
   }
 
-  /** Arrival notice → draft + the blank shipment fields it can fill (the user confirms in the portal). */
-  private async anResult(organizationId: string, raw: unknown, input: { shipmentId?: string }) {
+  /** A PDF's text layer through a layout reader; null when there's no text / the reader fails. */
+  private async readText(buffer: Buffer, reader: (text: string) => { data: unknown; complete: boolean }) {
+    try {
+      const text = await pdfText(buffer);
+      return text.trim().length > 40 ? reader(text) : null;
+    } catch (e) {
+      this.logger.warn(`text layer unreadable: ${(e as Error)?.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Arrival notice → draft + the blank shipment fields it can fill, and the
+   * step 9 estimator inputs (THC / DOC / EQMC) — offered, the user confirms in
+   * the portal ("costs.thc" keys go into Shipment.costs).
+   */
+  private async anResult(organizationId: string, raw: unknown, input: { shipmentId?: string }, via: 'text' | 'ai' = 'ai') {
     const draft = arrivalNoticeDraft(parseWith(AN_SCHEMA, raw, 'arrival notice'));
     const shipment = input.shipmentId ? await this.prisma.shipment.findFirst({ where: { id: input.shipmentId, organizationId } }) : null;
-    const fill = shipment ? anFillable(draft, shipment as unknown as Record<string, unknown>) : {};
-    const blMismatch = !!(shipment?.blNumber && draft.blNumber && shipment.blNumber !== draft.blNumber);
-    return { raw, draft, fill, blMismatch };
+    const fill: Record<string, unknown> = shipment ? anFillable(draft, shipment as unknown as Record<string, unknown>) : {};
+    // ETA: offered whenever it differs (a later A/N moves it; the shipment keeps the history).
+    if (shipment && draft.eta && (!shipment.eta || shipment.eta.toISOString().slice(0, 10) !== draft.eta)) fill.eta = draft.eta;
+    const costs = (shipment?.costs ?? {}) as ShipmentCosts;
+    const inputs = anCostInputs(draft);
+    for (const [k, v] of Object.entries(inputs)) if (v !== null && (costs as Record<string, unknown>)[k] !== v) fill[`costs.${k}`] = v;
+    const blMismatch = !!(shipment?.blNumber && draft.blNumber && !sameBl(draft.blNumber, shipment.blNumber));
+    return { raw, draft, fill, blMismatch, via };
+  }
+
+  /**
+   * 輸入許可書 → the actual import tax, customs rate, CIF and 加算運賃 for step 10
+   * (offered; the user confirms), plus warnings when its B/L or 仕入書番号 don't
+   * match the shipment (never blocking). The file name is the last resort for
+   * the total ("輸入許可書…_JPY18,386,700_…pdf").
+   */
+  private async permitResult(organizationId: string, data: PermitData, input: { shipmentId?: string }, fileName: string, via: 'text' | 'ai') {
+    const fromName = permitTotalFromFileName(fileName);
+    const permit: PermitData = { ...data, total: data.total ?? fromName };
+    const shipment = input.shipmentId
+      ? await this.prisma.shipment.findFirst({ where: { id: input.shipmentId, organizationId }, select: { id: true, blNumber: true, costs: true } })
+      : null;
+    const sgjp = shipment
+      ? await this.prisma.tradeGeneratedDoc.findFirst({
+          where: { organizationId, docType: 'SGJP_IV_PL', OR: [{ shipmentId: shipment.id }, { coversShipmentIds: { has: shipment.id } }] },
+          orderBy: [{ status: 'desc' }, { updatedAt: 'desc' }],
+          select: { header: true, number: true },
+        })
+      : null;
+    const sgjpNo = String((sgjp?.header as { invoiceNo?: string } | null)?.invoiceNo ?? sgjp?.number ?? '').trim() || null;
+    const checks = shipment ? permitChecks(permit, { blNumber: shipment.blNumber, sgjpInvoiceNo: sgjpNo }) : [];
+    // The permit's own figures must reproduce with the formula — a misread shows here.
+    const recomputed = permit.invoiceAmount !== null && permit.fxRate !== null ? importTax(permit.invoiceAmount, permit.fxRate, permit.addOnJpy ?? 0) : null;
+    const formulaOk = recomputed && permit.total !== null ? recomputed.total === permit.total : null;
+    const costs = (shipment?.costs ?? {}) as ShipmentCosts;
+    const fill: Record<string, unknown> = {};
+    const offer = (k: keyof ShipmentCosts, v: number | null) => {
+      if (v !== null && (costs as Record<string, unknown>)[k] !== v) fill[`costs.${k}`] = v;
+    };
+    offer('importTaxActual', permit.total);
+    offer('fxRate', permit.fxRate);
+    if ((permit.invoiceCurrency ?? 'USD') === 'USD') offer('cifUsd', permit.invoiceAmount);
+    offer('customsAddOnJpy', permit.addOnJpy);
+    return { permit, totalFrom: data.total !== null ? via : fromName !== null ? 'fileName' : null, checks, formulaOk, recomputed, sgjpInvoiceNo: sgjpNo, fill, via };
   }
 
   private async blResult(organizationId: string, raw: unknown, input: { shipmentId?: string; contractId?: string }) {

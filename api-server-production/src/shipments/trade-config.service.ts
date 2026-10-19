@@ -2,30 +2,51 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { grossOf } from '../common/document-money';
 import { PrismaService } from '../common/prisma.service';
 import { TradeActor } from './shipments.request';
-import { docRefBase, nextDocRef, orderDocRefBase } from './trade-docref';
+import { docRefBase, nextDocRef, orderDocRefBase, supplierOrderDocRefBase } from './trade-docref';
 import { autoCompletePlan, countsForProgress, documentLinkState, fieldRequirements, hasExactlyOneOwner, stepLabel, stepLabels, stepRequirements, stepsBrokenByRemoval } from './shipments.rules';
-import { CustomerProfile, mergeProfiles, naStepCodes, profileFor, stepOverride, subtasksFor } from './trade-profile';
+import { CustomerProfile, mergeProfiles, mergeSupplierProfiles, naStepCodes, profileFor, stepOverride, subtasksFor, SupplierProfile, supplierProfileFor } from './trade-profile';
 import { ratesOf } from './trade-estimator';
+import { cleanAlertRules } from './trade-alerts';
+import { cleanLmeByMonth } from './trade-contract';
+import { bankEntity } from './trade-entity';
 
 /** A Prisma client or interactive-transaction client. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Db = any;
 
-export type TradeScope = 'CONTRACT' | 'SHIPMENT' | 'ORDER';
-/** The record a step / file link / document link hangs off: an order (since 2026-10), a shipment, or a legacy contract. */
+export type TradeScope = 'CONTRACT' | 'SHIPMENT' | 'ORDER' | 'SUPPLIER_ORDER';
+/**
+ * The record a step / file link / document link hangs off: a customer order
+ * (since 2026-10), a supplier order (Vedanta's PI, 2026-10 round E), a
+ * shipment, or a legacy contract.
+ */
 export type TradeOwner =
-  | { contractId: string; shipmentId?: undefined; orderId?: undefined }
-  | { shipmentId: string; contractId?: undefined; orderId?: undefined }
-  | { orderId: string; contractId?: undefined; shipmentId?: undefined };
+  | { contractId: string; shipmentId?: undefined; orderId?: undefined; supplierOrderId?: undefined }
+  | { shipmentId: string; contractId?: undefined; orderId?: undefined; supplierOrderId?: undefined }
+  | { orderId: string; contractId?: undefined; shipmentId?: undefined; supplierOrderId?: undefined }
+  | { supplierOrderId: string; contractId?: undefined; shipmentId?: undefined; orderId?: undefined };
 
+type OwnerIds = { contractId?: string | null; shipmentId?: string | null; orderId?: string | null; supplierOrderId?: string | null };
 /** Prisma where-fragment for an owner. */
-export const ownerWhere = (o: { contractId?: string | null; shipmentId?: string | null; orderId?: string | null }) =>
-  o.orderId ? { orderId: o.orderId } : o.shipmentId ? { shipmentId: o.shipmentId } : { contractId: o.contractId as string };
+export const ownerWhere = (o: OwnerIds) =>
+  o.supplierOrderId
+    ? { supplierOrderId: o.supplierOrderId }
+    : o.orderId
+      ? { orderId: o.orderId }
+      : o.shipmentId
+        ? { shipmentId: o.shipmentId }
+        : { contractId: o.contractId as string };
 /** The owner's id (whichever kind). */
-export const ownerIdOf = (o: { contractId?: string | null; shipmentId?: string | null; orderId?: string | null }) => (o.orderId ?? o.shipmentId ?? o.contractId) as string;
+export const ownerIdOf = (o: OwnerIds) => (o.supplierOrderId ?? o.orderId ?? o.shipmentId ?? o.contractId) as string;
 /** A row's owner (link / step) as a TradeOwner. */
-export const toOwner = (o: { contractId?: string | null; shipmentId?: string | null; orderId?: string | null }): TradeOwner =>
-  o.orderId ? { orderId: o.orderId } : o.shipmentId ? { shipmentId: o.shipmentId } : { contractId: o.contractId as string };
+export const toOwner = (o: OwnerIds): TradeOwner =>
+  o.supplierOrderId
+    ? { supplierOrderId: o.supplierOrderId }
+    : o.orderId
+      ? { orderId: o.orderId }
+      : o.shipmentId
+        ? { shipmentId: o.shipmentId }
+        : { contractId: o.contractId as string };
 
 export interface DocLinkRow {
   id: string;
@@ -45,6 +66,7 @@ export interface RemovalOwner {
   contractId?: string;
   shipmentId?: string;
   orderId?: string;
+  supplierOrderId?: string;
   label: string;
   status: string;
 }
@@ -69,8 +91,8 @@ export class TradeConfigService {
   }
 
   listStepTemplates(organizationId: string, scope?: string) {
-    if (scope && scope !== 'CONTRACT' && scope !== 'SHIPMENT' && scope !== 'ORDER') {
-      throw new BadRequestException('scope must be ORDER, SHIPMENT or CONTRACT');
+    if (scope && scope !== 'CONTRACT' && scope !== 'SHIPMENT' && scope !== 'ORDER' && scope !== 'SUPPLIER_ORDER') {
+      throw new BadRequestException('scope must be SUPPLIER_ORDER, ORDER, SHIPMENT or CONTRACT');
     }
     return this.prisma.tradeStepTemplate.findMany({
       where: { organizationId, ...(scope ? { scope: scope as TradeScope } : {}) },
@@ -96,7 +118,7 @@ export class TradeConfigService {
   async getSettings(organizationId: string, db: Db = this.prisma) {
     const row = await db.tradeSetting.findUnique({
       where: { organizationId },
-      select: { defaultConsignee: true, defaultNotifyParty: true, docDefaults: true, customerProfiles: true, estimatorRates: true, updatedAt: true },
+      select: { defaultConsignee: true, defaultNotifyParty: true, docDefaults: true, customerProfiles: true, supplierProfiles: true, estimatorRates: true, alertRules: true, updatedAt: true },
     });
     return {
       defaultConsignee: row?.defaultConsignee ?? null,
@@ -105,10 +127,20 @@ export class TradeConfigService {
       docDefaults: (row?.docDefaults as Record<string, unknown> | null) ?? {},
       /** Per-customer profiles keyed by customer id (see trade-profile.ts). */
       customerProfiles: (row?.customerProfiles as Record<string, CustomerProfile> | null) ?? {},
+      /** Per-supplier profiles keyed by supplier id (hasPI, shipping document set — see trade-profile.ts). */
+      supplierProfiles: (row?.supplierProfiles as Record<string, SupplierProfile> | null) ?? {},
+      /** Alert rules (free days, reminder offsets, stuck days — see trade-alerts.ts). */
+      alertRules: (row?.alertRules as Record<string, unknown> | null) ?? {},
       /** Estimator rates with the defaults filled in (see trade-estimator.ts). */
       estimatorRates: ratesOf(row?.estimatorRates),
       updatedAt: row?.updatedAt ?? null,
     };
+  }
+
+  /** A supplier's profile (Vedanta-like defaults — has a PI — when it has none). */
+  async supplierProfileOf(organizationId: string, supplierId: string | null | undefined, db: Db = this.prisma): Promise<SupplierProfile> {
+    const row = await db.tradeSetting.findUnique({ where: { organizationId }, select: { supplierProfiles: true } });
+    return supplierProfileFor(row?.supplierProfiles, supplierId);
   }
 
   /** A customer's profile (TWO_STAGE defaults when it has none). */
@@ -119,7 +151,15 @@ export class TradeConfigService {
 
   async updateSettings(
     organizationId: string,
-    dto: { defaultConsignee?: string | null; defaultNotifyParty?: string | null; docDefaults?: Record<string, unknown>; customerProfiles?: Record<string, unknown>; estimatorRates?: Record<string, unknown> },
+    dto: {
+      defaultConsignee?: string | null;
+      defaultNotifyParty?: string | null;
+      docDefaults?: Record<string, unknown>;
+      customerProfiles?: Record<string, unknown>;
+      supplierProfiles?: Record<string, unknown>;
+      estimatorRates?: Record<string, unknown>;
+      alertRules?: Record<string, unknown>;
+    },
   ) {
     const data: Record<string, unknown> = {};
     for (const k of ['defaultConsignee', 'defaultNotifyParty'] as const) {
@@ -136,11 +176,26 @@ export class TradeConfigService {
         throw new BadRequestException(m);
       });
     }
+    if (dto.supplierProfiles !== undefined) {
+      const cur = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { supplierProfiles: true } });
+      data.supplierProfiles = mergeSupplierProfiles(cur?.supplierProfiles, dto.supplierProfiles, (m) => {
+        throw new BadRequestException(m);
+      });
+    }
+    if (dto.alertRules !== undefined) {
+      const cur = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { alertRules: true } });
+      data.alertRules = cleanAlertRules({ ...((cur?.alertRules as Record<string, unknown> | null) ?? {}), ...dto.alertRules }, (m) => {
+        throw new BadRequestException(m);
+      });
+    }
     if (dto.estimatorRates !== undefined) data.estimatorRates = cleanRates(dto.estimatorRates);
     await this.prisma.tradeSetting.upsert({ where: { organizationId }, update: data as any, create: { organizationId, ...(data as any) } });
     // A changed profile re-marks the N/A steps of the customer's open orders / shipments.
     if (dto.customerProfiles !== undefined) {
       for (const customerId of Object.keys(dto.customerProfiles ?? {})) await this.applyProfileToCustomer(this.prisma, organizationId, customerId);
+    }
+    if (dto.supplierProfiles !== undefined) {
+      for (const supplierId of Object.keys(dto.supplierProfiles ?? {})) await this.applyProfileToSupplier(this.prisma, organizationId, supplierId);
     }
     return this.getSettings(organizationId);
   }
@@ -265,7 +320,9 @@ export class TradeConfigService {
       const key = ownerIdOf(owner);
       if (!key || seen.has(key)) continue;
       seen.add(key);
-      const record = owner.orderId
+      const record = owner.supplierOrderId
+        ? await db.supplierOrder.findFirst({ where: { id: owner.supplierOrderId, organizationId } })
+        : owner.orderId
         ? await db.tradeOrder.findFirst({ where: { id: owner.orderId, organizationId } })
         : owner.contractId
           ? await db.contract.findFirst({ where: { id: owner.contractId, organizationId } })
@@ -308,6 +365,8 @@ export class TradeConfigService {
           else if (record.contractId) await this.closeDealIfDone(db, organizationId, record.contractId, opts.closed);
         } else if (owner.orderId && allDone) {
           await this.closeOrderIfDone(db, organizationId, owner.orderId, opts.closed);
+        } else if (owner.supplierOrderId && allDone) {
+          await this.closeSupplierOrderIfDone(db, organizationId, owner.supplierOrderId);
         } else if (owner.contractId && allDone) {
           await this.closeDealIfDone(db, organizationId, owner.contractId, opts.closed);
         }
@@ -351,6 +410,24 @@ export class TradeConfigService {
     if (stepsDone && ships.length > 0 && ships.every((x: { status: string }) => x.status === 'COMPLETED')) {
       await db.tradeOrder.update({ where: { id: orderId, organizationId }, data: { status: 'COMPLETED' } });
       closed?.orders?.push(orderId);
+    }
+  }
+
+  /**
+   * A supplier order completes by itself when its own steps (0, 1) are done
+   * and every customer order bought under it is completed (cancelled ones
+   * don't count; at least one must be completed).
+   */
+  async closeSupplierOrderIfDone(db: Db, organizationId: string, supplierOrderId: string) {
+    const so = await db.supplierOrder.findFirst({
+      where: { id: supplierOrderId, organizationId },
+      select: { status: true, steps: { select: { status: true, isOngoing: true, notApplicable: true } }, customerOrders: { select: { status: true } } },
+    });
+    if (!so || so.status !== 'OPEN') return;
+    const stepsDone = so.steps.every((s: { status: string; isOngoing: boolean; notApplicable: boolean }) => !countsForProgress(s) || s.status === 'DONE');
+    const orders = so.customerOrders.filter((x: { status: string }) => x.status !== 'CANCELLED');
+    if (stepsDone && orders.length > 0 && orders.every((x: { status: string }) => x.status === 'COMPLETED')) {
+      await db.supplierOrder.update({ where: { id: supplierOrderId, organizationId }, data: { status: 'COMPLETED' } });
     }
   }
 
@@ -414,7 +491,15 @@ export class TradeConfigService {
     const linked = await db.tradeFileLink.findFirst({ where: { organizationId, fileId, ...ownerWhere(owner) }, select: { id: true } });
     if (!linked) {
       await db.tradeFileLink.create({
-        data: { organizationId, fileId, contractId: owner.contractId ?? null, shipmentId: owner.shipmentId ?? null, orderId: owner.orderId ?? null, stepId: step?.id ?? null },
+        data: {
+          organizationId,
+          fileId,
+          contractId: owner.contractId ?? null,
+          shipmentId: owner.shipmentId ?? null,
+          orderId: owner.orderId ?? null,
+          supplierOrderId: owner.supplierOrderId ?? null,
+          stepId: step?.id ?? null,
+        },
       });
     }
     await this.ensureFileDocRef(db, organizationId, fileId, owner);
@@ -429,7 +514,11 @@ export class TradeConfigService {
    */
   async docRefFor(db: Db, organizationId: string, owner: TradeOwner, docType: string): Promise<string | null> {
     let base: string | null = null;
-    if (owner.orderId) {
+    if (owner.supplierOrderId) {
+      // "26-S3-PI": the supplier order's year + number.
+      const so = await db.supplierOrder.findFirst({ where: { id: owner.supplierOrderId, organizationId }, select: { year: true, soNo: true } });
+      if (so) base = supplierOrderDocRefBase({ year: so.year, soNo: so.soNo }, docType);
+    } else if (owner.orderId) {
       const o = await db.tradeOrder.findFirst({ where: { id: owner.orderId, organizationId }, select: { year: true, orderNo: true } });
       if (o) base = orderDocRefBase({ year: o.year, orderNo: o.orderNo }, docType);
     } else if (owner.shipmentId) {
@@ -487,10 +576,10 @@ export class TradeConfigService {
    * are marked N/A, SINGLE billing issues INVOICE_SINGLE on step 11, and
    * "sent" sub-tasks are attached (N/A ones flagged).
    */
-  async snapshotSteps(db: Db, organizationId: string, scope: TradeScope, owner: TradeOwner, profile?: CustomerProfile) {
+  async snapshotSteps(db: Db, organizationId: string, scope: TradeScope, owner: TradeOwner, profile?: CustomerProfile, supplier?: SupplierProfile | null) {
     if (!hasExactlyOneOwner(owner)) throw new BadRequestException('A step belongs to exactly one order, shipment or contract');
     const p = profile ?? profileFor(null, null);
-    const na = new Set(naStepCodes(p, scope));
+    const na = new Set(naStepCodes(p, scope, supplier));
     const templates: Array<{ id: string; code: string; title: string; displayNo: string | null; sortOrder: number; requiredDocTypes: string[]; optionalDocTypes: string[]; requiredFields: string[]; isOngoing: boolean }> =
       await db.tradeStepTemplate.findMany({
         where: { organizationId, scope, isActive: true },
@@ -500,13 +589,14 @@ export class TradeConfigService {
     if (!templates.length) return 0;
     await db.tradeStep.createMany({
       data: templates.map((t) => {
-        const o = stepOverride(p, t.code);
+        const o = stepOverride(p, t.code, supplier);
         const subtasks = subtasksFor(t.code, p);
         return {
           organizationId,
           contractId: owner.contractId ?? null,
           shipmentId: owner.shipmentId ?? null,
           orderId: owner.orderId ?? null,
+          supplierOrderId: owner.supplierOrderId ?? null,
           templateId: t.id,
           code: t.code,
           title: o.title ?? t.title,
@@ -531,18 +621,34 @@ export class TradeConfigService {
    */
   async applyProfileToCustomer(db: Db, organizationId: string, customerId: string) {
     const p = await this.profileOf(organizationId, customerId, db);
-    const orders: Array<{ id: string; shipments: Array<{ id: string; status: string }> }> = await db.tradeOrder.findMany({
+    const orders: Array<{ id: string; supplierId: string; shipments: Array<{ id: string; status: string }> }> = await db.tradeOrder.findMany({
       where: { organizationId, customerId, status: 'OPEN' },
-      select: { id: true, shipments: { select: { id: true, status: true } } },
+      select: { id: true, supplierId: true, shipments: { select: { id: true, status: true } } },
     });
     for (const o of orders) {
-      await this.applyProfile(db, organizationId, { orderId: o.id }, 'ORDER', p);
-      for (const s of o.shipments.filter((x) => x.status === 'OPEN')) await this.applyProfile(db, organizationId, { shipmentId: s.id }, 'SHIPMENT', p);
+      const sp = await this.supplierProfileOf(organizationId, o.supplierId, db);
+      await this.applyProfile(db, organizationId, { orderId: o.id }, 'ORDER', p, sp);
+      for (const s of o.shipments.filter((x) => x.status === 'OPEN')) await this.applyProfile(db, organizationId, { shipmentId: s.id }, 'SHIPMENT', p, sp);
     }
   }
 
-  async applyProfile(db: Db, organizationId: string, owner: TradeOwner, scope: TradeScope, p: CustomerProfile) {
-    const na = new Set(naStepCodes(p, scope));
+  /** Re-apply a supplier's profile (PI or not, its shipping documents) to its open supplier orders and shipments. */
+  async applyProfileToSupplier(db: Db, organizationId: string, supplierId: string) {
+    const sp = await this.supplierProfileOf(organizationId, supplierId, db);
+    const sos: Array<{ id: string }> = await db.supplierOrder.findMany({ where: { organizationId, supplierId, status: 'OPEN' }, select: { id: true } });
+    for (const so of sos) await this.applyProfile(db, organizationId, { supplierOrderId: so.id }, 'SUPPLIER_ORDER', profileFor(null, null), sp);
+    const orders: Array<{ id: string; customerId: string; shipments: Array<{ id: string; status: string }> }> = await db.tradeOrder.findMany({
+      where: { organizationId, supplierId, status: 'OPEN' },
+      select: { id: true, customerId: true, shipments: { select: { id: true, status: true } } },
+    });
+    for (const o of orders) {
+      const p = await this.profileOf(organizationId, o.customerId, db);
+      for (const s of o.shipments.filter((x) => x.status === 'OPEN')) await this.applyProfile(db, organizationId, { shipmentId: s.id }, 'SHIPMENT', p, sp);
+    }
+  }
+
+  async applyProfile(db: Db, organizationId: string, owner: TradeOwner, scope: TradeScope, p: CustomerProfile, supplier?: SupplierProfile | null) {
+    const na = new Set(naStepCodes(p, scope, supplier));
     const steps: Array<{ id: string; code: string; status: string; notApplicable: boolean; title: string; requiredDocTypes: string[]; subtasks: unknown }> = await db.tradeStep.findMany({
       where: { organizationId, ...ownerWhere(owner) },
       select: { id: true, code: true, status: true, notApplicable: true, title: true, requiredDocTypes: true, subtasks: true },
@@ -554,7 +660,7 @@ export class TradeConfigService {
     for (const s of steps) {
       if (s.status === 'DONE') continue;
       const t = templates.find((x) => x.code === s.code);
-      const o = stepOverride(p, s.code);
+      const o = stepOverride(p, s.code, supplier);
       const data: Record<string, unknown> = {};
       if (s.notApplicable !== na.has(s.code)) data.notApplicable = na.has(s.code);
       const want = o.requiredDocTypes ?? t?.requiredDocTypes;
@@ -625,7 +731,7 @@ export function optText(v: unknown): string | null | undefined {
 /** Estimator rates patch: numbers ≥ 0 (truckRates: { "<t>": yen }); unknown keys refused. */
 export function cleanRates(v: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  const NUMS = ['taxMultiplier', 'customsPerMt', 'blFee', 'storagePerContainer', 'storagePerMt', 'washingPerContainer', 'detentionPerContainer', 'importTaxRate'];
+  const NUMS = ['taxMultiplier', 'customsPerMt', 'blFee', 'storagePerContainer', 'storagePerMt', 'washingPerContainer', 'detentionPerContainer'];
   for (const [k, x] of Object.entries(v ?? {})) {
     if (k === 'truckRates') {
       if (!x || typeof x !== 'object' || Array.isArray(x)) throw new BadRequestException('truckRates must map tonnes to yen');
@@ -662,8 +768,10 @@ export function mergeDocDefaults(current: Record<string, unknown>, patch: Record
     }
     if (k === 'banks') {
       if (!Array.isArray(v) || v.length > 10 || !v.every((b) => b && isText(b.id, 64) && isText(b.label, 200) && isText(b.block)))
-        throw new BadRequestException('banks must be a list (max 10) of { id, label, block }');
-      out[k] = v.map((b) => ({ id: b.id.trim(), label: b.label.trim(), block: b.block }));
+        throw new BadRequestException('banks must be a list (max 10) of { id, label, block, entity? }');
+      if (v.some((b) => b.entity !== undefined && b.entity !== null && b.entity !== 'ADH_JP' && b.entity !== 'ADH_SG')) throw new BadRequestException('A bank entity is ADH_JP or ADH_SG');
+      // Each account belongs to one entity (DBS / Wise / CFSB = ADH SG, SMBC JPY = ADH JP).
+      out[k] = v.map((b) => ({ id: b.id.trim(), label: b.label.trim(), block: b.block, entity: bankEntity(b) }));
     } else if (k === 'deliveryProfiles') {
       if (!Array.isArray(v) || v.length > 50 || !v.every((p) => p && isText(p.id, 64) && isText(p.customerName, 200) && isText(p.siteName, 200) && isText(p.address, 500) && isText(p.notes ?? '')))
         throw new BadRequestException('deliveryProfiles must be a list (max 50) of { id, customerName, siteName, address, notes }');
@@ -683,6 +791,11 @@ export function mergeDocDefaults(current: Record<string, unknown>, patch: Record
         out2[q] = n;
       }
       out[k] = out2;
+    } else if (k === 'lmeByMonth') {
+      // { "2026-07": 3155.98 } — LME cash monthly average (US$/MT) for the price check.
+      out[k] = cleanLmeByMonth(v, (m) => {
+        throw new BadRequestException(m);
+      });
     } else if (k === 'productJa' || k === 'sizeInch') {
       if (typeof v !== 'object' || Array.isArray(v) || !Object.values(v as object).every((x) => isText(x, 200))) throw new BadRequestException(`${k} must map text to text`);
       out[k] = v;

@@ -1,5 +1,5 @@
 import { OmitType, PartialType } from '@nestjs/swagger';
-import { IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
 import { IsTradeDate } from './trade-date';
 
 export class CreateShipmentDto {
@@ -53,6 +53,18 @@ export class AddShipmentDto extends OmitType(CreateShipmentDto, ['orderId', 'con
 export class UpdateShipmentDto extends PartialType(OmitType(CreateShipmentDto, ['contractId', 'orderId'] as const)) {
   /** Estimator inputs and step 12 actuals (validated in the service). */
   @IsOptional() costs?: unknown;
+
+  /** Free time at the port (alerts warn 1 day before it ends): discharge date + DET / DEM days. */
+  @IsOptional() @IsDateString() @IsTradeDate() dischargeDate?: string | null;
+  @IsOptional() @IsInt() @Min(0) @Max(90) detFreeDays?: number | null;
+  @IsOptional() @IsInt() @Min(0) @Max(90) demFreeDays?: number | null;
+  /** Warehouse stock: where it is stored and since when (storage periods). */
+  @IsOptional() @IsString() @MaxLength(200) warehouse?: string | null;
+  @IsOptional() @IsDateString() @IsTradeDate() storageStartDate?: string | null;
+  /** A different supplier order than its order's (a split that differs). */
+  @IsOptional() @IsUUID() supplierOrderId?: string | null;
+  /** Where an ETA change came from (MANUAL, AN, BL …) — kept in the ETA history. */
+  @IsOptional() @IsString() @MaxLength(40) etaSource?: string;
 
   @IsOptional()
   @IsIn(['CANCELLED'], { message: 'status can only be set to CANCELLED here (use complete / reopen)' })

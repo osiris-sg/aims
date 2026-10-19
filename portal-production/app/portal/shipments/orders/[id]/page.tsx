@@ -18,8 +18,8 @@ import MoreVertIcon from "@mui/icons-material/MoreVert";
 import EditIcon from "@mui/icons-material/EditOutlined";
 import { toast } from "../../_lib/toast";
 import { useGeneratedDocs, useOrder, useOrderGeneratedDocs, useShipment, useTradeMutation } from "../../_lib/hooks";
-import { recordFileCount, useShipmentsApi, type AnExtraction, type BlExtraction, type Order, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
-import { blLabel, depositTermLabel, fmtDay, fmtDmy, fmtMoney, fmtMt, stepLabel } from "../../_lib/format";
+import { recordFileCount, useShipmentsApi, type AnExtraction, type BlExtraction, type Order, type PermitCheck, type PermitExtraction, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
+import { blLabel, depositTermLabel, fmtDay, fmtDmy, fmtMoney, fmtMt, fmtYen, stepLabel } from "../../_lib/format";
 import RecordHeader from "../../_components/RecordHeader";
 import ShipmentOverview from "../../_components/ShipmentOverview";
 import StepCards, { type StepContext } from "../../_components/StepCards";
@@ -31,6 +31,9 @@ import ExtractApplyDialog, { type ApplyRow } from "../../_components/ExtractAppl
 import OrderFormDialog from "../../_components/OrderFormDialog";
 import EstimatorPanel, { ESTIMATOR_STEPS } from "../../_components/EstimatorPanel";
 import ReconciliationPanel from "../../_components/ReconciliationPanel";
+import PriceCheckPanel from "../../_components/PriceCheckPanel";
+import OrderCashPanel from "../../_components/OrderCashPanel";
+import RecordPaymentButton, { PAYING_STEPS } from "../../_components/RecordPaymentButton";
 
 const TABS = ["journey", "details", "files"] as const;
 const byOrder = (a: TradeStep, b: TradeStep) => a.sortOrder - b.sortOrder;
@@ -78,8 +81,10 @@ export default function OrderPage() {
 
   // ── one open card across the whole order ─────────────────────────────────
   const orderSteps = useMemo(() => [...(o?.steps ?? [])].sort(byOrder), [o?.steps]);
+  const supplierSteps = useMemo(() => [...(o?.supplierOrder?.steps ?? [])].sort(byOrder), [o?.supplierOrder?.steps]);
   const shipSteps = useMemo(() => [...(s?.steps ?? [])].sort(byOrder), [s?.steps]);
-  const current = firstOpen(orderSteps.filter((x) => x.code !== "XERO_HANDOFF")) ?? firstOpen(shipSteps) ?? firstOpen(orderSteps);
+  const current =
+    (o?.supplierOrder?.status === "OPEN" ? firstOpen(supplierSteps) : null) ?? firstOpen(orderSteps.filter((x) => x.code !== "XERO_HANDOFF")) ?? firstOpen(shipSteps) ?? firstOpen(orderSteps);
   const [openId, setOpenId] = useState<string | null>(null);
   const [userPicked, setUserPicked] = useState(false);
   const shown = userPicked ? openId : (current?.id ?? null);
@@ -154,6 +159,7 @@ export default function OrderPage() {
   const here = `/portal/shipments/orders/${o.id}${shipmentId ? `?shipment=${shipmentId}` : ""}`;
   const hereTab = (t: string) => `${here}${here.includes("?") ? "&" : "?"}tab=${t}`;
   const orderOwner = { kind: "order" as const, id: o.id, label: `Order ${o.label}` };
+  const soOwner = o.supplierOrder ? { kind: "supplierOrder" as const, id: o.supplierOrder.id, label: `Supplier order ${o.supplierOrder.label}` } : null;
   const shipOwner = s ? { kind: "shipment" as const, id: s.id, label: `Shipment ${s.ref || blLabel(s.blNumber)}` } : null;
   const openShipments = shipments.filter((x) => x.status === "OPEN");
   const fileCount = recordFileCount(o) + (s ? recordFileCount(s) : 0);
@@ -161,14 +167,29 @@ export default function OrderPage() {
 
   const readUploaded = async (docType: string, files: TradeFile[]) => {
     const f = files[0];
-    if (!s || !f || (docType !== "BL_DRAFT" && docType !== "ARRIVAL_NOTICE")) return;
-    const what = docType === "BL_DRAFT" ? "B/L draft" : "arrival notice";
+    if (!s || !f || (docType !== "BL_DRAFT" && docType !== "ARRIVAL_NOTICE" && docType !== "IMPORT_PERMIT")) return;
+    const what = docType === "BL_DRAFT" ? "B/L draft" : docType === "IMPORT_PERMIT" ? "import permit" : "arrival notice";
     const t = toast.info(`Reading the ${what} (${f.fileName})…`, { autoClose: false });
     try {
       if (docType === "BL_DRAFT") {
         const x = await api.extractBlDraft({ fileId: f.id, shipmentId: s.id });
         if (x.status !== "DONE" || !x.result) throw new Error(x.error || "the AI read failed");
-        setOffer({ title: "Apply the B/L draft to the B/L details?", intro: `Read from ${f.fileName}. The B/L check against the order is shown on step 2.`, warning: null, rows: blRows(s, x) });
+        setOffer({ title: "Apply the B/L draft to the B/L details?", intro: `Read from ${f.fileName}. The B/L check against the order is shown on step 3a.`, warning: null, rows: blRows(s, x) });
+      } else if (docType === "IMPORT_PERMIT") {
+        const x = await api.extractImportPermit({ fileId: f.id, shipmentId: s.id });
+        if (x.status !== "DONE" || !x.result) throw new Error(x.error || "the read failed");
+        const r = x.result;
+        const issues = r.checks.filter((c) => c.status === "mismatch");
+        setOffer({
+          title: "Fill the import tax from the import permit?",
+          intro: `Read from ${f.fileName}${r.via === "text" ? " (text layer)" : " (AI read)"}. 納税額合計 ${fmtYen(r.permit.total)}${r.totalFrom === "fileName" ? " — from the file name" : ""}.`,
+          warning: [
+            ...issues.map((c) => `${c.label} on the permit is ${c.found}, the shipment has ${c.expected}.`),
+            ...(r.formulaOk === false ? ["The permit's CIF × rate + add-on doesn't reproduce its total — check the figures."] : []),
+          ].join(" ") || null,
+          rows: costRows(s, r.fill, PERMIT_LABELS),
+          extra: <PermitFacts permit={r.permit} checks={r.checks} />,
+        });
       } else {
         const x = await api.extractAn({ fileId: f.id, shipmentId: s.id });
         if (x.status !== "DONE" || !x.result) throw new Error(x.error || "the AI read failed");
@@ -177,6 +198,7 @@ export default function OrderPage() {
           intro: `Read from ${f.fileName}. Only blank shipment fields are offered.`,
           warning: x.result.blMismatch ? `This notice is for B/L ${x.result.draft.blNumber}, not ${s.blNumber}. Check it is the right file.` : null,
           rows: anRows(s, x),
+          extra: <AnFacts draft={x.result.draft} />,
         });
       }
     } catch (e: any) {
@@ -241,9 +263,55 @@ export default function OrderPage() {
 
       {tab === 0 && (
         <Stack spacing={3}>
+          {o.supplierOrder && soOwner && (
+            <Box data-tour="order-supplier-side">
+              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                <Typography variant="overline" color="text.secondary">
+                  Supplier side · {o.supplierOrder.label}
+                </Typography>
+                <Chip size="small" variant="outlined" label={o.supplierOrder.supplierProfile?.hasPI === false ? "No PI (supplier profile)" : "PI + deposit"} />
+                {o.supplierOrder.sharedWith.length > 0 && <Chip size="small" variant="outlined" label={`Also for ${o.supplierOrder.sharedWith.join(", ")}`} />}
+                <Button size="small" href={`/portal/shipments/supplier-orders/${o.supplierOrder.id}`}>
+                  Open supplier order
+                </Button>
+              </Stack>
+              <StepCards
+                steps={o.supplierOrder.steps}
+                owner={soOwner}
+                fileLinks={o.supplierOrder.fileLinks}
+                docLinks={[]}
+                generatedDocs={[]}
+                recordOpen={o.supplierOrder.status === "OPEN"}
+                returnTo={here}
+                openId={shown}
+                onOpen={onOpen}
+                context={supplierContext(o)}
+                stepExtra={(st) =>
+                  st.code === "PI_PAYMENT" ? (
+                    <RecordPaymentButton
+                      stepCode="PI_PAYMENT"
+                      stepId={st.id}
+                      targetId={o.supplierOrder!.id}
+                      label={`${o.supplierOrder!.label} deposit`}
+                      amount={o.supplierOrder!.depositAmount != null ? Number(o.supplierOrder!.depositAmount) : null}
+                      disabled={o.supplierOrder!.status !== "OPEN"}
+                    />
+                  ) : null
+                }
+                customerId={o.customerId}
+                fieldsTitle="Contract"
+                fieldsSummary={o.contract ? `Contract ${o.contract.contractNo}${o.supplierOrder.qpBasis ? ` · QP ${o.supplierOrder.qpBasis}` : ""}` : null}
+                fieldsForm={() => (
+                  <Button variant="outlined" startIcon={<EditIcon />} href={`/portal/shipments/supplier-orders/${o.supplierOrder!.id}`}>
+                    Link the contract on the supplier order
+                  </Button>
+                )}
+              />
+            </Box>
+          )}
           <Box>
             <Typography variant="overline" color="text.secondary">
-              Order steps
+              {o.supplierOrder ? "Customer side" : "Order steps"}
             </Typography>
             <StepCards
               steps={o.steps}
@@ -264,7 +332,14 @@ export default function OrderPage() {
                   Link the contract / confirm premiums
                 </Button>
               )}
-              stepExtra={(st) => (st.code === "XERO_HANDOFF" ? <ReconciliationPanel orderId={o.id} canEdit={o.status === "OPEN"} /> : null)}
+              stepExtra={(st) =>
+                st.code === "XERO_HANDOFF" ? (
+                  <Stack spacing={2}>
+                    <ReconciliationPanel orderId={o.id} canEdit={o.status === "OPEN"} />
+                    <OrderCashPanel orderId={o.id} canEdit={o.status === "OPEN"} />
+                  </Stack>
+                ) : null
+              }
             />
           </Box>
 
@@ -364,7 +439,30 @@ export default function OrderPage() {
                   fieldsTitle="B/L details"
                   fieldsSummary={blSummary(s)}
                   fieldsForm={() => <ShipmentFormDialog key={formKey} inline open shipment={s} onClose={() => undefined} onSaved={() => toast.success("B/L details saved")} />}
-                  stepExtra={(st) => (ESTIMATOR_STEPS[st.code] ? <EstimatorPanel shipment={s} mode={ESTIMATOR_STEPS[st.code]} canEdit={s.status === "OPEN"} /> : null)}
+                  stepExtra={(st) => {
+                    const pay = PAYING_STEPS[st.code] ? (
+                      <RecordPaymentButton
+                        stepCode={st.code}
+                        stepId={st.id}
+                        targetId={s.id}
+                        label={`${s.ref} ${st.code === "CI_PAYMENT" ? "CI" : st.code === "TAX_FUNDS" ? "import tax" : "logistics"}`}
+                        amount={st.code === "CI_PAYMENT" ? (s.ciAmount != null ? Number(s.ciAmount) : null) : st.code === "TAX_FUNDS" ? (s.estimate?.importTax.actual ?? s.estimate?.importTax.estimate ?? null) : null}
+                        currency={st.code === "CI_PAYMENT" ? s.currency : "JPY"}
+                        disabled={s.status !== "OPEN"}
+                      />
+                    ) : null;
+                    const main = ESTIMATOR_STEPS[st.code] ? (
+                      <EstimatorPanel shipment={s} mode={ESTIMATOR_STEPS[st.code]} canEdit={s.status === "OPEN"} />
+                    ) : st.code === "CI_PAYMENT" ? (
+                      <PriceCheckPanel kind="shipment" id={s.id} title="CI price check vs contract" />
+                    ) : null;
+                    return main || pay ? (
+                      <Stack spacing={1}>
+                        {main}
+                        {pay && <Box>{pay}</Box>}
+                      </Stack>
+                    ) : null;
+                  }}
                 />
               </>
             ) : null}
@@ -375,6 +473,7 @@ export default function OrderPage() {
       {tab === 1 && (
         <Stack spacing={3}>
           <OrderOverview order={o} onEdit={() => setEditOpen(true)} />
+          <OrderCashPanel orderId={o.id} canEdit={o.status === "OPEN"} />
           {s && (
             <Box>
               <Typography variant="overline" color="text.secondary">
@@ -408,6 +507,25 @@ export default function OrderPage() {
       )}
 
       <Menu anchorReference="anchorPosition" anchorPosition={shipMenu ?? undefined} open={!!shipMenu} onClose={() => setShipMenu(null)}>
+        {s && (
+          <MenuItem
+            data-tour="shipment-folder-zip"
+            onClick={async () => {
+              setShipMenu(null);
+              const t = toast.info("Preparing the shipment folder…", { autoClose: false });
+              try {
+                const name = await api.downloadShipmentZip(s.id);
+                toast.success(`Downloaded ${name}`);
+              } catch (e: any) {
+                toast.error(e?.message || "Could not download the folder");
+              } finally {
+                toast.dismiss(t);
+              }
+            }}
+          >
+            Download shipment folder (.zip)
+          </MenuItem>
+        )}
         {s?.status === "OPEN" && (
           <MenuItem
             onClick={() => {
@@ -458,7 +576,7 @@ export default function OrderPage() {
         onClose={() => setOffer(null)}
         onApply={async (patch) => {
           remountAfter.current = s?.updatedAt ?? null;
-          await applyShip.mutateAsync({ id: s!.id, patch });
+          await applyShip.mutateAsync({ id: s!.id, patch: nestCosts(patch) });
           toast.success("Shipment updated from the document");
         }}
       />
@@ -510,6 +628,27 @@ function orderContext(o: Order): StepContext {
       }
       if (d === "PI") return o.piNo ? `PI ${o.piNo}${o.piAmount != null ? ` · ${money(o.piAmount)}` : ""}` : null;
       if (d === "INVOICE_1") return `${o.customer?.name ?? "Customer"} · order ${o.label}`;
+      return null;
+    },
+  };
+}
+
+/** Facts for the supplier side's steps (0 contract, 1 PI payment). */
+function supplierContext(o: Order): StepContext {
+  const so = o.supplierOrder!;
+  const money = (v: unknown) => fmtMoney(v as any, o.currency);
+  return {
+    stepLine: (st) =>
+      st.code === "CHECK_CONTRACT"
+        ? o.contract
+          ? `Contract ${o.contract.contractNo} · supplier premium ${o.supplierPremium ?? "—"} USD/MT`
+          : "No contract linked yet — link it on the supplier order"
+        : st.code === "PI_PAYMENT"
+          ? [so.piNo && `PI ${so.piNo}`, so.piDate && `dated ${fmtDmy(so.piDate)}`, so.piAmount != null && money(so.piAmount)].filter(Boolean).join(" · ") || null
+          : null,
+    docLine: (d) => {
+      if (d === "DEPOSIT_PROOF") return so.depositAmount != null ? `Deposit ${so.depositPct != null ? `${Number(so.depositPct)}% ` : ""}= ${money(so.depositAmount)}` : null;
+      if (d === "PI") return so.piNo ? `PI ${so.piNo}${so.piAmount != null ? ` · ${money(so.piAmount)}` : ""}` : null;
       return null;
     },
   };
@@ -625,6 +764,68 @@ function blRows(s: Shipment, x: BlExtraction): ApplyRow[] {
   const d = x.result!.draft as Record<string, unknown>;
   return BL_FIELDS.filter(([k]) => shownVal(d[k]) !== null && !same(d[k], s[k])).map(([k, label]) => ({ key: k, label, current: shownVal(s[k]), next: shownVal(d[k])!, value: d[k] }));
 }
+const COST_LABELS: Record<string, string> = {
+  "costs.thc": "THC (estimator, step 7)",
+  "costs.docFee": "Documentation fee (estimator)",
+  "costs.equipmentFee": "EQMC (estimator; 加算運賃 default)",
+};
+const PERMIT_LABELS: Record<string, string> = {
+  "costs.importTaxActual": "Actual import tax (納税額合計)",
+  "costs.fxRate": "Customs rate (円/USD)",
+  "costs.cifUsd": "CIF (USD, 仕入書価格)",
+  "costs.customsAddOnJpy": "加算運賃 (JPY)",
+};
+const costOf = (s: Shipment, key: string) => (key.startsWith("costs.") ? (s.costs as any)?.[key.slice(6)] : (s as any)[key]);
 function anRows(s: Shipment, x: AnExtraction): ApplyRow[] {
-  return Object.entries(x.result!.fill ?? {}).map(([k, v]) => ({ key: k, label: AN_LABELS[k] ?? k, current: shownVal((s as any)[k]), next: shownVal(v) ?? "", value: v }));
+  return Object.entries(x.result!.fill ?? {}).map(([k, v]) => ({ key: k, label: AN_LABELS[k] ?? COST_LABELS[k] ?? k, current: shownVal(costOf(s, k)), next: shownVal(v) ?? "", value: v }));
+}
+function costRows(s: Shipment, fill: Record<string, unknown>, labels: Record<string, string>): ApplyRow[] {
+  return Object.entries(fill).map(([k, v]) => ({ key: k, label: labels[k] ?? k, current: shownVal(costOf(s, k)), next: shownVal(v) ?? "", value: v }));
+}
+/** {"costs.thc": 1} → { costs: { thc: 1 } } (Shipment.costs merges a patch). */
+function nestCosts(patch: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const costs: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (k.startsWith("costs.")) costs[k.slice(6)] = v;
+    else out[k] = v;
+  }
+  return Object.keys(costs).length ? { ...out, costs } : out;
+}
+
+/** Read-only facts from the A/N with no shipment field: the arriving vessel, CY, charges. */
+function AnFacts({ draft }: { draft: AnExtraction["result"] extends infer R ? (R extends { draft: infer D } ? D : never) : never }) {
+  const rows: Array<[string, string]> = [];
+  if (draft.tsVessel) rows.push(["Arriving vessel (after T/S)", [draft.tsVessel, draft.tsVoyageNo].filter(Boolean).join(" / ")]);
+  if (draft.cyTerminal) rows.push(["CY terminal", draft.cyTerminal]);
+  if (draft.cbm) rows.push(["Measurement", `${draft.cbm} CBM`]);
+  if (draft.telexRelease) rows.push(["B/L", "Telex release"]);
+  for (const c of draft.charges) rows.push([c.code ?? "Charge", `${c.currency ?? ""} ${c.amount?.toLocaleString("en-US") ?? "—"}${c.unit && c.rate ? ` (${c.unit} × ${c.rate.toLocaleString("en-US")})` : ""}`]);
+  if (!rows.length) return null;
+  return <FactList rows={rows} />;
+}
+function PermitFacts({ permit, checks }: { permit: PermitExtraction["result"] extends infer R ? (R extends { permit: infer P } ? P : never) : never; checks: PermitCheck[] }) {
+  const rows: Array<[string, string]> = [
+    ["申告番号 / 申告年月日", `${permit.declarationNo ?? "—"} · ${permit.declarationDate ?? "—"}`],
+    ["積載船", permit.vessel ?? "—"],
+    ["貨物個数 / 重量", `${permit.packages ?? "—"} · ${permit.grossWeightKg?.toLocaleString("en-US") ?? "—"} kg`],
+    ["申告価格", fmtYen(permit.customsValue)],
+    ["消費税 / 地方消費税", `${fmtYen(permit.national)} / ${fmtYen(permit.local)}`],
+    ...checks.map((c): [string, string] => [c.label, `${c.found ?? "—"} ${c.status === "ok" ? "✓" : c.status === "mismatch" ? `✗ (shipment: ${c.expected})` : "(nothing to compare)"}`]),
+  ];
+  return <FactList rows={rows} />;
+}
+function FactList({ rows }: { rows: Array<[string, string]> }) {
+  return (
+    <Box sx={{ display: "grid", gridTemplateColumns: "auto 1fr", columnGap: 2, rowGap: 0.25, mt: 1 }}>
+      {rows.map(([k, v], i) => (
+        <React.Fragment key={i}>
+          <Typography variant="body2" color="text.secondary">
+            {k}
+          </Typography>
+          <Typography variant="body2">{v}</Typography>
+        </React.Fragment>
+      ))}
+    </Box>
+  );
 }

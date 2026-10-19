@@ -7,8 +7,10 @@
 //   step 7  通関 (qty × rate × 1.1) + B/L fee + AN charges = est. 通関・車輸送;
 //           trucking = trucks (ROUND(gross / truck size)) × truck rate × 1.1;
 //           storage / other; and the import tax estimate.
-//   step 8  import tax: CIF × the customs weekly FX × 10% (customs.go.jp
-//           rate), funded and actual (from the import permit), variance.
+//   step 8  import tax, the 輸入許可書 formula: 申告価格 = ⌊CIF × customs weekly
+//           rate⌋ + 加算運賃 (default the A/N's EQMC); 消費税 7.8% of ⌊申告価格⌋₁₀₀₀,
+//           地方消費税 22/78 of it, each ⌊⌋₁₀₀; funded and actual (import
+//           permit, step 10), variance.
 //   step 12 actuals from Mitsui Soko's invoices next to the estimate.
 // Values are saved on blur to Shipment.costs; the figures come back computed.
 
@@ -76,21 +78,34 @@ export default function EstimatorPanel({ shipment, mode, canEdit }: { shipment: 
             Import tax {mode === "tax" ? "(funds)" : "estimate"}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            CIF × the customs weekly rate ×10% —{" "}
+            ⌊CIF × customs weekly rate⌋ + 加算運賃 → 消費税 7.8% + 地方消費税 22/78 —{" "}
             <Link href={CUSTOMS_FX_URL} target="_blank" rel="noopener">
               customs.go.jp exchange rates
             </Link>
           </Typography>
           <Grid container spacing={1.5}>
             <Num label="CIF (USD)" value={costs.cifUsd} disabled={!canEdit} onSave={(v) => put({ cifUsd: v })} />
-            <Num label="FX (円/USD)" value={costs.fxRate} disabled={!canEdit} onSave={(v) => put({ fxRate: v })} />
+            <Num label="Customs rate (円/USD)" value={costs.fxRate} disabled={!canEdit} onSave={(v) => put({ fxRate: v })} />
+            <Num
+              label="加算運賃 (JPY add-on)"
+              value={costs.customsAddOnJpy}
+              yen
+              placeholder={costs.equipmentFee ?? undefined}
+              helper={costs.customsAddOnJpy === null || costs.customsAddOnJpy === undefined ? (costs.equipmentFee !== null && costs.equipmentFee !== undefined ? "Default: the A/N's EQMC" : "Default: the A/N's EQMC (not read yet)") : "Typed — clear to use the EQMC"}
+              disabled={!canEdit}
+              onSave={(v) => put({ customsAddOnJpy: v })}
+            />
             {mode === "tax" && <Num label="Funded" value={costs.importTaxFunded} yen disabled={!canEdit} onSave={(v) => put({ importTaxFunded: v })} />}
             {mode === "tax" && <Num label="Actual (import permit)" value={costs.importTaxActual} yen disabled={!canEdit} onSave={(v) => put({ importTaxActual: v })} />}
           </Grid>
           <Figures
             rows={[
-              ["CIF (JPY, 1,000円未満切捨て)", e.importTax.cifJpy],
-              ["Import tax estimate", e.importTax.estimate, true],
+              ["CIF × rate (円未満切捨て)", e.importTax.cifJpy],
+              [`+ 加算運賃${e.importTax.addOnSource === "EQMC" ? " (EQMC)" : ""}`, e.importTax.addOnJpy || null],
+              ["申告価格", e.importTax.customsValue],
+              ["消費税 7.8% (課税標準 1,000円未満, 100円未満切捨て)", e.importTax.national],
+              ["地方消費税 22/78 (100円未満切捨て)", e.importTax.local],
+              ["Import tax estimate (納税額合計)", e.importTax.estimate, true],
               ...(mode === "tax"
                 ? ([
                     ["Funded", e.importTax.funded],

@@ -72,6 +72,7 @@ function contractDb(opts: { settings?: any; lines?: any[] } = {}) {
   const prisma: any = { ...tx, $transaction: (fn: any) => fn(tx) };
   const config: any = {
     profileOf: jest.fn(async () => ({ billingMode: 'TWO_STAGE', sendImportPermit: true, truckCapacityT: 20, docVariants: {} })),
+    supplierProfileOf: jest.fn(async () => ({ hasPI: true })),
     snapshotSteps: jest.fn(),
     syncSteps: jest.fn().mockResolvedValue([]),
     getSettings: jest.fn().mockResolvedValue({ defaultConsignee: opts.settings?.defaultConsignee ?? null, defaultNotifyParty: opts.settings?.defaultNotifyParty ?? null }),
@@ -153,7 +154,7 @@ describe('ShipmentsService.create — product line', () => {
       shipment: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 's1' }) },
     };
     const prisma: any = { $transaction: (fn: any) => fn(tx) };
-    const svc = new ShipmentsService(prisma, { snapshotSteps: jest.fn(), syncSteps: jest.fn().mockResolvedValue([]), profileOf: jest.fn(async () => ({ billingMode: 'TWO_STAGE', docVariants: {} })) } as any);
+    const svc = new ShipmentsService(prisma, { snapshotSteps: jest.fn(), syncSteps: jest.fn().mockResolvedValue([]), profileOf: jest.fn(async () => ({ billingMode: 'TWO_STAGE', docVariants: {} })), supplierProfileOf: jest.fn(async () => ({ hasPI: true })) } as any);
     jest.spyOn(svc, 'getById').mockResolvedValue({} as any);
     return { tx, svc };
   }

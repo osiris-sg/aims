@@ -2,7 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { documentLinkState } from './shipments.rules';
 import { documentSummary, pageArgs, TradeConfigService } from './trade-config.service';
-import { toInvoiceLines } from './trade-invoice';
+import { invoiceTotals, toInvoiceLines } from './trade-invoice';
+import { entityFor } from './trade-entity';
+
+/** Uploaded / linked documents ADH itself issues (the rest — PI, B/L, CI … — come from others: no entity). */
+const ADH_ISSUED = new Set(['INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE', 'CUSTOMER_PL', 'CUSTOMER_COA', 'SHIPPING_INSTRUCTIONS', 'SGJP_IV_PL']);
+const entityOfType = (docType: string) => (ADH_ISSUED.has(docType) ? entityFor(docType) : null);
 
 export type HubSource = 'UPLOADED' | 'IN_APP';
 
@@ -14,6 +19,8 @@ export interface HubQuery {
   orderId?: string;
   customerId?: string;
   source?: string;
+  /** ADH_JP | ADH_SG — the ADH company that issued it. */
+  entity?: string;
   from?: string;
   to?: string;
   q?: string;
@@ -46,6 +53,8 @@ export interface HubRow {
   docTypeLabel: string;
   name: string;
   source: HubSource;
+  /** The ADH company that issued it (ADH-made documents only; supplier documents: null). */
+  issuingEntity: string | null;
   /** In-app only: Draft / Confirmed / Final (+ Voided / Deleted for invoices). */
   status: string | null;
   links: HubLink[];
@@ -138,6 +147,7 @@ export class TradeHubService {
           number: true,
           docRef: true,
           status: true,
+          issuingEntity: true,
           header: true,
           finalFileId: true,
           documentId: true,
@@ -170,6 +180,7 @@ export class TradeHubService {
         docTypeLabel: label(f.docType),
         name: f.fileName,
         source: 'UPLOADED',
+        issuingEntity: entityOfType(f.docType),
         status: null,
         links: f.links.map((l) => hubLink(l, l.id)),
         customerIds: [...new Set(f.links.map(linkCustomerId).filter(Boolean) as string[])],
@@ -211,6 +222,7 @@ export class TradeHubService {
         docTypeLabel: label(docType),
         name: s?.number ?? '(deleted invoice)',
         source: 'IN_APP',
+        issuingEntity: entityOfType(docType),
         status: state.state === 'confirmed' ? 'Confirmed' : state.state === 'draft' ? 'Draft' : state.state === 'voided' ? 'Voided' : 'Deleted',
         links: links.map((l) => hubLink(l, l.id)),
         customerIds: [...new Set(links.map(linkCustomerId).filter(Boolean) as string[])],
@@ -272,9 +284,11 @@ export class TradeHubService {
         id: g.id,
         category: cat(g.docType),
         docType: g.docType,
-        docTypeLabel: label(g.docType),
+        // A negative Invoice #2 is a credit note (falling LME) — offset on a later Invoice #1.
+        docTypeLabel: g.docType === 'INVOICE_2' && invoiceTotals(toInvoiceLines(g.rows), Number((g.header as any)?.taxRate ?? 10), null, (g.header as any)?.variant === 'final' ? 'final' : undefined).total < 0 ? 'Credit note' : label(g.docType),
         name: g.number ?? `${label(g.docType)} (draft)`,
         source: 'IN_APP',
+        issuingEntity: g.issuingEntity ?? entityFor(g.docType),
         status: g.status === 'FINAL' ? 'Final' : 'Draft',
         links,
         customerIds: [...customerIds],
@@ -297,6 +311,7 @@ export class TradeHubService {
     const matchesOthers = (r: HubRow) =>
       (!query.docType || r.docType === query.docType) &&
       (!query.source || r.source === query.source) &&
+      (!query.entity || r.issuingEntity === query.entity) &&
       (!query.contractId || r.links.some((l) => l.contractId === query.contractId)) &&
       (!query.shipmentId || r.links.some((l) => l.shipmentId === query.shipmentId)) &&
       (!query.orderId || r.links.some((l) => l.orderId === query.orderId)) &&

@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { cleanPremiumSchedule, marginAt } from './trade-contract';
 import { ContractLineDto, CreateContractDto, ListContractsQuery, UpdateContractDto } from './dto/contract.dto';
 import { CreateShipmentDto } from './dto/shipment.dto';
 import { TradeActor } from './shipments.request';
-import { blockingSteps, currentStepOf, depositOf, linesSummary, progressOf, stepLabels } from './shipments.rules';
+import { blockingSteps, currentStepOf, depositOf, linesSummary, progressOf, stepLabels, supplierOrderLabel, tradeToday } from './shipments.rules';
 import { Db, DOC_LINK_SELECT, isUniqueViolation, optText, pageArgs, TradeConfigService } from './trade-config.service';
 import { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, shapeFileLinks, STEP_SELECT, STEP_SUMMARY_SELECT } from './trade-selects';
 import { ShipmentsService } from './shipments.service';
@@ -104,13 +105,29 @@ export class ContractsService {
           orderBy: [{ year: 'desc' }, { orderNo: 'desc' }],
           select: { id: true, year: true, orderNo: true, status: true, shipMonth: true, deliveryMonth: true, grade: true, qtyMt: true, clientPremium: true, customer: { select: { id: true, name: true } } },
         },
+        supplierOrders: {
+          orderBy: [{ year: 'desc' }, { soNo: 'desc' }],
+          select: { id: true, year: true, soNo: true, piNo: true, piAmount: true, declarationMonth: true, grade: true, qtyMt: true, status: true },
+        },
       },
     });
     if (!c) throw new NotFoundException('Contract not found');
     const { shipments, ...rest } = c;
     const { steps, docLinks } = await this.config.decorateRecord(organizationId, c);
+    // Contract master: quantity used by orders (cancelled don't count) and this month's margin.
+    const orderedMt = c.orders
+      .filter((o: { status: string }) => o.status !== 'CANCELLED')
+      .reduce((sum: number, o: { qtyMt: unknown }) => sum + (o.qtyMt === null || o.qtyMt === undefined ? 0 : Number(o.qtyMt)), 0);
+    const thisMonth = tradeToday().slice(0, 7);
     return {
       ...rest,
+      supplierOrders: c.supplierOrders.map((so: { soNo: number; piNo: string | null }) => ({ ...so, label: supplierOrderLabel(so) })),
+      usage: {
+        orderedMt: Math.round(orderedMt * 1000) / 1000,
+        annualQtyMt: c.annualQtyMt === null || c.annualQtyMt === undefined ? null : Number(c.annualQtyMt),
+        remainingMt: c.annualQtyMt === null || c.annualQtyMt === undefined ? null : Math.round((Number(c.annualQtyMt) - orderedMt) * 1000) / 1000,
+      },
+      marginNow: marginAt(c.premiumSchedule, thisMonth),
       steps,
       docLinks,
       fileLinks: shapeFileLinks(c.fileLinks),
@@ -350,10 +367,21 @@ export class ContractsService {
     if (dto.depositDueUnit !== undefined) out.depositDueUnit = dto.depositDueUnit || null;
     // Keep the words in depositDueNote too (lists / exports that still read the note).
     if (dto.depositDueDays !== undefined && dto.depositDueNote === undefined) out.depositDueNote = depositDueText(dto.depositDueDays, dto.depositDueUnit ?? 'BUSINESS');
-    for (const k of ['piDate', 'depositPaidAt'] as const) {
+    for (const k of ['piDate', 'depositPaidAt', 'periodStart', 'periodEnd'] as const) {
       if (dto[k] !== undefined) out[k] = dto[k] ? new Date(dto[k] as string) : null;
     }
     if (dto.currency) out.currency = dto.currency;
+    // Contract master: pricing basis, quantity, premium schedule (margin = client − supplier).
+    for (const k of ['grade', 'sizeSpec', 'balanceTerms', 'qpBasis', 'qmjpRule'] as const) {
+      const v = optText(dto[k]);
+      if (v !== undefined) out[k] = v;
+    }
+    for (const k of ['annualQtyMt', 'tolerancePct'] as const) if (dto[k] !== undefined) out[k] = dto[k];
+    if (dto.premiumSchedule !== undefined)
+      out.premiumSchedule = cleanPremiumSchedule(dto.premiumSchedule, (m) => {
+        throw new BadRequestException(m);
+      });
+    if (dto.checkFields !== undefined) out.checkFields = [...new Set(dto.checkFields.map((x) => x.trim()).filter(Boolean))];
     return out;
   }
 }

@@ -235,6 +235,40 @@ export default function InboxPage() {
                 ))}
                 {!(open.done.length ? open.done : open.planned).length && <Typography variant="body2">Nothing to do for this email.</Typography>}
               </Box>
+              {(open.supplierOrderSuggestions ?? []).length > 0 && (
+                <Box data-tour="inbox-declaration">
+                  <Typography variant="overline" color="text.secondary">
+                    Vedanta&apos;s PI table → supplier orders
+                  </Typography>
+                  {open.supplierOrderSuggestions!.map((r, i) => (
+                    <Typography key={i} variant="body2">
+                      • {r.grade ?? "—"} · {r.contractNo} · {r.customer ?? "—"} · {r.qtyMt ?? "—"} MT · {r.pricePerMt ?? "—"} USD/MT · PI {r.piNo ?? "—"}
+                    </Typography>
+                  ))}
+                  {(open.supplierOrderResults ?? []).map((r, i) => (
+                    <Typography key={`r${i}`} variant="caption" color="text.secondary" component="div">
+                      {r.contractNo} {r.piNo ? `PI ${r.piNo}` : ""}: {r.action}
+                      {r.reason ? ` (${r.reason})` : ""}
+                    </Typography>
+                  ))}
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    sx={{ mt: 1 }}
+                    onClick={async () => {
+                      try {
+                        const out = await api.inboxApplySupplierOrders(open.id);
+                        setOpen(out.row);
+                        toast.success(`Supplier orders: ${out.results.map((r) => r.action).join(", ")}`);
+                      } catch (e: any) {
+                        toast.error(e?.message || "Could not apply");
+                      }
+                    }}
+                  >
+                    Apply to supplier orders
+                  </Button>
+                </Box>
+              )}
             </Stack>
           )}
         </DialogContent>

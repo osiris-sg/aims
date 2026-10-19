@@ -10,6 +10,11 @@
  *
  * Document figures (Invoice #1 / #2, SG→JP IV) are read from the order's
  * documents; payments and actuals are typed (TradeOrder.reconciliation). Pure.
+ *
+ * The formula is PENDING (2026-10): ADH's own task-list xlsx decides it — #11
+ * only reproduces 18,042.43 with c = 137,185.55, which no sample supports.
+ * Until then the formula figure is shown as "formula pending" and a typed
+ * profit (profitManual) wins wherever profit is used (dashboard, reports).
  */
 
 export interface ReconcileInputs {
@@ -23,6 +28,8 @@ export interface ReconcileInputs {
   mitsuiActualsJpy?: number | null;
   otherCostsJpy?: number | null;
   otherCostsUsd?: number | null;
+  /** Typed profit (USD) — wins while the formula is pending. */
+  profitManual?: number | null;
   notes?: string | null;
 }
 
@@ -39,7 +46,12 @@ export interface Reconciliation {
   b: number | null;
   c: number;
   d: number | null;
+  /** The profit used everywhere: the typed one, else the formula's (pending). */
   profit: number | null;
+  /** d − a − b − c as currently coded. */
+  profitFormula: number | null;
+  /** MANUAL (typed) | FORMULA_PENDING (the formula awaits ADH's task-list xlsx). */
+  profitStatus: 'MANUAL' | 'FORMULA_PENDING';
   costs: { importTaxUsd: number | null; mitsuiUsd: number | null; otherUsd: number };
   importTax: { estimateJpy: number | null; actualJpy: number | null; varianceJpy: number | null; fxRate: number | null };
   docs: ReconcileDocs;
@@ -59,7 +71,9 @@ export function reconcile(inputs: ReconcileInputs, docs: ReconcileDocs, defaults
   const otherUsd = r2((toUsd(nz(inputs.otherCostsJpy)) ?? 0) + (nz(inputs.otherCostsUsd) ?? 0));
   const c = r2((importTaxUsd ?? 0) + (mitsuiUsd ?? 0) + otherUsd);
   const d = docs.single ? docs.single.total : (docs.invoice2?.total ?? null);
-  const profit = d === null || a === null || b === null ? null : r2(d - a - b - c);
+  const profitFormula = d === null || a === null || b === null ? null : r2(d - a - b - c);
+  const manual = nz(inputs.profitManual);
+  const profit = manual ?? profitFormula;
   const est = nz(inputs.importTaxEstimateJpy);
   const act = nz(inputs.importTaxActualJpy);
   return {
@@ -68,6 +82,8 @@ export function reconcile(inputs: ReconcileInputs, docs: ReconcileDocs, defaults
     c,
     d,
     profit,
+    profitFormula,
+    profitStatus: manual !== null ? 'MANUAL' : 'FORMULA_PENDING',
     costs: { importTaxUsd, mitsuiUsd, otherUsd },
     importTax: { estimateJpy: est, actualJpy: act, varianceJpy: est === null || act === null ? null : act - est, fxRate: fx },
     docs,
@@ -79,7 +95,7 @@ export function reconcile(inputs: ReconcileInputs, docs: ReconcileDocs, defaults
 export function cleanReconcileInputs(raw: unknown, fail: (msg: string) => never): ReconcileInputs {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const out: ReconcileInputs = {};
-  for (const k of ['piPaid', 'ciPaid', 'fxRate', 'importTaxEstimateJpy', 'importTaxActualJpy', 'mitsuiActualsJpy', 'otherCostsJpy', 'otherCostsUsd'] as const) {
+  for (const k of ['piPaid', 'ciPaid', 'fxRate', 'importTaxEstimateJpy', 'importTaxActualJpy', 'mitsuiActualsJpy', 'otherCostsJpy', 'otherCostsUsd', 'profitManual'] as const) {
     if (!(k in r)) continue;
     const v = r[k];
     if (v === null || v === '') out[k] = null;

@@ -55,6 +55,12 @@ export function orderDocRefBase(owner: { year: number; orderNo: number; seqNo?: 
   return seq ? `${yy}-${owner.orderNo}-${seq}-${docRefCode(docType)}` : `${yy}-${owner.orderNo}-${docRefCode(docType)}`;
 }
 
+/** Supplier order documents (Vedanta's PI, deposit proof): "{yy}-S{soNo}-{TYPE}", e.g. "26-S3-PI". */
+export function supplierOrderDocRefBase(owner: { year: number; soNo: number }, docType: string): string {
+  const yy = String(owner.year % 100).padStart(2, '0');
+  return `${yy}-S${owner.soNo}-${docRefCode(docType)}`;
+}
+
 /**
  * The next free ID for `base` given the IDs already used: the base itself
  * first, then base-2, base-3 … (the base counts as the first).

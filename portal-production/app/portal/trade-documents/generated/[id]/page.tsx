@@ -12,13 +12,13 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Alert, Box, Button, Chip, CircularProgress, Grid2, IconButton, Paper, Stack, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, CircularProgress, Grid2, IconButton, Menu, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import DownloadIcon from "@mui/icons-material/Download";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { toast } from "../../../shipments/_lib/toast";
-import { useQueryClient } from "@tanstack/react-query";
-import { useShipmentsApi } from "@/app/portal/shipments/_lib/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useShipmentsApi, type IssuingEntity } from "@/app/portal/shipments/_lib/api";
 import { SHIPMENT_KEYS, useDocTypeLabels, useGeneratedDoc, REFRESH_WAIT_MS } from "@/app/portal/shipments/_lib/hooks";
 import { ConfirmDialog } from "@/app/portal/shipments/_components/bits";
 import { useDebounced } from "@/app/portal/shipments/_components/useDebounced";
@@ -26,6 +26,7 @@ import TableDocForm from "../_forms/TableDocForm";
 import InvoiceDocForm from "../_forms/InvoiceDocForm";
 import { SgjpDocForm, SiDocForm } from "../_forms/LogisticsDocForms";
 import SingleInvoiceForm from "../_forms/SingleInvoiceForm";
+import PriceCheckPanel from "../../../shipments/_components/PriceCheckPanel";
 
 type Kind = "table" | "invoice" | "single" | "sgjp" | "si";
 const KIND: Record<string, Kind> = {
@@ -207,6 +208,24 @@ export default function GeneratedDocEditorPage() {
         )}
         {(g.covers?.length ?? 0) > 1 && <Chip size="small" variant="outlined" label={`Covers ${g.covers!.map((c) => c.ref).join(", ")}`} data-tour="invoice-covers-chip" />}
         {g.templateLabel && <Chip size="small" variant="outlined" label={g.templateLabel} />}
+        <EntityPicker docId={g.id} docType={g.docType} entity={g.issuingEntity ?? null} disabled={isFinal} />
+        {(g.docType === "INVOICE_2" || g.docType === "INVOICE_SINGLE") && header && (
+          <TextField
+            select
+            size="small"
+            label="Costs (AIMS only)"
+            value={header.costsBasis ?? "ACTUAL"}
+            disabled={isFinal}
+            sx={{ minWidth: 150 }}
+            onChange={(e) => editHeader({ costsBasis: e.target.value })}
+            data-tour="invoice-costs-basis"
+          >
+            <MenuItem value="ACTUAL">actual</MenuItem>
+            <MenuItem value="ESTIMATED">estimated</MenuItem>
+          </TextField>
+        )}
+        <CreditStatus docId={g.id} docType={g.docType} />
+        {g.docType === "INVOICE_1" && !isFinal && <ApplyCreditButton docId={g.id} />}
         {/* Editor only — never printed on the PDF. */}
         {g.formatConfirmed === false && (
           <Chip size="small" color="warning" label="format not yet confirmed" data-tour="format-not-confirmed-chip" title="Copied from the Kato layout — replaced when ADH sends this customer's own sample" />
@@ -241,6 +260,11 @@ export default function GeneratedDocEditorPage() {
 
       <Grid2 container spacing={2}>
         <Grid2 size={{ xs: 12, lg: 7 }}>
+          {(kind === "invoice" || kind === "single") && (
+            <Box sx={{ mb: 2 }}>
+              <PriceCheckPanel kind="generated" id={g.id} title="Invoice price check vs contract" />
+            </Box>
+          )}
           {kind === "invoice" ? (
             <InvoiceDocForm {...formProps} />
           ) : kind === "single" ? (
@@ -303,5 +327,102 @@ export default function GeneratedDocEditorPage() {
         }}
       />
     </Box>
+  );
+}
+
+const CUSTOMER_INVOICES = ["INVOICE_1", "INVOICE_2", "INVOICE_SINGLE"];
+/** Who issues the document: ADH JP (customer invoices, PL / COA, SI) or ADH SG (SG→JP IV/PL); a customer invoice can't be ADH SG. */
+function EntityPicker({ docId, docType, entity, disabled }: { docId: string; docType: string; entity: IssuingEntity | null; disabled: boolean }) {
+  const api = useShipmentsApi();
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const value = entity ?? (docType === "SGJP_IV_PL" ? "ADH_SG" : "ADH_JP");
+  return (
+    <TextField
+      select
+      size="small"
+      label="Issued by"
+      value={value}
+      disabled={disabled || busy}
+      sx={{ minWidth: 170 }}
+      data-tour="generated-entity"
+      onChange={async (e) => {
+        setBusy(true);
+        try {
+          await api.updateGenerated(docId, { issuingEntity: e.target.value as IssuingEntity });
+          await qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.generated });
+        } catch (err: any) {
+          toast.error(err?.message || "Could not change the entity");
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <MenuItem value="ADH_JP">ADH JP (合同会社)</MenuItem>
+      <MenuItem value="ADH_SG" disabled={CUSTOMER_INVOICES.includes(docType)}>
+        ADH SG (Pte. Ltd.){CUSTOMER_INVOICES.includes(docType) ? " — not for customer invoices" : ""}
+      </MenuItem>
+    </TextField>
+  );
+}
+
+/** A credit note (negative Invoice #2) and where its credit went; an Invoice #1 and the credits it uses. */
+function CreditStatus({ docId, docType }: { docId: string; docType: string }) {
+  const api = useShipmentsApi();
+  const q = useQuery({ queryKey: [...SHIPMENT_KEYS.generated, "credits", "doc", docId], queryFn: () => api.credits({ forDocId: docId }), enabled: docType === "INVOICE_2" || docType === "INVOICE_1" });
+  const mine = (q.data ?? []).filter((c) => c.sourceDocId === docId);
+  const used = (q.data ?? []).filter((c) => c.usedByDocId === docId);
+  if (!mine.length && !used.length) return null;
+  return (
+    <>
+      {mine.map((c) => (
+        <Chip
+          key={c.id}
+          size="small"
+          color={c.status === "OPEN" ? "warning" : c.status === "USED" ? "success" : "default"}
+          label={`CREDIT NOTE · ${c.status === "OPEN" ? "open credit" : c.status === "USED" ? `used on ${c.usedByNumber ?? "Invoice #1"}` : "void"} · US$${c.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}`}
+          data-tour="credit-note-chip"
+        />
+      ))}
+      {used.map((c) => (
+        <Chip key={c.id} size="small" variant="outlined" color="success" label={`Applies credit ${c.sourceNumber ?? ""} (US$${c.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })})`} />
+      ))}
+    </>
+  );
+}
+
+/** Invoice #1: offset an open credit of the same customer ("前回差額充当 (Invoice no.)"). */
+function ApplyCreditButton({ docId }: { docId: string }) {
+  const api = useShipmentsApi();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: [...SHIPMENT_KEYS.generated, "credits", "open", docId], queryFn: () => api.credits({ forDocId: docId, status: "OPEN" }) });
+  const [menu, setMenu] = useState<{ left: number; top: number } | null>(null);
+  const open = q.data ?? [];
+  if (!open.length) return null;
+  return (
+    <>
+      <Button size="small" variant="outlined" color="warning" onClick={(e) => setMenu({ left: e.clientX, top: e.clientY })} data-tour="apply-open-credit">
+        Apply open credit ({open.length})
+      </Button>
+      <Menu anchorReference="anchorPosition" anchorPosition={menu ?? undefined} open={!!menu} onClose={() => setMenu(null)}>
+        {open.map((c) => (
+          <MenuItem
+            key={c.id}
+            onClick={async () => {
+              setMenu(null);
+              try {
+                await api.applyCredit(docId, c.id);
+                await qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.generated });
+                toast.success(`Credit ${c.sourceNumber ?? ""} applied — 前回差額充当 line added`);
+              } catch (e: any) {
+                toast.error(e?.message || "Could not apply the credit");
+              }
+            }}
+          >
+            {c.sourceNumber ?? "Credit note"} · US${c.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+          </MenuItem>
+        ))}
+      </Menu>
+    </>
   );
 }

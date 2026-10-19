@@ -6,7 +6,7 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useOrganization } from "@hooks/useOrganization";
-import { useShipmentsApi, type ContractFilters, type FileFilters, type HubFilters, type OrderFilters, type ShipmentFilters } from "./api";
+import { useShipmentsApi, type ContractFilters, type FileFilters, type HubFilters, type OrderFilters, type ShipmentFilters, type SupplierOrderFilters } from "./api";
 
 export const SHIPMENT_KEYS = {
   orders: ["trade-orders"] as const,
@@ -63,6 +63,27 @@ export const useOrder = (id?: string) => {
     queryKey: [...SHIPMENT_KEYS.orders, orgId, "detail", id],
     enabled: !!orgId && !!id,
     queryFn: () => api.getOrder(id!),
+  });
+};
+
+export const useSupplierOrders = (f: SupplierOrderFilters, enabled = true) => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({
+    queryKey: [...SHIPMENT_KEYS.orders, orgId, "supplier", "list", f],
+    enabled: !!orgId && enabled,
+    placeholderData: keepPreviousData,
+    queryFn: () => api.listSupplierOrders(f),
+  });
+};
+
+export const useSupplierOrder = (id?: string) => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({
+    queryKey: [...SHIPMENT_KEYS.orders, orgId, "supplier", "detail", id],
+    enabled: !!orgId && !!id,
+    queryFn: () => api.getSupplierOrder(id!),
   });
 };
 

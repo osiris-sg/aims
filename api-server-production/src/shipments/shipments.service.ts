@@ -1,4 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { TradeAlertsService } from './trade-alerts.service';
+import { etaTrail, withEtaChange } from './trade-alerts';
+import { carrierOf } from './trade-carrier';
 import { PrismaService } from '../common/prisma.service';
 import { CreateShipmentDto, ListShipmentsQuery, UpdateShipmentDto } from './dto/shipment.dto';
 import { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, shapeFileLinks, STEP_SELECT, STEP_SUMMARY_SELECT } from './trade-selects';
@@ -15,6 +18,8 @@ export class ShipmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: TradeConfigService,
+    // Optional: unit tests and the smoke run build the service without it.
+    @Optional() private readonly alerts?: TradeAlertsService,
   ) {}
 
   async list(organizationId: string, query: ListShipmentsQuery) {
@@ -154,6 +159,9 @@ export class ShipmentsService {
       progress: progressOf(s.steps),
       currentStep: currentStepOf(s.steps),
       blCheck,
+      /** "8/6 → 8/16 → 8/17" — every ETA the shipment has had. */
+      etaTrail: etaTrail(s.etaHistory),
+      carrier: carrierOf(s.blNumber, s.shippingLine),
     };
   }
 
@@ -180,7 +188,7 @@ export class ShipmentsService {
     const order = dto.orderId
       ? await tx.tradeOrder.findFirst({
           where: { id: dto.orderId, organizationId },
-          select: { id: true, orderNo: true, status: true, customerId: true, contractId: true, currency: true, deliveryMonth: true, product: true, grade: true, size: true },
+          select: { id: true, orderNo: true, status: true, customerId: true, supplierId: true, contractId: true, currency: true, deliveryMonth: true, product: true, grade: true, size: true },
         })
       : null;
     if (dto.orderId && !order) throw new BadRequestException('Order not found in this organization');
@@ -189,7 +197,7 @@ export class ShipmentsService {
     const contract = contractId
       ? await tx.contract.findFirst({
           where: { id: contractId, organizationId },
-          select: { id: true, contractNo: true, status: true, customerId: true, currency: true, deliveryMonth: true, lines: { orderBy: { sortOrder: 'asc' }, select: CONTRACT_LINE_SELECT } },
+          select: { id: true, contractNo: true, status: true, customerId: true, supplierId: true, currency: true, deliveryMonth: true, lines: { orderBy: { sortOrder: 'asc' }, select: CONTRACT_LINE_SELECT } },
         })
       : null;
     if (contractId && !contract) throw new BadRequestException('Contract not found in this organization');
@@ -225,20 +233,30 @@ export class ShipmentsService {
       },
       select: { id: true },
     });
-    await this.config.snapshotSteps(tx, organizationId, 'SHIPMENT', { shipmentId: created.id }, await this.config.profileOf(organizationId, customerId, tx));
+    const supplierId = order?.supplierId ?? contract?.supplierId ?? null;
+    await this.config.snapshotSteps(
+      tx,
+      organizationId,
+      'SHIPMENT',
+      { shipmentId: created.id },
+      await this.config.profileOf(organizationId, customerId, tx),
+      await this.config.supplierProfileOf(organizationId, supplierId, tx),
+    );
     if (dto.blDraftFileId) await this.config.linkSourceFile(tx, organizationId, dto.blDraftFileId, 'BL_DRAFT', { shipmentId: created.id }, 'BL_DRAFT_APPROVAL');
     return created.id as string;
   }
 
   async update(organizationId: string, id: string, dto: UpdateShipmentDto, actor: TradeActor | null = null) {
     const blNumber = optText(dto.blNumber);
+    let etaMoved = false;
     try {
       await this.prisma.$transaction(async (tx: Db) => {
         const existing = await tx.shipment.findFirst({
           where: { id, organizationId },
-          select: { id: true, blNumber: true, costs: true, contract: { select: { lines: { select: { id: true, grade: true, sizeSpec: true } } } } },
+          select: { id: true, blNumber: true, costs: true, eta: true, etaHistory: true, contract: { select: { lines: { select: { id: true, grade: true, sizeSpec: true } } } } },
         });
         if (!existing) throw new NotFoundException('Shipment not found');
+        etaMoved = dto.eta !== undefined && (existing.eta ? existing.eta.toISOString().slice(0, 10) : null) !== (dto.eta ? String(dto.eta).slice(0, 10) : null);
         if (dto.contractLineId !== undefined) {
           const lines = existing.contract?.lines ?? [];
           if (dto.contractLineId === null || dto.contractLineId === '') {
@@ -259,6 +277,16 @@ export class ShipmentsService {
             ...this.fields(dto),
             ...(dto.costs !== undefined ? { costs: mergeCosts(existing.costs, dto.costs) as any } : {}),
             ...(dto.status === 'CANCELLED' ? { status: 'CANCELLED' } : {}),
+            // Every ETA move is kept ("8/6 → 8/16 → 8/17") and re-schedules the reminders.
+            ...(etaMoved
+              ? { etaHistory: withEtaChange(existing.etaHistory, existing.eta, dto.eta ? new Date(dto.eta) : null, actor?.name ?? null, dto.etaSource ?? 'MANUAL') as any }
+              : {}),
+            ...(dto.dischargeDate !== undefined ? { dischargeDate: dto.dischargeDate ? new Date(dto.dischargeDate) : null } : {}),
+            ...(dto.storageStartDate !== undefined ? { storageStartDate: dto.storageStartDate ? new Date(dto.storageStartDate) : null } : {}),
+            ...(dto.detFreeDays !== undefined ? { detFreeDays: dto.detFreeDays } : {}),
+            ...(dto.demFreeDays !== undefined ? { demFreeDays: dto.demFreeDays } : {}),
+            ...(dto.warehouse !== undefined ? { warehouse: optText(dto.warehouse) ?? null } : {}),
+            ...(dto.supplierOrderId !== undefined ? { supplierOrderId: dto.supplierOrderId || null } : {}),
           },
         });
       });
@@ -268,6 +296,8 @@ export class ShipmentsService {
     }
     // Step 2's B/L fields (requiredFields) complete it once its B/L draft is there too.
     await this.config.syncSteps(this.prisma, organizationId, [{ shipmentId: id }], actor, { fields: Object.keys(dto) });
+    // Dates the reminders hang off moved: re-plan them now (best effort).
+    if (etaMoved || dto.dischargeDate !== undefined || dto.detFreeDays !== undefined || dto.demFreeDays !== undefined) await this.alerts?.refresh(organizationId);
     return this.getById(organizationId, id);
   }
 

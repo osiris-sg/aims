@@ -50,6 +50,20 @@ export class EmailService {
     this.adminEmail = this.configService.get<string>('ADMIN_EMAIL') || 'admin@osiris.sg';
   }
 
+  /** A plain HTML email to AIMS users (e.g. the daily trade digest). */
+  async sendSimpleEmail(params: { to: string[]; subject: string; html: string }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    if (!this.resend) return { success: false, error: 'RESEND_API_KEY not configured' };
+    if (!params.to.length) return { success: false, error: 'no recipients' };
+    try {
+      const result = await this.resend.emails.send({ from: this.fromEmail, to: params.to, subject: params.subject, html: params.html });
+      if (result.error) return { success: false, error: result.error.message || 'Failed to send email' };
+      return { success: true, messageId: result.data?.id };
+    } catch (e) {
+      this.logger.error(`sendSimpleEmail failed: ${(e as Error)?.message}`);
+      return { success: false, error: (e as Error)?.message };
+    }
+  }
+
   /** Default CC for system-generated emails (service reports, etc.). */
   getAdminEmail(): string {
     return this.adminEmail;

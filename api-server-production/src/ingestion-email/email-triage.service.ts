@@ -11,17 +11,23 @@ import { sheetText } from '../shipments/trade-extract.service';
 import { TradeConfigService } from '../shipments/trade-config.service';
 import { sha256Of, TradeFilesService } from '../shipments/trade-files.service';
 import { TradeStepsService } from '../shipments/trade-steps.service';
+import { createSupplierOrderInTx } from '../shipments/trade-supplier-order';
 import { StoredEmailMeta } from './email-store';
 import {
   counterpartyByDomain,
+  DeclarationRow,
+  declarationMonthOf,
   directionOf,
   emailOf,
   keysByPattern,
+  knownSender,
   MatchCandidate,
   mergeKeys,
   ORDER_DOC_TYPES,
+  parseDeclarationTable,
   pickMatch,
   sentEvidence,
+  SUPPLIER_ORDER_DOC_TYPES,
   threadKeyOf,
   TRIAGE_DOC_TYPES,
   triagePrompt,
@@ -39,7 +45,7 @@ export interface IntakeAction {
   attachmentIndex?: number;
   filename?: string;
   docType?: string;
-  ownerKind?: 'order' | 'shipment';
+  ownerKind?: 'order' | 'shipment' | 'supplierOrder';
   ownerId?: string;
   fileId?: string;
   reopenedStepIds?: string[];
@@ -151,13 +157,38 @@ export class EmailTriageService {
     } catch (e: any) {
       error = String(e?.message ?? e).slice(0, 300);
     }
+    // Known senders / subjects (Wan Hai A/N, Mitsui Soko NO.取りリスト, 輸入許可書, Vedanta declaration) win over the AI.
+    const known = knownSender({ from: log.fromAddress, subject: log.subject, attachments: meta.attachments ?? [] });
+    if (known && result) {
+      const typed = new Map(Object.entries(known.attachmentTypes));
+      result = {
+        ...result,
+        attachments: [
+          ...result.attachments.filter((a) => !typed.has(a.filename)),
+          ...[...typed].map(([filename, docType]) => ({ filename, docType, confidence: 1 })),
+        ],
+      };
+    }
     // Direction and counterparty: deterministic rules first, the AI's guess only as a fallback.
     const direction = directionOf(log.fromAddress, ownDomains);
-    const counterparty = counterpartyByDomain(addrs, ownDomains, customerDomains) ?? result?.counterparty ?? 'OTHER';
-    const verdict = result?.verdict ?? 'UNSURE';
+    const counterparty = counterpartyByDomain(addrs, ownDomains, customerDomains) ?? known?.counterparty ?? result?.counterparty ?? 'OTHER';
+    const verdict = known ? 'SHIPMENT' : (result?.verdict ?? 'UNSURE');
     const text = [log.subject, meta.bodyText?.slice(0, 4000), ...(meta.attachments ?? []).map((a) => a.name), ...firstPages.map((p) => p.firstPage)].join('\n');
-    const keys = mergeKeys(result?.keys ?? null, keysByPattern(text));
-    const triage = { ...(result ?? {}), verdict, direction, counterparty, keys, error, model: MODEL, at: new Date().toISOString() };
+    const keys = mergeKeys(result?.keys ?? null, { ...keysByPattern(text), ...(known?.blNo ? { blNo: known.blNo } : {}) });
+    // Vedanta's PI table → supplier-order suggestions (applied from the inbox).
+    const supplierOrderSuggestions = known?.rule === 'VEDANTA_DECLARATION' ? parseDeclarationTable(meta.bodyText ?? '') : [];
+    const triage = {
+      ...(result ?? { attachments: Object.entries(known?.attachmentTypes ?? {}).map(([filename, docType]) => ({ filename, docType, confidence: 1 })) }),
+      verdict,
+      direction,
+      counterparty,
+      keys,
+      error,
+      model: MODEL,
+      at: new Date().toISOString(),
+      ...(known ? { knownRule: known.rule } : {}),
+      ...(supplierOrderSuggestions.length ? { supplierOrderSuggestions } : {}),
+    };
 
     if (verdict === 'NOT_SHIPMENT') {
       await this.purge(organizationId, logId, { verdict, counterparty });
@@ -285,10 +316,17 @@ export class EmailTriageService {
       return t && t.confidence >= 0.5 ? (TRIAGE_DOC_TYPES[t.docType] ?? null) : null;
     };
     const fileTypes: string[] = [];
+    const soId: string | null = target.orderId
+      ? ((await this.prisma.tradeOrder.findFirst({ where: { id: target.orderId, organizationId }, select: { supplierOrderId: true } }))?.supplierOrderId ?? null)
+      : null;
     (meta.attachments ?? []).forEach((a, i) => {
       const docType = typeOf(a.name);
       if (!docType) return out.push({ kind: 'file', status: 'skipped', reason: 'not a trade document', attachmentIndex: i, filename: a.name });
       fileTypes.push(docType);
+      // PI / contract / deposit proof belong to the supplier side (steps 0 / 1 on the supplier order).
+      if (SUPPLIER_ORDER_DOC_TYPES.has(docType) && soId) {
+        return out.push({ kind: 'file', status: 'planned', attachmentIndex: i, filename: a.name, docType, ownerKind: 'supplierOrder', ownerId: soId });
+      }
       const onOrder = ORDER_DOC_TYPES.has(docType);
       const ownerId = onOrder ? target.orderId : target.shipmentId;
       if (!ownerId) return out.push({ kind: 'file', status: 'skipped', reason: onOrder ? 'no order' : 'pick the shipment', attachmentIndex: i, filename: a.name, docType });
@@ -359,7 +397,7 @@ export class EmailTriageService {
             done.push({ ...a, status: 'skipped', reason: 'already have this file', fileId: dup.id });
             continue;
           }
-          const owner = a.ownerKind === 'order' ? { orderId: a.ownerId! } : { shipmentId: a.ownerId! };
+          const owner = a.ownerKind === 'order' ? { orderId: a.ownerId! } : a.ownerKind === 'supplierOrder' ? { supplierOrderId: a.ownerId! } : { shipmentId: a.ownerId! };
           const step = await this.prisma.tradeStep.findFirst({
             where: { organizationId, ...owner, OR: [{ requiredDocTypes: { has: a.docType } }, { optionalDocTypes: { has: a.docType } }] },
             orderBy: { sortOrder: 'asc' },
@@ -370,7 +408,7 @@ export class EmailTriageService {
             { originalname: att.name, mimetype: att.contentType, size: buf.length, buffer: buf } as Express.Multer.File,
             {
               docType: a.docType!,
-              ...(a.ownerKind === 'order' ? { orderIds: [a.ownerId] } : { shipmentIds: [a.ownerId] }),
+              ...(a.ownerKind === 'order' ? { orderIds: [a.ownerId] } : a.ownerKind === 'supplierOrder' ? { supplierOrderIds: [a.ownerId] } : { shipmentIds: [a.ownerId] }),
               ...(step ? { stepId: step.id } : {}),
               notes: `From email: ${log.subject ?? ''}`.slice(0, 2000),
             } as any,
@@ -563,6 +601,10 @@ export class EmailTriageService {
       canUndo: (actions.done ?? []).some((a) => a.status === 'done'),
       purgeAfter: l.purgeAfter,
       error: triage.error ?? null,
+      knownRule: (triage as { knownRule?: string }).knownRule ?? null,
+      /** Vedanta declaration: the PI table rows, and what "Apply" did. */
+      supplierOrderSuggestions: (triage as { supplierOrderSuggestions?: DeclarationRow[] }).supplierOrderSuggestions ?? [],
+      supplierOrderResults: (l.actions as { supplierOrders?: unknown[] } | null)?.supplierOrders ?? [],
     };
   }
 
@@ -584,6 +626,78 @@ export class EmailTriageService {
   }
 
   /** Inbox "Not shipment mail": purge it now. */
+  /**
+   * Vedanta's declaration PI table → supplier orders: each row updates the
+   * supplier order with its PI no. (else the one for the same contract, grade
+   * and month without a PI yet) or creates one; a PI PDF named with the PI no.
+   * is attached to step 1. Blank fields are filled, typed ones kept.
+   */
+  async applySupplierOrders(organizationId: string, logId: string, actor: { id: string | null; name: string | null }) {
+    const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
+    if (!log) throw new NotFoundException('Email not found');
+    const rows = (((log.triage ?? {}) as any).supplierOrderSuggestions ?? []) as DeclarationRow[];
+    if (!rows.length) throw new BadRequestException('This email has no PI table to apply');
+    const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta>;
+    const results: Array<{ contractNo: string; piNo: string | null; supplierOrderId: string | null; action: string; reason?: string }> = [];
+    for (const r of rows) {
+      const contract = await this.prisma.contract.findFirst({ where: { organizationId, contractNo: r.contractNo }, select: { id: true, supplierId: true } });
+      if (!contract) {
+        results.push({ contractNo: r.contractNo, piNo: r.piNo, supplierOrderId: null, action: 'skipped', reason: 'contract not in AIMS' });
+        continue;
+      }
+      const month = declarationMonthOf(r.qpBasis) ?? (log.emailDate ? log.emailDate.toISOString().slice(0, 7) : null);
+      let so: { id: string; piNo: string | null; qtyMt: unknown; provisionalPricePerMt: unknown; qpBasis: string | null } | null = r.piNo
+        ? await this.prisma.supplierOrder.findFirst({ where: { organizationId, piNo: r.piNo }, select: { id: true, piNo: true, qtyMt: true, provisionalPricePerMt: true, qpBasis: true } })
+        : null;
+      so ??= await this.prisma.supplierOrder.findFirst({
+        where: { organizationId, contractId: contract.id, piNo: null, status: 'OPEN', ...(month ? { declarationMonth: month } : {}), ...(r.grade ? { grade: r.grade } : {}) },
+        select: { id: true, piNo: true, qtyMt: true, provisionalPricePerMt: true, qpBasis: true },
+      });
+      let id: string;
+      if (so) {
+        const data: Record<string, unknown> = {};
+        if (!so.piNo && r.piNo) data.piNo = r.piNo;
+        if (so.qtyMt === null && r.qtyMt !== null) data.qtyMt = r.qtyMt;
+        if (so.provisionalPricePerMt === null && r.pricePerMt !== null) data.provisionalPricePerMt = r.pricePerMt;
+        if (!so.qpBasis && r.qpBasis) data.qpBasis = r.qpBasis;
+        if (Object.keys(data).length) await this.prisma.supplierOrder.update({ where: { id: so.id }, data });
+        id = so.id;
+        results.push({ contractNo: r.contractNo, piNo: r.piNo, supplierOrderId: id, action: Object.keys(data).length ? `updated ${Object.keys(data).join(', ')}` : 'already up to date' });
+      } else {
+        id = await this.prisma.$transaction((tx: any) =>
+          createSupplierOrderInTx(
+            tx,
+            this.config,
+            organizationId,
+            { contractId: contract.id, supplierId: contract.supplierId, declarationMonth: month, grade: r.grade ?? undefined, qtyMt: r.qtyMt, qpBasis: r.qpBasis, provisionalPricePerMt: r.pricePerMt, piNo: r.piNo },
+            actor as any,
+          ),
+        );
+        results.push({ contractNo: r.contractNo, piNo: r.piNo, supplierOrderId: id, action: 'created' });
+      }
+      // The PI PDF (named with its PI no.) goes onto step 1.
+      const att = r.piNo ? (meta.attachments ?? []).find((a) => a.name.includes(r.piNo!) && /\.pdf$/i.test(a.name)) : undefined;
+      if (att) {
+        const buf = await this.s3.downloadFile(att.key);
+        const sha = sha256Of(buf);
+        const have = await this.prisma.tradeFile.findFirst({ where: { organizationId, sha256: sha }, select: { id: true } });
+        if (!have) {
+          const step = await this.prisma.tradeStep.findFirst({ where: { organizationId, supplierOrderId: id, code: 'PI_PAYMENT' }, select: { id: true } });
+          await this.files.upload(
+            organizationId,
+            { originalname: att.name, mimetype: att.contentType, size: buf.length, buffer: buf } as Express.Multer.File,
+            { docType: 'PI', supplierOrderIds: [id], ...(step ? { stepId: step.id } : {}), notes: `From email: ${log.subject ?? ''}`.slice(0, 2000) } as any,
+            actor as any,
+            { source: 'EMAIL', emailLogId: logId, sha256: sha },
+          );
+        }
+      }
+    }
+    await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { actions: { ...((log.actions as object) ?? {}), supplierOrders: results } as any } });
+    this.actionLog.system('email-triage', 'UPDATE', 'SupplierOrder', { organizationId, resourceId: logId, details: { rows: results.length } });
+    return { results, row: await this.row(organizationId, logId) };
+  }
+
   async dismiss(organizationId: string, logId: string) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) throw new NotFoundException('Email not found');

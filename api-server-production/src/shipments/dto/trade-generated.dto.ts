@@ -14,6 +14,8 @@ export class UpdateGeneratedDocDto {
   @IsOptional() header?: unknown;
   @IsOptional() columns?: unknown;
   @IsOptional() rows?: unknown;
+  /** ADH_JP | ADH_SG — a customer invoice can't be ADH_SG. */
+  @IsOptional() @IsIn(['ADH_JP', 'ADH_SG']) issuingEntity?: 'ADH_JP' | 'ADH_SG';
 }
 
 /** A new blank document of any template, on its record (shipment, or order for Invoice #1). */
@@ -54,6 +56,7 @@ export class HubQueryDto {
   @IsOptional() @IsUUID() orderId?: string;
   @IsOptional() @IsUUID() customerId?: string;
   @IsOptional() @IsIn(['UPLOADED', 'IN_APP']) source?: string;
+  @IsOptional() @IsIn(['ADH_JP', 'ADH_SG']) entity?: string;
   @IsOptional() @IsString() from?: string;
   @IsOptional() @IsString() to?: string;
   @IsOptional() @IsString() q?: string;

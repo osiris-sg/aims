@@ -25,7 +25,7 @@ export default function LinkInvoiceDialog({
   onClose: () => void;
   docType: string;
   stepId?: string;
-  owner: { kind: "contract" | "shipment" | "order"; id: string; label: string };
+  owner: { kind: "contract" | "shipment" | "order" | "supplierOrder"; id: string; label: string };
 }) {
   const api = useShipmentsApi();
   const label = useDocTypeLabels();

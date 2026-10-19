@@ -41,7 +41,7 @@ export class TradeExtractController {
   @Post('classify')
   @Permissions('shipments:create')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: TRADE_FILE_MAX_BYTES, files: 1 } }))
-  classify(@UploadedFile() file: Express.Multer.File | undefined, @Body('docTypes') docTypes: string, @Req() req: TradeRequest) {
+  classify(@UploadedFile() file: Express.Multer.File | undefined, @Body('docTypes') docTypes: string, @Body('shipmentId') shipmentId: string | undefined, @Req() req: TradeRequest) {
     let types: unknown = [];
     try {
       types = JSON.parse(docTypes ?? '[]');
@@ -49,7 +49,7 @@ export class TradeExtractController {
       throw new BadRequestException('docTypes must be a JSON array');
     }
     if (!Array.isArray(types)) throw new BadRequestException('docTypes must be a JSON array');
-    return this.extract.classify(orgIdOf(req), file as Express.Multer.File, types as string[]);
+    return this.extract.classify(orgIdOf(req), file as Express.Multer.File, types as string[], shipmentId && /^[0-9a-f-]{36}$/i.test(shipmentId) ? shipmentId : undefined);
   }
 
   @Post('an')
@@ -57,6 +57,14 @@ export class TradeExtractController {
   @UseInterceptors(pdfOrImage)
   an(@UploadedFile() file: Express.Multer.File | undefined, @Body() dto: ExtractBlDraftDto, @Req() req: TradeRequest) {
     return this.extract.extract(orgIdOf(req), 'AN', { file, fileId: dto.fileId, shipmentId: dto.shipmentId }, actorOf(req));
+  }
+
+  /** 輸入許可書 → actual import tax, customs rate, CIF, 加算運賃 + B/L / 仕入書番号 checks (text layer first, AI for scans). */
+  @Post('import-permit')
+  @Permissions('shipments:create')
+  @UseInterceptors(pdfOrImage)
+  importPermit(@UploadedFile() file: Express.Multer.File | undefined, @Body() dto: ExtractBlDraftDto, @Req() req: TradeRequest) {
+    return this.extract.extract(orgIdOf(req), 'IMPORT_PERMIT', { file, fileId: dto.fileId, shipmentId: dto.shipmentId }, actorOf(req));
   }
 
   @Get(':id')

@@ -11,11 +11,14 @@
  *   est. 通関・車輸送 = customs + B/L fee + AN charges
  *   trucking        = trucks × truck rate × 1.1                        (20t: 98,000; 10t: 26,000)
  *   storage / other = manual, optional 20,000 / container line
- *   import tax est. = CIF JPY × 10% at the customs weekly FX (課税標準 1,000円未満切捨て, 税額 100円未満切捨て)
+ *   import tax est. = the 輸入許可書 formula (trade-customs.ts): 申告価格 = ⌊CIF USD × customs weekly
+ *                     rate⌋ + 加算運賃 (JPY add-on, default the A/N's EQMC); 消費税 7.8% of ⌊申告価格⌋₁₀₀₀,
+ *                     地方消費税 22/78 of it, each ⌊⌋₁₀₀ — #11: ¥18,386,700
  * Step 12 actuals (Mitsui Soko invoices): customs, B/L fee, trucking,
  * storage, washing (6,000/CNT + tax), detention (4,000/CNT + tax) — shown
  * against the estimate with the variance.
  */
+import { importTax, ImportTaxBreakdown } from './trade-customs';
 
 export interface EstimatorRates {
   /** Consumption tax multiplier for customs / trucking (1.1). */
@@ -30,8 +33,6 @@ export interface EstimatorRates {
   storagePerMt: number;
   washingPerContainer: number;
   detentionPerContainer: number;
-  /** Import consumption tax rate on CIF (0.10). */
-  importTaxRate: number;
 }
 
 export const DEFAULT_RATES: EstimatorRates = {
@@ -43,7 +44,6 @@ export const DEFAULT_RATES: EstimatorRates = {
   storagePerMt: 200,
   washingPerContainer: 6000,
   detentionPerContainer: 4000,
-  importTaxRate: 0.1,
 };
 
 /** Stored rates over the defaults (unknown / bad values ignored). */
@@ -60,7 +60,6 @@ export function ratesOf(stored: unknown): EstimatorRates {
     storagePerMt: num(s.storagePerMt, DEFAULT_RATES.storagePerMt),
     washingPerContainer: num(s.washingPerContainer, DEFAULT_RATES.washingPerContainer),
     detentionPerContainer: num(s.detentionPerContainer, DEFAULT_RATES.detentionPerContainer),
-    importTaxRate: num(s.importTaxRate, DEFAULT_RATES.importTaxRate),
   };
 }
 
@@ -77,9 +76,11 @@ export interface ShipmentCosts {
   /** Optional 20,000/CNT line: container count to charge. */
   storageContainers?: number | null;
   other?: number | null;
-  /** Import tax (step 8). */
+  /** Import tax (step 8): CIF of the SG→JP IV and the customs weekly rate (円/USD). */
   cifUsd?: number | null;
   fxRate?: number | null;
+  /** 加算運賃: JPY added to the customs value (permit code E); null = the A/N's EQMC. */
+  customsAddOnJpy?: number | null;
   importTaxFunded?: number | null;
   importTaxActual?: number | null;
   /** Step 12 actuals from Mitsui Soko invoices (JPY). */
@@ -99,7 +100,7 @@ export interface ShipmentCosts {
 const nz = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null);
 const roundYen = (v: number) => Math.round(v + 1e-9);
 
-/** Trucks needed: ROUND(gross weight / capacity), at least 1 when there is any weight. 307.004t / 20 → 15. */
+/** Trucks needed: ROUND(gross weight / capacity), at least 1 when there is any weight. 307.004t on 20t trucks (SUS) → 15; 40.825t on 10t (Kato) → 4. */
 export function trucksFor(grossWeightMt: number | null | undefined, capacityT: number): number | null {
   const g = nz(grossWeightMt);
   if (g === null || !capacityT) return null;
@@ -134,7 +135,24 @@ export interface Estimate {
   other: number;
   total: number | null;
   /** Import tax (step 8). */
-  importTax: { cifUsd: number | null; fxRate: number | null; cifJpy: number | null; estimate: number | null; funded: number | null; actual: number | null; variance: number | null };
+  importTax: {
+    cifUsd: number | null;
+    fxRate: number | null;
+    /** ⌊CIF × FX⌋. */
+    cifJpy: number | null;
+    /** 加算運賃 and where it came from (typed, or the A/N's EQMC). */
+    addOnJpy: number;
+    addOnSource: 'typed' | 'EQMC' | null;
+    /** 申告価格 / 課税標準 / 消費税 / 地方消費税. */
+    customsValue: number | null;
+    taxBase: number | null;
+    national: number | null;
+    local: number | null;
+    estimate: number | null;
+    funded: number | null;
+    actual: number | null;
+    variance: number | null;
+  };
 }
 
 /**
@@ -164,7 +182,10 @@ export function estimate(
   const total = customsTotal === null || trucking === null ? null : customsTotal + trucking + storage + other;
   const cifUsd = nz(c.cifUsd);
   const fx = nz(c.fxRate);
-  const tax = importTaxEstimate(cifUsd, fx, rates.importTaxRate);
+  const typedAddOn = nz(c.customsAddOnJpy);
+  const eqmc = nz(c.equipmentFee);
+  const addOnJpy = typedAddOn ?? eqmc ?? 0;
+  const tax = cifUsd === null || fx === null ? null : importTax(cifUsd, fx, addOnJpy);
   const actual = nz(c.importTaxActual);
   return {
     qtyMt: qty,
@@ -182,19 +203,27 @@ export function estimate(
     storage,
     other,
     total,
-    importTax: { cifUsd, fxRate: fx, cifJpy: tax.cifJpy, estimate: tax.tax, funded: nz(c.importTaxFunded), actual, variance: actual === null || tax.tax === null ? null : actual - tax.tax },
+    importTax: {
+      cifUsd,
+      fxRate: fx,
+      cifJpy: tax?.cifJpy ?? null,
+      addOnJpy,
+      addOnSource: typedAddOn !== null ? 'typed' : eqmc !== null ? 'EQMC' : null,
+      customsValue: tax?.customsValue ?? null,
+      taxBase: tax?.taxBase ?? null,
+      national: tax?.national ?? null,
+      local: tax?.local ?? null,
+      estimate: tax?.total ?? null,
+      funded: nz(c.importTaxFunded),
+      actual,
+      variance: actual === null || !tax ? null : actual - tax.total,
+    },
   };
 }
 
-/**
- * Import consumption tax on CIF: 課税標準 = CIF × FX with yen below 1,000
- * dropped, tax = 10% with yen below 100 dropped (customs rounding).
- * #11: CIF US$1,156,396.23 × 159.00 → ¥183,867,000 → ¥18,386,700.
- */
-export function importTaxEstimate(cifUsd: number | null, fxRate: number | null, rate = 0.1): { cifJpy: number | null; tax: number | null } {
-  if (cifUsd === null || fxRate === null) return { cifJpy: null, tax: null };
-  const cifJpy = Math.floor((cifUsd * fxRate) / 1000 + 1e-9) * 1000;
-  return { cifJpy, tax: Math.floor((cifJpy * rate) / 100 + 1e-9) * 100 };
+/** Import tax (consumption + local) for a CIF at the customs rate plus the JPY add-on — see trade-customs.ts. */
+export function importTaxEstimate(cifUsd: number | null, fxRate: number | null, addOnJpy = 0): ImportTaxBreakdown | null {
+  return cifUsd === null || fxRate === null ? null : importTax(cifUsd, fxRate, addOnJpy);
 }
 
 export interface ActualRow {
@@ -261,6 +290,7 @@ export function cleanCosts(raw: unknown, fail: (msg: string) => never): Shipment
     'other',
     'cifUsd',
     'fxRate',
+    'customsAddOnJpy',
     'importTaxFunded',
     'importTaxActual',
   ] as const;

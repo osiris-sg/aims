@@ -3,7 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { CreateOrderDto, ListOrdersQuery, UpdateOrderDto } from './dto/order.dto';
 import { CreateShipmentDto } from './dto/shipment.dto';
 import { TradeActor } from './shipments.request';
-import { blockingSteps, currentStepOf, depositOf, monthsLabel, orderLabel, progressOf, shipmentRef, stepLabels, tradeToday } from './shipments.rules';
+import { blockingSteps, currentStepOf, depositOf, monthsLabel, orderLabel, progressOf, shipmentRef, stepLabels, supplierOrderLabel, tradeToday } from './shipments.rules';
 import { Db, DOC_LINK_SELECT, isUniqueViolation, optText, pageArgs, TradeConfigService } from './trade-config.service';
 import { DEFAULT_DEPOSIT_DUE, depositDueDate } from './trade-deposit';
 import { amountOf, invoiceTotals, toInvoiceLines } from './trade-invoice';
@@ -11,6 +11,7 @@ import { SgjpItem, sgjpTotals } from './trade-logistics-docs';
 import { cleanReconcileInputs, reconcile, ReconcileDocs, ReconcileInputs } from './trade-reconcile';
 import { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, shapeFileLinks, STEP_SELECT, STEP_SUMMARY_SELECT } from './trade-selects';
 import { ShipmentsService } from './shipments.service';
+import { createSupplierOrderInTx } from './trade-supplier-order';
 
 const PARTY = { select: { id: true, name: true, customerCode: true } };
 const SUPPLIER = { select: { id: true, name: true, supplierCode: true } };
@@ -43,6 +44,7 @@ export class OrdersService {
       organizationId,
       ...(query.customerId ? { customerId: query.customerId } : {}),
       ...(query.contractId ? { contractId: query.contractId } : {}),
+      ...(query.supplierOrderId ? { supplierOrderId: query.supplierOrderId } : {}),
       ...(q
         ? {
             OR: [
@@ -67,6 +69,7 @@ export class OrdersService {
           customer: PARTY,
           supplier: SUPPLIER,
           contract: { select: { id: true, contractNo: true } },
+          supplierOrder: { select: { id: true, soNo: true, piNo: true, status: true, steps: { select: STEP_SUMMARY_SELECT } } },
           steps: { select: STEP_SUMMARY_SELECT },
           shipments: {
             orderBy: [{ seqNo: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
@@ -78,15 +81,16 @@ export class OrdersService {
       this.prisma.tradeOrder.count({ where: { ...base, status: 'OPEN' } }),
       this.prisma.tradeOrder.count({ where: { ...base, status: { in: ['COMPLETED', 'CANCELLED'] } } }),
     ]);
-    const items = rows.map(({ steps, shipments, ...o }: any) => {
+    const items = rows.map(({ steps, shipments, supplierOrder, ...o }: any) => {
       const ships = shipments.map(({ steps: ss, ...s }: any) => ({
         ...s,
         ref: shipmentRef(o.orderNo, s.seqNo),
         progress: progressOf(ss),
         currentStep: currentStepOf(ss),
       }));
-      // The order's own current step while it has one open; else the first open shipment's.
-      const own = currentStepOf(steps);
+      // The supplier side's open step (0 / 1) first, then the order's own, then the first open shipment's.
+      const supplierStep = supplierOrder?.status === 'OPEN' ? currentStepOf(supplierOrder.steps) : null;
+      const own = supplierStep ?? currentStepOf(steps);
       const shipStep = ships.find((s: any) => s.status === 'OPEN' && s.currentStep)?.currentStep ?? null;
       return {
         ...o,
@@ -97,8 +101,9 @@ export class OrdersService {
         productLabel: orderProductLabel(o),
         shipmentCount: ships.length,
         shipments: ships,
-        progress: progressOf(steps),
+        progress: progressOf([...steps, ...(supplierOrder?.steps ?? [])]),
         currentStep: own ?? shipStep,
+        supplierOrder: supplierOrder ? { id: supplierOrder.id, soNo: supplierOrder.soNo, piNo: supplierOrder.piNo, status: supplierOrder.status, label: supplierOrderLabel(supplierOrder) } : null,
       };
     });
     return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize), counts: { pending, completed } };
@@ -108,14 +113,40 @@ export class OrdersService {
   async getById(organizationId: string, id: string, actor?: TradeActor) {
     if (actor) {
       const ships: Array<{ id: string }> = await this.prisma.shipment.findMany({ where: { organizationId, orderId: id }, select: { id: true } });
-      await this.config.syncSteps(this.prisma, organizationId, [{ orderId: id }, ...ships.map((x) => ({ shipmentId: x.id }))], actor);
+      const own = await this.prisma.tradeOrder.findFirst({ where: { id, organizationId }, select: { supplierOrderId: true } });
+      await this.config.syncSteps(
+        this.prisma,
+        organizationId,
+        [...(own?.supplierOrderId ? [{ supplierOrderId: own.supplierOrderId }] : []), { orderId: id }, ...ships.map((x) => ({ shipmentId: x.id }))],
+        actor,
+      );
     }
     const o = await this.prisma.tradeOrder.findFirst({
       where: { id, organizationId },
       include: {
         customer: { select: { id: true, name: true, customerCode: true, currency: true, jpName: true } },
         supplier: { select: { id: true, name: true, supplierCode: true, currency: true } },
-        contract: { select: { id: true, contractNo: true, status: true, lines: { orderBy: { sortOrder: 'asc' }, select: CONTRACT_LINE_SELECT } } },
+        contract: { select: { id: true, contractNo: true, status: true, qpBasis: true, premiumSchedule: true, lines: { orderBy: { sortOrder: 'asc' }, select: CONTRACT_LINE_SELECT } } },
+        supplierOrder: {
+          select: {
+            id: true,
+            year: true,
+            soNo: true,
+            piNo: true,
+            piDate: true,
+            piAmount: true,
+            depositPct: true,
+            depositAmount: true,
+            depositPaidAt: true,
+            qpBasis: true,
+            declarationMonth: true,
+            status: true,
+            supplierId: true,
+            steps: { orderBy: { sortOrder: 'asc' }, select: STEP_SELECT },
+            fileLinks: { orderBy: { createdAt: 'desc' }, select: FILE_LINK_SELECT },
+            customerOrders: { select: { id: true, year: true, orderNo: true } },
+          },
+        },
         shipments: {
           orderBy: [{ seqNo: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
           select: {
@@ -140,11 +171,23 @@ export class OrdersService {
       },
     });
     if (!o) throw new NotFoundException('Order not found');
-    const { shipments, ...rest } = o;
+    const { shipments, supplierOrder, ...rest } = o as any;
     const { steps, docLinks } = await this.config.decorateRecord(organizationId, o as any);
     const profile = await this.config.profileOf(organizationId, o.customerId);
+    // The supplier side (steps 0 / 1 on the supplier order), decorated like the order's own steps.
+    const so = supplierOrder
+      ? {
+          ...supplierOrder,
+          label: supplierOrderLabel(supplierOrder),
+          steps: (await this.config.decorateRecord(organizationId, { ...supplierOrder, docLinks: [] } as any)).steps,
+          fileLinks: shapeFileLinks(supplierOrder.fileLinks),
+          supplierProfile: await this.config.supplierProfileOf(organizationId, supplierOrder.supplierId),
+          sharedWith: supplierOrder.customerOrders.filter((x: { id: string }) => x.id !== o.id).map((x: { year: number; orderNo: number }) => orderLabel(x)),
+        }
+      : null;
     return {
       ...rest,
+      supplierOrder: so,
       label: orderLabel(o),
       steps,
       docLinks,
@@ -153,8 +196,8 @@ export class OrdersService {
       depositDueDate: depositDueDate(o.piDate, o.depositDueDays, o.depositDueUnit),
       monthsLabel: monthsLabel(o.shipMonth, o.deliveryMonth),
       productLabel: orderProductLabel(o),
-      progress: progressOf(o.steps),
-      currentStep: currentStepOf(o.steps),
+      progress: progressOf([...o.steps, ...(supplierOrder?.steps ?? [])]),
+      currentStep: (supplierOrder?.status === 'OPEN' ? currentStepOf(supplierOrder.steps) : null) ?? currentStepOf(o.steps),
       shipments: shipments.map(({ steps: ss, ...s }: any) => ({ ...s, ref: shipmentRef(o.orderNo, s.seqNo), progress: progressOf(ss), currentStep: currentStepOf(ss) })),
     };
   }
@@ -167,7 +210,22 @@ export class OrdersService {
 
   async create(organizationId: string, dto: CreateOrderDto, actor: TradeActor) {
     try {
-      const id = await this.prisma.$transaction(async (tx: Db) => {
+      const id = await this.prisma.$transaction((tx: Db) => this.createInTx(tx, organizationId, dto, actor), { timeout: 30_000 });
+      return this.getById(organizationId, id, actor);
+    } catch (e) {
+      if (isUniqueViolation(e)) throw new BadRequestException('That order number is already used this year');
+      throw e;
+    }
+  }
+
+  /**
+   * Create a customer order inside a transaction. It is bought under a
+   * supplier order: `opts.supplierOrderId` / dto.supplierOrderId links an
+   * existing one; otherwise a 1:1 supplier order is made from the order's PI
+   * fields (unless createSupplierOrder is false) and takes the PI / contract
+   * files (steps 0 and 1 live there).
+   */
+  async createInTx(tx: Db, organizationId: string, dto: CreateOrderDto, actor: TradeActor, opts: { supplierOrderId?: string } = {}): Promise<string> {
         const contract = dto.contractId
           ? await tx.contract.findFirst({
               where: { id: dto.contractId, organizationId },
@@ -243,16 +301,45 @@ export class OrdersService {
           select: { id: true },
         });
         const profile = await this.config.profileOf(organizationId, customerId, tx);
-        await this.config.snapshotSteps(tx, organizationId, 'ORDER', { orderId: created.id }, profile);
-        if (dto.piFileId) await this.config.linkSourceFile(tx, organizationId, dto.piFileId, 'PI', { orderId: created.id }, 'PI_PAYMENT');
-        if (dto.contractFileId) await this.config.linkSourceFile(tx, organizationId, dto.contractFileId, 'CONTRACT', { orderId: created.id }, 'CHECK_CONTRACT');
+        const sp = await this.config.supplierProfileOf(organizationId, supplierId, tx);
+        await this.config.snapshotSteps(tx, organizationId, 'ORDER', { orderId: created.id }, profile, sp);
+        // The supplier side: link the given supplier order, or make a 1:1 one from the PI.
+        let supplierOrderId = opts.supplierOrderId ?? dto.supplierOrderId ?? null;
+        if (supplierOrderId) {
+          const so = await tx.supplierOrder.findFirst({ where: { id: supplierOrderId, organizationId }, select: { id: true, supplierId: true } });
+          if (!so) throw new BadRequestException('Supplier order not found in this organization');
+          if (so.supplierId !== supplierId) throw new BadRequestException('The supplier order is with another supplier');
+        } else if (dto.createSupplierOrder !== false) {
+          supplierOrderId = await createSupplierOrderInTx(
+            tx,
+            this.config,
+            organizationId,
+            {
+              // The 1:1 supplier order shares the order's year (S-numbers then sit beside the #-numbers).
+              year,
+              contractId: contract?.id ?? null,
+              supplierId,
+              declarationMonth: dto.shipMonth ?? null,
+              grade: dto.grade ?? undefined,
+              size: dto.size ?? undefined,
+              qtyMt: dto.qtyMt ?? null,
+              supplierPremium: dto.supplierPremium ?? undefined,
+              piNo: dto.piNo ?? null,
+              piDate: dto.piDate ?? null,
+              piAmount: dto.piAmount ?? null,
+              depositPct: dto.depositPct ?? undefined,
+              depositAmount: dto.depositAmount ?? undefined,
+              depositPaidAt: dto.depositPaidAt ?? null,
+              piFileId: dto.piFileId,
+            },
+            actor,
+          );
+        }
+        if (supplierOrderId) await tx.tradeOrder.update({ where: { id: created.id }, data: { supplierOrderId } });
+        else if (dto.piFileId) await this.config.linkSourceFile(tx, organizationId, dto.piFileId, 'PI', { orderId: created.id }, 'PI_PAYMENT');
+        if (dto.contractFileId)
+          await this.config.linkSourceFile(tx, organizationId, dto.contractFileId, 'CONTRACT', supplierOrderId ? { supplierOrderId } : { orderId: created.id }, 'CHECK_CONTRACT');
         return created.id as string;
-      });
-      return this.getById(organizationId, id, actor);
-    } catch (e) {
-      if (isUniqueViolation(e)) throw new BadRequestException('That order number is already used this year');
-      throw e;
-    }
   }
 
   async update(organizationId: string, id: string, dto: UpdateOrderDto, actor: TradeActor | null = null) {
@@ -260,6 +347,10 @@ export class OrdersService {
       const existing = await tx.tradeOrder.findFirst({ where: { id, organizationId }, select: { id: true, year: true, orderNo: true, customerId: true } });
       if (!existing) throw new NotFoundException('Order not found');
       if (dto.supplierId || dto.customerId) await this.assertParties(tx, organizationId, dto.supplierId, dto.customerId);
+      if (dto.supplierOrderId) {
+        const so = await tx.supplierOrder.findFirst({ where: { id: dto.supplierOrderId, organizationId }, select: { id: true } });
+        if (!so) throw new BadRequestException('Supplier order not found in this organization');
+      }
       if (dto.contractId) {
         const c = await tx.contract.findFirst({ where: { id: dto.contractId, organizationId }, select: { id: true } });
         if (!c) throw new BadRequestException('Contract not found in this organization');
@@ -278,6 +369,7 @@ export class OrdersService {
           ...(dto.contractId !== undefined ? { contractId: dto.contractId || null } : {}),
           ...(dto.customerId ? { customerId: dto.customerId } : {}),
           ...(dto.supplierId ? { supplierId: dto.supplierId } : {}),
+          ...(dto.supplierOrderId !== undefined ? { supplierOrderId: dto.supplierOrderId || null } : {}),
           ...this.fields(dto),
           ...(dto.status === 'CANCELLED' ? { status: 'CANCELLED' } : {}),
         },
@@ -372,7 +464,20 @@ export class OrdersService {
     const inputs = (o.reconciliation ?? {}) as ReconcileInputs;
     const merged: ReconcileInputs = { importTaxActualJpy: sumOf('importTaxActual'), ...stripNulls(inputs) };
     const result = reconcile(merged, docs, { piDeposit: deposit, ciAmount: ci, fxRate: fx as number | null });
-    return { orderId: o.id, label: orderLabel(o), ...result };
+    // Invoice #2 / single invoices issued on ESTIMATED costs: step 13 shows their variance once actuals are in.
+    const shipIds = o.shipments.map((s: { id: string }) => s.id);
+    const estimated: Array<{ id: string; number: string | null; docType: string; header: any }> = shipIds.length
+      ? await this.prisma.tradeGeneratedDoc.findMany({
+          where: { organizationId, status: 'FINAL', docType: { in: ['INVOICE_2', 'INVOICE_SINGLE'] }, OR: [{ shipmentId: { in: shipIds } }, { coversShipmentIds: { hasSome: shipIds } }] },
+          select: { id: true, number: true, docType: true, header: true },
+        })
+      : [];
+    return {
+      orderId: o.id,
+      label: orderLabel(o),
+      ...result,
+      estimatedInvoices: estimated.filter((g) => g.header?.costsBasis === 'ESTIMATED').map((g) => ({ id: g.id, number: g.number, docType: g.docType })),
+    };
   }
 
   async updateReconciliation(organizationId: string, id: string, body: unknown) {
@@ -430,7 +535,7 @@ export class OrdersService {
   /** Optional columns shared by create and update; undefined = leave unchanged. */
   private fields(dto: Partial<CreateOrderDto>) {
     const out: Record<string, unknown> = {};
-    for (const k of ['shipMonth', 'deliveryMonth', 'product', 'grade', 'size', 'piNo', 'incoterm', 'destinationPort', 'consignee', 'notifyParty', 'notes'] as const) {
+    for (const k of ['shipMonth', 'deliveryMonth', 'product', 'grade', 'size', 'piNo', 'incoterm', 'destinationPort', 'consignee', 'notifyParty', 'notes', 'customerPoNo'] as const) {
       const v = optText(dto[k]);
       if (v !== undefined) out[k] = v;
     }
@@ -438,7 +543,7 @@ export class OrdersService {
       if (dto[k] !== undefined) out[k] = dto[k];
     }
     if (dto.depositDueUnit !== undefined) out.depositDueUnit = dto.depositDueUnit || null;
-    for (const k of ['piDate', 'depositPaidAt'] as const) if (dto[k] !== undefined) out[k] = dto[k] ? new Date(dto[k] as string) : null;
+    for (const k of ['piDate', 'depositPaidAt', 'customerPoDate'] as const) if (dto[k] !== undefined) out[k] = dto[k] ? new Date(dto[k] as string) : null;
     if (dto.currency) out.currency = dto.currency;
     return out;
   }

@@ -64,6 +64,13 @@ export class EmailInboxController {
     return this.triage.undo(this.org(req), id, this.actor(req));
   }
 
+  @Post(':id/supplier-orders')
+  @Permissions('shipments:update')
+  @ApiOperation({ summary: "Vedanta declaration: apply the PI table to supplier orders (create / fill, attach each PI)." })
+  supplierOrders(@Param('id', ParseUUIDPipe) id: string, @Req() req: Req2) {
+    return this.triage.applySupplierOrders(this.org(req), id, this.actor(req));
+  }
+
   @Post(':id/dismiss')
   @Permissions('shipments:update')
   @ApiOperation({ summary: 'Not shipment mail: delete the stored email and attachments now (a hashed Message-ID is kept).' })

@@ -1,5 +1,5 @@
 import { PartialType } from '@nestjs/swagger';
-import { IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
 import { IsTradeDate } from './trade-date';
 import { DEPOSIT_DUE_UNITS } from '../trade-deposit';
 
@@ -48,7 +48,16 @@ export class CreateOrderDto {
   @IsOptional() @IsString() @MaxLength(2000) notifyParty?: string | null;
   @IsOptional() @IsString() @MaxLength(5000) notes?: string | null;
 
-  /** A stored PI file ("Fill from PI"): linked to the order's step 1. */
+  /** The customer's own purchase order (Kato's 発注書). */
+  @IsOptional() @IsString() @MaxLength(100) customerPoNo?: string | null;
+  @IsOptional() @IsDateString() @IsTradeDate() customerPoDate?: string | null;
+
+  /** Bought under this supplier order; else a 1:1 supplier order is made from the PI fields. */
+  @IsOptional() @IsUUID() supplierOrderId?: string | null;
+  /** false: don't make a supplier order (link one later). */
+  @IsOptional() @IsBoolean() createSupplierOrder?: boolean;
+
+  /** A stored PI file ("Fill from PI"): linked to the supplier order's step 1. */
   @IsOptional() @IsUUID() piFileId?: string;
   /** A stored contract file: linked to the order's step 0. */
   @IsOptional() @IsUUID() contractFileId?: string;
@@ -66,6 +75,7 @@ export class ListOrdersQuery {
   @IsOptional() @IsIn(['pending', 'completed']) bucket?: 'pending' | 'completed';
   @IsOptional() @IsUUID() customerId?: string;
   @IsOptional() @IsUUID() contractId?: string;
+  @IsOptional() @IsUUID() supplierOrderId?: string;
   @IsOptional() @IsString() q?: string;
   @IsOptional() page?: string;
   @IsOptional() pageSize?: string;

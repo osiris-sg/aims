@@ -12,6 +12,7 @@
 import React, { useEffect, useState } from "react";
 import { Alert, Box, CircularProgress, Grid, InputAdornment, Paper, Stack, TextField, Typography } from "@mui/material";
 import { useReconciliation, useTradeMutation } from "../_lib/hooks";
+import CostVariancePanel from "./CostVariancePanel";
 import { fmtUsd, fmtYen } from "../_lib/format";
 import { toast } from "../_lib/toast";
 
@@ -70,6 +71,7 @@ export default function ReconciliationPanel({ orderId, canEdit }: { orderId: str
               <In label="Mitsui Soko actuals (¥)" value={r.inputs.mitsuiActualsJpy} disabled={!canEdit} onSave={(v) => put("mitsuiActualsJpy", v)} />
               <In label="Other costs (¥)" value={r.inputs.otherCostsJpy} disabled={!canEdit} onSave={(v) => put("otherCostsJpy", v)} />
               <In label="Other costs (USD)" value={r.inputs.otherCostsUsd} disabled={!canEdit} onSave={(v) => put("otherCostsUsd", v)} />
+              <In label="Profit (USD, typed — wins while the formula is pending)" value={r.inputs.profitManual} placeholder={r.profitFormula} disabled={!canEdit} onSave={(v) => put("profitManual", v)} />
             </Grid>
           </Section>
           <Paper variant="outlined" sx={{ p: 1.5, mt: 1.5, bgcolor: "action.hover" }}>
@@ -78,9 +80,22 @@ export default function ReconciliationPanel({ orderId, canEdit }: { orderId: str
             <Line k="b · CI paid" v={fmtUsd(r.b)} />
             <Line k={`c · costs (import tax ${fmtUsd(r.costs.importTaxUsd)} + Mitsui ${fmtUsd(r.costs.mitsuiUsd)} + other ${fmtUsd(r.costs.otherUsd)})`} v={fmtUsd(r.c)} />
             <Box sx={{ borderTop: 1, borderColor: "divider", mt: 0.75, pt: 0.75 }}>
-              <Line k="Profit = d − a − b − c" v={fmtUsd(r.profit)} bold />
+              <Line k="d − a − b − c (formula pending)" v={fmtUsd(r.profitFormula)} small />
+              <Line k={r.profitStatus === "MANUAL" ? "Profit (typed)" : "Profit — formula pending"} v={fmtUsd(r.profit)} bold />
+              {r.profitStatus === "FORMULA_PENDING" && (
+                <Typography variant="caption" color="warning.main" sx={{ display: "block" }} data-tour="profit-formula-pending">
+                  The profit formula waits for ADH&apos;s task-list xlsx — type the profit above to use your own figure.
+                </Typography>
+              )}
             </Box>
           </Paper>
+          {(r.estimatedInvoices ?? []).length > 0 && (
+            <Stack spacing={1} sx={{ mt: 1.5 }}>
+              {r.estimatedInvoices!.map((i) => (
+                <CostVariancePanel key={i.id} invoiceId={i.id} canAdjust={canEdit} />
+              ))}
+            </Stack>
+          )}
         </Grid>
       </Grid>
     </Paper>

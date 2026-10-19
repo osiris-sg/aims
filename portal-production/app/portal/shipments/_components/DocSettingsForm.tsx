@@ -10,11 +10,11 @@
 
 import Link from "next/link";
 import React, { useEffect, useState } from "react";
-import { Alert, Box, Button, Divider, Grid2, IconButton, Radio, Stack, TextField, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Divider, Grid2, IconButton, MenuItem, Radio, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import UploadIcon from "@mui/icons-material/UploadFile";
-import type { BankAccount, DeliveryProfile } from "../_lib/api";
+import { bankEntity, type BankAccount, type DeliveryProfile, type IssuingEntity } from "../_lib/api";
 import { useTradeMutation, useTradeSettings } from "../_lib/hooks";
 import { toast } from "../_lib/toast";
 
@@ -39,12 +39,15 @@ const Section = ({ title, action, children }: { title: string; action?: React.Re
 
 type QmjpRow = { key: string; quarter: string; value: string };
 const QUARTER = /^\d{4}-[1-4]Q$/;
+type LmeRow = { key: string; month: string; value: string };
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export default function DocSettingsForm() {
   const settings = useTradeSettings(true);
   // Edits are kept while the settings refetch in the background; a save reloads them.
   const [dirty, setDirty] = useState(false);
   const [qmjp, setQmjp] = useState<QmjpRow[]>([]);
+  const [lme, setLme] = useState<LmeRow[]>([]);
   const [banks, setBanks] = useState<BankAccount[]>([]);
   const [defaultBankId, setDefaultBankId] = useState<string>("");
   const [issuers, setIssuers] = useState<Issuers>({ invoiceFromBlock: "", customerDocIssuerName: "", customerDocIssuerAddress: "", customerDocContact: "", siIssuerName: "", siAddressee: "" });
@@ -65,6 +68,8 @@ export default function DocSettingsForm() {
     setProfiles((d.deliveryProfiles ?? []).map((p) => ({ ...p })));
     const table = (d.qmjpByQuarter ?? {}) as Record<string, number>;
     setQmjp(Object.keys(table).sort().map((q) => ({ key: q, quarter: q, value: String(table[q]) })));
+    const lt = (d.lmeByMonth ?? {}) as Record<string, number>;
+    setLme(Object.keys(lt).sort().map((m) => ({ key: m, month: m, value: String(lt[m]) })));
     setError(null);
   }, [settings.data, dirty]);
 
@@ -88,14 +93,19 @@ export default function DocSettingsForm() {
     if (q.some((r) => !QUARTER.test(r.quarter.trim()))) return setError('QMJP quarters look like 2026-3Q');
     if (q.some((r) => r.value.trim() === "" || !Number.isFinite(Number(r.value)) || Number(r.value) < 0)) return setError("Every QMJP quarter needs a number");
     if (new Set(q.map((r) => r.quarter.trim())).size !== q.length) return setError("Each QMJP quarter only once");
+    const l = lme.filter((r) => r.month.trim() || r.value.trim());
+    if (l.some((r) => !MONTH.test(r.month.trim()))) return setError("LME months look like 2026-07");
+    if (l.some((r) => !(Number(r.value) > 0))) return setError("Every LME month needs a price");
+    if (new Set(l.map((r) => r.month.trim())).size !== l.length) return setError("Each LME month only once");
     try {
       await save.mutateAsync({
-        banks: banks.map((b) => ({ id: b.id, label: b.label.trim(), block: b.block })),
+        banks: banks.map((b) => ({ id: b.id, label: b.label.trim(), block: b.block, entity: bankEntity(b) })),
         defaultBankId: banks.some((b) => b.id === defaultBankId) ? defaultBankId : (banks[0]?.id ?? null),
         ...Object.fromEntries(ISSUER_KEYS.map((k) => [k, issuers[k].trim() ? issuers[k] : null])),
         sealImage: seal,
         deliveryProfiles: profiles.map((p) => ({ ...p, customerName: p.customerName.trim(), siteName: p.siteName.trim(), address: p.address.trim() })),
         qmjpByQuarter: Object.fromEntries(q.map((r) => [r.quarter.trim(), Number(r.value)])),
+        lmeByMonth: Object.fromEntries(l.map((r) => [r.month.trim(), Number(r.value)])),
       });
       setDirty(false);
       toast.success("Document settings saved");
@@ -142,8 +152,14 @@ export default function DocSettingsForm() {
                   <Radio checked={defaultBankId === b.id} onChange={() => setDefaultBankId(b.id)} inputProps={{ "aria-label": `Default bank ${b.label}` }} />
                 </Tooltip>
                 <Grid2 container spacing={1} sx={{ flex: 1 }}>
-                  <Grid2 size={12}>
+                  <Grid2 size={{ xs: 12, sm: 8 }}>
                     <TextField size="small" fullWidth label="Name" value={b.label} onChange={(e) => setBank(i, { label: e.target.value })} />
+                  </Grid2>
+                  <Grid2 size={{ xs: 12, sm: 4 }}>
+                    <TextField select size="small" fullWidth label="Entity" value={bankEntity(b)} onChange={(e) => setBank(i, { entity: e.target.value as IssuingEntity })} data-tour="settings-bank-entity">
+                      <MenuItem value="ADH_SG">ADH SG (Asia Deal Hub Pte. Ltd.)</MenuItem>
+                      <MenuItem value="ADH_JP">ADH JP (アジアディールハブジャパン合同会社)</MenuItem>
+                    </TextField>
                   </Grid2>
                   <Grid2 size={12}>
                     <TextField size="small" fullWidth multiline minRows={4} label="Printed text" value={b.block} onChange={(e) => setBank(i, { block: e.target.value })} inputProps={mono} />
@@ -241,6 +257,54 @@ export default function DocSettingsForm() {
             {!qmjp.length && (
               <Typography variant="body2" color="text.secondary">
                 No quarters yet.
+              </Typography>
+            )}
+          </Stack>
+        </Section>
+
+        <Divider sx={{ mb: 2 }} />
+        <Section
+          title="LME cash monthly average (US$/MT)"
+          action={
+            <Button size="small" startIcon={<AddIcon />} onClick={() => setLme((rs) => [...rs, { key: newId("l"), month: "", value: "" }])} disabled={loading}>
+              Add month
+            </Button>
+          }
+        >
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+            The price check compares PIs, CIs and invoices with LME of the basis month + the contract&apos;s premium (+ QMJP). A month not listed is marked &quot;unknown&quot;, never wrong.
+          </Typography>
+          <Stack spacing={1} data-tour="settings-lme">
+            {lme.map((r, i) => (
+              <Stack key={r.key} direction="row" spacing={1} alignItems="center">
+                <TextField
+                  size="small"
+                  label="Month"
+                  placeholder="2026-07"
+                  value={r.month}
+                  error={!!r.month.trim() && !MONTH.test(r.month.trim())}
+                  onChange={(e) => setLme((rs) => rs.map((x, j) => (j === i ? { ...x, month: e.target.value } : x)))}
+                  sx={{ width: 160 }}
+                />
+                <TextField
+                  size="small"
+                  type="number"
+                  label="LME"
+                  value={r.value}
+                  inputProps={{ step: "0.01", min: 0, style: { textAlign: "right" } }}
+                  onChange={(e) => setLme((rs) => rs.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
+                  sx={{ width: 160 }}
+                />
+                <Tooltip title="Remove month">
+                  <IconButton aria-label="Remove month" onClick={() => setLme((rs) => rs.filter((_, j) => j !== i))}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            ))}
+            {!lme.length && (
+              <Typography variant="body2" color="text.secondary">
+                No months yet.
               </Typography>
             )}
           </Stack>
