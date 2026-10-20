@@ -7,7 +7,9 @@
  *     their own (every email has one);
  *   - the subject or an attachment name carries a shipment key (B/L 198GX… / 22AA… / KMTC… / MEDU… / SITG… /
  *     GGVC…, contract 4540…, PI 9331…, CI XP26… / 9000…);
- *   - it is on a thread already matched to an order.
+ *   - it is on a thread already matched to an order;
+ *   - (round L) an earlier email of its thread was kept by the allow-list (domain / address): the whole thread is
+ *     kept, internal-only replies included, even before the thread is matched to an order.
  * Internal-only mail (everyone @ the org's own domains) is therefore kept only with a key or a matched thread.
  * Pure.
  */
@@ -22,6 +24,8 @@ export interface FilterInput {
   attachmentNames: string[];
   /** An earlier email of the thread is matched to an order (its "#19"), else null. */
   threadOrder: string | null;
+  /** An earlier email of the thread was kept by the allow-list — the domain that allowed it ("vedanta.co.in"), else null. */
+  threadAllowed?: string | null;
 }
 
 export interface FilterConfig {
@@ -81,6 +85,12 @@ export function cleanAllowList(list: unknown, kind: 'domain' | 'address'): strin
   return [...new Set(out)];
 }
 
+/** Did the allow-list itself (domain / address — not a key or thread) keep this email? Its domain, else null. */
+export function allowListHit(e: Pick<FilterInput, 'from' | 'to' | 'cc'>, cfg: FilterConfig, ownDomains: string[]): string | null {
+  const d = filterDecision({ ...e, subject: null, attachmentNames: [], threadOrder: null }, cfg, ownDomains);
+  return d.keep ? d.reason.replace(/^allowed (domain|address) /, '') : null;
+}
+
 export function filterDecision(e: FilterInput, cfg: FilterConfig, ownDomains: string[]): FilterDecision {
   const own = (a: string) => ownDomains.some((o) => underDomain(domainOf(a), o));
   // The intake address itself (docs+…@) is never a participant that counts.
@@ -94,6 +104,7 @@ export function filterDecision(e: FilterInput, cfg: FilterConfig, ownDomains: st
   const key = shipmentKeyIn(e.subject, e.attachmentNames);
   if (key) return { keep: true, reason: `shipment key ${key}` };
   if (e.threadOrder) return { keep: true, reason: `thread matched to ${e.threadOrder}` };
+  if (e.threadAllowed) return { keep: true, reason: `thread kept by allowed ${e.threadAllowed}` };
   if (!external.length) return { keep: false, reason: 'internal only, no shipment key or matched thread' };
   return { keep: false, reason: `not on the allow-list (${[...new Set(external.map(domainOf))].slice(0, 3).join(', ')})` };
 }

@@ -4,13 +4,17 @@
 // Trade Documents hub (top-level "Documents" for orgs whose DOCUMENTS module
 // row points here — ADH Japan). One list of everything: uploaded trade files,
 // in-app invoices linked to contracts / shipments, and in-app generated
-// documents (Customer PL / COA). Category chips across the top; the Filter
-// drawer narrows by doc type, contract, B/L, customer, source and date.
+// documents (Customer PL / COA). Looks like the Shipments pages (round L):
+// underlined category tabs with counts (empty ones hidden, All always shown),
+// search (doc ID / doc no. / B/L / order no. / file name), and the columns
+// Doc ID · Type · Name / number · Order / shipment · B/L · Customer · Status ·
+// Date. The Filter drawer narrows by doc type, contract, B/L, customer, source
+// and date. A row opens the document's preview.
 
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Alert, Box, Button, Chip, IconButton, Menu, MenuItem, Stack, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, IconButton, Menu, MenuItem, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { toast } from "../shipments/_lib/toast";
@@ -18,14 +22,16 @@ import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
 import { useShipmentsApi, type HubRow, type TradeFile } from "@/app/portal/shipments/_lib/api";
 import { useContracts, useCustomers, useDocTypes, useHub, useShipments, useTradeMutation } from "@/app/portal/shipments/_lib/hooks";
-import { blLabel, categoryLabel, DOC_CATEGORIES, documentHref, fmtDate, fmtDateTime } from "@/app/portal/shipments/_lib/format";
+import { blLabel, documentHref, fmtDate, fmtDateTime } from "@/app/portal/shipments/_lib/format";
 import { ConfirmDialog, EmptyState } from "@/app/portal/shipments/_components/bits";
 import { AddLinkDialog, UnlinkDialog } from "@/app/portal/shipments/_components/FilesTable";
 import FileUploadDialog from "@/app/portal/shipments/_components/FileUploadDialog";
 import { useFileViewer } from "@/app/portal/shipments/_components/FilePreview";
 import { useDebounced } from "@/app/portal/shipments/_components/useDebounced";
+import { visibleTabs } from "@/app/portal/shipments/_lib/hub-tabs";
 
 const HERE = "/portal/trade-documents";
+const placeHref = (p: NonNullable<HubRow["place"]>) => (p.orderId ? `/portal/shipments/orders/${p.orderId}${p.shipmentId ? `?shipment=${p.shipmentId}` : ""}` : p.shipmentId ? `/portal/shipments/${p.shipmentId}` : null);
 type DateRange = { startDate?: Date | string | null; endDate?: Date | string | null };
 type Filters = { docType: string; contractId: string; shipmentId: string; customerId: string; source: string; entity: string; createdOn: DateRange };
 const EMPTY: Filters = { docType: "", contractId: "", shipmentId: "", customerId: "", source: "", entity: "", createdOn: { startDate: null, endDate: null } };
@@ -122,25 +128,36 @@ export default function TradeDocumentsHubPage() {
     [docTypes.data, contracts.data, shipments.data, customers.data, category],
   );
 
+  const items = hub.data?.items ?? [];
+  // "Recipient" only when some row has one (SI → warehouse, SG→JP → ADH Japan).
+  const showRecipient = items.some((r) => !!r.recipient);
   const columns = useMemo(
     () => [
       {
         id: "docRef",
-        header: "Document ID",
+        header: "Doc ID",
         cell: ({ row }: any) => (
           <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 700, whiteSpace: "nowrap" }}>
             {row.original.docRef || "—"}
           </Typography>
         ),
       },
-      { id: "category", header: "Category", cell: ({ row }: any) => <Typography variant="body2" sx={{ whiteSpace: "nowrap" }}>{categoryLabel(row.original.category)}</Typography> },
       {
         id: "docType",
-        header: "Doc type",
+        header: "Type",
         cell: ({ row }: any) => (
-          <Stack direction="row" spacing={0.5} alignItems="center">
-            <Chip size="small" variant="outlined" label={row.original.docTypeLabel} />
-            {row.original.issuingEntity && <Chip size="small" color={row.original.issuingEntity === "ADH_SG" ? "info" : "secondary"} label={row.original.issuingEntity === "ADH_SG" ? "SG" : "JP"} data-tour="hub-entity-badge" />}
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ whiteSpace: "nowrap" }}>
+            <Typography variant="body2">{row.original.docTypeLabel}</Typography>
+            {row.original.issuingEntity && (
+              <Chip
+                size="small"
+                variant="outlined"
+                color={row.original.issuingEntity === "ADH_SG" ? "info" : "secondary"}
+                label={row.original.issuingEntity === "ADH_SG" ? "SG" : "JP"}
+                sx={{ height: 18, fontSize: 10.5, "& .MuiChip-label": { px: 0.6 } }}
+                data-tour="hub-entity-badge"
+              />
+            )}
           </Stack>
         ),
       },
@@ -154,32 +171,34 @@ export default function TradeDocumentsHubPage() {
         ),
       },
       {
-        id: "links",
-        header: "Linked to",
-        cell: ({ row }: any) =>
-          row.original.links.length ? (
-            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-              {row.original.links.map((l: any, i: number) => (
-                <Chip
-                  key={i}
-                  size="small"
-                  variant="outlined"
-                  color={l.contractId ? "primary" : "info"}
-                  label={l.contractId ? `Contract ${l.contractNo ?? ""}` : `B/L ${blLabel(l.blNumber)}`}
-                  component={Link}
-                  href={l.contractId ? `/portal/shipments/contracts/${l.contractId}` : `/portal/shipments/${l.shipmentId}`}
-                  clickable
-                  onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                />
-              ))}
-            </Stack>
-          ) : (
-            <Typography variant="caption" color="text.secondary">Not linked</Typography>
-          ),
+        id: "place",
+        header: "Order / shipment",
+        cell: ({ row }: any) => {
+          const p = row.original.place;
+          const href = p ? placeHref(p) : null;
+          if (p?.ref && href)
+            return (
+              <Link href={href} onClick={(e: React.MouseEvent) => e.stopPropagation()} style={{ fontWeight: 700, whiteSpace: "nowrap" }} data-tour="hub-order-link">
+                {p.ref}
+              </Link>
+            );
+          if (p?.contractNo) return <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>Contract {p.contractNo}</Typography>;
+          return <Typography variant="body2" color="text.secondary">—</Typography>;
+        },
       },
+      { id: "bl", header: "B/L", cell: ({ row }: any) => <Typography variant="body2" sx={{ whiteSpace: "nowrap" }}>{row.original.place?.bl ?? "—"}</Typography> },
       { id: "customer", header: "Customer", cell: ({ row }: any) => row.original.customerName || "—" },
-      { id: "recipient", header: "Recipient", cell: ({ row }: any) => row.original.recipient || "—" },
-      { id: "createdBy", header: "Created by", cell: ({ row }: any) => row.original.createdBy || "—" },
+      ...(showRecipient ? [{ id: "recipient", header: "Recipient", cell: ({ row }: any) => row.original.recipient || "—" }] : []),
+      {
+        id: "status",
+        header: "Status",
+        cell: ({ row }: any) => {
+          const st: string | null = row.original.status;
+          if (!st) return <Typography variant="body2" color="text.secondary">—</Typography>;
+          const final = st === "Final" || st === "Confirmed";
+          return <Chip size="small" variant="outlined" color={final ? "success" : st === "Draft" ? "warning" : "default"} label={st === "Confirmed" ? "Final" : st} />;
+        },
+      },
       {
         id: "date",
         header: "Date",
@@ -207,10 +226,9 @@ export default function TradeDocumentsHubPage() {
         ),
       },
     ],
-    [],
+    [showRecipient],
   );
 
-  const items = hub.data?.items ?? [];
   const counts = hub.data?.categoryCounts ?? {};
   const filtered = !!(q || category || Object.entries(filters).some(([k, v]) => (k === "createdOn" ? (v as DateRange)?.startDate || (v as DateRange)?.endDate : v)));
   const m = menu?.row;
@@ -220,32 +238,33 @@ export default function TradeDocumentsHubPage() {
     if (r) fn(r);
   };
 
-  const categoryChips = (
-    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-      <Chip label={`All${hub.data ? ` (${hub.data.allCount})` : ""}`} color={!category ? "primary" : "default"} variant={!category ? "filled" : "outlined"} onClick={() => { setCategory(""); setPage(1); }} />
-      {DOC_CATEGORIES.map((c) => (
-        <Chip
-          key={c.code}
-          label={`${c.label}${counts[c.code] ? ` (${counts[c.code]})` : ""}`}
-          color={category === c.code ? "primary" : "default"}
-          variant={category === c.code ? "filled" : "outlined"}
-          onClick={() => {
-            setCategory(c.code);
-            setFilters((f) => ({ ...f, docType: "" }));
-            setPage(1);
-          }}
-        />
+  const tabs = (
+    <Tabs
+      value={category}
+      onChange={(_, v) => {
+        setCategory(v);
+        setFilters((f) => ({ ...f, docType: "" }));
+        setPage(1);
+      }}
+      variant="scrollable"
+      allowScrollButtonsMobile
+      sx={{ minHeight: 40, "& .MuiTab-root": { minHeight: 40, textTransform: "none" } }}
+      data-tour="hub-tabs"
+    >
+      {visibleTabs(counts, hub.data?.allCount ?? 0, category).map((t) => (
+        <Tab key={t.code || "all"} value={t.code} label={`${t.label}${hub.data ? ` (${t.count})` : ""}`} />
       ))}
-    </Stack>
+    </Tabs>
   );
 
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, height: "100%" }}>
       <PageTable
         tableName="Documents"
+        subTitle="Every document across all orders"
         actionButtons={[
           <Button key="upload" variant="contained" startIcon={<UploadFileIcon />} onClick={() => setUploadOpen(true)}>
-            Upload documents
+            Upload document
           </Button>,
         ]}
         columns={columns}
@@ -277,7 +296,7 @@ export default function TradeDocumentsHubPage() {
         hideTable={!hub.isLoading && !hub.isError && !items.length}
         headerContent={
           <Stack spacing={2}>
-            {categoryChips}
+            {tabs}
             {hub.isError ? (
               <Alert severity="error">{(hub.error as Error)?.message || "Could not load documents"}</Alert>
             ) : !hub.isLoading && !items.length ? (

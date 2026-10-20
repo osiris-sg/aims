@@ -7,13 +7,14 @@
  *   - every would-drop row whose triage verdict was SHIPMENT / UNSURE (= a false drop), as from-domain +
  *     subject (60). Never bodies or full addresses (email content is untrusted data).
  * Purged rows (NOT_SHIPMENT mail) keep only a hashed Message-ID + counterparty, so they are counted apart.
- * "Matched thread" uses today's order links of earlier rows (an approximation of what the live check saw).
+ * "Matched thread" uses today's order links of earlier rows (an approximation of what the live check saw); "thread
+ * kept by allowed …" (round L) = an earlier email of the thread was kept by the allow-list.
  *
  *   DATABASE_URL=<prod> npx ts-node --transpile-only -r tsconfig-paths/register scripts/email-filter-backtest.ts --org=<id> [--days=30]
  *   (dev: add --tenancy — reads org_adhjapan through the per-org client)
  */
 import 'dotenv/config';
-import { ADH_FILTER_ALLOW_DOMAINS, addressOf, filterDecision } from '../src/ingestion-email/email-filter.rules';
+import { ADH_FILTER_ALLOW_DOMAINS, addressOf, allowListHit, filterDecision } from '../src/ingestion-email/email-filter.rules';
 import { ownDomainsOf } from '../src/ingestion-email/email-triage.service';
 import { threadKeyOf } from '../src/ingestion-email/email-triage.rules';
 
@@ -22,6 +23,8 @@ const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.sp
 const org = arg('org') ?? '';
 const days = Math.max(1, Math.min(365, Number(arg('days') ?? 30)));
 const tenancy = process.argv.includes('--tenancy');
+/** --customers=<json>: preview with the addresses setup-adh-org.ts would add (emailFilterAddresses) — never printed. */
+const customersPath = arg('customers');
 
 async function main() {
   if (!ADH_ORGS.includes(org)) throw new Error('ADH only: pass --org=<ADH org id>');
@@ -34,7 +37,11 @@ async function main() {
     const cfg = await prisma.emailIngestConfig.findFirst({ where: { organizationId: org }, select: { allowDomains: true, allowAddresses: true } }).catch(() => null);
     const settings = await prisma.tradeSetting.findUnique({ where: { organizationId: org }, select: { docDefaults: true } }).catch(() => null);
     const own = ownDomainsOf((settings?.docDefaults as Record<string, unknown> | null) ?? null);
-    const allow = { allowDomains: cfg?.allowDomains?.length ? cfg.allowDomains : ADH_FILTER_ALLOW_DOMAINS, allowAddresses: cfg?.allowAddresses ?? [] };
+    const extra: string[] = customersPath
+      ? // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+        ((JSON.parse(require('fs').readFileSync(customersPath, 'utf8')).emailFilterAddresses ?? []) as Array<{ address: string }>).map((x) => x.address.toLowerCase())
+      : [];
+    const allow = { allowDomains: cfg?.allowDomains?.length ? cfg.allowDomains : ADH_FILTER_ALLOW_DOMAINS, allowAddresses: [...new Set([...(cfg?.allowAddresses ?? []), ...extra])] };
     const since = new Date(Date.now() - days * 86400000);
     const rows = await prisma.emailIngestLog.findMany({
       where: { organizationId: org, createdAt: { gte: since } },
@@ -55,12 +62,12 @@ async function main() {
     let purged = 0;
     const falseDrops: string[] = [];
     const otherDrops: string[] = [];
-    const seen: Array<{ messageId: string; threadKey: string | null; orderId: string | null }> = [];
+    const seen: Array<{ messageId: string; threadKey: string | null; orderId: string | null; allowedBy: string | null }> = [];
     for (const r of rows) {
       const meta = (r.rawMeta ?? {}) as Record<string, any>;
       if (r.inboxState === 'PURGED' || meta.filtered) {
         purged++;
-        seen.push({ messageId: r.messageId, threadKey: r.threadKey, orderId: r.orderId });
+        seen.push({ messageId: r.messageId, threadKey: r.threadKey, orderId: r.orderId, allowedBy: null });
         continue;
       }
       const refs: string[] = [r.inReplyTo, meta.inReplyTo, ...(Array.isArray(meta.references) ? meta.references : [])].filter(Boolean).map(String);
@@ -68,12 +75,15 @@ async function main() {
       const prior = [...seen].reverse().find((p) => p.orderId && (refs.includes(p.messageId) || (key && p.threadKey === key)));
       const threadOrder = prior?.orderId ? `#${orderNo.get(prior.orderId) ?? '?'}` : null;
       const list = (v: unknown) => (Array.isArray(v) ? v : v ? [v] : []);
+      const onThread = (p: (typeof seen)[number]) => refs.includes(p.messageId) || (!!key && p.threadKey === key);
+      const threadAllowed = [...seen].reverse().find((p) => p.allowedBy && onThread(p))?.allowedBy ?? null;
+      const allowedBy = allowListHit({ from: r.fromAddress, to: list(meta.headerTo), cc: list(meta.cc) }, allow, own);
       const d = filterDecision(
-        { from: r.fromAddress, to: list(meta.headerTo), cc: list(meta.cc), subject: r.subject, attachmentNames: list(meta.attachmentNames).map(String), threadOrder },
+        { from: r.fromAddress, to: list(meta.headerTo), cc: list(meta.cc), subject: r.subject, attachmentNames: list(meta.attachmentNames).map(String), threadOrder, threadAllowed },
         allow,
         own,
       );
-      const bucket = /^(allowed address|allowed domain|shipment key|thread matched|internal only|not on the allow-list)/.exec(d.reason)?.[1] ?? d.reason;
+      const bucket = /^(allowed address|allowed domain|shipment key|thread matched|thread kept by allowed|internal only|not on the allow-list)/.exec(d.reason)?.[1] ?? d.reason;
       reasons.set(`${d.keep ? 'KEEP' : 'DROP'} · ${bucket}`, (reasons.get(`${d.keep ? 'KEEP' : 'DROP'} · ${bucket}`) ?? 0) + 1);
       const line = `${r.createdAt.toISOString().slice(0, 10)} | ${(addressOf(r.fromAddress).split('@')[1] ?? '?').padEnd(22)} | ${(r.subject ?? '').replace(/\s+/g, ' ').slice(0, 60).padEnd(60)} | ${r.verdict ?? '-'}/${r.inboxState ?? '-'} | ${d.reason}`;
       if (d.keep) kept++;
@@ -81,7 +91,7 @@ async function main() {
         dropped++;
         (r.verdict === 'SHIPMENT' || r.verdict === 'UNSURE' || r.orderId ? falseDrops : otherDrops).push(line);
       }
-      seen.push({ messageId: r.messageId, threadKey: key, orderId: r.orderId });
+      seen.push({ messageId: r.messageId, threadKey: key, orderId: r.orderId, allowedBy });
     }
     console.log(`KEPT ${kept} · WOULD DROP ${dropped} · purged/filtered (no metadata, not judged) ${purged}\n`);
     for (const [k, n] of [...reasons].sort((a, b) => b[1] - a[1])) console.log(`  ${String(n).padStart(4)}  ${k}`);

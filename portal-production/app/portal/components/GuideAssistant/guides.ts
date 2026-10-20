@@ -363,6 +363,28 @@ export const GUIDES: Guide[] = [
     ],
   },
   {
+    id: 'trade-find-document',
+    title: 'Find a document (Shipments)',
+    module: 'SHIPMENTS',
+    description:
+      'Documents (top-level menu) lists every document across all orders — uploads, in-app invoices and generated documents. Tabs by category with counts (All / Supplier / Customer / Invoices / Customs & logistics / Payments / Other), a search by doc ID, doc no., file name, B/L or order no. (#27-1), and an Order / shipment link per row. Finding and opening existing documents — to upload a new one use "Upload document".',
+    route: '/portal/trade-documents',
+    steps: [
+      {
+        route: '/portal/trade-documents',
+        selector: '[data-tour="hub-tabs"]',
+        title: 'Tabs',
+        body: 'Pick a category; the count is how many documents match. Empty categories are hidden.',
+      },
+      {
+        selector: '[data-tour="hub-order-link"]',
+        title: 'Order / shipment',
+        body: 'Click #27-1 to open that shipment on its order. Click anywhere else on the row to preview the document.',
+        patient: true,
+      },
+    ],
+  },
+  {
     id: 'trade-credit-note',
     title: 'Use a credit note on the next invoice (Shipments)',
     module: 'SHIPMENTS',

@@ -25,7 +25,7 @@ import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
 import type { OrderListItem, OrderShipmentRow } from "./_lib/api";
 import { useContracts, useCustomers, useOrders, useTradeMutation } from "./_lib/hooks";
-import { blLabel, fmtDay, fmtMt } from "./_lib/format";
+import { fmtDay, fmtMt } from "./_lib/format";
 import { ConfirmDialog, EmptyState, RecordStatusChip } from "./_components/bits";
 import ProgressBarCell from "./_components/ProgressBarCell";
 import OrderFormDialog from "./_components/OrderFormDialog";
@@ -132,7 +132,7 @@ export default function OrdersPage() {
         header: "Customer",
         cell: ({ row }: any) => {
           const r: Row = row.original;
-          return r.kind === "order" ? r.customerName || "—" : <Typography variant="body2">B/L {blLabel(r.blNumber)}</Typography>;
+          return r.kind === "order" ? r.customerName || "—" : <Typography variant="body2">{r.blNumber ? `B/L ${r.blNumber}` : "B/L pending"}</Typography>;
         },
       },
       {

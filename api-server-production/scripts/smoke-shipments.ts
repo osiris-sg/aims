@@ -819,6 +819,16 @@ async function main() {
           'hub: SI row — Customer is the contract customer, Recipient the warehouse',
           `${si?.customerName} / ${si?.recipient}`,
         );
+        // Round L: one clean place per row (shipment ref / its order / the real B/L, never "pending"); search by B/L.
+        const placed = mine.items.filter((r) => r.place?.shipmentId === shipment.id);
+        (placed.length && placed.every((r) => !JSON.stringify(r.place).match(/pending/i) && (r.place.bl === null || !/^b\/l/i.test(r.place.bl))) ? pass : fail)(
+          'round L: hub rows carry one order / shipment place + the real B/L (no "pending", no "B/L B/L")',
+          placed.slice(0, 2).map((r) => `${r.place.ref ?? '—'} ${r.place.bl ?? '—'}`).join(' · '),
+        );
+        if (shipment.blNumber) {
+          const byBl = await hubSvc.list(ORG_ID, { q: shipment.blNumber, pageSize: '100' });
+          (byBl.items.length >= placed.length && byBl.allCount === byBl.total ? pass : fail)('round L: hub search by B/L finds the shipment\'s documents; tab counts follow', `${byBl.total} row(s)`);
+        }
         const inApp2 = await hubSvc.list(ORG_ID, { shipmentId: shipment.id, source: 'IN_APP', pageSize: '100' });
         const sum = Object.values(inApp2.categoryCounts).reduce((a, b) => a + b, 0);
         (inApp2.allCount === inApp2.total && sum === inApp2.total && inApp2.items.every((r) => r.source === 'IN_APP') ? pass : fail)(

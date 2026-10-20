@@ -1134,11 +1134,17 @@ async function main() {
     write('emailIntake', `${curIntake ? 'update' : 'create'} EmailIngestConfig enabled, routingMode ${curIntake?.routingMode ?? '—'} → ${wantMode}${curIntake ? '' : ', all senders'}`);
   }
   // Sender filter: the allow-list seeded when empty (edited in Settings → Shipping → Email filter), notes filled
-  // per key, and OFF → SHADOW (a SHADOW / ENFORCE chosen in the app is left alone).
+  // per key, and OFF → SHADOW (a SHADOW / ENFORCE chosen in the app is left alone). Round L: single addresses from
+  // --customers (emailFilterAddresses) are added to allowAddresses with their note — never printed (count only).
   {
-    const cur = curIntake as { allowDomains?: string[]; filterMode?: string; filterNotes?: Record<string, string> | null } | null;
+    const cur = curIntake as { allowDomains?: string[]; allowAddresses?: string[]; filterMode?: string; filterNotes?: Record<string, string> | null } | null;
     const data: Record<string, unknown> = {};
-    const notes = { ...FILTER_NOTES, ...((cur?.filterNotes as Record<string, string> | null) ?? {}) };
+    const wantAddrs = (CUSTOMER_FILE?.emailFilterAddresses ?? []).map((a) => ({ address: String(a.address ?? '').trim().toLowerCase(), note: a.note })).filter((a) => /^[^@\s]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(a.address));
+    const haveAddrs = new Set((cur?.allowAddresses ?? []).map((a) => a.toLowerCase()));
+    const newAddrs = wantAddrs.filter((a) => !haveAddrs.has(a.address));
+    if (newAddrs.length) data.allowAddresses = [...(cur?.allowAddresses ?? []), ...newAddrs.map((a) => a.address)];
+    const addrNotes = Object.fromEntries(wantAddrs.filter((a) => a.note).map((a) => [a.address, a.note as string]));
+    const notes = { ...FILTER_NOTES, ...((cur?.filterNotes as Record<string, string> | null) ?? {}), ...addrNotes };
     if (!cur?.allowDomains?.length) data.allowDomains = FILTER_ALLOW_DOMAINS;
     if (JSON.stringify(notes) !== JSON.stringify(cur?.filterNotes ?? {})) data.filterNotes = notes;
     if (!cur?.filterMode || cur.filterMode === 'OFF') data.filterMode = 'SHADOW';
@@ -1148,13 +1154,19 @@ async function main() {
         'emailFilter',
         [
           data.allowDomains ? `allow ${FILTER_ALLOW_DOMAINS.length} domains (${FILTER_ALLOW_DOMAINS.join(', ')})` : null,
-          data.filterNotes ? `notes: ${Object.entries(FILTER_NOTES).map(([k, v]) => `${k} = ${v}`).join('; ')}` : null,
+          newAddrs.length ? `add ${newAddrs.length} allowed address(es) (${newAddrs.map((a) => `@${a.address.split('@')[1]}${a.note ? ` — "${a.note}"` : ''}`).join(', ')})` : null,
+          data.filterNotes
+            ? `notes: ${Object.entries(notes)
+                .filter(([k, v]) => (cur?.filterNotes ?? {})[k] !== v)
+                .map(([k, v]) => `${k.includes('@') ? `@${k.split('@')[1]}` : k} = ${v}`)
+                .join('; ')}`
+            : null,
           data.filterMode ? `filterMode ${cur?.filterMode ?? 'OFF'} → SHADOW` : null,
         ]
           .filter(Boolean)
           .join(' · '),
       );
-    } else info(`sender filter ${cur?.filterMode} — ${cur?.allowDomains?.length ?? 0} allowed domains (left as set in the app)`);
+    } else info(`sender filter ${cur?.filterMode} — ${cur?.allowDomains?.length ?? 0} allowed domains, ${cur?.allowAddresses?.length ?? 0} address(es) (left as set in the app)`);
   }
 
   // ── 10. Master files ──────────────────────────────────────────────────────
@@ -1608,6 +1620,8 @@ main()
 type CustomerFile = {
   customers?: Array<{ name: string; jpName?: string; jpAddress?: string; jpContact?: string; emailDomains?: string[] }>;
   deliveryProfiles?: Array<{ id: string; customerName: string; siteName: string; address: string; notes?: string }>;
+  /** Round L: single sender addresses for the email filter's allow-list (people on gmail.com etc.) — kept out of the repo. */
+  emailFilterAddresses?: Array<{ address: string; note?: string }>;
 };
 /** --customers=<file>: customer details kept out of the repo (see the header). */
 function readCustomerFile(file: string): CustomerFile {

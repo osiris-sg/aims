@@ -12,7 +12,7 @@ import { DocumentExtractionService, DocumentType } from '../document-extraction/
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import { emailFolder, parseMailDate, reconstructEml, safeKeyName, StoredAttachment, StoredEmailMeta } from './email-store';
 import { EmailTriageService, hashedMessageId, ownDomainsOf } from './email-triage.service';
-import { filterDecision, FilterMode } from './email-filter.rules';
+import { allowListHit, filterDecision, FilterMode } from './email-filter.rules';
 import { threadKeyOf } from './email-triage.rules';
 
 // Provider-agnostic inbound payload — same shape as bills-inbound.
@@ -839,12 +839,36 @@ export class IngestionEmailService {
     const settings = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { docDefaults: true } }).catch(() => null);
     const ownDomains = ownDomainsOf((settings?.docDefaults as Record<string, unknown> | null) ?? null);
     const threadOrder = await this.matchedThreadOrder(organizationId, payload);
+    const cfg = { allowDomains: config.allowDomains ?? [], allowAddresses: config.allowAddresses ?? [] };
+    const threadAllowed = threadOrder ? null : await this.threadAllowedBy(organizationId, payload, cfg, ownDomains);
     const d = filterDecision(
-      { from: payload.from, to: payload.headerTo ?? [], cc: payload.cc ?? [], subject: payload.subject ?? null, attachmentNames: (payload.attachments ?? []).map((a) => a.filename ?? ''), threadOrder },
-      { allowDomains: config.allowDomains ?? [], allowAddresses: config.allowAddresses ?? [] },
+      { from: payload.from, to: payload.headerTo ?? [], cc: payload.cc ?? [], subject: payload.subject ?? null, attachmentNames: (payload.attachments ?? []).map((a) => a.filename ?? ''), threadOrder, threadAllowed },
+      cfg,
       ownDomains,
     );
     return { mode, ...d };
+  }
+
+  /**
+   * Round L: an earlier email of this thread (In-Reply-To / References / subject) kept by the allow-list — from /
+   * to / cc an allowed domain or address — keeps the whole thread. Its domain, else null.
+   */
+  private async threadAllowedBy(organizationId: string, payload: InboundEmailPayload, cfg: { allowDomains: string[]; allowAddresses: string[] }, ownDomains: string[]): Promise<string | null> {
+    const key = threadKeyOf(payload.subject ?? null);
+    const ids = [payload.inReplyTo, ...(payload.references ?? [])].filter((x): x is string => !!x).slice(0, 20);
+    if (!key && !ids.length) return null;
+    const prior: Array<{ fromAddress: string; rawMeta: any }> = await this.prisma.emailIngestLog.findMany({
+      where: { organizationId, OR: [...(ids.length ? [{ messageId: { in: ids } }] : []), ...(key ? [{ threadKey: key }] : [])] },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: { fromAddress: true, rawMeta: true },
+    });
+    for (const p of prior) {
+      const m = (p.rawMeta ?? {}) as { headerTo?: unknown; cc?: unknown };
+      const hit = allowListHit({ from: p.fromAddress, to: Array.isArray(m.headerTo) ? m.headerTo : [], cc: Array.isArray(m.cc) ? m.cc : [] }, cfg, ownDomains);
+      if (hit) return hit;
+    }
+    return null;
   }
 
   /** "#19" when an earlier email of this thread (In-Reply-To / References / subject) is matched to an order. */

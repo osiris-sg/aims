@@ -923,7 +923,9 @@ export type GeneratedDoc = {
 /** A file a document can be made from; the server ranks them (best first) and says what each holds. */
 export type GenSource = { id: string; fileName: string; createdAt: string; uploadedByName: string | null; kind?: string; label?: string; best?: boolean; docRef?: string | null };
 
-export type HubLink = { contractId: string | null; shipmentId: string | null; orderId?: string | null; contractNo: string | null; blNumber: string | null; ref?: string | null; linkId?: string };
+export type HubLink = { contractId: string | null; shipmentId: string | null; orderId?: string | null; contractNo: string | null; blNumber: string | null; ref?: string | null; linkId?: string; orderOfShipment?: string | null };
+/** The one order / shipment a hub row belongs to + its real B/L (null = none / placeholder — never printed). */
+export type HubPlace = { ref: string | null; orderId: string | null; shipmentId: string | null; bl: string | null; contractNo: string | null };
 export type HubRow = {
   key: string;
   kind: "file" | "invoice" | "generated";
@@ -939,6 +941,7 @@ export type HubRow = {
   issuingEntity?: IssuingEntity | null;
   status: string | null;
   links: HubLink[];
+  place?: HubPlace;
   customerIds: string[];
   customerName: string | null;
   /** Addressee when it is not the customer (SI → warehouse, SG→JP → ADH Japan). */

@@ -396,7 +396,7 @@ export default function OrderPage() {
                           </Typography>
                           <RecordStatusChip status={x.status} />
                         </Stack>
-                        <Typography variant="body2">B/L {blLabel(x.blNumber)}</Typography>
+                        <Typography variant="body2">{x.blNumber ? `B/L ${x.blNumber}` : "B/L pending"}</Typography>
                         <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
                           {[x.vessel, x.voyageNo].filter(Boolean).join(" / ") || "Vessel —"} · ETA {fmtDay(x.eta)}
                         </Typography>
