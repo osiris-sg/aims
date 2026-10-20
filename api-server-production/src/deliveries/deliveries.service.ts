@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'crypto';
 import * as QRCode from 'qrcode';
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional, forwardRef } from '@nestjs/common';
 import { AssetClass, DeliveryDirection, DeliveryOrigin, DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
+import { restampDeploymentTypeOnDocuments } from '../common/do-deployment-type';
 import { PrismaService } from 'src/common/prisma.service';
 import { isUnconfirmedDoc } from 'src/common/doc-status';
 import { resolveLineAssetClass, minPhotosForAssetClass } from 'src/common/asset-class';
@@ -2060,11 +2061,23 @@ export class DeliveriesService {
     }
 
     const deploymentType = type === 'SALE' ? DeploymentType.SALE : DeploymentType.RENTAL;
-    await this.prisma.projectDeployment.update({
-      where: { id: assignment.projectDeploymentId },
-      data: { type: deploymentType },
+    // Deployment type AND the DO's frozen per-line copy move together. The DO
+    // stamps `deploymentType` onto its lines at creation and every renderer
+    // reads that copy, so updating only the deployment left the printed DO
+    // saying "Rental of …" with no way to correct it (guru 2026-10-20).
+    const restamped = await this.prisma.$transaction(async (tx) => {
+      await tx.projectDeployment.update({
+        where: { id: assignment.projectDeploymentId! },
+        data: { type: deploymentType },
+      });
+      return restampDeploymentTypeOnDocuments(tx, organizationId, [inventoryId], type);
     });
-    return { inventoryId, deploymentId: assignment.projectDeploymentId, type: deploymentType };
+    return {
+      inventoryId,
+      deploymentId: assignment.projectDeploymentId,
+      type: deploymentType,
+      restampedDocuments: restamped,
+    };
   }
 
   async list(

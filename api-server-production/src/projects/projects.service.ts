@@ -6,6 +6,7 @@ import { UpdateProjectDto } from './dto/update-project.dto';
 // import { DeleteProjectDto } from './dto/delete-project.dto';
 import { GetProjectDto } from './dto/get-project.dto';
 import { Prisma, DeploymentType, DeploymentStatus } from '@prisma/client';
+import { restampDeploymentTypeOnDocuments } from '../common/do-deployment-type';
 import { ProjectStatus } from '@prisma/client';
 import { InventoryStatus } from '@prisma/client';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
@@ -1198,9 +1199,18 @@ export class ProjectsService {
         });
         unitsFlipped = flip.count;
       }
+      // The DO freezes `deploymentType` onto its lines at creation and every
+      // renderer reads that copy, so a conversion that moved only the
+      // deployment left the printed DO saying "Rental of …" (guru 2026-10-20).
+      const restampedDocuments = await restampDeploymentTypeOnDocuments(
+        tx,
+        organizationId,
+        inventoryIds,
+        'SALE',
+      );
       // Same shared rule as every other rental ending.
       const linkedTemplates = await this.deactivateDeploymentSchedules(tx, deploymentId, organizationId);
-      return { updated, unitsFlipped, linkedTemplates };
+      return { updated, unitsFlipped, linkedTemplates, restampedDocuments };
     });
 
     return {
@@ -1208,6 +1218,7 @@ export class ProjectsService {
       unitsFlipped: result.unitsFlipped,
       inventoryIds,
       deactivatedRecurringTemplates: result.linkedTemplates,
+      restampedDocuments: result.restampedDocuments,
     };
   }
 
