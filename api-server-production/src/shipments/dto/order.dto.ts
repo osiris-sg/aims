@@ -74,6 +74,8 @@ export class ListOrdersQuery {
   @IsOptional() @IsIn(['pending', 'completed']) bucket?: 'pending' | 'completed';
   @IsOptional() @IsUUID() customerId?: string;
   @IsOptional() @IsUUID() contractId?: string;
+  /** "2026-10", or "none" = orders without a ship month. */
+  @IsOptional() @Matches(/^(\d{4}-\d{2}|none)$/) shipMonth?: string;
   @IsOptional() @IsString() q?: string;
   @IsOptional() page?: string;
   @IsOptional() pageSize?: string;

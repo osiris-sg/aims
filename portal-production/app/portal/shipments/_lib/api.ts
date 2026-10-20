@@ -17,6 +17,11 @@ export type StepStatus = "NOT_STARTED" | "IN_PROGRESS" | "DONE" | "SKIPPED";
 export type Num = number | string | null;
 
 export type Progress = { done: number; total: number };
+/** The Orders list's segmented bar (round K): one segment per applicable step, N/A hidden. */
+export type SegmentState = "done" | "in_progress" | "overdue" | "not_started";
+export type ProgressBar = { segments: Array<{ no: string; title: string; state: SegmentState }>; done: number; total: number; inProgress?: number; overdue?: boolean };
+/** label: one line ("Step 7 of 14 · Customs docs & tax"); title: the full step name (tooltip). */
+export type ListBar = ProgressBar & { label: string | null; title?: string | null };
 /** First non-ongoing step not done; null = every step done. */
 export type CurrentStep = { code: string; title: string; position: number; displayNo?: string | null; label: string } | null;
 
@@ -85,6 +90,15 @@ export type EmailIntake = { address: string | null; addressNote: string | null; 
 export type InboxTab = "SUGGESTED" | "UNMATCHED" | "PROCESSED" | "UNSURE";
 export type InboxCandidate = { orderId: string; shipmentId: string | null; ref: string; score: number; reasons: string[] };
 export type InboxTarget = { orderId?: string | null; shipmentId?: string | null; attachmentIndexes?: number[] };
+/** Sender filter (Settings → Shipping → Email filter; SHADOW = decide + log, keep everything). */
+export type EmailFilterMode = "OFF" | "SHADOW" | "ENFORCE";
+export type EmailFilter = { filterMode: EmailFilterMode; allowDomains: string[]; allowAddresses: string[]; filterNotes: Record<string, string> };
+export type FilterPreview = {
+  days: number;
+  kept: number;
+  dropped: number;
+  items: Array<{ id: string; filterVerdict: "KEEP" | "DROP"; date: string; fromDomain: string; subject: string; verdict: string | null; inboxState: string | null; reason: string | null; falseDrop: boolean }>;
+};
 export type InboxStats = { days: number; AUTO: number; ACCEPTED: number; CHANGED: number; REJECTED: number; IGNORED: number; reviewed: number; acceptedAsIsPct: number | null };
 export type IntakeAction = {
   kind: "file" | "field" | "subtask";
@@ -476,6 +490,7 @@ export type OrderShipmentRow = {
   status: RecordStatus;
   progress: Progress;
   currentStep: CurrentStep;
+  bar?: ListBar;
 };
 export type OrderListItem = {
   id: string;
@@ -506,6 +521,7 @@ export type OrderListItem = {
   shipments: OrderShipmentRow[];
   progress: Progress;
   currentStep: CurrentStep;
+  bar?: ListBar;
 };
 export type Order = OrderListItem & {
   tolPct: Num;
@@ -573,7 +589,7 @@ export type OrderInput = Partial<{
   contractFileId: string;
   status: "CANCELLED";
 }>;
-export type OrderFilters = { bucket?: "pending" | "completed"; customerId?: string; contractId?: string; q?: string; page?: number; pageSize?: number };
+export type OrderFilters = { bucket?: "pending" | "completed"; customerId?: string; contractId?: string; shipMonth?: string; q?: string; page?: number; pageSize?: number };
 /** Orders list month headers ("Sep 2026 — 4 orders, 600 MT"), counted over the whole filtered list. */
 export type OrderMonth = { month: string | null; orders: number; qtyMt: number | null; label: string };
 /** "+ New monthly order": one order per row. */
@@ -908,7 +924,9 @@ export type GeneratedDoc = {
 /** A file a document can be made from; the server ranks them (best first) and says what each holds. */
 export type GenSource = { id: string; fileName: string; createdAt: string; uploadedByName: string | null; kind?: string; label?: string; best?: boolean; docRef?: string | null };
 
-export type HubLink = { contractId: string | null; shipmentId: string | null; orderId?: string | null; contractNo: string | null; blNumber: string | null; ref?: string | null; linkId?: string };
+export type HubLink = { contractId: string | null; shipmentId: string | null; orderId?: string | null; contractNo: string | null; blNumber: string | null; ref?: string | null; linkId?: string; orderOfShipment?: string | null };
+/** The one order / shipment a hub row belongs to + its real B/L (null = none / placeholder — never printed). */
+export type HubPlace = { ref: string | null; orderId: string | null; shipmentId: string | null; bl: string | null; contractNo: string | null };
 export type HubRow = {
   key: string;
   kind: "file" | "invoice" | "generated";
@@ -924,6 +942,7 @@ export type HubRow = {
   issuingEntity?: IssuingEntity | null;
   status: string | null;
   links: HubLink[];
+  place?: HubPlace;
   customerIds: string[];
   customerName: string | null;
   /** Addressee when it is not the customer (SI → warehouse, SG→JP → ADH Japan). */
@@ -1567,6 +1586,9 @@ export function useShipmentsApi() {
       inboxPreview: (id: string, targets: InboxTarget[]) => call<{ planned: IntakeAction[] }>(`/email-inbox/${id}/preview`, "POST", { targets }),
       inboxIgnore: (id: string) => call<InboxRow>(`/email-inbox/${id}/ignore`, "POST"),
       inboxStats: (days = 30) => call<InboxStats>(`/email-inbox/stats${qs({ days })}`),
+      inboxFilterPreview: (days = 30) => call<FilterPreview>(`/email-inbox/filter-preview${qs({ days })}`),
+      getEmailFilter: () => call<EmailFilter>(`/email-intake/filter`),
+      updateEmailFilter: (body: Partial<EmailFilter>) => call<EmailFilter>(`/email-intake/filter`, "PATCH", body),
       inboxUndo: (id: string) => call<InboxRow>(`/email-inbox/${id}/undo`, "POST"),
       inboxDismiss: (id: string) => call<{ id: string; purged: boolean }>(`/email-inbox/${id}/dismiss`, "POST"),
       inboxRetriage: (id: string) => call<InboxRow>(`/email-inbox/${id}/retriage`, "POST"),

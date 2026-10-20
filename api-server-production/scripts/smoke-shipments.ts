@@ -819,6 +819,16 @@ async function main() {
           'hub: SI row — Customer is the contract customer, Recipient the warehouse',
           `${si?.customerName} / ${si?.recipient}`,
         );
+        // Round L: one clean place per row (shipment ref / its order / the real B/L, never "pending"); search by B/L.
+        const placed = mine.items.filter((r) => r.place?.shipmentId === shipment.id);
+        (placed.length && placed.every((r) => !JSON.stringify(r.place).match(/pending/i) && (r.place.bl === null || !/^b\/l/i.test(r.place.bl))) ? pass : fail)(
+          'round L: hub rows carry one order / shipment place + the real B/L (no "pending", no "B/L B/L")',
+          placed.slice(0, 2).map((r) => `${r.place.ref ?? '—'} ${r.place.bl ?? '—'}`).join(' · '),
+        );
+        if (shipment.blNumber) {
+          const byBl = await hubSvc.list(ORG_ID, { q: shipment.blNumber, pageSize: '100' });
+          (byBl.items.length >= placed.length && byBl.allCount === byBl.total ? pass : fail)('round L: hub search by B/L finds the shipment\'s documents; tab counts follow', `${byBl.total} row(s)`);
+        }
         const inApp2 = await hubSvc.list(ORG_ID, { shipmentId: shipment.id, source: 'IN_APP', pageSize: '100' });
         const sum = Object.values(inApp2.categoryCounts).reduce((a, b) => a + b, 0);
         (inApp2.allCount === inApp2.total && sum === inApp2.total && inApp2.items.every((r) => r.source === 'IN_APP') ? pass : fail)(
@@ -1240,7 +1250,23 @@ async function roundHCases(x: any) {
   (((await prisma.tradeOrder.count({ where: { organizationId: ORG_ID, contractId: c.id } })) === 2) ? pass : fail)('monthly order: the refused batch left no order behind', '');
   const list: any = await orders.list(ORG_ID, { bucket: 'pending', pageSize: '100' } as any);
   const aug = list.months?.find((m: any) => m.month === '2026-08');
-  (aug && aug.orders >= 2 && /^Aug 2026 — \d+ orders?, [\d,.]+ MT$/.test(aug.label) ? pass : fail)('Orders list: grouped by ship month ("Aug 2026 — n orders, … MT")', String(aug?.label));
+  (aug && aug.orders >= 2 ? pass : fail)('Orders list: Ship month filter offers Aug 2026 (n orders)', String(aug?.label));
+  // Round K: a flat list — ship month newest first (no month last), then order no. newest first.
+  const keyOf = (o: any) => `${o.shipMonth ?? '0000-00'}|${String(o.year).padStart(4, '0')}|${String(o.orderNo).padStart(6, '0')}`;
+  const keys = list.items.map(keyOf);
+  (keys.every((k: string, i: number) => i === 0 || keys[i - 1] >= k) ? pass : fail)('round K: Orders list is flat, ship month desc then order no. desc', keys.slice(0, 4).join(' · '));
+  const augOnly: any = await orders.list(ORG_ID, { bucket: 'pending', shipMonth: '2026-08', pageSize: '100' } as any);
+  (augOnly.items.length >= 2 && augOnly.items.every((o: any) => o.shipMonth === '2026-08') && augOnly.months.length >= 1 ? pass : fail)('round K: Ship month filter = Aug 2026 only', `${augOnly.items.length} order(s)`);
+  const barRow = augOnly.items.find((o: any) => o.id === made[0].id) ?? augOnly.items[0];
+  (barRow?.bar && barRow.bar.total === barRow.bar.segments.length && barRow.bar.total > 0 && barRow.bar.segments.every((x: any) => ['done', 'in_progress', 'overdue', 'not_started'].includes(x.state)) && typeof barRow.bar.label === 'string'
+    ? pass
+    : fail)('round K: an order carries its progress bar (segments, n/total, label; no N/A segment)', barRow?.bar ? `${barRow.bar.label} ${barRow.bar.done}/${barRow.bar.total}` : 'no bar');
+  // Round M: before its first shipment an order still counts its whole process (shipment templates as not started).
+  const shipTpl = await prisma.tradeStepTemplate.count({ where: { organizationId: ORG_ID, scope: 'SHIPMENT', isActive: true, isOngoing: false } });
+  const ownSteps = await prisma.tradeStep.count({ where: { organizationId: ORG_ID, orderId: barRow?.id, isOngoing: false, notApplicable: false } });
+  (barRow && !barRow.shipmentCount && barRow.bar.total === ownSteps + shipTpl && / of \d+ · /.test(barRow.bar.label) && barRow.bar.label.length <= 60
+    ? pass
+    : fail)('round M: a 0-shipment order counts its whole process (order + shipment steps), one-line label', `${barRow?.bar?.label} ${barRow?.bar?.done}/${barRow?.bar?.total} = ${ownSteps} + ${shipTpl}`);
   await expectReject('round H: the Declaration makes nothing any more', () => supplierOrders.declare(ORG_ID, { month: '2026-08', rows: [{ customerId: customer.id, contractId: c.id, qtyMt: 1 }] }, actor), /no longer used/);
   await expectReject('round H: the Payments module takes no new payment', () => payments.create(ORG_ID, { direction: 'OUT', paidAt: '2026-08-05', amount: 1, currency: 'USD', account: 'WISE' }, actor), /recorded on the steps/);
   // Step 1's payment: amount, date, account, proof (a file on the order).

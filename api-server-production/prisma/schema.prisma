@@ -2790,6 +2790,14 @@ model EmailIngestConfig {
   // Reserved for a future auto-confirm mode; both create paths only make
   // DRAFTs today.
   createMode     String  @default("DRAFT")
+  // Shipments intake sender filter (2026-10): keep an email when any of from / to / cc is an allowed domain /
+  // address (the org's own addresses alone don't count), or the subject / attachment names carry a shipment
+  // key, or it is on a thread already matched to an order. OFF | SHADOW (decide + log, keep everything) | ENFORCE.
+  allowDomains   String[] @default([])
+  allowAddresses String[] @default([])
+  filterMode     String   @default("OFF")
+  /// Notes per domain / party for the settings screen: { "maersk.com": "unverified", "Hoei": "add when known" }.
+  filterNotes    Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2854,6 +2862,9 @@ model EmailIngestLog {
   threadKey          String?
   inReplyTo          String?
   emailDate          DateTime?
+  /// Sender filter verdict (SHADOW: logged, mail kept; ENFORCE: DROP rows are minimal, nothing stored) and why.
+  filterVerdict      String?
+  filterReason       String?
   /// UNSURE rows are purged after this (14 days).
   purgeAfter         DateTime?
 

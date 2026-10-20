@@ -12,7 +12,8 @@ import { TradeConfigService } from '../shipments/trade-config.service';
 import { sha256Of, TradeFilesService } from '../shipments/trade-files.service';
 import { TradeStepsService } from '../shipments/trade-steps.service';
 import { StoredEmailMeta } from './email-store';
-import { DEFAULT_CI_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, telexTiedTo, validCiNo } from './email-match.rules';
+import { DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, telexTiedTo, validCiNo } from './email-match.rules';
+import { supplierKeyPatterns } from '../shipments/trade-profile';
 import {
   counterpartyByDomain,
   DeclarationRow,
@@ -387,8 +388,13 @@ export class EmailTriageService {
   /** Supplier CI-number formats: Vedanta's defaults plus any a supplier profile adds (ciNoPatterns). */
   private async ciPatterns(organizationId: string): Promise<string[]> {
     const s = await this.config.getSettings(organizationId);
-    const extra = Object.values(s.supplierProfiles ?? {}).flatMap((p) => ((p as { ciNoPatterns?: string[] }).ciNoPatterns ?? []).filter((x) => typeof x === 'string'));
-    return [...DEFAULT_CI_PATTERNS, ...extra];
+    return [...DEFAULT_CI_PATTERNS, ...supplierKeyPatterns(s.supplierProfiles).ci];
+  }
+
+  /** Supplier contract-number formats (round M): Vedanta's 4540xxxxx plus a profile's (SIAE_SC_xxxxxxxx). */
+  private async contractPatterns(organizationId: string): Promise<string[]> {
+    const s = await this.config.getSettings(organizationId);
+    return [...DEFAULT_CONTRACT_PATTERNS, ...supplierKeyPatterns(s.supplierProfiles).contract];
   }
 
   /** Thread follow: the order an earlier email of this thread was ACCEPTED (or auto-applied) to. */
@@ -539,7 +545,7 @@ export class EmailTriageService {
     const t = (log.triage ?? {}) as Partial<TriageResult> & Record<string, unknown>;
     const known = knownSender({ from: log.fromAddress, subject: log.subject, attachments: ev.attachments });
     const ciPatterns = await this.ciPatterns(organizationId);
-    const keys = sanitizeKeys({ ...mergeKeys(null, {}), ...((t.keys ?? {}) as TriageKeys) }, ciPatterns);
+    const keys = sanitizeKeys({ ...mergeKeys(null, {}), ...((t.keys ?? {}) as TriageKeys) }, ciPatterns, await this.contractPatterns(organizationId));
     const triage = { ...t, attachments: known ? withKnownTypes((t.attachments ?? []) as TriageAttachment[], known) : (t.attachments ?? []), keys, ...(known ? { knownRule: known.rule } : {}) };
     const draft = { ...log, triage };
     const decision = await this.decide(organizationId, draft, ev);
@@ -879,6 +885,40 @@ export class EmailTriageService {
       },
     });
     return this.row(organizationId, logId);
+  }
+
+  /**
+   * Sender filter preview (SHADOW): the rows the filter would drop — and how many it keeps — over the last `days`.
+   * Only the from-domain and the subject's first 60 characters are shown (email content is untrusted data).
+   */
+  async filterPreview(organizationId: string, days = 30) {
+    const since = new Date(Date.now() - days * 86_400_000);
+    const rows: Array<{ id: string; createdAt: Date; fromAddress: string; subject: string | null; verdict: string | null; inboxState: string | null; filterVerdict: string | null; filterReason: string | null }> =
+      await this.prisma.emailIngestLog.findMany({
+        where: { organizationId, createdAt: { gte: since }, filterVerdict: { not: null } },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+        select: { id: true, createdAt: true, fromAddress: true, subject: true, verdict: true, inboxState: true, filterVerdict: true, filterReason: true },
+      });
+    const dropped = rows.filter((r) => r.filterVerdict === 'DROP');
+    return {
+      days,
+      kept: rows.length - dropped.length,
+      dropped: dropped.length,
+      // Would-drop first (newest first), then the kept ones.
+      items: [...dropped, ...rows.filter((r) => r.filterVerdict !== 'DROP')].map((r) => ({
+        id: r.id,
+        filterVerdict: r.filterVerdict as 'KEEP' | 'DROP',
+        date: r.createdAt,
+        fromDomain: (/@([^>\s]+)/.exec(r.fromAddress ?? '')?.[1] ?? '').toLowerCase().replace(/[>;,]+$/, '') || '—',
+        subject: (r.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 60),
+        verdict: r.verdict,
+        inboxState: r.inboxState,
+        reason: r.filterReason,
+        /** A shipment / unsure email the filter would drop: a false drop to fix before ENFORCE. */
+        falseDrop: r.filterVerdict === 'DROP' && (r.verdict === 'SHIPMENT' || r.verdict === 'UNSURE'),
+      })),
+    };
   }
 
   /**

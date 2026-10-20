@@ -73,4 +73,6 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // the supplier-order pages left the menu; their routes show only with this ON.
   // Default OFF.
   enableTradeLegacyPages: false,
+  // Shipments › Home's pipeline grid (round K: off — the Orders list's progress bars replace it). Code kept.
+  enableTradePipelineGrid: false,
 };

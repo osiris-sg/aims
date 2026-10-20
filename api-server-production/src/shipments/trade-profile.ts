@@ -81,6 +81,27 @@ export interface SupplierProfile {
   shippingDocs?: string[] | null;
   /** Supplier email domains (intake matching), e.g. vedanta.co.in. */
   emailDomains?: string[];
+  // ── Round M (a second, fixed-price supplier) — descriptive, read by intake only for now ──
+  /** ISO country ("ID") and loading port ("Batu Ampar"). */
+  country?: string | null;
+  loadingPort?: string | null;
+  /** LME_FORMULA (Vedanta: LME + QMJP premium) | FIXED (a fixed USD/t price on the PI — no LME / QMJP helpers). */
+  pricingMode?: 'LME_FORMULA' | 'FIXED';
+  /** e.g. "USD/t". */
+  priceUnit?: string | null;
+  /** 30% advance, 70% within 3 bank working days against the B/L copy. */
+  paymentTerms?: { advancePct: number; balanceAgainst: 'BL_COPY' | 'ARRIVAL' | 'OTHER'; balanceDays?: number | null; note?: string | null } | null;
+  /** The supplier's own number formats (regex), valid intake keys: PI ("^SIAE_PI_\\d{8}$"), contract, CI. */
+  piNoPatterns?: string[];
+  contractNoPatterns?: string[];
+  ciNoPatterns?: string[];
+}
+
+/** Every supplier's own key formats (intake validation): Vedanta's defaults are added by the callers. */
+export function supplierKeyPatterns(profiles: unknown): { pi: string[]; contract: string[]; ci: string[] } {
+  const all = Object.values((profiles && typeof profiles === 'object' ? profiles : {}) as Record<string, Partial<SupplierProfile>>);
+  const take = (k: 'piNoPatterns' | 'contractNoPatterns' | 'ciNoPatterns') => all.flatMap((p) => (Array.isArray(p?.[k]) ? (p[k] as unknown[]).filter((x): x is string => typeof x === 'string') : []));
+  return { pi: take('piNoPatterns'), contract: take('contractNoPatterns'), ci: take('ciNoPatterns') };
 }
 
 /** A supplier without a profile works like Vedanta (the flow before profiles existed). */

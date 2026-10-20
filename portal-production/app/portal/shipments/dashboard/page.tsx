@@ -2,7 +2,8 @@
 "use client";
 
 // Shipments home. Everyone: "My tasks today" (the alerts due now and in the
-// next 3 days) and the pipeline grid. ADH Manager (shipments:money) also sees
+// next 3 days); the pipeline grid only with the org flag enableTradePipelineGrid
+// (off since round K — the Orders list shows a progress bar per order). ADH Manager (shipments:money) also sees
 // cash in / out by month, margin and profit per order and month, and open
 // credits — the money section is simply absent for staff.
 
@@ -18,6 +19,7 @@ import { SHIPMENT_KEYS } from "../_lib/hooks";
 import { fmtDmy, monthShort } from "../_lib/format";
 import { toast } from "../_lib/toast";
 import PipelineGrid from "../_components/PipelineGrid";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 const KEY = [...SHIPMENT_KEYS.orders, "dashboard"] as const;
 const usd = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `US$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
@@ -27,7 +29,9 @@ export default function ShipmentsHome() {
   const api = useShipmentsApi();
   const qc = useQueryClient();
   const tasks = useQuery({ queryKey: [...KEY, "tasks"], queryFn: () => api.myTasks() });
-  const pipeline = useQuery({ queryKey: [...KEY, "pipeline"], queryFn: () => api.pipeline() });
+  const { features } = useOrganizationFeatures();
+  const showPipeline = !!(features as Record<string, boolean>).enableTradePipelineGrid;
+  const pipeline = useQuery({ queryKey: [...KEY, "pipeline"], queryFn: () => api.pipeline(), enabled: showPipeline });
   // 403 for staff: the money section just doesn't show.
   const money = useQuery({ queryKey: [...KEY, "money"], queryFn: () => api.money(), retry: false });
   const refresh = async () => {
@@ -58,14 +62,16 @@ export default function ShipmentsHome() {
             <MoneySummary m={money.data} />
           </Grid>
         )}
-        <Grid item xs={12}>
-          <Paper variant="outlined" sx={{ p: 2 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
-              Pipeline
-            </Typography>
-            {pipeline.isLoading ? <CircularProgress size={22} /> : pipeline.data ? <PipelineGrid data={pipeline.data} /> : <Alert severity="error">Could not load the pipeline</Alert>}
-          </Paper>
-        </Grid>
+        {showPipeline && (
+          <Grid item xs={12}>
+            <Paper variant="outlined" sx={{ p: 2 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                Pipeline
+              </Typography>
+              {pipeline.isLoading ? <CircularProgress size={22} /> : pipeline.data ? <PipelineGrid data={pipeline.data} /> : <Alert severity="error">Could not load the pipeline</Alert>}
+            </Paper>
+          </Grid>
+        )}
         {money.data && (
           <Grid item xs={12}>
             <MarginTable m={money.data} />
