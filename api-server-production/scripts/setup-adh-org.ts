@@ -1150,7 +1150,9 @@ async function main() {
     const addrNotes = Object.fromEntries(wantAddrs.filter((a) => a.note).map((a) => [a.address, a.note as string]));
     const notes = { ...FILTER_NOTES, ...((cur?.filterNotes as Record<string, string> | null) ?? {}), ...addrNotes };
     if (!cur?.allowDomains?.length) data.allowDomains = FILTER_ALLOW_DOMAINS;
-    if (JSON.stringify(notes) !== JSON.stringify(cur?.filterNotes ?? {})) data.filterNotes = notes;
+    // Key order doesn't matter (Postgres JSON keeps its own) — only a changed / added note is a write.
+    const curNotes = (cur?.filterNotes ?? {}) as Record<string, string>;
+    if (Object.keys(notes).length !== Object.keys(curNotes).length || Object.entries(notes).some(([k, v]) => curNotes[k] !== v)) data.filterNotes = notes;
     if (!cur?.filterMode || cur.filterMode === 'OFF') data.filterMode = 'SHADOW';
     if (curIntake)
       filterAfter = {
