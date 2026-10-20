@@ -318,3 +318,53 @@ describe('open-orders import (task list)', () => {
     ]);
   });
 });
+
+describe('small fixes: awaiting shipment, graded premium schedule', () => {
+  const { orderCurrentStep, AWAITING_SHIPMENT } = jest.requireActual('./shipments.rules');
+  const { premiumAt, priceCheck, cleanPremiumSchedule } = jest.requireActual('./trade-contract');
+  const st = (code: string, displayNo: string, sortOrder: number, status = 'NOT_STARTED', notApplicable = false) => ({
+    code,
+    title: code,
+    displayNo,
+    sortOrder,
+    status,
+    isOngoing: false,
+    notApplicable,
+  });
+  const so = [st('CHECK_CONTRACT', '0', 5, 'DONE'), st('PI_PAYMENT', '1', 10, 'DONE')];
+  const katoOrder = [st('INVOICE_1', '2', 20, 'NOT_STARTED', true), st('XERO_HANDOFF', '13', 130)];
+  it('Kato before its B/L (#25 / #26): "Awaiting shipment", not 13', () => {
+    expect(orderCurrentStep(so, katoOrder, [])).toEqual(AWAITING_SHIPMENT);
+    // The supplier side still open: its step comes first.
+    expect(orderCurrentStep([st('CHECK_CONTRACT', '0', 5, 'DONE'), st('PI_PAYMENT', '1', 10)], katoOrder, [])?.displayNo).toBe('1');
+    // SUS before its B/L: Invoice #1 is the step.
+    expect(orderCurrentStep(so, [st('INVOICE_1', '2', 20), st('XERO_HANDOFF', '13', 130)], [])?.displayNo).toBe('2');
+    // With a shipment: the lowest open step (the shipment's 7, not the order's 13).
+    expect(orderCurrentStep(so, katoOrder, [{ status: 'OPEN', steps: [st('SHIPPING_DOCS', '3b', 20, 'DONE'), st('CUSTOMS_TAX_ESTIMATE', '7', 60)] }])?.displayNo).toBe('7');
+    // Shipments all completed: step 13.
+    expect(orderCurrentStep(so, katoOrder, [{ status: 'COMPLETED', steps: [st('SHIPPING_DOCS', '3b', 20, 'DONE')] }])?.displayNo).toBe('13');
+  });
+  const sched = [{ from: '2026-07', to: null, grade: '6005', supplierPremium: 260, clientPremium: 285, upcharge: null }];
+  it('a graded schedule row never prices another grade (Kato 6063 on 454003598)', () => {
+    expect(premiumAt(sched, '2026-09', '6005')?.clientPremium).toBe(285);
+    expect(premiumAt(sched, '2026-09', '6063')).toBeNull();
+    expect(premiumAt(sched, '2026-09')?.clientPremium).toBe(285); // contract overview: any row
+    expect(premiumAt([{ ...sched[0], grade: '6063' }], '2026-09', '6063 HSB')?.clientPremium).toBe(285);
+    expect(premiumAt([{ ...sched[0], grade: null }], '2026-09', '6063')?.clientPremium).toBe(285); // every-grade row
+  });
+  it('6063 price check: client = the order premium, supplier = unknown ("check") — not the 6005 260', () => {
+    const prices = { lmeByMonth: { '2026-09': 3000 }, qmjpByQuarter: { '2026-3Q': 395 } };
+    const client = priceCheck({ side: 'client', basisMonth: '2026-09', grade: '6063', schedule: sched, fallback: { clientPremium: 260 }, prices, found: {} });
+    expect(client.lines.find((l: any) => l.key === 'unit').expected).toBe(3655);
+    const sup = priceCheck({ side: 'supplier', mjpBased: true, basisMonth: '2026-09', grade: '6063', schedule: sched, fallback: { supplierPremium: null }, prices, found: { premium: 655 } });
+    expect(sup.lines[0]).toMatchObject({ expected: null, mark: 'unknown' });
+  });
+  it('schedule rows keep their grade; only rows of the same grade may not overlap', () => {
+    const fail = (m: string): never => {
+      throw new Error(m);
+    };
+    const two = cleanPremiumSchedule([{ ...sched[0] }, { from: '2026-07', to: null, grade: '6063', supplierPremium: null, clientPremium: null, upcharge: null }], fail);
+    expect(two.map((r: any) => r.grade)).toEqual(['6005', '6063']);
+    expect(() => cleanPremiumSchedule([{ ...sched[0] }, { ...sched[0], from: '2026-08' }], fail)).toThrow('overlap at 2026-08 (6005)');
+  });
+});

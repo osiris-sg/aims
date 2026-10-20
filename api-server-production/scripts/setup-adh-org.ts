@@ -427,7 +427,7 @@ type ContractSeed = {
   depositDueDays: number;
   qpBasis: string | null;
   balanceTerms: string | null;
-  premiumSchedule: Array<{ from: string; to: string | null; supplierPremium: number | null; clientPremium: number | null; upcharge: number | null }>;
+  premiumSchedule: Array<{ from: string; to: string | null; grade?: string | null; supplierPremium: number | null; clientPremium: number | null; upcharge: number | null }>;
   checkFields: string[];
 };
 const CONTRACT_SEED: ContractSeed[] = [
@@ -491,7 +491,8 @@ const CONTRACT_SEED: ContractSeed[] = [
     qpBasis: QP_SHIPMENT_MONTH,
     balanceTerms: VEDANTA_BALANCE,
     // Contract: MJP + 260; PI 9331004129 611.50 = 351.5 + 260. Kato orders bill 285 / 287 / 260 — per order.
-    premiumSchedule: [{ from: '2026-07', to: null, supplierPremium: 260, clientPremium: 285, upcharge: null }],
+    // The schedule row is 6005's: Kato's 6063 orders (a second line, 10h) price on their own order premiums.
+    premiumSchedule: [{ from: '2026-07', to: null, grade: '6005', supplierPremium: 260, clientPremium: 285, upcharge: null }],
     checkFields: ['premiumSchedule'],
   },
   {
@@ -1401,6 +1402,74 @@ async function main() {
       moved++;
     }
     if (!moved) info('every stored premium is the fixed part');
+  }
+
+  // ── 10h. Kato contract 454003598: a 6063 line (2026-10) ────────────────────
+  // Kato also buys 6063 under 454003598 (#17 / #21 / #22): the line lets those orders and their price checks find
+  // their grade. Vedanta's 6063 fixed premium for Kato isn't confirmed ("check"); the client premium is per order.
+  // The 6005 schedule row is tagged 6005 so it never prices a 6063 order, and the 260 the task-list import copied
+  // from the 6005 line onto the 6063 orders / supplier orders is cleared (flagged "check" already).
+  header('10h', 'Kato contract 454003598: 6063 line');
+  if (!tradeReady || !org.contract) {
+    info('Contract table / client not ready — push the schema first');
+  } else {
+    const kc = await orgRead(
+      () => org.contract.findFirst({ where: { organizationId: orgId, contractNo: '454003598' }, select: { id: true, premiumSchedule: true, lines: { select: { id: true, grade: true, sortOrder: true, supplierPremium: true } } } }),
+      null,
+    );
+    if (!kc) info(`contract 454003598 not created yet${APPLY ? '' : ' (dry run)'} — set on the next run`);
+    else {
+      let did = 0;
+      const lines = kc.lines as Array<{ id: string; grade: string | null; sortOrder: number; supplierPremium: unknown }>;
+      if (!lines.some((l) => (l.grade ?? '').trim() === '6063')) {
+        if (APPLY)
+          await org.contractLine.create({
+            data: {
+              organizationId: orgId,
+              contractId: kc.id,
+              sortOrder: Math.max(0, ...lines.map((l) => l.sortOrder)) + 1,
+              product: 'Aluminium Billet',
+              grade: '6063',
+              tolerancePct: 5,
+              supplierPremium: null,
+              clientPremium: null,
+              billetPremium: null,
+              notes: 'Supplier fixed premium: check (not confirmed by ADH). Client premium: per order.',
+            },
+          });
+        write('contractLine', 'contract 454003598: add line 6063 (supplier fixed premium "check", client premium per order)');
+        did++;
+      }
+      const sched = (Array.isArray(kc.premiumSchedule) ? kc.premiumSchedule : []) as Array<Record<string, unknown>>;
+      if (sched.length && sched.every((r) => !r.grade)) {
+        if (APPLY) await org.contract.update({ where: { id: kc.id }, data: { premiumSchedule: sched.map((r) => ({ ...r, grade: '6005' })) as any } });
+        write('contract', `contract 454003598: premium schedule row(s) → grade 6005 (${sched.map((r) => `${r.from} ${r.supplierPremium ?? '—'} / ${r.clientPremium ?? '—'}`).join(', ')})`);
+        did++;
+      }
+      // The import's 6005 default on the 6063 orders: cleared only while still flagged "check".
+      // The 6005 value they got: the 6005 line's, else the (then ungraded) schedule row's.
+      const p6005 = lines.find((l) => (l.grade ?? '').trim() === '6005')?.supplierPremium ?? sched.find((r) => !r.grade || r.grade === '6005')?.supplierPremium;
+      const os: Array<{ id: string; orderNo: number; grade: string | null; supplierPremium: unknown; checkFields: string[]; supplierOrderId: string | null }> = await org.tradeOrder.findMany({
+        where: { organizationId: orgId, contractId: kc.id, grade: { startsWith: '6063' } },
+        select: { id: true, orderNo: true, grade: true, supplierPremium: true, checkFields: true, supplierOrderId: true },
+      });
+      for (const o of os) {
+        if (p6005 === null || p6005 === undefined || !o.checkFields.includes('supplierPremium')) continue;
+        if (o.supplierPremium !== null && Number(o.supplierPremium) === Number(p6005)) {
+          if (APPLY) await org.tradeOrder.update({ where: { id: o.id }, data: { supplierPremium: null } });
+          write('premium', `order #${o.orderNo} (${o.grade}): supplier ${Number(o.supplierPremium)} (6005's) → blank ("check")`);
+          did++;
+        }
+        if (!o.supplierOrderId) continue;
+        const so = await org.supplierOrder.findFirst({ where: { id: o.supplierOrderId }, select: { id: true, year: true, soNo: true, supplierPremium: true } });
+        if (so && so.supplierPremium !== null && Number(so.supplierPremium) === Number(p6005)) {
+          if (APPLY) await org.supplierOrder.update({ where: { id: so.id }, data: { supplierPremium: null } });
+          write('premium', `supplier order ${so.year}-S${so.soNo} (#${o.orderNo}): supplier ${Number(so.supplierPremium)} → blank ("check")`);
+          did++;
+        }
+      }
+      if (!did) info('contract 454003598 has its 6063 line; schedule graded; 6063 orders priced on their own');
+    }
   }
 
   // ── 11. Access ────────────────────────────────────────────────────────────

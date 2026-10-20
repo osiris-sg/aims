@@ -19,6 +19,8 @@
 export interface PremiumRow {
   from: string;
   to: string | null;
+  /** The row prices this grade only (a contract with two grades: Kato 6005 / 6063); null = every grade. */
+  grade?: string | null;
   supplierPremium: number | null;
   clientPremium: number | null;
   upcharge: number | null;
@@ -37,21 +39,30 @@ export function cleanPremiumSchedule(v: unknown, fail: (msg: string) => never): 
     const to = r.to === null || r.to === undefined || r.to === '' ? null : String(r.to);
     if (!MONTH.test(from)) fail(`premium row ${i + 1}: "from" must be YYYY-MM`);
     if (to !== null && (!MONTH.test(to) || to < from)) fail(`premium row ${i + 1}: "to" must be YYYY-MM on or after "from"`);
-    return { from, to, supplierPremium: n(r.supplierPremium), clientPremium: n(r.clientPremium), upcharge: n(r.upcharge) };
+    const grade = typeof r.grade === 'string' && r.grade.trim() ? r.grade.trim().slice(0, 40) : null;
+    return { from, to, grade, supplierPremium: n(r.supplierPremium), clientPremium: n(r.clientPremium), upcharge: n(r.upcharge) };
   });
   rows.sort((a, b) => a.from.localeCompare(b.from));
-  for (let i = 1; i < rows.length; i++) {
-    const prev = rows[i - 1];
-    if (prev.to === null || prev.to >= rows[i].from) fail(`premium rows overlap at ${rows[i].from}`);
+  // Rows of the same grade (or both "every grade") may not overlap.
+  for (const g of new Set(rows.map((r) => r.grade))) {
+    const same = rows.filter((r) => r.grade === g);
+    for (let i = 1; i < same.length; i++) {
+      const prev = same[i - 1];
+      if (prev.to === null || prev.to >= same[i].from) fail(`premium rows overlap at ${same[i].from}${g ? ` (${g})` : ''}`);
+    }
   }
   return rows;
 }
 
 /** The schedule row covering a month (null when none). */
-export function premiumAt(schedule: unknown, month: string | null | undefined): PremiumRow | null {
+export function premiumAt(schedule: unknown, month: string | null | undefined, grade?: string | null): PremiumRow | null {
   if (!month || !Array.isArray(schedule)) return null;
-  const rows = schedule as PremiumRow[];
-  return rows.find((r) => r.from <= month && (r.to === null || r.to >= month)) ?? null;
+  const rows = (schedule as PremiumRow[]).filter((r) => r.from <= month && (r.to === null || r.to >= month));
+  // No grade asked (contract overview): any row. A grade: its own row ("6063" also prices "6063 HSB"), else an every-grade row — never another grade's.
+  if (grade === undefined) return rows[0] ?? null;
+  const g = (grade ?? '').trim().toUpperCase();
+  const own = (r: PremiumRow) => !!r.grade && !!g && (g === r.grade.toUpperCase() || g.startsWith(`${r.grade.toUpperCase()} `));
+  return rows.find(own) ?? rows.find((r) => !r.grade) ?? null;
 }
 
 /** ADH's margin per MT for a month: client − supplier premium. */
@@ -123,17 +134,19 @@ export function priceCheck(input: {
   schedule: unknown;
   /** The supplier premium is MJP-based (contract has a QMJP rule): QMJP is added on the supplier side too. */
   mjpBased?: boolean;
+  /** The order's grade: a schedule row of another grade never applies. */
+  grade?: string | null;
   /** Fallback when the schedule has no row: the contract line / order premiums. */
   fallback?: { supplierPremium?: number | null; clientPremium?: number | null; upcharge?: number | null };
   prices: MarketPrices;
   found: { premium?: number | null; lme?: number | null; qmjp?: number | null; unit?: number | null };
 }): PriceCheck {
   const notes: string[] = [];
-  const row = premiumAt(input.schedule, input.basisMonth);
+  const row = premiumAt(input.schedule, input.basisMonth, input.grade);
   const fb = input.fallback ?? {};
   const fixed = input.side === 'supplier' ? (row?.supplierPremium ?? n(fb.supplierPremium)) : (row?.clientPremium ?? n(fb.clientPremium));
   const upcharge = input.side === 'client' ? (row?.upcharge ?? n(fb.upcharge) ?? 0) : 0;
-  if (!row) notes.push(input.basisMonth ? `No premium schedule row for ${input.basisMonth} — using the contract line` : 'No basis month');
+  if (!row) notes.push(input.basisMonth ? `No premium schedule row for ${input.basisMonth}${input.grade ? ` (${input.grade})` : ''} — using the order / contract line` : 'No basis month');
   const lme = input.basisMonth ? (input.prices.lmeByMonth[input.basisMonth] ?? null) : null;
   if (input.basisMonth && lme === null) notes.push(`No LME average stored for ${input.basisMonth} (Org Settings → Shipping → prices)`);
   const useQmjp = input.side === 'client' || !!input.mjpBased;

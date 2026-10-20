@@ -3,7 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { CreateOrderDto, ListOrdersQuery, UpdateOrderDto } from './dto/order.dto';
 import { CreateShipmentDto } from './dto/shipment.dto';
 import { TradeActor } from './shipments.request';
-import { blockingSteps, currentStepOf, depositOf, monthsLabel, orderLabel, progressOf, shipmentRef, stepLabels, supplierOrderLabel, tradeToday } from './shipments.rules';
+import { blockingSteps, currentStepOf, depositOf, monthsLabel, orderCurrentStep, orderLabel, progressOf, shipmentRef, stepLabels, supplierOrderLabel, tradeToday } from './shipments.rules';
 import { Db, DOC_LINK_SELECT, isUniqueViolation, optText, pageArgs, TradeConfigService } from './trade-config.service';
 import { DEFAULT_DEPOSIT_DUE, depositDueDate } from './trade-deposit';
 import { amountOf, invoiceTotals, toInvoiceLines } from './trade-invoice';
@@ -12,7 +12,6 @@ import { cleanReconcileInputs, reconcile, ReconcileDocs, ReconcileInputs } from 
 import { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, shapeFileLinks, STEP_SELECT, STEP_SUMMARY_SELECT } from './trade-selects';
 import { ShipmentsService } from './shipments.service';
 import { createSupplierOrderInTx } from './trade-supplier-order';
-import { stepNumber } from './trade-open-orders';
 
 const PARTY = { select: { id: true, name: true, customerCode: true } };
 const SUPPLIER = { select: { id: true, name: true, supplierCode: true } };
@@ -89,11 +88,7 @@ export class OrdersService {
         progress: progressOf(ss),
         currentStep: currentStepOf(ss),
       }));
-      // The lowest-numbered open step of the supplier side (0 / 1), the order's own (2, 13) and the first open shipment
-      // (3a–12): an order whose Invoice #1 is done is at its shipment's step, not at 13.
-      const supplierStep = supplierOrder?.status === 'OPEN' ? currentStepOf(supplierOrder.steps) : null;
-      const shipStep = ships.find((s: any) => s.status === 'OPEN' && s.currentStep)?.currentStep ?? null;
-      const own = [supplierStep, currentStepOf(steps), shipStep].filter((x): x is NonNullable<typeof x> => !!x).sort((a, b) => (stepNumber(a.displayNo) ?? 99) - (stepNumber(b.displayNo) ?? 99))[0] ?? null;
+      const own = orderCurrentStep(supplierOrder?.status === 'OPEN' ? supplierOrder.steps : null, steps, shipments);
       return {
         ...o,
         label: orderLabel(o),
@@ -104,7 +99,7 @@ export class OrdersService {
         shipmentCount: ships.length,
         shipments: ships,
         progress: progressOf([...steps, ...(supplierOrder?.steps ?? [])]),
-        currentStep: own ?? shipStep,
+        currentStep: own,
         supplierOrder: supplierOrder ? { id: supplierOrder.id, soNo: supplierOrder.soNo, piNo: supplierOrder.piNo, status: supplierOrder.status, label: supplierOrderLabel(supplierOrder) } : null,
       };
     });
@@ -199,7 +194,7 @@ export class OrdersService {
       monthsLabel: monthsLabel(o.shipMonth, o.deliveryMonth),
       productLabel: orderProductLabel(o),
       progress: progressOf([...o.steps, ...(supplierOrder?.steps ?? [])]),
-      currentStep: (supplierOrder?.status === 'OPEN' ? currentStepOf(supplierOrder.steps) : null) ?? currentStepOf(o.steps),
+      currentStep: orderCurrentStep(supplierOrder?.status === 'OPEN' ? supplierOrder.steps : null, o.steps, shipments),
       shipments: shipments.map(({ steps: ss, ...s }: any) => ({ ...s, ref: shipmentRef(o.orderNo, s.seqNo), progress: progressOf(ss), currentStep: currentStepOf(ss) })),
     };
   }

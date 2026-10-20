@@ -269,7 +269,7 @@ export class SupplierOrdersService {
             },
             actor,
           );
-          const sched = premiumAt(contract.premiumSchedule, dto.month);
+          const sched = premiumAt(contract.premiumSchedule, dto.month, grade || undefined);
           const orderNo = r.orderNo ?? (await this.orders.nextOrderNo(organizationId, year, tx));
           const orderId = await this.orders.createInTx(
             tx,

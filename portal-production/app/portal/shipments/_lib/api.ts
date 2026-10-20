@@ -637,7 +637,8 @@ export type SupplierOrderInput = Partial<{
 export type SupplierOrderFilters = { bucket?: "pending" | "completed"; supplierId?: string; contractId?: string; declarationMonth?: string; q?: string; page?: number; pageSize?: number };
 export type DeclarationRow = { customerId: string; contractId: string; grade?: string | null; size?: string | null; qtyMt: number; clientPremium?: number | null; supplierPremium?: number | null; orderNo?: number; deliveryMonth?: string | null; piNo?: string | null };
 export type DeclarationResult = { created: Array<{ supplierOrderId: string; orderId: string; orderLabel: string | null; customerName: string | null }> };
-export type PremiumRow = { from: string; to: string | null; supplierPremium: number | null; clientPremium: number | null; upcharge: number | null };
+/** grade: the row applies to that grade only (a contract with two grades, e.g. Kato 6005 / 6063); blank = every grade. */
+export type PremiumRow = { from: string; to: string | null; grade?: string | null; supplierPremium: number | null; clientPremium: number | null; upcharge: number | null };
 // ── Alerts, dashboard, stock ───────────────────────────────────────────────
 export type TradeAlert = { id: string; kind: string; key: string; dueAt: string; title: string; detail: string | null; shipmentId: string | null; orderId: string | null; supplierOrderId: string | null; linkUrl: string | null; status: "SCHEDULED" | "DUE" | "DONE" | "DISMISSED"; notifiedAt: string | null };
 export type CellState = "done" | "in_progress" | "na" | "overdue" | "not_started" | "none";

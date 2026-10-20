@@ -58,6 +58,7 @@ export class TradePriceCheckService {
     const check = priceCheck({
       side: 'supplier',
       basisMonth: basis,
+      grade: so.grade ?? null,
       schedule: so.contract?.premiumSchedule,
       // Both sides price as fixed premium + QMJP by quarter; the stored premiums are the fixed part.
       mjpBased: true,
@@ -86,6 +87,7 @@ export class TradePriceCheckService {
     const check = priceCheck({
       side: 'supplier',
       basisMonth: s.order?.shipMonth ?? null,
+      grade: s.order?.grade ?? null,
       schedule: s.contract?.premiumSchedule,
       mjpBased: true,
       fallback: { supplierPremium: n(s.order?.supplierOrder?.supplierPremium) ?? n(s.order?.supplierPremium) ?? n(line0?.supplierPremium) },
@@ -117,6 +119,7 @@ export class TradePriceCheckService {
     const check = priceCheck({
       side: 'client',
       basisMonth: basis,
+      grade: o?.grade ?? null,
       schedule: o?.contract?.premiumSchedule,
       fallback: { clientPremium: n(o?.clientPremium), upcharge: n(o?.upcharge) },
       prices: await this.prices(organizationId),

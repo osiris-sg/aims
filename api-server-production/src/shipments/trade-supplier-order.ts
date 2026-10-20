@@ -34,7 +34,7 @@ export async function createSupplierOrderInTx(tx: Db, config: TradeConfigService
   const lines: Array<{ grade: string | null; supplierPremium: unknown; product: string | null; sizeSpec: string | null }> = contract?.lines ?? [];
   const g = (dto.grade ?? '').trim();
   const line = (g ? lines.find((l) => (l.grade ?? '').trim() === g) : null) ?? (lines.length === 1 ? lines[0] : null);
-  const sched = premiumAt(contract?.premiumSchedule, dto.declarationMonth ?? null);
+  const sched = premiumAt(contract?.premiumSchedule, dto.declarationMonth ?? null, g || undefined);
   let created: { id: string };
   try {
     created = await tx.supplierOrder.create({

@@ -85,6 +85,7 @@ export default function ContractTerms({ contract: c }: { contract: Contract }) {
             <TableRow>
               <TableCell>From</TableCell>
               <TableCell>To</TableCell>
+              <TableCell>Grade</TableCell>
               <TableCell align="right">Supplier</TableCell>
               <TableCell align="right">Client</TableCell>
               <TableCell align="right">Upcharge</TableCell>
@@ -93,9 +94,10 @@ export default function ContractTerms({ contract: c }: { contract: Contract }) {
           </TableHead>
           <TableBody>
             {sched.map((r) => (
-              <TableRow key={r.from}>
+              <TableRow key={`${r.from}-${r.grade ?? ""}`}>
                 <TableCell>{monthShort(r.from)}</TableCell>
                 <TableCell>{r.to ? monthShort(r.to) : "open"}</TableCell>
+                <TableCell>{r.grade || "all"}</TableCell>
                 <TableCell align="right">{r.supplierPremium ?? "—"}</TableCell>
                 <TableCell align="right">{r.clientPremium ?? "—"}</TableCell>
                 <TableCell align="right">{r.upcharge ?? "—"}</TableCell>
@@ -131,7 +133,7 @@ function TermsDialog({ open, contract: c, onClose }: { open: boolean; contract: 
       qpBasis: s(c.qpBasis),
       qmjpRule: s(c.qmjpRule),
     });
-    setRows((c.premiumSchedule ?? []).map((r) => ({ from: r.from, to: r.to ?? "", supplierPremium: s(r.supplierPremium), clientPremium: s(r.clientPremium), upcharge: s(r.upcharge) })));
+    setRows((c.premiumSchedule ?? []).map((r) => ({ from: r.from, to: r.to ?? "", grade: r.grade ?? "", supplierPremium: s(r.supplierPremium), clientPremium: s(r.clientPremium), upcharge: s(r.upcharge) })));
     setCheck(new Set(c.checkFields ?? []));
   }, [open, c]);
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setF((x) => ({ ...x, [k]: e.target.value }));
@@ -166,6 +168,7 @@ function TermsDialog({ open, contract: c, onClose }: { open: boolean; contract: 
               [
                 ["from", "From (YYYY-MM)", "month"],
                 ["to", "To (blank = open)", "month"],
+                ["grade", "Grade (blank = all)", "text"],
                 ["supplierPremium", "Supplier", "number"],
                 ["clientPremium", "Client", "number"],
                 ["upcharge", "Upcharge", "number"],
@@ -186,7 +189,7 @@ function TermsDialog({ open, contract: c, onClose }: { open: boolean; contract: 
             </IconButton>
           </Stack>
         ))}
-        <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((xs) => [...xs, { from: "", to: "", supplierPremium: "", clientPremium: "", upcharge: "" }])}>
+        <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((xs) => [...xs, { from: "", to: "", grade: "", supplierPremium: "", clientPremium: "", upcharge: "" }])}>
           Add row
         </Button>
         <Typography variant="subtitle2" sx={{ mt: 2 }}>
@@ -234,7 +237,7 @@ function TermsDialog({ open, contract: c, onClose }: { open: boolean; contract: 
                 balanceTerms: txt(f.balanceTerms),
                 premiumSchedule: rows
                   .filter((r) => r.from)
-                  .map((r) => ({ from: r.from, to: r.to || null, supplierPremium: num(r.supplierPremium), clientPremium: num(r.clientPremium), upcharge: num(r.upcharge) })),
+                  .map((r) => ({ from: r.from, to: r.to || null, grade: r.grade?.trim() || null, supplierPremium: num(r.supplierPremium), clientPremium: num(r.clientPremium), upcharge: num(r.upcharge) })),
                 checkFields: [...check],
               });
               toast.success("Contract terms saved");

@@ -213,6 +213,30 @@ export function currentStepOf<T extends { code: string; title: string; status: s
   return { code: s.code, title: s.title, position: i + 1, displayNo: s.displayNo ?? null, label: stepLabel(s, i + 1) };
 }
 
+type StepRow = Parameters<typeof currentStepOf>[0][number];
+export type CurrentStep = NonNullable<ReturnType<typeof currentStepOf>>;
+const stepNo = (s: CurrentStep) => Number(/^(\d+)/.exec(s.displayNo ?? '')?.[1] ?? 99);
+/** Shown for an order whose open steps all wait for a shipment (Kato before its B/L: step 2 N/A, 3a–12 not there yet). */
+export const AWAITING_SHIPMENT: CurrentStep = { code: 'AWAITING_SHIPMENT', title: 'Awaiting shipment', position: 0, displayNo: null, label: 'Awaiting shipment' };
+
+/**
+ * An order's current step: the lowest-numbered open step of its supplier order
+ * (0 / 1), its own steps (2, 13) and its first open shipment (3a–12) — an order
+ * whose Invoice #1 is done is at its shipment's step, not at 13. Before any
+ * shipment exists, 13 isn't "current": the order is "Awaiting shipment".
+ */
+export function orderCurrentStep(supplierSteps: StepRow[] | null, orderSteps: StepRow[], shipments: Array<{ status: string; steps: StepRow[] }>): CurrentStep | null {
+  const live = shipments.filter((s) => s.status !== 'CANCELLED');
+  const shipStep = live.filter((s) => s.status === 'OPEN').map((s) => currentStepOf(s.steps)).find(Boolean) ?? null;
+  const cands = [supplierSteps ? currentStepOf(supplierSteps) : null, currentStepOf(orderSteps), shipStep].filter((x): x is CurrentStep => !!x).sort((a, b) => stepNo(a) - stepNo(b));
+  if (!live.length) {
+    const early = cands.find((c) => stepNo(c) <= 2);
+    if (early) return early;
+    return cands.length ? AWAITING_SHIPMENT : null;
+  }
+  return cands[0] ?? null;
+}
+
 /**
  * "{displayNo}. {title}" — the org's own step number (ADH: "9. Send arrival
  * notice …"); without one, the position when known, else the bare title.
