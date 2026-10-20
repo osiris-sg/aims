@@ -259,22 +259,22 @@ async function main() {
         'order: next free number, customer / supplier / size from the contract',
         `${order.label} ${order.size}`,
       );
-      // Round E: steps 0 / 1 live on the supplier order the order made for itself (1:1 until a declaration shares one).
-      (JSON.stringify(order.steps.map((x: any) => x.code)) === JSON.stringify(['INVOICE_1', 'XERO_HANDOFF']) ? pass : fail)(
-        'order (customer side) steps 2 / 13 snapshotted',
+      // Round H: one order process — steps 0, 1, 2, 11, 13 on the order; no supplier order is made.
+      (JSON.stringify(order.steps.map((x: any) => x.code)) === JSON.stringify(['CHECK_CONTRACT', 'PI_PAYMENT', 'INVOICE_1', 'INVOICE_2', 'XERO_HANDOFF']) ? pass : fail)(
+        'one order process: order steps 0 / 1 / 2 / 11 / 13 snapshotted',
         order.steps.map((x: any) => `${x.displayNo}.${x.code}`).join(', '),
       );
-      (order.supplierOrder && JSON.stringify(order.supplierOrder.steps.map((x: any) => x.code)) === JSON.stringify(['CHECK_CONTRACT', 'PI_PAYMENT']) && order.supplierOrder.piNo === 'SMOKE-PI-1' && order.supplierOrder.label === 'PI SMOKE-PI-1' ? pass : fail)(
-        'supplier order auto-created with the PI: steps 0 / 1',
-        order.supplierOrder ? `${order.supplierOrder.label}: ${order.supplierOrder.steps.map((x: any) => `${x.displayNo}.${x.code}`).join(', ')}` : 'none',
+      (!order.supplierOrderId && order.piNo === 'SMOKE-PI-1' && (await prisma.supplierOrder.count({ where: { organizationId: ORG_ID, year: ORDER_YEAR } })) === 0 ? pass : fail)(
+        'no supplier order is created — the PI is on the order',
+        `${order.supplierOrderId ?? 'none'} ${order.piNo}`,
       );
       (settings.defaultConsignee && order.consignee === settings.defaultConsignee && order.notifyParty === settings.defaultNotifyParty ? pass : fail)(
         'consignee / notify party default from the contract / org trade settings',
         String(order.consignee).split('\n')[0],
       );
       (Number(order.depositAmount) === 10000 ? pass : fail)('deposit = PI amount × 10 %', String(order.depositAmount));
-      (order.currentStep?.label === '1. Set up PI payment' && order.supplierOrder?.steps.find((x: any) => x.code === 'CHECK_CONTRACT')?.status === 'DONE' ? pass : fail)(
-        'contract picked → supplier-side step 0 completes by itself, step 1 is current',
+      (order.currentStep?.label === '1. Set up PI payment' && order.steps.find((x: any) => x.code === 'CHECK_CONTRACT')?.status === 'DONE' ? pass : fail)(
+        'contract picked → step 0 completes by itself, step 1 is current',
         order.currentStep?.label ?? 'none',
       );
       order = await orders.update(ORG_ID, order.id, { clientPremium: 230, supplierPremium: 205 }, actor);
@@ -296,18 +296,18 @@ async function main() {
         (left === 0 ? pass : fail)('cancelled PI: file + extraction removed', `${left} row(s) left`);
       }
       if (piX?.fileId) await expectReject('discard the PI saved with the order', () => extract.discardSource(ORG_ID, piX.fileId, actor), /attached to a contract or shipment/);
-      const piStep = order.supplierOrder?.steps.find((s: any) => s.code === 'PI_PAYMENT');
-      const piLink = order.supplierOrder?.fileLinks.find((l: any) => l.file.id === piX?.fileId);
+      const piStep = order.steps.find((s: any) => s.code === 'PI_PAYMENT');
+      const piLink = order.fileLinks.find((l: any) => l.file.id === piX?.fileId);
       (piLink && piLink.file.docType === 'PI' && piLink.stepId === piStep?.id ? pass : fail)(
-        'PI file linked to the supplier order as PI on "1. Set up PI payment"',
+        'PI file linked to the order as PI on "1. Set up PI payment"',
         piLink ? `step ${piLink.stepId}` : 'not linked',
       );
 
       {
         // "Add shipment": no form — the B/L comes on its step 2; the product line follows the order's grade.
         const added: any = await expectOk('Add shipment (#n-1, B/L pending)', () => orders.addShipment(ORG_ID, order.id, {}, actor));
-        (added && added.ref === `#${order.orderNo}-1` && added.contractLineId === contract.lines[1].id && added.blNumber === null && added.steps.length === 12 ? pass : fail)(
-          'added shipment: #n-1, B/L pending, line of the order\'s grade, 12 steps',
+        (added && added.ref === `#${order.orderNo}-1` && added.contractLineId === contract.lines[1].id && added.blNumber === null && added.steps.length === 11 && !added.steps.some((x: any) => x.code === 'INVOICE_2') ? pass : fail)(
+          'added shipment: #n-1, B/L pending, line of the order\'s grade, 11 steps (step 11 is the order\'s)',
           added ? `${added.ref} ${added.blNumber} ${added.steps.length}` : 'none',
         );
         const s2 = added?.steps.find((x: any) => x.code === 'BL_DRAFT_APPROVAL');
@@ -336,7 +336,7 @@ async function main() {
         /shipment\(s\) TEST-198GX04630 ship it/,
       );
       (shipment.customer?.id === customer.id ? pass : fail)('shipment customer defaults to the order customer', shipment.customer?.name ?? 'none');
-      (shipment.steps.length === 12 && !shipment.steps.some((x: any) => x.code === 'XERO_HANDOFF') ? pass : fail)('shipment steps snapshotted (13 is on the order now)', `${shipment.steps.length} steps`);
+      (shipment.steps.length === 11 && !shipment.steps.some((x: any) => x.code === 'XERO_HANDOFF' || x.code === 'INVOICE_2') ? pass : fail)('shipment steps snapshotted (11 and 13 are on the order now)', `${shipment.steps.length} steps`);
 
       await expectReject('duplicate B/L number refused', () => orders.addShipment(ORG_ID, order.id, { blNumber: BL_NUMBER }, actor), /already used/);
 
@@ -653,7 +653,10 @@ async function main() {
       }
       // ── In-app documents: create blank → draft PDF → finalize → step satisfied ──
       const requirement = async (docType: string, owner: { shipmentId?: string; orderId?: string }) => {
-        const rec: any = owner.shipmentId ? await shipments.getById(ORG_ID, owner.shipmentId) : await orders.getById(ORG_ID, owner.orderId!);
+        // Step 11 (Invoice #2 / single invoice) is the order's since round H.
+        const onOrder = docType === 'INVOICE_2' || docType === 'INVOICE_SINGLE';
+        const shipRec: any = owner.shipmentId ? await shipments.getById(ORG_ID, owner.shipmentId) : null;
+        const rec: any = shipRec && !onOrder ? shipRec : await orders.getById(ORG_ID, owner.orderId ?? shipRec.orderId);
         const step = rec.steps.find((st: any) => st.requiredDocTypes.includes(docType));
         return { step, req: step?.requirements?.find((r: any) => r.docType === docType) };
       };
@@ -886,8 +889,7 @@ async function main() {
         (blFile?.docRef === `${P}-${seq}-BLD` ? pass : fail)('doc IDs: an uploaded B/L draft → {yy}-{order}-{shipment}-BLD', String(blFile?.docRef));
         if (piX?.fileId) {
           const pi = await prisma.tradeFile.findFirst({ where: { id: piX.fileId }, select: { docRef: true } });
-          const so = await prisma.supplierOrder.findFirst({ where: { id: order.supplierOrderId }, select: { soNo: true } });
-          (pi?.docRef === `${String(ORDER_YEAR % 100).padStart(2, '0')}-S${so?.soNo}-PI` ? pass : fail)('doc IDs: the PI on the supplier order → {yy}-S{n}-PI', String(pi?.docRef));
+          (pi?.docRef === `${P}-PI` ? pass : fail)('doc IDs: the PI on the order → {yy}-{order}-PI', String(pi?.docRef));
         }
         const gens = await prisma.tradeGeneratedDoc.findMany({ where: { organizationId: ORG_ID, OR: [{ shipmentId: shipment.id }, { orderId: order.id }] }, orderBy: { createdAt: 'asc' }, select: { docType: true, docRef: true, finalFileId: true } });
         const want: Record<string, string> = { CUSTOMER_PL: `${P}-${seq}-CPL`, CUSTOMER_COA: `${P}-${seq}-CCOA`, SHIPPING_INSTRUCTIONS: `${P}-${seq}-SI`, INVOICE_2: `${P}-${seq}-INV2`, INVOICE_1: `${P}-INV1` };
@@ -1023,8 +1025,8 @@ async function main() {
       // ── Orders round: two shipments on one Invoice #2, Kato SINGLE flow, estimator, reconciliation ──
       await orderCases({ prisma, s3, config, orders, contracts, shipments, steps, files, gen, customer, supplier });
 
-      // ── Round E: declaration → supplier + customer orders; one payment over two PIs ──
-      await roundECases({ prisma, s3, orders, contracts, supplierOrders: new SupplierOrdersService(prisma, config, orders), payments: new TradePaymentsService(prisma), customer, supplier });
+      // ── Round H: one order process — monthly order, step payments, Shipments list ──
+      await roundHCases({ prisma, s3, orders, contracts, shipments, steps, files, supplierOrders: new SupplierOrdersService(prisma, config, orders), payments: new TradePaymentsService(prisma), customer, supplier });
     } finally {
       if (contractId) {
         console.log('\n⚠ Run stopped early — removing what it created');
@@ -1085,8 +1087,14 @@ async function orderCases(x: any) {
     if (fin) {
       const sa: any = await shipments.getById(ORG_ID, a.id);
       const sb: any = await shipments.getById(ORG_ID, b.id);
-      const done = (sh: any) => sh.steps.find((st: any) => st.code === 'INVOICE_2')?.status;
-      (done(sa) === 'DONE' && done(sb) === 'DONE' ? pass : fail)('finalizing the Invoice #2 completes step 11 on BOTH covered shipments', `${done(sa)} / ${done(sb)}`);
+      const oAx: any = await orders.getById(ORG_ID, oA.id, actor);
+      const s11A = oAx.steps.find((st: any) => st.code === 'INVOICE_2');
+      (s11A?.status === 'DONE' && !sa.steps.some((st: any) => st.code === 'INVOICE_2') && !sb.steps.some((st: any) => st.code === 'INVOICE_2') ? pass : fail)(
+        'step 11 is the order\'s: the Invoice #2 covering BOTH shipments completes it (no step 11 on the shipments)',
+        `${s11A?.status}`,
+      );
+      const og: any[] = await gen.list(ORG_ID, { orderId: oA.id });
+      (og.some((g) => g.id === inv2.id) ? pass : fail)('the order lists its shipments\' Invoice #2 (for its step 11 card)', `${og.length} doc(s)`);
       const cfg: any = (await prisma.document.findFirst({ where: { id: fin.documentId }, select: { config: true } }))?.config;
       (cfg?.tradeCovers === `#${oA.orderNo}-1, #${oA.orderNo}-2` ? pass : fail)('Invoices tab "Covers": #n-1, #n-2', String(cfg?.tradeCovers));
       const uninvoiced = await shipments.list(ORG_ID, { uninvoiced: 'true', customerId: customer.id, pageSize: '100' } as any);
@@ -1096,11 +1104,8 @@ async function orderCases(x: any) {
       const rec0: any = await orders.updateReconciliation(ORG_ID, oA.id, { piPaid: 120958.5, ciPaid: 1027635.21, otherCostsUsd: 1000 });
       const tot = invoiceTotals(toInvoiceLines(priced), Number(fin.header?.taxRate ?? 10), null, 'final').total;
       (rec0.d === tot && rec0.profit === roundTo(tot - 120958.5 - 1027635.21 - 1000, 2) ? pass : fail)('reconciliation: d = the Invoice #2 total, profit = d − a − b − c', `d ${rec0.d} profit ${rec0.profit}`);
-      // Back to draft so the covered steps can be cleaned.
-      for (const sh of [sa, sb]) {
-        const st = sh.steps.find((y: any) => y.code === 'INVOICE_2');
-        if (st) await steps.reopen(ORG_ID, st.id, actor);
-      }
+      // Back to open so the order can be cleaned.
+      if (s11A?.status === 'DONE') await steps.reopen(ORG_ID, s11A.id, actor);
     }
   }
   // B: Kato — SINGLE billing.
@@ -1115,10 +1120,10 @@ async function orderCases(x: any) {
     const oK: any = cK ? await expectOk('Kato: order (Sep 26 → Nov 26, 6005 40 MT)', () => orders.create(ORG_ID, { year: ORDER_YEAR, contractId: cK.id, shipMonth: '2026-07', deliveryMonth: '2026-11', grade: '6005', qtyMt: 40 }, actor)) : null;
     if (oK) {
       const inv1 = oK.steps.find((st: any) => st.code === 'INVOICE_1');
-      (inv1?.notApplicable && oK.progress.total === 3 ? pass : fail)('Kato: step 2 Invoice #1 is N/A (customer profile) and not counted', `${inv1?.notApplicable} ${JSON.stringify(oK.progress)}`);
+      (inv1?.notApplicable && oK.progress.total === 4 ? pass : fail)('Kato: step 2 Invoice #1 is N/A (customer profile) and not counted (0, 1, 11, 13 left)', `${inv1?.notApplicable} ${JSON.stringify(oK.progress)}`);
       const k: any = await expectOk('Kato: shipment #n-1', () => orders.addShipment(ORG_ID, oK.id, { blNumber: 'TEST-SM-K', netWeightMt: 40.825, grossWeightMt: 41.2 }, actor));
       if (k) {
-        const s11 = k.steps.find((st: any) => st.code === 'INVOICE_2');
+        const s11 = oK.steps.find((st: any) => st.code === 'INVOICE_2');
         const s10 = k.steps.find((st: any) => st.code === 'IMPORT_PERMIT');
         (s11?.title === 'Issue invoice (single)' && JSON.stringify(s11.requiredDocTypes) === '["INVOICE_SINGLE"]' && s10?.subtasks?.[0]?.na === true ? pass : fail)(
           'Kato: step 11 issues INVOICE_SINGLE; step 10 "send to customer" is N/A',
@@ -1141,10 +1146,10 @@ async function orderCases(x: any) {
           if (fin) {
             const cfg: any = (await prisma.document.findFirst({ where: { id: fin.documentId }, select: { config: true } }))?.config;
             (Number(cfg?.nettTotal) === 176050.94 ? pass : fail)('INVOICE_SINGLE total US$176,050.94 (the Kato sample)', String(cfg?.nettTotal));
-            const sk: any = await shipments.getById(ORG_ID, k.id);
-            (sk.steps.find((st: any) => st.code === 'INVOICE_2')?.status === 'DONE' ? pass : fail)('Kato: step 11 done by the single invoice', '');
-            const st = sk.steps.find((y: any) => y.code === 'INVOICE_2');
-            if (st) await steps.reopen(ORG_ID, st.id, actor);
+            const ok: any = await orders.getById(ORG_ID, oK.id, actor);
+            const st = ok.steps.find((y: any) => y.code === 'INVOICE_2');
+            (st?.status === 'DONE' ? pass : fail)('Kato: order step 11 done by the single invoice', String(st?.status));
+            if (st?.status === 'DONE') await steps.reopen(ORG_ID, st.id, actor);
           }
         }
         const cpl: any = await files.upload(ORG_ID, pdf('PACKING_LIST_CONTAINER_TEST.pdf'), { docType: 'PL', shipmentIds: [k.id] }, actor);
@@ -1162,14 +1167,15 @@ async function orderCases(x: any) {
 }
 
 /**
- * Round E (2026-10): the monthly declaration — two rows on one contract → two
- * supplier orders, each with one customer order (ship = the month, delivery
- * +2, premiums from the contract's schedule); one OUT payment split over the
- * two PIs marks both deposits paid and shows on each order's cash view.
+ * Round H (2026-10): one order process — "+ New monthly order" makes one order
+ * per row (ship = the month, delivery +2, premiums from the schedule) and no
+ * supplier order; the retired Declaration / Payments refuse new rows; a step's
+ * payment (amount, date, account, proof) feeds the reconciliation; the
+ * Shipments list tabs a B/L by its arrival.
  */
-async function roundECases(x: any) {
-  const { prisma, orders, contracts, supplierOrders, payments, customer, supplier } = x;
-  const c: any = await expectOk('round E: contract with a premium schedule', () =>
+async function roundHCases(x: any) {
+  const { prisma, orders, contracts, shipments, steps, files, supplierOrders, payments, customer, supplier } = x;
+  const c: any = await expectOk('round H: contract with a premium schedule', () =>
     contracts.create(
       ORG_ID,
       {
@@ -1184,75 +1190,69 @@ async function roundECases(x: any) {
     ),
   );
   if (!c) return;
-  const decl: any = await expectOk('round E: declare Aug — two rows (300 t, 40 t)', () =>
-    supplierOrders.declare(
-      ORG_ID,
-      {
-        month: '2026-08',
-        year: ORDER_YEAR,
-        qpBasis: "Average LME of MOSS (Aug'26)",
-        rows: [
-          { customerId: customer.id, contractId: c.id, qtyMt: 300, piNo: 'SMOKE-PI-E1' },
-          { customerId: customer.id, contractId: c.id, qtyMt: 40, piNo: 'SMOKE-PI-E2' },
-        ],
-      },
-      actor,
-    ),
+  const soBefore = await prisma.supplierOrder.count({ where: { organizationId: ORG_ID } });
+  const res: any = await expectOk('round H: "+ New monthly order" Aug — two rows (300 t, 40 t)', () =>
+    orders.createMonthly(ORG_ID, { month: '2026-08', rows: [{ customerId: customer.id, contractId: c.id, qtyMt: 300 }, { customerId: customer.id, contractId: c.id, grade: '6063', size: '178 MM', qtyMt: 40 }] }, actor),
   );
-  if (!decl) return;
+  if (!res) return;
   const made: any[] = await prisma.tradeOrder.findMany({
-    where: { organizationId: ORG_ID, id: { in: decl.created.map((r: any) => r.orderId) } },
-    select: { id: true, supplierOrderId: true, shipMonth: true, deliveryMonth: true, qtyMt: true, clientPremium: true, supplierPremium: true, supplierOrder: { select: { declarationMonth: true, piNo: true, year: true } } },
+    where: { organizationId: ORG_ID, id: { in: res.created.map((r: any) => r.id) } },
+    select: { id: true, year: true, supplierOrderId: true, shipMonth: true, deliveryMonth: true, qtyMt: true, size: true, clientPremium: true, supplierPremium: true, steps: { select: { code: true, displayNo: true }, orderBy: { sortOrder: 'asc' } } },
     orderBy: { orderNo: 'asc' },
   });
-  (made.length === 2 && made.every((o, i) => o.supplierOrderId === decl.created[i].supplierOrderId && o.supplierOrder.year === ORDER_YEAR && o.supplierOrder.declarationMonth === '2026-08') ? pass : fail)(
-    'declaration: one supplier order + one customer order per row, linked',
-    made.map((o) => `${o.supplierOrder?.piNo} → ${o.id.slice(0, 8)}`).join(', '),
+  (made.length === 2 && made.every((o) => !o.supplierOrderId) && (await prisma.supplierOrder.count({ where: { organizationId: ORG_ID } })) === soBefore ? pass : fail)(
+    'monthly order: one order per row, no supplier order',
+    made.map((o) => o.id.slice(0, 8)).join(', '),
   );
-  (made.every((o) => o.shipMonth === '2026-08' && o.deliveryMonth === '2026-10' && Number(o.clientPremium) === 230 && Number(o.supplierPremium) === 205) ? pass : fail)(
-    'declaration: ship = Aug, delivery = Oct (+2), premiums from the schedule (230 / 205)',
-    made.map((o) => `${o.shipMonth}/${o.deliveryMonth} ${o.clientPremium}/${o.supplierPremium}`).join(', '),
+  (made.every((o) => o.year === 2026 && o.shipMonth === '2026-08' && o.deliveryMonth === '2026-10' && Number(o.clientPremium) === 230 && Number(o.supplierPremium) === 205) && made[1].size === '178 MM' ? pass : fail)(
+    'monthly order: ship = Aug, delivery = Oct (+2), premiums from the schedule (230 / 205), size per row',
+    made.map((o) => `${o.shipMonth}/${o.deliveryMonth} ${o.clientPremium}/${o.supplierPremium} ${o.size ?? ''}`).join(', '),
   );
+  (made.every((o) => o.steps.map((s: any) => s.displayNo).join(',') === '0,1,2,11,13') ? pass : fail)('one process: order steps in order 0, 1, 2, 11, 13', made[0]?.steps.map((s: any) => s.displayNo).join(','));
   await expectReject(
-    'declaration: a bad row creates nothing',
-    () => supplierOrders.declare(ORG_ID, { month: '2026-08', year: ORDER_YEAR, rows: [{ customerId: customer.id, contractId: c.id, qtyMt: 10 }, { customerId: customer.id, contractId: '00000000-0000-0000-0000-000000000000', qtyMt: 10 }] }, actor),
+    'monthly order: a bad row creates nothing',
+    () => orders.createMonthly(ORG_ID, { month: '2026-08', rows: [{ customerId: customer.id, contractId: c.id, qtyMt: 10 }, { customerId: customer.id, contractId: '00000000-0000-0000-0000-000000000000', qtyMt: 10 }] }, actor),
     /Row 2: contract not found/,
   );
-  const soCount = await prisma.supplierOrder.count({ where: { organizationId: ORG_ID, year: ORDER_YEAR } });
-  (soCount === 2 ? pass : fail)('declaration: the refused one left no supplier order behind', `${soCount}`);
-  const [so1, so2] = decl.created.map((r: any) => r.supplierOrderId);
-  const pay: any = await expectOk('round E: one OUT payment over the two PIs (USD 44,358.72 + 112,186.80)', () =>
-    payments.create(
-      ORG_ID,
-      {
-        direction: 'OUT',
-        paidAt: '2026-08-05',
-        amount: 156545.52,
-        currency: 'USD',
-        account: 'WISE',
-        allocations: [
-          { targetType: 'PI', targetId: so1, amount: 44358.72 },
-          { targetType: 'PI', targetId: so2, amount: 112186.8 },
-        ],
-      },
-      actor,
-    ),
+  (((await prisma.tradeOrder.count({ where: { organizationId: ORG_ID, contractId: c.id } })) === 2) ? pass : fail)('monthly order: the refused batch left no order behind', '');
+  const list: any = await orders.list(ORG_ID, { bucket: 'pending', pageSize: '100' } as any);
+  const aug = list.months?.find((m: any) => m.month === '2026-08');
+  (aug && aug.orders >= 2 && /^Aug 2026 — \d+ orders?, [\d,.]+ MT$/.test(aug.label) ? pass : fail)('Orders list: grouped by ship month ("Aug 2026 — n orders, … MT")', String(aug?.label));
+  await expectReject('round H: the Declaration makes nothing any more', () => supplierOrders.declare(ORG_ID, { month: '2026-08', rows: [{ customerId: customer.id, contractId: c.id, qtyMt: 1 }] }, actor), /no longer used/);
+  await expectReject('round H: the Payments module takes no new payment', () => payments.create(ORG_ID, { direction: 'OUT', paidAt: '2026-08-05', amount: 1, currency: 'USD', account: 'WISE' }, actor), /recorded on the steps/);
+  // Step 1's payment: amount, date, account, proof (a file on the order).
+  const o0: any = await orders.getById(ORG_ID, made[0].id);
+  const pi = o0.steps.find((s: any) => s.code === 'PI_PAYMENT');
+  const proof: any = await files.upload(ORG_ID, { originalname: 'SMOKE-DEPOSIT.pdf', mimetype: 'application/pdf', size: DUMMY_PDF.length, buffer: DUMMY_PDF } as Express.Multer.File, { docType: 'DEPOSIT_PROOF', orderIds: [o0.id], stepId: pi.id }, actor);
+  await expectReject('step payment: a proof file from another record is refused', () => steps.setPayment(ORG_ID, pi.id, { payment: { amount: 1, paidAt: '2026-08-05', account: 'WISE', proofFileId: '00000000-0000-0000-0000-000000000000' } }), /not on this record/);
+  await expectReject('step payment: an unknown account is refused', () => steps.setPayment(ORG_ID, pi.id, { payment: { amount: 1, paidAt: '2026-08-05', account: 'PAYPAL' } }), /account must be one of/);
+  const st: any = await expectOk('step payment: step 1 deposit USD 44,358.72 on 05/08/2026 (WISE, proof)', () =>
+    steps.setPayment(ORG_ID, pi.id, { payment: { amount: 44358.72, paidAt: '2026-08-05', account: 'WISE', proofFileId: proof?.id } }),
   );
-  if (pay) {
-    const paid = await prisma.supplierOrder.findMany({ where: { id: { in: [so1, so2] } }, select: { depositPaidAt: true } });
-    (paid.every((s: any) => s.depositPaidAt?.toISOString().slice(0, 10) === '2026-08-05') ? pass : fail)('payment: both PI deposits marked paid on 05/08/2026', paid.map((s: any) => s.depositPaidAt?.toISOString().slice(0, 10)).join(', '));
-    const cash: any = await payments.forOrder(ORG_ID, made[0].id);
-    (JSON.stringify(cash).includes('44358.72') ? pass : fail)("payment: the first order's cash view shows its PI part", JSON.stringify(cash).slice(0, 160));
-    await expectReject(
-      'payment: allocations over the amount are refused',
-      () => payments.update(ORG_ID, pay.id, { amount: 100 }),
-      /more than the payment/,
-    );
-    await expectOk('round E: delete the payment', () => payments.remove(ORG_ID, pay.id));
+  (st?.payment?.amount === 44358.72 && st.payment.currency === 'USD' && st.payment.proofFileId === proof?.id ? pass : fail)('step payment stored on the step (USD by default)', JSON.stringify(st?.payment));
+  const rec: any = await orders.reconciliation(ORG_ID, o0.id);
+  (rec.a === 44358.72 && rec.paid?.depositUsd === 44358.72 ? pass : fail)('reconciliation: a (PI paid) = the step-1 payment', `a ${rec.a}`);
+  const cleared: any = await steps.setPayment(ORG_ID, pi.id, { payment: null });
+  (!cleared?.payment?.amount ? pass : fail)('step payment cleared with null', JSON.stringify(cleared?.payment));
+  // Shipments list: a B/L under the order, tabbed by arrival.
+  const sh: any = await expectOk('round H: a shipment on the monthly order', () => orders.addShipment(ORG_ID, o0.id, { blNumber: 'TEST-SM-H1', vessel: 'SMOKE VESSEL', eta: '2099-01-10' } as any, actor));
+  if (sh) {
+    const t1: any = await shipments.list(ORG_ID, { tab: 'in_transit', q: 'TEST-SM-H1' } as any);
+    (t1.items.some((x: any) => x.id === sh.id) && t1.tabs?.in_transit >= 1 ? pass : fail)('Shipments list: ETA ahead → In transit', JSON.stringify(t1.tabs));
+    const byNo: any = await shipments.list(ORG_ID, { tab: 'in_transit', q: `#${res.created[0].label.slice(1)}-1` } as any);
+    (byNo.items.some((x: any) => x.id === sh.id) ? pass : fail)('Shipments list: search by "#n-1"', `${byNo.items.length}`);
+    await shipments.update(ORG_ID, sh.id, { actualArrivalDate: '2026-08-20', dischargeDate: '2026-08-20' } as any, actor);
+    const t2: any = await shipments.list(ORG_ID, { tab: 'arrived', q: 'SMOKE VESSEL' } as any);
+    const row = t2.items.find((x: any) => x.id === sh.id);
+    (row && row.freeTime?.from === 'discharge' && row.freeTime.det.ends === '2026-08-24' ? pass : fail)('Shipments list: discharged → Arrived, free time DET ends 24/08 (4 days)', JSON.stringify(row?.freeTime));
+    await expectOk('round H: delete the shipment', () => shipments.remove(ORG_ID, sh.id));
   }
-  for (const o of made) await expectOk('round E: delete the order', () => orders.remove(ORG_ID, o.id));
-  for (const id of [so1, so2]) await expectOk('round E: delete the supplier order', () => supplierOrders.remove(ORG_ID, id));
-  await expectOk('round E: delete the contract', () => contracts.remove(ORG_ID, c.id));
+  if (proof) {
+    await prisma.tradeFileLink.deleteMany({ where: { organizationId: ORG_ID, fileId: proof.id } });
+    await expectOk('round H: delete the proof file', () => files.remove(ORG_ID, proof.id));
+  }
+  for (const o of made) await expectOk('round H: delete the order', () => orders.remove(ORG_ID, o.id));
+  await expectOk('round H: delete the contract', () => contracts.remove(ORG_ID, c.id));
 }
 
 /** Remove the smoke contract, its shipments, their steps/links, and the files (DB + S3) only they used. */

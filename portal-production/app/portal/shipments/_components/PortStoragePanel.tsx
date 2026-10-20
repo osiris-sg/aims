@@ -5,7 +5,8 @@
 // tracking page — the B/L is filled in where the carrier allows, else copied
 // to paste), the ETA history ("8/6 → 8/16 → 8/17"), the discharge date and
 // free time (DET / DEM days — the alerts warn a day before it ends), and the
-// warehouse + storage start that the Stock page counts periods from.
+// warehouse storage start (storage-fee estimates count half-month periods
+// from it). Stock tracking left the shipment page in round H.
 
 import React, { useEffect, useState } from "react";
 import { Box, Button, Grid2, Paper, Stack, TextField, Typography } from "@mui/material";
@@ -71,7 +72,7 @@ export default function PortStoragePanel({ shipment: s }: { shipment: Shipment }
     <Paper variant="outlined" sx={{ p: 2 }} data-tour="shipment-port-storage">
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
         <Typography variant="subtitle2" sx={{ flex: 1 }}>
-          Arrival, free time and storage
+          Arrival, free time and storage start
         </Typography>
         {s.carrier && (
           <Button size="small" variant="outlined" startIcon={<LaunchIcon />} onClick={track} data-tour="shipment-track">
@@ -89,8 +90,7 @@ export default function PortStoragePanel({ shipment: s }: { shipment: Shipment }
         <Grid2 size={{ xs: 12, sm: 4 }}>{field("dischargeDate", "Discharge date", "date")}</Grid2>
         <Grid2 size={{ xs: 6, sm: 4 }}>{field("detFreeDays", "DET free days (default 4)", "int")}</Grid2>
         <Grid2 size={{ xs: 6, sm: 4 }}>{field("demFreeDays", "DEM free days (default 10)", "int")}</Grid2>
-        <Grid2 size={{ xs: 12, sm: 8 }}>{field("warehouse", "Warehouse (e.g. Mitsui Soko Honmoku)", "text")}</Grid2>
-        <Grid2 size={{ xs: 12, sm: 4 }}>{field("storageStartDate", "Storage start", "date")}</Grid2>
+        <Grid2 size={{ xs: 12, sm: 4 }}>{field("storageStartDate", "Warehouse storage start", "date", { helperText: "For storage-fee estimates" })}</Grid2>
       </Grid2>
     </Paper>
   );

@@ -220,6 +220,41 @@ export function pickMatch(cands: MatchCandidate[]): MatchCandidate | null {
   return null;
 }
 
+/**
+ * Words in the subject that disagree with the matched order (2026-10, round
+ * H): Mitsui's "6005C-8インチ 40T" emails were matched to a 6063 order. Grade
+ * (6005 / 6063 …), size (8インチ / 203MM) and quantity (40T) are compared
+ * with the order's grade / size / qty and the shipment's net weight (±10%);
+ * each disagreement is listed ("grade 6005 ≠ 6063") — the match then needs a
+ * person ("check") instead of being processed by itself. Words the subject
+ * doesn't have are never a mismatch.
+ */
+export function subjectMismatch(subject: string | null | undefined, f: { grade?: string | null; size?: string | null; qtyMt?: number | null; netMt?: number | null }): string[] {
+  const t = (subject ?? '').normalize('NFKC');
+  const out: string[] = [];
+  const gradeOf = (v: string | null | undefined) => /\b(P?\d{4})/i.exec(v ?? '')?.[1]?.toUpperCase() ?? null;
+  const grades = [...t.matchAll(/(?<![\d.])(6\d{3}|1\d{3}|P1020|P0507)[A-Z]?(?![\d])/gi)].map((m) => m[1].toUpperCase());
+  const og = gradeOf(f.grade);
+  if (grades.length && og && !grades.includes(og)) out.push(`grade ${grades[0]} ≠ ${og}`);
+  const inchOf = (v: string) => {
+    const i = /(\d+(?:\.\d+)?)\s*(?:インチ|inch|in\b|")/i.exec(v);
+    if (i) return Number(i[1]);
+    const mm = /(\d{3})\s*MM/i.exec(v);
+    return mm ? Math.round(Number(mm[1]) / 25.4) : null;
+  };
+  const si = inchOf(t);
+  const oi = f.size ? inchOf(f.size.normalize('NFKC')) : null;
+  if (si !== null && oi !== null && Math.abs(si - oi) > 0.5) out.push(`size ${si} inch ≠ ${oi} inch`);
+  const q = /(?<![\d.])(\d{1,4}(?:\.\d+)?)\s*(?:MT|T|トン)(?![A-Za-z])/.exec(t);
+  if (q) {
+    const v = Number(q[1]);
+    const near = (x: number | null | undefined) => x !== null && x !== undefined && x > 0 && Math.abs(v - x) <= Math.max(1, x * 0.1);
+    const known = [f.qtyMt, f.netMt].filter((x) => x !== null && x !== undefined && x > 0);
+    if (known.length && !near(f.qtyMt) && !near(f.netMt)) out.push(`qty ${v} MT ≠ ${known.map((x) => Number(x).toLocaleString('en-US', { maximumFractionDigits: 3 })).join(' / ')} MT`);
+  }
+  return out;
+}
+
 export interface SubtaskEvidence {
   scope: 'ORDER' | 'SHIPMENT';
   stepCode: string;
@@ -297,6 +332,7 @@ SHIPMENT = about a specific purchase / shipment (PI, contract, B/L, shipping doc
 
 // ── Known senders / subjects (2026-10) ─────────────────────────────────────
 /** Supplier-side documents: filed on the order's supplier order (steps 0 / 1) when it has one. */
+/** Retired (round H): the PI, contract and deposit proof are filed on the order (ORDER_DOC_TYPES). */
 export const SUPPLIER_ORDER_DOC_TYPES = new Set(['PI', 'CONTRACT', 'DEPOSIT_PROOF']);
 
 export interface KnownSenderHit {
@@ -422,6 +458,41 @@ export function parseDeclarationTable(body: string): DeclarationRow[] {
     out.push({ grade: grade ? grade.toUpperCase() : null, contractNo: contract, customer: words[0] ?? null, destination: words[1] ?? null, qtyMt: qty, qpBasis: qp, pricePerMt: price, piNo: pi });
   }
   return out;
+}
+
+/** An order the Vedanta PI table can fill (round H — the PI is on the order). */
+export interface PiTableOrder {
+  id: string;
+  orderNo: number;
+  contractId: string | null;
+  shipMonth: string | null;
+  grade: string | null;
+  qtyMt: number | null;
+  piNo: string | null;
+  piAmount: number | null;
+  status: string;
+}
+
+/**
+ * The order a PI-table row fills: the one with that PI no.; else an OPEN order
+ * on the row's contract shipping in that month, without a PI yet, of the
+ * row's grade (same quantity first, then the lowest order no.). The fields:
+ * the PI no. and the PI amount (qty × provisional price) — blanks only.
+ */
+export function piTableMatch(row: DeclarationRow, contractId: string, month: string | null, orders: PiTableOrder[]): { order: PiTableOrder | null; fields: Record<string, string | number>; reason?: string } {
+  const g4 = (v: string | null | undefined) => /P?\d{4}/i.exec(v ?? '')?.[0]?.toUpperCase() ?? null;
+  let order = row.piNo ? (orders.find((o) => o.piNo === row.piNo) ?? null) : null;
+  if (!order) {
+    const cands = orders
+      .filter((o) => o.status === 'OPEN' && o.contractId === contractId && !o.piNo && (!month || o.shipMonth === month) && (!row.grade || !o.grade || g4(o.grade) === g4(row.grade)))
+      .sort((a, b) => Number(b.qtyMt === row.qtyMt) - Number(a.qtyMt === row.qtyMt) || a.orderNo - b.orderNo);
+    order = cands[0] ?? null;
+  }
+  if (!order) return { order: null, fields: {}, reason: `no open order on this contract for ${month ?? 'that month'} without a PI — add it with "+ New monthly order"` };
+  const fields: Record<string, string | number> = {};
+  if (!order.piNo && row.piNo) fields.piNo = row.piNo;
+  if (order.piAmount === null && row.qtyMt !== null && row.pricePerMt !== null) fields.piAmount = Math.round(row.qtyMt * row.pricePerMt * 100) / 100;
+  return { order, fields };
 }
 
 const MONTHS: Record<string, string> = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' };

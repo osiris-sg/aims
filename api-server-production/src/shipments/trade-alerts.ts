@@ -116,7 +116,8 @@ export interface InvoiceFacts {
 }
 
 export interface DepositFacts {
-  supplierOrderId: string;
+  /** The order (round H: the PI and its deposit are on the order). */
+  orderId: string;
   label: string;
   dueDate: Date | null;
   paid: boolean;
@@ -213,13 +214,13 @@ export function planInvoiceAlert(i: InvoiceFacts): PlannedAlert | null {
 export function planDepositAlert(d: DepositFacts): PlannedAlert | null {
   if (!d.dueDate) return null;
   return {
-    key: `PAYMENT_DUE:PI:${d.supplierOrderId}`,
+    key: `PAYMENT_DUE:PI:${d.orderId}`,
     kind: 'PAYMENT_DUE',
     dueAt: day(d.dueDate),
     title: `${d.label}: deposit due ${ymd(day(d.dueDate))}`,
     detail: 'Pay the PI deposit (step 1).',
-    supplierOrderId: d.supplierOrderId,
-    linkUrl: `/portal/shipments/supplier-orders/${d.supplierOrderId}`,
+    orderId: d.orderId,
+    linkUrl: orderLink(d.orderId),
     resolved: d.paid,
   };
 }

@@ -33,4 +33,11 @@ export class TradeStepsController {
   subtask(@Param('id', ParseUUIDPipe) id: string, @Param('key') key: string, @Body() body: { done?: boolean }, @Req() req: TradeRequest) {
     return this.steps.setSubtask(orgIdOf(req), id, key, body?.done !== false, actorOf(req));
   }
+
+  /** A paying / receiving step's amount, date, account and proof file ({ payment: null } clears it). */
+  @Post(':id/payment')
+  @Permissions('shipments:update')
+  payment(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: TradeRequest) {
+    return this.steps.setPayment(orgIdOf(req), id, body);
+  }
 }

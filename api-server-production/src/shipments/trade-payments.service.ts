@@ -41,10 +41,13 @@ export function generatedInvoiceTotal(g: { docType: string; header: any; rows: u
   return invoiceTotals(toInvoiceLines(g.rows), Number(g.header?.taxRate ?? 10), null, g.header?.variant === 'final' ? 'final' : undefined).total;
 }
 
+const RETIRED = 'Payments are recorded on the steps now (amount, date, account, proof) — the Payments module is retired';
+
 /**
- * Payments (2026-10): cash in / cash out with allocations to PIs, CIs,
- * invoices, vendor invoices and import tax. Steps 1, 6, 8 and 12 and the
- * invoice receipts record a payment here (the proof upload stays on the step).
+ * Payments (2026-10, retired in round H): cash in / cash out with allocations
+ * to PIs, CIs, invoices, vendor invoices and import tax. Read-only now — the
+ * rows stay (hidden); steps 1, 6, 8, 12 and the invoice receipts carry their
+ * own payment fields (TradeStep.payment).
  */
 @Injectable()
 export class TradePaymentsService {
@@ -89,6 +92,7 @@ export class TradePaymentsService {
   }
 
   async create(organizationId: string, body: Record<string, unknown>, actor: TradeActor) {
+    if (RETIRED) throw new BadRequestException(RETIRED);
     const c = cleanPayment(body, (m) => {
       throw new BadRequestException(m);
     });
@@ -118,6 +122,7 @@ export class TradePaymentsService {
 
   /** Edit a payment; `allocations`, when sent, replaces the whole list ("Allocate"). */
   async update(organizationId: string, id: string, body: Record<string, unknown>) {
+    if (RETIRED) throw new BadRequestException(RETIRED);
     const cur = await this.prisma.tradePayment.findFirst({ where: { id, organizationId }, select: PAYMENT_SELECT });
     if (!cur) throw new NotFoundException('Payment not found');
     const merged = {
@@ -148,6 +153,7 @@ export class TradePaymentsService {
   }
 
   async remove(organizationId: string, id: string) {
+    if (RETIRED) throw new BadRequestException(RETIRED);
     const p = await this.prisma.tradePayment.findFirst({ where: { id, organizationId }, select: { id: true } });
     if (!p) throw new NotFoundException('Payment not found');
     await this.prisma.tradePayment.delete({ where: { id, organizationId } }); // allocations cascade

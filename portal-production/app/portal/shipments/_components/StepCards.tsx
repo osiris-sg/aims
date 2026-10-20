@@ -109,6 +109,7 @@ export default function StepCards({
   onFileUploaded,
   stepExtra,
   customerId,
+  orderShipmentIds = [],
 }: {
   steps: TradeStep[];
   owner: LinkTarget;
@@ -137,6 +138,8 @@ export default function StepCards({
   stepExtra?: (s: TradeStep) => React.ReactNode;
   /** The record's customer (the covers picker lists its other shipments). */
   customerId?: string | null;
+  /** On an order: its shipments (step 11's invoice covers them by default). */
+  orderShipmentIds?: string[];
 }) {
   const api = useShipmentsApi();
   const router = useRouter();
@@ -168,7 +171,8 @@ export default function StepCards({
   const ongoing = sorted.filter((s) => s.isOngoing);
   const titleOf = (s: TradeStep) => stepLabel(s, s.isOngoing ? undefined : (numberFrom ?? 0) + main.indexOf(s) + 1);
   const editorHref = (id: string) => `/portal/trade-documents/generated/${id}?from=${encodeURIComponent(returnTo)}`;
-  const canCreate = (docType: string) => GENERATED_DOC_TYPES[docType]?.scope === owner.kind;
+  // Step 11 is the order's (round H): its Invoice #2 / single invoice is made for the order's shipments.
+  const canCreate = (docType: string) => GENERATED_DOC_TYPES[docType]?.scope === owner.kind || (owner.kind === "order" && !!GENERATED_DOC_TYPES[docType]?.covers && orderShipmentIds.length > 0);
 
   const reqOf = (s: TradeStep, docType: string) => s.requirements?.find((r) => r.docType === docType);
   const byAge = (a: RecordFileLink, b: RecordFileLink) => a.file.createdAt.localeCompare(b.file.createdAt);
@@ -208,12 +212,22 @@ export default function StepCards({
 
   const createBlank = async (docType: string, coversShipmentIds?: string[]) => {
     // Invoice #2 / single invoice on a shipment: ask which of the customer's shipments it covers first.
-    if (!coversShipmentIds && owner.kind === "shipment" && GENERATED_DOC_TYPES[docType]?.covers) return setCovers({ docType });
+    const covers = !!GENERATED_DOC_TYPES[docType]?.covers;
+    if (!coversShipmentIds && covers && (owner.kind === "shipment" || owner.kind === "order")) return setCovers({ docType });
     setCreating(docType);
     try {
       const g = await api.createBlankGenerated({
         docType,
-        ...(owner.kind === "contract" ? { contractId: owner.id } : owner.kind === "order" ? { orderId: owner.id } : owner.kind === "supplierOrder" ? { supplierOrderId: owner.id } : { shipmentId: owner.id }),
+        // An order's Invoice #2 belongs to the shipments it covers (the first is its record).
+        ...(covers && owner.kind === "order" && coversShipmentIds?.length
+          ? {}
+          : owner.kind === "contract"
+            ? { contractId: owner.id }
+            : owner.kind === "order"
+              ? { orderId: owner.id }
+              : owner.kind === "supplierOrder"
+                ? { supplierOrderId: owner.id }
+                : { shipmentId: owner.id }),
         ...(coversShipmentIds ? { coversShipmentIds } : {}),
       });
       router.push(editorHref(g.id));
@@ -754,7 +768,8 @@ export default function StepCards({
       <CoversDialog
         open={!!covers}
         docType={covers?.docType ?? ""}
-        primaryId={owner.id}
+        primaryId={owner.kind === "shipment" ? owner.id : null}
+        preselect={owner.kind === "order" ? orderShipmentIds : []}
         customerId={customerId ?? null}
         label={covers ? label(covers.docType) : ""}
         onClose={() => setCovers(null)}
@@ -877,19 +892,40 @@ function FieldsRow({ title, done, summary, canEdit, form, labels }: { title: str
  * always in; other open, not-yet-invoiced shipments of the same customer can
  * be added (even from other orders: "6005_56.197t+6063_260.224t").
  */
-function CoversDialog({ open, docType, primaryId, customerId, label, onClose, onConfirm }: { open: boolean; docType: string; primaryId: string; customerId: string | null; label: string; onClose: () => void; onConfirm: (ids: string[]) => void }) {
+function CoversDialog({
+  open,
+  docType,
+  primaryId,
+  preselect = [],
+  customerId,
+  label,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  docType: string;
+  /** Opened from a shipment: that shipment (always covered). From the order: null. */
+  primaryId: string | null;
+  /** From the order: its shipments, ticked to start with. */
+  preselect?: string[];
+  customerId: string | null;
+  label: string;
+  onClose: () => void;
+  onConfirm: (ids: string[]) => void;
+}) {
   const list = useShipments({ customerId: customerId ?? undefined, uninvoiced: "true", status: "OPEN", pageSize: 100 }, open && !!customerId);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const pre = preselect.join(",");
   React.useEffect(() => {
-    if (open) setPicked(new Set([primaryId]));
-  }, [open, primaryId]);
+    if (open) setPicked(new Set(primaryId ? [primaryId] : pre ? pre.split(",") : []));
+  }, [open, primaryId, pre]);
   const rows = (list.data?.items ?? []).filter((x) => x.id === primaryId || true);
   const toggle = (id: string) =>
     setPicked((p) => {
       const n = new Set(p);
       if (n.has(id)) n.delete(id);
       else n.add(id);
-      n.add(primaryId);
+      if (primaryId) n.add(primaryId);
       return n;
     });
   return (
@@ -897,14 +933,14 @@ function CoversDialog({ open, docType, primaryId, customerId, label, onClose, on
       <DialogTitle>
         {label}: which shipments does it cover?
         <Typography variant="body2" color="text.secondary">
-          One invoice can bill several shipments of this customer — including shipments of other orders. Finalizing it completes step 11 on each.
+          One invoice can bill several shipments of this customer — including shipments of other orders. An order&apos;s step 11 is done once all its shipments are invoiced.
         </Typography>
       </DialogTitle>
       <DialogContent dividers data-tour="invoice-covers-picker">
         {list.isLoading ? (
           <CircularProgress size={22} />
         ) : !rows.length ? (
-          <Typography variant="body2">Only this shipment is open and not invoiced yet.</Typography>
+          <Typography variant="body2">{primaryId ? "Only this shipment is open and not invoiced yet." : "No open shipment of this customer is waiting for an invoice."}</Typography>
         ) : (
           <List dense disablePadding>
             {rows.map((x) => (
@@ -923,7 +959,15 @@ function CoversDialog({ open, docType, primaryId, customerId, label, onClose, on
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={() => onConfirm([primaryId, ...[...picked].filter((x) => x !== primaryId)])} disabled={!docType}>
+        <Button
+          variant="contained"
+          onClick={() => {
+            // The covered shipments in the list's order, this shipment first.
+            const ids = (list.data?.items ?? []).map((x) => x.id).filter((id) => picked.has(id) && id !== primaryId);
+            onConfirm(primaryId ? [primaryId, ...ids] : ids);
+          }}
+          disabled={!docType || picked.size === 0}
+        >
           Create invoice ({picked.size} shipment{picked.size === 1 ? "" : "s"})
         </Button>
       </DialogActions>

@@ -98,7 +98,10 @@ export type InboxRow = {
   /** Known sender / subject rule that decided it (Wan Hai A/N, Mitsui Soko NO.取りリスト, 輸入許可書, Vedanta declaration). */
   knownRule?: string | null;
   supplierOrderSuggestions?: Array<{ grade: string | null; contractNo: string; customer: string | null; destination: string | null; qtyMt: number | null; qpBasis: string | null; pricePerMt: number | null; piNo: string | null }>;
-  supplierOrderResults?: Array<{ contractNo: string; piNo: string | null; supplierOrderId: string | null; action: string; reason?: string }>;
+  /** What "Apply PI table" did (round H: on the orders). */
+  supplierOrderResults?: Array<{ contractNo: string; piNo: string | null; orderId?: string | null; orderLabel?: string | null; supplierOrderId?: string | null; action: string; reason?: string }>;
+  /** Subject words that disagree with the match ("grade 6005 ≠ 6063") — "check". */
+  check?: string[];
   id: string;
   date: string;
   receivedAt: string;
@@ -333,7 +336,22 @@ export type TradeStep = {
   skipReason?: string | null;
   /** "Sent" evidence (by hand or from an outgoing email); never blocks the step. */
   subtasks?: Subtask[] | null;
+  /** Paying / receiving steps (1, 6, 8, 12; 2 / 11 receipts): amount, date, account, proof. {} = cleared. */
+  payment?: StepPayment | Record<string, never> | null;
 };
+
+/** A step's payment (round H — the Payments module is retired). */
+export type StepPayment = { amount: number; currency: string; paidAt: string; account: PaymentAccount; proofFileId: string | null };
+/** Steps that carry a payment, with the proof's doc type and the default currency. */
+export const STEP_PAYMENT: Record<string, { direction: "IN" | "OUT"; proofDocType: string; label: string; currency: "USD" | "JPY" }> = {
+  PI_PAYMENT: { direction: "OUT", proofDocType: "DEPOSIT_PROOF", label: "Deposit paid", currency: "USD" },
+  CI_PAYMENT: { direction: "OUT", proofDocType: "CI_PAYMENT_PROOF", label: "CI paid", currency: "USD" },
+  TAX_FUNDS: { direction: "OUT", proofDocType: "PAYMENT_PROOF", label: "Import tax funded", currency: "JPY" },
+  LOGISTICS_PAYMENT: { direction: "OUT", proofDocType: "PAYMENT_PROOF", label: "Transport & storage paid", currency: "JPY" },
+  INVOICE_1: { direction: "IN", proofDocType: "PAYMENT_PROOF", label: "Invoice #1 received", currency: "USD" },
+  INVOICE_2: { direction: "IN", proofDocType: "PAYMENT_PROOF", label: "Invoice received", currency: "USD" },
+};
+export const paymentOf = (st: Pick<TradeStep, "payment">): StepPayment | null => (st.payment && Number.isFinite(Number((st.payment as StepPayment).amount)) ? (st.payment as StepPayment) : null);
 
 export type Subtask = { key: string; label: string; done: boolean; na?: boolean; at?: string | null; by?: string | null; source?: string | null; emailLogId?: string | null };
 
@@ -463,8 +481,6 @@ export type OrderListItem = {
   upcharge: Num;
   piNo: string | null;
   status: RecordStatus;
-  /** List rows: the supplier order it is bought under. */
-  supplierOrder?: { id: string; soNo: number; piNo: string | null; status: RecordStatus; label: string } | null;
   shipmentCount: number;
   shipments: OrderShipmentRow[];
   progress: Progress;
@@ -489,8 +505,8 @@ export type Order = OrderListItem & {
   updatedAt: string;
   contract: { id: string; contractNo: string; status: RecordStatus; qpBasis?: string | null; premiumSchedule?: PremiumRow[] | null; lines: ContractLine[] } | null;
   profile: CustomerProfile;
-  /** The supplier side (steps 0 / 1 on the supplier order). */
-  supplierOrder: OrderSupplierSide | null;
+  /** The supplier's profile (no PI → step 1 N/A). */
+  supplierProfile?: SupplierProfile | null;
   customerPoNo: string | null;
   /** Fields flagged "check" (imported from the task list / assumed): clientPremium, contractId, customerId. */
   checkFields?: string[];
@@ -530,11 +546,18 @@ export type OrderInput = Partial<{
   consignee: string | null;
   notifyParty: string | null;
   notes: string | null;
+  customerPoNo: string | null;
+  customerPoDate: string | null;
   piFileId: string;
   contractFileId: string;
   status: "CANCELLED";
 }>;
-export type OrderFilters = { bucket?: "pending" | "completed"; customerId?: string; contractId?: string; supplierOrderId?: string; q?: string; page?: number; pageSize?: number };
+export type OrderFilters = { bucket?: "pending" | "completed"; customerId?: string; contractId?: string; q?: string; page?: number; pageSize?: number };
+/** Orders list month headers ("Sep 2026 — 4 orders, 600 MT"), counted over the whole filtered list. */
+export type OrderMonth = { month: string | null; orders: number; qtyMt: number | null; label: string };
+/** "+ New monthly order": one order per row. */
+export type MonthlyOrderRow = { customerId: string; contractId: string; grade?: string | null; size?: string | null; qtyMt: number; clientPremium?: number | null; deliveryMonth?: string | null };
+export type MonthlyOrderResult = { month: string; created: Array<{ id: string; label: string; customerName: string; grade: string | null; qtyMt: number | null }> };
 
 // ── Supplier orders (Vedanta's PI; steps 0 / 1) ──────────────────────────
 export type SupplierProfile = { supplierId: string; key?: string; label?: string; hasPI: boolean; shippingDocs?: string[] | null; emailDomains?: string[] };
@@ -636,6 +659,8 @@ export type SupplierOrderInput = Partial<{
 }>;
 export type SupplierOrderFilters = { bucket?: "pending" | "completed"; supplierId?: string; contractId?: string; declarationMonth?: string; q?: string; page?: number; pageSize?: number };
 export type DeclarationRow = { customerId: string; contractId: string; grade?: string | null; size?: string | null; qtyMt: number; clientPremium?: number | null; supplierPremium?: number | null; orderNo?: number; deliveryMonth?: string | null; piNo?: string | null };
+/** Vedanta's PI table → the order each row fills (read-only plan). */
+export type PiTablePlan = { rows: Array<{ row: NonNullable<InboxRow["supplierOrderSuggestions"]>[number]; month: string | null; orderId: string | null; orderLabel: string | null; fields: Record<string, string | number>; reason?: string }> };
 export type DeclarationResult = { created: Array<{ supplierOrderId: string; orderId: string; orderLabel: string | null; customerName: string | null }> };
 /** grade: the row applies to that grade only (a contract with two grades, e.g. Kato 6005 / 6063); blank = every grade. */
 export type PremiumRow = { from: string; to: string | null; grade?: string | null; supplierPremium: number | null; clientPremium: number | null; upcharge: number | null };
@@ -1003,7 +1028,12 @@ export type ShipmentListItem = {
   productLine: string | null;
   progress: Progress;
   currentStep: CurrentStep;
+  /** Shipments list (round H). */
+  carrier?: string | null;
+  tab?: ShipmentTab;
+  freeTime?: { from: "discharge" | "eta"; det: { ends: string; daysLeft: number }; dem: { ends: string; daysLeft: number } } | null;
 };
+export type ShipmentTab = "in_transit" | "arrived" | "delivered" | "completed";
 
 export type Shipment = {
   id: string;
@@ -1188,7 +1218,7 @@ export type ShipmentInput = {
 export type LinkTargets = { contractIds?: string[]; shipmentIds?: string[]; orderIds?: string[]; supplierOrderIds?: string[]; stepId?: string };
 
 export type ContractFilters = { status?: string; supplierId?: string; customerId?: string; q?: string; page?: number; pageSize?: number };
-export type ShipmentFilters = { status?: string; bucket?: "pending" | "completed"; contractId?: string; orderId?: string; customerId?: string; currentStep?: string; uninvoiced?: "true"; q?: string; page?: number; pageSize?: number };
+export type ShipmentFilters = { status?: string; bucket?: "pending" | "completed"; tab?: ShipmentTab; contractId?: string; orderId?: string; customerId?: string; currentStep?: string; uninvoiced?: "true"; q?: string; page?: number; pageSize?: number };
 export type FileFilters = { docType?: string; contractId?: string; shipmentId?: string; orderId?: string; supplierOrderId?: string; customerId?: string; q?: string; from?: string; to?: string; page?: number; pageSize?: number };
 
 /** Mirrors the backend allow-list (shipments.rules.ts) for a quick client-side check. */
@@ -1273,7 +1303,8 @@ export function useShipmentsApi() {
       reopenContract: (id: string) => call<Contract>(`/contracts/${id}/reopen`, "POST"),
 
       // ── Orders ───────────────────────────────────────────────────────────
-      listOrders: (f: OrderFilters = {}) => call<Paged<OrderListItem> & { counts?: { pending: number; completed: number } }>(`/trade-orders${qs(f)}`),
+      listOrders: (f: OrderFilters = {}) => call<Paged<OrderListItem> & { counts?: { pending: number; completed: number }; months?: OrderMonth[] }>(`/trade-orders${qs(f)}`),
+      createMonthlyOrders: (body: { month: string; rows: MonthlyOrderRow[] }) => call<MonthlyOrderResult>(`/trade-orders/monthly`, "POST", body),
       getOrder: (id: string) => call<Order>(`/trade-orders/${id}`),
       nextOrderNo: (year?: number) => call<{ year: number; orderNo: number }>(`/trade-orders/next-no${qs({ year })}`),
       createOrder: (body: OrderInput) => call<Order>(`/trade-orders`, "POST", body),
@@ -1287,7 +1318,7 @@ export function useShipmentsApi() {
       completeSupplierOrder: (id: string) => call<SupplierOrder>(`/supplier-orders/${id}/complete`, "POST"),
       reopenSupplierOrder: (id: string) => call<SupplierOrder>(`/supplier-orders/${id}/reopen`, "POST"),
       declare: (body: { month: string; qpBasis?: string | null; rows: DeclarationRow[] }) => call<DeclarationResult>(`/supplier-orders/declaration`, "POST", body),
-      priceCheck: (kind: "supplier-order" | "shipment" | "generated", id: string) => call<PriceCheck>(`/trade-price-check/${kind}/${id}`),
+      priceCheck: (kind: "order" | "supplier-order" | "shipment" | "generated", id: string) => call<PriceCheck>(`/trade-price-check/${kind}/${id}`),
       credits: (f: { customerId?: string; status?: string; forDocId?: string } = {}) => call<TradeCredit[]>(`/trade-generated/credits${qs(f)}`),
       alerts: (f: { status?: string; shipmentId?: string; orderId?: string } = {}) => call<TradeAlert[]>(`/trade-alerts${qs(f)}`),
       myTasks: () => call<TradeAlert[]>(`/trade-alerts/my-tasks`),
@@ -1317,7 +1348,7 @@ export function useShipmentsApi() {
       updateReconciliation: (id: string, body: Record<string, number | string | null>) => call<Reconciliation>(`/trade-orders/${id}/reconciliation`, "PATCH", body),
 
       // ── Shipments ────────────────────────────────────────────────────────
-      listShipments: (f: ShipmentFilters = {}) => call<Paged<ShipmentListItem> & { counts?: { pending: number; completed: number } }>(`/shipments${qs(f)}`),
+      listShipments: (f: ShipmentFilters = {}) => call<Paged<ShipmentListItem> & { counts?: { pending: number; completed: number }; tabs?: Record<ShipmentTab, number> }>(`/shipments${qs(f)}`),
       getShipment: (id: string) => call<Shipment>(`/shipments/${id}`),
       createShipment: (body: ShipmentInput) => call<Shipment>(`/shipments`, "POST", body),
       updateShipment: (id: string, body: ShipmentInput) => call<Shipment>(`/shipments/${id}`, "PATCH", body),
@@ -1329,6 +1360,7 @@ export function useShipmentsApi() {
       // ── Steps ────────────────────────────────────────────────────────────
       startStep: (id: string) => call<TradeStep>(`/trade-steps/${id}/start`, "POST"),
       completeStep: (id: string) => call<TradeStep>(`/trade-steps/${id}/complete`, "POST"),
+      setStepPayment: (id: string, payment: Omit<StepPayment, "currency"> & { currency?: string } | null) => call<TradeStep>(`/trade-steps/${id}/payment`, "POST", { payment }),
       reopenStep: (id: string) => call<TradeStep>(`/trade-steps/${id}/reopen`, "POST"),
       setSubtask: (id: string, key: string, done: boolean) => call<TradeStep>(`/trade-steps/${id}/subtasks/${encodeURIComponent(key)}`, "POST", { done }),
 
@@ -1497,7 +1529,8 @@ export function useShipmentsApi() {
       inboxUndo: (id: string) => call<InboxRow>(`/email-inbox/${id}/undo`, "POST"),
       inboxDismiss: (id: string) => call<{ id: string; purged: boolean }>(`/email-inbox/${id}/dismiss`, "POST"),
       inboxRetriage: (id: string) => call<InboxRow>(`/email-inbox/${id}/retriage`, "POST"),
-      inboxApplySupplierOrders: (id: string) => call<{ results: NonNullable<InboxRow["supplierOrderResults"]>; row: InboxRow }>(`/email-inbox/${id}/supplier-orders`, "POST"),
+      inboxPiTable: (id: string) => call<PiTablePlan>(`/email-inbox/${id}/pi-table-plan`),
+      inboxApplyPiTable: (id: string) => call<{ results: NonNullable<InboxRow["supplierOrderResults"]>; row: InboxRow }>(`/email-inbox/${id}/pi-table`, "POST"),
       /** Short-lived link to a stored email's .eml, or attachment n. */
       emailIntakeFile: (id: string, attachment?: number) => call<{ url: string }>(`/email-intake/${id}/file${qs({ attachment })}`),
       updateSettings: (body: {

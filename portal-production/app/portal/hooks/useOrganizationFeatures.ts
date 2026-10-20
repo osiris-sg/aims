@@ -118,6 +118,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableBankRecXeroCheckpoint: false,
   // NOTE: the "AIMS Guide" assistant (bottom-right bubble) is deliberately
   // NOT flagged — it's global for every org (guru, 2026-08-03).
+  // Trade legacy pages (Declaration / Payments / Stock / Supplier orders) — hidden since round H.
+  enableTradeLegacyPages: false,
 };
 
 interface OrganizationUIConfig {

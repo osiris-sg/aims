@@ -64,11 +64,18 @@ export class EmailInboxController {
     return this.triage.undo(this.org(req), id, this.actor(req));
   }
 
-  @Post(':id/supplier-orders')
+  @Get(':id/pi-table-plan')
+  @Permissions('shipments:read')
+  @ApiOperation({ summary: "Vedanta's PI table: the order each row would fill and the blank PI fields (read-only)." })
+  piTable(@Param('id', ParseUUIDPipe) id: string, @Req() req: Req2) {
+    return this.triage.piTablePlan(this.org(req), id);
+  }
+
+  @Post(':id/pi-table')
   @Permissions('shipments:update')
-  @ApiOperation({ summary: "Vedanta declaration: apply the PI table to supplier orders (create / fill, attach each PI)." })
-  supplierOrders(@Param('id', ParseUUIDPipe) id: string, @Req() req: Req2) {
-    return this.triage.applySupplierOrders(this.org(req), id, this.actor(req));
+  @ApiOperation({ summary: "Vedanta's PI table: fill the PI fields on the month's matching orders (attach each PI to step 1)." })
+  applyPiTable(@Param('id', ParseUUIDPipe) id: string, @Req() req: Req2) {
+    return this.triage.applyPiTable(this.org(req), id, this.actor(req));
   }
 
   @Post(':id/dismiss')

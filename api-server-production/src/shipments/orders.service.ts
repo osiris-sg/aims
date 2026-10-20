@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
-import { CreateOrderDto, ListOrdersQuery, UpdateOrderDto } from './dto/order.dto';
+import { CreateOrderDto, ListOrdersQuery, MonthlyOrdersDto, UpdateOrderDto } from './dto/order.dto';
 import { CreateShipmentDto } from './dto/shipment.dto';
 import { TradeActor } from './shipments.request';
-import { blockingSteps, currentStepOf, depositOf, monthsLabel, orderCurrentStep, orderLabel, progressOf, shipmentRef, stepLabels, supplierOrderLabel, tradeToday } from './shipments.rules';
+import { blockingSteps, currentStepOf, depositOf, monthsLabel, monthShort, orderCurrentStep, orderLabel, progressOf, shipmentRef, stepLabels, tradeToday } from './shipments.rules';
 import { Db, DOC_LINK_SELECT, isUniqueViolation, optText, pageArgs, TradeConfigService } from './trade-config.service';
 import { DEFAULT_DEPOSIT_DUE, depositDueDate } from './trade-deposit';
 import { amountOf, invoiceTotals, toInvoiceLines } from './trade-invoice';
@@ -11,7 +11,8 @@ import { SgjpItem, sgjpTotals } from './trade-logistics-docs';
 import { cleanReconcileInputs, reconcile, ReconcileDocs, ReconcileInputs } from './trade-reconcile';
 import { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, shapeFileLinks, STEP_SELECT, STEP_SUMMARY_SELECT } from './trade-selects';
 import { ShipmentsService } from './shipments.service';
-import { createSupplierOrderInTx } from './trade-supplier-order';
+import { premiumAt } from './trade-contract';
+import { stepPaymentOf } from './trade-payments';
 
 const PARTY = { select: { id: true, name: true, customerCode: true } };
 const SUPPLIER = { select: { id: true, name: true, supplierCode: true } };
@@ -22,10 +23,31 @@ export function orderProductLabel(o: { product?: string | null; grade?: string |
   return [o.grade || o.product || null, o.size || null, qty].filter(Boolean).join(' · ');
 }
 
+/** "2026-07" + 2 → "2026-09" (ship in July, deliver in September). */
+export function addMonths(month: string, k: number): string {
+  const y = Number(month.slice(0, 4));
+  const m = Number(month.slice(5, 7)) - 1 + k;
+  const yy = y + Math.floor(m / 12);
+  const mm = ((m % 12) + 12) % 12;
+  return `${yy}-${String(mm + 1).padStart(2, '0')}`;
+}
+
+/** "Sep 2026 — 4 orders, 600 MT" (the Orders list's month header). */
+export function monthHeader(month: string | null, orders: number, qtyMt: number | null): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(month ?? '');
+  const name = m ? `${monthShort(month).slice(0, 3)} ${m[1]}` : 'No ship month';
+  const qty = qtyMt ? `, ${qtyMt.toLocaleString('en-US', { maximumFractionDigits: 3 })} MT` : '';
+  return `${name} — ${orders} order${orders === 1 ? '' : 's'}${qty}`;
+}
+
 /**
  * Orders (ADH's "#19"): Contract (yearly LTC, optional) → Order → Shipment
- * (one per B/L, "#19-1"). The order holds the PI, the deposit, Invoice #1 and
- * the reconciliation (steps 0, 1, 2, 13); shipments hold steps 3–12 and 14.
+ * (one per B/L, "#19-1"). One order process (2026-10, round H): the order
+ * holds the Vedanta side (PI, deposit, supplier premium) and the customer side
+ * (PO, client premium) as plain fields, and its own steps 0 Check contract,
+ * 1 PI payment, 2 Invoice #1, 11 Invoice #2 / single invoice and 13
+ * reconciliation; shipments hold steps 3–10, 12 and 14. Supplier orders are
+ * no longer made (the table stays, unused).
  */
 @Injectable()
 export class OrdersService {
@@ -44,7 +66,6 @@ export class OrdersService {
       organizationId,
       ...(query.customerId ? { customerId: query.customerId } : {}),
       ...(query.contractId ? { contractId: query.contractId } : {}),
-      ...(query.supplierOrderId ? { supplierOrderId: query.supplierOrderId } : {}),
       ...(q
         ? {
             OR: [
@@ -54,22 +75,23 @@ export class OrdersService {
               { contract: { contractNo: { contains: q, mode: 'insensitive' as const } } },
               { customer: { name: { contains: q, mode: 'insensitive' as const } } },
               { shipments: { some: { blNumber: { contains: q, mode: 'insensitive' as const } } } },
+              { shipments: { some: { vessel: { contains: q, mode: 'insensitive' as const } } } },
             ],
           }
         : {}),
     };
     const where = { ...base, ...bucket };
-    const [rows, total, pending, completed] = await Promise.all([
+    const [rows, total, pending, completed, months] = await Promise.all([
       this.prisma.tradeOrder.findMany({
         where,
-        orderBy: [{ year: 'desc' }, { orderNo: 'desc' }],
+        // Grouped by ship month (newest first) — the list shows a header per month.
+        orderBy: [{ shipMonth: { sort: 'desc', nulls: 'last' } }, { year: 'desc' }, { orderNo: 'desc' }],
         skip,
         take,
         include: {
           customer: PARTY,
           supplier: SUPPLIER,
           contract: { select: { id: true, contractNo: true } },
-          supplierOrder: { select: { id: true, soNo: true, piNo: true, status: true, steps: { select: STEP_SUMMARY_SELECT } } },
           steps: { select: STEP_SUMMARY_SELECT },
           shipments: {
             orderBy: [{ seqNo: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
@@ -80,15 +102,16 @@ export class OrdersService {
       this.prisma.tradeOrder.count({ where }),
       this.prisma.tradeOrder.count({ where: { ...base, status: 'OPEN' } }),
       this.prisma.tradeOrder.count({ where: { ...base, status: { in: ['COMPLETED', 'CANCELLED'] } } }),
+      this.prisma.tradeOrder.groupBy({ by: ['shipMonth'], where, _count: { _all: true }, _sum: { qtyMt: true } }),
     ]);
-    const items = rows.map(({ steps, shipments, supplierOrder, ...o }: any) => {
+    const items = rows.map(({ steps, shipments, ...o }: any) => {
       const ships = shipments.map(({ steps: ss, ...s }: any) => ({
         ...s,
         ref: shipmentRef(o.orderNo, s.seqNo),
         progress: progressOf(ss),
         currentStep: currentStepOf(ss),
       }));
-      const own = orderCurrentStep(supplierOrder?.status === 'OPEN' ? supplierOrder.steps : null, steps, shipments);
+      const own = orderCurrentStep(null, steps, shipments);
       return {
         ...o,
         label: orderLabel(o),
@@ -98,25 +121,25 @@ export class OrdersService {
         productLabel: orderProductLabel(o),
         shipmentCount: ships.length,
         shipments: ships,
-        progress: progressOf([...steps, ...(supplierOrder?.steps ?? [])]),
+        progress: progressOf(steps),
         currentStep: own,
-        supplierOrder: supplierOrder ? { id: supplierOrder.id, soNo: supplierOrder.soNo, piNo: supplierOrder.piNo, status: supplierOrder.status, label: supplierOrderLabel(supplierOrder) } : null,
       };
     });
-    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize), counts: { pending, completed } };
+    // Month headers count the whole filtered list, not just this page.
+    const monthTotals = (months as Array<{ shipMonth: string | null; _count: { _all: number }; _sum: { qtyMt: unknown } }>)
+      .map((m) => {
+        const qty = m._sum.qtyMt === null || m._sum.qtyMt === undefined ? null : Number(m._sum.qtyMt);
+        return { month: m.shipMonth, orders: m._count._all, qtyMt: qty, label: monthHeader(m.shipMonth, m._count._all, qty) };
+      })
+      .sort((a, b) => (b.month ?? '').localeCompare(a.month ?? ''));
+    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize), counts: { pending, completed }, months: monthTotals };
   }
 
   /** Detail; with an actor, auto-complete runs first on the order and its shipments. */
   async getById(organizationId: string, id: string, actor?: TradeActor) {
     if (actor) {
       const ships: Array<{ id: string }> = await this.prisma.shipment.findMany({ where: { organizationId, orderId: id }, select: { id: true } });
-      const own = await this.prisma.tradeOrder.findFirst({ where: { id, organizationId }, select: { supplierOrderId: true } });
-      await this.config.syncSteps(
-        this.prisma,
-        organizationId,
-        [...(own?.supplierOrderId ? [{ supplierOrderId: own.supplierOrderId }] : []), { orderId: id }, ...ships.map((x) => ({ shipmentId: x.id }))],
-        actor,
-      );
+      await this.config.syncSteps(this.prisma, organizationId, [{ orderId: id }, ...ships.map((x) => ({ shipmentId: x.id }))], actor);
     }
     const o = await this.prisma.tradeOrder.findFirst({
       where: { id, organizationId },
@@ -124,26 +147,6 @@ export class OrdersService {
         customer: { select: { id: true, name: true, customerCode: true, currency: true, jpName: true } },
         supplier: { select: { id: true, name: true, supplierCode: true, currency: true } },
         contract: { select: { id: true, contractNo: true, status: true, qpBasis: true, premiumSchedule: true, lines: { orderBy: { sortOrder: 'asc' }, select: CONTRACT_LINE_SELECT } } },
-        supplierOrder: {
-          select: {
-            id: true,
-            year: true,
-            soNo: true,
-            piNo: true,
-            piDate: true,
-            piAmount: true,
-            depositPct: true,
-            depositAmount: true,
-            depositPaidAt: true,
-            qpBasis: true,
-            declarationMonth: true,
-            status: true,
-            supplierId: true,
-            steps: { orderBy: { sortOrder: 'asc' }, select: STEP_SELECT },
-            fileLinks: { orderBy: { createdAt: 'desc' }, select: FILE_LINK_SELECT },
-            customerOrders: { select: { id: true, year: true, orderNo: true } },
-          },
-        },
         shipments: {
           orderBy: [{ seqNo: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
           select: {
@@ -168,24 +171,15 @@ export class OrdersService {
       },
     });
     if (!o) throw new NotFoundException('Order not found');
-    const { shipments, supplierOrder, ...rest } = o as any;
-    const { steps, docLinks } = await this.config.decorateRecord(organizationId, o as any);
+    const { shipments, ...rest } = o as any;
+    // Step 11 (Invoice #2 / single invoice) is satisfied by its shipments' invoices.
+    const { steps, docLinks } = await this.config.decorateRecord(organizationId, o as any, this.prisma, await this.config.orderInvoiceTypes(this.prisma, organizationId, o.id));
     const profile = await this.config.profileOf(organizationId, o.customerId);
-    // The supplier side (steps 0 / 1 on the supplier order), decorated like the order's own steps.
-    const so = supplierOrder
-      ? {
-          ...supplierOrder,
-          label: supplierOrderLabel(supplierOrder),
-          steps: (await this.config.decorateRecord(organizationId, { ...supplierOrder, docLinks: [] } as any)).steps,
-          fileLinks: shapeFileLinks(supplierOrder.fileLinks),
-          supplierProfile: await this.config.supplierProfileOf(organizationId, supplierOrder.supplierId),
-          sharedWith: supplierOrder.customerOrders.filter((x: { id: string }) => x.id !== o.id).map((x: { year: number; orderNo: number }) => orderLabel(x)),
-        }
-      : null;
+    const supplierProfile = await this.config.supplierProfileOf(organizationId, o.supplierId);
     return {
       ...rest,
-      supplierOrder: so,
       label: orderLabel(o),
+      supplierProfile,
       steps,
       docLinks,
       fileLinks: shapeFileLinks(o.fileLinks),
@@ -193,8 +187,8 @@ export class OrdersService {
       depositDueDate: depositDueDate(o.piDate, o.depositDueDays, o.depositDueUnit),
       monthsLabel: monthsLabel(o.shipMonth, o.deliveryMonth),
       productLabel: orderProductLabel(o),
-      progress: progressOf([...o.steps, ...(supplierOrder?.steps ?? [])]),
-      currentStep: orderCurrentStep(supplierOrder?.status === 'OPEN' ? supplierOrder.steps : null, o.steps, shipments),
+      progress: progressOf(o.steps),
+      currentStep: orderCurrentStep(null, o.steps, shipments),
       shipments: shipments.map(({ steps: ss, ...s }: any) => ({ ...s, ref: shipmentRef(o.orderNo, s.seqNo), progress: progressOf(ss), currentStep: currentStepOf(ss) })),
     };
   }
@@ -216,13 +210,11 @@ export class OrdersService {
   }
 
   /**
-   * Create a customer order inside a transaction. It is bought under a
-   * supplier order: `opts.supplierOrderId` / dto.supplierOrderId links an
-   * existing one; otherwise a 1:1 supplier order is made from the order's PI
-   * fields (unless createSupplierOrder is false) and takes the PI / contract
-   * files (steps 0 and 1 live there).
+   * Create an order inside a transaction: steps 0, 1, 2, 11, 13 snapshotted
+   * with the customer's and the supplier's profile (no PI → step 1 N/A), the
+   * PI file on step 1 and the contract file on step 0.
    */
-  async createInTx(tx: Db, organizationId: string, dto: CreateOrderDto, actor: TradeActor, opts: { supplierOrderId?: string } = {}): Promise<string> {
+  async createInTx(tx: Db, organizationId: string, dto: CreateOrderDto, actor: TradeActor): Promise<string> {
         const contract = dto.contractId
           ? await tx.contract.findFirst({
               where: { id: dto.contractId, organizationId },
@@ -300,43 +292,66 @@ export class OrdersService {
         const profile = await this.config.profileOf(organizationId, customerId, tx);
         const sp = await this.config.supplierProfileOf(organizationId, supplierId, tx);
         await this.config.snapshotSteps(tx, organizationId, 'ORDER', { orderId: created.id }, profile, sp);
-        // The supplier side: link the given supplier order, or make a 1:1 one from the PI.
-        let supplierOrderId = opts.supplierOrderId ?? dto.supplierOrderId ?? null;
-        if (supplierOrderId) {
-          const so = await tx.supplierOrder.findFirst({ where: { id: supplierOrderId, organizationId }, select: { id: true, supplierId: true } });
-          if (!so) throw new BadRequestException('Supplier order not found in this organization');
-          if (so.supplierId !== supplierId) throw new BadRequestException('The supplier order is with another supplier');
-        } else if (dto.createSupplierOrder !== false) {
-          supplierOrderId = await createSupplierOrderInTx(
-            tx,
-            this.config,
-            organizationId,
-            {
-              // The 1:1 supplier order shares the order's year (S-numbers then sit beside the #-numbers).
-              year,
-              contractId: contract?.id ?? null,
-              supplierId,
-              declarationMonth: dto.shipMonth ?? null,
-              grade: dto.grade ?? undefined,
-              size: dto.size ?? undefined,
-              qtyMt: dto.qtyMt ?? null,
-              supplierPremium: dto.supplierPremium ?? undefined,
-              piNo: dto.piNo ?? null,
-              piDate: dto.piDate ?? null,
-              piAmount: dto.piAmount ?? null,
-              depositPct: dto.depositPct ?? undefined,
-              depositAmount: dto.depositAmount ?? undefined,
-              depositPaidAt: dto.depositPaidAt ?? null,
-              piFileId: dto.piFileId,
-            },
-            actor,
+        if (dto.piFileId) await this.config.linkSourceFile(tx, organizationId, dto.piFileId, 'PI', { orderId: created.id }, 'PI_PAYMENT');
+        if (dto.contractFileId) await this.config.linkSourceFile(tx, organizationId, dto.contractFileId, 'CONTRACT', { orderId: created.id }, 'CHECK_CONTRACT');
+        return created.id as string;
+  }
+
+  /**
+   * "+ New monthly order": the month's quantities per customer × grade × size
+   * × contract — one order per row, all shipping in `month` (delivery = +2
+   * unless typed), premiums from the contract's schedule / line for the month.
+   * One transaction: a bad row creates nothing.
+   */
+  async createMonthly(organizationId: string, dto: MonthlyOrdersDto, actor: TradeActor) {
+    const ids: string[] = [];
+    await this.prisma.$transaction(
+      async (tx: Db) => {
+        const year = Number(dto.month.slice(0, 4));
+        for (const [i, r] of dto.rows.entries()) {
+          const contract = await tx.contract.findFirst({ where: { id: r.contractId, organizationId }, select: { id: true, supplierId: true, grade: true, premiumSchedule: true } });
+          if (!contract) throw new BadRequestException(`Row ${i + 1}: contract not found`);
+          if (!(await tx.customer.findFirst({ where: { id: r.customerId, organizationId }, select: { id: true } }))) throw new BadRequestException(`Row ${i + 1}: customer not found`);
+          const grade = optText(r.grade) ?? contract.grade ?? null;
+          const sched = premiumAt(contract.premiumSchedule, dto.month, grade || undefined);
+          ids.push(
+            await this.createInTx(
+              tx,
+              organizationId,
+              {
+                year,
+                orderNo: await this.nextOrderNo(organizationId, year, tx),
+                contractId: contract.id,
+                customerId: r.customerId,
+                supplierId: contract.supplierId,
+                shipMonth: dto.month,
+                deliveryMonth: r.deliveryMonth ?? addMonths(dto.month, 2),
+                grade: grade ?? undefined,
+                size: optText(r.size) ?? undefined,
+                qtyMt: r.qtyMt,
+                clientPremium: r.clientPremium ?? sched?.clientPremium ?? undefined,
+                supplierPremium: sched?.supplierPremium ?? undefined,
+                upcharge: sched?.upcharge ?? undefined,
+              },
+              actor,
+            ),
           );
         }
-        if (supplierOrderId) await tx.tradeOrder.update({ where: { id: created.id }, data: { supplierOrderId } });
-        else if (dto.piFileId) await this.config.linkSourceFile(tx, organizationId, dto.piFileId, 'PI', { orderId: created.id }, 'PI_PAYMENT');
-        if (dto.contractFileId)
-          await this.config.linkSourceFile(tx, organizationId, dto.contractFileId, 'CONTRACT', supplierOrderId ? { supplierOrderId } : { orderId: created.id }, 'CHECK_CONTRACT');
-        return created.id as string;
+      },
+      { timeout: 60_000 },
+    );
+    await this.config.syncSteps(
+      this.prisma,
+      organizationId,
+      ids.map((orderId) => ({ orderId })),
+      actor,
+    );
+    const rows: Array<{ id: string; year: number; orderNo: number; qtyMt: unknown; grade: string | null; customer: { name: string } }> = await this.prisma.tradeOrder.findMany({
+      where: { organizationId, id: { in: ids } },
+      orderBy: { orderNo: 'asc' },
+      select: { id: true, year: true, orderNo: true, qtyMt: true, grade: true, customer: { select: { name: true } } },
+    });
+    return { month: dto.month, created: rows.map((o) => ({ id: o.id, label: orderLabel(o), customerName: o.customer.name, grade: o.grade, qtyMt: o.qtyMt === null ? null : Number(o.qtyMt) })) };
   }
 
   async update(organizationId: string, id: string, dto: UpdateOrderDto, actor: TradeActor | null = null) {
@@ -344,10 +359,6 @@ export class OrdersService {
       const existing = await tx.tradeOrder.findFirst({ where: { id, organizationId }, select: { id: true, year: true, orderNo: true, customerId: true } });
       if (!existing) throw new NotFoundException('Order not found');
       if (dto.supplierId || dto.customerId) await this.assertParties(tx, organizationId, dto.supplierId, dto.customerId);
-      if (dto.supplierOrderId) {
-        const so = await tx.supplierOrder.findFirst({ where: { id: dto.supplierOrderId, organizationId }, select: { id: true } });
-        if (!so) throw new BadRequestException('Supplier order not found in this organization');
-      }
       if (dto.contractId) {
         const c = await tx.contract.findFirst({ where: { id: dto.contractId, organizationId }, select: { id: true } });
         if (!c) throw new BadRequestException('Contract not found in this organization');
@@ -366,7 +377,6 @@ export class OrdersService {
           ...(dto.contractId !== undefined ? { contractId: dto.contractId || null } : {}),
           ...(dto.customerId ? { customerId: dto.customerId } : {}),
           ...(dto.supplierId ? { supplierId: dto.supplierId } : {}),
-          ...(dto.supplierOrderId !== undefined ? { supplierOrderId: dto.supplierOrderId || null } : {}),
           ...this.fields(dto),
           ...(dto.status === 'CANCELLED' ? { status: 'CANCELLED' } : {}),
         },
@@ -374,6 +384,11 @@ export class OrdersService {
       // Shipments carry the order's contract (denormalised) for their documents.
       if (dto.contractId !== undefined) await tx.shipment.updateMany({ where: { organizationId, orderId: id }, data: { contractId: dto.contractId || null } });
       if (dto.customerId && dto.customerId !== existing.customerId) await this.config.applyProfileToCustomer(tx, organizationId, dto.customerId);
+      // Another supplier: its profile decides step 1 (no PI → N/A).
+      if (dto.supplierId) {
+        const p = await this.config.profileOf(organizationId, dto.customerId ?? existing.customerId, tx);
+        await this.config.applyProfile(tx, organizationId, { orderId: id }, 'ORDER', p, await this.config.supplierProfileOf(organizationId, dto.supplierId, tx));
+      }
     });
     await this.config.syncSteps(this.prisma, organizationId, [{ orderId: id }], actor, { fields: Object.keys(dto) });
     return this.getById(organizationId, id);
@@ -443,7 +458,8 @@ export class OrdersService {
         depositAmount: true,
         reconciliation: true,
         customerId: true,
-        shipments: { select: { id: true, ciAmount: true, costs: true } },
+        steps: { select: { code: true, payment: true } },
+        shipments: { select: { id: true, ciAmount: true, costs: true, steps: { select: { code: true, payment: true } } } },
       },
     });
     if (!o) throw new NotFoundException('Order not found');
@@ -452,14 +468,16 @@ export class OrdersService {
       o.id,
       o.shipments.map((s: { id: string }) => s.id),
     );
-    const ci = o.shipments.reduce((sum: number | null, s: { ciAmount: unknown }) => (s.ciAmount === null || s.ciAmount === undefined ? sum : (sum ?? 0) + Number(s.ciAmount)), null as number | null);
-    const deposit = o.depositAmount !== null && o.depositAmount !== undefined ? Number(o.depositAmount) : depositOf(o.piAmount, o.depositPct ?? 10);
+    // Paid on the steps (round H): step 1 deposit, step 6 CI per shipment, step 12 logistics (JPY); else the documents' figures.
+    const paid = paidOnSteps(o.steps, o.shipments);
+    const ci = paid.ciUsd ?? o.shipments.reduce((sum: number | null, s: { ciAmount: unknown }) => (s.ciAmount === null || s.ciAmount === undefined ? sum : (sum ?? 0) + Number(s.ciAmount)), null as number | null);
+    const deposit = paid.depositUsd ?? (o.depositAmount !== null && o.depositAmount !== undefined ? Number(o.depositAmount) : depositOf(o.piAmount, o.depositPct ?? 10));
     // Import tax from the shipments' estimator (step 8) unless typed here.
     const shipCosts = o.shipments.map((s: { costs: unknown }) => (s.costs ?? {}) as Record<string, number | null>);
     const sumOf = (k: string) => shipCosts.reduce((a: number | null, c: Record<string, number | null>) => (c[k] === null || c[k] === undefined ? a : (a ?? 0) + Number(c[k])), null as number | null);
     const fx = shipCosts.map((c: Record<string, number | null>) => c.fxRate).find((v: unknown) => typeof v === 'number') ?? null;
     const inputs = (o.reconciliation ?? {}) as ReconcileInputs;
-    const merged: ReconcileInputs = { importTaxActualJpy: sumOf('importTaxActual'), ...stripNulls(inputs) };
+    const merged: ReconcileInputs = { importTaxActualJpy: sumOf('importTaxActual'), mitsuiActualsJpy: paid.logisticsJpy, ...stripNulls(inputs) };
     const result = reconcile(merged, docs, { piDeposit: deposit, ciAmount: ci, fxRate: fx as number | null });
     // Invoice #2 / single invoices issued on ESTIMATED costs: step 13 shows their variance once actuals are in.
     const shipIds = o.shipments.map((s: { id: string }) => s.id);
@@ -473,6 +491,7 @@ export class OrdersService {
       orderId: o.id,
       label: orderLabel(o),
       ...result,
+      paid,
       estimatedInvoices: estimated.filter((g) => g.header?.costsBasis === 'ESTIMATED').map((g) => ({ id: g.id, number: g.number, docType: g.docType })),
     };
   }
@@ -568,6 +587,27 @@ type ContractLineRow = {
   billetPremium: unknown;
   upcharge: unknown;
 };
+
+/**
+ * What the steps say was paid / received (round H): step 1 (deposit, USD),
+ * step 6 per shipment (CI, USD), step 8 (import tax funded, JPY), step 12
+ * (transport & storage, JPY), steps 2 / 11 (received from the customer, USD).
+ * null = nothing recorded.
+ */
+export function paidOnSteps(orderSteps: Array<{ code: string; payment: unknown }>, shipments: Array<{ steps: Array<{ code: string; payment: unknown }> }>) {
+  const all = [...orderSteps, ...shipments.flatMap((s) => s.steps)];
+  const sum = (codes: string[], currency?: string) => {
+    const ps = all.filter((s) => codes.includes(s.code)).map((s) => stepPaymentOf(s.payment)).filter((p): p is NonNullable<typeof p> => !!p && (!currency || p.currency === currency));
+    return ps.length ? round2(ps.reduce((a, p) => a + p.amount, 0)) : null;
+  };
+  return {
+    depositUsd: sum(['PI_PAYMENT'], 'USD'),
+    ciUsd: sum(['CI_PAYMENT'], 'USD'),
+    importTaxFundedJpy: sum(['TAX_FUNDS'], 'JPY'),
+    logisticsJpy: sum(['LOGISTICS_PAYMENT'], 'JPY'),
+    receivedUsd: sum(['INVOICE_1', 'INVOICE_2'], 'USD'),
+  };
+}
 
 const omit = (o: Record<string, unknown>, keys: string[]) => Object.fromEntries(Object.entries(o).filter(([k]) => !keys.includes(k)));
 const stripNulls = <T extends object>(o: T): Partial<T> => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined)) as Partial<T>;

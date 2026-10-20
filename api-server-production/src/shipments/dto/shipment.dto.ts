@@ -80,6 +80,8 @@ export class ListShipmentsQuery {
   @IsOptional() @IsIn(['OPEN', 'COMPLETED', 'CANCELLED']) status?: string;
   /** List tab: pending = OPEN, completed = COMPLETED + CANCELLED. */
   @IsOptional() @IsIn(['pending', 'completed']) bucket?: 'pending' | 'completed';
+  /** Shipments list (round H): in_transit | arrived | delivered | completed. */
+  @IsOptional() @IsIn(['in_transit', 'arrived', 'delivered', 'completed']) tab?: 'in_transit' | 'arrived' | 'delivered' | 'completed';
   /** A step code (the shipment's current step), or COMPLETED (every step done). */
   @IsOptional() @IsString() @MaxLength(100) currentStep?: string;
   @IsOptional() @IsString() q?: string;

@@ -6,7 +6,8 @@ import { PrismaService } from '../common/prisma.service';
 import { CreateShipmentDto, ListShipmentsQuery, UpdateShipmentDto } from './dto/shipment.dto';
 import { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, shapeFileLinks, STEP_SELECT, STEP_SUMMARY_SELECT } from './trade-selects';
 import { TradeActor } from './shipments.request';
-import { blockingSteps, currentStepOf, lineLabel, orderLabel, progressOf, shipmentRef, stepLabels } from './shipments.rules';
+import { blockingSteps, currentStepOf, freeTimeLeft, lineLabel, orderLabel, progressOf, SHIPMENT_TABS, ShipmentTab, shipmentRef, shipmentTab, stepLabels, tradeToday } from './shipments.rules';
+import { alertRulesOf } from './trade-alerts';
 import { actualsTable, cleanCosts, estimate, ShipmentCosts } from './trade-estimator';
 import { ORDER_SUMMARY_SELECT } from './trade-selects';
 import { latestBlCheck } from './trade-extract.service';
@@ -25,6 +26,8 @@ export class ShipmentsService {
   async list(organizationId: string, query: ListShipmentsQuery) {
     const { page, pageSize, skip, take } = pageArgs(query.page, query.pageSize);
     const q = query.q?.trim();
+    // "#19", "19-1", "#19-1": an order number (the shipment number narrows it after).
+    const refM = q ? /^#?(\d{1,5})(?:-(\d{1,3}))?$/.exec(q) : null;
     const bucketStatus = query.bucket === 'pending' ? { status: 'OPEN' as const } : query.bucket === 'completed' ? { status: { in: ['COMPLETED', 'CANCELLED'] as Array<'COMPLETED' | 'CANCELLED'> } } : {};
     const where = {
       organizationId,
@@ -37,8 +40,10 @@ export class ShipmentsService {
       ...(q
         ? {
             OR: [
+              ...(refM ? [{ order: { orderNo: Number(refM[1]) }, ...(refM[2] ? { seqNo: Number(refM[2]) } : {}) }] : []),
               { blNumber: { contains: q, mode: 'insensitive' as const } },
               { vessel: { contains: q, mode: 'insensitive' as const } },
+              { voyageNo: { contains: q, mode: 'insensitive' as const } },
               { contract: { contractNo: { contains: q, mode: 'insensitive' as const } } },
             ],
           }
@@ -52,6 +57,10 @@ export class ShipmentsService {
       etd: true,
       eta: true,
       actualArrivalDate: true,
+      dischargeDate: true,
+      detFreeDays: true,
+      demFreeDays: true,
+      shippingLine: true,
       netWeightMt: true,
       status: true,
       createdAt: true,
@@ -65,6 +74,8 @@ export class ShipmentsService {
       steps: { select: STEP_SUMMARY_SELECT },
     };
     const orderBy = [{ eta: { sort: 'desc' as const, nulls: 'last' as const } }, { createdAt: 'desc' as const }];
+    const today = tradeToday();
+    const rules = query.tab ? alertRulesOf((await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { alertRules: true } }))?.alertRules) : null;
     const shape = ({ steps, ...s }: any) => ({
       ...s,
       contractNo: s.contract?.contractNo ?? null,
@@ -74,7 +85,23 @@ export class ShipmentsService {
       productLine: s.order ? lineLabel({ grade: s.order.grade, product: s.order.product, sizeSpec: s.order.size, quantityMt: s.order.qtyMt }) : s.contractLine ? lineLabel(s.contractLine) : null,
       progress: progressOf(steps ?? []),
       currentStep: currentStepOf(steps ?? []),
+      carrier: carrierOf(s.blNumber, s.shippingLine)?.name ?? s.shippingLine ?? null,
+      ...(rules
+        ? (() => {
+            const tab = shipmentTab({ ...s, steps: steps ?? [] }, today);
+            return { tab, freeTime: tab === 'arrived' || tab === 'in_transit' ? freeTimeLeft(s, rules, today) : null };
+          })()
+        : {}),
     });
+    // The Shipments list (round H): tabs are derived (arrival, steps), so they're counted in memory over the org's B/Ls.
+    if (query.tab) {
+      const { status: _st, ...noStatus } = where as Record<string, unknown>;
+      void _st;
+      const all = (await this.prisma.shipment.findMany({ where: noStatus, orderBy, select })).map(shape).filter((x: any) => x.status !== 'CANCELLED');
+      const tabs = Object.fromEntries(SHIPMENT_TABS.map((t) => [t, all.filter((x: any) => x.tab === t).length])) as Record<ShipmentTab, number>;
+      const hit = all.filter((x: any) => x.tab === query.tab);
+      return { items: hit.slice(skip, skip + take), total: hit.length, page, pageSize, totalPages: Math.ceil(hit.length / pageSize), counts: await this.bucketCounts(organizationId, where), tabs };
+    }
     // "Current step" is derived from the steps, so that filter runs in memory
     // over the org's (small) shipment list before paging.
     if (query.currentStep) {

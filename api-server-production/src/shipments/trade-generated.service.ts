@@ -207,13 +207,24 @@ export class TradeGeneratedService {
   }
 
   async list(organizationId: string, filter: { shipmentId?: string; contractId?: string; orderId?: string } = {}) {
+    // An order's documents include its shipments' Invoice #2 / single invoices (step 11 is the order's since round H).
+    const shipIds: string[] = filter.orderId
+      ? (await this.prisma.shipment.findMany({ where: { organizationId, orderId: filter.orderId }, select: { id: true } })).map((x: { id: string }) => x.id)
+      : [];
     return this.prisma.tradeGeneratedDoc.findMany({
       where: {
         organizationId,
         // A shipment's documents include invoices that cover it (Invoice #2 / single invoice for several shipments).
         ...(filter.shipmentId ? { OR: [{ shipmentId: filter.shipmentId }, { coversShipmentIds: { has: filter.shipmentId } }] } : {}),
         ...(filter.contractId ? { contractId: filter.contractId } : {}),
-        ...(filter.orderId ? { orderId: filter.orderId } : {}),
+        ...(filter.orderId
+          ? {
+              OR: [
+                { orderId: filter.orderId },
+                ...(shipIds.length ? [{ docType: { in: ['INVOICE_2', 'INVOICE_SINGLE'] }, OR: [{ shipmentId: { in: shipIds } }, { coversShipmentIds: { hasSome: shipIds } }] }] : []),
+              ],
+            }
+          : {}),
       },
       orderBy: { createdAt: 'desc' },
       select: GEN_SELECT,
@@ -1175,7 +1186,8 @@ export class TradeGeneratedService {
     const out: Array<{ contractId?: string; shipmentId?: string; orderId?: string; stepId?: string }> = [];
     for (const o of owners) {
       const step = await this.prisma.tradeStep.findFirst({
-        where: { organizationId, ...ownerWhere(o), requiredDocTypes: { has: g.docType } },
+        // Not a step marked N/A (a shipment's old step 11 moved to the order in round H).
+        where: { organizationId, ...ownerWhere(o), requiredDocTypes: { has: g.docType }, notApplicable: false },
         orderBy: { sortOrder: 'asc' },
         select: { id: true },
       });

@@ -1,14 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-// The order page (ADH's "#19"): the order's own steps on top (0 Check
-// contract, 1 PI payment, 2 Invoice #1, 13 Xero reconciliation), then one card
-// per shipment ("#19-1 · B/L · vessel · ETA · current step"). A card opens that
-// shipment's step view below (steps 2–12, 14) — ?shipment= selects it. Steps
-// that don't apply to the customer's profile show as "N/A (customer profile)".
-// The estimator sits on shipment steps 7 / 8 / 12 and the reconciliation on
-// step 13. One card is open at a time (the current step by default); when the
-// server completes a step the page says so and opens the next one.
+// The order page (ADH's "#19") — one order process (round H): the order's
+// steps 0 Check contract, 1 PI payment, 2 Invoice #1 on top, then one card per
+// shipment ("#19-1 · B/L · vessel · ETA · current step") opening that
+// shipment's steps (3a–10, 12, 14) — ?shipment= selects it — and last the
+// order's 11 Invoice #2 / single invoice and 13 reconciliation. Steps that
+// don't apply to the customer's / supplier's profile show as "N/A". Paying
+// steps (1, 6, 8, 12) and the invoice receipts (2, 11) keep their payment
+// (amount, date, account, proof) on the step. The estimator sits on shipment
+// steps 7 / 8 / 12 and the reconciliation on step 13. One card is open at a
+// time (the current step by default); when the server completes a step the
+// page says so and opens the next one.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -18,7 +21,7 @@ import MoreVertIcon from "@mui/icons-material/MoreVert";
 import EditIcon from "@mui/icons-material/EditOutlined";
 import { toast } from "../../_lib/toast";
 import { useGeneratedDocs, useOrder, useOrderGeneratedDocs, useShipment, useTradeMutation } from "../../_lib/hooks";
-import { recordFileCount, useShipmentsApi, type AnExtraction, type BlExtraction, type Order, type PermitCheck, type PermitExtraction, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
+import { recordFileCount, STEP_PAYMENT, useShipmentsApi, type AnExtraction, type BlExtraction, type Order, type PermitCheck, type PermitExtraction, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
 import { blLabel, depositTermLabel, fmtDay, fmtDmy, fmtMoney, fmtMt, fmtYen, stepLabel } from "../../_lib/format";
 import RecordHeader from "../../_components/RecordHeader";
 import ShipmentOverview from "../../_components/ShipmentOverview";
@@ -32,10 +35,11 @@ import OrderFormDialog from "../../_components/OrderFormDialog";
 import EstimatorPanel, { ESTIMATOR_STEPS } from "../../_components/EstimatorPanel";
 import ReconciliationPanel from "../../_components/ReconciliationPanel";
 import PriceCheckPanel from "../../_components/PriceCheckPanel";
-import OrderCashPanel from "../../_components/OrderCashPanel";
-import RecordPaymentButton, { PAYING_STEPS } from "../../_components/RecordPaymentButton";
+import StepPaymentForm from "../../_components/StepPaymentForm";
 
 const TABS = ["journey", "details", "files"] as const;
+/** Order steps from here on (11 Invoice #2, 13 reconciliation) show after the shipments. */
+const LATE_FROM = 100;
 const byOrder = (a: TradeStep, b: TradeStep) => a.sortOrder - b.sortOrder;
 const firstOpen = (steps: TradeStep[]) => [...steps].sort(byOrder).find((s) => !s.isOngoing && !s.notApplicable && s.status !== "DONE") ?? null;
 
@@ -81,10 +85,11 @@ export default function OrderPage() {
 
   // ── one open card across the whole order ─────────────────────────────────
   const orderSteps = useMemo(() => [...(o?.steps ?? [])].sort(byOrder), [o?.steps]);
-  const supplierSteps = useMemo(() => [...(o?.supplierOrder?.steps ?? [])].sort(byOrder), [o?.supplierOrder?.steps]);
-  const shipSteps = useMemo(() => [...(s?.steps ?? [])].sort(byOrder), [s?.steps]);
-  const current =
-    (o?.supplierOrder?.status === "OPEN" ? firstOpen(supplierSteps) : null) ?? firstOpen(orderSteps.filter((x) => x.code !== "XERO_HANDOFF")) ?? firstOpen(shipSteps) ?? firstOpen(orderSteps);
+  // Steps 0, 1, 2 come before the shipments; 11 and 13 after them.
+  const earlySteps = useMemo(() => orderSteps.filter((x) => x.sortOrder < LATE_FROM), [orderSteps]);
+  const lateSteps = useMemo(() => orderSteps.filter((x) => x.sortOrder >= LATE_FROM), [orderSteps]);
+  const shipSteps = useMemo(() => [...(s?.steps ?? [])].filter((x) => !(x.notApplicable && x.skipReason?.startsWith("Moved to the order"))).sort(byOrder), [s?.steps]);
+  const current = firstOpen(earlySteps) ?? firstOpen(shipSteps) ?? firstOpen(lateSteps);
   const [openId, setOpenId] = useState<string | null>(null);
   const [userPicked, setUserPicked] = useState(false);
   const shown = userPicked ? openId : (current?.id ?? null);
@@ -133,13 +138,13 @@ export default function OrderPage() {
       if (newlyDone.length) {
         for (const x of newlyDone) toast.success(`Step ${stepLabel(x)} complete`);
         setUserPicked(false);
-        const next = firstOpen(orderSteps) ?? firstOpen(shipSteps);
+        const next = firstOpen(earlySteps) ?? firstOpen(shipSteps) ?? firstOpen(lateSteps);
         if (next) setTimeout(() => document.getElementById(`step-${next.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
       }
     }
     prev.current = new Map(all.map((x) => [x.id, x.status]));
     prevKey.current = key;
-  }, [o, s, orderSteps, shipSteps, id, shipmentId]);
+  }, [o, s, orderSteps, earlySteps, lateSteps, shipSteps, id, shipmentId]);
 
   if (q.isLoading) {
     return (
@@ -159,11 +164,42 @@ export default function OrderPage() {
   const here = `/portal/shipments/orders/${o.id}${shipmentId ? `?shipment=${shipmentId}` : ""}`;
   const hereTab = (t: string) => `${here}${here.includes("?") ? "&" : "?"}tab=${t}`;
   const orderOwner = { kind: "order" as const, id: o.id, label: `Order ${o.label}` };
-  const soOwner = o.supplierOrder ? { kind: "supplierOrder" as const, id: o.supplierOrder.id, label: `Supplier order ${o.supplierOrder.label}` } : null;
   const shipOwner = s ? { kind: "shipment" as const, id: s.id, label: `Shipment ${s.ref || blLabel(s.blNumber)}` } : null;
   const openShipments = shipments.filter((x) => x.status === "OPEN");
   const fileCount = recordFileCount(o) + (s ? recordFileCount(s) : 0);
   const single = o.profile?.billingMode === "SINGLE";
+  // The order's step cards (0 / 1 / 2 above the shipments, 11 / 13 below): one owner, one set of files.
+  const orderCards = {
+    owner: orderOwner,
+    fileLinks: o.fileLinks,
+    docLinks: o.docLinks ?? [],
+    generatedDocs: genOrder.data ?? [],
+    recordOpen: o.status === "OPEN",
+    returnTo: here,
+    openId: shown,
+    onOpen,
+    context: orderContext(o),
+    customerId: o.customerId,
+    orderShipmentIds: shipments.filter((x) => x.status !== "CANCELLED").map((x) => x.id),
+    fieldsTitle: "Contract & premiums",
+    fieldsSummary: o.contract ? `Contract ${o.contract.contractNo} · premiums: supplier ${o.supplierPremium ?? "—"}, client ${o.clientPremium ?? "—"} USD/MT` : null,
+    fieldsForm: () => (
+      <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
+        Link the contract / confirm premiums
+      </Button>
+    ),
+    stepExtra: (st: TradeStep) =>
+      st.code === "XERO_HANDOFF" ? (
+        <ReconciliationPanel orderId={o.id} canEdit={o.status === "OPEN"} />
+      ) : st.code === "PI_PAYMENT" ? (
+        <Stack spacing={1.5}>
+          <PriceCheckPanel kind="order" id={o.id} title="PI price check vs contract" />
+          <StepPaymentForm step={st} fileLinks={o.fileLinks} expected={o.depositAmount != null ? Number(o.depositAmount) : null} currency={o.currency} canEdit={o.status === "OPEN"} />
+        </Stack>
+      ) : STEP_PAYMENT[st.code] ? (
+        <StepPaymentForm step={st} fileLinks={o.fileLinks} canEdit={o.status === "OPEN"} currency={o.currency} />
+      ) : null,
+  };
 
   const readUploaded = async (docType: string, files: TradeFile[]) => {
     const f = files[0];
@@ -263,84 +299,14 @@ export default function OrderPage() {
 
       {tab === 0 && (
         <Stack spacing={3}>
-          {o.supplierOrder && soOwner && (
-            <Box data-tour="order-supplier-side">
-              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                <Typography variant="overline" color="text.secondary">
-                  Supplier side · {o.supplierOrder.label}
-                </Typography>
-                <Chip size="small" variant="outlined" label={o.supplierOrder.supplierProfile?.hasPI === false ? "No PI (supplier profile)" : "PI + deposit"} />
-                {o.supplierOrder.sharedWith.length > 0 && <Chip size="small" variant="outlined" label={`Also for ${o.supplierOrder.sharedWith.join(", ")}`} />}
-                <Button size="small" href={`/portal/shipments/supplier-orders/${o.supplierOrder.id}`}>
-                  Open supplier order
-                </Button>
-              </Stack>
-              <StepCards
-                steps={o.supplierOrder.steps}
-                owner={soOwner}
-                fileLinks={o.supplierOrder.fileLinks}
-                docLinks={[]}
-                generatedDocs={[]}
-                recordOpen={o.supplierOrder.status === "OPEN"}
-                returnTo={here}
-                openId={shown}
-                onOpen={onOpen}
-                context={supplierContext(o)}
-                stepExtra={(st) =>
-                  st.code === "PI_PAYMENT" ? (
-                    <RecordPaymentButton
-                      stepCode="PI_PAYMENT"
-                      stepId={st.id}
-                      targetId={o.supplierOrder!.id}
-                      label={`${o.supplierOrder!.label} deposit`}
-                      amount={o.supplierOrder!.depositAmount != null ? Number(o.supplierOrder!.depositAmount) : null}
-                      disabled={o.supplierOrder!.status !== "OPEN"}
-                    />
-                  ) : null
-                }
-                customerId={o.customerId}
-                fieldsTitle="Contract"
-                fieldsSummary={o.contract ? `Contract ${o.contract.contractNo}${o.supplierOrder.qpBasis ? ` · QP ${o.supplierOrder.qpBasis}` : ""}` : null}
-                fieldsForm={() => (
-                  <Button variant="outlined" startIcon={<EditIcon />} href={`/portal/shipments/supplier-orders/${o.supplierOrder!.id}`}>
-                    Link the contract on the supplier order
-                  </Button>
-                )}
-              />
-            </Box>
-          )}
-          <Box>
-            <Typography variant="overline" color="text.secondary">
-              {o.supplierOrder ? "Customer side" : "Order steps"}
-            </Typography>
-            <StepCards
-              steps={o.steps}
-              owner={orderOwner}
-              fileLinks={o.fileLinks}
-              docLinks={o.docLinks ?? []}
-              generatedDocs={genOrder.data ?? []}
-              recordOpen={o.status === "OPEN"}
-              returnTo={here}
-              openId={shown}
-              onOpen={onOpen}
-              context={orderContext(o)}
-              customerId={o.customerId}
-              fieldsTitle="Contract & premiums"
-              fieldsSummary={o.contract ? `Contract ${o.contract.contractNo} · client premium ${o.clientPremium ?? "—"} USD/MT` : null}
-              fieldsForm={() => (
-                <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
-                  Link the contract / confirm premiums
-                </Button>
-              )}
-              stepExtra={(st) =>
-                st.code === "XERO_HANDOFF" ? (
-                  <Stack spacing={2}>
-                    <ReconciliationPanel orderId={o.id} canEdit={o.status === "OPEN"} />
-                    <OrderCashPanel orderId={o.id} canEdit={o.status === "OPEN"} />
-                  </Stack>
-                ) : null
-              }
-            />
+          <Box data-tour="order-steps">
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+              <Typography variant="overline" color="text.secondary">
+                Order steps
+              </Typography>
+              {o.supplierProfile?.hasPI === false && <Chip size="small" variant="outlined" label="No PI (supplier profile)" />}
+            </Stack>
+            <StepCards {...orderCards} steps={earlySteps} />
           </Box>
 
           <Box>
@@ -423,7 +389,8 @@ export default function OrderPage() {
                   </Stack>
                 </Paper>
                 <StepCards
-                  steps={s.steps}
+                  // Step 11 moved to the order (round H): the shipment's old row stays in the data, not on screen.
+                  steps={s.steps.filter((x) => !(x.notApplicable && x.skipReason?.startsWith("Moved to the order")))}
                   owner={shipOwner!}
                   fileLinks={s.fileLinks}
                   docLinks={s.docLinks ?? []}
@@ -440,15 +407,13 @@ export default function OrderPage() {
                   fieldsSummary={blSummary(s)}
                   fieldsForm={() => <ShipmentFormDialog key={formKey} inline open shipment={s} onClose={() => undefined} onSaved={() => toast.success("B/L details saved")} />}
                   stepExtra={(st) => {
-                    const pay = PAYING_STEPS[st.code] ? (
-                      <RecordPaymentButton
-                        stepCode={st.code}
-                        stepId={st.id}
-                        targetId={s.id}
-                        label={`${s.ref} ${st.code === "CI_PAYMENT" ? "CI" : st.code === "TAX_FUNDS" ? "import tax" : "logistics"}`}
-                        amount={st.code === "CI_PAYMENT" ? (s.ciAmount != null ? Number(s.ciAmount) : null) : st.code === "TAX_FUNDS" ? (s.estimate?.importTax.actual ?? s.estimate?.importTax.estimate ?? null) : null}
+                    const pay = STEP_PAYMENT[st.code] ? (
+                      <StepPaymentForm
+                        step={st}
+                        fileLinks={s.fileLinks}
+                        expected={st.code === "CI_PAYMENT" ? (s.ciAmount != null ? Number(s.ciAmount) : null) : st.code === "TAX_FUNDS" ? (s.estimate?.importTax.actual ?? s.estimate?.importTax.estimate ?? null) : null}
                         currency={st.code === "CI_PAYMENT" ? s.currency : "JPY"}
-                        disabled={s.status !== "OPEN"}
+                        canEdit={s.status === "OPEN"}
                       />
                     ) : null;
                     const main = ESTIMATOR_STEPS[st.code] ? (
@@ -467,13 +432,21 @@ export default function OrderPage() {
               </>
             ) : null}
           </Box>
+
+          {lateSteps.length > 0 && (
+            <Box data-tour="order-closing-steps">
+              <Typography variant="overline" color="text.secondary">
+                Order steps — invoice &amp; reconciliation
+              </Typography>
+              <StepCards {...orderCards} steps={lateSteps} />
+            </Box>
+          )}
         </Stack>
       )}
 
       {tab === 1 && (
         <Stack spacing={3}>
           <OrderOverview order={o} onEdit={() => setEditOpen(true)} />
-          <OrderCashPanel orderId={o.id} canEdit={o.status === "OPEN"} />
           {s && (
             <Box>
               <Typography variant="overline" color="text.secondary">
@@ -619,7 +592,9 @@ function orderContext(o: Order): StepContext {
           ? [o.piNo && `PI ${o.piNo}`, o.piDate && `dated ${fmtDmy(o.piDate)}`, o.piAmount != null && money(o.piAmount)].filter(Boolean).join(" · ") || null
           : st.code === "INVOICE_1"
             ? `To ${o.customer?.name ?? "the customer"} · ${o.productLabel}`
-            : null,
+            : st.code === "INVOICE_2"
+              ? `To ${o.customer?.name ?? "the customer"} · every shipment of ${o.label} (one invoice can cover several)`
+              : null,
     docLine: (d) => {
       if (d === "DEPOSIT_PROOF") {
         const pct = o.depositPct != null ? `${Number(o.depositPct)}%` : "";
@@ -628,27 +603,6 @@ function orderContext(o: Order): StepContext {
       }
       if (d === "PI") return o.piNo ? `PI ${o.piNo}${o.piAmount != null ? ` · ${money(o.piAmount)}` : ""}` : null;
       if (d === "INVOICE_1") return `${o.customer?.name ?? "Customer"} · order ${o.label}`;
-      return null;
-    },
-  };
-}
-
-/** Facts for the supplier side's steps (0 contract, 1 PI payment). */
-function supplierContext(o: Order): StepContext {
-  const so = o.supplierOrder!;
-  const money = (v: unknown) => fmtMoney(v as any, o.currency);
-  return {
-    stepLine: (st) =>
-      st.code === "CHECK_CONTRACT"
-        ? o.contract
-          ? `Contract ${o.contract.contractNo} · supplier premium ${o.supplierPremium ?? "—"} USD/MT`
-          : "No contract linked yet — link it on the supplier order"
-        : st.code === "PI_PAYMENT"
-          ? [so.piNo && `PI ${so.piNo}`, so.piDate && `dated ${fmtDmy(so.piDate)}`, so.piAmount != null && money(so.piAmount)].filter(Boolean).join(" · ") || null
-          : null,
-    docLine: (d) => {
-      if (d === "DEPOSIT_PROOF") return so.depositAmount != null ? `Deposit ${so.depositPct != null ? `${Number(so.depositPct)}% ` : ""}= ${money(so.depositAmount)}` : null;
-      if (d === "PI") return so.piNo ? `PI ${so.piNo}${so.piAmount != null ? ` · ${money(so.piAmount)}` : ""}` : null;
       return null;
     },
   };
@@ -723,20 +677,52 @@ function OrderOverview({ order: o, onEdit }: { order: Order; onEdit: () => void 
         <Grid item xs={6} md={3}>
           <Field label="Tolerance" value={o.tolPct != null ? `±${Number(o.tolPct)}%` : "—"} />
         </Grid>
-        <Grid item xs={6} md={3}>
-          <Field label="Premiums (USD/MT)" value={ck(["clientPremium", "supplierPremium"], `supplier ${o.supplierPremium ?? "—"} · client ${o.clientPremium ?? "—"}${o.upcharge ? ` + ${o.upcharge}` : ""}`)} />
-        </Grid>
-        <Grid item xs={6} md={3}>
-          <Field label="PI" value={[o.piNo, o.piDate && fmtDmy(o.piDate), o.piAmount != null && money(o.piAmount)].filter(Boolean).join(" · ") || "—"} />
-        </Grid>
-        <Grid item xs={6} md={3}>
-          <Field label="Deposit" value={o.depositAmount != null ? `${o.depositPct ?? ""}% = ${money(o.depositAmount)}` : "—"} />
-        </Grid>
-        <Grid item xs={12} md={9}>
+        <Grid item xs={12} md={6}>
           <Field
             label="Customer profile"
             value={`${p.billingMode === "SINGLE" ? "Single invoice" : "Invoice #1 + #2"} · import permit ${p.sendImportPermit ? "sent" : "not sent"}${p.port ? ` · ${p.port}` : ""} · ${p.truckCapacityT}t trucks`}
           />
+        </Grid>
+      </Grid>
+      <Grid container spacing={2} sx={{ mt: 0.5 }}>
+        <Grid item xs={12} md={6} data-tour="order-vedanta-side">
+          <Typography variant="overline" color="text.secondary">
+            Vedanta side
+          </Typography>
+          <Grid container spacing={1.5}>
+            <Grid item xs={6}>
+              <Field label="PI no. / date" value={[o.piNo, o.piDate && fmtDmy(o.piDate)].filter(Boolean).join(" · ") || "—"} />
+            </Grid>
+            <Grid item xs={6}>
+              <Field label="PI amount" value={o.piAmount != null ? money(o.piAmount) : "—"} />
+            </Grid>
+            <Grid item xs={6}>
+              <Field
+                label="Deposit"
+                value={
+                  o.depositAmount != null
+                    ? `${o.depositPct ?? ""}% = ${money(o.depositAmount)}${o.depositPaidAt ? ` · paid ${fmtDmy(o.depositPaidAt)}` : o.depositDueDate ? ` · due ${fmtDmy(o.depositDueDate)}` : ""}`
+                    : "—"
+                }
+              />
+            </Grid>
+            <Grid item xs={6}>
+              <Field label="Supplier premium (USD/MT)" value={ck("supplierPremium", o.supplierPremium ?? "—")} />
+            </Grid>
+          </Grid>
+        </Grid>
+        <Grid item xs={12} md={6} data-tour="order-customer-side">
+          <Typography variant="overline" color="text.secondary">
+            Customer side
+          </Typography>
+          <Grid container spacing={1.5}>
+            <Grid item xs={6}>
+              <Field label="Customer PO" value={[o.customerPoNo, o.customerPoDate && fmtDmy(o.customerPoDate)].filter(Boolean).join(" · ") || "—"} />
+            </Grid>
+            <Grid item xs={6}>
+              <Field label="Client premium (USD/MT)" value={ck("clientPremium", `${o.clientPremium ?? "—"}${o.upcharge ? ` + ${o.upcharge}` : ""}`)} />
+            </Grid>
+          </Grid>
         </Grid>
       </Grid>
     </Paper>

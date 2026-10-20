@@ -13,8 +13,9 @@ import { Alert, Box, CircularProgress, Paper, Table, TableBody, TableCell, Table
 import { useShipmentsApi } from "../_lib/api";
 import { SHIPMENT_KEYS } from "../_lib/hooks";
 import { fmtDmy, fmtYen } from "../_lib/format";
+import LegacyGate from "../_components/LegacyGate";
 
-export default function StockPage() {
+function StockPage() {
   const api = useShipmentsApi();
   const router = useRouter();
   const q = useQuery({ queryKey: [...SHIPMENT_KEYS.orders, "stock"], queryFn: () => api.stock() });
@@ -76,5 +77,14 @@ export default function StockPage() {
         ))
       )}
     </Box>
+  );
+}
+
+/** Hidden since round H (enableTradeLegacyPages, off by default). */
+export default function GatedStockPage() {
+  return (
+    <LegacyGate what="The Stock page">
+      <StockPage />
+    </LegacyGate>
   );
 }

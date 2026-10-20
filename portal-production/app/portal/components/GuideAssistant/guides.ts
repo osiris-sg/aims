@@ -224,7 +224,7 @@ export const GUIDES: Guide[] = [
       {
         selector: '[data-tour="order-add-shipment"]',
         title: 'Add shipments',
-        body: 'On the order page, "Add shipment" adds #19-1, #19-2 … — the B/L details go on each shipment\'s step 2.',
+        body: 'On the order page, "Add shipment" adds #19-1, #19-2 … — the B/L details go on each shipment\'s step 3a. The order\'s own steps (0, 1, 2 and 11, 13) sit above and below the shipments.',
         patient: true,
       },
     ],
@@ -252,55 +252,61 @@ export const GUIDES: Guide[] = [
     ],
   },
   {
-    id: 'trade-monthly-declaration',
-    title: 'Make the monthly declaration (Shipments)',
+    id: 'trade-monthly-order',
+    title: 'Make the month\'s orders (Shipments)',
     module: 'SHIPMENTS',
     description:
-      'How to create the monthly declaration to Vedanta from scratch on Shipments → Declaration (one row per customer + contract + quantity → "Create orders" makes a supplier order and a customer order per row), or create it from the PI table in a Vedanta declaration email in the Inbox. NOT for a single order (use New Order).',
-    route: '/portal/shipments/declaration',
+      'How to create the month\'s orders from scratch with "+ New monthly order" on Shipments → Orders: pick the ship month, then one row per customer × contract × grade × size × quantity — saving makes one order per row (delivery = +2 months, premiums from the contract). The Orders list is grouped by ship month. A Vedanta PI-table email in the Inbox then fills the PI no. / amount on those orders. NOT for a single order (use New Order).',
+    route: '/portal/shipments',
     steps: [
       {
-        route: '/portal/shipments/declaration',
-        selector: '[data-tour="declaration-grid"]',
-        title: 'One row per order',
-        body: 'Pick the month, then a row per customer + contract + quantity (SUS 6063 300 t, SUS 6005 120 t, Kato 6063 40 t…). Premiums come from the contract\'s premium schedule and stay editable.',
-      },
-      {
-        selector: '[data-tour="declaration-create"]',
-        title: 'Create orders',
-        body: 'Makes one supplier order (Vedanta side, steps 0–1) and one customer order (#n, ship = the month, delivery = +2 months) per row — all rows or none.',
-      },
-      {
         route: '/portal/shipments',
-        selector: '[data-tour="orders-view-toggle"]',
-        title: 'Supplier / Customer',
-        body: 'Switch the orders list between supplier orders (one per PI) and customer orders. A Vedanta "declaration" email in the Inbox offers the same rows from its PI table.',
+        selector: '[data-tour="orders-monthly"]',
+        title: '+ New monthly order',
+        body: 'Pick the ship month, then a row per customer + contract + grade + size + quantity (SUS 6063 300 t, SUS 6005 120 t, Kato 6063 40 t…). Premiums come from the contract for that month unless typed.',
+      },
+      {
+        selector: '[data-tour="orders-month-header"]',
+        title: 'Grouped by month',
+        body: 'Each ship month has a header ("Sep 2026 — 4 orders, 600 MT"); click it to fold the month away.',
+        patient: true,
       },
     ],
   },
   {
-    id: 'trade-record-payment',
-    title: 'Record a payment (Shipments)',
+    id: 'trade-shipments-list',
+    title: 'See every shipment (Shipments)',
     module: 'SHIPMENTS',
     description:
-      'How to record money paid or received in Shipments → Payments and split one bank transfer over several PIs, CIs, import tax or customer invoices (e.g. one Wise transfer paying two CIs and two PIs). A PI allocation marks that deposit paid.',
-    route: '/portal/shipments/payments',
+      'Shipments → Shipments lists every B/L across all orders, tabbed In transit / Arrived / Delivered / Completed, with vessel, carrier, net MT, ETD / latest ETA, the current step and the port free-time countdown (DET / DEM). Search by B/L, order no. (#19 / 19-1) or vessel; a row opens that shipment on its order.',
+    route: '/portal/shipments/shipments',
     steps: [
       {
-        route: '/portal/shipments/payments',
-        selector: '[data-tour="payments-page"]',
-        title: 'Payments',
-        body: 'Every transfer in and out, with what it paid. Filter by direction, account or unallocated.',
+        route: '/portal/shipments/shipments',
+        selector: '[data-tour="shipments-list-tabs"]',
+        title: 'Four tabs',
+        body: 'In transit (ETA ahead), Arrived (arrived / discharged, or the ETA has passed), Delivered (cleared — import permit done) and Completed.',
       },
       {
-        selector: '[data-tour="record-payment"]',
+        selector: '[data-tour="shipments-list"]',
+        title: 'Free time',
+        body: 'DET / DEM days left at the port (from discharge, else the ETA) — amber on the last day, red when over. Click a row to open its steps.',
+        patient: true,
+      },
+    ],
+  },
+  {
+    id: 'trade-step-payment',
+    title: 'Record a payment on a step (Shipments)',
+    module: 'SHIPMENTS',
+    description:
+      'How to record money paid or received: it is kept on the step itself — step 1 (PI deposit), 6 (CI), 8 (import tax), 12 (transport & storage) and the invoice receipts on steps 2 and 11. Enter amount, date, account and pick the proof file uploaded on that step. Home\'s cash in / out and the reconciliation (step 13) add these up. There is no separate Payments page any more.',
+    route: '/portal/shipments',
+    steps: [
+      {
+        selector: '[data-tour="step-payment"]',
         title: 'Record payment',
-        body: 'Date, amount, currency, account, reference and the proof — then add an allocation per PI / CI / invoice it pays. The same button sits on steps 1, 6, 8 and 12.',
-      },
-      {
-        selector: '[data-tour="payment-unallocated"]',
-        title: 'Fully allocated?',
-        body: 'Shows what is still unallocated; you cannot allocate more than the transfer.',
+        body: 'Open the step (1, 6, 8, 12 — or 2 / 11 for a customer\'s payment), upload the proof on it, then "Record payment": amount, date, account and the proof.',
         patient: true,
       },
     ],

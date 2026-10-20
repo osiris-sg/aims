@@ -5,20 +5,13 @@ import { TradeActor } from './shipments.request';
 import { blockingSteps, currentStepOf, depositOf, orderLabel, progressOf, shipmentRef, stepLabels, supplierOrderLabel, tradeToday } from './shipments.rules';
 import { Db, optText, pageArgs, TradeConfigService } from './trade-config.service';
 import { premiumAt } from './trade-contract';
-import { createSupplierOrderInTx } from './trade-supplier-order';
 import { FILE_LINK_SELECT, shapeFileLinks, STEP_SELECT, STEP_SUMMARY_SELECT } from './trade-selects';
-import { OrdersService } from './orders.service';
+import { addMonths, OrdersService } from './orders.service';
+
+export { addMonths };
 
 const SUPPLIER = { select: { id: true, name: true, supplierCode: true } };
-
-/** "2026-07" + 2 → "2026-09" (ship in July, deliver in September). */
-export function addMonths(month: string, k: number): string {
-  const y = Number(month.slice(0, 4));
-  const m = Number(month.slice(5, 7)) - 1 + k;
-  const yy = y + Math.floor(m / 12);
-  const mm = ((m % 12) + 12) % 12;
-  return `${yy}-${String(mm + 1).padStart(2, '0')}`;
-}
+const RETIRED = 'Supplier orders are no longer used — the PI, deposit and supplier premium are on the order (steps 0 / 1)';
 
 /**
  * Supplier orders (2026-10, round E): what ADH buys — Vedanta's monthly
@@ -137,17 +130,9 @@ export class SupplierOrdersService {
     };
   }
 
-  async create(organizationId: string, dto: CreateSupplierOrderDto, actor: TradeActor) {
-    const id = await this.prisma.$transaction((tx: Db) => this.createInTx(tx, organizationId, dto, actor));
-    await this.config.syncSteps(this.prisma, organizationId, [{ supplierOrderId: id }], actor);
-    return this.getById(organizationId, id);
-  }
-
-  /** Create inside a transaction (the Declaration makes one per row). Returns the id. */
-  async createInTx(tx: Db, organizationId: string, dto: CreateSupplierOrderDto, actor: TradeActor): Promise<string> {
-    const id = await createSupplierOrderInTx(tx, this.config, organizationId, dto, actor);
-    if (dto.customerOrderIds?.length) await this.linkInTx(tx, organizationId, id, dto.customerOrderIds);
-    return id;
+  /** Retired (round H): supplier orders are no longer made — the PI is on the order. */
+  async create(_organizationId: string, _dto: CreateSupplierOrderDto, _actor: TradeActor): Promise<never> {
+    throw new BadRequestException(RETIRED);
   }
 
   async update(organizationId: string, id: string, dto: UpdateSupplierOrderDto, actor: TradeActor | null = null) {
@@ -178,9 +163,8 @@ export class SupplierOrdersService {
   }
 
   /** Link customer orders (a customer order belongs to one supplier order; linking moves it). */
-  async link(organizationId: string, id: string, orderIds: string[]) {
-    await this.prisma.$transaction((tx: Db) => this.linkInTx(tx, organizationId, id, orderIds));
-    return this.getById(organizationId, id);
+  async link(_organizationId: string, _id: string, _orderIds: string[]): Promise<never> {
+    throw new BadRequestException(RETIRED);
   }
 
   private async linkInTx(tx: Db, organizationId: string, id: string, orderIds: string[]) {
@@ -232,82 +216,8 @@ export class SupplierOrdersService {
     return this.getById(organizationId, id, actor ?? undefined);
   }
 
-  /**
-   * The monthly declaration (Toshiro's reply to Vedanta: SUS 6063 300t, SUS
-   * 6005 120t, Kato 6063 40t): every row becomes one supplier order (contract
-   * + grade + qty, declaration month) and one customer order under it (ship
-   * month = the declaration month, delivery = +2, premiums from the contract).
-   * All in one transaction — a bad row creates nothing.
-   */
-  async declare(organizationId: string, dto: DeclarationDto, actor: TradeActor) {
-    const created: Array<{ supplierOrderId: string; orderId: string }> = [];
-    await this.prisma.$transaction(
-      async (tx: Db) => {
-        const year = dto.year ?? Number(dto.month.slice(0, 4));
-        for (const [i, r] of dto.rows.entries()) {
-          const contract = await tx.contract.findFirst({
-            where: { id: r.contractId, organizationId },
-            select: { id: true, contractNo: true, customerId: true, supplierId: true, grade: true, premiumSchedule: true },
-          });
-          if (!contract) throw new BadRequestException(`Row ${i + 1}: contract not found`);
-          if (!(await tx.customer.findFirst({ where: { id: r.customerId, organizationId }, select: { id: true } }))) throw new BadRequestException(`Row ${i + 1}: customer not found`);
-          const grade = optText(r.grade) ?? contract.grade ?? null;
-          const soId = await this.createInTx(
-            tx,
-            organizationId,
-            {
-              year,
-              contractId: contract.id,
-              supplierId: contract.supplierId,
-              declarationMonth: dto.month,
-              grade,
-              size: r.size ?? undefined,
-              qtyMt: r.qtyMt,
-              qpBasis: dto.qpBasis ?? undefined,
-              supplierPremium: r.supplierPremium ?? undefined,
-              piNo: r.piNo ?? undefined,
-            },
-            actor,
-          );
-          const sched = premiumAt(contract.premiumSchedule, dto.month, grade || undefined);
-          const orderNo = r.orderNo ?? (await this.orders.nextOrderNo(organizationId, year, tx));
-          const orderId = await this.orders.createInTx(
-            tx,
-            organizationId,
-            {
-              year,
-              orderNo,
-              contractId: contract.id,
-              customerId: r.customerId,
-              supplierId: contract.supplierId,
-              shipMonth: dto.month,
-              deliveryMonth: r.deliveryMonth ?? addMonths(dto.month, 2),
-              grade: grade ?? undefined,
-              size: r.size ?? undefined,
-              qtyMt: r.qtyMt,
-              clientPremium: r.clientPremium ?? sched?.clientPremium ?? undefined,
-              supplierPremium: r.supplierPremium ?? sched?.supplierPremium ?? undefined,
-              upcharge: sched?.upcharge ?? undefined,
-            },
-            actor,
-            { supplierOrderId: soId },
-          );
-          created.push({ supplierOrderId: soId, orderId });
-        }
-      },
-      { timeout: 60_000 },
-    );
-    const owners = created.flatMap((c) => [{ supplierOrderId: c.supplierOrderId }, { orderId: c.orderId }]);
-    await this.config.syncSteps(this.prisma, organizationId, owners, actor);
-    const orders: Array<{ id: string; orderNo: number; year: number; supplierOrderId: string | null; customer: { name: string } }> = await this.prisma.tradeOrder.findMany({
-      where: { organizationId, id: { in: created.map((c) => c.orderId) } },
-      select: { id: true, orderNo: true, year: true, supplierOrderId: true, customer: { select: { name: true } } },
-    });
-    return {
-      created: created.map((c) => {
-        const o = orders.find((x) => x.id === c.orderId);
-        return { ...c, orderLabel: o ? orderLabel(o) : null, customerName: o?.customer.name ?? null };
-      }),
-    };
+  /** Retired (round H): "+ New monthly order" on Orders makes the month's orders. */
+  async declare(_organizationId: string, _dto: DeclarationDto, _actor: TradeActor): Promise<never> {
+    throw new BadRequestException(RETIRED);
   }
 }

@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { CreateOrderDto, ListOrdersQuery, UpdateOrderDto } from './dto/order.dto';
+import { CreateOrderDto, ListOrdersQuery, MonthlyOrdersDto, UpdateOrderDto } from './dto/order.dto';
 import { AddShipmentDto } from './dto/shipment.dto';
 import { OrdersService } from './orders.service';
 import { actorOf, orgIdOf, TradeRequest } from './shipments.request';
@@ -31,6 +31,13 @@ export class OrdersController {
   @Permissions('shipments:create')
   create(@Body() dto: CreateOrderDto, @Req() req: TradeRequest) {
     return this.orders.create(orgIdOf(req), dto, actorOf(req));
+  }
+
+  /** "+ New monthly order": one order per row (customer × grade × size × qty × contract), all shipping in the month. */
+  @Post('monthly')
+  @Permissions('shipments:create')
+  createMonthly(@Body() dto: MonthlyOrdersDto, @Req() req: TradeRequest) {
+    return this.orders.createMonthly(orgIdOf(req), dto, actorOf(req));
   }
 
   @Get(':id')

@@ -144,7 +144,7 @@ function MoneySummary({ m }: { m: Money }) {
       </Typography>
       {!months.length ? (
         <Typography variant="body2" color="text.secondary">
-          No payments recorded yet.
+          No payments recorded on the steps yet.
         </Typography>
       ) : (
         <Table size="small">

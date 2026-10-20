@@ -131,8 +131,10 @@ export function mergeSupplierProfiles(current: unknown, patch: Record<string, un
  * SINGLE billing has no Invoice #1; a supplier without a PI has no PI payment.
  */
 export function naStepCodes(p: CustomerProfile, scope: 'ORDER' | 'SHIPMENT' | 'CONTRACT' | 'SUPPLIER_ORDER', supplier?: SupplierProfile | null): string[] {
-  if (scope === 'SUPPLIER_ORDER') return supplier && !supplier.hasPI ? ['PI_PAYMENT'] : [];
-  if (p.billingMode === 'SINGLE' && scope === 'ORDER') return ['INVOICE_1'];
+  const noPi = supplier && !supplier.hasPI ? ['PI_PAYMENT'] : [];
+  if (scope === 'SUPPLIER_ORDER') return noPi;
+  // One order process (2026-10, round H): steps 0 / 1 are the order's again.
+  if (scope === 'ORDER') return [...noPi, ...(p.billingMode === 'SINGLE' ? ['INVOICE_1'] : [])];
   return [];
 }
 

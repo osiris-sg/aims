@@ -23,7 +23,7 @@ import {
 } from './trade-alerts';
 import { depositDueDate } from './trade-deposit';
 import { generatedInvoiceTotal } from './trade-payments.service';
-import { paidByTarget } from './trade-payments';
+import { stepPaymentOf } from './trade-payments';
 
 const ALERT_SELECT = { id: true, kind: true, key: true, dueAt: true, title: true, detail: true, shipmentId: true, orderId: true, supplierOrderId: true, linkUrl: true, status: true, notifiedAt: true, resolvedAt: true, updatedAt: true };
 
@@ -93,9 +93,12 @@ export class TradeAlertsService {
       };
       out.push(...planShipmentAlerts(facts, rules));
     }
-    // Customer invoices: due date until paid.
-    const allocs: Array<{ targetType: string; targetId: string | null; amount: unknown }> = await this.prisma.tradePaymentAllocation.findMany({ where: { organizationId, targetType: { in: ['INVOICE', 'PI'] } }, select: { targetType: true, targetId: true, amount: true } });
-    const paidInv = paidByTarget(allocs, 'INVOICE');
+    // Customer invoices: due date until paid (round H: the receipt is on the step — 2 for Invoice #1, 11 for Invoice #2 / single).
+    const receipts: Array<{ orderId: string | null; code: string; payment: unknown }> = await this.prisma.tradeStep.findMany({
+      where: { organizationId, orderId: { not: null }, code: { in: ['INVOICE_1', 'INVOICE_2'] } },
+      select: { orderId: true, code: true, payment: true },
+    });
+    const received = (orderId: string | null, code: string) => stepPaymentOf(receipts.find((r) => r.orderId === orderId && r.code === code)?.payment)?.amount ?? 0;
     const invs: any[] = await this.prisma.tradeGeneratedDoc.findMany({
       where: { organizationId, status: 'FINAL', docType: { in: ['INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE'] } },
       select: { id: true, docType: true, number: true, header: true, rows: true, orderId: true, shipmentId: true, order: { select: { customer: { select: { name: true } } } }, shipment: { select: { orderId: true, order: { select: { customer: { select: { name: true } } } } } } },
@@ -103,30 +106,31 @@ export class TradeAlertsService {
     for (const g of invs) {
       const total = generatedInvoiceTotal(g);
       if (total <= 0) continue; // credit notes are not collected
+      const orderId = g.orderId ?? g.shipment?.orderId ?? null;
       const facts: InvoiceFacts = {
         id: g.id,
         number: g.number ?? 'invoice',
         customerName: g.order?.customer?.name ?? g.shipment?.order?.customer?.name ?? null,
         dueDate: g.header?.dueDate ? new Date(g.header.dueDate) : null,
         total,
-        paid: paidInv.get(g.id) ?? 0,
+        paid: received(orderId, g.docType === 'INVOICE_1' ? 'INVOICE_1' : 'INVOICE_2'),
         currency: 'USD',
-        orderId: g.orderId ?? g.shipment?.orderId ?? null,
+        orderId,
         shipmentId: g.shipmentId ?? null,
       };
       const a = planInvoiceAlert(facts);
       if (a) out.push(a);
     }
-    // Supplier deposits: PI date + the contract's deposit term, until paid.
-    const paidPi = paidByTarget(allocs, 'PI');
-    const sos: any[] = await this.prisma.supplierOrder.findMany({
+    // Supplier deposits: PI date + the order's deposit term, until paid (step 1 done / paid).
+    const deposits: any[] = await this.prisma.tradeOrder.findMany({
       where: { organizationId, status: 'OPEN', piDate: { not: null } },
-      select: { id: true, soNo: true, piNo: true, piDate: true, depositPaidAt: true, contract: { select: { depositDueDays: true, depositDueUnit: true } }, steps: { where: { code: 'PI_PAYMENT' }, select: { status: true, notApplicable: true } } },
+      select: { id: true, year: true, orderNo: true, piNo: true, piDate: true, depositPaidAt: true, depositDueDays: true, depositDueUnit: true, steps: { where: { code: 'PI_PAYMENT' }, select: { status: true, notApplicable: true, payment: true } } },
     });
-    for (const so of sos) {
-      if (so.steps[0]?.notApplicable) continue;
-      const due = depositDueDate(so.piDate, so.contract?.depositDueDays ?? 5, so.contract?.depositDueUnit ?? 'BUSINESS');
-      const facts: DepositFacts = { supplierOrderId: so.id, label: supplierOrderLabel(so), dueDate: due ? new Date(due) : null, paid: !!so.depositPaidAt || (paidPi.get(so.id) ?? 0) > 0 || so.steps[0]?.status === 'DONE' };
+    for (const o of deposits) {
+      const st = o.steps[0];
+      if (!st || st.notApplicable) continue;
+      const due = depositDueDate(o.piDate, o.depositDueDays ?? 5, o.depositDueUnit ?? 'BUSINESS');
+      const facts: DepositFacts = { orderId: o.id, label: `${orderLabel(o)}${o.piNo ? ` PI ${o.piNo}` : ''}`, dueDate: due ? new Date(due) : null, paid: !!o.depositPaidAt || !!stepPaymentOf(st.payment) || st.status === 'DONE' };
       const a = planDepositAlert(facts);
       if (a) out.push(a);
     }

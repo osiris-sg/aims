@@ -1,5 +1,6 @@
 import { PartialType } from '@nestjs/swagger';
-import { ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { IsTradeDate } from './trade-date';
 import { DEPOSIT_DUE_UNITS } from '../trade-deposit';
 
@@ -52,12 +53,7 @@ export class CreateOrderDto {
   @IsOptional() @IsString() @MaxLength(100) customerPoNo?: string | null;
   @IsOptional() @IsDateString() @IsTradeDate() customerPoDate?: string | null;
 
-  /** Bought under this supplier order; else a 1:1 supplier order is made from the PI fields. */
-  @IsOptional() @IsUUID() supplierOrderId?: string | null;
-  /** false: don't make a supplier order (link one later). */
-  @IsOptional() @IsBoolean() createSupplierOrder?: boolean;
-
-  /** A stored PI file ("Fill from PI"): linked to the supplier order's step 1. */
+  /** A stored PI file ("Fill from PI"): linked to the order's step 1. */
   @IsOptional() @IsUUID() piFileId?: string;
   /** A stored contract file: linked to the order's step 0. */
   @IsOptional() @IsUUID() contractFileId?: string;
@@ -78,8 +74,26 @@ export class ListOrdersQuery {
   @IsOptional() @IsIn(['pending', 'completed']) bucket?: 'pending' | 'completed';
   @IsOptional() @IsUUID() customerId?: string;
   @IsOptional() @IsUUID() contractId?: string;
-  @IsOptional() @IsUUID() supplierOrderId?: string;
   @IsOptional() @IsString() q?: string;
   @IsOptional() page?: string;
   @IsOptional() pageSize?: string;
+}
+
+/** One row of "+ New monthly order": customer × grade × size × qty × contract. */
+export class MonthlyOrderRowDto {
+  @IsUUID() customerId!: string;
+  @IsUUID() contractId!: string;
+  @IsOptional() @IsString() @MaxLength(100) grade?: string | null;
+  @IsOptional() @IsString() @MaxLength(200) size?: string | null;
+  @IsNumber() @Min(0.001) qtyMt!: number;
+  /** Default: the contract's schedule / line for the month. */
+  @IsOptional() @IsNumber() clientPremium?: number | null;
+  /** Default: ship month + 2 (Jul → Sep). */
+  @IsOptional() @Matches(MONTH, { message: 'deliveryMonth must be YYYY-MM' }) deliveryMonth?: string | null;
+}
+
+/** "+ New monthly order" (Orders): one order per row, all shipping in `month`. */
+export class MonthlyOrdersDto {
+  @Matches(MONTH, { message: 'month must be YYYY-MM' }) @IsTradeDate() month!: string;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => MonthlyOrderRowDto) rows!: MonthlyOrderRowDto[];
 }

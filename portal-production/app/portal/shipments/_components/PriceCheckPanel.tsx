@@ -14,7 +14,7 @@ import { useShipmentsApi } from "../_lib/api";
 
 const usd = (v: number | null) => (v === null ? "—" : v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
-export default function PriceCheckPanel({ kind, id, title }: { kind: "supplier-order" | "shipment" | "generated"; id: string; title?: string }) {
+export default function PriceCheckPanel({ kind, id, title }: { kind: "order" | "supplier-order" | "shipment" | "generated"; id: string; title?: string }) {
   const api = useShipmentsApi();
   const q = useQuery({ queryKey: ["trade-orders", "price-check", kind, id], queryFn: () => api.priceCheck(kind, id), staleTime: 30_000 });
   if (q.isLoading) return null;

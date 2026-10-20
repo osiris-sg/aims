@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { TradeConfigService } from './trade-config.service';
 import { MarketPrices, priceCheck, PriceCheck } from './trade-contract';
-import { addMonths } from './supplier-orders.service';
+import { addMonths } from './orders.service';
 
 const n = (v: unknown): number | null => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 const round2 = (v: number) => Math.round(v * 100) / 100;
@@ -33,7 +33,41 @@ export class TradePriceCheckService {
     };
   }
 
-  /** PI: the supplier order's PI (read by AI if it was) against the contract's supplier premium. */
+  /** PI (round H — the PI is on the order): the order's PI (read by AI if it was) against the contract's supplier premium. */
+  async forOrder(organizationId: string, id: string): Promise<PriceCheck & { source: string }> {
+    const o = await this.prisma.tradeOrder.findFirst({
+      where: { id, organizationId },
+      select: {
+        grade: true,
+        shipMonth: true,
+        supplierPremium: true,
+        contract: { select: { premiumSchedule: true, qmjpRule: true, lines: true } },
+        fileLinks: { select: { fileId: true, file: { select: { docType: true } } } },
+      },
+    });
+    if (!o) throw new NotFoundException('Order not found');
+    const piFileIds = o.fileLinks.filter((l: { file: { docType: string } }) => l.file.docType === 'PI').map((l: { fileId: string }) => l.fileId);
+    const ex = piFileIds.length
+      ? await this.prisma.tradeExtraction.findFirst({ where: { organizationId, fileId: { in: piFileIds }, kind: 'PI', status: 'DONE' }, orderBy: { createdAt: 'desc' }, select: { result: true } })
+      : null;
+    const lines = (((ex?.result as { raw?: { lines?: Array<Record<string, unknown>> } } | null)?.raw?.lines ?? []) as Array<Record<string, unknown>>).filter(Boolean);
+    const line = lines.find((l) => o.grade && String(l.grade ?? '').includes(o.grade)) ?? lines[0] ?? null;
+    const basis = o.shipMonth ? addMonths(o.shipMonth, -1) : null;
+    const line0 = (o.contract?.lines ?? []).find((l: { grade: string | null }) => l.grade === o.grade) ?? (o.contract?.lines ?? [])[0];
+    const check = priceCheck({
+      side: 'supplier',
+      basisMonth: basis,
+      grade: o.grade ?? null,
+      schedule: o.contract?.premiumSchedule,
+      mjpBased: true,
+      fallback: { supplierPremium: n(o.supplierPremium) ?? n(line0?.supplierPremium) },
+      prices: await this.prices(organizationId),
+      found: { premium: n(line?.premium), lme: n(line?.lme), unit: n(line?.rate) },
+    });
+    return { ...check, notes: [`Provisional: the PI prices on the month before shipment (${basis ?? '—'})`, ...check.notes], source: line ? 'PI (AI read)' : 'order fields' };
+  }
+
+  /** PI on a retired supplier order (read-only, kept for old links). */
   async forSupplierOrder(organizationId: string, id: string): Promise<PriceCheck & { source: string }> {
     const so = await this.prisma.supplierOrder.findFirst({
       where: { id, organizationId },
@@ -77,7 +111,7 @@ export class TradePriceCheckService {
       select: {
         ciAmount: true,
         netWeightMt: true,
-        order: { select: { shipMonth: true, grade: true, supplierPremium: true, supplierOrder: { select: { supplierPremium: true } } } },
+        order: { select: { shipMonth: true, grade: true, supplierPremium: true } },
         contract: { select: { premiumSchedule: true, qmjpRule: true, lines: true } },
       },
     });
@@ -90,7 +124,7 @@ export class TradePriceCheckService {
       grade: s.order?.grade ?? null,
       schedule: s.contract?.premiumSchedule,
       mjpBased: true,
-      fallback: { supplierPremium: n(s.order?.supplierOrder?.supplierPremium) ?? n(s.order?.supplierPremium) ?? n(line0?.supplierPremium) },
+      fallback: { supplierPremium: n(s.order?.supplierPremium) ?? n(line0?.supplierPremium) },
       prices: await this.prices(organizationId),
       found: { unit },
     });

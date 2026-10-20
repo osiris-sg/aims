@@ -40,7 +40,8 @@ import { DEFAULT_ORG_FEATURES } from '../src/organizations/default-features';
 import { MODULE_CATALOG } from '../src/configuration/module-catalog';
 import { DEFAULT_KEEP_DOMAINS } from '../src/ingestion-email/email-triage.rules';
 import { checkTemplatePlan, type TemplateRow } from './lib/template-resolution';
-import { backfillOrders, backfillSupplierOrders } from '../src/shipments/trade-orders-backfill';
+import { backfillOrders } from '../src/shipments/trade-orders-backfill';
+import { copyPaymentsToSteps, foldSupplierOrders, moveInvoice2ToOrder } from '../src/shipments/trade-one-process';
 import { bankEntity, entityFor } from '../src/shipments/trade-entity';
 import { DEFAULT_RATES } from '../src/shipments/trade-estimator';
 import { defaultSingleRemarks, type CustomerProfile, type SupplierProfile } from '../src/shipments/trade-profile';
@@ -137,13 +138,12 @@ const ENABLED_MODULES: Array<{ code: string; route?: string; icon?: string; sort
     code: 'SHIPMENTS',
     sortOrder: -3, // first — before the global Sales pin (0.5)
     subMenus: [
-      // Home (my tasks + pipeline; money for ADH Manager), Orders (customer / supplier), the monthly
-      // Declaration, Payments (cash in / out), Stock (warehouse) and the triaged email Inbox.
+      // Home (my tasks + pipeline; money for ADH Manager), Orders (one order process, grouped by ship
+      // month), Shipments (every B/L) and the triaged email Inbox. Round H (2026-10): Declaration, Payments
+      // and Stock left the menu (their pages sit behind enableTradeLegacyPages, off).
       { key: 'dashboard', label: 'Home' },
       { key: 'list', label: 'Orders' },
-      { key: 'declaration', label: 'Declaration' },
-      { key: 'payments', label: 'Payments' },
-      { key: 'stock', label: 'Stock' },
+      { key: 'shipments', label: 'Shipments' },
       { key: 'inbox', label: 'Inbox' },
     ],
   },
@@ -190,6 +190,7 @@ const intakeModeFor = (isProd: boolean) => (isProd ? 'TRIAGE' : 'AUTO');
 const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableActionLog: true,
   enableConfirmQuotation: false, // keeps quotation confirm from auto-creating Orders
+  enableTradeLegacyPages: false, // round H: Declaration / Payments / Stock / Supplier orders pages hidden
 };
 
 const NUMBER_FORMATS = [
@@ -334,14 +335,18 @@ type StepSpec = {
   requiredFields?: string[];
   isOngoing?: boolean;
 };
-// Contract → supplier order + customer order → shipment (2026-10, meeting decision):
-// supplier order (Vedanta's PI) steps 0, 1; customer order steps 2, 13; shipment steps 3a–12, 14
-// (6 = the CI payment, supplier side). Templates no longer listed are deactivated (not deleted) below.
+// One order process (2026-10, round H — owner feedback; replaces the supplier / customer split of round E):
+// order steps 0 Check contract, 1 PI payment, 2 Invoice #1, 11 Invoice #2 / single invoice, 13 reconciliation;
+// shipment steps 3a–10, 12, 14 (6 = the CI payment). Templates no longer listed (SUPPLIER_ORDER, shipment 11)
+// are deactivated (not deleted) below.
 const STEP_TEMPLATES: StepSpec[] = [
-  // 0: link / upload the contract (auto-completes once the supplier order has its contract).
-  { scope: 'SUPPLIER_ORDER', sortOrder: 5, code: 'CHECK_CONTRACT', displayNo: '0', title: 'Check contract', requiredDocTypes: [], requiredFields: ['contractId'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
-  { scope: 'SUPPLIER_ORDER', sortOrder: 10, code: 'PI_PAYMENT', displayNo: '1', title: 'Set up PI payment', requiredDocTypes: ['PI', 'DEPOSIT_PROOF'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
-  { scope: 'ORDER', sortOrder: 20, code: 'INVOICE_1', displayNo: '2', title: 'Issue and send Invoice #1', requiredDocTypes: ['INVOICE_1'], optionalDocTypes: ['CUSTOMER_PO', 'OTHER'] },
+  // 0: link / upload the contract (auto-completes once the order has its contract).
+  { scope: 'ORDER', sortOrder: 5, code: 'CHECK_CONTRACT', displayNo: '0', title: 'Check contract', requiredDocTypes: [], requiredFields: ['contractId'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
+  { scope: 'ORDER', sortOrder: 10, code: 'PI_PAYMENT', displayNo: '1', title: 'Set up PI payment', requiredDocTypes: ['PI', 'DEPOSIT_PROOF'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
+  { scope: 'ORDER', sortOrder: 20, code: 'INVOICE_1', displayNo: '2', title: 'Issue and send Invoice #1', requiredDocTypes: ['INVOICE_1'], optionalDocTypes: ['CUSTOMER_PO', 'PAYMENT_PROOF', 'OTHER'] },
+  // 11: Invoice #2 (TWO_STAGE) — or the single invoice for a SINGLE-billing customer — on the order; done once every
+  // live shipment has its invoice (one invoice may cover several shipments).
+  { scope: 'ORDER', sortOrder: 110, code: 'INVOICE_2', displayNo: '11', title: 'Issue Invoice #2', requiredDocTypes: ['INVOICE_2'], optionalDocTypes: ['INVOICE_SINGLE', 'PAYMENT_PROOF', 'OTHER'] },
   { scope: 'ORDER', sortOrder: 130, code: 'XERO_HANDOFF', displayNo: '13', title: 'Prepare data for Xero reconciliation', requiredDocTypes: [], optionalDocTypes: ['CUSTOMER_PO', 'OTHER'] },
   {
     scope: 'SHIPMENT',
@@ -372,8 +377,6 @@ const STEP_TEMPLATES: StepSpec[] = [
     optionalDocTypes: ['DELIVERY_SCHEDULE', 'BUNDLE_LIST', 'OTHER'],
   },
   { scope: 'SHIPMENT', sortOrder: 90, code: 'IMPORT_PERMIT', displayNo: '10', title: 'Store & send import permit', requiredDocTypes: ['IMPORT_PERMIT'], optionalDocTypes: ['OTHER'] },
-  // 11: Invoice #2 (TWO_STAGE) — or the single invoice for a SINGLE-billing customer (set per step from the customer profile).
-  { scope: 'SHIPMENT', sortOrder: 100, code: 'INVOICE_2', displayNo: '11', title: 'Issue Invoice #2', requiredDocTypes: ['INVOICE_2'], optionalDocTypes: ['INVOICE_SINGLE', 'OTHER'] },
   { scope: 'SHIPMENT', sortOrder: 110, code: 'LOGISTICS_PAYMENT', displayNo: '12', title: 'Pay transport & storage costs', requiredDocTypes: ['VENDOR_INVOICE', 'PAYMENT_PROOF'], optionalDocTypes: ['VENDOR_INVOICE', 'PAYMENT_PROOF', 'OTHER'] },
   { scope: 'SHIPMENT', sortOrder: 130, code: 'DELIVERY_CHANGES', displayNo: '14', title: 'Coordinate delivery changes', requiredDocTypes: [], isOngoing: true, optionalDocTypes: ['DELIVERY_SCHEDULE', 'OTHER'] },
 ];
@@ -1311,22 +1314,26 @@ async function main() {
     }
   }
 
-  // ── 10e. Supplier orders (2026-10): every customer order gets its supplier order (Vedanta's PI) ─
-  header('10e', 'Supplier orders backfill (steps 0 / 1 move to the supplier order)');
-  if (!tradeReady || !org.supplierOrder) {
-    info('SupplierOrder table / client not ready — push the schema first');
+  // ── 10e. One order process (2026-10, round H): supplier orders fold back into their orders ─
+  header('10e', 'One order process (PI fields + steps 0 / 1 back on the order, step 11 on the order, payments → steps)');
+  if (!tradeReady || !org.supplierOrder || !org.tradeOrder) {
+    info('SupplierOrder / TradeOrder table / client not ready — push the schema first');
   } else {
-    const soTemplates = STEP_TEMPLATES.filter((t) => t.scope === 'SUPPLIER_ORDER').map((t) => ({
-      code: t.code,
-      displayNo: t.displayNo,
-      title: t.title,
-      sortOrder: t.sortOrder,
-      requiredDocTypes: t.requiredDocTypes,
-      optionalDocTypes: t.optionalDocTypes ?? ['OTHER'],
-      requiredFields: t.requiredFields ?? [],
-    }));
-    const r = await backfillSupplierOrders(org, orgId, { apply: APPLY, templates: soTemplates, write });
-    if (!r.created) info('nothing to backfill (every customer order has a supplier order)');
+    const spec = (code: string) => {
+      const t = STEP_TEMPLATES.find((x) => x.scope === 'ORDER' && x.code === code)!;
+      return { code: t.code, displayNo: t.displayNo, title: t.title, sortOrder: t.sortOrder, requiredDocTypes: t.requiredDocTypes, optionalDocTypes: t.optionalDocTypes ?? ['OTHER'], requiredFields: t.requiredFields ?? [] };
+    };
+    const ts = await org.tradeSetting.findUnique({ where: { organizationId: orgId }, select: { supplierProfiles: true, customerProfiles: true } });
+    const noPi = new Set(Object.entries((ts?.supplierProfiles ?? {}) as Record<string, { hasPI?: boolean }>).filter(([, p]) => p?.hasPI === false).map(([id]) => id));
+    const single = new Set(Object.entries((ts?.customerProfiles ?? {}) as Record<string, { billingMode?: string }>).filter(([, p]) => p?.billingMode === 'SINGLE').map(([id]) => id));
+    const f = await foldSupplierOrders(org, orgId, { apply: APPLY, templates: [spec('CHECK_CONTRACT'), spec('PI_PAYMENT')], noPiSupplierIds: noPi, write });
+    const m = await moveInvoice2ToOrder(org, orgId, { apply: APPLY, template: spec('INVOICE_2'), singleCustomerIds: single, write });
+    const p = org.tradePayment ? await copyPaymentsToSteps(org, orgId, { apply: APPLY, write }) : null;
+    info(
+      `copy-back: ${f.orders} order(s) touched — ${f.piFields} PI field(s), ${f.steps} step(s) moved, ${f.copies} copied, ${f.fileLinks} file link(s), ${f.added} step(s) added; ` +
+        `step 11: ${m.orderSteps} order step(s) added, ${m.shipmentSteps} shipment step(s) → N/A; ` +
+        (p ? `payments: ${p.payments} row(s) — ${p.copied} copied to steps, ${p.notOneToOne} not 1:1, ${p.noStep} without a step, ${p.already} step(s) already filled` : 'payments: table not there'),
+    );
   }
 
   // ── 10f. Entities (2026-10): ADH JP / ADH SG on generated documents and bank accounts ─

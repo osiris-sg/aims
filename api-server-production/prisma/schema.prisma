@@ -3994,6 +3994,8 @@ model TradeStep {
   notApplicable    Boolean         @default(false)
   /// Sub-tasks such as "sent to customer": [{ key, label, done, at, by, source, na }].
   subtasks         Json?
+  /// Money for a paying / receiving step (1 PI, 6 CI, 8 import tax, 12 logistics; 2 / 11 invoice receipts): { amount, currency, paidAt, account, proofFileId }.
+  payment          Json?
   updatedById      String?
   updatedByName    String?
   completedAt      DateTime?

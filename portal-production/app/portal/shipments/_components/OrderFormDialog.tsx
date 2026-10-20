@@ -35,7 +35,9 @@ type Form = Record<
   | "piNo"
   | "piDate"
   | "piAmount"
-  | "depositPct",
+  | "depositPct"
+  | "customerPoNo"
+  | "customerPoDate",
   string
 >;
 
@@ -59,6 +61,8 @@ const EMPTY: Form = {
   piDate: "",
   piAmount: "",
   depositPct: "10",
+  customerPoNo: "",
+  customerPoDate: "",
 };
 
 const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
@@ -121,6 +125,8 @@ export default function OrderFormDialog({
         piDate: day(order.piDate),
         piAmount: str(order.piAmount),
         depositPct: str(order.depositPct),
+        customerPoNo: order.customerPoNo ?? "",
+        customerPoDate: day(order.customerPoDate),
       });
     } else {
       const y = new Date().getFullYear();
@@ -279,6 +285,8 @@ export default function OrderFormDialog({
       piDate: form.piDate || null,
       piAmount: numOrNull(form.piAmount),
       depositPct: numOrNull(form.depositPct),
+      customerPoNo: form.customerPoNo || null,
+      customerPoDate: form.customerPoDate || null,
       ...(source && !order ? { piFileId: source.fileId } : {}),
     };
     try {
@@ -391,7 +399,7 @@ export default function OrderFormDialog({
               </Grid>
               <Grid item xs={12}>
                 <Typography variant="overline" color="text.secondary">
-                  PI
+                  Vedanta side — PI and deposit
                 </Typography>
               </Grid>
               <Grid item xs={6} sm={3}>
@@ -405,6 +413,17 @@ export default function OrderFormDialog({
               </Grid>
               <Grid item xs={6} sm={3}>
                 {field("depositPct", "Deposit %", { type: "number" })}
+              </Grid>
+              <Grid item xs={12}>
+                <Typography variant="overline" color="text.secondary">
+                  Customer side — purchase order
+                </Typography>
+              </Grid>
+              <Grid item xs={6}>
+                {field("customerPoNo", "Customer PO no.")}
+              </Grid>
+              <Grid item xs={6}>
+                {field("customerPoDate", "Customer PO date", { type: "date", InputLabelProps: { shrink: true } })}
               </Grid>
             </Grid>
           </Grid>

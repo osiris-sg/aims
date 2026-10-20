@@ -12,6 +12,8 @@ export const STEP_SELECT = {
   isOngoing: true,
   notApplicable: true,
   subtasks: true,
+  payment: true,
+  skipReason: true,
   status: true,
   holdOpen: true,
   updatedById: true,

@@ -16,6 +16,13 @@ export class TradePriceCheckController {
     return this.check.forSupplierOrder(orgIdOf(req), id);
   }
 
+  /** The order's PI (round H: the PI is on the order). */
+  @Get('order/:id')
+  @Permissions('shipments:read')
+  order(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
+    return this.check.forOrder(orgIdOf(req), id);
+  }
+
   @Get('shipment/:id')
   @Permissions('shipments:read')
   shipment(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {

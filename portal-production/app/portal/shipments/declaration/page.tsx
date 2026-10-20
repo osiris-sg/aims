@@ -18,6 +18,7 @@ import { toast } from "../_lib/toast";
 import { useContracts, useCustomers, useSupplierOrders, useTradeMutation } from "../_lib/hooks";
 import type { DeclarationResult, DeclarationRow } from "../_lib/api";
 import { monthShort } from "../_lib/format";
+import LegacyGate from "../_components/LegacyGate";
 
 type GridRow = { key: number; customerId: string; contractId: string; grade: string; size: string; qtyMt: string; clientPremium: string; deliveryMonth: string };
 
@@ -38,7 +39,7 @@ const qpFor = (m: string) => (/^\d{4}-\d{2}$/.test(m) ? `Average LME of MOSS (${
 let seq = 0;
 const blank = (): GridRow => ({ key: ++seq, customerId: "", contractId: "", grade: "", size: "", qtyMt: "", clientPremium: "", deliveryMonth: "" });
 
-export default function DeclarationPage() {
+function DeclarationPage() {
   const router = useRouter();
   const customers = useCustomers();
   const contracts = useContracts({ pageSize: 100, status: "OPEN" });
@@ -243,5 +244,14 @@ export default function DeclarationPage() {
         </Paper>
       )}
     </Box>
+  );
+}
+
+/** Hidden since round H (enableTradeLegacyPages, off by default). */
+export default function GatedDeclarationPage() {
+  return (
+    <LegacyGate what="The Declaration page">
+      <DeclarationPage />
+    </LegacyGate>
   );
 }

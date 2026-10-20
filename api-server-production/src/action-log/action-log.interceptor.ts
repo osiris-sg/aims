@@ -81,6 +81,9 @@ const VERB_ACTIONS: Record<string, string> = {
   // Round E (2026-10): import permit read, the monthly declaration (supplier + customer orders), the inbox's
   // "apply PI table", credits / adjustments on invoices, SI delivered ticks, alert refresh.
   'import-permit': 'EXTRACT', declaration: 'CREATE', 'supplier-orders': 'CREATE', 'apply-credit': 'APPLY', adjustment: 'CREATE', delivered: 'UPDATE', refresh: 'RUN',
+  // Round H (2026-10): a step's payment (amount, date, account, proof) saved on the step; the inbox's PI table on the orders;
+  // "+ New monthly order".
+  payment: 'UPDATE', 'pi-table': 'UPDATE', monthly: 'CREATE',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
   // Field delivery verbs (2026-09): the customer sign-off (full or partial, and
   // the guest link's), the return sign-off, ad-hoc acknowledge, install skip, and

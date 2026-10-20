@@ -4,7 +4,7 @@ import { PrismaService } from '../common/prisma.service';
 import { DOMAIN_RE } from '../ingestion-email/email-triage.rules';
 import { TradeActor } from './shipments.request';
 import { docRefBase, nextDocRef, orderDocRefBase, supplierOrderDocRefBase } from './trade-docref';
-import { autoCompletePlan, countsForProgress, documentLinkState, fieldRequirements, hasExactlyOneOwner, stepLabel, stepLabels, stepRequirements, stepsBrokenByRemoval } from './shipments.rules';
+import { autoCompletePlan, countsForProgress, documentLinkState, fieldRequirements, hasExactlyOneOwner, ORDER_INVOICE_TYPES, stepLabel, stepLabels, stepRequirements, stepsBrokenByRemoval, typesOnEveryShipment } from './shipments.rules';
 import { CustomerProfile, mergeProfiles, mergeSupplierProfiles, naStepCodes, profileFor, stepOverride, subtasksFor, SupplierProfile, supplierProfileFor } from './trade-profile';
 import { ratesOf } from './trade-estimator';
 import { cleanAlertRules } from './trade-alerts';
@@ -239,7 +239,29 @@ export class TradeConfigService {
       organizationId,
       docLinks.map((l) => l.documentId),
     );
-    return [...files.map((f) => f.file.docType), ...docLinks.filter((l) => live.has(l.documentId)).map((l) => l.docType)];
+    const own = [...files.map((f) => f.file.docType), ...docLinks.filter((l) => live.has(l.documentId)).map((l) => l.docType)];
+    // Step 11 is the order's (round H): Invoice #2 / the single invoice counts once every live shipment has one.
+    return owner.orderId ? [...own, ...(await this.orderInvoiceTypes(db, organizationId, owner.orderId))] : own;
+  }
+
+  /** Invoice #2 / single-invoice types present on every live shipment of the order (see typesOnEveryShipment). */
+  async orderInvoiceTypes(db: Db, organizationId: string, orderId: string): Promise<string[]> {
+    const ships: Array<{ id: string }> = await db.shipment.findMany({ where: { organizationId, orderId, status: { not: 'CANCELLED' } }, select: { id: true } });
+    if (!ships.length) return [];
+    const ids = ships.map((x) => x.id);
+    const [files, docLinks]: [Array<{ shipmentId: string | null; file: { docType: string } }>, Array<{ shipmentId: string | null; docType: string; documentId: string }>] = await Promise.all([
+      db.tradeFileLink.findMany({ where: { organizationId, shipmentId: { in: ids }, file: { docType: { in: ORDER_INVOICE_TYPES } } }, select: { shipmentId: true, file: { select: { docType: true } } } }),
+      db.tradeDocumentLink.findMany({ where: { organizationId, shipmentId: { in: ids }, docType: { in: ORDER_INVOICE_TYPES } }, select: { shipmentId: true, docType: true, documentId: true } }),
+    ]);
+    const live = await this.countableDocumentIds(
+      db,
+      organizationId,
+      docLinks.map((l) => l.documentId),
+    );
+    return typesOnEveryShipment(ids, [
+      ...files.map((f) => ({ shipmentId: f.shipmentId, docType: f.file.docType })),
+      ...docLinks.filter((l) => live.has(l.documentId)).map((l) => ({ shipmentId: l.shipmentId, docType: l.docType })),
+    ]);
   }
 
   /**
@@ -285,9 +307,11 @@ export class TradeConfigService {
     organizationId: string,
     rec: { steps: S[]; fileLinks: Array<{ file: { docType: string } }>; docLinks: DocLinkRow[] } & Record<string, unknown>,
     db: Db = this.prisma,
+    /** Types satisfied elsewhere (an order's step 11: its shipments' invoices). */
+    extraTypes: string[] = [],
   ) {
     const docLinks = await this.describeDocLinks(db, organizationId, rec.docLinks);
-    const fileTypes = rec.fileLinks.map((l) => l.file.docType);
+    const fileTypes = [...rec.fileLinks.map((l) => l.file.docType), ...extraTypes];
     const docTypes = docLinks.filter((l) => l.satisfies).map((l) => l.docType);
     return {
       docLinks,
@@ -317,7 +341,9 @@ export class TradeConfigService {
   ): Promise<string[]> {
     const done: string[] = [];
     const seen = new Set<string>();
-    for (const owner of owners) {
+    const queue = [...owners];
+    for (let qi = 0; qi < queue.length; qi++) {
+      const owner = queue[qi];
       const key = ownerIdOf(owner);
       if (!key || seen.has(key)) continue;
       seen.add(key);
@@ -329,6 +355,8 @@ export class TradeConfigService {
           ? await db.contract.findFirst({ where: { id: owner.contractId, organizationId } })
           : await db.shipment.findFirst({ where: { id: owner.shipmentId, organizationId } });
       if (!record || record.status !== 'OPEN') continue;
+      // A shipment's invoice can finish its order's step 11: the order is checked after it.
+      if (owner.shipmentId && record.orderId) queue.push({ orderId: record.orderId });
       const steps: Array<{
         id: string;
         title: string;
@@ -644,6 +672,7 @@ export class TradeConfigService {
     });
     for (const o of orders) {
       const p = await this.profileOf(organizationId, o.customerId, db);
+      await this.applyProfile(db, organizationId, { orderId: o.id }, 'ORDER', p, sp);
       for (const s of o.shipments.filter((x) => x.status === 'OPEN')) await this.applyProfile(db, organizationId, { shipmentId: s.id }, 'SHIPMENT', p, sp);
     }
   }

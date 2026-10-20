@@ -17,10 +17,11 @@ import { fmtDmy } from "../_lib/format";
 import { EmptyState } from "../_components/bits";
 import PaymentDialog from "../_components/PaymentDialog";
 import { useDebounced } from "../_components/useDebounced";
+import LegacyGate from "../_components/LegacyGate";
 
 const money = (v: number, c: string) => `${c} ${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export default function PaymentsPage() {
+function PaymentsPage() {
   const api = useShipmentsApi();
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
@@ -127,5 +128,14 @@ export default function PaymentsPage() {
       />
       <PaymentDialog open={!!edit || !!newDir} payment={edit} context={newDir ? { direction: newDir } : undefined} onClose={() => (setEdit(null), setNewDir(null))} />
     </Box>
+  );
+}
+
+/** Hidden since round H (enableTradeLegacyPages, off by default). */
+export default function GatedPaymentsPage() {
+  return (
+    <LegacyGate what="The Payments page">
+      <PaymentsPage />
+    </LegacyGate>
   );
 }

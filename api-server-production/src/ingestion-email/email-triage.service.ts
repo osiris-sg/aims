@@ -11,7 +11,6 @@ import { sheetText } from '../shipments/trade-extract.service';
 import { TradeConfigService } from '../shipments/trade-config.service';
 import { sha256Of, TradeFilesService } from '../shipments/trade-files.service';
 import { TradeStepsService } from '../shipments/trade-steps.service';
-import { createSupplierOrderInTx } from '../shipments/trade-supplier-order';
 import { StoredEmailMeta } from './email-store';
 import {
   counterpartyByDomain,
@@ -28,9 +27,11 @@ import {
   mergeKeys,
   ORDER_DOC_TYPES,
   parseDeclarationTable,
+  PiTableOrder,
+  piTableMatch,
+  subjectMismatch,
   pickMatch,
   sentEvidence,
-  SUPPLIER_ORDER_DOC_TYPES,
   threadKeyOf,
   TRIAGE_DOC_TYPES,
   triagePrompt,
@@ -260,15 +261,27 @@ export class EmailTriageService {
     const plan = target ? await this.plan(organizationId, log, keys, target) : [];
     const needsShipment = plan.some((a) => a.kind === 'file' && a.status === 'skipped' && a.reason === 'pick the shipment');
     const state: InboxState = !target || needsShipment ? 'UNMATCHED' : 'SUGGESTED';
+    // Grade / size / qty words in the subject that disagree with the match: low confidence — a person checks it (never auto-processed).
+    const check = target && !manual ? await this.subjectCheck(organizationId, log.subject, target) : [];
     await this.prisma.emailIngestLog.update({
       where: { id: logId },
-      data: { orderId: target?.orderId ?? null, shipmentId: target?.shipmentId ?? null, actions: { planned: plan, matchedBy: target?.kind ?? null } as any, inboxState: state },
+      data: { orderId: target?.orderId ?? null, shipmentId: target?.shipmentId ?? null, actions: { planned: plan, matchedBy: target?.kind ?? null, ...(check.length ? { check } : {}) } as any, inboxState: state },
     });
-    if (state === 'SUGGESTED' && mode === 'AUTO') {
+    if (state === 'SUGGESTED' && mode === 'AUTO' && !check.length) {
       await this.execute(organizationId, logId, SYSTEM_ACTOR);
       return 'PROCESSED';
     }
     return state;
+  }
+
+  /** subjectMismatch against the matched order (grade / size / qty) and shipment (net MT). */
+  private async subjectCheck(organizationId: string, subject: string | null, target: { orderId?: string | null; shipmentId?: string | null }): Promise<string[]> {
+    if (!subject || !target.orderId) return [];
+    const o = await this.prisma.tradeOrder.findFirst({ where: { id: target.orderId, organizationId }, select: { grade: true, size: true, qtyMt: true } });
+    if (!o) return [];
+    const s = target.shipmentId ? await this.prisma.shipment.findFirst({ where: { id: target.shipmentId, organizationId }, select: { netWeightMt: true } }) : null;
+    const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+    return subjectMismatch(subject, { grade: o.grade, size: o.size, qtyMt: num(o.qtyMt), netMt: num(s?.netWeightMt) });
   }
 
   private async resolveManual(organizationId: string, m: { orderId?: string | null; shipmentId?: string | null }) {
@@ -289,8 +302,8 @@ export class EmailTriageService {
   private async match(organizationId: string, log: { id: string; threadKey: string | null; inReplyTo: string | null }, keys: TriageKeys): Promise<MatchCandidate | null> {
     const cands: MatchCandidate[] = [];
     if (keys.piNo) {
-      // The PI is on the supplier order (round E) — or, on older orders, on the order itself.
-      const os: Array<{ id: string }> = await this.prisma.tradeOrder.findMany({ where: { organizationId, OR: [{ piNo: keys.piNo }, { supplierOrder: { piNo: keys.piNo } }] }, select: { id: true } });
+      // The PI is on the order (round H — one order process).
+      const os: Array<{ id: string }> = await this.prisma.tradeOrder.findMany({ where: { organizationId, piNo: keys.piNo }, select: { id: true } });
       cands.push({ kind: 'pi', orderId: os[0]?.id ?? null, count: os.length });
     }
     if (keys.blNo) {
@@ -339,17 +352,10 @@ export class EmailTriageService {
       return t && t.confidence >= 0.5 ? (TRIAGE_DOC_TYPES[t.docType] ?? null) : null;
     };
     const fileTypes: string[] = [];
-    const soId: string | null = target.orderId
-      ? ((await this.prisma.tradeOrder.findFirst({ where: { id: target.orderId, organizationId }, select: { supplierOrderId: true } }))?.supplierOrderId ?? null)
-      : null;
     (meta.attachments ?? []).forEach((a, i) => {
       const docType = typeOf(a.name);
       if (!docType) return out.push({ kind: 'file', status: 'skipped', reason: 'not a trade document', attachmentIndex: i, filename: a.name });
       fileTypes.push(docType);
-      // PI / contract / deposit proof belong to the supplier side (steps 0 / 1 on the supplier order).
-      if (SUPPLIER_ORDER_DOC_TYPES.has(docType) && soId) {
-        return out.push({ kind: 'file', status: 'planned', attachmentIndex: i, filename: a.name, docType, ownerKind: 'supplierOrder', ownerId: soId });
-      }
       const onOrder = ORDER_DOC_TYPES.has(docType);
       const ownerId = onOrder ? target.orderId : target.shipmentId;
       if (!ownerId) return out.push({ kind: 'file', status: 'skipped', reason: onOrder ? 'no order' : 'pick the shipment', attachmentIndex: i, filename: a.name, docType });
@@ -618,6 +624,8 @@ export class EmailTriageService {
       matched: l.shipmentId ? refs.ship.get(l.shipmentId) : l.orderId ? refs.order.get(l.orderId) : null,
       matchedOrder: l.orderId ? refs.order.get(l.orderId) : null,
       matchedBy: actions.matchedBy ?? null,
+      /** Subject words that disagree with the match ("grade 6005 ≠ 6063") — shown as "check". */
+      check: (actions as { check?: string[] }).check ?? [],
       keys: triage.keys ?? null,
       planned: actions.planned ?? [],
       done: actions.done ?? [],
@@ -651,66 +659,64 @@ export class EmailTriageService {
 
   /** Inbox "Not shipment mail": purge it now. */
   /**
-   * Vedanta's declaration PI table → supplier orders: each row updates the
-   * supplier order with its PI no. (else the one for the same contract, grade
-   * and month without a PI yet) or creates one; a PI PDF named with the PI no.
-   * is attached to step 1. Blank fields are filled, typed ones kept.
+   * Vedanta's PI table (round H — the PI is on the order): per row, the order
+   * it fills (that PI no., else the month's open order on the contract and
+   * grade without a PI) and the blank fields it would fill. Read-only.
    */
-  async applySupplierOrders(organizationId: string, logId: string, actor: { id: string | null; name: string | null }) {
+  async piTablePlan(organizationId: string, logId: string) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) throw new NotFoundException('Email not found');
     const rows = (((log.triage ?? {}) as any).supplierOrderSuggestions ?? []) as DeclarationRow[];
-    if (!rows.length) throw new BadRequestException('This email has no PI table to apply');
-    const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta>;
-    const results: Array<{ contractNo: string; piNo: string | null; supplierOrderId: string | null; action: string; reason?: string }> = [];
+    const orders: PiTableOrder[] = (
+      await this.prisma.tradeOrder.findMany({
+        where: { organizationId },
+        select: { id: true, year: true, orderNo: true, contractId: true, shipMonth: true, grade: true, qtyMt: true, piNo: true, piAmount: true, status: true },
+      })
+    ).map((o: any) => ({ ...o, qtyMt: o.qtyMt === null ? null : Number(o.qtyMt), piAmount: o.piAmount === null ? null : Number(o.piAmount) }));
+    const out: Array<{ row: DeclarationRow; month: string | null; orderId: string | null; orderLabel: string | null; fields: Record<string, string | number>; reason?: string }> = [];
     for (const r of rows) {
-      const contract = await this.prisma.contract.findFirst({ where: { organizationId, contractNo: r.contractNo }, select: { id: true, supplierId: true } });
+      const contract = await this.prisma.contract.findFirst({ where: { organizationId, contractNo: r.contractNo }, select: { id: true } });
+      const month = declarationMonthOf(r.qpBasis) ?? (log.emailDate ? log.emailDate.toISOString().slice(0, 7) : null);
       if (!contract) {
-        results.push({ contractNo: r.contractNo, piNo: r.piNo, supplierOrderId: null, action: 'skipped', reason: 'contract not in AIMS' });
+        out.push({ row: r, month, orderId: null, orderLabel: null, fields: {}, reason: 'contract not in AIMS' });
         continue;
       }
-      const month = declarationMonthOf(r.qpBasis) ?? (log.emailDate ? log.emailDate.toISOString().slice(0, 7) : null);
-      let so: { id: string; piNo: string | null; qtyMt: unknown; provisionalPricePerMt: unknown; qpBasis: string | null } | null = r.piNo
-        ? await this.prisma.supplierOrder.findFirst({ where: { organizationId, piNo: r.piNo }, select: { id: true, piNo: true, qtyMt: true, provisionalPricePerMt: true, qpBasis: true } })
-        : null;
-      so ??= await this.prisma.supplierOrder.findFirst({
-        where: { organizationId, contractId: contract.id, piNo: null, status: 'OPEN', ...(month ? { declarationMonth: month } : {}), ...(r.grade ? { grade: r.grade } : {}) },
-        select: { id: true, piNo: true, qtyMt: true, provisionalPricePerMt: true, qpBasis: true },
-      });
-      let id: string;
-      if (so) {
-        const data: Record<string, unknown> = {};
-        if (!so.piNo && r.piNo) data.piNo = r.piNo;
-        if (so.qtyMt === null && r.qtyMt !== null) data.qtyMt = r.qtyMt;
-        if (so.provisionalPricePerMt === null && r.pricePerMt !== null) data.provisionalPricePerMt = r.pricePerMt;
-        if (!so.qpBasis && r.qpBasis) data.qpBasis = r.qpBasis;
-        if (Object.keys(data).length) await this.prisma.supplierOrder.update({ where: { id: so.id }, data });
-        id = so.id;
-        results.push({ contractNo: r.contractNo, piNo: r.piNo, supplierOrderId: id, action: Object.keys(data).length ? `updated ${Object.keys(data).join(', ')}` : 'already up to date' });
-      } else {
-        id = await this.prisma.$transaction((tx: any) =>
-          createSupplierOrderInTx(
-            tx,
-            this.config,
-            organizationId,
-            { contractId: contract.id, supplierId: contract.supplierId, declarationMonth: month, grade: r.grade ?? undefined, qtyMt: r.qtyMt, qpBasis: r.qpBasis, provisionalPricePerMt: r.pricePerMt, piNo: r.piNo },
-            actor as any,
-          ),
-        );
-        results.push({ contractNo: r.contractNo, piNo: r.piNo, supplierOrderId: id, action: 'created' });
+      const m = piTableMatch(r, contract.id, month, orders);
+      out.push({ row: r, month, orderId: m.order?.id ?? null, orderLabel: m.order ? `#${m.order.orderNo}` : null, fields: m.fields, reason: m.reason });
+    }
+    return { rows: out };
+  }
+
+  /** Apply the PI table: fill the blank PI fields on the matched orders; a PI PDF named with its PI no. goes onto step 1. */
+  async applyPiTable(organizationId: string, logId: string, actor: { id: string | null; name: string | null }) {
+    const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
+    if (!log) throw new NotFoundException('Email not found');
+    const plan = await this.piTablePlan(organizationId, logId);
+    if (!plan.rows.length) throw new BadRequestException('This email has no PI table to apply');
+    const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta>;
+    const results: Array<{ contractNo: string; piNo: string | null; orderId: string | null; orderLabel: string | null; action: string; reason?: string }> = [];
+    for (const p of plan.rows) {
+      const r = p.row;
+      if (!p.orderId) {
+        results.push({ contractNo: r.contractNo, piNo: r.piNo, orderId: null, orderLabel: null, action: 'skipped', reason: p.reason });
+        continue;
       }
-      // The PI PDF (named with its PI no.) goes onto step 1.
+      if (Object.keys(p.fields).length) {
+        await this.prisma.tradeOrder.update({ where: { id: p.orderId, organizationId }, data: p.fields });
+        await this.config.syncSteps(this.prisma, organizationId, [{ orderId: p.orderId }], actor as any, { fields: Object.keys(p.fields) });
+      }
+      results.push({ contractNo: r.contractNo, piNo: r.piNo, orderId: p.orderId, orderLabel: p.orderLabel, action: Object.keys(p.fields).length ? `filled ${Object.keys(p.fields).join(', ')}` : 'already up to date' });
       const att = r.piNo ? (meta.attachments ?? []).find((a) => a.name.includes(r.piNo!) && /\.pdf$/i.test(a.name)) : undefined;
       if (att) {
         const buf = await this.s3.downloadFile(att.key);
         const sha = sha256Of(buf);
         const have = await this.prisma.tradeFile.findFirst({ where: { organizationId, sha256: sha }, select: { id: true } });
         if (!have) {
-          const step = await this.prisma.tradeStep.findFirst({ where: { organizationId, supplierOrderId: id, code: 'PI_PAYMENT' }, select: { id: true } });
+          const step = await this.prisma.tradeStep.findFirst({ where: { organizationId, orderId: p.orderId, code: 'PI_PAYMENT' }, select: { id: true } });
           await this.files.upload(
             organizationId,
             { originalname: att.name, mimetype: att.contentType, size: buf.length, buffer: buf } as Express.Multer.File,
-            { docType: 'PI', supplierOrderIds: [id], ...(step ? { stepId: step.id } : {}), notes: `From email: ${log.subject ?? ''}`.slice(0, 2000) } as any,
+            { docType: 'PI', orderIds: [p.orderId], ...(step ? { stepId: step.id } : {}), notes: `From email: ${log.subject ?? ''}`.slice(0, 2000) } as any,
             actor as any,
             { source: 'EMAIL', emailLogId: logId, sha256: sha },
           );
@@ -718,7 +724,7 @@ export class EmailTriageService {
       }
     }
     await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { actions: { ...((log.actions as object) ?? {}), supplierOrders: results } as any } });
-    this.actionLog.system('email-triage', 'UPDATE', 'SupplierOrder', { organizationId, resourceId: logId, details: { rows: results.length } });
+    this.actionLog.system('email-triage', 'UPDATE', 'TradeOrder', { organizationId, resourceId: logId, details: { rows: results.length } });
     return { results, row: await this.row(organizationId, logId) };
   }
 

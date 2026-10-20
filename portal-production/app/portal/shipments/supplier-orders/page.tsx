@@ -18,10 +18,11 @@ import { useContracts, useSupplierOrders } from "../_lib/hooks";
 import { fmtMoney, fmtMt, monthShort } from "../_lib/format";
 import { CurrentStepCell, EmptyState, RecordStatusChip } from "../_components/bits";
 import { useDebounced } from "../_components/useDebounced";
+import LegacyGate from "../_components/LegacyGate";
 
 const soHref = (id: string) => `/portal/shipments/supplier-orders/${id}`;
 
-export default function SupplierOrdersPage() {
+function SupplierOrdersPage() {
   const router = useRouter();
   const params = useSearchParams();
   const [bucket, setBucket] = useState<"pending" | "completed">(params?.get("tab") === "completed" ? "completed" : "pending");
@@ -141,5 +142,14 @@ export default function SupplierOrdersPage() {
         }
       />
     </Box>
+  );
+}
+
+/** Hidden since round H (enableTradeLegacyPages, off by default). */
+export default function GatedSupplierOrdersPage() {
+  return (
+    <LegacyGate what="The supplier-order list">
+      <SupplierOrdersPage />
+    </LegacyGate>
   );
 }

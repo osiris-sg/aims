@@ -69,4 +69,8 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // posted to the project's WhatsApp group (photos + signed DO) by the Osiris
   // number's post-only worker. Default OFF.
   enableDeliveryGroupPosts: false,
+  // Trade (ADH) legacy pages (round H, 2026-10): Declaration, Payments, Stock and
+  // the supplier-order pages left the menu; their routes show only with this ON.
+  // Default OFF.
+  enableTradeLegacyPages: false,
 };

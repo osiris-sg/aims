@@ -1,9 +1,8 @@
 /**
  * Round E (2026-10, ADH meeting): supplier / customer orders, contract master
- * + price check, entities, payments, credit notes, alerts, the pipeline grid,
- * carriers, stock, intake rules — the pure parts, on ADH's own numbers.
+ * + price check, entities, credit notes, alerts, the pipeline grid, carriers,
+ * intake rules (payments / stock / supplier orders retired in round H) — the pure parts, on ADH's own numbers.
  */
-import { allocationState, cleanPayment, invoiceCash } from './trade-payments';
 import { creditLine, costVariance, estimatedCostsUsd, isCreditNote, adjustmentLine } from './trade-credit';
 import { invoiceTotals, InvoiceLine, amountOf } from './trade-invoice';
 import { bankEntity, entityFor, entityProblem } from './trade-entity';
@@ -12,41 +11,13 @@ import { cellState, orderMargin, pipelineGrid, cashByMonth } from './trade-dashb
 import { cleanPremiumSchedule, marginAt, premiumAt, priceCheck, quarterOf } from './trade-contract';
 import { carrierOf } from './trade-carrier';
 import { diameterOf, folderFileNames, shipmentFolderName } from './trade-folder';
-import { deliveredBundles, stockLine, storagePeriods } from './trade-stock';
 import { defaultSupplierProfile, mergeSupplierProfiles, naStepCodes, profileFor, stepOverride } from './trade-profile';
-import { supplierOrderDocRefBase } from './trade-docref';
-import { supplierOrderLabel } from './shipments.rules';
-import { addMonths } from './supplier-orders.service';
+import { addMonths } from './orders.service';
 import { declarationMonthOf, knownSender, parseDeclarationTable } from '../ingestion-email/email-triage.rules';
 
 const fail = (m: string): never => {
   throw new Error(m);
 };
-
-describe('payments — one Wise transfer paying two CIs and two PIs (Jul 24)', () => {
-  const allocations = [
-    { targetType: 'CI', targetId: '11111111-1111-1111-1111-111111111111', amount: 944256.79 },
-    { targetType: 'CI', targetId: '22222222-2222-2222-2222-222222222222', amount: 146868.33 },
-    { targetType: 'PI', targetId: '33333333-3333-3333-3333-333333333333', amount: 44358.72 },
-    { targetType: 'PI', targetId: '44444444-4444-4444-4444-444444444444', amount: 112186.8 },
-  ];
-  it('USD 1,247,670.64 is fully allocated, to the cent', () => {
-    const p = cleanPayment({ direction: 'OUT', paidAt: '2026-07-24', amount: 1247670.64, currency: 'USD', account: 'WISE', allocations }, fail);
-    expect(p.allocations).toHaveLength(4);
-    expect(allocationState(p.amount, p.allocations)).toEqual({ allocated: 1247670.64, unallocated: 0, over: false, complete: true });
-  });
-  it('a missing line leaves the rest unallocated; more than the amount is refused', () => {
-    expect(allocationState(1247670.64, allocations.slice(0, 3))).toMatchObject({ unallocated: 112186.8, complete: false });
-    expect(() => cleanPayment({ direction: 'OUT', paidAt: '2026-07-24', amount: 1000, currency: 'USD', account: 'WISE', allocations }, fail)).toThrow('more than the payment');
-  });
-  it('a customer invoice is cash in, a PI cash out', () => {
-    expect(() => cleanPayment({ direction: 'IN', paidAt: '2026-07-24', amount: 10, currency: 'USD', account: 'CFSB', allocations: [{ targetType: 'PI', amount: 10 }] }, fail)).toThrow('cash out');
-  });
-  it('invoice cash: outstanding and overdue', () => {
-    expect(invoiceCash(176050.94, 100000, '2026-08-25', '2026-08-28')).toMatchObject({ outstanding: 76050.94, overdue: true, daysOverdue: 3 });
-    expect(invoiceCash(176050.94, 176050.94, '2026-08-25', '2026-08-28')).toMatchObject({ outstanding: 0, overdue: false });
-  });
-});
 
 describe('credit notes and early Invoice #2', () => {
   it('a negative Invoice #2 is a credit note; its credit offsets a later Invoice #1 without tax', () => {
@@ -201,11 +172,8 @@ describe('contract master and price check — 454003422 (SUS 6063: LME + QMJP + 
   });
 });
 
-describe('supplier orders and profiles', () => {
-  it('label, doc ref and month arithmetic', () => {
-    expect(supplierOrderLabel({ soNo: 3, piNo: '9331004128' })).toBe('PI 9331004128');
-    expect(supplierOrderLabel({ soNo: 3, piNo: null })).toBe('S3');
-    expect(supplierOrderDocRefBase({ year: 2026, soNo: 3 }, 'PI')).toBe('26-S3-PI');
+describe('months and supplier profiles', () => {
+  it('month arithmetic', () => {
     expect(addMonths('2026-07', 2)).toBe('2026-09');
     expect(addMonths('2026-12', 2)).toBe('2027-02');
     expect(addMonths('2026-01', -1)).toBe('2025-12');
@@ -213,8 +181,9 @@ describe('supplier orders and profiles', () => {
   it('no PI (Inalum / the Thai supplier): step 1 N/A and step 6 pays the CI in full; own document set on 3b', () => {
     const inalum = { ...defaultSupplierProfile('x'), hasPI: false, shippingDocs: ['BL', 'CI', 'PL'] };
     const p = profileFor(null, null);
-    expect(naStepCodes(p, 'SUPPLIER_ORDER', inalum)).toEqual(['PI_PAYMENT']);
-    expect(naStepCodes(p, 'SUPPLIER_ORDER', defaultSupplierProfile('v'))).toEqual([]);
+    // One order process (round H): step 1 is the order's.
+    expect(naStepCodes(p, 'ORDER', inalum)).toEqual(['PI_PAYMENT']);
+    expect(naStepCodes(p, 'ORDER', defaultSupplierProfile('v'))).toEqual([]);
     expect(stepOverride(p, 'CI_PAYMENT', inalum).title).toMatch('full amount');
     expect(stepOverride(p, 'SHIPPING_DOCS', inalum).requiredDocTypes).toEqual(['BL', 'CI', 'PL']);
     const merged = mergeSupplierProfiles({}, { '11111111-1111-1111-1111-111111111111': { hasPI: false, emailDomains: ['@Inalum.co.id'] } }, fail);
@@ -222,7 +191,7 @@ describe('supplier orders and profiles', () => {
   });
 });
 
-describe('carriers, folder names, stock', () => {
+describe('carriers, folder names', () => {
   it('carrier from the B/L prefix / shipping line; Maersk / MSC links take the B/L', () => {
     expect(carrierOf('198GX04630')).toMatchObject({ code: 'WANHAI', prefilled: false });
     expect(carrierOf('MEDUAB123456')).toMatchObject({ code: 'MSC', prefilled: true });
@@ -245,21 +214,9 @@ describe('carriers, folder names, stock', () => {
       `${name}_COA-2.pdf`,
     ]);
   });
-  it('stock: in − delivered; storage periods (期) by half-month', () => {
-    expect(storagePeriods('2026-12-01', '2026-12-15')).toBe(1);
-    expect(storagePeriods('2026-12-01', '2026-12-16')).toBe(2);
-    expect(storagePeriods('2026-12-10', '2027-03-01')).toBe(7);
-    expect(deliveredBundles([{ bundles: 16, delivered: true }, { bundles: 16, delivered: false }, { bundles: '8', delivered: true }])).toBe(24);
-    const l = stockLine(
-      { id: 's', ref: '#11-1', blNumber: '198GX04630', customerName: 'SUS', warehouse: null, port: 'Yokohama', totalBundles: 120, netWeightMt: 305.804, storageStartDate: new Date('2026-12-01'), siRows: [[{ bundles: 40, delivered: true }]] },
-      '2027-01-20',
-      200,
-    );
-    expect(l).toMatchObject({ warehouse: 'Mitsui Soko Yokohama', bundlesInStock: 80, netMtInStock: 203.869, periods: 4, storageFeeEstimate: Math.round(4 * 203.869 * 200) });
-  });
 });
 
-describe('email intake: known senders and the declaration', () => {
+describe('email intake: known senders and the Vedanta PI table', () => {
   it('Wan Hai "(WEB)ARRIVAL NOTICE <BL>" → that B/L\'s A/N', () => {
     const hit = knownSender({ from: 'Y S Agency <noreply@wanhai.com>', subject: '(WEB)ARRIVAL NOTICE 198GX04630 RACHA BHUM 211E', attachments: [{ name: 'WDMFT505_AN.pdf' }] })!;
     expect(hit).toMatchObject({ rule: 'WANHAI_AN', blNo: '198GX04630', attachmentTypes: { 'WDMFT505_AN.pdf': 'ARRIVAL_NOTICE' } });
@@ -269,7 +226,7 @@ describe('email intake: known senders and the declaration', () => {
     expect(knownSender({ from: 'x@mitsui-soko.co.jp', subject: 'FW: 書類', attachments: [{ name: '輸入許可書202607-09_JPY18,386,700_SUS305.804t.pdf' }, { name: 'other.pdf' }] })!.attachmentTypes).toEqual({ '輸入許可書202607-09_JPY18,386,700_SUS305.804t.pdf': 'IMPORT_PERMIT' });
     expect(knownSender({ from: 'a@b.com', subject: 'hello', attachments: [] })).toBeNull();
   });
-  it('Vedanta "ADH | Aug\'26 declaration": the PI table → supplier-order rows', () => {
+  it('Vedanta "ADH | Aug\'26 declaration" mail: the PI table rows', () => {
     expect(knownSender({ from: 'sales@vedanta.co.in', subject: "RE: ADH | Aug'26 declaration", attachments: [{ name: 'PI 9331004202.pdf' }] })!.rule).toBe('VEDANTA_DECLARATION');
     const body = [
       'Grade\tContract\tCustomer\tDestination\tQty\tQP\tProvisional Price/MT\tPI no.',

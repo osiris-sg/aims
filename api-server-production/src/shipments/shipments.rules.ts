@@ -246,6 +246,20 @@ export function stepLabel(s: { title: string; displayNo?: string | null }, posit
   return no ? `${no}. ${s.title}` : s.title;
 }
 
+/** Step 11 on the order (round H): the invoice types it can be satisfied by from its shipments. */
+export const ORDER_INVOICE_TYPES = ['INVOICE_2', 'INVOICE_SINGLE'];
+
+/**
+ * The doc types (of `types`) present on EVERY one of the order's live
+ * shipments — step 11 lives on the order but Invoice #2 / the single invoice
+ * is filed per shipment, so the order counts it once each shipment has one.
+ * No live shipment → nothing.
+ */
+export function typesOnEveryShipment(shipmentIds: string[], present: Array<{ shipmentId: string | null; docType: string }>, types: string[] = ORDER_INVOICE_TYPES): string[] {
+  if (!shipmentIds.length) return [];
+  return types.filter((t) => shipmentIds.every((id) => present.some((p) => p.shipmentId === id && p.docType === t)));
+}
+
 /** Labels for a whole step list (position fallback counts non-ongoing steps by sortOrder). */
 export function stepLabels<T extends { id: string; title: string; isOngoing: boolean; displayNo?: string | null; sortOrder?: number; notApplicable?: boolean | null }>(steps: T[]): Map<string, string> {
   const counted = steps.filter(countsForProgress).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
@@ -416,4 +430,49 @@ export function autoCompletePlan<T extends AutoStep>(
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .find((s) => after(s) !== 'DONE');
   return { complete, release, start: next && next.status === 'NOT_STARTED' ? next : null };
+}
+
+// ── Shipments list (2026-10, round H): every B/L across all orders ─────────
+export type ShipmentTab = 'in_transit' | 'arrived' | 'delivered' | 'completed';
+export const SHIPMENT_TABS: ShipmentTab[] = ['in_transit', 'arrived', 'delivered', 'completed'];
+
+/**
+ * Which tab a shipment is in: completed (or cancelled) → Completed; every open
+ * step up to 10 (import permit) done → Delivered (cleared, only 12 / 14 left);
+ * arrived (arrival / discharge date, or the latest ETA has passed) → Arrived;
+ * else In transit.
+ */
+export function shipmentTab(
+  s: { status: string; actualArrivalDate?: Date | string | null; dischargeDate?: Date | string | null; eta?: Date | string | null; steps: Array<{ displayNo?: string | null; status: string; isOngoing: boolean; notApplicable?: boolean | null }> },
+  today: string,
+): ShipmentTab {
+  if (s.status !== 'OPEN') return 'completed';
+  const counted = s.steps.filter((x) => countsForProgress(x) && /^\d+/.test(x.displayNo ?? ''));
+  const upTo10 = counted.filter((x) => Number(/^(\d+)/.exec(x.displayNo ?? '')![1]) <= 10);
+  if (upTo10.length && upTo10.every((x) => x.status === 'DONE')) return 'delivered';
+  const ymd = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : null);
+  const eta = ymd(s.eta);
+  if (s.actualArrivalDate || s.dischargeDate || (eta && eta <= today)) return 'arrived';
+  return 'in_transit';
+}
+
+/**
+ * Free time left at the port (DET / DEM) from the discharge date (else the
+ * latest ETA): days until each ends (negative = over). null when there is no
+ * date, or the shipment is past the port (delivered / completed).
+ */
+export function freeTimeLeft(
+  s: { dischargeDate?: Date | string | null; eta?: Date | string | null; detFreeDays?: number | null; demFreeDays?: number | null },
+  rules: { detFreeDays: number; demFreeDays: number },
+  today: string,
+): { from: 'discharge' | 'eta'; det: { ends: string; daysLeft: number }; dem: { ends: string; daysLeft: number } } | null {
+  const start = s.dischargeDate ?? s.eta;
+  if (!start) return null;
+  const d0 = Date.parse(new Date(start).toISOString().slice(0, 10));
+  const t = Date.parse(today);
+  const one = (days: number) => {
+    const ends = d0 + days * 86_400_000;
+    return { ends: new Date(ends).toISOString().slice(0, 10), daysLeft: Math.round((ends - t) / 86_400_000) };
+  };
+  return { from: s.dischargeDate ? 'discharge' : 'eta', det: one(s.detFreeDays ?? rules.detFreeDays), dem: one(s.demFreeDays ?? rules.demFreeDays) };
 }

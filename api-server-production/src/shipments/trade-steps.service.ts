@@ -2,7 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../common/prisma.service';
 import { TradeActor } from './shipments.request';
 import { fieldRequirements, hasExactlyOneOwner, missingDocTypes, stepLabel, supplierOrderLabel } from './shipments.rules';
-import { Db, toOwner, TradeConfigService, TradeOwner } from './trade-config.service';
+import { Db, ownerWhere, toOwner, TradeConfigService, TradeOwner } from './trade-config.service';
+import { cleanStepPayment } from './trade-payments';
 
 type StepAction = 'start' | 'complete' | 'reopen';
 
@@ -137,6 +138,31 @@ export class TradeStepsService {
     return this.read(this.prisma, organizationId, id);
   }
 
+  /**
+   * A paying / receiving step's money (round H — the Payments module is
+   * retired): amount, date, account and the proof file. The proof must be a
+   * file on the step's record. null clears it. Never completes the step by
+   * itself — the step's documents do.
+   */
+  async setPayment(organizationId: string, id: string, body: unknown) {
+    const step = await this.prisma.tradeStep.findFirst({
+      where: { id, organizationId },
+      select: { id: true, code: true, title: true, displayNo: true, contractId: true, shipmentId: true, orderId: true, supplierOrderId: true },
+    });
+    if (!step) throw new NotFoundException('Step not found');
+    const fail = (m: string): never => {
+      throw new BadRequestException(`${stepLabel(step)}: ${m}`);
+    };
+    const raw = body && typeof body === 'object' && 'payment' in (body as object) ? (body as { payment: unknown }).payment : body;
+    const payment = cleanStepPayment(step.code, raw, fail);
+    if (payment?.proofFileId) {
+      const linked = await this.prisma.tradeFileLink.findFirst({ where: { organizationId, fileId: payment.proofFileId, ...ownerWhere(toOwner(step)) }, select: { id: true } });
+      if (!linked) fail('the proof file is not on this record — upload it on the step first');
+    }
+    await this.prisma.tradeStep.update({ where: { id, organizationId }, data: { payment: (payment ?? {}) as any } }); // {} = cleared (a Json null needs the client's own DbNull)
+    return this.read(this.prisma, organizationId, id);
+  }
+
   private read(db: Db, organizationId: string, id: string) {
     return db.tradeStep.findFirst({
       where: { id, organizationId },
@@ -158,6 +184,8 @@ export class TradeStepsService {
         holdOpen: true,
         notApplicable: true,
         subtasks: true,
+        payment: true,
+        skipReason: true,
         updatedById: true,
         updatedByName: true,
         completedAt: true,

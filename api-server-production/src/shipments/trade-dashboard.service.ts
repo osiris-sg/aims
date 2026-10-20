@@ -5,8 +5,8 @@ import { TradeConfigService } from './trade-config.service';
 import { marginAt } from './trade-contract';
 import { cashByMonth, orderMargin, pipelineGrid, PipelineOrder } from './trade-dashboard';
 import { stockLine } from './trade-stock';
-import { OrdersService } from './orders.service';
-import { addMonths } from './supplier-orders.service';
+import { STEP_PAYMENT, stepCash } from './trade-payments';
+import { addMonths, OrdersService } from './orders.service';
 
 const STEP_FIELDS = { displayNo: true, code: true, title: true, status: true, notApplicable: true, isOngoing: true };
 
@@ -37,10 +37,8 @@ export class TradeDashboardService {
         orderNo: true,
         status: true,
         deliveryMonth: true,
-        supplierOrderId: true,
         customer: { select: { name: true } },
         steps: { select: STEP_FIELDS },
-        supplierOrder: { select: { id: true, steps: { select: STEP_FIELDS } } },
         shipments: { where: { status: { not: 'CANCELLED' } }, select: { id: true, steps: { select: STEP_FIELDS } } },
       },
     });
@@ -56,7 +54,6 @@ export class TradeDashboardService {
       customerName: o.customer?.name ?? null,
       status: o.status,
       steps: [
-        ...(o.supplierOrder?.steps ?? []).map((s: any) => ({ ...s, recordId: o.supplierOrder.id })),
         ...o.steps.map((s: any) => ({ ...s, recordId: o.id })),
         ...o.shipments.flatMap((sh: any) => sh.steps.map((s: any) => ({ ...s, recordId: sh.id }))),
       ],
@@ -68,10 +65,12 @@ export class TradeDashboardService {
   /** Money (ADH Manager): cash by month, margin + profit per order and month, open credits. */
   async money(organizationId: string) {
     const since = new Date(`${addMonths(tradeToday().slice(0, 7), -12)}-01T00:00:00Z`);
-    const payments: Array<{ direction: string; paidAt: Date; currency: string; amount: unknown }> = await this.prisma.tradePayment.findMany({
-      where: { organizationId, paidAt: { gte: since } },
-      select: { direction: true, paidAt: true, currency: true, amount: true },
+    // Cash in / out (round H): the payments recorded on the steps (1, 6, 8, 12 out; 2, 11 in).
+    const paying: Array<{ code: string; payment: unknown }> = await this.prisma.tradeStep.findMany({
+      where: { organizationId, code: { in: Object.keys(STEP_PAYMENT) } },
+      select: { code: true, payment: true },
     });
+    const payments = stepCash(paying).filter((p) => p.paidAt >= since);
     const orders: any[] = await this.prisma.tradeOrder.findMany({
       where: { organizationId, status: { not: 'CANCELLED' } },
       orderBy: [{ year: 'desc' }, { orderNo: 'desc' }],
@@ -105,7 +104,7 @@ export class TradeDashboardService {
     const credits: any[] = await this.prisma.tradeCredit.findMany({ where: { organizationId, status: 'OPEN' }, orderBy: { createdAt: 'desc' } });
     const customers: Array<{ id: string; name: string }> = credits.length ? await this.prisma.customer.findMany({ where: { organizationId, id: { in: credits.map((c) => c.customerId) } }, select: { id: true, name: true } }) : [];
     return {
-      cashByMonth: cashByMonth(payments.map((p) => ({ ...p, amount: Number(p.amount) }))),
+      cashByMonth: cashByMonth(payments),
       orders: perOrder,
       byMonth,
       openCredits: credits.map((c) => ({ id: c.id, sourceNumber: c.sourceNumber, amount: Number(c.amount), currency: c.currency, customerName: customers.find((x) => x.id === c.customerId)?.name ?? null, createdAt: c.createdAt })),

@@ -43,8 +43,9 @@ import FilesTable from "../../_components/FilesTable";
 import PriceCheckPanel from "../../_components/PriceCheckPanel";
 import RecordPaymentButton from "../../_components/RecordPaymentButton";
 import { Field, RecordStatusChip } from "../../_components/bits";
+import LegacyGate from "../../_components/LegacyGate";
 
-export default function SupplierOrderPage() {
+function SupplierOrderPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const q = useSupplierOrder(id);
@@ -374,7 +375,7 @@ function LinkOrderDialog({ open, so, onClose }: { open: boolean; so: SupplierOrd
         <TextField select fullWidth size="small" label="Customer order" value={picked} onChange={(e) => setPicked(e.target.value)}>
           {options.map((o) => (
             <MenuItem key={o.id} value={o.id}>
-              {`${o.label} · ${o.customerName ?? ""} · ${o.productLabel}${o.supplierOrder ? ` (now under ${o.supplierOrder.label})` : ""}`}
+              {`${o.label} · ${o.customerName ?? ""} · ${o.productLabel}`}
             </MenuItem>
           ))}
         </TextField>
@@ -404,5 +405,14 @@ function LinkOrderDialog({ open, so, onClose }: { open: boolean; so: SupplierOrd
         </Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+/** Hidden since round H (enableTradeLegacyPages, off by default). */
+export default function GatedSupplierOrderPage() {
+  return (
+    <LegacyGate what="The supplier-order page">
+      <SupplierOrderPage />
+    </LegacyGate>
   );
 }

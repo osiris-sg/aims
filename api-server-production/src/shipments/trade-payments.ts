@@ -106,3 +106,69 @@ export function paidByTarget(rows: Array<{ targetType: string; targetId: string 
   }
   return m;
 }
+
+// ── Payments as step fields (2026-10, round H) ──────────────────────────────
+// The Payments module is retired: each paying / receiving step keeps its own
+// amount, date, account and proof file (TradeStep.payment). Cash in / out on
+// Home and the reconciliation sum these.
+
+/** Steps that carry a payment: ADH pays (OUT) on 1, 6, 8, 12; the customer pays ADH's invoices (IN) on 2 and 11. */
+export const STEP_PAYMENT: Record<string, { direction: PaymentDirection; proofDocType: string; label: string; currency: 'USD' | 'JPY' }> = {
+  PI_PAYMENT: { direction: 'OUT', proofDocType: 'DEPOSIT_PROOF', label: 'Deposit paid', currency: 'USD' },
+  CI_PAYMENT: { direction: 'OUT', proofDocType: 'CI_PAYMENT_PROOF', label: 'CI paid', currency: 'USD' },
+  TAX_FUNDS: { direction: 'OUT', proofDocType: 'PAYMENT_PROOF', label: 'Import tax funded', currency: 'JPY' },
+  LOGISTICS_PAYMENT: { direction: 'OUT', proofDocType: 'PAYMENT_PROOF', label: 'Transport & storage paid', currency: 'JPY' },
+  INVOICE_1: { direction: 'IN', proofDocType: 'PAYMENT_PROOF', label: 'Invoice #1 received', currency: 'USD' },
+  INVOICE_2: { direction: 'IN', proofDocType: 'PAYMENT_PROOF', label: 'Invoice received', currency: 'USD' },
+};
+
+export interface StepPayment {
+  amount: number;
+  currency: string;
+  paidAt: string;
+  account: PaymentAccount;
+  proofFileId: string | null;
+}
+
+/** Validate a step's payment ({ amount, currency, paidAt, account, proofFileId }); null clears it. */
+export function cleanStepPayment(code: string, raw: unknown, fail: (msg: string) => never): StepPayment | null {
+  const spec = STEP_PAYMENT[code] ?? fail('This step has no payment');
+  if (raw === null) return null;
+  const r = (raw && typeof raw === 'object' ? raw : fail('payment must be an object')) as Record<string, unknown>;
+  const amount = Number(r.amount);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 1e12) fail('amount must be a positive number');
+  const paidAt = typeof r.paidAt === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.paidAt) && !isNaN(Date.parse(r.paidAt)) ? r.paidAt : fail('date must be YYYY-MM-DD');
+  const year = Number(paidAt.slice(0, 4));
+  if (year < 2000 || year > 2100) fail('date: the year must be between 2000 and 2100');
+  const currency = r.currency === undefined || r.currency === null || r.currency === '' ? spec.currency : typeof r.currency === 'string' && /^[A-Z]{3}$/.test(r.currency) ? r.currency : fail('currency must be a 3-letter code');
+  const account = ACCOUNTS.includes(r.account as PaymentAccount) ? (r.account as PaymentAccount) : fail(`account must be one of ${ACCOUNTS.join(', ')}`);
+  const proofFileId = r.proofFileId === undefined || r.proofFileId === null || r.proofFileId === '' ? null : /^[0-9a-f-]{36}$/i.test(String(r.proofFileId)) ? String(r.proofFileId) : fail('proofFileId must be a file id');
+  return { amount: fromCents(cents(amount)), currency, paidAt, account, proofFileId };
+}
+
+/** A stored step payment, read defensively (old / hand-edited rows). */
+export function stepPaymentOf(v: unknown): StepPayment | null {
+  const r = v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
+  if (!r || !Number.isFinite(Number(r.amount)) || typeof r.paidAt !== 'string') return null;
+  return { amount: Number(r.amount), currency: String(r.currency ?? 'USD'), paidAt: r.paidAt, account: (r.account as PaymentAccount) ?? 'OTHER', proofFileId: (r.proofFileId as string) ?? null };
+}
+
+/** Cash in / out rows from steps with a payment (Home's "cash by month"). */
+export function stepCash(steps: Array<{ code: string; payment: unknown }>): Array<{ direction: PaymentDirection; paidAt: Date; currency: string; amount: number }> {
+  const out: Array<{ direction: PaymentDirection; paidAt: Date; currency: string; amount: number }> = [];
+  for (const s of steps) {
+    const p = stepPaymentOf(s.payment);
+    const spec = STEP_PAYMENT[s.code];
+    if (!p || !spec) continue;
+    out.push({ direction: spec.direction, paidAt: new Date(`${p.paidAt}T00:00:00Z`), currency: p.currency, amount: p.amount });
+  }
+  return out;
+}
+
+/**
+ * A retired Payment row that can be copied onto a step: exactly one
+ * allocation for the whole amount. Others are left as they are (hidden).
+ */
+export function oneToOne(p: { amount: unknown; allocations: Array<{ targetType: string; amount: unknown }> }): boolean {
+  return p.allocations.length === 1 && cents(Number(p.allocations[0].amount)) === cents(Number(p.amount));
+}
