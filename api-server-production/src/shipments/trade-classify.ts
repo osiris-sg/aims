@@ -23,10 +23,11 @@ const SPREADSHEET = /\.(xls|xlsx|csv|txt)$/i;
 
 /** File-name rules, most specific first. */
 const NAME_RULES: Array<{ re: RegExp } & ClassifyVariant> = [
-  { re: /packing[\s_-]*list[\s_-]*container|container[\s_-]*(pl|packing)/i, docType: 'PL', variant: 'container PL', primary: false },
-  { re: /^(pl|packing[\s_-]*list)[^/]*\.(xls|xlsx|csv)$/i, docType: 'PL', variant: 'PL spreadsheet', primary: false },
+  // Their own rows on step 3b (prod click-through): the container PL, PL.XLS and COA.XLS — step 4 makes the customer PL / COA from them.
+  { re: /packing[\s_-]*list[\s_-]*container|container[\s_-]*(pl|packing)/i, docType: 'CONTAINER_PL', variant: 'container PL', primary: true },
+  { re: /^(pl|packing[\s_-]*list)[^/]*\.(xls|xlsx|csv)$/i, docType: 'PL_XLS', variant: 'PL spreadsheet', primary: true },
   { re: /packing[\s_-]*list|(^|[\s_-])pl([\s_.-]|$)/i, docType: 'PL', variant: null, primary: true },
-  { re: /(^|[\s_-])coa[^/]*\.(xls|xlsx|csv)$|coa[\s_-]*(集計|summary)|集計/i, docType: 'COA', variant: 'COA summary', primary: false },
+  { re: /(^|[\s_-])coa[^/]*\.(xls|xlsx|csv)$|coa[\s_-]*(集計|summary)|集計/i, docType: 'COA_XLS', variant: 'COA summary', primary: true },
   { re: /(^|[\s_-])coa([\s_.-]|$)|certificate[\s_-]*of[\s_-]*analysis|test[\s_-]*(report|cert)/i, docType: 'COA', variant: null, primary: true },
   { re: /(^|[\s_-])coo([\s_.-]|$)|certificate[\s_-]*of[\s_-]*origin/i, docType: 'COO', variant: null, primary: true },
   { re: /insur/i, docType: 'INSURANCE', variant: null, primary: true },
@@ -49,8 +50,8 @@ export function classifyByName(fileName: string): ClassifyVariant | null {
 export function classifySheetText(text: string): ClassifyVariant | null {
   const head = (text ?? '').split(/\r?\n/).slice(0, 15).join(' ').toLowerCase();
   const has = (w: string) => head.includes(w);
-  if ((has('cast no') || has('cast')) && (has('fe') && has('si'))) return { docType: 'COA', variant: 'COA summary', primary: false };
-  if (has('container') && (has('net wt') || has('net weight')) && (has('gross') || has('batch'))) return { docType: 'PL', variant: 'PL spreadsheet', primary: false };
+  if ((has('cast no') || has('cast')) && (has('fe') && has('si'))) return { docType: 'COA_XLS', variant: 'COA summary', primary: true };
+  if (has('container') && (has('net wt') || has('net weight')) && (has('gross') || has('batch'))) return { docType: 'PL_XLS', variant: 'PL spreadsheet', primary: true };
   return null;
 }
 
@@ -62,7 +63,10 @@ export const DOC_TYPE_HINTS: Record<string, string> = {
   BL_DRAFT: 'Draft Bill of Lading sent for approval',
   CI: "Supplier's Commercial Invoice (invoice no., unit price, amount)",
   PL: 'Packing List (batches / bundles with net and gross weight; a "container" packing list groups them per container)',
-  COA: 'Certificate of Analysis / test report (chemical composition per cast: Fe, Si, Mg…); a COA summary also lists bundles and weights',
+  COA: 'Certificate of Analysis / test report (chemical composition per cast: Fe, Si, Mg…)',
+  CONTAINER_PL: 'Container packing list (PACKING_LIST_CONTAINER_…: the packing list grouped per container, with the INVOICE NO. and the AUTHORISED SIGNATORY seal)',
+  PL_XLS: 'Packing list spreadsheet (PL.XLS: container / batch / net and gross weight rows)',
+  COA_XLS: 'COA summary (COA.XLS or a COA 集計 PDF: bundles and weights with the chemistry per cast)',
   COO: 'Certificate of Origin',
   INSURANCE: 'Insurance certificate / policy',
   ARRIVAL_NOTICE: 'Arrival Notice from the shipping line (ETA, charges, CY)',
@@ -95,12 +99,20 @@ Answer exactly: {"docType": "<one of: ${types.join(', ')}>", "variant": "contain
  * is flagged; no AI → the name (or sheet) rule at a fixed confidence. Types
  * outside the step's allowed list become OTHER (low confidence).
  */
+/** The generic type each step-3b sub-type belongs to. */
+const SUBTYPE_OF: Record<string, string> = { CONTAINER_PL: 'PL', PL_XLS: 'PL', COA_XLS: 'COA' };
+
 export function combineClassification(
   allowed: string[],
   name: ClassifyVariant | null,
   sheet: ClassifyVariant | null,
   ai: { docType?: unknown; variant?: unknown; confidence?: unknown; reason?: unknown } | null,
 ): Classification {
+  // A step that doesn't offer the container PL / PL.XLS / COA.XLS types (snapshotted before they existed) takes them as PL / COA.
+  const fallback = (v: ClassifyVariant | null): ClassifyVariant | null =>
+    v && !allowed.includes(v.docType) && SUBTYPE_OF[v.docType] && allowed.includes(SUBTYPE_OF[v.docType]) ? { ...v, docType: SUBTYPE_OF[v.docType], primary: false } : v;
+  name = fallback(name);
+  sheet = fallback(sheet);
   const ok = (t: unknown): t is string => typeof t === 'string' && (allowed.includes(t) || t === 'OTHER');
   const aiType = ai && ok(ai.docType) ? (ai.docType as string) : null;
   const aiConf = ai && typeof ai.confidence === 'number' && Number.isFinite(ai.confidence) ? Math.max(0, Math.min(1, ai.confidence)) : 0.75;
@@ -113,7 +125,8 @@ export function combineClassification(
   if (aiType && known && allowed.includes(known.docType)) {
     if (aiType === known.docType) {
       const variant = known.variant ?? (typeof ai!.variant === 'string' ? (ai!.variant as string) : null);
-      return { docType: aiType, variant, primary: variant ? known.primary && !known.variant : known.primary, confidence: Math.max(0.9, aiConf), source: 'name+ai', reason: aiReason || 'File name and content agree' };
+      // A sub-type with its own row (container PL / PL.XLS / COA.XLS) is that row's primary file.
+      return { docType: aiType, variant, primary: SUBTYPE_OF[aiType] ? known.primary : variant ? known.primary && !known.variant : known.primary, confidence: Math.max(0.9, aiConf), source: 'name+ai', reason: aiReason || 'File name and content agree' };
     }
     return { docType: aiType, variant: typeof ai!.variant === 'string' ? (ai!.variant as string) : null, primary: true, confidence: Math.min(aiConf, 0.6), source: 'ai', reason: `Content says ${aiType}, the file name says ${known.docType}` };
   }

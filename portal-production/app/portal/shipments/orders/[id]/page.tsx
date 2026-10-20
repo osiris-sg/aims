@@ -20,7 +20,8 @@ import AddIcon from "@mui/icons-material/Add";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import EditIcon from "@mui/icons-material/EditOutlined";
 import { toast } from "../../_lib/toast";
-import { useGeneratedDocs, useOrder, useOrderGeneratedDocs, useShipment, useTradeMutation } from "../../_lib/hooks";
+import { SHIPMENT_KEYS, useGeneratedDocs, useOrder, useOrderGeneratedDocs, useShipment, useTradeMutation } from "../../_lib/hooks";
+import { useQueryClient } from "@tanstack/react-query";
 import { recordFileCount, STEP_PAYMENT, useShipmentsApi, type AnExtraction, type BlExtraction, type Order, type PermitCheck, type PermitExtraction, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
 import { blLabel, depositTermLabel, fmtDay, fmtDmy, fmtMoney, fmtMt, fmtYen, stepLabel } from "../../_lib/format";
 import RecordHeader from "../../_components/RecordHeader";
@@ -59,6 +60,7 @@ export default function OrderPage() {
   const genOrder = useOrderGeneratedDocs(id);
   const genShipment = useGeneratedDocs(shipmentId);
   const api = useShipmentsApi();
+  const qc = useQueryClient();
 
   const setParam = (k: string, v: string | null) => {
     const p = new URLSearchParams(params?.toString() ?? "");
@@ -137,9 +139,17 @@ export default function OrderPage() {
       const newlyDone = all.filter((x) => x.status === "DONE" && before.has(x.id) && before.get(x.id) !== "DONE");
       if (newlyDone.length) {
         for (const x of newlyDone) toast.success(`Step ${stepLabel(x)} complete`);
-        setUserPicked(false);
-        const next = firstOpen(earlySteps) ?? firstOpen(shipSteps) ?? firstOpen(lateSteps);
-        if (next) setTimeout(() => document.getElementById(`step-${next.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+        // Open the next open step of the SAME group (the shipment's, or the order's) and bring it into view —
+        // not the order's first open step at the top of the page.
+        const last = newlyDone[newlyDone.length - 1];
+        const group = shipSteps.some((x) => x.id === last.id) ? shipSteps : orderSteps;
+        const after = [...group].sort(byOrder).filter((x) => x.sortOrder > last.sortOrder);
+        const next = firstOpen(after) ?? firstOpen(earlySteps) ?? firstOpen(shipSteps) ?? firstOpen(lateSteps);
+        if (next) {
+          setOpenId(next.id);
+          setUserPicked(true);
+          setTimeout(() => document.getElementById(`step-${next.id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 150);
+        } else setUserPicked(false);
       }
     }
     prev.current = new Map(all.map((x) => [x.id, x.status]));
@@ -180,6 +190,7 @@ export default function OrderPage() {
     onOpen,
     context: orderContext(o),
     customerId: o.customerId,
+    onFileUploaded: (d: string, f: TradeFile[]) => void readOrderUpload(d, f),
     orderShipmentIds: shipments.filter((x) => x.status !== "CANCELLED").map((x) => x.id),
     fieldsTitle: "Contract & premiums",
     fieldsSummary: o.contract ? `Contract ${o.contract.contractNo} · premiums: supplier ${o.supplierPremium ?? "—"}, client ${o.clientPremium ?? "—"} USD/MT` : null,
@@ -201,8 +212,43 @@ export default function OrderPage() {
       ) : null,
   };
 
+  /** Read a document filed on the order's steps: the PI (step 1) fills the order's blank PI no. / date / amount. */
+  const readOrderUpload = async (docType: string, files: TradeFile[]) => {
+    const f = files[0];
+    if (!f || docType !== "PI") return;
+    const t = toast.info(`Reading the PI (${f.fileName})…`, { autoClose: false });
+    try {
+      const x: any = await api.extractPi({ fileId: f.id, orderId: o!.id });
+      if (x.status !== "DONE" || !x.result) throw new Error(x.error || "the AI read failed");
+      const filled: string[] = x.result.filled ?? [];
+      toast.success(filled.length ? `PI read — filled ${filled.map((k) => FIELD_NAMES[k] ?? k).join(", ")} (blank fields only)` : "PI read — the price check compares it; the order's PI fields were already filled");
+    } catch (e: any) {
+      toast.error(`Could not read the PI: ${e?.message || "unknown error"}. The file is stored — fill the PI fields by hand.`);
+    } finally {
+      toast.dismiss(t);
+      void qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.orders });
+    }
+  };
+
   const readUploaded = async (docType: string, files: TradeFile[]) => {
     const f = files[0];
+    if (s && f && docType === "CI") {
+      // Step 3b: Vedanta's CI → the shipment's blank CI no. / amount; the CI price check (step 6) compares its prices.
+      const t = toast.info(`Reading the CI (${f.fileName})…`, { autoClose: false });
+      try {
+        const x: any = await api.extractCi({ fileId: f.id, shipmentId: s.id });
+        if (x.status !== "DONE" || !x.result) throw new Error(x.error || "the AI read failed");
+        const filled: string[] = x.result.filled ?? [];
+        toast.success(filled.length ? `CI read — filled ${filled.map((k) => FIELD_NAMES[k] ?? k).join(", ")}` : "CI read — the CI price check compares it");
+      } catch (e: any) {
+        toast.error(`Could not read the CI: ${e?.message || "unknown error"}. The file is stored.`);
+      } finally {
+        toast.dismiss(t);
+        void qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.orders });
+        void qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.shipments });
+      }
+      return;
+    }
     if (!s || !f || (docType !== "BL_DRAFT" && docType !== "ARRIVAL_NOTICE" && docType !== "IMPORT_PERMIT")) return;
     const what = docType === "BL_DRAFT" ? "B/L draft" : docType === "IMPORT_PERMIT" ? "import permit" : "arrival notice";
     const t = toast.info(`Reading the ${what} (${f.fileName})…`, { autoClose: false });
@@ -568,6 +614,7 @@ export default function OrderPage() {
 }
 
 const NO_ROWS: ApplyRow[] = [];
+const FIELD_NAMES: Record<string, string> = { piNo: "PI no.", piDate: "PI date", piAmount: "PI amount", depositAmount: "deposit", ciNumber: "CI no.", ciAmount: "CI amount" };
 
 /** "#19 · SUS · 6063 · 300 MT". */
 function orderTitle(o: Order): string {
@@ -616,7 +663,10 @@ function shipmentContext(o: Order, s: Shipment): StepContext {
     docLine: (d) => {
       if (d === "CI_PAYMENT_PROOF") return s.ciAmount != null ? `CI ${s.ciNumber ?? ""} · ${fmtMoney(s.ciAmount, s.currency)}`.replace("CI  ·", "CI ·") : null;
       if (d === "INVOICE_2" || d === "INVOICE_SINGLE" || d === "CUSTOMER_PL" || d === "CUSTOMER_COA") return `${o.customer?.name ?? "Customer"} · ${s.ref} · ${bl}${s.netWeightMt != null ? ` · ${fmtMt(s.netWeightMt)} MT` : ""}`;
-      if (d === "TELEX_RELEASE" && s.telexReleaseCode) return `Release code ${s.telexReleaseCode}`;
+      // File OR field (prod click-through): the code from Vedanta's email, the SI's delivery dates, the in-app estimate.
+      if (d === "TELEX_RELEASE") return s.telexReleaseCode ? `Release code ${s.telexReleaseCode} (meets this — no file needed)` : "Upload the telex release, or type the release code in the B/L details";
+      if (d === "DELIVERY_SCHEDULE") return "Or: the delivery dates on the 出庫・納入依頼書 rows meet this";
+      if (d === "TAX_ESTIMATE") return (s.costs as any)?.cifUsd && (s.costs as any)?.fxRate ? "The in-app estimate (CIF + rate) meets this — the broker's file is optional" : "Or: fill CIF and the rate in the estimate below";
       return null;
     },
   };

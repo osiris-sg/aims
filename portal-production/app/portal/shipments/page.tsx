@@ -19,7 +19,6 @@ import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { toast } from "./_lib/toast";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
@@ -168,11 +167,11 @@ export default function OrdersPage() {
       {
         id: "months",
         header: "Ship → delivery",
-        nowrap: true,
         cell: ({ row }: any) => {
           const r: Row = row.original;
           if (r.kind === "month") return null;
-          return r.kind === "order" ? r.monthsLabel || "—" : <Typography variant="body2" color="text.secondary">ETA {fmtDay(r.eta)}</Typography>;
+          // One line, never cut ("Oct 26 → Dec 26"): the column takes the width it needs.
+          return <Box sx={{ whiteSpace: "nowrap" }}>{r.kind === "order" ? r.monthsLabel || "—" : <Typography variant="body2" color="text.secondary">ETA {fmtDay(r.eta)}</Typography>}</Box>;
         },
       },
       {
@@ -191,7 +190,7 @@ export default function OrdersPage() {
         header: "Shipments",
         cell: ({ row }: any) => (row.original.kind === "order" ? <Chip size="small" variant="outlined" label={row.original.shipmentCount} /> : null),
       },
-      { id: "currentStep", header: "Current step", cell: ({ row }: any) => (row.original.kind === "month" ? null : <CurrentStepCell step={row.original.currentStep} progress={row.original.progress} maxWidth={300} />) },
+      { id: "currentStep", header: "Current step", cell: ({ row }: any) => (row.original.kind === "month" ? null : <CurrentStepCell step={row.original.currentStep} progress={row.original.progress} maxWidth={320} wrap />) },
       { id: "status", header: "Status", cell: ({ row }: any) => (row.original.kind === "month" ? null : <RecordStatusChip status={row.original.status} />) },
       {
         id: "actions",
@@ -236,7 +235,7 @@ export default function OrdersPage() {
     <Box sx={{ p: { xs: 1.5, md: 3 }, height: "100%" }}>
       <PageTable
         tableName="Orders"
-        buttonName="New Order"
+        buttonName="+ New order"
         onAddClick={() => setCreateOpen(true)}
         columns={columns}
         data={rows}
@@ -263,9 +262,6 @@ export default function OrdersPage() {
           <Button key="monthly" variant="outlined" startIcon={<PlaylistAddIcon />} onClick={() => setMonthlyOpen(true)} data-tour="orders-monthly">
             + New monthly order
           </Button>,
-          <Button key="from-pis" variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={() => setBulkOpen(true)}>
-            New orders from PIs
-          </Button>,
         ]}
         pageCount={list.data?.totalPages ?? 1}
         totalDocs={list.data?.total}
@@ -285,7 +281,7 @@ export default function OrdersPage() {
               ) : bucket === "completed" ? (
                 <EmptyState title="No completed orders yet" />
               ) : (
-                <EmptyState title="No pending orders — start a new one" action={<Button variant="contained" onClick={() => setCreateOpen(true)}>New Order</Button>} />
+                <EmptyState title="No pending orders — start a new one" action={<Button variant="contained" onClick={() => setCreateOpen(true)}>+ New order</Button>} />
               )
             ) : null}
           </>
@@ -328,7 +324,14 @@ export default function OrdersPage() {
       />
 
       <PiBulkDialog open={bulkOpen} onClose={() => setBulkOpen(false)} />
-      <MonthlyOrderDialog open={monthlyOpen} onClose={() => setMonthlyOpen(false)} />
+      <MonthlyOrderDialog
+        open={monthlyOpen}
+        onClose={() => setMonthlyOpen(false)}
+        onImportPis={() => {
+          setMonthlyOpen(false);
+          setBulkOpen(true);
+        }}
+      />
       <OrderFormDialog open={createOpen} onClose={() => setCreateOpen(false)} onSaved={(o) => router.push(orderHref(o.id))} />
     </Box>
   );

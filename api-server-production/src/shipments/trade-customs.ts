@@ -201,9 +201,18 @@ export function permitTotalFromFileName(fileName: string | null | undefined): nu
 }
 
 /** B/L numbers on the permit carry a NACCS prefix: "BE22AA198GX04630" matches "198GX04630". */
+/**
+ * The B/L's core number: "198GX04630" out of "BE22AA198GX04630" (the import permit prints a prefix) or
+ * "TEST-198GX04630"; other formats (MEDU…, SITG…) stay as they are, without punctuation.
+ */
+export function blCore(v: string | null | undefined): string {
+  const x = (v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return /(\d{3}[A-Z]{2}\d{5,})$/.exec(x)?.[1] ?? x;
+}
+
 export function sameBl(a: string | null | undefined, b: string | null | undefined): boolean {
-  const x = (a ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const y = (b ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const x = blCore(a);
+  const y = blCore(b);
   if (!x || !y) return false;
   return x === y || (y.length >= 8 && x.endsWith(y)) || (x.length >= 8 && y.endsWith(x));
 }
@@ -226,7 +235,8 @@ export function permitChecks(p: PermitData, shipment: { blNumber?: string | null
     found,
     status: !expected || !found ? 'missing' : ok ? 'ok' : 'mismatch',
   });
-  out.push(row('blNumber', 'B/L番号', shipment.blNumber ?? null, p.blNumber, sameBl(p.blNumber, shipment.blNumber)));
+  // The permit prints the B/L with a prefix ("BE22AA198GX04630"): shown and compared on its core.
+  out.push(row('blNumber', 'B/L番号', shipment.blNumber ?? null, p.blNumber ? blCore(p.blNumber) : null, sameBl(p.blNumber, shipment.blNumber)));
   out.push(
     row(
       'invoiceNo',

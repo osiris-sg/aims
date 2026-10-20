@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Box } from "@mui/material";
 import { useOrganizationFeatures } from "./hooks/useOrganizationFeatures";
+import { useConfiguration } from "./context/ConfigurationContext";
 import { HOME_VIEW_EVENT, closeAimee, openAimee, readHomeView, type AimeeOpenDetail } from "./chat/homeView";
 import ChatHome from "./chat/ChatHome";
 import AimeeBar from "./chat/AimeeBar";
@@ -24,6 +25,15 @@ const REVEAL_MS = 640;
 export default function Page() {
   const { isAimsChatEnabled, isLoading } = useOrganizationFeatures();
   const router = useRouter();
+  const { loading: configLoading, isModuleEnabled } = useConfiguration();
+  // A trade org (Shipments on, the generic Dashboard module off — ADH) lands on Shipments › Home, not the asset dashboard.
+  const tradeHome = !configLoading && isModuleEnabled("SHIPMENTS") && !isModuleEnabled("DASHBOARD");
+  useEffect(() => {
+    if (!tradeHome) return;
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("chat") || q.get("aimee") === "1") return;
+    router.replace("/portal/shipments/dashboard");
+  }, [tradeHome, router]);
   const [phase, setPhase] = useState<Phase | null>(null);
   const [prompt, setPrompt] = useState<string | undefined>();
   const origin = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -105,7 +115,7 @@ export default function Page() {
     closeAimee();
   }, [router]);
 
-  if (isLoading || phase === null) return null;
+  if (isLoading || phase === null || tradeHome) return null;
   if (!isAimsChatEnabled) return <DashboardOverview />;
 
   const aimeeShown = phase !== "dashboard";

@@ -24,6 +24,7 @@ import {
 import { depositDueDate } from './trade-deposit';
 import { generatedInvoiceTotal } from './trade-payments.service';
 import { stepPaymentOf } from './trade-payments';
+import { IMPORT_NOTE } from './trade-open-orders';
 
 const ALERT_SELECT = { id: true, kind: true, key: true, dueAt: true, title: true, detail: true, shipmentId: true, orderId: true, supplierOrderId: true, linkUrl: true, status: true, notifiedAt: true, resolvedAt: true, updatedAt: true };
 
@@ -70,12 +71,14 @@ export class TradeAlertsService {
         costs: true,
         order: { select: { orderNo: true } },
         fileLinks: { select: { file: { select: { docType: true } } } },
-        steps: { select: { code: true, status: true } },
+        steps: { select: { code: true, status: true, skipReason: true } },
       },
     });
     for (const s of ships) {
       const types = new Set(s.fileLinks.map((l: { file: { docType: string } }) => l.file.docType));
       const step = (code: string) => s.steps.find((x: { code: string }) => x.code === code)?.status;
+      // Imported from ADH's task list at step 9 or later (step 8 marked done "before AIMS"): the cargo has left the port.
+      const importedPast9 = s.steps.some((x: { code: string; status: string; skipReason: string | null }) => x.code === 'TAX_FUNDS' && x.status === 'DONE' && x.skipReason === IMPORT_NOTE);
       const costs = (s.costs ?? {}) as Record<string, unknown>;
       const facts: ShipmentFacts = {
         id: s.id,
@@ -89,7 +92,8 @@ export class TradeAlertsService {
         hasCi: types.has('CI') || s.ciAmount !== null,
         hasAn: types.has('ARRIVAL_NOTICE'),
         taxFunded: step('TAX_FUNDS') === 'DONE' || typeof costs.importTaxFunded === 'number',
-        cleared: step('AN_INSTRUCTIONS') === 'DONE' && step('IMPORT_PERMIT') === 'DONE',
+        // Past the port once step 9 (A/N + delivery instructions) is done — no free-time warnings after that.
+        cleared: step('AN_INSTRUCTIONS') === 'DONE' || importedPast9,
       };
       out.push(...planShipmentAlerts(facts, rules));
     }

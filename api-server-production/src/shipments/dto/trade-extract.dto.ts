@@ -3,6 +3,8 @@ import { IsOptional, IsUUID } from 'class-validator';
 /** Multipart `file` OR an already-uploaded `fileId`. */
 export class ExtractPiDto {
   @IsOptional() @IsUUID() fileId?: string;
+  /** Read on upload to an order's step 1: fill the order's blank PI no. / date / amount. */
+  @IsOptional() @IsUUID() orderId?: string;
 }
 
 export class ExtractBlDraftDto {

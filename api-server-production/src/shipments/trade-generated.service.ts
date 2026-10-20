@@ -6,7 +6,7 @@ import { S3Service } from '../common/services/s3.service';
 import { DocumentsService } from '../documents/documents.service';
 import { DocumentTemplatesService } from '../documentTemplates/documentTemplates.service';
 import { TradeActor } from './shipments.request';
-import { docDateErrors, stepLabel, tradeDateError, tradeToday } from './shipments.rules';
+import { docDateErrors, stepLabel, tradeDateError, tradeToday, ORDER_INVOICE_TYPES } from './shipments.rules';
 import { GenHeader, GenRef, renderGeneratedHtml } from './trade-generated.html';
 import { buildCustomerCoaJp, classifyCoaText, COA_JP_COLUMNS, CoaFormatError, CoaSourceKind, parseCoaPdfText, pdfText } from './trade-coa';
 import {
@@ -32,6 +32,7 @@ import {
   qmjpForMonth,
   toInvoiceLines,
   unitPriceOf,
+  lmeForMonth,
 } from './trade-invoice';
 import {
   billetSize,
@@ -44,6 +45,7 @@ import {
   SgjpHeader,
   SgjpHeaderV2,
   SgjpItem,
+  sgjpTotals,
   sgjpFinalizeProblems,
   sgjpInvoiceNo,
   SiHeader,
@@ -69,7 +71,7 @@ import {
   singleInvoiceNoFor,
   singleLineCalc,
 } from './trade-invoice-single';
-import { attachPiecesPng } from './trade-attach';
+import { attachPiecesPng, containerPlFacts } from './trade-attach';
 
 export type TemplateKind = 'table' | 'invoice' | 'single' | 'sgjp' | 'si';
 type Owner = { shipmentId: string; contractId?: undefined; orderId?: undefined } | { contractId: string; shipmentId?: undefined; orderId?: undefined } | { orderId: string; shipmentId?: undefined; contractId?: undefined };
@@ -89,15 +91,17 @@ export const GENERATED_TEMPLATES: Record<
     /** ORDER: Invoice #1 (a legacy contract-level Invoice #1 keeps CONTRACT). */
     scope: 'SHIPMENT' | 'CONTRACT' | 'ORDER';
     sourceDocType?: string;
+    /** Every doc type the source can be filed as (round H click-through: PL.XLS / COA.XLS have their own types). */
+    sourceDocTypes?: string[];
     sourcePdf?: boolean;
     multiple?: boolean;
     /** Can bill several shipments of the same customer (coversShipmentIds), even across orders. */
     covers?: boolean;
   }
 > = {
-  CUSTOMER_PL: { title: '計量検収票', short: 'CPL', kind: 'table', scope: 'SHIPMENT', sourceDocType: 'PL' },
+  CUSTOMER_PL: { title: '計量検収票', short: 'CPL', kind: 'table', scope: 'SHIPMENT', sourceDocType: 'PL', sourceDocTypes: ['PL_XLS', 'PL'] },
   // The COA summary PDF (COA_集計) and Vedanta's COA PDF are read too.
-  CUSTOMER_COA: { title: '納品書兼分析試験成績報告書', short: 'CCOA', kind: 'table', scope: 'SHIPMENT', sourceDocType: 'COA', sourcePdf: true },
+  CUSTOMER_COA: { title: '納品書兼分析試験成績報告書', short: 'CCOA', kind: 'table', scope: 'SHIPMENT', sourceDocType: 'COA', sourceDocTypes: ['COA_XLS', 'COA'], sourcePdf: true },
   INVOICE_1: { title: '請求書 (Invoice #1)', short: 'INV1', kind: 'invoice', scope: 'ORDER' },
   INVOICE_2: { title: '請求書 (Invoice #2)', short: 'INV2', kind: 'invoice', scope: 'SHIPMENT', covers: true },
   // SINGLE billing (Kato, Hoei): one invoice after the B/L — no Invoice #1, no import permit needed.
@@ -169,7 +173,7 @@ export class TradeGeneratedService {
     const t = this.template(docType);
     if (!t.sourceDocType) return [];
     const files: Array<{ id: string; fileName: string; createdAt: Date; uploadedByName: string | null; docRef: string | null }> = await this.prisma.tradeFile.findMany({
-      where: { organizationId, docType: t.sourceDocType, links: { some: { shipmentId } } },
+      where: { organizationId, docType: { in: t.sourceDocTypes ?? [t.sourceDocType] }, links: { some: { shipmentId } } },
       orderBy: { createdAt: 'desc' },
       select: { id: true, fileName: true, createdAt: true, uploadedByName: true, docRef: true },
     });
@@ -303,7 +307,7 @@ export class TradeGeneratedService {
       select: { id: true, docType: true, fileName: true, s3Key: true },
     });
     if (!src) throw new BadRequestException('Source file not found on this shipment');
-    if (src.docType !== t.sourceDocType) throw new BadRequestException(`The source must be a ${t.sourceDocType} file (this one is ${src.docType})`);
+    if (!(t.sourceDocTypes ?? [t.sourceDocType]).includes(src.docType)) throw new BadRequestException(`The source must be a ${(t.sourceDocTypes ?? [t.sourceDocType]).join(' / ')} file (this one is ${src.docType})`);
     if (!isSource(src.fileName, t.sourcePdf)) throw new BadRequestException(`${src.fileName} is not a spreadsheet (.xls, .xlsx, .csv, .txt${t.sourcePdf ? ' or a COA PDF' : ''})`);
 
     let built: { columns: GenColumn[]; rows: GenRow[]; notes: string[] };
@@ -331,7 +335,8 @@ export class TradeGeneratedService {
 
     let header = await this.defaultHeader(organizationId, shipment, t.title, docType);
     if (docType === 'CUSTOMER_COA') {
-      const date = fromPdf?.date ?? (await this.coaPdfDateFor(organizationId, shipmentId));
+      // 分析日付: the source's own date, else Vedanta's COA PDF, else the B/L (on-board) date — editable before finalizing.
+      const date = fromPdf?.date ?? (await this.coaPdfDateFor(organizationId, shipmentId)) ?? isoDay(shipment.etd);
       if (date) header = { ...header, analysisDate: date };
     }
     const templateKey = templateKeyFor(await this.profileForShipment(organizationId, shipmentId), docType);
@@ -388,6 +393,9 @@ export class TradeGeneratedService {
    * the org's document defaults (TradeSetting.docDefaults).
    */
   async createBlank(organizationId: string, input: { docType: string; shipmentId?: string; contractId?: string; orderId?: string; coversShipmentIds?: string[] }, actor: TradeActor) {
+    // Step 11 is the order's (round H): Invoice #2 / the single invoice made from the order bills the shipments it covers
+    // (default: the order's open shipments not yet invoiced); the first covered shipment is its record.
+    if (ORDER_INVOICE_TYPES.includes(input.docType) && !input.shipmentId) input = await this.orderInvoiceInput(organizationId, input);
     const t = this.template(input.docType);
     const owner = this.ownerFor(t.scope, input);
     let templateKey: string | null = null;
@@ -405,7 +413,7 @@ export class TradeGeneratedService {
       this.assertOpen(s.status, 'shipment');
       header = await this.defaultHeader(organizationId, s, t.title, input.docType);
       if (input.docType === 'CUSTOMER_COA') {
-        const date = await this.coaPdfDateFor(organizationId, s.id);
+        const date = (await this.coaPdfDateFor(organizationId, s.id)) ?? isoDay(s.etd);
         if (date) header = { ...(header as GenHeader), analysisDate: date };
       }
       // The customer's template variant (Kato / SUS / Hoei); Kato's 計量検収票 body is a page of Vedanta's container PL.
@@ -461,7 +469,8 @@ export class TradeGeneratedService {
       // Invoice #2 as ADH issues it: final price on the actual net weight, customs / transport / other costs,
       // and the 差額 against what Invoice #1 billed for this product.
       const s = await this.loadShipmentCtx(organizationId, owner.shipmentId!);
-      this.assertOpen(s.status, 'shipment');
+      if (s.order) await this.assertInvoiceOrderOpen(organizationId, [s.id, ...(input.coversShipmentIds ?? [])]);
+      else this.assertOpen(s.status, 'shipment');
       covers = await this.coveredShipments(organizationId, s.id, input.coversShipmentIds, input.docType);
       if (s.order) {
         const built = await this.invoice2Draft(organizationId, covers, defaults, org, today);
@@ -533,7 +542,7 @@ export class TradeGeneratedService {
         lmeMonth: defaultLmeMonth('SGJP_IV_PL', shipMonth),
       };
       header = h;
-      // The customer price: the order's premium / upcharge (or Invoice #1's line for a contract-era shipment); the LME of the shipment month is typed.
+      // The customer price: the order's premium / upcharge (or Invoice #1's line for a contract-era shipment); the LME of the shipment month from the table.
       const inv1 = o ? null : s.contract ? await this.invoice1LineFor(organizationId, s.contract.id, s.contractLine?.id ?? null, false) : null;
       const pl = s.netWeightMt === null || s.grossWeightMt === null || s.totalBundles === null ? await this.plTotalsFor(organizationId, s.id) : null;
       const net = dec(s.netWeightMt) ?? pl?.netMt ?? null;
@@ -541,7 +550,8 @@ export class TradeGeneratedService {
         goods: sgjpGoods(o?.product ?? s.contractLine?.product ?? s.commodity, o?.grade ?? s.contractLine?.grade, s.sizeSpec ?? o?.size ?? s.contractLine?.sizeSpec, defaults),
         hsCode: s.hsCode ?? '',
         terms: o?.incoterm ?? s.contract?.incoterm ?? 'CIF',
-        lme: null,
+        // The LME of the shipment month from the org's table when it has it (else typed).
+        lme: lmeForMonth(defaults, shipMonth),
         ...(o
           ? { qmjp: qmjpForMonth(defaults, shipMonth), premium: num(o.clientPremium), upcharge: num(o.upcharge) }
           : pricePartsOf(inv1?.line ?? null, s.contractLine, qmjpForMonth(defaults, shipMonth))),
@@ -569,8 +579,8 @@ export class TradeGeneratedService {
         toName: defaults.siAddressee ?? (defaults.siWarehouseTo || defaults.siTo ? `${defaults.siWarehouseTo ?? defaults.siTo} 御中` : '三井倉庫 株式会社 御中'),
         issuerName: defaults.siIssuerName ?? org?.name ?? '',
         title: '出庫・納入依頼書',
-        vessel: s.vessel ?? '',
-        voyageNo: s.voyageNo ?? '',
+        // 本船 = the vessel arriving in Japan: the A/N's vessel after transshipment (WAN HAI 365 / N044), else the B/L's.
+        ...(await this.arrivingVessel(organizationId, s.id, s.vessel, s.voyageNo)),
         blNumber: s.blNumber ?? '',
         warehouseName: defaults.siWarehouseName ?? '',
         grossWeightMt: dec(s.grossWeightMt),
@@ -699,7 +709,10 @@ export class TradeGeneratedService {
   async finalize(organizationId: string, id: string, actor: TradeActor) {
     const g = await this.get(organizationId, id);
     if (g.status !== 'DRAFT') throw new BadRequestException('Already final');
-    if (g.shipment && g.shipment.status !== 'OPEN') throw new BadRequestException('Reopen the shipment before finalizing');
+    // An order-level invoice (step 11, round H) may bill shipments that already completed their own steps — its order must be open.
+    const orderInvoice = ORDER_INVOICE_TYPES.includes(g.docType);
+    if (g.shipment && g.shipment.status !== 'OPEN' && !(orderInvoice && g.shipment.status === 'COMPLETED')) throw new BadRequestException('Reopen the shipment before finalizing');
+    if (orderInvoice) await this.assertInvoiceOrderOpen(organizationId, [g.shipmentId, ...((g.coversShipmentIds as string[] | undefined) ?? [])]);
     if (g.contract && g.contract.status !== 'OPEN') throw new BadRequestException('Reopen the contract before finalizing');
     if (g.order && g.order.status !== 'OPEN') throw new BadRequestException('Reopen the order before finalizing');
     const t = this.template(g.docType);
@@ -804,7 +817,7 @@ export class TradeGeneratedService {
       } as any,
       actor,
       // The PDF carries the in-app document's ID (26-19-1-CPL); an older document without one takes the PDF's.
-      { docRef: (g as { docRef?: string | null }).docRef ?? null, source: 'GENERATED' },
+      { docRef: (g as { docRef?: string | null }).docRef ?? null, source: 'GENERATED', ...(orderInvoice ? { completedShipmentsOk: true } : {}) },
     );
     // Every other record it belongs to (an Invoice #2 covering several shipments …), each tagged with its own step.
     for (const o of more) {
@@ -816,6 +829,7 @@ export class TradeGeneratedService {
           ...(o.stepId ? { stepId: o.stepId } : {}),
         } as any,
         actor,
+        ...(orderInvoice ? [{ completedShipmentsOk: true }] : []),
       );
     }
     const finalized = await this.prisma.tradeGeneratedDoc.update({
@@ -824,6 +838,8 @@ export class TradeGeneratedService {
       select: GEN_SELECT,
     });
     await this.bookCredits(organizationId, { ...g, number, header, rows }, creditIds);
+    // The finalized SG→JP IV's amount is the customs CIF (step 7's import-tax estimate) — filled when blank.
+    if (g.docType === 'SGJP_IV_PL' && g.shipmentId) await this.fillCifFromSgjp(organizationId, g.shipmentId, rows);
     return finalized;
   }
 
@@ -1256,22 +1272,89 @@ export class TradeGeneratedService {
   private async withAttachDefault(organizationId: string, shipmentId: string, templateKey: string | null, header: GenHeader): Promise<GenHeader> {
     // Every 計量検収票 variant copies Kato's layout (SUS / Hoei until ADH sends their own samples).
     if (!templateKey?.startsWith('CUSTOMER_PL_')) return { ...header, bodyMode: 'table' } as GenHeader;
-    const pls: Array<{ id: string; fileName: string; mimeType: string }> = await this.prisma.tradeFile.findMany({
-      where: { organizationId, docType: 'PL', links: { some: { shipmentId } } },
+    const pls: Array<{ id: string; fileName: string; mimeType: string; docType: string }> = await this.prisma.tradeFile.findMany({
+      where: { organizationId, docType: { in: ['CONTAINER_PL', 'PL'] }, links: { some: { shipmentId } } },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, fileName: true, mimeType: true },
+      select: { id: true, fileName: true, mimeType: true, docType: true },
     });
     const pdfs = pls.filter((f) => f.mimeType === 'application/pdf' || /^image\//.test(f.mimeType));
-    const pick = pdfs.find((f) => /container/i.test(f.fileName)) ?? pdfs[0] ?? null;
+    // The container PL (its own type since the click-through; else by name) is the body.
+    const pick = pdfs.find((f) => f.docType === 'CONTAINER_PL') ?? pdfs.find((f) => /container/i.test(f.fileName)) ?? pdfs[0] ?? null;
     // No PL PDF on the shipment yet: the typed table (switch to the page once Vedanta's PL is in).
     if (!pick) return { ...header, bodyMode: 'table' } as GenHeader;
+    // The page's INVOICE NO. / DATE (XP2652101334 · 22/07/2026) fill the 計量検収票's blank header fields.
+    const facts = pick.mimeType === 'application/pdf' ? await this.containerPlFacts(organizationId, pick.id) : null;
+    const h = header as GenHeader & { invoiceNo?: string; plDate?: string };
+    const filled = { ...(facts?.invoiceNo && !h.invoiceNo ? { invoiceNo: facts.invoiceNo } : {}), ...(facts?.date && !h.plDate ? { plDate: facts.date } : {}) };
     // ADH pastes Vedanta's PL from "INVOICE NO." down to its AUTHORISED SIGNATORY seal: found in the PDF's text.
-    return { ...header, bodyMode: 'attach', attachFileId: pick.id, attachPage: 1, attachCrop: { auto: true } } as GenHeader;
+    return { ...header, ...filled, bodyMode: 'attach', attachFileId: pick.id, attachPage: 1, attachCrop: { auto: true } } as GenHeader;
+  }
+
+  /** An order-level Invoice #2 / single invoice: { orderId, coversShipmentIds? } → its first covered shipment as the record. */
+  private async orderInvoiceInput(organizationId: string, input: { docType: string; orderId?: string; coversShipmentIds?: string[] } & Record<string, unknown>) {
+    const picked = [...new Set(input.coversShipmentIds ?? [])];
+    if (picked.length) return { ...input, shipmentId: picked[0], coversShipmentIds: picked };
+    if (!input.orderId) throw new BadRequestException('Pick the order or the shipments this invoice covers');
+    const o = await this.prisma.tradeOrder.findFirst({ where: { id: input.orderId, organizationId }, select: { orderNo: true, shipments: { where: { status: { not: 'CANCELLED' } }, orderBy: [{ seqNo: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }], select: { id: true } } } });
+    if (!o) throw new NotFoundException('Order not found');
+    const invoiced = new Set(await this.invoicedIds(organizationId, o.shipments.map((x: { id: string }) => x.id)));
+    const ids = o.shipments.map((x: { id: string }) => x.id).filter((id: string) => !invoiced.has(id));
+    if (!ids.length) throw new BadRequestException(`No shipment of order #${o.orderNo} is waiting for an invoice — add the shipment first`);
+    return { ...input, shipmentId: ids[0], coversShipmentIds: ids };
+  }
+
+  /** INVOICE NO. / DATE printed on a container PL PDF (null when unreadable). */
+  private async containerPlFacts(organizationId: string, fileId: string) {
+    try {
+      const f = await this.prisma.tradeFile.findFirst({ where: { id: fileId, organizationId }, select: { s3Key: true } });
+      return f ? containerPlFacts(await pdfText(await this.s3.downloadFile(f.s3Key))) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 本船 / 海事№ for the SI: the latest A/N read's arriving vessel (transshipment) when it has one, else the shipment's (B/L). */
+  private async arrivingVessel(organizationId: string, shipmentId: string, vessel: string | null, voyageNo: string | null): Promise<{ vessel: string; voyageNo: string }> {
+    const ex = await this.prisma.tradeExtraction.findFirst({ where: { organizationId, shipmentId, kind: 'AN', status: 'DONE' }, orderBy: { createdAt: 'desc' }, select: { result: true } });
+    const d = ((ex?.result as { draft?: { vessel?: string | null; voyageNo?: string | null; tsVessel?: string | null; tsVoyageNo?: string | null } } | null)?.draft ?? null);
+    if (d?.tsVessel) return { vessel: d.tsVessel, voyageNo: d.tsVoyageNo ?? '' };
+    if (d?.vessel) return { vessel: d.vessel, voyageNo: d.voyageNo ?? voyageNo ?? '' };
+    return { vessel: vessel ?? '', voyageNo: voyageNo ?? '' };
+  }
+
+  /** costs.cifUsd ← the SG→JP IV amount (blanks only; a typed CIF is kept). */
+  private async fillCifFromSgjp(organizationId: string, shipmentId: string, rows: unknown) {
+    const amount = sgjpTotals((Array.isArray(rows) ? rows : []) as SgjpItem[]).amount;
+    if (!(amount > 0)) return;
+    const s = await this.prisma.shipment.findFirst({ where: { id: shipmentId, organizationId }, select: { costs: true } });
+    const costs = (s?.costs ?? {}) as Record<string, unknown>;
+    if (costs.cifUsd !== null && costs.cifUsd !== undefined && costs.cifUsd !== '') return;
+    await this.prisma.shipment.update({ where: { id: shipmentId, organizationId }, data: { costs: { ...costs, cifUsd: roundTo(amount, 2) } as any } });
+  }
+
+  /** The orders of these shipments must be open (an order-level invoice; completed shipments are fine). */
+  private async assertInvoiceOrderOpen(organizationId: string, shipmentIds: Array<string | null | undefined>) {
+    const ids = [...new Set(shipmentIds.filter((x): x is string => !!x))];
+    if (!ids.length) return;
+    const rows: Array<{ order: { orderNo: number; status: string } | null }> = await this.prisma.shipment.findMany({ where: { organizationId, id: { in: ids } }, select: { order: { select: { orderNo: true, status: true } } } });
+    const closed = rows.map((r) => r.order).filter((o): o is { orderNo: number; status: string } => !!o && o.status !== 'OPEN');
+    if (closed.length) throw new BadRequestException(`Reopen order ${[...new Set(closed.map((o) => `#${o.orderNo}`))].join(', ')} before invoicing`);
+  }
+
+  /** Of `ids`, the shipments a FINAL Invoice #2 / single invoice already bills. */
+  private async invoicedIds(organizationId: string, ids: string[]): Promise<string[]> {
+    if (!ids.length) return [];
+    const billed: Array<{ shipmentId: string | null; coversShipmentIds: string[] }> = await this.prisma.tradeGeneratedDoc.findMany({
+      where: { organizationId, status: 'FINAL', docType: { in: ORDER_INVOICE_TYPES }, OR: [{ shipmentId: { in: ids } }, { coversShipmentIds: { hasSome: ids } }] },
+      select: { shipmentId: true, coversShipmentIds: true },
+    });
+    return ids.filter((id) => billed.some((b) => b.shipmentId === id || b.coversShipmentIds.includes(id)));
   }
 
   /**
    * The shipments an Invoice #2 / single invoice bills: the primary one plus
-   * any picked; all of the same customer, open, and not already billed by
+   * any picked; all of the same customer, not cancelled (a completed shipment
+   * can still be billed — step 11 is the order's), and not already billed by
    * another FINAL invoice of either kind. A single invoice also needs each
    * shipment's B/L and CI (it goes out once they are in; no import permit needed).
    */
@@ -1285,8 +1368,9 @@ export class TradeGeneratedService {
     const ref = (r: (typeof rows)[number]) => (r.order ? `#${r.order.orderNo}${r.seqNo ? `-${r.seqNo}` : ''}` : (r.blNumber ?? 'shipment'));
     const customers = new Set(rows.map((r) => r.order?.customerId ?? r.customerId));
     if (customers.size > 1) throw new BadRequestException('An invoice can only cover shipments of the same customer');
-    const closed = rows.filter((r) => r.status !== 'OPEN');
-    if (closed.length) throw new BadRequestException(`Reopen ${closed.map(ref).join(', ')} before invoicing`);
+    // Completed shipments can still be invoiced (step 11 is the order's since round H); cancelled ones can't.
+    const closed = rows.filter((r) => r.status === 'CANCELLED');
+    if (closed.length) throw new BadRequestException(`${closed.map(ref).join(', ')} ${closed.length === 1 ? 'is' : 'are'} cancelled — it can't be invoiced`);
     const billed: Array<{ number: string | null; shipmentId: string | null; coversShipmentIds: string[] }> = await this.prisma.tradeGeneratedDoc.findMany({
       where: { organizationId, status: 'FINAL', docType: { in: ['INVOICE_2', 'INVOICE_SINGLE'] }, OR: [{ shipmentId: { in: ids } }, { coversShipmentIds: { hasSome: ids } }] },
       select: { number: true, shipmentId: true, coversShipmentIds: true },
@@ -1413,7 +1497,7 @@ export class TradeGeneratedService {
         kind: 'goods',
         description: (d.singleGoodsTemplate ?? 'アルミニウムビレット{grade}').replace('{grade}', o?.grade ?? '').replace('{product}', o?.product ?? ''),
         quantity: q,
-        lme: null,
+        lme: o ? lmeForMonth(defaults, o.shipMonth) : null,
         qmjp: o ? qmjpForMonth(defaults, o.shipMonth) : null,
         premium: num(o?.clientPremium),
         upcharge: num(o?.upcharge) || null,
@@ -1519,7 +1603,7 @@ export class TradeGeneratedService {
   /** The date on the newest Vedanta COA PDF on the shipment ("Date: dd/mm/yyyy"), or null when there is none / it can't be read. */
   private async coaPdfDateFor(organizationId: string, shipmentId: string): Promise<string | null> {
     const pdfs = await this.prisma.tradeFile.findMany({
-      where: { organizationId, docType: 'COA', links: { some: { shipmentId } } },
+      where: { organizationId, docType: { in: ['COA', 'COA_XLS'] }, links: { some: { shipmentId } } },
       orderBy: { createdAt: 'desc' },
       select: { s3Key: true, fileName: true },
     });
@@ -1536,12 +1620,13 @@ export class TradeGeneratedService {
 
   /** Bundles and net / gross MT from the supplier PL spreadsheet on the shipment (null when there is none or it can't be read). */
   private async plTotalsFor(organizationId: string, shipmentId: string): Promise<{ bundles: number; netMt: number; grossMt: number } | null> {
-    const pl = await this.prisma.tradeFile.findFirst({
-      where: { organizationId, docType: 'PL', links: { some: { shipmentId } } },
+    const pls: Array<{ s3Key: string; fileName: string }> = await this.prisma.tradeFile.findMany({
+      where: { organizationId, docType: { in: ['PL_XLS', 'PL'] }, links: { some: { shipmentId } } },
       orderBy: { createdAt: 'desc' },
       select: { s3Key: true, fileName: true },
     });
-    if (!pl || !SOURCE_EXTENSIONS.test(pl.fileName)) return null;
+    const pl = pls.find((f) => SOURCE_EXTENSIONS.test(f.fileName));
+    if (!pl) return null;
     try {
       return plTotals(buildCustomerPl(parseSheetFile(await this.s3.downloadFile(pl.s3Key))).rows);
     } catch {
@@ -1620,6 +1705,7 @@ export class TradeGeneratedService {
       select: {
         id: true,
         status: true,
+        etd: true,
         blNumber: true,
         vessel: true,
         voyageNo: true,
@@ -1921,3 +2007,6 @@ export function blankDocProblems(docType: string, header: unknown, rows: unknown
   }
   return problems;
 }
+
+/** "2026-07-22" of a date (or null). */
+const isoDay = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : null);

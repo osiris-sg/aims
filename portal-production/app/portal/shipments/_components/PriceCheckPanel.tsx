@@ -26,7 +26,13 @@ export default function PriceCheckPanel({ kind, id, title }: { kind: "order" | "
         <Typography variant="subtitle2" sx={{ flex: 1 }}>
           {title ?? "Price check vs contract"} {c.basisMonth ? `· basis ${c.basisMonth}` : ""}
         </Typography>
-        <Chip size="small" color={c.ok ? "success" : "warning"} variant="outlined" label={c.ok ? "Matches the contract" : "Check the differences"} />
+        {/* Nothing read from the document yet: never "Matches". */}
+        <Chip
+          size="small"
+          color={c.read === false ? "default" : c.ok ? "success" : "warning"}
+          variant="outlined"
+          label={c.read === false ? "Not read yet" : c.ok ? "Matches the contract" : "Check the differences"}
+        />
       </Stack>
       <Box sx={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", columnGap: 2, rowGap: 0.5, alignItems: "center" }}>
         <Typography variant="caption" color="text.secondary">

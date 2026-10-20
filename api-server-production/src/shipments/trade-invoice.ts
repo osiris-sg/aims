@@ -94,6 +94,8 @@ export interface DeliveryProfile {
 export interface DocDefaults {
   /** QMJP (US$/MT) per quarter: { "2026-2Q": 351.5, "2026-3Q": 395 } (Org Settings → Shipping & documents). */
   qmjpByQuarter?: Record<string, number>;
+  /** LME cash monthly averages (US$/MT): { "2026-06": 3458.64 } (Org Settings → Shipping → prices). */
+  lmeByMonth?: Record<string, number>;
   invoiceFromBlock?: string;
   invoiceSubjectTemplate?: string;
   invoiceLineTemplate?: string;
@@ -212,6 +214,12 @@ export const quarterKey = (month: string | null | undefined) => {
 /** The QMJP of a month's quarter from the org's table; null when the quarter isn't in it. */
 export function qmjpForMonth(defaults: DocDefaults, month: string | null | undefined): number | null {
   const v = defaults.qmjpByQuarter?.[quarterKey(month)];
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/** The LME average of a month from the org's table; null when the month isn't in it (then it's typed). */
+export function lmeForMonth(defaults: DocDefaults, month: string | null | undefined): number | null {
+  const v = month ? defaults.lmeByMonth?.[month] : undefined;
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
@@ -484,9 +492,9 @@ export function invoice1Line(contract: { id: string; contractNo: string }, l: Pr
     amountOverride: null,
     remarks: '',
     dueDate,
-    lme: null,
-    // The contract line's price parts start the helper (the LME is typed); QMJP is the
-    // quarter of the LME month from the org's table when it has one.
+    // The LME of the basis month (the month before shipment) from the org's LME table when it has it, else typed;
+    // QMJP is the quarter of the LME month from the org's table; the premium from the contract line.
+    lme: lmeForMonth(defaults, lmeMonth),
     qmjp: qmjpForMonth(defaults, lmeMonth) ?? num(l.qmjp),
     premium: num(l.billetPremium),
     upcharge: num(l.upcharge),
@@ -576,7 +584,8 @@ export function invoice2FinalLines(opts: {
     unitPrice: null,
     amountOverride: null,
     remarks: '',
-    lme: null,
+    // Final price: the LME of the shipment month from the org's table when it has it.
+    lme: opts.invoice1Line ? lmeForMonth(d, opts.lmeMonth) : null,
     qmjp: opts.invoice1Line?.qmjp ?? null,
     premium: opts.invoice1Line?.premium ?? null,
     upcharge: opts.invoice1Line?.upcharge ?? null,

@@ -11,6 +11,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { toast } from "../_lib/toast";
 import { useContracts, useCustomers, useTradeMutation } from "../_lib/hooks";
 import type { MonthlyOrderRow } from "../_lib/api";
@@ -26,7 +27,7 @@ const nextMonth = () => {
 let seq = 0;
 const blank = (): Draft => ({ key: ++seq, customerId: "", contractId: "", grade: "", size: "", qtyMt: "", clientPremium: "" });
 
-export default function MonthlyOrderDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function MonthlyOrderDialog({ open, onClose, onImportPis }: { open: boolean; onClose: () => void; /** "Import from PI PDFs…": the bulk PI reader (one order per PI). */ onImportPis?: () => void }) {
   const customers = useCustomers(open);
   const contracts = useContracts({ pageSize: 100 }, open);
   const [month, setMonth] = useState(nextMonth());
@@ -60,7 +61,7 @@ export default function MonthlyOrderDialog({ open, onClose }: { open: boolean; o
         </Typography>
       </DialogTitle>
       <DialogContent dividers data-tour="monthly-order-grid">
-        <TextField size="small" label="Ship month" value={month} onChange={(e) => setMonth(e.target.value)} sx={{ mb: 2, width: 200 }} {...guardDate({ type: "month", InputLabelProps: { shrink: true } }, month)} />
+        <TextField size="small" label="Ship month" value={month} onChange={(e) => setMonth(e.target.value)} sx={{ mb: 2, width: 200 }} {...guardDate({ type: "month", InputLabelProps: { shrink: true }, helperText: " " }, month)} />
         <Box sx={{ overflowX: "auto" }}>
           <Table size="small" sx={{ minWidth: 860 }}>
             <TableHead>
@@ -165,13 +166,21 @@ export default function MonthlyOrderDialog({ open, onClose }: { open: boolean; o
             {filled.length} order{filled.length === 1 ? "" : "s"} · {totalMt.toLocaleString("en-US", { maximumFractionDigits: 3 })} MT
           </Typography>
         </Stack>
-        {filled.length > 0 && problems.length > 0 && (
-          <Alert severity="info" sx={{ mt: 1 }}>
-            Still needed: {problems.join(", ")}
-          </Alert>
-        )}
+        {/* Space reserved for the message so the grid doesn't jump while typing. */}
+        <Box sx={{ minHeight: 52, mt: 1 }}>
+          {filled.length > 0 && problems.length > 0 && (
+            <Alert severity="info" sx={{ py: 0 }}>
+              Still needed: {problems.join(", ")}
+            </Alert>
+          )}
+        </Box>
       </DialogContent>
       <DialogActions>
+        {onImportPis && (
+          <Button startIcon={<AutoAwesomeIcon />} onClick={onImportPis} sx={{ mr: "auto" }} data-tour="monthly-order-import-pis">
+            Import from PI PDFs…
+          </Button>
+        )}
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"

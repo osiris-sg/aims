@@ -23,7 +23,7 @@ export const TRIAGE_DOC_TYPES: Record<string, string | null> = {
   BL_SCAN: 'BL',
   CI: 'CI',
   PL: 'PL',
-  PL_CONTAINER: 'PL',
+  PL_CONTAINER: 'CONTAINER_PL',
   COA: 'COA',
   COO: 'COO',
   INSURANCE: 'INSURANCE',
@@ -41,9 +41,9 @@ export const TRIAGE_DOC_TYPES: Record<string, string | null> = {
   VENDOR_INVOICE: 'VENDOR_INVOICE',
   BUNDLE_LIST: 'BUNDLE_LIST',
   DELIVERY_SCHEDULE: 'DELIVERY_SCHEDULE',
-  /** Vedanta's Excel packing list / COA (the same documents as data). */
-  PL_XLS: 'PL',
-  COA_XLS: 'COA',
+  /** Vedanta's Excel packing list / COA summary: their own step 3b rows (step 4 is made from them). */
+  PL_XLS: 'PL_XLS',
+  COA_XLS: 'COA_XLS',
   OTHER: null,
 };
 /** Trade doc types filed on the order (the rest go on the shipment). */

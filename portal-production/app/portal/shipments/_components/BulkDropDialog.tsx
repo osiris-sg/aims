@@ -14,7 +14,7 @@ import React, { useEffect, useState } from "react";
 import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Select, Stack, Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from "@mui/material";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { useQueryClient } from "@tanstack/react-query";
-import { linkTargetsOf, useShipmentsApi, type FileClassification, type TradeStep } from "../_lib/api";
+import { linkTargetsOf, useShipmentsApi, type FileClassification, type TradeFile, type TradeStep } from "../_lib/api";
 import { SHIPMENT_KEYS, useDocTypeLabels } from "../_lib/hooks";
 import { toast } from "../_lib/toast";
 import { LocalPreview } from "./FilePreview";
@@ -36,12 +36,15 @@ export default function BulkDropDialog({
   owner,
   docTypes,
   onClose,
+  onFileUploaded,
 }: {
   files: File[] | null;
   step: TradeStep | null;
   owner: LinkTarget;
   docTypes: string[];
   onClose: () => void;
+  /** After each upload: the page reads a B/L draft / arrival notice / CI / import permit, as a single upload does. */
+  onFileUploaded?: (docType: string, files: TradeFile[]) => void;
 }) {
   const api = useShipmentsApi();
   const qc = useQueryClient();
@@ -89,6 +92,7 @@ export default function BulkDropDialog({
       .filter(({ r }) => r.choice !== SKIP && r.status !== "done")
       .sort((a, b) => Number(!!b.r.result?.primary && b.r.choice === b.r.result?.docType) - Number(!!a.r.result?.primary && a.r.choice === a.r.result?.docType));
     const completed: string[] = [];
+    const uploaded: Array<{ docType: string; file: TradeFile }> = [];
     let failed = 0;
     for (const { r, i } of order) {
       setRows((rs) => rs.map((x, j) => (j === i ? { ...x, status: "uploading" } : x)));
@@ -100,6 +104,7 @@ export default function BulkDropDialog({
           ...linkTargetsOf([owner]),
         });
         completed.push(...(f.completedSteps ?? []));
+        uploaded.push({ docType: r.choice, file: f as TradeFile });
         setRows((rs) => rs.map((x, j) => (j === i ? { ...x, status: "done" } : x)));
       } catch (e) {
         failed++;
@@ -107,7 +112,9 @@ export default function BulkDropDialog({
       }
     }
     // Refresh in the background; never wait on it (see useTradeMutation).
-    for (const k of [SHIPMENT_KEYS.contracts, SHIPMENT_KEYS.shipments, SHIPMENT_KEYS.files, SHIPMENT_KEYS.hub]) void qc.invalidateQueries({ queryKey: k });
+    // Orders too: the order page's shipment cards show each shipment's progress.
+    for (const k of [SHIPMENT_KEYS.orders, SHIPMENT_KEYS.contracts, SHIPMENT_KEYS.shipments, SHIPMENT_KEYS.files, SHIPMENT_KEYS.hub]) void qc.invalidateQueries({ queryKey: k });
+    for (const u of uploaded) onFileUploaded?.(u.docType, [u.file]);
     setBusy(false);
     if (failed) setError(`${failed} file(s) could not be uploaded — see the rows marked in red.`);
     else {

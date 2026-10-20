@@ -26,7 +26,7 @@ export class TradeExtractController {
   @Permissions('shipments:create')
   @UseInterceptors(pdfOrImage)
   pi(@UploadedFile() file: Express.Multer.File | undefined, @Body() dto: ExtractPiDto, @Req() req: TradeRequest) {
-    return this.extract.extract(orgIdOf(req), 'PI', { file, fileId: dto.fileId }, actorOf(req));
+    return this.extract.extract(orgIdOf(req), 'PI', { file, fileId: dto.fileId, orderId: dto.orderId }, actorOf(req));
   }
 
   @Post('bl-draft')
@@ -60,6 +60,14 @@ export class TradeExtractController {
   }
 
   /** 輸入許可書 → actual import tax, customs rate, CIF, 加算運賃 + B/L / 仕入書番号 checks (text layer first, AI for scans). */
+  /** Vedanta's CI (step 3b): read it and fill the shipment's blank CI no. / amount; the CI price check compares it. */
+  @Post('ci')
+  @Permissions('shipments:update')
+  @UseInterceptors(pdfOrImage)
+  ci(@UploadedFile() file: Express.Multer.File | undefined, @Body() dto: ExtractBlDraftDto, @Req() req: TradeRequest) {
+    return this.extract.extract(orgIdOf(req), 'CI', { file, fileId: dto.fileId, shipmentId: dto.shipmentId }, actorOf(req));
+  }
+
   @Post('import-permit')
   @Permissions('shipments:create')
   @UseInterceptors(pdfOrImage)

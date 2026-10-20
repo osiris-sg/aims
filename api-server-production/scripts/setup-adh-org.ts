@@ -232,6 +232,10 @@ const DOC_TYPES: Array<[string, string, DocCategory]> = [
   ['PAYMENT_PROOF', 'Payment proof', 'PAYMENTS'],
   ['CUSTOMER_PO', 'Customer purchase order (発注書)', 'CUSTOMER'],
   ['BUNDLE_LIST', 'Bundle-number list (NO.取りリスト)', 'CUSTOMS_LOGISTICS'],
+  // Their own step 3b rows (prod click-through): step 4 makes the customer PL / COA from them.
+  ['CONTAINER_PL', 'Container packing list', 'SUPPLIER'],
+  ['PL_XLS', 'Packing list spreadsheet (PL.XLS)', 'SUPPLIER'],
+  ['COA_XLS', 'COA summary (COA.XLS)', 'SUPPLIER'],
   ['OTHER', 'Other', 'OTHER'],
 ];
 
@@ -360,7 +364,7 @@ const STEP_TEMPLATES: StepSpec[] = [
     requiredFields: ['blNumber'],
     optionalDocTypes: ['ARRIVAL_NOTICE', 'OTHER'],
   },
-  { scope: 'SHIPMENT', sortOrder: 20, code: 'SHIPPING_DOCS', displayNo: '3b', title: 'Receive shipping documents', requiredDocTypes: ['BL', 'CI', 'PL', 'COA', 'COO', 'INSURANCE'], optionalDocTypes: ['PL', 'COA', 'OTHER'] },
+  { scope: 'SHIPMENT', sortOrder: 20, code: 'SHIPPING_DOCS', displayNo: '3b', title: 'Receive shipping documents', requiredDocTypes: ['BL', 'CI', 'PL', 'COA', 'COO', 'INSURANCE'], optionalDocTypes: ['CONTAINER_PL', 'PL_XLS', 'COA_XLS', 'PL', 'COA', 'OTHER'] },
   { scope: 'SHIPMENT', sortOrder: 30, code: 'CUSTOMER_DOCS', displayNo: '4', title: 'Create customer documents', requiredDocTypes: ['CUSTOMER_COA', 'CUSTOMER_PL'], optionalDocTypes: ['OTHER'] },
   { scope: 'SHIPMENT', sortOrder: 40, code: 'SEND_DOCS_SCHEDULE', displayNo: '5', title: 'Send documents & ask schedule', requiredDocTypes: [], optionalDocTypes: ['DELIVERY_SCHEDULE', 'OTHER'] },
   { scope: 'SHIPMENT', sortOrder: 50, code: 'CI_PAYMENT', displayNo: '6', title: 'Set up CI payment', requiredDocTypes: ['CI_PAYMENT_PROOF'], optionalDocTypes: ['OTHER'] },
@@ -1033,6 +1037,21 @@ async function main() {
       if (!n) continue;
       if (APPLY) await org.tradeStep.updateMany({ where, data: { displayNo: s.displayNo } });
       write('tradeStep', `renumber ${n} ${s.scope.toLowerCase()} step(s) ${s.code} → #${s.displayNo}`);
+    }
+    // Steps also snapshot their "Optional" doc types: a template that offers more (step 3b's Container PL / PL.XLS /
+    // COA.XLS rows) passes them on to the existing steps — what is offered only; status, files and requirements untouched.
+    for (const s of STEP_TEMPLATES) {
+      const want = s.optionalDocTypes ?? ['OTHER'];
+      const owner =
+        s.scope === 'SUPPLIER_ORDER' ? { supplierOrderId: { not: null } } : s.scope === 'ORDER' ? { orderId: { not: null } } : { shipmentId: { not: null } };
+      const rows: Array<{ id: string; optionalDocTypes: string[] }> = await tradeRead(
+        () => org.tradeStep.findMany({ where: { organizationId: orgId, code: s.code, notApplicable: false, ...owner }, select: { id: true, optionalDocTypes: true } }),
+        [],
+      );
+      const stale = rows.filter((r) => want.some((d) => !(r.optionalDocTypes ?? []).includes(d)));
+      if (!stale.length) continue;
+      if (APPLY) await org.tradeStep.updateMany({ where: { id: { in: stale.map((r) => r.id) } }, data: { optionalDocTypes: want } });
+      write('tradeStep', `offer ${stale.length} ${s.scope.toLowerCase()} step(s) ${s.code} the optional types [${want.join(', ')}]`);
     }
   }
 

@@ -104,6 +104,36 @@ export const BL_SCHEMA = z.object({
 });
 export type BlRaw = z.infer<typeof BL_SCHEMA>;
 
+/** Vedanta's Commercial Invoice (step 3b): number, date, amount and the price build-up for the CI price check. */
+export const CI_SCHEMA = z.object({
+  ciNumber: nstr.default(null),
+  ciDate: nstr.default(null),
+  blNumber: nstr.default(null),
+  currency: nstr.default(null),
+  totalAmount: nnum.default(null),
+  netWeightMt: nnum.default(null),
+  unitPrice: nnum.default(null),
+  lme: nnum.default(null),
+  premium: nnum.default(null),
+});
+export type CiRaw = z.infer<typeof CI_SCHEMA>;
+
+export const CI_SYSTEM_PROMPT =
+  'You read Commercial Invoices (CI) for aluminium billet shipments from a supplier (e.g. Vedanta) to a trading company. The PDF may be a scanned image — read the page images. Transcribe values exactly as printed; never invent a value — use null when it is not on the document. Output STRICT JSON only.';
+
+export const CI_USER_PROMPT = `Extract this Commercial Invoice into exactly this JSON (null when absent):
+{
+  "ciNumber": "commercial invoice no. as printed (e.g. \\"9000565680\\")",
+  "ciDate": "invoice date as YYYY-MM-DD (the document prints DD/MM/YYYY or DD.MM.YYYY)",
+  "blNumber": "bill of lading no. if printed",
+  "currency": "e.g. \\"USD\\"",
+  "totalAmount": "the invoice total payable as a number (no separators)",
+  "netWeightMt": "total net weight in metric tons as a number (convert kg to MT)",
+  "unitPrice": "price per MT as a number",
+  "lme": "the LME price per MT used, as a number, if printed",
+  "premium": "the premium per MT added to the LME, as a number, if printed"
+}`;
+
 /** Validate model output; the error lists the offending paths. */
 export function parseWith<S extends z.ZodTypeAny>(schema: S, raw: unknown, what: string): z.infer<S> {
   const r = schema.safeParse(raw);

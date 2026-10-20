@@ -165,7 +165,8 @@ export class ShipmentsService {
       },
     });
     if (!s) throw new NotFoundException('Shipment not found');
-    const { steps, docLinks } = await this.config.decorateRecord(organizationId, s);
+    // Telex code / SI delivery dates / in-app tax estimate meet those documents too.
+    const { steps, docLinks } = await this.config.decorateRecord(organizationId, s, this.prisma, await this.config.shipmentFieldTypes(this.prisma, organizationId, id));
     const blCheck = await latestBlCheck(this.prisma, organizationId, id);
     // Steps 7 / 8 / 12: the cost + import tax estimate and the actuals, with the customer's truck size and customs rate.
     const settings = await this.config.getSettings(organizationId);

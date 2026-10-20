@@ -17,6 +17,10 @@ import {
   BL_USER_PROMPT,
   blDraftChecks,
   BlCheck,
+  CI_SCHEMA,
+  CI_SYSTEM_PROMPT,
+  CI_USER_PROMPT,
+  CiRaw,
   contractDraftFromPi,
   issueCount,
   lineForGrade,
@@ -39,10 +43,10 @@ import { ShipmentCosts } from './trade-estimator';
 import { supplierProfileFor } from './trade-profile';
 import * as XLSX from 'xlsx';
 import { Classification, classifyByName, classifyPrompt, classifySheetText, combineClassification, isSpreadsheet } from './trade-classify';
-import { decodeUploadName, resolveTradeFileMime } from './shipments.rules';
+import { decodeUploadName, depositOf, resolveTradeFileMime, tradeDateError } from './shipments.rules';
 
-export type ExtractKind = 'PI' | 'BL_DRAFT' | 'AN' | 'IMPORT_PERMIT';
-const DOC_TYPE: Record<ExtractKind, string> = { PI: 'PI', BL_DRAFT: 'BL_DRAFT', AN: 'ARRIVAL_NOTICE', IMPORT_PERMIT: 'IMPORT_PERMIT' };
+export type ExtractKind = 'PI' | 'BL_DRAFT' | 'AN' | 'IMPORT_PERMIT' | 'CI';
+const DOC_TYPE: Record<ExtractKind, string> = { PI: 'PI', BL_DRAFT: 'BL_DRAFT', AN: 'ARRIVAL_NOTICE', IMPORT_PERMIT: 'IMPORT_PERMIT', CI: 'CI' };
 /** The step a newly uploaded source PDF is tagged with. */
 const STEP_CODE: Partial<Record<ExtractKind, string>> = { BL_DRAFT: 'BL_DRAFT_APPROVAL', AN: 'AN_INSTRUCTIONS', IMPORT_PERMIT: 'IMPORT_PERMIT' };
 const PROMPTS: Record<ExtractKind, [string, string]> = {
@@ -50,6 +54,7 @@ const PROMPTS: Record<ExtractKind, [string, string]> = {
   BL_DRAFT: [BL_SYSTEM_PROMPT, BL_USER_PROMPT],
   AN: [AN_SYSTEM_PROMPT, AN_USER_PROMPT],
   IMPORT_PERMIT: [PERMIT_SYSTEM_PROMPT, PERMIT_USER_PROMPT],
+  CI: [CI_SYSTEM_PROMPT, CI_USER_PROMPT],
 };
 /** Read from the PDF's text layer first (exact, free); the AI read only when it isn't enough. */
 const TEXT_FIRST: Partial<Record<ExtractKind, (text: string) => { data: unknown; complete: boolean }>> = {
@@ -101,7 +106,7 @@ export class TradeExtractService {
     private readonly extractor: DocumentExtractionService,
   ) {}
 
-  async extract(organizationId: string, kind: ExtractKind, input: { file?: Express.Multer.File; fileId?: string; shipmentId?: string; contractId?: string }, actor: TradeActor) {
+  async extract(organizationId: string, kind: ExtractKind, input: { file?: Express.Multer.File; fileId?: string; shipmentId?: string; contractId?: string; orderId?: string }, actor: TradeActor) {
     if (input.shipmentId) {
       const s = await this.prisma.shipment.findFirst({ where: { id: input.shipmentId, organizationId }, select: { id: true } });
       if (!s) throw new BadRequestException('Shipment not found');
@@ -147,7 +152,17 @@ export class TradeExtractService {
             ? await this.anResult(organizationId, via === 'text' ? anRawFromText(out.data as AnData) : out.data, input, via)
             : kind === 'IMPORT_PERMIT'
               ? await this.permitResult(organizationId, via === 'text' ? (out.data as PermitData) : permitFromRaw(parseWith(PERMIT_SCHEMA, out.data, 'import permit')), input, file.fileName, via)
-              : await this.blResult(organizationId, out.data, input);
+              : kind === 'CI'
+                ? { raw: parseWith(CI_SCHEMA, out.data, 'CI') }
+                : await this.blResult(organizationId, out.data, input);
+      // Read on upload (round H click-through): blank record fields are filled from the document — typed values are kept.
+      const filled =
+        kind === 'PI' && input.orderId
+          ? await this.fillOrderFromPi(organizationId, input.orderId, (result as { draft: { piNumber?: string | null; piDate?: string | null; piAmount?: number | null } }).draft)
+          : kind === 'CI' && input.shipmentId
+            ? await this.fillShipmentFromCi(organizationId, input.shipmentId, (result as { raw: CiRaw }).raw)
+            : [];
+      if (filled.length) (result as Record<string, unknown>).filled = filled;
       const checks = kind === 'BL_DRAFT' && input.shipmentId ? await computeBlChecks(this.prisma, organizationId, input.shipmentId, (result as { draft: ShipmentDraft }).draft) : null;
       await this.prisma.tradeExtraction.update({
         where: { id: row.id },
@@ -267,6 +282,32 @@ export class TradeExtractService {
     // An order already made from this PI (same PI no.) — the New Order form warns instead of creating it twice.
     const order = draft.piNumber ? await this.prisma.tradeOrder.findFirst({ where: { organizationId, piNo: draft.piNumber }, select: { id: true, orderNo: true, year: true } }) : null;
     return { raw: pi, draft, existingContractId: existing?.id ?? null, existingOrder: order ? { id: order.id, label: `#${order.orderNo}`, year: order.year } : null };
+  }
+
+  /** Order PI fields from a read PI — blanks only (PI no. / date / amount). Returns the field names filled. */
+  private async fillOrderFromPi(organizationId: string, orderId: string, d: { piNumber?: string | null; piDate?: string | null; piAmount?: number | null }) {
+    const o = await this.prisma.tradeOrder.findFirst({ where: { id: orderId, organizationId }, select: { piNo: true, piDate: true, piAmount: true, depositPct: true, depositAmount: true } });
+    if (!o) return [];
+    const data: Record<string, unknown> = {};
+    if (!o.piNo && d.piNumber) data.piNo = d.piNumber;
+    if (!o.piDate && d.piDate && /^\d{4}-\d{2}-\d{2}$/.test(d.piDate) && !tradeDateError(d.piDate, 'piDate')) data.piDate = new Date(d.piDate);
+    if (o.piAmount === null && typeof d.piAmount === 'number' && d.piAmount > 0) {
+      data.piAmount = d.piAmount;
+      if (o.depositAmount === null) data.depositAmount = depositOf(d.piAmount, o.depositPct ?? 10);
+    }
+    if (Object.keys(data).length) await this.prisma.tradeOrder.update({ where: { id: orderId, organizationId }, data });
+    return Object.keys(data);
+  }
+
+  /** Shipment CI fields from a read CI — blanks only (CI no. / amount). */
+  private async fillShipmentFromCi(organizationId: string, shipmentId: string, ci: CiRaw) {
+    const s = await this.prisma.shipment.findFirst({ where: { id: shipmentId, organizationId }, select: { ciNumber: true, ciAmount: true } });
+    if (!s) return [];
+    const data: Record<string, unknown> = {};
+    if (!s.ciNumber && ci.ciNumber) data.ciNumber = ci.ciNumber;
+    if (s.ciAmount === null && typeof ci.totalAmount === 'number' && ci.totalAmount > 0) data.ciAmount = ci.totalAmount;
+    if (Object.keys(data).length) await this.prisma.shipment.update({ where: { id: shipmentId, organizationId }, data });
+    return Object.keys(data);
   }
 
   /** A PDF's text layer through a layout reader; null when there's no text / the reader fails. */

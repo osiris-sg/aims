@@ -4152,6 +4152,7 @@ enum TradeExtractionKind {
   BL_DRAFT
   AN
   IMPORT_PERMIT
+  CI
 }
 
 enum TradeExtractionStatus {

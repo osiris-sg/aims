@@ -218,8 +218,8 @@ export const GUIDES: Guide[] = [
         body: 'Each row is an order (#19): customer, contract, ship → delivery month, product and quantity. The arrow next to #19 lists its shipments.',
       },
       {
-        title: 'New Order',
-        body: 'Click "New Order" (top-right). Drop the PI on "Fill from PI" to fill the form from an existing PI file, or type it in. Pick the contract: the premiums come from its line and stay editable.',
+        title: '+ New order',
+        body: 'Click "+ New order" (top-right). Drop the PI on "Fill from PI" to fill the form from an existing PI file, or type it in. Pick the contract: the premiums come from its line and stay editable.',
       },
       {
         selector: '[data-tour="order-add-shipment"]',

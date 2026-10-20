@@ -351,6 +351,8 @@ export const STEP_PAYMENT: Record<string, { direction: "IN" | "OUT"; proofDocTyp
   INVOICE_1: { direction: "IN", proofDocType: "PAYMENT_PROOF", label: "Invoice #1 received", currency: "USD" },
   INVOICE_2: { direction: "IN", proofDocType: "PAYMENT_PROOF", label: "Invoice received", currency: "USD" },
 };
+/** Paying steps that wait for their payment before completing by themselves (backend PAYMENT_GATED_STEPS). */
+export const PAYMENT_GATED_STEPS = new Set(["PI_PAYMENT", "CI_PAYMENT", "LOGISTICS_PAYMENT"]);
 export const paymentOf = (st: Pick<TradeStep, "payment">): StepPayment | null => (st.payment && Number.isFinite(Number((st.payment as StepPayment).amount)) ? (st.payment as StepPayment) : null);
 
 export type Subtask = { key: string; label: string; done: boolean; na?: boolean; at?: string | null; by?: string | null; source?: string | null; emailLogId?: string | null };
@@ -737,6 +739,8 @@ export type PriceCheck = {
   ok: boolean;
   notes: string[];
   source: string;
+  /** The document gave at least one value (false → "Not read yet"). */
+  read?: boolean;
 };
 export type Reconciliation = {
   orderId: string;
@@ -1246,10 +1250,10 @@ export function useShipmentsApi() {
   const { getToken } = useAuth();
 
   return useMemo(() => {
-    const call = async <T>(path: string, method: "GET" | "POST" | "PATCH" | "DELETE" = "GET", body: unknown = {}): Promise<T> => {
+    const call = async <T>(path: string, method: "GET" | "POST" | "PATCH" | "DELETE" = "GET", body: unknown = {}, timeout?: number): Promise<T> => {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path, method }, body, token);
+      const res = await request({ path, method, ...(timeout ? { timeout } : {}) }, body, token);
       if (!res || res.success === false) throw new Error(errorText(res?.message, "Request failed"));
       return (res.data ?? res) as T;
     };
@@ -1272,12 +1276,12 @@ export function useShipmentsApi() {
     };
 
     // Multipart POST with the Clerk token + admin org header (like uploadFile).
-    const postExtract = async <T>(kind: "pi" | "bl-draft" | "an" | "import-permit", input: { file?: File; fileId?: string; shipmentId?: string; contractId?: string }): Promise<T> => {
+    const postExtract = async <T>(kind: "pi" | "bl-draft" | "an" | "import-permit" | "ci", input: { file?: File; fileId?: string; shipmentId?: string; contractId?: string; orderId?: string }): Promise<T> => {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const form = new FormData();
       if (input.file) form.append("file", input.file);
-      for (const k of ["fileId", "shipmentId", "contractId"] as const) if (input[k]) form.append(k, input[k]!);
+      for (const k of ["fileId", "shipmentId", "contractId", "orderId"] as const) if (input[k]) form.append(k, input[k]!);
       const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
       const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
       if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
@@ -1422,7 +1426,8 @@ export function useShipmentsApi() {
 
       // ── AI extraction ────────────────────────────────────────────────────
       /** Read a PI (new PDF or an uploaded PI file) into a contract draft. ~10 s. */
-      extractPi: (input: { file?: File; fileId?: string }) => postExtract<PiExtraction>("pi", input),
+      extractPi: (input: { file?: File; fileId?: string; orderId?: string }) => postExtract<PiExtraction>("pi", input),
+      extractCi: (input: { fileId: string; shipmentId: string }) => postExtract<Extraction & { result: { raw: Record<string, unknown>; filled?: string[] } | null }>("ci", input),
       /** Read a B/L draft into a shipment draft (+ checks when shipmentId is given). ~15 s. */
       extractBlDraft: (input: { file?: File; fileId?: string; shipmentId?: string; contractId?: string }) => postExtract<BlExtraction>("bl-draft", input),
       extractAn: (input: { file?: File; fileId?: string; shipmentId?: string }) => postExtract<AnExtraction>("an", input),
@@ -1510,7 +1515,21 @@ export function useShipmentsApi() {
       /** 請求書 due date for an issue date (the org's business days, Japanese bank holidays skipped). */
       invoiceDueDate: (issueDate: string, docType?: string) => call<{ issueDate: string; dueDate: string; businessDays: number }>(`/trade-generated/due-date${qs({ issueDate, docType })}`),
       previewGenerated: (body: { docType: string; header: any; columns: any[]; rows: any[]; draft?: boolean }) => call<{ html: string }>(`/trade-generated/preview`, "POST", body),
-      finalizeGenerated: (id: string) => call<GeneratedDoc>(`/trade-generated/${id}/finalize`, "POST"),
+      // Finalize renders the PDF (Puppeteer — slow on a cold server): a longer timeout, and if the request still
+      // gives up, the document is re-read — a finalize that went through is a success, never an error.
+      finalizeGenerated: async (id: string) => {
+        try {
+          return await call<GeneratedDoc>(`/trade-generated/${id}/finalize`, "POST", {}, 120_000);
+        } catch (e: any) {
+          for (let i = 0; i < 6; i++) {
+            const g = await call<GeneratedDoc>(`/trade-generated/${id}`).catch(() => null);
+            if (g?.status === "FINAL") return g;
+            if (!/time|network|abort/i.test(String(e?.message ?? ""))) break;
+            await new Promise((r) => setTimeout(r, 5000));
+          }
+          throw e;
+        }
+      },
       revertGenerated: (id: string) => call<GeneratedDoc>(`/trade-generated/${id}/revert`, "POST"),
       deleteGenerated: (id: string) => call<{ id: string; deleted: boolean }>(`/trade-generated/${id}`, "DELETE"),
 

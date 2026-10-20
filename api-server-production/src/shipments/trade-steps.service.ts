@@ -160,6 +160,8 @@ export class TradeStepsService {
       if (!linked) fail('the proof file is not on this record — upload it on the step first');
     }
     await this.prisma.tradeStep.update({ where: { id, organizationId }, data: { payment: (payment ?? {}) as any } }); // {} = cleared (a Json null needs the client's own DbNull)
+    // A paying step waits for its payment: saving it may finish the step now.
+    await this.config.syncSteps(this.prisma, organizationId, [toOwner(step)], null);
     return this.read(this.prisma, organizationId, id);
   }
 

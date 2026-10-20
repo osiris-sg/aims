@@ -118,8 +118,10 @@ export interface PriceCheck {
   side: 'supplier' | 'client';
   basisMonth: string | null;
   lines: PriceCheckLine[];
-  /** Every line that could be checked agrees. */
+  /** Every line that could be checked agrees — and the document gave at least one value (else nothing was compared). */
   ok: boolean;
+  /** The document gave at least one value (else the panel says "Not read yet", never "Matches"). */
+  read: boolean;
   /** Something is missing on the contract / in the prices (shown as "check"). */
   notes: string[];
 }
@@ -170,7 +172,8 @@ export function priceCheck(input: {
     ...(input.side === 'client' ? [line('qmjp', `QMJP${input.basisMonth ? ` (${quarterOf(input.basisMonth)})` : ''}`, qmjp, input.found.qmjp)] : []),
     line('unit', 'Unit price', unit, input.found.unit),
   ];
-  return { side: input.side, basisMonth: input.basisMonth, lines, ok: lines.every((l) => l.mark !== 'diff'), notes };
+  const read = lines.some((l) => l.found !== null);
+  return { side: input.side, basisMonth: input.basisMonth, lines, ok: read && lines.every((l) => l.mark !== 'diff'), read, notes };
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100;

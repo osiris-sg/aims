@@ -391,6 +391,9 @@ export function fieldRequirements(required: string[] | null | undefined, record:
 
 export interface AutoStep {
   id: string;
+  /** Step code + its payment: a paying step waits for its payment (readyToAutoComplete). */
+  code?: string;
+  payment?: unknown;
   status: string;
   isOngoing: boolean;
   sortOrder: number;
@@ -418,12 +421,14 @@ export function autoCompletePlan<T extends AutoStep>(
   present: Iterable<string>,
   record: Record<string, unknown> | null | undefined,
   changed: { docTypes?: string[]; fields?: string[] } = {},
+  /** Extra condition before a step completes by itself (a paying step waits for its payment). */
+  ready: (s: T) => boolean = () => true,
 ): { complete: T[]; release: T[]; start: T | null } {
   const have = [...present];
   const touched = (s: T) => s.requiredDocTypes.some((d) => changed.docTypes?.includes(d)) || (s.requiredFields ?? []).some((f) => changed.fields?.includes(f));
   const release = steps.filter((s) => s.holdOpen && touched(s));
   const held = (s: T) => !!s.holdOpen && !release.includes(s);
-  const complete = steps.filter((s) => countsForProgress(s) && s.status !== 'DONE' && !held(s) && hasRequirements(s) && stepSatisfied(s, have, record));
+  const complete = steps.filter((s) => countsForProgress(s) && s.status !== 'DONE' && !held(s) && hasRequirements(s) && stepSatisfied(s, have, record) && ready(s));
   const after = (s: T) => (complete.includes(s) ? 'DONE' : s.status);
   const next = steps
     .filter(countsForProgress)
@@ -476,3 +481,15 @@ export function freeTimeLeft(
   };
   return { from: s.dischargeDate ? 'discharge' : 'eta', det: one(s.detFreeDays ?? rules.detFreeDays), dem: one(s.demFreeDays ?? rules.demFreeDays) };
 }
+
+/**
+ * Paying steps that wait for their payment before completing by themselves (prod click-through, round H):
+ * uploading the proof used to finish step 1 before the amount / date / account could be saved. "Mark done"
+ * still works by hand.
+ */
+export const PAYMENT_GATED_STEPS = new Set(['PI_PAYMENT', 'CI_PAYMENT', 'LOGISTICS_PAYMENT']);
+export const paymentRecorded = (payment: unknown) => {
+  const p = payment && typeof payment === 'object' ? (payment as { amount?: unknown; paidAt?: unknown }) : null;
+  return !!p && Number.isFinite(Number(p.amount)) && Number(p.amount) > 0 && typeof p.paidAt === 'string';
+};
+export const readyToAutoComplete = <T extends { code?: string; payment?: unknown }>(s: T): boolean => !s.code || !PAYMENT_GATED_STEPS.has(s.code) || paymentRecorded(s.payment);

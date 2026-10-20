@@ -59,7 +59,7 @@ export class TradeFilesService {
     file: Express.Multer.File | undefined,
     dto: UploadTradeFileDto,
     actor: TradeActor,
-    opts: { docRef?: string | null; source?: 'UPLOAD' | 'GENERATED' | 'EMAIL'; emailLogId?: string | null; sha256?: string | null } = {},
+    opts: { docRef?: string | null; source?: 'UPLOAD' | 'GENERATED' | 'EMAIL'; emailLogId?: string | null; sha256?: string | null; completedShipmentsOk?: boolean } = {},
   ) {
     if (!file) throw new BadRequestException('Please attach a file');
     const fileName = decodeUploadName(file.originalname || 'upload');
@@ -74,7 +74,7 @@ export class TradeFilesService {
 
     // Validate before touching S3 so a bad request stores nothing.
     await this.config.assertActiveDocType(organizationId, docType);
-    await this.resolveTargets(this.prisma, organizationId, contractIds, shipmentIds, dto.stepId, orderIds, supplierOrderIds);
+    await this.resolveTargets(this.prisma, organizationId, contractIds, shipmentIds, dto.stepId, orderIds, supplierOrderIds, opts.completedShipmentsOk);
 
     const fileId = randomUUID();
     const key = `${TradeFilesService.keyPrefix(organizationId)}${new Date().getUTCFullYear()}/${fileId}_${sanitizeFileName(fileName)}`;
@@ -91,7 +91,7 @@ export class TradeFilesService {
       await this.prisma.$transaction(async (tx: Db) => {
         // Re-check inside the transaction: a record may have closed meanwhile.
         await this.config.assertActiveDocType(organizationId, docType, tx);
-        const targets = await this.resolveTargets(tx, organizationId, contractIds, shipmentIds, dto.stepId, orderIds, supplierOrderIds);
+        const targets = await this.resolveTargets(tx, organizationId, contractIds, shipmentIds, dto.stepId, orderIds, supplierOrderIds, opts.completedShipmentsOk);
         owners = ownersOfTargets(targets);
         // Document ID from the record it was uploaded for (the step's record, else the first shipment / order / supplier order / contract).
         const refOwner: TradeOwner | undefined = targets.step
@@ -251,7 +251,7 @@ export class TradeFilesService {
     return { buffer: await this.s3.downloadFile(f.s3Key), fileName: f.fileName, mimeType: f.mimeType };
   }
 
-  async addLinks(organizationId: string, id: string, dto: AddTradeFileLinksDto, actor: TradeActor | null = null) {
+  async addLinks(organizationId: string, id: string, dto: AddTradeFileLinksDto, actor: TradeActor | null = null, opts: { completedShipmentsOk?: boolean } = {}) {
     const contractIds = parseIdList(dto.contractIds);
     const shipmentIds = parseIdList(dto.shipmentIds);
     const orderIds = parseIdList(dto.orderIds);
@@ -267,7 +267,7 @@ export class TradeFilesService {
         select: { id: true, docType: true, links: { select: { id: true, contractId: true, shipmentId: true, orderId: true, supplierOrderId: true, stepId: true } } },
       });
       if (!f) throw new NotFoundException('File not found');
-      const targets = await this.resolveTargets(tx, organizationId, contractIds, shipmentIds, dto.stepId, orderIds, supplierOrderIds);
+      const targets = await this.resolveTargets(tx, organizationId, contractIds, shipmentIds, dto.stepId, orderIds, supplierOrderIds, opts.completedShipmentsOk);
       owners = ownersOfTargets(targets);
       docType = f.docType;
       const existing = new Set<string>(f.links.map((l: { contractId: string | null; shipmentId: string | null; orderId: string | null; supplierOrderId: string | null }) => ownerIdOf(l)));
@@ -378,7 +378,8 @@ export class TradeFilesService {
    * (completed/cancelled records take no new documents until reopened). A
    * stepId adds its own contract/shipment to the targets.
    */
-  async resolveTargets(db: Db, organizationId: string, contractIds: string[], shipmentIds: string[], stepId?: string, orderIds: string[] = [], supplierOrderIds: string[] = []): Promise<Targets> {
+  /** completedShipmentsOk: an order-level invoice (step 11, round H) is filed on shipments that already completed their own steps. */
+  async resolveTargets(db: Db, organizationId: string, contractIds: string[], shipmentIds: string[], stepId?: string, orderIds: string[] = [], supplierOrderIds: string[] = [], completedShipmentsOk = false): Promise<Targets> {
     const bad = [...contractIds, ...shipmentIds, ...orderIds, ...supplierOrderIds].filter((x) => !isUuid(x));
     if (bad.length) throw new BadRequestException(`Invalid id(s): ${bad.join(', ')}`);
     const cIds = new Set(contractIds);
@@ -414,7 +415,7 @@ export class TradeFilesService {
       ...supplierOrders.filter((o) => o.status !== 'OPEN').map((o) => `supplier order ${o.piNo ? `PI ${o.piNo}` : `S${o.soNo}`} (${o.status.toLowerCase()})`),
       ...orders.filter((o) => o.status !== 'OPEN').map((o) => `order #${o.orderNo} (${o.status.toLowerCase()})`),
       ...contracts.filter((c) => c.status !== 'OPEN').map((c) => `contract ${c.contractNo} (${c.status.toLowerCase()})`),
-      ...shipments.filter((s) => s.status !== 'OPEN').map((s) => `shipment ${s.blNumber ?? '(no B/L)'} (${s.status.toLowerCase()})`),
+      ...shipments.filter((s) => s.status !== 'OPEN' && !(completedShipmentsOk && s.status === 'COMPLETED')).map((s) => `shipment ${s.blNumber ?? '(no B/L)'} (${s.status.toLowerCase()})`),
     ];
     if (closed.length) throw new BadRequestException(`Reopen before adding documents: ${closed.join(', ')}`);
     return { contracts, shipments, orders, supplierOrders, step };

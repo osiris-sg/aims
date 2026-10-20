@@ -127,17 +127,17 @@ describe('No DRAFT watermark on any generated document', () => {
 });
 
 // ── bulk upload with AI sorting ─────────────────────────────────────────────
-const STEP3 = ['BL', 'CI', 'PL', 'COA', 'COO', 'INSURANCE', 'OTHER'];
+const STEP3 = ['BL', 'CI', 'PL', 'COA', 'COO', 'INSURANCE', 'CONTAINER_PL', 'PL_XLS', 'COA_XLS', 'OTHER'];
 const SET_198GX04630: Array<[string, string, string | null, boolean]> = [
   ['198GX04630 SCAN.pdf', 'BL', null, true],
   ['COMMERCIAL_INVOICE_9000565680.pdf', 'CI', null, true],
   ['PACKING_LIST_9000565680.pdf', 'PL', null, true],
-  ['PACKING_LIST_CONTAINER_9000565680.pdf', 'PL', 'container PL', false],
+  ['PACKING_LIST_CONTAINER_9000565680.pdf', 'CONTAINER_PL', 'container PL', true],
   ['COA_9000565680.pdf', 'COA', null, true],
   ['COO_9000565680.pdf', 'COO', null, true],
   ['INSURANCE.pdf', 'INSURANCE', null, true],
-  ['PL.XLS', 'PL', 'PL spreadsheet', false],
-  ['COA.XLS', 'COA', 'COA summary', false],
+  ['PL.XLS', 'PL_XLS', 'PL spreadsheet', true],
+  ['COA.XLS', 'COA_XLS', 'COA summary', true],
 ];
 
 describe('Bulk upload — file-name and spreadsheet rules', () => {
@@ -148,12 +148,12 @@ describe('Bulk upload — file-name and spreadsheet rules', () => {
     expect(classifyByName('198GX04630.pdf')?.docType).toBe('BL');
     expect(classifyByName('BL draft 198GX04630.pdf')?.docType).toBe('BL_DRAFT');
     expect(classifyByName('[Merged] 202607-09 6005 120t WDMFT505_AN_JPYOK01_YSA9.pdf')?.docType).toBe('ARRIVAL_NOTICE');
-    expect(classifyByName('COA_集計ファイル_Sep120t.pdf')).toEqual({ docType: 'COA', variant: 'COA summary', primary: false });
+    expect(classifyByName('COA_集計ファイル_Sep120t.pdf')).toEqual({ docType: 'COA_XLS', variant: 'COA summary', primary: true });
     expect(classifyByName('scan0001.pdf')).toBeNull();
   });
   it("spreadsheet headers: Vedanta's COA.XLS (cast + chemistry) and PL.XLS (container + weights)", () => {
-    expect(classifySheetText('Batch\tCast No\tMaterial\tNet Wt\tGross WT\tLength\tSize\tFE\tSI\tTI\tMN\tMG')).toEqual({ docType: 'COA', variant: 'COA summary', primary: false });
-    expect(classifySheetText('Sl. No.\tBatch\tNet Wt.\tGross Wt.\tContainer ID')).toEqual({ docType: 'PL', variant: 'PL spreadsheet', primary: false });
+    expect(classifySheetText('Batch\tCast No\tMaterial\tNet Wt\tGross WT\tLength\tSize\tFE\tSI\tTI\tMN\tMG')).toEqual({ docType: 'COA_XLS', variant: 'COA summary', primary: true });
+    expect(classifySheetText('Sl. No.\tBatch\tNet Wt.\tGross Wt.\tContainer ID')).toEqual({ docType: 'PL_XLS', variant: 'PL spreadsheet', primary: true });
     expect(classifySheetText('Name\tAmount')).toBeNull();
     expect(sheetText(Buffer.from('Sl. No.\tBatch\tNet Wt.\r\n1\tB1\t2.5'))).toContain('Net Wt.');
   });
@@ -161,8 +161,8 @@ describe('Bulk upload — file-name and spreadsheet rules', () => {
 
 describe('Bulk upload — combining name, sheet and AI', () => {
   it('AI and file name agree → high confidence, the name keeps the variant', () => {
-    const r = combineClassification(STEP3, classifyByName('PACKING_LIST_CONTAINER_9000565680.pdf'), null, { docType: 'PL', variant: 'container PL', confidence: 0.8, reason: 'Per-container packing list' });
-    expect(r).toMatchObject({ docType: 'PL', variant: 'container PL', primary: false, source: 'name+ai' });
+    const r = combineClassification(STEP3, classifyByName('PACKING_LIST_CONTAINER_9000565680.pdf'), null, { docType: 'CONTAINER_PL', variant: 'container PL', confidence: 0.8, reason: 'Per-container packing list' });
+    expect(r).toMatchObject({ docType: 'CONTAINER_PL', variant: 'container PL', primary: true, source: 'name+ai' });
     expect(r.confidence).toBeGreaterThanOrEqual(0.9);
   });
   it('a scan with an unhelpful name is decided by the AI', () => {
@@ -174,7 +174,7 @@ describe('Bulk upload — combining name, sheet and AI', () => {
     expect(r.confidence).toBeLessThan(LOW_CONFIDENCE);
   });
   it('a spreadsheet is decided by its columns; no AI needed', () => {
-    expect(combineClassification(STEP3, classifyByName('PL.XLS'), classifySheetText('Sl. No.\tBatch\tNet Wt.\tGross Wt.\tContainer ID'), null)).toMatchObject({ docType: 'PL', variant: 'PL spreadsheet', confidence: 0.95, source: 'sheet' });
+    expect(combineClassification(STEP3, classifyByName('PL.XLS'), classifySheetText('Sl. No.\tBatch\tNet Wt.\tGross Wt.\tContainer ID'), null)).toMatchObject({ docType: 'PL_XLS', variant: 'PL spreadsheet', confidence: 0.95, source: 'sheet' });
   });
   it('AI down → the file name at 75 %; nothing → Other, flagged; a type the step does not take → Other', () => {
     expect(combineClassification(STEP3, classifyByName('INSURANCE.pdf'), null, null)).toMatchObject({ docType: 'INSURANCE', confidence: 0.75, source: 'name' });

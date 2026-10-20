@@ -30,15 +30,23 @@ export default function EstimatorPanel({ shipment, mode, canEdit }: { shipment: 
   const e = shipment.estimate;
   const costs = shipment.costs ?? {};
   const save = useTradeMutation((a, patch: ShipmentCosts) => a.updateShipment(shipment.id, { costs: patch }));
+  // What was just typed shows in the summary at once (Funded / Actual / Variance), before the refetch lands.
+  const [typed, setTyped] = useState<ShipmentCosts>({});
+  useEffect(() => setTyped({}), [shipment.updatedAt]);
   if (!e) return null;
 
   const put = async (patch: ShipmentCosts) => {
+    setTyped((t) => ({ ...t, ...patch }));
     try {
       await save.mutateAsync(patch);
     } catch (err: any) {
+      setTyped({});
       toast.error(err?.message || "Could not save");
     }
   };
+  const funded = "importTaxFunded" in typed ? (typed.importTaxFunded ?? null) : e.importTax.funded;
+  const actual = "importTaxActual" in typed ? (typed.importTaxActual ?? null) : e.importTax.actual;
+  const variance = actual === null || e.importTax.estimate === null ? null : actual - e.importTax.estimate;
 
   return (
     <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 } }} data-tour={mode === "actuals" ? "estimator-actuals" : mode === "tax" ? "estimator-import-tax" : "estimator-costs"}>
@@ -108,9 +116,9 @@ export default function EstimatorPanel({ shipment, mode, canEdit }: { shipment: 
               ["Import tax estimate (納税額合計)", e.importTax.estimate, true],
               ...(mode === "tax"
                 ? ([
-                    ["Funded", e.importTax.funded],
-                    ["Actual", e.importTax.actual],
-                    ["Variance (actual − estimate)", e.importTax.variance, true],
+                    ["Funded", funded],
+                    ["Actual", actual],
+                    ["Variance (actual − estimate)", variance, true],
                   ] as Array<[string, number | null, boolean?]>)
                 : []),
             ]}
@@ -214,6 +222,9 @@ function Num({ label, value, onSave, yen, disabled, helper, placeholder }: { lab
         placeholder={placeholder !== undefined ? String(placeholder) : undefined}
         helperText={helper}
         onChange={(e) => setV(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
         onBlur={() => {
           const n = parse(v);
           if (n !== null && !Number.isFinite(n)) return toast.error(`${label}: enter a number`);

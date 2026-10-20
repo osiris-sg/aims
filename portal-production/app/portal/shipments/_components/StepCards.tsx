@@ -28,6 +28,7 @@
 
 import React, { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { Box, Button, ButtonBase, Checkbox, Chip, CircularProgress, Collapse, Divider, FormControlLabel, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Stack, Typography, Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
 import BlockIcon from "@mui/icons-material/Block";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
@@ -40,7 +41,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import LinkIcon from "@mui/icons-material/Link";
 import DownloadIcon from "@mui/icons-material/Download";
 import { toast } from "../_lib/toast";
-import { useShipmentsApi, type BlCheckSummary, type GeneratedDoc, type GenSource, type RecordDocLink, type RecordFileLink, type TradeFile, type TradeStep } from "../_lib/api";
+import { PAYMENT_GATED_STEPS, paymentOf, useShipmentsApi, type BlCheckSummary, type GeneratedDoc, type GenSource, type RecordDocLink, type RecordFileLink, type TradeFile, type TradeStep } from "../_lib/api";
 import { useDocTypeLabels, useShipments, useTradeMutation } from "../_lib/hooks";
 import { documentHref, fmtDate, fmtDateTime, GENERATED_DOC_TYPES, INVOICE_DOC_TYPES, stepLabel } from "../_lib/format";
 import { ConfirmDialog } from "./bits";
@@ -196,6 +197,8 @@ export default function StepCards({
   const stillNeeded = (s: TradeStep) => [
     ...s.requiredDocTypes.filter((d) => !stateOf(s, d).done).map(label),
     ...(s.fieldRequirements ?? []).filter((f) => !f.satisfied).map((f) => f.label),
+    // A paying step stays open until its payment (amount, date, account) is saved below.
+    ...(PAYMENT_GATED_STEPS.has(s.code) && !s.notApplicable && !paymentOf(s) ? ["the payment (amount, date, account)"] : []),
   ];
   const hasRequirements = (s: TradeStep) => s.requiredDocTypes.length > 0 || (s.requiredFields?.length ?? 0) > 0;
 
@@ -218,10 +221,8 @@ export default function StepCards({
     try {
       const g = await api.createBlankGenerated({
         docType,
-        // An order's Invoice #2 belongs to the shipments it covers (the first is its record).
-        ...(covers && owner.kind === "order" && coversShipmentIds?.length
-          ? {}
-          : owner.kind === "contract"
+        // An order's Invoice #2 bills the shipments it covers (the server takes the first as its record).
+        ...(owner.kind === "contract"
             ? { contractId: owner.id }
             : owner.kind === "order"
               ? { orderId: owner.id }
@@ -413,21 +414,15 @@ export default function StepCards({
               </Stack>
             ))}
           {showCreate && (
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }}>
-              <Button
-                variant="contained"
-                size="large"
-                startIcon={creating === docType ? <CircularProgress size={18} color="inherit" /> : <PostAddIcon />}
-                disabled={!!creating}
-                onClick={() => void createBlank(docType)}
-                sx={{ py: 1.25, px: 3 }}
-              >
-                {st.gens.length && spec?.multiple ? `Create another ${label(docType)}` : (spec?.createLabel ?? `Create ${label(docType)}`)}
-              </Button>
-              <Button variant="text" endIcon={<ExpandMoreIcon />} onClick={(e) => openMore(e, s, docType)}>
-                Other ways
-              </Button>
-            </Stack>
+            <CreateButtons
+              docType={docType}
+              shipmentId={owner.kind === "shipment" && spec?.source ? owner.id : null}
+              creating={creating}
+              blankLabel={st.gens.length && spec?.multiple ? `Create another ${label(docType)}` : (spec?.createLabel ?? `Create ${label(docType)}`)}
+              onBlank={() => void createBlank(docType)}
+              onSource={(id) => void createFromSource(docType, id)}
+              onMore={(e) => openMore(e, s, docType)}
+            />
           )}
         </Stack>
       </>,
@@ -764,6 +759,7 @@ export default function StepCards({
         owner={owner}
         docTypes={bulk ? bulkDocTypes(bulk.step, canCreate) : []}
         onClose={() => setBulk(null)}
+        onFileUploaded={onFileUploaded}
       />
       <CoversDialog
         open={!!covers}
@@ -892,6 +888,56 @@ function FieldsRow({ title, done, summary, canEdit, form, labels }: { title: str
  * always in; other open, not-yet-invoiced shipments of the same customer can
  * be added (even from other orders: "6005_56.197t+6063_260.224t").
  */
+/**
+ * Step 4's create buttons: when Vedanta's spreadsheet (PL.XLS / COA.XLS) is already on the shipment, "Create from …"
+ * is the primary button and "Create blank" the secondary; else "Create blank" first.
+ */
+function CreateButtons({
+  docType,
+  shipmentId,
+  creating,
+  blankLabel,
+  onBlank,
+  onSource,
+  onMore,
+}: {
+  docType: string;
+  /** Set when the document can be made from a source file on this shipment. */
+  shipmentId: string | null;
+  creating: string | null;
+  blankLabel: string;
+  onBlank: () => void;
+  onSource: (fileId: string) => void;
+  onMore: (e: React.MouseEvent) => void;
+}) {
+  const api = useShipmentsApi();
+  const sources = useQuery({ queryKey: ["trade-generated", "sources", shipmentId, docType], queryFn: () => api.generatedSources(shipmentId!, docType), enabled: !!shipmentId, staleTime: 30_000 });
+  const best = (sources.data ?? []).find((x) => x.best && (x.kind === "spreadsheet" || x.kind === "summary")) ?? null;
+  const busy = creating === docType;
+  const icon = busy ? <CircularProgress size={18} color="inherit" /> : <PostAddIcon />;
+  return (
+    <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }}>
+      {best ? (
+        <>
+          <Button variant="contained" size="large" startIcon={icon} disabled={!!creating} onClick={() => onSource(best.id)} sx={{ py: 1.25, px: 3 }} data-tour="step-create-from-source">
+            Create from {(best.label ?? best.fileName).split(":")[0]}
+          </Button>
+          <Button variant="outlined" disabled={!!creating} onClick={onBlank}>
+            Create blank
+          </Button>
+        </>
+      ) : (
+        <Button variant="contained" size="large" startIcon={icon} disabled={!!creating} onClick={onBlank} sx={{ py: 1.25, px: 3 }}>
+          {blankLabel}
+        </Button>
+      )}
+      <Button variant="text" endIcon={<ExpandMoreIcon />} onClick={onMore}>
+        Other ways
+      </Button>
+    </Stack>
+  );
+}
+
 function CoversDialog({
   open,
   docType,
@@ -913,13 +959,14 @@ function CoversDialog({
   onClose: () => void;
   onConfirm: (ids: string[]) => void;
 }) {
-  const list = useShipments({ customerId: customerId ?? undefined, uninvoiced: "true", status: "OPEN", pageSize: 100 }, open && !!customerId);
+  // Completed shipments can still be invoiced (step 11 is the order's); cancelled ones can't.
+  const list = useShipments({ customerId: customerId ?? undefined, uninvoiced: "true", pageSize: 100 }, open && !!customerId);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const pre = preselect.join(",");
   React.useEffect(() => {
     if (open) setPicked(new Set(primaryId ? [primaryId] : pre ? pre.split(",") : []));
   }, [open, primaryId, pre]);
-  const rows = (list.data?.items ?? []).filter((x) => x.id === primaryId || true);
+  const rows = (list.data?.items ?? []).filter((x) => x.status !== "CANCELLED");
   const toggle = (id: string) =>
     setPicked((p) => {
       const n = new Set(p);
@@ -940,7 +987,7 @@ function CoversDialog({
         {list.isLoading ? (
           <CircularProgress size={22} />
         ) : !rows.length ? (
-          <Typography variant="body2">{primaryId ? "Only this shipment is open and not invoiced yet." : "No open shipment of this customer is waiting for an invoice."}</Typography>
+          <Typography variant="body2">{primaryId ? "Only this shipment is open and not invoiced yet." : "No shipment of this customer is waiting for an invoice."}</Typography>
         ) : (
           <List dense disablePadding>
             {rows.map((x) => (
@@ -962,8 +1009,9 @@ function CoversDialog({
         <Button
           variant="contained"
           onClick={() => {
-            // The covered shipments in the list's order, this shipment first.
-            const ids = (list.data?.items ?? []).map((x) => x.id).filter((id) => picked.has(id) && id !== primaryId);
+            // Exactly what is ticked (in the list's order where listed), this shipment first.
+            const order = (list.data?.items ?? []).map((x) => x.id);
+            const ids = [...picked].filter((id) => id !== primaryId).sort((a, b) => (order.indexOf(a) + 1 || 999) - (order.indexOf(b) + 1 || 999));
             onConfirm(primaryId ? [primaryId, ...ids] : ids);
           }}
           disabled={!docType || picked.size === 0}

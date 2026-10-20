@@ -194,3 +194,15 @@ export async function attachPiecesPng(s3Key: string, mimeType: string, page: num
 export async function attachPagePng(s3Key: string, mimeType: string, page: number, crop: AttachCrop | null, download: (key: string) => Promise<Buffer>): Promise<Buffer> {
   return (await attachPiecesPng(s3Key, mimeType, page, crop, download))[0];
 }
+
+/**
+ * INVOICE NO. and DATE printed on Vedanta's container packing list ("INVOICE NO. : XP2652101334  DATE : 22/07/2026")
+ * — they fill the 計量検収票's blank header fields. Date as YYYY-MM-DD; null when not found.
+ */
+export function containerPlFacts(text: string): { invoiceNo: string | null; date: string | null } {
+  const t = (text ?? '').replace(/\s+/g, ' ');
+  const no = /INVOICE\s*NO\.?\s*[:：]?\s*([A-Z]{0,4}\d[A-Z0-9-]{5,})/i.exec(t)?.[1] ?? null;
+  const d = /\bDATE\s*[:：]?\s*(\d{1,2})[./-](\d{1,2})[./-](\d{4})/i.exec(t);
+  const date = d ? `${d[3]}-${d[2].padStart(2, '0')}-${d[1].padStart(2, '0')}` : null;
+  return { invoiceNo: no, date: date && !isNaN(Date.parse(date)) ? date : null };
+}

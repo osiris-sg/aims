@@ -4,7 +4,7 @@ import { PrismaService } from '../common/prisma.service';
 import { DOMAIN_RE } from '../ingestion-email/email-triage.rules';
 import { TradeActor } from './shipments.request';
 import { docRefBase, nextDocRef, orderDocRefBase, supplierOrderDocRefBase } from './trade-docref';
-import { autoCompletePlan, countsForProgress, documentLinkState, fieldRequirements, hasExactlyOneOwner, ORDER_INVOICE_TYPES, stepLabel, stepLabels, stepRequirements, stepsBrokenByRemoval, typesOnEveryShipment } from './shipments.rules';
+import { autoCompletePlan, countsForProgress, documentLinkState, fieldRequirements, hasExactlyOneOwner, ORDER_INVOICE_TYPES, readyToAutoComplete, stepLabel, stepLabels, stepRequirements, stepsBrokenByRemoval, typesOnEveryShipment } from './shipments.rules';
 import { CustomerProfile, mergeProfiles, mergeSupplierProfiles, naStepCodes, profileFor, stepOverride, subtasksFor, SupplierProfile, supplierProfileFor } from './trade-profile';
 import { ratesOf } from './trade-estimator';
 import { cleanAlertRules } from './trade-alerts';
@@ -241,7 +241,29 @@ export class TradeConfigService {
     );
     const own = [...files.map((f) => f.file.docType), ...docLinks.filter((l) => live.has(l.documentId)).map((l) => l.docType)];
     // Step 11 is the order's (round H): Invoice #2 / the single invoice counts once every live shipment has one.
-    return owner.orderId ? [...own, ...(await this.orderInvoiceTypes(db, organizationId, owner.orderId))] : own;
+    if (owner.orderId) return [...own, ...(await this.orderInvoiceTypes(db, organizationId, owner.orderId))];
+    if (owner.shipmentId) return [...own, ...(await this.shipmentFieldTypes(db, organizationId, owner.shipmentId))];
+    return own;
+  }
+
+  /**
+   * Required documents a shipment can meet with a field instead of a file (prod click-through, round H):
+   * the telex release code (Vedanta's email has only the code) → TELEX_RELEASE; the 出庫・納入依頼書 rows with
+   * delivery dates (the schedule agreed by email) → DELIVERY_SCHEDULE; the in-app import-tax estimate
+   * (CIF + rate filled) → TAX_ESTIMATE (the broker's file becomes optional).
+   */
+  async shipmentFieldTypes(db: Db, organizationId: string, shipmentId: string): Promise<string[]> {
+    if (!db.shipment?.findFirst) return []; // a partial client (unit tests' mocks)
+    const s: { telexReleaseCode: string | null; costs: unknown } | null = await db.shipment.findFirst({ where: { id: shipmentId, organizationId }, select: { telexReleaseCode: true, costs: true } });
+    if (!s) return [];
+    const out: string[] = [];
+    if (s.telexReleaseCode?.trim()) out.push('TELEX_RELEASE');
+    const c = (s.costs ?? {}) as Record<string, unknown>;
+    const filled = (v: unknown) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
+    if (filled(c.cifUsd) && filled(c.fxRate)) out.push('TAX_ESTIMATE');
+    const sis: Array<{ rows: unknown }> = !db.tradeGeneratedDoc?.findMany ? [] : await db.tradeGeneratedDoc.findMany({ where: { organizationId, shipmentId, docType: 'SHIPPING_INSTRUCTIONS' }, select: { rows: true } });
+    if (sis.some((g) => Array.isArray(g.rows) && (g.rows as Array<{ deliveryDate?: unknown }>).some((r) => typeof r?.deliveryDate === 'string' && r.deliveryDate.trim() !== ''))) out.push('DELIVERY_SCHEDULE');
+    return out;
   }
 
   /** Invoice #2 / single-invoice types present on every live shipment of the order (see typesOnEveryShipment). */
@@ -354,11 +376,13 @@ export class TradeConfigService {
         : owner.contractId
           ? await db.contract.findFirst({ where: { id: owner.contractId, organizationId } })
           : await db.shipment.findFirst({ where: { id: owner.shipmentId, organizationId } });
+      // A shipment's invoice can finish its order's step 11 — even once the shipment itself is completed.
+      if (record && owner.shipmentId && record.orderId) queue.push({ orderId: record.orderId });
       if (!record || record.status !== 'OPEN') continue;
-      // A shipment's invoice can finish its order's step 11: the order is checked after it.
-      if (owner.shipmentId && record.orderId) queue.push({ orderId: record.orderId });
       const steps: Array<{
         id: string;
+        code: string;
+        payment: unknown;
         title: string;
         displayNo: string | null;
         status: string;
@@ -371,10 +395,10 @@ export class TradeConfigService {
       }> = await db.tradeStep.findMany({
         where: { organizationId, ...ownerWhere(owner) },
         orderBy: { sortOrder: 'asc' },
-        select: { id: true, title: true, displayNo: true, status: true, isOngoing: true, notApplicable: true, sortOrder: true, requiredDocTypes: true, requiredFields: true, holdOpen: true },
+        select: { id: true, code: true, payment: true, title: true, displayNo: true, status: true, isOngoing: true, notApplicable: true, sortOrder: true, requiredDocTypes: true, requiredFields: true, holdOpen: true },
       });
       if (!steps.length) continue;
-      const plan = autoCompletePlan(steps, await this.presentDocTypes(db, organizationId, owner), record, changed);
+      const plan = autoCompletePlan(steps, await this.presentDocTypes(db, organizationId, owner), record, changed, readyToAutoComplete);
       const stamp = { updatedById: actor?.id ?? null, updatedByName: actor?.name ?? 'Auto' };
       const now = new Date();
       for (const s of plan.release) if (!plan.complete.includes(s)) await db.tradeStep.update({ where: { id: s.id, organizationId }, data: { holdOpen: false } });

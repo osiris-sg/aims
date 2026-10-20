@@ -116,7 +116,10 @@ export class TradePriceCheckService {
       },
     });
     if (!s) throw new NotFoundException('Shipment not found');
-    const unit = n(s.ciAmount) !== null && n(s.netWeightMt) ? round2((n(s.ciAmount) as number) / (n(s.netWeightMt) as number)) : null;
+    // The CI read on upload (step 3b): its printed unit / LME / premium; else CI amount ÷ net weight.
+    const ex = await this.prisma.tradeExtraction.findFirst({ where: { organizationId, shipmentId: id, kind: 'CI', status: 'DONE' }, orderBy: { createdAt: 'desc' }, select: { result: true } });
+    const ci = ((ex?.result as { raw?: Record<string, unknown> } | null)?.raw ?? null) as Record<string, unknown> | null;
+    const unit = n(ci?.unitPrice) ?? (n(s.ciAmount) !== null && n(s.netWeightMt) ? round2((n(s.ciAmount) as number) / (n(s.netWeightMt) as number)) : null);
     const line0 = (s.contract?.lines ?? []).find((l: { grade: string | null }) => l.grade === s.order?.grade) ?? (s.contract?.lines ?? [])[0];
     const check = priceCheck({
       side: 'supplier',
@@ -126,9 +129,9 @@ export class TradePriceCheckService {
       mjpBased: true,
       fallback: { supplierPremium: n(s.order?.supplierPremium) ?? n(line0?.supplierPremium) },
       prices: await this.prices(organizationId),
-      found: { unit },
+      found: { unit, lme: n(ci?.lme), premium: n(ci?.premium) },
     });
-    return { ...check, source: unit === null ? 'no CI amount / net weight yet' : 'CI amount ÷ net weight' };
+    return { ...check, source: ci ? 'CI (read on upload)' : unit === null ? 'no CI read yet' : 'CI amount ÷ net weight' };
   }
 
   /** Invoice (in-app 請求書): the goods line's LME / QMJP / premium / unit against the contract's client side. */

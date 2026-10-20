@@ -731,7 +731,15 @@ async function main() {
             'INVOICE_2: final price + 通関、車輸送料 + 通関 (課税対象外) + 他諸掛 (1 式 = net × 40 USD/MT), １回目の金額 from Invoice #1',
             `${rs.length} lines, 1回目 ${h0.invoice1Amount}`,
           );
-          (unitPriceOf(rs[0]) === null ? pass : fail)('INVOICE_2: no unit price until the LME is typed (not QMJP + premium)', String(unitPriceOf(rs[0])));
+          // The LME comes from the org's LME table for the shipment month when it has it (else typed): never QMJP + premium alone.
+          {
+            const tableLme = (settingsNow.docDefaults as any)?.lmeByMonth?.[(g.header as any)?.lmeMonth ?? ''] ?? null;
+            const u = unitPriceOf(rs[0]);
+            (tableLme === null ? u === null && rs[0].lme === null : Number(rs[0].lme) === tableLme && u !== null && u > tableLme ? pass : fail)(
+              'INVOICE_2: the LME prefills from the org LME table for the shipment month (no unit price without an LME)',
+              `lme ${rs[0].lme} unit ${u}`,
+            );
+          }
         }
         // Round 13: a blank Customer PL / COA / SI can't be finalized (the prod run finalized an empty COA).
         if (docType === 'CUSTOMER_PL' || docType === 'CUSTOMER_COA' || docType === 'SHIPPING_INSTRUCTIONS') {
@@ -1074,7 +1082,22 @@ async function orderCases(x: any) {
       JSON.stringify({ customs: est?.customs, trucks: est?.trucks, trucking: est?.trucking, total: est?.customsTotal, tax: est?.importTax?.estimate }),
     );
   }
-  const inv2: any = await expectOk('Invoice #2 covering #n-1 + #n-2', () => gen.createBlank(ORG_ID, { docType: 'INVOICE_2', shipmentId: a.id, coversShipmentIds: [a.id, b.id] }, actor));
+  // Step 11 on the order (round H, prod click-through): Invoice #2 made from the order page — no shipmentId.
+  {
+    const one: any = await expectOk('order page → step 11: Invoice #2 for 1 shipment (orderId + covers #n-1)', () => gen.createBlank(ORG_ID, { docType: 'INVOICE_2', orderId: oA.id, coversShipmentIds: [a.id] }, actor));
+    (one && one.shipmentId === a.id && JSON.stringify(one.coversShipmentIds) === JSON.stringify([a.id]) ? pass : fail)('order-level Invoice #2 (1 shipment): record #n-1, covers #n-1', JSON.stringify(one?.coversShipmentIds));
+    if (one) await gen.remove(ORG_ID, one.id);
+    const both: any = await expectOk('order page → step 11: Invoice #2 with no pick = the order\'s 2 shipments', () => gen.createBlank(ORG_ID, { docType: 'INVOICE_2', orderId: oA.id }, actor));
+    (both && JSON.stringify(both.coversShipmentIds) === JSON.stringify([a.id, b.id]) && (both.rows as any[]).length === 5 ? pass : fail)('order-level Invoice #2 (2 shipments): covers #n-1 + #n-2, a line per shipment + 3 cost lines', `${both?.coversShipmentIds?.length} / ${(both?.rows as any[])?.length}`);
+    if (both) await gen.remove(ORG_ID, both.id);
+    // A shipment whose own steps are all done is COMPLETED before Invoice #2 — it can still be invoiced from the order.
+    await prisma.shipment.update({ where: { id: b.id }, data: { status: 'COMPLETED' } });
+    const done: any = await expectOk('order page → step 11: Invoice #2 for a COMPLETED shipment', () => gen.createBlank(ORG_ID, { docType: 'INVOICE_2', orderId: oA.id, coversShipmentIds: [b.id] }, actor));
+    (done?.shipmentId === b.id ? pass : fail)('a completed shipment can be invoiced from its (open) order', String(done?.shipmentId));
+    if (done) await gen.remove(ORG_ID, done.id);
+    await prisma.shipment.update({ where: { id: b.id }, data: { status: 'OPEN' } });
+  }
+  const inv2: any = await expectOk('Invoice #2 covering #n-1 + #n-2', () => gen.createBlank(ORG_ID, { docType: 'INVOICE_2', orderId: oA.id, coversShipmentIds: [a.id, b.id] }, actor));
   if (inv2) {
     const rows = inv2.rows as any[];
     (JSON.stringify(inv2.coversShipmentIds) === JSON.stringify([a.id, b.id]) && rows.length === 5 && rows[0].quantity === 262.45 && rows[1].quantity === 40.775 && Number(rows[0].premium) === 230 ? pass : fail)(
@@ -1226,10 +1249,16 @@ async function roundHCases(x: any) {
   const proof: any = await files.upload(ORG_ID, { originalname: 'SMOKE-DEPOSIT.pdf', mimetype: 'application/pdf', size: DUMMY_PDF.length, buffer: DUMMY_PDF } as Express.Multer.File, { docType: 'DEPOSIT_PROOF', orderIds: [o0.id], stepId: pi.id }, actor);
   await expectReject('step payment: a proof file from another record is refused', () => steps.setPayment(ORG_ID, pi.id, { payment: { amount: 1, paidAt: '2026-08-05', account: 'WISE', proofFileId: '00000000-0000-0000-0000-000000000000' } }), /not on this record/);
   await expectReject('step payment: an unknown account is refused', () => steps.setPayment(ORG_ID, pi.id, { payment: { amount: 1, paidAt: '2026-08-05', account: 'PAYPAL' } }), /account must be one of/);
+  // Click-through fix: the PI + the proof don't finish step 1 by themselves — the payment form must stay reachable.
+  const piFile: any = await files.upload(ORG_ID, { originalname: 'SMOKE-PI-H.pdf', mimetype: 'application/pdf', size: DUMMY_PDF.length, buffer: DUMMY_PDF } as Express.Multer.File, { docType: 'PI', orderIds: [o0.id], stepId: pi.id }, actor);
+  const before: any = (await orders.getById(ORG_ID, o0.id, actor)).steps.find((x: any) => x.code === 'PI_PAYMENT');
+  (before?.status !== 'DONE' ? pass : fail)('step 1 with PI + deposit proof stays open until its payment is saved', String(before?.status));
   const st: any = await expectOk('step payment: step 1 deposit USD 44,358.72 on 05/08/2026 (WISE, proof)', () =>
     steps.setPayment(ORG_ID, pi.id, { payment: { amount: 44358.72, paidAt: '2026-08-05', account: 'WISE', proofFileId: proof?.id } }),
   );
   (st?.payment?.amount === 44358.72 && st.payment.currency === 'USD' && st.payment.proofFileId === proof?.id ? pass : fail)('step payment stored on the step (USD by default)', JSON.stringify(st?.payment));
+  const after1: any = (await orders.getById(ORG_ID, o0.id)).steps.find((x: any) => x.code === 'PI_PAYMENT');
+  (after1?.status === 'DONE' ? pass : fail)('saving the payment completes step 1', String(after1?.status));
   const rec: any = await orders.reconciliation(ORG_ID, o0.id);
   (rec.a === 44358.72 && rec.paid?.depositUsd === 44358.72 ? pass : fail)('reconciliation: a (PI paid) = the step-1 payment', `a ${rec.a}`);
   const cleared: any = await steps.setPayment(ORG_ID, pi.id, { payment: null });
@@ -1247,9 +1276,9 @@ async function roundHCases(x: any) {
     (row && row.freeTime?.from === 'discharge' && row.freeTime.det.ends === '2026-08-24' ? pass : fail)('Shipments list: discharged → Arrived, free time DET ends 24/08 (4 days)', JSON.stringify(row?.freeTime));
     await expectOk('round H: delete the shipment', () => shipments.remove(ORG_ID, sh.id));
   }
-  if (proof) {
-    await prisma.tradeFileLink.deleteMany({ where: { organizationId: ORG_ID, fileId: proof.id } });
-    await expectOk('round H: delete the proof file', () => files.remove(ORG_ID, proof.id));
+  for (const f of [proof, piFile].filter(Boolean)) {
+    await prisma.tradeFileLink.deleteMany({ where: { organizationId: ORG_ID, fileId: f.id } });
+    await expectOk('round H: delete the proof / PI file', () => files.remove(ORG_ID, f.id));
   }
   for (const o of made) await expectOk('round H: delete the order', () => orders.remove(ORG_ID, o.id));
   await expectOk('round H: delete the contract', () => contracts.remove(ORG_ID, c.id));
