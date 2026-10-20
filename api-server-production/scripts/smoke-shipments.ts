@@ -451,8 +451,9 @@ async function main() {
             'rows parsed (Sub Total skipped, totals match)',
             `${rows.length} rows; notes ${JSON.stringify(draftPl.importNotes)}`,
           );
-          ((draftPl.header as any).to?.name === (customer.jpName || customer.name) ? pass : fail)(
-            'header addressed to the shipment customer (its Japanese legal name when set)',
+          const addressee = (await config.profileOf(ORG_ID, customer.id)).docAddressee;
+          ((draftPl.header as any).to?.name === (addressee || customer.jpName || customer.name) ? pass : fail)(
+            'header addressed to the shipment customer (its profile 宛先, else its Japanese legal name)',
             (draftPl.header as any).to?.name,
           );
           ((draftPl.header as any).pieces === 600 ? pass : fail)("pieces = the shipment's Total pieces (600), not computed", String((draftPl.header as any).pieces));
@@ -671,7 +672,7 @@ async function main() {
             ? pass
             : fail)(`${docType}: ADH Japanese layout (様式, 御中, issuer ${h0.issuer?.name})`, `${h0.title} / ${h0.formLabel}`);
         if (docType === 'CUSTOMER_PL' || docType === 'CUSTOMER_COA') {
-          const want = jpParty({ name: customer.name, address: null, jpName: customer.jpName, jpAddress: customer.jpAddress, jpContact: customer.jpContact });
+          const want = jpParty({ name: customer.name, address: null, jpName: customer.jpName, jpAddress: customer.jpAddress, jpContact: customer.jpContact, docAddressee: (await config.profileOf(ORG_ID, customer.id)).docAddressee });
           (h0.to?.name === want.name && (h0.to?.address ?? null) === want.address && (h0.to?.contact ?? null) === want.contact ? pass : fail)(
             `${docType}: addressed to the customer's Japanese legal name + address + contact`,
             `${h0.to?.name} / ${h0.to?.address ?? '—'} / ${h0.to?.contact ?? '—'}`,

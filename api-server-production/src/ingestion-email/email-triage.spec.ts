@@ -448,8 +448,54 @@ describe('TRIAGE mode: suggestions, accept, undo', () => {
   it('an invalid AI answer is UNSURE', async () => {
     const x = setup('TRIAGE');
     (x.triage.ai as jest.Mock).mockImplementationOnce(async () => ({ verdict: 'YES', direction: 'IN' }));
-    const { triaged } = await x.receive('vedanta-copy-documents');
+    const { triaged } = await x.receive('newsletter');
     expect(triaged).toEqual({ verdict: 'UNSURE', inboxState: 'UNSURE' });
+  });
+
+  it('Vedanta "Copy documents" is a known rule: SHIPMENT even when the AI answer is invalid, files typed by name', async () => {
+    const x = setup('TRIAGE');
+    (x.triage.ai as jest.Mock).mockImplementationOnce(async () => ({ verdict: 'YES', direction: 'IN' }));
+    const { triaged, logId } = await x.receive('vedanta-copy-documents');
+    expect(triaged.verdict).toBe('SHIPMENT');
+    const log = x.t.emailIngestLog.find((l) => l.id === logId)!;
+    expect(log.triage.knownRule).toBe('VEDANTA_COPY_DOCS');
+    expect(Object.fromEntries(log.triage.attachments.map((a: any) => [a.filename, a.docType]))).toMatchObject({ '198GX04630 SCAN.pdf': 'BL_SCAN', 'COMMERCIAL_INVOICE_9000565680.pdf': 'CI', 'PACKING_LIST_9000565680.pdf': 'PL', 'COA_9000565680.pdf': 'COA', 'COO_9000565680.pdf': 'COO' });
+  });
+
+  it('Vedanta "Copy documents": an AI PAYMENT_PROOF on a file the rule cannot name becomes OTHER', async () => {
+    const x = setup('TRIAGE');
+    (x.triage.ai as jest.Mock).mockImplementationOnce(async () => ({
+      ...(AI['vedanta-copy-documents'] as object),
+      attachments: [{ filename: 'scan0001.pdf', docType: 'PAYMENT_PROOF', confidence: 0.8 }],
+    }));
+    const { logId } = await x.receive('vedanta-copy-documents');
+    const atts = x.t.emailIngestLog.find((l) => l.id === logId)!.triage.attachments;
+    expect(atts.find((a: any) => a.filename === 'scan0001.pdf')).toMatchObject({ docType: 'OTHER' });
+    expect(atts.some((a: any) => a.docType === 'PAYMENT_PROOF')).toBe(false);
+  });
+
+  it('a counterparty\'s mail is never purged: AI NOT_SHIPMENT on mail to a customer domain → UNSURE (kept 14 days)', async () => {
+    const x = setup('TRIAGE');
+    (x.triage.ai as jest.Mock).mockImplementationOnce(async () => AI.newsletter);
+    const { triaged, logId } = await x.receive('outbound-kato-invoice');
+    expect(triaged).toEqual({ verdict: 'UNSURE', inboxState: 'UNSURE' });
+    const log = x.t.emailIngestLog.find((l) => l.id === logId)!;
+    expect(log.triage).toMatchObject({ keptBy: 'kato.example.jp', aiVerdict: 'NOT_SHIPMENT' });
+    expect(log.rawMeta.purged).toBeUndefined();
+    expect(x.store.size).toBeGreaterThan(0);
+  });
+
+  it('an internal reply on a counterparty thread is kept too (thread with VEDANTA)', async () => {
+    const x = setup('TRIAGE');
+    // An earlier email of the same thread with Vedanta.
+    x.t.emailIngestLog.push({ id: 'earlier', organizationId: ORG, threadKey: 'feedback from sus(adh)', counterparty: 'VEDANTA' });
+    (x.triage.ai as jest.Mock).mockImplementationOnce(async () => AI.newsletter);
+    const { logId } = await x.receive('newsletter');
+    const log = x.t.emailIngestLog.find((l) => l.id === logId)!;
+    // The newsletter's subject isn't on that thread: still purged.
+    expect(log.inboxState).toBe('PURGED');
+    expect(await (x.triage as any).keptThread(ORG, 'x', 'RE: Feedback from SUS(ADH)')).toBe('thread with VEDANTA');
+    expect(await (x.triage as any).keptThread(ORG, 'x', 'Weekly metals digest')).toBeNull();
   });
 });
 

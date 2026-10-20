@@ -69,7 +69,7 @@ import {
   singleInvoiceNoFor,
   singleLineCalc,
 } from './trade-invoice-single';
-import { attachPagePng } from './trade-attach';
+import { attachPiecesPng } from './trade-attach';
 
 export type TemplateKind = 'table' | 'invoice' | 'single' | 'sgjp' | 'si';
 type Owner = { shipmentId: string; contractId?: undefined; orderId?: undefined } | { contractId: string; shipmentId?: undefined; orderId?: undefined } | { orderId: string; shipmentId?: undefined; contractId?: undefined };
@@ -409,7 +409,7 @@ export class TradeGeneratedService {
       const h = invoiceHeaderDefaults({
         today,
         org: org ?? { name: '' },
-        customerName: o.customer?.jpName || o.customer?.name || '',
+        customerName: invoiceAddressee(o.customer),
         grades: [o.grade ?? ''],
         products: [o.product ?? ''],
         defaults,
@@ -424,7 +424,7 @@ export class TradeGeneratedService {
         today,
         org: org ?? { name: '' },
         // 請求書 is Japanese: the customer's Japanese legal name (name only, as on ADH's invoices).
-        customerName: c.customer?.jpName || c.customer?.name || '',
+        customerName: invoiceAddressee(c.customer),
         grades: c.lines.map((l) => l.grade ?? ''),
         products: c.lines.map((l) => l.product ?? ''),
         defaults,
@@ -462,7 +462,7 @@ export class TradeGeneratedService {
         today,
         docType: 'INVOICE_2',
         org: org ?? { name: '' },
-        customerName: s.customer?.jpName || s.customer?.name || '',
+        customerName: invoiceAddressee(s.customer),
         grades: [line?.grade ?? ''],
         products: [line?.product ?? ''],
         defaults,
@@ -632,15 +632,16 @@ export class TradeGeneratedService {
    * attached Vedanta container-PL page (計量検収票 "attach" body).
    */
   async hydrate(organizationId: string, docType: string, header: unknown): Promise<unknown> {
-    const h = (header ?? {}) as GenHeader & { bodyMode?: string; attachFileId?: string | null; attachPage?: number | null; attachCrop?: { top?: number; bottom?: number } | null };
+    const h = (header ?? {}) as GenHeader;
     if (docType !== 'CUSTOMER_PL' || h.bodyMode !== 'attach' || !h.attachFileId) return header;
     const f = await this.prisma.tradeFile.findFirst({ where: { id: h.attachFileId, organizationId }, select: { s3Key: true, mimeType: true } });
-    if (!f) return { ...h, attachImage: null };
+    if (!f) return { ...h, attachImage: null, attachImages: [] };
     try {
-      const png = await attachPagePng(f.s3Key, f.mimeType, Number(h.attachPage) || 1, h.attachCrop ?? null, (k) => this.s3.downloadFile(k));
-      return { ...h, attachImage: `data:image/png;base64,${png.toString('base64')}` };
+      const pngs = await attachPiecesPng(f.s3Key, f.mimeType, Number(h.attachPage) || 1, h.attachCrop ?? null, (k) => this.s3.downloadFile(k));
+      const urls = pngs.map((png) => `data:image/png;base64,${png.toString('base64')}`);
+      return { ...h, attachImage: urls[0] ?? null, attachImages: urls };
     } catch {
-      return { ...h, attachImage: null };
+      return { ...h, attachImage: null, attachImages: [] };
     }
   }
 
@@ -1252,8 +1253,8 @@ export class TradeGeneratedService {
     const pick = pdfs.find((f) => /container/i.test(f.fileName)) ?? pdfs[0] ?? null;
     // No PL PDF on the shipment yet: the typed table (switch to the page once Vedanta's PL is in).
     if (!pick) return { ...header, bodyMode: 'table' } as GenHeader;
-    // ADH pastes Vedanta's page from "INVOICE NO." down: cut its title + producer block (~15.5 % of the page).
-    return { ...header, bodyMode: 'attach', attachFileId: pick.id, attachPage: 1, attachCrop: { top: 0.155, bottom: 0 } } as GenHeader;
+    // ADH pastes Vedanta's PL from "INVOICE NO." down to its AUTHORISED SIGNATORY seal: found in the PDF's text.
+    return { ...header, bodyMode: 'attach', attachFileId: pick.id, attachPage: 1, attachCrop: { auto: true } } as GenHeader;
   }
 
   /**
@@ -1437,7 +1438,7 @@ export class TradeGeneratedService {
       invoiceNo: null,
       issueDate: today,
       registrationNo: org?.registrationNumber ?? '',
-      toName: o0?.customer?.jpName || o0?.customer?.name || '',
+      toName: invoiceAddressee(o0?.customer),
       toSuffix: '御中',
       subject: fill(d.singleSubjectTemplate ?? '{product}品 {grade} {inch}').trim(),
       paymentTerms: d.singlePaymentTerms ?? 'BLコピー提供・請求書発行後５営業日以内、弊社指定口座振込',
@@ -1618,11 +1619,14 @@ export class TradeGeneratedService {
         countryOfOrigin: true,
         ciNumber: true,
         totalPieces: true,
+        customerId: true,
         customer: { select: { name: true, address: true, jpName: true, jpAddress: true, jpContact: true } },
         contractLine: { select: { grade: true, product: true, sizeSpec: true } },
         contract: { select: { contractNo: true, piNumber: true } },
         seqNo: true,
-        order: { select: { orderNo: true, piNo: true, grade: true, product: true, size: true } },
+        order: {
+          select: { orderNo: true, piNo: true, grade: true, product: true, size: true, customerId: true, customer: { select: { name: true, address: true, jpName: true, jpAddress: true, jpContact: true } } },
+        },
         totalBundles: true,
       },
     });
@@ -1637,7 +1641,13 @@ export class TradeGeneratedService {
       select: { name: true, address: true, phoneNumber: true, registrationNumber: true },
     });
     const settings = await this.config.getSettings(organizationId);
-    return customerDocHeader(buildDefaultHeader(org, s, title, docType, tradeToday()), s, docType, (settings.docDefaults ?? {}) as DocDefaults);
+    const withCustomer = { ...s, customer: await this.addresseeOf(organizationId, s) };
+    return customerDocHeader(buildDefaultHeader(org, withCustomer, title, docType, tradeToday()), withCustomer, docType, (settings.docDefaults ?? {}) as DocDefaults);
+  }
+
+  /** 宛先 of a shipment's documents: the ORDER's customer (else the shipment's), with its profile's addressee. */
+  private async addresseeOf(organizationId: string, s: HeaderShipment) {
+    return shipmentAddressee(s, await this.config.profileOf(organizationId, s.order?.customerId ?? s.customerId ?? null));
   }
 }
 
@@ -1741,7 +1751,19 @@ export function sgjpGoods(product: string | null | undefined, grade: string | nu
   return inch ? `${base}-${inch}` : [base, size].filter(Boolean).join(' ');
 }
 
-type JpPartySource = { name: string; address?: string | null; jpName?: string | null; jpAddress?: string | null; jpContact?: string | null };
+/** The customer a shipment's PL / COA is addressed to: the order's (else the shipment's), with the profile's 宛先. */
+export function shipmentAddressee(
+  s: { customer?: JpPartySource | null; order?: { customer?: JpPartySource | null } | null },
+  profile: { docAddressee?: string | null },
+): JpPartySource | null {
+  const c = s.order?.customer ?? s.customer;
+  return c ? { ...c, docAddressee: profile.docAddressee ?? null } : null;
+}
+
+/** 請求書 宛先: the customer's Japanese legal name (name only, as on ADH's invoices), else its name. */
+export const invoiceAddressee = (c: { name: string; jpName?: string | null } | null | undefined) => c?.jpName || c?.name || '';
+
+type JpPartySource = { name: string; address?: string | null; jpName?: string | null; jpAddress?: string | null; jpContact?: string | null; docAddressee?: string | null };
 
 /**
  * The customer as Japanese documents print it: its Japanese legal name /
@@ -1750,8 +1772,9 @@ type JpPartySource = { name: string; address?: string | null; jpName?: string | 
  */
 export function jpParty(c: JpPartySource): { name: string; address: string | null; contact: string | null } {
   const t = (v: string | null | undefined) => (v ?? '').trim() || null;
-  if (t(c.jpName) || t(c.jpAddress) || t(c.jpContact)) return { name: t(c.jpName) ?? c.name, address: t(c.jpAddress), contact: t(c.jpContact) };
-  return { name: c.name, address: t(c.address), contact: null };
+  // The profile's 宛先 (a department after the legal name) wins over the name alone.
+  if (t(c.jpName) || t(c.jpAddress) || t(c.jpContact)) return { name: t(c.docAddressee) ?? t(c.jpName) ?? c.name, address: t(c.jpAddress), contact: t(c.jpContact) };
+  return { name: t(c.docAddressee) ?? c.name, address: t(c.address), contact: null };
 }
 
 /** The delivery profile for a customer (its customerName is contained in the customer's name, case-insensitive). */

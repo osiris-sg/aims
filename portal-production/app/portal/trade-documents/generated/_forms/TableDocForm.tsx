@@ -7,7 +7,7 @@
 // rows × ~20 columns, and 2,000+ MUI inputs froze the page.
 
 import React, { useMemo } from "react";
-import { Alert, Box, Button, Checkbox, Divider, FormControlLabel, Grid2, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Checkbox, Divider, FormControlLabel, Grid2, IconButton, MenuItem, Paper, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
 import { useTradeFiles } from "@/app/portal/shipments/_lib/hooks";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import AddIcon from "@mui/icons-material/Add";
@@ -307,14 +307,21 @@ function AttachBodyPanel({ shipmentId, header, disabled, setH }: { shipmentId: s
               <TextField size="small" fullWidth type="number" label="Page" value={header.attachPage ?? 1} disabled={disabled} inputProps={{ min: 1 }} onChange={(e) => setH({ attachPage: Math.max(1, Number(e.target.value) || 1) })} />
             </Grid2>
             <Grid2 size={{ xs: 4, sm: 2 }}>
-              <TextField size="small" fullWidth type="number" label="Crop top %" value={pct(crop.top)} disabled={disabled} inputProps={{ min: 0, max: 90 }} onChange={(e) => setH({ attachCrop: { ...crop, top: Math.min(90, Math.max(0, Number(e.target.value) || 0)) / 100 } })} />
+              <TextField size="small" fullWidth type="number" label="Crop top %" value={pct(crop.top)} disabled={disabled || crop.auto} inputProps={{ min: 0, max: 90 }} onChange={(e) => setH({ attachCrop: { ...crop, auto: false, top: Math.min(90, Math.max(0, Number(e.target.value) || 0)) / 100 } })} />
             </Grid2>
             <Grid2 size={{ xs: 4, sm: 2 }}>
-              <TextField size="small" fullWidth type="number" label="Crop bottom %" value={pct(crop.bottom)} disabled={disabled} inputProps={{ min: 0, max: 90 }} onChange={(e) => setH({ attachCrop: { ...crop, bottom: Math.min(90, Math.max(0, Number(e.target.value) || 0)) / 100 } })} />
+              <TextField size="small" fullWidth type="number" label="Crop bottom %" value={pct(crop.bottom)} disabled={disabled || crop.auto} inputProps={{ min: 0, max: 90 }} onChange={(e) => setH({ attachCrop: { ...crop, auto: false, bottom: Math.min(90, Math.max(0, Number(e.target.value) || 0)) / 100 } })} />
+            </Grid2>
+            <Grid2 size={12}>
+              <FormControlLabel
+                data-tour="customer-pl-auto-crop"
+                control={<Switch size="small" checked={!!crop.auto} disabled={disabled} onChange={(e) => setH({ attachCrop: { ...crop, auto: e.target.checked } })} />}
+                label="Auto crop: INVOICE NO. → Vedanta seal (AUTHORISED SIGNATORY)"
+              />
             </Grid2>
           </Grid2>
           <Typography variant="caption" color="text.secondary">
-            The page is printed in the frame from INVOICE NO. to the Vedanta seal (crop to fit). The typed table below is kept as the fallback.
+            Printed in the frame from INVOICE NO. down to the Vedanta seal, scaled to fill it; a PL that runs onto a 2nd page adds a continuation page. Turn auto off to set the crop by hand (top % on the first page, bottom % on the last). The typed table below is kept as the fallback.
           </Typography>
         </>
       )}

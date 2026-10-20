@@ -19,6 +19,9 @@ import {
   declarationMonthOf,
   directionOf,
   emailOf,
+  guardVerdict,
+  keepDomainsOf,
+  keptDomain,
   keysByPattern,
   knownSender,
   MatchCandidate,
@@ -158,13 +161,15 @@ export class EmailTriageService {
       error = String(e?.message ?? e).slice(0, 300);
     }
     // Known senders / subjects (Wan Hai A/N, Mitsui Soko NO.取りリスト, 輸入許可書, Vedanta declaration) win over the AI.
-    const known = knownSender({ from: log.fromAddress, subject: log.subject, attachments: meta.attachments ?? [] });
+    const known = knownSender({ from: log.fromAddress, subject: log.subject, attachments: (meta.attachments ?? []).map((a, i) => ({ name: a.name, text: firstPages[i]?.firstPage ?? '' })) });
     if (known && result) {
       const typed = new Map(Object.entries(known.attachmentTypes));
+      const forbid = new Set(known.forbidTypes ?? []);
       result = {
         ...result,
         attachments: [
-          ...result.attachments.filter((a) => !typed.has(a.filename)),
+          // The rule's types win; a type the rule rules out (Copy documents → never PAYMENT_PROOF) becomes OTHER.
+          ...result.attachments.filter((a) => !typed.has(a.filename)).map((a) => (forbid.has(a.docType) ? { ...a, docType: 'OTHER', confidence: 0 } : a)),
           ...[...typed].map(([filename, docType]) => ({ filename, docType, confidence: 1 })),
         ],
       };
@@ -172,7 +177,10 @@ export class EmailTriageService {
     // Direction and counterparty: deterministic rules first, the AI's guess only as a fallback.
     const direction = directionOf(log.fromAddress, ownDomains);
     const counterparty = counterpartyByDomain(addrs, ownDomains, customerDomains) ?? known?.counterparty ?? result?.counterparty ?? 'OTHER';
-    const verdict = known ? 'SHIPMENT' : (result?.verdict ?? 'UNSURE');
+    // Mail with a known counterparty (or on its thread) is never purged automatically: NOT_SHIPMENT → UNSURE.
+    const keep = keepDomainsOf(settings.docDefaults, customerDomains.flatMap((c) => c.domains));
+    const kept = keptDomain({ ...addrs, body: meta.bodyText ?? '' }, keep) ?? (await this.keptThread(organizationId, logId, log.subject));
+    const verdict = known ? 'SHIPMENT' : guardVerdict(result?.verdict ?? 'UNSURE', kept);
     const text = [log.subject, meta.bodyText?.slice(0, 4000), ...(meta.attachments ?? []).map((a) => a.name), ...firstPages.map((p) => p.firstPage)].join('\n');
     const keys = mergeKeys(result?.keys ?? null, { ...keysByPattern(text), ...(known?.blNo ? { blNo: known.blNo } : {}) });
     // Vedanta's PI table → supplier-order suggestions (applied from the inbox).
@@ -187,6 +195,7 @@ export class EmailTriageService {
       model: MODEL,
       at: new Date().toISOString(),
       ...(known ? { knownRule: known.rule } : {}),
+      ...(kept ? { keptBy: kept, ...(result?.verdict === 'NOT_SHIPMENT' && verdict === 'UNSURE' ? { aiVerdict: 'NOT_SHIPMENT' } : {}) } : {}),
       ...(supplierOrderSuggestions.length ? { supplierOrderSuggestions } : {}),
     };
 
@@ -205,6 +214,8 @@ export class EmailTriageService {
         threadKey: threadKeyOf(log.subject),
         inReplyTo: meta.inReplyTo ?? null,
         emailDate: meta.date ? new Date(meta.date) : null,
+        // A re-run of an UNSURE email that is now SHIPMENT keeps it (no 14-day purge).
+        ...(verdict === 'SHIPMENT' ? { purgeAfter: null } : {}),
       },
     });
     if (verdict === 'UNSURE') {
@@ -219,6 +230,17 @@ export class EmailTriageService {
       details: { verdict, direction, counterparty, inboxState: state },
     });
     return { verdict, inboxState: state };
+  }
+
+  /** "thread: …" when an earlier email of this thread is with a counterparty (an internal reply on a Vedanta thread). */
+  private async keptThread(organizationId: string, logId: string, subject: string | null): Promise<string | null> {
+    const key = threadKeyOf(subject);
+    if (!key) return null;
+    const hit = await this.prisma.emailIngestLog.findFirst({
+      where: { organizationId, threadKey: key, id: { not: logId }, counterparty: { in: ['VEDANTA', 'SUS', 'KATO', 'HOEI', 'MITSUI_SOKO', 'SHIPPING_LINE'] } },
+      select: { counterparty: true },
+    });
+    return hit ? `thread with ${hit.counterparty}` : null;
   }
 
   /** Match the email to an order / shipment and build the plan; AUTO executes it. */
@@ -267,7 +289,8 @@ export class EmailTriageService {
   private async match(organizationId: string, log: { id: string; threadKey: string | null; inReplyTo: string | null }, keys: TriageKeys): Promise<MatchCandidate | null> {
     const cands: MatchCandidate[] = [];
     if (keys.piNo) {
-      const os: Array<{ id: string }> = await this.prisma.tradeOrder.findMany({ where: { organizationId, piNo: keys.piNo }, select: { id: true } });
+      // The PI is on the supplier order (round E) — or, on older orders, on the order itself.
+      const os: Array<{ id: string }> = await this.prisma.tradeOrder.findMany({ where: { organizationId, OR: [{ piNo: keys.piNo }, { supplierOrder: { piNo: keys.piNo } }] }, select: { id: true } });
       cands.push({ kind: 'pi', orderId: os[0]?.id ?? null, count: os.length });
     }
     if (keys.blNo) {
@@ -602,6 +625,7 @@ export class EmailTriageService {
       purgeAfter: l.purgeAfter,
       error: triage.error ?? null,
       knownRule: (triage as { knownRule?: string }).knownRule ?? null,
+      keptBy: (triage as { keptBy?: string }).keptBy ?? null,
       /** Vedanta declaration: the PI table rows, and what "Apply" did. */
       supplierOrderSuggestions: (triage as { supplierOrderSuggestions?: DeclarationRow[] }).supplierOrderSuggestions ?? [],
       supplierOrderResults: (l.actions as { supplierOrders?: unknown[] } | null)?.supplierOrders ?? [],

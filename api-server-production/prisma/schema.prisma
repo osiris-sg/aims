@@ -3752,6 +3752,8 @@ model TradeOrder {
   /// The customer's own purchase order (Kato's 発注書) — the file is linked as CUSTOMER_PO.
   customerPoNo    String?
   customerPoDate  DateTime?
+  /// Fields flagged "check" for ADH (imported from the task list / assumed): ["clientPremium", "contractId", "customerId"].
+  checkFields     String[]          @default([])
   /// The supplier order (Vedanta PI) this customer order is bought under.
   supplierOrderId String?           @db.Uuid
   createdById     String?

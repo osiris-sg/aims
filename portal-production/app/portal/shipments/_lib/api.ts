@@ -356,6 +356,8 @@ export type CustomerProfile = {
   defaultBankId?: string;
   /** Default bank not confirmed yet — shown as "check". */
   defaultBankCheck?: boolean;
+  /** 宛先 on the Japanese PL / COA (blank = the legal name). */
+  docAddressee?: string;
 };
 export type EstimatorRates = {
   taxMultiplier: number;
@@ -490,12 +492,15 @@ export type Order = OrderListItem & {
   /** The supplier side (steps 0 / 1 on the supplier order). */
   supplierOrder: OrderSupplierSide | null;
   customerPoNo: string | null;
+  /** Fields flagged "check" (imported from the task list / assumed): clientPremium, contractId, customerId. */
+  checkFields?: string[];
   customerPoDate: string | null;
   steps: TradeStep[];
   fileLinks: RecordFileLink[];
   docLinks: RecordDocLink[];
 };
 export type OrderInput = Partial<{
+  checkFields: string[];
   year: number;
   orderNo: number;
   contractId: string | null;
@@ -773,7 +778,7 @@ export type GenHeader = {
   bodyMode?: "attach" | "table";
   attachFileId?: string | null;
   attachPage?: number | null;
-  attachCrop?: { top?: number; bottom?: number } | null;
+  attachCrop?: { top?: number; bottom?: number; auto?: boolean } | null;
   to: { name: string; address?: string | null };
   date: string;
   refs: GenRef[];

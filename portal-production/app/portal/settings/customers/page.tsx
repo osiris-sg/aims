@@ -186,6 +186,18 @@ function ProfileCard({ customer, profile, banks }: { customer: { id: string; nam
           </TextField>
         </Grid2>
         <Grid2 size={12}>
+          <TextField
+            size="small"
+            fullWidth
+            label="宛先 on the 計量検収票 / 納品書兼分析試験成績報告書"
+            value={p.docAddressee ?? ""}
+            onChange={(e) => set({ docAddressee: e.target.value })}
+            placeholder="Blank = the Japanese legal name (e.g. SUS株式会社 福島製造グループ)"
+            helperText="Printed before 御中; the address and contact come from the customer record"
+            data-tour="settings-customer-addressee"
+          />
+        </Grid2>
+        <Grid2 size={12}>
           <Typography variant="overline" color="text.secondary">
             Delivery site (出庫・納入依頼書)
           </Typography>

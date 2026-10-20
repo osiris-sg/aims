@@ -562,7 +562,7 @@ export default function StepCards({
               </Typography>
             )}
             <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-              {isDone ? `Done${s.updatedByName ? ` by ${s.updatedByName}` : ""} · ${fmtDateTime(s.completedAt ?? s.updatedAt)}` : s.updatedByName ? `Last change by ${s.updatedByName} · ${fmtDateTime(s.updatedAt)}` : ""}
+              {isDone ? `Done${s.updatedByName ? ` by ${s.updatedByName}` : ""} · ${fmtDateTime(s.completedAt ?? s.updatedAt)}${s.skipReason ? ` · ${s.skipReason}` : ""}` : s.updatedByName ? `Last change by ${s.updatedByName} · ${fmtDateTime(s.updatedAt)}` : ""}
             </Typography>
           </Box>
           {canMarkDone && (
@@ -598,6 +598,7 @@ export default function StepCards({
           {isDone && (
             <Typography variant="body2" color="text.secondary" noWrap sx={{ minWidth: 0 }}>
               · {s.updatedByName ?? "—"} · {fmtDate(s.completedAt ?? s.updatedAt)}
+              {s.skipReason ? ` · ${s.skipReason}` : ""}
             </Typography>
           )}
           {!isDone && s.holdOpen && <Chip size="small" variant="outlined" color="warning" label="Reopened" />}

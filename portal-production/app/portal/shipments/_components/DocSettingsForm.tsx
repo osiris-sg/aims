@@ -53,6 +53,7 @@ export default function DocSettingsForm() {
   const [issuers, setIssuers] = useState<Issuers>({ invoiceFromBlock: "", customerDocIssuerName: "", customerDocIssuerAddress: "", customerDocContact: "", siIssuerName: "", siAddressee: "" });
   const [seal, setSeal] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<DeliveryProfile[]>([]);
+  const [keepDomains, setKeepDomains] = useState("");
   const [error, setError] = useState<string | null>(null);
   const save = useTradeMutation((api, docDefaults: Record<string, unknown>) => api.updateSettings({ docDefaults }));
 
@@ -70,6 +71,7 @@ export default function DocSettingsForm() {
     setQmjp(Object.keys(table).sort().map((q) => ({ key: q, quarter: q, value: String(table[q]) })));
     const lt = (d.lmeByMonth ?? {}) as Record<string, number>;
     setLme(Object.keys(lt).sort().map((m) => ({ key: m, month: m, value: String(lt[m]) })));
+    setKeepDomains(Array.isArray(d.intakeKeepDomains) ? d.intakeKeepDomains.join("\n") : "");
     setError(null);
   }, [settings.data, dirty]);
 
@@ -97,6 +99,12 @@ export default function DocSettingsForm() {
     if (l.some((r) => !MONTH.test(r.month.trim()))) return setError("LME months look like 2026-07");
     if (l.some((r) => !(Number(r.value) > 0))) return setError("Every LME month needs a price");
     if (new Set(l.map((r) => r.month.trim())).size !== l.length) return setError("Each LME month only once");
+    const keep = keepDomains
+      .split(/[,\s]+/)
+      .map((x) => x.trim().toLowerCase().replace(/^@/, ""))
+      .filter(Boolean);
+    const badDomain = keep.find((x) => !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(x));
+    if (badDomain) return setError(`"${badDomain}" is not an email domain (like vedanta.co.in)`);
     try {
       await save.mutateAsync({
         banks: banks.map((b) => ({ id: b.id, label: b.label.trim(), block: b.block, entity: bankEntity(b) })),
@@ -106,6 +114,7 @@ export default function DocSettingsForm() {
         deliveryProfiles: profiles.map((p) => ({ ...p, customerName: p.customerName.trim(), siteName: p.siteName.trim(), address: p.address.trim() })),
         qmjpByQuarter: Object.fromEntries(q.map((r) => [r.quarter.trim(), Number(r.value)])),
         lmeByMonth: Object.fromEntries(l.map((r) => [r.month.trim(), Number(r.value)])),
+        intakeKeepDomains: keep.length ? keep : null,
       });
       setDirty(false);
       toast.success("Document settings saved");
@@ -308,6 +317,25 @@ export default function DocSettingsForm() {
               </Typography>
             )}
           </Stack>
+        </Section>
+
+        <Section title="Email intake — never purge mail from">
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+            Mail from, to or quoting these domains (and replies on their threads) is never deleted automatically: when the AI calls it &quot;not shipment&quot; it goes to Shipments › Inbox › Unsure for 14 days instead. Customers&apos; email domains (Org Settings › Customers) are always included. Leave blank for the built-in list (Vedanta, SUS, Kato, Mitsui Soko, the carriers).
+          </Typography>
+          <TextField
+            size="small"
+            fullWidth
+            multiline
+            minRows={4}
+            label="Domains (one per line)"
+            value={keepDomains}
+            disabled={loading}
+            onChange={(e) => setKeepDomains(e.target.value)}
+            placeholder={"vedanta.co.in\nsus.co.jp\nkatokei.co.jp\nmitsui-soko.co.jp\nwanhai.com"}
+            inputProps={{ style: { fontFamily: "monospace", fontSize: 12.5 } }}
+            data-tour="settings-intake-keep-domains"
+          />
         </Section>
 
         <Stack direction="row" justifyContent="flex-end" spacing={1}>

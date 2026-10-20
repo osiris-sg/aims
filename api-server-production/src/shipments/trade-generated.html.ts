@@ -60,9 +60,11 @@ export interface GenHeader {
   bodyMode?: 'attach' | 'table';
   attachFileId?: string | null;
   attachPage?: number | null;
-  attachCrop?: { top?: number; bottom?: number } | null;
-  /** Render-time only (never stored): the attached page as a data: URL. */
+  /** auto = INVOICE NO. → AUTHORISED SIGNATORY found in the PDF; else the typed top / bottom fractions. */
+  attachCrop?: { top?: number; bottom?: number; auto?: boolean } | null;
+  /** Render-time only (never stored): the attached body as data: URLs — the first piece, and every piece (a PL over 2 pages). */
   attachImage?: string | null;
+  attachImages?: string[] | null;
 }
 
 const esc = (v: unknown) =>
@@ -263,25 +265,35 @@ thead { display: table-header-group; } tr { page-break-inside: avoid; }
  * shows where it goes (finalize refuses it).
  */
 function renderCustomerPlAttach(h: GenHeader, opts: { draft?: boolean }): string {
-  const img = h.attachImage && /^data:image\/(png|jpe?g);base64,/.test(h.attachImage) ? h.attachImage : null;
+  const ok = (u: unknown): u is string => typeof u === 'string' && /^data:image\/(png|jpe?g);base64,/.test(u);
+  const imgs = (h.attachImages?.length ? h.attachImages : [h.attachImage]).filter(ok);
+  const n = imgs.length;
+  // A PL over several pages: the first piece in the frame, one continuation sheet per further piece.
+  const more = imgs
+    .slice(1)
+    .map((img, i) => `<div class="land cont"><div class="top"><span>${esc(h.title || '計量検収票')}</span><span>(${i + 2}/${n})</span></div><div class="frame full"><img src="${img}" alt=""></div></div>`)
+    .join('');
   const body = `<div class="land">
-<div class="top"><span>${esc(h.formLabel ?? '')}</span><span>${jpDate(h.date)}</span></div>
+<div class="top"><span>${esc(h.formLabel ?? '')}</span><span>${jpDate(h.date)}${n > 1 ? `　(1/${n})` : ''}</span></div>
 <div class="ttl">${esc(h.title || '計量検収票')}</div>
 ${partiesJp(h)}
 <div class="frame">${
-    img
-      ? `<img src="${img}" alt="">`
+    n
+      ? `<img src="${imgs[0]}" alt="">`
       : `<div class="ph">Vedanta書類PL Container スクリーンショット貼付エリア<br>INVOICE NO. 以降　VEDANTA印影まで<br><small>Attach a page of Vedanta's container packing list</small></div>`
-  }</div></div>`;
-  // A4 landscape like ADH's sheet: a centred column, the pasted page fitted to the frame.
+  }</div></div>${more}`;
+  // A4 landscape like ADH's sheet: a centred column; the pasted piece scaled to fill the frame (aspect kept).
   const css = `${JP_CSS}
 @page { size: A4 landscape; }
 .land { width: 190mm; margin: 0 auto; }
 .ttl { color: #9a2a2a; margin-bottom: 4mm; }
 .pj { margin-bottom: 4mm; }
-.frame { border: 1.5px solid #111; padding: 2mm; min-height: 110mm; display: flex; align-items: flex-start; justify-content: center; }
-.frame img { width: 100%; height: auto; max-height: 128mm; object-fit: contain; }
+.frame { border: 1.5px solid #111; padding: 2mm; height: 133mm; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.frame img { width: 100%; height: 100%; object-fit: contain; }
 .frame .ph { margin: auto; text-align: center; color: #777; font-size: 10pt; line-height: 2; }
+.cont { break-before: page; page-break-before: always; }
+.cont .top { margin-bottom: 3mm; }
+.frame.full { height: 174mm; }
 `;
   return docShell({ title: h.title || '計量検収票', css, body, draft: opts.draft });
 }

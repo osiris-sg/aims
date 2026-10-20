@@ -40,6 +40,10 @@ export const TRIAGE_DOC_TYPES: Record<string, string | null> = {
   PAYMENT_PROOF: 'PAYMENT_PROOF',
   VENDOR_INVOICE: 'VENDOR_INVOICE',
   BUNDLE_LIST: 'BUNDLE_LIST',
+  DELIVERY_SCHEDULE: 'DELIVERY_SCHEDULE',
+  /** Vedanta's Excel packing list / COA (the same documents as data). */
+  PL_XLS: 'PL',
+  COA_XLS: 'COA',
   OTHER: null,
 };
 /** Trade doc types filed on the order (the rest go on the shipment). */
@@ -296,11 +300,41 @@ SHIPMENT = about a specific purchase / shipment (PI, contract, B/L, shipping doc
 export const SUPPLIER_ORDER_DOC_TYPES = new Set(['PI', 'CONTRACT', 'DEPOSIT_PROOF']);
 
 export interface KnownSenderHit {
-  rule: 'WANHAI_AN' | 'MITSUI_BUNDLE_LIST' | 'IMPORT_PERMIT' | 'VEDANTA_DECLARATION';
+  rule: 'WANHAI_AN' | 'MITSUI_BUNDLE_LIST' | 'MITSUI_DELIVERY_DETAILS' | 'IMPORT_PERMIT' | 'VEDANTA_DECLARATION' | 'VEDANTA_COPY_DOCS';
   counterparty?: Counterparty;
   blNo?: string | null;
   /** filename → triage doc type (overrides the AI). */
   attachmentTypes: Record<string, string>;
+  /** Types the AI may not give the other attachments of this email (they become OTHER). */
+  forbidTypes?: string[];
+}
+
+/**
+ * A file in Vedanta's "Copy documents - …" set, by its name: B/L scan, CI,
+ * container / plain PL, COA, COO, insurance, and the Excel PL / COA. Null =
+ * not recognised (the AI's type stands, never PAYMENT_PROOF).
+ *   198GX04630 SCAN.pdf · COMMERCIAL_INVOICE_9000565680.pdf · PACKING_LIST_CONTAINER_9000568205.pdf
+ *   PACKING_LIST_9000565680.pdf · COA_9000565680.pdf · COO_9000568205.pdf · INSURANCE.pdf · PL.XLS · COA.XLS
+ */
+export function copyDocType(filename: string): string | null {
+  const n = filename.normalize('NFC');
+  const base = n.replace(/\.[^.]+$/, '');
+  const xls = /\.(xlsx?|csv)$/i.test(n) || /\.XLS\b/i.test(base);
+  const w = (re: RegExp) => re.test(base.replace(/[_\-.]+/g, ' '));
+  if (w(/\b(COA|analysis|certificate of analysis)\b/i)) return xls ? 'COA_XLS' : 'COA';
+  if (w(/\b(PL|packing ?list)\b/i)) return xls ? 'PL_XLS' : w(/\bcontainer\b/i) ? 'PL_CONTAINER' : 'PL';
+  if (xls) return null;
+  if (w(/\b(COO|origin|certificate of origin)\b/i)) return 'COO';
+  if (w(/\binsurance\b/i)) return 'INSURANCE';
+  if (w(/\b(CI|commercial ?invoice|invoice)\b/i)) return 'CI';
+  if (w(/\b(B ?L|bill of lading|BL scan)\b/i) || /\d{3}[A-Z]{2}\d{5}/i.test(base)) return 'BL_SCAN';
+  return null;
+}
+
+/** Mitsui Soko's 納品明細 / NO.取り list: dates / trucks → the delivery schedule, else the bundle-number list. */
+export function mitsuiListType(name: string, text = ''): 'BUNDLE_LIST' | 'DELIVERY_SCHEDULE' {
+  const t = `${name}\n${text}`.normalize('NFC');
+  return /配車|車番|車両|トラック|運送会社|納入予定|出荷予定|日程|スケジュール|schedule/i.test(t) && !/NO\.?\s*取り/.test(name.normalize('NFC')) ? 'DELIVERY_SCHEDULE' : 'BUNDLE_LIST';
 }
 
 /**
@@ -310,7 +344,7 @@ export interface KnownSenderHit {
  *  - "輸入許可書…" (subject or file name) → import permit
  *  - Vedanta "declaration" threads → supplier-order suggestions (the PI table)
  */
-export function knownSender(e: { from: string; subject: string | null; attachments: Array<{ name: string }> }): KnownSenderHit | null {
+export function knownSender(e: { from: string; subject: string | null; attachments: Array<{ name: string; text?: string }> }): KnownSenderHit | null {
   const from = emailOf(e.from);
   const subject = e.subject ?? '';
   const pdfs = e.attachments.filter((a) => /\.pdf$/i.test(a.name));
@@ -320,12 +354,28 @@ export function knownSender(e: { from: string; subject: string | null; attachmen
   }
   if (/NO\.?\s*取り\s*リスト/.test(subject) || e.attachments.some((a) => /NO\.?\s*取り\s*リスト/.test(a.name))) {
     const lists = e.attachments.filter((a) => /\.(csv|xlsx?|pdf)$/i.test(a.name));
-    return { rule: 'MITSUI_BUNDLE_LIST', counterparty: 'MITSUI_SOKO', attachmentTypes: Object.fromEntries(lists.map((a) => [a.name, 'BUNDLE_LIST'])) };
+    return { rule: 'MITSUI_BUNDLE_LIST', counterparty: 'MITSUI_SOKO', attachmentTypes: Object.fromEntries(lists.map((a) => [a.name, 'BUNDLE_LIST'])), forbidTypes: ['CUSTOMER_PL'] };
+  }
+  // Mitsui Soko's 納品明細 (also forwarded by the customer): the warehouse's list, never a customer PL.
+  const detailFiles = e.attachments.filter((a) => /納品明細/.test(a.name.normalize('NFC')) && /\.(csv|xlsx?|pdf)$/i.test(a.name));
+  if (detailFiles.length || (/納品明細/.test(subject.normalize('NFC')) && /@(.+\.)?mitsui-soko\.co\.jp$/i.test(from))) {
+    const files = detailFiles.length ? detailFiles : e.attachments.filter((a) => /\.(csv|xlsx?|pdf)$/i.test(a.name));
+    return {
+      rule: 'MITSUI_DELIVERY_DETAILS',
+      ...(/mitsui-soko/i.test(from) ? { counterparty: 'MITSUI_SOKO' as Counterparty } : {}),
+      attachmentTypes: Object.fromEntries(files.map((a) => [a.name, mitsuiListType(a.name, a.text)])),
+      forbidTypes: ['CUSTOMER_PL', 'CUSTOMER_COA'],
+    };
   }
   const permitFiles = e.attachments.filter((a) => /輸入許可/.test(a.name.normalize('NFC')));
   if (/輸入許可/.test(subject.normalize('NFC')) || permitFiles.length) {
     const files = permitFiles.length ? permitFiles : pdfs;
     return { rule: 'IMPORT_PERMIT', attachmentTypes: Object.fromEntries(files.map((a) => [a.name, 'IMPORT_PERMIT'])) };
+  }
+  // Vedanta's "Copy documents - Asia Deal(Kato) //454003598//198GX064…": the shipping set, typed per file.
+  if (/copy\s*(of\s*)?documents?/i.test(subject) && /vedanta/i.test(from)) {
+    const typed = e.attachments.map((a) => [a.name, copyDocType(a.name)] as const).filter((x): x is readonly [string, string] => !!x[1]);
+    return { rule: 'VEDANTA_COPY_DOCS', counterparty: 'VEDANTA', attachmentTypes: Object.fromEntries(typed), forbidTypes: ['PAYMENT_PROOF', 'DEPOSIT_PROOF'] };
   }
   if (/declaration/i.test(subject) && /vedanta/i.test(`${from} ${subject}`)) {
     return { rule: 'VEDANTA_DECLARATION', counterparty: 'VEDANTA', attachmentTypes: Object.fromEntries(pdfs.filter((a) => /\bPI\b|933\d{7}/i.test(a.name)).map((a) => [a.name, 'PI'])) };
@@ -381,3 +431,69 @@ export function declarationMonthOf(qp: string | null | undefined): string | null
   if (!m || !MONTHS[m[1].toLowerCase()]) return null;
   return `20${m[2]}-${MONTHS[m[1].toLowerCase()]}`;
 }
+
+// ── Counterparty mail is never purged (2026-10, after the backfill review) ──
+/**
+ * Domains whose mail is kept even when the AI calls it NOT_SHIPMENT (→ UNSURE,
+ * 14 days for a person to look): the supplier, customers, the warehouse and
+ * the carriers. Org Settings → Shipping can replace the list
+ * (docDefaults.intakeKeepDomains); every customer profile's email domains are
+ * always added (Hoei's, once known).
+ */
+export const DEFAULT_KEEP_DOMAINS = [
+  'vedanta.co.in',
+  'sus.co.jp',
+  'katokei.co.jp',
+  'mitsui-soko.co.jp',
+  'wanhai.com',
+  'maersk.com',
+  'one-line.com',
+  'coscoshipping.com',
+  'evergreen-line.com',
+  'hlag.com',
+  'msc.com',
+  'sitc.com',
+  'oocl.com',
+  'cma-cgm.com',
+  'yangming.com',
+  'hmm21.com',
+  'zim.com',
+];
+
+const cleanDomain = (d: string) =>
+  d
+    .trim()
+    .toLowerCase()
+    .replace(/^@/, '')
+    .replace(/^https?:\/\//, '')
+    .replace(/\/.*$/, '');
+export const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+
+/** The keep list: the org's setting (else the defaults) + every customer profile's email domains. */
+export function keepDomainsOf(docDefaults: Record<string, unknown> | null | undefined, customerDomains: string[] = []): string[] {
+  const v = docDefaults?.intakeKeepDomains;
+  const set = Array.isArray(v) ? v.map(String) : typeof v === 'string' ? v.split(/[,\s]+/) : DEFAULT_KEEP_DOMAINS;
+  return [...new Set([...set, ...customerDomains].map(cleanDomain).filter((d) => DOMAIN_RE.test(d)))];
+}
+
+const onList = (domain: string, list: string[]) => list.find((k) => domain === k || domain.endsWith(`.${k}`)) ?? null;
+
+/**
+ * The kept domain this email involves, or null: the sender, a recipient / CC,
+ * or an address quoted in the body (an internal reply on a Vedanta thread
+ * carries "From: …@vedanta.co.in" in the quoted mail).
+ */
+export function keptDomain(e: { from: string; to: string[]; cc: string[]; body?: string | null }, keep: string[]): string | null {
+  for (const a of [e.from, ...e.to, ...e.cc]) {
+    const hit = onList(domainOf(emailOf(a)), keep);
+    if (hit) return hit;
+  }
+  for (const m of (e.body ?? '').slice(0, 20000).matchAll(/@([a-z0-9.-]+\.[a-z]{2,})/gi)) {
+    const hit = onList(m[1].toLowerCase().replace(/\.+$/, ''), keep);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** NOT_SHIPMENT on a kept counterparty's mail (or thread) → UNSURE: never purged automatically. */
+export const guardVerdict = (verdict: Verdict, kept: string | null): Verdict => (verdict === 'NOT_SHIPMENT' && kept ? 'UNSURE' : verdict);

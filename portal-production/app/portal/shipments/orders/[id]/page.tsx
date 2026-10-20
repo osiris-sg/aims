@@ -12,7 +12,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Alert, Box, Button, ButtonBase, Chip, CircularProgress, Grid, IconButton, Menu, MenuItem, Paper, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { Alert, Box, Button, ButtonBase, Chip, CircularProgress, Grid, IconButton, Menu, MenuItem, Paper, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import EditIcon from "@mui/icons-material/EditOutlined";
@@ -676,23 +676,43 @@ function blSummary(s: Shipment): string | null {
 function OrderOverview({ order: o, onEdit }: { order: Order; onEdit: () => void }) {
   const money = (v: unknown) => fmtMoney(v as any, o.currency);
   const p = o.profile;
+  const check = new Set(o.checkFields ?? []);
+  const confirm = useTradeMutation((a, oid: string) => a.updateOrder(oid, { checkFields: [] }));
+  const CHECK_LABELS: Record<string, string> = { customerId: "customer", contractId: "contract", clientPremium: "client premium", supplierPremium: "supplier premium", currentStep: "current step" };
+  const ck = (k: string | string[], value: React.ReactNode) =>
+    (Array.isArray(k) ? k : [k]).some((x) => check.has(x)) ? (
+      <>
+        {value} <Chip size="small" color="warning" variant="outlined" label="check" sx={{ height: 18, ml: 0.5 }} />
+      </>
+    ) : (
+      value
+    );
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
-        <Typography variant="subtitle2">Order {o.label}</Typography>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+        <Typography variant="subtitle2" sx={{ flex: 1 }}>
+          Order {o.label}
+        </Typography>
+        {check.size > 0 && (
+          <Tooltip title={`To confirm with ADH: ${[...check].map((k) => CHECK_LABELS[k] ?? k).join(", ")} (from the task list import). Edit the order if anything is wrong, then mark it confirmed.`}>
+            <Button size="small" color="warning" disabled={confirm.isPending} onClick={() => confirm.mutate(o.id)} data-tour="order-check-confirm">
+              Check: {[...check].map((k) => CHECK_LABELS[k] ?? k).join(", ")} · Mark confirmed
+            </Button>
+          </Tooltip>
+        )}
         <Button variant="outlined" startIcon={<EditIcon />} onClick={onEdit}>
           Edit
         </Button>
       </Stack>
       <Grid container spacing={2}>
         <Grid item xs={6} md={3}>
-          <Field label="Customer" value={o.customer?.name} />
+          <Field label="Customer" value={ck("customerId", o.customer?.name)} />
         </Grid>
         <Grid item xs={6} md={3}>
           <Field label="Supplier" value={o.supplier?.name} />
         </Grid>
         <Grid item xs={6} md={3}>
-          <Field label="Contract" value={o.contract?.contractNo ?? "—"} />
+          <Field label="Contract" value={ck("contractId", o.contract?.contractNo ?? "—")} />
         </Grid>
         <Grid item xs={6} md={3}>
           <Field label="Ship → delivery" value={o.monthsLabel || "—"} />
@@ -704,7 +724,7 @@ function OrderOverview({ order: o, onEdit }: { order: Order; onEdit: () => void 
           <Field label="Tolerance" value={o.tolPct != null ? `±${Number(o.tolPct)}%` : "—"} />
         </Grid>
         <Grid item xs={6} md={3}>
-          <Field label="Premiums (USD/MT)" value={`supplier ${o.supplierPremium ?? "—"} · client ${o.clientPremium ?? "—"}${o.upcharge ? ` + ${o.upcharge}` : ""}`} />
+          <Field label="Premiums (USD/MT)" value={ck(["clientPremium", "supplierPremium"], `supplier ${o.supplierPremium ?? "—"} · client ${o.clientPremium ?? "—"}${o.upcharge ? ` + ${o.upcharge}` : ""}`)} />
         </Grid>
         <Grid item xs={6} md={3}>
           <Field label="PI" value={[o.piNo, o.piDate && fmtDmy(o.piDate), o.piAmount != null && money(o.piAmount)].filter(Boolean).join(" · ") || "—"} />

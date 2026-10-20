@@ -38,6 +38,7 @@ import ws = require('ws');
 import { DEFAULT_DOCUMENT_TEMPLATES } from '../src/organizations/default-templates';
 import { DEFAULT_ORG_FEATURES } from '../src/organizations/default-features';
 import { MODULE_CATALOG } from '../src/configuration/module-catalog';
+import { DEFAULT_KEEP_DOMAINS } from '../src/ingestion-email/email-triage.rules';
 import { checkTemplatePlan, type TemplateRow } from './lib/template-resolution';
 import { backfillOrders, backfillSupplierOrders } from '../src/shipments/trade-orders-backfill';
 import { bankEntity, entityFor } from '../src/shipments/trade-entity';
@@ -530,6 +531,8 @@ const PROFILE_SEED: Record<string, Omit<CustomerProfile, 'customerId'>> = {
     emailDomains: [],
     docVariants: { CUSTOMER_PL: 'CUSTOMER_PL_SUS', CUSTOMER_COA: 'CUSTOMER_COA_SUS', INVOICE: 'INVOICE_2' },
     defaultBankId: 'dbs',
+    // 宛先 on SUS's PL / COA (the address / contact come from --customers).
+    docAddressee: 'SUS株式会社 福島製造グループ',
   },
   'Kato Light Metal Industry Co., Ltd.': {
     key: 'KATO',
@@ -1059,6 +1062,8 @@ async function main() {
     ...(deliveryProfiles ? { deliveryProfiles } : {}),
     // QMJP by quarter: seeded quarters fill gaps; values edited in the app win.
     qmjpByQuarter: { ...QMJP_BY_QUARTER, ...((curDefaults.qmjpByQuarter as Record<string, number> | undefined) ?? {}) },
+    // Email intake: counterparty domains never purged automatically — seeded once, edited in Org Settings → Shipping.
+    intakeKeepDomains: Array.isArray(curDefaults.intakeKeepDomains) ? curDefaults.intakeKeepDomains : DEFAULT_KEEP_DOMAINS,
   };
   const desired = { ...TRADE_SETTINGS, docDefaults: desiredDefaults };
   if (
@@ -1074,7 +1079,7 @@ async function main() {
     }
     write(
       'tradeSetting',
-      `${curSettings ? 'update' : 'create'} consignee "${TRADE_SETTINGS.defaultConsignee.split('\n')[0]}…", notify party "${TRADE_SETTINGS.defaultNotifyParty.split('\n')[0]}…", ${Object.keys(TRADE_SETTINGS.docDefaults).length} document texts${seal ? ', seal image' : ''}${fileProfiles?.length ? `, ${fileProfiles.length} delivery profile(s) from --customers` : ''}`,
+      `${curSettings ? 'update' : 'create'} consignee "${TRADE_SETTINGS.defaultConsignee.split('\n')[0]}…", notify party "${TRADE_SETTINGS.defaultNotifyParty.split('\n')[0]}…", ${Object.keys(TRADE_SETTINGS.docDefaults).length} document texts${seal ? ', seal image' : ''}${Array.isArray(curDefaults.intakeKeepDomains) ? '' : `, intake keep-domains (${DEFAULT_KEEP_DOMAINS.length})`}${fileProfiles?.length ? `, ${fileProfiles.length} delivery profile(s) from --customers` : ''}`,
     );
   }
 
@@ -1379,16 +1384,20 @@ async function main() {
       write('premium', `supplier order ${so.year}-S${so.soNo}: supplier ${key(so.supplierPremium)} → ${sp}`);
       moved++;
     }
-    const lines: Array<{ id: string; grade: string | null; supplierPremium: unknown; billetPremium: unknown; upcharge: unknown; contract: { contractNo: string } }> = await org.contractLine.findMany({
+    const lines: Array<{ id: string; grade: string | null; supplierPremium: unknown; clientPremium: unknown; billetPremium: unknown; upcharge: unknown; contract: { contractNo: string } }> = await org.contractLine.findMany({
       where: { contract: { organizationId: orgId } },
-      select: { id: true, grade: true, supplierPremium: true, billetPremium: true, upcharge: true, contract: { select: { contractNo: true } } },
+      select: { id: true, grade: true, supplierPremium: true, clientPremium: true, billetPremium: true, upcharge: true, contract: { select: { contractNo: true } } },
     });
     for (const l of lines) {
       const sp = SUPPLIER_FIXED[key(l.supplierPremium)];
-      const cp = clientFixed(l.billetPremium, l.upcharge);
-      if (sp === undefined && cp === null) continue;
-      if (APPLY) await org.contractLine.update({ where: { id: l.id }, data: { ...(sp !== undefined ? { supplierPremium: sp } : {}), ...(cp !== null ? { billetPremium: cp } : {}) } });
-      write('premium', `contract ${l.contract.contractNo} line ${l.grade ?? '—'}: ${sp !== undefined ? `supplier ${key(l.supplierPremium)} → ${sp}` : ''}${sp !== undefined && cp !== null ? ', ' : ''}${cp !== null ? `billet ${key(l.billetPremium)} → ${cp}` : ''}`);
+      // A line keeps the client premium in two columns (clientPremium, and billetPremium for the 請求書 helper).
+      const cp = clientFixed(l.clientPremium, l.upcharge);
+      const bp = clientFixed(l.billetPremium, l.upcharge);
+      if (sp === undefined && cp === null && bp === null) continue;
+      if (APPLY)
+        await org.contractLine.update({ where: { id: l.id }, data: { ...(sp !== undefined ? { supplierPremium: sp } : {}), ...(cp !== null ? { clientPremium: cp } : {}), ...(bp !== null ? { billetPremium: bp } : {}) } });
+      const parts = [sp !== undefined ? `supplier ${key(l.supplierPremium)} → ${sp}` : '', cp !== null ? `client ${key(l.clientPremium)} → ${cp}` : '', bp !== null ? `billet ${key(l.billetPremium)} → ${bp}` : ''];
+      write('premium', `contract ${l.contract.contractNo} line ${l.grade ?? '—'}: ${parts.filter(Boolean).join(', ')}`);
       moved++;
     }
     if (!moved) info('every stored premium is the fixed part');

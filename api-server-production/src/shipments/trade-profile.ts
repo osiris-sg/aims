@@ -46,6 +46,8 @@ export interface CustomerProfile {
   defaultBankId?: string;
   /** The default bank is provisional — shown as "check" until ADH confirms it (Hoei). */
   defaultBankCheck?: boolean;
+  /** 宛先 on this customer's Japanese PL / COA when it isn't the legal name alone (SUS: "SUS株式会社 福島製造グループ"). */
+  docAddressee?: string;
 }
 
 export const BILLING_MODES: BillingMode[] = ['TWO_STAGE', 'SINGLE'];
@@ -225,6 +227,7 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
     if (p.customsRatePerMt !== undefined && p.customsRatePerMt !== null && (!Number.isFinite(Number(p.customsRatePerMt)) || Number(p.customsRatePerMt) < 0)) fail('customsRatePerMt must be a number');
     for (const k of ['key', 'label', 'port'] as const) if (p[k] !== undefined && p[k] !== null && !isText(p[k], 100)) fail(`${k} must be text`);
     if (p.invoiceRemarks !== undefined && p.invoiceRemarks !== null && !isText(p.invoiceRemarks)) fail('invoiceRemarks must be text');
+    if (p.docAddressee !== undefined && p.docAddressee !== null && p.docAddressee !== '' && !isText(p.docAddressee, 120)) fail('docAddressee must be text (up to 120 characters)');
     if (p.defaultBankId !== undefined && p.defaultBankId !== null && p.defaultBankId !== '' && !isText(p.defaultBankId, 100)) fail('defaultBankId must be a bank account id');
     const dv = (p.docVariants ?? {}) as DocVariants;
     for (const [k, v] of Object.entries(dv)) {
@@ -249,6 +252,7 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
       invoiceRemarks: p.invoiceRemarks ?? undefined,
       defaultBankId: p.defaultBankId?.trim() || undefined,
       defaultBankCheck: p.defaultBankCheck === true || undefined,
+      docAddressee: p.docAddressee?.trim() || undefined,
     };
   }
   return out;

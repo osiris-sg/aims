@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { grossOf } from '../common/document-money';
 import { PrismaService } from '../common/prisma.service';
+import { DOMAIN_RE } from '../ingestion-email/email-triage.rules';
 import { TradeActor } from './shipments.request';
 import { docRefBase, nextDocRef, orderDocRefBase, supplierOrderDocRefBase } from './trade-docref';
 import { autoCompletePlan, countsForProgress, documentLinkState, fieldRequirements, hasExactlyOneOwner, stepLabel, stepLabels, stepRequirements, stepsBrokenByRemoval } from './shipments.rules';
@@ -796,6 +797,13 @@ export function mergeDocDefaults(current: Record<string, unknown>, patch: Record
       out[k] = cleanLmeByMonth(v, (m) => {
         throw new BadRequestException(m);
       });
+    } else if (k === 'intakeKeepDomains') {
+      // Email intake: mail with these domains is never purged automatically (NOT_SHIPMENT → UNSURE).
+      const list = (Array.isArray(v) ? v : typeof v === 'string' ? v.split(/[,\s]+/) : null)?.map((d) => String(d).trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
+      if (!list || list.length > 100) throw new BadRequestException('intakeKeepDomains must be a list of up to 100 domains');
+      const bad = list.find((d) => !DOMAIN_RE.test(d));
+      if (bad) throw new BadRequestException(`"${bad.slice(0, 80)}" is not an email domain (like vedanta.co.in)`);
+      out[k] = [...new Set(list)];
     } else if (k === 'productJa' || k === 'sizeInch') {
       if (typeof v !== 'object' || Array.isArray(v) || !Object.values(v as object).every((x) => isText(x, 200))) throw new BadRequestException(`${k} must map text to text`);
       out[k] = v;

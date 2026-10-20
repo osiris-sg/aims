@@ -306,6 +306,23 @@ export const GUIDES: Guide[] = [
     ],
   },
   {
+    id: 'trade-intake-keep-domains',
+    title: 'Keep counterparty emails out of the purge (Shipments)',
+    module: 'SHIPMENTS',
+    description:
+      'Settings → Shipping → "Email intake — never purge mail from": the domains (Vedanta, SUS, Kato, Mitsui Soko, carriers) whose mail is never deleted automatically — when the AI calls it "not shipment" it goes to Inbox › Unsure for 14 days instead. Edit the list (one domain per line); customers\' email domains are always included.',
+    route: '/portal/settings/shipping',
+    steps: [
+      {
+        route: '/portal/settings/shipping',
+        selector: '[data-tour="settings-intake-keep-domains"]',
+        title: 'Never purge mail from',
+        body: 'One domain per line. Mail from, to or quoting these domains (and replies on their threads) is kept for a person to look at — never purged by the AI. Save the document settings below.',
+        patient: true,
+      },
+    ],
+  },
+  {
     id: 'trade-credit-note',
     title: 'Use a credit note on the next invoice (Shipments)',
     module: 'SHIPMENTS',

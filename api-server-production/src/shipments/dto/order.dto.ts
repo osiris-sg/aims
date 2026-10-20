@@ -1,5 +1,5 @@
 import { PartialType } from '@nestjs/swagger';
-import { IsBoolean, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
 import { IsTradeDate } from './trade-date';
 import { DEPOSIT_DUE_UNITS } from '../trade-deposit';
 
@@ -61,6 +61,9 @@ export class CreateOrderDto {
   @IsOptional() @IsUUID() piFileId?: string;
   /** A stored contract file: linked to the order's step 0. */
   @IsOptional() @IsUUID() contractFileId?: string;
+
+  /** Fields flagged "check" for ADH ([] = all confirmed). */
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(40, { each: true }) checkFields?: string[];
 }
 
 export class UpdateOrderDto extends PartialType(CreateOrderDto) {

@@ -12,6 +12,7 @@ import { cleanReconcileInputs, reconcile, ReconcileDocs, ReconcileInputs } from 
 import { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, shapeFileLinks, STEP_SELECT, STEP_SUMMARY_SELECT } from './trade-selects';
 import { ShipmentsService } from './shipments.service';
 import { createSupplierOrderInTx } from './trade-supplier-order';
+import { stepNumber } from './trade-open-orders';
 
 const PARTY = { select: { id: true, name: true, customerCode: true } };
 const SUPPLIER = { select: { id: true, name: true, supplierCode: true } };
@@ -88,10 +89,11 @@ export class OrdersService {
         progress: progressOf(ss),
         currentStep: currentStepOf(ss),
       }));
-      // The supplier side's open step (0 / 1) first, then the order's own, then the first open shipment's.
+      // The lowest-numbered open step of the supplier side (0 / 1), the order's own (2, 13) and the first open shipment
+      // (3a–12): an order whose Invoice #1 is done is at its shipment's step, not at 13.
       const supplierStep = supplierOrder?.status === 'OPEN' ? currentStepOf(supplierOrder.steps) : null;
-      const own = supplierStep ?? currentStepOf(steps);
       const shipStep = ships.find((s: any) => s.status === 'OPEN' && s.currentStep)?.currentStep ?? null;
+      const own = [supplierStep, currentStepOf(steps), shipStep].filter((x): x is NonNullable<typeof x> => !!x).sort((a, b) => (stepNumber(a.displayNo) ?? 99) - (stepNumber(b.displayNo) ?? 99))[0] ?? null;
       return {
         ...o,
         label: orderLabel(o),
@@ -545,6 +547,7 @@ export class OrdersService {
     if (dto.depositDueUnit !== undefined) out.depositDueUnit = dto.depositDueUnit || null;
     for (const k of ['piDate', 'depositPaidAt', 'customerPoDate'] as const) if (dto[k] !== undefined) out[k] = dto[k] ? new Date(dto[k] as string) : null;
     if (dto.currency) out.currency = dto.currency;
+    if (dto.checkFields !== undefined) out.checkFields = [...new Set(dto.checkFields.map((x) => x.trim()).filter(Boolean))];
     return out;
   }
 }
