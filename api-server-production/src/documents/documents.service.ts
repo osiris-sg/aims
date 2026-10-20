@@ -1,4 +1,5 @@
 import { HttpException, HttpStatus, Inject, Injectable, forwardRef } from '@nestjs/common';
+import { tierOfRoleNames } from '../common/role-tier';
 import { DeliveriesService } from '../deliveries/deliveries.service';
 import { randomUUID } from 'crypto';
 import AdmZip = require('adm-zip');
@@ -6660,7 +6661,26 @@ export class DocumentsService {
           });
           if (!document) return undefined;
           const config: any = document.config || {};
-          const documentInfo = config.documentInfo || { documentNumber: document.name };
+          // ID quotation "Prepared by" title: the PREPARER's actual role, not a
+    // hardcoded Director (guru 2026-10-20 — Ryann is Designer-only). Resolved
+    // live so a promotion shows without editing old documents.
+    const preparerId = config.quote?.header?.designerUserId || config.designerUserId;
+    if (config.quote && preparerId) {
+      try {
+        const roles = await this.prisma.userRole.findMany({
+          where: { userId: preparerId, organizationId, isActive: true },
+          select: { role: { select: { name: true } } },
+        });
+        if (roles.length) {
+          const tier = tierOfRoleNames(roles.map((r) => r.role.name));
+          config.quote.header.designerTitle =
+            tier === 'master' ? 'Director' : tier === 'senior' ? 'Senior Manager' : tier === 'junior' ? 'Junior Manager' : 'Designer';
+        }
+      } catch {
+        /* keep the default title */
+      }
+    }
+    const documentInfo = config.documentInfo || { documentNumber: document.name };
           const items: any[] = Array.isArray(config.items) ? config.items : [];
           const dueDate = config.dueDate ? moment(config.dueDate).format('DD MMM YYYY') : undefined;
           // Title/labels follow the document type — this used to be hardcoded
