@@ -185,7 +185,11 @@ const QMJP_BY_QUARTER: Record<string, number> = { '2026-2Q': 351.5, '2026-3Q': 3
 // Since triage (2026-10): dev runs AUTO, prod starts in TRIAGE (suggestions only) until switched in the app.
 // The script only moves a STORE row on; a mode chosen in the app is left alone.
 const EMAIL_INTAKE = { enabled: true, routingMode: 'STORE', watchedSenders: [] as string[] };
-const intakeModeFor = (isProd: boolean) => (isProd ? 'TRIAGE' : 'AUTO');
+// 2026-10 (after the hand review of the 18 prod suggestions): prod moves to PARTIAL_AUTO — an email is applied by
+// itself only when the guards hold (email-match.rules.ts); dev stays AUTO.
+const intakeModeFor = (isProd: boolean) => (isProd ? 'PARTIAL_AUTO' : 'AUTO');
+/** Modes the script moves on to the wanted one; anything else chosen in the app is left alone. */
+const intakeMovesFrom = (isProd: boolean) => (isProd ? ['STORE', 'TRIAGE'] : ['STORE']);
 
 const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableActionLog: true,
@@ -236,6 +240,8 @@ const DOC_TYPES: Array<[string, string, DocCategory]> = [
   ['CONTAINER_PL', 'Container packing list', 'SUPPLIER'],
   ['PL_XLS', 'Packing list spreadsheet (PL.XLS)', 'SUPPLIER'],
   ['COA_XLS', 'COA summary (COA.XLS)', 'SUPPLIER'],
+  // Mitsui Soko's 納品明細 — what was delivered (step 14 evidence; the intake files it there).
+  ['DELIVERY_NOTE', 'Delivery note (納品明細)', 'CUSTOMS_LOGISTICS'],
   ['OTHER', 'Other', 'OTHER'],
 ];
 
@@ -382,7 +388,7 @@ const STEP_TEMPLATES: StepSpec[] = [
   },
   { scope: 'SHIPMENT', sortOrder: 90, code: 'IMPORT_PERMIT', displayNo: '10', title: 'Store & send import permit', requiredDocTypes: ['IMPORT_PERMIT'], optionalDocTypes: ['OTHER'] },
   { scope: 'SHIPMENT', sortOrder: 110, code: 'LOGISTICS_PAYMENT', displayNo: '12', title: 'Pay transport & storage costs', requiredDocTypes: ['VENDOR_INVOICE', 'PAYMENT_PROOF'], optionalDocTypes: ['VENDOR_INVOICE', 'PAYMENT_PROOF', 'OTHER'] },
-  { scope: 'SHIPMENT', sortOrder: 130, code: 'DELIVERY_CHANGES', displayNo: '14', title: 'Coordinate delivery changes', requiredDocTypes: [], isOngoing: true, optionalDocTypes: ['DELIVERY_SCHEDULE', 'OTHER'] },
+  { scope: 'SHIPMENT', sortOrder: 130, code: 'DELIVERY_CHANGES', displayNo: '14', title: 'Coordinate delivery changes', requiredDocTypes: [], isOngoing: true, optionalDocTypes: ['DELIVERY_SCHEDULE', 'DELIVERY_NOTE', 'OTHER'] },
 ];
 
 // Supplier/Customer have no UEN column; gstRegNo is a GST number, so the UEN is
@@ -1107,10 +1113,10 @@ async function main() {
   }
 
   // ── 9c. Email intake (store only) ─────────────────────────────────────────
-  header('9c', 'Email intake (docs+{orgId}@ address: STORE → TRIAGE on prod / AUTO on dev)');
+  header('9c', 'Email intake (docs+{orgId}@ address: STORE / TRIAGE → PARTIAL_AUTO on prod, AUTO on dev)');
   const curIntake = orgExists ? await orgRead(() => org.emailIngestConfig.findUnique({ where: { organizationId: orgId } }), null) : null;
   const wantMode = intakeModeFor(isProd);
-  if (curIntake && curIntake.enabled && curIntake.routingMode !== 'STORE') {
+  if (curIntake && curIntake.enabled && (curIntake.routingMode === wantMode || !intakeMovesFrom(isProd).includes(curIntake.routingMode))) {
     info(`email intake on (${curIntake.routingMode}) — left as set in the app; senders: ${JSON.stringify(curIntake.watchedSenders)}`);
   } else {
     if (APPLY) {

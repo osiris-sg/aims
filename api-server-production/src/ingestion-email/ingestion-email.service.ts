@@ -128,7 +128,7 @@ export class IngestionEmailService {
     if (!log) return { ok: false, reason: 'duplicate' };
 
     // 4b. Intake (STORE / TRIAGE / AUTO): keep the .eml + attachments; TRIAGE / AUTO then triage it in the background.
-    if (config.routingMode === 'STORE' || config.routingMode === 'TRIAGE' || config.routingMode === 'AUTO') {
+    if (config.routingMode === 'STORE' || config.routingMode === 'TRIAGE' || config.routingMode === 'PARTIAL_AUTO' || config.routingMode === 'AUTO') {
       const stored = await this.storeOnly(organizationId, log.id, log.createdAt, messageId, payload);
       if (config.routingMode !== 'STORE' && stored.ok && this.triage) this.triage.schedule(organizationId, log.id);
       return stored;

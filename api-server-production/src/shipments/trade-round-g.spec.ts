@@ -214,7 +214,7 @@ describe('intake: document types', () => {
     expect(Object.values(hit.attachmentTypes)).not.toContain('PAYMENT_PROOF');
     expect(hit.forbidTypes).toContain('PAYMENT_PROOF');
   });
-  it('Mitsui Soko 納品明細 / NO.取り lists → BUNDLE_LIST, or DELIVERY_SCHEDULE for dates / trucks — never CUSTOMER_PL', () => {
+  it('Mitsui Soko 納品明細 → DELIVERY_NOTE every time; NO.取り lists → BUNDLE_LIST — never CUSTOMER_PL', () => {
     const m = knownSender({
       from: 'x@mitsui-soko.co.jp',
       subject: '【11月納入】納品明細',
@@ -224,10 +224,11 @@ describe('intake: document types', () => {
       ],
     })!;
     expect(m.rule).toBe('MITSUI_DELIVERY_DETAILS');
-    expect(m.attachmentTypes).toEqual({ '納品明細_198GX04822.xlsx': 'BUNDLE_LIST', '納品明細_配車.xlsx': 'DELIVERY_SCHEDULE' });
+    expect(m.attachmentTypes).toEqual({ '納品明細_198GX04822.xlsx': 'DELIVERY_NOTE', '納品明細_配車.xlsx': 'DELIVERY_NOTE' });
     expect(m.forbidTypes).toContain('CUSTOMER_PL');
-    // Forwarded by the customer: the file name still says what it is.
-    expect(knownSender({ from: 'y@sus.co.jp', subject: 'RE: 書類送付', attachments: [{ name: '納品明細.pdf' }] })!.attachmentTypes).toEqual({ '納品明細.pdf': 'BUNDLE_LIST' });
+    // Forwarded by the customer: the file name — or the subject — still says what it is.
+    expect(knownSender({ from: 'y@sus.co.jp', subject: 'RE: 書類送付', attachments: [{ name: '納品明細.pdf' }] })!.attachmentTypes).toEqual({ '納品明細.pdf': 'DELIVERY_NOTE' });
+    expect(knownSender({ from: 'y@kato.co.jp', subject: '10/19 朝 ビレット 納品明細', attachments: [{ name: '2958.pdf' }, { name: '88.pdf' }] })!.attachmentTypes).toEqual({ '2958.pdf': 'DELIVERY_NOTE', '88.pdf': 'DELIVERY_NOTE' });
     expect(knownSender({ from: 'x@mitsui-soko.co.jp', subject: 'NO.取りリスト', attachments: [{ name: 'list.csv' }] })!.attachmentTypes).toEqual({ 'list.csv': 'BUNDLE_LIST' });
     expect(mitsuiListType('NO.取りリスト_配車.xlsx')).toBe('BUNDLE_LIST');
   });

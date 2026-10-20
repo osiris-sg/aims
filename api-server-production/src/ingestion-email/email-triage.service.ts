@@ -12,6 +12,7 @@ import { TradeConfigService } from '../shipments/trade-config.service';
 import { sha256Of, TradeFilesService } from '../shipments/trade-files.service';
 import { TradeStepsService } from '../shipments/trade-steps.service';
 import { StoredEmailMeta } from './email-store';
+import { DEFAULT_CI_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, telexTiedTo, validCiNo } from './email-match.rules';
 import {
   counterpartyByDomain,
   DeclarationRow,
@@ -27,6 +28,9 @@ import {
   mergeKeys,
   ORDER_DOC_TYPES,
   parseDeclarationTable,
+  KnownSenderHit,
+  sanitizeKeys,
+  TriageAttachment,
   PiTableOrder,
   piTableMatch,
   subjectMismatch,
@@ -51,6 +55,8 @@ export interface IntakeAction {
   docType?: string;
   ownerKind?: 'order' | 'shipment' | 'supplierOrder';
   ownerId?: string;
+  /** A step of the record takes this type (guard e). */
+  stepOk?: boolean;
   fileId?: string;
   reopenedStepIds?: string[];
   // field
@@ -66,6 +72,18 @@ export interface IntakeAction {
 }
 
 export type InboxState = 'SUGGESTED' | 'UNMATCHED' | 'PROCESSED' | 'UNSURE' | 'PURGED';
+/** STORE (keep only) · TRIAGE (suggest) · PARTIAL_AUTO (apply only when the guards hold) · AUTO (apply every clean match). */
+export type IntakeMode = 'TRIAGE' | 'PARTIAL_AUTO' | 'AUTO';
+export const ROUTING_MODES = ['STORE', 'TRIAGE', 'PARTIAL_AUTO', 'AUTO'] as const;
+export const intakeModeOf = (v: string | null | undefined): IntakeMode => (v === 'AUTO' ? 'AUTO' : v === 'PARTIAL_AUTO' ? 'PARTIAL_AUTO' : 'TRIAGE');
+/** An order / shipment the email goes to (the picker may give several, each with its own attachments). */
+export interface IntakeTarget {
+  orderId?: string | null;
+  shipmentId?: string | null;
+  attachmentIndexes?: number[];
+}
+/** How a person handled the suggestion (accept-rate tracking). */
+export type ReviewOutcome = 'AUTO' | 'ACCEPTED' | 'CHANGED' | 'REJECTED' | 'IGNORED';
 
 const MODEL = 'claude-sonnet-4-6';
 const UNSURE_DAYS = 14;
@@ -122,7 +140,7 @@ export class EmailTriageService {
     const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta> & IntakeExtras;
     if (!meta.emlKey) throw new BadRequestException('This email was not stored');
     const cfg = await this.prisma.emailIngestConfig.findUnique({ where: { organizationId }, select: { routingMode: true } });
-    const mode = cfg?.routingMode === 'AUTO' ? 'AUTO' : 'TRIAGE';
+    const mode = intakeModeOf(cfg?.routingMode);
     const settings = await this.config.getSettings(organizationId);
     const ownDomains = ownDomainsOf(settings.docDefaults);
     const customerDomains = Object.values(settings.customerProfiles ?? {})
@@ -163,18 +181,7 @@ export class EmailTriageService {
     }
     // Known senders / subjects (Wan Hai A/N, Mitsui Soko NO.取りリスト, 輸入許可書, Vedanta declaration) win over the AI.
     const known = knownSender({ from: log.fromAddress, subject: log.subject, attachments: (meta.attachments ?? []).map((a, i) => ({ name: a.name, text: firstPages[i]?.firstPage ?? '' })) });
-    if (known && result) {
-      const typed = new Map(Object.entries(known.attachmentTypes));
-      const forbid = new Set(known.forbidTypes ?? []);
-      result = {
-        ...result,
-        attachments: [
-          // The rule's types win; a type the rule rules out (Copy documents → never PAYMENT_PROOF) becomes OTHER.
-          ...result.attachments.filter((a) => !typed.has(a.filename)).map((a) => (forbid.has(a.docType) ? { ...a, docType: 'OTHER', confidence: 0 } : a)),
-          ...[...typed].map(([filename, docType]) => ({ filename, docType, confidence: 1 })),
-        ],
-      };
-    }
+    if (known && result) result = { ...result, attachments: withKnownTypes(result.attachments, known) };
     // Direction and counterparty: deterministic rules first, the AI's guess only as a fallback.
     const direction = directionOf(log.fromAddress, ownDomains);
     const counterparty = counterpartyByDomain(addrs, ownDomains, customerDomains) ?? known?.counterparty ?? result?.counterparty ?? 'OTHER';
@@ -225,7 +232,7 @@ export class EmailTriageService {
       return { verdict, inboxState: 'UNSURE' };
     }
     const state = await this.matchAndPlan(organizationId, logId, keys, mode);
-    this.actionLog.system('email-triage', mode === 'AUTO' && state === 'PROCESSED' ? 'PROCESS' : 'TRIAGE', 'EmailIngestLog', {
+    this.actionLog.system('email-triage', state === 'PROCESSED' ? 'PROCESS' : 'TRIAGE', 'EmailIngestLog', {
       organizationId,
       resourceId: logId,
       details: { verdict, direction, counterparty, inboxState: state },
@@ -244,106 +251,206 @@ export class EmailTriageService {
     return hit ? `thread with ${hit.counterparty}` : null;
   }
 
-  /** Match the email to an order / shipment and build the plan; AUTO executes it. */
-  async matchAndPlan(organizationId: string, logId: string, keys: TriageKeys, mode: 'AUTO' | 'TRIAGE', manual?: { orderId?: string | null; shipmentId?: string | null }): Promise<InboxState> {
+  /**
+   * Match the email and build the plan (see email-match.rules.ts). PARTIAL_AUTO applies it only when the guards
+   * a–e hold; AUTO when it matched without a "check"; TRIAGE never. `manual` targets (the inbox picker) replace
+   * the match; `opts.safe` never applies (the re-match run); `opts.keepState` keeps an UNSURE row UNSURE.
+   */
+  async matchAndPlan(
+    organizationId: string,
+    logId: string,
+    keys: TriageKeys,
+    mode: IntakeMode,
+    manual?: IntakeTarget | IntakeTarget[],
+    opts: { safe?: boolean; keepState?: InboxState } = {},
+  ): Promise<InboxState> {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) throw new NotFoundException('Email not found');
-    let target = manual ? await this.resolveManual(organizationId, manual) : await this.match(organizationId, log, keys);
-    // An order match with one live shipment: the shipment documents go there.
-    if (target && !target.shipmentId && target.orderId) {
-      const ships: Array<{ id: string }> = await this.prisma.shipment.findMany({ where: { organizationId, orderId: target.orderId, status: { not: 'CANCELLED' } }, select: { id: true } });
-      if (ships.length === 1) target = { ...target, shipmentId: ships[0].id };
+    const prev = ((log.actions ?? {}) as Record<string, any>) ?? {};
+    const ev = await this.evidence(log);
+    const manualList = manual ? (Array.isArray(manual) ? manual : [manual]) : null;
+    let decision: MatchDecision;
+    let targets: IntakeTarget[];
+    if (manualList?.length) {
+      targets = [];
+      for (const m of manualList) targets.push({ ...(await this.resolveManual(organizationId, m)), attachmentIndexes: m.attachmentIndexes });
+      decision = { target: null, kind: null, confidence: 'exact', auto: false, blocked: ['picked by hand'], check: [], multiOrderIds: [], candidates: prev.candidates ?? [], keyLabel: null };
+    } else {
+      decision = await this.decide(organizationId, log, ev);
+      targets = decision.target ? [decision.target] : [];
     }
-    if (target?.shipmentId && !target.orderId) {
-      const s = await this.prisma.shipment.findFirst({ where: { id: target.shipmentId, organizationId }, select: { orderId: true } });
-      target = { ...target, orderId: s?.orderId ?? null };
-    }
-    const plan = target ? await this.plan(organizationId, log, keys, target) : [];
+    // An order with one live shipment: the shipment documents go there.
+    targets = await Promise.all(targets.map((t) => this.withSingleShipment(organizationId, t)));
+    const plan = await this.buildPlan(organizationId, log, keys, targets, ev);
     const needsShipment = plan.some((a) => a.kind === 'file' && a.status === 'skipped' && a.reason === 'pick the shipment');
-    const state: InboxState = !target || needsShipment ? 'UNMATCHED' : 'SUGGESTED';
-    // Grade / size / qty words in the subject that disagree with the match: low confidence — a person checks it (never auto-processed).
-    const check = target && !manual ? await this.subjectCheck(organizationId, log.subject, target) : [];
+    const unsupported = plan.filter((a) => a.kind === 'file' && a.status === 'planned' && a.stepOk === false);
+    const blocked = [...decision.blocked, ...(unsupported.length ? [`e: no step takes ${[...new Set(unsupported.map((a) => a.docType))].join(', ')}`] : [])];
+    const state: InboxState = opts.keepState ?? (!targets.length || needsShipment ? 'UNMATCHED' : 'SUGGESTED');
+    const auto =
+      !opts.safe && !manualList && state === 'SUGGESTED' && (mode === 'AUTO' ? !decision.check.length : mode === 'PARTIAL_AUTO' ? decision.auto && !unsupported.length && !needsShipment : false);
     await this.prisma.emailIngestLog.update({
       where: { id: logId },
-      data: { orderId: target?.orderId ?? null, shipmentId: target?.shipmentId ?? null, actions: { planned: plan, matchedBy: target?.kind ?? null, ...(check.length ? { check } : {}) } as any, inboxState: state },
+      data: {
+        orderId: targets[0]?.orderId ?? null,
+        shipmentId: targets[0]?.shipmentId ?? null,
+        actions: {
+          planned: plan,
+          matchedBy: manualList ? 'manual' : decision.kind,
+          confidence: manualList ? 'manual' : decision.confidence,
+          ...(decision.check.length ? { check: decision.check } : {}),
+          blocked,
+          candidates: decision.candidates,
+          multiOrderIds: decision.multiOrderIds,
+          keyLabel: decision.keyLabel,
+          targets: targets.map((t) => ({ orderId: t.orderId ?? null, shipmentId: t.shipmentId ?? null, ...(t.attachmentIndexes ? { attachmentIndexes: t.attachmentIndexes } : {}) })),
+          // What the intake suggested first — "Accept" vs "Change order…" is measured against it.
+          suggested: prev.suggested ?? (manualList ? null : (targets[0] ?? null)),
+          ...(prev.review ? { review: prev.review } : {}),
+        } as any,
+        inboxState: state,
+      },
     });
-    if (state === 'SUGGESTED' && mode === 'AUTO' && !check.length) {
-      await this.execute(organizationId, logId, SYSTEM_ACTOR);
+    if (auto) {
+      await this.execute(organizationId, logId, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: decision.keyLabel });
       return 'PROCESSED';
     }
     return state;
   }
 
-  /** subjectMismatch against the matched order (grade / size / qty) and shipment (net MT). */
-  private async subjectCheck(organizationId: string, subject: string | null, target: { orderId?: string | null; shipmentId?: string | null }): Promise<string[]> {
-    if (!subject || !target.orderId) return [];
-    const o = await this.prisma.tradeOrder.findFirst({ where: { id: target.orderId, organizationId }, select: { grade: true, size: true, qtyMt: true } });
-    if (!o) return [];
-    const s = target.shipmentId ? await this.prisma.shipment.findFirst({ where: { id: target.shipmentId, organizationId }, select: { netWeightMt: true } }) : null;
-    const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
-    return subjectMismatch(subject, { grade: o.grade, size: o.size, qtyMt: num(o.qtyMt), netMt: num(s?.netWeightMt) });
+  /** The decision for a stored email: its record keys, the accepted thread, its subject. */
+  async decide(organizationId: string, log: any, ev?: EmailEvidence): Promise<MatchDecision> {
+    const e = ev ?? (await this.evidence(log));
+    const records = await this.matchRecords(organizationId);
+    const hits = findKeyHits(e, records, await this.ciPatterns(organizationId));
+    const thread = await this.acceptedThread(organizationId, log);
+    return decideMatch({ ev: e, records, hits, thread });
   }
 
-  private async resolveManual(organizationId: string, m: { orderId?: string | null; shipmentId?: string | null }) {
+  /** Subject, body and each attachment's name + first-page text (PDF text layer / spreadsheet rows). */
+  async evidence(log: any): Promise<EmailEvidence> {
+    const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta> & IntakeExtras;
+    const attachments: EmailEvidence['attachments'] = [];
+    for (const a of meta.attachments ?? []) attachments.push({ name: a.name, text: await this.attachmentText(a) });
+    return { subject: log.subject ?? '', body: meta.bodyText ?? '', attachments, date: log.emailDate ?? (meta.date ? new Date(meta.date) : null) };
+  }
+
+  private async attachmentText(a: { key: string; name: string; contentType?: string }): Promise<string> {
+    try {
+      const buf = await this.s3.downloadFile(a.key);
+      if (a.contentType === 'application/pdf' || /\.pdf$/i.test(a.name)) return (await pdfText(buf)).slice(0, 4000);
+      if (/\.(xlsx?|csv|txt|tsv)$/i.test(a.name)) return sheetText(buf).slice(0, 4000);
+    } catch {
+      /* unreadable: the name still counts */
+    }
+    return '';
+  }
+
+  /** Every order (and its shipments) an email can match — cancelled ones left out. */
+  async matchRecords(organizationId: string): Promise<MatchRecord[]> {
+    const settings = await this.config.getSettings(organizationId);
+    const keyOf = (customerId: string) => (settings.customerProfiles?.[customerId] as { key?: string } | undefined)?.key?.toUpperCase() ?? null;
+    // Two flat reads (orders, then their shipments) — no nested selects.
+    const orders: any[] = await this.prisma.tradeOrder.findMany({
+      where: { organizationId, status: { not: 'CANCELLED' } },
+      select: { id: true, orderNo: true, status: true, piNo: true, grade: true, size: true, qtyMt: true, deliveryMonth: true, destinationPort: true, customerId: true },
+    });
+    const shipments: any[] = orders.length
+      ? await this.prisma.shipment.findMany({
+          where: { organizationId, orderId: { in: orders.map((o) => o.id) } },
+          select: { id: true, orderId: true, seqNo: true, status: true, blNumber: true, ciNumber: true, netWeightMt: true, portOfDischarge: true },
+        })
+      : [];
+    const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+    const portOf = (v: string | null | undefined) => (/nagoya/i.test(v ?? '') ? 'NAGOYA' : /yokohama/i.test(v ?? '') ? 'YOKOHAMA' : null);
+    const out: MatchRecord[] = [];
+    for (const o of orders) {
+      const base = {
+        orderId: o.id,
+        orderNo: o.orderNo,
+        orderStatus: o.status,
+        piNo: o.piNo,
+        customerKey: keyOf(o.customerId),
+        customerName: null,
+        grade: o.grade,
+        size: o.size,
+        qtyMt: num(o.qtyMt),
+        deliveryMonth: o.deliveryMonth,
+      };
+      const ships = shipments.filter((s: { orderId: string; status: string }) => s.orderId === o.id && s.status !== 'CANCELLED');
+      if (!ships.length) out.push({ ...base, shipmentId: null, seqNo: null, shipStatus: null, bl: null, ciNo: null, netMt: null, port: portOf(o.destinationPort) });
+      for (const s of ships)
+        out.push({ ...base, shipmentId: s.id, seqNo: s.seqNo, shipStatus: s.status, bl: s.blNumber, ciNo: s.ciNumber, netMt: num(s.netWeightMt), port: portOf(s.portOfDischarge ?? o.destinationPort) });
+    }
+    return out;
+  }
+
+  /** Supplier CI-number formats: Vedanta's defaults plus any a supplier profile adds (ciNoPatterns). */
+  private async ciPatterns(organizationId: string): Promise<string[]> {
+    const s = await this.config.getSettings(organizationId);
+    const extra = Object.values(s.supplierProfiles ?? {}).flatMap((p) => ((p as { ciNoPatterns?: string[] }).ciNoPatterns ?? []).filter((x) => typeof x === 'string'));
+    return [...DEFAULT_CI_PATTERNS, ...extra];
+  }
+
+  /** Thread follow: the order an earlier email of this thread was ACCEPTED (or auto-applied) to. */
+  private async acceptedThread(organizationId: string, log: { id: string; threadKey: string | null; inReplyTo: string | null }): Promise<{ orderId: string; shipmentId: string | null } | null> {
+    if (!log.threadKey && !log.inReplyTo) return null;
+    const prior: Array<{ orderId: string | null; shipmentId: string | null; actions: any }> = await this.prisma.emailIngestLog.findMany({
+      where: {
+        organizationId,
+        id: { not: log.id },
+        inboxState: 'PROCESSED',
+        orderId: { not: null },
+        OR: [...(log.inReplyTo ? [{ messageId: log.inReplyTo }] : []), ...(log.threadKey ? [{ threadKey: log.threadKey }] : [])],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: { orderId: true, shipmentId: true, actions: true },
+    });
+    const hit = prior.find((p) => p.actions?.review?.outcome !== 'IGNORED');
+    return hit?.orderId ? { orderId: hit.orderId, shipmentId: hit.shipmentId } : null;
+  }
+
+  private async withSingleShipment(organizationId: string, t: IntakeTarget): Promise<IntakeTarget> {
+    let out = { ...t };
+    if (!out.shipmentId && out.orderId) {
+      const ships: Array<{ id: string }> = await this.prisma.shipment.findMany({ where: { organizationId, orderId: out.orderId, status: { not: 'CANCELLED' } }, select: { id: true } });
+      if (ships.length === 1) out = { ...out, shipmentId: ships[0].id };
+    }
+    if (out.shipmentId && !out.orderId) {
+      const s = await this.prisma.shipment.findFirst({ where: { id: out.shipmentId, organizationId }, select: { orderId: true } });
+      out = { ...out, orderId: s?.orderId ?? null };
+    }
+    return out;
+  }
+
+  private async resolveManual(organizationId: string, m: IntakeTarget): Promise<IntakeTarget> {
     if (m.shipmentId) {
       const s = await this.prisma.shipment.findFirst({ where: { id: m.shipmentId, organizationId }, select: { id: true, orderId: true } });
       if (!s) throw new BadRequestException('Shipment not found');
-      return { kind: 'manual' as const, orderId: s.orderId, shipmentId: s.id, count: 1 };
+      return { orderId: s.orderId, shipmentId: s.id };
     }
     if (m.orderId) {
       const o = await this.prisma.tradeOrder.findFirst({ where: { id: m.orderId, organizationId }, select: { id: true } });
       if (!o) throw new BadRequestException('Order not found');
-      return { kind: 'manual' as const, orderId: o.id, shipmentId: null, count: 1 };
+      return { orderId: o.id, shipmentId: null };
     }
     throw new BadRequestException('Pick an order or a shipment');
   }
 
-  /** PI > B/L > CI > telex > contract (one OPEN order), then the thread: an earlier matched email of the same thread. */
-  private async match(organizationId: string, log: { id: string; threadKey: string | null; inReplyTo: string | null }, keys: TriageKeys): Promise<MatchCandidate | null> {
-    const cands: MatchCandidate[] = [];
-    if (keys.piNo) {
-      // The PI is on the order (round H — one order process).
-      const os: Array<{ id: string }> = await this.prisma.tradeOrder.findMany({ where: { organizationId, piNo: keys.piNo }, select: { id: true } });
-      cands.push({ kind: 'pi', orderId: os[0]?.id ?? null, count: os.length });
+  /** The plan over every target (multi-order emails: each target's own attachments). */
+  private async buildPlan(organizationId: string, log: any, keys: TriageKeys, targets: IntakeTarget[], ev: EmailEvidence): Promise<IntakeAction[]> {
+    const out: IntakeAction[] = [];
+    const multi = targets.length > 1;
+    for (const t of targets) {
+      const p = await this.plan(organizationId, log, keys, t, ev, multi);
+      // An attachment goes to one target only (the first that takes it).
+      for (const a of p) if (!(a.kind === 'file' && out.some((b) => b.kind === 'file' && b.attachmentIndex === a.attachmentIndex && b.status === 'planned'))) out.push(a);
     }
-    if (keys.blNo) {
-      const ss: Array<{ id: string; orderId: string | null }> = await this.prisma.shipment.findMany({ where: { organizationId, blNumber: keys.blNo }, select: { id: true, orderId: true } });
-      cands.push({ kind: 'bl', shipmentId: ss[0]?.id ?? null, orderId: ss[0]?.orderId ?? null, count: ss.length });
-    }
-    if (keys.ciNo) {
-      const ss: Array<{ id: string; orderId: string | null }> = await this.prisma.shipment.findMany({ where: { organizationId, ciNumber: keys.ciNo }, select: { id: true, orderId: true } });
-      cands.push({ kind: 'ci', shipmentId: ss[0]?.id ?? null, orderId: ss[0]?.orderId ?? null, count: ss.length });
-    }
-    if (keys.telexCode) {
-      const ss: Array<{ id: string; orderId: string | null }> = await this.prisma.shipment.findMany({
-        where: { organizationId, telexReleaseCode: keys.telexCode },
-        select: { id: true, orderId: true },
-      });
-      cands.push({ kind: 'telex', shipmentId: ss[0]?.id ?? null, orderId: ss[0]?.orderId ?? null, count: ss.length });
-    }
-    if (keys.contractNo) {
-      const os: Array<{ id: string }> = await this.prisma.tradeOrder.findMany({ where: { organizationId, status: 'OPEN', contract: { contractNo: keys.contractNo } }, select: { id: true } });
-      cands.push({ kind: 'contract', orderId: os[0]?.id ?? null, count: os.length });
-    }
-    const direct = pickMatch(cands);
-    if (direct || cands.some((c) => c.count > 1)) return direct;
-    // Thread fallback: In-Reply-To → that email's match; else the same normalised subject.
-    const prior = await this.prisma.emailIngestLog.findFirst({
-      where: {
-        organizationId,
-        id: { not: log.id },
-        OR: [{ orderId: { not: null } }, { shipmentId: { not: null } }],
-        AND: [{ OR: [...(log.inReplyTo ? [{ messageId: log.inReplyTo }] : []), ...(log.threadKey ? [{ threadKey: log.threadKey }] : [])] }],
-      },
-      orderBy: { createdAt: 'desc' },
-      select: { orderId: true, shipmentId: true },
-    });
-    if (prior && (log.inReplyTo || log.threadKey)) return { kind: 'thread', orderId: prior.orderId, shipmentId: prior.shipmentId, count: 1 };
-    return null;
+    return out;
   }
 
   /** What PROCESS would do for this email on this order / shipment. */
-  private async plan(organizationId: string, log: any, keys: TriageKeys, target: { orderId?: string | null; shipmentId?: string | null }): Promise<IntakeAction[]> {
+  private async plan(organizationId: string, log: any, keys: TriageKeys, target: IntakeTarget, ev: EmailEvidence, multi = false): Promise<IntakeAction[]> {
     const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta>;
     const triage = (log.triage ?? {}) as Partial<TriageResult> & { direction?: string; counterparty?: string };
     const out: IntakeAction[] = [];
@@ -352,16 +459,26 @@ export class EmailTriageService {
       return t && t.confidence >= 0.5 ? (TRIAGE_DOC_TYPES[t.docType] ?? null) : null;
     };
     const fileTypes: string[] = [];
-    (meta.attachments ?? []).forEach((a, i) => {
+    const stepTakes = async (owner: { orderId?: string } | { shipmentId?: string }, docType: string) =>
+      !!(await this.prisma.tradeStep.findFirst({ where: { organizationId, ...owner, notApplicable: false, OR: [{ requiredDocTypes: { has: docType } }, { optionalDocTypes: { has: docType } }] }, select: { id: true } }));
+    const atts = (meta.attachments ?? []).map((a, i) => ({ a, i })).filter(({ i }) => !target.attachmentIndexes || target.attachmentIndexes.includes(i));
+    for (const { a, i } of atts) {
       const docType = typeOf(a.name);
-      if (!docType) return out.push({ kind: 'file', status: 'skipped', reason: 'not a trade document', attachmentIndex: i, filename: a.name });
+      if (!docType) {
+        if (!multi) out.push({ kind: 'file', status: 'skipped', reason: 'not a trade document', attachmentIndex: i, filename: a.name });
+        continue;
+      }
       fileTypes.push(docType);
       const onOrder = ORDER_DOC_TYPES.has(docType);
       const ownerId = onOrder ? target.orderId : target.shipmentId;
-      if (!ownerId) return out.push({ kind: 'file', status: 'skipped', reason: onOrder ? 'no order' : 'pick the shipment', attachmentIndex: i, filename: a.name, docType });
-      out.push({ kind: 'file', status: 'planned', attachmentIndex: i, filename: a.name, docType, ownerKind: onOrder ? 'order' : 'shipment', ownerId });
-    });
-    // Empty shipment fields the email names (never overwrites).
+      if (!ownerId) {
+        out.push({ kind: 'file', status: 'skipped', reason: onOrder ? 'no order' : 'pick the shipment', attachmentIndex: i, filename: a.name, docType });
+        continue;
+      }
+      const stepOk = await stepTakes(onOrder ? { orderId: ownerId } : { shipmentId: ownerId }, docType);
+      out.push({ kind: 'file', status: 'planned', attachmentIndex: i, filename: a.name, docType, ownerKind: onOrder ? 'order' : 'shipment', ownerId, stepOk });
+    }
+    // Empty shipment fields the email names — validated formats only, never overwritten.
     if (target.shipmentId) {
       const s = await this.prisma.shipment.findFirst({
         where: { id: target.shipmentId, organizationId },
@@ -370,38 +487,89 @@ export class EmailTriageService {
       const fill = (field: 'blNumber' | 'ciNumber' | 'telexReleaseCode' | 'vessel' | 'voyageNo', value: string | null) => {
         if (value && s && !s[field]) out.push({ kind: 'field', status: 'planned', model: 'shipment', id: target.shipmentId!, field, value });
       };
-      fill('blNumber', keys.blNo);
-      fill('ciNumber', keys.ciNo);
-      fill('telexReleaseCode', keys.telexCode);
-      fill('vessel', keys.vessel);
-      fill('voyageNo', keys.voyage);
+      // A B/L already on another shipment is that shipment's (a quoted email), not this one's.
+      if (keys.blNo && s && !s.blNumber) {
+        const other = await this.prisma.shipment.findFirst({ where: { organizationId, blNumber: { contains: keys.blNo }, NOT: { id: target.shipmentId } }, select: { id: true } });
+        if (!other) fill('blNumber', keys.blNo);
+      }
+      fill('ciNumber', validCiNo(keys.ciNo, await this.ciPatterns(organizationId)));
+      if (keys.telexCode && s && !s.telexReleaseCode) {
+        // Only when the email ties the code to this B/L (subject, or the same line / paragraph).
+        if (telexTiedTo(ev, keys.telexCode, s.blNumber ?? keys.blNo)) fill('telexReleaseCode', keys.telexCode);
+        else out.push({ kind: 'field', status: 'skipped', model: 'shipment', id: target.shipmentId, field: 'telexReleaseCode', value: keys.telexCode, reason: 'check: the email does not say which B/L this telex code is for' });
+      }
+      if (!multi) {
+        fill('vessel', keys.vessel);
+        fill('voyageNo', keys.voyage);
+      }
     }
     // Outgoing mail: "sent" sub-tasks.
-    for (const ev of sentEvidence((triage.direction ?? log.direction) as any, (triage.counterparty ?? log.counterparty) as any, fileTypes)) {
-      const owner = ev.scope === 'ORDER' ? (target.orderId ? { orderId: target.orderId } : null) : target.shipmentId ? { shipmentId: target.shipmentId } : null;
+    for (const evd of sentEvidence((triage.direction ?? log.direction) as any, (triage.counterparty ?? log.counterparty) as any, fileTypes)) {
+      const owner = evd.scope === 'ORDER' ? (target.orderId ? { orderId: target.orderId } : null) : target.shipmentId ? { shipmentId: target.shipmentId } : null;
       if (!owner) continue;
       const step: { id: string; title: string; subtasks: unknown; notApplicable: boolean } | null = await this.prisma.tradeStep.findFirst({
-        where: { organizationId, ...owner, code: ev.stepCode },
+        where: { organizationId, ...owner, code: evd.stepCode },
         select: { id: true, title: true, subtasks: true, notApplicable: true },
       });
-      const st = Array.isArray(step?.subtasks) ? (step!.subtasks as Array<{ key: string; label: string; done?: boolean; na?: boolean }>).find((t) => t.key === ev.key) : null;
+      const st = Array.isArray(step?.subtasks) ? (step!.subtasks as Array<{ key: string; label: string; done?: boolean; na?: boolean }>).find((t) => t.key === evd.key) : null;
       if (!step || !st || st.na || step.notApplicable) continue;
       out.push({
         kind: 'subtask',
         status: st.done ? 'skipped' : 'planned',
         reason: st.done ? 'already ticked' : undefined,
         stepId: step.id,
-        stepCode: ev.stepCode,
-        key: ev.key,
+        stepCode: evd.stepCode,
+        key: evd.key,
         label: `${st.label} (${step.title})`,
       });
     }
     return out;
   }
 
+  /**
+   * Re-run the MATCHING on a stored email with today's rules — no AI call, never auto-applied (the re-match run):
+   * its attachments re-typed by the known-sender rules (Vedanta copy documents, 納品明細, carrier debit notes), its
+   * keys re-validated (CI / contract formats), then matched and planned. `apply` saves it (an UNSURE row stays UNSURE).
+   */
+  async rematchStored(organizationId: string, logId: string, apply: boolean) {
+    const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
+    if (!log) throw new NotFoundException('Email not found');
+    if (((log.actions as any)?.done ?? []).some((a: IntakeAction) => a.status === 'done')) throw new BadRequestException('This email already did something — undo it first');
+    const ev = await this.evidence(log);
+    const t = (log.triage ?? {}) as Partial<TriageResult> & Record<string, unknown>;
+    const known = knownSender({ from: log.fromAddress, subject: log.subject, attachments: ev.attachments });
+    const ciPatterns = await this.ciPatterns(organizationId);
+    const keys = sanitizeKeys({ ...mergeKeys(null, {}), ...((t.keys ?? {}) as TriageKeys) }, ciPatterns);
+    const triage = { ...t, attachments: known ? withKnownTypes((t.attachments ?? []) as TriageAttachment[], known) : (t.attachments ?? []), keys, ...(known ? { knownRule: known.rule } : {}) };
+    const draft = { ...log, triage };
+    const decision = await this.decide(organizationId, draft, ev);
+    const targets = decision.target ? [await this.withSingleShipment(organizationId, decision.target)] : [];
+    const plan = await this.buildPlan(organizationId, draft, keys, targets, ev);
+    const needsShipment = plan.some((a) => a.kind === 'file' && a.status === 'skipped' && a.reason === 'pick the shipment');
+    const unsupported = plan.filter((a) => a.kind === 'file' && a.status === 'planned' && a.stepOk === false);
+    const blocked = [...decision.blocked, ...(unsupported.length ? [`e: no step takes ${[...new Set(unsupported.map((a) => a.docType))].join(', ')}`] : []), ...(needsShipment ? ['a: pick the shipment'] : [])];
+    const wouldAuto = decision.auto && !!targets.length && !unsupported.length && !needsShipment;
+    if (apply) {
+      await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { triage: triage as any } });
+      const cfg = await this.prisma.emailIngestConfig.findUnique({ where: { organizationId }, select: { routingMode: true } });
+      await this.matchAndPlan(organizationId, logId, keys, intakeModeOf(cfg?.routingMode), undefined, { safe: true, keepState: log.inboxState === 'UNSURE' ? 'UNSURE' : undefined });
+    }
+    return { decision, targets, wouldAuto, blocked, plan };
+  }
+
+  /** The inbox picker's preview: what choosing these shipments / orders would file and fill (nothing is saved). */
+  async preview(organizationId: string, logId: string, targets: IntakeTarget[]) {
+    const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
+    if (!log) throw new NotFoundException('Email not found');
+    const keys = ((log.triage ?? {}) as { keys?: TriageKeys }).keys ?? mergeKeys(null, {});
+    const resolved: IntakeTarget[] = [];
+    for (const t of targets) resolved.push(await this.withSingleShipment(organizationId, { ...(await this.resolveManual(organizationId, t)), attachmentIndexes: t.attachmentIndexes }));
+    return { planned: await this.buildPlan(organizationId, log, keys, resolved, await this.evidence(log)) };
+  }
+
   // ── execute / undo ──────────────────────────────────────────────────────
   /** Do the planned actions (AUTO, or "Accept" in the inbox). */
-  async execute(organizationId: string, logId: string, actor: { id: string | null; name: string | null }) {
+  async execute(organizationId: string, logId: string, actor: { id: string | null; name: string | null }, opts: { review?: ReviewOutcome; autoLabel?: string | null } = {}) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) throw new NotFoundException('Email not found');
     const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta>;
@@ -464,7 +632,18 @@ export class EmailTriageService {
     }
     await this.prisma.emailIngestLog.update({
       where: { id: logId },
-      data: { actions: { ...((log.actions as object) ?? {}), planned: acts, done } as any, inboxState: 'PROCESSED', status: 'PROCESSED' },
+      data: {
+        actions: {
+          ...((log.actions as object) ?? {}),
+          planned: acts,
+          done,
+          // Accept-rate tracking; an auto-apply is labelled "Auto · B/L 198GX…" in Processed.
+          ...(opts.review ? { review: { outcome: opts.review, at: new Date().toISOString(), by: actor.name ?? actor.id } } : {}),
+          ...(opts.review === 'AUTO' ? { autoLabel: opts.autoLabel ?? null } : {}),
+        } as any,
+        inboxState: 'PROCESSED',
+        status: 'PROCESSED',
+      },
     });
     return this.row(organizationId, logId);
   }
@@ -526,8 +705,8 @@ export class EmailTriageService {
     return this.row(organizationId, logId);
   }
 
-  /** NOT_SHIPMENT: the stored mail and attachments are deleted; the row keeps a hashed Message-ID, date, verdict, counterparty. */
-  async purge(organizationId: string, logId: string, keep: { verdict: string; counterparty?: string | null }) {
+  /** NOT_SHIPMENT: the stored mail and attachments are deleted; the row keeps a hashed Message-ID, date, verdict, counterparty (and how a person handled it). */
+  async purge(organizationId: string, logId: string, keep: { verdict: string; counterparty?: string | null; review?: { outcome: ReviewOutcome; at: string; by: string | null } }) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) return;
     const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta>;
@@ -544,7 +723,7 @@ export class EmailTriageService {
         attachmentCount: 0,
         rawMeta: { purged: true, date: meta.date ?? null } as any,
         triage: null as any,
-        actions: null as any,
+        actions: (keep.review ? { review: keep.review } : null) as any,
         threadKey: null,
         inReplyTo: null,
         orderId: null,
@@ -626,6 +805,16 @@ export class EmailTriageService {
       matchedBy: actions.matchedBy ?? null,
       /** Subject words that disagree with the match ("grade 6005 ≠ 6063") — shown as "check". */
       check: (actions as { check?: string[] }).check ?? [],
+      confidence: (actions as { confidence?: string }).confidence ?? null,
+      /** Which guard kept it a suggestion. */
+      blocked: (actions as { blocked?: string[] }).blocked ?? [],
+      /** The picker's top 3 (ref, score, reasons). */
+      candidates: (actions as { candidates?: unknown[] }).candidates ?? [],
+      multiOrderIds: (actions as { multiOrderIds?: string[] }).multiOrderIds ?? [],
+      targets: (actions as { targets?: unknown[] }).targets ?? [],
+      review: (actions as { review?: unknown }).review ?? null,
+      /** "B/L 198GX04630" on an auto-applied email. */
+      autoLabel: (actions as { autoLabel?: string | null }).autoLabel ?? null,
       keys: triage.keys ?? null,
       planned: actions.planned ?? [],
       done: actions.done ?? [],
@@ -640,21 +829,73 @@ export class EmailTriageService {
     };
   }
 
-  /** Inbox "Accept": do a suggested email's plan. */
-  accept(organizationId: string, logId: string, actor: { id: string | null; name: string | null }) {
-    return this.execute(organizationId, logId, actor);
+  /** Inbox "Accept": do the email's plan as it stands (as suggested, or as re-planned by "Change order…"). */
+  async accept(organizationId: string, logId: string, actor: { id: string | null; name: string | null }) {
+    const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId }, select: { actions: true } });
+    const pending = ((log?.actions ?? {}) as { reviewPending?: ReviewOutcome }).reviewPending;
+    return this.execute(organizationId, logId, actor, { review: pending ?? 'ACCEPTED' });
   }
 
-  /** Inbox "Assign": match an email to an order / shipment by hand, then plan it (AUTO also executes). */
-  async assign(organizationId: string, logId: string, target: { orderId?: string | null; shipmentId?: string | null }) {
+  /**
+   * Inbox "Change order…": the email goes to these orders / shipments (several for a multi-order email, each with
+   * its own attachments) — re-planned for them; `accept` also does it at once. Counted as CHANGED when it differs
+   * from what the intake suggested.
+   */
+  async assign(
+    organizationId: string,
+    logId: string,
+    body: { orderId?: string | null; shipmentId?: string | null; targets?: IntakeTarget[]; accept?: boolean },
+    actor: { id: string | null; name: string | null } = SYSTEM_ACTOR,
+  ) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) throw new NotFoundException('Email not found');
     if (((log.actions as any)?.done ?? []).some((a: IntakeAction) => a.status === 'done')) throw new BadRequestException('Undo what this email did first');
+    const targets = body.targets?.length ? body.targets : [{ orderId: body.orderId ?? null, shipmentId: body.shipmentId ?? null }];
     const triage = (log.triage ?? {}) as { keys?: TriageKeys };
     const cfg = await this.prisma.emailIngestConfig.findUnique({ where: { organizationId }, select: { routingMode: true } });
     if (log.verdict !== 'SHIPMENT') await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { verdict: 'SHIPMENT', purgeAfter: null } });
-    await this.matchAndPlan(organizationId, logId, triage.keys ?? mergeKeys(null, {}), cfg?.routingMode === 'AUTO' ? 'AUTO' : 'TRIAGE', target);
+    await this.matchAndPlan(organizationId, logId, triage.keys ?? mergeKeys(null, {}), intakeModeOf(cfg?.routingMode), targets);
+    // Same as suggested (one target, same order / shipment) → ACCEPTED; anything else → CHANGED.
+    const after = await this.prisma.emailIngestLog.findFirst({ where: { id: logId }, select: { actions: true } });
+    const a = (after?.actions ?? {}) as { suggested?: IntakeTarget | null; targets?: IntakeTarget[] };
+    const same = !!a.suggested && a.targets?.length === 1 && a.targets[0].orderId === a.suggested.orderId && (a.targets[0].shipmentId ?? null) === (a.suggested.shipmentId ?? null);
+    const reviewPending: ReviewOutcome = same ? 'ACCEPTED' : 'CHANGED';
+    await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { actions: { ...((after?.actions as object) ?? {}), reviewPending } as any } });
+    if (body.accept) return this.execute(organizationId, logId, actor, { review: reviewPending });
     return this.row(organizationId, logId);
+  }
+
+  /** Inbox "Ignore": a shipment email with nothing to file — kept, marked handled (Processed), nothing done. */
+  async ignore(organizationId: string, logId: string, actor: { id: string | null; name: string | null }) {
+    const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
+    if (!log) throw new NotFoundException('Email not found');
+    if (((log.actions as any)?.done ?? []).some((a: IntakeAction) => a.status === 'done')) throw new BadRequestException('Undo what this email did first');
+    await this.prisma.emailIngestLog.update({
+      where: { id: logId },
+      data: {
+        inboxState: 'PROCESSED',
+        purgeAfter: null,
+        actions: { ...((log.actions as object) ?? {}), done: [], review: { outcome: 'IGNORED', at: new Date().toISOString(), by: actor.name ?? actor.id } } as any,
+      },
+    });
+    return this.row(organizationId, logId);
+  }
+
+  /**
+   * Accept-rate over the last `days`: emails a person accepted as suggested, changed the order of, rejected (not
+   * shipment) or ignored, and the ones applied by themselves — how we decide when to widen auto.
+   */
+  async stats(organizationId: string, days = 30) {
+    const since = new Date(Date.now() - days * 86_400_000);
+    // The review time is what counts (filtered below); the newest 2,000 rows are plenty for 30 days of ADH mail.
+    const rows: Array<{ actions: any }> = await this.prisma.emailIngestLog.findMany({ where: { organizationId }, orderBy: { createdAt: 'desc' }, take: 2000, select: { actions: true } });
+    const counts: Record<ReviewOutcome, number> = { AUTO: 0, ACCEPTED: 0, CHANGED: 0, REJECTED: 0, IGNORED: 0 };
+    for (const r of rows) {
+      const rv = r.actions?.review;
+      if (rv?.outcome && rv.at && new Date(rv.at) >= since && rv.outcome in counts) counts[rv.outcome as ReviewOutcome]++;
+    }
+    const reviewed = counts.ACCEPTED + counts.CHANGED + counts.REJECTED;
+    return { days, ...counts, reviewed, acceptedAsIsPct: reviewed ? Math.round((counts.ACCEPTED / reviewed) * 100) : null };
   }
 
   /** Inbox "Not shipment mail": purge it now. */
@@ -728,11 +969,11 @@ export class EmailTriageService {
     return { results, row: await this.row(organizationId, logId) };
   }
 
-  async dismiss(organizationId: string, logId: string) {
+  async dismiss(organizationId: string, logId: string, actor?: { id: string | null; name: string | null }) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) throw new NotFoundException('Email not found');
     if (((log.actions as any)?.done ?? []).some((a: IntakeAction) => a.status === 'done')) throw new BadRequestException('Undo what this email did first');
-    await this.purge(organizationId, logId, { verdict: 'NOT_SHIPMENT', counterparty: log.counterparty });
+    await this.purge(organizationId, logId, { verdict: 'NOT_SHIPMENT', counterparty: log.counterparty, review: { outcome: 'REJECTED', at: new Date().toISOString(), by: actor?.name ?? actor?.id ?? null } });
     return { id: logId, purged: true };
   }
 
@@ -768,3 +1009,13 @@ export function ownDomainsOf(docDefaults: Record<string, unknown> | null | undef
 }
 
 export { emailOf };
+
+/** The known-sender rule's attachment types win; a type the rule rules out (Copy documents → never PAYMENT_PROOF) becomes OTHER. */
+export function withKnownTypes(attachments: TriageAttachment[], known: KnownSenderHit): TriageAttachment[] {
+  const typed = new Map(Object.entries(known.attachmentTypes));
+  const forbid = new Set(known.forbidTypes ?? []);
+  return [
+    ...attachments.filter((a) => !typed.has(a.filename)).map((a) => (forbid.has(a.docType) ? { ...a, docType: 'OTHER', confidence: 0 } : a)),
+    ...[...typed].map(([filename, docType]) => ({ filename, docType, confidence: 1 })),
+  ];
+}
