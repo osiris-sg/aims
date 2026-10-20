@@ -12,6 +12,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Grid, MenuItem, TextField, Typography, useMediaQuery } from "@mui/material";
 import { toast } from "../_lib/toast";
+import { defaultDeliveryMonth, premiumHelp, premiumRowFor } from "../_lib/order-form";
 import { useShipmentsApi, type Contract, type Order, type OrderInput, type PiExtraction } from "../_lib/api";
 import { useContracts, useCustomers, useSuppliers, useTradeMutation } from "../_lib/hooks";
 import { filledSx, PdfDropZone, SourcePdfPane } from "./PdfDrop";
@@ -93,6 +94,8 @@ export default function OrderFormDialog({
   const [error, setError] = useState<string | null>(null);
   const [contract, setContract] = useState<Contract | null>(null);
   const [premiumTouched, setPremiumTouched] = useState(false);
+  // Round N: the delivery month follows the ship month (+2) until typed.
+  const [deliveryTouched, setDeliveryTouched] = useState(false);
   const [reading, setReading] = useState(false);
   const [readingFile, setReadingFile] = useState<File | null>(null);
   const [source, setSource] = useState<{ fileId: string; fileName: string; owned: boolean; existingOrder?: { id: string; label: string } | null } | null>(null);
@@ -104,6 +107,7 @@ export default function OrderFormDialog({
     setFilled(new Set());
     setSource(null);
     setPremiumTouched(!!order);
+    setDeliveryTouched(!!order);
     if (order) {
       setForm({
         year: str(order.year),
@@ -160,6 +164,8 @@ export default function OrderFormDialog({
   }, [form.contractId]);
 
   // Contract picked / grade changed: parties and premiums default from it (typed premiums win).
+  const scheduleRow = contract ? premiumRowFor((contract as any).premiumSchedule, form.shipMonth || null, form.grade || null) : null;
+  const help = premiumHelp(contract?.contractNo, scheduleRow, form.grade);
   useEffect(() => {
     if (!contract) return;
     const line = contract.lines.find((l) => form.grade && l.grade === form.grade) ?? (contract.lines.length === 1 ? contract.lines[0] : null);
@@ -170,16 +176,25 @@ export default function OrderFormDialog({
       grade: f.grade || line?.grade || "",
       size: f.size || line?.sizeSpec || "",
       product: f.product || line?.product || "",
-      ...(premiumTouched || !line
+      ...(premiumTouched || (!line && !scheduleRow)
         ? {}
-        : {
-            supplierPremium: str(line.supplierPremium),
-            clientPremium: str((line as any).billetPremium ?? line.clientPremium),
-            upcharge: str((line as any).upcharge),
+        : // Round N: the contract's premium row for this grade + ship month wins over the line's (Kato 6005: +260 / +285).
+          {
+            supplierPremium: str(scheduleRow?.supplierPremium ?? line?.supplierPremium),
+            clientPremium: str(scheduleRow?.clientPremium ?? (line as any)?.billetPremium ?? line?.clientPremium),
+            upcharge: str(scheduleRow?.upcharge ?? (line as any)?.upcharge),
           }),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contract, form.grade]);
+  }, [contract, form.grade, form.shipMonth]);
+
+  // Round N: delivery month = ship month + 2 (SUS and Kato) until the user types one; "Fill from PI" sets the ship month.
+  useEffect(() => {
+    if (order || deliveryTouched) return;
+    const d = defaultDeliveryMonth(form.shipMonth);
+    if (d && d !== form.deliveryMonth) setForm((f) => ({ ...f, deliveryMonth: d }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.shipMonth]);
 
   // The year follows the ship month (new orders): the next free number of that year.
   useEffect(() => {
@@ -197,6 +212,7 @@ export default function OrderFormDialog({
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
     if (k === "supplierPremium" || k === "clientPremium" || k === "upcharge") setPremiumTouched(true);
+    if (k === "deliveryMonth") setDeliveryTouched(true);
     setFilled((f) => {
       if (!f.has(k)) return f;
       const n = new Set(f);
@@ -366,7 +382,7 @@ export default function OrderFormDialog({
                 {field("shipMonth", "Ship month", { type: "month", InputLabelProps: { shrink: true } })}
               </Grid>
               <Grid item xs={6}>
-                {field("deliveryMonth", "Delivery month", { type: "month", InputLabelProps: { shrink: true } })}
+                {field("deliveryMonth", "Delivery month", { type: "month", InputLabelProps: { shrink: true }, helperText: !deliveryTouched && !order && form.shipMonth ? "Ship month + 2 — edit if different" : " " })}
               </Grid>
               <Grid item xs={12} sm={4}>
                 {field("product", "Product")}
@@ -389,10 +405,10 @@ export default function OrderFormDialog({
                 </Typography>
               </Grid>
               <Grid item xs={4}>
-                {field("supplierPremium", "Supplier premium", { type: "number", helperText: "Fixed part (6063 +205): a PI's 556.50 = QMJP 351.5 + 205" })}
+                {field("supplierPremium", "Supplier premium", { type: "number", helperText: help.supplier })}
               </Grid>
               <Grid item xs={4}>
-                {field("clientPremium", "Client premium", { type: "number", helperText: "Fixed billet premium (6063 +230)" })}
+                {field("clientPremium", "Client premium", { type: "number", helperText: help.client })}
               </Grid>
               <Grid item xs={4}>
                 {field("upcharge", "Upcharge", { type: "number" })}

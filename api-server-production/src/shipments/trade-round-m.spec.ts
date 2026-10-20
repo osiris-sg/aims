@@ -47,12 +47,12 @@ const SHIP_TEMPLATES = [
 describe('label + bar', () => {
   it('one line: "Step 7 of 14 · Customs docs & tax"; awaiting shipment: "2 of 14 · Awaiting shipment"; full name for the tooltip', () => {
     expect(barLabel({ code: 'CUSTOMS_TAX_ESTIMATE', displayNo: '7', title: 'Customs documents & tax estimate' }, 7, 14)).toEqual({
-      label: 'Step 7 of 14 · Customs docs & tax',
+      label: 'Step 7 · Customs docs & tax', // round N: no "of 14" (the count is on the bar's line)
       title: '7. Customs documents & tax estimate',
     });
-    expect(barLabel({ code: 'AWAITING_SHIPMENT', displayNo: null, title: 'Awaiting shipment' }, 2, 14).label).toBe('2 of 14 · Awaiting shipment');
-    expect(barLabel({ code: 'INVOICE_1', displayNo: '2', title: 'Issue and send Invoice #1' }, 2, 14).label).toBe('Step 2 of 14 · Invoice #1');
-    expect(barLabel({ code: 'CI_PAYMENT', displayNo: '6', title: 'Set up CI payment' }, 4, 10, { of: false }).label).toBe('Step 6 · CI payment');
+    expect(barLabel({ code: 'AWAITING_SHIPMENT', displayNo: null, title: 'Awaiting shipment' }, 2, 14).label).toBe('Awaiting shipment');
+    expect(barLabel({ code: 'INVOICE_1', displayNo: '2', title: 'Issue and send Invoice #1' }, 2, 14).label).toBe('Step 2 · Invoice #1');
+    expect(barLabel({ code: 'CI_PAYMENT', displayNo: '6', title: 'Set up CI payment' }, 4, 10).label).toBe('Step 6 · CI payment');
     expect(shortStepName({ code: 'INVOICE_2', title: 'Issue invoice (single)' })).toBe('Invoice');
     expect(shortStepName({ code: 'SOMETHING_NEW', title: 'A new step' })).toBe('A new step');
   });
@@ -102,14 +102,14 @@ describe("denominator: the order's full process", () => {
     ]);
     const o: any = (await s.list(ORG, {} as any)).items[0];
     expect(o.bar).toMatchObject({ done: 2, total: 14 });
-    expect(o.bar.label).toBe('2 of 14 · Awaiting shipment');
+    expect(o.bar.label).toBe('Awaiting shipment');
   });
   it('SUS (two invoices) vs Kato (single invoice: Invoice #1 N/A) — each its own full count', async () => {
     const sus = order({ id: 'o23', orderNo: 23, customerId: 'sus', steps: ORDER_STEPS() });
     const kato = order({ id: 'o24', orderNo: 24, customerId: 'kato', steps: ORDER_STEPS().map((x) => (x.code === 'INVOICE_1' ? { ...x, notApplicable: true } : x)) });
     const r: any = await svc([sus, kato]).s.list(ORG, {} as any);
     expect(r.items.map((o: any) => `${o.label} ${o.bar.done}/${o.bar.total}`)).toEqual(['#23 2/15', '#24 2/14']);
-    expect(r.items[0].bar.label).toBe('Step 2 of 15 · Invoice #1');
+    expect(r.items[0].bar.label).toBe('Step 2 · Invoice #1');
   });
   it("an order with a shipment counts that shipment's real steps (no template padding)", async () => {
     const ship = {

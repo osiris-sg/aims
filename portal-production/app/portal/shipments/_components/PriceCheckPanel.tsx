@@ -10,6 +10,7 @@ import { Alert, Box, Chip, Paper, Stack, Typography } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
+import ScheduleIcon from "@mui/icons-material/Schedule";
 import { useShipmentsApi } from "../_lib/api";
 
 const usd = (v: number | null) => (v === null ? "—" : v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
@@ -31,7 +32,7 @@ export default function PriceCheckPanel({ kind, id, title }: { kind: "order" | "
           size="small"
           color={c.read === false ? "default" : c.ok ? "success" : "warning"}
           variant="outlined"
-          label={c.read === false ? "Not read yet" : c.ok ? "Matches the contract" : "Check the differences"}
+          label={c.read === false ? "Not read yet" : c.ok ? (c.lines.some((l) => l.mark === "provisional") ? "Premium matches · LME provisional" : "Matches the contract") : "Check the differences"}
         />
       </Stack>
       <Box sx={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", columnGap: 2, rowGap: 0.5, alignItems: "center" }}>
@@ -50,8 +51,23 @@ export default function PriceCheckPanel({ kind, id, title }: { kind: "order" | "
         {c.lines.map((l) => (
           <React.Fragment key={l.key}>
             <Stack direction="row" spacing={0.75} alignItems="center">
-              {l.mark === "ok" ? <CheckCircleIcon fontSize="small" color="success" /> : l.mark === "diff" ? <CancelIcon fontSize="small" color="error" /> : <HelpOutlineIcon fontSize="small" color="disabled" />}
-              <Typography variant="body2">{l.label}</Typography>
+              {l.mark === "ok" ? (
+                <CheckCircleIcon fontSize="small" color="success" />
+              ) : l.mark === "diff" ? (
+                <CancelIcon fontSize="small" color="error" />
+              ) : l.mark === "provisional" ? (
+                <ScheduleIcon fontSize="small" color="warning" />
+              ) : (
+                <HelpOutlineIcon fontSize="small" color="disabled" />
+              )}
+              <Typography variant="body2">
+                {l.label}
+                {l.mark === "provisional" && (
+                  <Typography component="span" variant="caption" color="warning.main" sx={{ ml: 0.75 }}>
+                    provisional — settles on the CI
+                  </Typography>
+                )}
+              </Typography>
             </Stack>
             <Typography variant="body2" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
               {usd(l.expected)}
@@ -59,7 +75,7 @@ export default function PriceCheckPanel({ kind, id, title }: { kind: "order" | "
             <Typography variant="body2" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
               {usd(l.found)}
             </Typography>
-            <Typography variant="body2" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: l.mark === "diff" ? "error.main" : undefined }}>
+            <Typography variant="body2" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: l.mark === "diff" ? "error.main" : l.mark === "provisional" ? "warning.main" : undefined }}>
               {l.diff === null ? "—" : `${l.diff > 0 ? "+" : ""}${usd(l.diff)}`}
             </Typography>
           </React.Fragment>

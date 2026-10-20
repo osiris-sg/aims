@@ -582,7 +582,8 @@ export class TradeGeneratedService {
         // 本船 = the vessel arriving in Japan: the A/N's vessel after transshipment (WAN HAI 365 / N044), else the B/L's.
         ...(await this.arrivingVessel(organizationId, s.id, s.vessel, s.voyageNo)),
         blNumber: s.blNumber ?? '',
-        warehouseName: defaults.siWarehouseName ?? '',
+        // Round N: the site's own 倉庫名; a non-Yokohama port (Kato, Nagoya) never gets the Yokohama default — blank + check.
+        ...siWarehouse(profile, cp.port, defaults.siWarehouseName),
         grossWeightMt: dec(s.grossWeightMt),
         netWeightMt: dec(s.netWeightMt),
         shipper: defaults.siIssuerName ?? org?.name ?? '',
@@ -2010,3 +2011,11 @@ export function blankDocProblems(docType: string, header: unknown, rows: unknown
 
 /** "2026-07-22" of a date (or null). */
 const isoDay = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : null);
+
+/** 倉庫名 for a 出庫・納入依頼書 (round N): the delivery site's own, else the org default only for Yokohama (or an unknown port). */
+export function siWarehouse(profile: { warehouseName?: string | null; warehouseCheck?: boolean } | null | undefined, port: string | null | undefined, orgDefault: string | null | undefined): { warehouseName: string; warehouseCheck?: boolean } {
+  if (profile?.warehouseName) return { warehouseName: profile.warehouseName };
+  if (profile?.warehouseCheck) return { warehouseName: '', warehouseCheck: true };
+  if (port && !/yokohama|横浜/i.test(port)) return { warehouseName: '', warehouseCheck: true };
+  return { warehouseName: orgDefault ?? '' };
+}

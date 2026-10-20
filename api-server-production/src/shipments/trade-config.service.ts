@@ -505,11 +505,11 @@ export class TradeConfigService {
    * leave a DONE step without one of its required doc types (counting both
    * files and live in-app documents). Closed records are refused outright.
    */
-  async assertRemovalKeepsDoneSteps(db: Db, organizationId: string, owners: RemovalOwner[], exclude: { fileId?: string; docLinkId?: string }, verb: string) {
+  async assertRemovalKeepsDoneSteps(db: Db, organizationId: string, owners: RemovalOwner[], exclude: { fileId?: string; docLinkId?: string }, verb: string, opts: { allowClosed?: boolean } = {}) {
     const problems: string[] = [];
     let labels: Map<string, string> | null = null;
     for (const o of owners) {
-      if (o.status !== 'OPEN') {
+      if (o.status !== 'OPEN' && !opts.allowClosed) {
         throw new BadRequestException(`Can't ${verb}: ${o.label} is ${o.status.toLowerCase()} — reopen it first`);
       }
       const owner: TradeOwner = toOwner(o);
@@ -519,7 +519,7 @@ export class TradeConfigService {
         select: { id: true, title: true, displayNo: true, status: true, isOngoing: true, notApplicable: true, requiredDocTypes: true },
       });
       if (!doneSteps.length) continue;
-      const broken = stepsBrokenByRemoval(doneSteps, await this.presentDocTypes(db, organizationId, owner, exclude));
+      const broken = stepsBrokenByRemoval(doneSteps, await this.presentDocTypes(db, organizationId, owner, exclude), await this.presentDocTypes(db, organizationId, owner, {}));
       if (!broken.length) continue;
       labels ??= await this.docTypeLabels(organizationId, db);
       for (const b of broken) {

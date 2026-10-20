@@ -72,6 +72,8 @@ export class UpdateShipmentDto extends PartialType(OmitType(CreateShipmentDto, [
 }
 
 export class ListShipmentsQuery {
+  /** "true" = include test orders' shipments (round N). */
+  @IsOptional() @IsIn(['true', 'false']) includeTest?: string;
   @IsOptional() @IsUUID() contractId?: string;
   @IsOptional() @IsUUID() orderId?: string;
   /** Invoice #2 shipment picker: shipments not yet covered by a FINAL Invoice #2 / single invoice. */

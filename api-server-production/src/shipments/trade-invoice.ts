@@ -88,6 +88,11 @@ export interface DeliveryProfile {
   siteName: string;
   address: string;
   notes: string;
+  /** Round N: the 出庫・納入依頼書 倉庫名 for this site (Kato / Nagoya ≠ the Yokohama default); "" + warehouseCheck = to confirm. */
+  warehouseName?: string | null;
+  warehouseCheck?: boolean;
+  /** Name in the editor's delivery-profile list ("Kato (Nagoya)"); siteName is what prints as 納入先. */
+  label?: string | null;
 }
 
 /** Org defaults for in-app documents (TradeSetting.docDefaults). All optional. */

@@ -255,12 +255,22 @@ function SiAdhForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFo
   const tf = field(h, setHeader, disabled);
   const nf = numField(h, setHeader, disabled);
   const settings = useTradeSettings();
-  const profiles: Array<{ id: string; customerName: string; siteName: string; address: string; notes: string }> = (settings.data as any)?.docDefaults?.deliveryProfiles ?? [];
+  // Round N: the customers' own delivery sites (Org Settings → Customers, id "profile:<customerId>" — what a new draft
+  // picks by itself) first, then the legacy org-level list. Kato's "Kato (Nagoya)" was missing from the list.
+  type Site = { id: string; customerName: string; siteName: string; address: string; notes: string; label?: string | null; warehouseName?: string | null; warehouseCheck?: boolean };
+  const customerSites: Site[] = Object.entries(((settings.data as any)?.customerProfiles ?? {}) as Record<string, any>)
+    .filter(([, cp]) => cp?.deliveryProfile?.siteName)
+    .map(([customerId, cp]) => ({ id: `profile:${customerId}`, customerName: cp.label ?? cp.key ?? "", ...cp.deliveryProfile }));
+  const profiles: Site[] = [...customerSites, ...(((settings.data as any)?.docDefaults?.deliveryProfiles ?? []) as Site[])];
   const applyProfile = (id: string) => {
     const p = profiles.find((x) => x.id === id);
     if (!p) return;
     const remarks = [`指定荷卸し場→　${p.siteName}　${p.address}`.trim(), ...(p.notes ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean)].join("\n");
-    setHeader({ deliveryProfileId: p.id, remarks });
+    setHeader({
+      deliveryProfileId: p.id,
+      remarks,
+      ...(p.warehouseName ? { warehouseName: p.warehouseName, warehouseCheck: false } : p.warehouseCheck ? { warehouseName: "", warehouseCheck: true } : {}),
+    } as any);
     setRows((rs) => rs.map((r) => ({ ...r, destination: p.siteName })));
   };
   return (
@@ -277,7 +287,9 @@ function SiAdhForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFo
           <Grid2 size={{ xs: 12, sm: 6 }}>{tf("vessel", "本船")}</Grid2>
           <Grid2 size={{ xs: 12, sm: 6 }}>{tf("voyageNo", "海事№ (voyage)")}</Grid2>
           <Grid2 size={{ xs: 12, sm: 6 }}>{tf("blNumber", "B/L №", { helperText: `Printed as ${blTailOf(h.blNumber) || "—"}` })}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("warehouseName", "倉庫名")}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 6 }}>
+            {tf("warehouseName", "倉庫名", (h as any).warehouseCheck && !h.warehouseName ? { helperText: "check — the Nagoya warehouse isn't known yet; ask Mitsui Soko (中部支社)", FormHelperTextProps: { sx: { color: "warning.main" } } } : {})}
+          </Grid2>
           <Grid2 size={{ xs: 6, sm: 3 }}>{nf("grossWeightMt", "総重量 (MT)")}</Grid2>
           <Grid2 size={{ xs: 6, sm: 3 }}>{nf("netWeightMt", "正味重量 (MT)")}</Grid2>
           <Grid2 size={{ xs: 12, sm: 6 }}>{tf("shipper", "出荷主")}</Grid2>
@@ -287,7 +299,7 @@ function SiAdhForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFo
               <TextField select size="small" fullWidth label="Delivery profile (納入先)" value={profiles.some((p) => p.id === h.deliveryProfileId) ? h.deliveryProfileId : ""} disabled={disabled} onChange={(e) => applyProfile(e.target.value)} helperText="Fills 納入先 and 備考">
                 {profiles.map((p) => (
                   <MenuItem key={p.id} value={p.id}>
-                    {p.siteName} — {p.customerName}
+                    {p.label ? `${p.label} — ${p.siteName}` : `${p.siteName} — ${p.customerName}`}
                   </MenuItem>
                 ))}
               </TextField>

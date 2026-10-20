@@ -77,6 +77,8 @@ export class ListOrdersQuery {
   /** "2026-10", or "none" = orders without a ship month. */
   @IsOptional() @Matches(/^(\d{4}-\d{2}|none)$/) shipMonth?: string;
   @IsOptional() @IsString() q?: string;
+  /** "true" = include test orders (round N). */
+  @IsOptional() @IsIn(['true', 'false']) includeTest?: string;
   @IsOptional() page?: string;
   @IsOptional() pageSize?: string;
 }

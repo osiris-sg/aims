@@ -33,6 +33,7 @@ export default function RecordHeader({
   onComplete,
   onCancel,
   onReopen,
+  extraMenu,
   blockers = [],
   onActed,
 }: {
@@ -49,6 +50,8 @@ export default function RecordHeader({
   onComplete: () => Promise<unknown>;
   onCancel: () => Promise<unknown>;
   onReopen: () => Promise<unknown>;
+  /** Round N: more ⋮ items (e.g. "Mark as test" for ADH Managers). */
+  extraMenu?: Array<{ label: string; hint?: string; onClick: () => void }>;
   /** Other things Complete waits for (a contract: "shipment 198GX04822"). */
   blockers?: string[];
   /** Called before a manual action runs (so the page can tell it from an auto-complete). */
@@ -129,6 +132,17 @@ export default function RecordHeader({
           </MenuItem>
         )}
         {status !== "OPEN" && <MenuItem onClick={() => pick("reopen")}>Reopen {kind}</MenuItem>}
+        {(extraMenu ?? []).map((x) => (
+          <MenuItem
+            key={x.label}
+            onClick={() => {
+              setMenu(null);
+              x.onClick();
+            }}
+          >
+            <ListItemText primary={x.label} secondary={x.hint} />
+          </MenuItem>
+        ))}
       </Menu>
       {subtitle && <Box sx={{ mt: 0.75, ml: { xs: 0, md: 5 } }}>{subtitle}</Box>}
       {status === "OPEN" && waiting.length > 0 && (

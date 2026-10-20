@@ -64,6 +64,13 @@ export class OrdersController {
     return this.orders.complete(orgIdOf(req), id);
   }
 
+  /** Round N: "Mark as test" — ADH Manager only; a test order is hidden from lists, Home, counts and alerts. */
+  @Patch(':id/test')
+  @Permissions('shipments:money')
+  setTest(@Param('id', ParseUUIDPipe) id: string, @Body() body: { isTest?: unknown }, @Req() req: TradeRequest) {
+    return this.orders.setTest(orgIdOf(req), id, body?.isTest === true);
+  }
+
   @Post(':id/reopen')
   @Permissions('shipments:update')
   reopen(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {

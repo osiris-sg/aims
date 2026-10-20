@@ -143,7 +143,9 @@ describe('Orders list (flat)', () => {
     expect(o.bar).toMatchObject({ done: 3, total: 7 });
     // The label is the order's current step as before (round H: the first open shipment's — #19-1's step 7).
     // Round M: one line "Step 7 of 7 · …" (S7 has no short name → its title); the full name in the tooltip.
-    expect(o.bar).toMatchObject({ label: 'Step 7 of 7 · Customs documents & tax estimate', title: '7. Customs documents & tax estimate' });
+    // Round N: no "of N" in the label (the count is on the bar's line).
+    // Round N: the furthest-behind open step across ALL shipments — #19-2 is still at 3b (#19-1 is at 7).
+    expect(o.bar).toMatchObject({ label: 'Step 3b · Receive shipping documents', title: '3b. Receive shipping documents' });
     expect(barLabel(null, 7, 7).label).toBe('Done');
     expect(o.shipments[0].ref).toBe('#19-1');
     expect(o.shipments[0].bar).toMatchObject({ done: 2, total: 4, label: 'Step 7 · Customs documents & tax estimate' });

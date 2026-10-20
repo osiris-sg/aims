@@ -14,7 +14,7 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Alert, Box, Button, Chip, IconButton, Menu, MenuItem, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, IconButton, Link as MuiLink, Menu, MenuItem, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { toast } from "../shipments/_lib/toast";
@@ -28,6 +28,7 @@ import { AddLinkDialog, UnlinkDialog } from "@/app/portal/shipments/_components/
 import FileUploadDialog from "@/app/portal/shipments/_components/FileUploadDialog";
 import { useFileViewer } from "@/app/portal/shipments/_components/FilePreview";
 import { useDebounced } from "@/app/portal/shipments/_components/useDebounced";
+import ShowTestToggle, { useShowTestOrders } from "@/app/portal/shipments/_components/ShowTestToggle";
 import { visibleTabs } from "@/app/portal/shipments/_lib/hub-tabs";
 
 const HERE = "/portal/trade-documents";
@@ -61,7 +62,9 @@ export default function TradeDocumentsHubPage() {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Filters>(EMPTY);
   const q = useDebounced(search);
+  const [showTest, setShowTest] = useShowTestOrders();
   const hub = useHub({
+    includeTest: showTest ? "true" : undefined,
     page,
     pageSize: limit,
     q: q || undefined,
@@ -136,25 +139,37 @@ export default function TradeDocumentsHubPage() {
       {
         id: "docRef",
         header: "Doc ID",
+        // Round N: fixed width + ellipsis (the monospace ID ran under Type); full ID in the tooltip.
+        pxWidth: 180,
+        nowrap: true,
         cell: ({ row }: any) => (
-          <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 700, whiteSpace: "nowrap" }}>
-            {row.original.docRef || "—"}
-          </Typography>
+          <Tooltip title={row.original.docRef || ""}>
+            <Typography variant="body2" noWrap sx={{ fontFamily: "monospace", fontWeight: 700, position: "relative", zIndex: 1 }} data-testid="hub-docref">
+              {row.original.docRef || "—"}
+            </Typography>
+          </Tooltip>
         ),
       },
       {
         id: "docType",
         header: "Type",
+        // Round N: fixed width, one line with an ellipsis (full type in the tooltip) — never runs into Name.
+        pxWidth: 210,
+        nowrap: true,
         cell: ({ row }: any) => (
-          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ whiteSpace: "nowrap" }}>
-            <Typography variant="body2">{row.original.docTypeLabel}</Typography>
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0, overflow: "hidden" }}>
+            <Tooltip title={row.original.docTypeLabel}>
+              <Typography variant="body2" noWrap sx={{ minWidth: 0, position: "relative", zIndex: 1 }} data-testid="hub-type">
+                {row.original.docTypeLabel}
+              </Typography>
+            </Tooltip>
             {row.original.issuingEntity && (
               <Chip
                 size="small"
                 variant="outlined"
                 color={row.original.issuingEntity === "ADH_SG" ? "info" : "secondary"}
                 label={row.original.issuingEntity === "ADH_SG" ? "SG" : "JP"}
-                sx={{ height: 18, fontSize: 10.5, "& .MuiChip-label": { px: 0.6 } }}
+                sx={{ height: 18, fontSize: 10.5, flexShrink: 0, "& .MuiChip-label": { px: 0.6 } }}
                 data-tour="hub-entity-badge"
               />
             )}
@@ -164,10 +179,15 @@ export default function TradeDocumentsHubPage() {
       {
         id: "name",
         header: "Name / number",
+        pxWidth: 240,
+        nowrap: true,
+        // One line, ellipsis — no mid-word breaks ("TEST_deposit_proo / f.pdf"); the full name in the tooltip.
         cell: ({ row }: any) => (
-          <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: "break-word", whiteSpace: "normal", maxWidth: 260 }}>
-            {row.original.name}
-          </Typography>
+          <Tooltip title={row.original.name}>
+            <Typography variant="body2" noWrap sx={{ fontWeight: 600, position: "relative", zIndex: 1 }} data-testid="hub-name">
+              {row.original.name}
+            </Typography>
+          </Tooltip>
         ),
       },
       {
@@ -178,9 +198,10 @@ export default function TradeDocumentsHubPage() {
           const href = p ? placeHref(p) : null;
           if (p?.ref && href)
             return (
-              <Link href={href} onClick={(e: React.MouseEvent) => e.stopPropagation()} style={{ fontWeight: 700, whiteSpace: "nowrap" }} data-tour="hub-order-link">
+              // Round N: the app's link style (theme primary, underline on hover) — not the browser's default blue.
+              <MuiLink component={Link} href={href} underline="hover" color="primary" onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ fontWeight: 700, whiteSpace: "nowrap" }} data-tour="hub-order-link">
                 {p.ref}
-              </Link>
+              </MuiLink>
             );
           if (p?.contractNo) return <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>Contract {p.contractNo}</Typography>;
           return <Typography variant="body2" color="text.secondary">—</Typography>;
@@ -296,7 +317,16 @@ export default function TradeDocumentsHubPage() {
         hideTable={!hub.isLoading && !hub.isError && !items.length}
         headerContent={
           <Stack spacing={2}>
-            {tabs}
+            <Stack direction="row" alignItems="center" spacing={1}>
+              {tabs}
+              <ShowTestToggle
+                value={showTest}
+                onChange={(v) => {
+                  setShowTest(v);
+                  setPage(1);
+                }}
+              />
+            </Stack>
             {hub.isError ? (
               <Alert severity="error">{(hub.error as Error)?.message || "Could not load documents"}</Alert>
             ) : !hub.isLoading && !items.length ? (

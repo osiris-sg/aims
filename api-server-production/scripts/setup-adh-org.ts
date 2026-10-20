@@ -400,6 +400,9 @@ const STEP_TEMPLATES: StepSpec[] = [
 
 // Supplier/Customer have no UEN column; gstRegNo is a GST number, so the UEN is
 // only reported.
+/** Round N: orders made during live click-throughs on prod — flagged isTest (never deleted). */
+const TEST_ORDERS = { year: 2026, orderNos: [27, 28, 29] };
+
 const SUPPLIERS = [
   { name: 'Vedanta Aluminium Metal Limited', currency: 'USD' },
   { name: 'Mitsui Soko Co., Ltd.', currency: 'JPY', note: 'warehouse' },
@@ -1273,7 +1276,17 @@ async function main() {
       customerId: cust.id,
       ...seed,
       emailDomains: CUSTOMER_FILE?.customers?.find((c) => c.name.toLowerCase() === name.toLowerCase())?.emailDomains ?? seed.emailDomains,
-      deliveryProfile: site ? { siteName: site.siteName, address: site.address, notes: site.notes ?? '' } : null,
+      deliveryProfile: site
+        ? {
+            siteName: site.siteName,
+            address: site.address,
+            notes: site.notes ?? '',
+            // Round N: the site's own 倉庫名 (Kato / Nagoya: blank + check until ADH confirms it).
+            ...(site.label ? { label: site.label } : {}),
+            ...(site.warehouseName ? { warehouseName: site.warehouseName } : {}),
+            ...(site.warehouseCheck ? { warehouseCheck: true } : {}),
+          }
+        : null,
     };
     // App edits win: keep every key already set, fill the rest.
     const merged = cur ? ({ ...want, ...Object.fromEntries(Object.entries(cur).filter(([, v]) => v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && !v.length))) } as CustomerProfile) : want;
@@ -1335,6 +1348,19 @@ async function main() {
       update: { supplierProfiles: nextSupProfiles as any },
       create: { organizationId: orgId, supplierProfiles: nextSupProfiles as any },
     });
+  }
+
+  // ── 10b2 (round N). Click-through test orders → "Mark as test" (hidden by default; nothing deleted) ─────────
+  if (tradeReady && org.tradeOrder) {
+    const tests: Array<{ id: string; orderNo: number; isTest: boolean }> = await orgRead(
+      () => org.tradeOrder.findMany({ where: { organizationId: orgId, year: TEST_ORDERS.year, orderNo: { in: TEST_ORDERS.orderNos } }, select: { id: true, orderNo: true, isTest: true } }),
+      [],
+    );
+    const todo = tests.filter((o) => !o.isTest);
+    if (todo.length) {
+      if (APPLY) await org.tradeOrder.updateMany({ where: { organizationId: orgId, id: { in: todo.map((o) => o.id) } }, data: { isTest: true } });
+      write('testOrders', `mark as test: ${todo.map((o) => `#${o.orderNo}`).join(', ')} (hidden from lists, Home, counts and alerts — "Show test orders" brings them back)`);
+    } else info(`test orders: ${tests.length ? `${tests.map((o) => `#${o.orderNo}`).join(', ')} already marked` : 'none of the click-through orders exist here'}`);
   }
 
   // ── 10c. Orders backfill (deals from before orders → Order + shipments) ───
@@ -1670,7 +1696,7 @@ main()
 
 type CustomerFile = {
   customers?: Array<{ name: string; jpName?: string; jpAddress?: string; jpContact?: string; emailDomains?: string[] }>;
-  deliveryProfiles?: Array<{ id: string; customerName: string; siteName: string; address: string; notes?: string }>;
+  deliveryProfiles?: Array<{ id: string; customerName: string; siteName: string; address: string; notes?: string; label?: string; warehouseName?: string; warehouseCheck?: boolean }>;
   /** Round L: single sender addresses for the email filter's allow-list (people on gmail.com etc.) — kept out of the repo. */
   emailFilterAddresses?: Array<{ address: string; note?: string }>;
   /** Round M: further suppliers (SIAE…) with their profile — created like the built-in ones, profile filled (app edits win). */

@@ -79,6 +79,8 @@ export interface ProgressSegment {
   no: string;
   title: string;
   state: SegmentState;
+  /** Round N: done on some of the order's shipments but not all (#28: 3b done on #28-1 only) — the lighter fill. */
+  partial?: boolean;
 }
 export interface ProgressBar {
   segments: ProgressSegment[];
@@ -87,6 +89,8 @@ export interface ProgressBar {
   /** Steps being worked on (the amber marker) and whether any of them is overdue (red tint) — round M. */
   inProgress: number;
   overdue: boolean;
+  /** Round N: steps done on some shipments but not all (counted as not done; shown as a lighter fill). */
+  partial: number;
 }
 
 type SegStep = StepLike & { recordId: string; sortOrder?: number | null };
@@ -116,14 +120,17 @@ export function progressBar(steps: SegStep[], overdueRecords: Set<string>): Prog
   for (const [no, g] of ordered) {
     const state = cellState(g.steps, overdueRecords);
     if (state === 'na' || state === 'none') continue;
-    segments.push({ no: /^\d/.test(no) ? no : '', title: g.steps[0].title, state });
+    const live = g.steps.filter((x) => !x.notApplicable);
+    const partial = state !== 'done' && live.some((x) => x.status === 'DONE');
+    segments.push({ no: /^\d/.test(no) ? no : '', title: g.steps[0].title, state, ...(partial ? { partial: true } : {}) });
   }
   return {
     segments,
     done: segments.filter((x) => x.state === 'done').length,
     total: segments.length,
-    inProgress: segments.filter((x) => x.state === 'in_progress' || x.state === 'overdue').length,
+    inProgress: segments.filter((x) => (x.state === 'in_progress' || x.state === 'overdue') && !x.partial).length,
     overdue: segments.some((x) => x.state === 'overdue'),
+    partial: segments.filter((x) => x.partial).length,
   };
 }
 
@@ -150,18 +157,13 @@ export const STEP_SHORT: Record<string, string> = {
 export const shortStepName = (s: { code: string; title: string }) => (s.code === 'INVOICE_2' && /single/i.test(s.title) ? 'Invoice' : (STEP_SHORT[s.code] ?? s.title));
 
 /**
- * The Orders list label (round M), one line: "Step 7 of 14 · Customs docs & tax"; without a step number (awaiting
- * a shipment) "2 of 14 · Awaiting shipment"; every step done → "Done"; full title in `title` for the tooltip.
+ * The Orders list label, one line (round N: the count sits only on the bar's line, "7/14"): "Step 7 · Customs docs
+ * & tax"; without a step number "Awaiting shipment"; every step done → "Done"; full title in `title` (tooltip).
  */
-export function barLabel(step: { code: string; title: string; displayNo?: string | null } | null, done: number, total: number, opts: { of?: boolean } = {}): { label: string; title: string | null } {
+export function barLabel(step: { code: string; title: string; displayNo?: string | null } | null, done: number, total: number): { label: string; title: string | null } {
   if (!step) return { label: total ? 'Done' : 'No steps', title: null };
   const short = shortStepName(step);
-  // A shipment's mini bar (opts.of false): "Step 7 · …" — "of 4" next to ADH's step number 7 would read wrong.
-  const of = opts.of ?? true;
-  return {
-    label: step.displayNo ? `Step ${step.displayNo}${of ? ` of ${total}` : ''} · ${short}` : `${done} of ${total} · ${short}`,
-    title: step.displayNo ? `${step.displayNo}. ${step.title}` : step.title,
-  };
+  return { label: step.displayNo ? `Step ${step.displayNo} · ${short}` : short, title: step.displayNo ? `${step.displayNo}. ${step.title}` : step.title };
 }
 
 /** "Step 7 · Customs documents & tax estimate" (the step's own number when it has one). */

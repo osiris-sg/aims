@@ -1264,9 +1264,22 @@ async function roundHCases(x: any) {
   // Round M: before its first shipment an order still counts its whole process (shipment templates as not started).
   const shipTpl = await prisma.tradeStepTemplate.count({ where: { organizationId: ORG_ID, scope: 'SHIPMENT', isActive: true, isOngoing: false } });
   const ownSteps = await prisma.tradeStep.count({ where: { organizationId: ORG_ID, orderId: barRow?.id, isOngoing: false, notApplicable: false } });
-  (barRow && !barRow.shipmentCount && barRow.bar.total === ownSteps + shipTpl && / of \d+ · /.test(barRow.bar.label) && barRow.bar.label.length <= 60
+  (barRow && !barRow.shipmentCount && barRow.bar.total === ownSteps + shipTpl && !/ of \d+ · /.test(barRow.bar.label) && barRow.bar.label.length <= 60
     ? pass
     : fail)('round M: a 0-shipment order counts its whole process (order + shipment steps), one-line label', `${barRow?.bar?.label} ${barRow?.bar?.done}/${barRow?.bar?.total} = ${ownSteps} + ${shipTpl}`);
+  // Round N: search "#n" puts that order first; "Mark as test" hides it from the list (and brings it back with includeTest).
+  const target: any = await prisma.tradeOrder.findFirst({ where: { id: made[made.length - 1].id }, select: { id: true, orderNo: true } });
+  const searched: any = await orders.list(ORG_ID, { q: String(target.orderNo), pageSize: '100' } as any);
+  (searched.items[0]?.id === target.id ? pass : fail)('round N: search by order no. lists that order first', searched.items.slice(0, 3).map((o: any) => o.label).join(', '));
+  await orders.setTest(ORG_ID, target.id, true);
+  const hidden: any = await orders.list(ORG_ID, { q: String(target.orderNo), pageSize: '100' } as any);
+  const shown: any = await orders.list(ORG_ID, { q: String(target.orderNo), pageSize: '100', includeTest: 'true' } as any);
+  (!hidden.items.some((o: any) => o.id === target.id) && shown.items.some((o: any) => o.id === target.id) ? pass : fail)('round N: a test order is hidden from the Orders list unless "Show test orders"', `${hidden.items.length} / ${shown.items.length}`);
+  await orders.setTest(ORG_ID, target.id, false);
+  // Round N: the order page reports the shipments' net total vs quantity ± tolerance.
+  const tolOrder: any = await orders.getById(ORG_ID, target.id);
+  (tolOrder.tolerance === null || ['within', 'over', 'unknown'].includes(tolOrder.tolerance?.status) ? pass : fail)('round N: order detail carries the tolerance check', JSON.stringify(tolOrder.tolerance));
+  (tolOrder.bar && tolOrder.bar.total === barRow?.bar?.total ? pass : fail)('round N: the order page count = the list count', `${tolOrder.bar?.done}/${tolOrder.bar?.total}`);
   await expectReject('round H: the Declaration makes nothing any more', () => supplierOrders.declare(ORG_ID, { month: '2026-08', rows: [{ customerId: customer.id, contractId: c.id, qtyMt: 1 }] }, actor), /no longer used/);
   await expectReject('round H: the Payments module takes no new payment', () => payments.create(ORG_ID, { direction: 'OUT', paidAt: '2026-08-05', amount: 1, currency: 'USD', account: 'WISE' }, actor), /recorded on the steps/);
   // Step 1's payment: amount, date, account, proof (a file on the order).

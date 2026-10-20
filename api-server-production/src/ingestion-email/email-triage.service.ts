@@ -690,7 +690,8 @@ export class EmailTriageService {
             if (reopened.length && l.shipmentId) await this.prisma.shipment.updateMany({ where: { id: l.shipmentId, organizationId, status: 'COMPLETED' }, data: { status: 'OPEN' } });
             if (reopened.length && l.orderId) await this.prisma.tradeOrder.updateMany({ where: { id: l.orderId, organizationId, status: 'COMPLETED' }, data: { status: 'OPEN' } });
           }
-          await this.files.remove(organizationId, f.id);
+          // Undo takes back only this email's own file — allowed on a completed (e.g. imported) shipment too.
+          await this.files.remove(organizationId, f.id, { allowClosed: true });
         }
         out.unshift({ ...a, status: 'undone', reopenedStepIds: reopened });
       } else if (a.kind === 'field') {

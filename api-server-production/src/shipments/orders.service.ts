@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { CreateOrderDto, ListOrdersQuery, MonthlyOrdersDto, UpdateOrderDto } from './dto/order.dto';
 import { CreateShipmentDto } from './dto/shipment.dto';
 import { TradeActor } from './shipments.request';
+import { toleranceOf } from './shipments.rules';
 import { blockingSteps, currentStepOf, depositOf, monthsLabel, monthShort, orderCurrentStep, orderLabel, progressOf, shipmentRef, stepLabels, tradeToday } from './shipments.rules';
 import { Db, DOC_LINK_SELECT, isUniqueViolation, optText, pageArgs, TradeConfigService } from './trade-config.service';
 import { DEFAULT_DEPOSIT_DUE, depositDueDate } from './trade-deposit';
@@ -60,12 +61,15 @@ export class OrdersService {
   ) {}
 
   async list(organizationId: string, query: ListOrdersQuery) {
+    // (rankByOrderNo: the exact order number first, then the other matches in list order.)
     const { page, pageSize, skip, take } = pageArgs(query.page, query.pageSize);
     const q = query.q?.trim();
     const qNo = q && /^#?\d+(-\d+)?$/.test(q) ? Number(q.replace('#', '').split('-')[0]) : null;
     const bucket = query.bucket === 'completed' ? { status: { in: ['COMPLETED', 'CANCELLED'] as Array<'COMPLETED' | 'CANCELLED'> } } : query.bucket === 'pending' ? { status: 'OPEN' as const } : {};
     const base = {
       organizationId,
+      // Round N: test orders only with "Show test orders".
+      ...(query.includeTest === 'true' ? {} : { isTest: false }),
       ...(query.customerId ? { customerId: query.customerId } : {}),
       ...(query.contractId ? { contractId: query.contractId } : {}),
       ...(query.shipMonth ? { shipMonth: query.shipMonth === 'none' ? null : query.shipMonth } : {}),
@@ -92,8 +96,8 @@ export class OrdersService {
         where,
         // Flat list (round K): ship month newest first, then order no. newest first.
         orderBy: [{ shipMonth: { sort: 'desc', nulls: 'last' } }, { year: 'desc' }, { orderNo: 'desc' }],
-        skip,
-        take,
+        // Round N: a number / "#n" search ranks the exact order no. first — paged in memory below (small lists).
+        ...(qNo ? {} : { skip, take }),
         include: {
           customer: PARTY,
           supplier: SUPPLIER,
@@ -112,47 +116,23 @@ export class OrdersService {
       this.prisma.tradeOrder.count({ where: { ...base, status: { in: ['COMPLETED', 'CANCELLED'] } } }),
       this.prisma.tradeOrder.groupBy({ by: ['shipMonth'], where: monthsWhere, _count: { _all: true }, _sum: { qtyMt: true } }),
     ]);
-    const overdue = new Set((dueAlerts as Array<{ orderId: string | null; shipmentId: string | null }>).flatMap((a) => [a.orderId, a.shipmentId]).filter((x): x is string => !!x));
-    // Round M: the bar's denominator is the order's whole process. An order with no live shipment yet counts the
-    // shipment steps (from the org's templates, N/A per the customer / supplier profile) as not started.
-    const bare = rows.filter((o: any) => !o.shipments.some((sh: any) => sh.status !== 'CANCELLED'));
-    const shipTemplates: Array<{ code: string; title: string; displayNo: string | null; sortOrder: number; isOngoing: boolean }> = bare.length
-      ? await this.prisma.tradeStepTemplate.findMany({
-          where: { organizationId, scope: 'SHIPMENT', isActive: true },
-          orderBy: { sortOrder: 'asc' },
-          select: { code: true, title: true, displayNo: true, sortOrder: true, isOngoing: true },
-        })
-      : [];
-    const naByOrder = new Map<string, Set<string>>();
-    for (const o of bare as any[]) {
-      const na = this.config?.profileOf
-        ? naStepCodes(await this.config.profileOf(organizationId, o.customerId), 'SHIPMENT', await this.config.supplierProfileOf(organizationId, o.supplierId))
-        : [];
-      naByOrder.set(o.id, new Set(na));
+    if (qNo) {
+      const ranked = rankByOrderNo(rows as Array<{ orderNo: number }>, qNo);
+      rows.splice(0, rows.length, ...(ranked.slice(skip, skip + take) as typeof rows));
     }
-    const pendingShipmentSteps = (orderId: string) =>
-      shipTemplates.map((t) => ({ ...t, status: 'NOT_STARTED', notApplicable: naByOrder.get(orderId)?.has(t.code) ?? false, recordId: `pending:${orderId}` }));
+    const overdue = new Set((dueAlerts as Array<{ orderId: string | null; shipmentId: string | null }>).flatMap((a) => [a.orderId, a.shipmentId]).filter((x): x is string => !!x));
+    const bars = await this.orderBars(organizationId, rows as any[], overdue);
     const items = rows.map(({ steps, shipments, ...o }: any) => {
-      const ships = shipments.map(({ steps: ss, ...s }: any) => {
-        const cur = currentStepOf(ss);
-        return {
-          ...s,
-          ref: shipmentRef(o.orderNo, s.seqNo),
-          progress: progressOf(ss),
-          currentStep: cur,
-          bar: ((b) => ({ ...b, ...barLabel(cur, b.done, b.total, { of: false }) }))(progressBar(ss.map((x: any) => ({ ...x, recordId: s.id })), overdue)),
-        };
-      });
-      const own = orderCurrentStep(null, steps, shipments);
-      // Overall bar: the order's steps + every live shipment's (a step on two shipments = one segment).
-      const live = shipments.filter((sh: any) => sh.status !== 'CANCELLED');
-      const bar = progressBar(
-        [
-          ...steps.map((x: any) => ({ ...x, recordId: o.id })),
-          ...(live.length ? live.flatMap((sh: any) => sh.steps.map((x: any) => ({ ...x, recordId: sh.id }))) : pendingShipmentSteps(o.id)),
-        ],
-        overdue,
-      );
+      const b = bars.get(o.id)!;
+      const ships = shipments.map(({ steps: ss, ...s }: any) => ({
+        ...s,
+        ref: shipmentRef(o.orderNo, s.seqNo),
+        progress: progressOf(ss),
+        currentStep: currentStepOf(ss),
+        bar: b.shipments.get(s.id),
+      }));
+      const own = b.currentStep;
+      const bar = b.bar;
       return {
         ...o,
         label: orderLabel(o),
@@ -164,7 +144,7 @@ export class OrdersService {
         shipments: ships,
         progress: progressOf(steps),
         currentStep: own,
-        bar: { ...bar, ...barLabel(own, bar.done, bar.total) },
+        bar,
       };
     });
     // Ship-month filter options (with counts over the whole list, not just this page).
@@ -218,6 +198,7 @@ export class OrdersService {
     const { steps, docLinks } = await this.config.decorateRecord(organizationId, o as any, this.prisma, await this.config.orderInvoiceTypes(this.prisma, organizationId, o.id));
     const profile = await this.config.profileOf(organizationId, o.customerId);
     const supplierProfile = await this.config.supplierProfileOf(organizationId, o.supplierId);
+    const detailBar = (await this.orderBars(organizationId, [{ ...(o as any), steps: o.steps, shipments }])).get(o.id);
     return {
       ...rest,
       label: orderLabel(o),
@@ -231,8 +212,57 @@ export class OrdersService {
       productLabel: orderProductLabel(o),
       progress: progressOf(o.steps),
       currentStep: orderCurrentStep(null, o.steps, shipments),
-      shipments: shipments.map(({ steps: ss, ...s }: any) => ({ ...s, ref: shipmentRef(o.orderNo, s.seqNo), progress: progressOf(ss), currentStep: currentStepOf(ss) })),
+      // Round N: the header shows the same whole-process count as the Orders list (x/15, x/14).
+      bar: detailBar?.bar ?? null,
+      // Round N: the shipments' net total vs the order quantity ± tolerance (warned on the header and on 3a).
+      tolerance: toleranceOf(o.qtyMt, (o as any).tolPct, shipments.filter((sh: any) => sh.status !== 'CANCELLED').map((sh: any) => sh.netWeightMt)),
+      shipments: shipments.map(({ steps: ss, ...s }: any) => ({ ...s, ref: shipmentRef(o.orderNo, s.seqNo), progress: progressOf(ss), currentStep: currentStepOf(ss), bar: detailBar?.shipments.get(s.id) ?? null })),
     };
+  }
+
+  /**
+   * The Orders list's / order page's progress (round M + N). Per order: one bar over the whole process — the order's
+   * steps + every live shipment's (a step on several shipments is one segment, done only when done on ALL of them,
+   * "partial" when done on some) — and before the first shipment the shipment templates count as not started.
+   * The label names the furthest-behind open step across the order and all its shipments.
+   */
+  async orderBars(organizationId: string, orders: Array<{ id: string; customerId: string; supplierId: string; steps: any[]; shipments: any[] }>, overdue?: Set<string>) {
+    if (!overdue) {
+      const due: Array<{ orderId: string | null; shipmentId: string | null }> = await this.prisma.tradeAlert.findMany({ where: { organizationId, status: 'DUE' }, select: { orderId: true, shipmentId: true } });
+      overdue = new Set(due.flatMap((a) => [a.orderId, a.shipmentId]).filter((x): x is string => !!x));
+    }
+    const bare = orders.filter((o) => !o.shipments.some((sh: any) => sh.status !== 'CANCELLED'));
+    const shipTemplates: Array<{ code: string; title: string; displayNo: string | null; sortOrder: number; isOngoing: boolean }> = bare.length
+      ? await this.prisma.tradeStepTemplate.findMany({
+          where: { organizationId, scope: 'SHIPMENT', isActive: true },
+          orderBy: { sortOrder: 'asc' },
+          select: { code: true, title: true, displayNo: true, sortOrder: true, isOngoing: true },
+        })
+      : [];
+    const out = new Map<string, { bar: any; currentStep: any; shipments: Map<string, any> }>();
+    for (const o of orders) {
+      let na = new Set<string>();
+      if (bare.includes(o) && this.config?.profileOf) na = new Set(naStepCodes(await this.config.profileOf(organizationId, o.customerId), 'SHIPMENT', await this.config.supplierProfileOf(organizationId, o.supplierId)));
+      const live = o.shipments.filter((sh: any) => sh.status !== 'CANCELLED');
+      const pending = shipTemplates.map((t) => ({ ...t, status: 'NOT_STARTED', notApplicable: na.has(t.code), recordId: `pending:${o.id}` }));
+      const b = progressBar([...o.steps.map((x: any) => ({ ...x, recordId: o.id })), ...(live.length ? live.flatMap((sh: any) => sh.steps.map((x: any) => ({ ...x, recordId: sh.id }))) : pending)], overdue);
+      const cur = orderCurrentStep(null, o.steps, o.shipments);
+      const shipments = new Map<string, any>();
+      for (const sh of o.shipments) {
+        const sb = progressBar(sh.steps.map((x: any) => ({ ...x, recordId: sh.id })), overdue);
+        shipments.set(sh.id, { ...sb, ...barLabel(currentStepOf(sh.steps), sb.done, sb.total) });
+      }
+      out.set(o.id, { bar: { ...b, ...barLabel(cur, b.done, b.total) }, currentStep: cur, shipments });
+    }
+    return out;
+  }
+
+  /** Round N: flag / unflag a test order (nothing is deleted; it is only hidden by default). */
+  async setTest(organizationId: string, id: string, isTest: boolean) {
+    const o = await this.prisma.tradeOrder.findFirst({ where: { id, organizationId }, select: { id: true } });
+    if (!o) throw new NotFoundException('Order not found');
+    await this.prisma.tradeOrder.update({ where: { id }, data: { isTest } });
+    return { id, isTest };
   }
 
   /** The next free order number for a year (the New Order form's default). */
@@ -654,3 +684,8 @@ export function paidOnSteps(orderSteps: Array<{ code: string; payment: unknown }
 const omit = (o: Record<string, unknown>, keys: string[]) => Object.fromEntries(Object.entries(o).filter(([k]) => !keys.includes(k)));
 const stripNulls = <T extends object>(o: T): Partial<T> => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined)) as Partial<T>;
 const round2 = (v: number) => Math.round(v * 100) / 100;
+
+/** Round N: searching "28" / "#28" puts order #28 first (exact order no.), then orders that matched on other fields. Stable. */
+export function rankByOrderNo<T extends { orderNo: number }>(rows: T[], qNo: number): T[] {
+  return [...rows.filter((r) => r.orderNo === qNo), ...rows.filter((r) => r.orderNo !== qNo)];
+}

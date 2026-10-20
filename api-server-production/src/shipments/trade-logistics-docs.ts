@@ -383,6 +383,8 @@ export interface SiHeaderV2 {
   remarks: string;
   /** The delivery profile the 納入先 / 備考 came from (docDefaults.deliveryProfiles[].id). */
   deliveryProfileId?: string | null;
+  /** Round N: 倉庫名 left blank to confirm (a Nagoya delivery has no known warehouse yet) — the editor shows "check". */
+  warehouseCheck?: boolean;
 }
 export interface SiRowV2 {
   shipDate: string;

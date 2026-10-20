@@ -28,7 +28,7 @@ export class TradeDashboardService {
   async pipeline(organizationId: string) {
     const from = addMonths(tradeToday().slice(0, 7), -3);
     const rows: any[] = await this.prisma.tradeOrder.findMany({
-      where: { organizationId, status: { not: 'CANCELLED' }, OR: [{ deliveryMonth: { gte: from } }, { deliveryMonth: null }, { status: 'OPEN' }] },
+      where: { organizationId, isTest: false, status: { not: 'CANCELLED' }, OR: [{ deliveryMonth: { gte: from } }, { deliveryMonth: null }, { status: 'OPEN' }] },
       orderBy: [{ deliveryMonth: 'asc' }, { orderNo: 'asc' }],
       take: 200,
       select: {
@@ -72,7 +72,7 @@ export class TradeDashboardService {
     });
     const payments = stepCash(paying).filter((p) => p.paidAt >= since);
     const orders: any[] = await this.prisma.tradeOrder.findMany({
-      where: { organizationId, status: { not: 'CANCELLED' } },
+      where: { organizationId, isTest: false, status: { not: 'CANCELLED' } },
       orderBy: [{ year: 'desc' }, { orderNo: 'desc' }],
       take: 60,
       select: { id: true, year: true, orderNo: true, status: true, shipMonth: true, deliveryMonth: true, qtyMt: true, clientPremium: true, supplierPremium: true, upcharge: true, customer: { select: { name: true } }, contract: { select: { premiumSchedule: true } } },

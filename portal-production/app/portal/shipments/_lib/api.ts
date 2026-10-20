@@ -19,7 +19,7 @@ export type Num = number | string | null;
 export type Progress = { done: number; total: number };
 /** The Orders list's segmented bar (round K): one segment per applicable step, N/A hidden. */
 export type SegmentState = "done" | "in_progress" | "overdue" | "not_started";
-export type ProgressBar = { segments: Array<{ no: string; title: string; state: SegmentState }>; done: number; total: number; inProgress?: number; overdue?: boolean };
+export type ProgressBar = { segments: Array<{ no: string; title: string; state: SegmentState; partial?: boolean }>; done: number; total: number; inProgress?: number; overdue?: boolean; partial?: number };
 /** label: one line ("Step 7 of 14 · Customs docs & tax"); title: the full step name (tooltip). */
 export type ListBar = ProgressBar & { label: string | null; title?: string | null };
 /** First non-ongoing step not done; null = every step done. */
@@ -522,8 +522,12 @@ export type OrderListItem = {
   progress: Progress;
   currentStep: CurrentStep;
   bar?: ListBar;
+  /** Round N: a click-through / test order (hidden by default). */
+  isTest?: boolean;
 };
 export type Order = OrderListItem & {
+  /** Round N: the shipments' net total vs the order quantity ± tolerance. */
+  tolerance?: { qtyMt: number; tolPct: number; min: number; max: number; netTotal: number; withNet: number; status: "within" | "over" | "unknown"; message: string | null } | null;
   tolPct: Num;
   piDate: string | null;
   piAmount: Num;
@@ -589,7 +593,7 @@ export type OrderInput = Partial<{
   contractFileId: string;
   status: "CANCELLED";
 }>;
-export type OrderFilters = { bucket?: "pending" | "completed"; customerId?: string; contractId?: string; shipMonth?: string; q?: string; page?: number; pageSize?: number };
+export type OrderFilters = { bucket?: "pending" | "completed"; customerId?: string; contractId?: string; shipMonth?: string; includeTest?: "true"; q?: string; page?: number; pageSize?: number };
 /** Orders list month headers ("Sep 2026 — 4 orders, 600 MT"), counted over the whole filtered list. */
 export type OrderMonth = { month: string | null; orders: number; qtyMt: number | null; label: string };
 /** "+ New monthly order": one order per row. */
@@ -770,7 +774,7 @@ export const TARGET_LABEL: Record<AllocationTarget, string> = { PI: "PI deposit"
 export type PriceCheck = {
   side: "supplier" | "client";
   basisMonth: string | null;
-  lines: Array<{ key: string; label: string; expected: number | null; found: number | null; diff: number | null; mark: "ok" | "diff" | "unknown" }>;
+  lines: Array<{ key: string; label: string; expected: number | null; found: number | null; diff: number | null; mark: "ok" | "diff" | "unknown" | "provisional" }>;
   ok: boolean;
   notes: string[];
   source: string;
@@ -955,7 +959,7 @@ export type HubRow = {
   document?: { id: string; type: string; templateId: string } | null;
   shipmentId?: string | null;
 };
-export type HubFilters = { category?: string; docType?: string; contractId?: string; shipmentId?: string; customerId?: string; source?: string; entity?: string; from?: string; to?: string; q?: string; page?: number; pageSize?: number };
+export type HubFilters = { includeTest?: "true"; category?: string; docType?: string; contractId?: string; shipmentId?: string; customerId?: string; source?: string; entity?: string; from?: string; to?: string; q?: string; page?: number; pageSize?: number };
 
 /** A file link as embedded in a contract/shipment detail. */
 export type RecordFileLink = {
@@ -1260,7 +1264,7 @@ export type ShipmentInput = {
 export type LinkTargets = { contractIds?: string[]; shipmentIds?: string[]; orderIds?: string[]; supplierOrderIds?: string[]; stepId?: string };
 
 export type ContractFilters = { status?: string; supplierId?: string; customerId?: string; q?: string; page?: number; pageSize?: number };
-export type ShipmentFilters = { status?: string; bucket?: "pending" | "completed"; tab?: ShipmentTab; contractId?: string; orderId?: string; customerId?: string; currentStep?: string; uninvoiced?: "true"; q?: string; page?: number; pageSize?: number };
+export type ShipmentFilters = { includeTest?: "true"; status?: string; bucket?: "pending" | "completed"; tab?: ShipmentTab; contractId?: string; orderId?: string; customerId?: string; currentStep?: string; uninvoiced?: "true"; q?: string; page?: number; pageSize?: number };
 export type FileFilters = { docType?: string; contractId?: string; shipmentId?: string; orderId?: string; supplierOrderId?: string; customerId?: string; q?: string; from?: string; to?: string; page?: number; pageSize?: number };
 
 /** Mirrors the backend allow-list (shipments.rules.ts) for a quick client-side check. */
@@ -1345,6 +1349,7 @@ export function useShipmentsApi() {
       reopenContract: (id: string) => call<Contract>(`/contracts/${id}/reopen`, "POST"),
 
       // ── Orders ───────────────────────────────────────────────────────────
+      setOrderTest: (id: string, isTest: boolean) => call<{ id: string; isTest: boolean }>(`/trade-orders/${id}/test`, "PATCH", { isTest }),
       listOrders: (f: OrderFilters = {}) => call<Paged<OrderListItem> & { counts?: { pending: number; completed: number }; months?: OrderMonth[] }>(`/trade-orders${qs(f)}`),
       createMonthlyOrders: (body: { month: string; rows: MonthlyOrderRow[] }) => call<MonthlyOrderResult>(`/trade-orders/monthly`, "POST", body),
       getOrder: (id: string) => call<Order>(`/trade-orders/${id}`),

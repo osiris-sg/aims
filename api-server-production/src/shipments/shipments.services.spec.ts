@@ -122,7 +122,8 @@ describe('TradeFilesService.removeLink', () => {
     const prisma = makePrisma({
       tradeFileLink: {
         findFirst: jest.fn().mockResolvedValue(linkRow),
-        findMany: jest.fn().mockResolvedValue(otherLinkTypes.map((t) => ({ file: { docType: t } }))),
+        // Without the NOT (round N: "present before" the removal) the file being removed (a BL_DRAFT) counts too.
+        findMany: jest.fn(async ({ where }: any) => [...otherLinkTypes, ...(where?.NOT ? [] : ['BL_DRAFT'])].map((t) => ({ file: { docType: t } }))),
         delete: jest.fn().mockResolvedValue({}),
       },
       tradeStep: { findMany: jest.fn().mockResolvedValue(doneSteps) },
@@ -152,6 +153,30 @@ describe('TradeFilesService.removeLink', () => {
     expect(prisma.tradeFileLink.delete).toHaveBeenCalledWith({ where: { id: 'link-1', organizationId: ORG } });
   });
 
+  it('round N: a done step that was ALREADY missing a type (imported "done before AIMS") is not blocked by removing another type', async () => {
+    // #15-1: steps 3a–7 done by the task-list import with no files; removing a DELIVERY_NOTE breaks none of them.
+    const imported = [
+      { id: 's3a', title: 'Approve B/L draft', status: 'DONE', isOngoing: false, requiredDocTypes: ['BL_DRAFT'] },
+      { id: 's3b', title: 'Receive shipping documents', status: 'DONE', isOngoing: false, requiredDocTypes: ['BL', 'CI', 'PL'] },
+      { id: 's7', title: 'Customs documents & tax estimate', status: 'DONE', isOngoing: false, requiredDocTypes: ['SGJP_IV_PL', 'TAX_ESTIMATE'] },
+    ];
+    const prisma = makePrisma({
+      tradeFileLink: {
+        findFirst: jest.fn().mockResolvedValue(link),
+        findMany: jest.fn(async ({ where }: any) => (where?.NOT ? [] : [{ file: { docType: 'DELIVERY_NOTE' } }])),
+        delete: jest.fn().mockResolvedValue({}),
+      },
+      tradeStep: { findMany: jest.fn().mockResolvedValue(imported) },
+      tradeDocumentLink: { findMany: jest.fn().mockResolvedValue([]) },
+      document: { findMany: jest.fn().mockResolvedValue([]) },
+      tradeFile: { findFirst: jest.fn().mockResolvedValue({ id: 'file-1', docType: 'DELIVERY_NOTE', links: [] }) },
+      tradeDocType: docTypes,
+    });
+    const service = new TradeFilesService(prisma, { deleteFile: jest.fn() } as any, new TradeConfigService(prisma), { make: jest.fn(async () => null) } as any);
+    await service.removeLink(ORG, 'file-1', 'link-1');
+    expect(prisma.tradeFileLink.delete).toHaveBeenCalledWith({ where: { id: 'link-1', organizationId: ORG } });
+  });
+
   it('refuses on a completed shipment', async () => {
     const { prisma, service } = setup([], [], { ...link, shipment: { blNumber: 'X', status: 'COMPLETED' } });
     await expect(service.removeLink(ORG, 'file-1', 'link-1')).rejects.toThrow(/is completed — reopen it first/);
@@ -173,11 +198,12 @@ describe('TradeDocumentsService.unlink', () => {
     const prisma = makePrisma({
       tradeDocumentLink: {
         findFirst: jest.fn().mockResolvedValue(docLink),
-        findMany: jest.fn().mockResolvedValue(otherDocLinks),
+        // Without the NOT (round N: "present before" the removal) the invoice link being removed counts too.
+        findMany: jest.fn(async ({ where }: any) => [...otherDocLinks, ...(where?.NOT ? [] : [{ docType: 'INVOICE_1', documentId: 'doc-removed' }])]),
         delete: jest.fn().mockResolvedValue({}),
       },
       tradeFileLink: { findMany: jest.fn().mockResolvedValue(files.map((t) => ({ file: { docType: t } }))) },
-      document: { findMany: jest.fn().mockResolvedValue(otherDocLinks.map((l) => ({ id: l.documentId, config: {} }))) },
+      document: { findMany: jest.fn(async ({ where }: any) => (where?.id?.in ?? []).map((id: string) => ({ id, status: 'confirmed', config: {} }))) },
       tradeStep: { findMany: jest.fn().mockResolvedValue(doneSteps) },
       tradeDocType: { findMany: jest.fn().mockResolvedValue([{ code: 'INVOICE_1', label: 'Invoice #1' }]) },
     });

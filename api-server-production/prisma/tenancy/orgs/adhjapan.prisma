@@ -1417,6 +1417,8 @@ model TradeOrder {
   consignee       String?
   notifyParty     String?
   status          TradeRecordStatus @default(OPEN)
+  /// Round N: a click-through / test order — hidden from lists, Home, counts and alerts unless "Show test orders" (ADH Manager).
+  isTest          Boolean           @default(false)
   notes           String?
   /// Step 13 inputs that aren't documents (PI / CI paid, import tax actual, Mitsui Soko actuals …).
   reconciliation  Json?

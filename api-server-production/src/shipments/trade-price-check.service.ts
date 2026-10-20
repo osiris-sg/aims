@@ -55,6 +55,8 @@ export class TradePriceCheckService {
     const basis = o.shipMonth ? addMonths(o.shipMonth, -1) : null;
     const line0 = (o.contract?.lines ?? []).find((l: { grade: string | null }) => l.grade === o.grade) ?? (o.contract?.lines ?? [])[0];
     const check = priceCheck({
+      // A PI's prices are provisional (round N).
+      provisional: true,
       side: 'supplier',
       basisMonth: basis,
       grade: o.grade ?? null,
@@ -90,6 +92,8 @@ export class TradePriceCheckService {
     const basis = so.declarationMonth ? addMonths(so.declarationMonth, -1) : null;
     const line0 = (so.contract?.lines ?? []).find((l: { grade: string | null }) => l.grade === so.grade) ?? (so.contract?.lines ?? [])[0];
     const check = priceCheck({
+      // A PI's prices are provisional (round N).
+      provisional: true,
       side: 'supplier',
       basisMonth: basis,
       grade: so.grade ?? null,

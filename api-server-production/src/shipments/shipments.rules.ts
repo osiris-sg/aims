@@ -43,11 +43,14 @@ export function blockingSteps<T extends StepLike>(steps: T[]): T[] {
  * DONE steps that would be left missing a required doc type once only the doc
  * types in `presentAfter` remain linked to their contract/shipment.
  */
-export function stepsBrokenByRemoval<T extends StepLike>(steps: T[], presentAfter: Iterable<string>): Array<{ step: T; missing: string[] }> {
+export function stepsBrokenByRemoval<T extends StepLike>(steps: T[], presentAfter: Iterable<string>, presentBefore?: Iterable<string>): Array<{ step: T; missing: string[] }> {
   const have = new Set(presentAfter);
+  // Round N: only the types THIS removal takes away count. A step that was already missing a type (imported
+  // "done before AIMS" without files) is not broken by removing something else (e.g. a delivery note).
+  const before = presentBefore ? new Set(presentBefore) : null;
   return steps
     .filter((s) => s.status === 'DONE' && !s.notApplicable)
-    .map((step) => ({ step, missing: missingDocTypes(step.requiredDocTypes, have) }))
+    .map((step) => ({ step, missing: missingDocTypes(step.requiredDocTypes, have).filter((t) => !before || before.has(t)) }))
     .filter((r) => r.missing.length > 0);
 }
 
@@ -216,6 +219,7 @@ export function currentStepOf<T extends { code: string; title: string; status: s
 type StepRow = Parameters<typeof currentStepOf>[0][number];
 export type CurrentStep = NonNullable<ReturnType<typeof currentStepOf>>;
 const stepNo = (s: CurrentStep) => Number(/^(\d+)/.exec(s.displayNo ?? '')?.[1] ?? 99);
+const stepLetter = (s: CurrentStep) => /^\d+([a-z]*)/i.exec(s.displayNo ?? '')?.[1] ?? '';
 /** Shown for an order whose open steps all wait for a shipment (Kato before its B/L: step 2 N/A, 3a–12 not there yet). */
 export const AWAITING_SHIPMENT: CurrentStep = { code: 'AWAITING_SHIPMENT', title: 'Awaiting shipment', position: 0, displayNo: null, label: 'Awaiting shipment' };
 
@@ -227,7 +231,8 @@ export const AWAITING_SHIPMENT: CurrentStep = { code: 'AWAITING_SHIPMENT', title
  */
 export function orderCurrentStep(supplierSteps: StepRow[] | null, orderSteps: StepRow[], shipments: Array<{ status: string; steps: StepRow[] }>): CurrentStep | null {
   const live = shipments.filter((s) => s.status !== 'CANCELLED');
-  const shipStep = live.filter((s) => s.status === 'OPEN').map((s) => currentStepOf(s.steps)).find(Boolean) ?? null;
+  // Round N: the furthest-behind open step across ALL open shipments (was the first open shipment's).
+  const shipStep = live.filter((s) => s.status === 'OPEN').map((s) => currentStepOf(s.steps)).filter((x): x is CurrentStep => !!x).sort((a, b) => stepNo(a) - stepNo(b) || stepLetter(a).localeCompare(stepLetter(b)))[0] ?? null;
   const cands = [supplierSteps ? currentStepOf(supplierSteps) : null, currentStepOf(orderSteps), shipStep].filter((x): x is CurrentStep => !!x).sort((a, b) => stepNo(a) - stepNo(b));
   if (!live.length) {
     const early = cands.find((c) => stepNo(c) <= 2);
@@ -493,3 +498,30 @@ export const paymentRecorded = (payment: unknown) => {
   return !!p && Number.isFinite(Number(p.amount)) && Number(p.amount) > 0 && typeof p.paidAt === 'string';
 };
 export const readyToAutoComplete = <T extends { code?: string; payment?: unknown }>(s: T): boolean => !s.code || !PAYMENT_GATED_STEPS.has(s.code) || paymentRecorded(s.payment);
+
+/**
+ * Round N: the order quantity vs its shipments' net weights (B/L / packing list). #28: 300 MT ±5% → at most 315 MT,
+ * its B/Ls total 346.579 MT → "over". Under the minimum is not flagged (more shipments may still come).
+ */
+export function toleranceOf(qtyMt: unknown, tolPct: unknown, nets: Array<unknown>): { qtyMt: number; tolPct: number; min: number; max: number; netTotal: number; withNet: number; status: 'within' | 'over' | 'unknown'; message: string | null } | null {
+  const q = Number(qtyMt);
+  if (!Number.isFinite(q) || q <= 0) return null;
+  const t = Number.isFinite(Number(tolPct)) && tolPct !== null && tolPct !== undefined ? Number(tolPct) : 0;
+  const r3 = (n: number) => Math.round(n * 1000) / 1000;
+  const vals = nets.map((n) => (n === null || n === undefined || n === '' ? NaN : Number(n))).filter((n) => Number.isFinite(n));
+  const netTotal = r3(vals.reduce((a, b) => a + b, 0));
+  const min = r3(q * (1 - t / 100));
+  const max = r3(q * (1 + t / 100));
+  if (!vals.length) return { qtyMt: q, tolPct: t, min, max, netTotal, withNet: 0, status: 'unknown', message: null };
+  const over = netTotal > max + 1e-9;
+  return {
+    qtyMt: q,
+    tolPct: t,
+    min,
+    max,
+    netTotal,
+    withNet: vals.length,
+    status: over ? 'over' : 'within',
+    message: over ? `Shipments total ${netTotal.toLocaleString('en-US', { maximumFractionDigits: 3 })} MT net — over the order's ${q.toLocaleString('en-US')} MT ±${t}% (max ${max.toLocaleString('en-US', { maximumFractionDigits: 3 })} MT) by ${r3(netTotal - max).toLocaleString('en-US', { maximumFractionDigits: 3 })} MT` : null,
+  };
+}

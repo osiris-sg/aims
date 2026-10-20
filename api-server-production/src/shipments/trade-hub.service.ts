@@ -1,3 +1,4 @@
+import { onlyTestLinks, testRecordIds } from './trade-test-orders';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { documentLinkState } from './shipments.rules';
@@ -24,6 +25,8 @@ export interface HubQuery {
   from?: string;
   to?: string;
   q?: string;
+  /** "true" = include documents of test orders (round N). */
+  includeTest?: string;
   page?: string;
   pageSize?: string;
 }
@@ -388,6 +391,11 @@ export class TradeHubService {
     }
 
     for (const r of rows) r.place = hubPlace(r.links);
+    // Round N: rows that belong only to test orders are hidden unless "Show test orders".
+    if (query.includeTest !== 'true') {
+      const test = await testRecordIds(this.prisma, organizationId);
+      if (test.orderIds.size) rows.splice(0, rows.length, ...rows.filter((r) => !onlyTestLinks(test, r.links)));
+    }
     const q = query.q?.trim().toLowerCase();
     const from = query.from ? new Date(query.from) : null;
     const to = query.to ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(query.to) ? `${query.to}T23:59:59.999Z` : query.to) : null;

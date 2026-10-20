@@ -316,7 +316,8 @@ export class TradeFilesService {
     return this.getById(organizationId, fileId);
   }
 
-  async remove(organizationId: string, id: string) {
+  /** opts.allowClosed (round N): an email's Undo removes the file it filed even on a completed record. */
+  async remove(organizationId: string, id: string, opts: { allowClosed?: boolean } = {}) {
     let thumbKey: string | null = null;
     const key = await this.prisma.$transaction(async (tx: Db) => {
       const f = await tx.tradeFile.findFirst({
@@ -339,7 +340,7 @@ export class TradeFilesService {
         },
       });
       if (!f) throw new NotFoundException('File not found');
-      await this.config.assertRemovalKeepsDoneSteps(tx, organizationId, f.links.map(ownerOf), { fileId: id }, 'delete this document');
+      await this.config.assertRemovalKeepsDoneSteps(tx, organizationId, f.links.map(ownerOf), { fileId: id }, 'delete this document', opts);
       await tx.tradeFile.delete({ where: { id, organizationId } }); // links cascade
       thumbKey = f.thumbKey;
       return f.s3Key as string;

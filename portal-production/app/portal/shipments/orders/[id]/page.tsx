@@ -22,6 +22,7 @@ import EditIcon from "@mui/icons-material/EditOutlined";
 import { toast } from "../../_lib/toast";
 import { SHIPMENT_KEYS, useGeneratedDocs, useOrder, useOrderGeneratedDocs, useShipment, useTradeMutation } from "../../_lib/hooks";
 import { useQueryClient } from "@tanstack/react-query";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { recordFileCount, STEP_PAYMENT, useShipmentsApi, type AnExtraction, type BlExtraction, type Order, type PermitCheck, type PermitExtraction, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
 import { blLabel, depositTermLabel, fmtDay, fmtDmy, fmtMoney, fmtMt, fmtYen, stepLabel } from "../../_lib/format";
 import RecordHeader from "../../_components/RecordHeader";
@@ -62,11 +63,21 @@ export default function OrderPage() {
   const api = useShipmentsApi();
   const qc = useQueryClient();
 
+  // Round N: "Mark as test" — ADH Managers (shipments:money).
+  const { hasPermission } = useUserPermissions();
+  const canMarkTest = hasPermission("shipments", "money");
+
   const setParam = (k: string, v: string | null) => {
     const p = new URLSearchParams(params?.toString() ?? "");
     if (v) p.set(k, v);
     else p.delete(k);
-    router.replace(`${pathname}?${p.toString()}`);
+    // Round N: no jump to the top on a tab / shipment change.
+    router.replace(`${pathname}?${p.toString()}`, { scroll: false });
+  };
+  /** Round N: after "Add shipment" / a shipment card click, bring that shipment's steps into view (once rendered). */
+  const showShipment = (id: string) => {
+    setParam("shipment", id);
+    setTimeout(() => document.getElementById("shipment-steps")?.scrollIntoView({ behavior: "smooth", block: "start" }), 250);
   };
 
   const complete = useTradeMutation((a, oid: string) => a.completeOrder(oid));
@@ -300,19 +311,39 @@ export default function OrderPage() {
   };
 
   return (
-    <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1100, mx: "auto" }}>
+    // Round N: a fixed width (100% up to 1100px) — it no longer shrinks to the content and jumps when a step opens.
+    <Box sx={{ p: { xs: 1.5, md: 3 }, width: "100%", maxWidth: 1100, mx: "auto", boxSizing: "border-box" }}>
       <RecordHeader
         kind="order"
         title={orderTitle(o)}
         status={o.status}
         backHref="/portal/shipments"
-        progress={o.progress}
+        // Round N: the same whole-process count as the Orders list (x/15, x/14), not the order's own 5 steps.
+        progress={o.bar ? { done: o.bar.done, total: o.bar.total } : o.progress}
         currentStep={o.currentStep ?? s?.currentStep ?? null}
         steps={o.steps.filter((x) => !x.notApplicable)}
         blockers={openShipments.map((x) => `shipment ${x.ref}${x.blNumber ? "" : " (B/L pending)"}`)}
         onComplete={() => complete.mutateAsync(o.id)}
         onCancel={() => cancel.mutateAsync(o.id)}
         onReopen={() => reopen.mutateAsync(o.id)}
+        extraMenu={
+          canMarkTest
+            ? [
+                {
+                  label: o.isTest ? "Unmark test order" : "Mark as test",
+                  hint: o.isTest ? "Shows in the lists, Home and reminders again" : "Hidden from lists, Home, counts and reminders — nothing is deleted",
+                  onClick: () =>
+                    void api
+                      .setOrderTest(o.id, !o.isTest)
+                      .then(async () => {
+                        await qc.invalidateQueries();
+                        toast.success(o.isTest ? "No longer a test order" : "Marked as test — hidden from the lists");
+                      })
+                      .catch((e: any) => toast.error(e?.message || "Could not change it")),
+                },
+              ]
+            : undefined
+        }
         onActed={() => (manual.current = true)}
         subtitle={
           <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap alignItems="center">
@@ -336,6 +367,17 @@ export default function OrderPage() {
           </Stack>
         }
       />
+
+      {o.tolerance?.status === "over" && (
+        <Alert severity="warning" sx={{ mb: 2 }} data-tour="order-tolerance">
+          {o.tolerance.message}
+        </Alert>
+      )}
+      {o.isTest && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Test order — hidden from the lists, Home, counts and reminders (switch &quot;Show test orders&quot; on to see it there).
+        </Alert>
+      )}
 
       <Tabs value={tab} onChange={(_, v) => setParam("tab", TABS[v])} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }} variant="scrollable" allowScrollButtonsMobile>
         <Tab label="Journey" />
@@ -370,7 +412,7 @@ export default function OrderPage() {
                     try {
                       const n = await addShipment.mutateAsync(o.id);
                       toast.success(`Shipment ${n.ref ?? ""} added`);
-                      setParam("shipment", n.id);
+                      showShipment(n.id);
                     } catch (e: any) {
                       toast.error(e?.message || "Could not add the shipment");
                     }
@@ -388,7 +430,7 @@ export default function OrderPage() {
               <Grid container spacing={1.5} sx={{ mb: 2 }} data-tour="order-shipment-cards">
                 {shipments.map((x) => (
                   <Grid item xs={12} sm={6} md={4} key={x.id}>
-                    <ButtonBase onClick={() => setParam("shipment", x.id)} sx={{ width: "100%", textAlign: "left", borderRadius: 2 }}>
+                    <ButtonBase onClick={() => showShipment(x.id)} sx={{ width: "100%", textAlign: "left", borderRadius: 2 }}>
                       <Paper variant="outlined" sx={{ p: 1.5, width: "100%", border: 2, borderColor: x.id === shipmentId ? "primary.main" : "divider" }}>
                         <Stack direction="row" spacing={1} alignItems="center">
                           <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
@@ -416,7 +458,7 @@ export default function OrderPage() {
               </Box>
             ) : s ? (
               <>
-                <Paper variant="outlined" sx={{ px: 2, py: 1.25, mb: 1.5 }}>
+                <Paper variant="outlined" sx={{ px: 2, py: 1.25, mb: 1.5, scrollMarginTop: 80 }} id="shipment-steps">
                   <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
                     <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
                       {s.ref} · B/L {s.blNumber || "pending"}
@@ -467,8 +509,15 @@ export default function OrderPage() {
                     ) : st.code === "CI_PAYMENT" ? (
                       <PriceCheckPanel kind="shipment" id={s.id} title="CI price check vs contract" />
                     ) : null;
-                    return main || pay ? (
+                    // Round N: step 3a warns when the shipments' net total is over the order's quantity ± tolerance.
+                    const tol = st.code === "BL_DRAFT_APPROVAL" && o.tolerance?.status === "over" ? (
+                      <Alert severity="warning" data-tour="order-tolerance-3a">
+                        {o.tolerance.message}
+                      </Alert>
+                    ) : null;
+                    return main || pay || tol ? (
                       <Stack spacing={1}>
+                        {tol}
                         {main}
                         {pay && <Box>{pay}</Box>}
                       </Stack>

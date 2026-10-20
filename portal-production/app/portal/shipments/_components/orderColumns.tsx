@@ -84,6 +84,8 @@ export function orderColumns(o: { expanded: Set<string>; toggle: (id: string) =>
       {
         id: "months",
         header: "Ship → delivery",
+        // Round N: its own width — "Oct 26 → Dec 26" ran into Product in the fixed table layout.
+        pxWidth: 150,
         cell: ({ row }: any) => {
           const r: Row = row.original;
           // One line, never cut ("Oct 26 → Dec 26"): the column takes the width it needs.

@@ -35,6 +35,8 @@ export class ShipmentsService {
       ...(query.orderId ? { orderId: query.orderId } : {}),
       ...(query.customerId ? { customerId: query.customerId } : {}),
       ...(query.uninvoiced === 'true' ? { id: { notIn: await this.invoicedShipmentIds(organizationId) } } : {}),
+      // Round N: shipments of test orders only with "Show test orders" (or on their own order's page).
+      ...(query.includeTest === 'true' || query.orderId ? {} : { NOT: { order: { isTest: true } } }),
       ...bucketStatus,
       ...(query.status ? { status: query.status as 'OPEN' | 'COMPLETED' | 'CANCELLED' } : {}),
       ...(q

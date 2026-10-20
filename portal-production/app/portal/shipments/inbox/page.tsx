@@ -22,6 +22,7 @@ import { useOrders, useShipments, useTradeMutation } from "../_lib/hooks";
 import { fmtDateTime } from "../_lib/format";
 import { toast } from "../_lib/toast";
 import { ConfirmDialog } from "../_components/bits";
+import { acceptedText } from "../_lib/inbox-text";
 
 const TABS: Array<{ value: InboxTab; label: string }> = [
   { value: "SUGGESTED", label: "Suggested" },
@@ -54,9 +55,9 @@ export default function InboxPage() {
   const preview = useQuery({ queryKey: ["trade-inbox", "filter-preview"], queryFn: () => api.inboxFilterPreview(30), staleTime: 60_000 });
   const run = async (row: InboxRow, what: "accept" | "undo" | "dismiss" | "retriage" | "ignore") => {
     try {
-      await act.mutateAsync({ id: row.id, act: what });
+      const res = (await act.mutateAsync({ id: row.id, act: what })) as InboxRow | undefined;
       toast.success(
-        what === "accept" ? "Done — documents filed" : what === "undo" ? "Undone — back to Suggested" : what === "dismiss" ? "Removed (not shipment mail)" : what === "ignore" ? "Ignored — kept, nothing filed" : "Triaged again",
+        what === "accept" ? acceptedText(res ?? row) : what === "undo" ? "Undone — back to Suggested" : what === "dismiss" ? "Removed (not shipment mail)" : what === "ignore" ? "Ignored — kept, nothing filed" : "Triaged again",
       );
       await Promise.all([q.refetch(), stats.refetch()]);
     } catch (e: any) {
@@ -248,7 +249,9 @@ export default function InboxPage() {
         )}
       </Menu>
 
-      <Dialog open={!!open} onClose={() => setOpen(null)} maxWidth="md" fullWidth>
+      {/* Round N: no exit transition — the closing dialog's invisible container covered the rows for ~225 ms and ate
+          the next click (the row's Accept needed a second click). No focus restore either. */}
+      <Dialog open={!!open} onClose={() => setOpen(null)} maxWidth="md" fullWidth transitionDuration={{ enter: 225, exit: 0 }} disableRestoreFocus>
         <DialogTitle>{open?.subject || "(no subject)"}</DialogTitle>
         <DialogContent dividers>
           {open && (
@@ -301,8 +304,46 @@ export default function InboxPage() {
             </Stack>
           )}
         </DialogContent>
-        <DialogActions>
+        <DialogActions data-tour="inbox-dialog-actions">
+          {/* Round N: the row's actions in the dialog too. Each closes the dialog first, then acts. */}
+          {open && !open.canUndo && (
+            <Button
+              color="error"
+              onClick={() => {
+                const r = open;
+                setOpen(null);
+                setConfirm({ row: r, act: "dismiss" });
+              }}
+              sx={{ mr: "auto" }}
+            >
+              Not a shipment
+            </Button>
+          )}
           <Button onClick={() => setOpen(null)}>Close</Button>
+          {open && !open.canUndo && open.inboxState !== "PROCESSED" && (
+            <Button
+              onClick={() => {
+                const r = open;
+                setOpen(null);
+                setAssign(r);
+              }}
+            >
+              Change order…
+            </Button>
+          )}
+          {open?.inboxState === "SUGGESTED" && (
+            <Button
+              variant="contained"
+              disabled={act.isPending}
+              onClick={() => {
+                const r = open;
+                setOpen(null);
+                void run(r, "accept");
+              }}
+            >
+              Accept
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 
@@ -400,7 +441,7 @@ function PickerDialog({ row, onClose, onDone }: { row: InboxRow | null; onClose:
   };
   const cands = (row?.candidates ?? []).filter((c) => optOf(c.orderId, c.shipmentId));
   return (
-    <Dialog open={!!row} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open={!!row} onClose={onClose} maxWidth="md" fullWidth transitionDuration={{ enter: 225, exit: 0 }} disableRestoreFocus>
       <DialogTitle>Change order — “{row?.subject ?? ""}”</DialogTitle>
       <DialogContent dividers data-tour="inbox-picker">
         <Stack spacing={2}>

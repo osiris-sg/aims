@@ -103,7 +103,8 @@ export interface MarketPrices {
   qmjpByQuarter: Record<string, number>;
 }
 
-export type CheckMark = 'ok' | 'diff' | 'unknown';
+/** provisional (round N): a PI's LME / unit differ — PI prices are provisional and settle on the CI (amber, not an error). */
+export type CheckMark = 'ok' | 'diff' | 'unknown' | 'provisional';
 export interface PriceCheckLine {
   key: 'premium' | 'lme' | 'qmjp' | 'unit';
   label: string;
@@ -142,6 +143,8 @@ export function priceCheck(input: {
   fallback?: { supplierPremium?: number | null; clientPremium?: number | null; upcharge?: number | null };
   prices: MarketPrices;
   found: { premium?: number | null; lme?: number | null; qmjp?: number | null; unit?: number | null };
+  /** A PI (round N): LME / unit differences are "provisional — settles on the CI", never an error; the premium still is. */
+  provisional?: boolean;
 }): PriceCheck {
   const notes: string[] = [];
   const row = premiumAt(input.schedule, input.basisMonth, input.grade);
@@ -164,7 +167,8 @@ export function priceCheck(input: {
   const line = (key: PriceCheckLine['key'], label: string, expected: number | null, found: number | null | undefined): PriceCheckLine => {
     const f = n(found);
     const diff = expected === null || f === null ? null : round2(f - expected);
-    return { key, label, expected, found: f, diff, mark: diff === null ? 'unknown' : Math.abs(diff) <= 0.01 ? 'ok' : 'diff' };
+    const off: CheckMark = input.provisional && (key === 'lme' || key === 'unit') ? 'provisional' : 'diff';
+    return { key, label, expected, found: f, diff, mark: diff === null ? 'unknown' : Math.abs(diff) <= 0.01 ? 'ok' : off };
   };
   const lines = [
     line('premium', input.side === 'supplier' ? (input.mjpBased ? 'Supplier premium (QMJP + contract)' : 'Supplier premium') : 'Client premium', premium, input.found.premium),
@@ -173,6 +177,7 @@ export function priceCheck(input: {
     line('unit', 'Unit price', unit, input.found.unit),
   ];
   const read = lines.some((l) => l.found !== null);
+  if (lines.some((l) => l.mark === 'provisional')) notes.push('PI prices are provisional — the LME settles on the CI');
   return { side: input.side, basisMonth: input.basisMonth, lines, ok: read && lines.every((l) => l.mark !== 'diff'), read, notes };
 }
 
