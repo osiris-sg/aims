@@ -22,6 +22,8 @@ import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import { request } from "@/helpers/request";
 import SignatureCapture, { CapturedSignatures } from "../../../components/SignatureCapture";
 import { BatchSignResult, signReports, uploadSignaturePair } from "../../../lib/signReports";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { ListCard } from "@/app/(field)/components/fieldUi";
 
 /**
  * SIGN SEVERAL REPORTS AT ONCE.
@@ -120,6 +122,15 @@ function SignBatchInner() {
     [reports, getToken, router],
   );
 
+  // The top Back of the signing view now lives in the app bar (same target).
+  const partial = !!results && results.some((r) => !r.ok);
+  const signing = !!reports && !partial && !(error && !reports.length);
+  useFieldAppBar({
+    title: signing ? `Sign ${reports!.length} report${reports!.length === 1 ? "" : "s"}` : "Sign reports",
+    subtitle: signing ? (reports![0]?.serviceData?.customerName ?? "").trim() || "Unknown customer" : undefined,
+    onBack: signing ? () => router.push("/scan/reports/ongoing") : undefined,
+  });
+
   if (!reports) {
     return <Box sx={{ display: "flex", justifyContent: "center", py: 10 }}><CircularProgress /></Box>;
   }
@@ -136,20 +147,25 @@ function SignBatchInner() {
     const ok = results.filter((r) => r.ok);
     const bad = results.filter((r) => !r.ok);
     return (
-      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
         <Typography variant="h6" fontWeight={700}>Partly signed</Typography>
         <Alert severity="warning">
           <AlertTitle>{ok.length} of {results.length} signed</AlertTitle>
           The rest are still waiting and stay in Pending Sign. Nothing was undone — retry just those.
         </Alert>
-        <List dense sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>
-          {results.map((r) => (
-            <ListItem key={r.reportId}>
+        <ListCard>
+        <List disablePadding>
+          {results.map((r, i) => (
+            <React.Fragment key={r.reportId}>
+            {i > 0 && <Divider component="li" sx={{ mx: 2 }} />}
+            <ListItem>
               {r.ok ? <CheckCircleIcon color="success" sx={{ mr: 1.5 }} /> : <ErrorOutlineIcon color="error" sx={{ mr: 1.5 }} />}
               <ListItemText primary={label(byId.get(r.reportId))} secondary={r.ok ? "Signed" : r.error} />
             </ListItem>
+            </React.Fragment>
           ))}
         </List>
+        </ListCard>
         <Button
           variant="contained"
           sx={{ minHeight: 48 }}
@@ -164,35 +180,27 @@ function SignBatchInner() {
 
   if (error && !reports.length) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 2 }}>
         <Alert severity="error">{error}</Alert>
         <Button sx={{ mt: 2 }} startIcon={<ArrowBackIcon />} onClick={() => router.push("/scan/reports/ongoing")}>Back</Button>
       </Box>
     );
   }
 
-  const customer = (reports[0]?.serviceData?.customerName ?? "").trim() || "Unknown customer";
-
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
-      <Button startIcon={<ArrowBackIcon />} onClick={() => router.push("/scan/reports/ongoing")} sx={{ alignSelf: "flex-start" }}>
-        Back
-      </Button>
-
-      <Box>
-        <Typography variant="h6" fontWeight={700}>
-          Sign {reports.length} report{reports.length === 1 ? "" : "s"}
-        </Typography>
-        <Typography variant="body2" color="text.secondary">{customer}</Typography>
-      </Box>
-
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5 }}>
       {/* What the client is putting their name to — shown before the pad, not
           after, so the signatory can see the machines listed. */}
-      <List dense sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 0 }}>
-        {reports.map((r) => (
-          <ListItem key={r.id}><ListItemText primary={label(r)} secondary={r.serviceData?.serviceDate} /></ListItem>
-        ))}
-      </List>
+      <ListCard>
+        <List disablePadding>
+          {reports.map((r, i) => (
+            <React.Fragment key={r.id}>
+              {i > 0 && <Divider component="li" sx={{ mx: 2 }} />}
+              <ListItem><ListItemText primary={label(r)} secondary={r.serviceData?.serviceDate} /></ListItem>
+            </React.Fragment>
+          ))}
+        </List>
+      </ListCard>
 
       <Divider />
 

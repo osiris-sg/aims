@@ -18,7 +18,9 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import BluetoothDisabledIcon from "@mui/icons-material/BluetoothDisabled";
 import { listBondedDevices, type SavedPrinter } from "../lib/btPrinter";
+import { EmptyState, ListCard } from "./fieldUi";
 import {
   DOT_WIDTH_PRESETS,
   getDotWidth,
@@ -102,17 +104,20 @@ export default function PrinterPickerDialog({
             <CircularProgress size={26} />
           </Box>
         ) : devices.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-            No paired Bluetooth devices found.
-          </Typography>
+          <EmptyState icon={<BluetoothDisabledIcon />} message="No paired Bluetooth devices found." />
         ) : (
-          <List dense>
-            {devices.map((d) => (
-              <ListItemButton key={d.mac} disabled={busy} onClick={() => onPick(d)}>
-                <ListItemText primary={d.name} secondary={d.mac} />
-              </ListItemButton>
-            ))}
-          </List>
+          <ListCard>
+            <List disablePadding>
+              {devices.map((d, i) => (
+                <React.Fragment key={d.mac}>
+                  {i > 0 && <Divider component="li" sx={{ mx: 2 }} />}
+                  <ListItemButton disabled={busy} onClick={() => onPick(d)} sx={{ minHeight: 56 }}>
+                    <ListItemText primary={d.name} secondary={d.mac} primaryTypographyProps={{ fontWeight: 600 }} />
+                  </ListItemButton>
+                </React.Fragment>
+              ))}
+            </List>
+          </ListCard>
         )}
 
         <Divider sx={{ my: 1.5 }} />

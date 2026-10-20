@@ -62,8 +62,8 @@ export default function SignatureCapture({
   if (step === "tech") {
     return (
       <Stack spacing={1.5}>
-        <Typography variant="body2" fontWeight={600}>Service technician signature</Typography>
-        <Box sx={{ border: "1px dashed", borderColor: "divider", borderRadius: 1, touchAction: "none" }}>
+        <Typography variant="subtitle2">Service technician signature</Typography>
+        <Box sx={{ border: "1px dashed", borderColor: "text.disabled", borderRadius: "12px", overflow: "hidden", bgcolor: "#fff", touchAction: "none" }}>
           <SignatureCanvas
             ref={techRef}
             penColor="black"
@@ -98,7 +98,7 @@ export default function SignatureCapture({
         examined the said machines are in good and proper condition.
       </Typography>
       <TextField label="Client name" value={clientName} onChange={(e) => setClientName(e.target.value)} fullWidth />
-      <Box sx={{ border: "1px dashed", borderColor: "divider", borderRadius: 1, touchAction: "none" }}>
+      <Box sx={{ border: "1px dashed", borderColor: "text.disabled", borderRadius: "12px", overflow: "hidden", bgcolor: "#fff", touchAction: "none" }}>
         <SignatureCanvas
           ref={clientRef}
           penColor="black"

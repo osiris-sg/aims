@@ -3,21 +3,15 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  Divider,
-  Stack,
-  Typography,
-} from "@mui/material";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import { Alert, Box, Button, CircularProgress, Divider, Typography } from "@mui/material";
+import AssignmentOutlinedIcon from "@mui/icons-material/AssignmentOutlined";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import { request } from "@/helpers/request";
 import { ReportSummary } from "../../lib/maintenanceReports";
 import { CompletedReportList } from "../../components/CompletedReportList";
 import FieldBackButton from "../../components/FieldBackButton";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { EmptyState, SectionHeader } from "@/app/(field)/components/fieldUi";
 
 /**
  * MAINTENANCE REPORTS — the landing screen.
@@ -46,6 +40,7 @@ import FieldBackButton from "../../components/FieldBackButton";
 export default function MaintenanceReportsPage() {
   const router = useRouter();
   const { getToken } = useAuth();
+  useFieldAppBar({ title: "Maintenance reports", onBack: () => router.push("/scan") });
   const [done, setDone] = useState<ReportSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,24 +67,14 @@ export default function MaintenanceReportsPage() {
   }, [load]);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" alignItems="center" spacing={1}>
-        <Button startIcon={<ArrowBackIcon />} onClick={() => router.push("/scan")}>
-          Back
-        </Button>
-      </Stack>
-
-      <Typography variant="h6" fontWeight={700}>
-        Maintenance reports
-      </Typography>
-
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
       <Button
         variant="contained"
         size="large"
         startIcon={<QrCodeScannerIcon />}
         onClick={() => router.push("/scan/manual")}
         fullWidth
-        sx={{ minHeight: 56 }}
+        sx={{ minHeight: 52 }}
       >
         Start a new report
       </Button>
@@ -99,9 +84,7 @@ export default function MaintenanceReportsPage() {
 
       <Divider />
 
-      <Typography variant="subtitle2" fontWeight={700}>
-        Recently completed
-      </Typography>
+      <SectionHeader title="Recently completed" />
 
       {error && <Alert severity="error">{error}</Alert>}
 
@@ -110,9 +93,7 @@ export default function MaintenanceReportsPage() {
           <CircularProgress />
         </Box>
       ) : done.length === 0 ? (
-        <Typography variant="body2" color="text.secondary">
-          No completed reports yet.
-        </Typography>
+        <EmptyState icon={<AssignmentOutlinedIcon />} message="No completed reports yet." />
       ) : (
         <CompletedReportList reports={done} />
       )}

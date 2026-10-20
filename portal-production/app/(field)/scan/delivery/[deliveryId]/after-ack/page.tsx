@@ -22,7 +22,6 @@ import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
 import HandymanIcon from "@mui/icons-material/Handyman";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PrintIcon from "@mui/icons-material/Print";
 import DownloadIcon from "@mui/icons-material/Download";
 import LinearProgress from "@mui/material/LinearProgress";
@@ -36,6 +35,7 @@ import { isSystemPrintAvailable } from "../../../../lib/systemPrint";
 import { useDoA4Print } from "../../../../components/DoA4Print";
 import { Tooltip } from "@mui/material";
 import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 
 interface CustomerOption {
   id: string;
@@ -626,6 +626,20 @@ export default function AfterAckPage() {
     }
   };
 
+  // The top Back of each step now lives in the app bar, with the same handler
+  // and disabled state it had in the page body.
+  const stepBack: { onBack?: () => void; backDisabled?: boolean } =
+    resolving || step === "done"
+      ? {}
+      : step === "sign"
+        ? { onBack: () => (isReturn ? router.replace(`/scan/delivery/${deliveryId}`) : setStep("install")), backDisabled: working }
+        : step === "review"
+          ? { onBack: () => setStep("sign"), backDisabled: working }
+          : step === "install"
+            ? { onBack: () => setStep("assign") }
+            : { onBack: () => router.replace(`/scan/delivery/${deliveryId}`) };
+  useFieldAppBar({ title: isReturn ? "Finish return" : "Finish delivery", ...stepBack });
+
   if (resolving) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", py: 10 }}>
@@ -636,7 +650,7 @@ export default function AfterAckPage() {
 
   if (step === "done") {
     return (
-      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5, alignItems: "center", textAlign: "center" }}>
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5, alignItems: "center", textAlign: "center" }}>
         <CheckCircleIcon sx={{ fontSize: 96, color: "success.main", mt: 6 }} />
         <Typography variant="h5" fontWeight={700}>
           {isReturn
@@ -748,12 +762,7 @@ export default function AfterAckPage() {
 
   if (step === "sign") {
     return (
-      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Button startIcon={<ArrowBackIcon />} size="small" onClick={() => (isReturn ? router.replace(`/scan/delivery/${deliveryId}`) : setStep("install"))} disabled={working} sx={{ color: "text.secondary" }}>
-            Back
-          </Button>
-        </Stack>
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
         <Typography variant="h6" fontWeight={700}>Customer signature</Typography>
         <Typography variant="body2" color="text.secondary">
           {isReturn
@@ -813,13 +822,8 @@ export default function AfterAckPage() {
       </Stack>
     );
     return (
-      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-        <Stack direction="row" spacing={1} alignItems="center">
-          {/* Back preserves the captured signature — no re-signing. */}
-          <Button startIcon={<ArrowBackIcon />} size="small" onClick={() => setStep("sign")} disabled={working} sx={{ color: "text.secondary" }}>
-            Back
-          </Button>
-        </Stack>
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
+        {/* App-bar Back preserves the captured signature: no re-signing. */}
         <Typography variant="h6" fontWeight={700}>Review &amp; confirm</Typography>
         <Typography variant="body2" color="text.secondary">
           Nothing is committed until you confirm below.
@@ -860,12 +864,7 @@ export default function AfterAckPage() {
 
   if (step === "install") {
     return (
-      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3, alignItems: "center" }}>
-        <Stack direction="row" sx={{ width: "100%" }}>
-          <Button startIcon={<ArrowBackIcon />} size="small" onClick={() => setStep("assign")} sx={{ color: "text.secondary" }}>
-            Back
-          </Button>
-        </Stack>
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 3, alignItems: "center" }}>
         <HandymanIcon sx={{ fontSize: 72, color: "primary.main" }} />
         <Typography variant="h6" fontWeight={700}>Installation needed?</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", maxWidth: 360 }}>
@@ -922,19 +921,9 @@ export default function AfterAckPage() {
   }
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
-      {/* Back exits to the basket — the ack draft persists and re-entry
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5 }}>
+      {/* App-bar Back exits to the basket: the ack draft persists and re-entry
           resumes from it (re-running the ack page would mint a second draft). */}
-      <Stack direction="row">
-        <Button
-          startIcon={<ArrowBackIcon />}
-          size="small"
-          onClick={() => router.replace(`/scan/delivery/${deliveryId}`)}
-          sx={{ color: "text.secondary" }}
-        >
-          Back to delivery
-        </Button>
-      </Stack>
       <Stack direction="row" spacing={1.5} alignItems="center">
         <AssignmentTurnedInIcon color="primary" sx={{ fontSize: 40 }} />
         <Box>

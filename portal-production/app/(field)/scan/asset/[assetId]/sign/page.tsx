@@ -4,6 +4,8 @@ import React, { useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { Alert, Box, Button, Stack, TextField, Typography } from "@mui/material";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 import { request } from "@/helpers/request";
 import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/SignaturePadField";
 import { useBackgroundLocationContext } from "../../../../context/BackgroundLocationContext";
@@ -38,6 +40,7 @@ export default function SignPage() {
   // long-lived provider so the native callback closure isn't destroyed
   // when this page unmounts on router.replace(/done).
   const bgLocation = useBackgroundLocationContext();
+  useFieldAppBar({ title: "Customer signature" });
 
   const clear = () => sigRef.current?.clear();
 
@@ -114,8 +117,7 @@ export default function SignPage() {
   };
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Typography variant="h6" fontWeight={700}>Customer signature</Typography>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="body2" color="text.secondary">
         Have the recipient sign in the box below to confirm the work / delivery.
       </Typography>
@@ -136,7 +138,7 @@ export default function SignPage() {
           variant="outlined"
           onClick={clear}
           fullWidth
-          sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
+          sx={FIELD_BUTTON_SX}
         >
           Clear
         </Button>
@@ -145,7 +147,7 @@ export default function SignPage() {
           onClick={submit}
           disabled={submitting}
           fullWidth
-          sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
+          sx={FIELD_BUTTON_SX}
         >
           {submitting ? "Submitting..." : "Submit"}
         </Button>

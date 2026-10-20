@@ -12,7 +12,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/SignaturePadField";
@@ -45,6 +45,11 @@ export default function FinalizeDeliveryPage() {
   // only for the items handed over so far. Read from the run itself so the copy
   // is right after a reload too. null until loaded (the full-run copy shows).
   const [partialCount, setPartialCount] = useState<number | null>(null);
+  useFieldAppBar({
+    title: isReturn ? "Finish return" : "Finish delivery",
+    onBack: () => (step === "sign" && !isReturn ? setStep("install") : router.back()),
+    backDisabled: working,
+  });
   useEffect(() => {
     if (isReturn) return;
     let cancelled = false;
@@ -122,17 +127,7 @@ export default function FinalizeDeliveryPage() {
   };
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" alignItems="center">
-        <Button
-          startIcon={<ArrowBackIcon />}
-          onClick={() => (step === "sign" && !isReturn ? setStep("install") : router.back())}
-          disabled={working}
-          color="inherit"
-        >
-          Back
-        </Button>
-      </Stack>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
 
       {error && (
         <Alert severity="warning" onClose={() => setError(null)}>

@@ -17,6 +17,7 @@ import { request } from "@/helpers/request";
 import { formatUnitLabel } from "../../../../lib/btPrinter";
 import { DoPrintActions } from "../../../../components/DoPrintActions";
 import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 
 /**
  * "Delivery completed" final screen (field). Reached both as the LANDING right
@@ -94,6 +95,8 @@ export default function FinishedDeliveryDetailPage() {
   // ?by=driver: the rider's phone followed a driver's sign-off here.
   const byDriver = search?.get("by") === "driver";
 
+  useFieldAppBar({ title: run ? `Delivery #${run.deliveryNumber}` : "Delivery" });
+
   useEffect(() => {
     (async () => {
       try {
@@ -154,7 +157,7 @@ export default function FinishedDeliveryDetailPage() {
 
   if (error || !run) {
     return (
-      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
         <Alert severity="error">{error ?? "Delivery not found"}</Alert>
         <Button startIcon={<ArrowBackIcon />} onClick={() => router.replace("/scan")}>
           Back
@@ -170,11 +173,11 @@ export default function FinishedDeliveryDetailPage() {
   const remaining = run.items.filter((i) => i.deliveryStatus !== "completed").length;
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
       {/* Confirmation only — no summary of what was created. */}
       <Stack alignItems="center" spacing={1} sx={{ py: 2 }}>
-        <CheckCircleIcon color="success" sx={{ fontSize: 56 }} />
-        <Typography variant="h5" fontWeight={800}>
+        <CheckCircleIcon color="success" sx={{ fontSize: 64 }} />
+        <Typography variant="h5" sx={{ textAlign: "center" }}>
           {partlySigned ? `Signed for ${signedCount} ${signedCount === 1 ? "item" : "items"}` : "Delivery completed"}
         </Typography>
         {partlySigned && remaining > 0 && (

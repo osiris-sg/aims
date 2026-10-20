@@ -11,6 +11,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { request } from "@/helpers/request";
 import { isSystemPrintAvailable } from "../../../../lib/systemPrint";
 import { useMsrPrint } from "../../../../components/MsrPrintSurface";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 
 /**
  * PRINT / DOWNLOAD A SIGNED MAINTENANCE REPORT.
@@ -60,9 +61,11 @@ export default function PrintReportPage() {
     }
   }, [report, reportId, router]);
 
+  useFieldAppBar({ title: "Maintenance report" });
+
   if (error) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 2 }}>
         <Alert severity="error">{error}</Alert>
         <Button sx={{ mt: 2 }} startIcon={<ArrowBackIcon />} onClick={() => router.push("/scan/reports")}>
           Back
@@ -95,9 +98,9 @@ export default function PrintReportPage() {
   };
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2, alignItems: "center", textAlign: "center" }}>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2, alignItems: "center", textAlign: "center" }}>
       <CheckCircleIcon sx={{ fontSize: 80, color: "success.main", mt: 3 }} />
-      <Typography variant="h6" fontWeight={700}>
+      <Typography variant="h5">
         Report #{report.reportNumber ?? "—"} signed
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 360 }}>

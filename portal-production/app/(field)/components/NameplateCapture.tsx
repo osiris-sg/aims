@@ -7,6 +7,7 @@ import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { canUseInAppCamera, captureNativePhoto } from "../lib/nativeCamera";
 import { compressImageDataUrl } from "../lib/imageCompress";
+import { FIELD_BUTTON_SX } from "./fieldUi";
 
 /**
  * "Scan nameplate" — photograph an equipment label, have Claude read the model
@@ -131,7 +132,7 @@ export default function NameplateCapture({ onSerial, onModel, onError, disabled,
         startIcon={extracting ? <CircularProgress size={18} /> : <PhotoCameraIcon />}
         disabled={disabled || extracting}
         onClick={() => void onScanPlate()}
-        sx={{ py: 1.5, fontSize: "1rem", minHeight: 48, ...sx }}
+        sx={{ ...FIELD_BUTTON_SX, ...sx }}
       >
         {extracting ? "Reading plate…" : "Scan nameplate"}
       </Button>

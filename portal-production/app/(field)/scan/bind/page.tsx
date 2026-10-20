@@ -39,6 +39,7 @@ import {
 import { compressImageDataUrl } from "../../lib/imageCompress";
 import { useNfcScan } from "../../hooks/useNfcScan";
 import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 
 interface AssetOption {
   id: string;
@@ -81,6 +82,7 @@ export default function BindTagPage() {
   const { getToken } = useAuth();
   const uid = search?.get("uid") ?? "";
   const nfc = useNfcScan(); // for the inline CHILD tags (parent tag is the URL uid)
+  useFieldAppBar({ title: "New tag" });
 
   const [step, setStep] = useState<Step>("capture");
 
@@ -595,7 +597,7 @@ export default function BindTagPage() {
 
   if (!uid) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 2 }}>
         <Alert severity="error">Missing tag UID. Go back and tap again.</Alert>
         <Button sx={{ mt: 2 }} onClick={() => router.replace("/scan/new")}>Back to scan</Button>
       </Box>
@@ -609,8 +611,7 @@ export default function BindTagPage() {
   if (!selectedAsset) bindBlockers.push("Product");
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Typography variant="h6" fontWeight={700}>New tag</Typography>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="caption" color="text.secondary" sx={{ wordBreak: "break-all" }}>
         Tag UID: {uid}
       </Typography>
@@ -651,7 +652,7 @@ export default function BindTagPage() {
                   width: "100%",
                   maxHeight: 320,
                   objectFit: "contain",
-                  borderRadius: 1,
+                  borderRadius: "12px",
                   border: "1px solid",
                   borderColor: "divider",
                 }}
@@ -813,14 +814,14 @@ export default function BindTagPage() {
           {(childRows.length > 0 || selectedAsset) && (
             <>
               <Divider sx={{ my: 1 }} />
-              <Typography variant="subtitle2" fontWeight={700}>
+              <Typography variant="subtitle1">
                 Child assets (optional)
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ mt: -1.5 }}>
                 Tag each child of this unit — type its serial and tap its own tag.
               </Typography>
               {childRows.map((c) => (
-                <Box key={c.childAssetId} sx={{ border: "1px solid", borderColor: c.failed ? "error.main" : "divider", borderRadius: 1, p: 1.5 }}>
+                <Box key={c.childAssetId} sx={{ border: "1px solid", borderColor: c.failed ? "error.main" : "divider", borderRadius: "16px", bgcolor: "background.paper", p: 1.5 }}>
                   <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
                     <Typography variant="body2" fontWeight={700} sx={{ flex: 1 }}>{c.name}</Typography>
                     {c.tagUid ? (

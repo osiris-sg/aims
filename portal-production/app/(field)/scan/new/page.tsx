@@ -3,14 +3,14 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Box, Button, IconButton, Typography, Alert, CircularProgress } from "@mui/material";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import { Box, Button, Typography, Alert, CircularProgress } from "@mui/material";
 import NfcIcon from "@mui/icons-material/Nfc";
 import KeyboardIcon from "@mui/icons-material/Keyboard";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useNfcScan } from "../../hooks/useNfcScan";
 import FieldBackButton from "../../components/FieldBackButton";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 
 /**
  * Scan a unit (reached from the "+" on the Deliveries home, /scan).
@@ -40,6 +40,8 @@ export default function ScanUnitPage() {
     if (typeof window !== "undefined" && window.history.length > 1) router.back();
     else router.replace("/scan");
   }, [router]);
+
+  useFieldAppBar({ title: "Scan", onBack: goHome });
 
   const resolveTag = useCallback(
     async (uid: string) => {
@@ -100,7 +102,7 @@ export default function ScanUnitPage() {
 
   if (features.enableFieldScanApp === false) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 2 }}>
         <Alert severity="info">
           Field scan is not enabled for your organization. Ask an admin to enable it under Admin → Configuration → Feature Flags.
         </Alert>
@@ -110,14 +112,9 @@ export default function ScanUnitPage() {
 
   return (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
-      <Box sx={{ px: 1, pt: 1 }}>
-        <IconButton aria-label="Back to deliveries" onClick={goHome}>
-          <ArrowBackIcon />
-        </IconButton>
-      </Box>
-      <Box sx={{ flex: 1, p: 3, pt: 1, display: "flex", flexDirection: "column", gap: 3, alignItems: "center", justifyContent: "center", textAlign: "center" }}>
+      <Box sx={{ flex: 1, p: 2, display: "flex", flexDirection: "column", gap: 3, alignItems: "center", justifyContent: "center", textAlign: "center" }}>
         <NfcIcon sx={{ fontSize: 96, color: "primary.main" }} />
-        <Typography variant="h5" fontWeight={600}>Tap an asset tag</Typography>
+        <Typography variant="h5">Tap an asset tag</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 320 }}>
           Hold your phone close to the NFC sticker on the asset.
         </Typography>
@@ -160,7 +157,7 @@ export default function ScanUnitPage() {
           size="large"
           onClick={() => router.push("/scan/manual")}
           startIcon={<KeyboardIcon />}
-          sx={{ minWidth: 260, py: 1.5, minHeight: 56 }}
+          sx={{ minWidth: 260, minHeight: 52 }}
         >
           Enter serial manually
         </Button>
@@ -169,8 +166,8 @@ export default function ScanUnitPage() {
           <Alert severity="error" sx={{ width: "100%", maxWidth: 360 }}>{scanError}</Alert>
         )}
       </Box>
-      {/* Same exit as the back arrow at the top. */}
-      <Box sx={{ px: 3, pb: 3 }}>
+      {/* Same exit as the back arrow in the app bar. */}
+      <Box sx={{ px: 2, pb: 2 }}>
         <FieldBackButton />
       </Box>
     </Box>

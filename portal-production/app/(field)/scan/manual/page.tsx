@@ -24,7 +24,8 @@ import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
 import { useNfcScan } from "../../hooks/useNfcScan";
 import NameplateCapture from "../../components/NameplateCapture";
-import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
+import { FIELD_BUTTON_SX, StatusChip } from "@/app/(field)/components/fieldUi";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 
 // Normalized match (strip non-alphanumerics + lowercase) so an OCR'd "KBZ 43.7"
 // preselects the catalog "KBZ43.7". Exact-after-normalization only — no
@@ -73,6 +74,7 @@ export default function ManualEntryPage() {
   // needed) rather than threading state from the scan home — a device without
   // NFC has no tap alternative, so it may manually enter ANY tracked asset.
   const nfc = useNfcScan();
+  useFieldAppBar({ title: "Enter serial manually" });
 
   const [assets, setAssets] = useState<ManualAsset[] | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<ManualAsset | null>(null);
@@ -327,7 +329,7 @@ export default function ManualEntryPage() {
 
   if (assets.length === 0) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 2 }}>
         <Alert severity="info">
           {showingAll
             ? "No tracked assets with units are available for manual entry yet."
@@ -339,11 +341,10 @@ export default function ManualEntryPage() {
   }
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
-      <Stack direction="row" spacing={2} alignItems="center">
-        <KeyboardIcon color="primary" sx={{ fontSize: 40 }} />
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        <KeyboardIcon color="primary" sx={{ fontSize: 32 }} />
         <Box>
-          <Typography variant="h6" fontWeight={700}>Enter serial manually</Typography>
           <Typography variant="body2" color="text.secondary">
             For assets without an NFC tag — key in the unit&apos;s serial number.
           </Typography>
@@ -422,11 +423,11 @@ export default function ManualEntryPage() {
               <Box
                 key={m.inventoryId}
                 onClick={() => goToUnit(m)}
-                sx={{ display: "flex", alignItems: "center", gap: 1.5, p: 1.5, border: 1, borderColor: "divider", borderRadius: 1, cursor: "pointer", "&:hover": { bgcolor: "action.hover" } }}
+                sx={{ display: "flex", alignItems: "center", gap: 1.5, p: 1.5, minHeight: 52, border: 1, borderColor: "divider", borderRadius: "12px", bgcolor: "background.paper", cursor: "pointer", "&:hover": { bgcolor: "action.hover" } }}
               >
                 <Typography variant="body2" fontWeight={600}>{m.sku}</Typography>
                 <Typography variant="caption" color="text.secondary">{m.assetName}</Typography>
-                <Chip size="small" label={m.status} variant="outlined" />
+                <StatusChip label={String(m.status ?? "").replace(/_/g, " ").toUpperCase()} sx={{ ml: "auto" }} />
               </Box>
             ))}
           </Stack>
@@ -459,7 +460,7 @@ export default function ManualEntryPage() {
                     size="small"
                     variant="outlined"
                     onClick={() => goToUnit(m)}
-                    sx={{ justifyContent: "flex-start", textTransform: "none" }}
+                    sx={{ justifyContent: "flex-start" }}
                   >
                     {m.sku} — {m.assetName ?? m.skuKey ?? ""} ({m.status})
                   </Button>
@@ -468,8 +469,8 @@ export default function ManualEntryPage() {
             </Alert>
           )}
 
-          <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 2 }}>
-            <Typography variant="subtitle2" fontWeight={700}>Create new unit</Typography>
+          <Box sx={{ border: 1, borderColor: "divider", borderRadius: "16px", bgcolor: "background.paper", p: 2 }}>
+            <Typography variant="subtitle1">Create new unit</Typography>
             <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: "block" }}>
               No unit found for that serial — mint a new one under the chosen asset.
             </Typography>

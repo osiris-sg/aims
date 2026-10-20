@@ -9,12 +9,13 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
-import { Alert, Box, Button, CircularProgress, IconButton, Stack, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { request } from "@/helpers/request";
 import OfficeThemeScope from "../../../../../../components/OfficeThemeScope";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 import FieldBackButton from "../../../../../../components/FieldBackButton";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { transformBackendDataForForm } from "@/containers/DocumentTemplates/utils/documentDataTransformer";
 
 // CleanDocumentPreview renders every branch at a fixed A4 Paper width
@@ -37,6 +38,13 @@ export default function ViewDeliveryOrderPage() {
   const [maintenanceReports, setMaintenanceReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // The old sticky in-page header (back + "Delivery Order" + number/status)
+  // now rides in the app bar; same back handler.
+  useFieldAppBar({
+    title: "Delivery Order",
+    subtitle: data ? `${data.documentNumber || data.name || ""} · ${data.status || ""}` : undefined,
+    onBack: () => router.back(),
+  });
 
   // Fit-to-width scaling (field/mobile). scrollRef measures the available width;
   // paperRef is the fixed-A4 render whose height we read to reserve the scaled
@@ -157,7 +165,7 @@ export default function ViewDeliveryOrderPage() {
 
   if (error || !data) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 2 }}>
         <Alert severity="error">{error ?? "Could not load delivery order"}</Alert>
         <Button sx={{ mt: 2 }} startIcon={<ArrowBackIcon />} onClick={() => router.back()}>
           Back
@@ -168,32 +176,6 @@ export default function ViewDeliveryOrderPage() {
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* Sticky field header with a back button — read-only, no actions. */}
-      <Stack
-        direction="row"
-        alignItems="center"
-        spacing={1}
-        sx={{
-          p: 2,
-          borderBottom: 1,
-          borderColor: "divider",
-          position: "sticky",
-          top: 0,
-          bgcolor: "background.paper",
-          zIndex: 1,
-        }}
-      >
-        <IconButton onClick={() => router.back()} size="small">
-          <ArrowBackIcon />
-        </IconButton>
-        <Box>
-          <Typography variant="h6" fontWeight={700}>Delivery Order</Typography>
-          <Typography variant="caption" color="text.secondary">
-            {data.documentNumber || data.name || ""} · {data.status || ""}
-          </Typography>
-        </Box>
-      </Stack>
-
       {/* Scrollable read-only preview, fit-to-width by default. The inner Paper
           renders at fixed A4 width and is CSS-scaled down to the viewport; the
           wrapper reserves the SCALED box so scrolling/centering stay correct.

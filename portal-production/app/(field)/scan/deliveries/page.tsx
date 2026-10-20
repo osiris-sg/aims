@@ -3,22 +3,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import {
-  Alert,
-  Box,
-  Card,
-  CardActionArea,
-  CardContent,
-  CircularProgress,
-  Stack,
-  TextField,
-  Typography,
-} from "@mui/material";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import LocalShippingIcon from "@mui/icons-material/LocalShipping";
+import { Alert, Box, CircularProgress, Stack, TextField, Typography } from "@mui/material";
+import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
 import SearchIcon from "@mui/icons-material/Search";
+import SearchOffIcon from "@mui/icons-material/SearchOff";
 import { RunSummary, fetchInProgressRuns, resolveInProgressHref, runMatchesSearch } from "../../lib/deliveryLists";
 import { InProgressRunCard } from "../../components/DeliveryRunCards";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { EmptyState } from "@/app/(field)/components/fieldUi";
+import FieldBackButton from "../../components/FieldBackButton";
 
 /**
  * Rider "resume unfinished deliveries" list (field). Runs the rider started
@@ -35,6 +28,7 @@ import { InProgressRunCard } from "../../components/DeliveryRunCards";
 export default function ResumeDeliveriesPage() {
   const router = useRouter();
   const { getToken } = useAuth();
+  useFieldAppBar({ title: "Your deliveries in progress" });
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,11 +76,7 @@ export default function ResumeDeliveriesPage() {
   const filtered = useMemo(() => runs.filter((r) => runMatchesSearch(r, q)), [runs, q]);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" alignItems="center" spacing={1}>
-        <LocalShippingIcon color="primary" />
-        <Typography variant="h6" fontWeight={700}>Your deliveries in progress</Typography>
-      </Stack>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="body2" color="text.secondary">
         Runs you started and haven&apos;t finished. Tap one to pick up where you left off.
       </Typography>
@@ -108,13 +98,9 @@ export default function ResumeDeliveriesPage() {
           <CircularProgress />
         </Box>
       ) : runs.length === 0 ? (
-        <Box sx={{ textAlign: "center", py: 6, color: "text.secondary" }}>
-          <Typography variant="body1">Nothing in progress — you&apos;re all caught up.</Typography>
-        </Box>
+        <EmptyState icon={<LocalShippingOutlinedIcon />} message={<>Nothing in progress — you&apos;re all caught up.</>} />
       ) : filtered.length === 0 ? (
-        <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
-          No delivery matches &quot;{q}&quot;.
-        </Typography>
+        <EmptyState icon={<SearchOffIcon />} message={<>No delivery matches &quot;{q}&quot;.</>} />
       ) : (
         <Stack spacing={1.5}>
           {filtered.map((r) => (
@@ -130,14 +116,8 @@ export default function ResumeDeliveriesPage() {
       )}
 
       <Box sx={{ flexGrow: 1 }} />
-      <Card variant="outlined" sx={{ borderStyle: "dashed" }}>
-        <CardActionArea onClick={() => router.push("/scan")}>
-          <CardContent sx={{ display: "flex", alignItems: "center", gap: 1.5, py: 1.5 }}>
-            <ArrowBackIcon color="action" />
-            <Typography variant="body2">Back</Typography>
-          </CardContent>
-        </CardActionArea>
-      </Card>
+      {/* Same target as before (router.push("/scan")), in the shared bottom Back. */}
+      <FieldBackButton to="/scan" />
     </Box>
   );
 }

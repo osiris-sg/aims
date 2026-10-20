@@ -28,6 +28,8 @@ import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCap
 import GuidedPhotoCapture from "@/components/delivery/GuidedPhotoCapture";
 import { minPhotosForAssetClass } from "@/helpers/assetClass";
 import { useBackgroundLocationContext } from "../../../../context/BackgroundLocationContext";
+import { FIELD_APP_BAR_OFFSET, useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 
 /**
  * Start Delivery — first step of the two-step delivery flow. Enabled only
@@ -60,6 +62,7 @@ export default function StartDeliveryPage() {
   // field flow (photo/GPS at pickup → collect-ack) minus the assign + install.
   const isReturn = search?.get("return") === "1";
   const verb = isReturn ? "Return" : "Delivery";
+  useFieldAppBar({ title: `Start ${verb.toLowerCase()}` });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Optional outbound-condition photos (no minimum) — same shared capture
@@ -460,9 +463,9 @@ export default function StartDeliveryPage() {
   // but still pickable, so an office typo can't strand the rider.
   if (phase === "assign") {
     return (
-      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5, alignItems: "center" }}>
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5, alignItems: "center" }}>
         <LocalShippingIcon sx={{ fontSize: 64, color: "primary.main", mt: 2 }} />
-        <Typography variant="h6" fontWeight={700} sx={{ textAlign: "center" }}>
+        <Typography variant="h5" sx={{ textAlign: "center" }}>
           Choose the delivery
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", maxWidth: 360 }}>
@@ -620,8 +623,8 @@ export default function StartDeliveryPage() {
   if (phase === "photos") {
     const met = photos.length >= requiredPhotos;
     return (
-      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2, minHeight: "100vh" }}>
-        <Typography variant="h6" fontWeight={700}>
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2, minHeight: `calc(100vh - ${FIELD_APP_BAR_OFFSET})` }}>
+        <Typography variant="h5">
           Condition photos
         </Typography>
         <Typography variant="body2" color="text.secondary">
@@ -644,7 +647,7 @@ export default function StartDeliveryPage() {
                   component="img"
                   src={src}
                   alt=""
-                  sx={{ width: 84, height: 84, flexShrink: 0, borderRadius: 1, objectFit: "cover", border: "1px solid", borderColor: "divider" }}
+                  sx={{ width: 84, height: 84, flexShrink: 0, borderRadius: "8px", objectFit: "cover", border: "1px solid", borderColor: "divider" }}
                 />
               ))}
             </Stack>
@@ -722,9 +725,9 @@ export default function StartDeliveryPage() {
   }
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3, alignItems: "center" }}>
-      <LocalShippingIcon sx={{ fontSize: 80, color: "primary.main", mt: 4 }} />
-      <Typography variant="h6" fontWeight={700} sx={{ textAlign: "center" }}>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5, alignItems: "center" }}>
+      <LocalShippingIcon sx={{ fontSize: 72, color: "primary.main", mt: 3 }} />
+      <Typography variant="h5" sx={{ textAlign: "center" }}>
         Start {verb}
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", maxWidth: 360 }}>
@@ -734,7 +737,7 @@ export default function StartDeliveryPage() {
       </Typography>
 
       {standalone ? (
-        <Box sx={{ p: 1.5, bgcolor: "action.hover", borderRadius: 1, minWidth: 280, textAlign: "center" }}>
+        <Box sx={{ p: 1.5, bgcolor: "background.paper", border: 1, borderColor: "divider", borderRadius: "16px", minWidth: 280, textAlign: "center" }}>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
             New Delivery
           </Typography>
@@ -743,7 +746,7 @@ export default function StartDeliveryPage() {
           </Typography>
         </Box>
       ) : doName ? (
-        <Box sx={{ p: 1.5, bgcolor: "action.hover", borderRadius: 1, minWidth: 280, textAlign: "center" }}>
+        <Box sx={{ p: 1.5, bgcolor: "background.paper", border: 1, borderColor: "divider", borderRadius: "16px", minWidth: 280, textAlign: "center" }}>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
             Delivery Order
           </Typography>
@@ -772,7 +775,7 @@ export default function StartDeliveryPage() {
                 component="img"
                 src={src}
                 alt=""
-                sx={{ width: 84, height: 84, flexShrink: 0, borderRadius: 1, objectFit: "cover", border: "1px solid", borderColor: "divider" }}
+                sx={{ width: 84, height: 84, flexShrink: 0, borderRadius: "8px", objectFit: "cover", border: "1px solid", borderColor: "divider" }}
               />
             ))}
           </Stack>
@@ -855,7 +858,7 @@ export default function StartDeliveryPage() {
           onClick={() => router.back()}
           fullWidth
           disabled={submitting}
-          sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
+          sx={FIELD_BUTTON_SX}
         >
           Cancel
         </Button>
@@ -864,7 +867,7 @@ export default function StartDeliveryPage() {
           onClick={confirm}
           disabled={submitting || contextLoading || uploading || (!standalone && !doId) || (isReturn && !(standalone && requiredPhotos > 1) && damaged === null)}
           fullWidth
-          sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
+          sx={FIELD_BUTTON_SX}
         >
           {submitting ? <CircularProgress size={20} color="inherit" /> : uploading ? "Uploading…" : `Start ${verb}`}
         </Button>

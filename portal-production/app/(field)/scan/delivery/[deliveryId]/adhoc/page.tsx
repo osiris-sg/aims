@@ -7,6 +7,8 @@ import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { ListCard } from "@/app/(field)/components/fieldUi";
 
 /**
  * AD-HOC DELIVERY — the two-button screen.
@@ -47,6 +49,7 @@ export default function AdHocDeliveryPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useFieldAppBar({ title: "New delivery", subtitle: run ? `Delivery #${run.deliveryNumber}` : undefined });
 
   // Re-read on every return from the scan loop, so a newly added unit shows up.
   const load = useCallback(async () => {
@@ -104,7 +107,7 @@ export default function AdHocDeliveryPage() {
 
   if (loading) {
     return (
-      <Box sx={{ p: 3, display: "flex", justifyContent: "center", mt: 6 }}>
+      <Box sx={{ p: 2, display: "flex", justifyContent: "center", mt: 6 }}>
         <CircularProgress />
       </Box>
     );
@@ -113,11 +116,8 @@ export default function AdHocDeliveryPage() {
   const items = run?.items ?? [];
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5, alignItems: "center" }}>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5, alignItems: "center" }}>
       <LocalShippingIcon sx={{ fontSize: 64, color: "primary.main", mt: 2 }} />
-      <Typography variant="h6" fontWeight={700} sx={{ textAlign: "center" }}>
-        New delivery
-      </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", maxWidth: 360 }}>
         {run ? `Delivery #${run.deliveryNumber}. ` : ""}
         Add every item going out on this trip, then take the customer&apos;s signature. The office
@@ -132,27 +132,30 @@ export default function AdHocDeliveryPage() {
 
       {/* What is on the run so far — the rider's check before they sign. */}
       <Box sx={{ width: "100%", maxWidth: 360 }}>
-        <Typography variant="caption" color="text.secondary">
+        <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
           On this delivery ({items.length})
         </Typography>
-        <Stack spacing={1} sx={{ mt: 0.5 }}>
-          {items.length === 0 ? (
-            <Alert severity="info">Nothing on this delivery yet — scan an item to add it.</Alert>
-          ) : (
-            items.map((it) => (
-              <Box key={it.id} sx={{ p: 1.25, border: 1, borderColor: "divider", borderRadius: 1 }}>
-                <Typography variant="body2" fontWeight={600}>
-                  {it.description || "Item"}
-                </Typography>
-                {it.sku && (
-                  <Typography variant="caption" color="text.secondary">
-                    {it.sku}
+        {items.length === 0 ? (
+          <Alert severity="info">Nothing on this delivery yet — scan an item to add it.</Alert>
+        ) : (
+          <ListCard>
+            {items.map((it, i) => (
+              <React.Fragment key={it.id}>
+                {i > 0 && <Divider sx={{ mx: 2 }} />}
+                <Box sx={{ px: 2, py: 1.5 }}>
+                  <Typography variant="body2" fontWeight={600}>
+                    {it.description || "Item"}
                   </Typography>
-                )}
-              </Box>
-            ))
-          )}
-        </Stack>
+                  {it.sku && (
+                    <Typography variant="caption" color="text.secondary">
+                      {it.sku}
+                    </Typography>
+                  )}
+                </Box>
+              </React.Fragment>
+            ))}
+          </ListCard>
+        )}
       </Box>
 
       <Divider flexItem sx={{ maxWidth: 360, width: "100%" }} />
@@ -163,7 +166,7 @@ export default function AdHocDeliveryPage() {
           startIcon={<QrCodeScannerIcon />}
           onClick={() => router.push(`/scan/delivery/${deliveryId}?returnTo=adhoc`)}
           fullWidth
-          sx={{ minHeight: 52 }}
+          sx={{ minHeight: 48 }}
           disabled={busy}
         >
           Scan More Items
@@ -172,7 +175,7 @@ export default function AdHocDeliveryPage() {
           variant="contained"
           onClick={() => void acknowledgeDelivery()}
           fullWidth
-          sx={{ minHeight: 52 }}
+          sx={{ minHeight: 48 }}
           disabled={busy || items.length === 0}
         >
           {busy ? "Acknowledging…" : "Acknowledge Delivery"}

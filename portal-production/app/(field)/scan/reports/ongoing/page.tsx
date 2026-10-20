@@ -2,10 +2,10 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import { Box, Button, Stack, Typography } from "@mui/material";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import { Box, Typography } from "@mui/material";
 import { PendingSignList } from "../../../components/PendingSignList";
 import FieldBackButton from "../../../components/FieldBackButton";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 
 /**
  * ONGOING REPORTS — maintenance reports awaiting a signature.
@@ -38,23 +38,13 @@ import FieldBackButton from "../../../components/FieldBackButton";
 
 export default function OngoingReportsPage() {
   const router = useRouter();
+  useFieldAppBar({ title: "Pending Sign", onBack: () => router.push("/scan") });
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" alignItems="center" spacing={1}>
-        <Button startIcon={<ArrowBackIcon />} onClick={() => router.push("/scan")}>
-          Back
-        </Button>
-      </Stack>
-
-      <Box>
-        <Typography variant="h6" fontWeight={700}>
-          Pending Sign
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Reports waiting for a signature. Tap one to sign it, or tick several from the
-          same customer to sign them with one signature.
-        </Typography>
-      </Box>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
+      <Typography variant="body2" color="text.secondary">
+        Reports waiting for a signature. Tap one to sign it, or tick several from the
+        same customer to sign them with one signature.
+      </Typography>
 
       <PendingSignList />
 

@@ -11,6 +11,7 @@ import { signOneReport, uploadSignaturePair } from "../../../../lib/signReports"
 import { uploadImage } from "@/helpers/imageUploader";
 import GuidedPhotoCapture, { type CapturedPhoto } from "@/components/delivery/GuidedPhotoCapture";
 import { photoSrc } from "@/components/maintenance/ReportPhotos";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 
 /**
  * SIGN A REPORT THAT WAS SKIPPED.
@@ -112,9 +113,18 @@ export default function SignReportPage() {
     [reportId, getToken, router],
   );
 
+  const sdBar = report?.serviceData ?? {};
+  useFieldAppBar({
+    title: report ? `Sign report #${report.reportNumber ?? "—"}` : "Sign report",
+    subtitle: report
+      ? [sdBar.customerName, sdBar.model ?? report.asset?.name, sdBar.serial ?? report.inventory?.sku].filter(Boolean).join(" · ") || undefined
+      : undefined,
+    onBack: report ? () => router.push("/scan/reports/ongoing") : undefined,
+  });
+
   if (error && !report) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 2 }}>
         <Alert severity="error">{error}</Alert>
         <Button sx={{ mt: 2 }} startIcon={<ArrowBackIcon />} onClick={() => router.push("/scan/reports/ongoing")}>
           Back
@@ -134,24 +144,7 @@ export default function SignReportPage() {
   const sd = report.serviceData ?? {};
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
-      <Button startIcon={<ArrowBackIcon />} onClick={() => router.push("/scan/reports/ongoing")} sx={{ alignSelf: "flex-start" }}>
-        Back
-      </Button>
-
-      <Box>
-        <Typography variant="h6" fontWeight={700}>
-          Sign report #{report.reportNumber ?? "—"}
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          {[sd.customerName, sd.model ?? report.asset?.name, sd.serial ?? report.inventory?.sku]
-            .filter(Boolean)
-            .join(" · ")}
-        </Typography>
-      </Box>
-
-      <Divider />
-
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5 }}>
       {report.kind === "SERVICE" && (
         <>
           <GuidedPhotoCapture

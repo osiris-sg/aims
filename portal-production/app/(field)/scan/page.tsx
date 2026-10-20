@@ -3,7 +3,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Alert, Box, CircularProgress, Typography } from "@mui/material";
+import { Alert, Box, CircularProgress } from "@mui/material";
+import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
+import SearchOffIcon from "@mui/icons-material/SearchOff";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import {
   RunSummary,
@@ -16,6 +18,7 @@ import {
 import { CompletedRunCard, InProgressRunCard, ScheduledRunCard } from "../components/DeliveryRunCards";
 import { FieldBottomNav, FieldBottomNavSpacer } from "../components/FieldBottomNav";
 import { FieldHomeHeader } from "../components/FieldHomeHeader";
+import { EmptyState } from "../components/fieldUi";
 
 /**
  * Deliveries home: the field app's landing screen.
@@ -143,7 +146,7 @@ export default function DeliveriesHomePage() {
 
   if (features.enableFieldScanApp === false) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 2 }}>
         <Alert severity="info">
           Field scan is not enabled for your organization. Ask an admin to enable it under Admin → Configuration → Feature Flags.
         </Alert>
@@ -175,13 +178,9 @@ export default function DeliveriesHomePage() {
             </Box>
           )
         ) : runs.length === 0 ? (
-          <Typography variant="body1" color="text.secondary" sx={{ textAlign: "center", py: 6 }}>
-            {EMPTY_COPY[tab]}
-          </Typography>
+          <EmptyState icon={<LocalShippingOutlinedIcon />} message={EMPTY_COPY[tab]} />
         ) : filtered.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
-            No delivery matches &quot;{q}&quot;.
-          </Typography>
+          <EmptyState icon={<SearchOffIcon />} message={<>No delivery matches &quot;{q}&quot;.</>} />
         ) : (
           filtered.map((r) =>
             tab === "pending" ? (

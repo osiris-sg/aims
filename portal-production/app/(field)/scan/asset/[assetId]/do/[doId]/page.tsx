@@ -3,9 +3,11 @@
 import React, { useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Alert, Box, Button, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Stack, TextField } from "@mui/material";
 import { request } from "@/helpers/request";
 import { capturePosition } from "@/helpers/geolocation";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 
 /**
  * Acknowledge Delivery — second step of the two-step delivery flow. Enabled
@@ -29,6 +31,7 @@ export default function DeliveryOrderAckPage() {
   const [submitting, setSubmitting] = useState(false);
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useFieldAppBar({ title: "Acknowledge Delivery", subtitle: `DO ${doId}` });
 
   const continueToSign = async () => {
     setError(null);
@@ -72,9 +75,7 @@ export default function DeliveryOrderAckPage() {
   };
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3 }}>
-      <Typography variant="h6" fontWeight={700}>Acknowledge Delivery</Typography>
-      <Typography variant="body2" color="text.secondary">DO {doId}</Typography>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
 
       <TextField
         label="Notes (optional)"
@@ -88,14 +89,14 @@ export default function DeliveryOrderAckPage() {
 
       {error && <Alert severity="error">{error}</Alert>}
 
-      <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-        <Button variant="outlined" onClick={() => router.back()} fullWidth>Back</Button>
+      <Stack direction="row" spacing={1.5} sx={{ mt: 1 }}>
+        <Button variant="outlined" onClick={() => router.back()} fullWidth sx={FIELD_BUTTON_SX}>Back</Button>
         <Button
           variant="contained"
           onClick={continueToSign}
           disabled={submitting}
           fullWidth
-          sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
+          sx={FIELD_BUTTON_SX}
         >
           {submitting ? (locating ? "Getting location…" : "Saving...") : "Continue to signature"}
         </Button>

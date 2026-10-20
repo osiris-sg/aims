@@ -50,6 +50,9 @@ import { minPhotosForAssetClass } from "@/helpers/assetClass";
 import { useNfcScan } from "../../../hooks/useNfcScan";
 import NameplateCapture from "../../../components/NameplateCapture";
 import { DoPrintActions } from "../../../components/DoPrintActions";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { ListCard, StatusChip } from "@/app/(field)/components/fieldUi";
+import type { FieldTone } from "@/themes/fieldTheme";
 
 /**
  * Standalone-delivery BASKET (Layer 3 + in-basket scanning patch).
@@ -133,11 +136,11 @@ interface ResolveMatch {
   assetClass?: string | null;
 }
 
-const STATUS_CHIP: Record<ItemStatus, { label: string; color: "default" | "warning" | "info" | "success" }> = {
-  not_delivered: { label: "Not delivered", color: "default" },
-  delivering: { label: "Delivering", color: "warning" },
-  not_installed: { label: "Delivered", color: "info" },
-  completed: { label: "Completed", color: "success" },
+const STATUS_CHIP: Record<ItemStatus, { label: string; tone: FieldTone }> = {
+  not_delivered: { label: "NOT DELIVERED", tone: "neutral" },
+  delivering: { label: "DELIVERING", tone: "warn" },
+  not_installed: { label: "DELIVERED", tone: "info" },
+  completed: { label: "COMPLETED", tone: "good" },
 };
 
 const RUN_STATUS_LABEL: Record<Run["status"], string> = {
@@ -775,6 +778,11 @@ export default function DeliveryBasketPage() {
     }
   };
 
+  useFieldAppBar({
+    title: run ? `${run.direction === "RETURN" ? "Return" : "Delivery"} #${run.deliveryNumber}` : "Delivery",
+    subtitle: run?.siteAddress || undefined,
+  });
+
   if (loading) {
     return (
       <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
@@ -785,7 +793,7 @@ export default function DeliveryBasketPage() {
 
   if (error || !run) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 2 }}>
         <Alert severity="error">{error ?? "Could not load delivery"}</Alert>
         <Button sx={{ mt: 2 }} onClick={() => router.push("/scan")}>Back</Button>
       </Box>
@@ -973,7 +981,7 @@ export default function DeliveryBasketPage() {
   // Partly signed run: print what the customer has signed for so far. Sits
   // BELOW the item walk / list (the work comes first), above "View all items".
   const signedSoFar = hasSignedItems ? (
-    <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
+    <Box sx={{ border: 1, borderColor: "divider", borderRadius: "16px", bgcolor: "background.paper", p: 1.75, display: "flex", flexDirection: "column", gap: 1 }}>
       <Typography variant="subtitle2" fontWeight={700}>Signed so far</Typography>
       <DoPrintActions doId={printableDoId} />
     </Box>
@@ -1217,12 +1225,11 @@ export default function DeliveryBasketPage() {
     );
 
     return (
-      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
         {followSnack}
-        <Stack direction="row" spacing={2} alignItems="center">
-          <LocalShippingIcon color="primary" sx={{ fontSize: 44 }} />
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <LocalShippingIcon color="primary" sx={{ fontSize: 32 }} />
           <Box sx={{ minWidth: 0, flex: 1 }}>
-            <Typography variant="h6" fontWeight={700}>Delivery #{run.deliveryNumber}</Typography>
             <Typography variant="body2" color="text.secondary">
               {pickStage === "pick" ? "Choose the items you are delivering on this trip." : "Check the items before you start."}
             </Typography>
@@ -1230,7 +1237,7 @@ export default function DeliveryBasketPage() {
         </Stack>
 
         {pickerScope && run.handoffMode === "DRIVER" && pickStage === "pick" && (
-          <Card variant="outlined" sx={{ borderColor: "info.main", borderWidth: 2 }}>
+          <Card variant="outlined" sx={{ bgcolor: "info.light", borderColor: "transparent" }}>
             <CardContent>
               <Typography variant="subtitle1" fontWeight={700}>
                 The current trip is with vehicle {run.vehicleNumber ?? ""}
@@ -1246,7 +1253,7 @@ export default function DeliveryBasketPage() {
         )}
 
         {canPartialSign && pickStage === "pick" && (
-          <Card variant="outlined" sx={{ borderColor: "success.main", borderWidth: 2 }}>
+          <Card variant="outlined" sx={{ bgcolor: "success.light", borderColor: "transparent" }}>
             <CardContent>
               <Typography variant="subtitle1" fontWeight={700}>
                 {partialSignCount} {partialSignCount === 1 ? "item is" : "items are"} delivered and waiting for a signature
@@ -1267,11 +1274,11 @@ export default function DeliveryBasketPage() {
 
         {pickStage === "pick" ? (
           <>
-            <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2 }}>
+            <ListCard>
               <ListItemButton
                 onClick={() => setDraftPick(allPicked ? [] : pickable.map((it) => it.id))}
                 disabled={pickable.length === 0}
-                sx={{ borderBottom: 1, borderColor: "divider", minHeight: 52 }}
+                sx={{ borderBottom: 1, borderColor: "divider", minHeight: 48 }}
               >
                 <Checkbox
                   edge="start"
@@ -1307,34 +1314,34 @@ export default function DeliveryBasketPage() {
                       />
                       {lineText(it)}
                       {done ? (
-                        <Chip size="small" label={chip.label} color={chip.color} sx={{ ml: 1 }} />
+                        <StatusChip label={chip.label} tone={chip.tone} sx={{ ml: 1 }} />
                       ) : it.skippedAt ? (
-                        <Chip size="small" label="Skipped" variant="outlined" sx={{ ml: 1 }} />
+                        <StatusChip label="SKIPPED" tone="neutral" sx={{ ml: 1 }} />
                       ) : null}
                     </ListItemButton>
                   );
                 })}
               </List>
-            </Box>
+            </ListCard>
             <Button
               variant="contained"
               size="large"
               startIcon={<LocalShippingIcon />}
               disabled={picked.size === 0}
               onClick={() => setPickStage("confirm")}
-              sx={{ minHeight: 52 }}
+              sx={{ minHeight: 48 }}
             >
               Start delivery ({picked.size})
             </Button>
           </>
         ) : (
           <>
-            <Card variant="outlined" sx={{ borderColor: "primary.main", borderWidth: 2 }}>
+            <Card variant="outlined" sx={{ borderColor: "primary.main", borderWidth: 1.6 }}>
               <CardContent>
                 <Typography variant="overline" color="primary" fontWeight={700}>
                   {pickedItems.length} {pickedItems.length === 1 ? "item" : "items"}
                 </Typography>
-                <Typography variant="h6" fontWeight={700} sx={{ mb: 1 }}>
+                <Typography variant="subtitle1" sx={{ mb: 1 }}>
                   Deliver these items?
                 </Typography>
                 <List disablePadding>
@@ -1350,7 +1357,7 @@ export default function DeliveryBasketPage() {
               </CardContent>
             </Card>
             <Stack direction="row" spacing={1.5}>
-              <Button variant="outlined" size="large" onClick={() => setPickStage("pick")} sx={{ flex: 1, minHeight: 52 }}>
+              <Button variant="outlined" size="large" onClick={() => setPickStage("pick")} sx={{ flex: 1, minHeight: 48 }}>
                 Back
               </Button>
               <Button
@@ -1375,7 +1382,7 @@ export default function DeliveryBasketPage() {
                   }
                 }}
                 disabled={busy}
-                sx={{ flex: 2, minHeight: 52 }}
+                sx={{ flex: 2, minHeight: 48 }}
               >
                 Yes, start
               </Button>
@@ -1421,8 +1428,8 @@ export default function DeliveryBasketPage() {
       }
     };
     return (
-      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2, alignItems: "center", textAlign: "center" }}>
-        <Typography variant="h6" fontWeight={800}>Show this to the driver</Typography>
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2, alignItems: "center", textAlign: "center" }}>
+        <Typography variant="h5">Show this to the driver</Typography>
         {run.items.some((it) => it.deliveryStatus === "not_installed") &&
           !run.items.some((it) => it.deliveryStatus === "delivering") && (
             <Alert severity="info" sx={{ width: "100%", maxWidth: 400, textAlign: "left" }}>
@@ -1434,7 +1441,7 @@ export default function DeliveryBasketPage() {
         </Typography>
         {handoffQr.qrDataUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <Box component="img" src={handoffQr.qrDataUrl} alt="Driver link QR code" sx={{ width: "100%", maxWidth: 340, aspectRatio: "1 / 1", bgcolor: "#fff", p: 1.5, borderRadius: 2 }} />
+          <Box component="img" src={handoffQr.qrDataUrl} alt="Driver link QR code" sx={{ width: "100%", maxWidth: 340, aspectRatio: "1 / 1", bgcolor: "#fff", p: 1.5, borderRadius: "16px", border: 1, borderColor: "divider" }} />
         ) : (
           <Alert severity="warning">The driver link is no longer active.</Alert>
         )}
@@ -1484,18 +1491,17 @@ export default function DeliveryBasketPage() {
   // Who's delivering: shown once the trip is loaded, before the Delivering view.
   if (needsHandoffChoice && !walkActive) {
     return (
-      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
         {followSnack}
-        <Stack direction="row" spacing={2} alignItems="center">
-          <LocalShippingIcon color="primary" sx={{ fontSize: 44 }} />
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <LocalShippingIcon color="primary" sx={{ fontSize: 32 }} />
           <Box sx={{ minWidth: 0, flex: 1 }}>
-            <Typography variant="h6" fontWeight={700}>Delivery #{run.deliveryNumber}</Typography>
             <Typography variant="body2" color="text.secondary">
               {selectedIds.length} {selectedIds.length === 1 ? "item" : "items"} loaded for this trip
             </Typography>
           </Box>
         </Stack>
-        <Typography variant="h6" fontWeight={800}>Who&apos;s delivering?</Typography>
+        <Typography variant="h5">Who&apos;s delivering?</Typography>
         {handoffError && <Alert severity="error">{handoffError}</Alert>}
         {handoffStage !== "vehicle" ? (
           <Stack spacing={1.5}>
@@ -1517,7 +1523,7 @@ export default function DeliveryBasketPage() {
               inputProps={{ maxLength: 20, autoCapitalize: "characters" }}
             />
             <Stack direction="row" spacing={1.5}>
-              <Button variant="outlined" size="large" onClick={() => setHandoffStage(null)} disabled={handoffBusy} sx={{ flex: 1, minHeight: 52 }}>
+              <Button variant="outlined" size="large" onClick={() => setHandoffStage(null)} disabled={handoffBusy} sx={{ flex: 1, minHeight: 48 }}>
                 Back
               </Button>
               <Button
@@ -1525,7 +1531,7 @@ export default function DeliveryBasketPage() {
                 size="large"
                 onClick={() => void submitHandoff("DRIVER")}
                 disabled={handoffBusy || !vehicleInput.trim()}
-                sx={{ flex: 2, minHeight: 52 }}
+                sx={{ flex: 2, minHeight: 48 }}
               >
                 {handoffBusy ? <CircularProgress size={22} color="inherit" /> : "Show QR"}
               </Button>
@@ -1540,12 +1546,11 @@ export default function DeliveryBasketPage() {
   }
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
       {followSnack}
-      <Stack direction="row" spacing={2} alignItems="center">
-        <LocalShippingIcon color="primary" sx={{ fontSize: 44 }} />
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        <LocalShippingIcon color="primary" sx={{ fontSize: 32 }} />
         <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="h6" fontWeight={700}>{run.direction === "RETURN" ? "Return" : "Delivery"} #{run.deliveryNumber}</Typography>
           <Typography variant="body2" color="text.secondary">
             {RUN_STATUS_LABEL[run.status]}
             {(() => {
@@ -1576,9 +1581,9 @@ export default function DeliveryBasketPage() {
           on the run still wait. Offer the next pick rather than an empty walk. */}
       {/* Handed to another driver: they end and sign from their link. */}
       {handedOver && (
-        <Card variant="outlined" sx={{ borderColor: "info.main", borderWidth: 2 }}>
+        <Card variant="outlined" sx={{ bgcolor: "info.light", borderColor: "transparent" }}>
           <CardContent>
-            <Typography variant="h6" fontWeight={700}>
+            <Typography variant="subtitle1">
               Handed to vehicle {run.vehicleNumber ?? ""}
               {run.handedOffAt
                 ? ` at ${new Date(run.handedOffAt.endsWith("Z") ? run.handedOffAt : `${run.handedOffAt}Z`).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`
@@ -1603,9 +1608,9 @@ export default function DeliveryBasketPage() {
       )}
 
       {tripDone && !handedOver && (
-        <Card variant="outlined" sx={{ borderColor: "success.main", borderWidth: 2 }}>
+        <Card variant="outlined" sx={{ bgcolor: "success.light", borderColor: "transparent" }}>
           <CardContent>
-            <Typography variant="h6" fontWeight={700}>Items for this trip are delivered</Typography>
+            <Typography variant="subtitle1">Items for this trip are delivered</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
               {canPartialSign
                 ? `Get the customer's signature for the ${partialSignCount} ${partialSignCount === 1 ? "item" : "items"} delivered. `
@@ -1646,9 +1651,9 @@ export default function DeliveryBasketPage() {
           signature is captured; it completes the run and fires the DO commit +
           invoice. Returns are signed at collection, so this never shows for them. */}
       {!isReturnRun && run.status === "delivered" && !handedOver && (
-        <Card variant="outlined" sx={{ borderColor: "success.main", borderWidth: 2 }}>
+        <Card variant="outlined" sx={{ bgcolor: "success.light", borderColor: "transparent" }}>
           <CardContent>
-            <Typography variant="h6" fontWeight={700}>Ready to finish</Typography>
+            <Typography variant="subtitle1">Ready to finish</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
               Every item is delivered or skipped. Get the customer&apos;s signature to complete this delivery.
             </Typography>
@@ -1671,9 +1676,9 @@ export default function DeliveryBasketPage() {
           rider backs out of the return signature, or collected the last item from
           the free-item page. The single return signature is captured here. */}
       {isReturnRun && run.status === "delivered" && (
-        <Card variant="outlined" sx={{ borderColor: "success.main", borderWidth: 2 }}>
+        <Card variant="outlined" sx={{ bgcolor: "success.light", borderColor: "transparent" }}>
           <CardContent>
-            <Typography variant="h6" fontWeight={700}>Ready to finish</Typography>
+            <Typography variant="subtitle1">Ready to finish</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
               Every unit is collected or skipped. Get the customer&apos;s signature to complete this return.
             </Typography>
@@ -1699,7 +1704,7 @@ export default function DeliveryBasketPage() {
           skipped; when the last one leaves the queue this card disappears and
           the basket below is what remains. */}
       {walkActive && walkItem && (
-        <Card variant="outlined" sx={{ borderColor: "primary.main", borderWidth: 2 }}>
+        <Card variant="outlined" sx={{ borderColor: "primary.main", borderWidth: 1.6 }}>
           <CardContent>
             <Typography variant="overline" color="primary" fontWeight={700}>
               Item {walkPosition} of {walkTotal}
@@ -1892,13 +1897,13 @@ export default function DeliveryBasketPage() {
           rendered at all. Per-item End actions are removed; Start actions (for
           not-yet-started items) stay per item. The Skipped section is separate. */}
       {inFlightItems.length > 0 && (
-      <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 1.5 }}>
-      <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+      <Box sx={{ border: 1, borderColor: "divider", borderRadius: "16px", bgcolor: "background.paper", p: 1.5 }}>
+      <Typography variant="subtitle1" sx={{ mb: 1 }}>
         Delivering ({inFlightItems.length})
       </Typography>
       <Stack spacing={1}>
         {inFlightItems.map((it) => {
-          const chip = STATUS_CHIP[it.deliveryStatus] ?? { label: it.deliveryStatus, color: "default" as const };
+          const chip = STATUS_CHIP[it.deliveryStatus] ?? { label: String(it.deliveryStatus).replace(/_/g, " ").toUpperCase(), tone: "neutral" as const };
           return (
             <Card key={it.id} variant="outlined">
               <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
@@ -1913,7 +1918,7 @@ export default function DeliveryBasketPage() {
                       </Typography>
                     )}
                   </Box>
-                  <Chip size="small" label={chip.label} color={chip.color} />
+                  <StatusChip label={chip.label} tone={chip.tone} />
                 </Stack>
                 {it.deliveryStatus !== "completed" && (
                   <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
@@ -2018,13 +2023,13 @@ export default function DeliveryBasketPage() {
           so the rider sees progress at a glance without any action that could
           trigger a second End Delivery. No buttons by design. */}
       {completedItems.length > 0 && (
-        <Box sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 1.5 }}>
-          <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+        <Box sx={{ border: 1, borderColor: "divider", borderRadius: "16px", bgcolor: "background.paper", p: 1.5 }}>
+          <Typography variant="subtitle1" sx={{ mb: 1 }}>
             Completed ({completedItems.length})
           </Typography>
           <Stack spacing={1}>
             {completedItems.map((it) => {
-              const chip = STATUS_CHIP[it.deliveryStatus] ?? { label: it.deliveryStatus, color: "default" as const };
+              const chip = STATUS_CHIP[it.deliveryStatus] ?? { label: String(it.deliveryStatus).replace(/_/g, " ").toUpperCase(), tone: "neutral" as const };
               return (
                 <Card key={it.id} variant="outlined">
                   <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
@@ -2039,7 +2044,7 @@ export default function DeliveryBasketPage() {
                           </Typography>
                         )}
                       </Box>
-                      <Chip size="small" label={chip.label} color={chip.color} />
+                      <StatusChip label={chip.label} tone={chip.tone} />
                     </Stack>
                   </CardContent>
                 </Card>
@@ -2055,7 +2060,7 @@ export default function DeliveryBasketPage() {
           the rest, so each one is picked up individually or left alone. */}
       {skippedItems.length > 0 && (
         <Box>
-          <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+          <Typography variant="subtitle1" sx={{ mb: 1 }}>
             Skipped ({skippedItems.length})
           </Typography>
           <Stack spacing={1}>
@@ -2073,7 +2078,7 @@ export default function DeliveryBasketPage() {
                         </Typography>
                       )}
                     </Box>
-                    <Chip size="small" label="Skipped" color="default" />
+                    <StatusChip label="SKIPPED" tone="neutral" />
                   </Stack>
                   {/* Deliver this item: unskip it and put it back into the walk,
                       which then offers the same Start / Load a unit / free-typed
@@ -2118,7 +2123,7 @@ export default function DeliveryBasketPage() {
 
       {scheduledSummary.length > 0 && (
         <Box>
-          <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+          <Typography variant="subtitle1" sx={{ mb: 1 }}>
             Scheduled — remaining to load
           </Typography>
           <Stack spacing={1}>
@@ -2132,7 +2137,7 @@ export default function DeliveryBasketPage() {
                         {s.scheduled} scheduled · {s.delivered} delivered · {s.remaining} remaining
                       </Typography>
                     </Box>
-                    <Chip size="small" color="warning" label={`${s.remaining} to load`} />
+                    <StatusChip tone="warn" label={`${s.remaining} TO LOAD`} />
                   </Stack>
                   {canFillScheduledSlot && s.remaining > 0 && (
                     // Scan OR key the serial: a tag can be missing or unreadable,

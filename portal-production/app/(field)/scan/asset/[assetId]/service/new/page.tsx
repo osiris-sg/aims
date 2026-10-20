@@ -55,6 +55,7 @@ import {
   type EssVerdict,
 } from "@/lib/msr-templates";
 import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 
 /**
  * Maintenance & Inspection Service Report — the field capture flow.
@@ -1473,9 +1474,12 @@ export default function NewServiceReportPage() {
           <Box
             sx={{
               border: "1px dashed",
-              borderColor: "divider",
-              borderRadius: 1,
-              bgcolor: "background.paper",
+              borderColor: "text.disabled",
+              borderRadius: "12px",
+              overflow: "hidden",
+              // White paper in both modes: the pen is black. Only the
+              // wrapper colour changes; the canvas size and key do not.
+              bgcolor: "#fff",
               touchAction: "none",
             }}
           >
@@ -1664,6 +1668,9 @@ export default function NewServiceReportPage() {
     }
   };
 
+  // Bottom Back/Next stay the step controls; the bar only names the form.
+  useFieldAppBar({ title: TEMPLATE_LABELS[templateId], subtitle: ctxLoading ? undefined : `Step ${step} of ${TOTAL_STEPS} · ${stepName}` });
+
   if (ctxLoading) {
     return (
       <Box sx={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", p: 4 }}>
@@ -1682,16 +1689,11 @@ export default function NewServiceReportPage() {
     (stepName === "Payment" && paymentRequired === null);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5, pb: 6 }}>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5, pb: 6 }}>
       <Box>
-        <Typography variant="h6" fontWeight={700}>{TEMPLATE_LABELS[templateId]}</Typography>
-        <Typography variant="caption" color="text.secondary">
-          Step {step} of {TOTAL_STEPS} — {stepName}
-        </Typography>
+        <Typography variant="subtitle1">{stepName}</Typography>
         <LinearProgress variant="determinate" value={progressPct} sx={{ mt: 1, borderRadius: 1, height: 6 }} />
       </Box>
-
-      <Divider />
 
       {stepName === "Header" && renderHeaderStep()}
       {stepName === "ESS inspection header" && renderEssHeaderStep()}

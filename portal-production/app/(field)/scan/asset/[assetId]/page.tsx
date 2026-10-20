@@ -3,7 +3,10 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Avatar, Box, Button, Card, CardActionArea, CardContent, Chip, CircularProgress, Stack, Typography, Alert } from "@mui/material";
+import { Avatar, Box, Button, Card, CardActionArea, CardContent, CircularProgress, Stack, Typography, Alert } from "@mui/material";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { StatusChip } from "@/app/(field)/components/fieldUi";
+import type { FieldTone } from "@/themes/fieldTheme";
 import BuildIcon from "@mui/icons-material/Build";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
@@ -73,11 +76,11 @@ interface ScanContext {
 }
 
 // Per-item status → chip label + colour for the delivery-items list.
-const STATUS_CHIP: Record<DeliveryItemStatus, { label: string; color: "default" | "warning" | "info" | "success" }> = {
-  not_delivered: { label: "Not delivered", color: "default" },
-  delivering: { label: "Delivering", color: "warning" },
-  not_installed: { label: "Delivered", color: "info" },
-  completed: { label: "Completed", color: "success" },
+const STATUS_CHIP: Record<DeliveryItemStatus, { label: string; tone: FieldTone }> = {
+  not_delivered: { label: "Not delivered", tone: "neutral" },
+  delivering: { label: "Delivering", tone: "warn" },
+  not_installed: { label: "Delivered", tone: "info" },
+  completed: { label: "Completed", tone: "good" },
 };
 
 export default function AssetActionChooser() {
@@ -90,6 +93,7 @@ export default function AssetActionChooser() {
   const [data, setData] = useState<ScanContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  useFieldAppBar({ title: "Asset" });
 
   useEffect(() => {
     let cancelled = false;
@@ -134,7 +138,7 @@ export default function AssetActionChooser() {
 
   if (error || !data) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 2 }}>
         <Alert severity="error">{error ?? "Could not load asset"}</Alert>
         <Button sx={{ mt: 2 }} onClick={() => router.push("/scan")}>Back</Button>
       </Box>
@@ -177,14 +181,14 @@ export default function AssetActionChooser() {
         return {
           title: "Start Delivery",
           subtitle: doRef,
-          icon: <LocalShippingIcon color="primary" sx={{ fontSize: 48 }} />,
+          icon: <LocalShippingIcon color="primary" sx={{ fontSize: 40 }} />,
           onClick: () => router.push(`/scan/asset/${assetId}/delivery-start${invQuery}`),
         };
       case "ack_delivery":
         return {
           title: "Acknowledge Delivery",
           subtitle: doRef,
-          icon: <LocalShippingIcon color="primary" sx={{ fontSize: 48 }} />,
+          icon: <LocalShippingIcon color="primary" sx={{ fontSize: 40 }} />,
           onClick: () => {
             if (resolvedDeliveryOrder) router.push(`/scan/asset/${assetId}/do/${resolvedDeliveryOrder.id}${invQuery}`);
           },
@@ -193,7 +197,7 @@ export default function AssetActionChooser() {
         return {
           title: "Complete Installation",
           subtitle: doRef ? `${doRef} · delivered, awaiting installation` : "Delivered, awaiting installation",
-          icon: <HandymanIcon color="primary" sx={{ fontSize: 48 }} />,
+          icon: <HandymanIcon color="primary" sx={{ fontSize: 40 }} />,
           onClick: () => {
             if (resolvedDeliveryOrder) router.push(`/scan/asset/${assetId}/install/${resolvedDeliveryOrder.id}${invQuery}`);
           },
@@ -202,7 +206,7 @@ export default function AssetActionChooser() {
         return {
           title: "Completed",
           subtitle: doRef ? `${doRef} · delivered & installed` : "Delivered & installed",
-          icon: <CheckCircleIcon color="success" sx={{ fontSize: 48 }} />,
+          icon: <CheckCircleIcon color="success" sx={{ fontSize: 40 }} />,
         };
       default: {
         // null stage: no DO for this asset/unit. Standalone-delivery arm
@@ -225,9 +229,9 @@ export default function AssetActionChooser() {
             subtitle: `Delivery #${standalone.deliveryNumber} — no DO yet`,
             icon:
               standalone.stage === "completed" ? (
-                <CheckCircleIcon color="success" sx={{ fontSize: 48 }} />
+                <CheckCircleIcon color="success" sx={{ fontSize: 40 }} />
               ) : (
-                <LocalShippingIcon color="primary" sx={{ fontSize: 48 }} />
+                <LocalShippingIcon color="primary" sx={{ fontSize: 40 }} />
               ),
             onClick: () => router.push(`/scan/delivery/${standalone.id}`),
           };
@@ -238,7 +242,7 @@ export default function AssetActionChooser() {
           return {
             title: "Start Delivery",
             subtitle: "No DO yet — deliver now, office links the DO later",
-            icon: <LocalShippingIcon color="primary" sx={{ fontSize: 48 }} />,
+            icon: <LocalShippingIcon color="primary" sx={{ fontSize: 40 }} />,
             onClick: () =>
               router.push(`/scan/asset/${assetId}/delivery-start${invQuery ? `${invQuery}&` : "?"}standalone=1`),
           };
@@ -291,33 +295,34 @@ export default function AssetActionChooser() {
         return {
           title: blocked?.title ?? "Start Delivery",
           subtitle: blocked?.subtitle ?? "No open delivery order",
-          icon: <LocalShippingIcon color="disabled" sx={{ fontSize: 48 }} />,
+          icon: <LocalShippingIcon color="disabled" sx={{ fontSize: 40 }} />,
         };
       }
     }
   })();
 
   const deliveryCardInner = (
-    <CardContent sx={{ display: "flex", gap: 2.5, alignItems: "center", py: 3, minHeight: 96 }}>
+    <CardContent sx={{ display: "flex", gap: 2, alignItems: "center", py: 2, minHeight: 88 }}>
       {deliveryCard.icon}
       <Box>
-        <Typography variant="h6" fontWeight={700}>{deliveryCard.title}</Typography>
+        <Typography variant="subtitle1">{deliveryCard.title}</Typography>
         <Typography variant="body2" color="text.secondary">{deliveryCard.subtitle}</Typography>
       </Box>
     </CardContent>
   );
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3 }}>
-      <Stack direction="row" spacing={2} alignItems="center">
-        <Avatar src={imageUrl} variant="rounded" sx={{ width: 72, height: 72 }}>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 1.5 }}>
+      <Card variant="outlined">
+      <Stack direction="row" spacing={2} alignItems="center" sx={{ p: 2 }}>
+        <Avatar src={imageUrl} variant="rounded" sx={{ width: 64, height: 64, borderRadius: "12px" }}>
           {asset.name.slice(0, 2).toUpperCase()}
         </Avatar>
         <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="h6" fontWeight={700}>{asset.name}</Typography>
+          <Typography variant="h5">{asset.name}</Typography>
           {inventory && (
             <Stack direction="row" spacing={1} sx={{ mt: 0.5, alignItems: "center", flexWrap: "wrap" }}>
-              <Chip size="small" label={`Unit ${inventory.sku}`} />
+              <StatusChip tone="info" label={`Unit ${inventory.sku}`} />
               {inventory.serialNumber && (
                 <Typography variant="caption" color="text.secondary">SN {inventory.serialNumber}</Typography>
               )}
@@ -325,8 +330,9 @@ export default function AssetActionChooser() {
           )}
         </Box>
       </Stack>
+      </Card>
 
-      <Typography variant="subtitle1" fontWeight={600} sx={{ mt: 2 }}>
+      <Typography variant="subtitle1" sx={{ mt: 1.5 }}>
         What are you doing?
       </Typography>
 
@@ -358,10 +364,10 @@ export default function AssetActionChooser() {
               )
             }
           >
-            <CardContent sx={{ display: "flex", gap: 2.5, alignItems: "center", py: 3, minHeight: 96 }}>
-              <AssignmentReturnIcon color="primary" sx={{ fontSize: 48 }} />
+            <CardContent sx={{ display: "flex", gap: 2, alignItems: "center", py: 2, minHeight: 88 }}>
+              <AssignmentReturnIcon color="primary" sx={{ fontSize: 40 }} />
               <Box>
-                <Typography variant="h6" fontWeight={700}>Start Return</Typography>
+                <Typography variant="subtitle1">Start Return</Typography>
                 <Typography variant="body2" color="text.secondary">Collect this rental unit back to stock</Typography>
               </Box>
             </CardContent>
@@ -377,7 +383,7 @@ export default function AssetActionChooser() {
           above remains the fallback, and (#1) when every item is completed. */}
       {deliveryItems.length > 0 && !itemsAllCompleted && (
         <Box>
-          <Typography variant="subtitle1" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
+          <Typography variant="subtitle1" sx={{ mt: 1.5, mb: 1 }}>
             Items on this delivery ({deliveryItems.length})
           </Typography>
           <Stack spacing={1}>
@@ -385,7 +391,7 @@ export default function AssetActionChooser() {
               const isScanned =
                 scannedUnitId != null &&
                 (row.inventoryId === scannedUnitId || row.itemId === scannedUnitId);
-              const chip = STATUS_CHIP[row.deliveryStatus] ?? { label: row.deliveryStatus, color: "default" as const };
+              const chip = STATUS_CHIP[row.deliveryStatus] ?? { label: String(row.deliveryStatus ?? "").replace(/_/g, " "), tone: "neutral" as const };
               return (
                 <Card
                   key={row.id}
@@ -404,8 +410,8 @@ export default function AssetActionChooser() {
                           </Typography>
                         )}
                       </Box>
-                      {isScanned && <Chip size="small" label="Scanned" color="primary" variant="outlined" />}
-                      <Chip size="small" label={chip.label} color={chip.color} />
+                      {isScanned && <StatusChip label="SCANNED" tone="info" />}
+                      <StatusChip label={chip.label.toUpperCase()} tone={chip.tone} />
                     </Stack>
                   </CardContent>
                 </Card>
@@ -420,10 +426,10 @@ export default function AssetActionChooser() {
       {resolvedDeliveryOrder && (
         <Card variant="outlined">
           <CardActionArea onClick={() => router.push(`/scan/asset/${assetId}/do/${resolvedDeliveryOrder.id}/view`)}>
-            <CardContent sx={{ display: "flex", gap: 2.5, alignItems: "center", py: 3, minHeight: 96 }}>
-              <DescriptionIcon color="primary" sx={{ fontSize: 48 }} />
+            <CardContent sx={{ display: "flex", gap: 2, alignItems: "center", py: 2, minHeight: 88 }}>
+              <DescriptionIcon color="primary" sx={{ fontSize: 40 }} />
               <Box>
-                <Typography variant="h6" fontWeight={700}>
+                <Typography variant="subtitle1">
                   View Delivery Order
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
@@ -440,10 +446,10 @@ export default function AssetActionChooser() {
           const invQuery = inventory ? `?inventoryId=${encodeURIComponent(inventory.id)}` : "";
           router.push(`/scan/asset/${assetId}/service/new${invQuery}`);
         }}>
-          <CardContent sx={{ display: "flex", gap: 2.5, alignItems: "center", py: 3, minHeight: 96 }}>
-            <BuildIcon color="primary" sx={{ fontSize: 48 }} />
+          <CardContent sx={{ display: "flex", gap: 2, alignItems: "center", py: 2, minHeight: 88 }}>
+            <BuildIcon color="primary" sx={{ fontSize: 40 }} />
             <Box>
-              <Typography variant="h6" fontWeight={700}>
+              <Typography variant="subtitle1">
                 Maintenance Service Report
               </Typography>
               <Typography variant="body2" color="text.secondary">
@@ -464,7 +470,7 @@ export default function AssetActionChooser() {
 
       <Button
         variant="text"
-        sx={{ mt: 4, color: "text.secondary", alignSelf: "center" }}
+        sx={{ mt: 2, color: "text.secondary", alignSelf: "center" }}
         onClick={() => router.push("/scan/new")}
       >
         Scan another asset

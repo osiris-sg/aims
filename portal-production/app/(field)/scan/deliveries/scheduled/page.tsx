@@ -3,12 +3,13 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Alert, Box, Button, Card, CardContent, CircularProgress, Stack, Typography } from "@mui/material";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import { Alert, Box, CircularProgress, Typography } from "@mui/material";
 import EventIcon from "@mui/icons-material/Event";
 import { RunSummary, fetchScheduledRuns } from "../../../lib/deliveryLists";
 import { ScheduledRunCard } from "../../../components/DeliveryRunCards";
 import FieldBackButton from "../../../components/FieldBackButton";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { EmptyState } from "@/app/(field)/components/fieldUi";
 
 /**
  * Rider "Scheduled deliveries" list. Org-wide scheduled runs waiting to be
@@ -37,6 +38,7 @@ export default function ScheduledDeliveriesPage() {
   const { getToken } = useAuth();
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useFieldAppBar({ title: "Scheduled", onBack: () => router.replace("/scan") });
 
   useEffect(() => {
     (async () => {
@@ -51,19 +53,7 @@ export default function ScheduledDeliveriesPage() {
   }, [getToken]);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Button
-        startIcon={<ArrowBackIcon />}
-        size="small"
-        onClick={() => router.replace("/scan")}
-        sx={{ alignSelf: "flex-start", color: "text.secondary" }}
-      >
-        Back
-      </Button>
-      <Stack direction="row" alignItems="center" spacing={1}>
-        <EventIcon color="primary" />
-        <Typography variant="h6" fontWeight={700}>Scheduled</Typography>
-      </Stack>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="body2" color="text.secondary">
         Tap a delivery to open it, then scan the units one at a time. Or start any matching unit from the scan page as usual — a delivery is matched to its run by the project you assign, a return by the unit you scan.
       </Typography>
@@ -75,11 +65,7 @@ export default function ScheduledDeliveriesPage() {
           <CircularProgress />
         </Box>
       ) : runs && runs.length === 0 ? (
-        <Card variant="outlined">
-          <CardContent>
-            <Typography variant="body2" color="text.secondary">Nothing scheduled right now.</Typography>
-          </CardContent>
-        </Card>
+        <EmptyState icon={<EventIcon />} message="Nothing scheduled right now." />
       ) : (
         (runs ?? []).map((r) => (
           <ScheduledRunCard

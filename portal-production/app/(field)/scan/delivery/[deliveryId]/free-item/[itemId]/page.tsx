@@ -7,15 +7,15 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   CircularProgress,
   Stack,
   TextField,
   Typography,
 } from "@mui/material";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { request } from "@/helpers/request";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { StatusChip } from "@/app/(field)/components/fieldUi";
 import { uploadImage } from "@/helpers/imageUploader";
 import { capturePosition } from "@/helpers/geolocation";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
@@ -172,6 +172,17 @@ export default function FreeTypedItemFlowPage() {
     }
   };
 
+  const inMainView = !!item && !done && item.deliveryStatus !== "completed";
+  const stepStart = item?.deliveryStatus === "not_delivered";
+  useFieldAppBar({
+    title: inMainView
+      ? stepStart ? (isReturn ? "Start Return" : "Start Delivery") : isReturn ? "End Return" : "End Delivery"
+      : isReturn ? "Return item" : "Delivery item",
+    // The old top-left Back, same handler and same disabled state.
+    onBack: inMainView ? backToBasket : undefined,
+    backDisabled: submitting,
+  });
+
   if (loading) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", py: 10 }}>
@@ -182,7 +193,7 @@ export default function FreeTypedItemFlowPage() {
 
   if (loadError || !item) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 2 }}>
         <Alert severity="error">{loadError ?? "Could not load the item"}</Alert>
         <Button sx={{ mt: 2 }} onClick={backToBasket}>Back to delivery</Button>
       </Box>
@@ -191,11 +202,11 @@ export default function FreeTypedItemFlowPage() {
 
   if (done || item.deliveryStatus === "completed") {
     return (
-      <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5, alignItems: "center", textAlign: "center" }}>
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5, alignItems: "center", textAlign: "center" }}>
         <CheckCircleIcon sx={{ fontSize: 96, color: "success.main", mt: 6 }} />
-        <Typography variant="h5" fontWeight={700}>{isReturn ? "Collected" : "Delivered"}</Typography>
+        <Typography variant="h5">{isReturn ? "Collected" : "Delivered"}</Typography>
         <Typography variant="body2" color="text.secondary">{item.description || "Item"} is done.</Typography>
-        <Button variant="contained" onClick={backToBasket} fullWidth sx={{ maxWidth: 360, py: 1.5, minHeight: 48, mt: 2 }}>
+        <Button variant="contained" onClick={backToBasket} fullWidth sx={{ maxWidth: 360, minHeight: 48, mt: 2 }}>
           {isReturn ? "Back to return" : "Back to delivery"}
         </Button>
       </Box>
@@ -206,22 +217,11 @@ export default function FreeTypedItemFlowPage() {
   const label = item.description || "Free-typed line";
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2.5 }}>
-      <Stack direction="row" spacing={1} alignItems="center">
-        <Button startIcon={<ArrowBackIcon />} size="small" onClick={backToBasket} disabled={submitting} sx={{ color: "text.secondary" }}>
-          Back
-        </Button>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5 }}>
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", rowGap: 0.5 }}>
+        <Typography variant="subtitle1">{label}</Typography>
+        <StatusChip label={requiredPhotos === 1 ? "ACCESSORY" : "EQUIPMENT"} tone="neutral" />
       </Stack>
-
-      <Box>
-        <Typography variant="h6" fontWeight={700}>
-          {isStart ? (isReturn ? "Start Return" : "Start Delivery") : isReturn ? "End Return" : "End Delivery"}
-        </Typography>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5, flexWrap: "wrap" }}>
-          <Typography variant="body2" color="text.secondary">{label}</Typography>
-          <Chip size="small" label={requiredPhotos === 1 ? "Accessory" : "Equipment"} />
-        </Stack>
-      </Box>
 
       {isStart ? (
         <>
@@ -250,7 +250,7 @@ export default function FreeTypedItemFlowPage() {
             onClick={submitStart}
             disabled={submitting || uploading || photos.length < requiredPhotos}
             fullWidth
-            sx={{ py: 1.5, minHeight: 48 }}
+            sx={{ minHeight: 48 }}
           >
             {submitting ? <CircularProgress size={20} color="inherit" /> : isReturn ? "Confirm and Start Return" : "Confirm and Start Delivery"}
           </Button>
@@ -268,7 +268,7 @@ export default function FreeTypedItemFlowPage() {
             onClick={submitEnd}
             disabled={submitting || uploading}
             fullWidth
-            sx={{ py: 1.5, minHeight: 48 }}
+            sx={{ minHeight: 48 }}
           >
             {submitting ? <CircularProgress size={20} color="inherit" /> : "End Return"}
           </Button>
@@ -298,7 +298,7 @@ export default function FreeTypedItemFlowPage() {
             onClick={submitEnd}
             disabled={submitting || uploading}
             fullWidth
-            sx={{ py: 1.5, minHeight: 48 }}
+            sx={{ minHeight: 48 }}
           >
             {submitting ? <CircularProgress size={20} color="inherit" /> : "End Delivery"}
           </Button>

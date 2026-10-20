@@ -3,22 +3,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import {
-  Alert,
-  Box,
-  Card,
-  CardActionArea,
-  CardContent,
-  CircularProgress,
-  Stack,
-  TextField,
-  Typography,
-} from "@mui/material";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import { Alert, Box, CircularProgress, Stack, TextField, Typography } from "@mui/material";
 import PrintIcon from "@mui/icons-material/Print";
 import SearchIcon from "@mui/icons-material/Search";
+import SearchOffIcon from "@mui/icons-material/SearchOff";
 import { RunSummary, fetchCompletedRuns, runMatchesSearch } from "../../../lib/deliveryLists";
 import { CompletedRunCard } from "../../../components/DeliveryRunCards";
+import FieldBackButton from "../../../components/FieldBackButton";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { EmptyState } from "@/app/(field)/components/fieldUi";
 
 /**
  * Rider "finished deliveries — reprint" list (field). The rider's own COMPLETED
@@ -34,6 +27,7 @@ import { CompletedRunCard } from "../../../components/DeliveryRunCards";
 export default function FinishedDeliveriesPage() {
   const router = useRouter();
   const { getToken } = useAuth();
+  useFieldAppBar({ title: "Reprint a delivery" });
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,11 +58,7 @@ export default function FinishedDeliveriesPage() {
   const filtered = useMemo(() => runs.filter((r) => runMatchesSearch(r, q)), [runs, q]);
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" alignItems="center" spacing={1}>
-        <PrintIcon color="primary" />
-        <Typography variant="h6" fontWeight={700}>Reprint a delivery</Typography>
-      </Stack>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="body2" color="text.secondary">
         Deliveries you completed in the last 7 days. Tap one to view it and reprint the receipt.
       </Typography>
@@ -90,13 +80,9 @@ export default function FinishedDeliveriesPage() {
           <CircularProgress />
         </Box>
       ) : runs.length === 0 ? (
-        <Box sx={{ textAlign: "center", py: 6, color: "text.secondary" }}>
-          <Typography variant="body1">No deliveries completed in the last 7 days.</Typography>
-        </Box>
+        <EmptyState icon={<PrintIcon />} message="No deliveries completed in the last 7 days." />
       ) : filtered.length === 0 ? (
-        <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
-          No delivery matches &quot;{q}&quot;.
-        </Typography>
+        <EmptyState icon={<SearchOffIcon />} message={<>No delivery matches &quot;{q}&quot;.</>} />
       ) : (
         <Stack spacing={1.5}>
           {filtered.map((r) => (
@@ -106,14 +92,8 @@ export default function FinishedDeliveriesPage() {
       )}
 
       <Box sx={{ flexGrow: 1 }} />
-      <Card variant="outlined" sx={{ borderStyle: "dashed" }}>
-        <CardActionArea onClick={() => router.push("/scan")}>
-          <CardContent sx={{ display: "flex", alignItems: "center", gap: 1.5, py: 1.5 }}>
-            <ArrowBackIcon color="action" />
-            <Typography variant="body2">Back</Typography>
-          </CardContent>
-        </CardActionArea>
-      </Card>
+      {/* Same target as before (router.push("/scan")), in the shared bottom Back. */}
+      <FieldBackButton to="/scan" />
     </Box>
   );
 }

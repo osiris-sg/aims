@@ -8,6 +8,7 @@ import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import { capturePosition } from "@/helpers/geolocation";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 
 /**
  * Acknowledge Delivery — ACK-CAPTURE step of the reordered standalone flow:
@@ -37,6 +38,7 @@ export default function StandaloneDeliveryAckPage() {
   const [submitting, setSubmitting] = useState(false);
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useFieldAppBar({ title: "Confirm delivery" });
 
   // Clerk-auth'd upload closure for the shared capture component (folder:
   // do-ack) — same pattern as the start/install steps.
@@ -90,8 +92,7 @@ export default function StandaloneDeliveryAckPage() {
   };
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3 }}>
-      <Typography variant="h6" fontWeight={700}>Confirm delivery</Typography>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5 }}>
       <Typography variant="body2" color="text.secondary">
         Record the drop-off — the customer signs once at the end of the flow.
       </Typography>
@@ -118,13 +119,13 @@ export default function StandaloneDeliveryAckPage() {
       {error && <Alert severity="error">{error}</Alert>}
 
       <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-        <Button variant="outlined" onClick={() => router.back()} fullWidth>Back</Button>
+        <Button variant="outlined" onClick={() => router.back()} fullWidth sx={{ minHeight: 48 }}>Back</Button>
         <Button
           variant="contained"
           onClick={continueToAssign}
           disabled={submitting || uploading}
           fullWidth
-          sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
+          sx={{ minHeight: 48 }}
         >
           {submitting ? (locating ? "Getting location…" : "Saving...") : "Continue"}
         </Button>

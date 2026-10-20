@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { Alert, Box, CircularProgress, Typography } from "@mui/material";
+import BuildOutlinedIcon from "@mui/icons-material/BuildOutlined";
+import SearchOffIcon from "@mui/icons-material/SearchOff";
 import {
   COMPLETED_REPORTS_WINDOW_DAYS,
   ReportSummary,
@@ -13,6 +15,7 @@ import {
 import { FieldHomeHeader } from "../../components/FieldHomeHeader";
 import { PendingSignList } from "../../components/PendingSignList";
 import { CompletedReportList } from "../../components/CompletedReportList";
+import { EmptyState } from "../../components/fieldUi";
 import { FIELD_BOTTOM_NAV_OFFSET, FieldBottomNav, FieldBottomNavSpacer } from "../../components/FieldBottomNav";
 
 /**
@@ -111,13 +114,12 @@ export default function MaintenanceHomePage() {
                 </Box>
               )
             ) : completed.length === 0 ? (
-              <Typography variant="body1" color="text.secondary" sx={{ textAlign: "center", py: 6 }}>
-                No reports completed in the last {COMPLETED_REPORTS_WINDOW_DAYS} days.
-              </Typography>
+              <EmptyState
+                icon={<BuildOutlinedIcon />}
+                message={<>No reports completed in the last {COMPLETED_REPORTS_WINDOW_DAYS} days.</>}
+              />
             ) : shownCompleted.length === 0 ? (
-              <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
-                No report matches &quot;{q}&quot;.
-              </Typography>
+              <EmptyState icon={<SearchOffIcon />} message={<>No report matches &quot;{q}&quot;.</>} />
             ) : (
               <CompletedReportList reports={shownCompleted} />
             )}

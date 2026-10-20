@@ -8,6 +8,7 @@ import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import { capturePosition } from "@/helpers/geolocation";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
+import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 
 /**
  * Complete Installation — STANDALONE-run twin of install/[doId]/page.tsx
@@ -30,6 +31,7 @@ export default function StandaloneInstallPage() {
   const [submitting, setSubmitting] = useState(false);
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useFieldAppBar({ title: "Complete Installation" });
 
   // Same shared upload closure pattern as the DO install page (folder:
   // do-install) — the capture component stays auth-agnostic.
@@ -81,8 +83,7 @@ export default function StandaloneInstallPage() {
   };
 
   return (
-    <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 3 }}>
-      <Typography variant="h6" fontWeight={700}>Complete Installation</Typography>
+    <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5 }}>
       <Typography variant="body2" color="text.secondary">Standalone delivery — no DO yet</Typography>
 
       <TextField
@@ -107,13 +108,13 @@ export default function StandaloneInstallPage() {
       {error && <Alert severity="error">{error}</Alert>}
 
       <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-        <Button variant="outlined" onClick={() => router.back()} fullWidth>Back</Button>
+        <Button variant="outlined" onClick={() => router.back()} fullWidth sx={{ minHeight: 48 }}>Back</Button>
         <Button
           variant="contained"
           onClick={continueToSign}
           disabled={submitting || uploading}
           fullWidth
-          sx={{ py: 1.5, px: 4, fontSize: "1rem", minHeight: 48 }}
+          sx={{ minHeight: 48 }}
         >
           {submitting ? (locating ? "Getting location…" : "Saving...") : "Save installation"}
         </Button>
