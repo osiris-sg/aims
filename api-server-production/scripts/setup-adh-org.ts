@@ -1116,6 +1116,13 @@ async function main() {
     if (APPLY) {
       await org.tradeSetting.upsert({ where: { organizationId: orgId }, update: desired as any, create: { organizationId: orgId, ...(desired as any) } });
     }
+    // Exactly which keys change (round N) — so a dry run shows whether an app-edited text would be reset.
+    const changedKeys = [
+      ...(curSettings?.defaultConsignee !== desired.defaultConsignee ? ['defaultConsignee'] : []),
+      ...(curSettings?.defaultNotifyParty !== desired.defaultNotifyParty ? ['defaultNotifyParty'] : []),
+      ...[...new Set([...Object.keys(curDefaults), ...Object.keys(desiredDefaults)])].filter((key) => !sameJson(curDefaults[key], desiredDefaults[key])).map((key) => `docDefaults.${key}`),
+    ];
+    info(`  changed: ${changedKeys.join(', ') || '(none)'}`);
     write(
       'tradeSetting',
       `${curSettings ? 'update' : 'create'} consignee "${TRADE_SETTINGS.defaultConsignee.split('\n')[0]}…", notify party "${TRADE_SETTINGS.defaultNotifyParty.split('\n')[0]}…", ${Object.keys(TRADE_SETTINGS.docDefaults).length} document texts${seal ? ', seal image' : ''}${Array.isArray(curDefaults.intakeKeepDomains) ? '' : `, intake keep-domains (${DEFAULT_KEEP_DOMAINS.length})`}${fileProfiles?.length ? `, ${fileProfiles.length} delivery profile(s) from --customers` : ''}`,
