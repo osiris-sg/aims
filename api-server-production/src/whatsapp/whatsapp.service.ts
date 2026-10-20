@@ -356,6 +356,56 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     return this.dispatch(organizationId, payload, { body: dto.body });
   }
 
+  /**
+   * Re-deliver a message Meta rejected for a closed 24h window.
+   *
+   * A template message lands whatever the window is doing, so the content goes
+   * out through the approved utility template instead. The recipient replying
+   * re-opens the window, after which the interactive version (assign lists,
+   * approve/cancel buttons) can be sent again by whoever owns that flow.
+   *
+   * Deliberately generic: it works off the STORED message rather than the
+   * feature that sent it, so lead cards, PA approval prompts and appointment
+   * notices are all covered by this one path, as will anything added later.
+   */
+  private async recoverFromClosedWindow(
+    organizationId: string,
+    failed: { id: string; counterparty: string; body: string | null; templateName: string | null; payload: any },
+    err: { code?: number; message?: string } | undefined,
+  ): Promise<void> {
+    const reason = `${err?.code ?? ''} ${err?.message ?? ''}`;
+    if (!/131047|re-?engagement/i.test(reason)) return; // a different failure; leave it alone
+
+    // Never answer a failed template with another template: if the template
+    // itself could not land, resending it just burns the recipient's patience
+    // and could loop webhook -> send -> webhook.
+    if (failed.templateName || failed.payload?.type === 'template') {
+      this.logger.warn(`Template to ${failed.counterparty} failed (${reason.trim()}) — not retrying`);
+      return;
+    }
+
+    const text = (failed.body || '').replace(/\s+/g, ' ').trim();
+    if (!text) return;
+
+    const templateName = process.env.WHATSAPP_NOTIFY_TEMPLATE || 'aims_notify';
+    await this.dispatch(
+      organizationId,
+      {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: failed.counterparty,
+        type: 'template',
+        template: {
+          name: templateName,
+          language: { code: 'en' },
+          components: [{ type: 'body', parameters: [{ type: 'text', text: text.slice(0, 900) }] }],
+        },
+      },
+      { templateName, body: `[re-engagement] ${text}`.slice(0, 1000) },
+    );
+    this.logger.log(`Re-sent as ${templateName} to ${failed.counterparty} after a closed window`);
+  }
+
   private async dispatch(
     organizationId: string,
     payload: Record<string, any>,
@@ -2101,17 +2151,34 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         // Delivery receipts for messages we sent.
         for (const status of value.statuses || []) {
           if (!status?.id) continue;
-          await this.prisma.whatsAppMessage
+          const err = status?.errors?.[0];
+          const updated = await this.prisma.whatsAppMessage
             .update({
               where: { waMessageId: status.id },
               data: {
                 status: status.status || 'unknown',
-                error: status?.errors?.[0]?.message || null,
+                error: err?.message || null,
               },
             })
-            .catch(() => {
-              // Receipt for a message we didn't log (e.g. sent outside AIMS) — ignore.
-            });
+            .catch(() => null);
+          // Receipt for a message we didn't log (e.g. sent outside AIMS) — ignore.
+          if (!updated) continue;
+
+          // A CLOSED 24h WINDOW IS ONLY DISCOVERED HERE.
+          //
+          // Meta accepts a free-form message with 200 OK and a message id, then
+          // rejects it seconds later on this webhook with 131047. So every
+          // sender's try/catch around the send succeeds and their re-engagement
+          // fallback — written for a synchronous rejection — can never run.
+          // Nothing retried, nothing logged, and the recipient heard nothing:
+          // 45 of 82 PA prompts to Denzel and 22 of 51 lead-assignment cards
+          // died exactly this way, and the group bridge went on believing its
+          // buttons had been delivered (guru 2026-10-20).
+          if (status.status === 'failed') {
+            await this.recoverFromClosedWindow(connection.organizationId, updated, err).catch((e) =>
+              this.logger.warn(`Closed-window recovery failed for ${status.id}: ${e.message}`),
+            );
+          }
         }
 
         // Inbound messages from the org's customers.
