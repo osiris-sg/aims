@@ -12,6 +12,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { Alert, Box, Button, CircularProgress, IconButton, Stack, Typography } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { request } from "@/helpers/request";
+import OfficeThemeScope from "../../../../../../components/OfficeThemeScope";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 import FieldBackButton from "../../../../../../components/FieldBackButton";
 import { transformBackendDataForForm } from "@/containers/DocumentTemplates/utils/documentDataTransformer";
@@ -213,12 +214,14 @@ export default function ViewDeliveryOrderPage() {
               boxShadow: 1,
             }}
           >
-            <CleanDocumentPreview
-              documentType={variant}
-              data={data}
-              organization={organization}
-              maintenanceReports={maintenanceReports}
-            />
+            <OfficeThemeScope>
+              <CleanDocumentPreview
+                documentType={variant}
+                data={data}
+                organization={organization}
+                maintenanceReports={maintenanceReports}
+              />
+            </OfficeThemeScope>
           </Box>
         </Box>
       </Box>

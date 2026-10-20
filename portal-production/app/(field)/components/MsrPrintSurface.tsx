@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import { Box } from "@mui/material";
 import { ThemeProvider } from "@mui/material/styles";
 import { usePrintDocTheme } from "@/lib/printDocTheme";
+import OfficeThemeScope from "./OfficeThemeScope";
 import { request } from "@/helpers/request";
 import { GENERIC_CHECKLIST, TEMPLATE_LABELS, templateFor } from "@/lib/msr-templates";
 import {
@@ -100,6 +101,13 @@ async function waitForPaint(node: HTMLElement): Promise<void> {
   await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 }
 
+/** The print theme, derived from the OFFICE theme that OfficeThemeScope
+ *  provides around it (not from the field theme the page runs under). */
+function PrintDocTheme({ children }: { children: React.ReactNode }) {
+  const docTheme = usePrintDocTheme();
+  return <ThemeProvider theme={docTheme}>{children}</ThemeProvider>;
+}
+
 export interface UseMsrPrintResult {
   surface: React.ReactNode;
   printReport: (reportId: string) => Promise<void>;
@@ -113,7 +121,6 @@ export function useMsrPrint(): UseMsrPrintResult {
   // field app's dark palette is serialised straight into the PDF: black table
   // bands, white text, dark-mode chips. Only this OFFSCREEN surface is wrapped;
   // the office page on screen and the app's dark mode are untouched.
-  const docTheme = usePrintDocTheme();
   const holderRef = useRef<HTMLDivElement>(null);
   const [report, setReport] = useState<any | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -188,7 +195,8 @@ export function useMsrPrint(): UseMsrPrintResult {
   const clientSigUrl = sd?.clientSignatureKey ? `${RESOURCE_URL}${sd.clientSignatureKey}` : null;
 
   const surface = (
-    <ThemeProvider theme={docTheme}>
+    <OfficeThemeScope>
+    <PrintDocTheme>
     <Box
       aria-hidden
       sx={{ position: "fixed", left: -100000, top: 0, width: A4_WIDTH_PX, bgcolor: "#fff", pointerEvents: "none", zIndex: -1 }}
@@ -262,7 +270,8 @@ export function useMsrPrint(): UseMsrPrintResult {
         )}
       </div>
     </Box>
-    </ThemeProvider>
+    </PrintDocTheme>
+    </OfficeThemeScope>
   );
 
   return { surface, printReport, downloadReport, busy };

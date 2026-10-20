@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { Box } from "@mui/material";
 import { request } from "@/helpers/request";
+import OfficeThemeScope from "./OfficeThemeScope";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 import { transformBackendDataForForm } from "@/containers/DocumentTemplates/utils/documentDataTransformer";
 import {
@@ -244,12 +245,14 @@ export function useDoA4Print(): UseDoA4PrintResult {
     >
       <div ref={holderRef} style={{ width: A4_WIDTH_PX, background: "#fff" }}>
         {doc && (
-          <CleanDocumentPreview
-            documentType={doc.variant}
-            data={doc.data}
-            organization={organization}
-            maintenanceReports={doc.reports}
-          />
+          <OfficeThemeScope>
+            <CleanDocumentPreview
+              documentType={doc.variant}
+              data={doc.data}
+              organization={organization}
+              maintenanceReports={doc.reports}
+            />
+          </OfficeThemeScope>
         )}
       </div>
     </Box>
