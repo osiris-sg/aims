@@ -67,13 +67,70 @@ export default function page() {
   // Fetch all documents for navigation
   const { documents: allDocuments = [], refetch: refetchDocuments } = useGetDocuments({});
 
-  // Filter documents by the same template and sort by creation date (newest first)
+  // Prev/Next walks the RUNNING NUMBER, not the creation date, and stays inside
+  // the document's own number series (guru 2026-10-20).
+  //
+  // Biofuel runs several series against one document type — INVOICE alone has
+  // BI…, BIPL-JPSG-…, BIPL-JPSG-INV-… and BIPL-EW-INV-… — so stepping by
+  // created-date hopped between unrelated series and skipped numbers. Sitting
+  // on BI202610095 should walk BI202610094, BI202610093…, never a BIPL row.
+  //
+  // The series key is the leading run of non-digits ("BI", "BIPL-JPSG-",
+  // "DO-PENDING-"), which is what separates those series in practice. Documents
+  // whose number starts with a digit (hand-typed supplier refs on bills) all
+  // share the empty key and stay grouped by template as before.
+  const seriesKeyOf = useCallback((name: any): string => {
+    const m = String(name ?? "").trim().match(/^([^0-9]*)/);
+    return (m ? m[1] : "").toUpperCase();
+  }, []);
+
+  // Natural compare, LEFT TO RIGHT — date segment first, then the sequence.
+  //
+  // This matters for Biofuel's date-stamped series (BIPL-JPSG-YYYYMMDD-NNNN):
+  // the trailing counter RESETS on each date, so -0001 exists on 29 Jul, 31 Jul,
+  // 1 Aug, 20 Aug… and -0008 exists on three separate dates. Ordering by the
+  // trailing sequence therefore piles unrelated months together; ordering by
+  // the date first walks the invoices in the order they were actually issued
+  // (checked against all 92 rows in prod — guru 2026-10-20).
+  //
+  // Series with a single numeric run (BI202610095) are unaffected: that run IS
+  // the running number. The compare is numeric per segment, so BI20269 sorts
+  // below BI202610057 rather than above it as a string sort would.
+  const compareRunningNumber = useCallback((a: any, b: any): number => {
+    const ax = String(a ?? "").match(/\d+|\D+/g) || [];
+    const bx = String(b ?? "").match(/\d+|\D+/g) || [];
+    for (let i = 0; i < Math.max(ax.length, bx.length); i++) {
+      const x = ax[i], y = bx[i];
+      if (x === undefined) return -1;
+      if (y === undefined) return 1;
+      const xn = /^\d+$/.test(x), yn = /^\d+$/.test(y);
+      if (xn && yn) {
+        const d = Number(x) - Number(y);
+        if (d !== 0) return d;
+      } else {
+        const d = x.localeCompare(y);
+        if (d !== 0) return d;
+      }
+    }
+    return 0;
+  }, []);
+
+  // Kept ordered HIGHEST number first, matching the previous newest-first
+  // contract — the prefetch buffer and the index maths below both rely on
+  // index+1 being "previous" and index-1 being "next".
   const filteredDocuments = useMemo(() => {
     if (!allDocuments.length || !id) return [];
-    return allDocuments
-      .filter((doc: any) => doc.templateId === id)
-      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [allDocuments, id]);
+    const sameTemplate = allDocuments.filter((doc: any) => doc.templateId === id);
+    const current = sameTemplate.find((doc: any) => doc.id === documentId);
+    const currentSeries = current ? seriesKeyOf(current.name ?? current.documentNumber) : null;
+    const inSeries =
+      currentSeries === null
+        ? sameTemplate
+        : sameTemplate.filter((doc: any) => seriesKeyOf(doc.name ?? doc.documentNumber) === currentSeries);
+    return inSeries.sort((a: any, b: any) =>
+      compareRunningNumber(b.name ?? b.documentNumber, a.name ?? a.documentNumber),
+    );
+  }, [allDocuments, id, documentId, seriesKeyOf, compareRunningNumber]);
 
   // Find current document index and calculate navigation
   const currentIndex = useMemo(() => {

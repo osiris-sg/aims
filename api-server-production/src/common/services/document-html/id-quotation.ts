@@ -108,7 +108,7 @@ const ZH: Record<string, string> = {
   'GENERAL TERMS & CONDITIONS (without prejudice)': '一般条款与条件（不影响权利）',
   'Payment Terms for Renovation contract': '装修合同付款条款',
   'Agreed & accepted by client': '客户同意并接受', 'Prepared by': '拟定人',
-  'Date:': '日期：', Director: '董事', '(signed electronically)': '（电子签名）',
+  'Date:': '日期：', Director: '董事', 'Senior Manager': '高级经理', 'Junior Manager': '经理', '(signed electronically)': '（电子签名）',
   Inclusive: '包含', Complimentary: '赠送',
 };
 
@@ -278,7 +278,7 @@ export function renderIdQuotationBody(data: any, organization: any, lang: Lang =
        ${escapeHtml(org.name || '')}<br/>${L(lang, 'Date:')} ${ds.signedAt ? escapeHtml(formatDate(ds.signedAt)) : ''}`
     : `<div class="line">${L(lang, 'Prepared by')}</div>
       <b>${escapeHtml(h.designer || '')}</b>${h.designerPhone ? `<br/>${escapeHtml(h.designerPhone)}` : ''}<br/>
-      ${escapeHtml(org.name || '')}<br/>${L(lang, 'Director')}`;
+      ${escapeHtml(org.name || '')}<br/>${L(lang, h.designerTitle || 'Director')}`;
 
   const sign = `
   <div class="sign">
