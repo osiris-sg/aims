@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { Alert, Box, CircularProgress, Typography } from "@mui/material";
 import EventIcon from "@mui/icons-material/Event";
-import { RunSummary, fetchScheduledRuns } from "../../../lib/deliveryLists";
+import { RunSummary, fetchScheduledRuns, claimReturnRun } from "../../../lib/deliveryLists";
 import { ScheduledRunCard } from "../../../components/DeliveryRunCards";
 import FieldBackButton from "../../../components/FieldBackButton";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
@@ -27,10 +27,12 @@ import { EmptyState } from "@/app/(field)/components/fieldUi";
  * rider + startedAt) still happens on the FIRST successful scan, inside
  * claimScheduled — so a rider who opens this and walks away locks nothing.
  *
- * RETURN runs stay informational: their slots are unit-bound from birth, so
- * claimScheduled finds no open asset slot and reserveUnit would reject a
- * rental unit. A return still joins its run automatically when the rider
- * scans the unit (join-on-scan in deliveries create()).
+ * RETURN runs (2026-10-21): "Start this return" claims the run explicitly
+ * (POST /deliveries/:id/claim-return) and opens its walk. claimScheduled can't
+ * claim a return: its lines are unit-bound or free-typed from birth, never open
+ * asset slots, and reserveUnit would reject a rental unit. A return still joins
+ * its run automatically when the rider scans the unit from the scan page
+ * (join-on-scan in deliveries create()).
  */
 
 export default function ScheduledDeliveriesPage() {
@@ -71,7 +73,17 @@ export default function ScheduledDeliveriesPage() {
           <ScheduledRunCard
             key={r.id}
             run={r}
-            onStart={() => router.push(`/scan/delivery/${r.id}`)}
+            onStart={
+                  r.direction === "RETURN"
+                    ? async () => {
+                        // A return is claimed here, then walked (see ScheduledRunCard).
+                        const token = await getToken();
+                        if (!token) throw new Error("Not signed in");
+                        await claimReturnRun(token, r.id);
+                        router.push(`/scan/delivery/${r.id}`);
+                      }
+                    : () => router.push(`/scan/delivery/${r.id}`)
+                }
             onViewDo={(assetId, docId) => router.push(`/scan/asset/${assetId}/do/${docId}/view`)}
           />
         ))

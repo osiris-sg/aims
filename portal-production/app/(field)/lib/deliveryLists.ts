@@ -31,6 +31,7 @@ export interface RunSummary {
   direction?: "OUTBOUND" | "RETURN";
   riderName?: string | null;
   siteAddress: string | null;
+  notes?: string | null;
   scheduledFor?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -48,6 +49,16 @@ async function fetchRuns(path: string, token: string, fallback: string): Promise
   const res = await request({ path, method: "GET" }, {}, token);
   if (res?.success === false) throw new Error(res.message ?? fallback);
   return docsOf(res);
+}
+
+/**
+ * Run-first start of a scheduled RETURN ("Start this return"): claims the run
+ * (scheduled -> in_progress, this rider) so the walk that follows collects
+ * into it. Idempotent server-side for a run already being worked.
+ */
+export async function claimReturnRun(token: string, deliveryId: string): Promise<void> {
+  const res = await request({ path: `/deliveries/${deliveryId}/claim-return`, method: "POST" }, {}, token);
+  if (res?.success === false) throw new Error(res.message ?? "Could not start this return");
 }
 
 /** Org-wide scheduled runs: the run-first entry point. */

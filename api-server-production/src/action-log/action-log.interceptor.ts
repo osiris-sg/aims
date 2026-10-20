@@ -70,7 +70,7 @@ const VERB_ACTIONS: Record<string, string> = {
   'send-email': 'SEND', 'sync-to-xero': 'SYNC', sync: 'SYNC', 'confirm-from-xero': 'CONFIRM', duplicate: 'DUPLICATE',
   revisions: 'CREATE_REVISION', notes: 'NOTE', sign: 'SIGN', 'generate-pdf': 'EXPORT',
   'run-due': 'RUN', run: 'RUN', 'generate-now': 'RUN', cancel: 'CANCEL', assign: 'ASSIGN',
-  'link-project': 'LINK', link: 'LINK', 'claim-scheduled': 'CLAIM', 'ack-all': 'ACKNOWLEDGE',
+  'link-project': 'LINK', link: 'LINK', 'claim-scheduled': 'CLAIM', 'claim-return': 'CLAIM', 'ack-all': 'ACKNOWLEDGE',
   // Delivery group posts (2026-09-30): the post worker claims a post and
   // reports it sent; the office retries a failed or skipped one.
   claim: 'CLAIM', done: 'POSTED', retry: 'RETRY', resolve: 'CONFIRM',

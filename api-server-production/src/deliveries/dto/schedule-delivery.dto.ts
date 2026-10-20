@@ -191,3 +191,11 @@ export class ClaimScheduledDto {
   @IsString()
   riderName?: string;
 }
+
+/** Run-first start of a scheduled RETURN: claims the run itself (no unit). */
+export class ClaimReturnDto {
+  @ApiProperty({ required: false, description: 'Rider display name for the claimed run.' })
+  @IsOptional()
+  @IsString()
+  riderName?: string;
+}

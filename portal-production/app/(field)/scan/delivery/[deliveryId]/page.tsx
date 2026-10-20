@@ -53,6 +53,7 @@ import { DoPrintActions } from "../../../components/DoPrintActions";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { ListCard, StatusChip } from "@/app/(field)/components/fieldUi";
 import type { FieldTone } from "@/themes/fieldTheme";
+import { claimReturnRun } from "../../../lib/deliveryLists";
 
 /**
  * Standalone-delivery BASKET (Layer 3 + in-basket scanning patch).
@@ -419,6 +420,26 @@ export default function DeliveryBasketPage() {
     });
   }, []);
 
+  // A scanned / keyed unit on a RETURN run (2026-10-21): a return's lines are
+  // unit-bound from birth, so a unit that is already on this run is STARTED on
+  // its own line (condition photos -> collect), never added as a second line.
+  // A unit that is not on the run falls through to the add path unchanged, and
+  // OUTBOUND runs always take that path, exactly as before.
+  const requestScanned = useCallback(
+    (assetId: string, inventoryId: string, sku?: string, assetClass?: string | null) => {
+      if (run?.direction === "RETURN") {
+        const onRun = run.items.find((it) => it.inventoryId === inventoryId);
+        if (onRun) {
+          if (onRun.deliveryStatus === "not_delivered") requestStart(onRun);
+          else setActionMsg(`${sku ?? onRun.inventory?.sku ?? "This unit"} is already started on this return.`);
+          return;
+        }
+      }
+      requestAdd(assetId, inventoryId, sku, assetClass);
+    },
+    [run, requestAdd, requestStart],
+  );
+
   // Mark ONE item delivered (per-item End Delivery, 2026-08 signature-at-end):
   // advances delivering -> not_installed with NO signature. The single customer
   // signature is captured later at Finalize, once every item is resolved. Units
@@ -544,6 +565,12 @@ export default function DeliveryBasketPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
+      // A RETURN still `scheduled` here was opened without the card's claim
+      // (an older link): claim it before its first unit starts, or the run
+      // never leaves `scheduled` and can never be signed off.
+      if (run?.direction === "RETURN" && run?.status === "scheduled" && pending.mode === "start") {
+        await claimReturnRun(token, deliveryId);
+      }
       if (pending.mode === "photos") {
         const res = await request(
           { path: `/deliveries/${deliveryId}/items/photos`, method: "POST" },
@@ -603,7 +630,7 @@ export default function DeliveryBasketPage() {
     } finally {
       setBusy(false);
     }
-  }, [pending, pendingPhotos, requiredPhotos, deliveryId, getToken, load, startUnit, run?.status]);
+  }, [pending, pendingPhotos, requiredPhotos, deliveryId, getToken, load, startUnit, run?.status, run?.direction]);
 
   // AD-HOC: skip the photo screen entirely rather than showing an empty one the
   // rider has to dismiss. requestAdd/requestStart still park in `pending` (they
@@ -705,7 +732,7 @@ export default function DeliveryBasketPage() {
           return;
         }
         // Park the unit in the mandatory photo step (adds + starts on confirm).
-        requestAdd(assetId, inventoryId, payload?.inventory?.sku, payload?.asset?.assetClass);
+        requestScanned(assetId, inventoryId, payload?.inventory?.sku, payload?.asset?.assetClass);
         return;
       } catch (e: any) {
         const status = e?.response?.status ?? e?.status;
@@ -714,7 +741,7 @@ export default function DeliveryBasketPage() {
         setBusy(false);
       }
     })();
-  }, [nfc.uid, requestAdd, getToken]);
+  }, [nfc.uid, requestScanned, getToken]);
 
   // Manual serial resolve (assetId optional — org-wide serial match).
   const resolveSerial = async () => {
@@ -737,7 +764,7 @@ export default function DeliveryBasketPage() {
       } else if (matches.length === 1) {
         setManualOpen(false);
         setSerial("");
-        requestAdd(matches[0].assetId, matches[0].inventoryId, matches[0].sku, matches[0].assetClass);
+        requestScanned(matches[0].assetId, matches[0].inventoryId, matches[0].sku, matches[0].assetClass);
       } else {
         setCandidates(matches); // pick list inside the dialog
       }
@@ -1929,12 +1956,12 @@ export default function DeliveryBasketPage() {
                       <Button
                         size="small"
                         variant="contained"
-                        startIcon={<LocalShippingIcon />}
+                        startIcon={isReturnRun ? <AssignmentReturnIcon /> : <LocalShippingIcon />}
                         onClick={() => router.push(`/scan/delivery/${run.id}/free-item/${it.id}${tripQuery}`)}
                         disabled={busy}
                         sx={{ minHeight: 40 }}
                       >
-                        Start Delivery
+                        {isReturnRun ? "Start Return" : "Start Delivery"}
                       </Button>
                     )}
                     {/* Delivering items (free-typed and unit) have NO per-item End
@@ -1952,7 +1979,7 @@ export default function DeliveryBasketPage() {
                         disabled={busy}
                         sx={{ minHeight: 40 }}
                       >
-                        Start Delivery
+                        {isReturnRun ? "Start Return" : "Start Delivery"}
                       </Button>
                     )}
                     {/* Per-item install actions removed (2026-08): installation is
@@ -2297,7 +2324,7 @@ export default function DeliveryBasketPage() {
                   onClick={() => {
                     setManualOpen(false);
                     setSerial("");
-                    requestAdd(m.assetId, m.inventoryId, m.sku);
+                    requestScanned(m.assetId, m.inventoryId, m.sku);
                   }}
                 >
                   <ListItemText primary={m.sku} secondary={m.assetName ?? m.skuKey ?? undefined} />
@@ -2424,7 +2451,7 @@ export default function DeliveryBasketPage() {
             ) : pending?.mode === "photos" ? (
               "Add photos"
             ) : pending?.mode === "start" ? (
-              "Start Delivery"
+              isReturnRun ? "Start Return" : "Start Delivery"
             ) : (
               "Add & start delivery"
             )}

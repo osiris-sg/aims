@@ -7,14 +7,7 @@ import { Alert, Box, CircularProgress } from "@mui/material";
 import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
 import SearchOffIcon from "@mui/icons-material/SearchOff";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
-import {
-  RunSummary,
-  fetchCompletedRuns,
-  fetchInProgressRuns,
-  fetchScheduledRuns,
-  resolveInProgressHref,
-  runMatchesSearch,
-} from "../lib/deliveryLists";
+import { RunSummary, fetchCompletedRuns, fetchInProgressRuns, fetchScheduledRuns, resolveInProgressHref, runMatchesSearch, claimReturnRun } from "../lib/deliveryLists";
 import { CompletedRunCard, InProgressRunCard, ScheduledRunCard } from "../components/DeliveryRunCards";
 import { FieldBottomNav, FieldBottomNavSpacer } from "../components/FieldBottomNav";
 import { FieldHomeHeader } from "../components/FieldHomeHeader";
@@ -187,7 +180,17 @@ export default function DeliveriesHomePage() {
               <ScheduledRunCard
                 key={r.id}
                 run={r}
-                onStart={() => router.push(`/scan/delivery/${r.id}`)}
+                onStart={
+                  r.direction === "RETURN"
+                    ? async () => {
+                        // A return is claimed here, then walked (see ScheduledRunCard).
+                        const token = await getToken();
+                        if (!token) throw new Error("Not signed in");
+                        await claimReturnRun(token, r.id);
+                        router.push(`/scan/delivery/${r.id}`);
+                      }
+                    : () => router.push(`/scan/delivery/${r.id}`)
+                }
                 onViewDo={(assetId, docId) => router.push(`/scan/asset/${assetId}/do/${docId}/view`)}
               />
             ) : tab === "progress" ? (

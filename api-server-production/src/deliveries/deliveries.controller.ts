@@ -9,7 +9,7 @@ import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { CreateDoFromDeliveryDto, LinkDeliveryDto } from './dto/link-delivery.dto';
 import { AckAllDto, AddItemPhotosDto, AssignDeliveryItemDto, FreeTypedEndDto, FreeTypedStartDto, SetDeploymentTypeDto, SkipInstallDto } from './dto/assign-delivery.dto';
-import { ScheduleDeliveryDto, ClaimScheduledDto } from './dto/schedule-delivery.dto';
+import { ScheduleDeliveryDto, ClaimScheduledDto, ClaimReturnDto } from './dto/schedule-delivery.dto';
 import { ScheduleReturnDto } from './dto/schedule-return.dto';
 
 interface ClerkRequest extends Request {
@@ -80,6 +80,23 @@ export class DeliveriesController {
     const riderUserId = req.user?.id;
     if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
     return this.service.claimScheduled(id, dto, org.id, riderUserId);
+  }
+
+  // Field: run-first start of a scheduled RETURN ("Start this return" on the
+  // Pending card). Claims the RUN only; units are collected afterwards in its
+  // walk. A return's lines are unit-bound or free-typed, so claim-scheduled
+  // (which binds an open asset slot and reserves stock) can never apply.
+  @Post(':id/claim-return')
+  @Permissions('maintenance-reports:create')
+  claimReturn(
+    @Param('id') id: string,
+    @Body() dto: ClaimReturnDto,
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    const riderUserId = req.user?.id;
+    if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.claimReturn(id, dto, org.id, riderUserId);
   }
 
   @Post(':id/items')

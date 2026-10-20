@@ -1,8 +1,23 @@
 "use client";
 
-import React from "react";
-import { Box, Button, Card, CardActionArea, CardContent, CircularProgress, Stack, Typography } from "@mui/material";
+import React, { useState } from "react";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardActionArea,
+  CardContent,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Stack,
+  Typography,
+} from "@mui/material";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import PlaceIcon from "@mui/icons-material/Place";
 import { RunSummary, completedRunTime, itemLabel, relTime } from "../lib/deliveryLists";
 import { StatusChip } from "./fieldUi";
@@ -66,10 +81,19 @@ const fmtScheduled = (d: string | null | undefined) =>
     : "No date";
 
 /**
- * Office-scheduled run (Pending). OUTBOUND runs are enterable: tapping the
- * card or "Start this delivery" opens the run's walk-through. That is READ-ONLY
- * NAVIGATION; the run is claimed by the first scan, not here. RETURN runs stay
- * informational (see scan/deliveries/scheduled for why).
+ * Office-scheduled run (Pending).
+ *
+ * OUTBOUND: tapping the card or "Start this delivery" opens the run's
+ * walk-through. That is READ-ONLY NAVIGATION; the run is claimed by the first
+ * scan, not here.
+ *
+ * RETURN (2026-10-21, run #82): "Start this return" CLAIMS the run (the caller
+ * does it, via claimReturnRun) and opens its walk: scan each unit -> condition
+ * photos -> collect, free-typed lines through their own page, then the one
+ * customer signature. A return cannot be claimed by its first scan the way a
+ * delivery is (its lines are unit-bound or free-typed, never open slots), and a
+ * run whose only line is free-typed has nothing to scan at all. Tapping the
+ * card body opens "View details" instead, so a stray tap never claims a run.
  */
 export function ScheduledRunCard({
   run: r,
@@ -77,21 +101,63 @@ export function ScheduledRunCard({
   onViewDo,
 }: {
   run: RunSummary;
-  onStart: () => void;
+  onStart: () => void | Promise<void>;
   onViewDo: (assetId: string, docId: string) => void;
 }) {
   const isReturn = r.direction === "RETURN";
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
   // Deliveries: show still-open (unbound) slots; a bound item means someone
   // already started picking it up. Returns are unit-bound from birth, so their
   // manifest IS the units to collect.
   const open = r.items.filter((i) => !i.inventoryId);
   const rows = isReturn ? r.items : open.length ? open : r.items;
-  const enterable = !isReturn;
   const context = r.project?.name ?? r.customer?.name ?? r.siteAddress ?? null;
   const viewDo = !isReturn && r.document?.id && r.items[0]?.assetId ? { assetId: r.items[0].assetId, docId: r.document.id } : null;
+  // Where a return is collected FROM: the run's siteAddress (the office copies
+  // it from the project's address when the return is scheduled). Hidden when
+  // the office left none.
+  const collectFrom = isReturn ? r.siteAddress?.trim() || null : null;
+
+  const start = async () => {
+    if (starting) return;
+    setStartError(null);
+    setStarting(true);
+    try {
+      await onStart();
+    } catch (e: any) {
+      setStartError(e?.message ?? "Could not start");
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const itemRows = (
+    <Stack spacing={0.25} sx={{ mt: 0.5 }}>
+      {rows.map((i) => {
+        // Same precedence the walk-through uses (description first). A
+        // unit-backed line shows its serial; an office slot with no unit
+        // scanned in yet shows the asset name alone.
+        const label = i.description || "Item";
+        const suffix = i.sku ? ` · ${i.sku}` : "";
+        return (
+          <Typography key={i.id} variant="body2">
+            • {label}
+            {i.quantity && i.quantity > 1 ? ` ×${i.quantity}` : ""}
+            {suffix && (
+              <Typography component="span" variant="body2" color="text.secondary">
+                {suffix}
+              </Typography>
+            )}
+          </Typography>
+        );
+      })}
+    </Stack>
+  );
 
   const body = (
-    <CardContent sx={{ display: "flex", flexDirection: "column", gap: 0.75, pb: enterable || viewDo ? 1 : undefined }}>
+    <CardContent sx={{ display: "flex", flexDirection: "column", gap: 0.75, pb: 1 }}>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ flexWrap: "wrap", rowGap: 0.5 }}>
         <RunNo n={r.deliveryNumber} />
         <StatusChip tone={isReturn ? "warn" : "neutral"} label={isReturn ? "RETURN" : "DELIVERY"} />
@@ -103,67 +169,118 @@ export function ScheduledRunCard({
           {context}
         </Typography>
       )}
-      <SiteAddress run={r} context={context} />
+      {isReturn ? (
+        collectFrom && (
+          <Stack direction="row" spacing={0.5} alignItems="flex-start">
+            <PlaceIcon fontSize="small" color="action" sx={{ mt: "1px" }} />
+            <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
+              <Typography component="span" variant="body2" color="text.secondary">
+                Collect from:{" "}
+              </Typography>
+              {collectFrom}
+            </Typography>
+          </Stack>
+        )
+      ) : (
+        <SiteAddress run={r} context={context} />
+      )}
       {r.document?.poNo && (
         <Typography variant="body2">
           <b>PO No.:</b> {r.document.poNo}
         </Typography>
       )}
-      {isReturn && (
-        <Typography variant="caption" color="text.secondary">Collect:</Typography>
-      )}
-      <Stack spacing={0.25} sx={{ mt: 0.5 }}>
-        {rows.map((i) => {
-          // Same precedence the walk-through uses (description first). A
-          // unit-backed line shows its serial; an office slot with no unit
-          // scanned in yet shows the asset name alone.
-          const label = i.description || "Item";
-          const suffix = i.sku ? ` · ${i.sku}` : "";
-          return (
-            <Typography key={i.id} variant="body2">
-              • {label}
-              {i.quantity && i.quantity > 1 ? ` ×${i.quantity}` : ""}
-              {suffix && (
-                <Typography component="span" variant="body2" color="text.secondary">
-                  {suffix}
-                </Typography>
-              )}
-            </Typography>
-          );
-        })}
-      </Stack>
+      {itemRows}
     </CardContent>
   );
 
   return (
     <Card variant="outlined">
-      {enterable ? <CardActionArea onClick={onStart}>{body}</CardActionArea> : body}
-      {(enterable || viewDo) && (
-        <Stack direction="row" spacing={1} sx={{ px: 1.75, pb: 1.75, flexWrap: "wrap", rowGap: 1 }}>
-          {/* Navigation only: the run is NOT claimed until the first scan
-              lands in claimScheduled. */}
-          {enterable && (
+      <CardActionArea onClick={isReturn ? () => setDetailsOpen(true) : start}>{body}</CardActionArea>
+      <Stack direction="row" spacing={1} sx={{ px: 1.75, pb: 1.75, flexWrap: "wrap", rowGap: 1 }}>
+        {/* OUTBOUND: navigation only, the run is NOT claimed until the first
+            scan lands in claimScheduled. RETURN: the caller claims the run. */}
+        <Button
+          variant="contained"
+          startIcon={starting ? <CircularProgress size={18} color="inherit" /> : isReturn ? <AssignmentReturnIcon /> : <PlayArrowIcon />}
+          sx={{ minHeight: 44, flex: 1 }}
+          onClick={start}
+          disabled={starting}
+        >
+          {isReturn ? "Start this return" : "Start this delivery"}
+        </Button>
+        {isReturn && (
+          <Button variant="text" sx={{ minHeight: 44 }} onClick={() => setDetailsOpen(true)}>
+            View details
+          </Button>
+        )}
+        {viewDo && (
+          <Button
+            variant="text"
+            sx={{ minHeight: 44 }}
+            onClick={() => onViewDo(viewDo.assetId, viewDo.docId)}
+          >
+            View full DO
+          </Button>
+        )}
+      </Stack>
+      {startError && (
+        <Alert severity="error" sx={{ mx: 1.75, mb: 1.75 }} onClose={() => setStartError(null)}>
+          {startError}
+        </Alert>
+      )}
+
+      {isReturn && (
+        <Dialog open={detailsOpen} onClose={() => setDetailsOpen(false)} fullWidth maxWidth="xs">
+          <DialogTitle>Return #{r.deliveryNumber}</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1.25}>
+              <DetailRow label="Scheduled" value={fmtScheduled(r.scheduledFor)} />
+              <DetailRow label="Customer" value={r.customer?.name} />
+              <DetailRow label="Project" value={r.project?.name} />
+              <DetailRow label="Collect from" value={collectFrom} />
+              <DetailRow label="Notes" value={r.notes?.trim() || null} />
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  To collect ({r.items.length})
+                </Typography>
+                {itemRows}
+              </Box>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button variant="text" onClick={() => setDetailsOpen(false)}>
+              Close
+            </Button>
             <Button
               variant="contained"
-              startIcon={<PlayArrowIcon />}
-              sx={{ minHeight: 44, flex: 1 }}
-              onClick={onStart}
+              startIcon={starting ? <CircularProgress size={18} color="inherit" /> : <AssignmentReturnIcon />}
+              disabled={starting}
+              onClick={() => {
+                setDetailsOpen(false);
+                void start();
+              }}
             >
-              Start this delivery
+              Start this return
             </Button>
-          )}
-          {viewDo && (
-            <Button
-              variant="text"
-              sx={{ minHeight: 44 }}
-              onClick={() => onViewDo(viewDo.assetId, viewDo.docId)}
-            >
-              View full DO
-            </Button>
-          )}
-        </Stack>
+          </DialogActions>
+        </Dialog>
       )}
     </Card>
+  );
+}
+
+/** One label / value line in the run details dialog; hidden when empty. */
+function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
+  if (!value) return null;
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" display="block">
+        {label}
+      </Typography>
+      <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
+        {value}
+      </Typography>
+    </Box>
   );
 }
 

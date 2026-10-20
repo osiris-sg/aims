@@ -1507,6 +1507,49 @@ export class DeliveriesService {
     return { deliveryId, deliveryNumber: run.deliveryNumber, claimed: true };
   }
 
+  /**
+   * RUN-FIRST start of a scheduled RETURN (2026-10-21, run #82): the rider taps
+   * "Start this return" on the Pending card. Claims the run exactly as the
+   * other two return entry points already do (join-on-scan in create(), and a
+   * free-typed line's start): status scheduled -> in_progress, rider, startedAt.
+   * Run-level ONLY: nothing is bound or reserved (return units are already out
+   * on rental and their lines are unit-bound or free-typed from birth).
+   *
+   * Idempotent for a run that is already being worked (in_progress /
+   * delivered): it is returned unchanged, so a second tap, or a rider joining a
+   * run another rider claimed, simply opens it (the first claimant keeps it,
+   * the same rule as claimScheduled and startFreeTypedItem).
+   */
+  async claimReturn(deliveryId: string, dto: { riderName?: string }, organizationId: string, riderUserId: string) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { id: true, direction: true, status: true, isDraft: true, deliveryNumber: true },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.direction !== DeliveryDirection.RETURN) {
+      throw new BadRequestException(`Delivery #${run.deliveryNumber} is not a return`);
+    }
+    if (run.isDraft) {
+      throw new BadRequestException(`Return #${run.deliveryNumber} is still a draft and cannot be started`);
+    }
+    if (run.status === 'completed' || run.status === 'cancelled') {
+      throw new BadRequestException(`Return #${run.deliveryNumber} is ${run.status}`);
+    }
+    if (run.status === 'scheduled') {
+      // Guarded on status so a concurrent claimant cannot be overwritten.
+      await this.prisma.delivery.updateMany({
+        where: { id: deliveryId, organizationId, status: 'scheduled' },
+        data: {
+          status: 'in_progress',
+          riderUserId,
+          ...(dto.riderName ? { riderName: dto.riderName } : {}),
+          startedAt: new Date(),
+        },
+      });
+    }
+    return this.prisma.delivery.findUniqueOrThrow({ where: { id: deliveryId }, include: { items: true } });
+  }
+
   async create(dto: CreateDeliveryDto, organizationId: string, riderUserId: string) {
     const asset = await this.prisma.asset.findFirst({
       where: { id: dto.assetId, organizationId },
