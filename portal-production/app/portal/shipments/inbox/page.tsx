@@ -7,6 +7,7 @@
 //   Unmatched  — no (or several) orders / shipments fit: assign one by hand
 //   Processed  — done (AUTO, or accepted); every action can be undone
 //   Unsure     — the AI couldn't tell; kept 14 days for review, then purged
+//   Filter preview — what the sender filter (SHADOW) kept / would drop, from-domain + subject only
 // Row click opens the details (keys found, planned / done actions); actions
 // are in the row's ⋮ menu.
 
@@ -16,7 +17,7 @@ import MoreVertIcon from "@mui/icons-material/MoreVert";
 import CallReceivedIcon from "@mui/icons-material/CallReceived";
 import CallMadeIcon from "@mui/icons-material/CallMade";
 import { useQuery } from "@tanstack/react-query";
-import { useShipmentsApi, type InboxRow, type InboxTab } from "../_lib/api";
+import { useShipmentsApi, type FilterPreview, type InboxRow, type InboxTab } from "../_lib/api";
 import { useOrders, useShipments, useTradeMutation } from "../_lib/hooks";
 import { fmtDateTime } from "../_lib/format";
 import { toast } from "../_lib/toast";
@@ -38,8 +39,9 @@ const actionText = (a: InboxRow["planned"][number]) =>
 
 export default function InboxPage() {
   const api = useShipmentsApi();
-  const [tab, setTab] = useState<InboxTab>("SUGGESTED");
-  const q = useQuery({ queryKey: ["trade-inbox", tab], queryFn: () => api.inbox(tab), refetchInterval: 30000 });
+  const [tab, setTab] = useState<InboxTab | "FILTER">("SUGGESTED");
+  const listTab: InboxTab = tab === "FILTER" ? "SUGGESTED" : tab;
+  const q = useQuery({ queryKey: ["trade-inbox", listTab], queryFn: () => api.inbox(listTab), refetchInterval: 30000 });
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; row: InboxRow } | null>(null);
   const [open, setOpen] = useState<InboxRow | null>(null);
   const [assign, setAssign] = useState<InboxRow | null>(null);
@@ -80,8 +82,11 @@ export default function InboxPage() {
         {TABS.map((t) => (
           <Tab key={t.value} value={t.value} label={`${t.label}${counts ? ` (${counts[t.value] ?? 0})` : ""}`} sx={{ textTransform: "none" }} />
         ))}
+        <Tab value="FILTER" label="Filter preview" sx={{ textTransform: "none" }} data-tour="inbox-filter-preview" />
       </Tabs>
-      {q.isError ? (
+      {tab === "FILTER" ? (
+        <FilterPreviewTab />
+      ) : q.isError ? (
         <Alert severity="error">{(q.error as Error)?.message || "Could not load the inbox"}</Alert>
       ) : q.isLoading ? (
         <CircularProgress />
@@ -539,6 +544,74 @@ function PiTablePanel({ row, onApplied }: { row: InboxRow; onApplied: (r: InboxR
       >
         Fill the PI fields on these orders
       </Button>
+    </Box>
+  );
+}
+
+/** What the sender filter kept / would drop (SHADOW): from-domain + subject (60) only — never bodies or addresses. */
+function FilterPreviewTab() {
+  const api = useShipmentsApi();
+  const [show, setShow] = useState<"DROP" | "KEEP" | "ALL">("DROP");
+  const q = useQuery({ queryKey: ["trade-inbox", "filter-preview"], queryFn: () => api.inboxFilterPreview(30), staleTime: 60_000 });
+  const d: FilterPreview | undefined = q.data;
+  const items = (d?.items ?? []).filter((r) => show === "ALL" || r.filterVerdict === show);
+  const falseDrops = (d?.items ?? []).filter((r) => r.falseDrop).length;
+  if (q.isError) return <Alert severity="error">{(q.error as Error)?.message || "Could not load the filter preview"}</Alert>;
+  if (q.isLoading) return <CircularProgress />;
+  return (
+    <Box>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        The sender filter in its trial run (Settings → Shipping → Email filter): every email is still kept; this shows what it would drop once switched to Enforce. Last {d?.days ?? 30} days: kept {d?.kept ?? 0} · would drop {d?.dropped ?? 0}
+        {falseDrops ? ` · ${falseDrops} of them shipment / unsure mail — add the sender to the allow-list before enforcing` : ""}.
+      </Typography>
+      <Stack direction="row" spacing={1} sx={{ mb: 1.5 }}>
+        {(["DROP", "KEEP", "ALL"] as const).map((k) => (
+          <Chip key={k} label={k === "DROP" ? "Would drop" : k === "KEEP" ? "Kept" : "All"} color={show === k ? "primary" : "default"} variant={show === k ? "filled" : "outlined"} onClick={() => setShow(k)} />
+        ))}
+      </Stack>
+      {!items.length ? (
+        <Paper variant="outlined" sx={{ p: 3, textAlign: "center" }}>
+          <Typography variant="body2" color="text.secondary">
+            {d && d.kept + d.dropped === 0 ? "No email judged yet — the filter is off, or nothing arrived since it was switched on." : "Nothing here."}
+          </Typography>
+        </Paper>
+      ) : (
+        <Paper variant="outlined" sx={{ overflowX: "auto" }}>
+          <Table size="small" data-tour="inbox-filter-table">
+            <TableHead>
+              <TableRow>
+                <TableCell>Date</TableCell>
+                <TableCell>From domain</TableCell>
+                <TableCell>Subject</TableCell>
+                <TableCell>Filter</TableCell>
+                <TableCell>Why</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {items.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtDateTime(r.date)}</TableCell>
+                  <TableCell>{r.fromDomain}</TableCell>
+                  <TableCell sx={{ maxWidth: 380 }}>
+                    <Typography variant="body2" noWrap title={r.subject}>
+                      {r.subject || "(no subject)"}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>
+                    <Chip size="small" variant="outlined" color={r.filterVerdict === "KEEP" ? "success" : "default"} label={r.filterVerdict === "KEEP" ? "Kept" : "Would drop"} />
+                    {r.falseDrop && <Chip size="small" color="error" variant="outlined" label="false drop" title={`Triage said ${r.verdict}`} sx={{ ml: 0.5 }} />}
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption" color="text.secondary">
+                      {r.reason ?? "—"}
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Paper>
+      )}
     </Box>
   );
 }

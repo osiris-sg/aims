@@ -11,7 +11,9 @@ import { DocumentsService } from '../documents/documents.service';
 import { DocumentExtractionService, DocumentType } from '../document-extraction/document-extraction.service';
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import { emailFolder, parseMailDate, reconstructEml, safeKeyName, StoredAttachment, StoredEmailMeta } from './email-store';
-import { EmailTriageService, hashedMessageId } from './email-triage.service';
+import { EmailTriageService, hashedMessageId, ownDomainsOf } from './email-triage.service';
+import { filterDecision, FilterMode } from './email-filter.rules';
+import { threadKeyOf } from './email-triage.rules';
 
 // Provider-agnostic inbound payload — same shape as bills-inbound.
 export interface InboundEmailPayload {
@@ -129,6 +131,30 @@ export class IngestionEmailService {
 
     // 4b. Intake (STORE / TRIAGE / AUTO): keep the .eml + attachments; TRIAGE / AUTO then triage it in the background.
     if (config.routingMode === 'STORE' || config.routingMode === 'TRIAGE' || config.routingMode === 'PARTIAL_AUTO' || config.routingMode === 'AUTO') {
+      // Sender filter (2026-10): SHADOW logs the verdict and keeps everything; ENFORCE drops before storage.
+      const filter = await this.filterFor(organizationId, config, payload);
+      if (filter) {
+        if (filter.mode === 'ENFORCE' && !filter.keep) {
+          // Nothing stored (no S3 write): a minimal row — hashed Message-ID (dedupe), the from-domain, the subject's first 60.
+          await this.prisma.emailIngestLog.update({
+            where: { id: log.id },
+            data: {
+              messageId: hashedMessageId(messageId),
+              fromAddress: `@${(/@([^>\s]+)/.exec(fromEmail)?.[1] ?? '').toLowerCase()}`,
+              subject: (payload.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) || null,
+              rawMeta: { filtered: true, date: payload.date ?? null } as any,
+              attachmentCount: 0,
+              status: 'IGNORED',
+              reason: 'filtered',
+              inboxState: 'PURGED',
+              filterVerdict: 'DROP',
+              filterReason: filter.reason,
+            },
+          });
+          return { ok: false, reason: 'filtered', details: filter.reason };
+        }
+        await this.prisma.emailIngestLog.update({ where: { id: log.id }, data: { filterVerdict: filter.keep ? 'KEEP' : 'DROP', filterReason: filter.reason } });
+      }
       const stored = await this.storeOnly(organizationId, log.id, log.createdAt, messageId, payload);
       if (config.routingMode !== 'STORE' && stored.ok && this.triage) this.triage.schedule(organizationId, log.id);
       return stored;
@@ -806,6 +832,36 @@ export class IngestionEmailService {
   }
 
   /** RECEIVED/IGNORED log row; null when (org, messageId) already exists. */
+  /** The sender filter's verdict for this email (null when the filter is OFF). */
+  private async filterFor(organizationId: string, config: { filterMode?: string | null; allowDomains?: string[] | null; allowAddresses?: string[] | null }, payload: InboundEmailPayload) {
+    const mode = (config.filterMode ?? 'OFF') as FilterMode;
+    if (mode !== 'SHADOW' && mode !== 'ENFORCE') return null;
+    const settings = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { docDefaults: true } }).catch(() => null);
+    const ownDomains = ownDomainsOf((settings?.docDefaults as Record<string, unknown> | null) ?? null);
+    const threadOrder = await this.matchedThreadOrder(organizationId, payload);
+    const d = filterDecision(
+      { from: payload.from, to: payload.headerTo ?? [], cc: payload.cc ?? [], subject: payload.subject ?? null, attachmentNames: (payload.attachments ?? []).map((a) => a.filename ?? ''), threadOrder },
+      { allowDomains: config.allowDomains ?? [], allowAddresses: config.allowAddresses ?? [] },
+      ownDomains,
+    );
+    return { mode, ...d };
+  }
+
+  /** "#19" when an earlier email of this thread (In-Reply-To / References / subject) is matched to an order. */
+  private async matchedThreadOrder(organizationId: string, payload: InboundEmailPayload): Promise<string | null> {
+    const key = threadKeyOf(payload.subject ?? null);
+    const ids = [payload.inReplyTo, ...(payload.references ?? [])].filter((x): x is string => !!x).slice(0, 20);
+    if (!key && !ids.length) return null;
+    const prior = await this.prisma.emailIngestLog.findFirst({
+      where: { organizationId, orderId: { not: null }, OR: [...(ids.length ? [{ messageId: { in: ids } }] : []), ...(key ? [{ threadKey: key }] : [])] },
+      orderBy: { createdAt: 'desc' },
+      select: { orderId: true },
+    });
+    if (!prior?.orderId) return null;
+    const o = await this.prisma.tradeOrder.findFirst({ where: { id: prior.orderId, organizationId }, select: { orderNo: true } }).catch(() => null);
+    return o ? `#${o.orderNo}` : 'an order';
+  }
+
   private async createLog(
     organizationId: string,
     messageId: string,

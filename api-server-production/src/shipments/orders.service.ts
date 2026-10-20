@@ -13,6 +13,7 @@ import { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, shapeFileLinks, STEP_SELECT, ST
 import { ShipmentsService } from './shipments.service';
 import { premiumAt } from './trade-contract';
 import { stepPaymentOf } from './trade-payments';
+import { progressBar, stepBarLabel } from './trade-dashboard';
 
 const PARTY = { select: { id: true, name: true, customerCode: true } };
 const SUPPLIER = { select: { id: true, name: true, supplierCode: true } };
@@ -66,6 +67,7 @@ export class OrdersService {
       organizationId,
       ...(query.customerId ? { customerId: query.customerId } : {}),
       ...(query.contractId ? { contractId: query.contractId } : {}),
+      ...(query.shipMonth ? { shipMonth: query.shipMonth === 'none' ? null : query.shipMonth } : {}),
       ...(q
         ? {
             OR: [
@@ -81,10 +83,13 @@ export class OrdersService {
         : {}),
     };
     const where = { ...base, ...bucket };
-    const [rows, total, pending, completed, months] = await Promise.all([
+    // The Ship month filter's options: every month of the list without that filter.
+    const monthsWhere: Record<string, unknown> = { ...where };
+    delete monthsWhere.shipMonth;
+    const [rows, dueAlerts, total, pending, completed, months] = await Promise.all([
       this.prisma.tradeOrder.findMany({
         where,
-        // Grouped by ship month (newest first) — the list shows a header per month.
+        // Flat list (round K): ship month newest first, then order no. newest first.
         orderBy: [{ shipMonth: { sort: 'desc', nulls: 'last' } }, { year: 'desc' }, { orderNo: 'desc' }],
         skip,
         take,
@@ -99,19 +104,32 @@ export class OrdersService {
           },
         },
       }),
+      // Past-due alerts colour the step being worked on red (as the pipeline grid).
+      this.prisma.tradeAlert.findMany({ where: { organizationId, status: 'DUE' }, select: { orderId: true, shipmentId: true } }),
       this.prisma.tradeOrder.count({ where }),
       this.prisma.tradeOrder.count({ where: { ...base, status: 'OPEN' } }),
       this.prisma.tradeOrder.count({ where: { ...base, status: { in: ['COMPLETED', 'CANCELLED'] } } }),
-      this.prisma.tradeOrder.groupBy({ by: ['shipMonth'], where, _count: { _all: true }, _sum: { qtyMt: true } }),
+      this.prisma.tradeOrder.groupBy({ by: ['shipMonth'], where: monthsWhere, _count: { _all: true }, _sum: { qtyMt: true } }),
     ]);
+    const overdue = new Set((dueAlerts as Array<{ orderId: string | null; shipmentId: string | null }>).flatMap((a) => [a.orderId, a.shipmentId]).filter((x): x is string => !!x));
     const items = rows.map(({ steps, shipments, ...o }: any) => {
-      const ships = shipments.map(({ steps: ss, ...s }: any) => ({
-        ...s,
-        ref: shipmentRef(o.orderNo, s.seqNo),
-        progress: progressOf(ss),
-        currentStep: currentStepOf(ss),
-      }));
+      const ships = shipments.map(({ steps: ss, ...s }: any) => {
+        const cur = currentStepOf(ss);
+        return {
+          ...s,
+          ref: shipmentRef(o.orderNo, s.seqNo),
+          progress: progressOf(ss),
+          currentStep: cur,
+          bar: { ...progressBar(ss.map((x: any) => ({ ...x, recordId: s.id })), overdue), label: stepBarLabel(cur) },
+        };
+      });
       const own = orderCurrentStep(null, steps, shipments);
+      // Overall bar: the order's steps + every live shipment's (a step on two shipments = one segment).
+      const live = shipments.filter((sh: any) => sh.status !== 'CANCELLED');
+      const bar = progressBar(
+        [...steps.map((x: any) => ({ ...x, recordId: o.id })), ...live.flatMap((sh: any) => sh.steps.map((x: any) => ({ ...x, recordId: sh.id })))],
+        overdue,
+      );
       return {
         ...o,
         label: orderLabel(o),
@@ -123,9 +141,10 @@ export class OrdersService {
         shipments: ships,
         progress: progressOf(steps),
         currentStep: own,
+        bar: { ...bar, label: own?.code === 'AWAITING_SHIPMENT' ? own.title : stepBarLabel(own) },
       };
     });
-    // Month headers count the whole filtered list, not just this page.
+    // Ship-month filter options (with counts over the whole list, not just this page).
     const monthTotals = (months as Array<{ shipMonth: string | null; _count: { _all: number }; _sum: { qtyMt: unknown } }>)
       .map((m) => {
         const qty = m._sum.qtyMt === null || m._sum.qtyMt === undefined ? null : Number(m._sum.qtyMt);

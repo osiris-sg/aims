@@ -120,6 +120,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // NOT flagged — it's global for every org (guru, 2026-08-03).
   // Trade legacy pages (Declaration / Payments / Stock / Supplier orders) — hidden since round H.
   enableTradeLegacyPages: false,
+  // Shipments › Home's pipeline grid — hidden since round K (the Orders list has progress bars).
+  enableTradePipelineGrid: false,
 };
 
 interface OrganizationUIConfig {

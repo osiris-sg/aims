@@ -5,7 +5,8 @@
 // trade documents print — bank accounts, issuers and the 出庫・納入依頼書 宛先,
 // the company seal, delivery profiles and QMJP by quarter. Moved here from the
 // Shipments page (2026-10); "New shipments from PIs" stays there (an action).
-// Email intake: the org's forwarding address + the emails received (read-only).
+// Email intake: the org's forwarding address + the emails received (read-only),
+// and the sender filter (Off / Trial run / Enforce + the allow-list).
 
 import React from "react";
 import { Alert, Box, Paper, Stack, Typography } from "@mui/material";
@@ -14,6 +15,7 @@ import { showShippingSettings } from "@/helpers/settingsVisibility";
 import BlDefaultsForm from "@/app/portal/shipments/_components/BlDefaultsForm";
 import DocSettingsForm from "@/app/portal/shipments/_components/DocSettingsForm";
 import EmailIntakePanel from "@/app/portal/shipments/_components/EmailIntakePanel";
+import EmailFilterForm from "@/app/portal/shipments/_components/EmailFilterForm";
 import EstimatorRatesForm from "@/app/portal/shipments/_components/EstimatorRatesForm";
 import AlertRulesForm from "@/app/portal/shipments/_components/AlertRulesForm";
 import TradeTheme from "@/app/portal/shipments/_components/TradeTheme";
@@ -75,6 +77,13 @@ export default function ShippingSettingsPage() {
             tour="settings-email-intake"
           >
             <EmailIntakePanel />
+          </Section>
+          <Section
+            title="Email filter"
+            hint="Which senders the intake keeps. Start with the trial run, check Shipments › Inbox › Filter preview for false drops, then enforce."
+            tour="settings-email-filter"
+          >
+            <EmailFilterForm />
           </Section>
         </Stack>
       </Box>

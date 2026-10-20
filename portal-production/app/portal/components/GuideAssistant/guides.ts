@@ -262,7 +262,7 @@ export const GUIDES: Guide[] = [
     title: 'Make the month\'s orders (Shipments)',
     module: 'SHIPMENTS',
     description:
-      'How to create the month\'s orders from scratch with "+ New monthly order" on Shipments → Orders: pick the ship month, then one row per customer × contract × grade × size × quantity — saving makes one order per row (delivery = +2 months, premiums from the contract). The Orders list is grouped by ship month. A Vedanta PI-table email in the Inbox then fills the PI no. / amount on those orders. NOT for a single order (use New Order).',
+      'How to create the month\'s orders from scratch with "+ New monthly order" on Shipments → Orders: pick the ship month, then one row per customer × contract × grade × size × quantity — saving makes one order per row (delivery = +2 months, premiums from the contract). The Orders list is a flat list (newest ship month first) with a Ship month filter. A Vedanta PI-table email in the Inbox then fills the PI no. / amount on those orders. NOT for a single order (use New Order).',
     route: '/portal/shipments',
     steps: [
       {
@@ -272,9 +272,9 @@ export const GUIDES: Guide[] = [
         body: 'Pick the ship month, then a row per customer + contract + grade + size + quantity (SUS 6063 300 t, SUS 6005 120 t, Kato 6063 40 t…). Premiums come from the contract for that month unless typed.',
       },
       {
-        selector: '[data-tour="orders-month-header"]',
-        title: 'Grouped by month',
-        body: 'Each ship month has a header ("Sep 2026 — 4 orders, 600 MT"); click it to fold the month away.',
+        selector: '[data-tour="orders-progress-bar"]',
+        title: 'Progress per order',
+        body: 'One segment per step that applies (N/A steps hidden): green done, orange in progress, red overdue, grey not started — with the current step and "9/14". Hover an order with several shipments to see each one\'s bar. Filter by Ship month from the filter button.',
         patient: true,
       },
     ],
@@ -335,6 +335,34 @@ export const GUIDES: Guide[] = [
     ],
   },
   {
+    id: 'trade-email-filter',
+    title: 'Choose which senders the email intake keeps (Shipments)',
+    module: 'SHIPMENTS',
+    description:
+      'Settings → Shipping → "Email filter": Off / Trial run / Enforce plus the allowed sender domains and addresses (and notes). In the trial run every email is still kept and Shipments › Inbox › "Filter preview" shows what would be dropped (from-domain + subject only), with "false drop" on shipment mail — add those senders before switching to Enforce. A shipment key in the subject / an attachment name and replies on a matched thread are always kept. This is a setting, not an upload.',
+    route: '/portal/settings/shipping',
+    steps: [
+      {
+        route: '/portal/settings/shipping',
+        selector: '[data-tour="settings-email-filter"]',
+        title: 'Email filter',
+        body: 'Trial run first: nothing is dropped, the filter only records what it would do. Enforce drops failing mail before it is stored.',
+      },
+      {
+        selector: '[data-tour="settings-email-filter-domains"]',
+        title: 'Allowed domains',
+        body: 'One domain per line (vedanta.co.in, mitsui-soko.co.jp…). For someone writing from gmail.com add their address on the right, never the whole domain. Save.',
+      },
+      {
+        route: '/portal/shipments/inbox',
+        selector: '[data-tour="inbox-filter-preview"]',
+        title: 'Filter preview',
+        body: 'What the filter kept / would drop in the last 30 days. Rows marked "false drop" are shipment mail it would lose — fix the allow-list before enforcing.',
+        patient: true,
+      },
+    ],
+  },
+  {
     id: 'trade-credit-note',
     title: 'Use a credit note on the next invoice (Shipments)',
     module: 'SHIPMENTS',
@@ -364,10 +392,10 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'trade-home-alerts',
-    title: 'My tasks and the pipeline (Shipments)',
+    title: 'My tasks and money (Shipments)',
     module: 'SHIPMENTS',
     description:
-      'The Shipments Home page: "My tasks today" reminders (import tax funding, arrival notices, free time, due dates, stuck steps), the pipeline grid per delivery month, and — for ADH managers — cash by month, open credits and margin / profit. Reminder rules are in Settings → Shipping → Alerts.',
+      'The Shipments Home page: "My tasks today" reminders (import tax funding, arrival notices, free time, due dates, stuck steps) and — for ADH managers — cash by month, open credits and margin / profit. Reminder rules are in Settings → Shipping → Alerts.',
     route: '/portal/shipments/dashboard',
     steps: [
       {
@@ -375,11 +403,6 @@ export const GUIDES: Guide[] = [
         selector: '[data-tour="my-tasks"]',
         title: 'My tasks today',
         body: 'Reminders due now and in the next 3 days. ✓ marks one done; ✕ dismisses it until its date moves (e.g. the ETA changes).',
-      },
-      {
-        selector: '[data-tour="pipeline-grid"]',
-        title: 'Pipeline',
-        body: 'Like the Excel: per delivery month a column per order and a row per step — green done, orange in progress, red overdue, grey N/A. Click an order to open it.',
       },
       {
         selector: '[data-tour="manager-money"]',

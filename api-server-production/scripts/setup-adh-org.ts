@@ -39,6 +39,7 @@ import { DEFAULT_DOCUMENT_TEMPLATES } from '../src/organizations/default-templat
 import { DEFAULT_ORG_FEATURES } from '../src/organizations/default-features';
 import { MODULE_CATALOG } from '../src/configuration/module-catalog';
 import { DEFAULT_KEEP_DOMAINS } from '../src/ingestion-email/email-triage.rules';
+import { ADH_FILTER_ALLOW_DOMAINS as FILTER_ALLOW_DOMAINS, ADH_FILTER_NOTES as FILTER_NOTES } from '../src/ingestion-email/email-filter.rules';
 import { checkTemplatePlan, type TemplateRow } from './lib/template-resolution';
 import { backfillOrders } from '../src/shipments/trade-orders-backfill';
 import { copyPaymentsToSteps, foldSupplierOrders, moveInvoice2ToOrder } from '../src/shipments/trade-one-process';
@@ -188,6 +189,9 @@ const EMAIL_INTAKE = { enabled: true, routingMode: 'STORE', watchedSenders: [] a
 // 2026-10 (after the hand review of the 18 prod suggestions): prod moves to PARTIAL_AUTO — an email is applied by
 // itself only when the guards hold (email-match.rules.ts); dev stays AUTO.
 const intakeModeFor = (isProd: boolean) => (isProd ? 'PARTIAL_AUTO' : 'AUTO');
+// Sender filter (2026-10): SHADOW first (decide + log, keep everything) — ENFORCE only after the backtest's false
+// drops are fixed. Domains seen sending / receiving in ADH's stored intake mail are "seen"; the carriers' sending
+// domains not seen yet are marked "unverified"; parties without a known domain are noted "add when known".
 /** Modes the script moves on to the wanted one; anything else chosen in the app is left alone. */
 const intakeMovesFrom = (isProd: boolean) => (isProd ? ['STORE', 'TRIAGE'] : ['STORE']);
 
@@ -195,6 +199,7 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableActionLog: true,
   enableConfirmQuotation: false, // keeps quotation confirm from auto-creating Orders
   enableTradeLegacyPages: false, // round H: Declaration / Payments / Stock / Supplier orders pages hidden
+  enableTradePipelineGrid: false, // round K: Home's pipeline grid hidden (Orders list progress bars instead)
 };
 
 const NUMBER_FORMATS = [
@@ -1127,6 +1132,29 @@ async function main() {
       });
     }
     write('emailIntake', `${curIntake ? 'update' : 'create'} EmailIngestConfig enabled, routingMode ${curIntake?.routingMode ?? '—'} → ${wantMode}${curIntake ? '' : ', all senders'}`);
+  }
+  // Sender filter: the allow-list seeded when empty (edited in Settings → Shipping → Email filter), notes filled
+  // per key, and OFF → SHADOW (a SHADOW / ENFORCE chosen in the app is left alone).
+  {
+    const cur = curIntake as { allowDomains?: string[]; filterMode?: string; filterNotes?: Record<string, string> | null } | null;
+    const data: Record<string, unknown> = {};
+    const notes = { ...FILTER_NOTES, ...((cur?.filterNotes as Record<string, string> | null) ?? {}) };
+    if (!cur?.allowDomains?.length) data.allowDomains = FILTER_ALLOW_DOMAINS;
+    if (JSON.stringify(notes) !== JSON.stringify(cur?.filterNotes ?? {})) data.filterNotes = notes;
+    if (!cur?.filterMode || cur.filterMode === 'OFF') data.filterMode = 'SHADOW';
+    if (Object.keys(data).length) {
+      if (APPLY) await org.emailIngestConfig.update({ where: { organizationId: orgId }, data });
+      write(
+        'emailFilter',
+        [
+          data.allowDomains ? `allow ${FILTER_ALLOW_DOMAINS.length} domains (${FILTER_ALLOW_DOMAINS.join(', ')})` : null,
+          data.filterNotes ? `notes: ${Object.entries(FILTER_NOTES).map(([k, v]) => `${k} = ${v}`).join('; ')}` : null,
+          data.filterMode ? `filterMode ${cur?.filterMode ?? 'OFF'} → SHADOW` : null,
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      );
+    } else info(`sender filter ${cur?.filterMode} — ${cur?.allowDomains?.length ?? 0} allowed domains (left as set in the app)`);
   }
 
   // ── 10. Master files ──────────────────────────────────────────────────────

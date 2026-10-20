@@ -69,6 +69,61 @@ export function pipelineGrid(orders: PipelineOrder[]): { rows: Array<{ no: strin
   return { rows: PIPELINE_ROWS.map((no) => ({ no, title: titles.get(no) ?? '' })), months };
 }
 
+/**
+ * The Orders list's progress bar (round K): one segment per applicable step, in step order — N/A and
+ * ongoing steps hidden — coloured like the pipeline grid (cellState). A step that exists on several
+ * records (an order with shipments #19-1, #19-2) is one segment, done only when all are. Pure.
+ */
+export type SegmentState = 'done' | 'in_progress' | 'overdue' | 'not_started';
+export interface ProgressSegment {
+  no: string;
+  title: string;
+  state: SegmentState;
+}
+export interface ProgressBar {
+  segments: ProgressSegment[];
+  done: number;
+  total: number;
+}
+
+type SegStep = StepLike & { recordId: string; sortOrder?: number | null };
+const segKey = (s: StepLike) => (s.displayNo ?? '').trim() || s.code;
+/** "3a" → [3, "a"]; no number → after the numbered ones. */
+const segRank = (no: string): [number, string] => {
+  const m = /^(\d+)([a-z]*)/i.exec(no);
+  return m ? [Number(m[1]), m[2].toLowerCase()] : [Number.MAX_SAFE_INTEGER, no];
+};
+
+export function progressBar(steps: SegStep[], overdueRecords: Set<string>): ProgressBar {
+  const groups = new Map<string, { steps: SegStep[]; minSort: number }>();
+  for (const s of steps) {
+    if (s.isOngoing) continue;
+    const k = segKey(s);
+    const g = groups.get(k) ?? { steps: [], minSort: Number.MAX_SAFE_INTEGER };
+    g.steps.push(s);
+    g.minSort = Math.min(g.minSort, s.sortOrder ?? Number.MAX_SAFE_INTEGER);
+    groups.set(k, g);
+  }
+  const segments: ProgressSegment[] = [];
+  const ordered = [...groups.entries()].sort(([a, ga], [b, gb]) => {
+    const [na, la] = segRank(a);
+    const [nb, lb] = segRank(b);
+    return na - nb || la.localeCompare(lb) || ga.minSort - gb.minSort;
+  });
+  for (const [no, g] of ordered) {
+    const state = cellState(g.steps, overdueRecords);
+    if (state === 'na' || state === 'none') continue;
+    segments.push({ no: /^\d/.test(no) ? no : '', title: g.steps[0].title, state });
+  }
+  return { segments, done: segments.filter((x) => x.state === 'done').length, total: segments.length };
+}
+
+/** "Step 7 · Customs documents & tax estimate" (the step's own number when it has one). */
+export function stepBarLabel(step: { title: string; displayNo?: string | null } | null): string | null {
+  if (!step) return null;
+  return step.displayNo ? `Step ${step.displayNo} · ${step.title}` : step.title;
+}
+
 /** Cash by month: { "2026-07": { in: { USD: 1 }, out: { USD: 2, JPY: 3 } } }. */
 export function cashByMonth(payments: Array<{ direction: string; paidAt: Date; currency: string; amount: number }>) {
   const out: Record<string, { in: Record<string, number>; out: Record<string, number> }> = {};

@@ -35,6 +35,14 @@ export class EmailInboxController {
     return { id: u?.id ?? null, name: [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || u?.emailAddresses?.[0]?.emailAddress || null };
   }
 
+  @Get('filter-preview')
+  @Permissions('shipments:read')
+  @ApiOperation({ summary: "Sender filter preview: what the filter kept / would drop in the last N days (from-domain + subject only)." })
+  filterPreview(@Query('days') days: string | undefined, @Req() req: Req2) {
+    const n = Number(days);
+    return this.triage.filterPreview(this.org(req), Number.isInteger(n) && n > 0 && n <= 90 ? n : 30);
+  }
+
   @Get('stats')
   @Permissions('shipments:read')
   @ApiOperation({ summary: 'Accept-rate over the last N days (default 30): accepted as-is, changed, rejected, ignored, auto-applied.' })

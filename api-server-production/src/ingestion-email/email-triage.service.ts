@@ -882,6 +882,40 @@ export class EmailTriageService {
   }
 
   /**
+   * Sender filter preview (SHADOW): the rows the filter would drop — and how many it keeps — over the last `days`.
+   * Only the from-domain and the subject's first 60 characters are shown (email content is untrusted data).
+   */
+  async filterPreview(organizationId: string, days = 30) {
+    const since = new Date(Date.now() - days * 86_400_000);
+    const rows: Array<{ id: string; createdAt: Date; fromAddress: string; subject: string | null; verdict: string | null; inboxState: string | null; filterVerdict: string | null; filterReason: string | null }> =
+      await this.prisma.emailIngestLog.findMany({
+        where: { organizationId, createdAt: { gte: since }, filterVerdict: { not: null } },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+        select: { id: true, createdAt: true, fromAddress: true, subject: true, verdict: true, inboxState: true, filterVerdict: true, filterReason: true },
+      });
+    const dropped = rows.filter((r) => r.filterVerdict === 'DROP');
+    return {
+      days,
+      kept: rows.length - dropped.length,
+      dropped: dropped.length,
+      // Would-drop first (newest first), then the kept ones.
+      items: [...dropped, ...rows.filter((r) => r.filterVerdict !== 'DROP')].map((r) => ({
+        id: r.id,
+        filterVerdict: r.filterVerdict as 'KEEP' | 'DROP',
+        date: r.createdAt,
+        fromDomain: (/@([^>\s]+)/.exec(r.fromAddress ?? '')?.[1] ?? '').toLowerCase().replace(/[>;,]+$/, '') || '—',
+        subject: (r.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 60),
+        verdict: r.verdict,
+        inboxState: r.inboxState,
+        reason: r.filterReason,
+        /** A shipment / unsure email the filter would drop: a false drop to fix before ENFORCE. */
+        falseDrop: r.filterVerdict === 'DROP' && (r.verdict === 'SHIPMENT' || r.verdict === 'UNSURE'),
+      })),
+    };
+  }
+
+  /**
    * Accept-rate over the last `days`: emails a person accepted as suggested, changed the order of, rejected (not
    * shipment) or ignored, and the ones applied by themselves — how we decide when to widen auto.
    */

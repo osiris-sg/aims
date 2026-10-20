@@ -17,6 +17,10 @@ export type StepStatus = "NOT_STARTED" | "IN_PROGRESS" | "DONE" | "SKIPPED";
 export type Num = number | string | null;
 
 export type Progress = { done: number; total: number };
+/** The Orders list's segmented bar (round K): one segment per applicable step, N/A hidden. */
+export type SegmentState = "done" | "in_progress" | "overdue" | "not_started";
+export type ProgressBar = { segments: Array<{ no: string; title: string; state: SegmentState }>; done: number; total: number };
+export type ListBar = ProgressBar & { label: string | null };
 /** First non-ongoing step not done; null = every step done. */
 export type CurrentStep = { code: string; title: string; position: number; displayNo?: string | null; label: string } | null;
 
@@ -85,6 +89,15 @@ export type EmailIntake = { address: string | null; addressNote: string | null; 
 export type InboxTab = "SUGGESTED" | "UNMATCHED" | "PROCESSED" | "UNSURE";
 export type InboxCandidate = { orderId: string; shipmentId: string | null; ref: string; score: number; reasons: string[] };
 export type InboxTarget = { orderId?: string | null; shipmentId?: string | null; attachmentIndexes?: number[] };
+/** Sender filter (Settings → Shipping → Email filter; SHADOW = decide + log, keep everything). */
+export type EmailFilterMode = "OFF" | "SHADOW" | "ENFORCE";
+export type EmailFilter = { filterMode: EmailFilterMode; allowDomains: string[]; allowAddresses: string[]; filterNotes: Record<string, string> };
+export type FilterPreview = {
+  days: number;
+  kept: number;
+  dropped: number;
+  items: Array<{ id: string; filterVerdict: "KEEP" | "DROP"; date: string; fromDomain: string; subject: string; verdict: string | null; inboxState: string | null; reason: string | null; falseDrop: boolean }>;
+};
 export type InboxStats = { days: number; AUTO: number; ACCEPTED: number; CHANGED: number; REJECTED: number; IGNORED: number; reviewed: number; acceptedAsIsPct: number | null };
 export type IntakeAction = {
   kind: "file" | "field" | "subtask";
@@ -476,6 +489,7 @@ export type OrderShipmentRow = {
   status: RecordStatus;
   progress: Progress;
   currentStep: CurrentStep;
+  bar?: ListBar;
 };
 export type OrderListItem = {
   id: string;
@@ -506,6 +520,7 @@ export type OrderListItem = {
   shipments: OrderShipmentRow[];
   progress: Progress;
   currentStep: CurrentStep;
+  bar?: ListBar;
 };
 export type Order = OrderListItem & {
   tolPct: Num;
@@ -573,7 +588,7 @@ export type OrderInput = Partial<{
   contractFileId: string;
   status: "CANCELLED";
 }>;
-export type OrderFilters = { bucket?: "pending" | "completed"; customerId?: string; contractId?: string; q?: string; page?: number; pageSize?: number };
+export type OrderFilters = { bucket?: "pending" | "completed"; customerId?: string; contractId?: string; shipMonth?: string; q?: string; page?: number; pageSize?: number };
 /** Orders list month headers ("Sep 2026 — 4 orders, 600 MT"), counted over the whole filtered list. */
 export type OrderMonth = { month: string | null; orders: number; qtyMt: number | null; label: string };
 /** "+ New monthly order": one order per row. */
@@ -1567,6 +1582,9 @@ export function useShipmentsApi() {
       inboxPreview: (id: string, targets: InboxTarget[]) => call<{ planned: IntakeAction[] }>(`/email-inbox/${id}/preview`, "POST", { targets }),
       inboxIgnore: (id: string) => call<InboxRow>(`/email-inbox/${id}/ignore`, "POST"),
       inboxStats: (days = 30) => call<InboxStats>(`/email-inbox/stats${qs({ days })}`),
+      inboxFilterPreview: (days = 30) => call<FilterPreview>(`/email-inbox/filter-preview${qs({ days })}`),
+      getEmailFilter: () => call<EmailFilter>(`/email-intake/filter`),
+      updateEmailFilter: (body: Partial<EmailFilter>) => call<EmailFilter>(`/email-intake/filter`, "PATCH", body),
       inboxUndo: (id: string) => call<InboxRow>(`/email-inbox/${id}/undo`, "POST"),
       inboxDismiss: (id: string) => call<{ id: string; purged: boolean }>(`/email-inbox/${id}/dismiss`, "POST"),
       inboxRetriage: (id: string) => call<InboxRow>(`/email-inbox/${id}/retriage`, "POST"),
