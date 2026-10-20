@@ -83,6 +83,9 @@ export type EmailIntake = { address: string | null; addressNote: string | null; 
 
 /** Shipments → Inbox: a triaged intake email (GET /email-inbox). */
 export type InboxTab = "SUGGESTED" | "UNMATCHED" | "PROCESSED" | "UNSURE";
+export type InboxCandidate = { orderId: string; shipmentId: string | null; ref: string; score: number; reasons: string[] };
+export type InboxTarget = { orderId?: string | null; shipmentId?: string | null; attachmentIndexes?: number[] };
+export type InboxStats = { days: number; AUTO: number; ACCEPTED: number; CHANGED: number; REJECTED: number; IGNORED: number; reviewed: number; acceptedAsIsPct: number | null };
 export type IntakeAction = {
   kind: "file" | "field" | "subtask";
   status: "planned" | "done" | "skipped" | "undone";
@@ -90,6 +93,10 @@ export type IntakeAction = {
   filename?: string;
   docType?: string;
   ownerKind?: "order" | "shipment" | "supplierOrder";
+  ownerId?: string;
+  attachmentIndex?: number;
+  /** A step of the record takes this type (auto guard e). */
+  stepOk?: boolean;
   field?: string;
   value?: string;
   label?: string;
@@ -102,6 +109,18 @@ export type InboxRow = {
   supplierOrderResults?: Array<{ contractNo: string; piNo: string | null; orderId?: string | null; orderLabel?: string | null; supplierOrderId?: string | null; action: string; reason?: string }>;
   /** Subject words that disagree with the match ("grade 6005 ≠ 6063") — "check". */
   check?: string[];
+  /** exact (a record key) · thread (an accepted email of the thread) · cues (the subject only) · manual · none. */
+  confidence?: string | null;
+  /** Which guard kept it a suggestion ("b: B/L … only in the body"). */
+  blocked?: string[];
+  /** The picker's top 3. */
+  candidates?: InboxCandidate[];
+  /** A multi-order email: the orders it touches. */
+  multiOrderIds?: string[];
+  targets?: InboxTarget[];
+  review?: { outcome: "AUTO" | "ACCEPTED" | "CHANGED" | "REJECTED" | "IGNORED"; at: string; by: string | null } | null;
+  /** "B/L 198GX04630" — applied by itself (PARTIAL_AUTO). */
+  autoLabel?: string | null;
   id: string;
   date: string;
   receivedAt: string;
@@ -1544,7 +1563,10 @@ export function useShipmentsApi() {
       // ── Email inbox (triage → process) ─────────────────────────────────
       inbox: (tab: InboxTab) => call<{ items: InboxRow[]; counts: Record<InboxTab, number> }>(`/email-inbox${qs({ tab })}`),
       inboxAccept: (id: string) => call<InboxRow>(`/email-inbox/${id}/accept`, "POST"),
-      inboxAssign: (id: string, body: { orderId?: string | null; shipmentId?: string | null }) => call<InboxRow>(`/email-inbox/${id}/assign`, "POST", body),
+      inboxAssign: (id: string, body: { orderId?: string | null; shipmentId?: string | null; targets?: InboxTarget[]; accept?: boolean }) => call<InboxRow>(`/email-inbox/${id}/assign`, "POST", body),
+      inboxPreview: (id: string, targets: InboxTarget[]) => call<{ planned: IntakeAction[] }>(`/email-inbox/${id}/preview`, "POST", { targets }),
+      inboxIgnore: (id: string) => call<InboxRow>(`/email-inbox/${id}/ignore`, "POST"),
+      inboxStats: (days = 30) => call<InboxStats>(`/email-inbox/stats${qs({ days })}`),
       inboxUndo: (id: string) => call<InboxRow>(`/email-inbox/${id}/undo`, "POST"),
       inboxDismiss: (id: string) => call<{ id: string; purged: boolean }>(`/email-inbox/${id}/dismiss`, "POST"),
       inboxRetriage: (id: string) => call<InboxRow>(`/email-inbox/${id}/retriage`, "POST"),

@@ -234,7 +234,7 @@ export const GUIDES: Guide[] = [
     title: 'Check the email inbox (Shipments)',
     module: 'SHIPMENTS',
     description:
-      'How the shipments email intake works: Shipments → Inbox lists the forwarded emails the AI matched to orders / shipments — accept suggestions, assign unmatched ones, undo, or delete mail that is not about a shipment.',
+      'How the shipments email intake works: Shipments → Inbox lists the emails matched to orders / shipments — accept suggestions, "Change order…" to pick the right shipment(s) with a preview, ignore, undo, or delete mail that is not about a shipment. In PARTIAL AUTO an email is filed by itself only when its own B/L / PI / CI is in the subject or an attachment and nothing contradicts it ("Auto · B/L …").',
     route: '/portal/shipments/inbox',
     steps: [
       {
@@ -247,6 +247,12 @@ export const GUIDES: Guide[] = [
         selector: '[data-tour="inbox-table"]',
         title: 'Each email',
         body: 'Date, sent / received, who it is with, the subject, the order / shipment it matched and what it does. Click a row for the details.',
+        patient: true,
+      },
+      {
+        selector: '[data-tour="inbox-change-order"]',
+        title: 'Change order…',
+        body: 'Wrong or missing order? "Change order…" shows the best 3 matches with why, and a search over every shipment. Pick one (or several, assigning each attachment), check the preview, then Accept. "Ignore" keeps an email without filing anything.',
         patient: true,
       },
     ],

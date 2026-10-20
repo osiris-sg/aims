@@ -10,6 +10,9 @@
  * data, and nothing it asks for is done.
  */
 
+import { blCore } from '../shipments/trade-customs';
+import { validCiNo, validContractNo } from './email-match.rules';
+
 export type Verdict = 'SHIPMENT' | 'NOT_SHIPMENT' | 'UNSURE';
 export type Direction = 'IN' | 'OUT';
 export const COUNTERPARTIES = ['VEDANTA', 'SUS', 'KATO', 'HOEI', 'MITSUI_SOKO', 'SHIPPING_LINE', 'INTERNAL', 'OTHER'] as const;
@@ -41,6 +44,8 @@ export const TRIAGE_DOC_TYPES: Record<string, string | null> = {
   VENDOR_INVOICE: 'VENDOR_INVOICE',
   BUNDLE_LIST: 'BUNDLE_LIST',
   DELIVERY_SCHEDULE: 'DELIVERY_SCHEDULE',
+  /** Mitsui Soko's 納品明細 (what was delivered — step 14 evidence). */
+  DELIVERY_NOTE: 'DELIVERY_NOTE',
   /** Vedanta's Excel packing list / COA summary: their own step 3b rows (step 4 is made from them). */
   PL_XLS: 'PL_XLS',
   COA_XLS: 'COA_XLS',
@@ -173,7 +178,7 @@ export function keysByPattern(text: string): Partial<TriageKeys> {
   if (pi) out.piNo = pi;
   const bl = /(\d{3}[A-Z]{2}\d{5})(?!\d)/.exec(t)?.[1];
   if (bl) out.blNo = bl;
-  const ci = /\b(9000\d{6})\b/.exec(t)?.[1];
+  const ci = /\b(9000\d{6}|XP\d{10})\b/.exec(t)?.[1];
   if (ci) out.ciNo = ci;
   const ref = /(\d{1,2}月納入\s*\d{4}\s*[ー\-－]\s*\d+(?:\.\d+)?\s*[tT])/.exec(t)?.[1];
   if (ref) out.orderRef = ref;
@@ -183,7 +188,22 @@ export function keysByPattern(text: string): Partial<TriageKeys> {
 export function mergeKeys(ai: TriageKeys | null, pattern: Partial<TriageKeys>): TriageKeys {
   const base = { ...EMPTY_KEYS, ...(ai ?? {}) };
   for (const [k, v] of Object.entries(pattern)) if (v) (base as Record<string, string | null>)[k] = v;
-  return base;
+  return sanitizeKeys(base);
+}
+
+/**
+ * Keys in their real formats only (prod review): a CI no. in a supplier format (never ADH20260928-… or a
+ * carrier's debit-note no. YOK-…), a contract no. 4540xxxxx (never a B/L such as 22AA198GX06003), a B/L as its
+ * core (22AA / BE prefixes stripped).
+ */
+export function sanitizeKeys(k: TriageKeys, ciPatterns?: string[]): TriageKeys {
+  const bl = k.blNo ? blCore(k.blNo) : null;
+  return {
+    ...k,
+    ciNo: validCiNo(k.ciNo, ciPatterns),
+    contractNo: validContractNo(k.contractNo),
+    blNo: bl && (/^\d{3}[A-Z]{2}\d{5,}$/.test(bl) || /^[A-Z]{4}\d{6,}$/.test(bl) || /^\d{9}$/.test(bl)) ? bl : null,
+  };
 }
 
 /** Subject without reply / forward prefixes, lower case — the thread fallback key. */
@@ -336,7 +356,7 @@ SHIPMENT = about a specific purchase / shipment (PI, contract, B/L, shipping doc
 export const SUPPLIER_ORDER_DOC_TYPES = new Set(['PI', 'CONTRACT', 'DEPOSIT_PROOF']);
 
 export interface KnownSenderHit {
-  rule: 'WANHAI_AN' | 'MITSUI_BUNDLE_LIST' | 'MITSUI_DELIVERY_DETAILS' | 'IMPORT_PERMIT' | 'VEDANTA_DECLARATION' | 'VEDANTA_COPY_DOCS';
+  rule: 'WANHAI_AN' | 'MITSUI_BUNDLE_LIST' | 'MITSUI_DELIVERY_DETAILS' | 'IMPORT_PERMIT' | 'VEDANTA_DECLARATION' | 'VEDANTA_COPY_DOCS' | 'CARRIER_CHARGES';
   counterparty?: Counterparty;
   blNo?: string | null;
   /** filename → triage doc type (overrides the AI). */
@@ -392,16 +412,24 @@ export function knownSender(e: { from: string; subject: string | null; attachmen
     const lists = e.attachments.filter((a) => /\.(csv|xlsx?|pdf)$/i.test(a.name));
     return { rule: 'MITSUI_BUNDLE_LIST', counterparty: 'MITSUI_SOKO', attachmentTypes: Object.fromEntries(lists.map((a) => [a.name, 'BUNDLE_LIST'])), forbidTypes: ['CUSTOMER_PL'] };
   }
-  // Mitsui Soko's 納品明細 (also forwarded by the customer): the warehouse's list, never a customer PL.
+  // Mitsui Soko's 納品明細 (also forwarded by the customer, as "10/19 朝 ビレット 納品明細" with 2958.pdf / 88.pdf):
+  // the delivery note — DELIVERY_NOTE every time, never a customer PL.
   const detailFiles = e.attachments.filter((a) => /納品明細/.test(a.name.normalize('NFC')) && /\.(csv|xlsx?|pdf)$/i.test(a.name));
-  if (detailFiles.length || (/納品明細/.test(subject.normalize('NFC')) && /@(.+\.)?mitsui-soko\.co\.jp$/i.test(from))) {
+  if (detailFiles.length || /納品明細/.test(subject.normalize('NFC'))) {
     const files = detailFiles.length ? detailFiles : e.attachments.filter((a) => /\.(csv|xlsx?|pdf)$/i.test(a.name));
     return {
       rule: 'MITSUI_DELIVERY_DETAILS',
       ...(/mitsui-soko/i.test(from) ? { counterparty: 'MITSUI_SOKO' as Counterparty } : {}),
-      attachmentTypes: Object.fromEntries(files.map((a) => [a.name, mitsuiListType(a.name, a.text)])),
+      attachmentTypes: Object.fromEntries(files.map((a) => [a.name, 'DELIVERY_NOTE'])),
       forbidTypes: ['CUSTOMER_PL', 'CUSTOMER_COA'],
     };
+  }
+  // A carrier's / Mitsui's debit note, detention or washing charge: their invoice (step 12) — never a CI.
+  const carrier = /@(.+\.)?(mitsui-soko\.co\.jp|wanhai\.com|maersk\.com|msc\.com|sitc\.(com|co\.jp)|evergreen-line\.com|ekmtc\.com|rclgroup\.com)$/i.test(from);
+  const charge = /debit\s*note|debitnote|detention|demurrage|washing|洗浄|デマレージ|ディテンション/i;
+  if (carrier && (charge.test(subject) || e.attachments.some((a) => charge.test(a.name)))) {
+    const files = e.attachments.filter((a) => /\.(pdf|xlsx?|csv)$/i.test(a.name));
+    return { rule: 'CARRIER_CHARGES', attachmentTypes: Object.fromEntries(files.map((a) => [a.name, 'VENDOR_INVOICE'])), forbidTypes: ['CI', 'PAYMENT_PROOF'] };
   }
   const permitFiles = e.attachments.filter((a) => /輸入許可/.test(a.name.normalize('NFC')));
   if (/輸入許可/.test(subject.normalize('NFC')) || permitFiles.length) {

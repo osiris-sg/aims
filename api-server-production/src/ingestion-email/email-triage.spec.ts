@@ -252,7 +252,7 @@ function makeDb() {
   return { t, prisma };
 }
 
-function setup(mode: 'AUTO' | 'TRIAGE' = 'AUTO') {
+function setup(mode: 'AUTO' | 'TRIAGE' | 'PARTIAL_AUTO' = 'AUTO') {
   const { t, prisma } = makeDb();
   t.emailIngestConfig[0].routingMode = mode;
   const store = new Map<string, Buffer>();
@@ -320,7 +320,14 @@ function setup(mode: 'AUTO' | 'TRIAGE' = 'AUTO') {
     const triaged = await triage.triage(ORG, logId);
     return { r, triaged, logId };
   };
-  return { t, s3, store, files, steps, triage, uploads, receive, scheduled, actionLog };
+  /** A hand-made email (no .eml): what the worker posts, with an AI answer. */
+  const receiveRaw = async (p: { subject: string; text: string; from?: string; messageId: string; inReplyTo?: string; ai: unknown; attachments?: Array<{ filename: string; contentType: string; contentBase64: string }> }) => {
+    (triage.ai as jest.Mock).mockImplementationOnce(async () => p.ai);
+    const r = await ingest.handleInbound({ from: p.from ?? 'ops@mitsui-soko.co.jp', to: `docs+${ORG}@inbound.osiris.sg`, subject: p.subject, text: p.text, messageId: p.messageId, date: 'Tue, 20 Oct 2026 10:14:00 +0900', inReplyTo: p.inReplyTo, attachments: p.attachments ?? [] } as any);
+    const logId = (r as any).logId as string;
+    return { logId, triaged: await triage.triage(ORG, logId) };
+  };
+  return { t, s3, store, files, steps, triage, uploads, receive, receiveRaw, scheduled, actionLog };
 }
 
 describe('email intake fixtures — AUTO mode', () => {
@@ -361,7 +368,8 @@ describe('email intake fixtures — AUTO mode', () => {
     const { triaged, logId } = await x.receive('outbound-kato-invoice');
     expect(triaged.inboxState).toBe('UNMATCHED');
     expect(x.t.emailIngestLog.find((l) => l.id === logId)).toMatchObject({ direction: 'OUT', counterparty: 'KATO' });
-    const row = await x.triage.assign(ORG, logId, { shipmentId: 's-20-1' });
+    // "Change order…" re-plans for the picked shipment; Accept (accept: true) does it.
+    const row = await x.triage.assign(ORG, logId, { shipmentId: 's-20-1', accept: true });
     expect(row.inboxState).toBe('PROCESSED');
     expect(x.uploads).toEqual([expect.objectContaining({ docType: 'INVOICE_SINGLE', stepId: 's-20-1:INVOICE_2' })]);
     expect(x.t.tradeStep.find((s) => s.id === 's-20-1:INVOICE_2')!.subtasks[0]).toMatchObject({ key: 'sent', done: true, source: 'EMAIL' });
@@ -496,6 +504,69 @@ describe('TRIAGE mode: suggestions, accept, undo', () => {
     expect(log.inboxState).toBe('PURGED');
     expect(await (x.triage as any).keptThread(ORG, 'x', 'RE: Feedback from SUS(ADH)')).toBe('thread with VEDANTA');
     expect(await (x.triage as any).keptThread(ORG, 'x', 'Weekly metals digest')).toBeNull();
+  });
+});
+
+describe('PARTIAL_AUTO, the order picker, multi-shipment emails, thread follow, accept rate', () => {
+  const shipmentAi = (keys: Record<string, unknown> = {}) => ({ verdict: 'SHIPMENT', direction: 'IN', counterparty: 'MITSUI_SOKO', keys, attachments: [], suggestedSteps: [] });
+
+  it('PARTIAL_AUTO: the B/L in the subject, nothing contradicting, no other order → applied by itself ("Auto · B/L …"), Undo kept', async () => {
+    const x = setup('PARTIAL_AUTO');
+    const { triaged, logId } = await x.receive('vedanta-copy-documents');
+    expect(triaged.inboxState).toBe('PROCESSED');
+    const row = await x.triage.row(ORG, logId);
+    expect(row).toMatchObject({ autoLabel: 'B/L 198GX04630', review: { outcome: 'AUTO' }, canUndo: true, confidence: 'exact' });
+    expect(x.uploads).toHaveLength(5);
+  });
+
+  it('PARTIAL_AUTO: a B/L only in the quoted body stays a suggestion (guard b)', async () => {
+    const x = setup('PARTIAL_AUTO');
+    const { triaged, logId } = await x.receiveRaw({ subject: 'Re: 通関・国内輸送について', text: 'ありがとうございます。\n\n> On Mon: B/L 198GX04630 の件', messageId: '<b1@x>', ai: shipmentAi({ blNo: '198GX04630' }) });
+    expect(triaged.inboxState).toBe('SUGGESTED');
+    const row = await x.triage.row(ORG, logId);
+    expect(row.matched).toBe('#11-1');
+    expect(row.blocked).toContainEqual(expect.stringMatching(/^b:/));
+    expect(x.uploads).toHaveLength(0);
+  });
+
+  it('"Change order…" previews the plan for the picked shipments; a multi-order email splits its attachments; Accept files them (CHANGED)', async () => {
+    const x = setup('TRIAGE');
+    const { logId } = await x.receive('vedanta-copy-documents');
+    const targets = [
+      { shipmentId: 's-11-1', attachmentIndexes: [0, 1, 2] },
+      { shipmentId: 's-20-1', attachmentIndexes: [3, 4] },
+    ];
+    const pv = await x.triage.preview(ORG, logId, targets);
+    const files = pv.planned.filter((a: any) => a.kind === 'file' && a.status === 'planned');
+    expect(files.map((a: any) => `${a.attachmentIndex}:${a.ownerId}`)).toEqual(['0:s-11-1', '1:s-11-1', '2:s-11-1', '3:s-20-1', '4:s-20-1']);
+    expect(x.uploads).toHaveLength(0); // a preview saves nothing
+    const done = await x.triage.assign(ORG, logId, { targets, accept: true }, { id: 'u1', name: 'Sayaka' });
+    expect(done.inboxState).toBe('PROCESSED');
+    expect(done.review).toMatchObject({ outcome: 'CHANGED', by: 'Sayaka' });
+    expect(x.uploads.map((u) => u.shipmentIds[0])).toEqual(['s-11-1', 's-11-1', 's-11-1', 's-20-1', 's-20-1']);
+  });
+
+  it('thread follow: once accepted, a reply without keys is suggested to the same shipment ("thread") — never applied by itself', async () => {
+    const x = setup('PARTIAL_AUTO');
+    const first = await x.receiveRaw({ subject: '書類送付の件', text: 'dummy', messageId: '<t1@x>', ai: shipmentAi() });
+    expect(first.triaged.inboxState).toBe('UNMATCHED');
+    await x.triage.assign(ORG, first.logId, { shipmentId: 's-20-1', accept: true }, { id: 'u1', name: 'Sayaka' });
+    const reply = await x.receiveRaw({ subject: 'Re: 書類送付の件', text: '承知しました', messageId: '<t2@x>', inReplyTo: '<t1@x>', ai: shipmentAi() });
+    expect(reply.triaged.inboxState).toBe('SUGGESTED');
+    expect(await x.triage.row(ORG, reply.logId)).toMatchObject({ matched: '#20-1', confidence: 'thread' });
+  });
+
+  it('accept rate: accepted as-is, changed, ignored, rejected and auto are counted', async () => {
+    const x = setup('TRIAGE');
+    const a = await x.receive('vedanta-copy-documents');
+    await x.triage.accept(ORG, a.logId, { id: 'u1', name: 'Sayaka' });
+    const b = await x.receiveRaw({ subject: 'Re: 予定', text: 'dummy', messageId: '<s1@x>', ai: shipmentAi() });
+    await x.triage.ignore(ORG, b.logId, { id: 'u1', name: 'Sayaka' });
+    const c = await x.receiveRaw({ subject: 'Re: 予定2', text: 'dummy', messageId: '<s2@x>', ai: shipmentAi() });
+    await x.triage.dismiss(ORG, c.logId, { id: 'u1', name: 'Sayaka' });
+    const st = await x.triage.stats(ORG, 30);
+    expect(st).toMatchObject({ ACCEPTED: 1, IGNORED: 1, REJECTED: 1, CHANGED: 0, AUTO: 0, reviewed: 2, acceptedAsIsPct: 50 });
+    expect((await x.triage.row(ORG, b.logId)).inboxState).toBe('PROCESSED');
   });
 });
 

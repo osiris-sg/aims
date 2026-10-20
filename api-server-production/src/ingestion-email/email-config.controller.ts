@@ -74,7 +74,7 @@ export class EmailConfigController {
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean);
     }
-    if (body.routingMode !== undefined) data.routingMode = ['FIXED', 'STORE', 'TRIAGE', 'AUTO'].includes(body.routingMode) ? body.routingMode : 'AI'; // STORE = keep only; TRIAGE / AUTO = shipments intake (email-triage.service.ts)
+    if (body.routingMode !== undefined) data.routingMode = ['FIXED', 'STORE', 'TRIAGE', 'PARTIAL_AUTO', 'AUTO'].includes(body.routingMode) ? body.routingMode : 'AI'; // STORE = keep only; TRIAGE / AUTO = shipments intake (email-triage.service.ts)
     if (body.defaultDocType !== undefined) {
       data.defaultDocType = body.defaultDocType === 'BILL' || body.defaultDocType === 'INVOICE' ? body.defaultDocType : null;
     }

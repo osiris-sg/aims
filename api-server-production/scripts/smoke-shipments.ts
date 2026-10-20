@@ -735,7 +735,7 @@ async function main() {
           {
             const tableLme = (settingsNow.docDefaults as any)?.lmeByMonth?.[(g.header as any)?.lmeMonth ?? ''] ?? null;
             const u = unitPriceOf(rs[0]);
-            (tableLme === null ? u === null && rs[0].lme === null : Number(rs[0].lme) === tableLme && u !== null && u > tableLme ? pass : fail)(
+            ((tableLme === null ? u === null && rs[0].lme === null : Number(rs[0].lme) === tableLme && u !== null && u > tableLme) ? pass : fail)(
               'INVOICE_2: the LME prefills from the org LME table for the shipment month (no unit price without an LME)',
               `lme ${rs[0].lme} unit ${u}`,
             );

@@ -70,7 +70,7 @@ interface IngestRule {
 interface IngestConfig {
   enabled: boolean;
   watchedSenders: string[];
-  routingMode: "AI" | "FIXED" | "STORE" | "TRIAGE" | "AUTO";
+  routingMode: "AI" | "FIXED" | "STORE" | "TRIAGE" | "PARTIAL_AUTO" | "AUTO";
   defaultDocType: "BILL" | "INVOICE" | null;
   rules: IngestRule[];
   aiGuidance: string;
@@ -136,7 +136,7 @@ const STATUS_CHIP_COLOR: Record<string, "success" | "default" | "error" | "info"
 const normalizeConfig = (raw: any): IngestConfig => ({
   enabled: Boolean(raw?.enabled),
   watchedSenders: Array.isArray(raw?.watchedSenders) ? raw.watchedSenders.filter((s: any) => typeof s === "string") : [],
-  routingMode: ["FIXED", "STORE", "TRIAGE", "AUTO"].includes(raw?.routingMode) ? raw.routingMode : "AI",
+  routingMode: ["FIXED", "STORE", "TRIAGE", "PARTIAL_AUTO", "AUTO"].includes(raw?.routingMode) ? raw.routingMode : "AI",
   defaultDocType: raw?.defaultDocType === "BILL" || raw?.defaultDocType === "INVOICE" ? raw.defaultDocType : null,
   rules: Array.isArray(raw?.rules)
     ? raw.rules
@@ -404,13 +404,14 @@ export default function EmailIngestionTab({ organizationId }: { organizationId: 
       </Typography>
       <RadioGroup
         value={config.routingMode}
-        onChange={(e) => patch({ routingMode: ["FIXED", "STORE", "TRIAGE", "AUTO"].includes(e.target.value) ? (e.target.value as IngestConfig["routingMode"]) : "AI" })}
+        onChange={(e) => patch({ routingMode: ["FIXED", "STORE", "TRIAGE", "PARTIAL_AUTO", "AUTO"].includes(e.target.value) ? (e.target.value as IngestConfig["routingMode"]) : "AI" })}
         sx={{ mb: 1 }}
       >
         <FormControlLabel value="AI" control={<Radio />} label="Let AI decide Bill vs Invoice per document (recommended)" />
         <FormControlLabel value="FIXED" control={<Radio />} label="Always create the same type" />
         <FormControlLabel value="STORE" control={<Radio />} label="Store only — keep each email and its attachments, create nothing" />
         <FormControlLabel value="TRIAGE" control={<Radio />} label="Shipments intake: TRIAGE — AI sorts each email; shipment mail is matched and suggested in Shipments → Inbox (accept by hand)" />
+        <FormControlLabel value="PARTIAL_AUTO" control={<Radio />} label="Shipments intake: PARTIAL AUTO — files an email by itself only when one order's B/L / PI / CI is in its subject or an attachment, nothing contradicts it and no other order is named; everything else is a suggestion (undoable)" />
         <FormControlLabel value="AUTO" control={<Radio />} label="Shipments intake: AUTO — as TRIAGE, and matched documents are filed on the order / shipment straight away (undoable)" />
       </RadioGroup>
       {config.routingMode === "FIXED" && (

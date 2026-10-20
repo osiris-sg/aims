@@ -15,6 +15,11 @@
  * --rematch re-runs only the MATCHING (no AI call) on SHIPMENT emails left Unmatched — e.g. after
  * orders were imported — and says why the rest still don't match.
  *
+ * --rematch-all (2026-10, guarded matching): re-runs the MATCHING with today's rules (no AI call) on every
+ * Suggested + Unmatched + Unsure email that hasn't done anything yet — attachments re-typed by the known-sender
+ * rules, keys re-validated — and prints a table: subject (60) · old match → new match · confidence · would-auto
+ * (yes / which guard blocked). Never auto-applies. Saves only with --apply-rematch (else it is a dry run).
+ *
  * --verdict=UNSURE re-runs the triage on emails left UNSURE (still stored, nothing
  * done from them yet) — e.g. after the intake rules change.
  *
@@ -43,6 +48,8 @@ const DRY = process.argv.includes('--dry-run');
 const LIMIT = arg('limit') ? Math.max(1, Number(arg('limit'))) : Infinity;
 const REDO = arg('verdict');
 const REMATCH = process.argv.includes('--rematch');
+const REMATCH_ALL = process.argv.includes('--rematch-all');
+const APPLY_REMATCH = process.argv.includes('--apply-rematch');
 if (REDO && REDO !== 'UNSURE') throw new Error('--verdict takes UNSURE only');
 const ADH = /^Asia Deal Hub Japan/i;
 const PAUSE_MS = 2000;
@@ -62,6 +69,11 @@ async function main() {
   if (!org || !ADH.test(org.name)) throw new Error(`refusing: ${ORG} is not the ADH org (${org?.name ?? 'not found'})`);
   console.log(`org: ${org.name} · mode: ${DRY ? 'DRY RUN' : 'RUN'}${Number.isFinite(LIMIT) ? ` · limit ${LIMIT}` : ''}`);
 
+  if (REMATCH_ALL) {
+    await runAsOrg(ORG, () => rematchAll(prisma, triage, app.get(ActionLogService)));
+    await app.close();
+    return;
+  }
   if (REMATCH) {
     await runAsOrg(ORG, () => rematch(prisma, triage, app.get(ActionLogService)));
     await app.close();
@@ -186,3 +198,46 @@ main()
     process.exitCode = 1;
   })
   .finally(() => setTimeout(() => process.exit(), 200));
+
+/** Guarded re-match of Suggested + Unmatched + Unsure emails; a table of old → new; saved only with --apply-rematch (never auto-applied). */
+async function rematchAll(prisma: PrismaService, triage: EmailTriageService, actionLog: ActionLogService) {
+  const rows: Array<{ id: string; fromAddress: string; subject: string | null; inboxState: string | null; orderId: string | null; shipmentId: string | null; actions: any }> = await prisma.emailIngestLog.findMany({
+    where: { organizationId: ORG!, inboxState: { in: ['SUGGESTED', 'UNMATCHED', 'UNSURE'] } },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, fromAddress: true, subject: true, inboxState: true, orderId: true, shipmentId: true, actions: true },
+  });
+  const counts = rows.reduce<Record<string, number>>((m, r) => ({ ...m, [r.inboxState ?? '?']: (m[r.inboxState ?? '?'] ?? 0) + 1 }), {});
+  console.log(`${rows.length} email(s) to re-match (${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(' · ')}) · ${APPLY_REMATCH ? 'APPLY (saved; never auto-applied)' : 'DRY RUN (nothing saved)'}\n`);
+  const ref = async (orderId: string | null | undefined, shipmentId: string | null | undefined) => {
+    if (shipmentId) {
+      const s = await prisma.shipment.findFirst({ where: { id: shipmentId }, select: { seqNo: true, order: { select: { orderNo: true } } } });
+      return s ? `#${s.order?.orderNo ?? '?'}-${s.seqNo ?? '?'}` : '?';
+    }
+    if (orderId) return `#${(await prisma.tradeOrder.findFirst({ where: { id: orderId }, select: { orderNo: true } }))?.orderNo ?? '?'}`;
+    return '—';
+  };
+  const lines: string[] = [];
+  let changed = 0;
+  let auto = 0;
+  for (const [i, r] of rows.entries()) {
+    try {
+      const out = await triage.rematchStored(ORG!, r.id, APPLY_REMATCH);
+      const before = await ref(r.orderId, r.shipmentId);
+      const t = out.targets[0];
+      const multi = out.decision.multiOrderIds.length > 1 ? ` (+${out.decision.multiOrderIds.length - 1} more)` : '';
+      const after = t ? `${await ref(t.orderId, t.shipmentId)}${multi}` : out.decision.multiOrderIds.length ? `multi: ${(await Promise.all(out.decision.multiOrderIds.map((o) => ref(o, null)))).join(', ')}` : '—';
+      if (before !== after) changed++;
+      if (out.wouldAuto) auto++;
+      const fields = out.plan.filter((a) => a.kind === 'field').map((a) => `${a.status === 'planned' ? 'fill' : 'skip'} ${a.field}`).join(', ');
+      const why = out.wouldAuto ? 'yes' : `no — ${out.blocked[0] ?? 'no match'}`;
+      lines.push(
+        `${String(i + 1).padStart(2)}. [${(r.inboxState ?? '').slice(0, 9).padEnd(9)}] ${subject60(r.subject).padEnd(60)} | ${before.padEnd(8)} → ${after.padEnd(14)} | ${out.decision.confidence.padEnd(6)} | auto: ${why}${out.decision.check.length ? ` | check: ${out.decision.check.join('; ').slice(0, 120)}` : ''}${fields ? ` | ${fields}` : ''}`,
+      );
+      if (APPLY_REMATCH) actionLog.system('email-rematch', 'TRIAGE', 'EmailIngestLog', { organizationId: ORG!, resourceId: r.id, details: { before, after, confidence: out.decision.confidence } });
+    } catch (e) {
+      lines.push(`${String(i + 1).padStart(2)}. [${r.inboxState}] ${subject60(r.subject)} | FAILED: ${String((e as Error)?.message ?? e).slice(0, 120)}`);
+    }
+  }
+  console.log(lines.join('\n'));
+  console.log(`\n${rows.length} re-matched · ${changed} with a different match · ${auto} would auto-apply under PARTIAL_AUTO (none applied by this run)`);
+}

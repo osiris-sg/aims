@@ -10,7 +10,7 @@
 // Row click opens the details (keys found, planned / done actions); actions
 // are in the row's ⋮ menu.
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Menu, MenuItem, Paper, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, TextField, Typography } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import CallReceivedIcon from "@mui/icons-material/CallReceived";
@@ -44,14 +44,17 @@ export default function InboxPage() {
   const [open, setOpen] = useState<InboxRow | null>(null);
   const [assign, setAssign] = useState<InboxRow | null>(null);
   const [confirm, setConfirm] = useState<{ row: InboxRow; act: "undo" | "dismiss" } | null>(null);
-  const act = useTradeMutation((a, v: { id: string; act: "accept" | "undo" | "dismiss" | "retriage" }): Promise<unknown> =>
-    v.act === "accept" ? a.inboxAccept(v.id) : v.act === "undo" ? a.inboxUndo(v.id) : v.act === "dismiss" ? a.inboxDismiss(v.id) : a.inboxRetriage(v.id),
+  const act = useTradeMutation((a, v: { id: string; act: "accept" | "undo" | "dismiss" | "retriage" | "ignore" }): Promise<unknown> =>
+    v.act === "accept" ? a.inboxAccept(v.id) : v.act === "undo" ? a.inboxUndo(v.id) : v.act === "dismiss" ? a.inboxDismiss(v.id) : v.act === "ignore" ? a.inboxIgnore(v.id) : a.inboxRetriage(v.id),
   );
-  const run = async (row: InboxRow, what: "accept" | "undo" | "dismiss" | "retriage") => {
+  const stats = useQuery({ queryKey: ["trade-inbox", "stats"], queryFn: () => api.inboxStats(30), staleTime: 60_000 });
+  const run = async (row: InboxRow, what: "accept" | "undo" | "dismiss" | "retriage" | "ignore") => {
     try {
       await act.mutateAsync({ id: row.id, act: what });
-      toast.success(what === "accept" ? "Done — documents filed" : what === "undo" ? "Undone — back to Suggested" : what === "dismiss" ? "Removed (not shipment mail)" : "Triaged again");
-      await q.refetch();
+      toast.success(
+        what === "accept" ? "Done — documents filed" : what === "undo" ? "Undone — back to Suggested" : what === "dismiss" ? "Removed (not shipment mail)" : what === "ignore" ? "Ignored — kept, nothing filed" : "Triaged again",
+      );
+      await Promise.all([q.refetch(), stats.refetch()]);
     } catch (e: any) {
       toast.error(e?.message || "Could not do that");
     }
@@ -67,6 +70,12 @@ export default function InboxPage() {
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Emails sent to the intake address, sorted by AI. Mail that isn&apos;t about a shipment is deleted at once; nothing an email says is followed — only its documents and numbers are used.
       </Typography>
+      {stats.data && (stats.data.reviewed > 0 || stats.data.AUTO > 0) && (
+        // How we decide when to widen auto: accepted as suggested vs changed / rejected, and what applied by itself.
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }} data-tour="inbox-accept-rate">
+          Last {stats.data.days} days: {stats.data.acceptedAsIsPct ?? "—"}% accepted as-is · auto {stats.data.AUTO} · changed {stats.data.CHANGED} · rejected {stats.data.REJECTED}
+        </Typography>
+      )}
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }} variant="scrollable" allowScrollButtonsMobile data-tour="inbox-tabs">
         {TABS.map((t) => (
           <Tab key={t.value} value={t.value} label={`${t.label}${counts ? ` (${counts[t.value] ?? 0})` : ""}`} sx={{ textTransform: "none" }} />
@@ -117,7 +126,22 @@ export default function InboxPage() {
                       </Typography>
                     </TableCell>
                     <TableCell>
-                      {r.matched ? <Chip size="small" color="primary" variant="outlined" label={`${r.matched}${r.matchedBy ? ` · ${r.matchedBy}` : ""}`} /> : "—"}
+                      {r.review?.outcome === "AUTO" && r.autoLabel ? (
+                        <Chip size="small" color="success" variant="outlined" label={`Auto · ${r.autoLabel}`} title={r.matched ?? ""} sx={{ mr: 0.5 }} data-tour="inbox-auto" />
+                      ) : null}
+                      {r.matched ? (
+                        <Chip
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                          label={`${r.matched}${r.confidence === "thread" ? " · thread" : r.confidence === "cues" ? " · subject only" : r.matchedBy && r.matchedBy !== "manual" ? ` · ${r.matchedBy}` : ""}`}
+                          title={(r.blocked ?? []).join("\n")}
+                        />
+                      ) : (r.multiOrderIds?.length ?? 0) > 1 ? (
+                        <Chip size="small" color="warning" variant="outlined" label={`${r.multiOrderIds!.length} orders — pick`} />
+                      ) : (
+                        "—"
+                      )}
                       {!!r.check?.length && (
                         <Chip size="small" color="warning" variant="outlined" label="check" title={`The subject disagrees with this match: ${r.check.join("; ")}`} sx={{ ml: 0.5 }} data-tour="inbox-check" />
                       )}
@@ -139,6 +163,11 @@ export default function InboxPage() {
                       {r.inboxState === "SUGGESTED" && (
                         <Button size="small" variant="contained" disabled={act.isPending} onClick={() => void run(r, "accept")}>
                           Accept
+                        </Button>
+                      )}
+                      {!r.canUndo && r.inboxState !== "PROCESSED" && (
+                        <Button size="small" onClick={() => setAssign(r)} data-tour="inbox-change-order">
+                          Change order…
                         </Button>
                       )}
                       <IconButton size="small" aria-label="Email actions" onClick={(e) => setMenu({ pos: { left: e.clientX, top: e.clientY }, row: r })}>
@@ -169,7 +198,18 @@ export default function InboxPage() {
               setMenu(null);
             }}
           >
-            Assign to order / shipment…
+            Change order…
+          </MenuItem>
+        )}
+        {menu && !menu.row.canUndo && menu.row.inboxState !== "PROCESSED" && (
+          <MenuItem
+            onClick={() => {
+              const r = menu!.row;
+              setMenu(null);
+              void run(r, "ignore");
+            }}
+          >
+            Ignore (keep, file nothing)
           </MenuItem>
         )}
         {menu && !menu.row.canUndo && (
@@ -191,7 +231,7 @@ export default function InboxPage() {
               setMenu(null);
             }}
           >
-            Not shipment mail — delete
+            Not a shipment — delete
           </MenuItem>
         )}
       </Menu>
@@ -254,10 +294,10 @@ export default function InboxPage() {
         </DialogActions>
       </Dialog>
 
-      <AssignDialog
+      <PickerDialog
         row={assign}
         onClose={() => setAssign(null)}
-        onAssigned={async () => {
+        onDone={async () => {
           setAssign(null);
           await q.refetch();
         }}
@@ -279,51 +319,161 @@ export default function InboxPage() {
   );
 }
 
-function AssignDialog({ row, onClose, onAssigned }: { row: InboxRow | null; onClose: () => void; onAssigned: () => void }) {
-  const orders = useOrders({ bucket: "pending", pageSize: 100 }, !!row);
-  const ships = useShipments({ status: "OPEN", pageSize: 100 }, !!row);
-  const options = useMemo(
-    () => [
-      ...(ships.data?.items ?? []).map((s) => ({ kind: "shipment" as const, id: s.id, label: `${s.ref || "Shipment"} · B/L ${s.blNumber || "pending"}${s.customerName ? ` · ${s.customerName}` : ""}` })),
-      ...(orders.data?.items ?? []).map((o) => ({ kind: "order" as const, id: o.id, label: `Order ${o.label} · ${o.customerName ?? ""} · ${o.productLabel}` })),
-    ],
-    [orders.data, ships.data],
-  );
-  const [pick, setPick] = useState<(typeof options)[number] | null>(null);
-  const save = useTradeMutation((a, v: { id: string; body: { orderId?: string; shipmentId?: string } }) => a.inboxAssign(v.id, v.body));
+/**
+ * "Change order…": the top 3 candidates first (with why), then search every order / shipment (#n-seq · customer ·
+ * B/L · product · qty · ETA). Pick one — or several for an email about more than one shipment, each attachment then
+ * assigned to one of them. The preview shows what would be filed and filled; Accept does it.
+ */
+function PickerDialog({ row, onClose, onDone }: { row: InboxRow | null; onClose: () => void; onDone: () => void }) {
+  const api = useShipmentsApi();
+  const orders = useOrders({ pageSize: 100 }, !!row);
+  const ships = useShipments({ pageSize: 100 }, !!row);
+  type Opt = { key: string; orderId: string; shipmentId: string | null; label: string; group: string };
+  const options: Opt[] = useMemo(() => {
+    const out: Opt[] = [];
+    for (const s of ships.data?.items ?? []) {
+      if (s.status === "CANCELLED" || !s.orderId) continue;
+      out.push({
+        key: `s:${s.id}`,
+        orderId: s.orderId,
+        shipmentId: s.id,
+        group: "Shipments",
+        label: [s.ref || "Shipment", s.customerName, s.blNumber ? `B/L ${s.blNumber}` : "B/L pending", s.productLine, s.eta ? `ETA ${fmtDateTime(s.eta).slice(0, 10)}` : null].filter(Boolean).join(" · "),
+      });
+    }
+    for (const o of orders.data?.items ?? []) if (!o.shipmentCount) out.push({ key: `o:${o.id}`, orderId: o.id, shipmentId: null, group: "Orders without a shipment", label: [o.label, o.customerName, o.productLabel].filter(Boolean).join(" · ") });
+    return out;
+  }, [orders.data, ships.data]);
+  const optOf = (orderId: string, shipmentId: string | null) => options.find((o) => o.orderId === orderId && o.shipmentId === shipmentId) ?? options.find((o) => o.orderId === orderId);
+  const [picked, setPicked] = useState<Opt[]>([]);
+  const [assignOf, setAssignOf] = useState<Record<number, string>>({});
+  const [plan, setPlan] = useState<InboxRow["planned"] | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!row) return;
+    setPicked([]);
+    setAssignOf({});
+    setPlan(null);
+  }, [row]);
+  // Each attachment goes to one picked shipment (default: the first).
+  const body = picked.map((p) => ({
+    orderId: p.orderId,
+    shipmentId: p.shipmentId,
+    ...(picked.length > 1 && row ? { attachmentIndexes: row.attachments.map((a) => a.index).filter((i) => (assignOf[i] ?? picked[0].key) === p.key) } : {}),
+  }));
+  const sig = JSON.stringify(body);
+  useEffect(() => {
+    if (!row || !picked.length) return setPlan(null);
+    let live = true;
+    api
+      .inboxPreview(row.id, body)
+      .then((r) => live && setPlan(r.planned))
+      .catch(() => live && setPlan(null));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row?.id, sig]);
+  const save = async (accept: boolean) => {
+    setBusy(true);
+    try {
+      await api.inboxAssign(row!.id, { targets: body, accept });
+      toast.success(accept ? "Done — documents filed" : "Order changed — review and accept");
+      onDone();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not change the order");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const cands = (row?.candidates ?? []).filter((c) => optOf(c.orderId, c.shipmentId));
   return (
-    <Dialog open={!!row} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Assign “{row?.subject ?? ""}”</DialogTitle>
-      <DialogContent dividers>
-        <Autocomplete
-          options={options}
-          value={pick}
-          onChange={(_, v) => setPick(v)}
-          groupBy={(o) => (o.kind === "shipment" ? "Shipments" : "Orders")}
-          getOptionLabel={(o) => o.label}
-          isOptionEqualToValue={(a, b) => a.id === b.id}
-          renderInput={(p) => <TextField {...p} label="Order or shipment" size="small" />}
-        />
-        <Typography variant="caption" color="text.secondary">
-          Its documents are then filed there (in AUTO mode right away; otherwise as a suggestion to accept).
-        </Typography>
+    <Dialog open={!!row} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>Change order — “{row?.subject ?? ""}”</DialogTitle>
+      <DialogContent dividers data-tour="inbox-picker">
+        <Stack spacing={2}>
+          {cands.length > 0 && (
+            <Box>
+              <Typography variant="overline" color="text.secondary">
+                Best matches
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {cands.map((c) => {
+                  const o = optOf(c.orderId, c.shipmentId)!;
+                  const on = picked.some((p) => p.key === o.key);
+                  return (
+                    <Chip
+                      key={o.key}
+                      color={on ? "primary" : "default"}
+                      variant={on ? "filled" : "outlined"}
+                      label={`${c.ref}${c.reasons.length ? ` — ${c.reasons.join(", ")}` : ""}`}
+                      onClick={() => setPicked((ps) => (on ? ps.filter((p) => p.key !== o.key) : [...ps, o]))}
+                    />
+                  );
+                })}
+              </Stack>
+            </Box>
+          )}
+          <Autocomplete
+            multiple
+            options={options}
+            value={picked}
+            onChange={(_, v) => setPicked(v)}
+            groupBy={(o) => o.group}
+            getOptionLabel={(o) => o.label}
+            isOptionEqualToValue={(a, b) => a.key === b.key}
+            filterSelectedOptions
+            renderInput={(p) => <TextField {...p} label="Order / shipment (search #, customer, B/L, product)" size="small" />}
+          />
+          {picked.length > 1 && row && row.attachments.length > 0 && (
+            <Box>
+              <Typography variant="overline" color="text.secondary">
+                Which shipment each attachment goes to
+              </Typography>
+              {row.attachments.map((a) => (
+                <Stack key={a.index} direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+                  <Typography variant="body2" sx={{ flex: 1, wordBreak: "break-all" }}>
+                    {a.name}
+                  </Typography>
+                  <TextField select size="small" value={assignOf[a.index] ?? picked[0].key} onChange={(e) => setAssignOf((m) => ({ ...m, [a.index]: e.target.value }))} sx={{ minWidth: 200 }}>
+                    {picked.map((p) => (
+                      <MenuItem key={p.key} value={p.key}>
+                        {p.label.split(" · ")[0]}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Stack>
+              ))}
+            </Box>
+          )}
+          {picked.length > 0 && (
+            <Box>
+              <Typography variant="overline" color="text.secondary">
+                Preview
+              </Typography>
+              {!plan ? (
+                <CircularProgress size={18} />
+              ) : !plan.length ? (
+                <Typography variant="body2">Nothing to file or fill for this choice.</Typography>
+              ) : (
+                plan.map((a, k) => (
+                  <Typography key={k} variant="body2" color={a.status === "skipped" ? "text.secondary" : undefined}>
+                    • {actionText(a)}
+                    {a.kind === "file" && a.ownerId ? ` → ${options.find((o) => o.shipmentId === a.ownerId || (o.orderId === a.ownerId && !o.shipmentId))?.label.split(" · ")[0] ?? ""}` : ""}
+                  </Typography>
+                ))
+              )}
+            </Box>
+          )}
+        </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button
-          variant="contained"
-          disabled={!pick || save.isPending}
-          onClick={async () => {
-            try {
-              await save.mutateAsync({ id: row!.id, body: pick!.kind === "shipment" ? { shipmentId: pick!.id } : { orderId: pick!.id } });
-              toast.success("Assigned");
-              onAssigned();
-            } catch (e: any) {
-              toast.error(e?.message || "Could not assign");
-            }
-          }}
-        >
-          Assign
+        <Button disabled={!picked.length || busy} onClick={() => void save(false)}>
+          Save as suggestion
+        </Button>
+        <Button variant="contained" disabled={!picked.length || busy} onClick={() => void save(true)}>
+          Accept
         </Button>
       </DialogActions>
     </Dialog>
