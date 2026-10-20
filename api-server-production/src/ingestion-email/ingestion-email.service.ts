@@ -13,6 +13,7 @@ import { runAsOrg } from '../common/tenancy/tenant-context';
 import { emailFolder, parseMailDate, reconstructEml, safeKeyName, StoredAttachment, StoredEmailMeta } from './email-store';
 import { EmailTriageService, hashedMessageId, ownDomainsOf } from './email-triage.service';
 import { allowListHit, filterDecision, FilterMode } from './email-filter.rules';
+import { supplierKeyPatterns } from '../shipments/trade-profile';
 import { threadKeyOf } from './email-triage.rules';
 
 // Provider-agnostic inbound payload — same shape as bills-inbound.
@@ -836,10 +837,11 @@ export class IngestionEmailService {
   private async filterFor(organizationId: string, config: { filterMode?: string | null; allowDomains?: string[] | null; allowAddresses?: string[] | null }, payload: InboundEmailPayload) {
     const mode = (config.filterMode ?? 'OFF') as FilterMode;
     if (mode !== 'SHADOW' && mode !== 'ENFORCE') return null;
-    const settings = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { docDefaults: true } }).catch(() => null);
+    const settings = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { docDefaults: true, supplierProfiles: true } }).catch(() => null);
     const ownDomains = ownDomainsOf((settings?.docDefaults as Record<string, unknown> | null) ?? null);
     const threadOrder = await this.matchedThreadOrder(organizationId, payload);
-    const cfg = { allowDomains: config.allowDomains ?? [], allowAddresses: config.allowAddresses ?? [] };
+    const sk = supplierKeyPatterns(settings?.supplierProfiles);
+    const cfg = { allowDomains: config.allowDomains ?? [], allowAddresses: config.allowAddresses ?? [], keyPatterns: [...sk.pi, ...sk.contract, ...sk.ci] };
     const threadAllowed = threadOrder ? null : await this.threadAllowedBy(organizationId, payload, cfg, ownDomains);
     const d = filterDecision(
       { from: payload.from, to: payload.headerTo ?? [], cc: payload.cc ?? [], subject: payload.subject ?? null, attachmentNames: (payload.attachments ?? []).map((a) => a.filename ?? ''), threadOrder, threadAllowed },

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 // Orders — the main tracker (Contract → Order "#19" → Shipment "#19-1"), one
@@ -15,27 +14,22 @@
 
 import React, { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Alert, Box, Button, Chip, IconButton, Menu, MenuItem, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { Alert, Box, Button, Menu, MenuItem, Tab, Tabs } from "@mui/material";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
-import MoreVertIcon from "@mui/icons-material/MoreVert";
-import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
-import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { toast } from "./_lib/toast";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
-import type { OrderListItem, OrderShipmentRow } from "./_lib/api";
+import type { OrderListItem } from "./_lib/api";
 import { useContracts, useCustomers, useOrders, useTradeMutation } from "./_lib/hooks";
-import { fmtDay, fmtMt } from "./_lib/format";
-import { ConfirmDialog, EmptyState, RecordStatusChip } from "./_components/bits";
-import ProgressBarCell from "./_components/ProgressBarCell";
+import { ConfirmDialog, EmptyState } from "./_components/bits";
+import { orderColumns, type OrderRow } from "./_components/orderColumns";
 import OrderFormDialog from "./_components/OrderFormDialog";
 import PiBulkDialog from "./_components/PiBulkDialog";
 import MonthlyOrderDialog from "./_components/MonthlyOrderDialog";
 import { monthShort } from "./_lib/format";
 import { useDebounced } from "./_components/useDebounced";
 
-/** The table's rows: the orders and (expanded) their shipments right under them. */
-type Row = ({ kind: "order" } & OrderListItem) | ({ kind: "shipment"; order: OrderListItem } & OrderShipmentRow);
+type Row = OrderRow;
 
 const orderHref = (id: string, shipmentId?: string) => `/portal/shipments/orders/${id}${shipmentId ? `?shipment=${shipmentId}` : ""}`;
 
@@ -91,123 +85,7 @@ export default function OrdersPage() {
     return out;
   }, [list.data, expanded]);
 
-  const columns = useMemo(
-    () => [
-      {
-        id: "no",
-        header: "#",
-        cell: ({ row }: any) => {
-          const r: Row = row.original;
-          if (r.kind === "order") {
-            const open = expanded.has(r.id);
-            return (
-              <Stack direction="row" alignItems="center" spacing={0.25} sx={{ whiteSpace: "nowrap" }}>
-                <IconButton
-                  size="small"
-                  aria-label={open ? "Hide shipments" : "Show shipments"}
-                  disabled={!r.shipmentCount}
-                  data-tour="orders-expand"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggle(r.id);
-                  }}
-                >
-                  {open ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}
-                </IconButton>
-                <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                  {r.label}
-                </Typography>
-              </Stack>
-            );
-          }
-          return (
-            <Typography variant="body2" sx={{ pl: 4.5, fontWeight: 600 }} color="text.secondary">
-              {r.ref}
-            </Typography>
-          );
-        },
-      },
-      {
-        id: "customer",
-        header: "Customer",
-        cell: ({ row }: any) => {
-          const r: Row = row.original;
-          return r.kind === "order" ? r.customerName || "—" : <Typography variant="body2">{r.blNumber ? `B/L ${r.blNumber}` : "B/L pending"}</Typography>;
-        },
-      },
-      {
-        id: "contract",
-        header: "Contract",
-        cell: ({ row }: any) => {
-          const r: Row = row.original;
-          return r.kind === "order" ? r.contractNo || "—" : <Typography variant="body2" color="text.secondary">{[r.vessel, r.voyageNo].filter(Boolean).join(" / ") || "Vessel —"}</Typography>;
-        },
-      },
-      {
-        id: "shipMonth",
-        header: "Ship month",
-        cell: ({ row }: any) => {
-          const r: Row = row.original;
-          return r.kind === "order" ? <Box sx={{ whiteSpace: "nowrap" }}>{r.shipMonth ? monthShort(r.shipMonth) : "—"}</Box> : null;
-        },
-      },
-      {
-        id: "months",
-        header: "Ship → delivery",
-        cell: ({ row }: any) => {
-          const r: Row = row.original;
-          // One line, never cut ("Oct 26 → Dec 26"): the column takes the width it needs.
-          return <Box sx={{ whiteSpace: "nowrap" }}>{r.kind === "order" ? r.monthsLabel || "—" : <Typography variant="body2" color="text.secondary">ETA {fmtDay(r.eta)}</Typography>}</Box>;
-        },
-      },
-      {
-        id: "product",
-        header: "Product",
-        cell: ({ row }: any) =>
-          row.original.kind === "order" ? [row.original.grade || row.original.product, row.original.size].filter(Boolean).join(" · ") || "—" : row.original.netWeightMt != null ? `${fmtMt(row.original.netWeightMt)} MT net` : "",
-      },
-      {
-        id: "qty",
-        header: "Qty (MT)",
-        cell: ({ row }: any) => (row.original.kind === "order" ? <Box sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{row.original.qtyMt != null ? fmtMt(row.original.qtyMt) : "—"}</Box> : null),
-      },
-      {
-        id: "ships",
-        header: "Shipments",
-        cell: ({ row }: any) => (row.original.kind === "order" ? <Chip size="small" variant="outlined" label={row.original.shipmentCount} /> : null),
-      },
-      {
-        id: "progress",
-        header: "Progress",
-        // Its own column, wide enough for the bar; the step label wraps instead of running into Status.
-        cell: ({ row }: any) => (
-          <Box sx={{ minWidth: 200, maxWidth: 340, py: 0.5 }}>
-            <ProgressBarCell bar={row.original.bar} shipments={row.original.kind === "order" ? row.original.shipments : undefined} />
-          </Box>
-        ),
-      },
-      { id: "status", header: "Status", cell: ({ row }: any) => <Box sx={{ whiteSpace: "nowrap" }}><RecordStatusChip status={row.original.status} /></Box> },
-      {
-        id: "actions",
-        header: "",
-        enableSorting: false,
-        cell: ({ row }: any) =>
-          row.original.kind === "order" ? (
-            <IconButton
-              size="small"
-              aria-label="Order actions"
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenu({ pos: { left: e.clientX, top: e.clientY }, row: row.original });
-              }}
-            >
-              <MoreVertIcon fontSize="small" />
-            </IconButton>
-          ) : null,
-      },
-    ],
-    [expanded],
-  );
+  const columns = useMemo(() => orderColumns({ expanded, toggle, onMenu: (e, row) => setMenu({ pos: { left: e.clientX, top: e.clientY }, row }) }), [expanded]);
 
   const filtered = !!(q || filters.contractId || filters.customerId || filters.shipMonth);
   const counts = list.data?.counts;

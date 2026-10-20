@@ -1,76 +1,89 @@
 "use client";
 
-// The Orders list's progress (round K): a segmented bar, one segment per
-// applicable step (N/A hidden), coloured like the pipeline grid — done /
-// in progress / overdue / not started — with "Step 7 · Customs documents &
-// tax estimate" and "9/14" under it. An order with several shipments shows its
-// overall bar; hovering it shows each shipment's own bar (#19-1 8/10, #19-2 6/10).
+// The Orders list's progress (round M): ONE thin continuous bar — the filled
+// part is the steps done, a small amber marker shows the step being worked on
+// (red, with a red-tinted track, when it is overdue) — the count "7/14" on the
+// same line, right side, and one line of label under it ("Step 7 of 14 ·
+// Customs docs & tax", ellipsis; the full step name in a tooltip). The
+// denominator is the order's whole process (shipment steps count as not
+// started before the first shipment). An order with several shipments shows
+// each shipment's mini bar on hover (#19-1 8/10, #19-2 6/10).
 
 import React from "react";
 import { Box, Stack, Tooltip, Typography } from "@mui/material";
-import type { ProgressBar, SegmentState } from "../_lib/api";
+import type { ListBar } from "../_lib/api";
+import { barCount, barGeometry, type BarInput } from "../_lib/progress";
 
-const SEG: Record<SegmentState, { color: string; label: string }> = {
-  done: { color: "success.main", label: "Done" },
-  in_progress: { color: "warning.main", label: "In progress" },
-  overdue: { color: "error.main", label: "Overdue" },
-  not_started: { color: "action.disabledBackground", label: "Not started" },
-};
-
-export function SegmentBar({ bar, height = 8 }: { bar: ProgressBar; height?: number }) {
-  if (!bar.total) return null;
+export function ThinBar({ bar, height = 6 }: { bar: BarInput; height?: number }) {
+  const g = barGeometry(bar);
   return (
-    <Stack direction="row" spacing="2px" sx={{ width: "100%", minWidth: 120 }} data-tour="orders-progress-bar" aria-label={`${bar.done} of ${bar.total} steps done`}>
-      {bar.segments.map((s, i) => (
-        <Box
-          key={`${s.no}-${i}`}
-          title={`${s.no ? `${s.no}. ` : ""}${s.title} — ${SEG[s.state].label}`}
-          sx={{ flex: 1, height, borderRadius: 0.5, bgcolor: SEG[s.state].color, border: s.state === "not_started" ? 1 : 0, borderColor: "divider" }}
-        />
-      ))}
-    </Stack>
+    <Box
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={bar.total}
+      aria-valuenow={bar.done}
+      data-tour="orders-progress-bar"
+      sx={{
+        display: "flex",
+        flex: 1,
+        minWidth: 0,
+        height,
+        borderRadius: height,
+        overflow: "hidden",
+        bgcolor: g.tint === "overdue" ? "rgba(211,47,47,0.18)" : "action.disabledBackground",
+      }}
+    >
+      {/* Plain flex boxes — nothing positioned: done (green), then the step being worked on (amber / red). */}
+      <Box sx={{ width: `${g.fillPct}%`, flexShrink: 0, bgcolor: "success.main" }} />
+      {g.markerPct !== null && <Box data-testid="bar-marker" sx={{ width: `${g.markerWidthPct}%`, flexShrink: 0, bgcolor: g.tint === "overdue" ? "error.main" : "warning.main" }} />}
+    </Box>
   );
 }
 
-type Shipment = { ref: string; bar?: ProgressBar & { label: string | null } };
+type Shipment = { ref: string; bar?: ListBar };
 
-export default function ProgressBarCell({ bar, shipments }: { bar?: (ProgressBar & { label: string | null }) | null; shipments?: Shipment[] }) {
+export default function ProgressBarCell({ bar, shipments }: { bar?: ListBar | null; shipments?: Shipment[] }) {
   if (!bar) return <Typography variant="body2">—</Typography>;
+  const ships = (shipments ?? []).filter((s) => s.bar && s.bar.total);
   const body = (
-    <Box sx={{ width: "100%", minWidth: 160, maxWidth: 340 }}>
-      <SegmentBar bar={bar} />
-      <Stack direction="row" spacing={1} alignItems="baseline" sx={{ mt: 0.5 }}>
-        <Typography variant="caption" sx={{ flex: 1, minWidth: 0, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.3 }}>
-          {bar.label ?? (bar.total ? "All steps done" : "No steps")}
+    <Box sx={{ width: "100%", minWidth: 0 }}>
+      <Stack direction="row" spacing={1} alignItems="center">
+        <ThinBar bar={bar} />
+        <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", flexShrink: 0 }} data-testid="bar-count">
+          {barCount(bar)}
         </Typography>
-        {bar.total > 0 && (
-          <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-            {bar.done}/{bar.total}
-          </Typography>
-        )}
       </Stack>
+      <Tooltip title={bar.title ?? ""} disableHoverListener={!bar.title || ships.length >= 2} placement="bottom-start">
+        <Typography variant="caption" component="div" noWrap sx={{ mt: 0.25, overflow: "hidden", textOverflow: "ellipsis" }} data-testid="bar-label">
+          {bar.label ?? "—"}
+        </Typography>
+      </Tooltip>
     </Box>
   );
-  const ships = (shipments ?? []).filter((s) => s.bar && s.bar.total);
   if (ships.length < 2) return body;
   return (
     <Tooltip
       placement="bottom-start"
       title={
         <Stack spacing={1} sx={{ py: 0.5, minWidth: 220 }}>
+          {bar.title && (
+            <Typography variant="caption" sx={{ fontWeight: 700 }}>
+              {bar.title}
+            </Typography>
+          )}
           {ships.map((s) => (
             <Box key={s.ref}>
-              <Stack direction="row" spacing={1} sx={{ mb: 0.25 }}>
-                <Typography variant="caption" sx={{ fontWeight: 700, flex: 1 }}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="caption" sx={{ fontWeight: 700, width: 44 }}>
                   {s.ref}
                 </Typography>
+                <ThinBar bar={s.bar!} height={4} />
                 <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums" }}>
-                  {s.bar!.done}/{s.bar!.total}
+                  {barCount(s.bar!)}
                 </Typography>
               </Stack>
-              <SegmentBar bar={s.bar!} height={6} />
               {s.bar!.label && (
-                <Typography variant="caption" component="div" sx={{ opacity: 0.85, mt: 0.25 }}>
+                <Typography variant="caption" component="div" sx={{ opacity: 0.85, pl: 6.5 }}>
                   {s.bar!.label}
                 </Typography>
               )}

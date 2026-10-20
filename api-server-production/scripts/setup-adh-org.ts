@@ -39,13 +39,15 @@ import { DEFAULT_DOCUMENT_TEMPLATES } from '../src/organizations/default-templat
 import { DEFAULT_ORG_FEATURES } from '../src/organizations/default-features';
 import { MODULE_CATALOG } from '../src/configuration/module-catalog';
 import { DEFAULT_KEEP_DOMAINS } from '../src/ingestion-email/email-triage.rules';
+import { JudgeRow, judgeStoredRows } from '../src/ingestion-email/email-filter.judge';
+import { ownDomainsOf } from '../src/ingestion-email/email-triage.service';
 import { ADH_FILTER_ALLOW_DOMAINS as FILTER_ALLOW_DOMAINS, ADH_FILTER_NOTES as FILTER_NOTES } from '../src/ingestion-email/email-filter.rules';
 import { checkTemplatePlan, type TemplateRow } from './lib/template-resolution';
 import { backfillOrders } from '../src/shipments/trade-orders-backfill';
 import { copyPaymentsToSteps, foldSupplierOrders, moveInvoice2ToOrder } from '../src/shipments/trade-one-process';
 import { bankEntity, entityFor } from '../src/shipments/trade-entity';
 import { DEFAULT_RATES } from '../src/shipments/trade-estimator';
-import { defaultSingleRemarks, type CustomerProfile, type SupplierProfile } from '../src/shipments/trade-profile';
+import { defaultSingleRemarks, supplierKeyPatterns, type CustomerProfile, type SupplierProfile } from '../src/shipments/trade-profile';
 
 neonConfig.webSocketConstructor = ws as unknown as typeof WebSocket;
 
@@ -1134,6 +1136,8 @@ async function main() {
     write('emailIntake', `${curIntake ? 'update' : 'create'} EmailIngestConfig enabled, routingMode ${curIntake?.routingMode ?? '—'} → ${wantMode}${curIntake ? '' : ', all senders'}`);
   }
   // Sender filter: the allow-list seeded when empty (edited in Settings → Shipping → Email filter), notes filled
+  // (Round M: the filter as it stands after this step — for the 9d backfill below.)
+  let filterAfter: { mode: string; allowDomains: string[]; allowAddresses: string[] } | null = null;
   // per key, and OFF → SHADOW (a SHADOW / ENFORCE chosen in the app is left alone). Round L: single addresses from
   // --customers (emailFilterAddresses) are added to allowAddresses with their note — never printed (count only).
   {
@@ -1148,6 +1152,12 @@ async function main() {
     if (!cur?.allowDomains?.length) data.allowDomains = FILTER_ALLOW_DOMAINS;
     if (JSON.stringify(notes) !== JSON.stringify(cur?.filterNotes ?? {})) data.filterNotes = notes;
     if (!cur?.filterMode || cur.filterMode === 'OFF') data.filterMode = 'SHADOW';
+    if (curIntake)
+      filterAfter = {
+        mode: (data.filterMode as string) ?? cur?.filterMode ?? 'OFF',
+        allowDomains: (data.allowDomains as string[]) ?? cur?.allowDomains ?? [],
+        allowAddresses: (data.allowAddresses as string[]) ?? cur?.allowAddresses ?? [],
+      };
     if (Object.keys(data).length) {
       if (APPLY) await org.emailIngestConfig.update({ where: { organizationId: orgId }, data });
       write(
@@ -1167,6 +1177,33 @@ async function main() {
           .join(' · '),
       );
     } else info(`sender filter ${cur?.filterMode} — ${cur?.allowDomains?.length ?? 0} allowed domains, ${cur?.allowAddresses?.length ?? 0} address(es) (left as set in the app)`);
+  }
+
+  // 9d (round M). SHADOW backfill: emails stored before the filter went on were never judged, so Shipments ›
+  // Inbox › Filter preview showed "kept 0 · would drop 0". Judge the last 30 days of rows that still have
+  // metadata with the same rule as live intake (email-filter.judge.ts) and write ONLY filterVerdict /
+  // filterReason on rows that have none — no content, state or match changes. Purged rows are skipped.
+  if (filterAfter && filterAfter.mode !== 'OFF') {
+    const since = new Date(Date.now() - 30 * 86_400_000);
+    const rows: Array<JudgeRow & { filterVerdict: string | null }> = await orgRead(
+      () =>
+        org.emailIngestLog.findMany({
+          where: { organizationId: orgId, createdAt: { gte: since } },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, messageId: true, fromAddress: true, subject: true, inboxState: true, rawMeta: true, threadKey: true, inReplyTo: true, orderId: true, filterVerdict: true },
+        }),
+      [],
+    );
+    const ts = await orgRead(() => org.tradeSetting.findUnique({ where: { organizationId: orgId }, select: { docDefaults: true, supplierProfiles: true } }), null);
+    const sk = supplierKeyPatterns(ts?.supplierProfiles);
+    const orders: Array<{ id: string; orderNo: number }> = await orgRead(() => org.tradeOrder.findMany({ where: { organizationId: orgId }, select: { id: true, orderNo: true } }), []);
+    const judged = judgeStoredRows(rows, { allowDomains: filterAfter.allowDomains, allowAddresses: filterAfter.allowAddresses, keyPatterns: [...sk.pi, ...sk.contract, ...sk.ci] }, ownDomainsOf((ts?.docDefaults as Record<string, unknown> | null) ?? null), new Map(orders.map((o) => [o.id, o.orderNo])));
+    const todo = judged.filter((j) => !j.skipped && !rows.find((x) => x.id === j.id)?.filterVerdict);
+    if (todo.length) {
+      if (APPLY) for (const j of todo) await org.emailIngestLog.update({ where: { id: j.id }, data: { filterVerdict: j.keep ? 'KEEP' : 'DROP', filterReason: j.reason } });
+      const keep = todo.filter((j) => j.keep).length;
+      write('filterBackfill', `judge ${todo.length} stored email(s) of the last 30 days (filterVerdict / filterReason only): KEEP ${keep} · DROP ${todo.length - keep}; ${judged.filter((j) => j.skipped).length} purged row(s) skipped`);
+    } else info(`filter backfill: nothing to judge (${rows.filter((x) => x.filterVerdict).length} already judged, ${judged.filter((j) => j.skipped).length} purged)`);
   }
 
   // ── 10. Master files ──────────────────────────────────────────────────────
@@ -1207,6 +1244,8 @@ async function main() {
     write(model, `create ${code} "${c.name}" (${c.currency})${c.note ? ` — ${c.note}` : ''}`);
   };
   for (const s of SUPPLIERS) await ensureContact('supplier', s);
+  // Round M: suppliers from --customers (kept out of the repo).
+  for (const s of CUSTOMER_FILE?.suppliers ?? []) await ensureContact('supplier', { name: s.name, currency: s.currency ?? 'USD', note: s.note });
   if (!CUSTOMER_FILE) info('customer Japanese name / address / contact left as they are (pass --customers=<json> to fill them)');
   for (const c of CUSTOMERS) {
     const detail = CUSTOMER_FILE?.customers?.find((d) => d.name.toLowerCase() === c.name.toLowerCase());
@@ -1263,20 +1302,30 @@ async function main() {
   // Supplier profiles: the script's keys fill a profile; anything set in the app wins.
   const curSupProfiles = ((tsRow?.supplierProfiles as Record<string, SupplierProfile> | null) ?? {}) as Record<string, SupplierProfile>;
   const nextSupProfiles: Record<string, SupplierProfile> = { ...curSupProfiles };
-  for (const [name, seed] of Object.entries(SUPPLIER_PROFILE_SEED)) {
+  const supplierSeeds: Record<string, Omit<SupplierProfile, 'supplierId'>> = {
+    ...SUPPLIER_PROFILE_SEED,
+    ...Object.fromEntries((CUSTOMER_FILE?.suppliers ?? []).filter((x) => x.profile).map((x) => [x.name, x.profile!])),
+  };
+  for (const [name, seed] of Object.entries(supplierSeeds)) {
     const sup = orgExists ? await orgRead(() => org.supplier.findFirst({ where: { organizationId: orgId, name: { equals: name, mode: 'insensitive' } }, select: { id: true } }), null) : null;
-    if (!sup) {
+    // Dry run: a supplier this run creates gets its profile in the same (applied) run — show it as planned.
+    const newThisRun = !sup && !APPLY && (CUSTOMER_FILE?.suppliers ?? []).some((x) => x.name.toLowerCase() === name.toLowerCase());
+    if (!sup && !newThisRun) {
       info(`supplier profile for "${name}": supplier not created yet${APPLY ? '' : ' (dry run)'} — set on the next run`);
       continue;
     }
-    const cur = curSupProfiles[sup.id];
-    const merged = cur ? ({ ...seed, ...cur, supplierId: sup.id } as SupplierProfile) : ({ ...seed, supplierId: sup.id } as SupplierProfile);
+    const supId = sup?.id ?? `(new ${name})`;
+    const cur = curSupProfiles[supId];
+    const merged = cur ? ({ ...seed, ...cur, supplierId: supId } as SupplierProfile) : ({ ...seed, supplierId: supId } as SupplierProfile);
     if (cur && sameJson(cur, merged)) {
       info(`supplier profile "${seed.key}" set (PI ${merged.hasPI ? 'yes' : 'no'})`);
       continue;
     }
-    nextSupProfiles[sup.id] = merged;
-    write('supplierProfile', `${cur ? 'fill' : 'create'} ${seed.key}: PI ${merged.hasPI ? 'yes (deposit on step 1)' : 'no (step 1 N/A, CI paid in full)'}`);
+    if (sup) nextSupProfiles[sup.id] = merged;
+    write(
+      'supplierProfile',
+      `${cur ? 'fill' : 'create'} ${seed.key}: PI ${merged.hasPI ? 'yes (deposit on step 1)' : 'no (step 1 N/A, CI paid in full)'}${merged.pricingMode ? `, pricing ${merged.pricingMode}${merged.priceUnit ? ` ${merged.priceUnit}` : ''}` : ''}${merged.country ? `, ${merged.country}` : ''}${merged.loadingPort ? ` / ${merged.loadingPort}` : ''}${merged.paymentTerms ? `, ${merged.paymentTerms.advancePct}% advance / balance vs ${merged.paymentTerms.balanceAgainst}${merged.paymentTerms.balanceDays ? ` (${merged.paymentTerms.balanceDays} bank days)` : ''}` : ''}${[...(merged.piNoPatterns ?? []), ...(merged.contractNoPatterns ?? [])].length ? `, keys ${[...(merged.piNoPatterns ?? []), ...(merged.contractNoPatterns ?? [])].join(' ')}` : ''}`,
+    );
   }
   if (APPLY && orgExists && tradeReady && !sameJson(curSupProfiles, nextSupProfiles)) {
     await org.tradeSetting.upsert({
@@ -1622,6 +1671,8 @@ type CustomerFile = {
   deliveryProfiles?: Array<{ id: string; customerName: string; siteName: string; address: string; notes?: string }>;
   /** Round L: single sender addresses for the email filter's allow-list (people on gmail.com etc.) — kept out of the repo. */
   emailFilterAddresses?: Array<{ address: string; note?: string }>;
+  /** Round M: further suppliers (SIAE…) with their profile — created like the built-in ones, profile filled (app edits win). */
+  suppliers?: Array<{ name: string; currency?: string; address?: string; note?: string; profile?: Omit<SupplierProfile, 'supplierId'> }>;
 };
 /** --customers=<file>: customer details kept out of the repo (see the header). */
 function readCustomerFile(file: string): CustomerFile {

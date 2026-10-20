@@ -2,7 +2,7 @@
  * Round K: the flat Orders list (sort + Ship month filter) and its segmented progress bars
  * (N/A hidden, overdue from past-due alerts, multi-shipment = one segment per step, per-shipment bars).
  */
-import { progressBar, stepBarLabel } from './trade-dashboard';
+import { barLabel, progressBar, stepBarLabel } from './trade-dashboard';
 import { OrdersService } from './orders.service';
 
 const ORG = '222c6494-96ae-42d0-9283-1b5eabf47b42';
@@ -60,7 +60,7 @@ describe('progress bar segments', () => {
     expect(b).toMatchObject({ done: 2, total: 3 });
   });
   it('a step N/A everywhere disappears; empty → total 0', () => {
-    expect(progressBar([{ ...st('2', 'NOT_STARTED', { na: true }), recordId: 'o' }], new Set())).toEqual({ segments: [], done: 0, total: 0 });
+    expect(progressBar([{ ...st('2', 'NOT_STARTED', { na: true }), recordId: 'o' }], new Set())).toMatchObject({ segments: [], done: 0, total: 0 });
   });
   it('label "Step 7 · Customs documents & tax estimate"', () => {
     expect(stepBarLabel({ displayNo: '7', title: 'Customs documents & tax estimate' })).toBe('Step 7 · Customs documents & tax estimate');
@@ -100,6 +100,7 @@ describe('Orders list (flat)', () => {
         ]),
       },
       tradeAlert: { findMany: jest.fn().mockResolvedValue(alerts) },
+      tradeStepTemplate: { findMany: jest.fn().mockResolvedValue([]) },
     };
     return { prisma, s: new OrdersService(prisma, {} as any, {} as any) };
   };
@@ -141,7 +142,9 @@ describe('Orders list (flat)', () => {
     expect(o.bar.segments.map((x: any) => `${x.no}:${x.state}`)).toEqual(['0:done', '1:done', '3a:done', '3b:in_progress', '7:overdue', '8:not_started', '11:not_started']);
     expect(o.bar).toMatchObject({ done: 3, total: 7 });
     // The label is the order's current step as before (round H: the first open shipment's — #19-1's step 7).
-    expect(o.bar.label).toBe('Step 7 · Customs documents & tax estimate');
+    // Round M: one line "Step 7 of 7 · …" (S7 has no short name → its title); the full name in the tooltip.
+    expect(o.bar).toMatchObject({ label: 'Step 7 of 7 · Customs documents & tax estimate', title: '7. Customs documents & tax estimate' });
+    expect(barLabel(null, 7, 7).label).toBe('Done');
     expect(o.shipments[0].ref).toBe('#19-1');
     expect(o.shipments[0].bar).toMatchObject({ done: 2, total: 4, label: 'Step 7 · Customs documents & tax estimate' });
     expect(o.shipments[0].bar.segments[2].state).toBe('overdue');

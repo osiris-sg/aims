@@ -68,13 +68,13 @@ describe('keep rule', () => {
 // ── the webhook: SHADOW keeps + flags, ENFORCE drops before storage ─────────
 const ORG = '222c6494-96ae-42d0-9283-1b5eabf47b42';
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
-function makeService(config: Record<string, unknown>, threadPrior: { orderId: string } | null = null, threadRows: Array<{ fromAddress: string; rawMeta: any }> = []) {
+function makeService(config: Record<string, unknown>, threadPrior: { orderId: string } | null = null, threadRows: Array<{ fromAddress: string; rawMeta: any }> = [], supplierProfiles: unknown = {}) {
   const logs: any[] = [];
   const uploads: string[] = [];
   const prisma: any = {
     organization: { findUnique: jest.fn(async () => ({ id: ORG, name: 'ADH', registrationNumber: null })) },
     emailIngestConfig: { findUnique: jest.fn(async () => config) },
-    tradeSetting: { findUnique: jest.fn(async () => ({ docDefaults: {} })) },
+    tradeSetting: { findUnique: jest.fn(async () => ({ docDefaults: {}, supplierProfiles })) },
     tradeOrder: { findFirst: jest.fn(async () => ({ orderNo: 22 })) },
     emailIngestLog: {
       // 1st call: the purged-email dedupe (none); later: the matched-thread lookup.
@@ -128,6 +128,13 @@ describe('webhook filter modes', () => {
     expect(logs[0]).toMatchObject({ filterVerdict: 'DROP', filterReason: 'not on the allow-list (newsletter.example.com)' });
     expect(uploads.length).toBeGreaterThan(0);
     expect(triage.schedule).toHaveBeenCalled();
+  });
+  it("SHADOW (round M): a NEW arrival is judged — a supplier profile's own key (SIAE_PI_…) keeps an unknown sender", async () => {
+    const { svc, logs, uploads } = makeService({ ...BASE, filterMode: 'SHADOW' }, null, [], { 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa': { hasPI: true, piNoPatterns: ['^SIAE_PI_\\d{8}$'] } });
+    const r = await svc.handleInbound(mail({ from: 'purchasing@unknown-supplier.example', subject: 'Proforma SIAE_PI_26100906' }));
+    expect(r.ok).toBe(true);
+    expect(logs[0]).toMatchObject({ filterVerdict: 'KEEP', filterReason: 'shipment key supplier no. SIAE_PI_26100906' });
+    expect(uploads.length).toBeGreaterThan(0);
   });
   it('SHADOW: an allowed sender is flagged KEEP', async () => {
     const { svc, logs } = makeService({ ...BASE, filterMode: 'SHADOW' });

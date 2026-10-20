@@ -196,12 +196,12 @@ export function mergeKeys(ai: TriageKeys | null, pattern: Partial<TriageKeys>): 
  * carrier's debit-note no. YOK-…), a contract no. 4540xxxxx (never a B/L such as 22AA198GX06003), a B/L as its
  * core (22AA / BE prefixes stripped).
  */
-export function sanitizeKeys(k: TriageKeys, ciPatterns?: string[]): TriageKeys {
+export function sanitizeKeys(k: TriageKeys, ciPatterns?: string[], contractPatterns?: string[]): TriageKeys {
   const bl = k.blNo ? blCore(k.blNo) : null;
   return {
     ...k,
     ciNo: validCiNo(k.ciNo, ciPatterns),
-    contractNo: validContractNo(k.contractNo),
+    contractNo: validContractNo(k.contractNo, contractPatterns),
     blNo: bl && (/^\d{3}[A-Z]{2}\d{5,}$/.test(bl) || /^[A-Z]{4}\d{6,}$/.test(bl) || /^\d{9}$/.test(bl)) ? bl : null,
   };
 }

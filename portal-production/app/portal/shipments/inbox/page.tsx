@@ -50,6 +50,8 @@ export default function InboxPage() {
     v.act === "accept" ? a.inboxAccept(v.id) : v.act === "undo" ? a.inboxUndo(v.id) : v.act === "dismiss" ? a.inboxDismiss(v.id) : v.act === "ignore" ? a.inboxIgnore(v.id) : a.inboxRetriage(v.id),
   );
   const stats = useQuery({ queryKey: ["trade-inbox", "stats"], queryFn: () => api.inboxStats(30), staleTime: 60_000 });
+  // The tab label carries the filter's real counts (round M) — same query as the tab itself.
+  const preview = useQuery({ queryKey: ["trade-inbox", "filter-preview"], queryFn: () => api.inboxFilterPreview(30), staleTime: 60_000 });
   const run = async (row: InboxRow, what: "accept" | "undo" | "dismiss" | "retriage" | "ignore") => {
     try {
       await act.mutateAsync({ id: row.id, act: what });
@@ -82,7 +84,12 @@ export default function InboxPage() {
         {TABS.map((t) => (
           <Tab key={t.value} value={t.value} label={`${t.label}${counts ? ` (${counts[t.value] ?? 0})` : ""}`} sx={{ textTransform: "none" }} />
         ))}
-        <Tab value="FILTER" label="Filter preview" sx={{ textTransform: "none" }} data-tour="inbox-filter-preview" />
+        <Tab
+          value="FILTER"
+          label={`Filter preview${preview.data ? ` (kept ${preview.data.kept} · would drop ${preview.data.dropped})` : ""}`}
+          sx={{ textTransform: "none" }}
+          data-tour="inbox-filter-preview"
+        />
       </Tabs>
       {tab === "FILTER" ? (
         <FilterPreviewTab />
@@ -561,7 +568,7 @@ function FilterPreviewTab() {
   return (
     <Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-        The sender filter in its trial run (Settings → Shipping → Email filter): every email is still kept; this shows what it would drop once switched to Enforce. Last {d?.days ?? 30} days: kept {d?.kept ?? 0} · would drop {d?.dropped ?? 0}
+        The sender filter in its trial run (Settings → Shipping → Email filter): every email is still kept; this shows what it would drop once switched to Enforce. Last {d?.days ?? 30} days: <b>kept {d?.kept ?? 0}</b> · <b>would drop {d?.dropped ?? 0}</b>
         {falseDrops ? ` · ${falseDrops} of them shipment / unsure mail — add the sender to the allow-list before enforcing` : ""}.
       </Typography>
       <Stack direction="row" spacing={1} sx={{ mb: 1.5 }}>

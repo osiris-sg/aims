@@ -31,6 +31,8 @@ export interface FilterInput {
 export interface FilterConfig {
   allowDomains: string[];
   allowAddresses: string[];
+  /** Round M: suppliers' own key formats (PI / contract / CI regexes from their profiles), e.g. "^SIAE_PI_\\d{8}$". */
+  keyPatterns?: string[];
 }
 
 export interface FilterDecision {
@@ -59,11 +61,24 @@ export const addressOf = (v: unknown): string => {
 const domainOf = (addr: string) => addr.split('@')[1] ?? '';
 const underDomain = (d: string, allowed: string) => d === allowed || d.endsWith(`.${allowed}`);
 
+/** A supplier profile's anchored pattern ("^SIAE_PI_\\d{8}$") as an unanchored word-bounded search; null = bad regex. */
+const searchRe = (p: string): RegExp | null => {
+  try {
+    return new RegExp(`(?<![A-Z0-9_])${p.replace(/^\^/, '').replace(/\$$/, '')}(?![A-Z0-9_])`, 'i');
+  } catch {
+    return null;
+  }
+};
+
 /** The first shipment key in the subject / attachment names, as "B/L 198GX04630" (null = none). */
-export function shipmentKeyIn(subject: string | null, attachmentNames: string[]): string | null {
+export function shipmentKeyIn(subject: string | null, attachmentNames: string[], keyPatterns: string[] = []): string | null {
+  const extra: Array<[RegExp, string]> = keyPatterns
+    .map((p) => searchRe(p))
+    .filter((re): re is RegExp => !!re)
+    .map((re) => [re, 'supplier no.']);
   for (const text of [subject ?? '', ...attachmentNames]) {
     const t = text.normalize('NFKC');
-    for (const [re, label] of SHIPMENT_KEY_RES) {
+    for (const [re, label] of [...SHIPMENT_KEY_RES, ...extra]) {
       const m = re.exec(t);
       if (m) return `${label} ${m[0]}`;
     }
@@ -101,7 +116,7 @@ export function filterDecision(e: FilterInput, cfg: FilterConfig, ownDomains: st
   if (hitAddr) return { keep: true, reason: `allowed address ${domainOf(hitAddr)}` };
   const hitDomain = external.find((a) => cfg.allowDomains.some((d) => underDomain(domainOf(a), d.toLowerCase())));
   if (hitDomain) return { keep: true, reason: `allowed domain ${domainOf(hitDomain)}` };
-  const key = shipmentKeyIn(e.subject, e.attachmentNames);
+  const key = shipmentKeyIn(e.subject, e.attachmentNames, cfg.keyPatterns ?? []);
   if (key) return { keep: true, reason: `shipment key ${key}` };
   if (e.threadOrder) return { keep: true, reason: `thread matched to ${e.threadOrder}` };
   if (e.threadAllowed) return { keep: true, reason: `thread kept by allowed ${e.threadAllowed}` };

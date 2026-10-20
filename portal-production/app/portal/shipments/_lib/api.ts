@@ -19,8 +19,9 @@ export type Num = number | string | null;
 export type Progress = { done: number; total: number };
 /** The Orders list's segmented bar (round K): one segment per applicable step, N/A hidden. */
 export type SegmentState = "done" | "in_progress" | "overdue" | "not_started";
-export type ProgressBar = { segments: Array<{ no: string; title: string; state: SegmentState }>; done: number; total: number };
-export type ListBar = ProgressBar & { label: string | null };
+export type ProgressBar = { segments: Array<{ no: string; title: string; state: SegmentState }>; done: number; total: number; inProgress?: number; overdue?: boolean };
+/** label: one line ("Step 7 of 14 · Customs docs & tax"); title: the full step name (tooltip). */
+export type ListBar = ProgressBar & { label: string | null; title?: string | null };
 /** First non-ongoing step not done; null = every step done. */
 export type CurrentStep = { code: string; title: string; position: number; displayNo?: string | null; label: string } | null;
 

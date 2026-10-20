@@ -1261,6 +1261,12 @@ async function roundHCases(x: any) {
   (barRow?.bar && barRow.bar.total === barRow.bar.segments.length && barRow.bar.total > 0 && barRow.bar.segments.every((x: any) => ['done', 'in_progress', 'overdue', 'not_started'].includes(x.state)) && typeof barRow.bar.label === 'string'
     ? pass
     : fail)('round K: an order carries its progress bar (segments, n/total, label; no N/A segment)', barRow?.bar ? `${barRow.bar.label} ${barRow.bar.done}/${barRow.bar.total}` : 'no bar');
+  // Round M: before its first shipment an order still counts its whole process (shipment templates as not started).
+  const shipTpl = await prisma.tradeStepTemplate.count({ where: { organizationId: ORG_ID, scope: 'SHIPMENT', isActive: true, isOngoing: false } });
+  const ownSteps = await prisma.tradeStep.count({ where: { organizationId: ORG_ID, orderId: barRow?.id, isOngoing: false, notApplicable: false } });
+  (barRow && !barRow.shipmentCount && barRow.bar.total === ownSteps + shipTpl && / of \d+ · /.test(barRow.bar.label) && barRow.bar.label.length <= 60
+    ? pass
+    : fail)('round M: a 0-shipment order counts its whole process (order + shipment steps), one-line label', `${barRow?.bar?.label} ${barRow?.bar?.done}/${barRow?.bar?.total} = ${ownSteps} + ${shipTpl}`);
   await expectReject('round H: the Declaration makes nothing any more', () => supplierOrders.declare(ORG_ID, { month: '2026-08', rows: [{ customerId: customer.id, contractId: c.id, qtyMt: 1 }] }, actor), /no longer used/);
   await expectReject('round H: the Payments module takes no new payment', () => payments.create(ORG_ID, { direction: 'OUT', paidAt: '2026-08-05', amount: 1, currency: 'USD', account: 'WISE' }, actor), /recorded on the steps/);
   // Step 1's payment: amount, date, account, proof (a file on the order).

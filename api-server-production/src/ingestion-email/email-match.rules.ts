@@ -73,8 +73,22 @@ const safeRe = (p: string) => {
   }
 };
 
-/** Contract no. only in the supplier's 4540xxxxx form — never a B/L ("22AA198GX06003"). */
-export const validContractNo = (v: string | null | undefined): string | null => (/^4540\d{5}$/.test((v ?? '').trim()) ? (v as string).trim() : null);
+/** Contract no. only in a supplier's own form — Vedanta 4540xxxxx, plus a supplier profile's (SIAE_SC_xxxxxxxx) — never a B/L ("22AA198GX06003"). */
+export const DEFAULT_CONTRACT_PATTERNS = ['^4540\\d{5}$'];
+export const validContractNo = (v: string | null | undefined, patterns: string[] = DEFAULT_CONTRACT_PATTERNS): string | null => {
+  const s = (v ?? '').trim();
+  return s && patterns.some((p) => safeRe(p)?.test(s)) ? s : null;
+};
+
+/**
+ * PI no.: a supplier profile's own format (SIAE_PI_xxxxxxxx) is recognised as that supplier's key; anything else
+ * is kept as read (Vedanta's PI numbers were never validated). Returns the value and whether a pattern knew it.
+ */
+export function validPiNo(v: string | null | undefined, patterns: string[] = []): { value: string | null; known: boolean } {
+  const s = (v ?? '').trim();
+  if (!s) return { value: null, known: false };
+  return { value: s, known: patterns.some((p) => safeRe(p)?.test(s)) };
+}
 
 // ── keys ─────────────────────────────────────────────────────────────────────
 export interface KeyHit {
