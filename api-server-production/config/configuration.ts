@@ -12,6 +12,10 @@ export default () => ({
   DASHBOARD_URL: process.env.DASHBOARD_URL,
   CLERK_PUBLISHABLE_KEY: process.env.CLERK_PUBLISHABLE_KEY,
   CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
+  // Clerk production cutover (docs/clerk-cutover.md): the old instance's
+  // secret during the switch window, and an optional azp allow-list.
+  CLERK_SECRET_KEY_LEGACY: process.env.CLERK_SECRET_KEY_LEGACY,
+  CLERK_AUTHORIZED_PARTIES: process.env.CLERK_AUTHORIZED_PARTIES,
   APP_URL: process.env.APP_URL || 'http://localhost:3000',
   XERO: {
     CLIENT_ID: process.env.XERO_CLIENT_ID,

@@ -7,6 +7,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ClerkClient } from '@clerk/backend';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
+import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 
 interface UserRoleWithDetails extends UserRole {
   role: Role & {
@@ -20,6 +21,8 @@ export class UsersService {
     @Inject('ClerkClient')
     private readonly clerkClient: ClerkClient,
     private readonly prisma: PrismaService,
+    // DB user id -> Clerk user (an imported prod user's DB id is its external_id).
+    private readonly clerkIdentity: ClerkIdentityService,
   ) {}
 
   async getUsers(getUsersDto: GetUsersDto, organizationId: string) {
@@ -76,15 +79,17 @@ export class UsersService {
     });
     const profileByUser = new Map(profiles.map((p) => [p.userId, p]));
 
-    // Fetch user information from Clerk for each userId
+    // Fetch user information from Clerk: ONE batched lookup for the page's
+    // DB ids (by external_id, then id), not a getUser per user.
+    const clerkUsers = await this.clerkIdentity.toClerkUsers(Object.keys(userRolesByUserId));
     const transformedUsers = await Promise.all(
       Object.entries(userRolesByUserId).map(async ([userId, roles]: [string, UserRoleWithDetails[]]) => {
         const firstRole = roles[0];
         const profile = profileByUser.get(userId);
 
         try {
-          // Fetch user from Clerk
-          const clerkUser = await this.clerkClient.users.getUser(userId);
+          const clerkUser = clerkUsers.get(userId);
+          if (!clerkUser) throw new NotFoundException(`Clerk user not found for ${userId}`);
 
           return {
             id: userId,
@@ -318,6 +323,8 @@ export class UsersService {
     }
 
     const userId = clerkUser.id;
+    // external_id = its own id, so this user resolves like an imported one.
+    await this.clerkIdentity.stampExternalId(userId);
 
     // Ensure user is assigned to the organization
     await this.prisma.userOrganization.upsert({
@@ -412,8 +419,9 @@ export class UsersService {
     // Update user in Clerk if any profile information is provided
     let clerkUser;
     try {
-      // First, get the current user to have existing data
-      clerkUser = await this.clerkClient.users.getUser(userId);
+      // First, get the current user to have existing data (fresh: the
+      // comparisons below must not run against a cached copy).
+      clerkUser = await this.clerkIdentity.toClerkUser(userId, { fresh: true });
 
       const clerkUpdateData: any = {};
 
@@ -439,7 +447,8 @@ export class UsersService {
       // Only update if there are actual changes
       if (Object.keys(clerkUpdateData).length > 0) {
         console.log('Updating Clerk user with data:', clerkUpdateData);
-        clerkUser = await this.clerkClient.users.updateUser(userId, clerkUpdateData);
+        clerkUser = await this.clerkClient.users.updateUser(clerkUser.id, clerkUpdateData);
+        this.clerkIdentity.invalidate(userId);
       }
     } catch (error: any) {
       console.error('Error updating user in Clerk:', error);
@@ -564,7 +573,7 @@ export class UsersService {
     // tell, fail safe and keep the Clerk user.
     let clerkUser;
     try {
-      clerkUser = await this.clerkClient.users.getUser(userId);
+      clerkUser = await this.clerkIdentity.toClerkUser(userId, { fresh: true });
     } catch (error) {
       console.error(`Kept Clerk user ${userId}: could not fetch it to check for SiteClock use:`, error);
     }
@@ -573,7 +582,8 @@ export class UsersService {
       console.log(`Kept Clerk user ${userId}: also a SiteClock user`);
     } else if (clerkUser) {
       try {
-        await this.clerkClient.users.deleteUser(userId);
+        await this.clerkClient.users.deleteUser(clerkUser.id);
+        this.clerkIdentity.invalidate(userId);
       } catch (error) {
         console.error('Error deleting user from Clerk:', error);
       }

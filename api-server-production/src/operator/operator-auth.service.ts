@@ -1,7 +1,8 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { OperatorChannel, OperatorContext } from './operator.types';
+import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 
 /** Flat (not a discriminated union) — this project runs strictNullChecks:false,
  *  which disables union narrowing, so callers check `ok` and read the fields. */
@@ -31,7 +32,7 @@ export class OperatorAuthService {
     private readonly prisma: PrismaService,
     // Optional: only the impersonation lookup needs it, and the rest of this
     // service must keep working if Clerk is unreachable or unconfigured.
-    @Optional() @Inject('ClerkClient') private readonly clerk?: any,
+    @Optional() private readonly clerkIdentity?: ClerkIdentityService,
   ) {}
 
   // ── Linking ────────────────────────────────────────────────────────────────
@@ -337,11 +338,15 @@ export class OperatorAuthService {
     ]);
     const ids = [...new Set([...roles.map((r) => r.userId), ...members.map((m) => m.userId)])];
     const out: Array<{ userId: string; name: string; email: string; roles: string }> = [];
+    // DB ids -> Clerk users in one batched lookup (by external_id, then id).
+    const clerkUsers = this.clerkIdentity
+      ? await this.clerkIdentity.toClerkUsers(ids.slice(0, 40)).catch(() => new Map())
+      : new Map();
     for (const id of ids.slice(0, 40)) {
       let name = '';
       let email = '';
       try {
-        const u: any = await (this.clerk as any)?.users?.getUser(id);
+        const u: any = clerkUsers.get(id);
         name = [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.username || '';
         email =
           (u?.emailAddresses || []).find((e: any) => e.id === u?.primaryEmailAddressId)?.emailAddress ||

@@ -138,6 +138,7 @@ import {
   receiptCustomerPatch,
 } from "./OfficialReceiptSection";
 import { getDocumentListRoute, getListRouteFromPathname } from "@/app/portal/components/documentRoutes"; // co-pkg: depends on fa8351c
+import { useAimsUserId } from "@hooks/useAimsUserId";
 
 // Helper to determine the parent route based on document type
 const getParentRoute = (docType: string): string => {
@@ -835,6 +836,8 @@ export default function TabbedDocumentCreator({
     return () => { cancelled = true; };
   }, [getToken]);
   const { user } = useUser();
+  // AIMS (DB) id for matching against salesman rows; see useAimsUserId.
+  const aimsUserId = useAimsUserId();
 
   // Concurrent-edit guard. Only locks a persisted document being edited (not a
   // brand-new draft, not the template editor, not a confirmed/preview view).
@@ -1748,7 +1751,7 @@ export default function TabbedDocumentCreator({
     if (documentId || existingData?.id) return; // existing doc — never touch
     if (seededSalesRef.current) return;
     const list: any[] = Array.isArray(salesmen) ? salesmen : (salesmen as any)?.data || [];
-    const me = user?.id ? list.find((s: any) => s.userId === user.id) : undefined;
+    const me = aimsUserId ? list.find((s: any) => s.userId === aimsUserId) : undefined;
     const houseMobile = isBiofuel && isQuotation ? "9818 9200" : "";
     if (!me && !houseMobile) return;
     seededSalesRef.current = true;
@@ -1764,7 +1767,7 @@ export default function TabbedDocumentCreator({
       }
       return next;
     });
-  }, [documentId, existingData?.id, salesmen, user?.id, isBiofuel, isQuotation]);
+  }, [documentId, existingData?.id, salesmen, aimsUserId, isBiofuel, isQuotation]);
 
   // Sync documentInfo fields from existingData when it loads async
   useEffect(() => {

@@ -1,10 +1,10 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
-import { ClerkClient } from '@clerk/backend';
 import { DEFAULT_DOCUMENT_TEMPLATES } from './default-templates';
 import { DEFAULT_ORG_FEATURES } from './default-features';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
+import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 
 @Injectable()
 export class OrganizationsService {
@@ -18,8 +18,7 @@ export class OrganizationsService {
 
   constructor(
     private prisma: PrismaService,
-    @Inject('ClerkClient')
-    private readonly clerkClient: ClerkClient,
+    private readonly clerkIdentity: ClerkIdentityService,
   ) {}
 
   async create(data: {
@@ -383,12 +382,14 @@ export class OrganizationsService {
     console.log('User organizations found:', userOrgs.length);
     console.log('User orgs data:', JSON.stringify(userOrgs, null, 2));
 
-    // Fetch user details from Clerk for each user
+    // Fetch user details from Clerk (one batched DB-id -> Clerk-user lookup).
+    const clerkUsers = await this.clerkIdentity.toClerkUsers(userOrgs.map((uo) => uo.userId));
     const salesmen = await Promise.all(
       userOrgs.map(async (uo) => {
         try {
           console.log('Fetching Clerk user:', uo.userId);
-          const clerkUser = await this.clerkClient.users.getUser(uo.userId);
+          const clerkUser = clerkUsers.get(uo.userId);
+          if (!clerkUser) throw new Error('not found in Clerk');
           console.log('Clerk user found:', clerkUser.firstName, clerkUser.lastName);
 
           const name = `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim()

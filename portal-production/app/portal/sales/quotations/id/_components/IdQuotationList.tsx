@@ -18,10 +18,10 @@ import StatusChip from "@/components/StatusChip";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import type { FilterField } from "@/components/FilterDrawer";
 import { useOrganization } from "@hooks/useOrganization";
-import { useAuth } from "@clerk/nextjs";
 import { useIdQuoteApi } from "../_lib/api";
 import { defaultQuote, normalizeQuote } from "../_lib/defaults";
 import { money, pct, quoteTotals } from "../_lib/math";
+import { useAimsUserId } from "@hooks/useAimsUserId";
 
 const QUOTATION_TYPES = ["QUOTATION", "QO", "QO1", "QO2", "QT"];
 const STATUS_OPTIONS = [
@@ -34,7 +34,8 @@ export default function IdQuotationList() {
   const router = useRouter();
   const api = useIdQuoteApi();
   const { organization } = useOrganization();
-  const { userId } = useAuth();
+  // AIMS (DB) id: written as designerUserId (see useAimsUserId).
+  const userId = useAimsUserId();
   const [rows, setRows] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);

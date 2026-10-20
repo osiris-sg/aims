@@ -3,9 +3,9 @@ const nextConfig = {
   images: {
     domains: ["dr06g550bflef.cloudfront.net", "aims-osiris.s3.ap-southeast-1.amazonaws.com"],
   },
-  env: {
-    CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
-  },
+  // No `env` passthrough: CLERK_SECRET_KEY used to be copied here, which bakes
+  // the secret into the build. clerkMiddleware reads it from process.env at
+  // runtime (Vercel injects it), so nothing needs it inlined.
   swcMinify: false,
   async redirects() {
     return [

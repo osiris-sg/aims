@@ -18,7 +18,6 @@ import { TradeAlertsController } from './trade-alerts.controller';
 import { TradeAlertsService } from './trade-alerts.service';
 import { TradeDashboardController } from './trade-dashboard.controller';
 import { TradeDashboardService } from './trade-dashboard.service';
-import { ClerkClientProvider } from '../providers/clerk-client.provider';
 import { EmailModule } from '../email/email.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ShipmentsController } from './shipments.controller';
@@ -72,7 +71,6 @@ import { TradeStepsService } from './trade-steps.service';
     TradePaymentsService,
     TradeAlertsService,
     TradeDashboardService,
-    ClerkClientProvider,
     ContractsService,
     ShipmentsService,
     TradeStepsService,

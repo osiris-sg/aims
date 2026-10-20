@@ -1,5 +1,5 @@
-import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import type { ClerkClient } from '@clerk/backend';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma.service';
 import { runAsOrg } from '../common/tenancy/tenant-context';
@@ -43,7 +43,7 @@ export class TradeAlertsService {
     private readonly notifications: NotificationsService,
     private readonly email: EmailService,
     private readonly actionLog: ActionLogService,
-    @Optional() @Inject('ClerkClient') private readonly clerk?: ClerkClient,
+    @Optional() private readonly clerkIdentity?: ClerkIdentityService,
   ) {}
 
   private async rules(organizationId: string): Promise<AlertRules> {
@@ -268,10 +268,10 @@ export class TradeAlertsService {
 
   /** Users' primary e-mail addresses (Clerk holds them). */
   private async emailsOf(userIds: string[]): Promise<string[]> {
-    if (!userIds.length || !this.clerk) return [];
+    if (!userIds.length || !this.clerkIdentity) return [];
     try {
-      const r: any = await this.clerk.users.getUserList({ userId: userIds, limit: 100 });
-      const list: any[] = Array.isArray(r) ? r : (r?.data ?? []);
+      // DB ids -> Clerk users (by external_id, then id); see src/clerk.
+      const list = [...(await this.clerkIdentity.toClerkUsers(userIds)).values()];
       return list.map((u) => u.primaryEmailAddress?.emailAddress ?? u.emailAddresses?.[0]?.emailAddress).filter((e: unknown): e is string => typeof e === 'string');
     } catch (e) {
       this.logger.warn(`digest recipients: ${(e as Error)?.message}`);

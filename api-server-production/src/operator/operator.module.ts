@@ -39,12 +39,12 @@ import { WebAdapter } from './adapters/web.adapter';
  * come from the user the chat sender is linked to.
  */
 import { PublicDocumentModule } from '../public-document/public-document.module';
-import { AuthModule } from '../auth/auth.module'; // provides 'ClerkClient' for the act-as lookup
+import { AuthModule } from '../auth/auth.module';
 @Module({
   imports: [
     AdvancesModule,
     AppointmentsModule, // my_appointments / booking_link tools
-    AuthModule, // 'ClerkClient' — names/emails for /as
+    AuthModule, // 'ClerkClient' itself comes from the global ClerkModule
     CommonModule, // AuditService
     CustomersModule,
     AssetsModule,

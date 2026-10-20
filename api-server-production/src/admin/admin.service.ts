@@ -4,12 +4,14 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { mergeModulesWithCatalog, getCatalogModule } from '../configuration/module-catalog';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
+import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 
 @Injectable()
 export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject('ClerkClient') private readonly clerkClient: any,
+    private readonly clerkIdentity: ClerkIdentityService,
   ) {}
 
   // ===== ASSETS ADMIN SERVICES =====
@@ -528,15 +530,20 @@ export class AdminService {
       };
     });
 
-    // Enrich with Clerk user data
+    // Enrich with Clerk user data: one batched DB-id -> Clerk-user lookup.
+    const clerkUsers = await this.clerkIdentity.toClerkUsers(usersWithRoles.map((u) => u.userId));
     const enrichedUsers = await Promise.all(
       usersWithRoles.map(async (user) => {
         try {
-          const clerkUser = await this.clerkClient.users.getUser(user.userId);
+          const clerkUser = clerkUsers.get(user.userId);
+          if (!clerkUser) throw new Error('not found in Clerk');
           return {
             ...user,
             clerkUser: {
-              id: clerkUser.id,
+              // The AIMS (DB) id, which is what the rest of the app keys on.
+              // Equal to the Clerk id except for users imported into the
+              // production instance (docs/clerk-cutover.md).
+              id: user.userId,
               firstName: clerkUser.firstName,
               lastName: clerkUser.lastName,
               emailAddresses: clerkUser.emailAddresses,
@@ -600,6 +607,8 @@ export class AdminService {
     }
 
     const userId = clerkUser.id;
+    // external_id = its own id, so this user resolves like an imported one.
+    await this.clerkIdentity.stampExternalId(userId);
 
     // Ensure user is assigned to the organization
     await this.prisma.userOrganization.upsert({

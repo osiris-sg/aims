@@ -5,7 +5,7 @@ import { ConfigModule } from '@nestjs/config';
 import configuration from '../config/configuration';
 import { AssetsModule } from './assets/assets.module';
 import { CategoriesModule } from './categories/categories.module';
-import { ClerkClientProvider } from './providers/clerk-client.provider';
+import { ClerkModule } from './clerk/clerk.module';
 import { AuthModule } from './auth/auth.module';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ClerkAuthGuard } from './auth/clerk-auth.guard';
@@ -98,6 +98,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     }),
     AssetsModule,
     CategoriesModule,
+    ClerkModule, // the one Clerk client + DB-id resolver (global)
     AuthModule,
     InventoriesModule,
     CustomersModule,
@@ -176,7 +177,6 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
   controllers: [AppController],
   providers: [
     AppService,
-    ClerkClientProvider,
     PrismaService,
     {
       provide: APP_GUARD,

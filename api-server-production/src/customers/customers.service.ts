@@ -7,13 +7,15 @@ import { PrismaService } from 'src/common/prisma.service';
 import { Prisma } from '@prisma/client';
 import { CreateSiteOfficeDto } from './dto/create-site-office.dto';
 import { UpdateSiteOfficeDto } from './dto/update-site-office-dto';
-import { createClerkClient } from '@clerk/backend';
+import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 
 @Injectable()
 export class CustomersService {
-  private clerkClient = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
-
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    // DB user id -> Clerk user (the shared client; see src/clerk).
+    private readonly clerkIdentity: ClerkIdentityService,
+  ) {}
 
   async getCustomers(getCustomerDto: GetCustomerDto, organizationId: string) {
     try {
@@ -63,13 +65,15 @@ export class CustomersService {
         },
       });
 
-      // Enrich customers with salesman names from Clerk
+      // Enrich customers with salesman names from Clerk (one batched lookup).
+      const salesmanUsers = await this.clerkIdentity.toClerkUsers(customers.map((c) => c.salesman?.userId));
       const customersWithSalesmanNames = await Promise.all(
         customers.map(async (customer) => {
           if (customer.salesman) {
             let salesmanName = customer.salesman.salesmanCode || 'Unknown';
             try {
-              const clerkUser = await this.clerkClient.users.getUser(customer.salesman.userId);
+              const clerkUser = salesmanUsers.get(customer.salesman.userId);
+              if (!clerkUser) throw new Error('not found in Clerk');
               salesmanName = `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || customer.salesman.salesmanCode || 'Unknown';
             } catch (error) {
               console.error(`Error fetching Clerk user ${customer.salesman.userId}:`, error);
@@ -502,12 +506,14 @@ export class CustomersService {
         },
       });
 
-      // Fetch user details from Clerk for each salesman
+      // Fetch user details from Clerk for each salesman (one batched lookup).
+      const salesmanUsers = await this.clerkIdentity.toClerkUsers(salesmen.map((s) => s.userId));
       const salesmenWithNames = await Promise.all(
         salesmen.map(async (s) => {
           let name = s.salesmanCode || 'Unknown';
           try {
-            const clerkUser = await this.clerkClient.users.getUser(s.userId);
+            const clerkUser = salesmanUsers.get(s.userId);
+            if (!clerkUser) throw new Error('not found in Clerk');
             name = `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || s.salesmanCode || 'Unknown';
           } catch (error) {
             console.error(`Error fetching Clerk user ${s.userId}:`, error);

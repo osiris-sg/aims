@@ -21,6 +21,7 @@ import TodayIcon from "@mui/icons-material/TodayOutlined";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import MainCard from "@/components/MainCard";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { useAimsUserId } from "@hooks/useAimsUserId";
 
 const apiBase = process.env.NEXT_PUBLIC_BACKEND_API_URL;
 
@@ -734,7 +735,9 @@ function AppointmentsCard({ self }: { self: boolean }) {
 
 export default function IdDashboard() {
   const router = useRouter();
-  const { getToken, userId } = useAuth();
+  const { getToken } = useAuth();
+  // AIMS (DB) id: designer rows are keyed by it (see useAimsUserId).
+  const userId = useAimsUserId();
   const { isDesignerAdvancesEnabled, isAppointmentBookingEnabled } = useOrganizationFeatures();
   const [data, setData] = useState<Payload | null>(null);
   const [rebates, setRebates] = useState<any>(null);
