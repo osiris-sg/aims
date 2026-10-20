@@ -24,6 +24,7 @@ import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
 import { useNfcScan } from "../../hooks/useNfcScan";
 import NameplateCapture from "../../components/NameplateCapture";
+import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 
 // Normalized match (strip non-alphanumerics + lowercase) so an OCR'd "KBZ 43.7"
 // preselects the catalog "KBZ43.7". Exact-after-normalization only — no
@@ -56,11 +57,6 @@ interface ProjectOption {
   name: string;
 }
 
-const FIELD_BUTTON_SX = {
-  py: 1.5,
-  fontSize: "1rem",
-  minHeight: 48,
-} as const;
 
 /**
  * Manual serial entry — the NFC-less path to the scan action chooser, for

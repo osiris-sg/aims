@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useEffect } from "react";
-import { Box, GlobalStyles, IconButton, Tooltip } from "@mui/material";
-import LogoutIcon from "@mui/icons-material/Logout";
+import { Box, GlobalStyles } from "@mui/material";
 import { ThemeProvider } from "@mui/material/styles";
 import { useAuth, useClerk } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
@@ -14,6 +13,7 @@ import { PushNotificationsProvider, unregisterDeviceToken } from "../context/Pus
 import { useRoleGate } from "../../portal/hooks/useRoleGate";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
 import { fieldDarkTheme, fieldLightTheme } from "@/themes/fieldTheme";
+import { FieldAppBarProvider } from "./FieldAppBar";
 
 interface Props {
   children: React.ReactNode;
@@ -114,26 +114,9 @@ export default function FieldShell({ children }: Props) {
                 fontFamily: fieldTheme.typography.fontFamily,
               }}
             >
-              <Tooltip title="Sign out">
-                <IconButton
-                  aria-label="Sign out"
-                  size="small"
-                  onClick={handleSignOut}
-                  sx={{
-                    position: "fixed",
-                    top: 8,
-                    right: 8,
-                    zIndex: 1200,
-                    color: "text.secondary",
-                    bgcolor: "background.paper",
-                    boxShadow: 1,
-                    "&:hover": { bgcolor: "background.paper" },
-                  }}
-                >
-                  <LogoutIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              {children}
+              {/* The top bar carries the sign-out button (it used to float
+                  top-right on every screen). */}
+              <FieldAppBarProvider onSignOut={handleSignOut}>{children}</FieldAppBarProvider>
               {/* Field-flow toasts (e.g. "Item created and assigned to …"). Lives
                   at the layout level so a toast fired right before a
                   router.replace survives the navigation. */}

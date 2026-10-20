@@ -7,8 +7,8 @@ import PrintIcon from "@mui/icons-material/Print";
 import DownloadIcon from "@mui/icons-material/Download";
 import { isSystemPrintAvailable } from "../lib/systemPrint";
 import { useDoA4Print } from "./DoA4Print";
+import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 
-const FIELD_BUTTON_SX = { py: 1.5, fontSize: "1rem", minHeight: 48 } as const;
 
 /**
  * Print DO / Download DO for one delivery order, as the rider sees them after a

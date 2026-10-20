@@ -8,8 +8,8 @@ import {
   Box,
   Button,
   Checkbox,
-  Chip,
   CircularProgress,
+  Divider,
   List,
   ListItemButton,
   ListItemText,
@@ -18,7 +18,9 @@ import {
   Typography,
 } from "@mui/material";
 import DrawIcon from "@mui/icons-material/Draw";
+import TaskAltIcon from "@mui/icons-material/TaskAlt";
 import { ReportSummary, customerOf, fetchPendingSignReports, reportMatchesSearch } from "../lib/maintenanceReports";
+import { EmptyState, ListCard, StatusChip } from "./fieldUi";
 
 /**
  * PENDING SIGN: maintenance reports awaiting a signature. Shared by
@@ -140,11 +142,9 @@ export function PendingSignList({ search = "", barBottom = "0px" }: { search?: s
           <CircularProgress />
         </Box>
       ) : reports.length === 0 ? (
-        <Alert severity="success">Nothing is waiting for a signature.</Alert>
+        <EmptyState icon={<TaskAltIcon />} message="Nothing is waiting for a signature." />
       ) : grouped.length === 0 ? (
-        <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
-          No report matches &quot;{search}&quot;.
-        </Typography>
+        <EmptyState message={<>No report matches &quot;{search}&quot;.</>} />
       ) : (
         grouped.map(([customer, list]) => {
           const locked = lockedCustomer !== null && customer !== lockedCustomer;
@@ -165,17 +165,19 @@ export function PendingSignList({ search = "", barBottom = "0px" }: { search?: s
                   sx={{ mr: 0.5 }}
                   inputProps={{ "aria-label": `Select all reports for ${customer}` }}
                 />
-                <Typography variant="subtitle2" fontWeight={700}>
+                <Typography variant="subtitle1" sx={{ flex: 1, minWidth: 0 }} noWrap>
                   {customer}
-                  <Chip size="small" label={list.length} sx={{ ml: 1 }} />
                 </Typography>
+                <StatusChip label={list.length} tone="warn" sx={{ mr: 0.5 }} />
               </Stack>
-              <List dense sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 0 }}>
-                {list.map((r) => (
+              <ListCard>
+              <List disablePadding>
+                {list.map((r, i) => (
+                  <React.Fragment key={r.id}>
+                  {i > 0 && <Divider component="li" sx={{ mx: 2 }} />}
                   <ListItemButton
-                    key={r.id}
                     onClick={() => router.push(`/scan/reports/${r.id}/sign`)}
-                    sx={{ minHeight: 64 }}
+                    sx={{ minHeight: 68 }}
                   >
                     {/* stopPropagation: ticking must not also OPEN the report. */}
                     <Checkbox
@@ -188,6 +190,8 @@ export function PendingSignList({ search = "", barBottom = "0px" }: { search?: s
                     />
                     <DrawIcon color="warning" sx={{ mr: 1.5 }} />
                     <ListItemText
+                      primaryTypographyProps={{ fontWeight: 600 }}
+                      secondaryTypographyProps={{ fontSize: 12.5 }}
                       primary={
                         <>
                           <strong>{r.reportNumber != null ? `#${r.reportNumber}` : "Draft"}</strong>
@@ -203,8 +207,10 @@ export function PendingSignList({ search = "", barBottom = "0px" }: { search?: s
                         .join(" · ")}
                     />
                   </ListItemButton>
+                  </React.Fragment>
                 ))}
               </List>
+              </ListCard>
             </Box>
           );
         })
@@ -216,10 +222,11 @@ export function PendingSignList({ search = "", barBottom = "0px" }: { search?: s
       {/* The batch bar. Appears only with a selection, sits above the thumb. */}
       {selected.length > 0 && (
         <Paper
-          elevation={8}
+          elevation={0}
           sx={{
             position: "fixed", left: 0, right: 0, bottom: barBottom, zIndex: 1200,
             p: 1.5, borderRadius: 0, display: "flex", alignItems: "center", gap: 1,
+            borderTop: 1, borderColor: "divider", boxShadow: "0 -6px 18px rgba(0,0,0,0.08)",
           }}
         >
           <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -230,7 +237,7 @@ export function PendingSignList({ search = "", barBottom = "0px" }: { search?: s
               {lockedCustomer}
             </Typography>
           </Box>
-          <Button size="small" onClick={() => { setSelected([]); setLockedCustomer(null); }}>
+          <Button variant="text" onClick={() => { setSelected([]); setLockedCustomer(null); }}>
             Clear
           </Button>
           <Button

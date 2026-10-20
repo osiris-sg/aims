@@ -40,7 +40,7 @@ export default function FieldBackButton({
       startIcon={<ArrowBackIcon />}
       onClick={goBack}
       disabled={disabled}
-      sx={[{ minHeight: 48, color: "text.secondary", borderColor: "divider" }, ...(Array.isArray(sx) ? sx : [sx])]}
+      sx={[{ minHeight: 48, color: "text.primary", borderColor: "divider", bgcolor: "background.paper", fontWeight: 600 }, ...(Array.isArray(sx) ? sx : [sx])]}
     >
       Back
     </Button>

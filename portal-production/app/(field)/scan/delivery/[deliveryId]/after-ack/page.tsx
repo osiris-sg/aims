@@ -35,6 +35,7 @@ import { formatUnitLabel } from "../../../../lib/btPrinter";
 import { isSystemPrintAvailable } from "../../../../lib/systemPrint";
 import { useDoA4Print } from "../../../../components/DoA4Print";
 import { Tooltip } from "@mui/material";
+import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 
 interface CustomerOption {
   id: string;
@@ -47,7 +48,6 @@ interface ProjectOption {
   name: string;
 }
 
-const FIELD_BUTTON_SX = { py: 1.5, fontSize: "1rem", minHeight: 48 } as const;
 
 /**
  * AFTER-ACK flow (reordered): the ack page creates a DRAFT DO_ACK (GPS +

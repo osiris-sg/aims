@@ -1,10 +1,12 @@
 "use client";
 
 import React from "react";
-import { Box, Button, Card, CardActionArea, CardContent, Chip, CircularProgress, Stack, Typography } from "@mui/material";
+import { Box, Button, Card, CardActionArea, CardContent, CircularProgress, Stack, Typography } from "@mui/material";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PlaceIcon from "@mui/icons-material/Place";
 import { RunSummary, completedRunTime, itemLabel, relTime } from "../lib/deliveryLists";
+import { StatusChip } from "./fieldUi";
+import type { FieldTone } from "@/themes/fieldTheme";
 
 /**
  * Run cards shared by the Deliveries home (/scan) and the standalone list
@@ -12,12 +14,21 @@ import { RunSummary, completedRunTime, itemLabel, relTime } from "../lib/deliver
  * surfaces route identically.
  */
 
-const STATUS_CHIP: Record<string, { label: string; color: "warning" | "info" | "success" | "default" }> = {
-  in_progress: { label: "In progress", color: "warning" },
-  delivered: { label: "Delivered", color: "info" },
-  completed: { label: "Completed", color: "success" },
-  cancelled: { label: "Cancelled", color: "default" },
+const STATUS_CHIP: Record<string, { label: string; tone: FieldTone }> = {
+  in_progress: { label: "In progress", tone: "warn" },
+  delivered: { label: "Delivered", tone: "info" },
+  completed: { label: "Completed", tone: "good" },
+  cancelled: { label: "Cancelled", tone: "neutral" },
 };
+
+/** Run number: card title, 15 / w700. */
+function RunNo({ n }: { n: React.ReactNode }) {
+  return (
+    <Typography sx={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.01em" }}>
+      #{n}
+    </Typography>
+  );
+}
 
 /**
  * The run's drop site, from Delivery.siteAddress: the office-typed delivery
@@ -81,12 +92,11 @@ export function ScheduledRunCard({
 
   const body = (
     <CardContent sx={{ display: "flex", flexDirection: "column", gap: 0.75, pb: enterable || viewDo ? 1 : undefined }}>
-      <Stack direction="row" alignItems="center" spacing={1}>
-        <Typography variant="subtitle2" fontWeight={700} sx={{ fontFamily: "monospace" }}>
-          #{r.deliveryNumber}
-        </Typography>
-        <Chip size="small" color={isReturn ? "secondary" : "primary"} variant="outlined" label={isReturn ? "Return" : "Delivery"} />
-        <Chip size="small" color="primary" label={fmtScheduled(r.scheduledFor)} />
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ flexWrap: "wrap", rowGap: 0.5 }}>
+        <RunNo n={r.deliveryNumber} />
+        <StatusChip tone={isReturn ? "warn" : "neutral"} label={isReturn ? "RETURN" : "DELIVERY"} />
+        <Box sx={{ flexGrow: 1 }} />
+        <StatusChip tone="info" label={fmtScheduled(r.scheduledFor)} />
       </Stack>
       {context && (
         <Typography variant="body2" color="text.secondary">
@@ -126,18 +136,17 @@ export function ScheduledRunCard({
   );
 
   return (
-    <Card variant="outlined" sx={enterable ? { borderColor: "primary.main" } : undefined}>
+    <Card variant="outlined">
       {enterable ? <CardActionArea onClick={onStart}>{body}</CardActionArea> : body}
       {(enterable || viewDo) && (
-        <Stack direction="row" spacing={1} sx={{ px: 2, pb: 2, flexWrap: "wrap", rowGap: 1 }}>
+        <Stack direction="row" spacing={1} sx={{ px: 1.75, pb: 1.75, flexWrap: "wrap", rowGap: 1 }}>
           {/* Navigation only: the run is NOT claimed until the first scan
               lands in claimScheduled. */}
           {enterable && (
             <Button
-              size="small"
               variant="contained"
               startIcon={<PlayArrowIcon />}
-              sx={{ textTransform: "none", minHeight: 40 }}
+              sx={{ minHeight: 44, flex: 1 }}
               onClick={onStart}
             >
               Start this delivery
@@ -145,9 +154,8 @@ export function ScheduledRunCard({
           )}
           {viewDo && (
             <Button
-              size="small"
               variant="text"
-              sx={{ textTransform: "none", minHeight: 40 }}
+              sx={{ minHeight: 44 }}
               onClick={() => onViewDo(viewDo.assetId, viewDo.docId)}
             >
               View full DO
@@ -171,7 +179,7 @@ export function InProgressRunCard({
   disabled: boolean;
   onOpen: () => void;
 }) {
-  const chip = STATUS_CHIP[r.status] ?? { label: r.status, color: "default" as const };
+  const chip = STATUS_CHIP[r.status] ?? { label: String(r.status ?? "").replace(/_/g, " "), tone: "neutral" as const };
   // Customer/project only when present: pre-ack standalone runs have neither,
   // so the item label + time carry the identity instead.
   const context = r.project?.name ?? r.customer?.name ?? r.document?.name ?? null;
@@ -179,12 +187,10 @@ export function InProgressRunCard({
   return (
     <Card variant="outlined">
       <CardActionArea onClick={onOpen} disabled={disabled}>
-        <CardContent sx={{ py: 1.75 }}>
+        <CardContent>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
-            <Typography variant="subtitle1" fontWeight={700} sx={{ fontFamily: "monospace" }}>
-              #{r.deliveryNumber}
-            </Typography>
-            <Chip size="small" label={chip.label} color={chip.color} />
+            <RunNo n={r.deliveryNumber} />
+            <StatusChip label={chip.label.toUpperCase()} tone={chip.tone} />
             <Box sx={{ flexGrow: 1 }} />
             {opening ? (
               <CircularProgress size={16} />
@@ -214,12 +220,10 @@ export function CompletedRunCard({ run: r, onOpen }: { run: RunSummary; onOpen: 
   return (
     <Card variant="outlined">
       <CardActionArea onClick={onOpen}>
-        <CardContent sx={{ py: 1.75 }}>
+        <CardContent>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
-            <Typography variant="subtitle1" fontWeight={700} sx={{ fontFamily: "monospace" }}>
-              #{r.deliveryNumber}
-            </Typography>
-            <Chip size="small" label="Completed" color="success" />
+            <RunNo n={r.deliveryNumber} />
+            <StatusChip label="COMPLETED" tone="good" />
             <Box sx={{ flexGrow: 1 }} />
             <Typography variant="caption" color="text.secondary">
               {relTime(completedRunTime(r))}

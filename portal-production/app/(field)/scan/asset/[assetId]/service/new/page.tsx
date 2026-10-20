@@ -54,6 +54,7 @@ import {
   type EssServiceData,
   type EssVerdict,
 } from "@/lib/msr-templates";
+import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 
 /**
  * Maintenance & Inspection Service Report — the field capture flow.
@@ -101,12 +102,6 @@ import {
 const RESOURCE_URL =
   process.env.NEXT_PUBLIC_RESOURCE_URL ?? "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/";
 
-const FIELD_BUTTON_SX = {
-  py: 1.5,
-  px: 4,
-  fontSize: "1rem",
-  minHeight: 48,
-} as const;
 
 interface CustomerOption {
   id: string;

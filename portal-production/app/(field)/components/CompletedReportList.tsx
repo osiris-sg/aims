@@ -2,8 +2,10 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import { Chip, List, ListItemButton, ListItemText } from "@mui/material";
+import { Divider, List, ListItemButton, ListItemText } from "@mui/material";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { ReportSummary } from "../lib/maintenanceReports";
+import { ListCard, StatusChip } from "./fieldUi";
 
 /**
  * Signed (completed) maintenance reports. Shared by /scan/reports ("Recently
@@ -13,14 +15,18 @@ import { ReportSummary } from "../lib/maintenanceReports";
 export function CompletedReportList({ reports }: { reports: ReportSummary[] }) {
   const router = useRouter();
   return (
-    <List dense sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 0 }}>
-      {reports.map((r) => (
+    <ListCard>
+    <List disablePadding>
+      {reports.map((r, i) => (
+        <React.Fragment key={r.id}>
+        {i > 0 && <Divider component="li" sx={{ mx: 2 }} />}
         <ListItemButton
-          key={r.id}
           onClick={() => router.push(`/scan/reports/${r.id}/print`)}
-          sx={{ minHeight: 64 }}
+          sx={{ minHeight: 68, gap: 1 }}
         >
           <ListItemText
+            primaryTypographyProps={{ fontWeight: 600 }}
+            secondaryTypographyProps={{ fontSize: 12.5 }}
             primary={
               <>
                 {r.reportNumber != null && <strong>#{r.reportNumber}</strong>}
@@ -36,9 +42,12 @@ export function CompletedReportList({ reports }: { reports: ReportSummary[] }) {
               .filter(Boolean)
               .join(" · ")}
           />
-          <Chip size="small" label="Signed" color="success" variant="outlined" />
+          <StatusChip label="SIGNED" tone="good" />
+          <ChevronRightIcon sx={{ color: "text.disabled", mr: -0.5 }} />
         </ListItemButton>
+        </React.Fragment>
       ))}
     </List>
+    </ListCard>
   );
 }

@@ -16,6 +16,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { request } from "@/helpers/request";
 import { formatUnitLabel } from "../../../../lib/btPrinter";
 import { DoPrintActions } from "../../../../components/DoPrintActions";
+import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 
 /**
  * "Delivery completed" final screen (field). Reached both as the LANDING right
@@ -31,7 +32,6 @@ import { DoPrintActions } from "../../../../components/DoPrintActions";
  * so trimming the visible summary does not change what the printer receives.
  */
 
-const FIELD_BUTTON_SX = { py: 1.5, fontSize: "1rem", minHeight: 48 } as const;
 
 interface RunItem {
   id: string;

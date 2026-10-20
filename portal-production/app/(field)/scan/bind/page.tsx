@@ -38,6 +38,7 @@ import {
 } from "@/helpers/assetClass";
 import { compressImageDataUrl } from "../../lib/imageCompress";
 import { useNfcScan } from "../../hooks/useNfcScan";
+import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 
 interface AssetOption {
   id: string;
@@ -60,11 +61,6 @@ interface ChildRow {
 
 type Step = "capture" | "review";
 
-const FIELD_BUTTON_SX = {
-  py: 1.5,
-  fontSize: "1rem",
-  minHeight: 48,
-} as const;
 
 /**
  * Field create-and-bind flow. The technician arrives here because the scanned
