@@ -93,7 +93,7 @@ const ORG_UNSTORED = { legalName: 'Asia Deal Hub Japan LLC', email: 'finance@asi
 // role sees the Org Settings → Master Files menu.
 const ROLE_NAME = 'ADH Staff';
 const ROLE_DESCRIPTION = 'ADH Japan staff — shipments, sales documents, master files';
-const ROLE_MODULES = ['SHIPMENTS', 'SALES', 'INVOICES', 'DOCUMENTS', 'USER_MANAGEMENT', 'AUDIT'];
+const ROLE_MODULES = ['DASHBOARD', 'SHIPMENTS', 'SALES', 'INVOICES', 'DOCUMENTS', 'USER_MANAGEMENT', 'AUDIT'];
 // Whole resources granted (every action that exists in the Permission table).
 const ROLE_RESOURCES = ['shipments', 'documents', 'customers', 'suppliers', 'users', 'uploads', 'payments'];
 // Individual permissions on top of the resources above.
@@ -141,6 +141,16 @@ const MONEY_PERMISSIONS = ['shipments:money'];
 // hideInMenu: the module stays ON (routes, data, permissions) but is left out of the menus.
 const ENABLED_MODULES: Array<{ code: string; displayName?: string; route?: string; icon?: string; sortOrder?: number; hideInMenu?: boolean; subMenus?: Array<{ key: string; label: string }> }> = [
   {
+    // Round T (2026-10-22): "Dashboard" is its own top-level item, left of Sales — one page with an Overview / Admin
+    // toggle (Admin = the money view, ADH Manager / Admin only; the API enforces shipments:money).
+    code: 'DASHBOARD',
+    displayName: 'Dashboard',
+    route: '/portal/shipments/dashboard',
+    icon: 'Dashboard',
+    sortOrder: -4,
+    subMenus: [],
+  },
+  {
     code: 'SHIPMENTS',
     // Round P (2026-10-21): the top-nav item reads "Sales" (the module, its routes /portal/shipments/* and its
     // permissions are unchanged — only the label). Under it: Dashboard · Orders · Shipments · Inbox.
@@ -151,7 +161,7 @@ const ENABLED_MODULES: Array<{ code: string; displayName?: string; route?: strin
       // old Home with cash / margin sits behind enableShipmentsHome, off), Orders (one order process), Shipments
       // (every B/L) and the triaged email Inbox. Round H (2026-10): Declaration, Payments and Stock left the menu
       // (their pages sit behind enableTradeLegacyPages, off).
-      { key: 'dashboard', label: 'Dashboard' },
+      // Round T (2026-10-22): Dashboard left the Sales menu — it is its own top-level item (the DASHBOARD module below).
       { key: 'list', label: 'Orders' },
       { key: 'shipments', label: 'Shipments' },
       { key: 'inbox', label: 'Inbox' },

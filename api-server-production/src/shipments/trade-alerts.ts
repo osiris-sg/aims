@@ -74,7 +74,9 @@ export function cleanAlertRules(v: Record<string, unknown>, fail: (msg: string) 
   return out;
 }
 
-export type AlertKind = 'TAX_FUNDING' | 'AN_EXPECTED' | 'FREE_TIME' | 'INVOICE_DUE' | 'PAYMENT_DUE' | 'STEP_STUCK';
+export type AlertKind = 'TAX_FUNDING' | 'AN_EXPECTED' | 'FREE_TIME' | 'INVOICE_DUE' | 'PAYMENT_DUE' | 'STEP_STUCK' | 'CUSTOM';
+/** Round T: a reminder a person set ("remind me tomorrow 9am to chase Vedanta") — the sweep never plans or closes these. */
+export const CUSTOM_KIND: AlertKind = 'CUSTOM';
 
 export interface PlannedAlert {
   key: string;

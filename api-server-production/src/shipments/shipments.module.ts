@@ -9,6 +9,7 @@ import { ContractsService } from './contracts.service';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
 import { ShipmentsNotifyService } from './shipments-notify.service';
+import { TradeAdminDashboardService } from './trade-admin-dashboard.service';
 import { SupplierOrdersController } from './supplier-orders.controller';
 import { SupplierOrdersService } from './supplier-orders.service';
 import { TradePriceCheckController } from './trade-price-check.controller';
@@ -73,6 +74,7 @@ import { TradeStepsService } from './trade-steps.service';
     TradePaymentsService,
     TradeAlertsService,
     TradeDashboardService,
+    TradeAdminDashboardService, // round T: the Admin dashboard
     ContractsService,
     ShipmentsService,
     TradeStepsService,
@@ -85,6 +87,6 @@ import { TradeStepsService } from './trade-steps.service';
     TradeExtractService,
     PrismaService,
   ],
-  exports: [ShipmentsNotifyService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService],
+  exports: [ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService],
 })
 export class ShipmentsModule {}

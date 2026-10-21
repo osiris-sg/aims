@@ -23,6 +23,7 @@ import { OperatorService } from '../src/operator/operator.service';
 import { OperatorAuthService } from '../src/operator/operator-auth.service';
 import { WebAdapter } from '../src/operator/adapters/web.adapter';
 import { ShipmentsOutboxService } from '../src/operator/shipments-outbox.service';
+import { TradeAlertsService } from '../src/shipments/trade-alerts.service';
 import { digestText } from '../src/operator/shipments-agent.rules';
 import { OperatorContext } from '../src/operator/operator.types';
 import { PrismaService } from '../src/common/prisma.service';
@@ -157,6 +158,29 @@ async function main() {
         say('  (smoke email row removed)');
       }
     }
+
+    // ── 4a. round T: the full assistant — find an email + draft a reply, a reminder, money (staff vs manager), a generated doc
+    say('\n━━ 4a. Round T: emails, drafts, reminders, money gating, a generated document');
+    await user('Anything from Mitsui? Draft a short reply asking for the delivery schedule.');
+    await user('Remind me tomorrow 9am to chase Vedanta for the COA on ' + ref);
+    await tapConfirm();
+    await user('How much does #' + order.orderNo + ' make?');
+    say('  (as ADH Manager:)');
+    const manager: OperatorContext = { ...ctx, roles: [{ name: 'ADH Manager', permissions: [...ctx.roles[0].permissions, { resource: 'shipments', action: 'money' }] }] };
+    say(`\n  👩 How much does #${order.orderNo} make? / Last 3 months?`);
+    const MCHAT = 'smoke:manager';
+    web.open(MCHAT, (e: any) => { if (e?.type === 'message' && e.kind === 'text') say(`  🤖 ${String(e.text).replace(/\n/g, '\n     ')}`); });
+    await prisma.operatorSession.deleteMany({ where: { channelUserId: MCHAT } }).catch(() => null);
+    await operator.handleInbound({ channel: 'web', channelUserId: MCHAT, chatId: MCHAT, text: `How much does #${order.orderNo} make? And the last 3 months totals.`, presetCtx: { ...manager, channelUserId: MCHAT } });
+    await prisma.operatorSession.deleteMany({ where: { channelUserId: MCHAT } }).catch(() => null);
+    web.close(MCHAT);
+    await sleep(300);
+    await user('Which shipments are waiting on customs?');
+    const alertsSvc = app.get(TradeAlertsService);
+    const mine: any[] = await alertsSvc.myTasks(ORG);
+    const custom = mine.find((t) => t.kind === 'CUSTOM');
+    say(`  ✔ custom reminder in the bell list: ${custom ? custom.title : 'none'}`);
+    if (custom) await prisma.tradeAlert.delete({ where: { id: custom.id } }).catch(() => null);
 
     // ── 4b. the audit trail ──
     const logs: any[] = await prisma.actionLog.findMany({ where: { organizationId: ORG, actorId: 'smoke_sayaka' }, orderBy: { createdAt: 'desc' }, take: 10, select: { action: true, resource: true, channel: true, details: true } }).catch(() => []);

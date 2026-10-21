@@ -267,6 +267,7 @@ export function cueScore(c: SubjectCues, r: MatchRecord): { score: number; reaso
 }
 
 // ── the decision ─────────────────────────────────────────────────────────────
+
 export interface Candidate {
   orderId: string;
   shipmentId: string | null;
@@ -274,6 +275,26 @@ export interface Candidate {
   score: number;
   reasons: string[];
 }
+
+/** Round T: which cue decided (see MATCH_PRIORITY). */
+export type MatchSource = 'attachment' | 'own' | 'subject' | 'own-cues' | 'thread' | 'subject-cues' | null;
+
+/**
+ * Round T (2026-10-22, owner: "Pick shipment / subject disagrees is the main problem half the time"). The cues an
+ * email carries decide in THIS order — the first that names one record wins, the rest only add notes:
+ *   1. attachment hard key   a record's B/L / PI / CI in an attachment's name or content
+ *   2. own-text hard key     the same in the email's OWN text (not the quoted history)
+ *   3. subject hard key      the same in the subject (thread subjects go stale, so below the email's own words)
+ *   4. own-text product cues grade / size / qty / month / customer words in the own text, when they fit one record
+ *   5. thread link           the most recent accepted (or auto-applied) message of the thread; a combined thread
+ *                            follows the one the own text (else a single-product subject) describes
+ *   6. subject cues          tie-break only — a subject naming SEVERAL products is never a conflict and never decides
+ *   7. quoted history        never decides; other orders' keys there are a note ("also mentions"), not a block
+ * "Subject disagrees" (the CHECK chip) only when the subject names exactly ONE product AND its grade / size / qty /
+ * customer contradicts a decision made by a hard key, own-text cues or the thread. Cues are normalised:
+ * 6005C ≈ 6005 (grade4), 8インチ ≈ 203 MM (inchOfSize), 40T ≈ 40.271 t (near: ±10 %), 11月納入 ≈ 2026-11.
+ */
+export const MATCH_PRIORITY = ['attachment hard key', 'own-text hard key', 'subject hard key', 'own-text product cues', 'thread link', 'subject cues (tie-break)', 'quoted history (never decides)'] as const;
 
 export interface MatchDecision {
   target: { orderId: string; shipmentId: string | null } | null;
@@ -283,8 +304,12 @@ export interface MatchDecision {
   auto: boolean;
   /** Which guard kept it a suggestion ("b: B/L 198GX06445 only in the quoted body"). */
   blocked: string[];
-  /** Shown as a "check" chip. */
+  /** Round T: REAL subject conflicts only (the "Check — subject disagrees" chip). Informational notes live in `notes`. */
   check: string[];
+  /** Round T: what else the email mentions ("the subject names several products", "quoted text also names #16-1"). */
+  notes: string[];
+  /** Round T: which cue decided. */
+  source: MatchSource;
   /** Several orders in one email: the ones it touches. */
   multiOrderIds: string[];
   candidates: Candidate[];
@@ -317,169 +342,195 @@ const KIND_LABEL: Record<KeyHit['kind'], string> = { bl: 'B/L', pi: 'PI', ci: 'C
 const KIND_RANK: Record<KeyHit['kind'], number> = { pi: 0, bl: 1, ci: 2 };
 
 /**
- * Pick the record and say whether it may be applied by itself.
- *   1. Record keys: one order → that order (its single shipment when the keys name one); a key found only in the
- *      body whose order the subject contradicts is dropped (a quoted older B/L — "6005C 40T" on a 6063 B/L).
- *      Keys of several orders → the one whose key is in the subject / an attachment, if exactly one; else multi-order.
- *   2. No usable key: an ACCEPTED earlier email of the thread ("thread").
- *   3. Subject cues: the best-scoring open record when clearly ahead (≥ 4 and ≥ 2 above the next) ("cues").
- * Candidates: the top 3 by subject cues (a key hit adds 10), with reasons — the inbox picker shows them first.
+ * Round T: product cues in the email's OWN text — the same words as the subject's, but only grades that some
+ * record actually has (a phone number or a B/L fragment is never a "grade").
+ */
+export function ownTextCues(own: string, records: MatchRecord[], date?: Date | null): SubjectCues {
+  const c = subjectCues(own.slice(0, 4000), date);
+  const known = new Set(records.map((r) => grade4(r.grade)).filter((g): g is string => !!g));
+  const grades = c.grades.filter((g) => known.has(g));
+  return { ...c, grades, multi: false };
+}
+
+/** The one record (order, and its shipment when exactly one) a set of hits names; null when none or several. */
+function oneRecord(hits: KeyHit[]): { orderId: string; shipmentId: string | null; hit: KeyHit; several: 'orders' | 'shipments' | null } | null {
+  const orders = [...new Set(hits.map((h) => h.orderId))];
+  if (!orders.length) return null;
+  const sorted = [...hits].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind]);
+  if (orders.length > 1) return { orderId: orders[0], shipmentId: null, hit: sorted[0], several: 'orders' };
+  const ships = [...new Set(hits.map((h) => h.shipmentId).filter((x): x is string => !!x))];
+  return { orderId: orders[0], shipmentId: ships.length === 1 ? ships[0] : null, hit: sorted[0], several: ships.length > 1 ? 'shipments' : null };
+}
+
+/**
+ * Pick the record and say whether it may be applied by itself — in the MATCH_PRIORITY order above.
+ * Candidates: the top 3 by subject + own-text cues (a key hit adds 10), with reasons — the inbox picker shows them first.
  */
 export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; hits: KeyHit[]; thread: ThreadInput }): MatchDecision {
   const { ev, records } = input;
   const thread = threadContextOf(input.thread);
   const cues = subjectCues(ev.subject, ev.date);
+  const { own } = splitQuoted(ev.body ?? '');
+  const ownCues = ownTextCues(own, records, ev.date);
   const recOf = (orderId: string, shipmentId: string | null) => records.find((r) => r.orderId === orderId && (shipmentId === null || r.shipmentId === shipmentId)) ?? null;
-  // Round R: the email's own text counts (the quoted history does not).
-  const strong = (h: KeyHit) => h.where.includes('subject') || h.where.includes('attachment') || h.where.includes('body');
-  // A body-only key whose record the subject contradicts is a quoted older email, not this one.
-  const hits = input.hits.filter((h) => {
-    if (strong(h)) return true;
-    const r = recOf(h.orderId, h.shipmentId);
-    return !(r && cueConflicts(cues, r).length);
-  });
-  const dropped = input.hits.filter((h) => !hits.includes(h));
-
-  const live = records.filter((r) => r.orderStatus !== 'CANCELLED' && r.shipStatus !== 'CANCELLED');
-  const scored = live
-    .map((r) => {
-      const s = cueScore(cues, r);
-      const hit = input.hits.some((h) => h.orderId === r.orderId && (h.shipmentId === null || h.shipmentId === r.shipmentId));
-      return { r, score: s.score + (hit ? 10 : 0), reasons: [...(hit ? ['key in the email'] : []), ...s.reasons], open: r.orderStatus === 'OPEN' };
-    })
-    .sort((a, b) => b.score - a.score);
-  const candidates: Candidate[] = scored.slice(0, 3).map((x) => ({ orderId: x.r.orderId, shipmentId: x.r.shipmentId, ref: recordRef(x.r), score: x.score, reasons: x.reasons }));
-
-  const out: MatchDecision = { target: null, kind: null, confidence: 'none', auto: false, blocked: [], check: [], multiOrderIds: [], candidates, keyLabel: null, reason: null, threadFrom: null };
   const refOf = (orderId: string, shipmentId: string | null) => {
     const r = recOf(orderId, shipmentId);
     return r ? recordRef(r) : `#${records.find((x) => x.orderId === orderId)?.orderNo ?? '?'}`;
   };
-  if (dropped.length) out.check.push(`ignored ${dropped.map((h) => `${KIND_LABEL[h.kind]} ${h.value}`).join(', ')} — only in the quoted body, and the subject describes another order`);
-  if (cues.multi) out.check.push('the subject names several products — pick the shipment(s)');
+  const live = records.filter((r) => r.orderStatus !== 'CANCELLED' && r.shipStatus !== 'CANCELLED');
+  const at = (w: Where) => input.hits.filter((h) => h.where.includes(w));
+  const strongHits = input.hits.filter((h) => h.where.some((w) => w !== 'quoted'));
+  const quotedOnly = input.hits.filter((h) => h.where.length === 1 && h.where[0] === 'quoted');
 
-  const orders = [...new Set(hits.map((h) => h.orderId))];
-  // Guard d looks at EVERY key in the email — a quoted older B/L of another order still means "check".
-  const allOrders = [...new Set(input.hits.map((h) => h.orderId))];
-  if (orders.length) {
-    let orderId: string | null = null;
-    if (orders.length === 1) orderId = orders[0];
-    else {
-      const strongOrders = [...new Set(hits.filter(strong).map((h) => h.orderId))];
-      out.multiOrderIds = orders;
-      if (strongOrders.length === 1) {
-        orderId = strongOrders[0];
-        const others = orders.filter((o) => o !== orderId).map((o) => records.find((r) => r.orderId === o)?.orderNo);
-        out.blocked.push(`d: another order's key is in the email (#${others.join(', #')})`);
-        out.check.push(`also mentions #${others.join(', #')}`);
-      } else {
-        out.blocked.push(`a: keys of ${orders.length} orders (#${orders.map((o) => records.find((r) => r.orderId === o)?.orderNo).join(', #')})`);
-        out.check.push(`several orders: #${orders.map((o) => records.find((r) => r.orderId === o)?.orderNo).join(', #')}`);
-      }
+  // Candidates (the picker's shortlist): subject cues + own-text cues, a key in the email adds 10.
+  const scored = live
+    .map((r) => {
+      const s = cueScore(cues, r);
+      const o = cueScore(ownCues, r);
+      const hit = strongHits.some((h) => h.orderId === r.orderId && (h.shipmentId === null || h.shipmentId === r.shipmentId));
+      const quoted = !hit && quotedOnly.some((h) => h.orderId === r.orderId && (h.shipmentId === null || h.shipmentId === r.shipmentId));
+      return { r, score: s.score + o.score + (hit ? 10 : quoted ? 2 : 0), reasons: [...(hit ? ['key in the email'] : quoted ? ['key in the quoted text'] : []), ...new Set([...o.reasons.map((x) => `${x} (text)`), ...s.reasons])], open: r.orderStatus === 'OPEN' };
+    })
+    .sort((a, b) => b.score - a.score);
+  const candidates: Candidate[] = scored.slice(0, 3).map((x) => ({ orderId: x.r.orderId, shipmentId: x.r.shipmentId, ref: recordRef(x.r), score: x.score, reasons: x.reasons }));
+  const out: MatchDecision = { target: null, kind: null, confidence: 'none', auto: false, blocked: [], check: [], notes: [], source: null, multiOrderIds: [], candidates, keyLabel: null, reason: null, threadFrom: null };
+
+  if (cues.multi) out.notes.push('the subject names several products (a combined thread) — it does not decide');
+  const quotedOthers = (orderId: string | null) => [...new Set(quotedOnly.filter((h) => h.orderId !== orderId).map((h) => `#${records.find((r) => r.orderId === h.orderId)?.orderNo ?? '?'}`))];
+
+  /** Subject conflicts (the CHECK chip): only a SINGLE-product subject can disagree; a month alone never contradicts a hard key. */
+  const conflictsFor = (rec: MatchRecord | null, hardKey: boolean): string[] => {
+    if (!rec || cues.multi) return [];
+    const all = cueConflicts(cues, rec);
+    return hardKey ? all.filter((c) => !/^delivery /.test(c)) : all;
+  };
+  const finish = (target: { orderId: string; shipmentId: string | null }, source: MatchSource, extra: { kind?: MatchDecision['kind']; confidence?: MatchDecision['confidence']; keyLabel?: string | null; reason: string; threadFrom?: MatchDecision['threadFrom']; hardKey: boolean }) => {
+    out.target = target;
+    out.source = source;
+    out.kind = extra.kind ?? 'cues';
+    out.confidence = extra.confidence ?? 'cues';
+    out.keyLabel = extra.keyLabel ?? null;
+    out.reason = extra.reason;
+    out.threadFrom = extra.threadFrom ?? null;
+    const rec = recOf(target.orderId, target.shipmentId);
+    const conflicts = conflictsFor(rec, extra.hardKey);
+    if (conflicts.length) {
+      out.blocked.push(`c: the subject disagrees (${conflicts.join('; ')})`);
+      out.check.push(...conflicts);
     }
-    if (orderId) {
-      const mine = hits.filter((h) => h.orderId === orderId).sort((a, b) => Number(strong(b)) - Number(strong(a)) || KIND_RANK[a.kind] - KIND_RANK[b.kind]);
-      // Several shipments of the order named: the one whose key is in the subject / an attachment, if only one is.
-      const allShips = [...new Set(mine.map((h) => h.shipmentId).filter((x): x is string => !!x))];
-      const strongShips = [...new Set(mine.filter(strong).map((h) => h.shipmentId).filter((x): x is string => !!x))];
-      const ships = allShips.length > 1 && strongShips.length === 1 ? strongShips : allShips;
-      const shipmentId = ships.length === 1 ? ships[0] : null;
-      if (allShips.length > 1) out.blocked.push(`a: keys of ${allShips.length} shipments of the order`);
-      out.target = { orderId, shipmentId };
-      out.kind = mine[0].kind;
-      out.confidence = 'exact';
-      out.keyLabel = `${KIND_LABEL[mine[0].kind]} ${mine[0].value}`;
-      out.reason = `${out.keyLabel} is in the ${mine[0].where.includes('subject') ? 'subject' : mine[0].where.includes('attachment') ? 'attachment' : mine[0].where.includes('body') ? 'email text' : 'quoted text'}`;
-      if (!mine.some(strong)) out.blocked.push(`b: ${out.keyLabel} is only in the quoted / forwarded text`);
-      const rec = recOf(orderId, shipmentId);
-      const conflicts = rec ? cueConflicts(cues, rec) : [];
-      if (conflicts.length) {
-        out.blocked.push(`c: the subject disagrees (${conflicts.join('; ')})`);
-        out.check.push(...conflicts);
-      }
-      // A multi-product SUBJECT (a thread about several deliveries) blocks only when the key itself came from the
-      // subject; a key in the email's own text or in an attachment says which one this email is about (round R).
-      if (cues.multi && !mine.some((h) => h.where.includes('body') || h.where.includes('attachment'))) out.blocked.push('c: the subject names several products');
-      if (orders.length === 1 && allOrders.length > 1) {
-        const others = allOrders.filter((o) => o !== orderId).map((o) => records.find((r) => r.orderId === o)?.orderNo);
-        out.blocked.push(`d: another order's key is in the email (#${others.join(', #')})`);
-      }
-      out.auto = out.blocked.length === 0 && allOrders.length === 1;
+    if (rec && cues.multi === false && cues.months.length && rec.deliveryMonth && !cues.months.includes(rec.deliveryMonth) && extra.hardKey) out.notes.push(`the subject's month (${cues.months.join('/')}) is not ${rec.deliveryMonth} — a stale thread subject`);
+    // Guard d: another order's key in the subject / own text / an attachment (quoted history is a note only).
+    const otherStrong = [...new Set(strongHits.filter((h) => h.orderId !== target.orderId).map((h) => `#${records.find((r) => r.orderId === h.orderId)?.orderNo ?? '?'}`))];
+    if (otherStrong.length) {
+      out.blocked.push(`d: another order's key is in the email (${otherStrong.join(', ')})`);
+      out.notes.push(`also mentions ${otherStrong.join(', ')}`);
+      out.multiOrderIds = [...new Set(strongHits.map((h) => h.orderId))];
+    }
+    const q = quotedOthers(target.orderId);
+    if (q.length) out.notes.push(`the quoted text also names ${q.join(', ')}`);
+    return out;
+  };
+
+  // 1–3. Hard keys: attachment, then own text, then subject.
+  for (const [where, source, label] of [['attachment', 'attachment', 'attachment'], ['body', 'own', 'email text'], ['subject', 'subject', 'subject']] as Array<[Where, MatchSource, string]>) {
+    const hits = at(where);
+    const one = oneRecord(hits);
+    if (!one) continue;
+    if (one.several === 'orders') {
+      // Several orders named in this one place: a later place may still decide (an attachment per shipment is the
+      // service's splitByAttachment); here it is "pick".
+      const refs = [...new Set(hits.map((h) => `#${records.find((r) => r.orderId === h.orderId)?.orderNo ?? '?'}`))];
+      out.blocked.push(`a: keys of ${refs.length} orders in the ${label} (${refs.join(', ')})`);
+      out.notes.push(`several orders in the ${label}: ${refs.join(', ')}`);
+      out.multiOrderIds = [...new Set(hits.map((h) => h.orderId))];
+      out.reason = `the ${label} names ${refs.join(', ')} — pick the order`;
       return out;
     }
+    const target = { orderId: one.orderId, shipmentId: one.shipmentId };
+    if (one.several === 'shipments') out.blocked.push(`a: keys of several shipments of ${refOf(one.orderId, null)} in the ${label}`);
+    finish(target, source, { kind: one.hit.kind, confidence: 'exact', keyLabel: `${KIND_LABEL[one.hit.kind]} ${one.hit.value}`, reason: `${KIND_LABEL[one.hit.kind]} ${one.hit.value} is in the ${label}`, hardKey: true });
+    out.auto = out.blocked.length === 0;
     return out;
   }
+  // A key only in the quoted history: a note, never a decision (round T).
+  if (quotedOnly.length) out.notes.push(`the quoted text names ${[...new Set(quotedOnly.map((h) => refOf(h.orderId, h.shipmentId)))].join(', ')} — not this email`);
   out.blocked.push('a: no exact B/L / PI / CI of a record in the email');
-  // Round P — the thread. 1. An accepted / auto-applied earlier message: the same link ("thread" — a person may
-  // have confirmed it; auto only link-only, see the service). 2. A combined thread (several links): the reply
-  // follows the one its subject describes, else "pick the shipment". 3. The earliest key in the thread.
-  const combined = thread.candidates.length > 1 ? thread.candidates : thread.candidates.length === 1 && thread.accepted && (thread.candidates[0].orderId !== thread.accepted.orderId || (thread.candidates[0].shipmentId ?? null) !== (thread.accepted.shipmentId ?? null)) ? [thread.accepted, ...thread.candidates] : [];
-  if (combined.length > 1) {
-    const refs = combined.map((c) => refOf(c.orderId, c.shipmentId));
-    const agree = combined
-      .map((c) => ({ c, rec: recOf(c.orderId, c.shipmentId) }))
-      .filter(({ rec }) => rec && !cueConflicts(cues, rec).length && cueScore(cues, rec).score > 0)
-      .map(({ c, rec }) => ({ c, s: cueScore(cues, rec!) }))
-      .sort((a, b) => b.s.score - a.s.score);
-    if (!cues.multi && agree.length && (agree.length === 1 || agree[0].s.score > agree[1].s.score)) {
-      out.target = agree[0].c;
-      out.kind = 'thread';
-      out.confidence = 'thread';
-      out.threadFrom = 'followed';
-      out.reason = `this thread covers ${refs.join(' / ')}; the subject describes ${refOf(agree[0].c.orderId, agree[0].c.shipmentId)} (${agree[0].s.reasons.join(', ')})`;
-      out.blocked.push(`a: followed the thread's ${refOf(agree[0].c.orderId, agree[0].c.shipmentId)} by the subject — confirm`);
+
+  // 4. Own-text product cues: the own text describes one record clearly.
+  const ownScored = live.map((r) => ({ r, s: cueScore(ownCues, r) })).filter((x) => x.s.score > 0 && !cueConflicts(ownCues, x.r).length).sort((a, b) => b.s.score - a.s.score);
+  const ownBest = ownScored[0];
+  const ownClear = !!ownBest && ownBest.s.score >= 4 && ownBest.s.score - (ownScored[1]?.s.score ?? -99) >= 2;
+  const threadCombined = thread.candidates.length > 1 ? thread.candidates : thread.candidates.length === 1 && thread.accepted && (thread.candidates[0].orderId !== thread.accepted.orderId || (thread.candidates[0].shipmentId ?? null) !== (thread.accepted.shipmentId ?? null)) ? [thread.accepted, ...thread.candidates] : [];
+  if (ownClear && !threadCombined.length) {
+    finish({ orderId: ownBest.r.orderId, shipmentId: ownBest.r.shipmentId }, 'own-cues', { kind: 'cues', confidence: 'cues', reason: `the email text describes ${recordRef(ownBest.r)} (${ownBest.s.reasons.join(', ')})`, hardKey: false });
+    out.blocked.push(`a: matched by the email's own words (${ownBest.s.reasons.join(', ')}) — confirm`);
+    return out;
+  }
+
+  // 5. The thread link. A combined thread follows the candidate the own text (else a single-product subject) describes.
+  if (threadCombined.length > 1) {
+    const refs = threadCombined.map((c) => refOf(c.orderId, c.shipmentId));
+    const pick = (c: SubjectCues) =>
+      threadCombined
+        .map((cand) => ({ cand, rec: recOf(cand.orderId, cand.shipmentId) }))
+        .filter(({ rec }) => rec && !cueConflicts(c, rec).length && cueScore(c, rec).score > 0)
+        .map(({ cand, rec }) => ({ cand, s: cueScore(c, rec!) }))
+        .sort((a, b) => b.s.score - a.s.score);
+    const byOwn = pick(ownCues);
+    const bySubject = cues.multi ? [] : pick(cues);
+    const agree = byOwn.length && (byOwn.length === 1 || byOwn[0].s.score > byOwn[1].s.score) ? byOwn : bySubject.length && (bySubject.length === 1 || bySubject[0].s.score > bySubject[1].s.score) ? bySubject : [];
+    if (agree.length) {
+      const how = agree === byOwn ? 'the email text' : 'the subject';
+      finish(agree[0].cand, 'thread', { kind: 'thread', confidence: 'thread', threadFrom: 'followed', reason: `this thread covers ${refs.join(' / ')}; ${how} describes ${refOf(agree[0].cand.orderId, agree[0].cand.shipmentId)} (${agree[0].s.reasons.join(', ')})`, hardKey: false });
+      out.blocked.push(`a: followed the thread's ${refOf(agree[0].cand.orderId, agree[0].cand.shipmentId)} by ${how} — confirm`);
       return out;
     }
-    out.multiOrderIds = [...new Set(combined.map((c) => c.orderId))];
+    out.multiOrderIds = [...new Set(threadCombined.map((c) => c.orderId))];
     out.reason = `this thread covers ${refs.join(' / ')} — pick the shipment`;
     out.blocked.push(`a: pick the shipment (thread covers ${refs.join('/')})`);
-    out.check.push(`pick the shipment — the thread covers ${refs.join(' / ')}`);
+    out.notes.push(`pick the shipment — the thread covers ${refs.join(' / ')}`);
     return out;
   }
   if (thread.accepted) {
-    out.target = thread.accepted;
-    out.kind = 'thread';
-    out.confidence = 'thread';
-    out.threadFrom = 'accepted';
-    out.reason = `an earlier email of this thread was linked to ${refOf(thread.accepted.orderId, thread.accepted.shipmentId)}`;
-    const rec = recOf(thread.accepted.orderId, thread.accepted.shipmentId);
-    const conflicts = rec ? cueConflicts(cues, rec) : [];
-    if (conflicts.length) {
-      out.blocked.push(`c: the subject disagrees (${conflicts.join('; ')})`);
-      out.check.push(...conflicts);
-    }
+    finish(thread.accepted, 'thread', { kind: 'thread', confidence: 'thread', threadFrom: 'accepted', reason: `an earlier email of this thread was linked to ${refOf(thread.accepted.orderId, thread.accepted.shipmentId)}`, hardKey: false });
     // Link-only auto (the service also requires: nothing to file). A reply that files documents stays "Confirm match".
-    out.auto = !conflicts.length && !cues.multi;
+    out.auto = out.check.length === 0 && !out.blocked.some((b) => /^d:/.test(b));
     return out;
   }
   if (thread.traced) {
-    out.target = { orderId: thread.traced.orderId, shipmentId: thread.traced.shipmentId };
-    out.kind = 'thread';
-    out.confidence = 'thread';
-    out.threadFrom = 'traced';
-    out.keyLabel = thread.traced.keyLabel;
-    out.reason = `${thread.traced.keyLabel} is in an earlier email of this thread${thread.traced.date ? ` (${thread.traced.date})` : ''}`;
+    finish({ orderId: thread.traced.orderId, shipmentId: thread.traced.shipmentId }, 'thread', { kind: 'thread', confidence: 'thread', threadFrom: 'traced', keyLabel: thread.traced.keyLabel, reason: `${thread.traced.keyLabel} is in an earlier email of this thread${thread.traced.date ? ` (${thread.traced.date})` : ''}`, hardKey: false });
     out.blocked.push(`b: ${thread.traced.keyLabel} is in an earlier email of the thread, not in this one — confirm`);
-    const rec = recOf(thread.traced.orderId, thread.traced.shipmentId);
-    const conflicts = rec ? cueConflicts(cues, rec) : [];
-    if (conflicts.length) {
-      out.blocked.push(`c: the subject disagrees (${conflicts.join('; ')})`);
-      out.check.push(...conflicts);
-    }
     return out;
   }
+  // Own cues with a single-link thread that was not accepted / traced (plain) — still the email's own words.
+  if (ownClear) {
+    finish({ orderId: ownBest.r.orderId, shipmentId: ownBest.r.shipmentId }, 'own-cues', { kind: 'cues', confidence: 'cues', reason: `the email text describes ${recordRef(ownBest.r)} (${ownBest.s.reasons.join(', ')})`, hardKey: false });
+    out.blocked.push(`a: matched by the email's own words (${ownBest.s.reasons.join(', ')}) — confirm`);
+    return out;
+  }
+
+  // 6. Subject cues: a single-product subject that clearly describes one open record (never auto).
   const open = scored.filter((x) => x.open);
-  const [best, second] = open;
-  if (best && best.score >= 4 && best.score - (second?.score ?? -99) >= 2 && !cues.multi) {
-    out.target = { orderId: best.r.orderId, shipmentId: best.r.shipmentId };
-    out.kind = 'cues';
-    out.confidence = 'cues';
-    out.reason = `the subject describes ${recordRef(best.r)} (${best.reasons.join(', ')})`;
-    out.check.push(`matched by the subject only (${best.reasons.join(', ')})`);
-  } else if (cues.multi) {
+  const subjScored = live.filter((r) => r.orderStatus === 'OPEN').map((r) => ({ r, s: cueScore(cues, r) })).sort((a, b) => b.s.score - a.s.score);
+  const [best, second] = subjScored;
+  if (!cues.multi && best && best.s.score >= 4 && best.s.score - (second?.s.score ?? -99) >= 2) {
+    finish({ orderId: best.r.orderId, shipmentId: best.r.shipmentId }, 'subject-cues', { kind: 'cues', confidence: 'cues', reason: `the subject describes ${recordRef(best.r)} (${best.s.reasons.join(', ')})`, hardKey: false });
+    out.notes.push(`matched by the subject only (${best.s.reasons.join(', ')})`);
+    return out;
+  }
+  // 7. Quoted history: the LAST resort — one record named only in the quoted text is a weak suggestion ("confirm"),
+  //    never applied by itself, and never above anything the email itself says.
+  const quotedOne = oneRecord(quotedOnly);
+  if (quotedOne && !quotedOne.several && !cues.multi) {
+    finish({ orderId: quotedOne.orderId, shipmentId: quotedOne.shipmentId }, 'subject-cues', { kind: quotedOne.hit.kind, confidence: 'cues', keyLabel: `${KIND_LABEL[quotedOne.hit.kind]} ${quotedOne.hit.value}`, reason: `${KIND_LABEL[quotedOne.hit.kind]} ${quotedOne.hit.value} is only in the quoted text`, hardKey: false });
+    out.source = null;
+    out.blocked.push(`b: ${out.keyLabel} is only in the quoted / forwarded text`);
+    return out;
+  }
+  if (cues.multi) {
     out.multiOrderIds = [...new Set(open.filter((x) => x.score > 0).slice(0, 3).map((x) => x.r.orderId))];
-    out.reason = 'the subject names several products';
-  } else out.reason = 'no record number in the email or its thread, and the subject fits no single order';
+    out.reason = 'the subject names several products and nothing else says which — pick the shipment';
+  } else out.reason = 'no record number in the email or its thread, and neither the text nor the subject fits one record';
   return out;
 }
 

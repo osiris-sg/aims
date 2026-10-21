@@ -847,6 +847,8 @@ export class OperatorService {
             outcome.preview.documentId,
           );
         }
+        // Round T: "send all docs" pushes up to 5 files.
+        for (const p of ((outcome as any).previews ?? []).slice(1)) await adapter.sendDocument(msg.chatId, p.url, p.filename, p.caption).catch(() => null);
         if (adapter.sendUi) {
           if (outcome.ui) await adapter.sendUi(msg.chatId, outcome.ui).catch(() => null);
           const r: any = outcome.result || {};
@@ -985,7 +987,8 @@ export class OperatorService {
         note = lang === 'ja' ? `✅ ${name} → ${row?.matched ?? 'リンク済み'}${filed ? `（${filed} 件保存）` : ''}${evidence}` : `✅ Filed ${name} → ${row?.matched ?? 'linked'}${filed ? ` (${filed} document${filed > 1 ? 's' : ''})` : ''}${evidence}`;
         await adapter.sendText(msg.chatId, note);
       } else if (out.inboxState === 'SUGGESTED' && row?.matched) {
-        const pending = this.shipTools.pendingForIntake(row, name);
+        // Round T: "this is the AN for #19-1" — the caption's record beats the suggestion when they differ.
+        const pending = (await this.shipTools.pendingForCaption(ctx, row, name, caption)) ?? this.shipTools.pendingForIntake(row, name);
         if (pending) {
           this.holdPending(session, pending);
           await this.saveSession(...this.sk(msg), session);
@@ -998,6 +1001,15 @@ export class OperatorService {
       } else if (out.verdict === 'NOT_SHIPMENT' || out.inboxState === 'HIDDEN') {
         await adapter.sendText(msg.chatId, lang === 'ja' ? `${name} は出荷関連ではないと判断しました。関連する場合はレコード番号（例: #21-1）を教えてください。` : `${name} doesn't look like a shipment document. If it is, tell me the record (e.g. #21-1).`);
         note = `[file ${name} → intake emailId=${out.logId}, judged not a shipment document]`;
+      } else if (await this.shipTools.pendingForCaption(ctx, row, name, caption)) {
+        const pending = (await this.shipTools.pendingForCaption(ctx, row, name, caption))!;
+        this.holdPending(session, pending);
+        await this.saveSession(...this.sk(msg), session);
+        await adapter.sendButtons(msg.chatId, `${pending.summary}\n\n${lang === 'ja' ? '確定しますか？' : 'Confirm?'}`, [
+          { label: '\u2705 Confirm', data: `confirm:${pending.id}` },
+          { label: '\u274c Cancel', data: `cancel:${pending.id}` },
+        ]);
+        note = `[file ${name} → intake emailId=${out.logId}, the caption names a record, awaiting the user's Confirm]`;
       } else {
         const cands: string[] = (row?.candidates ?? []).slice(0, 3).map((c: any) => c.ref);
         const ask = cands.length ? (lang === 'ja' ? `どのレコードですか？ ${cands.join(' / ')}` : `Which record? ${cands.join(' / ')}`) : lang === 'ja' ? 'どのレコードに紐づけますか？（例: #21-1）' : 'Which record should it go to? (e.g. #21-1)';
@@ -1316,6 +1328,11 @@ export class OperatorService {
     }
     // The card "becomes confirmed": the reply always leads with the outcome.
     await adapter.sendText(msg.chatId, res.ok ? (/^✅/.test(res.message) ? res.message : `✅ Confirmed — ${res.message}`) : res.message);
+    if (res.ok && pending.kind === 'shipments' && (pending.args as any)?.op === 'generated_doc_create') {
+      const a: any = pending.args;
+      const p = await this.shipTools.previewForLatestDraft(ctx, a.ref, a.docType).catch(() => null);
+      if (p) await adapter.sendDocument(msg.chatId, p.url, p.filename, p.caption).catch(() => null);
+    }
 
     // Hand the outcome back to the model so multi-step work continues.
     //

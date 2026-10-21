@@ -123,6 +123,9 @@ export type InboxRow = {
   supplierOrderResults?: Array<{ contractNo: string; piNo: string | null; orderId?: string | null; orderLabel?: string | null; supplierOrderId?: string | null; action: string; reason?: string }>;
   /** Subject words that disagree with the match ("grade 6005 ≠ 6063") — "check". */
   check?: string[];
+  /** Round T: informational notes (a combined-thread subject, quoted mentions) and which cue decided. */
+  notes?: string[];
+  source?: "attachment" | "own" | "subject" | "own-cues" | "thread" | "subject-cues" | null;
   /** exact (a record key) · thread (an accepted email of the thread) · cues (the subject only) · manual · none. */
   confidence?: string | null;
   /** Which guard kept it a suggestion ("b: B/L … only in the body"). */
@@ -727,6 +730,37 @@ export type PremiumRow = { from: string; to: string | null; grade?: string | nul
 export type TradeAlert = { id: string; kind: string; key: string; dueAt: string; title: string; detail: string | null; shipmentId: string | null; orderId: string | null; supplierOrderId: string | null; linkUrl: string | null; status: "SCHEDULED" | "DUE" | "DONE" | "DISMISSED"; notifiedAt: string | null };
 export type CellState = "done" | "in_progress" | "na" | "overdue" | "not_started" | "none";
 export type Pipeline = { rows: Array<{ no: string; title: string }>; months: Array<{ month: string | null; orders: Array<{ id: string; label: string; customerName: string | null; status: RecordStatus; cells: Record<string, CellState> }> }> };
+// ── Round T: the email view + the Admin dashboard ─────────────────────────
+export type EmailMessage = {
+  id: string;
+  headers: { from: string; to: string; cc: string; date: string | null; subject: string };
+  text: string | null;
+  quoted: string | null;
+  /** Untrusted HTML with remote content defused server-side (data-aims-src); sanitised again and sandboxed on the client. */
+  html: string | null;
+  blockedRemote: number;
+  attachments: Array<{ index: number; name: string; contentType: string; size: number; url: string | null }>;
+  source: "email" | "whatsapp";
+  reconstructed: boolean;
+  inboxState: string | null;
+};
+export type Cur = "USD" | "JPY";
+export type AdminMonth = { month: string; in: Record<Cur, number>; out: Record<Cur, number>; outBy: Record<string, Record<Cur, number>>; net: Record<Cur, number> };
+export type AdminDashboard = {
+  today: string;
+  months: AdminMonth[];
+  outKinds: Record<string, string>;
+  expected: {
+    outstandingInvoices: Array<{ id: string; number: string; customerName: string | null; orderLabel: string | null; amount: number; total: number; currency: string; issueDate: string | null; dueDate: string | null; overdue: boolean }>;
+    outstandingTotal: { USD: number };
+    notTrackedInvoices: Array<{ id: string; number: string; customerName: string | null; orderLabel: string | null; total: number; currency: string; issueDate: string | null }>;
+    supplierDue: Array<{ kind: "DEPOSIT" | "CI"; label: string; amount: number | null; currency: string; dueDate: string | null; overdue: boolean }>;
+    supplierDueTotal: { USD: number };
+  };
+  orders: Array<{ id: string; label: string; customerName: string | null; product: string | null; qtyMt: number | null; status: string; deliveryMonth: string | null; sellUsd: number | null; buyUsd: number | null; costsJpy: number | null; costsUsd: number | null; margin: number | null; profit: number | null; profitStatus: "MANUAL" | "FORMULA_PENDING"; profitLabel: string | null }>;
+  summary: { months: string[]; revenueInvoiced: { USD: number }; received: Record<Cur, number>; costs: Record<Cur, number>; margin: { USD: number }; profit: { USD: number; pending: boolean; label: string | null }; tonnageMt: number; orders: number };
+  note: string;
+};
 export type Money = {
   cashByMonth: Record<string, { in: Record<string, number>; out: Record<string, number> }>;
   orders: Array<{ id: string; label: string; customerName: string | null; deliveryMonth: string | null; status: RecordStatus; qtyMt: number | null; margin: number | null; profit: number | null; profitStatus: "MANUAL" | "FORMULA_PENDING" }>;
@@ -1392,6 +1426,8 @@ export function useShipmentsApi() {
       alertDismiss: (id: string) => call<TradeAlert>(`/trade-alerts/${id}/dismiss`, "POST"),
       pipeline: () => call<Pipeline>(`/trade-dashboard/pipeline`),
       money: () => call<Money>(`/trade-dashboard/money`),
+      /** Round T: the Admin dashboard (shipments:money). */
+      adminDashboard: () => call<AdminDashboard>(`/trade-dashboard/admin`),
       stock: () => call<Stock>(`/trade-dashboard/stock`),
       applyCredit: (id: string, creditId: string) => call<GeneratedDoc>(`/trade-generated/${id}/apply-credit`, "POST", { creditId }),
       costVariance: (id: string) => call<CostVariance>(`/trade-generated/${id}/cost-variance`),
@@ -1605,6 +1641,9 @@ export function useShipmentsApi() {
       // ── Email inbox (triage → process) ─────────────────────────────────
       inbox: (tab: InboxTab) => call<{ items: InboxRow[]; counts: Record<InboxTab, number> }>(`/email-inbox${qs({ tab })}`),
       inboxThreads: (tab: InboxThreadsTab) => call<InboxThreads>(`/email-inbox/threads${qs({ tab })}`),
+      /** Round T: the whole email (headers, text, defused HTML, attachments) and its thread. */
+      inboxMessage: (id: string) => call<EmailMessage>(`/email-inbox/${id}/message`),
+      inboxThread: (id: string) => call<{ id: string; messages: InboxMessage[] }>(`/email-inbox/${id}/thread`),
       inboxDashboard: () => call<InboxDashboard>(`/email-inbox/dashboard`),
       inboxHidden: () => call<HiddenEmail[]>(`/email-inbox/hidden`),
       inboxUnhide: (id: string) => call<InboxRow>(`/email-inbox/${id}/unhide`, "POST"),

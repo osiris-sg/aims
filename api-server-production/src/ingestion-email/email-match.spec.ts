@@ -75,7 +75,8 @@ describe('guard c — the subject agrees (the real 6005C / 06445 case)', () => {
     const d = decide(e);
     expect(d.target).toEqual({ orderId: 'o20', shipmentId: 's20' });
     expect(d.auto).toBe(false);
-    expect(d.check.join(' ')).toMatch(/ignored B\/L 198GX06445/);
+    expect(d.notes.join(' ')).toMatch(/quoted text also names #21/);
+    expect(d.check).toEqual([]); // round T: a quoted older B/L is a note, not a "subject disagrees"
   });
   it('cue conflicts: grade / qty / delivery month / customer', () => {
     const c = subjectCues('【11月納入】6005C-8インチ 40T 加藤', new Date('2026-10-20'));
@@ -98,13 +99,14 @@ describe('guard d — no other order in the email', () => {
     expect(d.target).toBeNull();
     expect(d.multiOrderIds.sort()).toEqual(['o20', 'o21', 'o22']);
     expect(d.auto).toBe(false);
-    expect(d.check.join(' ')).toMatch(/several/);
+    expect(d.notes.join(' ')).toMatch(/several/);
   });
   it('one order in the subject, another quoted below → that order, but not auto', () => {
     const d = decide(ev('198GX05383 debit note', '> also about 198GX06520'));
     expect(d.target?.orderId).toBe('o15');
-    expect(d.auto).toBe(false);
-    expect(d.blocked).toContainEqual(expect.stringMatching(/^d:/));
+    // Round T: a key only in the QUOTED history is the weakest cue — a note, not guard d (the subject's own key decides).
+    expect(d.auto).toBe(true);
+    expect(d.notes.join(' ')).toMatch(/quoted text also names/);
   });
 });
 

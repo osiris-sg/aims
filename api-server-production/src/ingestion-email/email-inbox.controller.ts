@@ -58,6 +58,29 @@ export class EmailInboxController {
     return this.triage.stats(this.org(req), Number.isInteger(n) && n > 0 && n <= 365 ? n : 30);
   }
 
+  @Get(':id/message')
+  @Permissions('shipments:read')
+  @ApiOperation({ summary: 'Round T: the whole email (headers, text, defused HTML, attachments with download URLs) — the portal email view' })
+  message(@Param('id', ParseUUIDPipe) id: string, @Req() req: Req2) {
+    return this.triage.message(this.org(req), id);
+  }
+
+  @Get(':id/thread')
+  @Permissions('shipments:read')
+  @ApiOperation({ summary: 'Round T: the thread of an email, oldest → newest' })
+  thread(@Param('id', ParseUUIDPipe) id: string, @Req() req: Req2) {
+    return this.triage.thread(this.org(req), id);
+  }
+
+  @Get(':id/attachments/:index/url')
+  @Permissions('shipments:read')
+  @ApiOperation({ summary: 'Round T: a 1-hour download URL for one stored attachment' })
+  attachmentUrl(@Param('id', ParseUUIDPipe) id: string, @Param('index') index: string, @Req() req: Req2) {
+    const i = Number(index);
+    if (!Number.isInteger(i) || i < 0) throw new BadRequestException('index must be a whole number');
+    return this.triage.attachmentUrl(this.org(req), id, i);
+  }
+
   @Post(':id/preview')
   @Permissions('shipments:read')
   @ApiOperation({ summary: '"Change order…" preview: what choosing these orders / shipments would file and fill (nothing is saved).' })

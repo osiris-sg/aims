@@ -1,16 +1,96 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-// An email's details window (keys found, attachments, planned / done actions,
-// the Vedanta PI table) — shared by the Inbox and the Sales dashboard (round P).
+// Round T — an email opens as its THREAD, like an email client: messages stacked oldest → newest, each
+// expandable (the newest open), every message shown in full (EmailView). No summary / explanation text:
+// only the key chips (B/L, PI, CI, contract, container…), the link chip ("→ #22-1 · step 4") and the
+// actions Confirm / Change order… / Not shipment. Shared by the Inbox and the Sales dashboard.
 
-import React, { useState } from "react";
-import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Typography } from "@mui/material";
+import React, { useEffect, useState } from "react";
+import { Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Typography } from "@mui/material";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import { useQuery } from "@tanstack/react-query";
-import { useShipmentsApi, type InboxRow } from "../../_lib/api";
-import { fmtDateTime } from "../../_lib/format";
+import Link from "next/link";
+import { useShipmentsApi, type InboxMessage, type InboxRow } from "../../_lib/api";
+import { fromParts, linkedChip, orderHref, whenShort } from "../../_lib/inbox-threads";
 import { toast } from "../../_lib/toast";
 import { actionText } from "./InboxPicker";
+import { EmailView } from "./EmailView";
+import { PiTablePanel } from "./PiTablePanel";
+
+const KEY_LABEL: Record<string, string> = { blNo: "B/L", piNo: "PI", ciNo: "CI", contractNo: "Contract", containerNo: "Container", telexCode: "Telex", invoiceNo: "Invoice", poNo: "PO", vessel: "Vessel" };
+
+/** The key chips of a message (record numbers the email names). */
+export function KeyChips({ keys }: { keys: Record<string, unknown> | null | undefined }) {
+  const entries = Object.entries(keys ?? {}).filter(([, v]) => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && !v.length));
+  if (!entries.length) return null;
+  return (
+    <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap data-tour="email-keys">
+      {entries.map(([k, v]) => (
+        <Chip key={k} size="small" variant="outlined" label={`${KEY_LABEL[k] ?? k} ${Array.isArray(v) ? v.join(", ") : String(v)}`} />
+      ))}
+    </Stack>
+  );
+}
+
+/** "→ #22-1 · step 4" — where the email went or is suggested to go. */
+export function LinkChip({ m }: { m: InboxMessage | InboxRow }) {
+  const linked = (m as InboxMessage).linked;
+  const ref = linked?.ref ?? m.matched ?? null;
+  if (!ref) return <Chip size="small" variant="outlined" label="Not linked yet" />;
+  const step = (linked?.files ?? []).map((f) => (f.stepNo ? `step ${f.stepNo}` : null)).find(Boolean) ?? null;
+  const href = orderHref(m.orderId, m.shipmentId);
+  const label = `→ ${ref}${step ? ` · ${step}` : ""}`;
+  const chip = <Chip size="small" color={m.inboxState === "PROCESSED" ? "success" : "primary"} variant={m.inboxState === "PROCESSED" ? "filled" : "outlined"} clickable={!!href} label={label} title={(linked ? linkedChip(linked) : null) ?? undefined} data-tour="email-link-chip" />;
+  return href ? (
+    <Link href={href} style={{ textDecoration: "none" }}>
+      {chip}
+    </Link>
+  ) : (
+    chip
+  );
+}
+
+function MessageBlock({ m, open, onToggle, selected }: { m: InboxMessage; open: boolean; onToggle: () => void; selected: boolean }) {
+  const from = fromParts(m.from);
+  const did = (m.done?.length ? m.done : m.planned ?? []).filter((a: any) => a.status !== "skipped");
+  return (
+    <Box sx={{ border: "1px solid", borderColor: selected ? "primary.main" : "divider", borderRadius: 1, overflow: "hidden" }} data-tour="email-thread-message">
+      <Stack direction="row" spacing={1} alignItems="center" onClick={onToggle} sx={{ px: 1.5, py: 1, cursor: "pointer", bgcolor: open ? "action.hover" : undefined }}>
+        <IconButton size="small" aria-label={open ? "Collapse" : "Expand"}>{open ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}</IconButton>
+        <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 0 }} noWrap title={m.from}>
+          {from.name}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+          {whenShort(m.date)}
+        </Typography>
+        {m.attachments.length > 0 && (
+          <Typography variant="caption" color="text.secondary">
+            📎 {m.attachments.length}
+          </Typography>
+        )}
+        <Box sx={{ flex: 1 }} />
+        <LinkChip m={m} />
+      </Stack>
+      <Collapse in={open} unmountOnExit>
+        <Box sx={{ px: 1.5, pb: 1.5 }}>
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+            <KeyChips keys={m.keys as any} />
+            {did.length > 0 && (
+              <Typography variant="caption" color="text.secondary" title={did.map(actionText).join("\n")}>
+                {m.done?.length ? "Filed: " : "Will file: "}
+                {did.slice(0, 3).map(actionText).join(" · ")}
+                {did.length > 3 ? ` · +${did.length - 3}` : ""}
+              </Typography>
+            )}
+          </Stack>
+          <EmailView id={m.id} />
+        </Box>
+      </Collapse>
+    </Box>
+  );
+}
 
 export function InboxDetailsDialog({
   open,
@@ -29,62 +109,51 @@ export function InboxDetailsDialog({
   pending: boolean;
   onRowChanged: (r: InboxRow) => void;
 }) {
+  const api = useShipmentsApi();
+  const id = open?.id ?? null;
+  const thread = useQuery({ queryKey: ["trade-inbox", "thread", id], queryFn: () => api.inboxThread(id!), enabled: !!id, staleTime: 60_000 });
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // The newest message opens; the one the person clicked opens too.
+  useEffect(() => {
+    if (!thread.data || !id) return;
+    const newest = thread.data.messages[thread.data.messages.length - 1]?.id;
+    setExpanded({ ...(newest ? { [newest]: true } : {}), [id]: true });
+  }, [thread.data, id]);
+  useEffect(() => {
+    if (thread.isError) toast.error((thread.error as Error)?.message || "Could not load the thread");
+  }, [thread.isError, thread.error]);
+  const messages = thread.data?.messages ?? [];
   return (
-    <Dialog open={!!open} onClose={onClose} maxWidth="md" fullWidth transitionDuration={{ enter: 225, exit: 0 }} disableRestoreFocus>
-      <DialogTitle>{open?.subject || "(no subject)"}</DialogTitle>
+    <Dialog open={!!open} onClose={onClose} maxWidth="md" fullWidth transitionDuration={{ enter: 225, exit: 0 }} disableRestoreFocus data-tour="email-dialog">
+      <DialogTitle sx={{ pr: 6 }}>
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Typography variant="h6" sx={{ fontWeight: 700, minWidth: 0 }} noWrap title={open?.subject ?? ""}>
+            {open?.subject || "(no subject)"}
+          </Typography>
+          {open && <LinkChip m={open} />}
+          {messages.length > 1 && <Chip size="small" variant="outlined" label={`${messages.length} emails in this thread`} />}
+        </Stack>
+      </DialogTitle>
       <DialogContent dividers>
-        {open && (
-          <Stack spacing={1.5}>
-            <Typography variant="body2">
-              {open.direction === "OUT" ? "Sent" : "Received"} · {open.counterparty} · {open.from} · {fmtDateTime(open.date)}
-            </Typography>
-            {open.error && <Alert severity="warning">AI triage: {open.error}</Alert>}
-            <Box>
-              <Typography variant="overline" color="text.secondary">
-                Keys found
-              </Typography>
-              <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                {Object.entries(open.keys ?? {})
-                  .filter(([, v]) => v)
-                  .map(([k, v]) => (
-                    <Chip key={k} size="small" variant="outlined" label={`${k}: ${v}`} />
-                  ))}
-                {!Object.values(open.keys ?? {}).some(Boolean) && <Typography variant="body2">None</Typography>}
-              </Stack>
-            </Box>
-            <Box>
-              <Typography variant="overline" color="text.secondary">
-                Attachments
-              </Typography>
-              {open.attachments.map((a) => (
-                <Typography key={a.index} variant="body2">
-                  {a.name} {a.docType ? <Chip size="small" label={a.docType} sx={{ ml: 1 }} /> : null}
-                </Typography>
-              ))}
-              {!open.attachments.length && <Typography variant="body2">None</Typography>}
-            </Box>
-            <Box>
-              <Typography variant="overline" color="text.secondary">
-                {open.done.length ? "Done" : "Planned"} {open.matched ? `on ${open.matched}` : ""}
-              </Typography>
-              {(open.done.length ? open.done : open.planned).map((a, i) => (
-                <Typography key={i} variant="body2" color={a.status === "skipped" ? "text.secondary" : undefined}>
-                  • {actionText(a)}
-                </Typography>
-              ))}
-              {!(open.done.length ? open.done : open.planned).length && <Typography variant="body2">Nothing to do for this email.</Typography>}
-            </Box>
-            {!!open.check?.length && (
-              <Alert severity="warning">
-                Check this match: the subject says {open.check.join("; ")}. Re-assign it to the right order / shipment if needed.
-              </Alert>
-            )}
-            {(open.supplierOrderSuggestions ?? []).length > 0 && <PiTablePanel row={open} onApplied={onRowChanged} />}
+        {open?.error && <Alert severity="warning" sx={{ mb: 1 }}>AI triage: {open.error}</Alert>}
+        {thread.isLoading ? (
+          <CircularProgress />
+        ) : messages.length ? (
+          <Stack spacing={1}>
+            {messages.map((m) => (
+              <MessageBlock key={m.id} m={m} open={!!expanded[m.id]} selected={m.id === id} onToggle={() => setExpanded((e) => ({ ...e, [m.id]: !e[m.id] }))} />
+            ))}
           </Stack>
+        ) : open ? (
+          <EmailView id={open.id} />
+        ) : null}
+        {open && (open.supplierOrderSuggestions ?? []).length > 0 && (
+          <Box sx={{ mt: 2 }}>
+            <PiTablePanel row={open} onApplied={onRowChanged} />
+          </Box>
         )}
       </DialogContent>
       <DialogActions data-tour="inbox-dialog-actions">
-        {/* Round N: the row's actions in the dialog too. Each closes the dialog first, then acts. */}
         {open && !open.canUndo && (
           <Button
             color="error"
@@ -125,69 +194,6 @@ export function InboxDetailsDialog({
         )}
       </DialogActions>
     </Dialog>
-  );
-}
-
-/** Vedanta's PI table: the month's order each row fills (PI no., PI amount — blanks only), then "Apply". */
-export function PiTablePanel({ row, onApplied }: { row: InboxRow; onApplied: (r: InboxRow) => void }) {
-  const api = useShipmentsApi();
-  const plan = useQuery({ queryKey: ["trade-orders", "pi-table", row.id, (row.supplierOrderResults ?? []).length], queryFn: () => api.inboxPiTable(row.id) });
-  const [busy, setBusy] = useState(false);
-  const fieldText = (f: Record<string, string | number>) =>
-    Object.entries(f)
-      .map(([k, v]) => (k === "piNo" ? `PI no. ${v}` : k === "piAmount" ? `PI amount ${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}` : `${k} ${v}`))
-      .join(", ");
-  return (
-    <Box data-tour="inbox-pi-table">
-      <Typography variant="overline" color="text.secondary">
-        Vedanta&apos;s PI table → the month&apos;s orders
-      </Typography>
-      {plan.isLoading ? (
-        <CircularProgress size={18} />
-      ) : (
-        (plan.data?.rows ?? []).map((p, i) => (
-          <Typography key={i} variant="body2">
-            • {p.row.grade ?? "—"} · {p.row.contractNo} · {p.row.qtyMt ?? "—"} MT · PI {p.row.piNo ?? "—"} →{" "}
-            {p.orderLabel ? (
-              <b>
-                {p.orderLabel}
-                {Object.keys(p.fields).length ? `: fill ${fieldText(p.fields)}` : " (already filled)"}
-              </b>
-            ) : (
-              <span style={{ opacity: 0.7 }}>{p.reason}</span>
-            )}
-          </Typography>
-        ))
-      )}
-      {(row.supplierOrderResults ?? []).map((r, i) => (
-        <Typography key={`r${i}`} variant="caption" color="text.secondary" component="div">
-          {r.contractNo} {r.piNo ? `PI ${r.piNo}` : ""}
-          {r.orderLabel ? ` → ${r.orderLabel}` : ""}: {r.action}
-          {r.reason ? ` (${r.reason})` : ""}
-        </Typography>
-      ))}
-      <Button
-        size="small"
-        variant="outlined"
-        sx={{ mt: 1 }}
-        disabled={busy || !(plan.data?.rows ?? []).some((p) => p.orderId && Object.keys(p.fields).length)}
-        onClick={async () => {
-          setBusy(true);
-          try {
-            const out = await api.inboxApplyPiTable(row.id);
-            onApplied(out.row);
-            toast.success(`PI table: ${out.results.map((r) => `${r.orderLabel ?? r.contractNo} ${r.action}`).join(", ")}`);
-            await plan.refetch();
-          } catch (e: any) {
-            toast.error(e?.message || "Could not apply");
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        Fill the PI fields on these orders
-      </Button>
-    </Box>
   );
 }
 

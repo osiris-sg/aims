@@ -1,5 +1,6 @@
 import { isTestRecord, testRecordIds } from './trade-test-orders';
 import { ShipmentsNotifyService } from './shipments-notify.service';
+import { CUSTOM_KIND } from './trade-alerts';
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { Cron } from '@nestjs/schedule';
@@ -218,7 +219,7 @@ export class TradeAlertsService {
     }
     // Planned no more (record closed, step moved on): resolved.
     for (const left of byKey.values()) {
-      if (left.status === 'DONE') continue;
+      if (left.status === 'DONE' || left.kind === CUSTOM_KIND) continue; // round T: a person's own reminder is not the planner's to close
       await this.prisma.tradeAlert.update({ where: { id: left.id }, data: { status: 'DONE', resolvedAt: now } });
       updated++;
     }
@@ -317,6 +318,19 @@ export class TradeAlertsService {
     const test = await testRecordIds(this.prisma, organizationId);
     const rows: any[] = await this.prisma.tradeAlert.findMany({ where: { organizationId, status: { in: ['DUE', 'SCHEDULED'] }, dueAt: { lte: soon } }, orderBy: { dueAt: 'asc' }, take: 100, select: ALERT_SELECT });
     return rows.filter((a) => !isTestRecord(test, a));
+  }
+
+  /** Round T: a reminder a person set (WhatsApp "remind me …"); shows in the bell and the digest like any task. */
+  async createCustom(organizationId: string, input: { title: string; dueAt: Date; detail?: string | null; orderId?: string | null; shipmentId?: string | null; linkUrl?: string | null; by?: string | null }) {
+    const key = `CUSTOM:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+    return this.prisma.tradeAlert.create({ data: { organizationId, key, kind: CUSTOM_KIND, dueAt: input.dueAt, title: input.title.slice(0, 200), detail: (input.detail ?? (input.by ? `Set by ${input.by}` : null))?.slice(0, 500) ?? null, orderId: input.orderId ?? null, shipmentId: input.shipmentId ?? null, linkUrl: input.linkUrl ?? null, status: input.dueAt <= new Date() ? 'DUE' : 'SCHEDULED' }, select: ALERT_SELECT });
+  }
+
+  /** Round T: push a task's due date (snooze). A planned alert moves until the next sweep re-plans it; a CUSTOM one stays moved. */
+  async snooze(organizationId: string, id: string, until: Date) {
+    const a = await this.prisma.tradeAlert.findFirst({ where: { id, organizationId }, select: { id: true, status: true } });
+    if (!a) throw new NotFoundException('Alert not found');
+    return this.prisma.tradeAlert.update({ where: { id }, data: { dueAt: until, status: until <= new Date() ? 'DUE' : 'SCHEDULED', notifiedAt: null }, select: ALERT_SELECT });
   }
 
   async setStatus(organizationId: string, id: string, status: 'DONE' | 'DISMISSED') {

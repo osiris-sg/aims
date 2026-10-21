@@ -538,7 +538,8 @@ describe('PARTIAL_AUTO, the order picker, multi-shipment emails, thread follow, 
     expect(triaged.inboxState).toBe('SUGGESTED');
     const row = await x.triage.row(ORG, logId);
     expect(row.matched).toBe('#11-1');
-    expect(row.blocked).toContainEqual(expect.stringMatching(/^b:/));
+    // Round T: the thread link (the accepted talk email) ranks above the quoted B/L — still a suggestion ("files documents — confirm").
+    expect(row.blocked).toContainEqual(expect.stringMatching(/^(b:|thread:)/));
     expect(x.uploads).toHaveLength(0);
   });
 

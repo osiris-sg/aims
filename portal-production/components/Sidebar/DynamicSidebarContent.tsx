@@ -132,9 +132,9 @@ export default function DynamicSidebarContent() {
   const isItemActive = (module: any) => {
     const route = module.config?.route;
 
-    // Special case for Dashboard
+    // Special case for Dashboard (round T: an org may point it at its own page, e.g. /portal/shipments/dashboard)
     if (module.moduleCode === 'DASHBOARD') {
-      return pathname === '/portal';
+      return pathname === '/portal' || (!!route && route !== '/portal' && (pathname === route || pathname.startsWith(route + '/')));
     }
 
     // Check if current path starts with the module's route

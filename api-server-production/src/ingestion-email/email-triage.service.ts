@@ -15,6 +15,7 @@ import { ShipmentsNotifyService } from '../shipments/shipments-notify.service';
 import { StoredEmailMeta } from './email-store';
 import { attachmentHits, attachmentTarget, DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, recordRef, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
 import { splitQuoted } from './email-quote';
+import { blockRemoteContent, parseEmail, ParsedEmail } from './email-mime';
 import { buildReasonerPrompt, judgeReasoner, parseReasonerOutput, ReasonerContext, ReasonerJudgement, ReasonerRecordRow, ReasonerThreadMessage } from './email-reasoner';
 import { groupThreads, normMessageId, threadHeadersFromEml, threadLink, unprocessedReason } from './email-threads';
 import { backlogAutoLabel, BacklogInput, BacklogVerdict, classifyEmail } from './email-backlog';
@@ -340,7 +341,7 @@ export class EmailTriageService {
     if (manualList?.length) {
       targets = [];
       for (const m of manualList) targets.push({ ...(await this.resolveManual(organizationId, m)), attachmentIndexes: m.attachmentIndexes });
-      decision = { target: null, kind: null, confidence: 'exact', auto: false, blocked: ['picked by hand'], check: [], multiOrderIds: [], candidates: prev.candidates ?? [], keyLabel: null, reason: 'picked by hand', threadFrom: null };
+      decision = { target: null, kind: null, confidence: 'exact', auto: false, blocked: ['picked by hand'], check: [], notes: [], source: null, multiOrderIds: [], candidates: prev.candidates ?? [], keyLabel: null, reason: 'picked by hand', threadFrom: null };
     } else {
       decision = await this.decide(organizationId, log, ev);
       targets = decision.target ? [decision.target] : [];
@@ -349,7 +350,7 @@ export class EmailTriageService {
       const split = await this.splitByAttachment(organizationId, log, ev, decision);
       if (split) {
         targets = split.targets;
-        decision = { ...decision, target: split.targets[0] ? { orderId: split.targets[0].orderId!, shipmentId: split.targets[0].shipmentId ?? null } : decision.target, kind: 'bl', confidence: 'exact', auto: split.auto, blocked: split.auto ? [] : decision.blocked, check: [], multiOrderIds: [], reason: split.reason, keyLabel: split.keyLabel, threadFrom: null };
+        decision = { ...decision, target: split.targets[0] ? { orderId: split.targets[0].orderId!, shipmentId: split.targets[0].shipmentId ?? null } : decision.target, kind: 'bl', confidence: 'exact', auto: split.auto, blocked: split.auto ? [] : decision.blocked, check: [], source: 'attachment', multiOrderIds: [], reason: split.reason, keyLabel: split.keyLabel, threadFrom: null };
       }
     }
     // An order with one live shipment: the shipment documents go there.
@@ -359,7 +360,7 @@ export class EmailTriageService {
     // the org has it on. It may only pick rows from the open-records table; applied by itself only when its evidence
     // is verified (a hard key in the email's own content, or a unique product match) and nothing conflicts.
     let reasoned: ReasonerJudgement | null = null;
-    if (!manualList && !opts.safe && (!targets.length || decision.multiOrderIds.length > 1 || decision.check.length) && (await this.reasonerOn(organizationId))) {
+    if (!manualList && !opts.safe && (!targets.length || decision.multiOrderIds.length > 1 || decision.check.length || decision.source === 'own-cues' || decision.threadFrom === 'followed') && (await this.reasonerOn(organizationId))) {
       reasoned = await this.reason(organizationId, log, ev).catch((e) => {
         this.logger.warn(`[email-reasoner] ${logId}: ${(e as Error)?.message}`);
         return null;
@@ -421,6 +422,9 @@ export class EmailTriageService {
           matchedBy: manualList ? 'manual' : decision.kind,
           confidence: manualList ? 'manual' : decision.confidence,
           ...(decision.check.length ? { check: decision.check } : {}),
+          // Round T: informational notes (multi-product subject, quoted mentions) and which cue decided.
+          notes: decision.notes ?? [],
+          source: decision.source ?? null,
           blocked,
           candidates: decision.candidates,
           multiOrderIds: decision.multiOrderIds,
@@ -1219,6 +1223,62 @@ export class EmailTriageService {
   }
 
   /** The stored email's raw meta (attachment keys) — for the controller's PI prefill. */
+  /**
+   * Round T — the whole email for the portal's email view: headers, text (own + quoted), raw HTML with remote
+   * content defused (the client sanitises and sandboxes it), attachments with a 1-hour download URL. Read from
+   * the stored .eml (raw from the worker, or the reconstructed one for old rows). Nothing in it is executed.
+   */
+  async message(organizationId: string, logId: string) {
+    const l: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
+    if (!l) throw new NotFoundException('Email not found');
+    const meta = (l.rawMeta ?? {}) as Partial<StoredEmailMeta> & { source?: string; bodyText?: string };
+    let parsed: ParsedEmail | null = null;
+    if (meta.emlKey) {
+      try {
+        parsed = parseEmail(await this.s3.downloadFile(meta.emlKey));
+      } catch (e) {
+        this.logger.warn(`message ${logId}: could not read the .eml (${(e as Error)?.message})`);
+      }
+    }
+    const text = parsed?.text ?? meta.bodyText ?? null;
+    const { own, quoted } = splitQuoted(text ?? '');
+    const html = parsed?.html ? blockRemoteContent(parsed.html) : null;
+    const attachments = await Promise.all(
+      (meta.attachments ?? []).map(async (a, index) => ({ index, name: a.name, contentType: a.contentType, size: a.size, url: await this.s3.getSignedUrl(a.key, 3600).catch(() => null) })),
+    );
+    return {
+      id: l.id,
+      headers: { from: parsed?.headers.from || l.fromAddress, to: parsed?.headers.to || meta.to || '', cc: parsed?.headers.cc || (meta.cc ?? []).join(', '), date: parsed?.headers.date || l.emailDate?.toISOString() || meta.date || null, subject: parsed?.headers.subject || l.subject || '' },
+      text: own || text,
+      quoted: quoted || null,
+      html: html?.html ?? null,
+      blockedRemote: html?.blocked ?? 0,
+      attachments,
+      source: meta.source === 'whatsapp' ? 'whatsapp' : 'email',
+      reconstructed: meta.emlSource === 'reconstructed',
+      inboxState: l.inboxState,
+    };
+  }
+
+  /** Round T — the thread of an email (itself included), oldest → newest, as inbox messages. */
+  async thread(organizationId: string, logId: string) {
+    const l: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
+    if (!l) throw new NotFoundException('Email not found');
+    const rows: any[] = [...(await this.threadRows(organizationId, l)), l].sort((a, b) => new Date(a.emailDate ?? a.createdAt).getTime() - new Date(b.emailDate ?? b.createdAt).getTime());
+    const full: any[] = await this.prisma.emailIngestLog.findMany({ where: { organizationId, id: { in: rows.map((r) => r.id) } } });
+    const byId = new Map(full.map((r) => [r.id, r]));
+    const refs = await this.refs(organizationId, [...new Set(full.map((r) => r.orderId).filter(Boolean))], [...new Set(full.map((r) => r.shipmentId).filter(Boolean))]);
+    const labels = await this.stepLabels(organizationId, full.flatMap((r) => [...((r.actions as any)?.planned ?? []), ...((r.actions as any)?.done ?? [])]));
+    return { id: l.id, messages: rows.map((r) => this.shapeMessage(byId.get(r.id), refs, labels, rows.length)) };
+  }
+
+  async attachmentUrl(organizationId: string, logId: string, index: number) {
+    const l: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId }, select: { rawMeta: true } });
+    const a = ((l?.rawMeta ?? {}) as Partial<StoredEmailMeta>).attachments?.[index];
+    if (!a) throw new NotFoundException('Attachment not found');
+    return { name: a.name, contentType: a.contentType, size: a.size, url: await this.s3.getSignedUrl(a.key, 3600) };
+  }
+
   async rawMeta(organizationId: string, logId: string) {
     const l = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId }, select: { rawMeta: true } });
     return (l?.rawMeta ?? null) as unknown;
@@ -1393,6 +1453,8 @@ export class EmailTriageService {
       matchedBy: actions.matchedBy ?? null,
       /** Subject words that disagree with the match ("grade 6005 ≠ 6063") — shown as "check". */
       check: (actions as { check?: string[] }).check ?? [],
+      notes: (actions as { notes?: string[] }).notes ?? [],
+      source: (actions as { source?: string | null }).source ?? null,
       confidence: (actions as { confidence?: string }).confidence ?? null,
       /** Which guard kept it a suggestion. */
       blocked: (actions as { blocked?: string[] }).blocked ?? [],
