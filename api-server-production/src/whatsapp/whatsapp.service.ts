@@ -1523,6 +1523,31 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   /** Send the plan with Confirm/Cancel buttons. False if Meta refuses, in
    *  which case the bridge falls back to the typed "ok". */
+  /**
+   * Is this person's 24h service window open on our Cloud API line?
+   *
+   * Asked BEFORE sending anything interactive, because Meta will not tell us
+   * until afterwards: a free-form message outside the window is accepted with
+   * 200 OK and rejected seconds later on the status webhook. Any caller that
+   * treats the 200 as delivery is deciding, wrongly, that the recipient has
+   * been told.
+   *
+   * Unknown counts as CLOSED. The fallback path (plain text through the
+   * linked-device bridge) always works, so guessing closed costs a nicer
+   * message; guessing open costs the message entirely.
+   */
+  private async windowOpen(organizationId: string, phone: string | null | undefined): Promise<boolean> {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (!digits) return false;
+    const last = await this.prisma.whatsAppMessage.findFirst({
+      where: { organizationId, direction: 'INBOUND', counterparty: digits },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    if (!last) return false;
+    return Date.now() - last.createdAt.getTime() < 24 * 60 * 60 * 1000;
+  }
+
   private async sendPlanButtons(
     organizationId: string,
     to: string | null | undefined,
@@ -1534,6 +1559,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     // success (Meta returns 200) but lands nowhere, and the caller would then
     // suppress the text reply and leave him with silence.
     if (!digits) return false;
+    // A closed window ends the same way, and it is the common case: Denzel
+    // could not cancel a scheduled message for days because every confirm card
+    // was accepted, suppressed the bridge's text, and then failed (guru
+    // 2026-10-22). The bridge is a linked device with no window at all, so
+    // when the window is shut we say so and let it send the text instead.
+    if (!(await this.windowOpen(organizationId, digits))) {
+      this.logger.log(`Plan buttons skipped for ${digits}: 24h window closed, falling back to bridge text`);
+      return false;
+    }
     const payload = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
@@ -1782,6 +1816,13 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       to = (config?.ownerNotifyNumber || '').replace(/\D/g, '');
     }
     if (!to) return { ok: false, error: 'no owner number configured' };
+    // Report a shut window as a FAILURE so the bridge's own `if (!buttoned)`
+    // fallback DMs him the plain summary. Without this the send is accepted,
+    // we answer ok:true, the bridge stays quiet, and the message then dies on
+    // the status webhook.
+    if (!(await this.windowOpen(organizationId, to))) {
+      return { ok: false, error: '24h window closed — send it as plain text instead' };
+    }
 
     // Captured without a clock time: arm the PA chat so his next message is
     // read as the answer to "what time?" rather than as ordinary chatter.
@@ -1874,6 +1915,13 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       to = (config?.ownerNotifyNumber || '').replace(/\D/g, '');
     }
     if (!to) return { ok: false, error: 'no owner number configured' };
+    // Report a shut window as a FAILURE so the bridge's own `if (!buttoned)`
+    // fallback DMs him the plain summary. Without this the send is accepted,
+    // we answer ok:true, the bridge stays quiet, and the message then dies on
+    // the status webhook.
+    if (!(await this.windowOpen(organizationId, to))) {
+      return { ok: false, error: '24h window closed — send it as plain text instead' };
+    }
 
     const inbound = (opts.inbound || row.inboundBody || '').slice(0, 200);
     const draft = opts.draft || row.suggestedReply;
