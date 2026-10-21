@@ -36,6 +36,7 @@ import {
 import CloseIcon from "@mui/icons-material/Close";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
+import DocumentRefLink from "@/components/DocumentRefLink";
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -58,6 +59,9 @@ const apiCall = async (path: string, token: string | null, init?: RequestInit) =
 type OpenItem = {
   documentId: string;
   reference: string;
+  // Carried so the Reference cell links to the invoice / credit note.
+  type?: string | null;
+  templateId?: string | null;
   date: string | null;
   remarks: string;
   gross: number;
@@ -202,7 +206,9 @@ export default function ManualOffsetDialog({
                     <TableCell padding="checkbox">
                       <Checkbox size="small" checked={ticked} onChange={(_, c) => toggle(side, setSide, it, c)} />
                     </TableCell>
-                    <TableCell sx={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{it.reference}</TableCell>
+                    <TableCell sx={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                      <DocumentRefLink doc={{ id: it.documentId, type: it.type, templateId: it.templateId }} label={it.reference} />
+                    </TableCell>
                     <TableCell sx={{ whiteSpace: "nowrap" }}>{dmy(it.date)}</TableCell>
                     <TableCell>
                       {it.remarks}

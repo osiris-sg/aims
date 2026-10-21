@@ -319,6 +319,7 @@ export default function PostingQueuePage() {
                       r.type === "DEBIT_NOTE" ? "D/N" :
                       r.type === "BILL" ? "SIN" :
                       r.type === "OFFICIAL_RECEIPT" ? "REC" :
+                      r.type === "PAYMENT_VOUCHER" ? "P/V" :
                       r.type === "JOURNAL_VOUCHER" ? "J/V" : "INV";
                     return (
                       <TableRow key={r.id} hover selected={selected.has(r.id)}>

@@ -16,6 +16,16 @@ import ReportShell, { downloadCsv } from "./ReportShell";
 import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
 import { useSideContacts, type ReportSide } from "./side";
 
+import { withActiveOrg } from "@/helpers/request";
+
+/** Document-number cell as a real link (⌘-click / "Open Link in New Tab"). */
+const docCell = (d: any) => {
+  const text = d.number;
+  if (!d.id || !d.docType || !d.templateId) return text;
+  return { text, href: withActiveOrg(`/portal/documents/${d.docType}/${d.templateId}/${d.id}`), newTab: true };
+};
+
+
 const R = (n: number) => Math.round(n * 100) / 100;
 const unwrap = (r: any) => {
   let out = r;
@@ -139,7 +149,7 @@ export default function DetailedAgeingReport({ side = "receivable" }: { side?: R
         run = R(run + amt);
         const docCells = Array(N_MONTHS + 1).fill(null);
         docCells[idx] = amt;
-        out.push({ kind: "row", key: `d-${d.id}`, cells: [d.number, fmtDate(d.date), ...docCells, run] });
+        out.push({ kind: "row", key: `d-${d.id}`, cells: [docCell(d) as any, fmtDate(d.date), ...docCells, run] });
       }
       const total = R(buckets.reduce((s, v) => s + v, 0));
       out.push({ kind: "subtotal", key: `t-${g.contactId}`, cells: ["SUB-TOTAL", "", ...buckets.map((v) => v || 0), total] });

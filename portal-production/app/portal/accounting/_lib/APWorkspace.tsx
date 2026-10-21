@@ -96,6 +96,7 @@ export default function APWorkspace() {
   const [reportsOpen, setReportsOpen] = useState(false);
   const [selected, setSelected] = useState<{ id: string; name: string; code: string } | null>(null);
   const [jvOpen, setJvOpen] = useState(false);
+  const [openingVoucher, setOpeningVoucher] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   // ---------- landing data ----------
@@ -393,6 +394,33 @@ export default function APWorkspace() {
         {/* Legacy AP home's actions. No separate Payment Voucher action —
             paying is the Record Payment step on the Purchase Journal
             (guru 2026-08-01). */}
+        {/* Payment Voucher — the legacy AP home's primary action, now a real
+            document (AP twin of the Official Receipt, guru 2026-10-21): opens
+            the latest saved voucher, or a fresh PV-numbered shell. */}
+        <Button
+          data-tour="ap-payment-voucher"
+          variant="contained"
+          startIcon={openingVoucher ? <CircularProgress size={16} color="inherit" /> : <ReceiptLongOutlinedIcon />}
+          disabled={openingVoucher}
+          onClick={async () => {
+            setOpeningVoucher(true);
+            try {
+              const list: any[] = unwrap(await request(`/payment-vouchers`)) || [];
+              let target = list.find((v: any) => v.supplierId); // latest saved
+              if (!target) {
+                target = unwrap(await request(`/payment-vouchers`, { method: "POST", body: JSON.stringify({}) }));
+              }
+              if (target?.id) {
+                router.push(`/portal/accounting/payment-vouchers/${target.id}?from=/portal/accounting/payables`);
+              }
+            } catch (e: any) {
+              toast.error(e?.message || "Couldn't open payment vouchers");
+              setOpeningVoucher(false);
+            }
+          }}
+        >
+          Payment Voucher
+        </Button>
         <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => setJvOpen(true)}>
           Journal Voucher
         </Button>

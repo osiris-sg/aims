@@ -36,7 +36,7 @@ export type ReportRowKind = "group" | "row" | "subtotal" | "total" | "percent";
 
 export interface ReportRow {
   kind: ReportRowKind;
-  cells: (string | number | null | { text: string; href?: string; onClick?: () => void })[];
+  cells: (string | number | null | { text: string; href?: string; onClick?: () => void; newTab?: boolean })[];
   key: string;
   /** flag row (e.g. GST estimated ≠ actual) — rendered with an error tint */
   highlight?: boolean;
@@ -97,7 +97,19 @@ export default function ReportTable({
     let content: React.ReactNode;
     if (c != null && typeof c === "object") {
       content = c.href || c.onClick ? (
-        <MuiLink href={c.href} onClick={c.onClick} underline="hover" sx={{ cursor: "pointer", color: "primary.main" }}>{c.text}</MuiLink>
+        // newTab: a document opened from a report should land in its own tab —
+        // the report (with its filters and scroll position) stays put
+        // (guru 2026-10-21). Either way it is a real <a href>, so middle-click
+        // and "Open Link in New Tab" work.
+        <MuiLink
+          href={c.href}
+          onClick={c.onClick}
+          {...(c.newTab ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+          underline="hover"
+          sx={{ cursor: "pointer", color: "primary.main" }}
+        >
+          {c.text}
+        </MuiLink>
       ) : c.text;
     } else if (typeof c === "number") {
       content = fmtAmount(c);

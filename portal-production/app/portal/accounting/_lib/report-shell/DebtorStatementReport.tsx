@@ -45,6 +45,16 @@ import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
 import { FilterSelect } from "./DateRangeSelect";
 import { soaSummaryOf, useSideContacts, type ReportSide } from "./side";
 
+import { withActiveOrg } from "@/helpers/request";
+
+/** Document-number cell as a real link (⌘-click / "Open Link in New Tab"). */
+const docCell = (d: any) => {
+  const text = d.number;
+  if (!d.id || !d.docType || !d.templateId) return text;
+  return { text, href: withActiveOrg(`/portal/documents/${d.docType}/${d.templateId}/${d.id}`), newTab: true };
+};
+
+
 const R = (n: number) => Math.round(n * 100) / 100;
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -547,7 +557,7 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
                   ...(monthDetail?.docs || []).map((d, i) => ({
                     kind: "row" as const,
                     key: `d${i}`,
-                    cells: [d.number, fmtDate(d.date), d.reference || "INVOICE", d.total] as any,
+                    cells: [docCell(d) as any, fmtDate(d.date), d.reference || "INVOICE", d.total] as any,
                   })),
                   {
                     kind: "total" as const,

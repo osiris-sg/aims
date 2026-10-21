@@ -24,6 +24,7 @@ import { useOrganization } from '@/app/portal/hooks/useOrganization';
 import PageTable from '@/components/PageTable';
 import { useClientSort } from '@/components/clientSort';
 import { ReportPrintExportButton } from '@/app/portal/accounting/_lib/report-export';
+import DocumentRefLink from "@/components/DocumentRefLink";
 
 interface Customer {
   id: string;
@@ -220,7 +221,16 @@ export default function StatementOfAccountPage() {
 
   const columns = useMemo(() => [
     { accessorKey: 'date', header: 'Date', cell: ({ row }: any) => formatDate(row.original.date) },
-    { accessorKey: 'reference', header: 'Reference', cell: ({ row }: any) => row.original.reference },
+    {
+      accessorKey: 'reference',
+      header: 'Reference',
+      cell: ({ row }: any) => (
+        <DocumentRefLink
+          doc={{ id: row.original.docId, type: row.original.docTypeKey, templateId: row.original.templateId }}
+          label={row.original.reference}
+        />
+      ),
+    },
     { accessorKey: 'description', header: 'Description', cell: ({ row }: any) => row.original.description },
     {
       accessorKey: 'debit',

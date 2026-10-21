@@ -17,6 +17,15 @@ import ReportShell, { downloadCsv } from "./ReportShell";
 import ReportTable, { ReportRow, fmtAmount, fmtDate } from "./ReportTable";
 import { DateRangeSelect, FilterSelect } from "./DateRangeSelect";
 
+import { withActiveOrg } from "@/helpers/request";
+
+/** Document-number cell as a real link (⌘-click / "Open Link in New Tab"). */
+const docCell = (r: any) => {
+  if (!r.docId || !r.docTypeKey || !r.templateId) return r.document;
+  return { text: r.document, href: withActiveOrg(`/portal/documents/${r.docTypeKey}/${r.templateId}/${r.docId}`), newTab: true };
+};
+
+
 const quarterRange = () => {
   const now = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
@@ -84,7 +93,7 @@ export default function GSTReport({ basePath }: { basePath: string }) {
       kind: "row" as const,
       key: `${r.docId}-${i}`,
       highlight: !!r.mismatch,
-      cells: [r.document, r.type, fmtDate(r.date), r.remarks, r.preTax, r.rate.toFixed(2), r.estimated, r.tax, r.code],
+      cells: [docCell(r) as any, r.type, fmtDate(r.date), r.remarks, r.preTax, r.rate.toFixed(2), r.estimated, r.tax, r.code],
     }));
     if (data?.rows?.length) {
       rows.push({

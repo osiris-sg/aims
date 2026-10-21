@@ -609,6 +609,116 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   };
 
+  // ── Payment Voucher (AP twin of the Official Receipt, 2026-10-21) ────────
+  // data: voucherNumber, date, chequeNo, remarks, supplierLabel, paymentMethod,
+  // currency, rate, voucherAmount, paidFromLabel, allocations[{reference, date,
+  // description, amount}].
+  if (documentType === "PAYMENT_VOUCHER" || documentType === "PV") {
+    const v: any = data || {};
+    const allocs: any[] = Array.isArray(v.allocations) ? v.allocations : [];
+    const total = allocs.reduce((sum: number, a: any) => sum + (Number(a.amount) || 0), 0);
+    const money = (n: number) => (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return (
+      <Paper
+        data-print-paper
+        sx={{
+          width: "210mm",
+          minHeight: "297mm",
+          margin: "0 auto",
+          p: "20mm",
+          backgroundColor: "white",
+          fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
+          fontWeight: 400,
+          fontSize: "0.8125rem",
+          lineHeight: 1.6,
+          color: "#000",
+          display: "flex",
+          flexDirection: "column",
+          "@media print": { margin: 0, padding: 0, boxShadow: "none" },
+        }}
+      >
+        <Box sx={{ textAlign: "center", mb: 1 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: "1.15rem" }}>{v.company?.name || organization?.name || ""}</Typography>
+          {(v.company?.address || organization?.address) && (
+            <Typography sx={{ fontSize: "0.8125rem" }}>{v.company?.address || organization?.address}</Typography>
+          )}
+          <Typography sx={{ fontSize: "0.8125rem" }}>
+            {(v.company?.phoneNumber || organization?.phoneNumber) ? `Tel: ${v.company?.phoneNumber || organization?.phoneNumber}` : ""}
+            {(v.company?.gstRegNo || organization?.registrationNumber) ? `  GST Reg. No. ${v.company?.gstRegNo || organization?.registrationNumber}` : ""}
+          </Typography>
+        </Box>
+        <Typography sx={{ textAlign: "center", fontWeight: 700, fontSize: "1rem", letterSpacing: 2, my: 2 }}>
+          PAYMENT VOUCHER
+        </Typography>
+
+        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
+          <Box>
+            <Typography sx={{ fontSize: "0.8125rem" }}>Paid To:</Typography>
+            <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700 }}>{v.supplierLabel || "—"}</Typography>
+            {v.remarks && <Typography sx={{ fontSize: "0.8125rem", mt: 0.5 }}>{v.remarks}</Typography>}
+          </Box>
+          <Box sx={{ textAlign: "right" }}>
+            <Typography sx={{ fontSize: "0.8125rem" }}>
+              Voucher No. : <b>{v.voucherNumber || ""}</b>
+            </Typography>
+            <Typography sx={{ fontSize: "0.8125rem" }}>Date : {v.date ? new Date(v.date).toLocaleDateString("en-GB") : ""}</Typography>
+            {v.chequeNo && <Typography sx={{ fontSize: "0.8125rem" }}>Cheque No. : {v.chequeNo}</Typography>}
+            {v.paymentMethod && (
+              <Typography sx={{ fontSize: "0.8125rem", textTransform: "capitalize" }}>Payment : {v.paymentMethod}</Typography>
+            )}
+          </Box>
+        </Box>
+
+        <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", "& th, & td": { fontSize: "0.8125rem", py: 0.6, px: 1 } }}>
+          <Box component="thead">
+            <Box component="tr" sx={{ "& th": { borderTop: "1px solid #000", borderBottom: "1px solid #000", textAlign: "left" } }}>
+              <Box component="th">Reference</Box>
+              <Box component="th">Date</Box>
+              <Box component="th">Description</Box>
+              <Box component="th" sx={{ textAlign: "right !important" }}>Amount ({v.currency || "SGD"})</Box>
+            </Box>
+          </Box>
+          <Box component="tbody">
+            {allocs.map((a: any, i: number) => (
+              <Box component="tr" key={i}>
+                <Box component="td" sx={{ fontVariantNumeric: "tabular-nums" }}>{a.reference}</Box>
+                <Box component="td">{a.date ? new Date(a.date).toLocaleDateString("en-GB") : ""}</Box>
+                <Box component="td">{a.description || "SUPPLIER INVOICE"}</Box>
+                <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(Number(a.amount) || 0)}</Box>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
+          <Box sx={{ minWidth: 240, borderTop: "1px solid #000", pt: 0.5 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+              <Typography sx={{ fontSize: "0.875rem", fontWeight: 700 }}>Total Paid</Typography>
+              <Typography sx={{ fontSize: "0.875rem", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                {(v.currency || "SGD")} {money(Number(v.voucherAmount) || total)}
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+
+        <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2, borderTop: "2px solid #000", pt: 1 }}>
+          <Typography sx={{ fontSize: "0.8125rem" }}>{v.paidFromLabel ? `Paid from: ${v.paidFromLabel}` : ""}</Typography>
+          {v.currency && v.currency !== "SGD" && (
+            <Typography sx={{ fontSize: "0.8125rem" }}>Rate: {v.rate} ({v.currency} → SGD)</Typography>
+          )}
+        </Box>
+
+        <Box sx={{ mt: "auto", pt: 6, display: "flex", justifyContent: "space-between" }}>
+          {["Prepared by", "Approved by", "Received by"].map((l) => (
+            <Box key={l} sx={{ width: "28%", borderTop: "1px solid #000", pt: 0.5, textAlign: "center" }}>
+              <Typography sx={{ fontSize: "0.75rem" }}>{l}</Typography>
+            </Box>
+          ))}
+        </Box>
+      </Paper>
+    );
+  }
+
   // Special layout for Tax Invoice
   // ── Official Receipt (legacy-UX overhaul) ────────────────────────────────
   // One receipt allocated across a customer's invoices. data carries:

@@ -12,6 +12,7 @@ import ReportShell, { downloadCsv } from "./ReportShell";
 import ReportTable from "./ReportTable";
 import { DateRangeSelect, FilterSelect } from "./DateRangeSelect";
 import { GroupingSelect, GroupingValue, GroupField, FlatColumn, buildGroupedRows } from "./Grouping";
+import { withActiveOrg } from "@/helpers/request";
 
 const monthRange = () => {
   const now = new Date();
@@ -94,7 +95,17 @@ export default function InvoiceReport({
     }
     return [
       { key: "contact", label: "Contact", align: "left" },
-      { key: "number", label: `${docWord} Number`, align: "left", width: 150 },
+      {
+        key: "number",
+        label: `${docWord} Number`,
+        align: "left",
+        width: 150,
+        // The number opens its document in a new tab (guru 2026-10-21).
+        link: (r: any) =>
+          r.id && r.docType && r.templateId
+            ? withActiveOrg(`/portal/documents/${r.docType}/${r.templateId}/${r.id}`)
+            : null,
+      },
       { key: "date", label: `${docWord} Date`, align: "left", width: 110, kind: "date" },
       { key: "dueDate", label: "Due Date", align: "left", width: 110, kind: "date" },
       { key: "lastPaymentDate", label: "Last Payment Date", align: "left", width: 130, kind: "date" },
