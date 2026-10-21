@@ -282,7 +282,6 @@ export default function TradeDocumentsHubPage() {
     <Box sx={{ p: { xs: 1.5, md: 3 }, height: "100%" }}>
       <PageTable
         tableName="Documents"
-        subTitle="Every document across all orders"
         actionButtons={[
           <Button key="upload" variant="contained" startIcon={<UploadFileIcon />} onClick={() => setUploadOpen(true)}>
             Upload document

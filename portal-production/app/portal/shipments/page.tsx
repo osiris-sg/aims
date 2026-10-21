@@ -5,9 +5,8 @@
 // order no. newest first, with a Ship month column + filter. One row per order:
 // customer, contract, ship month, ship → delivery, product, quantity, number of
 // shipments, a segmented progress bar ("Step 7 · … 9/14"; hover = each
-// shipment's bar) and the status. The chevron expands a row into its
-// shipments (#19-1 · B/L · vessel · ETA · current step); a shipment row opens
-// the order page on that shipment. Tabs split Pending (open) from Completed
+// shipment's bar) and the status. Round Q: no expand chevron — the row opens
+// the order (each shipment's bar is in the progress hover). Tabs split Pending (open) from Completed
 // (completed or cancelled). "New Order" opens the order form; "+ New monthly
 // order" makes the month's orders from a small grid; "New orders from PIs"
 // reads PIs in bulk. "Tasks (n)" (round O — no Home page) opens "My tasks
@@ -49,7 +48,6 @@ export default function OrdersPage() {
   const list = useOrders({ page, pageSize: limit, q: q || undefined, bucket, contractId: filters.contractId || undefined, customerId: filters.customerId || undefined, shipMonth: filters.shipMonth || undefined, includeTest: showTest ? "true" : undefined });
   const customers = useCustomers();
   const contracts = useContracts({ pageSize: 100 });
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [createOpen, setCreateOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [monthlyOpen, setMonthlyOpen] = useState(false);
@@ -57,13 +55,6 @@ export default function OrdersPage() {
   const [toDelete, setToDelete] = useState<OrderListItem | null>(null);
   const del = useTradeMutation((api, id: string) => api.deleteOrder(id));
 
-  const toggle = (id: string) =>
-    setExpanded((s) => {
-      const n = new Set(s);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
 
   const filterConfig: FilterField[] = useMemo(
     () => [
@@ -84,12 +75,11 @@ export default function OrdersPage() {
     const out: Row[] = [];
     for (const o of list.data?.items ?? []) {
       out.push({ kind: "order" as const, ...o });
-      if (expanded.has(o.id)) out.push(...o.shipments.map((s) => ({ kind: "shipment" as const, order: o, ...s })));
     }
     return out;
-  }, [list.data, expanded]);
+  }, [list.data]);
 
-  const columns = useMemo(() => orderColumns({ expanded, toggle, onMenu: (e, row) => setMenu({ pos: { left: e.clientX, top: e.clientY }, row }) }), [expanded]);
+  const columns = useMemo(() => orderColumns({ onMenu: (e, row) => setMenu({ pos: { left: e.clientX, top: e.clientY }, row }) }), []);
 
   const filtered = !!(q || filters.contractId || filters.customerId || filters.shipMonth);
   const counts = list.data?.counts;

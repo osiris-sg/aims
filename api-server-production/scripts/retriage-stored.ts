@@ -52,6 +52,10 @@ const REDO = arg('verdict');
 const REMATCH = process.argv.includes('--rematch');
 const REMATCH_ALL = process.argv.includes('--rematch-all');
 const APPLY_REMATCH = process.argv.includes('--apply-rematch');
+// Round Q: --backlog classifies every unprocessed email (hide / auto-link / history / no order / confirm / pick) and
+// prints the before → after table; --apply-backlog applies it (never files a document — AUTO-GATE).
+const BACKLOG = process.argv.includes('--backlog');
+const APPLY_BACKLOG = process.argv.includes('--apply-backlog');
 if (REDO && REDO !== 'UNSURE') throw new Error('--verdict takes UNSURE only');
 const ADH = /^Asia Deal Hub Japan/i;
 const PAUSE_MS = 2000;
@@ -71,6 +75,11 @@ async function main() {
   if (!org || !ADH.test(org.name)) throw new Error(`refusing: ${ORG} is not the ADH org (${org?.name ?? 'not found'})`);
   console.log(`org: ${org.name} · mode: ${DRY ? 'DRY RUN' : 'RUN'}${Number.isFinite(LIMIT) ? ` · limit ${LIMIT}` : ''}`);
 
+  if (BACKLOG) {
+    await runAsOrg(ORG, () => backlog(triage, app.get(ActionLogService)));
+    await app.close();
+    return;
+  }
   if (REMATCH_ALL) {
     await runAsOrg(ORG, () => rematchAll(prisma, triage, app.get(ActionLogService)));
     await app.close();
@@ -200,6 +209,24 @@ main()
     process.exitCode = 1;
   })
   .finally(() => setTimeout(() => process.exit(), 200));
+
+/** Round Q: the backlog table (before → kind · reason · ref) and what --apply-backlog did; summary by kind. */
+async function backlog(triage: EmailTriageService, actionLog: ActionLogService) {
+  const rows = await triage.backlog(ORG!, APPLY_BACKLOG);
+  console.log(`${rows.length} unprocessed email(s) · ${APPLY_BACKLOG ? 'APPLY (hide / link / history / no-order marks; no document filed)' : 'DRY RUN (nothing saved)'}\n`);
+  console.log(`    ${'subject (60)'.padEnd(60)} | ${'from-domain'.padEnd(22)} | ${'before'.padEnd(16)} → ${'kind'.padEnd(11)} ${'ref'.padEnd(8)} ${'reason'.padEnd(70)}${APPLY_BACKLOG ? ' | applied' : ''}`);
+  for (const [i, r] of rows.entries()) {
+    console.log(`${String(i + 1).padStart(2)}. ${subject60(r.subject).padEnd(60)} | ${domainOf(r.from).padEnd(22)} | ${r.before.padEnd(16)} → ${r.kind.padEnd(11)} ${(r.ref ?? '—').padEnd(8)} ${r.reason.slice(0, 70).padEnd(70)}${APPLY_BACKLOG ? ` | ${r.applied ?? ''}` : ''}`);
+    if (APPLY_BACKLOG) actionLog.system('email-backlog', 'TRIAGE', 'EmailIngestLog', { organizationId: ORG!, resourceId: r.id, details: { kind: r.kind, reason: r.reason, ref: r.ref, applied: r.applied } });
+  }
+  const by = rows.reduce<Record<string, number>>((m, r) => ({ ...m, [r.kind]: (m[r.kind] ?? 0) + 1 }), {});
+  const left = rows.filter((r) => r.kind === 'CONFIRM' || r.kind === 'AUTO' || r.kind === 'PICK' || r.kind === 'IS_SHIPMENT');
+  console.log(`\nbefore ${rows.length} → auto-linked (conversation) ${by.AUTO_LINK ?? 0} · auto-hidden ${by.HIDE ?? 0} · history ${by.HISTORY ?? 0} · "No order yet" ${by.NO_ORDER ?? 0} email(s) · still for a person ${left.length} (confirm ${by.CONFIRM ?? 0} · would auto, files ${by.AUTO ?? 0} · pick ${by.PICK ?? 0} · is it a shipment ${by.IS_SHIPMENT ?? 0})${by.FAILED ? ` · FAILED ${by.FAILED}` : ''}`);
+  if (left.length) {
+    console.log('\nstill for a person:');
+    for (const r of left) console.log(`  - ${subject60(r.subject)} — ${r.kind}: ${r.reason}${r.ref ? ` (${r.ref})` : ''}`);
+  }
+}
 
 /** Guarded re-match of Suggested + Unmatched + Unsure emails; a table of old → new; saved only with --apply-rematch (never auto-applied). */
 async function rematchAll(prisma: PrismaService, triage: EmailTriageService, actionLog: ActionLogService) {

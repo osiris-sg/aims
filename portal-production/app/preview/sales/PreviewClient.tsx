@@ -10,7 +10,7 @@ import { EmailDashboardView } from "@/app/portal/shipments/_components/EmailDash
 import { InboxThreadList, type InboxActions } from "@/app/portal/shipments/_components/inbox/InboxThreadList";
 import { DASHBOARD, PREVIEW_TODAY, PROCESSED, SHIPMENTS, TASKS, UNPROCESSED } from "./fixtures";
 
-const noop: InboxActions = { onConfirm: () => undefined, onChangeOrder: () => undefined, onNotShipment: () => undefined, onUndo: () => undefined, onOpen: () => undefined, pending: false };
+const noop: InboxActions = { onCreateOrder: () => undefined, onConfirm: () => undefined, onChangeOrder: () => undefined, onNotShipment: () => undefined, onUndo: () => undefined, onOpen: () => undefined, pending: false };
 
 export default function PreviewClient({ view }: { view: "dashboard" | "inbox" }) {
   const [tab, setTab] = useState<"UNPROCESSED" | "PROCESSED">("UNPROCESSED");
@@ -20,11 +20,8 @@ export default function PreviewClient({ view }: { view: "dashboard" | "inbox" })
         <EmailDashboardView data={{ inbox: DASHBOARD, tasks: TASKS, shipments: SHIPMENTS, today: PREVIEW_TODAY, loading: false }} actions={noop} onTasksChanged={() => undefined} />
       ) : (
         <Box sx={{ p: 3, maxWidth: 1200, mx: "auto" }}>
-          <Typography variant="h5" sx={{ fontWeight: 800 }}>
+          <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>
             Inbox
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Emails sent to the intake address, as threads. Unprocessed needs you; Processed is what was filed.
           </Typography>
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }} data-tour="inbox-tabs">
             <Tab value="UNPROCESSED" label={`Unprocessed (${UNPROCESSED.reduce((n, t) => n + t.messages.length, 0)})`} sx={{ textTransform: "none" }} />

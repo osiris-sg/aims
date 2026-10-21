@@ -16,7 +16,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Box, Button, Chip, CircularProgress, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
 import { useShipmentsApi, type InboxDashboard, type InboxMessage, type ShipmentListItem, type TradeAlert } from "../_lib/api";
 import { useShipments } from "../_lib/hooks";
-import { fmtDmy } from "../_lib/format";
+import { fmtDmy, shortCustomer } from "../_lib/format";
+import { FREE_DAYS_HELP, freeDays } from "../_lib/free-days";
 import { isOverdue, taskCounts, tradeTodayYmd } from "../_lib/tasks";
 import { arrivingThisWeek, byLine, linkedFileLine, orderHref, toDoLine } from "../_lib/inbox-threads";
 import { HOME_KEY, TradeTasksList, useMyTasks, useRefreshTasks } from "./TradeTasks";
@@ -168,20 +169,22 @@ export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTas
                   <TableCell>Customer</TableCell>
                   <TableCell>Vessel</TableCell>
                   <TableCell>ETA</TableCell>
-                  <TableCell align="right">Free time left</TableCell>
+                  <TableCell align="right" title={FREE_DAYS_HELP}>
+                    Free days left
+                  </TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {arriving.map((s) => {
-                  const det = s.freeTime?.det.daysLeft;
+                  const fd = freeDays(s);
                   return (
                     <TableRow key={s.id} hover sx={{ cursor: "pointer" }} onClick={() => (window.location.href = orderHref(s.orderId, s.id) ?? "#")}>
                       <TableCell sx={{ fontWeight: 700 }}>{s.ref ?? s.blNumber ?? "—"}</TableCell>
-                      <TableCell>{s.customerName ?? "—"}</TableCell>
+                      <TableCell title={s.customerName ?? undefined}>{shortCustomer(s.customerName) ?? "—"}</TableCell>
                       <TableCell>{[s.vessel, s.voyageNo].filter(Boolean).join(" / ") || "—"}</TableCell>
                       <TableCell>{s.eta ? fmtDmy(s.eta) : "—"}</TableCell>
-                      <TableCell align="right" sx={{ color: det !== undefined && det <= 1 ? "error.main" : undefined }}>
-                        {det === undefined ? "—" : `DET ${det} day${Math.abs(det) === 1 ? "" : "s"}${s.freeTime ? ` · DEM ${s.freeTime.dem.daysLeft}` : ""}`}
+                      <TableCell align="right" title={fd.title} sx={{ color: fd.tone === "over" || fd.tone === "warn" ? "error.main" : fd.tone === "pending" ? "text.secondary" : undefined, whiteSpace: "nowrap" }}>
+                        {fd.text}
                       </TableCell>
                     </TableRow>
                   );
@@ -205,6 +208,7 @@ export default function EmailDashboard() {
   const refreshTasks = useRefreshTasks();
   const act = useInboxActions(() => inbox.refetch());
   const actions: InboxActions = {
+    onCreateOrder: (t) => void act.createOrder(t),
     onConfirm: (m) => void act.run(m, "accept"),
     onChangeOrder: (m) => act.setAssign(m),
     onNotShipment: (m) => act.setConfirm({ row: m, act: "dismiss" }),

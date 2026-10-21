@@ -76,6 +76,7 @@ export default function OrderFormDialog({
   onSaved,
   order,
   prefill,
+  seed,
 }: {
   open: boolean;
   onClose: () => void;
@@ -83,6 +84,8 @@ export default function OrderFormDialog({
   order?: Order | null;
   /** A finished PI read (bulk "New orders from PIs") to start from. */
   prefill?: (PiExtraction & { fileName?: string }) | null;
+  /** Round Q: "Create order from this thread" without a PI — the thread's keys and subject cues. */
+  seed?: { piNo?: string | null; contractNo?: string | null; grade?: string | null; qtyMt?: number | null; customerKey?: string | null; deliveryMonth?: string | null } | null;
 }) {
   const api = useShipmentsApi();
   const wide = useMediaQuery("(min-width:1200px)");
@@ -146,6 +149,18 @@ export default function OrderFormDialog({
   // Bulk "New orders from PIs": start from that PI read (once the contracts list is in, to match the contract no.).
   useEffect(() => {
     if (open && prefill?.result && !order && contracts.data) applyPi(prefill as any);
+    else if (open && seed && !order && !prefill) {
+      // The thread's keys / subject cues; the contract by its number when it exists.
+      const c = seed.contractNo ? (contracts.data?.items ?? []).find((x: any) => x.contractNo === seed.contractNo) : null;
+      setForm((f) => ({
+        ...f,
+        ...(seed.piNo ? { piNo: seed.piNo } : {}),
+        ...(c ? { contractId: c.id, customerId: c.customer?.id ?? f.customerId } : {}),
+        ...(seed.grade ? { grade: seed.grade } : {}),
+        ...(seed.qtyMt != null ? { qtyMt: String(seed.qtyMt) } : {}),
+        ...(seed.deliveryMonth ? { deliveryMonth: seed.deliveryMonth } : {}),
+      }));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, prefill?.fileId, contracts.data]);
 

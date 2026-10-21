@@ -29,11 +29,12 @@
 import React, { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Box, Button, ButtonBase, Checkbox, Chip, CircularProgress, Collapse, Divider, FormControlLabel, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Stack, Typography, Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material";
+import { Box, Button, ButtonBase, Checkbox, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Stack, Tooltip, Typography } from "@mui/material";
 import BlockIcon from "@mui/icons-material/Block";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import FiberManualRecordIcon from "@mui/icons-material/FiberManualRecord";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined";
 import PostAddIcon from "@mui/icons-material/PostAdd";
@@ -273,29 +274,26 @@ export default function StepCards({
     </Paper>
   );
 
+  // Round Q: the hint sits in an ⓘ tooltip (and only when it says more than the title); the record facts
+  // ("Deposit 10% = …") stay as a line since they are not in the title.
   const rowTitle = (s: TradeStep, docType: string, done: boolean, optional = false) => (
     <Stack direction="row" spacing={1} alignItems="center">
-      {done ? <CheckCircleIcon color="success" fontSize="small" /> : <RadioButtonUncheckedIcon fontSize="small" sx={{ color: "text.disabled" }} />}
+      {done ? <CheckCircleIcon color="success" fontSize="small" /> : <EmptyDot />}
       <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
         {label(docType)}
       </Typography>
+      <HintInfo text={hintFor(docType, label(docType))} />
       {optional && <Chip size="small" variant="outlined" label="Optional" />}
     </Stack>
   );
   const rowHint = (docType: string) => {
     const ctx = context.docLine?.(docType);
+    if (!ctx) return null;
     return (
       <Box sx={{ ml: 3.5, mt: 0.25 }}>
-        {DOC_HINTS[docType] && (
-          <Typography variant="body2" color="text.secondary">
-            {DOC_HINTS[docType]}
-          </Typography>
-        )}
-        {ctx && (
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            {ctx}
-          </Typography>
-        )}
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+          {ctx}
+        </Typography>
       </Box>
     );
   };
@@ -462,17 +460,16 @@ export default function StepCards({
       >
         <Stack direction="row" spacing={1.5} alignItems="flex-start">
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <ButtonBase onClick={() => onOpen(null)} sx={{ textAlign: "left", borderRadius: 1 }}>
-              <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                {isDone ? "✓ " : ""}
-                {titleOf(s)}
-              </Typography>
-            </ButtonBase>
-            {line && (
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-                {line}
-              </Typography>
-            )}
+            <Stack direction="row" spacing={0.75} alignItems="center">
+              <ButtonBase onClick={() => onOpen(null)} sx={{ textAlign: "left", borderRadius: 1 }}>
+                <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                  {isDone ? "✓ " : ""}
+                  {titleOf(s)}
+                </Typography>
+              </ButtonBase>
+              {/* Round Q: the record facts under the title moved into an ⓘ tooltip. */}
+              <HintInfo text={line} />
+            </Stack>
           </Box>
           <Chip
             size="small"
@@ -600,7 +597,7 @@ export default function StepCards({
         sx={{ width: "100%", justifyContent: "flex-start", textAlign: "left", px: 1.5, py: 1, borderRadius: 1, "&:hover": { bgcolor: "action.hover" }, scrollMarginTop: 96 }}
       >
         <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0, width: "100%" }}>
-          {isDone ? <CheckCircleIcon color="success" fontSize="small" /> : <RadioButtonUncheckedIcon fontSize="small" sx={{ color: "text.disabled" }} />}
+          {isDone ? <CheckCircleIcon color="success" fontSize="small" /> : <EmptyDot />}
           <Typography variant="body2" sx={{ fontWeight: isDone ? 600 : 400, color: isDone ? "text.primary" : "text.disabled", flexShrink: 0 }}>
             {titleOf(s)}
           </Typography>
@@ -802,6 +799,29 @@ function DocRef({ value }: { value?: string | null }) {
 }
 
 /** Large drag-and-drop area with a "Choose file" button (`big`: the step's "Drop all documents here" zone). */
+/** Round Q: an empty slot shows a small grey dot (the empty circle looked like a radio button); done = green ✓. */
+function EmptyDot() {
+  return <FiberManualRecordIcon sx={{ fontSize: 10, color: "text.disabled", mx: "5px" }} />;
+}
+
+/** An ⓘ with the helper text in a tooltip — nothing when there is no text. */
+function HintInfo({ text }: { text: string | null | undefined }) {
+  if (!text) return null;
+  return (
+    <Tooltip title={text} arrow>
+      <InfoOutlinedIcon sx={{ fontSize: 16, color: "text.disabled", cursor: "help" }} />
+    </Tooltip>
+  );
+}
+
+/** A hint only when it says something the title doesn't. */
+const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9\u3040-\u30ff\u4e00-\u9fff]+/g, "");
+export function hintFor(docType: string, title: string): string | null {
+  const h = DOC_HINTS[docType];
+  if (!h) return null;
+  return norm(h) === norm(title) ? null : h;
+}
+
 function DropZone({ onFiles, big = false, title, hint }: { onFiles: (files: File[]) => void; big?: boolean; title?: string; hint?: string }) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
@@ -865,7 +885,7 @@ function FieldsRow({ title, done, summary, canEdit, form, labels }: { title: str
   return (
     <>
       <Stack direction="row" spacing={1} alignItems="center">
-        {done ? <CheckCircleIcon color="success" fontSize="small" /> : <RadioButtonUncheckedIcon fontSize="small" sx={{ color: "text.disabled" }} />}
+        {done ? <CheckCircleIcon color="success" fontSize="small" /> : <EmptyDot />}
         <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>
           {title}
         </Typography>

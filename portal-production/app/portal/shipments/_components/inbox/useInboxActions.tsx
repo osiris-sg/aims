@@ -7,7 +7,8 @@
 
 import React, { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { type InboxRow } from "../../_lib/api";
+import { useShipmentsApi, type InboxRow, type InboxThread, type OrderSeed, type PiExtraction } from "../../_lib/api";
+import OrderFormDialog from "../OrderFormDialog";
 import { useTradeMutation } from "../../_lib/hooks";
 import { toast } from "../../_lib/toast";
 import { acceptedText } from "../../_lib/inbox-text";
@@ -22,6 +23,28 @@ export function useInboxActions(onChanged: () => Promise<unknown> | void) {
   const [confirm, setConfirm] = useState<{ row: InboxRow; act: "undo" | "dismiss" } | null>(null);
   const [open, setOpen] = useState<InboxRow | null>(null);
   const [assign, setAssign] = useState<InboxRow | null>(null);
+  // Round Q: "Create order from this thread" — from the thread's PI attachment (the PI extractor) when there is one,
+  // else from the thread's keys / subject cues (seed).
+  const api = useShipmentsApi();
+  const [create, setCreate] = useState<{ prefill: PiExtraction | null; seed: OrderSeed | null } | null>(null);
+  const [creating, setCreating] = useState(false);
+  const createOrder = async (t: InboxThread) => {
+    const withPi = t.messages.find((m) => m.attachments.some((a) => a.docType === "PI" || /\bPI\b|_PI_/i.test(a.name)));
+    const seed = t.messages.map((m) => m.backlog?.seed).find(Boolean) ?? null;
+    if (withPi) {
+      setCreating(true);
+      try {
+        const pre = await api.inboxPiPrefill(withPi.id);
+        setCreate({ prefill: pre, seed });
+        return;
+      } catch (e: any) {
+        toast.error(e?.message || "Could not read the PI — starting from the thread's details");
+      } finally {
+        setCreating(false);
+      }
+    }
+    setCreate({ prefill: null, seed });
+  };
   const act = useTradeMutation((a, v: { id: string; act: InboxAct }): Promise<unknown> =>
     v.act === "accept" ? a.inboxAccept(v.id) : v.act === "undo" ? a.inboxUndo(v.id) : v.act === "dismiss" ? a.inboxDismiss(v.id) : v.act === "ignore" ? a.inboxIgnore(v.id) : a.inboxRetriage(v.id),
   );
@@ -58,6 +81,17 @@ export function useInboxActions(onChanged: () => Promise<unknown> | void) {
           await refresh();
         }}
       />
+      <OrderFormDialog
+        open={!!create}
+        onClose={() => setCreate(null)}
+        prefill={create?.prefill ?? null}
+        seed={create?.seed ?? null}
+        onSaved={async () => {
+          setCreate(null);
+          toast.success("Order created — the thread's emails will match it on the next re-match");
+          await refresh();
+        }}
+      />
       <ConfirmDialog
         open={!!confirm}
         title={confirm?.act === "undo" ? "Undo what this email did?" : "Delete this email (not shipment mail)?"}
@@ -73,5 +107,5 @@ export function useInboxActions(onChanged: () => Promise<unknown> | void) {
       />
     </>
   );
-  return { run, pending: act.isPending, open, setOpen, assign, setAssign, confirm, setConfirm, dialogs };
+  return { run, pending: act.isPending || creating, open, setOpen, assign, setAssign, confirm, setConfirm, createOrder, dialogs };
 }

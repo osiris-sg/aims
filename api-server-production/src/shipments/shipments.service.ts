@@ -91,7 +91,9 @@ export class ShipmentsService {
       ...(rules
         ? (() => {
             const tab = shipmentTab({ ...s, steps: steps ?? [] }, today);
-            return { tab, freeTime: tab === 'arrived' || tab === 'in_transit' ? freeTimeLeft(s, rules, today) : null };
+            // Round Q: the free-time countdown is only meaningful once the vessel is in (it starts at discharge /
+            // arrival) — in-transit rows show "starts on arrival" instead of a countdown from a future ETA.
+            return { tab, freeTime: tab === 'arrived' ? freeTimeLeft(s, rules, today) : null };
           })()
         : {}),
     });

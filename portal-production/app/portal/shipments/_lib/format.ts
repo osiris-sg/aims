@@ -149,3 +149,23 @@ export const monthShort = (m?: string | null) => {
   const x = /^(\d{4})-(\d{2})$/.exec(m ?? "");
   return x ? `${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(x[2]) - 1]} ${x[1].slice(2)}` : "";
 };
+
+/**
+ * Round Q: the customer's short name for lists ("Kato Light Metal Industry Co., Ltd." → "Kato Light Metal Industry";
+ * "SUS Co., Ltd." → "SUS"); known customers by their key word (Kato / SUS / Hoei). The full name stays in the
+ * tooltip and on documents.
+ */
+export function shortCustomer(name: string | null | undefined): string | null {
+  const n = (name ?? "").trim();
+  if (!n) return null;
+  if (/加藤|\bkato\b/i.test(n)) return "Kato";
+  if (/\bSUS\b|エスユーエス/i.test(n)) return "SUS";
+  if (/豊栄|ホーエイ|\bhoei\b|\bhouei\b/i.test(n)) return "Hoei";
+  return (
+    n
+      .replace(/株式会社|合同会社|有限会社/g, "")
+      .replace(/[,.]?\s*\b(co|ltd|limited|inc|corp|corporation|company|pte|pvt|llc|gmbh|kk)\b\.?/gi, "")
+      .replace(/[\s,.]+$/, "")
+      .trim() || n
+  );
+}

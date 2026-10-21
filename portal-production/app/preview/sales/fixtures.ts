@@ -199,6 +199,32 @@ export const UNPROCESSED: InboxThread[] = [
   },
 ];
 
+// Round Q: a deal with no order in AIMS yet — grouped under "No order yet — create one?".
+UNPROCESSED.push({
+  id: "t5",
+  by: "headers",
+  section: "NO_ORDER",
+  subject: "Re: Draft - Sales Contract- 6063- 50 tne",
+  latest: "2026-10-16T17:19:00+09:00",
+  emails: 8,
+  files: 3,
+  link: null,
+  otherCount: 0,
+  messages: [
+    msg({
+      subject: "Re: Draft - Sales Contract- 6063- 50 tne",
+      from: '"SIAE sales" <sales@siae.example>',
+      date: "2026-10-16T17:19:00+09:00",
+      counterparty: "OTHER",
+      inboxState: "UNMATCHED",
+      attachments: [{ index: 0, name: "SIAE_PI_26100906.pdf", docType: "PI" }],
+      reason: { code: "NO_ORDER", label: "No order yet" },
+      matchReason: "no record number in the email or its thread, and the subject fits no single order",
+      backlog: { kind: "NO_ORDER", reason: "its order / shipment is not in AIMS", seed: { piNo: "SIAE_PI_26100906", contractNo: null, grade: "6063", qtyMt: null, customerKey: null, deliveryMonth: null } },
+    }),
+  ],
+});
+
 export const PROCESSED: InboxThread[] = [
   {
     id: "p1",

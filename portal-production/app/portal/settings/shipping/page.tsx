@@ -16,7 +16,7 @@ import BlDefaultsForm from "@/app/portal/shipments/_components/BlDefaultsForm";
 import DocSettingsForm from "@/app/portal/shipments/_components/DocSettingsForm";
 import EmailIntakePanel from "@/app/portal/shipments/_components/EmailIntakePanel";
 import EmailFilterForm from "@/app/portal/shipments/_components/EmailFilterForm";
-import FilterPreviewPanel from "@/app/portal/shipments/_components/FilterPreviewPanel";
+import FilterPreviewPanel, { EmailFilterExtras } from "@/app/portal/shipments/_components/FilterPreviewPanel";
 import EstimatorRatesForm from "@/app/portal/shipments/_components/EstimatorRatesForm";
 import AlertRulesForm from "@/app/portal/shipments/_components/AlertRulesForm";
 import TradeTheme from "@/app/portal/shipments/_components/TradeTheme";
@@ -89,6 +89,7 @@ export default function ShippingSettingsPage() {
               Filter preview (last 30 days)
             </Typography>
             <FilterPreviewPanel />
+            <EmailFilterExtras />
           </Section>
         </Stack>
       </Box>

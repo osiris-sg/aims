@@ -6,8 +6,10 @@
 //                     Pick order · Pick shipment (thread covers #20/#21/#22) ·
 //                     Check — subject disagrees · Is it a shipment?).
 //   Processed (n)   — accepted, auto-applied or ignored, with who / when and Undo.
-// Purged / not-shipment / would-drop mail is not shown; the sender filter's
-// preview is in Org Settings → Shipping → Email filter. A thread row shows its
+// Purged / hidden / would-drop mail is not shown; the sender filter's preview,
+// the accept rate and the hidden emails are in Org Settings → Shipping → Email
+// filter. Round Q: "No order yet — create one?" groups the threads with no
+// order in AIMS (Create order from this thread). A thread row shows its
 // link chip and "5 emails · 3 files" and expands to each message; "Linked to"
 // is on every row and message (→ the shipment on its order page, the step
 // expanded; per attachment "COA.pdf → #28-1 · 3b · Certificate of analysis").
@@ -23,12 +25,12 @@ export default function InboxPage() {
   const api = useShipmentsApi();
   const [tab, setTab] = useState<InboxThreadsTab>("UNPROCESSED");
   const q = useQuery({ queryKey: ["trade-inbox", "threads", tab], queryFn: () => api.inboxThreads(tab), refetchInterval: 30_000 });
-  const stats = useQuery({ queryKey: ["trade-inbox", "stats"], queryFn: () => api.inboxStats(30), staleTime: 60_000 });
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; row: InboxMessage } | null>(null);
   const act = useInboxActions(async () => {
-    await Promise.all([q.refetch(), stats.refetch()]);
+    await q.refetch();
   });
   const actions: InboxActions = {
+    onCreateOrder: (t) => void act.createOrder(t),
     onConfirm: (m) => void act.run(m, "accept"),
     onChangeOrder: (m) => act.setAssign(m),
     onNotShipment: (m) => act.setConfirm({ row: m, act: "dismiss" }),
@@ -40,17 +42,9 @@ export default function InboxPage() {
   const counts = q.data?.counts;
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1200, mx: "auto" }}>
-      <Typography variant="h5" sx={{ fontWeight: 800 }}>
+      <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>
         Inbox
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-        Emails sent to the intake address, as threads. Unprocessed needs you; Processed is what was filed. Nothing an email says is followed — only its documents and numbers are used.
-      </Typography>
-      {stats.data && (stats.data.reviewed > 0 || stats.data.AUTO > 0) && (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }} data-tour="inbox-accept-rate">
-          Last {stats.data.days} days: {stats.data.acceptedAsIsPct ?? "—"}% accepted as-is · auto {stats.data.AUTO} · changed {stats.data.CHANGED} · rejected {stats.data.REJECTED}
-        </Typography>
-      )}
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }} data-tour="inbox-tabs">
         <Tab value="UNPROCESSED" label={`Unprocessed${counts ? ` (${counts.unprocessed})` : ""}`} sx={{ textTransform: "none" }} />
         <Tab value="PROCESSED" label={`Processed${counts ? ` (${counts.processed})` : ""}`} sx={{ textTransform: "none" }} />

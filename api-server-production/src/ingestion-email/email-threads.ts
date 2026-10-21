@@ -130,7 +130,7 @@ export function groupThreads<T extends ThreadRow>(rows: T[]): Array<Thread<T>> {
   return out.sort((a, b) => (b.latest?.getTime() ?? 0) - (a.latest?.getTime() ?? 0));
 }
 
-export type ReasonCode = 'CONFIRM' | 'PICK_ORDER' | 'PICK_SHIPMENT' | 'CHECK' | 'IS_SHIPMENT';
+export type ReasonCode = 'CONFIRM' | 'PICK_ORDER' | 'PICK_SHIPMENT' | 'CHECK' | 'IS_SHIPMENT' | 'NO_ORDER';
 
 /**
  * Why an unprocessed message still needs a person — the reason chip.
@@ -139,6 +139,7 @@ export type ReasonCode = 'CONFIRM' | 'PICK_ORDER' | 'PICK_SHIPMENT' | 'CHECK' | 
  *   PICK_ORDER     nothing matched
  *   CONFIRM        matched; waiting for Confirm
  *   IS_SHIPMENT    the AI couldn't tell whether it is shipment mail at all (Unsure)
+ *   NO_ORDER       no order in AIMS for this deal yet (round Q) — "No order yet — create one?"
  */
 export function unprocessedReason(m: {
   inboxState: string | null;
@@ -147,8 +148,10 @@ export function unprocessedReason(m: {
   check?: string[] | null;
   multiOrderRefs?: string[] | null;
   needsShipment?: boolean;
+  backlogKind?: string | null;
 }): { code: ReasonCode; label: string } | null {
-  if (m.inboxState === 'PROCESSED' || m.inboxState === 'PURGED' || m.inboxState === 'UNDONE') return null;
+  if (m.inboxState === 'PROCESSED' || m.inboxState === 'PURGED' || m.inboxState === 'UNDONE' || m.inboxState === 'HIDDEN') return null;
+  if (m.backlogKind === 'NO_ORDER' && !m.orderId && !m.shipmentId) return { code: 'NO_ORDER', label: 'No order yet' };
   const multi = (m.multiOrderRefs ?? []).filter(Boolean);
   if (m.inboxState === 'UNSURE' && !m.orderId) return { code: 'IS_SHIPMENT', label: 'Is it a shipment?' };
   if (m.check?.length) return { code: 'CHECK', label: 'Check — subject disagrees' };

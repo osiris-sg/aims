@@ -30,7 +30,8 @@ export const ProgressCell = ({ progress, width = 120 }: { progress?: Progress; w
 };
 
 /** "9. Send arrival notice …", "Completed" when every step is done, "—" with no steps. */
-export const CurrentStepCell = ({ step, progress, maxWidth = 260, wrap = false }: { step?: CurrentStep; progress?: Progress; maxWidth?: number | string; wrap?: boolean }) => {
+// Round Q: step names wrap to a second line instead of "…".
+export const CurrentStepCell = ({ step, progress, maxWidth = 260, wrap = true }: { step?: CurrentStep; progress?: Progress; maxWidth?: number | string; wrap?: boolean }) => {
   if (!step) {
     return progress?.total ? (
       <Typography variant="body2" sx={{ color: "success.main", fontWeight: 600 }}>

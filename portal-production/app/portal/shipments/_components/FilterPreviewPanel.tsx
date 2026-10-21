@@ -10,6 +10,87 @@ import { Alert, Box, Chip, CircularProgress, Paper, Stack, Table, TableBody, Tab
 import { useQuery } from "@tanstack/react-query";
 import { useShipmentsApi, type FilterPreview } from "../_lib/api";
 import { fmtDateTime } from "../_lib/format";
+import { toast } from "../_lib/toast";
+import { Button } from "@mui/material";
+
+/** Round Q: the accept rate (moved from the Inbox) and the emails hidden as obvious non-shipment mail, with Unhide. */
+export function EmailFilterExtras() {
+  const api = useShipmentsApi();
+  const stats = useQuery({ queryKey: ["trade-inbox", "stats"], queryFn: () => api.inboxStats(30), staleTime: 60_000 });
+  const hidden = useQuery({ queryKey: ["trade-inbox", "hidden"], queryFn: () => api.inboxHidden(), staleTime: 30_000 });
+  const [busy, setBusy] = useState<string | null>(null);
+  const unhide = async (id: string) => {
+    setBusy(id);
+    try {
+      await api.inboxUnhide(id);
+      toast.success("Back in the inbox");
+      await hidden.refetch();
+    } catch (e) {
+      toast.error((e as Error)?.message || "Could not unhide");
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Box sx={{ mt: 3 }}>
+      {stats.data && (stats.data.reviewed > 0 || stats.data.AUTO > 0) && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }} data-tour="inbox-accept-rate">
+          Last {stats.data.days} days: {stats.data.acceptedAsIsPct ?? "—"}% accepted as-is · auto {stats.data.AUTO} · changed {stats.data.CHANGED} · rejected {stats.data.REJECTED}
+        </Typography>
+      )}
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>
+        Hidden ({hidden.data?.length ?? 0})
+      </Typography>
+      <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>
+        Calendar responses, meeting invites, auto-replies and newsletters are kept but left out of the inbox. Unhide brings one back.
+      </Typography>
+      {hidden.isLoading ? (
+        <CircularProgress size={18} />
+      ) : !hidden.data?.length ? (
+        <Typography variant="body2" color="text.secondary">
+          Nothing hidden.
+        </Typography>
+      ) : (
+        <Paper variant="outlined" sx={{ overflowX: "auto" }}>
+          <Table size="small" data-tour="settings-hidden-emails">
+            <TableHead>
+              <TableRow>
+                <TableCell>Date</TableCell>
+                <TableCell>From domain</TableCell>
+                <TableCell>Subject</TableCell>
+                <TableCell>Why</TableCell>
+                <TableCell />
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {hidden.data.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtDateTime(r.date)}</TableCell>
+                  <TableCell>{r.fromDomain}</TableCell>
+                  <TableCell sx={{ maxWidth: 380 }}>
+                    <Typography variant="body2" noWrap title={r.subject}>
+                      {r.subject || "(no subject)"}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption" color="text.secondary">
+                      {r.reason ?? "—"}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right">
+                    <Button size="small" disabled={busy === r.id} onClick={() => void unhide(r.id)}>
+                      Unhide
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Paper>
+      )}
+    </Box>
+  );
+}
 
 export default /** What the sender filter kept / would drop (SHADOW): from-domain + subject (60) only — never bodies or addresses. */
 function FilterPreviewPanel() {

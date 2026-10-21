@@ -83,6 +83,6 @@ import { TradeStepsService } from './trade-steps.service';
     TradeExtractService,
     PrismaService,
   ],
-  exports: [OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService],
+  exports: [OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService],
 })
 export class ShipmentsModule {}

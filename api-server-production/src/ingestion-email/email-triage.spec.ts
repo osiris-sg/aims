@@ -521,7 +521,20 @@ describe('PARTIAL_AUTO, the order picker, multi-shipment emails, thread follow, 
 
   it('PARTIAL_AUTO: a B/L only in the quoted body stays a suggestion (guard b)', async () => {
     const x = setup('PARTIAL_AUTO');
-    const { triaged, logId } = await x.receiveRaw({ subject: 'Re: 通関・国内輸送について', text: 'ありがとうございます。\n\n> On Mon: B/L 198GX04630 の件', messageId: '<b1@x>', ai: shipmentAi({ blNo: '198GX04630' }) });
+    // Round Q: the same email with nothing to file is conversation only → linked by itself ("Auto · linked (conversation)").
+    const talk = await x.receiveRaw({ subject: 'Re: 通関・国内輸送について', text: 'ありがとうございます。\n\n> On Mon: B/L 198GX04630 の件', messageId: '<b0@x>', ai: shipmentAi({ blNo: '198GX04630' }) });
+    expect(talk.triaged.inboxState).toBe('PROCESSED');
+    expect(await x.triage.row(ORG, talk.logId)).toMatchObject({ matched: '#11-1', autoLabel: 'linked (conversation)' });
+    expect(x.uploads).toHaveLength(0);
+    const pdf = Buffer.from('%PDF-1.4 dummy').toString('base64');
+    const { triaged, logId } = await x.receiveRaw({
+      subject: 'Re: 通関・国内輸送について',
+      text: 'ありがとうございます。\n\n> On Mon: B/L 198GX04630 の件',
+      messageId: '<b1@x>',
+      // (The attachment's NAME carries no key — a name with the B/L would be a strong hit and pass guard b.)
+      attachments: [{ filename: 'AN.pdf', contentType: 'application/pdf', contentBase64: pdf }],
+      ai: { ...shipmentAi({ blNo: '198GX04630' }), attachments: [{ filename: 'AN.pdf', docType: 'ARRIVAL_NOTICE', confidence: 0.9 }] },
+    });
     expect(triaged.inboxState).toBe('SUGGESTED');
     const row = await x.triage.row(ORG, logId);
     expect(row.matched).toBe('#11-1');
@@ -593,6 +606,44 @@ describe('PARTIAL_AUTO, the order picker, multi-shipment emails, thread follow, 
     const dash = await x.triage.dashboard(ORG);
     expect(dash.filedAuto.map((m) => m.id)).toContain(reply.logId);
     expect(dash.toConfirm.emails).toBeGreaterThan(0);
+  });
+
+  it('round Q backlog: a calendar response is hidden; a conversation-only reply on a thread with one clear shipment is linked by itself; one about a completed order is history; a deal with no order is "No order yet"', async () => {
+    const x = setup('PARTIAL_AUTO');
+    // Calendar response: hidden at intake (not purged), listed under Settings → Email filter → Hidden, unhide brings it back.
+    const cal = await x.receiveRaw({ subject: 'Accepted: 三井倉庫様 ディテンションについて @ 2026年 10月 20日', text: '', messageId: '<cal@x>', ai: shipmentAi() });
+    expect(cal.triaged.inboxState).toBe('HIDDEN');
+    expect((await x.triage.hidden(ORG)).map((h) => h.reason)).toContain('calendar response');
+    expect((await x.triage.threads(ORG, 'UNPROCESSED')).threads.flatMap((t) => t.messages).some((m) => m.id === cal.logId)).toBe(false);
+    expect((await x.triage.unhide(ORG, cal.logId)).inboxState).not.toBe('HIDDEN');
+    // Conversation only with the B/L in the subject: linked by itself, "Auto · linked (conversation)" — nothing filed.
+    const talk = await x.receiveRaw({ subject: 'Re: 198GX04630 納期の件', text: '了解しました', messageId: '<talk@x>', ai: shipmentAi({ blNo: '198GX04630' }) });
+    expect(talk.triaged.inboxState).toBe('PROCESSED');
+    expect(await x.triage.row(ORG, talk.logId)).toMatchObject({ matched: '#11-1', autoLabel: 'B/L 198GX04630' });
+    // The same, but the record is closed: history.
+    x.t.tradeOrder.find((o) => o.id === 'o-20')!.status = 'COMPLETED';
+    x.t.shipment.find((s) => s.id === 's-20-1')!.status = 'COMPLETED';
+    const first = await x.receiveRaw({ subject: 'Re: 20-1 delivery feedback', text: 'thanks', messageId: '<h1@x>', ai: shipmentAi() });
+    expect(first.triaged.inboxState).toBe('UNMATCHED');
+    await x.triage.assign(ORG, first.logId, { shipmentId: 's-20-1', accept: true }, { id: 'u1', name: 'Sayaka' });
+    const hist = await x.receiveRaw({ subject: 'Re: 20-1 delivery feedback', text: 'ありがとうございました', messageId: '<h2@x>', inReplyTo: '<h1@x>', ai: shipmentAi() });
+    expect(hist.triaged.inboxState).toBe('PROCESSED');
+    expect(await x.triage.row(ORG, hist.logId)).toMatchObject({ matched: '#20-1', autoLabel: 'history' });
+    expect(x.uploads).toHaveLength(0);
+    // A deal with no order in AIMS: "No order yet" with a seed, grouped as its own section.
+    const draft = await x.receiveRaw({ subject: 'Re: Draft - Sales Contract- 6063- 50 tne', text: 'please see PI SIAE_PI_26100906', from: 'sales@siae.example', messageId: '<d1@x>', ai: { ...shipmentAi({ piNo: 'SIAE_PI_26100906' }), counterparty: 'OTHER' } });
+    expect(draft.triaged.inboxState).toBe('UNMATCHED');
+    const un = await x.triage.threads(ORG, 'UNPROCESSED');
+    const th = un.threads.find((t) => t.messages.some((m) => m.id === draft.logId))!;
+    expect(th.section).toBe('NO_ORDER');
+    expect(th.messages[0].reason).toMatchObject({ code: 'NO_ORDER', label: 'No order yet' });
+    expect(th.messages[0].backlog?.seed).toMatchObject({ piNo: 'SIAE_PI_26100906', grade: '6063' });
+    // The backlog run (dry): nothing changes; apply: the no-order mark stays, nothing filed.
+    const dry = await x.triage.backlog(ORG, false);
+    expect(dry.find((r) => r.id === draft.logId)).toMatchObject({ kind: 'NO_ORDER', applied: null });
+    const applied = await x.triage.backlog(ORG, true);
+    expect(applied.find((r) => r.id === draft.logId)?.applied).toBe('marked "No order yet"');
+    expect(x.uploads).toHaveLength(0);
   });
 
   it('accept rate: accepted as-is, changed, ignored, rejected and auto are counted', async () => {

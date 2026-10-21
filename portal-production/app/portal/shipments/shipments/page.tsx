@@ -5,17 +5,19 @@
 // ahead), Arrived (arrival / discharge date, or the latest ETA passed),
 // Delivered (cleared: steps up to 10 done) and Completed. Columns: #n-seq,
 // customer, B/L, vessel / voyage, carrier, net MT, ETD, latest ETA, current
-// step and the port free-time countdown (DET / DEM from discharge, else ETA).
+// step and "Free days left" (round Q: Container = DET, Port = DEM, from discharge
+// else arrival; only once arrived — in transit says "starts on arrival").
 // Search by B/L, order no. ("#19" / "19-1") or vessel. A row opens the
 // shipment's steps on its order page.
 
 import React, { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Alert, Box, Chip, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
 import PageTable from "@/components/PageTable";
 import type { ShipmentListItem, ShipmentTab } from "../_lib/api";
 import { useShipments } from "../_lib/hooks";
-import { blLabel, fmtDay, fmtMt } from "../_lib/format";
+import { blLabel, fmtDay, fmtMt, shortCustomer } from "../_lib/format";
+import { freeDays } from "../_lib/free-days";
 import { CurrentStepCell, EmptyState } from "../_components/bits";
 import { useDebounced } from "../_components/useDebounced";
 import ShowTestToggle, { useShowTestOrders } from "../_components/ShowTestToggle";
@@ -29,25 +31,20 @@ const TABS: Array<{ value: ShipmentTab; label: string }> = [
 
 const hrefOf = (s: ShipmentListItem) => (s.orderId ? `/portal/shipments/orders/${s.orderId}?shipment=${s.id}` : `/portal/shipments/${s.id}`);
 
-/** "DET 2d · DEM 8d" — red when over, amber on the last day. */
-function FreeTime({ s }: { s: ShipmentListItem }) {
-  const f = s.freeTime;
-  if (!f) return <Typography variant="body2" color="text.secondary">—</Typography>;
-  const chip = (code: string, x: { ends: string; daysLeft: number }) => (
-    <Tooltip key={code} title={`${code === "DET" ? "Detention" : "Demurrage"} free time ends ${fmtDay(x.ends)} (from ${f.from === "discharge" ? "discharge" : "ETA"})`}>
-      <Chip
-        size="small"
-        variant={x.daysLeft <= 1 ? "filled" : "outlined"}
-        color={x.daysLeft < 0 ? "error" : x.daysLeft <= 1 ? "warning" : "default"}
-        label={`${code} ${x.daysLeft < 0 ? `${-x.daysLeft}d over` : `${x.daysLeft}d`}`}
-      />
-    </Tooltip>
-  );
+/** Round Q: "Container 12d" / "Port 18d" on two short lines once arrived (red at ≤ 3 days); "starts on arrival" in transit. */
+function FreeDaysCell({ s }: { s: ShipmentListItem }) {
+  const fd = freeDays(s);
+  const red = fd.tone === "over" || fd.tone === "warn";
   return (
-    <Stack direction="row" spacing={0.5} sx={{ whiteSpace: "nowrap" }}>
-      {chip("DET", f.det)}
-      {chip("DEM", f.dem)}
-    </Stack>
+    <Tooltip title={fd.title}>
+      <Box sx={{ color: red ? "error.main" : fd.tone === "pending" ? "text.secondary" : undefined, fontWeight: red ? 700 : 400 }}>
+        {fd.text.split(" · ").map((line) => (
+          <Typography key={line} variant="body2" sx={{ whiteSpace: "nowrap", fontWeight: "inherit", color: "inherit" }}>
+            {line}
+          </Typography>
+        ))}
+      </Box>
+    </Tooltip>
   );
 }
 
@@ -66,15 +63,15 @@ export default function ShipmentsListPage() {
   const columns = useMemo(
     () => [
       { id: "ref", header: "#", nowrap: true, cell: ({ row }: any) => <Typography variant="body2" sx={{ fontWeight: 800 }}>{row.original.ref || "—"}</Typography> },
-      { id: "customer", header: "Customer", cell: ({ row }: any) => row.original.customerName || "—" },
+      { id: "customer", header: "Customer", cell: ({ row }: any) => <span title={row.original.customerName ?? undefined}>{shortCustomer(row.original.customerName) || "—"}</span> },
       { id: "bl", header: "B/L", nowrap: true, cell: ({ row }: any) => blLabel(row.original.blNumber) },
       { id: "vessel", header: "Vessel / voyage", cell: ({ row }: any) => [row.original.vessel, row.original.voyageNo].filter(Boolean).join(" / ") || "—" },
       { id: "carrier", header: "Carrier", cell: ({ row }: any) => row.original.carrier || "—" },
       { id: "net", header: "Net MT", cell: ({ row }: any) => <Box sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{row.original.netWeightMt != null ? fmtMt(row.original.netWeightMt) : "—"}</Box> },
       { id: "etd", header: "ETD", nowrap: true, cell: ({ row }: any) => fmtDay(row.original.etd) },
       { id: "eta", header: "ETA (latest)", nowrap: true, cell: ({ row }: any) => fmtDay(row.original.eta) },
-      { id: "step", header: "Current step", cell: ({ row }: any) => <CurrentStepCell step={row.original.currentStep} progress={row.original.progress} maxWidth={260} /> },
-      { id: "free", header: "Free time", cell: ({ row }: any) => <FreeTime s={row.original} /> },
+      { id: "step", header: "Current step", cell: ({ row }: any) => <CurrentStepCell step={row.original.currentStep} progress={row.original.progress} maxWidth={260} wrap /> },
+      { id: "free", header: "Free days left", cell: ({ row }: any) => <FreeDaysCell s={row.original} /> },
     ],
     [],
   );
@@ -101,7 +98,6 @@ export default function ShipmentsListPage() {
     <Box sx={{ p: { xs: 1.5, md: 3 }, height: "100%" }} data-tour="shipments-list">
       <PageTable
         tableName="Shipments"
-        subTitle="Every B/L across all orders"
         columns={columns}
         data={list.data?.items ?? []}
         loading={list.isLoading}

@@ -141,7 +141,7 @@ export type InboxRow = {
   direction: "IN" | "OUT" | null;
   counterparty: string | null;
   verdict: string | null;
-  inboxState: InboxTab | "PURGED";
+  inboxState: InboxTab | "PURGED" | "HIDDEN";
   subject: string | null;
   from: string;
   attachments: Array<{ index: number; name: string; docType: string | null }>;
@@ -702,13 +702,17 @@ export type SupplierOrderFilters = { bucket?: "pending" | "completed"; supplierI
 export type DeclarationRow = { customerId: string; contractId: string; grade?: string | null; size?: string | null; qtyMt: number; clientPremium?: number | null; supplierPremium?: number | null; orderNo?: number; deliveryMonth?: string | null; piNo?: string | null };
 /** Vedanta's PI table → the order each row fills (read-only plan). */
 // ── Round P: the inbox as threads, the Sales dashboard ──────────────────────
-export type InboxReason = { code: "CONFIRM" | "PICK_ORDER" | "PICK_SHIPMENT" | "CHECK" | "IS_SHIPMENT"; label: string };
+export type InboxReason = { code: "CONFIRM" | "PICK_ORDER" | "PICK_SHIPMENT" | "CHECK" | "IS_SHIPMENT" | "NO_ORDER"; label: string };
 export type InboxLinkedFile = { name: string; docType: string | null; docLabel: string | null; status: string; ownerKind: string | null; ownerId: string | null; ref: string | null; stepId: string | null; stepNo: string | null; stepTitle: string | null };
 export type InboxLinked = { orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null; files: InboxLinkedFile[]; fields: Array<{ field: string; value: string; status: string }>; linkOnly: boolean };
 export type InboxBy = { outcome: "AUTO" | "ACCEPTED" | "CHANGED" | "REJECTED" | "IGNORED"; name: string | null; at: string | null; autoLabel: string | null };
-export type InboxMessage = InboxRow & { reason: InboxReason | null; matchReason: string | null; threadFrom: "accepted" | "traced" | "followed" | null; threadSize: number; linked: InboxLinked | null; by: InboxBy | null };
+/** Round Q: the backlog kind and, for "No order yet", what the order form starts from. */
+export type OrderSeed = { piNo: string | null; contractNo: string | null; grade: string | null; qtyMt: number | null; customerKey: string | null; deliveryMonth: string | null };
+export type InboxBacklog = { kind: "HIDE" | "AUTO" | "CONFIRM" | "AUTO_LINK" | "HISTORY" | "PICK" | "NO_ORDER" | "IS_SHIPMENT"; reason: string; seed: OrderSeed | null };
+export type InboxMessage = InboxRow & { reason: InboxReason | null; matchReason: string | null; threadFrom: "accepted" | "traced" | "followed" | null; threadSize: number; linked: InboxLinked | null; by: InboxBy | null; backlog?: InboxBacklog | null };
 export type InboxThreadLink = { orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null; from: "processed" | "suggested"; combined: Array<{ orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null }> };
-export type InboxThread = { id: string; by: "headers" | "subject" | "both"; subject: string | null; latest: string | null; emails: number; files: number; link: InboxThreadLink | null; messages: InboxMessage[]; otherCount: number };
+export type InboxThread = { id: string; by: "headers" | "subject" | "both"; section?: "NO_ORDER" | null; subject: string | null; latest: string | null; emails: number; files: number; link: InboxThreadLink | null; messages: InboxMessage[]; otherCount: number };
+export type HiddenEmail = { id: string; date: string; fromDomain: string; subject: string; reason: string | null };
 export type InboxThreadsTab = "UNPROCESSED" | "PROCESSED";
 export type InboxThreads = { tab: InboxThreadsTab; counts: { unprocessed: number; processed: number }; total: number; threads: InboxThread[] };
 export type InboxDashboard = { toConfirm: { emails: number; threads: InboxThread[]; total: number }; filedAuto: Array<InboxMessage & { threadSubject: string | null }> };
@@ -1600,6 +1604,9 @@ export function useShipmentsApi() {
       inbox: (tab: InboxTab) => call<{ items: InboxRow[]; counts: Record<InboxTab, number> }>(`/email-inbox${qs({ tab })}`),
       inboxThreads: (tab: InboxThreadsTab) => call<InboxThreads>(`/email-inbox/threads${qs({ tab })}`),
       inboxDashboard: () => call<InboxDashboard>(`/email-inbox/dashboard`),
+      inboxHidden: () => call<HiddenEmail[]>(`/email-inbox/hidden`),
+      inboxUnhide: (id: string) => call<InboxRow>(`/email-inbox/${id}/unhide`, "POST"),
+      inboxPiPrefill: (id: string) => call<PiExtraction>(`/email-inbox/${id}/pi-prefill`, "POST", {}, 180000),
       inboxAccept: (id: string) => call<InboxRow>(`/email-inbox/${id}/accept`, "POST"),
       inboxAssign: (id: string, body: { orderId?: string | null; shipmentId?: string | null; targets?: InboxTarget[]; accept?: boolean }) => call<InboxRow>(`/email-inbox/${id}/assign`, "POST", body),
       inboxPreview: (id: string, targets: InboxTarget[]) => call<{ planned: IntakeAction[] }>(`/email-inbox/${id}/preview`, "POST", { targets }),

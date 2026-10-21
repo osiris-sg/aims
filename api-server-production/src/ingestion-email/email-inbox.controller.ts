@@ -4,6 +4,9 @@ import { Request } from 'express';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { EmailTriageService, InboxState, IntakeTarget } from './email-triage.service';
+import { StoredEmailMeta } from './email-store';
+import { S3Service } from '../common/services/s3.service';
+import { TradeExtractService } from '../shipments/trade-extract.service';
 
 interface Req2 extends Request {
   userOrganization?: { id: string; name: string };
@@ -23,7 +26,11 @@ const TABS: InboxState[] = ['SUGGESTED', 'UNMATCHED', 'PROCESSED', 'UNSURE'];
 @Controller('email-inbox')
 @UseGuards(ClerkAuthGuard)
 export class EmailInboxController {
-  constructor(private readonly triage: EmailTriageService) {}
+  constructor(
+    private readonly triage: EmailTriageService,
+    private readonly s3: S3Service,
+    private readonly extract: TradeExtractService,
+  ) {}
 
   private org(req: Req2) {
     const id = req.userOrganization?.id;
@@ -65,6 +72,42 @@ export class EmailInboxController {
   @ApiOperation({ summary: 'Ignore: keep the email, mark it handled (Processed), file nothing.' })
   ignore(@Param('id', ParseUUIDPipe) id: string, @Req() req: Req2) {
     return this.triage.ignore(this.org(req), id, this.actor(req));
+  }
+
+  @Get('hidden')
+  @Permissions('shipments:read')
+  @ApiOperation({ summary: 'Round Q: emails hidden as obvious non-shipment mail (calendar / auto-reply / newsletter) — from-domain + subject 60 only.' })
+  hidden(@Req() req: Req2) {
+    return this.triage.hidden(this.org(req));
+  }
+
+  @Post(':id/unhide')
+  @Permissions('shipments:update')
+  @ApiOperation({ summary: 'Round Q: bring a hidden email back to the inbox (matched again, never auto-applied).' })
+  unhide(@Param('id', ParseUUIDPipe) id: string, @Req() req: Req2) {
+    return this.triage.unhide(this.org(req), id);
+  }
+
+  @Post('backlog')
+  @Permissions('shipments:update')
+  @ApiOperation({ summary: 'Round Q: classify every unprocessed email (dry run unless apply=true): hide / auto-link / history / no order / confirm / pick. Never files a document.' })
+  backlog(@Query('apply') apply: string | undefined, @Req() req: Req2) {
+    return this.triage.backlog(this.org(req), apply === 'true');
+  }
+
+  @Post(':id/pi-prefill')
+  @Permissions('shipments:create')
+  @ApiOperation({ summary: 'Round Q: "Create order from this thread" — read the email\'s PI attachment with the PI extractor (the same as "New orders from PIs"); the order form starts from it.' })
+  async piPrefill(@Param('id', ParseUUIDPipe) id: string, @Req() req: Req2) {
+    const org = this.org(req);
+    const row = await this.triage.row(org, id);
+    const pi = row.attachments.find((a) => a.docType === 'PI') ?? row.attachments.find((a) => /\bPI\b|_PI_|proforma/i.test(a.name) && /\.pdf$/i.test(a.name));
+    if (!pi) throw new BadRequestException('This email has no PI attachment');
+    const meta = ((await this.triage.rawMeta(org, id)) ?? {}) as Partial<StoredEmailMeta>;
+    const att = meta.attachments?.[pi.index];
+    if (!att) throw new BadRequestException('The PI attachment is no longer stored');
+    const buf = await this.s3.downloadFile(att.key);
+    return this.extract.extract(org, 'PI', { file: { originalname: att.name, mimetype: att.contentType || 'application/pdf', size: buf.length, buffer: buf } as Express.Multer.File }, this.actor(req) as any);
   }
 
   @Get('threads')

@@ -7,12 +7,10 @@
 // chip. Rows: an order, or (expanded) one of its shipments.
 
 import React from "react";
-import { Box, Chip, IconButton, Stack, Typography } from "@mui/material";
+import { Box, Chip, IconButton, Typography } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
-import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
-import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import type { OrderListItem, OrderShipmentRow } from "../_lib/api";
-import { fmtDay, fmtMt, monthShort } from "../_lib/format";
+import { fmtDay, fmtMt, monthShort, shortCustomer } from "../_lib/format";
 import { ORDERS_COLUMN_PX } from "../_lib/progress";
 import { RecordStatusChip } from "./bits";
 import ProgressBarCell from "./ProgressBarCell";
@@ -21,7 +19,7 @@ import ProgressBarCell from "./ProgressBarCell";
 export type OrderRow = ({ kind: "order" } & OrderListItem) | ({ kind: "shipment"; order: OrderListItem } & OrderShipmentRow);
 type Row = OrderRow;
 
-export function orderColumns(o: { expanded: Set<string>; toggle: (id: string) => void; onMenu: (e: React.MouseEvent, row: OrderListItem) => void }) {
+export function orderColumns(o: { onMenu: (e: React.MouseEvent, row: OrderListItem) => void }) {
   return [
       {
         id: "no",
@@ -29,25 +27,11 @@ export function orderColumns(o: { expanded: Set<string>; toggle: (id: string) =>
         cell: ({ row }: any) => {
           const r: Row = row.original;
           if (r.kind === "order") {
-            const open = o.expanded.has(r.id);
+            // Round Q: no expand chevron — the row opens the order; each shipment's bar is in the progress hover.
             return (
-              <Stack direction="row" alignItems="center" spacing={0.25} sx={{ whiteSpace: "nowrap" }}>
-                <IconButton
-                  size="small"
-                  aria-label={open ? "Hide shipments" : "Show shipments"}
-                  disabled={!r.shipmentCount}
-                  data-tour="orders-expand"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    o.toggle(r.id);
-                  }}
-                >
-                  {open ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}
-                </IconButton>
-                <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                  {r.label}
-                </Typography>
-              </Stack>
+              <Typography variant="body2" sx={{ fontWeight: 800, whiteSpace: "nowrap" }}>
+                {r.label}
+              </Typography>
             );
           }
           return (
@@ -62,7 +46,8 @@ export function orderColumns(o: { expanded: Set<string>; toggle: (id: string) =>
         header: "Customer",
         cell: ({ row }: any) => {
           const r: Row = row.original;
-          return r.kind === "order" ? r.customerName || "—" : <Typography variant="body2">{r.blNumber ? `B/L ${r.blNumber}` : "B/L pending"}</Typography>;
+          // Round Q: the short name ("Kato"); the full name in the tooltip.
+          return r.kind === "order" ? <span title={r.customerName ?? undefined}>{shortCustomer(r.customerName) || "—"}</span> : <Typography variant="body2">{r.blNumber ? `B/L ${r.blNumber}` : "B/L pending"}</Typography>;
         },
       },
       {

@@ -11,7 +11,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { Box, Button, Chip, Collapse, IconButton, Paper, Stack, Tooltip, Typography } from "@mui/material";
+import { Box, Button, Chip, Collapse, IconButton, Paper, Stack, Typography } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
@@ -22,6 +22,8 @@ import type { InboxMessage, InboxReason, InboxThread } from "../../_lib/api";
 import { byLine, fromParts, linkedChip, linkedFileLine, orderHref, threadCounts, whatHappens, whenShort } from "../../_lib/inbox-threads";
 
 export interface InboxActions {
+  /** Round Q: "Create order from this thread" (No order yet). */
+  onCreateOrder?: (t: InboxThread) => void;
   onConfirm: (m: InboxMessage) => void;
   onChangeOrder: (m: InboxMessage) => void;
   onNotShipment: (m: InboxMessage) => void;
@@ -31,11 +33,11 @@ export interface InboxActions {
   pending?: boolean;
 }
 
-const REASON_COLOR: Record<InboxReason["code"], "primary" | "warning" | "default" | "error"> = { CONFIRM: "primary", PICK_ORDER: "warning", PICK_SHIPMENT: "warning", CHECK: "error", IS_SHIPMENT: "default" };
+const REASON_COLOR: Record<InboxReason["code"], "primary" | "warning" | "default" | "error"> = { CONFIRM: "primary", PICK_ORDER: "warning", PICK_SHIPMENT: "warning", CHECK: "error", IS_SHIPMENT: "default", NO_ORDER: "default" };
 
-export function ReasonChip({ reason }: { reason: InboxReason | null | undefined }) {
+export function ReasonChip({ reason, title }: { reason: InboxReason | null | undefined; title?: string | null }) {
   if (!reason) return null;
-  return <Chip size="small" color={REASON_COLOR[reason.code]} variant={reason.code === "CONFIRM" ? "filled" : "outlined"} label={reason.label} data-tour="inbox-reason" />;
+  return <Chip size="small" color={REASON_COLOR[reason.code]} variant={reason.code === "CONFIRM" ? "filled" : "outlined"} label={reason.label} title={title ?? undefined} data-tour="inbox-reason" />;
 }
 
 /** The "Linked to" chip — a link to the shipment on its order page (the step expanded when known). */
@@ -81,7 +83,7 @@ export function MessageRow({ m, actions, showSubject = true, dense }: { m: Inbox
                 <AttachFileIcon sx={{ fontSize: 14 }} /> {m.attachments.length}
               </Typography>
             )}
-            {!processed && <ReasonChip reason={m.reason} />}
+            {!processed && <ReasonChip reason={m.reason} title={m.matchReason} />}
             {processed && by && (
               <Typography variant="caption" color={m.by?.outcome === "AUTO" ? "success.main" : "text.secondary"} data-tour="inbox-by">
                 {by}
@@ -103,13 +105,6 @@ export function MessageRow({ m, actions, showSubject = true, dense }: { m: Inbox
             <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 520 }} title={whatHappens(m)}>
               {whatHappens(m)}
             </Typography>
-            {m.matchReason && !processed && (
-              <Tooltip title={m.matchReason}>
-                <Typography variant="caption" color="text.disabled" noWrap sx={{ maxWidth: 360 }}>
-                  ({m.matchReason})
-                </Typography>
-              </Tooltip>
-            )}
           </Stack>
           {m.linked && m.linked.files.length > 0 && (
             <Box sx={{ mt: 0.25 }}>
@@ -180,25 +175,35 @@ export function ThreadRow({ t, actions, defaultOpen = false }: { t: InboxThread;
               ) : (
                 <Chip size="small" variant="outlined" label="Not linked yet" />
               )}
-              <Typography variant="caption" color="text.secondary">
-                {threadCounts(t.emails, t.files)}
-                {t.by === "subject" ? " · by subject" : ""}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {whenShort(t.latest)}
+              <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 0 }} noWrap title={t.subject ?? ""}>
+                {t.subject || "(no subject)"}
               </Typography>
             </Stack>
-            <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap title={t.subject ?? ""}>
-              {t.subject || "(no subject)"}
-            </Typography>
             {!open && newest && (
               <Typography variant="caption" color="text.secondary" noWrap component="div">
                 {from.name}
-                {newest.reason ? ` · ${newest.reason.label}` : newest.by ? ` · ${byLine(newest.by)}` : ""}
+                {newest.counterparty ? ` · ${newest.counterparty}` : ""}
+                {` · ${whenShort(t.latest)}`}
+                {` · ${threadCounts(t.emails, t.files)}`}
+                {processedLine(newest)}
               </Typography>
             )}
           </Box>
-          {!open && newest?.reason && <ReasonChip reason={newest.reason} />}
+          {!open && newest?.reason && <ReasonChip reason={newest.reason} title={newest.matchReason} />}
+          {t.section === "NO_ORDER" && actions.onCreateOrder && (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={(e) => {
+                e.stopPropagation();
+                actions.onCreateOrder!(t);
+              }}
+              data-tour="inbox-create-order"
+              sx={{ whiteSpace: "nowrap" }}
+            >
+              Create order from this thread
+            </Button>
+          )}
         </Stack>
       </Box>
       <Collapse in={open} unmountOnExit>
@@ -215,6 +220,10 @@ export function ThreadRow({ t, actions, defaultOpen = false }: { t: InboxThread;
   );
 }
 
+/** "· Confirmed by Sayaka · 21 Oct 10:12" on a processed thread's folded line. */
+const processedLine = (m: InboxMessage) => (m.inboxState === "PROCESSED" && m.by ? ` · ${byLine(m.by)}` : "");
+
+/** Threads, with the "No order yet — create one?" threads grouped under their own heading (round Q). */
 export function InboxThreadList({ threads, actions, emptyText }: { threads: InboxThread[]; actions: InboxActions; emptyText: string }) {
   if (!threads.length) {
     return (
@@ -225,11 +234,23 @@ export function InboxThreadList({ threads, actions, emptyText }: { threads: Inbo
       </Paper>
     );
   }
+  const noOrder = threads.filter((t) => t.section === "NO_ORDER");
+  const rest = threads.filter((t) => t.section !== "NO_ORDER");
   return (
     <Box>
-      {threads.map((t) => (
+      {rest.map((t) => (
         <ThreadRow key={t.id} t={t} actions={actions} />
       ))}
+      {noOrder.length > 0 && (
+        <Box sx={{ mt: rest.length ? 2 : 0 }} data-tour="inbox-no-order">
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.75 }}>
+            No order yet — create one? ({noOrder.length} thread{noOrder.length === 1 ? "" : "s"})
+          </Typography>
+          {noOrder.map((t) => (
+            <ThreadRow key={t.id} t={t} actions={actions} />
+          ))}
+        </Box>
+      )}
     </Box>
   );
 }

@@ -14,6 +14,7 @@ import { TradeStepsService } from '../shipments/trade-steps.service';
 import { StoredEmailMeta } from './email-store';
 import { DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, recordRef, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
 import { groupThreads, normMessageId, threadHeadersFromEml, threadLink, unprocessedReason } from './email-threads';
+import { backlogAutoLabel, BacklogInput, BacklogVerdict, classifyEmail } from './email-backlog';
 import { supplierKeyPatterns } from '../shipments/trade-profile';
 import {
   counterpartyByDomain,
@@ -73,7 +74,8 @@ export interface IntakeAction {
   label?: string;
 }
 
-export type InboxState = 'SUGGESTED' | 'UNMATCHED' | 'PROCESSED' | 'UNSURE' | 'PURGED';
+/** HIDDEN (round Q): obvious non-shipment mail kept out of both tabs (Settings → Email filter → Hidden). */
+export type InboxState = 'SUGGESTED' | 'UNMATCHED' | 'PROCESSED' | 'UNSURE' | 'PURGED' | 'HIDDEN';
 /** STORE (keep only) · TRIAGE (suggest) · PARTIAL_AUTO (apply only when the guards hold) · AUTO (apply every clean match). */
 export type IntakeMode = 'TRIAGE' | 'PARTIAL_AUTO' | 'AUTO';
 export const ROUTING_MODES = ['STORE', 'TRIAGE', 'PARTIAL_AUTO', 'AUTO'] as const;
@@ -314,12 +316,23 @@ export class EmailTriageService {
       state === 'SUGGESTED' &&
       threadAuto &&
       (mode === 'AUTO' ? !decision.check.length : mode === 'PARTIAL_AUTO' ? decision.auto && !unsupported.length && !needsShipment : false);
+    // Round Q: what kind of email this is (hide / auto-link / history / confirm / pick / no order) — stored on the
+    // row for the inbox; applied live below (never with `safe`, never in TRIAGE).
+    const verdict = manualList ? null : await this.classify(organizationId, log, decision, plan, targets, keys, auto);
+    if (verdict?.kind === 'HIDE') {
+      await this.prisma.emailIngestLog.update({
+        where: { id: logId },
+        data: { orderId: null, shipmentId: null, inboxState: 'HIDDEN', purgeAfter: null, actions: { ...prev, planned: plan, backlog: { ...verdict, at: new Date().toISOString() } } as any },
+      });
+      return 'HIDDEN';
+    }
     await this.prisma.emailIngestLog.update({
       where: { id: logId },
       data: {
         orderId: targets[0]?.orderId ?? null,
         shipmentId: targets[0]?.shipmentId ?? null,
         actions: {
+          ...(verdict ? { backlog: { ...verdict, at: new Date().toISOString() } } : {}),
           planned: plan,
           matchedBy: manualList ? 'manual' : decision.kind,
           confidence: manualList ? 'manual' : decision.confidence,
@@ -339,10 +352,61 @@ export class EmailTriageService {
       },
     });
     if (auto) {
-      await this.execute(organizationId, logId, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: decision.kind === 'thread' ? 'thread' : decision.keyLabel });
+      // The label in Processed: "history" for a closed record (round Q), else "thread" / the key.
+      const label = verdict?.kind === 'HISTORY' ? 'history' : decision.kind === 'thread' ? 'thread' : decision.keyLabel;
+      await this.execute(organizationId, logId, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: label });
+      return 'PROCESSED';
+    }
+    // Round Q: a conversation-only email with one clear order / shipment is linked by itself (nothing to file);
+    // about a completed order it is linked as history.
+    const linkOnly = verdict && (verdict.kind === 'AUTO_LINK' || verdict.kind === 'HISTORY');
+    if (linkOnly && !opts.safe && !manualList && mode !== 'TRIAGE' && state === 'SUGGESTED' && !plan.some((a) => a.kind === 'file' && a.status === 'planned')) {
+      await this.execute(organizationId, logId, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: backlogAutoLabel(verdict!.kind) });
       return 'PROCESSED';
     }
     return state;
+  }
+
+  /** Round Q: the backlog kind of an email given its decision and plan (see email-backlog.ts). */
+  private async classify(organizationId: string, log: any, decision: MatchDecision, plan: IntakeAction[], targets: IntakeTarget[], keys: TriageKeys, wouldAuto: boolean): Promise<BacklogVerdict> {
+    const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta>;
+    const triage = (log.triage ?? {}) as Partial<TriageResult>;
+    const slotOf = (name: string) => {
+      const t = (triage.attachments ?? []).find((a) => a.filename === name);
+      return t && t.confidence >= 0.5 ? (TRIAGE_DOC_TYPES[t.docType] ?? null) : null;
+    };
+    const t = targets[0] ?? null;
+    let targetClosed = false;
+    if (t?.shipmentId) {
+      const sh = await this.prisma.shipment.findFirst({ where: { id: t.shipmentId, organizationId }, select: { status: true } });
+      // Past the port: steps 9 and 10 (A/N & instructions, import permit) done.
+      const past: Array<{ code: string; status: string }> = sh ? await this.prisma.tradeStep.findMany({ where: { organizationId, shipmentId: t.shipmentId, code: { in: ['AN_INSTRUCTIONS', 'IMPORT_PERMIT'] } }, select: { code: true, status: true } }) : [];
+      targetClosed = !!sh && (sh.status !== 'OPEN' || (past.length === 2 && past.every((x) => x.status === 'DONE')));
+    } else if (t?.orderId) {
+      const o = await this.prisma.tradeOrder.findFirst({ where: { id: t.orderId, organizationId }, select: { status: true } });
+      targetClosed = !!o && o.status !== 'OPEN';
+    }
+    // A person brought it back from Hidden: it is mail, whatever the subject looks like.
+    const unhidden = !!(log.actions as any)?.unhidden;
+    const input: BacklogInput = {
+      unhidden,
+      inboxState: log.inboxState ?? null,
+      verdict: log.verdict ?? null,
+      subject: log.subject ?? null,
+      attachments: (meta.attachments ?? []).map((a) => ({ name: a.name, slot: slotOf(a.name) })),
+      filesSomething: plan.some((a) => a.kind === 'file' && a.status === 'planned'),
+      fillsSomething: plan.some((a) => a.kind === 'field' && a.status === 'planned'),
+      target: t ? { orderId: t.orderId!, shipmentId: t.shipmentId ?? null } : null,
+      confidence: decision.confidence,
+      check: decision.check,
+      multiOrderIds: decision.multiOrderIds,
+      wouldAuto,
+      targetClosed,
+      keyInAims: decision.kind === 'pi' || decision.kind === 'bl' || decision.kind === 'ci' || decision.multiOrderIds.length > 0,
+      keys: { piNo: keys.piNo ?? null, contractNo: keys.contractNo ?? null },
+      date: log.emailDate ?? null,
+    };
+    return classifyEmail(input);
   }
 
   /** The decision for a stored email: its record keys, the accepted thread, its subject. */
@@ -619,12 +683,81 @@ export class EmailTriageService {
     const unsupported = plan.filter((a) => a.kind === 'file' && a.status === 'planned' && a.stepOk === false);
     const blocked = [...decision.blocked, ...(unsupported.length ? [`e: no step takes ${[...new Set(unsupported.map((a) => a.docType))].join(', ')}`] : []), ...(needsShipment ? ['a: pick the shipment'] : [])];
     const wouldAuto = decision.auto && !!targets.length && !unsupported.length && !needsShipment;
+    const verdict = await this.classify(organizationId, draft, decision, plan, targets, keys, wouldAuto);
     if (apply) {
       await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { triage: triage as any } });
       const cfg = await this.prisma.emailIngestConfig.findUnique({ where: { organizationId }, select: { routingMode: true } });
       await this.matchAndPlan(organizationId, logId, keys, intakeModeOf(cfg?.routingMode), undefined, { safe: true, keepState: log.inboxState === 'UNSURE' ? 'UNSURE' : undefined });
     }
-    return { decision, targets, wouldAuto, blocked, plan };
+    return { decision, targets, wouldAuto, blocked, plan, verdict };
+  }
+
+  /**
+   * Round Q — clear the backlog: every unprocessed email is re-matched (today's rules, no AI), classified, and —
+   * with `apply` — hidden (calendar / auto-reply / newsletter), linked by itself when conversation only with one
+   * clear record ("Auto · linked (conversation)"), linked as history to a completed order ("Auto · history"), or
+   * marked "No order yet". AUTO-GATE: nothing that files a document or fills a field is applied by this run —
+   * those stay for Confirm (an email whose guards pass is reported as "would auto").
+   */
+  async backlog(organizationId: string, apply: boolean) {
+    const rows: any[] = await this.prisma.emailIngestLog.findMany({
+      where: { organizationId, inboxState: { in: ['SUGGESTED', 'UNMATCHED', 'UNSURE'] } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, fromAddress: true, subject: true, inboxState: true, orderId: true, shipmentId: true, actions: true },
+    });
+    const out: Array<{ id: string; subject: string | null; from: string; before: string; kind: string; reason: string; ref: string | null; applied: string | null }> = [];
+    for (const r of rows) {
+      const before = `${r.inboxState}${r.orderId ? ` ${((r.actions ?? {}) as any).confidence ?? ''}`.trimEnd() : ''}`;
+      try {
+        const m = await this.rematchStored(organizationId, r.id, apply);
+        const t = m.targets[0] ?? null;
+        const refs = t ? await this.refs(organizationId, t.orderId ? [t.orderId] : [], t.shipmentId ? [t.shipmentId] : []) : null;
+        const ref = t ? ((t.shipmentId ? refs!.ship.get(t.shipmentId) : refs!.order.get(t.orderId!)) ?? null) : null;
+        let applied: string | null = null;
+        if (apply) {
+          const v = m.verdict;
+          if (v.kind === 'HIDE') {
+            const cur = await this.prisma.emailIngestLog.findFirst({ where: { id: r.id }, select: { actions: true } });
+            await this.prisma.emailIngestLog.update({ where: { id: r.id }, data: { orderId: null, shipmentId: null, inboxState: 'HIDDEN', purgeAfter: null, actions: { ...((cur?.actions as object) ?? {}), backlog: { ...v, at: new Date().toISOString() } } as any } });
+            applied = 'hidden';
+          } else if ((v.kind === 'AUTO_LINK' || v.kind === 'HISTORY') && t) {
+            // AUTO-GATE: a conversation-only email has no file / field action planned.
+            const cur: any = await this.prisma.emailIngestLog.findFirst({ where: { id: r.id }, select: { actions: true, inboxState: true } });
+            const planned: IntakeAction[] = cur?.actions?.planned ?? [];
+            if (planned.some((a) => (a.kind === 'file' || a.kind === 'field') && a.status === 'planned')) throw new Error('AUTO-GATE: a conversation-only email has something to file');
+            if (cur?.inboxState === 'UNSURE') await this.prisma.emailIngestLog.update({ where: { id: r.id }, data: { verdict: 'SHIPMENT', inboxState: 'SUGGESTED', purgeAfter: null } });
+            await this.execute(organizationId, r.id, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: backlogAutoLabel(v.kind) });
+            applied = `linked → ${ref}`;
+          } else applied = v.kind === 'NO_ORDER' ? 'marked "No order yet"' : 'left for a person';
+        }
+        out.push({ id: r.id, subject: r.subject, from: r.fromAddress, before, kind: m.verdict.kind, reason: m.verdict.reason, ref, applied });
+      } catch (e) {
+        out.push({ id: r.id, subject: r.subject, from: r.fromAddress, before, kind: 'FAILED', reason: String((e as Error)?.message ?? e).slice(0, 160), ref: null, applied: null });
+      }
+    }
+    return out;
+  }
+
+  /** Round Q — Settings → Email filter → Hidden: the emails hidden as obvious non-shipment mail (from-domain + subject 60 only). */
+  async hidden(organizationId: string) {
+    const rows: any[] = await this.prisma.emailIngestLog.findMany({ where: { organizationId, inboxState: 'HIDDEN' }, orderBy: { createdAt: 'desc' }, take: 300, select: { id: true, fromAddress: true, subject: true, emailDate: true, createdAt: true, actions: true } });
+    return rows.map((r) => ({
+      id: r.id,
+      date: r.emailDate ?? r.createdAt,
+      fromDomain: (/@([^>\s]+)/.exec(r.fromAddress ?? '')?.[1] ?? '').toLowerCase().replace(/[>;,]+$/, '') || '—',
+      subject: (r.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 60),
+      reason: (r.actions as any)?.backlog?.reason ?? null,
+    }));
+  }
+
+  /** Unhide: back to the inbox, matched again with today's rules (never auto-applied). */
+  async unhide(organizationId: string, logId: string) {
+    const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
+    if (!log || log.inboxState !== 'HIDDEN') throw new NotFoundException('Hidden email not found');
+    await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { inboxState: 'UNMATCHED', verdict: log.verdict ?? 'UNSURE', actions: { ...((log.actions as object) ?? {}), backlog: null, unhidden: true } as any } });
+    const cfg = await this.prisma.emailIngestConfig.findUnique({ where: { organizationId }, select: { routingMode: true } });
+    await this.matchAndPlan(organizationId, logId, ((log.triage ?? {}) as { keys?: TriageKeys }).keys ?? mergeKeys(null, {}), intakeModeOf(cfg?.routingMode), undefined, { safe: true });
+    return this.row(organizationId, logId);
   }
 
   /** The inbox picker's preview: what choosing these shipments / orders would file and fill (nothing is saved). */
@@ -835,6 +968,12 @@ export class EmailTriageService {
     return { items: logs.map((l) => this.shape(l, refs)), counts };
   }
 
+  /** The stored email's raw meta (attachment keys) — for the controller's PI prefill. */
+  async rawMeta(organizationId: string, logId: string) {
+    const l = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId }, select: { rawMeta: true } });
+    return (l?.rawMeta ?? null) as unknown;
+  }
+
   async row(organizationId: string, logId: string) {
     const l: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!l) throw new NotFoundException('Email not found');
@@ -914,6 +1053,8 @@ export class EmailTriageService {
         return {
           id: t.id,
           by: t.by,
+          /** Round Q: "No order yet — create one?" when every message of the thread in this tab has no order in AIMS. */
+          section: tab === 'UNPROCESSED' && messages.length && messages.every((m) => m.reason?.code === 'NO_ORDER') ? ('NO_ORDER' as const) : null,
           subject: latest?.subject ?? null,
           latest: t.latest,
           emails: t.messages.length,
@@ -956,7 +1097,9 @@ export class EmailTriageService {
     const link = base.orderId || base.shipmentId ? { orderId: base.orderId, shipmentId: base.shipmentId, ref: base.matched, label: base.shipmentId ? (refs.shipLabel.get(base.shipmentId) ?? base.matched) : base.orderId ? (refs.orderLabel.get(base.orderId) ?? base.matched) : null } : null;
     return {
       ...base,
-      reason: unprocessedReason({ inboxState: base.inboxState, orderId: base.orderId, shipmentId: base.shipmentId, check: base.check, multiOrderRefs: multiRefs, needsShipment }),
+      reason: unprocessedReason({ inboxState: base.inboxState, orderId: base.orderId, shipmentId: base.shipmentId, check: base.check, multiOrderRefs: multiRefs, needsShipment, backlogKind: a.backlog?.kind ?? null }),
+      /** Round Q: the backlog kind (HIDE / AUTO_LINK / HISTORY / NO_ORDER / CONFIRM / PICK / IS_SHIPMENT) and the order-form seed. */
+      backlog: a.backlog ? { kind: a.backlog.kind, reason: a.backlog.reason, seed: a.backlog.seed ?? null } : null,
       matchReason: a.reason ?? null,
       threadFrom: a.threadFrom ?? null,
       threadSize,
