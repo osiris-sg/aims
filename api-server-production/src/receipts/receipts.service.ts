@@ -200,7 +200,9 @@ export class ReceiptsService {
             { config: { path: ['customer', 'id'], equals: customerId } },
           ],
         },
-        select: { id: true, name: true, status: true, createdAt: true, config: true },
+        // type + documentTemplateId: the offset grid links each reference to
+        // its document, and the editor route needs both (guru 2026-10-21).
+        select: { id: true, name: true, type: true, documentTemplateId: true, status: true, createdAt: true, config: true },
       }),
       this.prisma.journalEntry.findMany({
         where: { organizationId, status: { not: 'VOID' }, type: 'INVOICE', sourceDocumentId: { not: null } },
@@ -228,7 +230,7 @@ export class ReceiptsService {
       paidByDoc.set(p.documentId, ROUND((paidByDoc.get(p.documentId) || 0) + (Number(p.amount) || 0)));
     }
 
-    const rows: Array<{ documentId: string; reference: string; date: string | null; remarks: string; gross: number; outstanding: number; currency: string | null }> = [];
+    const rows: Array<{ documentId: string; reference: string; type: string; templateId: string | null; date: string | null; remarks: string; gross: number; outstanding: number; currency: string | null }> = [];
     for (const d of docs) {
       const c: any = d.config || {};
       if (c.voided) continue;
@@ -262,6 +264,8 @@ export class ReceiptsService {
       rows.push({
         documentId: d.id,
         reference: d.name || '(no #)',
+        type: d.type,
+        templateId: d.documentTemplateId ?? null,
         date: c.date ? String(c.date).slice(0, 10) : null,
         remarks: 'INVOICE',
         gross,
@@ -484,7 +488,7 @@ export class ReceiptsService {
           { config: { path: ['customer', 'id'], equals: customerId } },
         ],
       },
-      select: { id: true, name: true, status: true, config: true },
+      select: { id: true, name: true, type: true, documentTemplateId: true, status: true, config: true },
     });
     const ids = docs.map((d) => d.id);
     const [postedJes, pays] = await Promise.all([
@@ -506,7 +510,7 @@ export class ReceiptsService {
     for (const p of pays) {
       appliedByDoc.set(p.documentId, ROUND((appliedByDoc.get(p.documentId) || 0) + (Number(p.amount) || 0)));
     }
-    const rows: Array<{ documentId: string; reference: string; date: string | null; remarks: string; gross: number; outstanding: number; currency: string | null }> = [];
+    const rows: Array<{ documentId: string; reference: string; type: string; templateId: string | null; date: string | null; remarks: string; gross: number; outstanding: number; currency: string | null }> = [];
     for (const d of docs) {
       const c: any = d.config || {};
       if (c.voided) continue;
@@ -536,6 +540,8 @@ export class ReceiptsService {
       rows.push({
         documentId: d.id,
         reference: d.name || '(no #)',
+        type: d.type,
+        templateId: d.documentTemplateId ?? null,
         date: c.date ? String(c.date).slice(0, 10) : null,
         remarks: 'CREDIT NOTE',
         gross,

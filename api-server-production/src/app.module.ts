@@ -70,6 +70,7 @@ import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
 import { BudgetsModule } from './budgets/budgets.module';
 import { BillsModule } from './bills/bills.module';
 import { ReceiptsModule } from './receipts/receipts.module';
+import { PaymentVouchersModule } from './payment-vouchers/payment-vouchers.module';
 import { PostingPreviewModule } from './posting-preview/posting-preview.module';
 import { BankRecModule } from './bank-rec/bank-rec.module';
 import { XeroSyncModule } from './xero-sync/xero-sync.module';
@@ -146,6 +147,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     BudgetsModule,
     BillsModule,
     ReceiptsModule,
+    PaymentVouchersModule,
     PostingPreviewModule,
     BankRecModule,
     XeroSyncModule,

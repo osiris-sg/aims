@@ -47,7 +47,7 @@ export class StatementsService {
             { config: { path: ['customer', 'id'], equals: customer.id } },
           ],
         },
-        select: { id: true, name: true, type: true, createdAt: true, config: true },
+        select: { id: true, name: true, type: true, documentTemplateId: true, createdAt: true, config: true },
       });
       const payments = await this.prisma.payment.findMany({
         where: { organizationId, customerId: customer.id },
@@ -55,7 +55,10 @@ export class StatementsService {
       });
       const isXero = docs.some((d) => (d.config as any)?.xeroImported);
 
-      type Tx = { date: Date; reference: string; description: string; transactionType: string; debit: number; credit: number; balance: number; documentType?: string; paymentMethod?: string };
+      // docId/docTypeKey/templateId ride along so the statement's Reference
+      // cell can be a real link to the document (guru 2026-10-21). They are
+      // absent on payment rows, which address no document of their own.
+      type Tx = { date: Date; reference: string; description: string; transactionType: string; debit: number; credit: number; balance: number; documentType?: string; paymentMethod?: string; docId?: string; docTypeKey?: string; templateId?: string | null };
       const all: Tx[] = [];
       let openingBalance = 0;
       const add = (d: Date, tx: Tx, netEffect: number) => {
@@ -75,13 +78,13 @@ export class StatementsService {
         const gross = R(grossOf(c) ?? 0);
         if (gross <= 0) continue;
         if (doc.type === 'INVOICE') {
-          add(d, { date: d, reference: docRef(doc.type, doc.name || '(no #)'), description: `Invoice ${doc.name || ''}`.trim(), transactionType: 'INVOICE', debit: gross, credit: 0, balance: 0, documentType: 'INVOICE' }, gross);
+          add(d, { date: d, reference: docRef(doc.type, doc.name || '(no #)'), description: `Invoice ${doc.name || ''}`.trim(), transactionType: 'INVOICE', debit: gross, credit: 0, balance: 0, documentType: 'INVOICE', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, gross);
           const paid = R(gross - R(outstandingOf(c) ?? gross));
           if (isXero && paid > 0.005) {
-            add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Payment / credits applied — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: paid, balance: 0, documentType: 'PAYMENT' }, -paid);
+            add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Payment / credits applied — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: paid, balance: 0, documentType: 'PAYMENT', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -paid);
           }
         } else if (doc.type === 'CREDIT_NOTE' && !isXero) {
-          add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Credit Note ${doc.name || ''}`.trim(), transactionType: 'CREDIT_NOTE', debit: 0, credit: gross, balance: 0, documentType: 'CREDIT_NOTE' }, -gross);
+          add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Credit Note ${doc.name || ''}`.trim(), transactionType: 'CREDIT_NOTE', debit: 0, credit: gross, balance: 0, documentType: 'CREDIT_NOTE', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -gross);
         }
       }
       for (const p of payments) {
@@ -113,7 +116,7 @@ export class StatementsService {
             totalCredit: R(all.reduce((s, t) => s + t.credit, 0)),
             transactionCount: all.length,
           },
-          transactions: all.map((t) => ({ date: t.date, reference: t.reference, description: t.description, transactionType: t.transactionType, debit: t.debit, credit: t.credit, balance: t.balance, documentType: t.documentType, paymentMethod: t.paymentMethod })),
+          transactions: all.map((t) => ({ date: t.date, reference: t.reference, description: t.description, transactionType: t.transactionType, debit: t.debit, credit: t.credit, balance: t.balance, documentType: t.documentType, paymentMethod: t.paymentMethod, docId: t.docId, docTypeKey: t.docTypeKey, templateId: t.templateId })),
           monthlyBalances,
           agingAnalysis,
           generatedAt: new Date(),
@@ -360,7 +363,7 @@ export class StatementsService {
           { config: { path: ['supplier', 'id'], equals: supplier.id } },
         ],
       },
-      select: { id: true, name: true, createdAt: true, status: true, config: true },
+      select: { id: true, name: true, documentTemplateId: true, createdAt: true, status: true, config: true },
     });
 
     // Pull BillPayments for this supplier (via the Bill FK link)
@@ -378,6 +381,10 @@ export class StatementsService {
       credit: number; // money paid back
       balance: number;
       documentId?: string;
+      // Alongside documentId so the Reference cell links to the bill
+      // (guru 2026-10-21).
+      docTypeKey?: string;
+      templateId?: string | null;
     };
 
     const txs: Tx[] = [];
@@ -410,6 +417,8 @@ export class StatementsService {
         credit: 0,
         balance: 0,
         documentId: b.id,
+        docTypeKey: 'BILL',
+        templateId: b.documentTemplateId,
       });
 
       // For Xero-imported paid bills we don't have exact payment dates, so
@@ -426,6 +435,8 @@ export class StatementsService {
           credit: gross,
           balance: 0,
           documentId: b.id,
+          docTypeKey: 'BILL',
+          templateId: b.documentTemplateId,
         });
       }
     }
@@ -449,6 +460,8 @@ export class StatementsService {
         credit: p.amount,
         balance: 0,
         documentId: p.billId,
+        docTypeKey: linkedBill ? 'BILL' : undefined,
+        templateId: linkedBill?.documentTemplateId ?? null,
       });
     }
 

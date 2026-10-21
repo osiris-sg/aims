@@ -34,6 +34,7 @@ export const DOC_TYPE_PREFIX: Record<string, string> = {
   PURCHASE_RETURN: 'PR',
   PR: 'PR',
   OFFICIAL_RECEIPT: 'REC',
+  PAYMENT_VOUCHER: 'P/V',
   STOCK_ADJUSTMENT_IN: 'AJI',
   SAI: 'AJI',
   STOCK_ADJUSTMENT_OUT: 'AJO',
