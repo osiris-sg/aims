@@ -7,6 +7,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron } from '@nestjs/schedule';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { OnboardDto, SendTemplateDto, SendTextDto } from './dto/whatsapp.dto';
@@ -22,6 +23,20 @@ const SCHEDULER_TICK_MS = 60_000;
 // A group reply only goes out unattended when the message matched a trained
 // example this closely. Below it, the draft is sent to Denzel to approve.
 const GROUP_AUTOSEND_THRESHOLD = Number(process.env.WHATSAPP_GROUP_AUTOSEND_THRESHOLD) || 0.75;
+
+/**
+ * What the PA can DO, as a version number. BUMP THIS whenever its abilities
+ * change: a tool added or removed, a rule about what it may or may not do.
+ *
+ * Open conversations carry the PA's old replies, and it treats them as settled
+ * fact about itself. Bumping this drops the assistant turns from every live
+ * session so nobody is told "I can't do that" by an answer written before it
+ * could. Users' own turns are kept.
+ *
+ * v1 -> v2 (2026-10-22): propose_cancel. The PA can cancel scheduled messages,
+ *          having spent weeks insisting it could not.
+ */
+const PA_CAPABILITY_VERSION = 2;
 
 @Injectable()
 export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
@@ -412,6 +427,33 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     logFields: { templateName?: string; body?: string; fromPhoneNumberId?: string },
   ) {
     const connection = await this.requireConnection(organizationId, logFields.fromPhoneNumberId);
+
+    // THE CHOKEPOINT FOR "ACCEPTED" vs "DELIVERED".
+    //
+    // Meta takes a free-form message outside the 24h window with 200 OK and
+    // kills it seconds later on the status webhook, so a caller that reads the
+    // 200 as delivery is wrong and cannot find out in time. That mistake has
+    // now cost lead-assignment cards, PA approval prompts, appointment notices
+    // and confirm cards, each in its own way.
+    //
+    // INTERACTIVE payloads are refused here when the window is shut, because
+    // they are the ones with a working alternative: every caller has a plain
+    // text path through the linked-device bridge, which has no window at all.
+    // Refusing loudly makes those fallbacks fire instead of being skipped on a
+    // false success.
+    //
+    // Plain text and templates still go. Text may legitimately be a reply
+    // inside a window our own record cannot see (coexistence numbers send from
+    // the Business app too), and templates are exactly what a closed window
+    // calls for. Both are covered by recoverFromClosedWindow if they fail.
+    if (payload?.type === 'interactive' && payload?.to) {
+      if (!(await this.windowOpen(organizationId, String(payload.to)))) {
+        throw new BadRequestException(
+          `24h window closed for ${payload.to} — interactive message not sent. Send it as plain text instead.`,
+        );
+      }
+    }
+
     try {
       const resp = await this.graph<{ messages?: Array<{ id: string }> }>(
         `${connection.phoneNumberId}/messages`,
@@ -1410,9 +1452,32 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const key = this.paSessionKey(args.from);
     const row = await this.prisma.operatorSession.findUnique({ where: { channel_channelUserId: key } });
     const state: any = (row?.state as any) || {};
-    const history: Array<{ role: 'user' | 'assistant'; content: string }> = Array.isArray(state.history)
+    let history: Array<{ role: 'user' | 'assistant'; content: string }> = Array.isArray(state.history)
       ? state.history.slice(-12)
       : [];
+
+    // WHAT THE PA ONCE SAID IS NOT POLICY.
+    //
+    // Its own replies are fed back for the next 12 turns, and it reads them as
+    // settled fact. Before propose_cancel shipped it answered "I can only
+    // schedule or propose new messages, I can't cancel existing ones" and sent
+    // Denzel to a WhatsApp screen that does not list these at all. That answer
+    // then sat in his history and he got it again every time he asked, for
+    // days after the ability went live (guru 2026-10-22).
+    //
+    // So the abilities are versioned. When they change under an open
+    // conversation, that conversation's ASSISTANT turns are dropped: his own
+    // messages stay, because what he asked for is still true, while what we
+    // told him may no longer be. Costs a little conversational continuity
+    // once, per person, at upgrade time.
+    const staleCapabilities = (state.paCapabilityVersion || 0) !== PA_CAPABILITY_VERSION;
+    if (staleCapabilities && history.length) {
+      const before = history.length;
+      history = history.filter((h) => h.role !== 'assistant');
+      this.logger.log(
+        `PA capabilities moved v${state.paCapabilityVersion || 0} -> v${PA_CAPABILITY_VERSION} for ${key.channelUserId}: dropped ${before - history.length} stale assistant turn(s)`,
+      );
+    }
 
     const thisGroupName = args.thisGroupId
       ? args.groups.find((g) => g.id === args.thisGroupId)?.name || null
@@ -1506,7 +1571,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     // Spread the existing state FIRST. Listing the keys by hand dropped every
     // other flag on the session each turn — the Operator lost bulk-invoice mode
     // to exactly this, so an open "what time?" would not have survived either.
-    const nextState = { ...state, history: nextHistory.slice(-12), pendingPlan };
+    const nextState = { ...state, history: nextHistory.slice(-12), pendingPlan, paCapabilityVersion: PA_CAPABILITY_VERSION };
     await this.prisma.operatorSession.upsert({
       where: { channel_channelUserId: key },
       update: { state: nextState, expiresAt: new Date(Date.now() + 30 * 86400_000) },
@@ -1523,6 +1588,31 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   /** Send the plan with Confirm/Cancel buttons. False if Meta refuses, in
    *  which case the bridge falls back to the typed "ok". */
+  /**
+   * Is this person's 24h service window open on our Cloud API line?
+   *
+   * Asked BEFORE sending anything interactive, because Meta will not tell us
+   * until afterwards: a free-form message outside the window is accepted with
+   * 200 OK and rejected seconds later on the status webhook. Any caller that
+   * treats the 200 as delivery is deciding, wrongly, that the recipient has
+   * been told.
+   *
+   * Unknown counts as CLOSED. The fallback path (plain text through the
+   * linked-device bridge) always works, so guessing closed costs a nicer
+   * message; guessing open costs the message entirely.
+   */
+  private async windowOpen(organizationId: string, phone: string | null | undefined): Promise<boolean> {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (!digits) return false;
+    const last = await this.prisma.whatsAppMessage.findFirst({
+      where: { organizationId, direction: 'INBOUND', counterparty: digits },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    if (!last) return false;
+    return Date.now() - last.createdAt.getTime() < 24 * 60 * 60 * 1000;
+  }
+
   private async sendPlanButtons(
     organizationId: string,
     to: string | null | undefined,
@@ -1534,6 +1624,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     // success (Meta returns 200) but lands nowhere, and the caller would then
     // suppress the text reply and leave him with silence.
     if (!digits) return false;
+    // A closed window ends the same way, and it is the common case: Denzel
+    // could not cancel a scheduled message for days because every confirm card
+    // was accepted, suppressed the bridge's text, and then failed (guru
+    // 2026-10-22). The bridge is a linked device with no window at all, so
+    // when the window is shut we say so and let it send the text instead.
+    if (!(await this.windowOpen(organizationId, digits))) {
+      this.logger.log(`Plan buttons skipped for ${digits}: 24h window closed, falling back to bridge text`);
+      return false;
+    }
     const payload = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
@@ -1782,6 +1881,13 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       to = (config?.ownerNotifyNumber || '').replace(/\D/g, '');
     }
     if (!to) return { ok: false, error: 'no owner number configured' };
+    // Report a shut window as a FAILURE so the bridge's own `if (!buttoned)`
+    // fallback DMs him the plain summary. Without this the send is accepted,
+    // we answer ok:true, the bridge stays quiet, and the message then dies on
+    // the status webhook.
+    if (!(await this.windowOpen(organizationId, to))) {
+      return { ok: false, error: '24h window closed — send it as plain text instead' };
+    }
 
     // Captured without a clock time: arm the PA chat so his next message is
     // read as the answer to "what time?" rather than as ordinary chatter.
@@ -1874,6 +1980,13 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       to = (config?.ownerNotifyNumber || '').replace(/\D/g, '');
     }
     if (!to) return { ok: false, error: 'no owner number configured' };
+    // Report a shut window as a FAILURE so the bridge's own `if (!buttoned)`
+    // fallback DMs him the plain summary. Without this the send is accepted,
+    // we answer ok:true, the bridge stays quiet, and the message then dies on
+    // the status webhook.
+    if (!(await this.windowOpen(organizationId, to))) {
+      return { ok: false, error: '24h window closed — send it as plain text instead' };
+    }
 
     const inbound = (opts.inbound || row.inboundBody || '').slice(0, 200);
     const draft = opts.draft || row.suggestedReply;
@@ -2368,5 +2481,52 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       }
     }
     return { received: true };
+  }
+
+  /**
+   * Nightly: does every connected line still have the templates we rely on?
+   *
+   * A template is per-WABA, but the code names one globally
+   * (WHATSAPP_NOTIFY_TEMPLATE). aims_notify existed on the Osiris line and not
+   * on Denzel's, so the closed-window recovery worked for lead cards and
+   * failed with "(#132001) Template name does not exist" on the very line it
+   * was built for — discovered only by reading a failed row (guru 2026-10-22).
+   *
+   * Checks and reports; it cannot create a template, since Meta has to review
+   * one. 02:30 UTC = 10:30 SGT.
+   */
+  @Cron('30 2 * * *')
+  async auditWhatsAppTemplates(): Promise<Array<{ organizationId: string; missing: string[] }>> {
+    const required = [process.env.WHATSAPP_NOTIFY_TEMPLATE || 'aims_notify'];
+    const connections = await this.prisma.whatsAppConnection.findMany({
+      where: { status: 'CONNECTED' },
+      select: { organizationId: true, wabaId: true, displayPhoneNumber: true, accessToken: true },
+    });
+    const gaps: Array<{ organizationId: string; missing: string[] }> = [];
+    for (const c of connections) {
+      if (!c.wabaId) {
+        this.logger.warn(`Template audit: no wabaId recorded for ${c.displayPhoneNumber || c.organizationId}`);
+        continue;
+      }
+      try {
+        const res = await this.graph<{ data?: Array<{ name: string; status: string }> }>(
+          `${c.wabaId}/message_templates?fields=name,status&limit=200`,
+          { method: 'GET', token: c.accessToken },
+        );
+        const approved = new Set((res.data || []).filter((t) => t.status === 'APPROVED').map((t) => t.name));
+        const missing = required.filter((r) => !approved.has(r));
+        if (missing.length) {
+          gaps.push({ organizationId: c.organizationId, missing });
+          this.logger.error(
+            `Template audit: ${c.displayPhoneNumber || c.organizationId} is missing APPROVED template(s) ${missing.join(', ')} — ` +
+              `closed-window recovery will fail on that line until they are created and approved in WhatsApp Manager.`,
+          );
+        }
+      } catch (e: any) {
+        this.logger.warn(`Template audit failed for ${c.displayPhoneNumber || c.organizationId}: ${e.message}`);
+      }
+    }
+    if (!gaps.length) this.logger.log(`Template audit: all ${connections.length} connected line(s) have ${required.join(', ')}`);
+    return gaps;
   }
 }
