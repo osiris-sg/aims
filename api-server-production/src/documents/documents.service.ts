@@ -3813,28 +3813,41 @@ export class DocumentsService {
         // Customer + reference live in config JSON under several shapes
         // (imported docs: customer.name / xeroReference; editor-born docs:
         // customerName / referenceNo; documentInfo.referenceNo everywhere).
-        // JSON string_contains is case-SENSITIVE — probe common casings.
-        const variants = [
-          ...new Set([
-            term,
-            term.toLowerCase(),
-            term.toUpperCase(),
-            term.replace(/\b\w/g, (ch) => ch.toUpperCase()),
-          ]),
-        ];
-        const jsonPaths: string[][] = [
-          ['customer', 'name'],
-          ['customerName'],
-          ['reference'],
-          ['referenceNo'],
-          ['xeroReference'],
-          ['documentInfo', 'referenceNo'],
-        ];
+        // Prisma's JSON `string_contains` has NO insensitive mode, so a
+        // casing probe was used here and still missed names like
+        // "GS Perfect Engineering" typed as "gs perfect" (guru 2026-10-20).
+        // Match the JSON paths with real SQL ILIKE instead and feed the ids
+        // back into the Prisma where-clause.
+        const like = `%${term.replace(/[\\%_]/g, (ch) => '\\' + ch)}%`;
+        const hits: Array<{ id: string }> = await this.prisma.$queryRaw`
+          SELECT d.id FROM "Document" d
+          WHERE d."organizationId" = ${organizationId}
+            AND (
+              d.config #>> '{customer,name}' ILIKE ${like} ESCAPE '\\'
+              OR d.config ->> 'customerName' ILIKE ${like} ESCAPE '\\'
+              OR d.config ->> 'reference' ILIKE ${like} ESCAPE '\\'
+              OR d.config ->> 'referenceNo' ILIKE ${like} ESCAPE '\\'
+              OR d.config ->> 'xeroReference' ILIKE ${like} ESCAPE '\\'
+              OR d.config #>> '{documentInfo,referenceNo}' ILIKE ${like} ESCAPE '\\'
+              OR d.config #>> '{documentInfo,reference}' ILIKE ${like} ESCAPE '\\'
+              OR d.config #>> '{supplier,name}' ILIKE ${like} ESCAPE '\\'
+              OR d.config ->> 'supplierName' ILIKE ${like} ESCAPE '\\'
+              -- The list resolves the CUSTOMER column from the id in config
+              -- against the Customer table, so a document that stores only an
+              -- id showed a name the search could not find (guru 2026-10-20).
+              OR EXISTS (
+                SELECT 1 FROM "Customer" c
+                WHERE c."organizationId" = ${organizationId}
+                  AND c.name ILIKE ${like} ESCAPE '\\'
+                  AND c.id::text IN (d.config #>> '{customer,id}', d.config ->> 'customerId')
+              )
+            )
+          LIMIT 5000`;
         const or: any[] = [
           { name: { contains: term, mode: 'insensitive' } },
           { type: { contains: term, mode: 'insensitive' } },
         ];
-        for (const p of jsonPaths) for (const v of variants) or.push({ config: { path: p, string_contains: v } });
+        if (hits.length) or.push({ id: { in: hits.map((h) => h.id) } });
         and.push({ OR: or });
       }
 
