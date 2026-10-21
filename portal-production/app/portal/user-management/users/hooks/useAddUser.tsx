@@ -6,7 +6,7 @@ interface CreateUserData {
   firstName: string;
   lastName: string;
   email: string;
-  password: string;
+  password?: string;
   roleIds: string[];
   salesmanCode?: string;
   salesmanMobile?: string;

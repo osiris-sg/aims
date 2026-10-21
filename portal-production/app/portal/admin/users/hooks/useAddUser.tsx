@@ -7,7 +7,7 @@ interface CreateUserData {
   lastName?: string;
   email?: string;
   username?: string;
-  password: string;
+  password?: string;
   organizationId: string;
   roleIds: string[];
 }
