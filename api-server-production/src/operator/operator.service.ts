@@ -718,7 +718,10 @@ export class OperatorService {
       { role: 'user', content: text },
     ];
     const toolDefs = this.tools.definitions(ctx);
-    let pendingFromTools: PendingAction | null = null;
+    // Every action held this turn, in order. One slot kept only the LAST
+    // card when the model held two in a round ("delete those two" showed one
+    // card and the other was forgotten, guru 2026-10-21).
+    const pendingFromTools: PendingAction[] = [];
     let choiceFromTools: { question: string; options: string[] } | null = null;
 
     // Live progress: one status message that gets edited as work moves along,
@@ -814,7 +817,7 @@ export class OperatorService {
             await adapter.sendUi(msg.chatId, { type: 'document', documentId: docId, fresh: PANEL_DOC_TOOLS[use.name] }).catch(() => null);
           }
         }
-        if (outcome.pending) pendingFromTools = outcome.pending;
+        if (outcome.pending) pendingFromTools.push(outcome.pending);
         if ((outcome as any).choice) choiceFromTools = (outcome as any).choice;
         results.push({
           type: 'tool_result',
@@ -832,7 +835,7 @@ export class OperatorService {
       messages.push({ role: 'user', content: results });
       // A confirmation is now pending — end the model loop and wait for the
       // user's decision rather than letting the model reason further.
-      if (pendingFromTools || choiceFromTools) break;
+      if (pendingFromTools.length || choiceFromTools) break;
       await showStatus('💭 Thinking...');
     }
 
@@ -842,7 +845,10 @@ export class OperatorService {
     // has to be held BEFORE the save, or its id never reaches the database and
     // every tap comes back "expired".
     session.history = this.trimHistory(messages) as SessionState['history'];
-    if (pendingFromTools) this.holdPending(session, pendingFromTools);
+    // Cards already on screen keep their id (holdPending dedupes), so only
+    // genuinely new ones are sent below.
+    const heldBefore = new Set((session.pendingActions || []).map((p) => p.id));
+    if (pendingFromTools.length) for (const p of pendingFromTools) this.holdPending(session, p);
     else session.pendingAction = null;
     await this.saveSession(...this.sk(msg), session);
 
@@ -854,9 +860,7 @@ export class OperatorService {
       );
     }
 
-    if (pendingFromTools) {
-      await this.sendPendingCard(adapter, msg.chatId, pendingFromTools);
-    }
+    for (const p of pendingFromTools) if (!heldBefore.has(p.id)) await this.sendPendingCard(adapter, msg.chatId, p);
     } catch (e: any) {
       // Never leave the user staring at a status line. Drop the (possibly
       // corrupted) history so the next message starts clean.
@@ -915,7 +919,7 @@ export class OperatorService {
       `RULES:`,
       `1. NEVER invent a customer id, item id, price, or amount. Always resolve them with tools first (find_customer, find_item).`,
       `2. If a customer or item is ambiguous or missing, ask the user. Do not guess or silently pick the first match.`,
-      `3. Creating a DRAFT is safe. Finalising/confirming/posting/paying is NOT. To finalise anything you MUST call the matching confirm tool (confirm_document, confirm_invoice, post_bill, record_payment) — NEVER ask the user to confirm in your own words, and never simulate it. When such a tool responds that a Confirm button has been shown, STOP: say one short line like "Sent for your confirmation" and wait. Do NOT call the tool again and do NOT claim it is done — the system finalises it only when the user taps Confirm.`,
+      `3. Creating a DRAFT is safe. Finalising/confirming/posting/paying is NOT. To finalise anything you MUST call the matching confirm tool (confirm_document, confirm_invoice, post_bill, record_payment) — NEVER ask the user to confirm in your own words, and never simulate it. When such a tool responds that a Confirm button has been shown, STOP: say one short line like "Sent for your confirmation" and wait. Do NOT call the tool again and do NOT claim it is done — the system finalises it only when the user taps Confirm. SEVERAL AT ONCE: when one request names several documents or actions ("delete those two", "confirm all four"), hold ALL of them in the SAME turn, one tool call and one card each, so the user confirms them together; never do the first and forget the rest. After a Confirm, re-read the request it came from and finish whatever is still undone before going quiet.`,
       `4. Amounts are in the organization's default currency unless stated otherwise.`,
       `5. Keep replies short and plain, because this is a chat app. No markdown tables, no headings. Use the document number when referring to a document.`,
       `5b. LANGUAGE: answer in the language of the user's LATEST message, not the language the conversation has been in. A Chinese question gets a Chinese answer; the very next message in English gets an English answer, and switching back switches you back. Judge each message on its own (guru 2026-10-16: he asked one question by voice in Chinese, then the next in English, and kept getting Chinese back). This governs what you SAY. Data you write into AIMS, line descriptions, document fields, search terms, is unaffected: keep that in the language the user dictated it in. Report titles, document numbers and customer names are never translated.`,
@@ -925,7 +929,7 @@ export class OperatorService {
       `7b. BE SHORT (guru 2026-09-22: "always short and sweet, get to the point"). Lead with the answer or the gap, never a paragraph of preamble. When something is missing, say which field is missing in a few words and stop; do not explain the consequences at length or restate what the user just told you. When you need the user to pick between options, DO NOT write them out as "1. ... 2. ..." — call ask_choice and they tap a button. Offer to take an upload when a document would fill the gap.`,
       `8. PUNCTUATION: never use em dashes or en dashes ("—", "–") in your replies OR in any text you write into a document (line item descriptions, notes, terms). Use a comma, a full stop, a colon or brackets instead. Ordinary hyphens inside words (e.g. "Fan-Coil") are fine.`,
       `9. FULL DASHBOARD ACCESS: you can read ANYTHING the user's web dashboard shows, even without a dedicated tool. When asked about commissions, earnings, targets, dashboards, reports, schedules, quests, leads or any other screen's numbers: call api_docs with keywords to find the right GET endpoint, then api_get to fetch it (their permissions are enforced automatically). Examples: designer commissions/revenue live at /id-projects/dashboard; a project's P&L incl. commission at /projects/<id>/costing. NEVER answer "I don't have a tool for that" before trying api_docs.`,
-      `10. CHANGING THINGS WITHOUT A DEDICATED TOOL: if no tool covers an action the user wants, do NOT invent one out of a tool that looks close (that is how a delivery schedule became a priced document). Search api_docs for the POST/PATCH/PUT/DELETE endpoint, build the body from the {field*:type} list it returns, then call api_write with a plain-English summary of what will change. Use the method the catalog shows: a document is removed with DELETE /documents/delete/{id}, never by POSTing to its URL. It does not fire immediately: the user sees your summary and taps Confirm. If the call comes back with a validation error, read the field names in it and fix the body rather than giving up. Money actions (confirming invoices, posting bills, recording payments) are blocked there by design, so use their dedicated tools. If a call fails, tell the user the method, path and error exactly as returned; do not retry with a guessed route.`,
+      `10. CHANGING THINGS WITHOUT A DEDICATED TOOL: if no tool covers an action the user wants, do NOT invent one out of a tool that looks close (that is how a delivery schedule became a priced document). Search api_docs for the POST/PATCH/PUT/DELETE endpoint, build the body from the {field*:type} list it returns, then call api_write with a plain-English summary of what will change. Use the method the catalog shows: a document is removed with DELETE /documents/delete/{id}, never by POSTing to its URL. Ordinary changes run at once; money, finality and irreversible ones (confirm, post, void, approve, pay, delete, send, users and roles) are held until the user taps Confirm, so say what you are about to do. NOTHING is off limits: if the user's role can do it in AIMS, you can do it here, with that same confirmation. Never tell the user to go and do something in the app themselves. If the call comes back with a validation error, read the field names in it and fix the body rather than giving up. If a call fails, tell the user the method, path and error exactly as returned; do not retry with a guessed route.`,
       `12. NEVER mention tool names or internal mechanics to the user (no "create_customer", "api_get", "the tool"). Speak in terms of what AIMS does: "I'll add the customer", "the invoice list".`,
       `13. NON-FINANCIAL CREATES NEED NO PERMISSION: adding a customer, a supplier, a draft document or a note is safe and reversible. When the details are clear, do it and report the result in one line; only ask when something is genuinely ambiguous or missing. Do not read the details back and ask "shall I go ahead?". The confirm gate (rule 3) is for money and finality, not for drafts and master data.`,
       `11. RETRY, DON'T REMEMBER FAILURES: tool errors are often transient (deploys, config changes between messages). When the user asks again for something that failed earlier in this chat, ALWAYS call the tool again fresh. NEVER claim you "tried again" unless you actually called the tool this turn, and never present an old error as the current state.`,
@@ -1135,11 +1139,20 @@ export class OperatorService {
   /** Hold a card and return its id for the buttons. Keeps the last few so a
    *  tap on an older card still lands on the right action. */
   private holdPending(session: SessionState, pending: PendingAction): string {
+    // The same action held twice (the model re-holding a card that is still
+    // waiting) keeps the first card instead of showing a second one.
+    const twin = (session.pendingActions || []).find(
+      (p) => p.kind === pending.kind && (p.documentId || '') === (pending.documentId || '') && JSON.stringify(p.args || {}) === JSON.stringify(pending.args || {}),
+    );
+    if (twin?.id) {
+      pending.id = twin.id;
+      return twin.id;
+    }
     const id = pending.id || `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     pending.id = id;
     const list = (session.pendingActions || []).filter((p) => p.id !== id);
     list.push(pending);
-    session.pendingActions = list.slice(-3);
+    session.pendingActions = list.slice(-6);
     session.pendingAction = pending; // newest, for the typed "yes" path
     return id;
   }
@@ -1215,13 +1228,17 @@ export class OperatorService {
   ): Promise<void> {
     try {
       const session = await this.loadSession(...this.sk(msg));
+      const stillHeld = (session.pendingActions || []).filter((p) => p.id !== done.id);
       await this.runAgent(
         ctx,
         adapter,
         msg,
         session,
         `[system] The user tapped Confirm and this completed: ${done.summary} -> ${outcome}\n` +
-          `If anything from their earlier request is still outstanding (another document to confirm, a second invoice, a remaining step), do it now. ` +
+          (stillHeld.length
+            ? `These are ALREADY held as cards and only need the user's tap, so do NOT hold or do them again: ${stillHeld.map((p) => p.summary).join(' | ')}\n`
+            : '') +
+          `If anything else from their earlier request is still outstanding and not listed above, do it now. ` +
           `If nothing remains, say nothing further — do NOT repeat the confirmation or start new work.`,
         { quietIfIdle: true },
       );
