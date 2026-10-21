@@ -23,6 +23,20 @@ const SCHEDULER_TICK_MS = 60_000;
 // example this closely. Below it, the draft is sent to Denzel to approve.
 const GROUP_AUTOSEND_THRESHOLD = Number(process.env.WHATSAPP_GROUP_AUTOSEND_THRESHOLD) || 0.75;
 
+/**
+ * What the PA can DO, as a version number. BUMP THIS whenever its abilities
+ * change: a tool added or removed, a rule about what it may or may not do.
+ *
+ * Open conversations carry the PA's old replies, and it treats them as settled
+ * fact about itself. Bumping this drops the assistant turns from every live
+ * session so nobody is told "I can't do that" by an answer written before it
+ * could. Users' own turns are kept.
+ *
+ * v1 -> v2 (2026-10-22): propose_cancel. The PA can cancel scheduled messages,
+ *          having spent weeks insisting it could not.
+ */
+const PA_CAPABILITY_VERSION = 2;
+
 @Injectable()
 export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WhatsAppService.name);
@@ -1410,9 +1424,32 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const key = this.paSessionKey(args.from);
     const row = await this.prisma.operatorSession.findUnique({ where: { channel_channelUserId: key } });
     const state: any = (row?.state as any) || {};
-    const history: Array<{ role: 'user' | 'assistant'; content: string }> = Array.isArray(state.history)
+    let history: Array<{ role: 'user' | 'assistant'; content: string }> = Array.isArray(state.history)
       ? state.history.slice(-12)
       : [];
+
+    // WHAT THE PA ONCE SAID IS NOT POLICY.
+    //
+    // Its own replies are fed back for the next 12 turns, and it reads them as
+    // settled fact. Before propose_cancel shipped it answered "I can only
+    // schedule or propose new messages, I can't cancel existing ones" and sent
+    // Denzel to a WhatsApp screen that does not list these at all. That answer
+    // then sat in his history and he got it again every time he asked, for
+    // days after the ability went live (guru 2026-10-22).
+    //
+    // So the abilities are versioned. When they change under an open
+    // conversation, that conversation's ASSISTANT turns are dropped: his own
+    // messages stay, because what he asked for is still true, while what we
+    // told him may no longer be. Costs a little conversational continuity
+    // once, per person, at upgrade time.
+    const staleCapabilities = (state.paCapabilityVersion || 0) !== PA_CAPABILITY_VERSION;
+    if (staleCapabilities && history.length) {
+      const before = history.length;
+      history = history.filter((h) => h.role !== 'assistant');
+      this.logger.log(
+        `PA capabilities moved v${state.paCapabilityVersion || 0} -> v${PA_CAPABILITY_VERSION} for ${key.channelUserId}: dropped ${before - history.length} stale assistant turn(s)`,
+      );
+    }
 
     const thisGroupName = args.thisGroupId
       ? args.groups.find((g) => g.id === args.thisGroupId)?.name || null
@@ -1506,7 +1543,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     // Spread the existing state FIRST. Listing the keys by hand dropped every
     // other flag on the session each turn — the Operator lost bulk-invoice mode
     // to exactly this, so an open "what time?" would not have survived either.
-    const nextState = { ...state, history: nextHistory.slice(-12), pendingPlan };
+    const nextState = { ...state, history: nextHistory.slice(-12), pendingPlan, paCapabilityVersion: PA_CAPABILITY_VERSION };
     await this.prisma.operatorSession.upsert({
       where: { channel_channelUserId: key },
       update: { state: nextState, expiresAt: new Date(Date.now() + 30 * 86400_000) },
