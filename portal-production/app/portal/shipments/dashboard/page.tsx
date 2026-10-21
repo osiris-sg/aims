@@ -1,48 +1,54 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-// Shipments home. Everyone: "My tasks today" (the alerts due now and in the
-// next 3 days); the pipeline grid only with the org flag enableTradePipelineGrid
-// (off since round K — the Orders list shows a progress bar per order). ADH Manager (shipments:money) also sees
-// cash in / out by month, margin and profit per order and month, and open
-// credits — the money section is simply absent for staff.
+// Shipments home. Round O (2026-10-21, owner decision): no Home page for now —
+// Orders is the landing page. This page shows only with the org flag
+// enableShipmentsHome (ADH: off); otherwise it redirects to Orders. Everyone:
+// "My tasks today" (the alerts due now and in the next 3 days — the same list
+// as the bell and the Orders list's "Tasks" panel); the pipeline grid only with
+// the org flag enableTradePipelineGrid (off since round K — the Orders list
+// shows a progress bar per order). ADH Manager (shipments:money) also sees cash
+// in / out by month, margin and profit per order and month, and open credits —
+// the money section is simply absent for staff. (The margin table has no other
+// home while the flag is off.)
 
-import React from "react";
+import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Box, Button, Chip, CircularProgress, Grid, IconButton, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from "@mui/material";
-import CheckIcon from "@mui/icons-material/Check";
-import CloseIcon from "@mui/icons-material/Close";
+import { Alert, Box, Button, Chip, CircularProgress, Grid, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import { useShipmentsApi, type Money, type TradeAlert } from "../_lib/api";
-import { SHIPMENT_KEYS } from "../_lib/hooks";
-import { fmtDmy, monthShort } from "../_lib/format";
-import { toast } from "../_lib/toast";
+import { useShipmentsApi, type Money } from "../_lib/api";
+import { monthShort } from "../_lib/format";
 import PipelineGrid from "../_components/PipelineGrid";
+import { HOME_KEY as KEY, TradeTasksList, useMyTasks, useRefreshTasks } from "../_components/TradeTasks";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { SHIPMENTS_ORDERS } from "@/helpers/shipmentsNav";
 
-const KEY = [...SHIPMENT_KEYS.orders, "dashboard"] as const;
 const usd = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `US$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const sums = (m: Record<string, number>) => (Object.keys(m).length ? Object.entries(m).map(([c, v]) => `${c} ${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}`).join(" + ") : "—");
 
 export default function ShipmentsHome() {
   const api = useShipmentsApi();
   const qc = useQueryClient();
-  const tasks = useQuery({ queryKey: [...KEY, "tasks"], queryFn: () => api.myTasks() });
-  const { features } = useOrganizationFeatures();
-  const showPipeline = !!(features as Record<string, boolean>).enableTradePipelineGrid;
+  const router = useRouter();
+  const { features, isLoading: featuresLoading, isShipmentsHomeEnabled } = useOrganizationFeatures();
+  // Round O: without the flag a direct visit lands on Orders.
+  const show = !featuresLoading && isShipmentsHomeEnabled;
+  useEffect(() => {
+    if (!featuresLoading && !isShipmentsHomeEnabled) router.replace(SHIPMENTS_ORDERS);
+  }, [featuresLoading, isShipmentsHomeEnabled, router]);
+  const tasks = useMyTasks(show);
+  const showPipeline = show && !!(features as Record<string, boolean>).enableTradePipelineGrid;
   const pipeline = useQuery({ queryKey: [...KEY, "pipeline"], queryFn: () => api.pipeline(), enabled: showPipeline });
   // 403 for staff: the money section just doesn't show.
-  const money = useQuery({ queryKey: [...KEY, "money"], queryFn: () => api.money(), retry: false });
-  const refresh = async () => {
-    try {
-      const r = await api.refreshAlerts();
-      await qc.invalidateQueries({ queryKey: KEY });
-      toast.success(`Reminders re-planned (${r.created} new, ${r.updated} changed)`);
-    } catch (e: any) {
-      toast.error(e?.message || "Could not refresh");
-    }
-  };
+  const money = useQuery({ queryKey: [...KEY, "money"], queryFn: () => api.money(), retry: false, enabled: show });
+  const refresh = useRefreshTasks();
+  if (!show) {
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1400, mx: "auto" }} data-tour="shipments-home">
       <Stack direction="row" alignItems="center" sx={{ mb: 2 }}>
@@ -55,7 +61,12 @@ export default function ShipmentsHome() {
       </Stack>
       <Grid container spacing={2}>
         <Grid item xs={12} lg={money.data ? 5 : 12}>
-          <Tasks alerts={tasks.data} loading={tasks.isLoading} onChanged={() => qc.invalidateQueries({ queryKey: KEY })} />
+          <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+              My tasks today
+            </Typography>
+            <TradeTasksList alerts={tasks.data} loading={tasks.isLoading} onChanged={() => qc.invalidateQueries({ queryKey: KEY })} />
+          </Paper>
         </Grid>
         {money.data && (
           <Grid item xs={12} lg={7}>
@@ -79,65 +90,6 @@ export default function ShipmentsHome() {
         )}
       </Grid>
     </Box>
-  );
-}
-
-function Tasks({ alerts, loading, onChanged }: { alerts?: TradeAlert[]; loading: boolean; onChanged: () => void }) {
-  const api = useShipmentsApi();
-  const router = useRouter();
-  const today = new Date().toISOString().slice(0, 10);
-  const act = async (fn: () => Promise<unknown>) => {
-    try {
-      await fn();
-      onChanged();
-    } catch (e: any) {
-      toast.error(e?.message || "Could not update");
-    }
-  };
-  return (
-    <Paper variant="outlined" sx={{ p: 2, height: "100%" }} data-tour="my-tasks">
-      <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
-        My tasks today
-      </Typography>
-      {loading ? (
-        <CircularProgress size={22} />
-      ) : !alerts?.length ? (
-        <Typography variant="body2" color="text.secondary">
-          Nothing due — reminders appear here (tax funding, arrival notices, free time, due dates, stuck steps).
-        </Typography>
-      ) : (
-        <Stack spacing={0.75}>
-          {alerts.map((a) => {
-            const overdue = a.dueAt.slice(0, 10) < today;
-            return (
-              <Stack key={a.id} direction="row" spacing={1} alignItems="center">
-                <Chip size="small" color={overdue ? "error" : a.status === "DUE" ? "warning" : "default"} label={fmtDmy(a.dueAt)} sx={{ minWidth: 92 }} />
-                <Box sx={{ flex: 1, minWidth: 0, cursor: a.linkUrl ? "pointer" : undefined }} onClick={() => a.linkUrl && router.push(a.linkUrl)}>
-                  <Typography variant="body2" noWrap>
-                    {a.title}
-                  </Typography>
-                  {a.detail && (
-                    <Typography variant="caption" color="text.secondary" noWrap component="div">
-                      {a.detail}
-                    </Typography>
-                  )}
-                </Box>
-                <Tooltip title="Done">
-                  <IconButton size="small" aria-label="Done" onClick={() => act(() => api.alertDone(a.id))}>
-                    <CheckIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Dismiss (comes back if its date moves)">
-                  <IconButton size="small" aria-label="Dismiss" onClick={() => act(() => api.alertDismiss(a.id))}>
-                    <CloseIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </Stack>
-            );
-          })}
-        </Stack>
-      )}
-    </Paper>
   );
 }
 

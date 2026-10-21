@@ -44,6 +44,7 @@ import { usePathname } from "next/navigation";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { hiddenShipmentsSubmenu } from "@/helpers/shipmentsNav";
 import { getListRouteFromPathname } from "@/app/portal/components/documentRoutes";
 import { useSidebar } from "./SidebarContext";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
@@ -88,7 +89,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isShipmentsHomeEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
 
@@ -219,6 +220,8 @@ export default function DynamicSidebarContent() {
         const key = typeof s === 'string' ? s : s?.key;
         // CRM → Marketing rides on the enableAdsInsights org flag.
         if (key === 'marketing' && m.moduleCode === 'CRM' && !isAdsInsightsEnabled) return false;
+        // Shipments › Home rides on enableShipmentsHome (round O — same rule as the top bar).
+        if (hiddenShipmentsSubmenu(m.moduleCode, key, isShipmentsHomeEnabled)) return false;
         // Role-gated submenu (see TopNavBar — same rule).
         if (typeof s === 'object' && Array.isArray(s.roles) && userRoles.length > 0 && !isAdminUser) {
           if (!userRoles.some((r: any) => s.roles.includes(r?.name))) return false;

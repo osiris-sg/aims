@@ -10,6 +10,7 @@ import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
+import { hiddenShipmentsSubmenu } from "@/helpers/shipmentsNav";
 
 // Mirrors DynamicSidebarContent — keep the two in sync.
 const HIDDEN_MODULES = new Set<string>(["CUSTOMERS", "SUPPLIERS"]);
@@ -60,7 +61,7 @@ export function useNavModules() {
       (s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled)) &&
       ((s.path !== "/portal/settings/shipping" && s.path !== "/portal/settings/customers") || showShippingSettings(isModuleEnabled)),
   );
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isShipmentsHomeEnabled } = useOrganizationFeatures();
 
   const isAdminUser =
     userRoles.length === 0 ||
@@ -82,6 +83,8 @@ export function useNavModules() {
         const key = typeof s === "string" ? s : s?.key;
         // CRM → Marketing rides on the enableAdsInsights org flag.
         if (key === "marketing" && m.moduleCode === "CRM" && !isAdsInsightsEnabled) return false;
+        // Shipments › Home rides on enableShipmentsHome (round O: off — Orders is the landing page).
+        if (hiddenShipmentsSubmenu(m.moduleCode, key, isShipmentsHomeEnabled)) return false;
         // Role-gated submenu (guru 2026-09-28). Admin-ish users always pass.
         if (typeof s === "object" && Array.isArray(s.roles) && userRoles.length > 0 && !isAdminUser) {
           if (!userRoles.some((r: any) => s.roles.includes(r?.name))) return false;

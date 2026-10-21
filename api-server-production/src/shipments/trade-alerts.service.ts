@@ -18,6 +18,7 @@ import {
   planInvoiceAlert,
   planShipmentAlerts,
   planStuckAlert,
+  receiptNotTracked,
   reconcileAlert,
   ShipmentFacts,
   StepFacts,
@@ -100,29 +101,34 @@ export class TradeAlertsService {
       out.push(...planShipmentAlerts(facts, rules));
     }
     // Customer invoices: due date until paid (round H: the receipt is on the step — 2 for Invoice #1, 11 for Invoice #2 / single).
-    const receipts: Array<{ orderId: string | null; code: string; payment: unknown }> = await this.prisma.tradeStep.findMany({
-      where: { organizationId, orderId: { not: null }, code: { in: ['INVOICE_1', 'INVOICE_2'] } },
-      select: { orderId: true, code: true, payment: true },
+    const receipts: Array<{ orderId: string | null; code: string; payment: unknown; skipReason: string | null }> = await this.prisma.tradeStep.findMany({
+      where: { organizationId, orderId: { not: null }, shipmentId: null, code: { in: ['INVOICE_1', 'INVOICE_2'] } },
+      select: { orderId: true, code: true, payment: true, skipReason: true },
     });
-    const received = (orderId: string | null, code: string) => stepPaymentOf(receipts.find((r) => r.orderId === orderId && r.code === code)?.payment)?.amount ?? 0;
+    const receiptStep = (orderId: string | null, code: string) => receipts.find((r) => r.orderId === orderId && r.code === code);
     const invs: any[] = await this.prisma.tradeGeneratedDoc.findMany({
       where: { organizationId, status: 'FINAL', docType: { in: ['INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE'] } },
-      select: { id: true, docType: true, number: true, header: true, rows: true, orderId: true, shipmentId: true, order: { select: { customer: { select: { name: true } } } }, shipment: { select: { orderId: true, order: { select: { customer: { select: { name: true } } } } } } },
+      select: { id: true, docType: true, number: true, header: true, rows: true, orderId: true, shipmentId: true, order: { select: { status: true, customer: { select: { name: true } } } }, shipment: { select: { orderId: true, order: { select: { status: true, customer: { select: { name: true } } } } } } },
     });
     for (const g of invs) {
       const total = generatedInvoiceTotal(g);
       if (total <= 0) continue; // credit notes are not collected
       const orderId = g.orderId ?? g.shipment?.orderId ?? null;
+      const order = g.order ?? g.shipment?.order ?? null;
+      const step = receiptStep(orderId, g.docType === 'INVOICE_1' ? 'INVOICE_1' : 'INVOICE_2');
+      const paid = stepPaymentOf(step?.payment)?.amount ?? 0;
       const facts: InvoiceFacts = {
         id: g.id,
         number: g.number ?? 'invoice',
-        customerName: g.order?.customer?.name ?? g.shipment?.order?.customer?.name ?? null,
+        customerName: order?.customer?.name ?? null,
         dueDate: g.header?.dueDate ? new Date(g.header.dueDate) : null,
         total,
-        paid: received(orderId, g.docType === 'INVOICE_1' ? 'INVOICE_1' : 'INVOICE_2'),
+        paid,
         currency: 'USD',
         orderId,
         shipmentId: g.shipmentId ?? null,
+        // Round O: history keyed in without receipts (closed order / imported step) is not chased.
+        imported: receiptNotTracked({ orderStatus: order?.status ?? null, stepSkipReason: step?.skipReason ?? null, paid }),
       };
       const a = planInvoiceAlert(facts);
       if (a) out.push(a);

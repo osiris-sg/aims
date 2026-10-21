@@ -392,7 +392,8 @@ export function telexTiedTo(ev: EmailEvidence, code: string, bl: string | null):
       if (!contains(para, code) || !contains(para, core)) continue;
       // Same line, or a short paragraph naming only this B/L.
       if (para.split(/\n/).some((line) => contains(line, code) && contains(line, core))) return true;
-      if ((para.match(/\d{3}[A-Z]{2}\d{5}/gi) ?? []).every((b) => b.toUpperCase() === core)) return true;
+      const bls: string[] = para.match(/\d{3}[A-Z]{2}\d{5}/gi) ?? [];
+      if (bls.every((b) => b.toUpperCase() === core)) return true;
     }
   }
   return false;

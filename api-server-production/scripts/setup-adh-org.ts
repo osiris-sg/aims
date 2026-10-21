@@ -48,6 +48,9 @@ import { copyPaymentsToSteps, foldSupplierOrders, moveInvoice2ToOrder } from '..
 import { bankEntity, entityFor } from '../src/shipments/trade-entity';
 import { DEFAULT_RATES } from '../src/shipments/trade-estimator';
 import { defaultSingleRemarks, supplierKeyPatterns, type CustomerProfile, type SupplierProfile } from '../src/shipments/trade-profile';
+import { NOT_TRACKED_NOTE, receiptNotTracked } from '../src/shipments/trade-alerts';
+import { IMPORT_NOTE } from '../src/shipments/trade-open-orders';
+import { stepPaymentOf } from '../src/shipments/trade-payments';
 
 neonConfig.webSocketConstructor = ws as unknown as typeof WebSocket;
 
@@ -144,6 +147,7 @@ const ENABLED_MODULES: Array<{ code: string; route?: string; icon?: string; sort
       // Home (my tasks + pipeline; money for ADH Manager), Orders (one order process, grouped by ship
       // month), Shipments (every B/L) and the triaged email Inbox. Round H (2026-10): Declaration, Payments
       // and Stock left the menu (their pages sit behind enableTradeLegacyPages, off).
+      // Round O: the Home row stays stored but the menus drop it while enableShipmentsHome is off (hide, don't delete).
       { key: 'dashboard', label: 'Home' },
       { key: 'list', label: 'Orders' },
       { key: 'shipments', label: 'Shipments' },
@@ -202,6 +206,7 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableConfirmQuotation: false, // keeps quotation confirm from auto-creating Orders
   enableTradeLegacyPages: false, // round H: Declaration / Payments / Stock / Supplier orders pages hidden
   enableTradePipelineGrid: false, // round K: Home's pipeline grid hidden (Orders list progress bars instead)
+  enableShipmentsHome: false, // round O: no Home page — Orders is the landing; tasks live in the bell + Orders "Tasks"
 };
 
 const NUMBER_FORMATS = [
@@ -1089,10 +1094,13 @@ async function main() {
   // The script's keys win; keys it doesn't define (the seal, anything added in the app) are kept.
   const seal = SEAL_PATH ? sealDataUrl(SEAL_PATH) : undefined;
   const curDefaults = (curSettings?.docDefaults as Record<string, unknown> | null) ?? {};
-  // --customers delivery profiles replace the ones with the same id; others are kept.
+  // --customers delivery profiles replace the ones with the same id IN PLACE (round O: the stored order is kept, so a
+  // profile added in the app — e.g. Kato's — doesn't make every run reorder the list and report a change); new ids
+  // are appended; others are kept.
   const fileProfiles = CUSTOMER_FILE?.deliveryProfiles;
+  const storedProfiles = (curDefaults.deliveryProfiles as Array<{ id: string }> | undefined) ?? [];
   const deliveryProfiles = fileProfiles?.length
-    ? [...((curDefaults.deliveryProfiles as Array<{ id: string }> | undefined) ?? []).filter((p) => !fileProfiles.some((f) => f.id === p.id)), ...fileProfiles]
+    ? [...storedProfiles.map((p) => fileProfiles.find((f) => f.id === p.id) ?? p), ...fileProfiles.filter((f) => !storedProfiles.some((p) => p.id === f.id))]
     : undefined;
   const desiredDefaults: Record<string, unknown> = {
     ...curDefaults,
@@ -1626,6 +1634,62 @@ async function main() {
       }
       if (!did) info('contract 454003598 has its 6063 line; schedule graded; 6063 orders priced on their own');
     }
+  }
+
+  // ── 10i. Reminders (round O) ──────────────────────────────────────────────
+  // Open reminders that the app's rules now close: an INVOICE_DUE on an invoice
+  // whose receipt AIMS never tracked (closed order / imported receipt step, no
+  // receipt on the step — "imported, payment not tracked"), and a FREE_TIME on a
+  // shipment that is past the port (step 9 done, or step 8 imported "completed
+  // before AIMS") or closed. Everything else is listed and kept. The hourly
+  // sweep would resolve the same rows on its own; this step does it now and
+  // shows exactly which.
+  header('10i', 'Reminders (imported invoices, cleared shipments)');
+  if (!tradeReady || !org.tradeAlert) {
+    info('TradeAlert table / client not ready — push the schema first');
+  } else {
+    const open = await orgRead(
+      () => org.tradeAlert.findMany({ where: { organizationId: orgId, status: { in: ['DUE', 'SCHEDULED'] } }, orderBy: { dueAt: 'asc' }, select: { id: true, kind: true, key: true, title: true, status: true, shipmentId: true, orderId: true } }),
+      [] as Array<{ id: string; kind: string; key: string; title: string; status: string; shipmentId: string | null; orderId: string | null }>,
+    );
+    if (!open.length) info('no open reminders');
+    let closed = 0;
+    for (const a of open) {
+      let why: string | null = null;
+      if (a.kind === 'INVOICE_DUE') {
+        const g = await org.tradeGeneratedDoc.findFirst({
+          where: { id: a.key.slice('INVOICE_DUE:'.length), organizationId: orgId },
+          select: { docType: true, orderId: true, order: { select: { status: true } }, shipment: { select: { orderId: true, order: { select: { status: true } } } } },
+        });
+        if (g) {
+          const orderId = g.orderId ?? g.shipment?.orderId ?? null;
+          const order = g.order ?? g.shipment?.order ?? null;
+          const step = await org.tradeStep.findFirst({ where: { organizationId: orgId, orderId, shipmentId: null, code: g.docType === 'INVOICE_1' ? 'INVOICE_1' : 'INVOICE_2' }, select: { payment: true, skipReason: true } });
+          const paid = stepPaymentOf(step?.payment)?.amount ?? 0;
+          if (receiptNotTracked({ orderStatus: order?.status ?? null, stepSkipReason: step?.skipReason ?? null, paid })) why = `${NOT_TRACKED_NOTE.replace(/\.$/, '')} (order ${order?.status ?? '—'}, no receipt on the step)`;
+          else why = null;
+          if (!why) info(`keep "${a.title}" — order ${order?.status ?? '—'}, receipt ${paid > 0 ? `recorded ${paid}` : 'not recorded'}`);
+        } else why = 'invoice no longer exists';
+      } else if (a.kind === 'FREE_TIME' && a.shipmentId) {
+        const sh = await org.shipment.findFirst({ where: { id: a.shipmentId, organizationId: orgId }, select: { status: true, steps: { select: { code: true, status: true, skipReason: true } } } });
+        if (!sh) why = 'shipment no longer exists';
+        else {
+          const step = (code: string) => sh.steps.find((x: { code: string }) => x.code === code);
+          const cleared = step('AN_INSTRUCTIONS')?.status === 'DONE' || (step('TAX_FUNDS')?.status === 'DONE' && step('TAX_FUNDS')?.skipReason === IMPORT_NOTE);
+          if (sh.status !== 'OPEN') why = `shipment ${sh.status}`;
+          else if (cleared) why = 'past the port (step 9 done)';
+          else {
+            const current = sh.steps.find((x: { status: string }) => x.status === 'IN_PROGRESS') ?? sh.steps.find((x: { status: string }) => x.status === 'NOT_STARTED');
+            info(`keep "${a.title}" — live (shipment OPEN, ${current ? `step ${current.code} ${current.status}` : 'steps done'})`);
+          }
+        }
+      } else info(`keep "${a.title}" (${a.kind}, ${a.status})`);
+      if (!why) continue;
+      if (APPLY) await org.tradeAlert.update({ where: { id: a.id }, data: { status: 'DONE', resolvedAt: new Date() } });
+      write('reminder', `close "${a.title}" — ${why}`);
+      closed++;
+    }
+    if (open.length && !closed) info('every open reminder is live');
   }
 
   // ── 11. Access ────────────────────────────────────────────────────────────

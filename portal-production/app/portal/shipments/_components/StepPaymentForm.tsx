@@ -7,6 +7,10 @@
 // storage); the customer pays on 2 (Invoice #1) and 11 (Invoice #2 / single).
 // The proof is one of the step's own files of the proof type (upload it on the
 // step first). Home's cash in / out and the reconciliation sum these.
+// Round O: a receiving step with no receipt on a closed order, or imported
+// "completed before AIMS", reads "Imported, payment not tracked" — AIMS never
+// tracked that money and raises no "outstanding" reminder for its invoice
+// (api trade-alerts.ts receiptNotTracked).
 
 import React, { useEffect, useState } from "react";
 import { Box, Button, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
@@ -16,6 +20,7 @@ import { useTradeMutation } from "../_lib/hooks";
 import { ACCOUNT_LABEL, paymentOf, STEP_PAYMENT, type PaymentAccount, type RecordFileLink, type TradeStep } from "../_lib/api";
 import { fmtDmy, fmtMoney } from "../_lib/format";
 import { anyDateError, guardDate } from "../_lib/dates";
+import { receiptNotTracked } from "../_lib/receipt";
 
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
@@ -66,6 +71,10 @@ export default function StepPaymentForm({
           <Typography variant="body2">
             {spec.label}: <b>{fmtMoney(saved.amount, saved.currency)}</b> on {fmtDmy(saved.paidAt)} · {ACCOUNT_LABEL[saved.account] ?? saved.account}
             {proofName ? ` · ${proofName}` : " · no proof attached"}
+          </Typography>
+        ) : receiptNotTracked(spec.direction, saved, canEdit, step.skipReason) ? (
+          <Typography variant="body2" color="text.secondary" data-tour="receipt-not-tracked">
+            Imported, payment not tracked
           </Typography>
         ) : (
           <Typography variant="body2" color="text.secondary">

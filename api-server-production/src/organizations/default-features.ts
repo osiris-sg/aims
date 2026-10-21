@@ -75,4 +75,9 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableTradeLegacyPages: false,
   // Shipments › Home's pipeline grid (round K: off — the Orders list's progress bars replace it). Code kept.
   enableTradePipelineGrid: false,
+  // Shipments › Home page (round O, 2026-10-21: no Home for now — Orders is the landing page). With this OFF the
+  // Home menu item is gone, every Shipments landing / redirect goes to Orders, /portal/shipments/dashboard redirects
+  // to Orders, and the "Margin and profit" table has no home. "My tasks today" moved to the bell + the Orders list's
+  // "Tasks" panel. Code kept. Default OFF.
+  enableShipmentsHome: false,
 };

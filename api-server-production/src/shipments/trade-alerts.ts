@@ -9,9 +9,15 @@
  *   FREE_TIME     discharge (else ETA) + free days (Wan Hai DET 4 calendar days,
  *                 DEM 10; per shipment) → warn 1 day before free time ends
  *   INVOICE_DUE   a finalized customer invoice not yet paid → its due date
+ *                 (round O: not for an invoice whose receipt AIMS never tracked —
+ *                 the order was closed, or the receipt step imported "completed
+ *                 before AIMS", with no receipt on the step: "imported, payment
+ *                 not tracked")
  *   PAYMENT_DUE   a supplier PI deposit not yet paid → its due date
  *   STEP_STUCK    an open step unchanged for N days (setting, default 7)
  */
+
+import { IMPORT_NOTE } from './trade-open-orders';
 
 export interface AlertRules {
   taxFundingDaysBefore: number;
@@ -113,6 +119,24 @@ export interface InvoiceFacts {
   currency: string;
   orderId: string | null;
   shipmentId: string | null;
+  /** Round O: the receipt was never going to be recorded in AIMS (see receiptNotTracked) — no reminder. */
+  imported?: boolean;
+}
+
+export const NOT_TRACKED_NOTE = 'Imported, payment not tracked.';
+
+/**
+ * Round O: an invoice whose receipt AIMS never tracked — the order is closed
+ * (completed / cancelled, i.e. history keyed in after the fact) or its receipt
+ * step was imported "completed before AIMS" — and nothing was received on the
+ * step. Such an invoice raises no "outstanding" reminder; the step reads
+ * "Imported, payment not tracked" instead. A receipt recorded on the step, or an
+ * open order, means the money IS tracked and the normal due-date rule applies.
+ */
+export function receiptNotTracked(i: { orderStatus: string | null | undefined; stepSkipReason: string | null | undefined; paid: number }, importNote: string = IMPORT_NOTE): boolean {
+  if (i.paid > 0) return false;
+  if (i.orderStatus && i.orderStatus !== 'OPEN') return true;
+  return (i.stepSkipReason ?? null) === importNote;
 }
 
 export interface DepositFacts {
@@ -203,11 +227,12 @@ export function planInvoiceAlert(i: InvoiceFacts): PlannedAlert | null {
     kind: 'INVOICE_DUE',
     dueAt: day(i.dueDate),
     title: `Invoice ${i.number}${i.customerName ? ` (${i.customerName})` : ''} due ${ymd(day(i.dueDate))}`,
-    detail: `${i.currency} ${open.toLocaleString('en-US', { minimumFractionDigits: 2 })} outstanding.`,
+    detail: i.imported ? NOT_TRACKED_NOTE : `${i.currency} ${open.toLocaleString('en-US', { minimumFractionDigits: 2 })} outstanding.`,
     orderId: i.orderId,
     shipmentId: i.shipmentId,
     linkUrl: orderLink(i.orderId, i.shipmentId),
-    resolved: open <= 0.004,
+    // Round O: an imported invoice (receipt never tracked) is closed, never raised.
+    resolved: open <= 0.004 || !!i.imported,
   };
 }
 

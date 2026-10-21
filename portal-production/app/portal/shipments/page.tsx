@@ -10,7 +10,8 @@
 // the order page on that shipment. Tabs split Pending (open) from Completed
 // (completed or cancelled). "New Order" opens the order form; "+ New monthly
 // order" makes the month's orders from a small grid; "New orders from PIs"
-// reads PIs in bulk.
+// reads PIs in bulk. "Tasks (n)" (round O — no Home page) opens "My tasks
+// today" in a side panel, the overdue count in red.
 
 import React, { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -29,6 +30,7 @@ import MonthlyOrderDialog from "./_components/MonthlyOrderDialog";
 import { monthShort } from "./_lib/format";
 import { useDebounced } from "./_components/useDebounced";
 import ShowTestToggle, { useShowTestOrders } from "./_components/ShowTestToggle";
+import { TasksButton } from "./_components/TradeTasks";
 
 type Row = OrderRow;
 
@@ -146,6 +148,7 @@ export default function OrdersPage() {
         }}
         filterConfig={filterConfig}
         actionButtons={[
+          <TasksButton key="tasks" />,
           <Button key="monthly" variant="outlined" startIcon={<PlaylistAddIcon />} onClick={() => setMonthlyOpen(true)} data-tour="orders-monthly">
             + New monthly order
           </Button>,

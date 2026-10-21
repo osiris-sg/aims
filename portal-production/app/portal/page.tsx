@@ -8,6 +8,7 @@ import { useConfiguration } from "./context/ConfigurationContext";
 import { HOME_VIEW_EVENT, closeAimee, openAimee, readHomeView, type AimeeOpenDetail } from "./chat/homeView";
 import ChatHome from "./chat/ChatHome";
 import AimeeBar from "./chat/AimeeBar";
+import { shipmentsLanding } from "@/helpers/shipmentsNav";
 
 // Landing page. Every org sees the dashboard. Orgs with enableAimsChat also
 // get AIMEE on top of it: a strip with her face and an "Ask AIMEE" pill.
@@ -23,17 +24,18 @@ type Phase = "dashboard" | "opening" | "aimee" | "closing";
 const REVEAL_MS = 640;
 
 export default function Page() {
-  const { isAimsChatEnabled, isLoading } = useOrganizationFeatures();
+  const { isAimsChatEnabled, isLoading, isShipmentsHomeEnabled } = useOrganizationFeatures();
   const router = useRouter();
   const { loading: configLoading, isModuleEnabled } = useConfiguration();
-  // A trade org (Shipments on, the generic Dashboard module off — ADH) lands on Shipments › Home, not the asset dashboard.
+  // A trade org (Shipments on, the generic Dashboard module off — ADH) lands on Shipments, not the asset dashboard:
+  // Orders (round O), or Home with the enableShipmentsHome flag. This is also the org-switch landing (the switch reloads /portal).
   const tradeHome = !configLoading && isModuleEnabled("SHIPMENTS") && !isModuleEnabled("DASHBOARD");
   useEffect(() => {
-    if (!tradeHome) return;
+    if (!tradeHome || isLoading) return;
     const q = new URLSearchParams(window.location.search);
     if (q.get("chat") || q.get("aimee") === "1") return;
-    router.replace("/portal/shipments/dashboard");
-  }, [tradeHome, router]);
+    router.replace(shipmentsLanding(isShipmentsHomeEnabled));
+  }, [tradeHome, isLoading, isShipmentsHomeEnabled, router]);
   const [phase, setPhase] = useState<Phase | null>(null);
   const [prompt, setPrompt] = useState<string | undefined>();
   const origin = useRef<{ x: number; y: number }>({ x: 0, y: 0 });

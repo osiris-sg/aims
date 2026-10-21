@@ -122,6 +122,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableTradeLegacyPages: false,
   // Shipments › Home's pipeline grid — hidden since round K (the Orders list has progress bars).
   enableTradePipelineGrid: false,
+  // Shipments › Home page — hidden since round O (Orders is the landing page; tasks in the bell + Orders "Tasks").
+  enableShipmentsHome: false,
 };
 
 interface OrganizationUIConfig {
@@ -200,6 +202,7 @@ export function useOrganizationFeatures() {
     isOpsDashboardEnabled: features.enableOpsDashboard ?? false,
     isAimsChatEnabled: features.enableAimsChat ?? false,
     isTemplateDesignEnabled: features.enableTemplateDesign ?? FEATURE_FLAG_DEFAULTS.enableTemplateDesign,
+    isShipmentsHomeEnabled: features.enableShipmentsHome ?? FEATURE_FLAG_DEFAULTS.enableShipmentsHome,
     isMaintenanceDatesEnabled: features.enableMaintenanceDates ?? false,
     isDeliveryGroupPostsEnabled: features.enableDeliveryGroupPosts ?? false,
   };

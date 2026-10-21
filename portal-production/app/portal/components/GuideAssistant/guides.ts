@@ -414,22 +414,22 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'trade-home-alerts',
-    title: 'My tasks and money (Shipments)',
+    title: 'My tasks today (Shipments)',
     module: 'SHIPMENTS',
     description:
-      'The Shipments Home page: "My tasks today" reminders (import tax funding, arrival notices, free time, due dates, stuck steps) and — for ADH managers — cash by month, open credits and margin / profit. Reminder rules are in Settings → Shipping → Alerts.',
-    route: '/portal/shipments/dashboard',
+      'Where the reminders are (import tax funding, arrival notices, free time, invoice / deposit due dates, stuck steps): the bell (top right) and the "Tasks (n)" button on the Orders list, each with ✓ done / ✕ dismiss. There is no Shipments Home page (round O) — Orders is the landing page; the manager money / margin table is off with it. Reminder rules are in Settings → Shipping → Alerts.',
+    route: '/portal/shipments',
     steps: [
       {
-        route: '/portal/shipments/dashboard',
-        selector: '[data-tour="my-tasks"]',
-        title: 'My tasks today',
-        body: 'Reminders due now and in the next 3 days. ✓ marks one done; ✕ dismisses it until its date moves (e.g. the ETA changes).',
+        route: '/portal/shipments',
+        selector: '[data-tour="orders-tasks"]',
+        title: 'Tasks (n)',
+        body: 'The reminders due now and in the next 3 days, in a side panel. The red number is how many are overdue.',
       },
       {
-        selector: '[data-tour="manager-money"]',
-        title: 'Money (managers)',
-        body: 'ADH Managers also see cash in / out by month, open credits and margin & profit per order. Staff do not see this.',
+        selector: '[data-tour="my-tasks"]',
+        title: 'Done / dismiss',
+        body: '✓ marks a reminder done; ✕ dismisses it until its date moves (e.g. the ETA changes). Clicking the text opens the order. The same list is in the bell, top right.',
         patient: true,
       },
     ],
