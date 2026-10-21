@@ -17,14 +17,19 @@ const decide = (e: EmailEvidence, thread: Parameters<typeof decideMatch>[0]['thr
 const ACCEPTED_15 = { accepted: { orderId: 'o15', shipmentId: 's15' }, traced: null, candidates: [{ orderId: 'o15', shipmentId: 's15' }] };
 
 describe('round U — auto-apply tiers', () => {
-  it('HIGH: a hard key in an attachment (the NO取リスト bundle list naming 198GX06003) on the combined SUS thread', () => {
+  it('round W: a hard key in an attachment ALONE is a suggestion; with the own text naming it too (two sources) → high', () => {
     const d = decide(ev(`Re: 【NO取リスト】${SUS_THREAD}`, 'ご確認ください。', [{ name: '22AA198GX06003A.pdf', text: 'B/L 198GX06003 bundle list' }]), ACCEPTED_15);
     expect(d.target).toEqual({ orderId: 'o16', shipmentId: 's16-2' });
-    expect(autoTier(d, ACCEPTED_15)).toBe('high');
+    expect(d.sources).toEqual(['attachment']);
+    expect(autoTier(d, ACCEPTED_15)).toBeNull();
+    const two = decide(ev(`Re: 【NO取リスト】${SUS_THREAD}`, '22AA198GX06003 分のNOリストを送付いたします。', [{ name: '22AA198GX06003A.pdf', text: 'B/L 198GX06003 bundle list' }]), ACCEPTED_15);
+    expect(two.sources).toEqual(['attachment', 'own-text']);
+    expect(autoTier(two, ACCEPTED_15)).toBe('high');
   });
 
-  it('HIGH: a hard key in the own text; not when the subject (single product) contradicts it', () => {
+  it('HIGH: a hard key in the own text + the thread (two sources); not when the subject (single product) contradicts it', () => {
     expect(autoTier(decide(ev(SUS_THREAD, 'B/L 198GX05383 の件です。'), ACCEPTED_15), ACCEPTED_15)).toBe('high');
+    expect(autoTier(decide(ev(SUS_THREAD, 'B/L 198GX05383 の件です。'), null), null)).toBeNull(); // the key alone: one source
     const conflict = decide(ev('【10月納入】6005C 120t SUS', 'B/L 198GX05383 の件です。'), ACCEPTED_15);
     expect(conflict.check.length).toBeGreaterThan(0);
     expect(autoTier(conflict, ACCEPTED_15)).toBeNull();
@@ -39,23 +44,30 @@ describe('round U — auto-apply tiers', () => {
     expect(autoTier(d, null)).toBeNull();
   });
 
-  it('MEDIUM: a reply with no cue follows the thread\'s accepted #15-1; not when the thread has no accepted message', () => {
+  it('round W: a reply that only follows the thread is ONE source → suggestion; thread + the email text describing it → medium', () => {
     const d = decide(ev(SUS_THREAD, 'ありがとうございます。'), ACCEPTED_15);
     expect(d.source).toBe('thread');
-    expect(autoTier(d, ACCEPTED_15)).toBe('medium');
+    expect(d.sources).toEqual(['thread']);
+    expect(autoTier(d, ACCEPTED_15)).toBeNull();
+    const two = decide(ev(SUS_THREAD, '6063 203mm 300t の件、ありがとうございます。'), ACCEPTED_15);
+    expect(two.target).toEqual({ orderId: 'o15', shipmentId: 's15' });
+    expect(two.sources).toEqual(expect.arrayContaining(['own-text', 'thread']));
+    expect(autoTier(two, ACCEPTED_15)).toBe('medium');
     const alone = decide(ev('【11月納入】6005C-8インチ 40T 加藤', 'よろしく'), null);
-    expect(alone.source).toBe('order-cues'); // round V: the subject names the order itself → high
-    expect(autoTier(alone, null)).toBe('high');
+    expect(alone.source).toBe('order-cues'); // round W: the subject names the order — ONE source → suggestion
+    expect(autoTier(alone, null)).toBeNull();
+    expect(autoTier(alone, { accepted: { orderId: 'o20', shipmentId: 's20' }, traced: null, candidates: [] })).toBe('medium'); // order-level cues + thread
     const noMonth = decide(ev('6005C-8インチ 40T 加藤', 'よろしく'), null);
     expect(autoTier(noMonth, null)).toBeNull();
   });
 
-  it('MEDIUM only when the decision agrees with the accepted link; a subject key is not "high"', () => {
+  it('a subject key alone is a suggestion; a subject key + the thread agreeing → auto (high: a hard key is among the two)', () => {
     const subjectKey = decide(ev(`${SUS_THREAD} 22AA198GX06003`, 'ご確認お願いします。'), ACCEPTED_15);
     expect(subjectKey.source).toBe('subject');
-    expect(autoTier(subjectKey, ACCEPTED_15)).toBeNull(); // #16-2 ≠ the thread's #15-1, and a subject key alone is not high
+    expect(autoTier(subjectKey, ACCEPTED_15)).toBeNull(); // #16-2 ≠ the thread's #15-1, and a subject key alone is one source
     const agree = decide(ev(`${SUS_THREAD} 22AA198GX05383`, 'ご確認お願いします。'), ACCEPTED_15);
-    expect(autoTier(agree, ACCEPTED_15)).toBe('medium');
+    expect(agree.sources).toEqual(['subject', 'thread']);
+    expect(autoTier(agree, ACCEPTED_15)).toBe('high');
   });
 
   it('null for the genuine picks: a combined thread with no cue, keys of several orders', () => {

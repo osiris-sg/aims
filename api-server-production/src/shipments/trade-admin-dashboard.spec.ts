@@ -76,10 +76,12 @@ describe('Admin dashboard — the figures', () => {
     expect(out.expected.supplierDueTotal.USD).toBe(400000);
   });
 
-  it('per order: sell / buy / costs / margin / profit, "formula pending" kept', () => {
+  it('per order: sell / buy / costs / margin / profit — $0 until the formula exists, no "formula pending" label (round W)', () => {
     const o19 = out.orders.find((o) => o.label === '#19')!;
-    expect(o19).toMatchObject({ sellUsd: 930000, buyUsd: 900000, costsJpy: 13480000, margin: 7500, profit: null, profitLabel: 'formula pending' });
-    expect(out.orders.find((o) => o.label === '#14')).toMatchObject({ profit: 2000, profitLabel: null });
+    expect(o19).toMatchObject({ sellUsd: 930000, buyUsd: 900000, costsJpy: 13480000, margin: 7500, profit: 0 });
+    expect(o19).not.toHaveProperty('profitLabel');
+    expect(out.orders.find((o) => o.label === '#14')).toMatchObject({ profit: 2000 });
+    expect(JSON.stringify(out)).not.toMatch(/formula pending|until ADH/i);
     expect(out.orders[0].label).toBe('#19'); // newest delivery month first
   });
 
@@ -89,7 +91,7 @@ describe('Admin dashboard — the figures', () => {
     expect(out.summary.received).toEqual({ USD: 800000, JPY: 0 });
     expect(out.summary.costs).toEqual({ USD: 900000, JPY: 13480000 });
     expect(out.summary.margin.USD).toBe(7500);
-    expect(out.summary.profit).toEqual({ USD: 0, pending: true, label: 'formula pending' });
+    expect(out.summary.profit).toEqual({ USD: 0, pending: true });
     expect(out.summary.tonnageMt).toBe(300.4);
     expect(out.summary.orders).toBe(1);
   });

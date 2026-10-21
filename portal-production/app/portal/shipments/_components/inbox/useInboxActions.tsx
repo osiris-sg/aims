@@ -1,33 +1,47 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-// The inbox actions (Confirm / Undo / Not shipment / Ignore / Triage again)
-// with their confirmations and toasts — shared by the Inbox page and the Sales
-// dashboard (round P). `onChanged` re-fetches whatever the caller shows.
+// Round W — the inbox actions behind the question cards and the thread timeline: one-tap answers (with Undo),
+// "New deal → Create order" (prefilled from the thread's PI / seed), the picker ("Change order" / "This one is
+// different"), Undo of a processed email, and the timeline dialog. Shared by the Dashboard and "See all emails".
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useShipmentsApi, type InboxRow, type InboxThread, type OrderSeed, type PiExtraction } from "../../_lib/api";
+import { useShipmentsApi, type InboxAnswer, type InboxAnswerResult, type InboxLang, type InboxMessage, type InboxRow, type InboxThread, type OrderSeed, type PiExtraction } from "../../_lib/api";
 import OrderFormDialog from "../OrderFormDialog";
 import { useTradeMutation } from "../../_lib/hooks";
 import { toast } from "../../_lib/toast";
-import { acceptedText } from "../../_lib/inbox-text";
+import { uiLangOf } from "../../_lib/inbox-cards";
 import { ConfirmDialog } from "../bits";
 import { PickerDialog } from "./InboxPicker";
 import { InboxDetailsDialog } from "./InboxDetails";
+import type { InboxActions } from "./InboxThreadList";
 
-export type InboxAct = "accept" | "undo" | "dismiss" | "retriage" | "ignore";
+export type InboxAct = "undo" | "dismiss" | "retriage" | "ignore";
+
+/** The cards' language: the browser's (Japanese or English). */
+export function useInboxLang(): InboxLang {
+  const [lang, setLang] = useState<InboxLang>("en");
+  useEffect(() => {
+    setLang(uiLangOf(typeof navigator !== "undefined" ? navigator.language : null));
+  }, []);
+  return lang;
+}
 
 export function useInboxActions(onChanged: () => Promise<unknown> | void) {
   const qc = useQueryClient();
-  const [confirm, setConfirm] = useState<{ row: InboxRow; act: "undo" | "dismiss" } | null>(null);
-  const [open, setOpen] = useState<InboxRow | null>(null);
-  const [assign, setAssign] = useState<InboxRow | null>(null);
-  // Round Q: "Create order from this thread" — from the thread's PI attachment (the PI extractor) when there is one,
-  // else from the thread's keys / subject cues (seed).
   const api = useShipmentsApi();
+  const lang = useInboxLang();
+  const [confirm, setConfirm] = useState<{ row: InboxRow; act: "undo" | "dismiss" } | null>(null);
+  const [open, setOpen] = useState<{ row: InboxRow; thread: InboxThread | null } | null>(null);
+  const [assign, setAssign] = useState<InboxRow | null>(null);
   const [create, setCreate] = useState<{ prefill: PiExtraction | null; seed: OrderSeed | null } | null>(null);
   const [creating, setCreating] = useState(false);
+  const [answering, setAnswering] = useState(false);
+  const refresh = async () => {
+    await Promise.all([qc.invalidateQueries({ queryKey: ["trade-inbox"] }), onChanged()]);
+  };
+  // "New deal → Create order": from the thread's PI attachment (the PI extractor) when there is one, else from the seed.
   const createOrder = async (t: InboxThread) => {
     const withPi = t.messages.find((m) => m.attachments.some((a) => a.docType === "PI" || /\bPI\b|_PI_/i.test(a.name)));
     const seed = t.messages.map((m) => m.backlog?.seed).find(Boolean) ?? null;
@@ -45,33 +59,72 @@ export function useInboxActions(onChanged: () => Promise<unknown> | void) {
     }
     setCreate({ prefill: null, seed });
   };
-  const act = useTradeMutation((a, v: { id: string; act: InboxAct }): Promise<unknown> =>
-    v.act === "accept" ? a.inboxAccept(v.id) : v.act === "undo" ? a.inboxUndo(v.id) : v.act === "dismiss" ? a.inboxDismiss(v.id) : v.act === "ignore" ? a.inboxIgnore(v.id) : a.inboxRetriage(v.id),
-  );
-  const refresh = async () => {
-    await Promise.all([qc.invalidateQueries({ queryKey: ["trade-inbox"] }), onChanged()]);
+  /** One tap: answer for every unprocessed email of the thread. */
+  const answer = async (t: InboxThread, a: InboxAnswer): Promise<InboxAnswerResult | null> => {
+    const ids = t.answerIds?.length ? t.answerIds : t.messages.filter((m) => m.inboxState !== "PROCESSED").map((m) => m.id);
+    if (!ids.length) return null;
+    setAnswering(true);
+    try {
+      const r = await api.inboxAnswer(ids, a, lang);
+      toast.success(r.text);
+      await refresh();
+      return r;
+    } catch (e: any) {
+      toast.error(e?.message || "Could not do that");
+      return null;
+    } finally {
+      setAnswering(false);
+    }
   };
+  const answerUndo = async (r: InboxAnswerResult) => {
+    try {
+      await api.inboxAnswerUndo(r.ids, r.kind);
+      toast.success(lang === "ja" ? "元に戻しました" : "Undone");
+      await refresh();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not undo");
+    }
+  };
+  const act = useTradeMutation((a, v: { id: string; act: InboxAct }): Promise<unknown> => (v.act === "undo" ? a.inboxUndo(v.id) : v.act === "dismiss" ? a.inboxDismiss(v.id) : v.act === "ignore" ? a.inboxIgnore(v.id) : a.inboxRetriage(v.id)));
   const run = async (row: InboxRow, what: InboxAct) => {
     try {
-      const res = (await act.mutateAsync({ id: row.id, act: what })) as InboxRow | undefined;
-      toast.success(
-        what === "accept" ? acceptedText(res ?? row) : what === "undo" ? "Undone — back to Unprocessed" : what === "dismiss" ? "Removed (not shipment mail)" : what === "ignore" ? "Ignored — kept, nothing filed" : "Triaged again",
-      );
+      await act.mutateAsync({ id: row.id, act: what });
+      toast.success(what === "undo" ? (lang === "ja" ? "元に戻しました — 未処理へ" : "Undone — back to Unprocessed") : what === "dismiss" ? "Removed (not shipment mail)" : what === "ignore" ? "Ignored — kept, nothing filed" : "Triaged again");
       await refresh();
     } catch (e: any) {
       toast.error(e?.message || "Could not do that");
     }
   };
+  const pending = act.isPending || creating || answering;
+  const actions: InboxActions = {
+    lang,
+    onAnswer: answer,
+    onAnswerUndo: answerUndo,
+    onCreateOrder: (t) => void createOrder(t),
+    onOpen: (m: InboxMessage, t?: InboxThread) => setOpen({ row: m, thread: t ?? null }),
+    onUndo: (m) => setConfirm({ row: m, act: "undo" }),
+    pending,
+  };
   const dialogs = (
     <>
       <InboxDetailsDialog
-        open={open}
+        open={open?.row ?? null}
+        thread={open?.thread ?? null}
+        lang={lang}
         onClose={() => setOpen(null)}
-        onAccept={(r) => void run(r, "accept")}
+        onAnswer={async (t, a) => {
+          const r = await answer(t, a);
+          return r;
+        }}
+        onAnswerUndo={answerUndo}
+        onCreateOrder={(t) => {
+          setOpen(null);
+          void createOrder(t);
+        }}
         onChangeOrder={(r) => setAssign(r)}
-        onNotShipment={(r) => setConfirm({ row: r, act: "dismiss" })}
-        pending={act.isPending}
-        onRowChanged={setOpen}
+        onUndo={(r) => setConfirm({ row: r, act: "undo" })}
+        pending={pending}
+        onRowChanged={(r) => setOpen((o) => (o ? { ...o, row: r } : o))}
       />
       <PickerDialog
         row={assign}
@@ -88,7 +141,7 @@ export function useInboxActions(onChanged: () => Promise<unknown> | void) {
         seed={create?.seed ?? null}
         onSaved={async () => {
           setCreate(null);
-          toast.success("Order created — the thread's emails will match it on the next re-match");
+          toast.success(lang === "ja" ? "注文を作成しました — このスレッドのメールは次回の照合で紐付きます" : "Order created — the thread's emails will match it on the next re-match");
           await refresh();
         }}
       />
@@ -107,5 +160,5 @@ export function useInboxActions(onChanged: () => Promise<unknown> | void) {
       />
     </>
   );
-  return { run, pending: act.isPending || creating, open, setOpen, assign, setAssign, confirm, setConfirm, createOrder, dialogs };
+  return { lang, run, pending, actions, open, setOpen, assign, setAssign, confirm, setConfirm, createOrder, answer, answerUndo, dialogs };
 }

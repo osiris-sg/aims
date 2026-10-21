@@ -376,7 +376,7 @@ export default function OrderPage() {
       )}
       {o.isTest && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Test order — hidden from the lists, Home, counts and reminders (switch &quot;Show test orders&quot; on to see it there).
+          Test order — hidden from the lists, Home, counts and reminders.
         </Alert>
       )}
 

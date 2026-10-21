@@ -20,7 +20,6 @@ import { useShipments } from "../_lib/hooks";
 import { blLabel, fmtDay, fmtMt, shortCustomer } from "../_lib/format";
 import { CurrentStepCell, EmptyState } from "../_components/bits";
 import { useDebounced } from "../_components/useDebounced";
-import ShowTestToggle, { useShowTestOrders } from "../_components/ShowTestToggle";
 
 const TABS: Array<{ value: ShipmentTab; label: string }> = [
   { value: "in_transit", label: "In transit" },
@@ -39,8 +38,8 @@ export default function ShipmentsListPage() {
   const [limit, setLimit] = useState(20);
   const [search, setSearch] = useState("");
   const q = useDebounced(search);
-  const [showTest, setShowTest] = useShowTestOrders();
-  const list = useShipments({ tab, page, pageSize: limit, q: q || undefined, includeTest: showTest ? "true" : undefined });
+  // Round W: test orders stay hidden for everyone (the "Show test orders" switch is gone).
+  const list = useShipments({ tab, page, pageSize: limit, q: q || undefined });
   const counts = list.data?.tabs;
 
   const columns = useMemo(
@@ -106,13 +105,6 @@ export default function ShipmentsListPage() {
           <>
             <Stack direction="row" alignItems="center" spacing={1}>
               {tabs}
-              <ShowTestToggle
-                value={showTest}
-                onChange={(v) => {
-                  setShowTest(v);
-                  setPage(1);
-                }}
-              />
             </Stack>
             {list.isError ? (
               <Alert severity="error">{(list.error as Error)?.message || "Could not load shipments"}</Alert>

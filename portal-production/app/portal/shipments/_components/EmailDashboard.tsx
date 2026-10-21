@@ -13,13 +13,14 @@
 import React from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Box, Button, Chip, CircularProgress, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
 import { useShipmentsApi, type InboxDashboard, type InboxMessage, type ShipmentListItem, type TradeAlert } from "../_lib/api";
 import { useShipments } from "../_lib/hooks";
 import { fmtDmy, shortCustomer } from "../_lib/format";
 import { FREE_DAYS_HELP, freeDays } from "../_lib/free-days";
 import { isOverdue, taskCounts, tradeTodayYmd } from "../_lib/tasks";
-import { arrivingThisWeek, byLine, linkedFileLine, orderHref, toDoLine } from "../_lib/inbox-threads";
+import { arrivingThisWeek, byLine, orderHref, toDoLine } from "../_lib/inbox-threads";
+import { L, resultBox } from "../_lib/inbox-cards";
 import { HOME_KEY, TradeTasksList, useMyTasks, useRefreshTasks } from "./TradeTasks";
 import { InboxThreadList, type InboxActions } from "./inbox/InboxThreadList";
 import { useInboxActions } from "./inbox/useInboxActions";
@@ -47,48 +48,41 @@ function Section({ title, count, children, tour, action }: { title: string; coun
   );
 }
 
-/** What was filed by itself: "→ #n-s · step · doc" per file, with Undo. */
-function FiledRow({ m, onUndo, onOpen }: { m: InboxMessage & { threadSubject?: string | null }; onUndo: (m: InboxMessage) => void; onOpen: (m: InboxMessage) => void }) {
+/** Round W: what was filed by itself — the result in plain words ("✅ Added to #16-2 — …", one line per document), with Undo. */
+function FiledRow({ m, lang, onUndo, onOpen }: { m: InboxMessage & { threadSubject?: string | null }; lang: "en" | "ja"; onUndo: (m: InboxMessage) => void; onOpen: (m: InboxMessage) => void }) {
+  const r = resultBox(m, lang);
   const href = orderHref(m.linked?.orderId, m.linked?.shipmentId, m.linked?.files[0]?.stepId ?? null);
   return (
-    <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ py: 0.75, borderTop: "1px solid", borderColor: "divider", cursor: "pointer" }} onClick={() => onOpen(m)}>
+    <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ py: 0.75, borderTop: "1px solid", borderColor: "divider", cursor: "pointer" }} onClick={() => onOpen(m)} data-tour="dashboard-filed-row">
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="body2" noWrap title={m.subject ?? ""}>
-          {m.subject || "(no subject)"}
+        <Typography variant="body2" sx={{ fontWeight: 700, color: r.tone === "done" ? "success.main" : "primary.main" }} noWrap title={r.headline}>
+          {href ? (
+            <Link href={href} onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none", color: "inherit" }}>
+              {r.headline}
+            </Link>
+          ) : (
+            r.headline
+          )}
         </Typography>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-          {m.linked?.ref &&
-            (href ? (
-              <Link href={href} onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none" }}>
-                <Chip size="small" color="success" variant="outlined" clickable label={`→ ${m.linked.ref}`} />
-              </Link>
-            ) : (
-              <Chip size="small" color="success" variant="outlined" label={`→ ${m.linked.ref}`} />
-            ))}
-          <Typography variant="caption" color="text.secondary">
-            {byLine(m.by)}
-          </Typography>
-        </Stack>
-        {m.linked?.files.map((f, i) => (
+        <Typography variant="caption" color="text.secondary" noWrap component="div" title={m.subject ?? ""}>
+          {m.subject || "(no subject)"} · {byLine(m.by)}
+        </Typography>
+        {r.lines.map((l, i) => (
           <Typography key={i} variant="caption" color="text.secondary" component="div" noWrap>
-            {linkedFileLine(f)}
+            • {l.text}
           </Typography>
         ))}
-        {m.linked?.linkOnly && (
-          <Typography variant="caption" color="text.secondary" component="div">
-            Linked to {m.linked.ref} (no files)
-          </Typography>
-        )}
       </Box>
       {m.canUndo && (
         <Button
           size="small"
+          sx={{ textTransform: "none" }}
           onClick={(e) => {
             e.stopPropagation();
             onUndo(m);
           }}
         >
-          Undo
+          {L[lang].undo}
         </Button>
       )}
     </Stack>
@@ -112,25 +106,32 @@ export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTas
       </Typography>
       <Stack spacing={2}>
         <Section
-          title="Emails to confirm"
+          title={actions.lang === "ja" ? "確認が必要なメール" : "Emails waiting for you"}
           count={inbox ? emails : ""}
           tour="dashboard-emails"
           action={
-            <Button component={Link} href="/portal/shipments/inbox" size="small">
-              See all in Inbox
+            <Button component={Link} href="/portal/shipments/dashboard?view=emails" size="small" sx={{ textTransform: "none" }} data-tour="dashboard-see-all-emails">
+              {L[actions.lang].seeAll}
             </Button>
           }
         >
           {data.loading && !inbox ? (
             <CircularProgress size={22} />
           ) : (
-            <InboxThreadList threads={inbox?.toConfirm.threads ?? []} actions={actions} emptyText="Nothing to confirm — all emails are linked." />
-          )}
-          {inbox && inbox.toConfirm.total > inbox.toConfirm.threads.length && (
-            <Typography variant="caption" color="text.secondary">
-              {inbox.toConfirm.total - inbox.toConfirm.threads.length} more thread{inbox.toConfirm.total - inbox.toConfirm.threads.length === 1 ? "" : "s"} —{" "}
-              <Link href="/portal/shipments/inbox">see all in Inbox</Link>
-            </Typography>
+            <InboxThreadList
+              tab="UNPROCESSED"
+              threads={inbox?.toConfirm.threads ?? []}
+              actions={actions}
+              emptyText={L[actions.lang].nothing}
+              listLimit={5}
+              footer={
+                inbox && inbox.toConfirm.total > inbox.toConfirm.threads.length ? (
+                  <Typography variant="caption" color="text.secondary">
+                    <Link href="/portal/shipments/dashboard?view=emails">{L[actions.lang].seeAll}</Link> ({inbox.toConfirm.total})
+                  </Typography>
+                ) : undefined
+              }
+            />
           )}
         </Section>
         <Section title="Filed automatically" count={inbox ? `last 3 days: ${inbox.filedAuto.length}` : ""} tour="dashboard-filed">
@@ -139,7 +140,7 @@ export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTas
               Nothing was filed by itself in the last 3 days.
             </Typography>
           ) : (
-            inbox.filedAuto.map((m) => <FiledRow key={m.id} m={m} onUndo={actions.onUndo} onOpen={actions.onOpen} />)
+            inbox.filedAuto.map((m) => <FiledRow key={m.id} m={m} lang={actions.lang} onUndo={actions.onUndo} onOpen={(mm) => actions.onOpen(mm)} />)
           )}
         </Section>
         <Section
@@ -202,20 +203,12 @@ export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTas
 export default function EmailDashboard() {
   const api = useShipmentsApi();
   const qc = useQueryClient();
-  const inbox = useQuery({ queryKey: ["trade-inbox", "dashboard"], queryFn: () => api.inboxDashboard(), refetchInterval: 30_000 });
+  const act = useInboxActions(() => inbox.refetch());
+  const inbox = useQuery({ queryKey: ["trade-inbox", "dashboard", act.lang], queryFn: () => api.inboxDashboard(act.lang), refetchInterval: 30_000 });
   const tasks = useMyTasks();
   const ships = useShipments({ tab: "in_transit", pageSize: 100 });
   const refreshTasks = useRefreshTasks();
-  const act = useInboxActions(() => inbox.refetch());
-  const actions: InboxActions = {
-    onCreateOrder: (t) => void act.createOrder(t),
-    onConfirm: (m) => void act.run(m, "accept"),
-    onChangeOrder: (m) => act.setAssign(m),
-    onNotShipment: (m) => act.setConfirm({ row: m, act: "dismiss" }),
-    onUndo: (m) => act.setConfirm({ row: m, act: "undo" }),
-    onOpen: (m) => act.setOpen(m),
-    pending: act.pending,
-  };
+  const actions: InboxActions = act.actions;
   if (inbox.isError) return <Alert severity="error">{(inbox.error as Error)?.message || "Could not load the dashboard"}</Alert>;
   return (
     <>

@@ -190,6 +190,14 @@ describe('intake: counterparty mail is never purged', () => {
     expect(() => mergeDocDefaults({}, { intakeKeepDomains: ['vedanta'] })).toThrow('not an email domain');
     expect(mergeDocDefaults({ intakeKeepDomains: ['a.com'] }, { intakeKeepDomains: null }).intakeKeepDomains).toBeUndefined();
   });
+  it('emailCompanies (round W): lower-case domains → names of 1–60 chars, max 200; {} clears', () => {
+    expect(mergeDocDefaults({}, { emailCompanies: { 'Isewan.co.jp': ' Isewan ', '@hoei.example.jp': 'Hoei' } }).emailCompanies).toEqual({ 'isewan.co.jp': 'Isewan', 'hoei.example.jp': 'Hoei' });
+    expect(() => mergeDocDefaults({}, { emailCompanies: { isewan: 'Isewan' } })).toThrow('not an email domain');
+    expect(() => mergeDocDefaults({}, { emailCompanies: { 'isewan.co.jp': '' } })).toThrow('1–60 characters');
+    expect(() => mergeDocDefaults({}, { emailCompanies: ['isewan.co.jp'] })).toThrow('must map a domain');
+    expect(mergeDocDefaults({ emailCompanies: { 'a.com': 'A' } }, { emailCompanies: {} }).emailCompanies).toEqual({});
+    expect(mergeDocDefaults({ emailCompanies: { 'a.com': 'A' } }, { emailCompanies: null }).emailCompanies).toBeUndefined();
+  });
 });
 
 describe('intake: document types', () => {

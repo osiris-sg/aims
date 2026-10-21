@@ -296,6 +296,17 @@ export class OperatorService {
         await adapter.sendText(msg.chatId, shipmentsHelp(ctx.organizationName, lang));
         return;
       }
+      // Round W: "1" / "2" / "0" / "X" answers the last question card sent to this number.
+      if (/^\s*([0-9]|x|×)\s*$/i.test(text)) {
+        const answered = await this.shipTools.answerNumbered(ctx, msg.channelUserId, text, lang).catch((e) => {
+          this.logger.warn(`numbered answer failed: ${(e as Error)?.message}`);
+          return null;
+        });
+        if (answered) {
+          await adapter.sendText(msg.chatId, answered);
+          return;
+        }
+      }
     }
 
     // Button taps

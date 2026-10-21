@@ -3,8 +3,8 @@
 
 // Round T — the Admin dashboard (ADH Manager / Admin, shipments:money). Reuses the Biofuel ops dashboard's
 // pieces (WidgetFrame cards, ColumnChart, the viz tokens / money formatter) and its style: stat tiles on
-// top, charts in cards, tables below. USD and JPY stay apart (no FX mixing); profit says "formula pending"
-// until ADH confirms the formula; imported invoices without payment data are "not tracked".
+// top, charts in cards, tables below. USD and JPY stay apart (no FX mixing); profit shows $0 until the
+// profit formula exists (round W: no "formula pending" label); imported invoices without payment data are "not tracked".
 
 import React from "react";
 import { Alert, Box, Chip, CircularProgress, Grid, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
@@ -104,7 +104,7 @@ export default function AdminDashboard() {
           <Tile label="Margin (USD)" value={fmt(s.margin.USD)} sub={`${s.orders} order${s.orders === 1 ? "" : "s"} delivered`} tone="good" />
         </Grid>
         <Grid item xs={6} md={2.4}>
-          <Tile label="Profit (USD)" value={s.profit.pending ? "formula pending" : fmt(s.profit.USD)} sub={s.profit.pending ? "until ADH sends the task list" : null} tone={s.profit.pending ? "warn" : "good"} />
+          <Tile label="Profit (USD)" value={fmt(s.profit.USD)} tone="good" />
         </Grid>
         <Grid item xs={6} md={2.4}>
           <Tile label="Tonnage" value={`${s.tonnageMt.toLocaleString("en-US")} MT`} sub="net, by arrival month" />
@@ -229,7 +229,7 @@ export default function AdminDashboard() {
                   <TableCell align="right">{fmt(o.costsJpy, "JPY")}</TableCell>
                   <TableCell align="right">{fmt(o.costsUsd)}</TableCell>
                   <TableCell align="right">{fmt(o.margin)}</TableCell>
-                  <TableCell align="right">{o.profitLabel ? <Chip size="small" variant="outlined" label={o.profitLabel} /> : fmt(o.profit)}</TableCell>
+                  <TableCell align="right">{fmt(o.profit ?? 0)}</TableCell>
                   <TableCell>
                     <Chip size="small" variant="outlined" label={o.status} />
                   </TableCell>

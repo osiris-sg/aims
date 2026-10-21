@@ -138,6 +138,13 @@ export type InboxRow = {
   review?: { outcome: "AUTO" | "ACCEPTED" | "CHANGED" | "REJECTED" | "IGNORED"; at: string; by: string | null } | null;
   /** "B/L 198GX04630" — applied by itself (PARTIAL_AUTO). */
   autoLabel?: string | null;
+  /** Round W: the independent sources that agree (two needed to apply by itself) and their words. */
+  sources?: string[];
+  sourceLines?: string[];
+  /** Round W: the nightly self-check's last result; a RECHECK question when it sent the email back. */
+  selfCheck?: { at: string; verdict: string; current: string[]; second: string[]; text: string; evidence: string } | null;
+  question?: { kind: string; at: string; text: string; current?: string[]; second?: string[]; secondText?: string } | null;
+  snoozedUntil?: string | null;
   /** Round R follow-up: a customer-level sheet (cost / price list) filed without an order — "General · SUS". */
   general?: { customerKey: string | null } | null;
   id: string;
@@ -145,6 +152,9 @@ export type InboxRow = {
   receivedAt: string;
   direction: "IN" | "OUT" | null;
   counterparty: string | null;
+  /** Round W: the company from the sender domain ("Isewan"; an unknown domain shows the domain itself). */
+  company?: string | null;
+  companyDomain?: string | null;
   verdict: string | null;
   inboxState: InboxTab | "PURGED" | "HIDDEN";
   subject: string | null;
@@ -714,12 +724,27 @@ export type InboxBy = { outcome: "AUTO" | "ACCEPTED" | "CHANGED" | "REJECTED" | 
 /** Round Q: the backlog kind and, for "No order yet", what the order form starts from. */
 export type OrderSeed = { piNo: string | null; contractNo: string | null; grade: string | null; qtyMt: number | null; customerKey: string | null; deliveryMonth: string | null };
 export type InboxBacklog = { kind: "HIDE" | "AUTO" | "CONFIRM" | "AUTO_LINK" | "HISTORY" | "PICK" | "NO_ORDER" | "IS_SHIPMENT"; reason: string; seed: OrderSeed | null };
-export type InboxMessage = InboxRow & { reason: InboxReason | null; matchReason: string | null; threadFrom: "accepted" | "traced" | "followed" | null; threadSize: number; linked: InboxLinked | null; by: InboxBy | null; backlog?: InboxBacklog | null; evidence?: string | null; reviewConfidence?: string | null };
+export type InboxMessage = InboxRow & { reason: InboxReason | null; matchReason: string | null; threadFrom: "accepted" | "traced" | "followed" | null; threadSize: number; linked: InboxLinked | null; by: InboxBy | null; backlog?: InboxBacklog | null; evidence?: string | null; reviewConfidence?: string | null; /** Round W: the email's first lines (own text). */ preview?: string };
+/** Round W: the question card of an unprocessed thread (see api-server email-question.ts). */
+export type InboxLang = "en" | "ja";
+export type InboxQuestionOption = { id: string; orderId: string; shipmentId: string | null; ref: string; summary: string; why: string; suggested: boolean };
+export type InboxQuestion = {
+  kind: "CONFIRM" | "WHICH" | "CHECK" | "NEW_DEAL" | "IS_SHIPMENT" | "RECHECK";
+  lang: InboxLang;
+  title: string;
+  found: string;
+  options: InboxQuestionOption[];
+  extras: { createOrder: boolean; notShipment: boolean; notDeal: boolean; askLater: boolean };
+  details: string[];
+  replyHint: string;
+};
+export type InboxAnswer = { kind: "record"; orderId: string | null; shipmentId: string | null } | { kind: "not_shipment" } | { kind: "not_deal" } | { kind: "later" };
+export type InboxAnswerResult = { kind: InboxAnswer["kind"]; ids: string[]; refs: string[]; files: number; text: string };
 export type InboxThreadLink = { orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null; from: "processed" | "suggested"; combined: Array<{ orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null }> };
-export type InboxThread = { id: string; by: "headers" | "subject" | "both"; section?: "NO_ORDER" | null; subject: string | null; latest: string | null; emails: number; files: number; link: InboxThreadLink | null; general?: { customerKey: string | null } | null; messages: InboxMessage[]; otherCount: number };
+export type InboxThread = { id: string; by: "headers" | "subject" | "both"; section?: "NO_ORDER" | null; subject: string | null; latest: string | null; emails: number; files: number; link: InboxThreadLink | null; general?: { customerKey: string | null } | null; messages: InboxMessage[]; otherCount: number; /** Round W: one question per thread, the ids it answers for, the earlier-email count. */ question?: InboxQuestion | null; answerIds?: string[]; earlier?: number };
 export type HiddenEmail = { id: string; date: string; fromDomain: string; subject: string; reason: string | null };
 export type InboxThreadsTab = "UNPROCESSED" | "PROCESSED";
-export type InboxThreads = { tab: InboxThreadsTab; counts: { unprocessed: number; processed: number }; total: number; threads: InboxThread[] };
+export type InboxThreads = { tab: InboxThreadsTab; counts: { unprocessed: number; processed: number; snoozed?: number }; total: number; threads: InboxThread[] };
 export type InboxDashboard = { toConfirm: { emails: number; threads: InboxThread[]; total: number }; filedAuto: Array<InboxMessage & { threadSubject: string | null }> };
 
 export type PiTablePlan = { rows: Array<{ row: NonNullable<InboxRow["supplierOrderSuggestions"]>[number]; month: string | null; orderId: string | null; orderLabel: string | null; fields: Record<string, string | number>; reason?: string }> };
@@ -1640,11 +1665,14 @@ export function useShipmentsApi() {
       emailIntake: () => call<EmailIntake>(`/email-intake`),
       // ── Email inbox (triage → process) ─────────────────────────────────
       inbox: (tab: InboxTab) => call<{ items: InboxRow[]; counts: Record<InboxTab, number> }>(`/email-inbox${qs({ tab })}`),
-      inboxThreads: (tab: InboxThreadsTab) => call<InboxThreads>(`/email-inbox/threads${qs({ tab })}`),
+      inboxThreads: (tab: InboxThreadsTab, lang?: InboxLang) => call<InboxThreads>(`/email-inbox/threads${qs({ tab, lang })}`),
+      /** Round W: one-tap answer of a question card (for every email it covers) and its Undo. */
+      inboxAnswer: (ids: string[], answer: InboxAnswer, lang?: InboxLang) => call<InboxAnswerResult>(`/email-inbox/answer${qs({ lang })}`, "POST", { ids, answer }),
+      inboxAnswerUndo: (ids: string[], kind: InboxAnswer["kind"]) => call<{ undone: number }>(`/email-inbox/answer/undo`, "POST", { ids, kind }),
       /** Round T: the whole email (headers, text, defused HTML, attachments) and its thread. */
       inboxMessage: (id: string) => call<EmailMessage>(`/email-inbox/${id}/message`),
       inboxThread: (id: string) => call<{ id: string; messages: InboxMessage[] }>(`/email-inbox/${id}/thread`),
-      inboxDashboard: () => call<InboxDashboard>(`/email-inbox/dashboard`),
+      inboxDashboard: (lang?: InboxLang) => call<InboxDashboard>(`/email-inbox/dashboard${qs({ lang })}`),
       inboxHidden: () => call<HiddenEmail[]>(`/email-inbox/hidden`),
       inboxUnhide: (id: string) => call<InboxRow>(`/email-inbox/${id}/unhide`, "POST"),
       inboxPiPrefill: (id: string) => call<PiExtraction>(`/email-inbox/${id}/pi-prefill`, "POST", {}, 180000),

@@ -13,7 +13,10 @@ import { sha256Of, TradeFilesService } from '../shipments/trade-files.service';
 import { TradeStepsService } from '../shipments/trade-steps.service';
 import { ShipmentsNotifyService } from '../shipments/shipments-notify.service';
 import { StoredEmailMeta } from './email-store';
-import { attachmentHits, attachmentTarget, autoTier, DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, recordRef, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
+import { companyOf, companyOverridesOf } from './email-companies';
+import { attachmentHits, attachmentTarget, autoTier, DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, orderCuesMatch, ownTextCues, recordRef, subjectCues, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
+import { auditLink, AuditResult, RECHECK_TEXT } from './email-audit';
+import { answerText, Lang, QuestionCard, QuestionInput, questionOf, questionWhatsAppText } from './email-question';
 import { splitQuoted } from './email-quote';
 import { blockRemoteContent, parseEmail, ParsedEmail } from './email-mime';
 import { buildReasonerPrompt, judgeReasoner, parseReasonerOutput, ReasonerContext, ReasonerJudgement, ReasonerRecordRow, ReasonerThreadMessage } from './email-reasoner';
@@ -94,6 +97,8 @@ export interface IntakeTarget {
 export type ReviewOutcome = 'AUTO' | 'ACCEPTED' | 'CHANGED' | 'REJECTED' | 'IGNORED';
 /** Who reviewed; `via` marks a decision made outside the portal (round S: 'whatsapp'). */
 export type EmailActor = { id: string | null; name: string | null; via?: 'whatsapp' | null };
+/** Round W: a question card's answer. */
+export type AnswerBody = { kind: 'record'; orderId?: string | null; shipmentId?: string | null } | { kind: 'not_shipment' } | { kind: 'not_deal' } | { kind: 'later' };
 
 const MODEL = 'claude-sonnet-4-6';
 /** Round R: the thread reasoner (reads the whole thread + attachment text against the open records). */
@@ -275,19 +280,92 @@ export class EmailTriageService {
   }
 
   /** Round S: an email that now waits for a person → WhatsApp "needs you" (batched; once per email). */
+  /** Round W: the WhatsApp question — the card's title, what AIMS found, numbered options, "Reply 1, 2 or 3" (in the user's language). */
   private async notifyNeedsMe(organizationId: string, logId: string, state: InboxState) {
     if (!this.whatsapp || (state !== 'SUGGESTED' && state !== 'UNMATCHED')) return;
     try {
-      const row: any = await this.row(organizationId, logId);
-      const reason = (row?.backlog?.kind as string | undefined) ?? null;
-      if (reason === 'NO_ORDER') return; // the digest counts these; creating an order is a portal job
-      const subj = (row?.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
-      const cands: string[] = (row?.candidates ?? []).slice(0, 3).map((c: any) => c.ref);
-      const text = row?.matched ? `📧 Confirm: "${subj}" → ${row.matched}?` : cands.length ? `📧 Pick the record for "${subj}": ${cands.join(' / ')}` : `📧 "${subj}" needs a record`;
-      await this.whatsapp.queue(organizationId, 'NEEDS_ME', text, { linkUrl: '/portal/shipments/inbox', dedupeKey: `needs:${logId}` });
+      const q = await this.questionOfLog(organizationId, logId, 'en');
+      if (!q) return;
+      if (q.card.kind === 'NEW_DEAL') return; // the digest counts these; creating an order is a portal job
+      const ja = await this.questionOfLog(organizationId, logId, 'ja');
+      const text = questionWhatsAppText(q.card, q.subject60);
+      await this.whatsapp.queue(organizationId, 'NEEDS_ME', text, { linkUrl: '/portal/shipments/dashboard', dedupeKey: `needs:${logId}`, textFor: (prefs) => (prefs.lang === 'ja' && ja ? questionWhatsAppText(ja.card, ja.subject60) : text) });
     } catch {
       /* best effort */
     }
+  }
+
+  /** Round W: the question card of one unprocessed email (its thread's card) — for WhatsApp and the numbered reply. */
+  async questionOfLog(organizationId: string, logId: string, lang: Lang): Promise<{ card: QuestionCard; answerIds: string[]; subject60: string } | null> {
+    const { threads } = await this.threads(organizationId, 'UNPROCESSED', { lang });
+    const t = threads.find((x) => x.answerIds.includes(logId));
+    if (!t?.question) return null;
+    return { card: t.question, answerIds: t.answerIds, subject60: (t.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) };
+  }
+
+  /**
+   * Round W: ONE-TAP ANSWER of a question card, for every unprocessed email it covers.
+   *   record        link (and file) each email to that order / shipment — "Linked to #18-2 · 2 files filed"
+   *   not_shipment  hide them (Settings → Email filter → Hidden brings them back) — never deleted
+   *   not_deal      the same, for a "new deal" card
+   *   later         ask again tomorrow (snoozed a day)
+   */
+  async answer(organizationId: string, body: { ids: string[]; answer: AnswerBody }, actor: EmailActor, lang: Lang = 'en') {
+    const ids = [...new Set((body.ids ?? []).filter((x) => typeof x === 'string'))].slice(0, 50);
+    if (!ids.length) throw new BadRequestException('Nothing to answer');
+    const a = body.answer;
+    const done: string[] = [];
+    const refs = new Set<string>();
+    let files = 0;
+    for (const id of ids) {
+      const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id, organizationId } });
+      if (!log || log.inboxState === 'PROCESSED' || log.inboxState === 'HIDDEN' || log.inboxState === 'PURGED') continue;
+      if (a.kind === 'record') {
+        if (!a.orderId && !a.shipmentId) throw new BadRequestException('Pick an order or a shipment');
+        const row = await this.assign(organizationId, id, { targets: [{ orderId: a.orderId ?? null, shipmentId: a.shipmentId ?? null }], accept: true }, actor);
+        if (row.matched) refs.add(row.matched);
+        files += (row.done ?? []).filter((x: IntakeAction) => x.kind === 'file' && x.status === 'done').length;
+      } else if (a.kind === 'not_shipment' || a.kind === 'not_deal') {
+        await this.prisma.emailIngestLog.update({
+          where: { id },
+          data: {
+            inboxState: 'HIDDEN',
+            purgeAfter: null,
+            actions: { ...((log.actions as object) ?? {}), answered: { kind: a.kind, at: new Date().toISOString(), by: actor.name ?? actor.id, via: actor.via ?? null }, backlog: { kind: 'HIDE', reason: a.kind === 'not_deal' ? 'not a deal (answered)' : 'not about a shipment (answered)', at: new Date().toISOString() } } as any,
+          },
+        });
+      } else if (a.kind === 'later') {
+        await this.prisma.emailIngestLog.update({ where: { id }, data: { actions: { ...((log.actions as object) ?? {}), snoozedUntil: new Date(Date.now() + 86_400_000).toISOString(), answered: { kind: 'later', at: new Date().toISOString(), by: actor.name ?? actor.id } } as any } });
+      } else throw new BadRequestException('Unknown answer');
+      done.push(id);
+      this.actionLog.system('email-question', a.kind === 'record' ? 'PROCESS' : 'UPDATE', 'EmailIngestLog', { organizationId, resourceId: id, details: { answer: a.kind, by: actor.name ?? actor.id, via: actor.via ?? 'portal', subject: (log.subject ?? '').slice(0, 60) } });
+    }
+    return { kind: a.kind, ids: done, refs: [...refs], files, text: answerText(a.kind, lang, { refs: [...refs], files, emails: done.length }) };
+  }
+
+  /** Round W: Undo of an answer — files back out (undo), hidden emails back, a snooze cleared. */
+  async answerUndo(organizationId: string, body: { ids: string[]; kind: AnswerBody['kind'] }, actor: EmailActor) {
+    const ids = [...new Set((body.ids ?? []).filter((x) => typeof x === 'string'))].slice(0, 50);
+    let n = 0;
+    for (const id of ids) {
+      const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id, organizationId } });
+      if (!log) continue;
+      if (body.kind === 'record') {
+        if ((((log.actions ?? {}) as any).done ?? []).some((x: IntakeAction) => x.status === 'done')) await this.undo(organizationId, id, actor);
+        else if (log.inboxState === 'PROCESSED') {
+          const { review: _r, ...rest } = ((log.actions ?? {}) as Record<string, any>) ?? {};
+          await this.prisma.emailIngestLog.update({ where: { id }, data: { inboxState: 'SUGGESTED', status: 'STORED', actions: { ...rest, done: [] } as any } });
+        } else continue;
+      } else if (body.kind === 'not_shipment' || body.kind === 'not_deal') {
+        if (log.inboxState !== 'HIDDEN') continue;
+        await this.unhide(organizationId, id);
+      } else if (body.kind === 'later') {
+        const { snoozedUntil: _s, ...rest } = ((log.actions ?? {}) as Record<string, any>) ?? {};
+        await this.prisma.emailIngestLog.update({ where: { id }, data: { actions: rest as any } });
+      }
+      n++;
+    }
+    return { undone: n };
   }
 
   /** Round S: what an email filed → WhatsApp (AN arrived / import permit as events; any auto-filed file as the quiet "filed" kind). */
@@ -343,7 +421,7 @@ export class EmailTriageService {
     if (manualList?.length) {
       targets = [];
       for (const m of manualList) targets.push({ ...(await this.resolveManual(organizationId, m)), attachmentIndexes: m.attachmentIndexes });
-      decision = { target: null, kind: null, confidence: 'exact', auto: false, blocked: ['picked by hand'], check: [], notes: [], source: null, multiOrderIds: [], candidates: prev.candidates ?? [], keyLabel: null, reason: 'picked by hand', threadFrom: null };
+      decision = { target: null, kind: null, confidence: 'exact', auto: false, blocked: ['picked by hand'], check: [], notes: [], source: null, sources: [], sourceLines: [], multiOrderIds: [], candidates: prev.candidates ?? [], keyLabel: null, reason: 'picked by hand', threadFrom: null };
     } else {
       decision = await this.decide(organizationId, log, ev);
       targets = decision.target ? [decision.target] : [];
@@ -367,6 +445,29 @@ export class EmailTriageService {
         this.logger.warn(`[email-reasoner] ${logId}: ${(e as Error)?.message}`);
         return null;
       });
+      // Round W, rule 3: the reasoner's verified answer is ONE source. It applies by itself only when a second,
+      // independent one agrees — the thread's accepted link, a rules key hit for that record, or the order-level
+      // cues. Otherwise its answer becomes the suggestion (the question card shows it first).
+      if (reasoned?.apply) {
+        const first = reasoned.targets[0];
+        const recs = await this.matchRecords(organizationId);
+        const tc = await this.threadContext(organizationId, log, recs);
+        const strong = findKeyHits(ev, recs, await this.ciPatterns(organizationId)).filter((h) => h.where.some((w) => w !== 'quoted') && h.orderId === first.orderId && (!h.shipmentId || !first.shipmentId || h.shipmentId === first.shipmentId));
+        const { own: ownTxt } = splitQuoted(ev.body ?? '');
+        const oc = orderCuesMatch(ev, recs, subjectCues(ev.subject, ev.date), ownTextCues(ownTxt, recs, ev.date));
+        const second = [
+          tc.accepted && tc.accepted.orderId === first.orderId && (!tc.accepted.shipmentId || !first.shipmentId || tc.accepted.shipmentId === first.shipmentId) ? 'the thread' : null,
+          strong.length ? `${strong[0].kind === 'bl' ? 'B/L' : strong[0].kind.toUpperCase()} ${strong[0].value} in the email` : null,
+          oc && !oc.ambiguous.length && oc.orders.length === 1 && oc.orders[0].orderId === first.orderId ? 'the order description' : null,
+        ].filter((x): x is string => !!x);
+        if (!second.length) {
+          const picked = reasoned.targets.map((t) => ({ orderId: t.orderId, shipmentId: t.shipmentId, attachmentIndexes: t.attachmentIndexes }));
+          targets = picked;
+          decision = { ...decision, target: { orderId: picked[0].orderId!, shipmentId: picked[0].shipmentId ?? null }, kind: 'bl', confidence: 'cues', auto: false, blocked: [...decision.blocked.filter((b) => !/^a:/.test(b)), 'w: the reasoner is one source — a second one must agree (two-source rule)'], check: [], multiOrderIds: [], reason: `reasoner: ${reasoned.evidence}`, keyLabel: reasoned.keyLabel, threadFrom: null, sources: ['own-text'], sourceLines: [`AIMS read the email and thread: ${reasoned.evidence}`] };
+          reasoned = { ...reasoned, apply: false, reason: `one source only — ${reasoned.reason}` };
+          plan = await this.buildPlan(organizationId, log, keys, targets, ev);
+        }
+      }
       if (reasoned?.apply) {
         targets = reasoned.targets.map((t) => ({ orderId: t.orderId, shipmentId: t.shipmentId, attachmentIndexes: t.attachmentIndexes }));
         // The reasoner's slot choice types the attachment (the planner files by the triage type).
@@ -395,6 +496,10 @@ export class EmailTriageService {
     // accepted / auto-applied message with no conflict (guards 1a–1e otherwise unchanged). Anything that files
     // documents stays "Confirm match".
     const filesSomething = plan.some((a) => a.kind === 'file' && a.status === 'planned');
+    // Round W, rule 3: anything that FILES a document or FILLS a field needs two agreeing sources to apply by itself.
+    // A link-only reply that follows its thread (nothing changed on the record) still links by itself — the nightly
+    // self-check re-verifies those.
+    const changesSomething = plan.some((a) => (a.kind === 'file' || a.kind === 'field') && a.status === 'planned');
     const threadAuto = decision.kind === 'thread' ? decision.threadFrom === 'accepted' && decision.auto && !filesSomething && !decision.check.length : true;
     if (decision.kind === 'thread' && !threadAuto && decision.threadFrom === 'accepted' && filesSomething) blocked.push('thread: files documents — confirm');
     const auto =
@@ -402,7 +507,8 @@ export class EmailTriageService {
       !manualList &&
       state === 'SUGGESTED' &&
       threadAuto &&
-      (mode === 'AUTO' ? !decision.check.length : mode === 'PARTIAL_AUTO' ? decision.auto && !unsupported.length && !needsShipment : false);
+      (mode === 'AUTO' ? !decision.check.length : mode === 'PARTIAL_AUTO' ? decision.auto && !unsupported.length && !needsShipment && (!changesSomething || ((decision.sources?.length ?? 0) >= 2 && (await this.slotsFree(organizationId, plan)))) : false);
+    if (!opts.safe && !manualList && state === 'SUGGESTED' && mode === 'PARTIAL_AUTO' && decision.auto && changesSomething && (decision.sources?.length ?? 0) < 2) blocked.push('w: one source only — filing needs two sources that agree');
     // Round Q: what kind of email this is (hide / auto-link / history / confirm / pick / no order) — stored on the
     // row for the inbox; applied live below (never with `safe`, never in TRIAGE).
     // Round U: apply by itself when the decision is sure — HIGH (a hard key in an attachment / the own text, no
@@ -433,6 +539,8 @@ export class EmailTriageService {
           // Round T: informational notes (multi-product subject, quoted mentions) and which cue decided.
           notes: decision.notes ?? [],
           source: decision.source ?? null,
+          sources: decision.sources ?? [],
+          sourceLines: decision.sourceLines ?? [],
           blocked,
           candidates: decision.candidates,
           multiOrderIds: decision.multiOrderIds,
@@ -554,7 +662,12 @@ export class EmailTriageService {
   reasonerAi: AiCall = (system, user) => this.callClaude(system, user, REASONER_MODEL);
 
   /** Round R: the thread reasoner — build the context, ask the model, verify its answer (email-reasoner.ts). */
-  async reason(organizationId: string, log: any, ev: EmailEvidence): Promise<ReasonerJudgement> {
+  /**
+   * Round W: `independent` = the second pass. The model does NOT see the email's current link, nor any link in its
+   * thread that AIMS applied by itself — only links a person confirmed or changed. The audit and the nightly
+   * self-check compare its answer with the stored link.
+   */
+  async reason(organizationId: string, log: any, ev: EmailEvidence, opts: { independent?: boolean } = {}): Promise<ReasonerJudgement> {
     const records = await this.matchRecords(organizationId);
     const open = records.filter((r) => r.orderStatus === 'OPEN');
     // (No container-number column yet: the containers list stays empty until the B/L read stores them.)
@@ -591,10 +704,15 @@ export class EmailTriageService {
         linkedRef: l.shipmentId ? (refs.ship.get(l.shipmentId) ?? null) : l.orderId ? (refs.order.get(l.orderId) ?? null) : null,
       };
     };
+    const human = (l: any) => ['ACCEPTED', 'CHANGED'].includes(String(l?.actions?.review?.outcome ?? ''));
     const threadRows = (await this.threadRows(organizationId, log)).slice(-8);
     const thread: ReasonerThreadMessage[] = [];
-    for (const t of threadRows) thread.push(await toMsg(t, await this.evidence(t)));
-    const ctx: ReasonerContext = { email: await toMsg(log, ev), thread, rows };
+    for (const t of threadRows) {
+      const m = await toMsg(t, await this.evidence(t));
+      thread.push(opts.independent && !human(t) ? { ...m, linkedRef: null } : m);
+    }
+    const self = await toMsg(log, ev);
+    const ctx: ReasonerContext = { email: opts.independent ? { ...self, linkedRef: null } : self, thread, rows };
     const { system, user } = buildReasonerPrompt(ctx);
     const raw = await this.reasonerAi(system, user);
     const out = parseReasonerOutput(raw, rows, ev.attachments.length);
@@ -1245,6 +1363,107 @@ export class EmailTriageService {
     return due.length;
   }
 
+  // ── round W: the second pass (audit + nightly self-check) ────────────────
+  /**
+   * Re-verify one stored link: the hard evidence the email carries (strong key hits, order-level cues) and the
+   * independent second pass (the reasoner without the current link) against what is stored. Pure comparison in
+   * email-audit.ts. `store` keeps the result on the row (actions.selfCheck) for the "Why?" panel.
+   */
+  async secondPass(organizationId: string, logId: string, opts: { store?: boolean } = {}): Promise<AuditResult & { logId: string; subject: string | null; fromDomain: string }> {
+    const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
+    if (!log) throw new NotFoundException('Email not found');
+    const a = (log.actions ?? {}) as Record<string, any>;
+    const general = !!a.general && !log.orderId && !log.shipmentId;
+    const current: Array<{ orderId: string; shipmentId: string | null }> = (Array.isArray(a.targets) && a.targets.length ? a.targets : log.orderId ? [{ orderId: log.orderId, shipmentId: log.shipmentId ?? null }] : []).filter((t: any) => t?.orderId).map((t: any) => ({ orderId: t.orderId, shipmentId: t.shipmentId ?? null }));
+    const ev = await this.evidence(log);
+    const records = await this.matchRecords(organizationId);
+    const hits = findKeyHits(ev, records, await this.ciPatterns(organizationId));
+    const { own } = splitQuoted(ev.body ?? '');
+    const oc = orderCuesMatch(ev, records, subjectCues(ev.subject, ev.date), ownTextCues(own, records, ev.date));
+    const second = await this.reason(organizationId, log, ev, { independent: true }).catch((e) => {
+      this.logger.warn(`[second-pass] ${logId}: ${(e as Error)?.message}`);
+      return null;
+    });
+    const result = auditLink({ current, general, hits, orderCues: oc && !oc.ambiguous.length ? oc.orders : [], second, records });
+    if (opts.store) {
+      const fresh = await this.prisma.emailIngestLog.findFirst({ where: { id: logId }, select: { actions: true } });
+      await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { actions: { ...((fresh?.actions as object) ?? {}), selfCheck: { at: new Date().toISOString(), verdict: result.verdict, current: result.currentRefs, second: result.secondRefs, text: result.secondText, evidence: result.evidence } } as any } });
+    }
+    return { ...result, logId, subject: log.subject ?? null, fromDomain: (/@([^>\s]+)/.exec(log.fromAddress ?? '')?.[1] ?? '?').toLowerCase() };
+  }
+
+  /**
+   * Round W: a link the second pass disagrees with goes back to Unprocessed as a QUESTION — what it did is undone
+   * (files removed, steps reopened), the stored link stays as the first answer option, the second pass's answer is
+   * the other, and the card says "AIMS re-checked this and isn't sure anymore".
+   */
+  async sendBackAsQuestion(organizationId: string, logId: string, result: AuditResult, actor: EmailActor, source: 'audit' | 'self-check') {
+    const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
+    if (!log) throw new NotFoundException('Email not found');
+    const did = (((log.actions ?? {}) as any).done ?? []).some((x: IntakeAction) => x.status === 'done');
+    if (did) await this.undo(organizationId, logId, actor);
+    const fresh: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId }, select: { actions: true, orderId: true, shipmentId: true } });
+    const prev = (fresh?.actions ?? {}) as Record<string, any>;
+    const second = (result.secondTargets ?? []).map((t) => ({ orderId: t.orderId, shipmentId: t.shipmentId }));
+    await this.prisma.emailIngestLog.update({
+      where: { id: logId },
+      data: {
+        inboxState: fresh?.orderId || fresh?.shipmentId ? 'SUGGESTED' : 'UNMATCHED',
+        status: 'STORED',
+        purgeAfter: null,
+        actions: {
+          ...prev,
+          done: [],
+          review: undefined,
+          autoLabel: null,
+          question: { kind: 'RECHECK', at: new Date().toISOString(), source, text: RECHECK_TEXT.en, textJa: RECHECK_TEXT.ja, current: result.currentRefs, second: result.secondRefs, secondTargets: second, secondText: result.secondText, evidence: result.evidence, hardCurrent: result.hardCurrent, hardSecond: result.hardSecond },
+          selfCheck: { at: new Date().toISOString(), verdict: result.verdict, current: result.currentRefs, second: result.secondRefs, text: result.secondText, evidence: result.evidence },
+        } as any,
+      },
+    });
+    this.actionLog.system(source === 'audit' ? 'email-audit' : 'email-self-check', 'UPDATE', 'EmailIngestLog', { organizationId, resourceId: logId, details: { verdict: result.verdict, current: result.currentRefs, second: result.secondRefs, subject: (log.subject ?? '').slice(0, 60) } });
+    await this.notifyNeedsMe(organizationId, logId, 'SUGGESTED');
+    return this.row(organizationId, logId);
+  }
+
+  /**
+   * Round W, rule 4 — nightly self-check: the second pass runs again on every email AIMS linked by itself in the
+   * last 7 days (orgs with the reasoner on). A disagreement goes back to Unprocessed as a question; the nightly
+   * never moves a link by itself.
+   */
+  @Cron('47 3 * * *')
+  async selfCheck(orgId?: string): Promise<{ checked: number; sentBack: number }> {
+    const since = new Date(Date.now() - 7 * 86_400_000);
+    const rows: Array<{ id: string; organizationId: string; actions: any }> = await this.prisma.emailIngestLog.findMany({
+      where: { ...(orgId ? { organizationId: orgId } : {}), inboxState: 'PROCESSED', updatedAt: { gte: since } },
+      select: { id: true, organizationId: true, actions: true },
+      take: 400,
+    });
+    let checked = 0;
+    let sentBack = 0;
+    const orgs = new Map<string, boolean>();
+    for (const r of rows) {
+      const review = r.actions?.review;
+      if (review?.outcome !== 'AUTO' || !review.at || new Date(review.at) < since) continue;
+      if (!orgs.has(r.organizationId)) orgs.set(r.organizationId, await this.reasonerOn(r.organizationId));
+      if (!orgs.get(r.organizationId)) continue;
+      await runAsOrg(r.organizationId, async () => {
+        const res = await this.secondPass(r.organizationId, r.id, { store: true }).catch((e) => {
+          this.logger.warn(`[self-check] ${r.id}: ${(e as Error)?.message}`);
+          return null;
+        });
+        if (!res) return;
+        checked++;
+        if (res.verdict === 'DISAGREE_CLEAR' || res.verdict === 'DISAGREE_UNCLEAR') {
+          await this.sendBackAsQuestion(r.organizationId, r.id, res, SYSTEM_ACTOR, 'self-check');
+          sentBack++;
+        }
+      });
+    }
+    if (checked) this.logger.log(`[self-check] checked ${checked}, sent back ${sentBack}`);
+    return { checked, sentBack };
+  }
+
   // ── inbox ───────────────────────────────────────────────────────────────
   async inbox(organizationId: string, tab: InboxState) {
     const logs: any[] = await this.prisma.emailIngestLog.findMany({ where: { organizationId, inboxState: tab }, orderBy: { createdAt: 'desc' }, take: 200 });
@@ -1325,22 +1544,73 @@ export class EmailTriageService {
     return this.shape(l, await this.refs(organizationId, l.orderId ? [l.orderId] : [], l.shipmentId ? [l.shipmentId] : []));
   }
 
+  /** Round W (C.4): the org's domain → company list (docDefaults.emailCompanies), cached 60 s per org. */
+  private companyCache = new Map<string, { at: number; map: Record<string, string> }>();
+  private async companyOverrides(organizationId: string): Promise<Record<string, string>> {
+    const hit = this.companyCache.get(organizationId);
+    if (hit && Date.now() - hit.at < 60_000) return hit.map;
+    const map = companyOverridesOf((await this.config.getSettings(organizationId).catch(() => null))?.docDefaults);
+    this.companyCache.set(organizationId, { at: Date.now(), map });
+    return map;
+  }
+
   private async refs(organizationId: string, orderIds: string[], shipmentIds: string[]) {
+    const companies = await this.companyOverrides(organizationId);
     const oSel = { id: true, orderNo: true, grade: true, qtyMt: true, customer: { select: { name: true } } };
     const [orders, ships]: [any[], any[]] = await Promise.all([
       orderIds.length ? this.prisma.tradeOrder.findMany({ where: { organizationId, id: { in: orderIds } }, select: oSel }) : [],
-      shipmentIds.length ? this.prisma.shipment.findMany({ where: { organizationId, id: { in: shipmentIds } }, select: { id: true, seqNo: true, blNumber: true, netWeightMt: true, order: { select: oSel } } }) : [],
+      shipmentIds.length ? this.prisma.shipment.findMany({ where: { organizationId, id: { in: shipmentIds } }, select: { id: true, seqNo: true, blNumber: true, netWeightMt: true, vessel: true, eta: true, order: { select: oSel } } }) : [],
     ]);
+    // Round W: the question card's record summary — "#18-2 · SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct".
+    const etaShort = (v: unknown) => (v ? new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tokyo', day: 'numeric', month: 'short' }).format(new Date(v as string)) : null);
+    const summary = (ref: string, o: any, s?: any) => [ref, [(o?.customer?.name ?? '').split(/[\s,]+/)[0] || null, o?.grade].filter(Boolean).join(' ') || null, s?.netWeightMt != null ? `${Number(s.netWeightMt) % 1 ? Number(s.netWeightMt).toFixed(1) : Number(s.netWeightMt)} t` : o?.qtyMt != null ? `${Number(o.qtyMt)} t` : null, s?.vessel ?? null, s?.eta ? `ETA ${etaShort(s.eta)}` : null].filter(Boolean).join(' · ');
     // "#20-1 · Kato 6005 40t · B/L 276956322" — the record in one line (round P).
     const short = (name: string | null | undefined) => (name ?? '').split(/[\s,]+/)[0] || null;
     const qty = (v: unknown) => (v === null || v === undefined || v === '' ? null : `${Number(v) % 1 ? Number(v).toFixed(1) : Number(v)}t`);
     const label = (ref: string, o: any, bl?: string | null, net?: unknown) => [ref, [short(o?.customer?.name), o?.grade, qty(net ?? o?.qtyMt)].filter(Boolean).join(' ') || null, bl ? `B/L ${bl}` : null].filter(Boolean).join(' · ');
     return {
+      companies,
       order: new Map<string, string>(orders.map((o) => [o.id, `#${o.orderNo}`])),
       ship: new Map<string, string>(ships.map((s) => [s.id, s.order ? `#${s.order.orderNo}${s.seqNo ? `-${s.seqNo}` : ''}` : (s.blNumber ?? 'shipment')])),
       orderLabel: new Map<string, string>(orders.map((o) => [o.id, label(`#${o.orderNo}`, o)])),
       shipLabel: new Map<string, string>(ships.map((s) => [s.id, label(s.order ? `#${s.order.orderNo}${s.seqNo ? `-${s.seqNo}` : ''}` : 'shipment', s.order, s.blNumber, s.netWeightMt)])),
+      summary: new Map<string, string>([
+        ...orders.map((o): [string, string] => [`${o.id}:`, summary(`#${o.orderNo}`, o)]),
+        ...ships.map((s): [string, string] => [`${s.order?.id ?? ''}:${s.id}`, summary(s.order ? `#${s.order.orderNo}${s.seqNo ? `-${s.seqNo}` : ''}` : 'shipment', s.order, s)]),
+      ]),
     };
+  }
+
+  /** Round W: the question card of an unprocessed message (see email-question.ts). */
+  private questionFor(m: any, refs: { order: Map<string, string>; ship: Map<string, string>; summary: Map<string, string> }, lang: Lang, thread: { size: number; subject: string | null; seed?: any; links?: Array<{ orderId: string; shipmentId: string | null }> }): QuestionCard | null {
+    if (!m.reason && !m.question) return null;
+    const refOf = (orderId: string, shipmentId: string | null) => (shipmentId ? refs.ship.get(shipmentId) : refs.order.get(orderId)) ?? '#?';
+    const summaryOf = (orderId: string, shipmentId: string | null) => refs.summary.get(`${orderId}:${shipmentId ?? ''}`) ?? (shipmentId ? [...refs.summary.entries()].find(([k]) => k.endsWith(`:${shipmentId}`))?.[1] : null) ?? refs.summary.get(`${orderId}:`) ?? null;
+    const suggested = m.orderId || m.shipmentId ? { orderId: m.orderId, shipmentId: m.shipmentId ?? null, ref: m.matched ?? refOf(m.orderId, m.shipmentId), why: (m.sourceLines?.length ? m.sourceLines : m.matchReason ? [m.matchReason] : []) as string[] } : null;
+    const candidates: QuestionInput['candidates'] = [];
+    // Only candidates that fit for a reason (the picker's shortlist pads to 3 with zero-score records).
+    for (const c of (m.candidates ?? []) as Array<{ orderId: string; shipmentId: string | null; ref: string; score?: number; reasons: string[] }>) if ((c.reasons ?? []).length && (c.score ?? 1) > 0) candidates.push({ orderId: c.orderId, shipmentId: c.shipmentId, ref: c.ref, why: c.reasons ?? [] });
+    for (const l of [...((m.targets ?? []) as Array<{ orderId: string | null; shipmentId: string | null }>), ...(thread.links ?? [])]) if (l.orderId) candidates.push({ orderId: l.orderId, shipmentId: l.shipmentId ?? null, ref: refOf(l.orderId, l.shipmentId ?? null), why: [lang === 'ja' ? 'このスレッドの出荷' : 'one of this thread\u2019s shipments'] });
+    for (const id of (m.multiOrderIds ?? []) as string[]) candidates.push({ orderId: id, shipmentId: null, ref: refOf(id, null), why: [lang === 'ja' ? 'メールに記載' : 'named in the email'] });
+    const q = m.question as { kind?: string; current?: string[]; secondTargets?: Array<{ orderId: string; shipmentId: string | null }>; secondText?: string } | null;
+    const recheck = q?.kind === 'RECHECK' ? { current: q.current ?? [], second: (q.secondTargets ?? []).map((s) => ({ ...s, ref: refOf(s.orderId, s.shipmentId) })), secondText: q.secondText ?? '' } : null;
+    return questionOf({
+      lang,
+      reasonCode: m.reason?.code ?? null,
+      subject: m.subject,
+      company: m.company ?? null,
+      attachments: (m.attachments ?? []).map((a: any) => a.name),
+      keys: m.keys,
+      threadSize: thread.size,
+      threadSubject: thread.subject,
+      suggested,
+      candidates,
+      check: m.check ?? [],
+      recheck,
+      seed: thread.seed ?? m.backlog?.seed ?? null,
+      summaryOf,
+      date: m.date ? new Date(m.date) : null,
+    });
   }
 
   /** Round P: the step a filed / planned document goes to ("3b · Shipping documents") and the document types' labels. */
@@ -1368,15 +1638,21 @@ export class EmailTriageService {
    * needs a person) or PROCESSED (accepted / auto-applied / ignored, with who and when). One row per thread
    * (Message-ID chain, else the subject), its messages newest first, the thread's link and counts.
    */
-  async threads(organizationId: string, tab: 'UNPROCESSED' | 'PROCESSED', opts: { limit?: number; sinceDays?: number } = {}) {
+  async threads(organizationId: string, tab: 'UNPROCESSED' | 'PROCESSED', opts: { limit?: number; sinceDays?: number; lang?: Lang } = {}) {
     const states = tab === 'PROCESSED' ? ['PROCESSED'] : ['SUGGESTED', 'UNMATCHED', 'UNSURE'];
+    const lang: Lang = opts.lang === 'ja' ? 'ja' : 'en';
+    const now = Date.now();
+    // Round W: "Ask later" snoozes a message for a day — it leaves Unprocessed until then.
+    const snoozed = (l: any) => !!l.actions?.snoozedUntil && new Date(l.actions.snoozedUntil).getTime() > now;
     const all: any[] = await this.prisma.emailIngestLog.findMany({
       where: { organizationId, inboxState: { in: ['SUGGESTED', 'UNMATCHED', 'UNSURE', 'PROCESSED'] } },
       orderBy: { createdAt: 'desc' },
       take: 600,
     });
-    const counts = { unprocessed: all.filter((l) => l.inboxState !== 'PROCESSED').length, processed: all.filter((l) => l.inboxState === 'PROCESSED').length };
-    const refs = await this.refs(organizationId, [...new Set(all.map((l) => l.orderId).filter(Boolean))], [...new Set(all.map((l) => l.shipmentId).filter(Boolean))]);
+    const counts = { unprocessed: all.filter((l) => l.inboxState !== 'PROCESSED' && !snoozed(l)).length, processed: all.filter((l) => l.inboxState === 'PROCESSED').length, snoozed: all.filter((l) => l.inboxState !== 'PROCESSED' && snoozed(l)).length };
+    // Round W: the question card's other options (the second pass's records, a multi-link email's targets) need refs too.
+    const extra = all.flatMap((l) => [...(((l.actions ?? {}) as any).question?.secondTargets ?? []), ...(((l.actions ?? {}) as any).targets ?? []), ...(((l.actions ?? {}) as any).candidates ?? [])] as Array<{ orderId?: string | null; shipmentId?: string | null }>);
+    const refs = await this.refs(organizationId, [...new Set([...all.map((l) => l.orderId), ...extra.map((t) => t.orderId)].filter(Boolean))], [...new Set([...all.map((l) => l.shipmentId), ...extra.map((t) => t.shipmentId)].filter(Boolean))]);
     const labels = await this.stepLabels(organizationId, all.flatMap((l) => [...(((l.actions ?? {}) as any).planned ?? []), ...(((l.actions ?? {}) as any).done ?? [])]));
     const rowOf = (l: any) => {
       const m = (l.rawMeta ?? {}) as Partial<StoredEmailMeta>;
@@ -1389,10 +1665,14 @@ export class EmailTriageService {
     const linkOf = (orderId: string | null, shipmentId: string | null) => ({ orderId, shipmentId, ref: shipmentId ? (refs.ship.get(shipmentId) ?? null) : orderId ? (refs.order.get(orderId) ?? null) : null, label: shipmentId ? (refs.shipLabel.get(shipmentId) ?? null) : orderId ? (refs.orderLabel.get(orderId) ?? null) : null });
     const threads = grouped
       .map((t) => {
-        const inTab = t.messages.filter((r) => states.includes(r.inboxState ?? '') && (!since || new Date(r.date ?? 0).getTime() >= since));
+        const inTab = t.messages.filter((r) => states.includes(r.inboxState ?? '') && (!since || new Date(r.date ?? 0).getTime() >= since) && (tab === 'PROCESSED' || !snoozed(byId.get(r.id))));
         if (!inTab.length) return null;
         const link = threadLink(t.messages);
         const messages = inTab.map((r) => this.shapeMessage(byId.get(r.id), refs, labels, t.messages.length));
+        // Round W: ONE question per thread — asked about the newest unprocessed message; answering covers them all.
+        const newestMsg = messages[0] ?? null;
+        const seed = messages.map((m) => m.backlog?.seed).find((s) => s && (s.piNo || s.grade || s.qtyMt)) ?? messages.map((m) => m.backlog?.seed).find(Boolean) ?? null;
+        const question = tab === 'UNPROCESSED' && newestMsg ? this.questionFor(newestMsg, refs, lang, { size: t.messages.length, subject: byId.get(t.messages[t.messages.length - 1].id)?.subject ?? null, seed, links: link?.combined?.length ? link.combined : link ? [{ orderId: link.orderId, shipmentId: link.shipmentId }] : [] }) : null;
         const files = t.messages.reduce((n, r) => n + ((((byId.get(r.id)?.rawMeta ?? {}) as Partial<StoredEmailMeta>).attachments ?? []).length), 0);
         const latest = byId.get(t.messages[0].id);
         return {
@@ -1410,6 +1690,10 @@ export class EmailTriageService {
           messages,
           /** Messages of the thread outside this tab (a Processed one on an Unprocessed thread, and the other way round). */
           otherCount: t.messages.length - inTab.length,
+          /** Round W: the question card (Unprocessed), the ids it answers for, and how many earlier emails the timeline holds. */
+          question,
+          answerIds: tab === 'UNPROCESSED' ? inTab.map((r) => r.id) : [],
+          earlier: t.messages.length - 1,
         };
       })
       .filter((x): x is NonNullable<typeof x> => !!x);
@@ -1445,6 +1729,8 @@ export class EmailTriageService {
     return {
       ...base,
       reason: unprocessedReason({ inboxState: base.inboxState, orderId: base.orderId, shipmentId: base.shipmentId, check: base.check, multiOrderRefs: multiRefs, needsShipment, backlogKind: a.backlog?.kind ?? null }),
+      /** Round W: the email's first lines (own text, quoted history stripped) — shown under the question card. */
+      preview: splitQuoted(String(((l.rawMeta ?? {}) as any).bodyText ?? '')).own.replace(/\s+/g, ' ').trim().slice(0, 320),
       /** Round Q: the backlog kind (HIDE / AUTO_LINK / HISTORY / NO_ORDER / CONFIRM / PICK / IS_SHIPMENT) and the order-form seed. */
       backlog: a.backlog ? { kind: a.backlog.kind, reason: a.backlog.reason, seed: a.backlog.seed ?? null } : null,
       matchReason: a.reason ?? null,
@@ -1457,8 +1743,8 @@ export class EmailTriageService {
   }
 
   /** Round P — the Sales dashboard: emails to confirm (threads, newest first) and what was filed by itself in the last 3 days. */
-  async dashboard(organizationId: string) {
-    const [todo, done] = await Promise.all([this.threads(organizationId, 'UNPROCESSED', { limit: 10 }), this.threads(organizationId, 'PROCESSED', { sinceDays: 3 })]);
+  async dashboard(organizationId: string, lang: Lang = 'en') {
+    const [todo, done] = await Promise.all([this.threads(organizationId, 'UNPROCESSED', { limit: 10, lang }), this.threads(organizationId, 'PROCESSED', { sinceDays: 3, lang })]);
     const filedAuto = done.threads
       .flatMap((t) => t.messages.map((m) => ({ ...m, threadSubject: t.subject })))
       .filter((m) => m.by?.outcome === 'AUTO')
@@ -1466,7 +1752,7 @@ export class EmailTriageService {
     return { toConfirm: { emails: todo.counts.unprocessed, threads: todo.threads, total: todo.total }, filedAuto };
   }
 
-  private shape(l: any, refs: { order: Map<string, string>; ship: Map<string, string> }) {
+  private shape(l: any, refs: { order: Map<string, string>; ship: Map<string, string>; companies?: Record<string, string> }) {
     const meta = (l.rawMeta ?? {}) as Partial<StoredEmailMeta>;
     const actions = (l.actions ?? {}) as { planned?: IntakeAction[]; done?: IntakeAction[]; matchedBy?: string | null };
     const triage = (l.triage ?? {}) as Partial<TriageResult> & { error?: string | null };
@@ -1476,6 +1762,8 @@ export class EmailTriageService {
       receivedAt: l.createdAt,
       direction: l.direction,
       counterparty: l.counterparty,
+      company: companyOf(l.fromAddress, refs.companies).name,
+      companyDomain: companyOf(l.fromAddress, refs.companies).domain,
       verdict: l.verdict,
       inboxState: l.inboxState,
       subject: l.subject,
@@ -1491,6 +1779,12 @@ export class EmailTriageService {
       notes: (actions as { notes?: string[] }).notes ?? [],
       autoTier: (actions as { autoTier?: string | null }).autoTier ?? null,
       source: (actions as { source?: string | null }).source ?? null,
+      /** Round W: the independent sources that agree (two needed for auto) and the self-check result. */
+      sources: (actions as { sources?: string[] }).sources ?? [],
+      sourceLines: (actions as { sourceLines?: string[] }).sourceLines ?? [],
+      selfCheck: (actions as { selfCheck?: unknown }).selfCheck ?? null,
+      question: (actions as { question?: unknown }).question ?? null,
+      snoozedUntil: (actions as { snoozedUntil?: string | null }).snoozedUntil ?? null,
       confidence: (actions as { confidence?: string }).confidence ?? null,
       /** Which guard kept it a suggestion. */
       blocked: (actions as { blocked?: string[] }).blocked ?? [],

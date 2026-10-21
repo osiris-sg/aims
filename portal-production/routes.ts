@@ -23,7 +23,7 @@ export const ROUTES = {
   SHIPMENTS: "/portal/shipments",
   SHIPMENT_CONTRACTS: "/portal/shipments/contracts",
   SHIPMENT_ORDER: "/portal/shipments/orders",
-  SHIPMENT_INBOX: "/portal/shipments/inbox",
+  SHIPMENT_INBOX: "/portal/shipments/dashboard?view=emails",
   SHIPMENT_DASHBOARD: "/portal/shipments/dashboard",
   SHIPMENT_DECLARATION: "/portal/shipments/declaration",
   SHIPMENT_SUPPLIER_ORDERS: "/portal/shipments/supplier-orders",

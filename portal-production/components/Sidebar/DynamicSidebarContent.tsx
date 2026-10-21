@@ -47,6 +47,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { getListRouteFromPathname } from "@/app/portal/components/documentRoutes";
 import { useSidebar } from "./SidebarContext";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
+import { visibleSalesSubmenus } from "@/helpers/shipmentsNav";
 
 // Material UI icon mapping
 const iconMap: Record<string, React.ComponentType> = {
@@ -219,7 +220,9 @@ export default function DynamicSidebarContent() {
         const key = typeof s === 'string' ? s : s?.key;
         // CRM → Marketing rides on the enableAdsInsights org flag.
         if (key === 'marketing' && m.moduleCode === 'CRM' && !isAdsInsightsEnabled) return false;
-        // Round P: every Sales (Shipments) submenu shows (same rule as the top bar).
+        // Round P: every Sales (Shipments) submenu shows (same rule as the top bar) — except the retired
+        // ones (round W: Inbox left the menu; the Dashboard hosts the emails now), whatever the DB row says.
+        if (m.moduleCode === 'SHIPMENTS' && visibleSalesSubmenus([s]).length === 0) return false;
         // Role-gated submenu (see TopNavBar — same rule).
         if (typeof s === 'object' && Array.isArray(s.roles) && userRoles.length > 0 && !isAdminUser) {
           if (!userRoles.some((r: any) => s.roles.includes(r?.name))) return false;

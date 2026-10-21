@@ -288,6 +288,8 @@ export interface Candidate {
 
 /** Round T: which cue decided (see MATCH_PRIORITY). */
 export type MatchSource = 'attachment' | 'own' | 'subject' | 'order-cues' | 'own-cues' | 'thread' | 'subject-cues' | null;
+/** Round W: the independent places a match can come from (a key and product words in the SAME text are one source). */
+export type SourceFamily = 'attachment' | 'own-text' | 'subject' | 'thread';
 
 /**
  * Round T (2026-10-22, owner: "Pick shipment / subject disagrees is the main problem half the time"). The cues an
@@ -322,6 +324,14 @@ export interface MatchDecision {
   notes: string[];
   /** Round T: which cue decided. */
   source: MatchSource;
+  /**
+   * Round W (rule 3): every INDEPENDENT place that agrees with the target — 'attachment' (a key in an attachment's
+   * content), 'own-text' (a key or product words in the sender's own text), 'subject' (a key, product words or the
+   * order description in the subject), 'thread' (the thread's accepted link). Auto-apply needs TWO.
+   */
+  sources: SourceFamily[];
+  /** The same, in words ("B/L 198GX06003 in the attachment", "the subject names the order"). */
+  sourceLines: string[];
   /** Several orders in one email: the ones it touches. */
   multiOrderIds: string[];
   candidates: Candidate[];
@@ -469,7 +479,36 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
     })
     .sort((a, b) => b.score - a.score);
   const candidates: Candidate[] = scored.slice(0, 3).map((x) => ({ orderId: x.r.orderId, shipmentId: x.r.shipmentId, ref: recordRef(x.r), score: x.score, reasons: x.reasons }));
-  const out: MatchDecision = { target: null, kind: null, confidence: 'none', auto: false, blocked: [], check: [], notes: [], source: null, multiOrderIds: [], candidates, keyLabel: null, reason: null, threadFrom: null };
+  const out: MatchDecision = { target: null, kind: null, confidence: 'none', auto: false, blocked: [], check: [], notes: [], source: null, sources: [], sourceLines: [], multiOrderIds: [], candidates, keyLabel: null, reason: null, threadFrom: null };
+  // Round W (rule 3): every independent place that agrees with a target — computed for whatever decides.
+  const ocAll = orderCuesMatch(ev, records, cues, ownCues);
+  const agreeing = (target: { orderId: string; shipmentId: string | null }): { families: SourceFamily[]; lines: string[] } => {
+    const families: SourceFamily[] = [];
+    const lines: string[] = [];
+    const add = (f: SourceFamily, line: string) => {
+      if (!families.includes(f)) families.push(f);
+      lines.push(line);
+    };
+    const mine = (h: KeyHit) => h.orderId === target.orderId && (h.shipmentId === null || target.shipmentId === null || h.shipmentId === target.shipmentId);
+    for (const [w, f, label] of [['attachment', 'attachment', 'in the attachment'], ['body', 'own-text', 'in the email text'], ['subject', 'subject', 'in the subject']] as Array<[Where, SourceFamily, string]>) {
+      const h = at(w).find(mine);
+      if (h) add(f, `${KIND_LABEL[h.kind]} ${h.value} ${label}`);
+    }
+    const rec = recOf(target.orderId, target.shipmentId);
+    if (rec) {
+      const o = cueScore(ownCues, rec);
+      if (o.score >= 4 && !cueConflicts(ownCues, rec).length) add('own-text', `the email text describes it (${o.reasons.join(', ')})`);
+      const s = cueScore(cues, rec);
+      if (!cues.multi && s.score >= 4 && !cueConflicts(cues, rec).length) add('subject', `the subject describes it (${s.reasons.join(', ')})`);
+    }
+    if (ocAll && !ocAll.ambiguous.length && ocAll.orders.length === 1 && ocAll.orders[0].orderId === target.orderId) {
+      const { own: ownText } = splitQuoted(ev.body ?? '');
+      const fromOwn = ownTextCues(ownText, records, ev.date).grades.length > 0;
+      add(fromOwn ? 'own-text' : 'subject', `${fromOwn ? 'the email text' : 'the subject'} names the order (${ocAll.orders[0].why})`);
+    }
+    if (thread.accepted && thread.accepted.orderId === target.orderId && (thread.accepted.shipmentId === null || target.shipmentId === null || thread.accepted.shipmentId === target.shipmentId)) add('thread', `an earlier email of this thread was linked to ${refOf(thread.accepted.orderId, thread.accepted.shipmentId)}`);
+    return { families, lines };
+  };
 
   if (cues.multi) out.notes.push('the subject names several products (a combined thread) — it does not decide');
   const quotedOthers = (orderId: string | null) => [...new Set(quotedOnly.filter((h) => h.orderId !== orderId).map((h) => `#${records.find((r) => r.orderId === h.orderId)?.orderNo ?? '?'}`))];
@@ -489,6 +528,9 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
     out.keyLabel = extra.keyLabel ?? null;
     out.reason = extra.reason;
     out.threadFrom = extra.threadFrom ?? null;
+    const agree = agreeing(target);
+    out.sources = agree.families;
+    out.sourceLines = agree.lines;
     const rec = recOf(target.orderId, target.shipmentId);
     const conflicts = conflictsFor(rec, extra.hardKey);
     if (conflicts.length) {
@@ -656,16 +698,22 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
  * EMPTY slots only; the one-off prod script does the same for the backlog.
  */
 export type AutoTier = 'high' | 'medium' | null;
+/**
+ * Round W, rule 3 (owner, 2026-10-22): auto-apply needs TWO independent sources that agree — e.g. attachment key +
+ * own-text key, own-text key + thread, order-level cues + thread. One source alone (a subject key, the subject's
+ * order description, a thread link by itself) is a suggestion. 'high' when a hard key is among them, else 'medium'.
+ */
+export const TWO_SOURCE_RULE = 'auto-apply needs two independent agreeing sources (attachment / own text / subject / thread)';
 export function autoTier(d: MatchDecision, thread: ThreadInput): AutoTier {
   if (!d.target || d.check.length) return null;
   if (d.blocked.some((b) => /^d:/.test(b))) return null;
-  if (d.source === 'attachment' || d.source === 'own' || d.source === 'order-cues') return 'high';
-  // Round V: a subject key whose subject also DESCRIBES that record (qty / grade / customer agree) is as good as a hard key.
-  if (d.source === 'subject' && d.reason && /corroborated/.test(d.reason)) return 'high';
   const t = threadContextOf(thread);
-  if (!t.accepted) return null;
-  const same = t.accepted.orderId === d.target.orderId && (t.accepted.shipmentId ?? null) === (d.target.shipmentId ?? null);
-  return same && (d.source === 'thread' || d.source === 'subject-cues' || d.source === 'own-cues' || d.source === 'subject') ? 'medium' : null;
+  const families = new Set<SourceFamily>(d.sources ?? []);
+  // The thread's accepted link counts when the decision was made without it (the service passes the thread).
+  if (t.accepted && t.accepted.orderId === d.target.orderId && (t.accepted.shipmentId === null || d.target.shipmentId === null || t.accepted.shipmentId === d.target.shipmentId)) families.add('thread');
+  if (families.size < 2) return null;
+  const hardKey = (d.sourceLines ?? []).some((l) => /^(B\/L|PI|CI|net) /.test(l));
+  return hardKey ? 'high' : 'medium';
 }
 
 /**

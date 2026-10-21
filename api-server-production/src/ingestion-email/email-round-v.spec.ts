@@ -40,7 +40,8 @@ describe('round V, rule 1 — order-level cues', () => {
     expect(d.target).toEqual({ orderId: 'o18', shipmentId: null });
     expect(d.source).toBe('order-cues');
     expect(d.check).toEqual([]);
-    expect(autoTier(d, null)).toBe('high');
+    expect(autoTier(d, null)).toBeNull(); // round W: the subject alone is one source — a suggestion ("Auto · reviewed · subject" no more)
+    expect(d.sources).toEqual(['subject']);
   });
 
   it('"ビレット案件（11月納入6005Cー220t, 6063ー300t）" → #18 + #19 (links), not "pick"', () => {
@@ -77,7 +78,7 @@ describe('round V, rule 2 — an exact tonnage is a hard key', () => {
     expect(d.source).toBe('subject');
     expect(d.keyLabel).toBe('net 183.693');
     expect(d.check).toEqual([]);
-    expect(autoTier(d, null)).toBe('high');
+    expect(autoTier(d, null)).toBeNull(); // round W: the tonnage in the subject alone is one source
   });
 
   it('a tonnage shared by two shipments, or with fewer than 3 decimals, is not a key', () => {
@@ -97,7 +98,8 @@ describe('round V, rule 3 — attachments naming another record than the email',
     expect(d.notes.join(' ')).toMatch(/attachment names #19-1 — it files there/);
     expect(d.multiOrderIds).toEqual([]);
     expect(d.reason).toMatch(/corroborated by the subject/);
-    expect(autoTier(d, null)).toBe('high');
+    expect(d.sources).toEqual(['subject']); // the key and the tonnage are both in the subject: ONE source
+    expect(autoTier(d, null)).toBeNull();
   });
 });
 

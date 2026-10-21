@@ -1,12 +1,15 @@
 import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Patch, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
+import { Prisma } from '@prisma/client';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { PrismaService } from '../common/prisma.service';
 import { S3Service } from '../common/services/s3.service';
 import { StoredEmailMeta } from './email-store';
 import { cleanAllowList, FILTER_MODES, FilterMode } from './email-filter.rules';
+import { companyOverridesOf, DEFAULT_COMPANIES } from './email-companies';
+import { mergeDocDefaults } from '../shipments/trade-config.service';
 
 interface RequestWithOrganization extends Request {
   userOrganization?: { id: string; name: string };
@@ -65,20 +68,34 @@ export class EmailIntakeController {
     };
   }
 
-  /** The sender filter (Settings → Shipping → Email filter): mode, allowed domains / addresses, per-party notes. */
+  /**
+   * The sender filter (Settings → Shipping → Email filter): mode, allowed domains / addresses, per-party notes,
+   * and the org's domain → company list for the Inbox "Company" chip (round W; stored in
+   * TradeSetting.docDefaults.emailCompanies, over the built-in `companyDefaults`).
+   */
   @Get('filter')
   @Permissions('shipments:read')
-  @ApiOperation({ summary: 'Sender filter: OFF | SHADOW | ENFORCE, allowed domains / addresses and their notes.' })
+  @ApiOperation({ summary: 'Sender filter: OFF | SHADOW | ENFORCE, allowed domains / addresses, notes, and the domain → company list.' })
   async filter(@Req() req: RequestWithOrganization) {
     const organizationId = this.orgId(req);
-    const c = await this.prisma.emailIngestConfig.findUnique({ where: { organizationId }, select: { filterMode: true, allowDomains: true, allowAddresses: true, filterNotes: true } });
-    return { filterMode: c?.filterMode ?? 'OFF', allowDomains: c?.allowDomains ?? [], allowAddresses: c?.allowAddresses ?? [], filterNotes: (c?.filterNotes as Record<string, string> | null) ?? {} };
+    const [c, t] = await Promise.all([
+      this.prisma.emailIngestConfig.findUnique({ where: { organizationId }, select: { filterMode: true, allowDomains: true, allowAddresses: true, filterNotes: true } }),
+      this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { docDefaults: true } }),
+    ]);
+    return {
+      filterMode: c?.filterMode ?? 'OFF',
+      allowDomains: c?.allowDomains ?? [],
+      allowAddresses: c?.allowAddresses ?? [],
+      filterNotes: (c?.filterNotes as Record<string, string> | null) ?? {},
+      emailCompanies: companyOverridesOf((t?.docDefaults as Record<string, unknown> | null) ?? {}),
+      companyDefaults: DEFAULT_COMPANIES,
+    };
   }
 
   @Patch('filter')
   @Permissions('shipments:update')
-  @ApiOperation({ summary: 'Update the sender filter (mode, allowed domains / addresses, notes).' })
-  async updateFilter(@Req() req: RequestWithOrganization, @Body() body: { filterMode?: string; allowDomains?: unknown; allowAddresses?: unknown; filterNotes?: unknown }) {
+  @ApiOperation({ summary: 'Update the sender filter (mode, allowed domains / addresses, notes, domain → company list).' })
+  async updateFilter(@Req() req: RequestWithOrganization, @Body() body: { filterMode?: string; allowDomains?: unknown; allowAddresses?: unknown; filterNotes?: unknown; emailCompanies?: unknown }) {
     const organizationId = this.orgId(req);
     const c = await this.prisma.emailIngestConfig.findUnique({ where: { organizationId }, select: { id: true } });
     if (!c) throw new NotFoundException('Email intake is not set up for this organization');
@@ -100,6 +117,12 @@ export class EmailIntakeController {
       );
     }
     await this.prisma.emailIngestConfig.update({ where: { organizationId }, data });
+    if (body.emailCompanies !== undefined) {
+      // Validated by mergeDocDefaults (lower-case domains, names 1–60 chars, max 200); {} clears the list.
+      const cur = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { docDefaults: true } });
+      const docDefaults = mergeDocDefaults((cur?.docDefaults as Record<string, unknown> | null) ?? {}, { emailCompanies: body.emailCompanies }) as Prisma.InputJsonValue;
+      await this.prisma.tradeSetting.upsert({ where: { organizationId }, update: { docDefaults }, create: { organizationId, docDefaults } });
+    }
     return this.filter(req);
   }
 

@@ -144,6 +144,9 @@ export function parseReasonerOutput(raw: unknown, rows: ReasonerRecordRow[], att
 
 export interface ReasonerJudgement {
   apply: boolean;
+  /** Round W: the model's raw picks (row ref + confidence), verified or not — the audit / self-check reports them. */
+  picks?: Array<{ ref: string; orderId: string; shipmentId: string | null; confidence: ReasonerConfidence; attachmentIndex: number | null; evidence: string }>;
+  isShipmentMail?: boolean;
   /** Per target: the attachments that go there (empty = link only). */
   targets: Array<{ orderId: string; shipmentId: string | null; attachmentIndexes: number[]; docTypes: Record<number, string> }>;
   evidence: string;
@@ -160,7 +163,14 @@ const inText = (text: string, key: string) => new RegExp(`(?<![0-9])${key.replac
  * NOT own content). A cited hard key must (a) be in the own content and (b) belong to the chosen row.
  */
 export function judgeReasoner(out: ReasonerOutput, ctx: ReasonerContext, records: MatchRecord[], ev: EmailEvidence): ReasonerJudgement {
-  const no = (reason: string): ReasonerJudgement => ({ apply: false, targets: [], evidence: out.decisions.map((d) => d.evidence).filter(Boolean).join(' | ').slice(0, 300), reason, keyLabel: null });
+  const picks: NonNullable<ReasonerJudgement['picks']> = out.decisions
+    .filter((d) => d.rowId)
+    .map((d) => {
+      const row = ctx.rows.find((r) => r.id === d.rowId)!;
+      const rec = (row.id.startsWith('s:') ? records.find((x) => x.shipmentId === row.id.slice(2)) : records.find((x) => x.orderId === row.id.slice(2))) ?? null;
+      return { ref: row.ref, orderId: rec?.orderId ?? row.id.slice(2), shipmentId: row.id.startsWith('s:') ? row.id.slice(2) : null, confidence: d.confidence, attachmentIndex: d.attachmentIndex, evidence: d.evidence };
+    });
+  const no = (reason: string): ReasonerJudgement => ({ apply: false, targets: [], evidence: out.decisions.map((d) => d.evidence).filter(Boolean).join(' | ').slice(0, 300), reason, keyLabel: null, picks, isShipmentMail: out.isShipmentMail });
   if (!out.isShipmentMail) return no(out.reason || 'the reasoner says this is not shipment mail');
   const usable = out.decisions.filter((d) => d.rowId && d.confidence !== 'low');
   if (!usable.length) return no(out.reason || 'no confident decision');
@@ -204,5 +214,5 @@ export function judgeReasoner(out: ReasonerOutput, ctx: ReasonerContext, records
     }
     targets.set(k, t);
   }
-  return { apply: true, targets: [...targets.values()], evidence: usable.map((d) => d.evidence).filter(Boolean).join(' | ').slice(0, 300), reason: out.reason, keyLabel };
+  return { apply: true, targets: [...targets.values()], evidence: usable.map((d) => d.evidence).filter(Boolean).join(' | ').slice(0, 300), reason: out.reason, keyLabel, picks, isShipmentMail: out.isShipmentMail };
 }

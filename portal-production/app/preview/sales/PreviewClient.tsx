@@ -10,7 +10,7 @@ import { EmailDashboardView } from "@/app/portal/shipments/_components/EmailDash
 import { InboxThreadList, type InboxActions } from "@/app/portal/shipments/_components/inbox/InboxThreadList";
 import { DASHBOARD, PREVIEW_TODAY, PROCESSED, SHIPMENTS, TASKS, UNPROCESSED } from "./fixtures";
 
-const noop: InboxActions = { onCreateOrder: () => undefined, onConfirm: () => undefined, onChangeOrder: () => undefined, onNotShipment: () => undefined, onUndo: () => undefined, onOpen: () => undefined, pending: false };
+const noop: InboxActions = { lang: "en", onAnswer: async () => null, onAnswerUndo: async () => undefined, onCreateOrder: () => undefined, onUndo: () => undefined, onOpen: () => undefined, pending: false };
 
 export default function PreviewClient({ view }: { view: "dashboard" | "inbox" }) {
   const [tab, setTab] = useState<"UNPROCESSED" | "PROCESSED">("UNPROCESSED");
@@ -27,7 +27,7 @@ export default function PreviewClient({ view }: { view: "dashboard" | "inbox" })
             <Tab value="UNPROCESSED" label={`Unprocessed (${UNPROCESSED.reduce((n, t) => n + t.messages.length, 0)})`} sx={{ textTransform: "none" }} />
             <Tab value="PROCESSED" label={`Processed (${PROCESSED.reduce((n, t) => n + t.messages.length, 0)})`} sx={{ textTransform: "none" }} />
           </Tabs>
-          <InboxThreadList threads={tab === "UNPROCESSED" ? UNPROCESSED : PROCESSED} actions={noop} emptyText="Nothing to confirm — all emails are linked." />
+          <InboxThreadList tab={tab} threads={tab === "UNPROCESSED" ? UNPROCESSED : PROCESSED} actions={noop} emptyText="Nothing to confirm — all emails are linked." />
         </Box>
       )}
     </TradeTheme>

@@ -28,7 +28,6 @@ import { AddLinkDialog, UnlinkDialog } from "@/app/portal/shipments/_components/
 import FileUploadDialog from "@/app/portal/shipments/_components/FileUploadDialog";
 import { useFileViewer } from "@/app/portal/shipments/_components/FilePreview";
 import { useDebounced } from "@/app/portal/shipments/_components/useDebounced";
-import ShowTestToggle, { useShowTestOrders } from "@/app/portal/shipments/_components/ShowTestToggle";
 import { visibleTabs } from "@/app/portal/shipments/_lib/hub-tabs";
 
 const HERE = "/portal/trade-documents";
@@ -62,9 +61,8 @@ export default function TradeDocumentsHubPage() {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Filters>(EMPTY);
   const q = useDebounced(search);
-  const [showTest, setShowTest] = useShowTestOrders();
+  // Round W: test orders stay hidden for everyone (the "Show test orders" switch is gone).
   const hub = useHub({
-    includeTest: showTest ? "true" : undefined,
     page,
     pageSize: limit,
     q: q || undefined,
@@ -318,13 +316,6 @@ export default function TradeDocumentsHubPage() {
           <Stack spacing={2}>
             <Stack direction="row" alignItems="center" spacing={1}>
               {tabs}
-              <ShowTestToggle
-                value={showTest}
-                onChange={(v) => {
-                  setShowTest(v);
-                  setPage(1);
-                }}
-              />
             </Stack>
             {hub.isError ? (
               <Alert severity="error">{(hub.error as Error)?.message || "Could not load documents"}</Alert>

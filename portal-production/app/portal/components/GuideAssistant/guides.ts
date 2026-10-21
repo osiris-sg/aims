@@ -231,29 +231,29 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'trade-email-inbox',
-    title: 'Check the email inbox (Sales)',
+    title: 'Answer the email questions (Dashboard)',
     module: 'SHIPMENTS',
     description:
-      'How the email intake works: Sales → Inbox lists the intake emails as threads in two tabs — Unprocessed (needs you: Confirm match · Pick order · Pick shipment · Check) and Processed (filed, with who / when and Undo). Confirm a suggestion, "Change order" to pick the right shipment(s) with a preview, ignore, undo, or delete mail that is not about a shipment. In PARTIAL AUTO an email is filed by itself only when its own B/L / PI / CI is in the subject or an attachment and nothing contradicts it ("Auto · B/L …"); a link-only reply on a confirmed thread is linked by itself ("Auto · thread").',
-    route: '/portal/shipments/inbox',
+      'How the emails work now: AIMS files what it is sure about by itself (two independent clues must agree). Everything else becomes a QUESTION CARD on the Dashboard — a plain question ("Which shipment is this about?"), what AIMS found, the latest email, and big answer options; one tap answers it for the whole thread, with Undo, and the next question loads. "See all emails" opens the two-tab view (Unprocessed / Processed) with the thread timeline and the result of every email.',
+    route: '/portal/shipments/dashboard',
     steps: [
       {
-        route: '/portal/shipments/inbox',
-        selector: '[data-tour="inbox-tabs"]',
-        title: 'Two tabs',
-        body: 'Unprocessed: every email that still needs you — the chip says why (Confirm match, Pick order, Pick shipment, Check). Processed: what was filed, by whom and when — Undo is always there.',
-      },
-      {
-        selector: '[data-tour="inbox-thread"]',
-        title: 'One row per thread',
-        body: 'Replies are grouped with their first email: the chip is the shipment the thread is linked to, then "5 emails · 3 files". Expand it to see each message and what Confirm will do ("files COA.pdf to step 3b").',
+        route: '/portal/shipments/dashboard',
+        selector: '[data-tour="question-card"]',
+        title: 'One question per thread',
+        body: 'The title is the question. Under it: what AIMS found, and the latest email\'s first lines ("Show the full email" to read it; "3 earlier emails" opens the thread).',
         patient: true,
       },
       {
-        selector: '[data-tour="inbox-change-order"]',
-        title: 'Change order',
-        body: 'Wrong or missing order? "Change order" shows the best 3 matches with why, and a search over every shipment. Pick one (or several, assigning each attachment), check the preview, then Accept. "Ignore" keeps an email without filing anything.',
+        selector: '[data-tour="question-options"]',
+        title: 'Tap the answer',
+        body: 'Each option is a shipment or order with its summary and why it might be the one — AIMS\'s own pick is outlined. One tap links (and files) every email of the thread. Or: "New deal → Create order", "Not about a shipment", "Ask later".',
         patient: true,
+      },
+      {
+        selector: '[data-tour="dashboard-see-all-emails"]',
+        title: 'See all emails',
+        body: 'The full view: Unprocessed (the same cards, one at a time, "3 left") and Processed — one card per thread with the result in plain words ("✅ Added to #16-2 — …"), Undo, and the numbered timeline when you open it.',
       },
     ],
   },
@@ -354,7 +354,7 @@ export const GUIDES: Guide[] = [
         body: 'One domain per line (vedanta.co.in, mitsui-soko.co.jp…). For someone writing from gmail.com add their address on the right, never the whole domain. Save.',
       },
       {
-        route: '/portal/shipments/inbox',
+        route: '/portal/shipments/dashboard?view=emails',
         selector: '[data-tour="inbox-filter-preview"]',
         title: 'Filter preview',
         body: 'What the filter kept / would drop in the last 30 days. Rows marked "false drop" are shipment mail it would lose — fix the allow-list before enforcing.',

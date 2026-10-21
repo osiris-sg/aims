@@ -1,20 +1,38 @@
 // Run: npm test (node --test, Node's built-in TypeScript stripping).
-// Round P: "Sales" nav — Dashboard · Orders · Shipments · Inbox; the Dashboard is the landing page.
+// Round P: "Sales" nav — Dashboard · Orders · Shipments; the Dashboard is the landing page.
+// Round W: Inbox left the menu — a stored `inbox` submenu row is dropped by the sidebar / top bar.
 // (Round O: the tasks in the bell + the Orders "Tasks" panel; "Imported, payment not tracked".)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SALES_MENU_LABELS, SHIPMENTS_HOME, SHIPMENTS_ORDERS, shipmentsLanding } from "./shipmentsNav.ts";
+import { SALES_MENU_LABELS, SHIPMENTS_EMAILS, SHIPMENTS_HOME, SHIPMENTS_ORDERS, shipmentsLanding, visibleSalesSubmenus } from "./shipmentsNav.ts";
 import { bellBadge, isOverdue, taskCounts } from "../app/portal/shipments/_lib/tasks.ts";
 import { IMPORT_NOTE, receiptNotTracked } from "../app/portal/shipments/_lib/receipt.ts";
 
-test("Sales menu: Dashboard · Orders · Shipments · Inbox — every stored submenu row shows (labels come from the module row)", () => {
+test("Sales menu: Dashboard · Orders · Shipments — no Inbox (round W)", () => {
   const menu = [
     { key: "dashboard", label: "Dashboard" },
     { key: "list", label: "Orders" },
     { key: "shipments", label: "Shipments" },
-    { key: "inbox", label: "Inbox" },
   ];
   assert.deepEqual(menu.map((s) => s.label), [...SALES_MENU_LABELS]);
+  assert.ok(!SALES_MENU_LABELS.includes("Inbox"));
+});
+
+test("a stored `inbox` submenu row is filtered out whatever the org's module row says; the others stay in order", () => {
+  const stored = [
+    { key: "list", label: "Orders" },
+    { key: "shipments", label: "Shipments" },
+    { key: "inbox", label: "Inbox" },
+  ];
+  assert.deepEqual(visibleSalesSubmenus(stored).map((s) => s.key), ["list", "shipments"]);
+  assert.deepEqual(visibleSalesSubmenus(["list", "inbox", "shipments"]), ["list", "shipments"]);
+  assert.deepEqual(visibleSalesSubmenus([{ key: "inbox" }]), []);
+  assert.deepEqual(visibleSalesSubmenus([]), []);
+});
+
+test("the emails live on the Dashboard now: the old Inbox URL's target is the Dashboard sub-view", () => {
+  assert.equal(SHIPMENTS_EMAILS, "/portal/shipments/dashboard?view=emails");
+  assert.ok(SHIPMENTS_EMAILS.startsWith(SHIPMENTS_HOME));
 });
 
 test("every landing goes to Sales › Dashboard (portal root, org switch, nav); the URLs are unchanged", () => {

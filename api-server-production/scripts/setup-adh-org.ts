@@ -153,18 +153,20 @@ const ENABLED_MODULES: Array<{ code: string; displayName?: string; route?: strin
   {
     code: 'SHIPMENTS',
     // Round P (2026-10-21): the top-nav item reads "Sales" (the module, its routes /portal/shipments/* and its
-    // permissions are unchanged — only the label). Under it: Dashboard · Orders · Shipments · Inbox.
+    // permissions are unchanged — only the label). Under it: Dashboard · Orders · Shipments (Inbox left in round W).
     displayName: 'Sales',
     sortOrder: -3, // first — before the global Sales pin (0.5)
     subMenus: [
       // Dashboard (round P: email-first — emails to confirm, filed automatically, tasks, arriving this week; the
       // old Home with cash / margin sits behind enableShipmentsHome, off), Orders (one order process), Shipments
-      // (every B/L) and the triaged email Inbox. Round H (2026-10): Declaration, Payments and Stock left the menu
+      // (every B/L). Round H (2026-10): Declaration, Payments and Stock left the menu
       // (their pages sit behind enableTradeLegacyPages, off).
       // Round T (2026-10-22): Dashboard left the Sales menu — it is its own top-level item (the DASHBOARD module below).
+      // Round W (2026-10-22): Inbox left the menu — the Dashboard is the email home ("See all emails" →
+      // /portal/shipments/dashboard?view=emails; the old /portal/shipments/inbox URL redirects there). The portal
+      // also drops a stored `inbox` row on its own (helpers/shipmentsNav.ts visibleSalesSubmenus).
       { key: 'list', label: 'Orders' },
       { key: 'shipments', label: 'Shipments' },
-      { key: 'inbox', label: 'Inbox' },
     ],
   },
   {

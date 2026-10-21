@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { grossOf } from '../common/document-money';
 import { PrismaService } from '../common/prisma.service';
 import { DOMAIN_RE } from '../ingestion-email/email-triage.rules';
+import { cleanCompanyOverrides } from '../ingestion-email/email-companies';
 import { TradeActor } from './shipments.request';
 import { docRefBase, nextDocRef, orderDocRefBase, supplierOrderDocRefBase } from './trade-docref';
 import { autoCompletePlan, countsForProgress, documentLinkState, fieldRequirements, hasExactlyOneOwner, ORDER_INVOICE_TYPES, readyToAutoComplete, stepLabel, stepLabels, stepRequirements, stepsBrokenByRemoval, typesOnEveryShipment } from './shipments.rules';
@@ -857,6 +858,11 @@ export function mergeDocDefaults(current: Record<string, unknown>, patch: Record
       const bad = list.find((d) => !DOMAIN_RE.test(d));
       if (bad) throw new BadRequestException(`"${bad.slice(0, 80)}" is not an email domain (like vedanta.co.in)`);
       out[k] = [...new Set(list)];
+    } else if (k === 'emailCompanies') {
+      // Inbox "Company" chip (round W): { "isewan.co.jp": "Isewan" } — the org's list, over the built-ins.
+      out[k] = cleanCompanyOverrides(v, (m) => {
+        throw new BadRequestException(m);
+      });
     } else if (k === 'productJa' || k === 'sizeInch') {
       if (typeof v !== 'object' || Array.isArray(v) || !Object.values(v as object).every((x) => isText(x, 200))) throw new BadRequestException(`${k} must map text to text`);
       out[k] = v;

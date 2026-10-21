@@ -145,6 +145,8 @@ function matches(row: Row, where: Row | undefined, rel: (r: Row, k: string) => R
         if (!(v.hasSome as unknown[]).some((x) => (cur ?? []).includes(x))) return false;
       } else if ('lt' in v) {
         if (!(cur < v.lt)) return false;
+      } else if ('gte' in v) {
+        if (!(cur >= v.gte)) return false;
       } else {
         const r = rel(row, k);
         if (!r || !matches(r, v, rel)) return false;
@@ -178,7 +180,7 @@ function makeDb() {
         voyageNo: null,
         status: 'OPEN',
       },
-      { id: 's-20-1', organizationId: ORG, orderId: 'o-20', order: { orderNo: 20 }, seqNo: 1, blNumber: null, ciNumber: null, telexReleaseCode: null, vessel: null, voyageNo: null, status: 'OPEN' },
+      { id: 's-20-1', organizationId: ORG, orderId: 'o-20', order: { orderNo: 20 }, seqNo: 1, blNumber: '198GX07001', ciNumber: null, telexReleaseCode: null, vessel: null, voyageNo: null, status: 'OPEN' },
     ],
     tradeStep: [
       ...[
@@ -647,7 +649,7 @@ describe('PARTIAL_AUTO, the order picker, multi-shipment emails, thread follow, 
     expect(x.uploads).toHaveLength(0);
   });
 
-  it('round U: with the reasoner flag on, a reply that files a document on an accepted thread applies by itself (MEDIUM, "Auto · reviewed · thread"); a slot already taken keeps it a suggestion', async () => {
+  it('round U / W: with the reasoner flag on, a reply whose own text names the B/L on an accepted thread (two sources) applies by itself; a slot already taken keeps it a suggestion', async () => {
     const x = setup('PARTIAL_AUTO');
     x.t.organization[0].uiConfig = { features: { enableEmailReasoner: true } };
     x.triage.reasonerAi = jest.fn(async () => ({ isShipmentMail: true, reason: 'not needed', decisions: [] }));
@@ -656,7 +658,7 @@ describe('PARTIAL_AUTO, the order picker, multi-shipment emails, thread follow, 
     const pdf = Buffer.from('%PDF-1.4 dummy').toString('base64');
     const reply = await x.receiveRaw({
       subject: 'Re: 書類送付の件',
-      text: 'A/N attached',
+      text: 'A/N attached for B/L 198GX07001',
       messageId: '<u2@x>',
       inReplyTo: '<u1@x>',
       attachments: [{ filename: 'AN_20-1.pdf', contentType: 'application/pdf', contentBase64: pdf }],
@@ -664,22 +666,33 @@ describe('PARTIAL_AUTO, the order picker, multi-shipment emails, thread follow, 
     });
     expect(reply.triaged.inboxState).toBe('PROCESSED');
     const row = await x.triage.row(ORG, reply.logId);
-    expect(row).toMatchObject({ matched: '#20-1', autoLabel: 'reviewed · thread', canUndo: true });
+    expect(row).toMatchObject({ matched: '#20-1', autoLabel: 'B/L 198GX07001', canUndo: true, autoTier: 'high' });
     expect(row.review).toMatchObject({ outcome: 'AUTO' });
-    expect(row.evidence).toMatch(/earlier email of this thread was linked to #20-1/);
+    expect(row.sources).toEqual(['own-text', 'thread']);
     expect(x.uploads).toHaveLength(1);
     // The same again: the ARRIVAL_NOTICE slot of #20-1 is now taken → AUTO-GATE keeps it a suggestion (never replace).
     const again = await x.receiveRaw({
       subject: 'Re: 書類送付の件',
-      text: 'A/N again',
+      text: 'A/N again for B/L 198GX07001',
       messageId: '<u3@x>',
       inReplyTo: '<u1@x>',
       attachments: [{ filename: 'AN_20-1_v2.pdf', contentType: 'application/pdf', contentBase64: Buffer.from('%PDF-1.4 other').toString('base64') }],
       ai: { ...shipmentAi(), attachments: [{ filename: 'AN_20-1_v2.pdf', docType: 'ARRIVAL_NOTICE', confidence: 0.9 }] },
     });
     expect(again.triaged.inboxState).toBe('SUGGESTED');
-    expect((await x.triage.row(ORG, again.logId)).autoTier).toBe('medium');
+    expect((await x.triage.row(ORG, again.logId)).autoTier).toBe('high');
     expect(x.uploads).toHaveLength(1);
+    // Round W: a reply that only follows the thread (one source) is a suggestion now — never applied by itself.
+    const alone = await x.receiveRaw({
+      subject: 'Re: 書類送付の件',
+      text: 'thanks',
+      messageId: '<u4@x>',
+      inReplyTo: '<u1@x>',
+      attachments: [{ filename: 'COA_x.pdf', contentType: 'application/pdf', contentBase64: Buffer.from('%PDF-1.4 coa').toString('base64') }],
+      ai: { ...shipmentAi(), attachments: [{ filename: 'COA_x.pdf', docType: 'COA', confidence: 0.9 }] },
+    });
+    expect(alone.triaged.inboxState).toBe('SUGGESTED');
+    expect((await x.triage.row(ORG, alone.logId)).autoTier).toBeNull();
   });
 
   it('round R fixtures (the prod 15, dummy content): own-text keys, per-attachment split, the reasoner on a combined thread, cost sheets left', async () => {
@@ -691,8 +704,9 @@ describe('PARTIAL_AUTO, the order picker, multi-shipment emails, thread follow, 
       subject: 'ビレット案件（10月納入6005ー120t, 6063ー300t）_アジアディールハブ',
       text: '松木様\n22AA198GX04630 本件の許可書を送付いたします。\n\n2026年10月16日(金) 8:38 Sayaka <s@x>:\n昨日は、6005の早期納入に',
       messageId: '<r1@x>',
-      attachments: [{ filename: 'IM3Z6A0114.pdf', contentType: 'application/pdf', contentBase64: pdf }],
-      ai: { ...shipmentAi({ blNo: '198GX04630' }), attachments: [{ filename: 'IM3Z6A0114.pdf', docType: 'IMPORT_PERMIT', confidence: 0.92 }] },
+      // Round W: the permit's file name carries the B/L too (attachment + own text = two sources).
+      attachments: [{ filename: '22AA198GX04630_IM3Z6A0114.pdf', contentType: 'application/pdf', contentBase64: pdf }],
+      ai: { ...shipmentAi({ blNo: '198GX04630' }), attachments: [{ filename: '22AA198GX04630_IM3Z6A0114.pdf', docType: 'IMPORT_PERMIT', confidence: 0.92 }] },
     });
     expect(permit.triaged.inboxState).toBe('PROCESSED');
     expect(await x.triage.row(ORG, permit.logId)).toMatchObject({ matched: '#11-1', autoLabel: 'B/L 198GX04630' });
@@ -808,5 +822,81 @@ describe('triage rules', () => {
     expect(sentEvidence('OUT', 'MITSUI_SOKO', ['BL', 'CI', 'TELEX_RELEASE'])).toEqual([{ scope: 'SHIPMENT', stepCode: 'CUSTOMS_TAX_ESTIMATE', key: 'sentToWarehouse' }]);
     expect(sentEvidence('OUT', 'SUS', ['IMPORT_PERMIT'])).toEqual([{ scope: 'SHIPMENT', stepCode: 'IMPORT_PERMIT', key: 'sentToCustomer' }]);
     expect(sentEvidence('IN', 'SUS', ['INVOICE_1'])).toEqual([]);
+  });
+});
+
+describe('round W — question cards, one-tap answers, the nightly self-check (live)', () => {
+  const shipmentAi = (keys: Record<string, unknown> = {}) => ({ verdict: 'SHIPMENT', direction: 'IN', counterparty: 'MITSUI_SOKO', keys, attachments: [], suggestedSteps: [] });
+
+  it('a thread gets ONE question card (EN / JA); answering it links every unprocessed email of the thread and files; Undo brings them back; Ask later snoozes; Not a shipment hides', async () => {
+    const x = setup('TRIAGE');
+    const pdf = Buffer.from('%PDF-1.4 dummy').toString('base64');
+    const a = await x.receiveRaw({ subject: 'Re: 198GX04630 書類の件', text: 'COA attached', messageId: '<w1@x>', attachments: [{ filename: 'COA.pdf', contentType: 'application/pdf', contentBase64: pdf }], ai: { ...shipmentAi({ blNo: '198GX04630' }), attachments: [{ filename: 'COA.pdf', docType: 'COA', confidence: 0.9 }] } });
+    const b = await x.receiveRaw({ subject: 'Re: 198GX04630 書類の件', text: 'thanks', messageId: '<w2@x>', inReplyTo: '<w1@x>', ai: shipmentAi({ blNo: '198GX04630' }) });
+    expect([a.triaged.inboxState, b.triaged.inboxState]).toEqual(['SUGGESTED', 'SUGGESTED']);
+    const un = await x.triage.threads(ORG, 'UNPROCESSED', { lang: 'en' });
+    const th = un.threads.find((t) => t.answerIds.includes(a.logId))!;
+    expect(th.answerIds.sort()).toEqual([a.logId, b.logId].sort());
+    expect(th.earlier).toBe(1);
+    expect(th.question).toMatchObject({ kind: 'CONFIRM', title: 'Is this email about #11-1?', options: [{ ref: '#11-1', suggested: true }] });
+    expect(th.question!.found).toMatch(/^From Mitsui Soko · /);
+    expect(th.question!.options[0].why).toBe('B/L 198GX04630 in the subject');
+    const ja = (await x.triage.threads(ORG, 'UNPROCESSED', { lang: 'ja' })).threads.find((t) => t.answerIds.includes(a.logId))!;
+    expect(ja.question!.title).toBe('このメールは #11-1 の件ですか？');
+    // One tap: both emails go to #11-1, the COA is filed.
+    const ans = await x.triage.answer(ORG, { ids: th.answerIds, answer: { kind: 'record', orderId: 'o-11', shipmentId: 's-11-1' } }, { id: 'u1', name: 'Sayaka' }, 'en');
+    expect(ans).toMatchObject({ kind: 'record', refs: ['#11-1'], files: 1, text: 'Linked to #11-1 · 1 file filed (2 emails)' });
+    expect((await x.triage.row(ORG, a.logId)).inboxState).toBe('PROCESSED');
+    expect((await x.triage.row(ORG, b.logId)).inboxState).toBe('PROCESSED');
+    expect(x.uploads).toHaveLength(1);
+    expect((await x.triage.threads(ORG, 'UNPROCESSED')).counts.unprocessed).toBe(0);
+    // Undo: both back to Unprocessed, the file removed.
+    expect(await x.triage.answerUndo(ORG, { ids: th.answerIds, kind: 'record' }, { id: 'u1', name: 'Sayaka' })).toEqual({ undone: 2 });
+    expect((await x.triage.row(ORG, a.logId)).inboxState).toBe('SUGGESTED');
+    expect((await x.triage.row(ORG, b.logId)).inboxState).toBe('SUGGESTED');
+    // Ask later: gone from Unprocessed for a day (counted as snoozed), back after Undo.
+    expect((await x.triage.answer(ORG, { ids: [a.logId], answer: { kind: 'later' } }, { id: 'u1', name: 'Sayaka' }, 'ja')).text).toBe('明日もう一度お聞きします');
+    const later = await x.triage.threads(ORG, 'UNPROCESSED');
+    expect(later.counts).toMatchObject({ unprocessed: 1, snoozed: 1 });
+    await x.triage.answerUndo(ORG, { ids: [a.logId], kind: 'later' }, { id: 'u1', name: 'Sayaka' });
+    expect((await x.triage.threads(ORG, 'UNPROCESSED')).counts.snoozed).toBe(0);
+    // Not a shipment: hidden (never deleted), listed under Hidden, Undo = unhide.
+    expect((await x.triage.answer(ORG, { ids: [b.logId], answer: { kind: 'not_shipment' } }, { id: 'u1', name: 'Sayaka' })).text).toBe('Hidden — not about a shipment');
+    expect((await x.triage.row(ORG, b.logId)).inboxState).toBe('HIDDEN');
+    expect((await x.triage.hidden(ORG)).some((h) => h.id === b.logId)).toBe(true);
+    await x.triage.answerUndo(ORG, { ids: [b.logId], kind: 'not_shipment' }, { id: 'u1', name: 'Sayaka' });
+    expect((await x.triage.row(ORG, b.logId)).inboxState).not.toBe('HIDDEN');
+  });
+
+  it('nightly self-check: an auto-linked email the second pass disagrees with goes back to Unprocessed as a RECHECK question; one it agrees with stays', async () => {
+    const x = setup('PARTIAL_AUTO');
+    x.t.organization[0].uiConfig = { features: { enableEmailReasoner: true } };
+    x.triage.reasonerAi = jest.fn(async () => ({ isShipmentMail: true, reason: 'no', decisions: [] }));
+    // Auto-linked by itself: the B/L in the subject + the thread's accepted link (two sources).
+    const first = await x.receiveRaw({ subject: '198GX04630 の件', text: 'start', messageId: '<sc1@x>', ai: shipmentAi({ blNo: '198GX04630' }) });
+    await x.triage.assign(ORG, first.logId, { shipmentId: 's-11-1', accept: true }, { id: 'u1', name: 'Sayaka' });
+    const reply = await x.receiveRaw({ subject: 'Re: 198GX04630 の件', text: 'B/L 198GX04630 permit attached', messageId: '<sc2@x>', inReplyTo: '<sc1@x>', attachments: [{ filename: 'permit.pdf', contentType: 'application/pdf', contentBase64: Buffer.from('%PDF-1.4 p').toString('base64') }], ai: { ...shipmentAi({ blNo: '198GX04630' }), attachments: [{ filename: 'permit.pdf', docType: 'IMPORT_PERMIT', confidence: 0.9 }] } });
+    expect(reply.triaged.inboxState).toBe('PROCESSED');
+    const stamp = (id: string) => {
+      const row = x.t.emailIngestLog.find((r) => r.id === id)!;
+      row.updatedAt = new Date();
+      row.actions = { ...row.actions, review: { ...row.actions.review, at: new Date().toISOString() } };
+    };
+    stamp(reply.logId);
+    // The second pass agrees (it cites the same B/L): nothing changes.
+    x.triage.reasonerAi = jest.fn(async () => ({ isShipmentMail: true, reason: 'the B/L is in the text', decisions: [{ attachmentIndex: 0, rowId: 's:s-11-1', docType: 'IMPORT_PERMIT', confidence: 'high', evidence: 'B/L 198GX04630 in the own text', keys: ['198GX04630'] }] }));
+    expect(await x.triage.selfCheck(ORG)).toEqual({ checked: 1, sentBack: 0 });
+    expect((await x.triage.row(ORG, reply.logId)).inboxState).toBe('PROCESSED');
+    expect((await x.triage.row(ORG, reply.logId)).selfCheck).toMatchObject({ verdict: 'AGREE' });
+    // The second pass now points at #20-1 (unverified: no hard key) → a question, the permit back out, the link kept as option 1.
+    x.triage.reasonerAi = jest.fn(async () => ({ isShipmentMail: true, reason: 'looks like the Kato lot', decisions: [{ attachmentIndex: 0, rowId: 's:s-20-1', docType: 'IMPORT_PERMIT', confidence: 'high', evidence: 'the thread discusses Kato', keys: [] }] }));
+    expect(await x.triage.selfCheck(ORG)).toEqual({ checked: 1, sentBack: 1 });
+    const row = await x.triage.row(ORG, reply.logId);
+    expect(row.inboxState).toBe('SUGGESTED');
+    expect(row.canUndo).toBe(false);
+    expect(row.question).toMatchObject({ kind: 'RECHECK', text: "AIMS re-checked this and isn't sure anymore", current: ['#11-1'], second: ['#20-1'] });
+    const th = (await x.triage.threads(ORG, 'UNPROCESSED')).threads.find((t) => t.answerIds.includes(reply.logId))!;
+    expect(th.question).toMatchObject({ kind: 'RECHECK', title: "AIMS re-checked this and isn't sure anymore — which is right?" });
+    expect(th.question!.options.map((o) => o.ref)).toEqual(['#11-1', '#20-1']);
   });
 });

@@ -4,20 +4,42 @@
 // two views behind a toggle: "Overview" (the email-first dashboard, round P) and "Admin" (money in / out,
 // expected vs received, per-order margin & profit, 3-month summary) — the Admin toggle shows only for roles
 // with shipments:money (ADH Manager / Admin); the API enforces it too. The old Home (LegacyHome) stays behind
-// enableShipmentsHome, off.
+// enableShipmentsHome, off. Round W: Inbox left the Sales menu — `?view=emails` renders the full two-tab
+// email view (EmailsAll) as a sub-view of the Dashboard, with "← Back to Dashboard" above it.
 
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Box, CircularProgress, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import EmailDashboard from "../_components/EmailDashboard";
 import LegacyHome from "../_components/LegacyHome";
 import AdminDashboard from "../_components/AdminDashboard";
+import EmailsAll from "../_components/inbox/EmailsAll";
+import { SHIPMENTS_HOME } from "@/helpers/shipmentsNav";
 
 type View = "overview" | "admin";
 const KEY = "aims-sales-dashboard-view";
 
+const Spinner = () => (
+  <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+    <CircularProgress />
+  </Box>
+);
+
 export default function SalesDashboardPage() {
+  // useSearchParams needs a Suspense boundary for the static render.
+  return (
+    <Suspense fallback={<Spinner />}>
+      <SalesDashboardInner />
+    </Suspense>
+  );
+}
+
+function SalesDashboardInner() {
+  const params = useSearchParams();
+  const emailsView = params?.get("view") === "emails";
   const { isLoading, isShipmentsHomeEnabled } = useOrganizationFeatures();
   const { hasPermission, userRoles } = useUserPermissions();
   // ADH Manager (shipments:money) or a platform admin role (the API lets osirisadmin / superadmin through too).
@@ -40,10 +62,17 @@ export default function SalesDashboardPage() {
       /* ignore */
     }
   };
-  if (isLoading) {
+  if (isLoading) return <Spinner />;
+  if (emailsView) {
+    // The emails sub-view: no Overview / Admin toggle, just the way back.
     return (
-      <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
-        <CircularProgress />
+      <Box>
+        <Box sx={{ px: { xs: 1.5, md: 3 }, pt: 2 }}>
+          <Link href={SHIPMENTS_HOME} style={{ fontSize: 13, fontWeight: 600 }} data-tour="emails-back">
+            ← Back to Dashboard
+          </Link>
+        </Box>
+        <EmailsAll />
       </Box>
     );
   }

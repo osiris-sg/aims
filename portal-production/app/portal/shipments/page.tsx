@@ -28,7 +28,6 @@ import PiBulkDialog from "./_components/PiBulkDialog";
 import MonthlyOrderDialog from "./_components/MonthlyOrderDialog";
 import { monthShort } from "./_lib/format";
 import { useDebounced } from "./_components/useDebounced";
-import ShowTestToggle, { useShowTestOrders } from "./_components/ShowTestToggle";
 import { TasksButton } from "./_components/TradeTasks";
 
 type Row = OrderRow;
@@ -44,8 +43,8 @@ export default function OrdersPage() {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<{ contractId: string; customerId: string; shipMonth: string }>({ contractId: params?.get("contractId") ?? "", customerId: "", shipMonth: "" });
   const q = useDebounced(search);
-  const [showTest, setShowTest] = useShowTestOrders();
-  const list = useOrders({ page, pageSize: limit, q: q || undefined, bucket, contractId: filters.contractId || undefined, customerId: filters.customerId || undefined, shipMonth: filters.shipMonth || undefined, includeTest: showTest ? "true" : undefined });
+  // Round W: test orders stay hidden for everyone (the "Show test orders" switch is gone).
+  const list = useOrders({ page, pageSize: limit, q: q || undefined, bucket, contractId: filters.contractId || undefined, customerId: filters.customerId || undefined, shipMonth: filters.shipMonth || undefined });
   const customers = useCustomers();
   const contracts = useContracts({ pageSize: 100 });
   const [createOpen, setCreateOpen] = useState(false);
@@ -99,13 +98,6 @@ export default function OrdersPage() {
   const tabsRow = (
     <Stack direction="row" alignItems="center" spacing={1}>
       {tabs}
-      <ShowTestToggle
-        value={showTest}
-        onChange={(v) => {
-          setShowTest(v);
-          setPage(1);
-        }}
-      />
     </Stack>
   );
   const hrefOf = (r: Row) => (r.kind === "order" ? orderHref(r.id) : orderHref(r.order.id, r.id));

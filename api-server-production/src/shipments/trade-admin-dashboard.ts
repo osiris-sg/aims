@@ -3,6 +3,8 @@
  * expected vs received, the per-order table and the last-3-months summary. Currencies are kept apart
  * (USD: deposits, CIs, invoices; JPY: import tax, transport & storage) — no FX mixing until the FX
  * table exists. Imported history without payment data is "not tracked", never "outstanding".
+ * Round W: profit is a plain number everywhere — $0 until the profit formula exists (no "formula pending"
+ * label, no "until ADH…" text); `profit.pending` stays a boolean for callers that care.
  */
 import { addMonths } from './orders.service';
 
@@ -126,13 +128,13 @@ export function adminDashboard(f: AdminFacts) {
     received: { USD: sum(cash3.filter((c) => c.direction === 'IN' && curOf(c.currency) === 'USD'), (c) => c.amount), JPY: sum(cash3.filter((c) => c.direction === 'IN' && curOf(c.currency) === 'JPY'), (c) => c.amount) },
     costs: { USD: sum(cash3.filter((c) => c.direction === 'OUT' && curOf(c.currency) === 'USD'), (c) => c.amount), JPY: sum(cash3.filter((c) => c.direction === 'OUT' && curOf(c.currency) === 'JPY'), (c) => c.amount) },
     margin: { USD: sum(orders3, (o) => o.margin) },
-    profit: { USD: sum(orders3.filter((o) => o.profitStatus === 'MANUAL'), (o) => o.profit), pending: pendingProfit, label: pendingProfit ? 'formula pending' : null },
+    profit: { USD: sum(orders3.filter((o) => o.profitStatus === 'MANUAL'), (o) => o.profit), pending: pendingProfit },
     tonnageMt: r2(f.tonnage.filter((t) => last3.includes(t.month)).reduce((a, t) => a + t.netMt, 0)),
     orders: orders3.length,
   };
   const orders = [...f.orders]
     .sort((a, b) => (b.deliveryMonth ?? '').localeCompare(a.deliveryMonth ?? '') || b.label.localeCompare(a.label, undefined, { numeric: true }))
-    .map((o) => ({ ...o, sellUsd: o.sellUsd === null ? null : r2(o.sellUsd), buyUsd: o.buyUsd === null ? null : r2(o.buyUsd), costsJpy: o.costsJpy === null ? null : r2(o.costsJpy), costsUsd: o.costsUsd === null ? null : r2(o.costsUsd), margin: o.margin === null ? null : r2(o.margin), profit: o.profit === null ? null : r2(o.profit), profitLabel: o.profitStatus === 'MANUAL' ? null : 'formula pending' }));
+    .map((o) => ({ ...o, sellUsd: o.sellUsd === null ? null : r2(o.sellUsd), buyUsd: o.buyUsd === null ? null : r2(o.buyUsd), costsJpy: o.costsJpy === null ? null : r2(o.costsJpy), costsUsd: o.costsUsd === null ? null : r2(o.costsUsd), margin: o.margin === null ? null : r2(o.margin), profit: o.profitStatus === 'MANUAL' && o.profit !== null ? r2(o.profit) : 0 }));
   return {
     today: f.today,
     months: [...rows.values()],
@@ -140,7 +142,7 @@ export function adminDashboard(f: AdminFacts) {
     expected: { outstandingInvoices: outstanding, outstandingTotal: { USD: sum(outstanding.filter((o) => curOf(o.currency) === 'USD'), (o) => o.amount) }, notTrackedInvoices: notTracked, supplierDue, supplierDueTotal: { USD: sum(supplierDue.filter((d) => curOf(d.currency) === 'USD'), (d) => d.amount) } },
     orders,
     summary,
-    note: 'USD and JPY are shown separately (no FX conversion). Profit shows "formula pending" until the formula is confirmed; imported invoices without payment data are "not tracked".',
+    note: 'USD and JPY are shown separately (no FX conversion). Imported invoices without payment data are "not tracked".',
   };
 }
 

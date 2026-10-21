@@ -10,6 +10,7 @@ import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
+import { visibleSalesSubmenus } from "@/helpers/shipmentsNav";
 
 // Mirrors DynamicSidebarContent — keep the two in sync.
 const HIDDEN_MODULES = new Set<string>(["CUSTOMERS", "SUPPLIERS"]);
@@ -82,7 +83,9 @@ export function useNavModules() {
         const key = typeof s === "string" ? s : s?.key;
         // CRM → Marketing rides on the enableAdsInsights org flag.
         if (key === "marketing" && m.moduleCode === "CRM" && !isAdsInsightsEnabled) return false;
-        // Round P: every Sales (Shipments) submenu shows — Dashboard · Orders · Shipments · Inbox.
+        // Round P: every Sales (Shipments) submenu shows — Dashboard · Orders · Shipments — except the retired
+        // ones (round W: Inbox left the menu; the Dashboard hosts the emails now), whatever the DB row says.
+        if (m.moduleCode === "SHIPMENTS" && visibleSalesSubmenus([s]).length === 0) return false;
         // Role-gated submenu (guru 2026-09-28). Admin-ish users always pass.
         if (typeof s === "object" && Array.isArray(s.roles) && userRoles.length > 0 && !isAdminUser) {
           if (!userRoles.some((r: any) => s.roles.includes(r?.name))) return false;

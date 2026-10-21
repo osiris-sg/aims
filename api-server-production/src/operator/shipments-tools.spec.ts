@@ -29,8 +29,8 @@ const DASH = {
   ],
   outKinds: {},
   expected: { outstandingInvoices: [{ id: 'i2', number: 'ADH-INV-2026-0020', customerName: 'SUS', orderLabel: '#19', amount: 130000, total: 430000, currency: 'USD', issueDate: '2026-10-18', dueDate: '2026-11-17', overdue: false }], outstandingTotal: { USD: 130000 }, notTrackedInvoices: [], supplierDue: [{ kind: 'DEPOSIT', label: '#23 PI deposit', amount: 40000, currency: 'USD', dueDate: '2026-10-20', overdue: true }], supplierDueTotal: { USD: 40000 } },
-  orders: [{ id: 'o19', label: '#19', customerName: 'SUS', product: '6063 203 MM', qtyMt: 300, status: 'OPEN', deliveryMonth: '2026-10', sellUsd: 930000, buyUsd: 900000, costsJpy: 13480000, costsUsd: null, margin: 7500, profit: null, profitStatus: 'FORMULA_PENDING', profitLabel: 'formula pending' }],
-  summary: { months: ['2026-08', '2026-09', '2026-10'], revenueInvoiced: { USD: 930000 }, received: { USD: 800000, JPY: 0 }, costs: { USD: 900000, JPY: 13480000 }, margin: { USD: 7500 }, profit: { USD: 0, pending: true, label: 'formula pending' }, tonnageMt: 300.4, orders: 1 },
+  orders: [{ id: 'o19', label: '#19', customerName: 'SUS', product: '6063 203 MM', qtyMt: 300, status: 'OPEN', deliveryMonth: '2026-10', sellUsd: 930000, buyUsd: 900000, costsJpy: 13480000, costsUsd: null, margin: 7500, profit: 0, profitStatus: 'FORMULA_PENDING' }],
+  summary: { months: ['2026-08', '2026-09', '2026-10'], revenueInvoiced: { USD: 930000 }, received: { USD: 800000, JPY: 0 }, costs: { USD: 900000, JPY: 13480000 }, margin: { USD: 7500 }, profit: { USD: 0, pending: true }, tonnageMt: 300.4, orders: 1 },
   note: 'USD and JPY separately',
 };
 
@@ -111,7 +111,8 @@ describe('ShipmentsToolsService — money answers equal the Admin dashboard', ()
   it('money_totals reads the same service as the dashboard: last 3 months, this vs last, owed to us, owe Vedanta, import tax this quarter', async () => {
     const { svc } = build();
     const all = (await svc.execute(ctxWith(MANAGER), 'money_totals', { what: 'all' })).result;
-    expect(all.last3m).toMatchObject({ revenueInvoiced: '$930,000', received: '$800,000', costs: { USD: '$900,000', JPY: '¥13,480,000' }, margin: '$7,500', profit: 'formula pending', tonnageMt: 300.4, orders: 1 });
+    expect(all.last3m).toMatchObject({ revenueInvoiced: '$930,000', received: '$800,000', costs: { USD: '$900,000', JPY: '¥13,480,000' }, margin: '$7,500', profit: '$0', tonnageMt: 300.4, orders: 1 });
+    expect(JSON.stringify(all)).not.toMatch(/formula pending|until ADH/i);
     expect(all.thisVsLast.thisMonth).toMatchObject({ month: '2026-10', in: { USD: '$300,000' }, out: { JPY: '¥13,480,000' } });
     expect(all.thisVsLast.lastMonth).toMatchObject({ month: '2026-09', out: { USD: '$810,000' } });
     expect(all.owedToUs).toMatchObject({ total: '$130,000' });
@@ -121,10 +122,10 @@ describe('ShipmentsToolsService — money answers equal the Admin dashboard', ()
     expect(all.importTaxQuarter).toEqual({ months: ['2026-10', '2026-11', '2026-12'], paid: '¥12,500,000' });
   });
 
-  it('order_earnings: sell / buy / costs / margin / profit ("formula pending") for #19', async () => {
+  it('order_earnings: sell / buy / costs / margin / profit ($0 until the formula exists) for #19', async () => {
     const { svc } = build();
     const r = (await svc.execute(ctxWith(MANAGER), 'order_earnings', { ref: '#19' })).result;
-    expect(r).toMatchObject({ order: '#19', sell: '$930,000', buy: '$900,000', costs: { JPY: '¥13,480,000', USD: '—' }, margin: '$7,500', profit: 'formula pending' });
+    expect(r).toMatchObject({ order: '#19', sell: '$930,000', buy: '$900,000', costs: { JPY: '¥13,480,000', USD: '—' }, margin: '$7,500', profit: '$0' });
   });
 
   it('quarter and month-word helpers', () => {

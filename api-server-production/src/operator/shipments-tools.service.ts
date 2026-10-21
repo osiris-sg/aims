@@ -26,6 +26,7 @@ import { AuditService } from '../common/audit.service';
 import { PrismaService } from '../common/prisma.service';
 import { S3Service } from '../common/services/s3.service';
 import { EmailTriageService } from '../ingestion-email/email-triage.service';
+import { parseNumberedReply } from '../ingestion-email/email-question';
 import { emailFolder, reconstructEml, safeKeyName, StoredAttachment, StoredEmailMeta } from '../ingestion-email/email-store';
 import { alertRulesOf } from '../shipments/trade-alerts';
 import { TradeAlertsService } from '../shipments/trade-alerts.service';
@@ -437,7 +438,7 @@ export class ShipmentsToolsService {
       // ── money (management only) ──
       {
         name: 'order_earnings',
-        description: 'What an order (or its shipment\'s order) makes: sell value, buy value, costs so far (JPY / USD), margin, profit (or "formula pending"). Management only.',
+        description: 'What an order (or its shipment\'s order) makes: sell value, buy value, costs so far (JPY / USD), margin, profit ($0 until the profit formula exists). Management only.',
         permissions: [SHIPMENTS_MONEY],
         mode: 'money',
         origin: 'biofuel',
@@ -772,7 +773,7 @@ export class ShipmentsToolsService {
     const dash = await this.adminDash.admin(org);
     const o = dash.orders.find((x) => x.id === orderId);
     if (!o) return { result: { error: 'This order has no money facts yet (test order or not reconciled).' } };
-    return { result: { order: o.label, customer: o.customerName, product: o.product, qtyMt: o.qtyMt, sell: money(o.sellUsd), buy: money(o.buyUsd), costs: { JPY: money(o.costsJpy, 'JPY'), USD: money(o.costsUsd) }, margin: money(o.margin), profit: o.profitLabel ?? money(o.profit), status: o.status, note: dash.note } };
+    return { result: { order: o.label, customer: o.customerName, product: o.product, qtyMt: o.qtyMt, sell: money(o.sellUsd), buy: money(o.buyUsd), costs: { JPY: money(o.costsJpy, 'JPY'), USD: money(o.costsUsd) }, margin: money(o.margin), profit: money(o.profit), status: o.status, note: dash.note } };
   }
 
   private async moneyTotals(org: string, what: string) {
@@ -783,7 +784,7 @@ export class ShipmentsToolsService {
     const q = quarterMonths(d.today);
     const taxQ = d.months.filter((m) => q.includes(m.month)).reduce((a, m) => a + (m.outBy.IMPORT_TAX?.JPY ?? 0), 0);
     const all: Record<string, unknown> = {
-      last3m: { months: s.months, revenueInvoiced: money(s.revenueInvoiced.USD), received: money(s.received.USD), costs: { USD: money(s.costs.USD), JPY: money(s.costs.JPY, 'JPY') }, margin: money(s.margin.USD), profit: s.profit.pending ? 'formula pending' : money(s.profit.USD), tonnageMt: s.tonnageMt, orders: s.orders },
+      last3m: { months: s.months, revenueInvoiced: money(s.revenueInvoiced.USD), received: money(s.received.USD), costs: { USD: money(s.costs.USD), JPY: money(s.costs.JPY, 'JPY') }, margin: money(s.margin.USD), profit: money(s.profit.USD), tonnageMt: s.tonnageMt, orders: s.orders },
       thisVsLast: { thisMonth: { month: cur.month, in: { USD: money(cur.in.USD), JPY: money(cur.in.JPY, 'JPY') }, out: { USD: money(cur.out.USD), JPY: money(cur.out.JPY, 'JPY') } }, lastMonth: prev ? { month: prev.month, in: { USD: money(prev.in.USD), JPY: money(prev.in.JPY, 'JPY') }, out: { USD: money(prev.out.USD), JPY: money(prev.out.JPY, 'JPY') } } : null },
       owedToUs: { total: money(d.expected.outstandingTotal.USD), invoices: d.expected.outstandingInvoices.map((i) => `${i.number} ${i.customerName ?? ''} ${money(i.amount)} due ${i.dueDate ?? '—'}${i.overdue ? ' (overdue)' : ''}`), notTracked: d.expected.notTrackedInvoices.length },
       oweVedanta: { total: money(d.expected.supplierDueTotal.USD), items: d.expected.supplierDue.map((x) => `${x.label} ${x.amount === null ? '—' : money(x.amount)} ${x.kind === 'CI' ? 'by arrival' : 'due'} ${x.dueDate ?? '—'}${x.overdue ? ' (overdue)' : ''}`) },
@@ -793,6 +794,28 @@ export class ShipmentsToolsService {
   }
 
   // ── writes → Confirm cards ─────────────────────────────────────────────────
+
+  /**
+   * Round W: a bare "1" / "2" / "0" / "X" reply answers the LAST question card AIMS sent this number (within 24 h):
+   * 1..n = that record, 0 = ask later, X = not a shipment (not a deal). Null when there is no open question — the
+   * message then goes to the assistant as usual.
+   */
+  async answerNumbered(ctx: OperatorContext, digits: string, text: string, lang: 'ja' | 'en'): Promise<string | null> {
+    const to = digits.replace(/\D/g, '');
+    if (!to) return null;
+    const sent: any = await this.prisma.whatsAppOutbox.findFirst({ where: { organizationId: ctx.organizationId, to, kind: 'NEEDS_ME', status: 'SENT', sentAt: { gte: new Date(Date.now() - 24 * 3600_000) } }, orderBy: { sentAt: 'desc' }, select: { dedupeKey: true } }).catch(() => null);
+    const logId = /^needs:([0-9a-f-]{36})/i.exec(sent?.dedupeKey ?? '')?.[1];
+    if (!logId) return null;
+    const q = await this.triage.questionOfLog(ctx.organizationId, logId, lang);
+    if (!q) return lang === 'ja' ? 'その質問はもう対応済みです。' : 'That question is already handled.';
+    const r = parseNumberedReply(text, q.card);
+    if (!r) return null;
+    const actor = { id: ctx.clerkUserId, name: ctx.actor.name ?? ctx.actor.email ?? null, via: 'whatsapp' as const };
+    if (r.kind === 'create_order') return lang === 'ja' ? '注文の作成はポータルで: /portal/shipments/dashboard（質問カードの「注文を作成」）' : 'Create the order in the portal: /portal/shipments/dashboard (the card\u2019s "Create order" button starts it prefilled).';
+    const body = r.kind === 'record' ? { kind: 'record' as const, orderId: r.option.orderId, shipmentId: r.option.shipmentId } : { kind: r.kind };
+    const out = await this.triage.answer(ctx.organizationId, { ids: q.answerIds, answer: body }, actor, lang);
+    return `✅ ${out.text}`;
+  }
 
   private async emailLink(ctx: OperatorContext, emailId: string, ref: string | null): Promise<ShipToolOutcome> {
     const row: any = await this.triage.row(ctx.organizationId, emailId);

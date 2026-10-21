@@ -3,7 +3,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { EmailTriageService, InboxState, IntakeTarget } from './email-triage.service';
+import { AnswerBody, EmailTriageService, InboxState, IntakeTarget } from './email-triage.service';
+import { Lang } from './email-question';
 import { StoredEmailMeta } from './email-store';
 import { S3Service } from '../common/services/s3.service';
 import { TradeExtractService } from '../shipments/trade-extract.service';
@@ -40,6 +41,31 @@ export class EmailInboxController {
   private actor(req: Req2) {
     const u = req.user;
     return { id: u?.id ?? null, name: [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || u?.emailAddresses?.[0]?.emailAddress || null };
+  }
+  /** Round W: the question cards follow the user's language — ?lang=ja|en, else the browser's Accept-Language. */
+  private lang(req: Req2, q?: string): Lang {
+    if (q === 'ja' || q === 'en') return q;
+    return /^ja\b/i.test(String(req.headers['accept-language'] ?? '')) ? 'ja' : 'en';
+  }
+
+  @Post('answer')
+  @Permissions('shipments:update')
+  @ApiOperation({ summary: 'Round W: one-tap answer of a question card for the emails it covers — a record (link + file), not a shipment / not a deal (hidden), or ask later (snoozed a day).' })
+  answer(@Body() body: { ids?: unknown; answer?: unknown }, @Query('lang') lang: string | undefined, @Req() req: Req2) {
+    const ids = Array.isArray(body?.ids) ? body.ids.filter((x: unknown): x is string => typeof x === 'string' && UUID.test(x)) : [];
+    const a = cleanAnswer(body?.answer);
+    if (!ids.length || !a) throw new BadRequestException('ids and an answer are required');
+    return this.triage.answer(this.org(req), { ids, answer: a }, this.actor(req), this.lang(req, lang));
+  }
+
+  @Post('answer/undo')
+  @Permissions('shipments:update')
+  @ApiOperation({ summary: 'Round W: undo an answer — files back out, hidden emails back, a snooze cleared.' })
+  answerUndo(@Body() body: { ids?: unknown; kind?: unknown }, @Req() req: Req2) {
+    const ids = Array.isArray(body?.ids) ? body.ids.filter((x: unknown): x is string => typeof x === 'string' && UUID.test(x)) : [];
+    const kind = ['record', 'not_shipment', 'not_deal', 'later'].includes(String(body?.kind)) ? (String(body!.kind) as AnswerBody['kind']) : null;
+    if (!ids.length || !kind) throw new BadRequestException('ids and kind are required');
+    return this.triage.answerUndo(this.org(req), { ids, kind }, this.actor(req));
   }
 
   @Get('filter-preview')
@@ -136,15 +162,15 @@ export class EmailInboxController {
   @Get('threads')
   @Permissions('shipments:read')
   @ApiOperation({ summary: 'Round P: the inbox as threads — UNPROCESSED (to confirm, with the reason) or PROCESSED (done, with who / when). Message-ID chain, else the subject.' })
-  threads(@Query('tab') tab: string | undefined, @Req() req: Req2) {
-    return this.triage.threads(this.org(req), tab === 'PROCESSED' ? 'PROCESSED' : 'UNPROCESSED');
+  threads(@Query('tab') tab: string | undefined, @Query('lang') lang: string | undefined, @Req() req: Req2) {
+    return this.triage.threads(this.org(req), tab === 'PROCESSED' ? 'PROCESSED' : 'UNPROCESSED', { lang: this.lang(req, lang) });
   }
 
   @Get('dashboard')
   @Permissions('shipments:read')
   @ApiOperation({ summary: 'Round P: the Sales dashboard — emails to confirm (newest threads) and what was filed by itself in the last 3 days.' })
-  dashboard(@Req() req: Req2) {
-    return this.triage.dashboard(this.org(req));
+  dashboard(@Query('lang') lang: string | undefined, @Req() req: Req2) {
+    return this.triage.dashboard(this.org(req), this.lang(req, lang));
   }
 
   @Get()
@@ -210,6 +236,18 @@ export class EmailInboxController {
 }
 
 const UUID = /^[0-9a-f-]{36}$/i;
+/** Round W: the answer body, validated. */
+function cleanAnswer(a: unknown): AnswerBody | null {
+  const o = a && typeof a === 'object' ? (a as Record<string, unknown>) : null;
+  if (!o) return null;
+  const id = (v: unknown) => (typeof v === 'string' && UUID.test(v) ? v : null);
+  if (o.kind === 'record') {
+    const orderId = id(o.orderId);
+    const shipmentId = id(o.shipmentId);
+    return orderId || shipmentId ? { kind: 'record', orderId, shipmentId } : null;
+  }
+  return o.kind === 'not_shipment' || o.kind === 'not_deal' || o.kind === 'later' ? { kind: o.kind } : null;
+}
 /** Assign / preview body: ids validated, at most 10 targets, attachment indexes as small integers. */
 function cleanAssign(body: { orderId?: unknown; shipmentId?: unknown; targets?: unknown; accept?: unknown }): { orderId?: string | null; shipmentId?: string | null; targets?: IntakeTarget[]; accept?: boolean } {
   const id = (v: unknown) => (typeof v === 'string' && UUID.test(v) ? v : null);
