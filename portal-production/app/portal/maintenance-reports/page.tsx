@@ -151,7 +151,7 @@ export default function MaintenanceReportsListPage() {
       </Stack>
 
       <TextField
-        placeholder="Search by report number or customer name"
+        placeholder="Search by report number, customer, location, model or serial"
         size="small"
         value={searchInput}
         onChange={(e) => setSearchInput(e.target.value)}

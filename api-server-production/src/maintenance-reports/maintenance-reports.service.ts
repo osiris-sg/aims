@@ -902,10 +902,9 @@ export class MaintenanceReportsService {
    * Search composes:
    *   - numeric input  → exact reportNumber match
    *   - text input     → JSON-path filter on serviceData.customerName
-   * Prisma's JSON-path filters don't support `mode: 'insensitive'`, so
-   * customer-name search is case-sensitive. Swap to $queryRaw with
-   * `serviceData->>'customerName' ILIKE ...` if insensitivity becomes
-   * important.
+   * Prisma's JSON-path filters don't support `mode: 'insensitive'`, so the
+   * JSON paths are resolved with a $queryRaw ILIKE pass and the matching ids
+   * fed back into the query (guru 2026-10-20).
    */
   async findAllService(
     organizationId: string,
@@ -930,12 +929,19 @@ export class MaintenanceReportsService {
       if (!Number.isNaN(asNum) && Number.isInteger(asNum)) {
         orClauses.push({ reportNumber: asNum });
       }
-      orClauses.push({
-        serviceData: {
-          path: ['customerName'],
-          string_contains: trimmed,
-        },
-      });
+      const like = `%${trimmed.replace(/[\\%_]/g, (ch) => '\\' + ch)}%`;
+      const hits: Array<{ id: string }> = await this.prisma.$queryRaw`
+        SELECT r.id FROM "MaintenanceServiceReport" r
+        WHERE r."organizationId" = ${organizationId}
+          AND r.kind = 'SERVICE'
+          AND (
+            r."serviceData" ->> 'customerName' ILIKE ${like} ESCAPE '\\'
+            OR r."serviceData" ->> 'jobLocation' ILIKE ${like} ESCAPE '\\'
+            OR r."serviceData" ->> 'serial' ILIKE ${like} ESCAPE '\\'
+            OR r."serviceData" ->> 'model' ILIKE ${like} ESCAPE '\\'
+          )
+        LIMIT 5000`;
+      if (hits.length) orClauses.push({ id: { in: hits.map((h) => h.id) } });
       where.OR = orClauses;
     }
 

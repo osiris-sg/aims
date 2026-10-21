@@ -97,6 +97,22 @@ export class TradeDocumentsService {
   /** Invoices for "Link existing invoice": by number, or by customer name. Voided ones are left out. */
   async searchInvoices(organizationId: string, q?: string) {
     const term = (q ?? '').trim();
+    // Prisma's JSON string_contains has no insensitive mode, so the customer
+    // name was case-SENSITIVE here ("gs perfect" found nothing). Resolve the
+    // JSON paths with SQL ILIKE and feed the ids back in (guru 2026-10-20).
+    let jsonHitIds: string[] = [];
+    if (term) {
+      const like = `%${term.replace(/[\\%_]/g, (ch) => '\\' + ch)}%`;
+      const hits: Array<{ id: string }> = await this.prisma.$queryRaw`
+        SELECT d.id FROM "Document" d
+        WHERE d."organizationId" = ${organizationId}
+          AND (
+            d.config #>> '{customer,name}' ILIKE ${like} ESCAPE '\\'
+            OR d.config ->> 'customerName' ILIKE ${like} ESCAPE '\\'
+          )
+        LIMIT 2000`;
+      jsonHitIds = hits.map((h) => h.id);
+    }
     const docs: Array<{ id: string; name: string | null; type: string; status: string; config: any; createdAt: Date; documentTemplateId: string }> = await this.prisma.document.findMany({
       where: {
         organizationId,
@@ -105,8 +121,7 @@ export class TradeDocumentsService {
           ? {
               OR: [
                 { name: { contains: term, mode: 'insensitive' as const } },
-                { config: { path: ['customer', 'name'], string_contains: term } },
-                { config: { path: ['customerName'], string_contains: term } },
+                ...(jsonHitIds.length ? [{ id: { in: jsonHitIds } }] : []),
               ],
             }
           : {}),
