@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SiteJobs monochrome launcher layer (themed icons, Android 13+). The system
+     tints it, so it is a single-colour silhouette: the pin with the scalloped
+     face cut out, and the wrench. Same geometry as docs/play-store/sitejobs-mark.svg,
+     scaled to 62% of the 108dp adaptive canvas like the foreground PNGs. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+    <group
+        android:scaleX="0.62"
+        android:scaleY="0.62"
+        android:pivotX="512"
+        android:pivotY="512">
+        <path
+            android:fillColor="#000000"
+            android:fillType="evenOdd"
+            android:pathData="M305.8,575.7 A256,256 0 1 1 718.2,575.7 L512,856 Z M366.1,575 A210,210 0 1 1 657.9,575 A52,52 0 0 1 560.6,575 A52,52 0 0 1 463.4,575 A52,52 0 0 1 366.1,575 Z" />
+        <group
+            android:scaleX="10.5"
+            android:scaleY="10.5"
+            android:translateX="386"
+            android:translateY="276">
+            <path
+                android:fillColor="#000000"
+                android:pathData="M22.7,19l-9.1,-9.1c0.9,-2.3 0.4,-5 -1.5,-6.9 -2,-2 -5,-2.4 -7.4,-1.3L9,6 6,9 1.6,4.7C0.4,7.1 0.9,10.1 2.9,12.1c1.9,1.9 4.6,2.4 6.9,1.5l9.1,9.1c0.4,0.4 1,0.4 1.4,0l2.3,-2.3c0.5,-0.4 0.5,-1.1 0.1,-1.4z" />
+        </group>
+    </group>
+</vector>
