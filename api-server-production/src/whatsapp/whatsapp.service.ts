@@ -402,6 +402,31 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     const text = (failed.body || '').replace(/\s+/g, ' ').trim();
     if (!text) return;
 
+    // PREFER THE BRIDGE (guru 2026-10-22: "if its past the 24h just use the
+    // bridge"). It is a linked device on the user's own phone, so it has no
+    // 24h window, needs no template, and nothing has to be approved by Meta.
+    // Queue the text as due-now work and the bridge delivers it on its next
+    // poll, in the same chat the Cloud API was trying to reach.
+    //
+    // The template below stays as the fallback for an org with no bridge —
+    // and it is only a fallback now, which also means a line without an
+    // approved aims_notify is no longer stranded.
+    if (this.bridgeAlive(organizationId)) {
+      await this.prisma.whatsAppScheduledMessage.create({
+        data: {
+          organizationId,
+          to: `${failed.counterparty}@c.us`,
+          body: text,
+          scheduledAt: new Date(),
+          status: 'PENDING',
+          createdBy: 'window-recovery',
+          recurrence: 'NONE',
+        },
+      });
+      this.logger.log(`Queued for the bridge to ${failed.counterparty} after a closed window (no template needed)`);
+      return;
+    }
+
     const templateName = process.env.WHATSAPP_NOTIFY_TEMPLATE || 'aims_notify';
     await this.dispatch(
       organizationId,
@@ -419,6 +444,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       { templateName, body: `[re-engagement] ${text}`.slice(0, 1000) },
     );
     this.logger.log(`Re-sent as ${templateName} to ${failed.counterparty} after a closed window`);
+  }
+
+  /** Last time each org's bridge asked for work — its liveness signal. */
+  private readonly bridgeLastSeen = new Map<string, number>();
+
+  /** A bridge that has polled recently can deliver anything, any time. */
+  private bridgeAlive(organizationId: string): boolean {
+    const at = this.bridgeLastSeen.get(organizationId);
+    return !!at && Date.now() - at < 5 * 60 * 1000;
   }
 
   private async dispatch(
@@ -1076,6 +1110,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
    * so the bridge polls this and posts on our behalf.
    */
   async dueGroupReminders(organizationId: string) {
+    // The bridge asks for work every few seconds, so this doubles as its
+    // heartbeat: it is how recoverFromClosedWindow knows whether this org has
+    // a linked device that can deliver when the Cloud API cannot.
+    this.bridgeLastSeen.set(organizationId, Date.now());
     const now = new Date();
     const appointments = await this.prisma.whatsAppAppointment.findMany({
       // `startsAt > now` is the backstop. remindAt alone was not enough: a row
@@ -1090,7 +1128,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         organizationId,
         status: 'PENDING',
         scheduledAt: { lte: now },
-        to: { endsWith: '@g.us' },
+        // Groups (@g.us) AND 1:1 chats (@c.us). The DM rows are what
+        // recoverFromClosedWindow queues when the Cloud API cannot reach
+        // someone: the bridge is a linked device on the user's own phone and
+        // has no 24h window, so it can simply send the message.
+        OR: [{ to: { endsWith: '@g.us' } }, { to: { endsWith: '@c.us' } }],
       },
       orderBy: { scheduledAt: 'asc' },
       take: 20,

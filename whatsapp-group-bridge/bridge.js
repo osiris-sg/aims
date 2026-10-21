@@ -547,8 +547,12 @@ async function deliverDueReminders() {
     });
     if (!Array.isArray(due) || !due.length) return;
     for (const r of due) {
-      // Respect the same allowlist that gates replies.
-      if (ALLOWED_GROUPS.length && !ALLOWED_GROUPS.includes(r.groupId)) continue;
+      // Respect the same allowlist that gates replies — for GROUPS. A 1:1
+      // target (@c.us) is staff, not a client: it is how AIMS reaches the
+      // adviser when the Cloud API cannot (past the 24h window), so the
+      // group allowlist must not silently drop it.
+      const isDm = String(r.groupId).endsWith('@c.us');
+      if (!isDm && ALLOWED_GROUPS.length && !ALLOWED_GROUPS.includes(r.groupId)) continue;
       try {
         await client.sendMessage(r.groupId, r.message);
         await callBridgeApi(`/whatsapp/group-reminders/${r.id}/sent`, { body: { organizationId: ORG_ID } });
