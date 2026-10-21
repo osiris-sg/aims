@@ -16,13 +16,32 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+
+    // Two channels, one applicationId:
+    //  play  - the Google Play build (no HOME launcher filter)
+    //  sunmi - the kiosk build for Sunmi handhelds (adds the HOME launcher
+    //          filter via src/sunmi/AndroidManifest.xml so the device can boot
+    //          straight into SiteJobs)
+    flavorDimensions = ["channel"]
+    productFlavors {
+        play { dimension "channel" }
+        sunmi { dimension "channel" }
+    }
+
     buildTypes {
+        debug {
+            // Dev builds load the LAN dev server over plain http.
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
+        }
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            manifestPlaceholders = [usesCleartextTraffic: "false"]
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 }
+
 
 repositories {
     flatDir{

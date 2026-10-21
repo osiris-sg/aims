@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name=".MainActivity">
+            <!-- HOME launcher: lets a Sunmi device boot straight into SiteJobs
+                 (kiosk use). Android NEVER auto-adopts a new HOME app; this only
+                 makes SiteJobs an OPTION in the launcher chooser, and the OS
+                 prompts the user to pick ("Always" vs "Just once"). The normal
+                 LAUNCHER filter in the main manifest is kept, so the app also
+                 stays in the app drawer. Escape if it takes over: Settings >
+                 Apps > Default apps > Home app > pick the stock launcher; or
+                 adb: `adb shell cmd package set-home-activity <stock/.Launcher>`.
+                 Sunmi flavour only; the Play build has no HOME role. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

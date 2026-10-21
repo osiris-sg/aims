@@ -2,13 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="${usesCleartextTraffic}">
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
@@ -23,22 +23,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- HOME launcher: lets the device boot straight into SiteJobs
-                 (Sunmi kiosk use). Android NEVER auto-adopts a new HOME app —
-                 adding this only makes SiteJobs an OPTION in the launcher
-                 chooser; the OS prompts the user to pick (and offers "Always"
-                 vs "Just once"). The LAUNCHER filter above is kept, so the app
-                 also stays in the normal app drawer. On the Samsung test device
-                 simply never choose SiteJobs as Home (or pick "Just once") to
-                 keep the stock launcher. Escape if it takes over: Settings →
-                 Apps → Default apps → Home app → pick the stock launcher; or
-                 adb: `adb shell cmd package set-home-activity <stock/.Launcher>`
-                 (see the pinned note in the build report). -->
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.HOME" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
+            <!-- The HOME launcher filter (Sunmi kiosk boot-to-app) lives in the
+                 "sunmi" product flavour: src/sunmi/AndroidManifest.xml. The
+                 Play flavour is a normal app with no home-screen role. -->
 
             <!-- NFC foreground dispatch — claim exclusive priority over system
                  handlers (Samsung's stock NFC handler in particular) while the
