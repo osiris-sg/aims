@@ -5,19 +5,19 @@
 // ahead), Arrived (arrival / discharge date, or the latest ETA passed),
 // Delivered (cleared: steps up to 10 done) and Completed. Columns: #n-seq,
 // customer, B/L, vessel / voyage, carrier, net MT, ETD, latest ETA, current
-// step and "Free days left" (round Q: Container = DET, Port = DEM, from discharge
-// else arrival; only once arrived — in transit says "starts on arrival").
+// step. (Owner, round Q follow-up: no free-time / DET-DEM column — the data and
+// the detention reminders stay; the countdown lives on the dashboard's
+// "Arriving this week" and in the reminders.)
 // Search by B/L, order no. ("#19" / "19-1") or vessel. A row opens the
 // shipment's steps on its order page.
 
 import React, { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Alert, Box, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Stack, Tab, Tabs, Typography } from "@mui/material";
 import PageTable from "@/components/PageTable";
 import type { ShipmentListItem, ShipmentTab } from "../_lib/api";
 import { useShipments } from "../_lib/hooks";
 import { blLabel, fmtDay, fmtMt, shortCustomer } from "../_lib/format";
-import { freeDays } from "../_lib/free-days";
 import { CurrentStepCell, EmptyState } from "../_components/bits";
 import { useDebounced } from "../_components/useDebounced";
 import ShowTestToggle, { useShowTestOrders } from "../_components/ShowTestToggle";
@@ -30,23 +30,6 @@ const TABS: Array<{ value: ShipmentTab; label: string }> = [
 ];
 
 const hrefOf = (s: ShipmentListItem) => (s.orderId ? `/portal/shipments/orders/${s.orderId}?shipment=${s.id}` : `/portal/shipments/${s.id}`);
-
-/** Round Q: "Container 12d" / "Port 18d" on two short lines once arrived (red at ≤ 3 days); "starts on arrival" in transit. */
-function FreeDaysCell({ s }: { s: ShipmentListItem }) {
-  const fd = freeDays(s);
-  const red = fd.tone === "over" || fd.tone === "warn";
-  return (
-    <Tooltip title={fd.title}>
-      <Box sx={{ color: red ? "error.main" : fd.tone === "pending" ? "text.secondary" : undefined, fontWeight: red ? 700 : 400 }}>
-        {fd.text.split(" · ").map((line) => (
-          <Typography key={line} variant="body2" sx={{ whiteSpace: "nowrap", fontWeight: "inherit", color: "inherit" }}>
-            {line}
-          </Typography>
-        ))}
-      </Box>
-    </Tooltip>
-  );
-}
 
 export default function ShipmentsListPage() {
   const router = useRouter();
@@ -71,7 +54,6 @@ export default function ShipmentsListPage() {
       { id: "etd", header: "ETD", nowrap: true, cell: ({ row }: any) => fmtDay(row.original.etd) },
       { id: "eta", header: "ETA (latest)", nowrap: true, cell: ({ row }: any) => fmtDay(row.original.eta) },
       { id: "step", header: "Current step", cell: ({ row }: any) => <CurrentStepCell step={row.original.currentStep} progress={row.original.progress} maxWidth={260} wrap /> },
-      { id: "free", header: "Free days left", cell: ({ row }: any) => <FreeDaysCell s={row.original} /> },
     ],
     [],
   );
