@@ -234,7 +234,7 @@ export const GUIDES: Guide[] = [
     title: 'Check the email inbox (Sales)',
     module: 'SHIPMENTS',
     description:
-      'How the email intake works: Sales → Inbox lists the intake emails as threads in two tabs — Unprocessed (needs you: Confirm match · Pick order · Pick shipment · Check) and Processed (filed, with who / when and Undo). Confirm a suggestion, "Change order…" to pick the right shipment(s) with a preview, ignore, undo, or delete mail that is not about a shipment. In PARTIAL AUTO an email is filed by itself only when its own B/L / PI / CI is in the subject or an attachment and nothing contradicts it ("Auto · B/L …"); a link-only reply on a confirmed thread is linked by itself ("Auto · thread").',
+      'How the email intake works: Sales → Inbox lists the intake emails as threads in two tabs — Unprocessed (needs you: Confirm match · Pick order · Pick shipment · Check) and Processed (filed, with who / when and Undo). Confirm a suggestion, "Change order" to pick the right shipment(s) with a preview, ignore, undo, or delete mail that is not about a shipment. In PARTIAL AUTO an email is filed by itself only when its own B/L / PI / CI is in the subject or an attachment and nothing contradicts it ("Auto · B/L …"); a link-only reply on a confirmed thread is linked by itself ("Auto · thread").',
     route: '/portal/shipments/inbox',
     steps: [
       {
@@ -251,8 +251,8 @@ export const GUIDES: Guide[] = [
       },
       {
         selector: '[data-tour="inbox-change-order"]',
-        title: 'Change order…',
-        body: 'Wrong or missing order? "Change order…" shows the best 3 matches with why, and a search over every shipment. Pick one (or several, assigning each attachment), check the preview, then Accept. "Ignore" keeps an email without filing anything.',
+        title: 'Change order',
+        body: 'Wrong or missing order? "Change order" shows the best 3 matches with why, and a search over every shipment. Pick one (or several, assigning each attachment), check the preview, then Accept. "Ignore" keeps an email without filing anything.',
         patient: true,
       },
     ],
@@ -417,7 +417,7 @@ export const GUIDES: Guide[] = [
     title: 'The Sales dashboard: emails to confirm, tasks, arrivals',
     module: 'SHIPMENTS',
     description:
-      'Sales › Dashboard (the landing page): one line "To do: n emails to confirm · n tasks overdue · n arriving this week", then the emails waiting for you (Confirm · Change order… · Not shipment), what was filed automatically in the last 3 days (Undo), the reminders (✓ done / ✕ dismiss — also in the bell and the Orders "Tasks (n)" button) and the shipments arriving in the next 7 days with their free time. Reminder rules are in Settings → Shipping → Alerts.',
+      'Sales › Dashboard (the landing page): one line "To do: n emails to confirm · n tasks overdue · n arriving this week", then the emails waiting for you (Confirm · Change order · Not shipment), what was filed automatically in the last 3 days (Undo), the reminders (✓ done / ✕ dismiss — also in the bell and the Orders "Tasks (n)" button) and the shipments arriving in the next 7 days with their free time. Reminder rules are in Settings → Shipping → Alerts.',
     route: '/portal/shipments/dashboard',
     steps: [
       {
@@ -429,7 +429,7 @@ export const GUIDES: Guide[] = [
       {
         selector: '[data-tour="dashboard-emails"]',
         title: 'Emails to confirm',
-        body: 'Each thread shows the shipment it will be linked to and what Confirm does ("files COA.pdf to step 3b"). Confirm, "Change order…" to pick another shipment, or "Not shipment". "See all in Inbox" opens the full list.',
+        body: 'Each thread shows the shipment it will be linked to and what Confirm does ("files COA.pdf to step 3b"). Confirm, "Change order" to pick another shipment, or "Not shipment". "See all in Inbox" opens the full list.',
         patient: true,
       },
       {

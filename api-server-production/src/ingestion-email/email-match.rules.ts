@@ -387,9 +387,14 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
     .map((r) => {
       const s = cueScore(cues, r);
       const o = cueScore(ownCues, r);
-      const hit = strongHits.some((h) => h.orderId === r.orderId && (h.shipmentId === null || h.shipmentId === r.shipmentId));
-      const quoted = !hit && quotedOnly.some((h) => h.orderId === r.orderId && (h.shipmentId === null || h.shipmentId === r.shipmentId));
-      return { r, score: s.score + o.score + (hit ? 10 : quoted ? 2 : 0), reasons: [...(hit ? ['key in the email'] : quoted ? ['key in the quoted text'] : []), ...new Set([...o.reasons.map((x) => `${x} (text)`), ...s.reasons])], open: r.orderStatus === 'OPEN' };
+      const mine = (h: KeyHit) => h.orderId === r.orderId && (h.shipmentId === null || h.shipmentId === r.shipmentId);
+      const hitRow = strongHits.find(mine);
+      const quotedRow = !hitRow ? quotedOnly.find(mine) : undefined;
+      // Round U: say WHERE the key was found, so the picker makes the right one obvious.
+      const whereLabel = (h: KeyHit) => (h.where.includes('attachment') ? 'in the attachment' : h.where.includes('body') ? 'in the email text' : h.where.includes('subject') ? 'in the subject' : 'only in quoted history');
+      const keyReason = hitRow ? [`${KIND_LABEL[hitRow.kind]} ${hitRow.value} ${whereLabel(hitRow)}`] : quotedRow ? [`${KIND_LABEL[quotedRow.kind]} ${quotedRow.value} only in quoted history`] : [];
+      const cueReasons = [...new Set([...o.reasons.map((x) => `${x} (text)`), ...s.reasons.map((x) => `${x} (subject)`)])];
+      return { r, score: s.score + o.score + (hitRow ? 10 : quotedRow ? 2 : 0), reasons: [...keyReason, ...(!keyReason.length && cueReasons.length && !o.reasons.length ? ['subject only'] : []), ...cueReasons], open: r.orderStatus === 'OPEN' };
     })
     .sort((a, b) => b.score - a.score);
   const candidates: Candidate[] = scored.slice(0, 3).map((x) => ({ orderId: x.r.orderId, shipmentId: x.r.shipmentId, ref: recordRef(x.r), score: x.score, reasons: x.reasons }));
@@ -532,6 +537,25 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
     out.reason = 'the subject names several products and nothing else says which — pick the shipment';
   } else out.reason = 'no record number in the email or its thread, and neither the text nor the subject fits one record';
   return out;
+}
+
+/**
+ * Round U (2026-10-22, owner): how sure the decision is, for applying by itself —
+ *   high    a hard key in an attachment or the email's own text, no subject conflict, no other order's key
+ *   medium  a thread / cue decision that points where the thread's most recent accepted message points
+ *   null    everything else (a combined thread with no cue, a real subject conflict, keys of several orders)
+ * The service applies high and medium by itself ("Auto · reviewed …") when the org's reasoner flag is on, into
+ * EMPTY slots only; the one-off prod script does the same for the backlog.
+ */
+export type AutoTier = 'high' | 'medium' | null;
+export function autoTier(d: MatchDecision, thread: ThreadInput): AutoTier {
+  if (!d.target || d.check.length) return null;
+  if (d.blocked.some((b) => /^d:/.test(b))) return null;
+  if (d.source === 'attachment' || d.source === 'own') return 'high';
+  const t = threadContextOf(thread);
+  if (!t.accepted) return null;
+  const same = t.accepted.orderId === d.target.orderId && (t.accepted.shipmentId ?? null) === (d.target.shipmentId ?? null);
+  return same && (d.source === 'thread' || d.source === 'subject-cues' || d.source === 'own-cues' || d.source === 'subject') ? 'medium' : null;
 }
 
 /**

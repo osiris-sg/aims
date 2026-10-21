@@ -4,7 +4,7 @@
 // Round T — an email opens as its THREAD, like an email client: messages stacked oldest → newest, each
 // expandable (the newest open), every message shown in full (EmailView). No summary / explanation text:
 // only the key chips (B/L, PI, CI, contract, container…), the link chip ("→ #22-1 · step 4") and the
-// actions Confirm / Change order… / Not shipment. Shared by the Inbox and the Sales dashboard.
+// actions Confirm / Change order / Not shipment. Shared by the Inbox and the Sales dashboard.
 
 import React, { useEffect, useState } from "react";
 import { Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Typography } from "@mui/material";
@@ -13,7 +13,7 @@ import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useShipmentsApi, type InboxMessage, type InboxRow } from "../../_lib/api";
-import { fromParts, linkedChip, orderHref, whenShort } from "../../_lib/inbox-threads";
+import { fromParts, linkedChip, linkedFileLine, orderHref, rowStatus, whenShort } from "../../_lib/inbox-threads";
 import { toast } from "../../_lib/toast";
 import { actionText } from "./InboxPicker";
 import { EmailView } from "./EmailView";
@@ -52,9 +52,50 @@ export function LinkChip({ m }: { m: InboxMessage | InboxRow }) {
   );
 }
 
+/** Round U: the "AIMS" panel of a message — what AIMS found and will do: key chips, the file plan, the evidence note, notes. */
+export function AimsPanel({ m }: { m: InboxMessage }) {
+  const did = (m.done?.length ? m.done : m.planned ?? []).filter((a: any) => a.status !== "skipped");
+  const files = m.linked?.files ?? [];
+  const lines = files.length ? files.map(linkedFileLine) : did.map(actionText);
+  const notes = (m as any).notes as string[] | undefined;
+  const hasAnything = Object.values(m.keys ?? {}).some(Boolean) || lines.length || m.evidence || notes?.length || m.check?.length;
+  if (!hasAnything) return null;
+  return (
+    <Box sx={{ mb: 1, p: 1, borderRadius: 1, bgcolor: "action.hover", border: "1px solid", borderColor: "divider" }} data-tour="email-aims-panel">
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: lines.length || m.evidence ? 0.5 : 0 }}>
+        <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1 }}>
+          AIMS
+        </Typography>
+        <KeyChips keys={m.keys as any} />
+      </Stack>
+      {lines.map((l, i) => (
+        <Typography key={i} variant="caption" component="div" title={l}>
+          {m.done?.length ? "Filed: " : "Will file: "}
+          {l}
+        </Typography>
+      ))}
+      {!!m.check?.length && (
+        <Typography variant="caption" component="div" color="error.main">
+          Check: {m.check.join("; ")}
+        </Typography>
+      )}
+      {m.evidence && (
+        <Typography variant="caption" component="div" color="text.secondary" sx={{ fontStyle: "italic" }} data-tour="inbox-evidence">
+          {m.evidence}
+        </Typography>
+      )}
+      {notes?.map((n, i) => (
+        <Typography key={`n${i}`} variant="caption" component="div" color="text.secondary">
+          · {n}
+        </Typography>
+      ))}
+    </Box>
+  );
+}
+
 function MessageBlock({ m, open, onToggle, selected }: { m: InboxMessage; open: boolean; onToggle: () => void; selected: boolean }) {
   const from = fromParts(m.from);
-  const did = (m.done?.length ? m.done : m.planned ?? []).filter((a: any) => a.status !== "skipped");
+  const status = rowStatus(m);
   return (
     <Box sx={{ border: "1px solid", borderColor: selected ? "primary.main" : "divider", borderRadius: 1, overflow: "hidden" }} data-tour="email-thread-message">
       <Stack direction="row" spacing={1} alignItems="center" onClick={onToggle} sx={{ px: 1.5, py: 1, cursor: "pointer", bgcolor: open ? "action.hover" : undefined }}>
@@ -71,20 +112,12 @@ function MessageBlock({ m, open, onToggle, selected }: { m: InboxMessage; open: 
           </Typography>
         )}
         <Box sx={{ flex: 1 }} />
+        {status && <Chip size="small" variant="outlined" color={status.tone === "auto" ? "success" : status.tone === "wait" ? "warning" : "default"} label={status.label} sx={{ height: 20 }} data-tour="email-thread-status" />}
         <LinkChip m={m} />
       </Stack>
       <Collapse in={open} unmountOnExit>
         <Box sx={{ px: 1.5, pb: 1.5 }}>
-          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
-            <KeyChips keys={m.keys as any} />
-            {did.length > 0 && (
-              <Typography variant="caption" color="text.secondary" title={did.map(actionText).join("\n")}>
-                {m.done?.length ? "Filed: " : "Will file: "}
-                {did.slice(0, 3).map(actionText).join(" · ")}
-                {did.length > 3 ? ` · +${did.length - 3}` : ""}
-              </Typography>
-            )}
-          </Stack>
+          <AimsPanel m={m} />
           <EmailView id={m.id} />
         </Box>
       </Collapse>
@@ -176,7 +209,7 @@ export function InboxDetailsDialog({
               onChangeOrder(r);
             }}
           >
-            Change order…
+            Change order
           </Button>
         )}
         {open?.inboxState === "SUGGESTED" && (

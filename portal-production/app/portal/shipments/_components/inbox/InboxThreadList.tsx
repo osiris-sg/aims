@@ -11,7 +11,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { Box, Button, Chip, Collapse, IconButton, Paper, Stack, Typography } from "@mui/material";
+import { Box, Button, Chip, Collapse, IconButton, Paper, Stack, Tooltip, Typography } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
@@ -19,7 +19,7 @@ import AttachFileIcon from "@mui/icons-material/AttachFile";
 import CallMadeIcon from "@mui/icons-material/CallMade";
 import CallReceivedIcon from "@mui/icons-material/CallReceived";
 import type { InboxMessage, InboxReason, InboxThread } from "../../_lib/api";
-import { byLine, fromParts, isWhatsAppSource, linkedChip, linkedFileLine, orderHref, threadCounts, whatHappens, whenShort } from "../../_lib/inbox-threads";
+import { fromParts, isWhatsAppSource, orderHref, rowStatus, threadChipText, threadChipTooltip, whenShort } from "../../_lib/inbox-threads";
 
 export interface InboxActions {
   /** Round Q: "Create order from this thread" (No order yet). */
@@ -46,9 +46,18 @@ export function GeneralChip({ customerKey }: { customerKey: string | null }) {
   return <Chip size="small" color="secondary" variant="outlined" label={`General${customerKey ? ` · ${customerKey}` : ""}`} title="A customer-level sheet (cost / price list), not tied to one order" data-tour="inbox-general" />;
 }
 
+/** Round U: the one status chip of a row — the wait reason (unprocessed) or how it was handled (processed). */
+export function StatusChip({ m }: { m: InboxMessage }) {
+  const st = rowStatus(m);
+  if (!st) return null;
+  if (st.tone === "wait") return <ReasonChip reason={m.reason} title={m.matchReason} />;
+  return <Chip size="small" variant="outlined" color={st.tone === "auto" ? "success" : "default"} label={st.label} sx={{ height: 20 }} data-tour="inbox-by" />;
+}
+
 export function LinkedChip({ m, label }: { m: InboxMessage; label?: string | null }) {
   const l = m.linked;
-  const text = label ?? linkedChip(l);
+  // Round U: the chip is WHERE THIS MESSAGE GOES — the ref only (files are the 📎 count; details live in the opened view).
+  const text = label ?? l?.ref ?? null;
   if (!l || !text) return null;
   const href = orderHref(l.orderId, l.shipmentId, l.files[0]?.stepId ?? null);
   const chip = <Chip size="small" color="primary" variant="outlined" clickable={!!href} label={text} title={l.label ?? undefined} data-tour="inbox-linked" />;
@@ -65,7 +74,6 @@ export function LinkedChip({ m, label }: { m: InboxMessage; label?: string | nul
 export function MessageRow({ m, actions, showSubject = true, dense }: { m: InboxMessage; actions: InboxActions; showSubject?: boolean; dense?: boolean }) {
   const from = fromParts(m.from);
   const processed = m.inboxState === "PROCESSED";
-  const by = byLine(m.by);
   return (
     <Box
       onClick={() => actions.onOpen(m)}
@@ -75,8 +83,17 @@ export function MessageRow({ m, actions, showSubject = true, dense }: { m: Inbox
       <Stack direction="row" spacing={1} alignItems="flex-start">
         <Box sx={{ pt: 0.25, color: "text.secondary" }}>{m.direction === "OUT" ? <CallMadeIcon fontSize="small" titleAccess="Sent" /> : <CallReceivedIcon fontSize="small" titleAccess="Received" />}</Box>
         <Box sx={{ flex: 1, minWidth: 0 }}>
+          {/* Round U: link chip · subject · sender + company · date · 📎 n · ONE status chip. Everything else is in the opened view. */}
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-            <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap title={m.from}>
+            {m.linked ? <LinkedChip m={m} /> : m.general ? <GeneralChip customerKey={m.general.customerKey} /> : null}
+            {showSubject && (
+              <Typography variant="body2" sx={{ fontWeight: 600, minWidth: 0 }} noWrap title={m.subject ?? ""}>
+                {m.subject || "(no subject)"}
+              </Typography>
+            )}
+          </Stack>
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 0.25 }}>
+            <Typography variant="body2" noWrap title={m.from}>
               {from.name}
             </Typography>
             {m.counterparty && <Chip size="small" variant="outlined" label={m.counterparty} sx={{ height: 20 }} />}
@@ -89,43 +106,8 @@ export function MessageRow({ m, actions, showSubject = true, dense }: { m: Inbox
                 <AttachFileIcon sx={{ fontSize: 14 }} /> {m.attachments.length}
               </Typography>
             )}
-            {!processed && <ReasonChip reason={m.reason} title={m.matchReason} />}
-            {processed && by && (
-              <Typography variant="caption" color={m.by?.outcome === "AUTO" ? "success.main" : "text.secondary"} data-tour="inbox-by">
-                {by}
-              </Typography>
-            )}
+            <StatusChip m={m} />
           </Stack>
-          {showSubject && (
-            <Typography variant="body2" noWrap title={m.subject ?? ""}>
-              {m.subject || "(no subject)"}
-            </Typography>
-          )}
-          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 0.25 }}>
-            {m.linked ? <LinkedChip m={m} /> : m.general ? <GeneralChip customerKey={m.general.customerKey} /> : null}
-            {m.linked?.label && (
-              <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 420 }}>
-                → {m.linked.label}
-              </Typography>
-            )}
-            <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 520 }} title={whatHappens(m)}>
-              {whatHappens(m)}
-            </Typography>
-          </Stack>
-          {m.evidence && (
-            <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.25, fontStyle: "italic" }} title={m.evidence} data-tour="inbox-evidence">
-              {m.evidence}
-            </Typography>
-          )}
-          {m.linked && m.linked.files.length > 0 && (
-            <Box sx={{ mt: 0.25 }}>
-              {m.linked.files.map((f, i) => (
-                <Typography key={i} variant="caption" color="text.secondary" component="div" noWrap title={linkedFileLine(f)}>
-                  {linkedFileLine(f)}
-                </Typography>
-              ))}
-            </Box>
-          )}
         </Box>
         <Stack direction="row" spacing={0.5} alignItems="center" onClick={(e) => e.stopPropagation()} sx={{ flexShrink: 0 }}>
           {m.canUndo && (
@@ -140,7 +122,7 @@ export function MessageRow({ m, actions, showSubject = true, dense }: { m: Inbox
           )}
           {!m.canUndo && !processed && (
             <Button size="small" onClick={() => actions.onChangeOrder(m)} data-tour="inbox-change-order">
-              Change order…
+              Change order
             </Button>
           )}
           {!m.canUndo && !processed && (
@@ -164,7 +146,8 @@ export function ThreadRow({ t, actions, defaultOpen = false }: { t: InboxThread;
   const [open, setOpen] = useState(defaultOpen || t.messages.length === 1);
   const newest = t.messages[0];
   const from = fromParts(newest?.from);
-  const linkText = t.link ? (t.link.combined.length ? t.link.combined.map((c) => c.ref).filter(Boolean).join(" / ") : t.link.label ?? t.link.ref) : null;
+  const linkText = threadChipText(t.link);
+  const linkTip = threadChipTooltip(t.link);
   const href = t.link?.orderId ? orderHref(t.link.orderId, t.link.shipmentId) : null;
   return (
     <Paper variant="outlined" sx={{ mb: 1, overflow: "hidden" }} data-tour="inbox-thread">
@@ -177,18 +160,22 @@ export function ThreadRow({ t, actions, defaultOpen = false }: { t: InboxThread;
             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
               {linkText ? (
                 href ? (
-                  <Link href={href} onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none" }}>
-                    <Chip size="small" color={t.link?.from === "processed" ? "success" : "primary"} variant="outlined" clickable label={linkText} title={t.link?.combined.length ? "This thread covers several shipments" : undefined} />
-                  </Link>
+                  <Tooltip title={linkTip ?? ""} placement="bottom-start" enterDelay={400}>
+                    <Link href={href} onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none" }}>
+                      <Chip size="small" color={t.link?.from === "processed" ? "success" : "primary"} variant="outlined" clickable label={linkText} data-tour="inbox-thread-chip" />
+                    </Link>
+                  </Tooltip>
                 ) : (
-                  <Chip size="small" color="primary" variant="outlined" label={linkText} />
+                  <Tooltip title={linkTip ?? ""} placement="bottom-start" enterDelay={400}>
+                    <Chip size="small" color="primary" variant="outlined" label={linkText} data-tour="inbox-thread-chip" />
+                  </Tooltip>
                 )
               ) : t.general ? (
                 <GeneralChip customerKey={t.general.customerKey} />
               ) : (
                 <Chip size="small" variant="outlined" label="Not linked yet" />
               )}
-              <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 0 }} noWrap title={t.subject ?? ""}>
+              <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 0 }} noWrap>
                 {t.subject || "(no subject)"}
               </Typography>
             </Stack>
@@ -197,12 +184,11 @@ export function ThreadRow({ t, actions, defaultOpen = false }: { t: InboxThread;
                 {from.name}
                 {newest.counterparty ? ` · ${newest.counterparty}` : ""}
                 {` · ${whenShort(t.latest)}`}
-                {` · ${threadCounts(t.emails, t.files)}`}
-                {processedLine(newest)}
+                {t.files > 0 ? ` · 📎 ${t.files}` : ""}
               </Typography>
             )}
           </Box>
-          {!open && newest?.reason && <ReasonChip reason={newest.reason} title={newest.matchReason} />}
+          {!open && newest && <StatusChip m={newest} />}
           {t.section === "NO_ORDER" && actions.onCreateOrder && (
             <Button
               size="small"
@@ -223,18 +209,10 @@ export function ThreadRow({ t, actions, defaultOpen = false }: { t: InboxThread;
         {t.messages.map((m) => (
           <MessageRow key={m.id} m={m} actions={actions} showSubject={t.messages.length > 1 && (m.subject ?? "") !== (t.subject ?? "")} />
         ))}
-        {t.otherCount > 0 && (
-          <Typography variant="caption" color="text.secondary" sx={{ px: 1.5, py: 0.5, display: "block", borderTop: "1px solid", borderColor: "divider" }}>
-            {t.otherCount} more message{t.otherCount === 1 ? "" : "s"} of this thread in the other tab
-          </Typography>
-        )}
       </Collapse>
     </Paper>
   );
 }
-
-/** "· Confirmed by Sayaka · 21 Oct 10:12" on a processed thread's folded line. */
-const processedLine = (m: InboxMessage) => (m.inboxState === "PROCESSED" && m.by ? ` · ${byLine(m.by)}` : "");
 
 /** Threads, with the "No order yet — create one?" threads grouped under their own heading (round Q). */
 export function InboxThreadList({ threads, actions, emptyText }: { threads: InboxThread[]; actions: InboxActions; emptyText: string }) {

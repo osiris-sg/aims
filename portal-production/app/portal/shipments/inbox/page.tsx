@@ -73,7 +73,7 @@ export default function InboxPage() {
               setMenu(null);
             }}
           >
-            Change order…
+            Change order
           </MenuItem>
         )}
         {menu && !menu.row.canUndo && menu.row.inboxState !== "PROCESSED" && (

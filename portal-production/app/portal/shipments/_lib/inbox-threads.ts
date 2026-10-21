@@ -39,6 +39,30 @@ export function whatHappens(m: Pick<InboxMessage, "linked" | "done">): string {
   return parts.length ? parts.join("; ") : did ? `Linked to ${l.ref ?? "the order"} (no files)` : "links only (no files)";
 }
 
+/** Round U: the collapsed thread chip — one shipment's ref, or "2 shipments" when the thread's messages go to different ones. */
+export function threadChipText(link: { ref: string | null; combined: Array<{ ref: string | null }> } | null): string | null {
+  if (!link) return null;
+  const refs = [...new Set(link.combined.map((c) => c.ref).filter(Boolean))];
+  if (refs.length > 1) return `${refs.length} shipments`;
+  return link.ref;
+}
+
+/** Round U: the tooltip of the thread chip — the shipments it covers, one per line. */
+export function threadChipTooltip(link: { label: string | null; combined: Array<{ ref: string | null; label: string | null }> } | null): string | null {
+  if (!link) return null;
+  const lines = link.combined.length ? link.combined.map((c) => c.label ?? c.ref).filter(Boolean) : [link.label];
+  return lines.filter(Boolean).join("\n") || null;
+}
+
+/** Round U: ONE status word for a message row — the reason it waits, or how it was handled; null when nothing to say. */
+export function rowStatus(m: { inboxState: string | null; reason?: { label: string } | null; by?: { outcome: string; name: string | null; autoLabel?: string | null; via?: string | null } | null }): { label: string; tone: "wait" | "auto" | "person" } | null {
+  if (m.inboxState !== "PROCESSED") return m.reason ? { label: m.reason.label, tone: "wait" } : null;
+  if (!m.by) return null;
+  if (m.by.outcome === "AUTO") return { label: `Auto · ${m.by.autoLabel ?? "applied"}`, tone: "auto" };
+  const verb = m.by.outcome === "ACCEPTED" ? "Confirmed" : m.by.outcome === "CHANGED" ? "Changed" : m.by.outcome === "IGNORED" ? "Ignored" : "Rejected";
+  return { label: `${verb} by ${m.by.name ?? "—"}${m.by.via === "whatsapp" ? " (WhatsApp)" : ""}`, tone: "person" };
+}
+
 /** The "Linked to" chip text: "#15-1 (no files)" / "#28-1 · 3 files". */
 export function linkedChip(l: InboxLinked | null): string | null {
   if (!l?.ref) return null;

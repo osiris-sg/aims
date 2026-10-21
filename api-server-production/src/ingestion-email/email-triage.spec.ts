@@ -647,6 +647,41 @@ describe('PARTIAL_AUTO, the order picker, multi-shipment emails, thread follow, 
     expect(x.uploads).toHaveLength(0);
   });
 
+  it('round U: with the reasoner flag on, a reply that files a document on an accepted thread applies by itself (MEDIUM, "Auto · reviewed · thread"); a slot already taken keeps it a suggestion', async () => {
+    const x = setup('PARTIAL_AUTO');
+    x.t.organization[0].uiConfig = { features: { enableEmailReasoner: true } };
+    x.triage.reasonerAi = jest.fn(async () => ({ isShipmentMail: true, reason: 'not needed', decisions: [] }));
+    const first = await x.receiveRaw({ subject: '書類送付の件', text: 'dummy', messageId: '<u1@x>', ai: shipmentAi() });
+    await x.triage.assign(ORG, first.logId, { shipmentId: 's-20-1', accept: true }, { id: 'u1', name: 'Sayaka' });
+    const pdf = Buffer.from('%PDF-1.4 dummy').toString('base64');
+    const reply = await x.receiveRaw({
+      subject: 'Re: 書類送付の件',
+      text: 'A/N attached',
+      messageId: '<u2@x>',
+      inReplyTo: '<u1@x>',
+      attachments: [{ filename: 'AN_20-1.pdf', contentType: 'application/pdf', contentBase64: pdf }],
+      ai: { ...shipmentAi(), attachments: [{ filename: 'AN_20-1.pdf', docType: 'ARRIVAL_NOTICE', confidence: 0.9 }] },
+    });
+    expect(reply.triaged.inboxState).toBe('PROCESSED');
+    const row = await x.triage.row(ORG, reply.logId);
+    expect(row).toMatchObject({ matched: '#20-1', autoLabel: 'reviewed · thread', canUndo: true });
+    expect(row.review).toMatchObject({ outcome: 'AUTO' });
+    expect(row.evidence).toMatch(/earlier email of this thread was linked to #20-1/);
+    expect(x.uploads).toHaveLength(1);
+    // The same again: the ARRIVAL_NOTICE slot of #20-1 is now taken → AUTO-GATE keeps it a suggestion (never replace).
+    const again = await x.receiveRaw({
+      subject: 'Re: 書類送付の件',
+      text: 'A/N again',
+      messageId: '<u3@x>',
+      inReplyTo: '<u1@x>',
+      attachments: [{ filename: 'AN_20-1_v2.pdf', contentType: 'application/pdf', contentBase64: Buffer.from('%PDF-1.4 other').toString('base64') }],
+      ai: { ...shipmentAi(), attachments: [{ filename: 'AN_20-1_v2.pdf', docType: 'ARRIVAL_NOTICE', confidence: 0.9 }] },
+    });
+    expect(again.triaged.inboxState).toBe('SUGGESTED');
+    expect((await x.triage.row(ORG, again.logId)).autoTier).toBe('medium');
+    expect(x.uploads).toHaveLength(1);
+  });
+
   it('round R fixtures (the prod 15, dummy content): own-text keys, per-attachment split, the reasoner on a combined thread, cost sheets left', async () => {
     const x = setup('PARTIAL_AUTO');
     const pdf = Buffer.from('%PDF-1.4 dummy').toString('base64');

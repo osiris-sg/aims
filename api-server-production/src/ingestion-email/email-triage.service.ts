@@ -13,7 +13,7 @@ import { sha256Of, TradeFilesService } from '../shipments/trade-files.service';
 import { TradeStepsService } from '../shipments/trade-steps.service';
 import { ShipmentsNotifyService } from '../shipments/shipments-notify.service';
 import { StoredEmailMeta } from './email-store';
-import { attachmentHits, attachmentTarget, DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, recordRef, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
+import { attachmentHits, attachmentTarget, autoTier, DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, recordRef, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
 import { splitQuoted } from './email-quote';
 import { blockRemoteContent, parseEmail, ParsedEmail } from './email-mime';
 import { buildReasonerPrompt, judgeReasoner, parseReasonerOutput, ReasonerContext, ReasonerJudgement, ReasonerRecordRow, ReasonerThreadMessage } from './email-reasoner';
@@ -101,6 +101,8 @@ const REASONER_MODEL = 'claude-opus-5-5';
 const UNSURE_DAYS = 14;
 const DEFAULT_OWN_DOMAINS = ['asiadealhub.com'];
 const SYSTEM_ACTOR = { id: 'system:email-intake', name: 'Email intake' };
+/** Document types that repeat per delivery — a second file of these never "replaces" anything (round R gate, shared since round U). */
+export const REPEATABLE_DOC_TYPES = new Set(['DELIVERY_NOTE', 'VENDOR_INVOICE', 'PAYMENT_PROOF', 'DELIVERY_SCHEDULE', 'BUNDLE_LIST', 'OTHER']);
 
 /** Hashed Message-ID kept for purged (NOT_SHIPMENT) rows — still dedupes a re-delivery. */
 export const hashedMessageId = (messageId: string) => `sha256:${createHash('sha256').update(messageId).digest('hex')}`;
@@ -403,7 +405,13 @@ export class EmailTriageService {
       (mode === 'AUTO' ? !decision.check.length : mode === 'PARTIAL_AUTO' ? decision.auto && !unsupported.length && !needsShipment : false);
     // Round Q: what kind of email this is (hide / auto-link / history / confirm / pick / no order) — stored on the
     // row for the inbox; applied live below (never with `safe`, never in TRIAGE).
-    const verdict = manualList ? null : await this.classify(organizationId, log, decision, plan, targets, keys, auto);
+    // Round U: apply by itself when the decision is sure — HIGH (a hard key in an attachment / the own text, no
+    // conflict, no other order) or MEDIUM (a thread / cue decision that agrees with the thread's most recent
+    // accepted link) — into EMPTY slots only, behind the org's reasoner flag; labelled "Auto · reviewed · …".
+    const tier = !opts.safe && !manualList && state === 'SUGGESTED' && !reasoned?.apply ? autoTier(decision, await this.threadContext(organizationId, log, await this.matchRecords(organizationId))) : null;
+    const tierAuto = !auto && !!tier && mode === 'PARTIAL_AUTO' && !unsupported.length && !needsShipment && !decision.check.length && (await this.reasonerOn(organizationId)) && (await this.slotsFree(organizationId, plan));
+    const applyNow = auto || tierAuto;
+    const verdict = manualList ? null : await this.classify(organizationId, log, decision, plan, targets, keys, applyNow);
     if (verdict?.kind === 'HIDE') {
       await this.prisma.emailIngestLog.update({
         where: { id: logId },
@@ -432,6 +440,7 @@ export class EmailTriageService {
           reason: manualList ? 'picked by hand' : decision.reason,
           threadFrom: decision.threadFrom ?? null,
           ...(reasoned ? { reasoner: { apply: reasoned.apply, reason: reasoned.reason, evidence: reasoned.evidence, at: new Date().toISOString() }, evidence: reasoned.evidence } : {}),
+          ...(tierAuto ? { autoTier: tier, evidence: decision.reason } : tier ? { autoTier: tier } : {}),
           targets: targets.map((t) => ({ orderId: t.orderId ?? null, shipmentId: t.shipmentId ?? null, ...(t.attachmentIndexes ? { attachmentIndexes: t.attachmentIndexes } : {}) })),
           // What the intake suggested first — "Accept" vs "Change order…" is measured against it.
           suggested: prev.suggested ?? (manualList ? null : (targets[0] ?? null)),
@@ -442,9 +451,9 @@ export class EmailTriageService {
         inboxState: state,
       },
     });
-    if (auto) {
+    if (applyNow) {
       // The label in Processed: "history" for a closed record (round Q), "reasoned" (round R), else "thread" / the key.
-      const label = verdict?.kind === 'HISTORY' ? 'history' : reasoned?.apply ? `reasoned · ${reasoned.keyLabel ?? 'thread'}` : decision.kind === 'thread' ? 'thread' : decision.keyLabel;
+      const label = tierAuto ? `reviewed · ${decision.keyLabel ?? (decision.source === 'thread' ? 'thread' : 'subject')}` : verdict?.kind === 'HISTORY' ? 'history' : reasoned?.apply ? `reasoned · ${reasoned.keyLabel ?? 'thread'}` : decision.kind === 'thread' ? 'thread' : decision.keyLabel;
       await this.execute(organizationId, logId, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: label });
       return 'PROCESSED';
     }
@@ -819,6 +828,21 @@ export class EmailTriageService {
   }
 
   /** The plan over every target (multi-order emails: each target's own attachments). */
+  /**
+   * Round U AUTO-GATE: a planned file may go only where that owner has no file of its type yet (single-slot types
+   * are never replaced; delivery notes / vendor invoices / proofs / schedules / bundle lists repeat per delivery).
+   */
+  async slotsFree(organizationId: string, plan: IntakeAction[]): Promise<boolean> {
+    for (const a of plan) {
+      if (a.kind !== 'file' || a.status !== 'planned' || !a.docType || !a.ownerId) continue;
+      if (REPEATABLE_DOC_TYPES.has(a.docType)) continue;
+      const key = a.ownerKind === 'order' ? 'orderId' : a.ownerKind === 'supplierOrder' ? 'supplierOrderId' : 'shipmentId';
+      const files: Array<{ links?: Array<Record<string, string | null>> }> = await this.prisma.tradeFile.findMany({ where: { organizationId, docType: a.docType }, select: { id: true, links: { select: { shipmentId: true, orderId: true, supplierOrderId: true } } } });
+      if (files.some((f) => (f.links ?? []).some((l) => l[key] === a.ownerId))) return false;
+    }
+    return true;
+  }
+
   private async buildPlan(organizationId: string, log: any, keys: TriageKeys, targets: IntakeTarget[], ev: EmailEvidence): Promise<IntakeAction[]> {
     const out: IntakeAction[] = [];
     const multi = targets.length > 1;
@@ -1454,6 +1478,7 @@ export class EmailTriageService {
       /** Subject words that disagree with the match ("grade 6005 ≠ 6063") — shown as "check". */
       check: (actions as { check?: string[] }).check ?? [],
       notes: (actions as { notes?: string[] }).notes ?? [],
+      autoTier: (actions as { autoTier?: string | null }).autoTier ?? null,
       source: (actions as { source?: string | null }).source ?? null,
       confidence: (actions as { confidence?: string }).confidence ?? null,
       /** Which guard kept it a suggestion. */
