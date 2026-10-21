@@ -44,6 +44,9 @@ describe('thread grouping', () => {
     expect(threadHeadersFromEml('From: a@x\r\n\r\nbody')).toEqual({ messageId: null, inReplyTo: null, references: [], autoSubmitted: false });
     // An Exchange out-of-office: Auto-Submitted / X-Autoreply, no thread headers.
     expect(threadHeadersFromEml('Message-ID: <a@x>\r\nAuto-Submitted: auto-replied\r\nX-Autoreply: yes\r\n\r\nbody').autoSubmitted).toBe(true);
+    expect(threadHeadersFromEml('Message-ID: <a@x>\r\nAuto-Submitted: auto-replied\r\n\r\nbody').autoSubmitted).toBe(true);
+    // A mailbox forwarding rule stamps "auto-generated" on every forwarded email — that is NOT an auto-reply.
+    expect(threadHeadersFromEml('Message-ID: <a@x>\r\nAuto-Submitted: auto-generated\r\n\r\nbody').autoSubmitted).toBe(false);
     expect(normMessageId(' <abc@x> ')).toBe('abc@x');
     expect(normMessageId('')).toBeNull();
   });

@@ -694,6 +694,28 @@ describe('PARTIAL_AUTO, the order picker, multi-shipment emails, thread follow, 
     expect((await x.triage.row(ORG, cost.logId)).matchedBy).toBeNull();
   });
 
+  it('round R follow-up at intake: empty → hidden; a cost sheet from a customer → General; a no-text reply → the thread\'s links; a schedule sheet → multi-link', async () => {
+    const x = setup('PARTIAL_AUTO');
+    const xlsx = Buffer.from('PK dummy').toString('base64');
+    // Empty email → hidden.
+    const empty = await x.receiveRaw({ subject: '', text: '', messageId: '<e1@x>', from: 'ops@asiadealhub.com', ai: { ...shipmentAi(), verdict: 'UNSURE' } });
+    expect(empty.triaged.inboxState).toBe('HIDDEN');
+    // A customer's price-trend sheet → General (SUS), Processed, no order.
+    const cost = await x.receiveRaw({ subject: '諸掛りについて', text: '価格推移を添付します。', messageId: '<g1@x>', from: 'arima@sus.example', attachments: [{ filename: '価格推移.xlsx', contentType: 'application/vnd.ms-excel', contentBase64: xlsx }], ai: { ...shipmentAi(), counterparty: 'SUS', verdict: 'UNSURE', attachments: [{ filename: '価格推移.xlsx', docType: 'OTHER', confidence: 0.8 }] } });
+    expect(cost.triaged.inboxState).toBe('PROCESSED');
+    const grow = await x.triage.row(ORG, cost.logId);
+    expect(grow.autoLabel).toBe('general (SUS)');
+    expect(grow.orderId).toBeNull();
+    expect((grow as any).general).toEqual({ customerKey: 'SUS' });
+    // A reply with no own text on a linked thread → the same link, "Auto · thread".
+    const first = await x.receiveRaw({ subject: '書類送付の件', text: 'dummy', messageId: '<i1@x>', ai: shipmentAi() });
+    await x.triage.assign(ORG, first.logId, { shipmentId: 's-20-1', accept: true }, { id: 'u1', name: 'Sayaka' });
+    const blank = await x.receiveRaw({ subject: 'Re: 書類送付の件', text: '> old text only', messageId: '<i2@x>', inReplyTo: '<i1@x>', ai: shipmentAi() });
+    expect(blank.triaged.inboxState).toBe('PROCESSED');
+    expect(await x.triage.row(ORG, blank.logId)).toMatchObject({ matched: '#20-1', autoLabel: 'thread' });
+    expect(x.uploads).toHaveLength(0);
+  });
+
   it('accept rate: accepted as-is, changed, ignored, rejected and auto are counted', async () => {
     const x = setup('TRIAGE');
     const a = await x.receive('vedanta-copy-documents');

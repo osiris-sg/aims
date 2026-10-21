@@ -41,6 +41,11 @@ export function ReasonChip({ reason, title }: { reason: InboxReason | null | und
 }
 
 /** The "Linked to" chip — a link to the shipment on its order page (the step expanded when known). */
+/** Round R follow-up: a customer-level sheet (cost / price list) — filed under the customer, no order to open. */
+export function GeneralChip({ customerKey }: { customerKey: string | null }) {
+  return <Chip size="small" color="secondary" variant="outlined" label={`General${customerKey ? ` · ${customerKey}` : ""}`} title="A customer-level sheet (cost / price list), not tied to one order" data-tour="inbox-general" />;
+}
+
 export function LinkedChip({ m, label }: { m: InboxMessage; label?: string | null }) {
   const l = m.linked;
   const text = label ?? linkedChip(l);
@@ -96,7 +101,7 @@ export function MessageRow({ m, actions, showSubject = true, dense }: { m: Inbox
             </Typography>
           )}
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 0.25 }}>
-            {m.linked ? <LinkedChip m={m} /> : m.reason?.code === "PICK_SHIPMENT" || m.reason?.code === "PICK_ORDER" ? null : null}
+            {m.linked ? <LinkedChip m={m} /> : m.general ? <GeneralChip customerKey={m.general.customerKey} /> : null}
             {m.linked?.label && (
               <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 420 }}>
                 → {m.linked.label}
@@ -177,6 +182,8 @@ export function ThreadRow({ t, actions, defaultOpen = false }: { t: InboxThread;
                 ) : (
                   <Chip size="small" color="primary" variant="outlined" label={linkText} />
                 )
+              ) : t.general ? (
+                <GeneralChip customerKey={t.general.customerKey} />
               ) : (
                 <Chip size="small" variant="outlined" label="Not linked yet" />
               )}

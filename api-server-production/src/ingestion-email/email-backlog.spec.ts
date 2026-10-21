@@ -60,6 +60,36 @@ describe('conversation only → linked by itself', () => {
   });
 });
 
+describe('round R follow-up: empty, general, inherit the thread, multi-link a schedule', () => {
+  it('an empty email (no subject, no own text, no attachment) is hidden', () => {
+    expect(classifyEmail(base({ subject: '', ownTextEmpty: true }))).toMatchObject({ kind: 'HIDE', reason: 'empty email' });
+    expect(classifyEmail(base({ subject: '', ownTextEmpty: true, unhidden: true })).kind).not.toBe('HIDE');
+  });
+  it('a customer-level price / cost sheet with no record reference → GENERAL, linked to the customer only', () => {
+    const v = classifyEmail(base({ inboxState: 'UNSURE', verdict: 'UNSURE', subject: '諸掛りについて', customerKey: 'SUS', attachments: [{ name: '価格推移.xlsx', slot: null }], attachmentTexts: [{ name: '価格推移.xlsx', text: 'ビレット価格推移（32～35期） 諸掛り 通関/送料' }] }));
+    expect(v).toMatchObject({ kind: 'GENERAL' });
+    expect(v.reason).toMatch(/price \/ cost sheet/);
+    // The same sheet from a supplier / unknown party, or with a record key, is not General.
+    expect(classifyEmail(base({ subject: '諸掛りについて', customerKey: null, attachments: [{ name: '価格推移.xlsx', slot: null }], attachmentTexts: [{ name: '価格推移.xlsx', text: '価格推移' }] })).kind).not.toBe('GENERAL');
+    expect(classifyEmail(base({ subject: '諸掛りについて', customerKey: 'SUS', keyInAims: true, attachments: [{ name: '価格推移.xlsx', slot: null }], attachmentTexts: [{ name: '価格推移.xlsx', text: '価格推移' }] })).kind).not.toBe('GENERAL');
+  });
+  it('a reply with no text of its own and nothing attached follows the thread\'s links (all of them for a combined thread)', () => {
+    const links = [{ orderId: 'o20', shipmentId: 's20' }, { orderId: 'o21', shipmentId: 's21' }, { orderId: 'o22', shipmentId: 's22' }];
+    const v = classifyEmail(base({ subject: 'Re: 【11月納入】…', ownTextEmpty: true, threadLinks: links, multiOrderIds: ['o20', 'o21', 'o22'] }));
+    expect(v).toMatchObject({ kind: 'INHERIT_THREAD' });
+    expect(v.reason).toMatch(/3 link/);
+    // With its own text it is judged on that text instead.
+    expect(classifyEmail(base({ subject: 'Re: 【11月納入】…', ownTextEmpty: false, threadLinks: links, multiOrderIds: ['o20', 'o21', 'o22'] })).kind).toBe('PICK');
+  });
+  it('a schedule sheet covering several candidate shipments → MULTI_LINK (linked to all, nothing filed)', () => {
+    const cands = [{ orderId: 'o15', shipmentId: 's15', ref: '#15-1' }, { orderId: 'o16', shipmentId: 's16a', ref: '#16-1' }, { orderId: 'o16', shipmentId: 's16b', ref: '#16-2' }];
+    const v = classifyEmail(base({ subject: 'Re: ビレット案件（10月納入6005ー20t, 6063ー300t）', candidates: cands, attachments: [{ name: '10月SUS納入予定.xlsx', slot: 'CUSTOMER_PL' }], attachmentTexts: [{ name: '10月SUS納入予定.xlsx', text: 'ETA FT LOT コンテナ番号 納品日' }] }));
+    expect(v).toMatchObject({ kind: 'MULTI_LINK' });
+    expect(v.reason).toMatch(/#15-1 \/ #16-1 \/ #16-2/);
+    expect(classifyEmail(base({ subject: 'x', candidates: cands.slice(0, 1), attachments: [{ name: '10月SUS納入予定.xlsx', slot: null }], attachmentTexts: [{ name: '10月SUS納入予定.xlsx', text: 'ETA' }] })).kind).not.toBe('MULTI_LINK');
+  });
+});
+
 describe('history and no order', () => {
   it('conversation about a completed order / delivered shipment → HISTORY', () => {
     expect(classifyEmail(base({ target: t, confidence: 'exact', targetClosed: true }))).toMatchObject({ kind: 'HISTORY' });

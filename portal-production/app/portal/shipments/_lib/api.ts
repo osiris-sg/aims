@@ -135,6 +135,8 @@ export type InboxRow = {
   review?: { outcome: "AUTO" | "ACCEPTED" | "CHANGED" | "REJECTED" | "IGNORED"; at: string; by: string | null } | null;
   /** "B/L 198GX04630" — applied by itself (PARTIAL_AUTO). */
   autoLabel?: string | null;
+  /** Round R follow-up: a customer-level sheet (cost / price list) filed without an order — "General · SUS". */
+  general?: { customerKey: string | null } | null;
   id: string;
   date: string;
   receivedAt: string;
@@ -711,7 +713,7 @@ export type OrderSeed = { piNo: string | null; contractNo: string | null; grade:
 export type InboxBacklog = { kind: "HIDE" | "AUTO" | "CONFIRM" | "AUTO_LINK" | "HISTORY" | "PICK" | "NO_ORDER" | "IS_SHIPMENT"; reason: string; seed: OrderSeed | null };
 export type InboxMessage = InboxRow & { reason: InboxReason | null; matchReason: string | null; threadFrom: "accepted" | "traced" | "followed" | null; threadSize: number; linked: InboxLinked | null; by: InboxBy | null; backlog?: InboxBacklog | null; evidence?: string | null; reviewConfidence?: string | null };
 export type InboxThreadLink = { orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null; from: "processed" | "suggested"; combined: Array<{ orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null }> };
-export type InboxThread = { id: string; by: "headers" | "subject" | "both"; section?: "NO_ORDER" | null; subject: string | null; latest: string | null; emails: number; files: number; link: InboxThreadLink | null; messages: InboxMessage[]; otherCount: number };
+export type InboxThread = { id: string; by: "headers" | "subject" | "both"; section?: "NO_ORDER" | null; subject: string | null; latest: string | null; emails: number; files: number; link: InboxThreadLink | null; general?: { customerKey: string | null } | null; messages: InboxMessage[]; otherCount: number };
 export type HiddenEmail = { id: string; date: string; fromDomain: string; subject: string; reason: string | null };
 export type InboxThreadsTab = "UNPROCESSED" | "PROCESSED";
 export type InboxThreads = { tab: InboxThreadsTab; counts: { unprocessed: number; processed: number }; total: number; threads: InboxThread[] };

@@ -251,8 +251,11 @@ export class EmailTriageService {
     });
     if (verdict === 'UNSURE') {
       await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { inboxState: 'UNSURE', purgeAfter: new Date(Date.now() + UNSURE_DAYS * 86_400_000) } });
-      this.actionLog.system('email-triage', 'TRIAGE', 'EmailIngestLog', { organizationId, resourceId: logId, details: { verdict, counterparty, error } });
-      return { verdict, inboxState: 'UNSURE' };
+      // Round R follow-up: an Unsure email still goes through the rules — an empty email is hidden, a customer's
+      // price / cost sheet becomes General, a no-text reply follows its thread; otherwise it stays Unsure.
+      const kept = await this.matchAndPlan(organizationId, logId, keys, mode, undefined, { keepState: 'UNSURE' });
+      this.actionLog.system('email-triage', kept === 'PROCESSED' ? 'PROCESS' : 'TRIAGE', 'EmailIngestLog', { organizationId, resourceId: logId, details: { verdict, counterparty, error, inboxState: kept } });
+      return { verdict, inboxState: kept };
     }
     const state = await this.matchAndPlan(organizationId, logId, keys, mode);
     this.actionLog.system('email-triage', state === 'PROCESSED' ? 'PROCESS' : 'TRIAGE', 'EmailIngestLog', {
@@ -389,6 +392,8 @@ export class EmailTriageService {
           // What the intake suggested first — "Accept" vs "Change order…" is measured against it.
           suggested: prev.suggested ?? (manualList ? null : (targets[0] ?? null)),
           ...(prev.review ? { review: prev.review } : {}),
+          // A person's Unhide (round Q) survives every re-match.
+          ...(prev.unhidden ? { unhidden: true } : {}),
         } as any,
         inboxState: state,
       },
@@ -406,7 +411,45 @@ export class EmailTriageService {
       await this.execute(organizationId, logId, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: backlogAutoLabel(verdict!.kind) });
       return 'PROCESSED';
     }
+    // Round R follow-up: general (customer-level sheet), inherit the thread's links, multi-link a schedule sheet.
+    if (verdict && !opts.safe && !manualList && mode !== 'TRIAGE' && (verdict.kind === 'GENERAL' || verdict.kind === 'INHERIT_THREAD' || verdict.kind === 'MULTI_LINK')) {
+      await this.applyLinkOnly(organizationId, logId, verdict);
+      return 'PROCESSED';
+    }
     return state;
+  }
+
+  /**
+   * Round R follow-up: Processed without filing anything — GENERAL (customer only, no order), INHERIT_THREAD (the
+   * thread's links) or MULTI_LINK (every candidate shipment). The links are stored as targets; the first is the
+   * row's orderId / shipmentId; "Auto · general (SUS)" / "Auto · thread" / "Auto · linked (schedule)".
+   */
+  private async applyLinkOnly(organizationId: string, logId: string, verdict: BacklogVerdict) {
+    const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
+    if (!log) throw new NotFoundException('Email not found');
+    const targets = (verdict.links ?? []).map((t) => ({ orderId: t.orderId, shipmentId: t.shipmentId ?? null, attachmentIndexes: [] as number[] }));
+    const first = targets[0];
+    const prev = ((log.actions ?? {}) as Record<string, any>) ?? {};
+    await this.prisma.emailIngestLog.update({
+      where: { id: logId },
+      data: {
+        orderId: first?.orderId ?? null,
+        shipmentId: first?.shipmentId ?? null,
+        verdict: 'SHIPMENT',
+        purgeAfter: null,
+        actions: {
+          ...prev,
+          planned: [],
+          targets,
+          matchedBy: verdict.kind === 'GENERAL' ? null : 'thread',
+          confidence: verdict.kind === 'GENERAL' ? 'none' : 'thread',
+          reason: verdict.reason,
+          backlog: { ...verdict, at: new Date().toISOString() },
+          ...(verdict.kind === 'GENERAL' ? { general: { customerKey: verdict.customerKey ?? null } } : {}),
+        } as any,
+      },
+    });
+    await this.execute(organizationId, logId, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: backlogAutoLabel(verdict.kind, verdict.customerKey) });
   }
 
   /**
@@ -525,9 +568,22 @@ export class EmailTriageService {
     }
     // A person brought it back from Hidden: it is mail, whatever the subject looks like.
     const unhidden = !!(log.actions as any)?.unhidden;
+    // Round R follow-up inputs: own text, the customer, the thread's links, the subject's candidates, attachment texts.
+    const ev = await this.evidence(log);
+    const { own } = splitQuoted(ev.body);
+    const records = await this.matchRecords(organizationId);
+    const thread = await this.threadContext(organizationId, log, records);
+    const threadLinks = thread.accepted && !thread.candidates.length ? [thread.accepted] : thread.candidates;
+    const customerKey = ['SUS', 'KATO', 'HOEI'].includes(String(log.counterparty)) ? String(log.counterparty) : null;
+    const candidates = decision.candidates.filter((c) => c.score >= 3 && !c.reasons.includes('key in the email')).map((c) => ({ orderId: c.orderId, shipmentId: c.shipmentId, ref: c.ref }));
     const input: BacklogInput = {
       unhidden,
       autoSubmitted: !!(meta as { autoSubmitted?: boolean }).autoSubmitted,
+      ownTextEmpty: !own.trim(),
+      customerKey,
+      threadLinks,
+      candidates,
+      attachmentTexts: ev.attachments.map((a) => ({ name: a.name, text: a.text ?? '' })),
       inboxState: log.inboxState ?? null,
       verdict: log.verdict ?? null,
       subject: log.subject ?? null,
@@ -544,7 +600,11 @@ export class EmailTriageService {
       keys: { piNo: keys.piNo ?? null, contractNo: keys.contractNo ?? null },
       date: log.emailDate ?? null,
     };
-    return classifyEmail(input);
+    const v = classifyEmail(input);
+    if (v.kind === 'INHERIT_THREAD') v.links = threadLinks;
+    if (v.kind === 'MULTI_LINK') v.links = candidates.map((c) => ({ orderId: c.orderId, shipmentId: c.shipmentId }));
+    if (v.kind === 'GENERAL') v.customerKey = customerKey;
+    return v;
   }
 
   /** The decision for a stored email: its record keys, the accepted thread, its subject. */
@@ -659,8 +719,13 @@ export class EmailTriageService {
     const seen = new Map<string, { orderId: string; shipmentId: string | null }>();
     for (const r of processed.length ? processed : rows.filter((r) => r.orderId && r.actions?.confidence !== 'cues')) {
       if (!r.orderId) continue;
-      const k = `${r.orderId}:${r.shipmentId ?? ''}`;
-      if (!seen.has(k)) seen.set(k, { orderId: r.orderId, shipmentId: r.shipmentId ?? null });
+      // A multi-link message (round R) keeps every target in actions.targets; the row's own ids are the first.
+      const list: Array<{ orderId: string | null; shipmentId: string | null }> = Array.isArray(r.actions?.targets) && r.actions.targets.length ? r.actions.targets : [{ orderId: r.orderId, shipmentId: r.shipmentId ?? null }];
+      for (const t of list) {
+        if (!t.orderId) continue;
+        const k = `${t.orderId}:${t.shipmentId ?? ''}`;
+        if (!seen.has(k)) seen.set(k, { orderId: t.orderId, shipmentId: t.shipmentId ?? null });
+      }
     }
     out.candidates = [...seen.values()];
     const ci = await this.ciPatterns(organizationId);
@@ -866,6 +931,12 @@ export class EmailTriageService {
             if (cur?.inboxState === 'UNSURE') await this.prisma.emailIngestLog.update({ where: { id: r.id }, data: { verdict: 'SHIPMENT', inboxState: 'SUGGESTED', purgeAfter: null } });
             await this.execute(organizationId, r.id, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: backlogAutoLabel(v.kind) });
             applied = `linked → ${ref}`;
+          } else if (v.kind === 'GENERAL' || v.kind === 'INHERIT_THREAD' || v.kind === 'MULTI_LINK') {
+            const cur: any = await this.prisma.emailIngestLog.findFirst({ where: { id: r.id }, select: { actions: true } });
+            const planned: IntakeAction[] = cur?.actions?.planned ?? [];
+            if (planned.some((a) => a.kind === 'file' && a.status === 'planned')) throw new Error('AUTO-GATE: a link-only verdict has something to file');
+            await this.applyLinkOnly(organizationId, r.id, v);
+            applied = v.kind === 'GENERAL' ? `general (${v.customerKey})` : `linked → ${(v.links ?? []).length} record(s)`;
           } else applied = v.kind === 'NO_ORDER' ? 'marked "No order yet"' : 'left for a person';
         }
         out.push({ id: r.id, subject: r.subject, from: r.fromAddress, before, kind: m.verdict.kind, reason: m.verdict.reason, ref, applied });
@@ -1198,6 +1269,8 @@ export class EmailTriageService {
           emails: t.messages.length,
           files,
           link: link ? { ...linkOf(link.orderId, link.shipmentId), from: link.from, combined: link.combined.map((c) => linkOf(c.orderId, c.shipmentId)) } : null,
+          /** Round R follow-up: a customer-level sheet (cost / price list) — "General · SUS", no order to link. */
+          general: t.messages.map((r) => ((byId.get(r.id)?.actions ?? {}) as { general?: { customerKey: string | null } | null }).general).find(Boolean) ?? null,
           messages,
           /** Messages of the thread outside this tab (a Processed one on an Unprocessed thread, and the other way round). */
           otherCount: t.messages.length - inTab.length,
@@ -1289,6 +1362,8 @@ export class EmailTriageService {
       review: (actions as { review?: unknown }).review ?? null,
       /** "B/L 198GX04630" on an auto-applied email. */
       autoLabel: (actions as { autoLabel?: string | null }).autoLabel ?? null,
+      /** Round R follow-up: a customer-level "General" email (no order), linked to the customer only. */
+      general: (actions as { general?: { customerKey: string | null } | null }).general ?? null,
       /** Round R: the one-line evidence note (hand review / the thread reasoner). */
       evidence: (actions as { evidence?: string | null }).evidence ?? null,
       reviewConfidence: (actions as { reviewConfidence?: string | null }).reviewConfidence ?? null,

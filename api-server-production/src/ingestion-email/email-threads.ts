@@ -53,9 +53,10 @@ export function threadHeadersFromEml(raw: string): { messageId: string | null; i
     h[cur] = (h[cur] ? h[cur] + ' ' : '') + line.slice(i + 1).trim();
   }
   const ids = (v: string | undefined) => (v ?? '').match(/<[^<>\s]+>/g)?.map((x) => normMessageId(x)!).filter(Boolean) ?? [];
-  // Round Q: an auto-reply / out-of-office by its headers (Exchange: Auto-Submitted: auto-replied, X-Autoreply,
-  // X-Auto-Response-Suppress) — stronger than the subject.
-  const autoSubmitted = /^auto-(replied|generated)/i.test(h['auto-submitted'] ?? '') || 'x-autoreply' in h || 'x-autorespond' in h || /^(yes|true|1)$/i.test(h['x-autoreply'] ?? '');
+  // An auto-reply / out-of-office by its headers: Auto-Submitted: auto-replied, or X-Autoreply. NOT
+  // "auto-generated" — a mailbox forwarding rule stamps that on every forwarded email (prod, 2026-10-21: real
+  // telex / delivery mail was hidden for an hour by that value).
+  const autoSubmitted = /^auto-replied/i.test(h['auto-submitted'] ?? '') || 'x-autoreply' in h || 'x-autorespond' in h;
   return { messageId: ids(h['message-id'])[0] ?? null, inReplyTo: ids(h['in-reply-to'])[0] ?? null, references: ids(h['references']), autoSubmitted };
 }
 

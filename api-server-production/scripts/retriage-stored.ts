@@ -221,7 +221,7 @@ async function backlog(triage: EmailTriageService, actionLog: ActionLogService) 
   }
   const by = rows.reduce<Record<string, number>>((m, r) => ({ ...m, [r.kind]: (m[r.kind] ?? 0) + 1 }), {});
   const left = rows.filter((r) => r.kind === 'CONFIRM' || r.kind === 'AUTO' || r.kind === 'PICK' || r.kind === 'IS_SHIPMENT');
-  console.log(`\nbefore ${rows.length} → auto-linked (conversation) ${by.AUTO_LINK ?? 0} · auto-hidden ${by.HIDE ?? 0} · history ${by.HISTORY ?? 0} · "No order yet" ${by.NO_ORDER ?? 0} email(s) · still for a person ${left.length} (confirm ${by.CONFIRM ?? 0} · would auto, files ${by.AUTO ?? 0} · pick ${by.PICK ?? 0} · is it a shipment ${by.IS_SHIPMENT ?? 0})${by.FAILED ? ` · FAILED ${by.FAILED}` : ''}`);
+  console.log(`\nbefore ${rows.length} → auto-linked (conversation) ${by.AUTO_LINK ?? 0} · auto-hidden ${by.HIDE ?? 0} · history ${by.HISTORY ?? 0} · general ${by.GENERAL ?? 0} · inherited the thread ${by.INHERIT_THREAD ?? 0} · multi-linked ${by.MULTI_LINK ?? 0} · "No order yet" ${by.NO_ORDER ?? 0} email(s) · still for a person ${left.length} (confirm ${by.CONFIRM ?? 0} · would auto, files ${by.AUTO ?? 0} · pick ${by.PICK ?? 0} · is it a shipment ${by.IS_SHIPMENT ?? 0})${by.FAILED ? ` · FAILED ${by.FAILED}` : ''}`);
   if (left.length) {
     console.log('\nstill for a person:');
     for (const r of left) console.log(`  - ${subject60(r.subject)} — ${r.kind}: ${r.reason}${r.ref ? ` (${r.ref})` : ''}`);
