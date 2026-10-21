@@ -135,7 +135,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
         lastName: data.lastName,
         ...(identifierType === "email" ? { email: data.email } : { username: data.username }),
         organizationId: selectedOrganizationId,
-        password: data.password,
+        ...(data.password?.trim() ? { password: data.password.trim() } : {}),
         roleIds: selectedRoles,
       });
 
@@ -333,14 +333,10 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                     type={showPassword ? "text" : "password"}
                     placeHolder="Enter password"
                     rules={{
-                      required: "Password is required",
-                      minLength: {
-                        value: 8,
-                        message: "Password must be at least 8 characters",
-                      },
+                      validate: (v: string) => !v || v.length >= 8 || "Password must be at least 8 characters",
                     }}
                     error={!!errors.password}
-                    helperText={errors.password?.message as string}
+                    helperText={(errors.password?.message as string) || "Optional. Leave blank and they sign in with an email code."}
                   />
                   <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
                     <Button

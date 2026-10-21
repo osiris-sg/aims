@@ -38,13 +38,15 @@ export class CreateUserDto {
   username?: string;
 
   @ApiProperty({
-    description: 'The password for the new user',
+    description: 'The password for the new user. Optional (round S, 2026-10-22): left out, the user is created without one and signs in with an email code.',
     example: 'SecurePassword123!',
     minLength: 8,
+    required: false,
   })
+  @IsOptional()
   @IsString()
   @MinLength(8)
-  password: string;
+  password?: string;
 
   @ApiProperty({
     description: 'Array of role IDs to assign to the user',
