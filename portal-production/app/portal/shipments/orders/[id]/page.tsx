@@ -22,9 +22,10 @@ import EditIcon from "@mui/icons-material/EditOutlined";
 import { toast } from "../../_lib/toast";
 import { SHIPMENT_KEYS, useGeneratedDocs, useOrder, useOrderGeneratedDocs, useShipment, useTradeMutation } from "../../_lib/hooks";
 import { useQueryClient } from "@tanstack/react-query";
+import { defaultShipmentId, focusStepId, headerLine2 } from "../../_lib/order-focus";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { recordFileCount, STEP_PAYMENT, useShipmentsApi, type AnExtraction, type BlExtraction, type Order, type PermitCheck, type PermitExtraction, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
-import { blLabel, depositTermLabel, fmtDay, fmtDmy, fmtMoney, fmtMt, fmtYen, stepLabel } from "../../_lib/format";
+import { blLabel, depositTermLabel, fmtDay, fmtDmy, fmtMoney, fmtMt, fmtYen, stepLabel, shortCustomer } from "../../_lib/format";
 import RecordHeader from "../../_components/RecordHeader";
 import ShipmentOverview from "../../_components/ShipmentOverview";
 import StepCards, { type StepContext } from "../../_components/StepCards";
@@ -55,7 +56,8 @@ export default function OrderPage() {
   const o = q.data;
   const shipments = useMemo(() => o?.shipments ?? [], [o?.shipments]);
   const wanted = params?.get("shipment");
-  const shipmentId = (wanted && shipments.some((s) => s.id === wanted) ? wanted : (shipments.find((s) => s.status === "OPEN") ?? shipments[0])?.id) ?? undefined;
+  // Round R: without ?shipment=, land on the open shipment furthest behind (the work that is due).
+  const shipmentId = (wanted && shipments.some((s) => s.id === wanted) ? wanted : defaultShipmentId(shipments)) ?? undefined;
   const sq = useShipment(shipmentId);
   const s = sq.data && sq.data.id === shipmentId ? sq.data : undefined;
   const genOrder = useOrderGeneratedDocs(id);
@@ -74,11 +76,8 @@ export default function OrderPage() {
     // Round N: no jump to the top on a tab / shipment change.
     router.replace(`${pathname}?${p.toString()}`, { scroll: false });
   };
-  /** Round N: after "Add shipment" / a shipment card click, bring that shipment's steps into view (once rendered). */
-  const showShipment = (id: string) => {
-    setParam("shipment", id);
-    setTimeout(() => document.getElementById("shipment-steps")?.scrollIntoView({ behavior: "smooth", block: "start" }), 250);
-  };
+  /** A shipment card click / "Add shipment": select it — the focus effect below scrolls to its open step. */
+  const showShipment = (id: string) => setParam("shipment", id);
 
   const complete = useTradeMutation((a, oid: string) => a.completeOrder(oid));
   const reopen = useTradeMutation((a, oid: string) => a.reopenOrder(oid));
@@ -113,6 +112,21 @@ export default function OrderPage() {
     setOpenId(stepId);
   };
   useEffect(() => setUserPicked(false), [id, shipmentId]);
+
+  // Round R: on open and on a shipment switch (not on every re-render), scroll to the step card that is open —
+  // the order's early open step, else the selected shipment's open step, else the order's late step (a ?step=
+  // deep link wins).
+  const focusedFor = useRef("");
+  useEffect(() => {
+    if (!o || (shipmentId && !s)) return;
+    const key = `${id}:${shipmentId ?? ""}`;
+    if (focusedFor.current === key) return;
+    focusedFor.current = key;
+    const target = wantedStep ?? focusStepId(earlySteps, shipSteps, lateSteps);
+    if (!target) return;
+    const t = setTimeout(() => document.getElementById(`step-${target}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
+    return () => clearTimeout(t);
+  }, [o, s, id, shipmentId, wantedStep, earlySteps, shipSteps, lateSteps]);
 
   // Completed by the server (last step done): say so; a completed order returns to the list.
   const manual = useRef(false);
@@ -348,25 +362,10 @@ export default function OrderPage() {
         }
         onActed={() => (manual.current = true)}
         subtitle={
-          <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap alignItems="center">
-            <Typography variant="body2" color="text.secondary">
-              {o.supplier?.name ?? "—"} → <b>{o.customer?.name ?? "—"}</b>
-            </Typography>
-            {o.contract && (
-              <Typography variant="body2" color="text.secondary">
-                Contract <b>{o.contract.contractNo}</b>
-              </Typography>
-            )}
-            {o.piNo && (
-              <Typography variant="body2" color="text.secondary">
-                PI <b>{o.piNo}</b>
-              </Typography>
-            )}
-            <Typography variant="body2" color="text.secondary">
-              {o.monthsLabel}
-            </Typography>
-            <Chip size="small" variant="outlined" color={single ? "secondary" : "default"} label={single ? "Single invoice (customer profile)" : "Invoice #1 + #2"} data-tour="order-billing-chip" />
-          </Stack>
+          // Round R: line 2 = "Vedanta → SUS · Contract 454003422 · Sep 26 → Nov 26 · Invoice #1 + #2" — nothing else.
+          <Typography variant="body2" color="text.secondary" data-tour="order-header-line2">
+            {headerLine2({ supplierShort: shortParty(o.supplier?.name), customerShort: shortCustomer(o.customer?.name), contractNo: o.contract?.contractNo ?? null, monthsLabel: o.monthsLabel ?? null, single })}
+          </Typography>
         }
       />
 
@@ -431,9 +430,14 @@ export default function OrderPage() {
             ) : (
               <Grid container spacing={1.5} sx={{ mb: 2 }} data-tour="order-shipment-cards">
                 {shipments.map((x) => (
-                  <Grid item xs={12} sm={6} md={4} key={x.id}>
+                  <Grid item xs={12} sm={6} md={4} key={x.id} sx={{ position: "relative" }}>
+                    {x.id === shipmentId && (
+                      <IconButton size="small" aria-label="Shipment actions" onClick={(e) => setShipMenu({ left: e.clientX, top: e.clientY })} sx={{ position: "absolute", top: 16, right: 8, zIndex: 1 }} data-tour="shipment-card-menu">
+                        <MoreVertIcon fontSize="small" />
+                      </IconButton>
+                    )}
                     <ButtonBase onClick={() => showShipment(x.id)} sx={{ width: "100%", textAlign: "left", borderRadius: 2 }}>
-                      <Paper variant="outlined" sx={{ p: 1.5, width: "100%", border: 2, borderColor: x.id === shipmentId ? "primary.main" : "divider" }}>
+                      <Paper variant="outlined" sx={{ p: 1.5, pr: x.id === shipmentId ? 5 : 1.5, width: "100%", border: 2, borderColor: x.id === shipmentId ? "primary.main" : "divider" }}>
                         <Stack direction="row" spacing={1} alignItems="center">
                           <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
                             {x.ref}
@@ -460,24 +464,8 @@ export default function OrderPage() {
               </Box>
             ) : s ? (
               <>
-                <Paper variant="outlined" sx={{ px: 2, py: 1.25, mb: 1.5, scrollMarginTop: 80 }} id="shipment-steps">
-                  <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                      {s.ref} · B/L {s.blNumber || "pending"}
-                    </Typography>
-                    <RecordStatusChip status={s.status} />
-                    <ProgressCell progress={s.progress} width={90} />
-                    <Box sx={{ flex: 1 }} />
-                    {s.vessel && (
-                      <Typography variant="body2" color="text.secondary">
-                        {[s.vessel, s.voyageNo].filter(Boolean).join(" / ")}
-                      </Typography>
-                    )}
-                    <IconButton size="small" aria-label="Shipment actions" onClick={(e) => setShipMenu({ left: e.clientX, top: e.clientY })}>
-                      <MoreVertIcon fontSize="small" />
-                    </IconButton>
-                  </Stack>
-                </Paper>
+                {/* Round R: no bar repeating the selected card — its ⋮ menu sits on the card. */}
+                <Box id="shipment-steps" />
                 <StepCards
                   // Step 11 moved to the order (round H): the shipment's old row stays in the data, not on screen.
                   steps={s.steps.filter((x) => !(x.notApplicable && x.skipReason?.startsWith("Moved to the order")))}
@@ -669,13 +657,10 @@ const FIELD_NAMES: Record<string, string> = { piNo: "PI no.", piDate: "PI date",
 
 /** "#19 · SUS · 6063 · 300 MT". */
 function orderTitle(o: Order): string {
-  const short = (o.customer?.name ?? "")
-    .replace(/株式会社|合同会社|有限会社/g, "")
-    .replace(/[,.]?\s*\b(co|ltd|limited|inc|corp|corporation|company|pte|pvt|llc)\b\.?/gi, "")
-    .replace(/[\s,.]+$/, "")
-    .trim();
-  return [o.label, short || null, o.grade || o.product, o.qtyMt != null ? `${fmtMt(o.qtyMt)} MT` : null].filter(Boolean).join(" · ");
+  return [o.label, shortCustomer(o.customer?.name), o.grade || o.product, o.qtyMt != null ? `${fmtMt(o.qtyMt)} MT` : null].filter(Boolean).join(" · ");
 }
+/** "Vedanta" / "SIAE" / "Inalum" — the supplier's short name (round R header line 2). */
+const shortParty = (name: string | null | undefined): string | null => (/vedanta/i.test(name ?? "") ? "Vedanta" : /siae|sri indah/i.test(name ?? "") ? "SIAE" : /inalum/i.test(name ?? "") ? "Inalum" : shortCustomer(name));
 
 /** What each order step / document is about. */
 function orderContext(o: Order): StepContext {
@@ -688,11 +673,8 @@ function orderContext(o: Order): StepContext {
           : "No contract linked yet — link it (or upload it) and confirm the premiums"
         : st.code === "PI_PAYMENT"
           ? [o.piNo && `PI ${o.piNo}`, o.piDate && `dated ${fmtDmy(o.piDate)}`, o.piAmount != null && money(o.piAmount)].filter(Boolean).join(" · ") || null
-          : st.code === "INVOICE_1"
-            ? `To ${o.customer?.name ?? "the customer"} · ${o.productLabel}`
-            : st.code === "INVOICE_2"
-              ? `To ${o.customer?.name ?? "the customer"} · every shipment of ${o.label} (one invoice can cover several)`
-              : null,
+          // Round R: no customer / product / "every shipment of #26" lines — they repeat the page header.
+          : null,
     docLine: (d) => {
       if (d === "DEPOSIT_PROOF") {
         const pct = o.depositPct != null ? `${Number(o.depositPct)}%` : "";
@@ -700,7 +682,6 @@ function orderContext(o: Order): StepContext {
         return o.depositAmount != null ? `Deposit ${pct} = ${money(o.depositAmount)}${due}` : null;
       }
       if (d === "PI") return o.piNo ? `PI ${o.piNo}${o.piAmount != null ? ` · ${money(o.piAmount)}` : ""}` : null;
-      if (d === "INVOICE_1") return `${o.customer?.name ?? "Customer"} · order ${o.label}`;
       return null;
     },
   };
@@ -708,12 +689,11 @@ function orderContext(o: Order): StepContext {
 
 /** Facts for the shipment's steps. */
 function shipmentContext(o: Order, s: Shipment): StepContext {
-  const bl = `B/L ${s.blNumber || "pending"}`;
   return {
-    stepLine: (st) => (st.code === "BL_DRAFT_APPROVAL" ? `Order ${o.label} · ${o.productLabel}` : [s.ref, bl, o.customer?.name, s.vessel && [s.vessel, s.voyageNo].filter(Boolean).join(" / ")].filter(Boolean).join(" · ")),
+    // Round R: no step / slot lines that repeat the shipment card (ref, B/L, customer, vessel, tonnage).
+    stepLine: (st) => (st.code === "BL_DRAFT_APPROVAL" ? `Order ${o.label} · ${o.productLabel}` : null),
     docLine: (d) => {
       if (d === "CI_PAYMENT_PROOF") return s.ciAmount != null ? `CI ${s.ciNumber ?? ""} · ${fmtMoney(s.ciAmount, s.currency)}`.replace("CI  ·", "CI ·") : null;
-      if (d === "INVOICE_2" || d === "INVOICE_SINGLE" || d === "CUSTOMER_PL" || d === "CUSTOMER_COA") return `${o.customer?.name ?? "Customer"} · ${s.ref} · ${bl}${s.netWeightMt != null ? ` · ${fmtMt(s.netWeightMt)} MT` : ""}`;
       // File OR field (prod click-through): the code from Vedanta's email, the SI's delivery dates, the in-app estimate.
       if (d === "TELEX_RELEASE") return s.telexReleaseCode ? `Release code ${s.telexReleaseCode} (meets this — no file needed)` : "Upload the telex release, or type the release code in the B/L details";
       if (d === "DELIVERY_SCHEDULE") return "Or: the delivery dates on the 出庫・納入依頼書 rows meet this";

@@ -80,4 +80,9 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // to Orders, and the "Margin and profit" table has no home. "My tasks today" moved to the bell + the Orders list's
   // "Tasks" panel. Code kept. Default OFF.
   enableShipmentsHome: false,
+  // Email intake thread reasoner (round R, 2026-10-21): when the rules can't decide, the model reads the thread
+  // (own text, quoted history, attachment text) against the open orders / shipments table and proposes the
+  // shipment(s) per attachment; applied by itself only when a hard key or a unique product match is verified.
+  // Default OFF (ADH: switched on by setup-adh-org after the owner's go).
+  enableEmailReasoner: false,
 };

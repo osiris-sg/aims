@@ -178,6 +178,7 @@ export const UNPROCESSED: InboxThread[] = [
         check: ["qty 120/300 t ≠ 300 / 300.4 t", "grade 6005/6063 ≠ 6063"],
         reason: { code: "CHECK", label: "Check — subject disagrees" },
         matchReason: "B/L 198GX06003 is in the subject",
+        evidence: "own text: 22AA198GX06003 本件の許可書 → #18-2; the permit prints 20,414 kg",
         linked: linked("#18-2", "#18-2 · SUS 6063 300t · B/L 198GX06003", [file("AN_198GX06003.pdf", "ARRIVAL_NOTICE", "Arrival notice", "#18-2", "9", "A/N & delivery instructions")]),
         planned: [{ kind: "file", status: "planned" }],
       }),

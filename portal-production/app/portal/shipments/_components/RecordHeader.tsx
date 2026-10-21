@@ -15,7 +15,8 @@ import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { toast } from "../_lib/toast";
 import type { CurrentStep, RecordStatus, TradeStep } from "../_lib/api";
 import { stepLabel } from "../_lib/format";
-import { ConfirmDialog, CurrentStepCell, ProgressCell, RecordStatusChip } from "./bits";
+import { ConfirmDialog, ProgressCell, RecordStatusChip } from "./bits";
+import { headerStepText } from "../_lib/order-focus";
 
 type Act = "complete" | "cancel" | "reopen";
 
@@ -108,12 +109,10 @@ export default function RecordHeader({
         <RecordStatusChip status={status} />
         {progress && <ProgressCell progress={progress} width={100} />}
         {progress && currentStep !== undefined && (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
-              Current step
-            </Typography>
-            <CurrentStepCell step={currentStep} progress={progress} maxWidth={320} />
-          </Box>
+          // Round R: "Step 4 · Customer docs" right after the bar — no caption.
+          <Typography variant="body2" sx={{ fontWeight: 600, minWidth: 0 }} data-tour="record-current-step">
+            {headerStepText(currentStep, progress.total)}
+          </Typography>
         )}
         <Box sx={{ flex: 1 }} />
         <IconButton aria-label={`${kind === "contract" ? "Deal" : kindLabel(kind)} actions`} data-tour="deal-actions-menu" onClick={(e) => setMenu({ left: e.clientX, top: e.clientY })}>
@@ -145,11 +144,7 @@ export default function RecordHeader({
         ))}
       </Menu>
       {subtitle && <Box sx={{ mt: 0.75, ml: { xs: 0, md: 5 } }}>{subtitle}</Box>}
-      {status === "OPEN" && waiting.length > 0 && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5, ml: { xs: 0, md: 5 } }}>
-          To complete the {kind}: finish {waiting.length > 3 ? `${waiting.slice(0, 3).join(", ")} and ${waiting.length - 3} more` : waiting.join(", ")}
-        </Typography>
-      )}
+      {/* Round R: no "To complete the order: finish step 11 …" line — the ⋮ Complete item says "Finish the open steps first". */}
 
       <ConfirmDialog
         open={!!c}

@@ -19,8 +19,10 @@
  * Everything else stays a suggestion; subject cues alone never auto-apply.
  */
 import { blCore } from '../shipments/trade-customs';
+import { splitQuoted } from './email-quote';
 
-export type Where = 'subject' | 'attachment' | 'body';
+/** Where a key was found. Round R: 'body' = the email's OWN text (strong); 'quoted' = the quoted history (weak). */
+export type Where = 'subject' | 'attachment' | 'body' | 'quoted';
 
 export interface EmailEvidence {
   subject: string;
@@ -106,10 +108,12 @@ const contains = (text: string, value: string) => new RegExp(`(?<!\\d)${escapeRe
 
 /** Every record key (B/L core, PI no., supplier CI no.) the email names, and where. */
 export function findKeyHits(ev: EmailEvidence, records: MatchRecord[], ciPatterns: string[] = DEFAULT_CI_PATTERNS): KeyHit[] {
+  const { own, quoted } = splitQuoted(ev.body ?? '');
   const parts: Array<[Where, string]> = [
     ['subject', ev.subject ?? ''],
     ['attachment', ev.attachments.map((a) => `${a.name}\n${a.text ?? ''}`).join('\n')],
-    ['body', ev.body ?? ''],
+    ['body', own],
+    ['quoted', quoted],
   ];
   const out: KeyHit[] = [];
   const add = (kind: KeyHit['kind'], value: string, orderId: string, shipmentId: string | null) => {
@@ -125,6 +129,24 @@ export function findKeyHits(ev: EmailEvidence, records: MatchRecord[], ciPattern
     if (ci) add('ci', ci, r.orderId, r.shipmentId);
   }
   return out;
+}
+
+/**
+ * Round R: the record keys each attachment's OWN content (name + text) names — one email can file to several
+ * shipments: a COA naming 198GX06445 goes to #21-1, a PL naming 198GX06520 to #22-1 (guard 1b per attachment).
+ */
+export function attachmentHits(ev: EmailEvidence, records: MatchRecord[], ciPatterns: string[] = DEFAULT_CI_PATTERNS): Array<{ index: number; hits: KeyHit[] }> {
+  return ev.attachments.map((a, index) => ({ index, hits: findKeyHits({ subject: '', body: '', attachments: [a], date: ev.date }, records, ciPatterns) }));
+}
+
+/** The one record an attachment's content names (null when none or several orders). */
+export function attachmentTarget(hits: KeyHit[]): { orderId: string; shipmentId: string | null; keyLabel: string } | null {
+  const orders = [...new Set(hits.map((h) => h.orderId))];
+  if (orders.length !== 1) return null;
+  const ships = [...new Set(hits.map((h) => h.shipmentId).filter((x): x is string => !!x))];
+  if (ships.length > 1) return null;
+  const h = [...hits].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind])[0];
+  return { orderId: orders[0], shipmentId: ships[0] ?? null, keyLabel: `${KIND_LABEL[h.kind]} ${h.value}` };
 }
 
 // ── subject cues ─────────────────────────────────────────────────────────────
@@ -308,7 +330,8 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
   const thread = threadContextOf(input.thread);
   const cues = subjectCues(ev.subject, ev.date);
   const recOf = (orderId: string, shipmentId: string | null) => records.find((r) => r.orderId === orderId && (shipmentId === null || r.shipmentId === shipmentId)) ?? null;
-  const strong = (h: KeyHit) => h.where.includes('subject') || h.where.includes('attachment');
+  // Round R: the email's own text counts (the quoted history does not).
+  const strong = (h: KeyHit) => h.where.includes('subject') || h.where.includes('attachment') || h.where.includes('body');
   // A body-only key whose record the subject contradicts is a quoted older email, not this one.
   const hits = input.hits.filter((h) => {
     if (strong(h)) return true;
@@ -366,15 +389,17 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
       out.kind = mine[0].kind;
       out.confidence = 'exact';
       out.keyLabel = `${KIND_LABEL[mine[0].kind]} ${mine[0].value}`;
-      out.reason = `${out.keyLabel} is in the ${mine[0].where.includes('subject') ? 'subject' : mine[0].where.includes('attachment') ? 'attachment' : 'quoted text'}`;
-      if (!mine.some(strong)) out.blocked.push(`b: ${out.keyLabel} is only in the body (quoted / forwarded text)`);
+      out.reason = `${out.keyLabel} is in the ${mine[0].where.includes('subject') ? 'subject' : mine[0].where.includes('attachment') ? 'attachment' : mine[0].where.includes('body') ? 'email text' : 'quoted text'}`;
+      if (!mine.some(strong)) out.blocked.push(`b: ${out.keyLabel} is only in the quoted / forwarded text`);
       const rec = recOf(orderId, shipmentId);
       const conflicts = rec ? cueConflicts(cues, rec) : [];
       if (conflicts.length) {
         out.blocked.push(`c: the subject disagrees (${conflicts.join('; ')})`);
         out.check.push(...conflicts);
       }
-      if (cues.multi) out.blocked.push('c: the subject names several products');
+      // A multi-product SUBJECT (a thread about several deliveries) blocks only when the key itself came from the
+      // subject; a key in the email's own text or in an attachment says which one this email is about (round R).
+      if (cues.multi && !mine.some((h) => h.where.includes('body') || h.where.includes('attachment'))) out.blocked.push('c: the subject names several products');
       if (orders.length === 1 && allOrders.length > 1) {
         const others = allOrders.filter((o) => o !== orderId).map((o) => records.find((r) => r.orderId === o)?.orderNo);
         out.blocked.push(`d: another order's key is in the email (#${others.join(', #')})`);

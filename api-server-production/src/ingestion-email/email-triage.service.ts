@@ -12,7 +12,9 @@ import { TradeConfigService } from '../shipments/trade-config.service';
 import { sha256Of, TradeFilesService } from '../shipments/trade-files.service';
 import { TradeStepsService } from '../shipments/trade-steps.service';
 import { StoredEmailMeta } from './email-store';
-import { DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, recordRef, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
+import { attachmentHits, attachmentTarget, DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, recordRef, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
+import { splitQuoted } from './email-quote';
+import { buildReasonerPrompt, judgeReasoner, parseReasonerOutput, ReasonerContext, ReasonerJudgement, ReasonerRecordRow, ReasonerThreadMessage } from './email-reasoner';
 import { groupThreads, normMessageId, threadHeadersFromEml, threadLink, unprocessedReason } from './email-threads';
 import { backlogAutoLabel, BacklogInput, BacklogVerdict, classifyEmail } from './email-backlog';
 import { supplierKeyPatterns } from '../shipments/trade-profile';
@@ -90,6 +92,8 @@ export interface IntakeTarget {
 export type ReviewOutcome = 'AUTO' | 'ACCEPTED' | 'CHANGED' | 'REJECTED' | 'IGNORED';
 
 const MODEL = 'claude-sonnet-4-6';
+/** Round R: the thread reasoner (reads the whole thread + attachment text against the open records). */
+const REASONER_MODEL = 'claude-opus-5-5';
 const UNSURE_DAYS = 14;
 const DEFAULT_OWN_DOMAINS = ['asiadealhub.com'];
 const SYSTEM_ACTOR = { id: 'system:email-intake', name: 'Email intake' };
@@ -297,10 +301,46 @@ export class EmailTriageService {
     } else {
       decision = await this.decide(organizationId, log, ev);
       targets = decision.target ? [decision.target] : [];
+      // Round R: attachment-content keys count per attachment (guard 1b per file) — one email can file to several
+      // shipments. When the attachments' own content names different records, each goes to its own.
+      const split = await this.splitByAttachment(organizationId, log, ev, decision);
+      if (split) {
+        targets = split.targets;
+        decision = { ...decision, target: split.targets[0] ? { orderId: split.targets[0].orderId!, shipmentId: split.targets[0].shipmentId ?? null } : decision.target, kind: 'bl', confidence: 'exact', auto: split.auto, blocked: split.auto ? [] : decision.blocked, check: [], multiOrderIds: [], reason: split.reason, keyLabel: split.keyLabel, threadFrom: null };
+      }
     }
     // An order with one live shipment: the shipment documents go there.
     targets = await Promise.all(targets.map((t) => this.withSingleShipment(organizationId, t)));
-    const plan = await this.buildPlan(organizationId, log, keys, targets, ev);
+    let plan = await this.buildPlan(organizationId, log, keys, targets, ev);
+    // Round R: the thread reasoner — when the rules can't decide (no target, several candidates, or a conflict) and
+    // the org has it on. It may only pick rows from the open-records table; applied by itself only when its evidence
+    // is verified (a hard key in the email's own content, or a unique product match) and nothing conflicts.
+    let reasoned: ReasonerJudgement | null = null;
+    if (!manualList && !opts.safe && (!targets.length || decision.multiOrderIds.length > 1 || decision.check.length) && (await this.reasonerOn(organizationId))) {
+      reasoned = await this.reason(organizationId, log, ev).catch((e) => {
+        this.logger.warn(`[email-reasoner] ${logId}: ${(e as Error)?.message}`);
+        return null;
+      });
+      if (reasoned?.apply) {
+        targets = reasoned.targets.map((t) => ({ orderId: t.orderId, shipmentId: t.shipmentId, attachmentIndexes: t.attachmentIndexes }));
+        // The reasoner's slot choice types the attachment (the planner files by the triage type).
+        const triage = (log.triage ?? {}) as Partial<TriageResult>;
+        const atts = ((log.rawMeta ?? {}) as Partial<StoredEmailMeta>).attachments ?? [];
+        const typed = [...(triage.attachments ?? [])];
+        for (const t of reasoned.targets) for (const [i, dt] of Object.entries(t.docTypes)) {
+          const name = atts[Number(i)]?.name;
+          if (!name) continue;
+          const j = typed.findIndex((x) => x.filename === name);
+          const entry = { filename: name, docType: dt, confidence: 1 };
+          if (j >= 0) typed[j] = entry;
+          else typed.push(entry);
+        }
+        await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { triage: { ...triage, attachments: typed } as any } });
+        log.triage = { ...triage, attachments: typed } as any;
+        decision = { ...decision, target: { orderId: targets[0].orderId!, shipmentId: targets[0].shipmentId ?? null }, kind: 'bl', confidence: 'exact', auto: true, blocked: [], check: [], multiOrderIds: [], reason: `reasoner: ${reasoned.evidence}`, keyLabel: reasoned.keyLabel, threadFrom: null };
+        plan = await this.buildPlan(organizationId, log, keys, targets, ev);
+      } else if (reasoned) decision = { ...decision, reason: `reasoner: ${reasoned.reason}` };
+    }
     const needsShipment = plan.some((a) => a.kind === 'file' && a.status === 'skipped' && a.reason === 'pick the shipment');
     const unsupported = plan.filter((a) => a.kind === 'file' && a.status === 'planned' && a.stepOk === false);
     const blocked = [...decision.blocked, ...(unsupported.length ? [`e: no step takes ${[...new Set(unsupported.map((a) => a.docType))].join(', ')}`] : [])];
@@ -344,6 +384,7 @@ export class EmailTriageService {
           keyLabel: decision.keyLabel,
           reason: manualList ? 'picked by hand' : decision.reason,
           threadFrom: decision.threadFrom ?? null,
+          ...(reasoned ? { reasoner: { apply: reasoned.apply, reason: reasoned.reason, evidence: reasoned.evidence, at: new Date().toISOString() }, evidence: reasoned.evidence } : {}),
           targets: targets.map((t) => ({ orderId: t.orderId ?? null, shipmentId: t.shipmentId ?? null, ...(t.attachmentIndexes ? { attachmentIndexes: t.attachmentIndexes } : {}) })),
           // What the intake suggested first — "Accept" vs "Change order…" is measured against it.
           suggested: prev.suggested ?? (manualList ? null : (targets[0] ?? null)),
@@ -353,8 +394,8 @@ export class EmailTriageService {
       },
     });
     if (auto) {
-      // The label in Processed: "history" for a closed record (round Q), else "thread" / the key.
-      const label = verdict?.kind === 'HISTORY' ? 'history' : decision.kind === 'thread' ? 'thread' : decision.keyLabel;
+      // The label in Processed: "history" for a closed record (round Q), "reasoned" (round R), else "thread" / the key.
+      const label = verdict?.kind === 'HISTORY' ? 'history' : reasoned?.apply ? `reasoned · ${reasoned.keyLabel ?? 'thread'}` : decision.kind === 'thread' ? 'thread' : decision.keyLabel;
       await this.execute(organizationId, logId, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: label });
       return 'PROCESSED';
     }
@@ -366,6 +407,101 @@ export class EmailTriageService {
       return 'PROCESSED';
     }
     return state;
+  }
+
+  /**
+   * Round R: when at least two typed attachments' own content name different records (or one names a record
+   * other than the email's target), each attachment goes to the record its content names; attachments naming
+   * nothing follow the email's target. Auto only when every typed attachment is keyed (guard 1b per file).
+   */
+  private async splitByAttachment(organizationId: string, log: any, ev: EmailEvidence, decision: MatchDecision): Promise<{ targets: IntakeTarget[]; auto: boolean; reason: string; keyLabel: string | null } | null> {
+    const triage = (log.triage ?? {}) as Partial<TriageResult>;
+    const typedIdx = (triage.attachments ?? []).map((a) => ev.attachments.findIndex((x) => x.name === a.filename)).filter((i) => i >= 0);
+    if (!typedIdx.length) return null;
+    const records = await this.matchRecords(organizationId);
+    const per = attachmentHits(ev, records, await this.ciPatterns(organizationId)).map((h) => ({ index: h.index, target: attachmentTarget(h.hits) }));
+    const keyed = per.filter((p) => typedIdx.includes(p.index) && p.target);
+    const distinct = new Set(keyed.map((p) => `${p.target!.orderId}:${p.target!.shipmentId ?? ''}`));
+    const emailKey = decision.target ? `${decision.target.orderId}:${decision.target.shipmentId ?? ''}` : null;
+    if (!keyed.length || (distinct.size === 1 && (!emailKey || distinct.has(emailKey)))) return null;
+    const byTarget = new Map<string, IntakeTarget>();
+    for (const p of keyed) {
+      const k = `${p.target!.orderId}:${p.target!.shipmentId ?? ''}`;
+      const t = byTarget.get(k) ?? { orderId: p.target!.orderId, shipmentId: p.target!.shipmentId, attachmentIndexes: [] };
+      t.attachmentIndexes!.push(p.index);
+      byTarget.set(k, t);
+    }
+    const rest = typedIdx.filter((i) => !keyed.some((p) => p.index === i));
+    if (rest.length && decision.target) {
+      const k = `${decision.target.orderId}:${decision.target.shipmentId ?? ''}`;
+      const t = byTarget.get(k) ?? { orderId: decision.target.orderId, shipmentId: decision.target.shipmentId, attachmentIndexes: [] };
+      t.attachmentIndexes!.push(...rest);
+      byTarget.set(k, t);
+    }
+    const refs = [...byTarget.keys()].map((k) => recordRef(records.find((r) => r.orderId === k.split(':')[0] && (k.split(':')[1] ? r.shipmentId === k.split(':')[1] : true))!));
+    return { targets: [...byTarget.values()], auto: rest.length === 0, reason: `each attachment's own content names its shipment: ${keyed.map((p) => `${ev.attachments[p.index].name} → ${p.target!.keyLabel}`).join(', ')} (${refs.join(' / ')})`, keyLabel: keyed[0].target!.keyLabel };
+  }
+
+  /** The org flag enableEmailReasoner (default off). */
+  private async reasonerOn(organizationId: string): Promise<boolean> {
+    try {
+      const o = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { uiConfig: true } });
+      return !!((o?.uiConfig as any)?.features?.enableEmailReasoner);
+    } catch {
+      return false;
+    }
+  }
+
+  /** Tests replace the model call. */
+  reasonerAi: AiCall = (system, user) => this.callClaude(system, user, REASONER_MODEL);
+
+  /** Round R: the thread reasoner — build the context, ask the model, verify its answer (email-reasoner.ts). */
+  async reason(organizationId: string, log: any, ev: EmailEvidence): Promise<ReasonerJudgement> {
+    const records = await this.matchRecords(organizationId);
+    const open = records.filter((r) => r.orderStatus === 'OPEN');
+    // (No container-number column yet: the containers list stays empty until the B/L read stores them.)
+    const ships: any[] = await this.prisma.shipment.findMany({ where: { organizationId, status: 'OPEN' }, select: { id: true, vessel: true, voyageNo: true, eta: true } }).catch(() => []);
+    const shipOf = (id: string | null) => ships.find((s) => s.id === id);
+    const rows: ReasonerRecordRow[] = open.map((r) => {
+      const sh = shipOf(r.shipmentId);
+      return {
+        id: r.shipmentId ? `s:${r.shipmentId}` : `o:${r.orderId}`,
+        ref: recordRef(r),
+        customer: r.customerKey,
+        grade: r.grade,
+        size: r.size,
+        qtyMt: r.qtyMt,
+        netMt: r.netMt,
+        deliveryMonth: r.deliveryMonth,
+        bl: r.bl,
+        vessel: sh ? [sh.vessel, sh.voyageNo].filter(Boolean).join(' / ') || null : null,
+        eta: sh?.eta ? new Date(sh.eta).toISOString().slice(0, 10) : null,
+        containers: [],
+      };
+    });
+    const refs = await this.refs(organizationId, [...new Set(open.map((r) => r.orderId))], open.map((r) => r.shipmentId).filter((x): x is string => !!x));
+    const toMsg = async (l: any, e: EmailEvidence): Promise<ReasonerThreadMessage> => {
+      const { own, quoted } = splitQuoted(e.body);
+      return {
+        date: l.emailDate ? new Date(l.emailDate).toISOString().slice(0, 16) : null,
+        fromDomain: (/@([^>\s]+)/.exec(l.fromAddress ?? '')?.[1] ?? '?').toLowerCase(),
+        direction: l.direction ?? null,
+        subject: e.subject,
+        own,
+        quoted,
+        attachments: e.attachments.map((a, index) => ({ index, name: a.name, text: a.text })),
+        linkedRef: l.shipmentId ? (refs.ship.get(l.shipmentId) ?? null) : l.orderId ? (refs.order.get(l.orderId) ?? null) : null,
+      };
+    };
+    const threadRows = (await this.threadRows(organizationId, log)).slice(-8);
+    const thread: ReasonerThreadMessage[] = [];
+    for (const t of threadRows) thread.push(await toMsg(t, await this.evidence(t)));
+    const ctx: ReasonerContext = { email: await toMsg(log, ev), thread, rows };
+    const { system, user } = buildReasonerPrompt(ctx);
+    const raw = await this.reasonerAi(system, user);
+    const out = parseReasonerOutput(raw, rows, ev.attachments.length);
+    if (!out) return { apply: false, targets: [], evidence: '', reason: 'the reasoner answer did not fit the schema', keyLabel: null };
+    return judgeReasoner(out, ctx, records, ev);
   }
 
   /** Round Q: the backlog kind of an email given its decision and plan (see email-backlog.ts). */
@@ -1153,6 +1289,9 @@ export class EmailTriageService {
       review: (actions as { review?: unknown }).review ?? null,
       /** "B/L 198GX04630" on an auto-applied email. */
       autoLabel: (actions as { autoLabel?: string | null }).autoLabel ?? null,
+      /** Round R: the one-line evidence note (hand review / the thread reasoner). */
+      evidence: (actions as { evidence?: string | null }).evidence ?? null,
+      reviewConfidence: (actions as { reviewConfidence?: string | null }).reviewConfidence ?? null,
       keys: triage.keys ?? null,
       planned: actions.planned ?? [],
       done: actions.done ?? [],
@@ -1350,11 +1489,16 @@ export class EmailTriageService {
   }
 
   // ── model ───────────────────────────────────────────────────────────────
-  private async callClaude(system: string, user: string): Promise<unknown> {
+  private async callClaude(system: string, user: string, model: string = MODEL): Promise<unknown> {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
     const client = new Anthropic({ apiKey });
-    const r = await client.messages.create({ model: MODEL, max_tokens: 1500, temperature: 0, system, messages: [{ role: 'user', content: user }] });
+    // The reasoner runs on Claude Opus 5.5 (adaptive thinking is on by default there; no temperature / prefill).
+    const r =
+      model === REASONER_MODEL
+        ? await client.messages.create({ model, max_tokens: 4000, system, messages: [{ role: 'user', content: user }] })
+        : await client.messages.create({ model, max_tokens: 1500, temperature: 0, system, messages: [{ role: 'user', content: user }] });
+    if (r.stop_reason === 'refusal') throw new Error('the model declined the request');
     const block = r.content.find((b) => b.type === 'text');
     const raw = block && 'text' in block ? (block as any).text.trim() : '';
     const m = raw.match(/\{[\s\S]*\}/);

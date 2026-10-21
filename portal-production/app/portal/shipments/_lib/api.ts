@@ -709,7 +709,7 @@ export type InboxBy = { outcome: "AUTO" | "ACCEPTED" | "CHANGED" | "REJECTED" | 
 /** Round Q: the backlog kind and, for "No order yet", what the order form starts from. */
 export type OrderSeed = { piNo: string | null; contractNo: string | null; grade: string | null; qtyMt: number | null; customerKey: string | null; deliveryMonth: string | null };
 export type InboxBacklog = { kind: "HIDE" | "AUTO" | "CONFIRM" | "AUTO_LINK" | "HISTORY" | "PICK" | "NO_ORDER" | "IS_SHIPMENT"; reason: string; seed: OrderSeed | null };
-export type InboxMessage = InboxRow & { reason: InboxReason | null; matchReason: string | null; threadFrom: "accepted" | "traced" | "followed" | null; threadSize: number; linked: InboxLinked | null; by: InboxBy | null; backlog?: InboxBacklog | null };
+export type InboxMessage = InboxRow & { reason: InboxReason | null; matchReason: string | null; threadFrom: "accepted" | "traced" | "followed" | null; threadSize: number; linked: InboxLinked | null; by: InboxBy | null; backlog?: InboxBacklog | null; evidence?: string | null; reviewConfidence?: string | null };
 export type InboxThreadLink = { orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null; from: "processed" | "suggested"; combined: Array<{ orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null }> };
 export type InboxThread = { id: string; by: "headers" | "subject" | "both"; section?: "NO_ORDER" | null; subject: string | null; latest: string | null; emails: number; files: number; link: InboxThreadLink | null; messages: InboxMessage[]; otherCount: number };
 export type HiddenEmail = { id: string; date: string; fromDomain: string; subject: string; reason: string | null };

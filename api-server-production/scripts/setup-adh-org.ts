@@ -210,6 +210,7 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableTradeLegacyPages: false, // round H: Declaration / Payments / Stock / Supplier orders pages hidden
   enableTradePipelineGrid: false, // round K: Home's pipeline grid hidden (Orders list progress bars instead)
   enableShipmentsHome: false, // round O/P: the OLD Home (cash / margin) stays off; the Dashboard route shows the email-first dashboard
+  enableEmailReasoner: false, // round R: the thread reasoner goes live only after the owner's go (flip to true then)
 };
 
 const NUMBER_FORMATS = [

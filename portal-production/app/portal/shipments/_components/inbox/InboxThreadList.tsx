@@ -106,6 +106,11 @@ export function MessageRow({ m, actions, showSubject = true, dense }: { m: Inbox
               {whatHappens(m)}
             </Typography>
           </Stack>
+          {m.evidence && (
+            <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.25, fontStyle: "italic" }} title={m.evidence} data-tour="inbox-evidence">
+              {m.evidence}
+            </Typography>
+          )}
           {m.linked && m.linked.files.length > 0 && (
             <Box sx={{ mt: 0.25 }}>
               {m.linked.files.map((f, i) => (

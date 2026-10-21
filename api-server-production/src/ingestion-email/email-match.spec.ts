@@ -2,7 +2,7 @@
  * Guarded email matching (2026-10, after the hand review of the 18 prod suggestions). Fixtures use the real
  * numbers (B/Ls, Maersk 276956322) with dummy content — never real email text.
  */
-import { cueConflicts, decideMatch, EmailEvidence, findKeyHits, MatchRecord, subjectCues, telexTiedTo, validCiNo, validContractNo } from './email-match.rules';
+import { attachmentHits, attachmentTarget, cueConflicts, decideMatch, EmailEvidence, findKeyHits, MatchRecord, subjectCues, telexTiedTo, validCiNo, validContractNo } from './email-match.rules';
 import { knownSender, mergeKeys, sanitizeKeys } from './email-triage.rules';
 
 const rec = (o: Partial<MatchRecord> & Pick<MatchRecord, 'orderId' | 'orderNo'>): MatchRecord => ({
@@ -144,5 +144,27 @@ describe('extraction validation', () => {
     const many = ev('Re: 6005C / 6063', 'codes:\nRINVIZ026A142\n\nB/Ls 198GX06445 198GX06520');
     expect(telexTiedTo(many, 'RINVIZ026A142', '198GX06520')).toBe(false);
     expect(telexTiedTo(ev('telex RINVIZ026A142'), 'RINVIZ026A142', '198GX06520')).toBe(true);
+  });
+});
+
+describe('round R: own text vs quoted history, per-attachment keys', () => {
+  it("a B/L in the email's OWN text is strong (guard b passes); only in the quoted history it stays weak", () => {
+    const own = decide(ev('Re: 納期の件', '22AA198GX06445 本件の許可書を送付いたします。'));
+    expect(own).toMatchObject({ target: { orderId: 'o21', shipmentId: 's21' }, confidence: 'exact', auto: true });
+    expect(own.reason).toMatch(/email text/);
+    const quoted = decide(ev('Re: 納期の件', 'ありがとうございます。\n> B/L 198GX06445 の件'));
+    expect(quoted.target).toEqual({ orderId: 'o21', shipmentId: 's21' });
+    expect(quoted.blocked).toContainEqual(expect.stringMatching(/^b:/));
+  });
+  it('each attachment\'s own content names its shipment', () => {
+    const e = ev('RE: 書類送付 11月納入分', 'see attached', [
+      { name: 'COA_HSB.pdf', text: 'B/L 22AA198GX06445' },
+      { name: 'PL_6063.pdf', text: 'B/L 198GX06520' },
+      { name: 'signature.png', text: '' },
+    ]);
+    const per = attachmentHits(e, RECORDS);
+    expect(attachmentTarget(per[0].hits)).toMatchObject({ orderId: 'o21', shipmentId: 's21', keyLabel: 'B/L 198GX06445' });
+    expect(attachmentTarget(per[1].hits)).toMatchObject({ orderId: 'o22', shipmentId: 's22' });
+    expect(attachmentTarget(per[2].hits)).toBeNull();
   });
 });

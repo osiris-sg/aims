@@ -45,6 +45,7 @@ import { toast } from "../_lib/toast";
 import { PAYMENT_GATED_STEPS, paymentOf, useShipmentsApi, type BlCheckSummary, type GeneratedDoc, type GenSource, type RecordDocLink, type RecordFileLink, type TradeFile, type TradeStep } from "../_lib/api";
 import { useDocTypeLabels, useShipments, useTradeMutation } from "../_lib/hooks";
 import { documentHref, fmtDate, fmtDateTime, GENERATED_DOC_TYPES, INVOICE_DOC_TYPES, stepLabel } from "../_lib/format";
+import { doneTooltip } from "../_lib/order-focus";
 import { ConfirmDialog } from "./bits";
 import BlCheckPanel from "./BlCheckPanel";
 import FileUploadDialog, { type LinkTarget } from "./FileUploadDialog";
@@ -597,16 +598,17 @@ export default function StepCards({
         sx={{ width: "100%", justifyContent: "flex-start", textAlign: "left", px: 1.5, py: 1, borderRadius: 1, "&:hover": { bgcolor: "action.hover" }, scrollMarginTop: 96 }}
       >
         <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0, width: "100%" }}>
-          {isDone ? <CheckCircleIcon color="success" fontSize="small" /> : <EmptyDot />}
+          {/* Round R: a done step is ✓ + its name; who / when / "imported from the task list" sit on the ✓. */}
+          {isDone ? (
+            <Tooltip title={doneTooltip(s, fmtDate)} arrow>
+              <CheckCircleIcon color="success" fontSize="small" />
+            </Tooltip>
+          ) : (
+            <EmptyDot />
+          )}
           <Typography variant="body2" sx={{ fontWeight: isDone ? 600 : 400, color: isDone ? "text.primary" : "text.disabled", flexShrink: 0 }}>
             {titleOf(s)}
           </Typography>
-          {isDone && (
-            <Typography variant="body2" color="text.secondary" noWrap sx={{ minWidth: 0 }}>
-              · {s.updatedByName ?? "—"} · {fmtDate(s.completedAt ?? s.updatedAt)}
-              {s.skipReason ? ` · ${s.skipReason}` : ""}
-            </Typography>
-          )}
           {!isDone && s.holdOpen && <Chip size="small" variant="outlined" color="warning" label="Reopened" />}
         </Stack>
       </ButtonBase>
