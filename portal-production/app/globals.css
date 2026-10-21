@@ -73,6 +73,13 @@
 [data-theme="dark"] input[type="time"]::-webkit-calendar-picker-indicator {
   filter: invert(1);
 }
+/* The field app picks its own theme (data-field-theme + color-scheme on <html>),
+   which may differ from the portal's; there the native icon colours itself. */
+[data-field-theme] input[type="date"]::-webkit-calendar-picker-indicator,
+[data-field-theme] input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+[data-field-theme] input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: none;
+}
 
 body {
   background-color: var(--surface);
