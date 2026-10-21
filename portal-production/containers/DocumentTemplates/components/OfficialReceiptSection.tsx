@@ -51,6 +51,7 @@ import ManualOffsetDialog from "./ManualOffsetDialog";
 import { toast } from "react-toastify";
 import { headerInputSx } from "./DynamicFormFields";
 import type { TemplateFieldConfig } from "../types/templateFieldTypes";
+import DocumentRefLink from "@/components/DocumentRefLink";
 
 // ---------------------------------------------------------------------------
 // Field definitions — none of these names appear in HEADER_FIELD_ORDER (or the
@@ -463,6 +464,9 @@ export function OrAmountInput({ formData, setFormData }: RowProps) {
 type OpenInvoice = {
   documentId: string;
   reference: string;
+  // Carried so the Reference cell can be a real link to the invoice.
+  type?: string | null;
+  templateId?: string | null;
   date: string | null;
   remarks: string;
   gross: number;
@@ -683,7 +687,12 @@ export function OfficialReceiptOffsetSection({
                           hover
                           sx={ticked ? { bgcolor: (t) => alpha(t.palette.primary.main, 0.06) } : undefined}
                         >
-                          <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{inv.reference}</TableCell>
+                          <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>
+                            <DocumentRefLink
+                              doc={{ id: inv.documentId, type: inv.type, templateId: inv.templateId }}
+                              label={inv.reference}
+                            />
+                          </TableCell>
                           <TableCell>{inv.date ? new Date(inv.date).toLocaleDateString("en-GB") : "—"}</TableCell>
                           <TableCell>{inv.remarks}</TableCell>
                           <TableCell sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(inv.outstanding)}</TableCell>

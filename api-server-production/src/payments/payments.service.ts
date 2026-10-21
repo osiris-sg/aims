@@ -215,6 +215,9 @@ export class PaymentsService {
                 id: true,
                 name: true,
                 type: true,
+                // The list links the document number — the editor route needs
+                // the template id too (guru 2026-10-21).
+                documentTemplateId: true,
               },
             },
           },

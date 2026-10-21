@@ -19,6 +19,12 @@ const R = (n: number) => Math.round(n * 100) / 100;
 interface DocRow {
   id: string;
   number: string;
+  // Raw type + template id: every report built on this feed renders the
+  // document number as a real link, and the editor route needs both
+  // (guru 2026-10-21). `number` is the PREFIXED display string, so it
+  // cannot serve as the route's type.
+  docType: string;
+  templateId: string | null;
   contactId: string;
   contactName: string;
   date: Date;
@@ -49,7 +55,7 @@ export class XeroReportsService {
     const [docs, setting] = await Promise.all([
       this.prisma.document.findMany({
         where: { organizationId, type: isAR ? 'INVOICE' : 'BILL' },
-        select: { id: true, name: true, type: true, status: true, createdAt: true, config: true },
+        select: { id: true, name: true, type: true, documentTemplateId: true, status: true, createdAt: true, config: true },
       }),
       this.prisma.accountingSetting.findUnique({
         where: { organizationId },
@@ -130,6 +136,8 @@ export class XeroReportsService {
 
       rows.push({
         id: doc.id,
+        docType: doc.type,
+        templateId: doc.documentTemplateId ?? null,
         // Doc-type reference prefix (guru 2026-07-20): every accounting report
         // shows "{PREFIX} {number}" — INV for invoices, SIN for supplier
         // invoices — stamped once here so aged/invoice/contact reports agree.
@@ -245,6 +253,8 @@ export class XeroReportsService {
       bucketAmounts[b] = d.outstanding;
       e.docs.push({
         id: d.id,
+        docType: d.docType,
+        templateId: d.templateId,
         number: d.number,
         date: d.date.toISOString(),
         dueDate: d.dueDate?.toISOString() ?? null,
@@ -315,6 +325,8 @@ export class XeroReportsService {
       const e = byContact.get(d.contactId) || { name: d.contactName, docs: [], gross: 0, paid: 0, balance: 0 };
       e.docs.push({
         id: d.id,
+        docType: d.docType,
+        templateId: d.templateId,
         number: d.number,
         date: d.date.toISOString(),
         dueDate: d.dueDate?.toISOString() ?? null,
@@ -622,7 +634,7 @@ export class XeroReportsService {
     const [docs, org, taxRates, postedJes] = await Promise.all([
       this.prisma.document.findMany({
         where: { organizationId, type: { in: ['INVOICE', 'TI', 'TI2', 'BILL', 'CREDIT_NOTE', 'DEBIT_NOTE', 'PURCHASE_RETURN'] } },
-        select: { id: true, name: true, type: true, status: true, createdAt: true, config: true },
+        select: { id: true, name: true, type: true, documentTemplateId: true, status: true, createdAt: true, config: true },
       }),
       this.prisma.organization.findUnique({ where: { id: organizationId }, select: { registrationNumber: true } }),
       this.prisma.taxRate.findMany({ where: { organizationId } }),
@@ -642,6 +654,8 @@ export class XeroReportsService {
 
     type GstRow = {
       docId: string; document: string; type: string; date: Date; remarks: string;
+      // Route parts for the document link (`type` above is the DISPLAY label).
+      docTypeKey: string; templateId: string | null;
       preTax: number; rate: number; estimated: number; tax: number; code: string; mismatch: boolean;
       contactId: string | null; side: 'OUTPUT' | 'INPUT';
     };
@@ -690,6 +704,8 @@ export class XeroReportsService {
           docId: doc.id,
           document: doc.name || '(no #)',
           type: TYPE_LABEL[doc.type] || doc.type,
+          docTypeKey: doc.type,
+          templateId: doc.documentTemplateId ?? null,
           date,
           remarks,
           preTax: R(net * sign),

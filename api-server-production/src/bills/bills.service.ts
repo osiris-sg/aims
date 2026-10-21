@@ -1225,6 +1225,27 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     return payment;
   }
 
+  // Recompute a bill's paid total + status from its BillPayment rows. Used by
+  // the Payment Voucher (one voucher settles many bills; its rows are replaced
+  // on every save/delete), so amountPaid can't be maintained incrementally.
+  async refreshBillAfterPayments(organizationId: string, billId: string) {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: billId, organizationId, type: 'BILL' },
+      select: { id: true, config: true },
+    });
+    if (!doc) return;
+    const c: any = doc.config || {};
+    const totalAmount = ROUND(Number(c.totalAmount ?? grossStampOf(c) ?? 0) || 0);
+    const agg = await this.prisma.billPayment.aggregate({ where: { organizationId, billId }, _sum: { amount: true } });
+    const paid = ROUND(Number(agg._sum.amount) || 0);
+    await this.patchConfig(billId, { amountPaid: paid });
+    const current = (c.billStatus as BillStatus) || (c.xeroStatus === 'Paid' ? 'PAID' : 'POSTED');
+    if (current === 'VOID' || current === 'DRAFT' || current === 'PENDING_APPROVAL') return;
+    const fullyPaid = totalAmount > 0 && paid >= totalAmount - 0.01;
+    if (fullyPaid && current !== 'PAID') await this.patchStatus(billId, 'PAID');
+    else if (!fullyPaid && current === 'PAID') await this.patchStatus(billId, 'POSTED');
+  }
+
   // All bill payments for the org in a period (AP workspace / P/V listing).
   // Enriched with payee, bank account and the P/V journal's reference +
   // confirmed state so the Payment Voucher Listing renders without N+1 calls.

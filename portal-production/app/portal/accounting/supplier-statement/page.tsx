@@ -8,6 +8,7 @@ import {
 import { useAccountingApi } from "../_lib/api";
 import PageTable from "@/components/PageTable";
 import { useClientSort } from "@/components/clientSort";
+import DocumentRefLink from "@/components/DocumentRefLink";
 
 type Supplier = { id: string; name: string };
 type Tx = { date: string; type: "BILL" | "PAYMENT"; reference: string; description: string; debit: number; credit: number; balance: number };
@@ -96,7 +97,14 @@ export default function SupplierStatementPage() {
     {
       accessorKey: "reference",
       header: "Reference",
-      cell: ({ row }: any) => <Box sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.8rem" }}>{row.original.reference}</Box>,
+      cell: ({ row }: any) => (
+        <Box sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.8rem" }}>
+          <DocumentRefLink
+            doc={{ id: row.original.documentId, type: row.original.docTypeKey, templateId: row.original.templateId }}
+            label={row.original.reference}
+          />
+        </Box>
+      ),
     },
     {
       accessorKey: "description",

@@ -137,6 +137,15 @@ import {
   OfficialReceiptOffsetSection,
   receiptCustomerPatch,
 } from "./OfficialReceiptSection";
+import {
+  PaymentVoucherOffsetSection,
+  PvVoucherNoInput,
+  PvSupplierInput,
+  PvDebitInput,
+  PvCreditInput,
+  PvAmountInput,
+  voucherSupplierPatch,
+} from "./PaymentVoucherSection";
 import { getDocumentListRoute, getListRouteFromPathname } from "@/app/portal/components/documentRoutes"; // co-pkg: depends on fa8351c
 import { useAimsUserId } from "@hooks/useAimsUserId";
 
@@ -759,6 +768,12 @@ export default function TabbedDocumentCreator({
   // like any document — its own field rows + the Offset Transactions grid in
   // place of the items table. Saves route to PUT /receipts (page onSave).
   const isOfficialReceipt = documentType === "OFFICIAL_RECEIPT" || documentType === "OR";
+  // Payment Voucher (AP twin of the receipt, 2026-10-21): supplier + unpaid
+  // bills grid; saves route to PUT /payment-vouchers (page onSave).
+  const isPaymentVoucher = documentType === "PAYMENT_VOUCHER" || documentType === "PV";
+  // Settlement documents share the receipt's editor behaviour (no items,
+  // no duplicate/stock card/AI, Delete in ⋮, fixed legacy layout).
+  const isSettlementDoc = isOfficialReceipt || isPaymentVoucher;
   const isQuotation =
     documentType === "QUOTATION" ||
     documentType === "QO" ||
@@ -1137,6 +1152,9 @@ export default function TabbedDocumentCreator({
     // Official Receipt state (header amounts + offset allocations) — rides in
     // formData so dirty tracking / exit prompt / Save all work unchanged.
     orData: existingData?.orData || null,
+    // Payment Voucher state + its supplier (AP twin of orData).
+    pvData: existingData?.pvData || null,
+    supplier: existingData?.supplier || null,
   });
 
   // Load template field configuration
@@ -2660,6 +2678,8 @@ export default function TabbedDocumentCreator({
       MSR: "Maintenance Service Report",
       OFFICIAL_RECEIPT: "Official Receipt",
       OR: "Official Receipt",
+      PAYMENT_VOUCHER: "Payment Voucher",
+      PV: "Payment Voucher",
     };
     return titles[documentType] || "Document";
   };
@@ -3370,8 +3390,8 @@ export default function TabbedDocumentCreator({
         toast.error("Authentication required");
         return;
       }
-      await request({ path: `/receipts/${docId}`, method: "DELETE" }, {}, token);
-      toast.success("Receipt deleted — journal voided");
+      await request({ path: isPaymentVoucher ? `/payment-vouchers/${docId}` : `/receipts/${docId}`, method: "DELETE" }, {}, token);
+      toast.success(isPaymentVoucher ? "Payment voucher deleted — journal voided" : "Receipt deleted — journal voided");
       isDirtyRef.current = false;
       setHasUnsavedChanges(false);
       router.push(resolveBackRoute(documentType));
@@ -3390,6 +3410,18 @@ export default function TabbedDocumentCreator({
       }
       // Receipts have their own create endpoint (OR-###### numbering, control
       // accounts prefilled) and their own edit route.
+      if (isPaymentVoucher) {
+        const response = await request({ path: "/payment-vouchers", method: "POST" }, {}, token);
+        const newId = response?.data?.id || response?.id;
+        if (newId) {
+          toast.success("New Payment Voucher created");
+          onDocumentCreated?.();
+          router.push(`/portal/accounting/payment-vouchers/${newId}${typeof window !== "undefined" ? window.location.search : ""}`);
+        } else {
+          toast.error(response?.message || "Failed to create payment voucher");
+        }
+        return;
+      }
       if (isOfficialReceipt) {
         const response = await request({ path: "/receipts", method: "POST" }, {}, token);
         const newId = response?.data?.id || response?.id;
@@ -3798,6 +3830,27 @@ export default function TabbedDocumentCreator({
     // Official Receipt: server posts ONE journal on save, so the receipt must
     // be complete and fully allocated (legacy rule: Balance 0.00, no
     // on-account credit) before it can leave the editor.
+    if (isPaymentVoucher) {
+      const pd: any = (formData as any).pvData || {};
+      const pvPaid = Math.round((parseFloat(pd.voucherAmount) || 0) * 100) / 100;
+      const pvOffset = Math.round(
+        ((Array.isArray(pd.allocations) ? pd.allocations : []) as any[]).reduce(
+          (s, a) => s + (Number(a.amount) || 0), 0) * 100,
+      ) / 100;
+      const pvError = !(formData as any).supplier?.id
+        ? "Select a supplier first"
+        : !pd.creditAccountCode
+        ? "Select the account to CREDIT (paid from)"
+        : pvPaid <= 0
+        ? "Enter the payment amount"
+        : Math.abs(pvPaid - pvOffset) > 0.005
+        ? "Balance must be 0.00 — allocate the full payment to supplier invoices"
+        : null;
+      if (pvError) {
+        toast.error(pvError);
+        return false;
+      }
+    }
     if (isOfficialReceipt) {
       const od: any = (formData as any).orData || {};
       const orReceived = Math.round((parseFloat(od.receiptAmount) || 0) * 100) / 100;
@@ -4186,7 +4239,7 @@ export default function TabbedDocumentCreator({
               </Tooltip>
             </>
           )}
-          {!isTemplateEditMode && !isOfficialReceipt && (
+          {!isTemplateEditMode && !isSettlementDoc && (
             <Button
               size="small"
               variant={assistantOpen ? "contained" : "outlined"}
@@ -4353,7 +4406,7 @@ export default function TabbedDocumentCreator({
             </Button>
           )}
           {/* Confirm button for non-Purchase Order/Return, non-Quotation, non-Stock Adjustment, non-DO, and non-Invoice documents */}
-          {!isDocumentConfirmedStatus && !isTemplateEditMode && !isPurchaseDocument && !isStockAdjustment && !isDeliveryOrder && !isInvoiceType && !isOfficialReceipt &&
+          {!isDocumentConfirmedStatus && !isTemplateEditMode && !isPurchaseDocument && !isStockAdjustment && !isDeliveryOrder && !isInvoiceType && !isSettlementDoc &&
            !(documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
             <Button
               size="small"
@@ -4503,7 +4556,7 @@ export default function TabbedDocumentCreator({
               <ListItemIcon><AddIcon fontSize="small" /></ListItemIcon>
               <ListItemText>New {getDocumentTitle()}</ListItemText>
             </MenuItem>
-            {(existingData?.id || documentId) && !isOfficialReceipt && (
+            {(existingData?.id || documentId) && !isSettlementDoc && (
               <MenuItem onClick={() => { closeMoreMenu(); handleDuplicateDocument(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Duplicate</ListItemText>
@@ -4543,7 +4596,7 @@ export default function TabbedDocumentCreator({
               <ListItemIcon><SearchIcon fontSize="small" /></ListItemIcon>
               <ListItemText>Locate</ListItemText>
             </MenuItem>
-            {!isOfficialReceipt && (
+            {!isSettlementDoc && (
               <MenuItem onClick={() => { closeMoreMenu(); setStockCardDialogOpen(true); }}>
                 <ListItemIcon><InventoryIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Stock Card</ListItemText>
@@ -4563,7 +4616,7 @@ export default function TabbedDocumentCreator({
             )}
             {/* Receipts: legacy toolbar's Delete — voids the journal and
                 restores the allocated invoices to outstanding. */}
-            {isOfficialReceipt && (existingData?.id || documentId) && (
+            {isSettlementDoc && (existingData?.id || documentId) && (
               <MenuItem onClick={() => { closeMoreMenu(); setOrDeleteConfirmOpen(true); }} sx={{ color: "error.main" }}>
                 <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
                 <ListItemText>Delete</ListItemText>
@@ -4779,7 +4832,7 @@ export default function TabbedDocumentCreator({
           {/* Dynamic Tabs based on template config */}
           {templateFieldConfig?.tabs.map((tab, index) => (
             <TabPanel key={tab.tabId} value={mainTabValue} index={index}>
-              <Card sx={{ flexShrink: 0, maxHeight: isOfficialReceipt ? 420 : 320, display: "flex", flexDirection: "column" }}>
+              <Card sx={{ flexShrink: 0, maxHeight: isSettlementDoc ? 420 : 320, display: "flex", flexDirection: "column" }}>
                 <CardContent
                   {...readOnlyShield(confirmedReadOnly)}
                   sx={{ p: 1, flex: 1, overflow: "auto", "&:last-child": { pb: 1 }, ...(readOnlyShield(confirmedReadOnly).sx || {}) }}
@@ -4876,7 +4929,7 @@ export default function TabbedDocumentCreator({
                       // config.referenceNo via the transformer's special-case.
                       // Official Receipts keep their fixed legacy layout.
                       if (
-                        !isOfficialReceipt &&
+                        !isSettlementDoc &&
                         tab.tabId === "general" &&
                         !fields.some((f: any) => f.fieldName === "documentInfo.referenceNo" || f.fieldName === "referenceNo")
                       ) {
@@ -4938,7 +4991,29 @@ export default function TabbedDocumentCreator({
                       // Official Receipt: the legacy header rows that need more
                       // than a plain input (read-only number, customer picker
                       // without the attention trio, account echoes, amount trio).
-                      isOfficialReceipt
+                      isPaymentVoucher
+                        ? {
+                            pvVoucherNo: <PvVoucherNoInput formData={formData} setFormData={setFormData} />,
+                            pvSupplier: (
+                              <PvSupplierInput
+                                formData={formData}
+                                setFormData={setFormData}
+                                suppliers={suppliers}
+                                onOpenDialog={() => {
+                                  // Shared Locate dialog in supplier mode; the
+                                  // voucher branch of onSelectCustomer stores it.
+                                  setCustomerFieldName("supplier");
+                                  setCustomerStoreMode("object");
+                                  setIsSupplierDialog(true);
+                                  setCustomerDialogOpen(true);
+                                }}
+                              />
+                            ),
+                            pvDebit: <PvDebitInput formData={formData} setFormData={setFormData} />,
+                            pvCredit: <PvCreditInput formData={formData} setFormData={setFormData} />,
+                            pvAmountRow: <PvAmountInput formData={formData} setFormData={setFormData} />,
+                          }
+                        : isOfficialReceipt
                         ? {
                             orReceiptNo: <OrReceiptNoInput formData={formData} setFormData={setFormData} />,
                             orCustomer: (
@@ -5709,7 +5784,14 @@ export default function TabbedDocumentCreator({
 
           {/* ITEMS SECTION - Always visible (Official Receipts swap it for the
               legacy Offset Transactions grid — allocations, not line items) */}
-          {isOfficialReceipt ? (
+          {isPaymentVoucher ? (
+            <PaymentVoucherOffsetSection
+              formData={formData}
+              setFormData={setFormData}
+              voucherId={(existingData?.id || documentId) as string | undefined}
+              disabled={lockReadOnly}
+            />
+          ) : isOfficialReceipt ? (
             <OfficialReceiptOffsetSection
               formData={formData}
               setFormData={setFormData}
@@ -7082,6 +7164,25 @@ export default function TabbedDocumentCreator({
                   // Official Receipt: map the editor state onto the preview's
                   // OFFICIAL_RECEIPT data contract (allocations are stored
                   // enriched with reference/date/description by the grid).
+                  ...(isPaymentVoucher
+                    ? (() => {
+                        const pd: any = (formData as any).pvData || {};
+                        const sup: any = (formData as any).supplier || {};
+                        return {
+                          voucherNumber: formData.documentInfo?.documentNumber || formData.name,
+                          date: pd.date,
+                          chequeNo: pd.chequeNo,
+                          remarks: pd.remarks,
+                          supplierLabel: sup.id ? `${sup.supplierCode ? `${sup.supplierCode} — ` : ""}${sup.name || ""}` : "",
+                          paymentMethod: pd.chequeNo ? "cheque" : "transfer",
+                          currency: pd.currency || "SGD",
+                          rate: Number(pd.rate) || 1,
+                          voucherAmount: Number(pd.voucherAmount) || 0,
+                          paidFromLabel: pd.paidFromLabel || pd.creditAccountCode || "",
+                          allocations: Array.isArray(pd.allocations) ? pd.allocations : [],
+                        };
+                      })()
+                    : {}),
                   ...(isOfficialReceipt
                     ? (() => {
                         const od: any = (formData as any).orData || {};
@@ -7776,6 +7877,10 @@ export default function TabbedDocumentCreator({
         documentLabel={getDocumentTitle()}
         onSelectDocument={(doc) => {
           // Receipts live on their own route (saves go to PUT /receipts).
+          if (isPaymentVoucher) {
+            router.push(`/portal/accounting/payment-vouchers/${doc.id}${typeof window !== "undefined" ? window.location.search : ""}`);
+            return;
+          }
           if (isOfficialReceipt) {
             router.push(`/portal/accounting/receipts/${doc.id}${typeof window !== "undefined" ? window.location.search : ""}`);
             return;
@@ -7787,13 +7892,13 @@ export default function TabbedDocumentCreator({
       />
 
       {/* Official Receipt delete confirmation (⋮ menu → Delete) */}
-      {isOfficialReceipt && (
+      {isSettlementDoc && (
         <Dialog open={orDeleteConfirmOpen} onClose={() => setOrDeleteConfirmOpen(false)} maxWidth="xs" fullWidth>
-          <DialogTitle>Delete receipt</DialogTitle>
+          <DialogTitle>{isPaymentVoucher ? "Delete payment voucher" : "Delete receipt"}</DialogTitle>
           <DialogContent>
             <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              Delete {formData.documentInfo?.documentNumber || formData.name || "this receipt"}? Its journal will be
-              voided and the allocated invoices restored to outstanding.
+              Delete {formData.documentInfo?.documentNumber || formData.name || (isPaymentVoucher ? "this voucher" : "this receipt")}? Its journal will be
+              voided and the allocated {isPaymentVoucher ? "supplier invoices" : "invoices"} restored to outstanding.
             </Typography>
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -8440,6 +8545,12 @@ export default function TabbedDocumentCreator({
         onClose={() => setCustomerDialogOpen(false)}
         customers={isSupplierDialog ? suppliers : customers}
         onSelectCustomer={(customer) => {
+          // Payment Voucher: the Locate dialog (supplier mode) picks the payee —
+          // store the supplier object and reset the allocations/currency.
+          if (isPaymentVoucher && isSupplierDialog) {
+            setFormData({ ...formData, ...voucherSupplierPatch(formData, customer) });
+            return;
+          }
           if (customerStoreMode === "code") {
             const setNestedValue = (obj: any, path: string, value: any) => {
               const newObj = JSON.parse(JSON.stringify(obj));

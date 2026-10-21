@@ -731,6 +731,117 @@ export class JournalAutoPostService {
   }
 
   /**
+   * Payment Voucher (legacy AP, 2026-10-21) — the Official Receipt's twin.
+   * ONE journal per voucher:
+   *   Dr Trade Creditors  (per allocated bill, at the bill's historical rate)
+   *     Cr Bank / Cash    (voucher total, at the voucher rate)
+   *   ± Realised FX on the difference.
+   * Re-save = void the previous voucher journal and repost.
+   */
+  async postFromPaymentVoucher(args: {
+    organizationId: string;
+    voucherDocumentId: string;
+    voucherNumber?: string | null;
+    entryDate: Date;
+    supplierName?: string | null;
+    bankAccountCode: string; // paid-from (credit side)
+    debitAccountCode?: string | null; // creditor control override (default controls.creditorControl)
+    currency?: string | null;
+    rate?: number | null;
+    amount: number; // voucher total, in voucher currency
+    allocations: Array<{ documentId: string; amount: number }>; // voucher currency
+    userId?: string;
+  }) {
+    const { organizationId, voucherDocumentId, voucherNumber, entryDate, supplierName } = args;
+    const controls = await this.getControlAccounts(organizationId);
+    if (!controls) {
+      this.logger.warn(`[postFromPaymentVoucher] org=${organizationId} has no controlAccounts; skipping`);
+      return null;
+    }
+    const debitCode = args.debitAccountCode || controls.creditorControl || 'CL001';
+    const creditor = await this.resolveAccountByCode(organizationId, debitCode);
+    const bank = await this.resolveAccountByCode(organizationId, args.bankAccountCode);
+    if (!creditor || !bank) {
+      this.logger.warn(
+        `[postFromPaymentVoucher] missing accounts (debit=${debitCode}, bank=${args.bankAccountCode}); skipping`,
+      );
+      return null;
+    }
+
+    const existing = await this.prisma.journalEntry.findFirst({
+      where: { organizationId, sourceDocumentId: voucherDocumentId, type: 'PAYMENT', status: { not: 'VOID' } },
+      select: { id: true, journalNumber: true },
+    });
+    if (existing) await this.journal.void(organizationId, existing.id, args.userId);
+
+    const setting = await this.prisma.accountingSetting.findUnique({
+      where: { organizationId },
+      select: { baseCurrency: true },
+    });
+    const base = (setting?.baseCurrency || 'SGD').toUpperCase();
+    const currency = (args.currency || base).toUpperCase();
+    const isForeign = currency !== base;
+    const rate = isForeign ? Number(args.rate) || 1 : 1;
+
+    type Line = { accountId: string; debit: number; credit: number; description: string; foreignAmount?: number; exchangeRate?: number };
+    const lines: Line[] = [];
+    let apBaseTotal = 0;
+    for (const a of args.allocations) {
+      const hist = isForeign ? (await this.historicalRateForDocument(organizationId, a.documentId)) ?? rate : 1;
+      const apBase = ROUND(a.amount * hist);
+      apBaseTotal = ROUND(apBaseTotal + apBase);
+      lines.push({
+        accountId: creditor.id,
+        debit: apBase,
+        credit: 0,
+        description: `Settle supplier invoice — ${supplierName ?? ''}`.trim(),
+        ...(isForeign ? { foreignAmount: ROUND(a.amount), exchangeRate: hist } : {}),
+      });
+    }
+    const bankBase = ROUND(args.amount * rate);
+    lines.push({
+      accountId: bank.id,
+      debit: 0,
+      credit: bankBase,
+      description: `Payment Voucher ${voucherNumber ?? ''}`.trim(),
+      ...(isForeign ? { foreignAmount: ROUND(args.amount), exchangeRate: rate } : {}),
+    });
+    // Paid more base than the liability relieved → realised LOSS (debit FX).
+    const diff = ROUND(bankBase - apBaseTotal);
+    if (Math.abs(diff) > 0.005) {
+      const fxAccount = await this.resolveFxGainLossAccount(organizationId, controls);
+      if (!fxAccount) {
+        this.logger.warn(`[postFromPaymentVoucher] realised FX of ${diff} but no FX gain/loss account; skipping post`);
+        return null;
+      }
+      lines.push({
+        accountId: fxAccount.id,
+        debit: diff > 0 ? diff : 0,
+        credit: diff < 0 ? -diff : 0,
+        description: `Realised FX ${diff > 0 ? 'loss' : 'gain'} — ${voucherNumber ?? ''} (${currency} @ voucher ${rate})`.trim(),
+      });
+    }
+
+    const created = await this.journal.create(
+      organizationId,
+      {
+        entryDate: entryDate.toISOString(),
+        type: 'PAYMENT',
+        // Supplier payment = P/V (doc-type prefix plan).
+        reference: voucherNumber ? refWith('P/V', voucherNumber) : undefined,
+        description: `Payment Voucher ${voucherNumber ?? ''} — ${supplierName ?? ''}`.trim(),
+        sourceDocumentId: voucherDocumentId,
+        currency,
+        lines,
+      },
+      args.userId,
+      { autoPost: true },
+    );
+    this.logger.log(`[postFromPaymentVoucher] created journal=${created.journalNumber} (${lines.length} lines)`);
+    return created;
+  }
+
+  /**
    * Credit note (sales return): mirror of an invoice.
    *   Dr Sales (net)
    *   Dr GST Payable (tax, if any)

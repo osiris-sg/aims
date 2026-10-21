@@ -17,6 +17,15 @@ import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
 import { FilterSelect } from "./DateRangeSelect";
 import { useSideContacts, type ReportSide } from "./side";
 
+import { withActiveOrg } from "@/helpers/request";
+
+/** Document cell as a real link (⌘-click / "Open Link in New Tab"). */
+const docCell = (d: any, text: string) => {
+  if (!d.id || !d.docType || !d.templateId) return text;
+  return { text, href: withActiveOrg(`/portal/documents/${d.docType}/${d.templateId}/${d.id}`), newTab: true };
+};
+
+
 const R = (n: number) => Math.round(n * 100) / 100;
 const unwrap = (r: any) => {
   let out = r;
@@ -149,7 +158,7 @@ export default function SummaryAgeingReport({ side = "receivable" }: { side?: Re
           out.push({
             kind: "row",
             key: `d-${d.id}`,
-            cells: ["", `${d.number} · ${fmtDate(d.date)}`, ...docCells, Number(d.total) || 0],
+            cells: ["", docCell(d, `${d.number} · ${fmtDate(d.date)}`) as any, ...docCells, Number(d.total) || 0],
           });
         }
         out.push({

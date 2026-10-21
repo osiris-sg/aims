@@ -11,6 +11,7 @@ import ReportShell, { downloadCsv } from "./ReportShell";
 import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
 import { AsAtDateSelect, FilterSelect } from "./DateRangeSelect";
 import { GroupingSelect, GroupingValue, GroupField, FlatColumn, buildGroupedRows } from "./Grouping";
+import { withActiveOrg } from "@/helpers/request";
 
 const isoToday = () => {
   const d = new Date(); // default: end of this month, like Xero
@@ -86,6 +87,8 @@ export default function AgedReport({
         const row: any = {
           __key: d.id, contact: g.contactName, date: d.date, dueDate: d.dueDate,
           number: d.number, reference: d.reference, total: d.total,
+          // Route parts for the document link on the Number column.
+          __docId: d.id, __docType: d.docType, __templateId: d.templateId,
           currency: d.currency || "", foreignTotal: d.foreignTotal,
         };
         d.buckets.forEach((v: number, i: number) => (row[`b${i}`] = v));
@@ -103,7 +106,17 @@ export default function AgedReport({
       { key: "contact", label: contactLabel, align: "left" },
       { key: "date", label: `${docWord} Date`, align: "left", width: 110, kind: "date" },
       { key: "dueDate", label: "Due Date", align: "left", width: 110, kind: "date" },
-      { key: "number", label: `${docWord} Number`, align: "left", width: 140 },
+      {
+        key: "number",
+        label: `${docWord} Number`,
+        align: "left",
+        width: 140,
+        // The number opens its document in a new tab (guru 2026-10-21).
+        link: (r: any) =>
+          r.__docId && r.__docType && r.__templateId
+            ? withActiveOrg(`/portal/documents/${r.__docType}/${r.__templateId}/${r.__docId}`)
+            : null,
+      },
       { key: "reference", label: "Reference", align: "left" },
       ...buckets,
       { key: "total", label: "Total", align: "right", kind: "number", aggregate: true },

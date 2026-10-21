@@ -52,7 +52,7 @@ export class PostingQueueService {
       organizationId,
       // guru 2026-07-24: ONE screen for anything unconfirmed — sales docs,
       // supplier invoices and receipts all queue here (JVs appended below).
-      type: { in: ['INVOICE', 'CREDIT_NOTE', 'DEBIT_NOTE', 'BILL', 'OFFICIAL_RECEIPT'] },
+      type: { in: ['INVOICE', 'CREDIT_NOTE', 'DEBIT_NOTE', 'BILL', 'OFFICIAL_RECEIPT', 'PAYMENT_VOUCHER'] },
       // guru 2026-07-24: the queue shows EVERY unconfirmed document, not just
       // machine intake — editor-created unconfirmed invoices (already
       // save-posted) appear too; posting them takes the idempotent path
@@ -227,6 +227,9 @@ export class PostingQueueService {
       if (doc.type === 'OFFICIAL_RECEIPT') {
         return { documentId, invoiceNumber, ok: false, error: 'Receipt has no journal — open it and Save, then post from the queue' };
       }
+      if (doc.type === 'PAYMENT_VOUCHER') {
+        return { documentId, invoiceNumber, ok: false, error: 'Payment voucher has no journal — open it and Save, then post from the queue' };
+      }
 
       const entryDate = c.date ? new Date(c.date) : new Date();
 
@@ -359,7 +362,7 @@ export class PostingQueueService {
   // ---- helpers ------------------------------------------------------------
   private async loadInvoice(organizationId: string, documentId: string) {
     const doc = await this.prisma.document.findFirst({
-      where: { id: documentId, organizationId, type: { in: ['INVOICE', 'CREDIT_NOTE', 'DEBIT_NOTE', 'BILL', 'OFFICIAL_RECEIPT'] } },
+      where: { id: documentId, organizationId, type: { in: ['INVOICE', 'CREDIT_NOTE', 'DEBIT_NOTE', 'BILL', 'OFFICIAL_RECEIPT', 'PAYMENT_VOUCHER'] } },
       select: { id: true, name: true, type: true, config: true, status: true },
     });
     if (!doc) throw new NotFoundException('Invoice not found in this organization');

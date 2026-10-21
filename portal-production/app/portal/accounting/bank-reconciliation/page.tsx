@@ -1329,7 +1329,12 @@ export default function BankReconciliationPage() {
                     Open receipt
                   </Button>
                 )}
-                {detail.document && detail.document.type !== "OFFICIAL_RECEIPT" && detail.document.type !== "BILL" && detail.document.templateId && (
+                {detail.document?.type === "PAYMENT_VOUCHER" && (
+                  <Button variant="outlined" onClick={() => window.open(`/portal/accounting/payment-vouchers/${detail.document.id}`, "_blank")}>
+                    Open voucher
+                  </Button>
+                )}
+                {detail.document && detail.document.type !== "OFFICIAL_RECEIPT" && detail.document.type !== "PAYMENT_VOUCHER" && detail.document.type !== "BILL" && detail.document.templateId && (
                   <Button variant="outlined" onClick={() => window.open(`/portal/documents/${detail.document.type}/${detail.document.templateId}/${detail.document.id}`, "_blank")}>
                     Open document
                   </Button>

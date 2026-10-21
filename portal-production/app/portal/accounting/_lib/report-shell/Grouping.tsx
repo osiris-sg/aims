@@ -92,10 +92,20 @@ export interface FlatColumn {
   aggregate?: boolean;
   /** counts (e.g. quantity) rendered without 2dp */
   isCount?: boolean;
+  /** Turns this column into a real link (document numbers → the document).
+   *  Return null for a row that addresses nothing (guru 2026-10-21). */
+  link?: (row: any) => string | null;
+  /** Open that link in a new tab — the report keeps its filters and scroll. */
+  linkNewTab?: boolean;
 }
 
-const cellValue = (row: any, col: FlatColumn) => {
+const cellValue = (row: any, col: FlatColumn): any => {
   const v = row[col.key];
+  if (col.link) {
+    const href = col.link(row);
+    const text = col.kind === "date" ? fmtDate(v) : String(v ?? "");
+    return href ? { text, href, newTab: col.linkNewTab !== false } : text;
+  }
   if (col.kind === "date") return fmtDate(v);
   if (col.kind === "number") return v ?? 0;
   if (col.isCount) return String(v ?? 0);

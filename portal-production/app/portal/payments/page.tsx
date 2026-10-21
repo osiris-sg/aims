@@ -32,6 +32,7 @@ import { Add as AddIcon } from '@mui/icons-material';
 import { RowKebab } from '@/components/RowKebab';
 import { useGetPayments, useCreatePayment, useDeletePayment, PAYMENT_METHODS } from '@/app/portal/hooks/api';
 import { useGetCustomers } from '@/app/portal/hooks/api';
+import DocumentRefLink from "@/components/DocumentRefLink";
 
 interface Document {
   id: string;
@@ -226,7 +227,10 @@ export default function PaymentsPage() {
                     </TableCell>
                     <TableCell>{payment.customer?.name || '-'}</TableCell>
                     <TableCell>
-                      {payment.document?.name || '-'}
+                      <DocumentRefLink
+                        doc={{ id: payment.document?.id, type: payment.document?.type, templateId: payment.document?.documentTemplateId }}
+                        label={payment.document?.name || '-'}
+                      />
                       {payment.document?.type && (
                         <Chip
                           label={payment.document.type}

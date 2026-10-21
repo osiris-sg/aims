@@ -615,6 +615,10 @@ const HEADER_INPUT_MAX_WIDTH: Record<string, number> = {
   'orData.date': 180,
   'orData.chequeNo': 300,
   'orData.remarks': 620,
+  // Payment Voucher rows (AP twin of the receipt)
+  'pvData.date': 180,
+  'pvData.chequeNo': 300,
+  'pvData.remarks': 620,
 };
 
 // Exported so sibling components (e.g. the quotation Project picker row in

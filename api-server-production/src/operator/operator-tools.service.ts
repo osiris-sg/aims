@@ -88,7 +88,14 @@ const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 const READ_ONLY_POST_RE =
   /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview)$/;
 
-const BLOCKED_WRITE_PATHS: RegExp[] = [
+/**
+ * guru 2026-10-21: "anything can do, just need user to confirm on certain
+ * tasks". Nothing is blocked. A write on one of these paths, or any DELETE,
+ * is held behind the Confirm card; every other write runs at once and
+ * reports what the API answered, the way a colleague with the same role
+ * would just do it.
+ */
+const CONFIRM_REQUIRED_RE: RegExp[] = [
   /\/payments(\/|$)/i,
   /\/receipts(\/|$)/i,
   /\/journal(\/|$)/i,
@@ -98,13 +105,16 @@ const BLOCKED_WRITE_PATHS: RegExp[] = [
   /\/confirm(\/|$)/i,
   /\/post(\/|$)/i,
   /\/void(\/|$)/i,
-  /\/organizations(\/|$)/i, // org + feature-flag changes stay an admin action
-  /\/users(\/|$)/i,
-  /\/roles(\/|$)/i,
-  /\/permissions(\/|$)/i,
-  /\/api-keys(\/|$)/i,
-  /\/operator\/(link|identities)(\/|$)/i, // no self-granting a new identity
+  /\/approve(\/|$)/i,
+  /\/reject(\/|$)/i,
+  /\/cancel(\/|$)/i,
+  /\/sign(\/|$)/i,
+  /\/(send|email|whatsapp|notify)(\/|$)/i,
+  /\/(pay|refund|write-?off|reverse)(\/|$)/i,
+  /\/(users|roles|api-keys|organizations)(\/|$)/i,
+  /\/xero(\/|$)/i,
 ];
+const needsConfirm = (method: string, path: string) => method === 'DELETE' || CONFIRM_REQUIRED_RE.some((re) => re.test(path.split('?')[0]));
 
 @Injectable()
 export class OperatorToolsService {
@@ -1572,7 +1582,7 @@ export class OperatorToolsService {
       {
         name: 'api_write',
         description:
-          "Call any POST/PATCH/PUT/DELETE endpoint of the AIMS API as this user, for anything no dedicated tool covers. Find the path AND its body fields with api_docs first. LOOKUPS ARE FREE: AIMS lists some collections over POST rather than GET (/documents, /documents/paginated, /customers, /assets, /projects, /suppliers, /inventories...), and those run IMMEDIATELY and return their rows with no confirmation — use them to find things, e.g. POST /documents with a filter body to locate a past invoice by customer or description, then act on what comes back. Anything that CHANGES data never fires immediately: it returns a summary the user must confirm, so tell them what you are about to do. Their permissions are enforced. Money actions (confirming invoices, posting bills, recording payments, journals, bank rec, closing) are BLOCKED here on purpose — use the dedicated tools for those. Deleting goes through here: find the DELETE endpoint with api_docs (e.g. DELETE /documents/delete/{id}) and the user confirms it.",
+          "Call any POST/PATCH/PUT/DELETE endpoint of the AIMS API as this user, for anything no dedicated tool covers. Find the path AND its body fields with api_docs first. LOOKUPS ARE FREE: AIMS lists some collections over POST rather than GET (/documents, /documents/paginated, /customers, /assets, /projects, /suppliers, /inventories...), and those run IMMEDIATELY and return their rows with no confirmation — use them to find things, e.g. POST /documents with a filter body to locate a past invoice by customer or description, then act on what comes back. Ordinary changes (a customer's phone, a schedule, a draft's lines, a note) run IMMEDIATELY and you report the result. Money, finality and irreversible actions (confirm, post, void, approve, pay, delete, send, user and role changes) are HELD: the user sees your summary and taps Confirm. Nothing is off limits as long as the user's role allows it; voiding a posted invoice is POST /journal/entries/{id}/void on its journal entry.",
         permissions: [],
         input_schema: {
           type: 'object',
@@ -1596,18 +1606,9 @@ export class OperatorToolsService {
           if (/\{[^}]+\}/.test(path)) {
             return { result: { error: 'Replace the {param} placeholders with real ids first.' } };
           }
-          if (BLOCKED_WRITE_PATHS.some((re) => re.test(path))) {
-            return {
-              result: {
-                error:
-                  'That endpoint moves money or is irreversible, so it is not reachable this way. Use the dedicated tool (confirm_invoice, post_bill, record_payment) instead.',
-              },
-            };
-          }
-          // A POST that is really a list changes nothing: run it now and return
-          // the rows, rather than asking the user to approve a search and then
-          // discarding the answer.
-          if (method === 'POST' && READ_ONLY_POST_RE.test(path.split('?')[0])) {
+          // A POST that is really a list changes nothing, and an ordinary
+          // change needs no ceremony: both run now and return what came back.
+          if ((method === 'POST' && READ_ONLY_POST_RE.test(path.split('?')[0])) || !needsConfirm(method, path)) {
             const r = await this.selfCall(ctx, method, path, args.body || {});
             if (!r.ok) {
               const b: any = r.body || {};
@@ -1615,7 +1616,10 @@ export class OperatorToolsService {
               return { result: { error: `${method} ${path} failed (${r.status}): ${d}` } };
             }
             const out = JSON.stringify(r.body ?? {});
-            return { result: { path, data: out.length > 14000 ? out.slice(0, 14000) + '…[truncated]' : r.body } };
+            if (!(method === 'POST' && READ_ONLY_POST_RE.test(path.split('?')[0]))) {
+              this.log(ctx, method === 'POST' ? 'CREATED' : 'UPDATED', 'api', undefined, String(path), `${method} ${path} via Operator (${ctx.channel})`);
+            }
+            return { result: { path, done: true, data: out.length > 14000 ? out.slice(0, 14000) + '…[truncated]' : r.body } };
           }
 
           // Held, never executed here. The user taps Confirm and runPending()
@@ -2859,12 +2863,6 @@ export class OperatorToolsService {
 
     if (pending.kind === 'api_write') {
       const { method, path, body } = pending.args || {};
-      // Re-check the denylist here too: the pending action is held in session
-      // state between the tool call and the tap, so the gate must sit on the
-      // side that actually performs the call, not only where it was drafted.
-      if (BLOCKED_WRITE_PATHS.some((re) => re.test(String(path)))) {
-        return { ok: false, message: 'That endpoint is not reachable this way. Use the dedicated tool for it.' };
-      }
       const res = await this.selfCall(ctx, method, path, method === 'DELETE' && !body ? undefined : body);
       if (!res.ok) {
         // class-validator returns field-level messages, which is the agent's
