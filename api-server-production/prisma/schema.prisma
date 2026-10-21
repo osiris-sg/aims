@@ -1006,6 +1006,9 @@ model OrganizationMemberProfile {
   organizationId    String
   userId            String // Clerk user id
   whatsappNumber    String? // digits only, e.g. 6591234567
+  // WhatsApp agent (ADH, round S 2026-10-21): per-user notification settings —
+  // { digest, needsMe, filed, events, quietFrom: "21:00", quietTo: "08:00" } (JST). null = defaults.
+  whatsappPrefs     Json?
   commissionPct     Float? // default share of project profit for this designer
   yearlySalesTarget Float? // manager-set sales target (contract value signed per year)
   signatureImage    String? // saved signature (PNG data URL) for one-tap counter-signing
@@ -2768,28 +2771,28 @@ model DeliveryLocationPing {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model EmailIngestConfig {
-  id             String  @id @default(uuid())
-  organizationId String  @unique
-  enabled        Boolean @default(false)
+  id             String   @id @default(uuid())
+  organizationId String   @unique
+  enabled        Boolean  @default(false)
   // Sender allow-list: full addresses or @domain suffixes, e.g.
   // ["ap@daikin.com.sg", "@sembcorp.com"]. Empty array = accept all senders.
-  watchedSenders Json    @default("[]")
+  watchedSenders Json     @default("[]")
   // AI    → classify each attachment by issuer (INVOICE = AR / BILL = AP).
   // FIXED → skip classification, always create defaultDocType.
-  routingMode    String  @default("AI")
+  routingMode    String   @default("AI")
   defaultDocType String? // used when routingMode=FIXED: INVOICE | BILL
   // Hard rules, evaluated deterministically top-down BEFORE any AI call;
   // first match wins. Shape:
   //   { conditions: [{ field: "SUBJECT"|"SENDER"|"BODY",
   //       operator: "CONTAINS"|"EQUALS"|"STARTS_WITH"|"DOMAIN", value }...],
   //     action: "IGNORE"|"FORCE_BILL"|"FORCE_INVOICE"|"AI_GUIDANCE", guidance? }[]
-  rules          Json    @default("[]")
+  rules          Json     @default("[]")
   // Free-text per-org instructions appended to the AI classifier prompt as
   // trusted admin guidance (unlike the untrusted email envelope).
   aiGuidance     String?
   // Reserved for a future auto-confirm mode; both create paths only make
   // DRAFTs today.
-  createMode     String  @default("DRAFT")
+  createMode     String   @default("DRAFT")
   // Shipments intake sender filter (2026-10): keep an email when any of from / to / cc is an allowed domain /
   // address (the org's own addresses alone don't count), or the subject / attachment names carry a shipment
   // key, or it is on a thread already matched to an order. OFF | SHADOW (decide + log, keep everything) | ENFORCE.
@@ -3272,6 +3275,29 @@ model DeliveryItem {
   @@unique([deliveryId, inventoryId]) // a unit can't be scanned twice into one run
   @@index([inventoryId])
   @@index([documentId])
+}
+
+// WhatsApp staff notifications (ADH, round S 2026-10-21): one row per user per
+// event, batched into one message (10 min) outside the user's quiet hours.
+// The morning digest is a row of kind DIGEST (sent as the aims_notify template).
+model WhatsAppOutbox {
+  id             String    @id @default(uuid())
+  organizationId String
+  userId         String // Clerk user id
+  to             String // WhatsApp digits
+  kind           String // DIGEST | NEEDS_ME | FILED | EVENT
+  text           String
+  linkUrl        String?
+  dedupeKey      String? // one row per (org, dedupeKey) — a digest per day, an event once
+  dueAt          DateTime
+  status         String    @default("QUEUED") // QUEUED | SENT | FAILED | SKIPPED
+  sentAt         DateTime?
+  error          String?
+  createdAt      DateTime  @default(now())
+
+  @@unique([organizationId, dedupeKey])
+  @@index([status, dueAt])
+  @@index([organizationId, userId, status])
 }
 
 model WhatsAppScheduledMessage {

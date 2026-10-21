@@ -133,6 +133,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
               payload?.text?.body ||
               payload?.interactive?.body?.text ||
               payload?.document?.caption ||
+              payload?.template?.components?.[0]?.parameters?.[0]?.text ||
               null,
             status: ok ? 'sent' : 'failed',
             error: ok ? null : json?.error?.message || null,
@@ -158,6 +159,14 @@ export class WhatsAppAdapter implements ChannelAdapter {
       message_id: wamid,
       typing_indicator: { type: 'text' },
     }).catch(() => null);
+  }
+
+  /** Round S: a utility template with one body parameter (lands outside the 24h window). Returns true on success. */
+  async sendTemplate(chatId: string, templateName: string, text: string, language = 'en'): Promise<boolean> {
+    return this.sendMessage(chatId, {
+      type: 'template',
+      template: { name: templateName, language: { code: language }, components: [{ type: 'body', parameters: [{ type: 'text', text: cleanText(text).replace(/\s+/g, ' ').trim().slice(0, 1000) }] }] },
+    });
   }
 
   async sendText(chatId: string, text: string): Promise<void> {

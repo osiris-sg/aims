@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { createHash } from 'crypto';
 import { ActionLogService } from '../action-log/action-log.service';
@@ -11,6 +11,7 @@ import { sheetText } from '../shipments/trade-extract.service';
 import { TradeConfigService } from '../shipments/trade-config.service';
 import { sha256Of, TradeFilesService } from '../shipments/trade-files.service';
 import { TradeStepsService } from '../shipments/trade-steps.service';
+import { ShipmentsNotifyService } from '../shipments/shipments-notify.service';
 import { StoredEmailMeta } from './email-store';
 import { attachmentHits, attachmentTarget, DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, recordRef, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
 import { splitQuoted } from './email-quote';
@@ -90,6 +91,8 @@ export interface IntakeTarget {
 }
 /** How a person handled the suggestion (accept-rate tracking). */
 export type ReviewOutcome = 'AUTO' | 'ACCEPTED' | 'CHANGED' | 'REJECTED' | 'IGNORED';
+/** Who reviewed; `via` marks a decision made outside the portal (round S: 'whatsapp'). */
+export type EmailActor = { id: string | null; name: string | null; via?: 'whatsapp' | null };
 
 const MODEL = 'claude-sonnet-4-6';
 /** Round R: the thread reasoner (reads the whole thread + attachment text against the open records). */
@@ -127,6 +130,7 @@ export class EmailTriageService {
     private readonly config: TradeConfigService,
     private readonly steps: TradeStepsService,
     private readonly actionLog: ActionLogService,
+    @Optional() private readonly whatsapp?: ShipmentsNotifyService,
   ) {}
 
   /** After the webhook stored an email: triage it in the background (the provider isn't kept waiting). */
@@ -263,7 +267,43 @@ export class EmailTriageService {
       resourceId: logId,
       details: { verdict, direction, counterparty, inboxState: state },
     });
+    await this.notifyNeedsMe(organizationId, logId, state);
     return { verdict, inboxState: state };
+  }
+
+  /** Round S: an email that now waits for a person → WhatsApp "needs you" (batched; once per email). */
+  private async notifyNeedsMe(organizationId: string, logId: string, state: InboxState) {
+    if (!this.whatsapp || (state !== 'SUGGESTED' && state !== 'UNMATCHED')) return;
+    try {
+      const row: any = await this.row(organizationId, logId);
+      const reason = (row?.backlog?.kind as string | undefined) ?? null;
+      if (reason === 'NO_ORDER') return; // the digest counts these; creating an order is a portal job
+      const subj = (row?.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
+      const cands: string[] = (row?.candidates ?? []).slice(0, 3).map((c: any) => c.ref);
+      const text = row?.matched ? `📧 Confirm: "${subj}" → ${row.matched}?` : cands.length ? `📧 Pick the record for "${subj}": ${cands.join(' / ')}` : `📧 "${subj}" needs a record`;
+      await this.whatsapp.queue(organizationId, 'NEEDS_ME', text, { linkUrl: '/portal/shipments/inbox', dedupeKey: `needs:${logId}` });
+    } catch {
+      /* best effort */
+    }
+  }
+
+  /** Round S: what an email filed → WhatsApp (AN arrived / import permit as events; any auto-filed file as the quiet "filed" kind). */
+  private async notifyFiled(organizationId: string, log: any, done: IntakeAction[], review: ReviewOutcome | undefined) {
+    if (!this.whatsapp) return;
+    try {
+      const files = done.filter((a) => a.kind === 'file' && a.status === 'done');
+      if (!files.length) return;
+      const refs = await this.refs(organizationId, files.filter((a) => a.ownerKind === 'order').map((a) => a.ownerId!), files.filter((a) => a.ownerKind !== 'order' && a.ownerKind !== 'supplierOrder').map((a) => a.ownerId!));
+      const refOf = (a: IntakeAction) => (a.ownerKind === 'order' ? refs.order.get(a.ownerId!) : refs.ship.get(a.ownerId!)) ?? 'record';
+      const subj = (log?.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 50);
+      for (const a of files) {
+        if (a.docType === 'ARRIVAL_NOTICE') await this.whatsapp.queue(organizationId, 'EVENT', `⚓ Arrival notice filed → ${refOf(a)} ("${subj}")`, { linkUrl: '/portal/shipments/inbox', dedupeKey: `an:${log.id}:${a.ownerId}` });
+        else if (a.docType === 'IMPORT_PERMIT') await this.whatsapp.queue(organizationId, 'EVENT', `🛃 Import permit filed → ${refOf(a)} ("${subj}")`, { linkUrl: '/portal/shipments/inbox', dedupeKey: `permit:${log.id}:${a.ownerId}` });
+      }
+      if (review === 'AUTO') await this.whatsapp.queue(organizationId, 'FILED', `📎 Filed ${files.length} file${files.length > 1 ? 's' : ''} → ${[...new Set(files.map(refOf))].join(', ')} ("${subj}")`, { linkUrl: '/portal/shipments/inbox', dedupeKey: `filed:${log.id}` });
+    } catch {
+      /* best effort */
+    }
   }
 
   /** "thread: …" when an earlier email of this thread is with a counterparty (an internal reply on a Vedanta thread). */
@@ -981,7 +1021,7 @@ export class EmailTriageService {
 
   // ── execute / undo ──────────────────────────────────────────────────────
   /** Do the planned actions (AUTO, or "Accept" in the inbox). */
-  async execute(organizationId: string, logId: string, actor: { id: string | null; name: string | null }, opts: { review?: ReviewOutcome; autoLabel?: string | null } = {}) {
+  async execute(organizationId: string, logId: string, actor: EmailActor, opts: { review?: ReviewOutcome; autoLabel?: string | null } = {}) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) throw new NotFoundException('Email not found');
     const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta>;
@@ -1050,18 +1090,19 @@ export class EmailTriageService {
           planned: acts,
           done,
           // Accept-rate tracking; an auto-apply is labelled "Auto · B/L 198GX…" in Processed.
-          ...(opts.review ? { review: { outcome: opts.review, at: new Date().toISOString(), by: actor.name ?? actor.id } } : {}),
+          ...(opts.review ? { review: { outcome: opts.review, at: new Date().toISOString(), by: actor.name ?? actor.id, ...(actor.via ? { via: actor.via } : {}) } } : {}),
           ...(opts.review === 'AUTO' ? { autoLabel: opts.autoLabel ?? null } : {}),
         } as any,
         inboxState: 'PROCESSED',
         status: 'PROCESSED',
       },
     });
+    await this.notifyFiled(organizationId, log, done, opts.review);
     return this.row(organizationId, logId);
   }
 
   /** Undo everything the email did: remove its files (reopening steps they completed), clear the fields it filled, untick its sub-tasks. */
-  async undo(organizationId: string, logId: string, actor: { id: string | null; name: string | null }) {
+  async undo(organizationId: string, logId: string, actor: EmailActor) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) throw new NotFoundException('Email not found');
     const acts = (((log.actions ?? {}) as any).done ?? []) as IntakeAction[];
@@ -1119,7 +1160,7 @@ export class EmailTriageService {
   }
 
   /** NOT_SHIPMENT: the stored mail and attachments are deleted; the row keeps a hashed Message-ID, date, verdict, counterparty (and how a person handled it). */
-  async purge(organizationId: string, logId: string, keep: { verdict: string; counterparty?: string | null; review?: { outcome: ReviewOutcome; at: string; by: string | null } }) {
+  async purge(organizationId: string, logId: string, keep: { verdict: string; counterparty?: string | null; review?: { outcome: ReviewOutcome; at: string; by: string | null; via?: string | null } }) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) return;
     const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta>;
@@ -1316,7 +1357,7 @@ export class EmailTriageService {
       threadSize,
       linked: link ? { ...link, files, fields, linkOnly: !files.length && !fields.length } : null,
       /** "Confirmed by Sayaka · 21 Oct 10:12" / "Auto · B/L 198GX…" (Processed). */
-      by: base.review ? { outcome: (base.review as any).outcome, name: (base.review as any).by ?? null, at: (base.review as any).at ?? null, autoLabel: base.autoLabel ?? null } : null,
+      by: base.review ? { outcome: (base.review as any).outcome, name: (base.review as any).by ?? null, at: (base.review as any).at ?? null, autoLabel: base.autoLabel ?? null, via: (base.review as any).via ?? null } : null,
     };
   }
 
@@ -1382,7 +1423,7 @@ export class EmailTriageService {
   }
 
   /** Inbox "Accept": do the email's plan as it stands (as suggested, or as re-planned by "Change order…"). */
-  async accept(organizationId: string, logId: string, actor: { id: string | null; name: string | null }) {
+  async accept(organizationId: string, logId: string, actor: EmailActor) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId }, select: { actions: true } });
     const pending = ((log?.actions ?? {}) as { reviewPending?: ReviewOutcome }).reviewPending;
     return this.execute(organizationId, logId, actor, { review: pending ?? 'ACCEPTED' });
@@ -1397,7 +1438,7 @@ export class EmailTriageService {
     organizationId: string,
     logId: string,
     body: { orderId?: string | null; shipmentId?: string | null; targets?: IntakeTarget[]; accept?: boolean },
-    actor: { id: string | null; name: string | null } = SYSTEM_ACTOR,
+    actor: EmailActor = SYSTEM_ACTOR,
   ) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) throw new NotFoundException('Email not found');
@@ -1418,7 +1459,7 @@ export class EmailTriageService {
   }
 
   /** Inbox "Ignore": a shipment email with nothing to file — kept, marked handled (Processed), nothing done. */
-  async ignore(organizationId: string, logId: string, actor: { id: string | null; name: string | null }) {
+  async ignore(organizationId: string, logId: string, actor: EmailActor) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) throw new NotFoundException('Email not found');
     if (((log.actions as any)?.done ?? []).some((a: IntakeAction) => a.status === 'done')) throw new BadRequestException('Undo what this email did first');
@@ -1427,7 +1468,7 @@ export class EmailTriageService {
       data: {
         inboxState: 'PROCESSED',
         purgeAfter: null,
-        actions: { ...((log.actions as object) ?? {}), done: [], review: { outcome: 'IGNORED', at: new Date().toISOString(), by: actor.name ?? actor.id } } as any,
+        actions: { ...((log.actions as object) ?? {}), done: [], review: { outcome: 'IGNORED', at: new Date().toISOString(), by: actor.name ?? actor.id, ...(actor.via ? { via: actor.via } : {}) } } as any,
       },
     });
     return this.row(organizationId, logId);
@@ -1515,7 +1556,7 @@ export class EmailTriageService {
   }
 
   /** Apply the PI table: fill the blank PI fields on the matched orders; a PI PDF named with its PI no. goes onto step 1. */
-  async applyPiTable(organizationId: string, logId: string, actor: { id: string | null; name: string | null }) {
+  async applyPiTable(organizationId: string, logId: string, actor: EmailActor) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) throw new NotFoundException('Email not found');
     const plan = await this.piTablePlan(organizationId, logId);
@@ -1555,11 +1596,11 @@ export class EmailTriageService {
     return { results, row: await this.row(organizationId, logId) };
   }
 
-  async dismiss(organizationId: string, logId: string, actor?: { id: string | null; name: string | null }) {
+  async dismiss(organizationId: string, logId: string, actor?: EmailActor) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) throw new NotFoundException('Email not found');
     if (((log.actions as any)?.done ?? []).some((a: IntakeAction) => a.status === 'done')) throw new BadRequestException('Undo what this email did first');
-    await this.purge(organizationId, logId, { verdict: 'NOT_SHIPMENT', counterparty: log.counterparty, review: { outcome: 'REJECTED', at: new Date().toISOString(), by: actor?.name ?? actor?.id ?? null } });
+    await this.purge(organizationId, logId, { verdict: 'NOT_SHIPMENT', counterparty: log.counterparty, review: { outcome: 'REJECTED', at: new Date().toISOString(), by: actor?.name ?? actor?.id ?? null, ...(actor?.via ? { via: actor.via } : {}) } });
     return { id: logId, purged: true };
   }
 

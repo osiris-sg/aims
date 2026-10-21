@@ -19,7 +19,7 @@ import AttachFileIcon from "@mui/icons-material/AttachFile";
 import CallMadeIcon from "@mui/icons-material/CallMade";
 import CallReceivedIcon from "@mui/icons-material/CallReceived";
 import type { InboxMessage, InboxReason, InboxThread } from "../../_lib/api";
-import { byLine, fromParts, linkedChip, linkedFileLine, orderHref, threadCounts, whatHappens, whenShort } from "../../_lib/inbox-threads";
+import { byLine, fromParts, isWhatsAppSource, linkedChip, linkedFileLine, orderHref, threadCounts, whatHappens, whenShort } from "../../_lib/inbox-threads";
 
 export interface InboxActions {
   /** Round Q: "Create order from this thread" (No order yet). */
@@ -80,6 +80,7 @@ export function MessageRow({ m, actions, showSubject = true, dense }: { m: Inbox
               {from.name}
             </Typography>
             {m.counterparty && <Chip size="small" variant="outlined" label={m.counterparty} sx={{ height: 20 }} />}
+            {isWhatsAppSource(m.from) && <Chip size="small" color="success" variant="outlined" label="WhatsApp" sx={{ height: 20 }} title="Sent to the AIMS assistant on WhatsApp" data-tour="inbox-source-whatsapp" />}
             <Typography variant="caption" color="text.secondary">
               {whenShort(m.date)}
             </Typography>

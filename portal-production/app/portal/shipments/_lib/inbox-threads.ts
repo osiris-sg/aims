@@ -10,6 +10,9 @@ export function toDoLine(c: { emails: number; overdue: number; arriving: number 
 }
 
 /** "Name <a@b.c>" → { name: "Name", email: "a@b.c" }; a bare address → its local part as the name. */
+/** Round S: a file sent to the assistant on WhatsApp is stored as an email from "<name> via WhatsApp <…@whatsapp>". */
+export const isWhatsAppSource = (from: string | null | undefined) => /@whatsapp>?$/i.test((from ?? "").trim());
+
 export function fromParts(from: string | null | undefined): { name: string; email: string } {
   const s = (from ?? "").trim();
   const m = /^"?([^"<]*?)"?\s*<([^<>]+)>$/.exec(s);
@@ -56,7 +59,7 @@ export function byLine(by: InboxBy | null | undefined): string | null {
   if (!by) return null;
   if (by.outcome === "AUTO") return `Auto · ${by.autoLabel ?? "applied by itself"}${by.at ? ` · ${whenShort(by.at)}` : ""}`;
   const verb = by.outcome === "ACCEPTED" ? "Confirmed" : by.outcome === "CHANGED" ? "Changed" : by.outcome === "IGNORED" ? "Ignored" : "Rejected";
-  return `${verb} by ${by.name ?? "—"}${by.at ? ` · ${whenShort(by.at)}` : ""}`;
+  return `${verb} by ${by.name ?? "—"}${by.via === "whatsapp" ? " via WhatsApp" : ""}${by.at ? ` · ${whenShort(by.at)}` : ""}`;
 }
 
 /** The order page, on that shipment, with the step expanded. */

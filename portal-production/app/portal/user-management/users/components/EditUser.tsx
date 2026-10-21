@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment, TextField } from "@mui/material";
+import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment, TextField, Switch, FormControlLabel, Divider } from "@mui/material";
+
+// WhatsApp shipments assistant (round S): per-user pushes. Mirrors the API defaults.
+type WaPrefs = { digest: boolean; needsMe: boolean; filed: boolean; events: boolean; quietFrom: string; quietTo: string; lang: "en" | "ja" };
+const WA_DEFAULTS: WaPrefs = { digest: true, needsMe: true, filed: false, events: true, quietFrom: "21:00", quietTo: "08:00", lang: "en" };
+const waPrefsOf = (v: any): WaPrefs => ({ ...WA_DEFAULTS, ...(v && typeof v === "object" ? v : {}) });
 import { useForm } from "react-hook-form";
 import FormInputBox from "@/form-components/FormInputBox";
 import { request } from "@/helpers/request";
@@ -31,6 +36,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
   // Org-scoped member profile (not Clerk): WhatsApp number for the agent's
   // sender matching + the designer's default commission share.
   const [whatsappNumber, setWhatsappNumber] = useState("");
+  const [waPrefs, setWaPrefs] = useState<WaPrefs>(WA_DEFAULTS);
   const [commissionPct, setCommissionPct] = useState("");
   const [yearlySalesTarget, setYearlySalesTarget] = useState("");
 
@@ -97,6 +103,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
       const roleIds = user.roles?.map((role: any) => role.id) || [];
       setSelectedRoles(roleIds);
       setWhatsappNumber(user.whatsappNumber || "");
+      setWaPrefs(waPrefsOf(user.whatsappPrefs));
       setCommissionPct(user.commissionPct != null ? String(user.commissionPct) : "");
       setYearlySalesTarget(user.yearlySalesTarget != null ? String(user.yearlySalesTarget) : "");
     }
@@ -171,7 +178,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
         const token = await getToken();
         await request(
           { method: "PATCH", path: `/users/${user.id}/profile` },
-          { whatsappNumber: whatsappNumber.trim() || null, commissionPct: commissionPct.trim() === "" ? null : Number(commissionPct), yearlySalesTarget: yearlySalesTarget.trim() === "" ? null : Number(yearlySalesTarget) },
+          { whatsappNumber: whatsappNumber.trim() || null, whatsappPrefs: waPrefs, commissionPct: commissionPct.trim() === "" ? null : Number(commissionPct), yearlySalesTarget: yearlySalesTarget.trim() === "" ? null : Number(yearlySalesTarget) },
           token ?? undefined
         );
       } catch (profileErr) {
@@ -327,10 +334,43 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                     size="small"
                     value={whatsappNumber}
                     onChange={(e) => setWhatsappNumber(e.target.value)}
-                    placeholder="e.g. 6591234567"
-                    helperText="Lets the WhatsApp agent recognise this user"
+                    placeholder="e.g. 819012345678"
+                    helperText="Digits with country code. Only linked numbers get answers; clear it to unlink."
                     inputProps={{ inputMode: "tel" }}
+                    data-tour="user-whatsapp-number"
                   />
+                </Grid>
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 1 }} />
+                  <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                    WhatsApp notifications
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>
+                    Pushed to the number above (shipments assistant). Batched within 10 minutes, never in quiet hours (Japan time).
+                  </Typography>
+                  <Box sx={{ display: "flex", flexWrap: "wrap", columnGap: 2 }} data-tour="user-whatsapp-prefs">
+                    <FormControlLabel control={<Switch size="small" checked={waPrefs.digest} onChange={(e) => setWaPrefs({ ...waPrefs, digest: e.target.checked })} />} label="Morning digest (08:30)" />
+                    <FormControlLabel control={<Switch size="small" checked={waPrefs.needsMe} onChange={(e) => setWaPrefs({ ...waPrefs, needsMe: e.target.checked })} />} label="Needs you (an email waits for a decision)" />
+                    <FormControlLabel control={<Switch size="small" checked={waPrefs.events} onChange={(e) => setWaPrefs({ ...waPrefs, events: e.target.checked })} />} label="Events (ETA changed, AN / permit filed, free time, stuck step)" />
+                    <FormControlLabel control={<Switch size="small" checked={waPrefs.filed} onChange={(e) => setWaPrefs({ ...waPrefs, filed: e.target.checked })} />} label="Every auto-filed document (the digest covers it)" />
+                  </Box>
+                  <Grid container spacing={2} sx={{ mt: 0 }}>
+                    <Grid item xs={4}>
+                      <TextField label="Quiet from" type="time" size="small" fullWidth value={waPrefs.quietFrom} onChange={(e) => setWaPrefs({ ...waPrefs, quietFrom: e.target.value || "21:00" })} InputLabelProps={{ shrink: true }} />
+                    </Grid>
+                    <Grid item xs={4}>
+                      <TextField label="Quiet to" type="time" size="small" fullWidth value={waPrefs.quietTo} onChange={(e) => setWaPrefs({ ...waPrefs, quietTo: e.target.value || "08:00" })} InputLabelProps={{ shrink: true }} />
+                    </Grid>
+                    <Grid item xs={4}>
+                      <FormControl fullWidth size="small">
+                        <InputLabel id="wa-lang">Digest language</InputLabel>
+                        <Select labelId="wa-lang" label="Digest language" value={waPrefs.lang} onChange={(e) => setWaPrefs({ ...waPrefs, lang: e.target.value === "ja" ? "ja" : "en" })}>
+                          <MenuItem value="en">English</MenuItem>
+                          <MenuItem value="ja">日本語</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                  </Grid>
                 </Grid>
                 <Grid item xs={6}>
                   <TextField

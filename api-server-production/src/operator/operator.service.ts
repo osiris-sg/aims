@@ -5,6 +5,8 @@ import { CHAT_UPLOAD_PROJECT_COST_FLAG, isOrgFeatureEnabled } from '../common/or
 import { matchProjectByAddress } from '../common/address-match';
 import { OperatorAuthService } from './operator-auth.service';
 import { OperatorToolsService } from './operator-tools.service';
+import { ShipmentsToolsService } from './shipments-tools.service';
+import { forbiddenAsk, refusalText, replyLanguage, shipmentsSystemPrompt } from './shipments-agent.rules';
 import { TelegramAdapter } from './adapters/telegram.adapter';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
 import { WebAdapter } from './adapters/web.adapter';
@@ -152,6 +154,7 @@ export class OperatorService {
     private readonly telegram: TelegramAdapter,
     private readonly whatsapp: WhatsAppAdapter,
     private readonly web: WebAdapter,
+    private readonly shipTools: ShipmentsToolsService,
   ) {
     const key = process.env.ANTHROPIC_API_KEY;
     this.anthropic = key ? new Anthropic({ apiKey: key }) : null;
@@ -265,6 +268,35 @@ export class OperatorService {
 
     // What the user said or tapped, for the display transcript.
     await this.recordInbound(msg, text);
+
+    // Round S: a shipments org gets the shipments tool set only (no api_* tools, no invoice
+    // upload path). On WhatsApp it answers only when the org flag enableWhatsAppAgent is on —
+    // otherwise the message stays stored in the CRM thread and is ignored (logged, no reply).
+    const profile = await this.profileOf(ctx.organizationId);
+    ctx.profile = profile;
+    if (profile === 'shipments') {
+      if (msg.channel === 'whatsapp' && !(await isOrgFeatureEnabled(this.prisma, ctx.organizationId, 'enableWhatsAppAgent'))) {
+        this.logger.log(`whatsapp agent off for ${ctx.organizationName}: ignored a message from a linked user`);
+        return;
+      }
+      const lang = replyLanguage(text);
+      if (!msg.callbackData && text) {
+        const what = forbiddenAsk(text);
+        if (what) {
+          await adapter.sendText(msg.chatId, refusalText(what, lang));
+          return;
+        }
+      }
+      const files = msg.attachments?.length ? msg.attachments : msg.attachment ? [msg.attachment] : [];
+      if (files.length) {
+        await this.handleShipmentsFiles(ctx, adapter, msg, files, text, lang);
+        return;
+      }
+      if (/^\/(start|help)\b/i.test(text)) {
+        await adapter.sendText(msg.chatId, shipmentsHelp(ctx.organizationName, lang));
+        return;
+      }
+    }
 
     // Button taps
     if (msg.callbackData) {
@@ -393,6 +425,7 @@ export class OperatorService {
     // `impersonating` keeps the real driver's id so nothing is anonymous.
     if (session.actingAs) {
       ctx = await this.auth.contextAs(ctx, session.actingAs.userId, session.actingAs.label);
+      ctx.profile = profile;
     }
     // A typed answer acts on the NEWEST held card and takes it out of the
     // held list, exactly like a tap would. Clearing only the single slot left
@@ -717,7 +750,7 @@ export class OperatorService {
       ...this.trimHistory(session.history as Anthropic.MessageParam[]),
       { role: 'user', content: text },
     ];
-    const toolDefs = this.tools.definitions(ctx);
+    const toolDefs = ctx.profile === 'shipments' ? this.shipTools.definitions(ctx) : this.tools.definitions(ctx);
     let pendingFromTools: PendingAction | null = null;
     let choiceFromTools: { question: string; options: string[] } | null = null;
 
@@ -750,8 +783,13 @@ export class OperatorService {
       // paying for the ~60 tool definitions and the rules again.
       const cachedTools = toolDefs.map((t, i) => (i === toolDefs.length - 1 ? { ...t, cache_control: { type: 'ephemeral' as const } } : t));
       const systemBlocks: Anthropic.TextBlockParam[] = [
-        { type: 'text', text: this.systemPrompt(ctx) + this.webPrompt(ctx), cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: ctx.profile === 'shipments' ? this.shipmentsPrompt(ctx, text) : this.systemPrompt(ctx) + this.webPrompt(ctx), cache_control: { type: 'ephemeral' } },
       ];
+      if (ctx.profile === 'shipments') {
+        // The latest message decides the language; the history (often mixed JP / EN) must not.
+        const lang = replyLanguage(text);
+        systemBlocks.push({ type: 'text', text: lang === 'ja' ? 'REPLY LANGUAGE NOW: Japanese (日本語で答える). The latest message is Japanese.' : 'REPLY LANGUAGE NOW: English. The latest message is English, whatever language the earlier turns were in.' });
+      }
       if (session.bulkInvoiceMode) {
         systemBlocks.push({
           type: 'text',
@@ -792,7 +830,7 @@ export class OperatorService {
       const results: Anthropic.ToolResultBlockParam[] = [];
       for (const use of toolUses) {
         await showStatus(TOOL_STATUS[use.name] || `⚙️ Working on ${use.name.replace(/_/g, ' ')}...`);
-        const outcome = await this.tools.execute(ctx, use.name, use.input);
+        const outcome = ctx.profile === 'shipments' ? await this.shipTools.execute(ctx, use.name, use.input) : await this.tools.execute(ctx, use.name, use.input);
         if ((outcome.result as any)?.__bulkInvoiceMode !== undefined) {
           session.bulkInvoiceMode = !!(outcome.result as any).__bulkInvoiceMode;
           await this.saveSession(...this.sk(msg), session);
@@ -893,6 +931,78 @@ export class OperatorService {
     if (!m || m.role !== 'user') return false;
     if (typeof m.content === 'string') return true;
     return Array.isArray(m.content) && !m.content.some((b: any) => b?.type === 'tool_result');
+  }
+
+  // ── Round S: shipments profile ─────────────────────────────────────────────
+
+  private readonly profileCache = new Map<string, { at: number; profile: 'shipments' | null }>();
+
+  /** 'shipments' when the org has the SHIPMENTS module on (ADH); cached a minute. */
+  async profileOf(organizationId: string): Promise<'shipments' | null> {
+    const hit = this.profileCache.get(organizationId);
+    if (hit && Date.now() - hit.at < 60_000) return hit.profile;
+    const mod = await this.prisma.organizationModule.findFirst({ where: { organizationId, moduleCode: 'SHIPMENTS', enabled: true }, select: { id: true } }).catch(() => null);
+    const profile = mod ? ('shipments' as const) : null;
+    this.profileCache.set(organizationId, { at: Date.now(), profile });
+    return profile;
+  }
+
+  private shipmentsPrompt(ctx: OperatorContext, latest: string): string {
+    const perms = ctx.isOsirisAdmin ? 'all permissions (admin)' : ctx.roles.flatMap((r) => r.permissions.map((p) => `${p.resource}:${p.action}`)).join(', ') || 'none';
+    return shipmentsSystemPrompt({ actorName: ctx.actor.name || ctx.actor.email || 'a staff member', orgName: ctx.organizationName, now: new Date(), lang: replyLanguage(latest), perms });
+  }
+
+  /** A PDF / photo sent on WhatsApp: the same intake as an email attachment, then a Confirm card (or the result). */
+  private async handleShipmentsFiles(
+    ctx: OperatorContext,
+    adapter: ChannelAdapter,
+    msg: InboundMessage,
+    files: Array<{ dataUri: string; mimetype: string; filename?: string }>,
+    caption: string,
+    lang: 'ja' | 'en',
+  ): Promise<void> {
+    const session = await this.loadSession(...this.sk(msg));
+    await adapter.sendTyping?.(msg.chatId).catch(() => null);
+    for (const f of files.slice(0, 5)) {
+      const name = f.filename || (f.mimetype.includes('pdf') ? 'document.pdf' : 'photo.jpg');
+      let out: Awaited<ReturnType<ShipmentsToolsService['intakeFile']>>;
+      try {
+        out = await this.shipTools.intakeFile(ctx, f, caption, msg.providerMessageId);
+      } catch (e: any) {
+        this.logger.error(`whatsapp intake failed: ${e?.message}`);
+        await adapter.sendText(msg.chatId, lang === 'ja' ? `${name} を取り込めませんでした。もう一度送ってください。` : `I couldn't take in ${name}. Please send it again.`);
+        continue;
+      }
+      const row: any = out.row;
+      const filed = (row?.done ?? []).filter((a: any) => a.kind === 'file' && a.status === 'done').length;
+      const evidence = row?.evidence ? `\n${String(row.evidence).slice(0, 200)}` : '';
+      let note: string;
+      if (out.inboxState === 'PROCESSED') {
+        note = lang === 'ja' ? `✅ ${name} → ${row?.matched ?? 'リンク済み'}${filed ? `（${filed} 件保存）` : ''}${evidence}` : `✅ Filed ${name} → ${row?.matched ?? 'linked'}${filed ? ` (${filed} document${filed > 1 ? 's' : ''})` : ''}${evidence}`;
+        await adapter.sendText(msg.chatId, note);
+      } else if (out.inboxState === 'SUGGESTED' && row?.matched) {
+        const pending = this.shipTools.pendingForIntake(row, name);
+        if (pending) {
+          this.holdPending(session, pending);
+          await this.saveSession(...this.sk(msg), session);
+          await adapter.sendButtons(msg.chatId, `${pending.summary}\n\n${lang === 'ja' ? '確定しますか？' : 'Confirm?'}`, [
+            { label: '\u2705 Confirm', data: `confirm:${pending.id}` },
+            { label: '\u274c Cancel', data: `cancel:${pending.id}` },
+          ]);
+        }
+        note = `[file ${name} → intake emailId=${out.logId}, suggested ${row.matched}, awaiting the user's Confirm]`;
+      } else if (out.verdict === 'NOT_SHIPMENT' || out.inboxState === 'HIDDEN') {
+        await adapter.sendText(msg.chatId, lang === 'ja' ? `${name} は出荷関連ではないと判断しました。関連する場合はレコード番号（例: #21-1）を教えてください。` : `${name} doesn't look like a shipment document. If it is, tell me the record (e.g. #21-1).`);
+        note = `[file ${name} → intake emailId=${out.logId}, judged not a shipment document]`;
+      } else {
+        const cands: string[] = (row?.candidates ?? []).slice(0, 3).map((c: any) => c.ref);
+        const ask = cands.length ? (lang === 'ja' ? `どのレコードですか？ ${cands.join(' / ')}` : `Which record? ${cands.join(' / ')}`) : lang === 'ja' ? 'どのレコードに紐づけますか？（例: #21-1）' : 'Which record should it go to? (e.g. #21-1)';
+        await adapter.sendText(msg.chatId, `📎 ${name}${evidence}\n${ask}`);
+        note = `[file ${name} → intake emailId=${out.logId}, state ${out.inboxState}, candidates ${cands.join(', ') || 'none'}; when the user names a record, call email_link with this emailId]`;
+      }
+      session.history = [...(session.history || []), { role: 'user' as const, content: note }, { role: 'assistant' as const, content: 'Noted.' }].slice(-40);
+      await this.saveSession(...this.sk(msg), session);
+    }
   }
 
   private systemPrompt(ctx: OperatorContext): string {
@@ -1167,7 +1277,7 @@ export class OperatorService {
     session.pendingActions = (session.pendingActions || []).filter((p) => p.id !== pending.id);
     let res: { ok: boolean; message: string };
     try {
-      res = await this.tools.runPending(ctx, pending);
+      res = pending.kind === 'shipments' ? await this.shipTools.runPending(ctx, pending) : await this.tools.runPending(ctx, pending);
     } catch (e: any) {
       // A thrown confirm used to vanish silently (the webhook swallows the
       // rejection) leaving the user with no feedback and a stuck pendingAction.
@@ -1535,4 +1645,10 @@ export class OperatorService {
       })
       .catch((e) => this.logger.warn(`session save failed: ${e.message}`));
   }
+}
+
+function shipmentsHelp(orgName: string, lang: 'ja' | 'en'): string {
+  if (lang === 'ja')
+    return `${orgName} のAIMSに接続しています。\n\n聞けること:\n• 「今日来たメールは？」\n• 「#19 の状況」「198GX06522」\n• 「今週到着は？」「期限超過は？」「私の確認待ちは？」\n• 「#16-2 の輸入許可書を送って」\n\nできること（確認ボタンの後に実行）:\n• メールのリンク確定・変更、「出荷関連ではない」\n• タスク完了、リマインダー解除\n• ETA / 到着日の更新、メモ追加\n\nPDFや写真を送ると、メールと同じ取り込みで処理し、紐づけ先を提案します。`;
+  return `You're connected to ${orgName} in AIMS.\n\nAsk me:\n• "What came in today?"\n• "Status #19" / "198GX06522" / "SUS 6063 Sep"\n• "What's arriving this week?" / "What's overdue?" / "What needs me?"\n• "Send me the import permit for #16-2"\n\nI can also (after you tap Confirm):\n• confirm or change an email's link, mark one "not shipment"\n• mark a task done, dismiss a reminder\n• set an ETA / arrival date, add a note\n\nSend a PDF or photo and I'll run it through the same intake as email and propose where it goes.`;
 }

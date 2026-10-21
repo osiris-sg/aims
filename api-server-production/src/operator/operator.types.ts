@@ -118,6 +118,8 @@ export interface OperatorContext {
   impersonating?: { byUserId: string; label: string } | null;
   channel: OperatorChannel;
   channelUserId: string;
+  /** Round S (2026-10-21): a shipments org (SHIPMENTS module on) talks to the shipments tool set only. */
+  profile?: 'shipments' | null;
   /** Web chat only: the dashboard screens this user's org + role can open,
    *  sent by the portal (the same filtered list its navigation shows). */
   web?: {
@@ -170,7 +172,8 @@ export interface PendingAction {
     | 'import_price_list'
     | 'schedule_delivery'
     | 'api_write'
-    | 'request_advance';
+    | 'request_advance'
+    | 'shipments';
   documentId?: string;
   documentType?: string;
   summary: string;

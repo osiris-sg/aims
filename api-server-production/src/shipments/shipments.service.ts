@@ -10,6 +10,7 @@ import { blockingSteps, currentStepOf, freeTimeLeft, lineLabel, orderLabel, prog
 import { alertRulesOf } from './trade-alerts';
 import { actualsTable, cleanCosts, estimate, ShipmentCosts } from './trade-estimator';
 import { ORDER_SUMMARY_SELECT } from './trade-selects';
+import { ShipmentsNotifyService } from './shipments-notify.service';
 import { latestBlCheck } from './trade-extract.service';
 import { Db, DOC_LINK_SELECT, isUniqueViolation, optText, pageArgs, TradeConfigService } from './trade-config.service';
 
@@ -21,6 +22,7 @@ export class ShipmentsService {
     private readonly config: TradeConfigService,
     // Optional: unit tests and the smoke run build the service without it.
     @Optional() private readonly alerts?: TradeAlertsService,
+    @Optional() private readonly whatsapp?: ShipmentsNotifyService,
   ) {}
 
   async list(organizationId: string, query: ListShipmentsQuery) {
@@ -281,6 +283,7 @@ export class ShipmentsService {
   async update(organizationId: string, id: string, dto: UpdateShipmentDto, actor: TradeActor | null = null) {
     const blNumber = optText(dto.blNumber);
     let etaMoved = false;
+    let existingEta: Date | null = null;
     try {
       await this.prisma.$transaction(async (tx: Db) => {
         const existing = await tx.shipment.findFirst({
@@ -289,6 +292,7 @@ export class ShipmentsService {
         });
         if (!existing) throw new NotFoundException('Shipment not found');
         etaMoved = dto.eta !== undefined && (existing.eta ? existing.eta.toISOString().slice(0, 10) : null) !== (dto.eta ? String(dto.eta).slice(0, 10) : null);
+        existingEta = existing.eta ?? null;
         if (dto.contractLineId !== undefined) {
           const lines = existing.contract?.lines ?? [];
           if (dto.contractLineId === null || dto.contractLineId === '') {
@@ -330,6 +334,13 @@ export class ShipmentsService {
     await this.config.syncSteps(this.prisma, organizationId, [{ shipmentId: id }], actor, { fields: Object.keys(dto) });
     // Dates the reminders hang off moved: re-plan them now (best effort).
     if (etaMoved || dto.dischargeDate !== undefined || dto.detFreeDays !== undefined || dto.demFreeDays !== undefined) await this.alerts?.refresh(organizationId);
+    if (etaMoved && this.whatsapp) {
+      // Round S: an ETA change reaches the linked staff on WhatsApp (batched, quiet hours; once per new date).
+      const s: any = await this.prisma.shipment.findFirst({ where: { id, organizationId }, select: { seqNo: true, vessel: true, eta: true, order: { select: { orderNo: true } } } });
+      const ref = s?.order?.orderNo ? `#${s.order.orderNo}${s.seqNo ? `-${s.seqNo}` : ''}` : 'shipment';
+      const when = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '—');
+      await this.whatsapp.queue(organizationId, 'EVENT', `🚢 ${ref} ETA ${when(existingEta)} → ${when(s?.eta)}${s?.vessel ? ` (${s.vessel})` : ''}${actor?.name ? ` · by ${actor.name}` : ''}`, { linkUrl: s?.order ? `/portal/shipments/orders/${(await this.prisma.shipment.findFirst({ where: { id }, select: { orderId: true } }))?.orderId}?shipment=${id}` : null, dedupeKey: `eta:${id}:${s?.eta ? new Date(s.eta).toISOString().slice(0, 10) : 'none'}` });
+    }
     return this.getById(organizationId, id);
   }
 

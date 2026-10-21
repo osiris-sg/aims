@@ -1,4 +1,5 @@
 import { isTestRecord, testRecordIds } from './trade-test-orders';
+import { ShipmentsNotifyService } from './shipments-notify.service';
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { Cron } from '@nestjs/schedule';
@@ -46,6 +47,7 @@ export class TradeAlertsService {
     private readonly email: EmailService,
     private readonly actionLog: ActionLogService,
     @Optional() private readonly clerkIdentity?: ClerkIdentityService,
+    @Optional() private readonly whatsapp?: ShipmentsNotifyService,
   ) {}
 
   private async rules(organizationId: string): Promise<AlertRules> {
@@ -230,6 +232,8 @@ export class TradeAlertsService {
     for (const a of due) {
       await this.notifications.emit({ organizationId, kind: 'TRADE_ALERT', title: a.title, body: a.detail, entityType: 'trade-alert', entityId: a.id, linkUrl: a.linkUrl });
       await this.prisma.tradeAlert.update({ where: { id: a.id }, data: { notifiedAt: now } });
+      // Round S: free time ending / a stuck step also reach the linked staff on WhatsApp (batched, quiet hours).
+      if (this.whatsapp && (a.kind === 'FREE_TIME' || a.kind === 'STEP_STUCK')) await this.whatsapp.queue(organizationId, 'EVENT', `${a.kind === 'FREE_TIME' ? '⏳' : '⚠️'} ${a.title}${a.detail ? ` · ${a.detail}` : ''}`, { linkUrl: a.linkUrl, dedupeKey: `alert:${a.id}:${a.dueAt.toISOString().slice(0, 10)}` });
     }
     return due.length;
   }

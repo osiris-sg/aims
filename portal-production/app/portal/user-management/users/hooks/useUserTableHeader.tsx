@@ -117,6 +117,13 @@ export default function useUserTableHeader() {
         );
       },
     }),
+    columnHelper.accessor("whatsappNumber", {
+      header: "WhatsApp",
+      cell: (info: any) => {
+        const n = info.getValue() as string | null;
+        return n ? <Chip label={`Linked · …${String(n).slice(-4)}`} size="small" color="success" variant="outlined" sx={{ borderRadius: "4px" }} title="Can use the WhatsApp assistant and receives its pushes" /> : <Typography variant="caption" color="text.secondary">—</Typography>;
+      },
+    }),
     columnHelper.accessor(
       (row) => {
         // UNIQUE permissions across roles — roles overlap heavily (Designer ⊂

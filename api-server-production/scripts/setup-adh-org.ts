@@ -211,6 +211,7 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableTradePipelineGrid: false, // round K: Home's pipeline grid hidden (Orders list progress bars instead)
   enableShipmentsHome: false, // round O/P: the OLD Home (cash / margin) stays off; the Dashboard route shows the email-first dashboard
   enableEmailReasoner: true, // round R: the thread reasoner — live on ADH since the owner's go (2026-10-21)
+  enableWhatsAppAgent: false, // round S: WhatsApp shipments agent + pushes — OFF until the owner's go
 };
 
 const NUMBER_FORMATS = [

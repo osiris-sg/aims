@@ -193,6 +193,7 @@ model OrganizationMemberProfile {
   organizationId String
   userId         String // Clerk user id
   whatsappNumber String? // digits only, e.g. 6591234567
+  whatsappPrefs  Json? // WhatsApp agent (round S): { digest, needsMe, filed, events, quietFrom, quietTo, lang }
   commissionPct  Float? // default share of project profit for this designer
   yearlySalesTarget Float? // manager-set sales target (contract value signed per year)
   signatureImage String? // saved signature (PNG data URL) for one-tap counter-signing
@@ -398,4 +399,26 @@ model AirwallexConnection {
   lastError      String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+}
+
+// WhatsApp staff notifications (ADH, round S 2026-10-21): one row per user per event, batched into
+// one message (10 min) outside the user's quiet hours; DIGEST rows go out as the aims_notify template.
+model WhatsAppOutbox {
+  id             String    @id @default(uuid())
+  organizationId String
+  userId         String
+  to             String
+  kind           String
+  text           String
+  linkUrl        String?
+  dedupeKey      String?
+  dueAt          DateTime
+  status         String    @default("QUEUED")
+  sentAt         DateTime?
+  error          String?
+  createdAt      DateTime  @default(now())
+
+  @@unique([organizationId, dedupeKey])
+  @@index([status, dueAt])
+  @@index([organizationId, userId, status])
 }

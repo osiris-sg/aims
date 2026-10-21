@@ -70,7 +70,7 @@ export class UsersController {
   @Patch(':userId/profile')
   @Permissions('users:update')
   @ApiOperation({ summary: 'Update the org-scoped member profile (WhatsApp number, default commission %, yearly sales target)' })
-  updateProfile(@Param('userId') userId: string, @Body() body: { whatsappNumber?: string | null; commissionPct?: number | null; yearlySalesTarget?: number | null }, @UserOrganization() organization: { id: string; name: string }) {
+  updateProfile(@Param('userId') userId: string, @Body() body: { whatsappNumber?: string | null; whatsappPrefs?: Record<string, unknown> | null; commissionPct?: number | null; yearlySalesTarget?: number | null }, @UserOrganization() organization: { id: string; name: string }) {
     return this.usersService.upsertMemberProfile(userId, organization.id, body || {});
   }
 

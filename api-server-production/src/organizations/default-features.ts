@@ -85,4 +85,8 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // shipment(s) per attachment; applied by itself only when a hard key or a unique product match is verified.
   // Default OFF (ADH: switched on by setup-adh-org after the owner's go).
   enableEmailReasoner: false,
+  // WhatsApp shipments agent (ADH, round S 2026-10-21): linked staff (User Management → WhatsApp) can
+  // ask the shipments assistant on WhatsApp and get the digest / "needs you" pushes. Default OFF
+  // (ADH: switched on by setup-adh-org after the owner's go).
+  enableWhatsAppAgent: false,
 };

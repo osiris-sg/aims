@@ -8,6 +8,7 @@ import { ContractsController } from './contracts.controller';
 import { ContractsService } from './contracts.service';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
+import { ShipmentsNotifyService } from './shipments-notify.service';
 import { SupplierOrdersController } from './supplier-orders.controller';
 import { SupplierOrdersService } from './supplier-orders.service';
 import { TradePriceCheckController } from './trade-price-check.controller';
@@ -65,6 +66,7 @@ import { TradeStepsService } from './trade-steps.service';
     TradeExtractController,
   ],
   providers: [
+    ShipmentsNotifyService, // round S: WhatsApp staff notification queue
     OrdersService,
     SupplierOrdersService,
     TradePriceCheckService,
@@ -83,6 +85,6 @@ import { TradeStepsService } from './trade-steps.service';
     TradeExtractService,
     PrismaService,
   ],
-  exports: [OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService],
+  exports: [ShipmentsNotifyService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService],
 })
 export class ShipmentsModule {}

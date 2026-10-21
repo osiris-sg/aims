@@ -44,6 +44,8 @@ Headless Puppeteer (`--no-sandbox`…), 1200×1600 viewport, A4 zero-margin prin
 
 Meta Cloud API (Tech Provider / Embedded Signup) — full detail in [External Surface](/backend/modules-external). Env: `META_APP_ID`, `META_APP_SECRET`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, `WHATSAPP_API_VERSION` (default `v23.0`), `WHATSAPP_GROUP_BRIDGE_TOKEN`.
 
+**Staff assistant (AIMS Operator).** A WhatsApp number set on a user's org member profile (User Management → Users → Edit → WhatsApp) links that number to the Clerk user; the Operator (`src/operator/`) then acts with exactly that user's permissions, writes go through Confirm / Cancel cards, and every action lands in the Activity Log as the user (`channel: chat:whatsapp`). Orgs with the SHIPMENTS module on (ADH, round S 2026-10) get the **shipments profile** instead of the generic tool set: `shipments-tools.service.ts` (read: emails, record status, arrivals, tasks, needs-me, send a document; confirm-first writes: email link / not-shipment, task done, ETA / arrival, note; a PDF or photo goes through the email intake), gated by the org flag `enableWhatsAppAgent` (off = linked staff are ignored and logged). Pushes: `ShipmentsNotifyService` (queue, per-user prefs `whatsappPrefs`: digest / needs-me / filed / events, quiet hours JST, digest language) → `WhatsAppOutbox` → `ShipmentsOutboxService` (cron every minute: 08:30 JST digest as the `aims_notify` template, due rows batched into one text per user, sent on the line the user last wrote to).
+
 ## water-sg (SIDS/ECM/ESS) — bidirectional
 
 - **Outbound**: `WaterSgService`/`WaterSgLinkService` create sites on DO sign-off when `enableWaterSgSites` is enabled (`WATER_SG_API_URL`, `WATER_SG_ECM_API_URL`, `WATER_SG_ESS_API_URL`, `WATER_SG_API_KEY`).

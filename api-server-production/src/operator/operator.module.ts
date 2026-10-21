@@ -28,6 +28,10 @@ import { BankRecModule } from '../bank-rec/bank-rec.module';
 import { OperatorService } from './operator.service';
 import { OperatorAuthService } from './operator-auth.service';
 import { OperatorToolsService } from './operator-tools.service';
+import { ShipmentsToolsService } from './shipments-tools.service';
+import { ShipmentsOutboxService } from './shipments-outbox.service';
+import { ShipmentsModule } from '../shipments/shipments.module';
+import { IngestionEmailModule } from '../ingestion-email/ingestion-email.module';
 import { TelegramAdapter } from './adapters/telegram.adapter';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
 import { WebAdapter } from './adapters/web.adapter';
@@ -67,9 +71,11 @@ import { AuthModule } from '../auth/auth.module';
     PublicDocumentModule, // preview_document → view-only DO link
     XeroSyncModule, // confirm_invoices_from_xero tool
     BankRecModule, // bank_rec_checkpoint tool
+    ShipmentsModule, // round S: the shipments tool set (ADH) + the WhatsApp outbox
+    IngestionEmailModule, // round S: email_link / intake from a WhatsApp file
   ],
   controllers: [OperatorController, OperatorWebController],
-  providers: [OperatorService, OperatorAuthService, OperatorToolsService, TelegramAdapter, WhatsAppAdapter, WebAdapter, PrismaService],
+  providers: [OperatorService, OperatorAuthService, OperatorToolsService, ShipmentsToolsService, ShipmentsOutboxService, TelegramAdapter, WhatsAppAdapter, WebAdapter, PrismaService],
   exports: [OperatorService, OperatorAuthService, WhatsAppAdapter, WebAdapter],
 })
 export class OperatorModule {}

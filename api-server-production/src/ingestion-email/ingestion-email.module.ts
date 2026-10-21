@@ -18,5 +18,7 @@ import { LeadsModule } from '../leads/leads.module';
   imports: [CommonModule, BillsModule, DocumentsModule, DocumentExtractionModule, LeadsModule, ShipmentsModule],
   controllers: [IngestionEmailController, EmailConfigController, EmailIntakeController, EmailInboxController],
   providers: [IngestionEmailService, EmailTriageService, PrismaService],
+  // Round S: the WhatsApp shipments agent files / links emails through the same triage service.
+  exports: [EmailTriageService],
 })
 export class IngestionEmailModule {}

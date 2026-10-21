@@ -96,6 +96,7 @@ export class UsersService {
             email: clerkUser.emailAddresses[0]?.emailAddress || userId,
             name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || `User ${userId}`,
             whatsappNumber: profile?.whatsappNumber ?? null,
+            whatsappPrefs: profile?.whatsappPrefs ?? null,
             commissionPct: profile?.commissionPct ?? null,
             yearlySalesTarget: profile?.yearlySalesTarget ?? null,
             roles: roles.map((ur) => ({
@@ -115,6 +116,7 @@ export class UsersService {
             email: userId,
             name: `User ${userId}`,
             whatsappNumber: profile?.whatsappNumber ?? null,
+            whatsappPrefs: profile?.whatsappPrefs ?? null,
             commissionPct: profile?.commissionPct ?? null,
             yearlySalesTarget: profile?.yearlySalesTarget ?? null,
             roles: roles.map((ur) => ({
@@ -142,7 +144,7 @@ export class UsersService {
    * messages against, and a designer's default commission share. Upsert —
    * only provided fields change.
    */
-  async upsertMemberProfile(userId: string, organizationId: string, dto: { whatsappNumber?: string | null; commissionPct?: number | null; yearlySalesTarget?: number | null; signatureImage?: string | null }) {
+  async upsertMemberProfile(userId: string, organizationId: string, dto: { whatsappNumber?: string | null; whatsappPrefs?: Record<string, unknown> | null; commissionPct?: number | null; yearlySalesTarget?: number | null; signatureImage?: string | null }) {
     const whatsappNumber = dto.whatsappNumber !== undefined ? (dto.whatsappNumber ? dto.whatsappNumber.replace(/\D/g, '') : null) : undefined;
     if (dto.signatureImage && !/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(dto.signatureImage)) {
       throw new BadRequestException('signatureImage must be a PNG/JPEG data URL');
@@ -151,6 +153,7 @@ export class UsersService {
       where: { organizationId_userId: { organizationId, userId } },
       update: {
         whatsappNumber,
+        whatsappPrefs: dto.whatsappPrefs !== undefined ? (dto.whatsappPrefs as any) : undefined,
         commissionPct: dto.commissionPct !== undefined ? dto.commissionPct : undefined,
         yearlySalesTarget: dto.yearlySalesTarget !== undefined ? dto.yearlySalesTarget : undefined,
         signatureImage: dto.signatureImage !== undefined ? dto.signatureImage : undefined,
@@ -159,6 +162,7 @@ export class UsersService {
         organizationId,
         userId,
         whatsappNumber: whatsappNumber ?? null,
+        whatsappPrefs: (dto.whatsappPrefs as any) ?? null,
         commissionPct: dto.commissionPct ?? null,
         yearlySalesTarget: dto.yearlySalesTarget ?? null,
         signatureImage: dto.signatureImage ?? null,
