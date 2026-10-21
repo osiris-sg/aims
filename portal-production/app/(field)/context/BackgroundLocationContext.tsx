@@ -38,7 +38,7 @@ import { request } from "@/helpers/request";
 
 const STORAGE_KEY = "aims-field-active-delivery";
 const PING_INTERVAL_M = 0; // 0 = emit on every native callback (OS-driven timing)
-const NOTIFICATION_TITLE = "AIMS Field — Tracking delivery";
+const NOTIFICATION_TITLE = "SiteJobs: tracking delivery";
 const NOTIFICATION_MESSAGE =
   "Recording GPS location until you acknowledge the delivery.";
 

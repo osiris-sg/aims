@@ -85,7 +85,7 @@ public class BtPrinterPlugin extends Plugin {
     @PermissionCallback
     private void listBondedAfterPermission(PluginCall call) {
         if (needsRuntimePermission()) {
-            call.reject("Bluetooth permission was not granted (listBonded) — allow it in Settings > Apps > AIMS Field > Permissions");
+            call.reject("Bluetooth permission was not granted (listBonded): allow it in Settings > Apps > SiteJobs > Permissions");
             return;
         }
         doListBonded(call);
@@ -128,7 +128,7 @@ public class BtPrinterPlugin extends Plugin {
 
     @PermissionCallback
     private void connectAfterPermission(PluginCall call) {
-        if (needsRuntimePermission()) { call.reject("Bluetooth permission was not granted (connect) — allow it in Settings > Apps > AIMS Field > Permissions"); return; }
+        if (needsRuntimePermission()) { call.reject("Bluetooth permission was not granted (connect): allow it in Settings > Apps > SiteJobs > Permissions"); return; }
         doConnect(call, call.getString("mac"));
     }
 

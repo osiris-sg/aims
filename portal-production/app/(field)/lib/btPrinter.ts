@@ -6,7 +6,7 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
  * Web bridge for the native BtPrinter Capacitor plugin (Classic-SPP 58mm
  * ESC/POS printing — Xprinter XP-58IIH class hardware, 384 dots/line).
  *
- * Only usable inside the AIMS Field Android shell: Web Bluetooth is BLE-only
+ * Only usable inside the SiteJobs Android shell: Web Bluetooth is BLE-only
  * by spec and cannot reach SPP printers, so plain-browser sessions gate on
  * isPrinterAvailable() and keep the Print button disabled.
  *

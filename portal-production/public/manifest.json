@@ -1,6 +1,6 @@
 {
-  "name": "AIMS Field",
-  "short_name": "AIMS Field",
+  "name": "SiteJobs",
+  "short_name": "SiteJobs",
   "description": "Scan asset NFC tags, capture proof-of-service photos and signatures.",
   "start_url": "/scan",
   "scope": "/scan",

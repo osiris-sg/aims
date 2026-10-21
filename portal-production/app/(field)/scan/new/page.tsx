@@ -146,7 +146,7 @@ export default function ScanUnitPage() {
         {nfc.isSupported === false && (
           <Alert severity="warning" sx={{ width: "100%", maxWidth: 360 }}>
             NFC is not available on this device. Use manual serial entry below,
-            or the AIMS Field app on an NFC-capable phone.
+            or the SiteJobs app on an NFC-capable phone.
           </Alert>
         )}
 

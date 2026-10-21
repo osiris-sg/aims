@@ -688,7 +688,7 @@ export default function AfterAckPage() {
             {printing ? "Printing…" : "Print DO"}
           </Button>
         ) : (
-          <Tooltip title="Printing needs the AIMS Field app">
+          <Tooltip title="Printing needs the SiteJobs app">
             <span style={{ width: "100%", maxWidth: 360 }}>
               <Button variant="outlined" startIcon={<PrintIcon />} disabled fullWidth sx={FIELD_BUTTON_SX}>
                 Print DO

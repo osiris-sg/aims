@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 /**
- * AIMS Field — Capacitor wrapper.
+ * SiteJobs: Capacitor wrapper.
  *
  * The native shell does NOT bundle the Next.js build output. It loads the
  * deployed (or local dev) portal via `server.url` and adds native plugins
@@ -32,7 +32,7 @@ const SERVER_URL = process.env.CAP_SERVER_URL ?? "http://192.168.4.23:3000";
 
 const config: CapacitorConfig = {
   appId: "so.osiris.aims.field",
-  appName: "AIMS Field",
+  appName: "SiteJobs",
   webDir: "out",
   server: {
     url: SERVER_URL,
