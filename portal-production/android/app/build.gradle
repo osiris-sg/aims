@@ -1,5 +1,12 @@
 apply plugin: 'com.android.application'
 
+// Upload key for Play. Credentials live OUTSIDE the repo in
+// ~/.gradle/gradle.properties (SITEJOBS_UPLOAD_*); a release build with them
+// missing FAILS instead of producing an unsigned artifact (see the task-graph
+// check below). Project-level so both the android block and the check see it.
+def uploadProps = ["SITEJOBS_UPLOAD_STORE_FILE", "SITEJOBS_UPLOAD_STORE_PASSWORD", "SITEJOBS_UPLOAD_KEY_ALIAS", "SITEJOBS_UPLOAD_KEY_PASSWORD"]
+def hasUploadKey = uploadProps.every { project.hasProperty(it) && project.property(it) }
+
 android {
     namespace = "so.osiris.aims.field"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -28,6 +35,17 @@ android {
         sunmi { dimension "channel" }
     }
 
+    signingConfigs {
+        release {
+            if (hasUploadKey) {
+                storeFile file(project.property("SITEJOBS_UPLOAD_STORE_FILE"))
+                storePassword project.property("SITEJOBS_UPLOAD_STORE_PASSWORD")
+                keyAlias project.property("SITEJOBS_UPLOAD_KEY_ALIAS")
+                keyPassword project.property("SITEJOBS_UPLOAD_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // Dev builds load the LAN dev server over plain http.
@@ -38,10 +56,17 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
         }
     }
 }
 
+gradle.taskGraph.whenReady { graph ->
+    def wantsRelease = graph.allTasks.any { it.project == project && it.name ==~ /.*Release.*/ && !(it.name ==~ /.*(Lint|Test|UnitTest).*/) }
+    if (wantsRelease && !hasUploadKey) {
+        throw new GradleException("SiteJobs release build refused: upload key not configured. Set SITEJOBS_UPLOAD_STORE_FILE, SITEJOBS_UPLOAD_STORE_PASSWORD, SITEJOBS_UPLOAD_KEY_ALIAS and SITEJOBS_UPLOAD_KEY_PASSWORD in ~/.gradle/gradle.properties (never in the repo). Releases are never built unsigned.")
+    }
+}
 
 repositories {
     flatDir{
