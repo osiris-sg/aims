@@ -45,7 +45,7 @@ async function main() {
     const records: MatchRecord[] = await triage.matchRecords(ORG);
     const refOf = (orderId: string | null, shipmentId: string | null) => {
       const r = records.find((x) => x.orderId === orderId && (!shipmentId || x.shipmentId === shipmentId));
-      return r ? recordRef(r) : '—';
+      return r ? (shipmentId ? recordRef(r) : `#${r.orderNo}`) : '—';
     };
     console.log(`${org!.name} · Unprocessed before: ${rows.length} · ${APPLY ? 'APPLY' : 'DRY RUN'}\n`);
     console.log(`${'subject (60)'.padEnd(60)} | ${'decision'.padEnd(8)} | ${'source'.padEnd(12)} | tier   | result`);

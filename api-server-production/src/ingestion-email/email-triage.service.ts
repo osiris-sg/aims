@@ -502,7 +502,7 @@ export class EmailTriageService {
         } as any,
       },
     });
-    await this.execute(organizationId, logId, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: backlogAutoLabel(verdict.kind, verdict.customerKey) });
+    await this.execute(organizationId, logId, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: verdict.kind === 'MULTI_LINK' && /names \d+ orders/.test(verdict.reason) ? 'linked (orders)' : backlogAutoLabel(verdict.kind, verdict.customerKey, verdict.links?.length ?? 0) });
   }
 
   /**
@@ -521,6 +521,8 @@ export class EmailTriageService {
     const emailKey = decision.target ? `${decision.target.orderId}:${decision.target.shipmentId ?? ''}` : null;
     if (!keyed.length || (distinct.size === 1 && (!emailKey || distinct.has(emailKey)))) return null;
     const byTarget = new Map<string, IntakeTarget>();
+    // Round V: the email's own link comes first (its row's orderId / shipmentId); attachments naming other records follow.
+    if (decision.target) byTarget.set(`${decision.target.orderId}:${decision.target.shipmentId ?? ''}`, { orderId: decision.target.orderId, shipmentId: decision.target.shipmentId, attachmentIndexes: [] });
     for (const p of keyed) {
       const k = `${p.target!.orderId}:${p.target!.shipmentId ?? ''}`;
       const t = byTarget.get(k) ?? { orderId: p.target!.orderId, shipmentId: p.target!.shipmentId, attachmentIndexes: [] };
@@ -640,13 +642,16 @@ export class EmailTriageService {
       inboxState: log.inboxState ?? null,
       verdict: log.verdict ?? null,
       subject: log.subject ?? null,
-      attachments: (meta.attachments ?? []).map((a) => ({ name: a.name, slot: slotOf(a.name) })),
+      // Round V: inline signature images never count as a document to file.
+      attachments: (meta.attachments ?? []).map((a) => ({ name: a.name, slot: /^image\d*\.(png|jpe?g|gif)$/i.test(a.name) ? null : slotOf(a.name) })),
       filesSomething: plan.some((a) => a.kind === 'file' && a.status === 'planned'),
       fillsSomething: plan.some((a) => a.kind === 'field' && a.status === 'planned'),
       target: t ? { orderId: t.orderId!, shipmentId: t.shipmentId ?? null } : null,
       confidence: decision.confidence,
       check: decision.check,
       multiOrderIds: decision.multiOrderIds,
+      links: decision.links ?? [],
+      counterparty: log.counterparty ?? null,
       wouldAuto,
       targetClosed,
       keyInAims: decision.kind === 'pi' || decision.kind === 'bl' || decision.kind === 'ci' || decision.multiOrderIds.length > 0,
@@ -655,7 +660,8 @@ export class EmailTriageService {
     };
     const v = classifyEmail(input);
     if (v.kind === 'INHERIT_THREAD') v.links = threadLinks;
-    if (v.kind === 'MULTI_LINK') v.links = candidates.map((c) => ({ orderId: c.orderId, shipmentId: c.shipmentId }));
+    if (v.kind === 'GENERAL' && !v.customerKey) v.customerKey = customerKey ?? (log.counterparty && !['OTHER', 'INTERNAL'].includes(String(log.counterparty)) ? String(log.counterparty) : null);
+    if (v.kind === 'MULTI_LINK') v.links = decision.links?.length ? decision.links : candidates.map((c) => ({ orderId: c.orderId, shipmentId: c.shipmentId }));
     if (v.kind === 'GENERAL') v.customerKey = customerKey;
     return v;
   }
@@ -674,7 +680,7 @@ export class EmailTriageService {
     const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta> & IntakeExtras;
     const attachments: EmailEvidence['attachments'] = [];
     for (const a of meta.attachments ?? []) attachments.push({ name: a.name, text: await this.attachmentText(a) });
-    return { subject: log.subject ?? '', body: meta.bodyText ?? '', attachments, date: log.emailDate ?? (meta.date ? new Date(meta.date) : null) };
+    return { subject: log.subject ?? '', body: meta.bodyText ?? '', attachments, date: log.emailDate ?? (meta.date ? new Date(meta.date) : null), counterparty: log.counterparty ?? null };
   }
 
   private async attachmentText(a: { key: string; name: string; contentType?: string }): Promise<string> {
@@ -868,6 +874,11 @@ export class EmailTriageService {
       !!(await this.prisma.tradeStep.findFirst({ where: { organizationId, ...owner, notApplicable: false, OR: [{ requiredDocTypes: { has: docType } }, { optionalDocTypes: { has: docType } }] }, select: { id: true } }));
     const atts = (meta.attachments ?? []).map((a, i) => ({ a, i })).filter(({ i }) => !target.attachmentIndexes || target.attachmentIndexes.includes(i));
     for (const { a, i } of atts) {
+      // Round V: inline signature images (image001.png …) are never "something to file".
+      if (/^image\d*\.(png|jpe?g|gif)$/i.test(a.name)) {
+        out.push({ kind: 'file', status: 'skipped', reason: 'inline image', attachmentIndex: i, filename: a.name });
+        continue;
+      }
       const docType = typeOf(a.name);
       if (!docType) {
         if (!multi) out.push({ kind: 'file', status: 'skipped', reason: 'not a trade document', attachmentIndex: i, filename: a.name });

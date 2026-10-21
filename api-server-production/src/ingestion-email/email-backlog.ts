@@ -53,6 +53,10 @@ export interface BacklogInput {
   confidence: 'exact' | 'thread' | 'cues' | 'manual' | 'none' | string | null;
   check: string[];
   multiOrderIds: string[];
+  /** Round V: the ORDERS a multi-product subject names (link-only → all of them). */
+  links?: Array<{ orderId: string; shipmentId: string | null }>;
+  /** Round V: who the email is with (for General messages from a known counterparty). */
+  counterparty?: string | null;
   /** Guards 1a–1e pass (files / fields may be applied by themselves). */
   wouldAuto: boolean;
   /** The target's state: the order closed, or its shipment past the port (step 10 done / delivered / completed). */
@@ -108,6 +112,8 @@ const INVITE = /^\s*(invitation|updated invitation|canceled|cancelled|招待|会
 // A date / time prefix is allowed ("10/21 15:00~不在のご連絡 Re: …").
 const AUTO_REPLY = /^\s*(re:\s*)?[\d/:~\-\s]{0,24}(automatic reply|auto[- ]?reply|autoreply|out of office|out-of-office|自動応答|自動返信|不在|不在のご連絡|不在通知|休暇中)/i;
 const NEWSLETTER = /(newsletter|メールマガジン|メルマガ|unsubscribe|配信停止|webinar|ウェビナー|キャンペーン|セミナーのご案内)/i;
+/** Round V: contact details / introductions / staff changes — a General message, never a shipment. */
+const CONTACT = /(連絡先|担当者|ご挨拶|着任|異動|退職|contact (details|info|list)|new contact|introduc|out of office)/i;
 
 /** Why an email is obvious non-shipment mail, else null. */
 export function hideReason(subject: string | null | undefined, attachments: Array<{ name: string }> = [], headers: { autoSubmitted?: boolean } = {}): string | null {
@@ -134,11 +140,17 @@ export function classifyEmail(i: BacklogInput): BacklogVerdict {
   const empty = !(i.subject ?? '').trim() && !!i.ownTextEmpty && !i.attachments.length;
   if (!i.unhidden && empty) return { kind: 'HIDE', reason: 'empty email' };
   // A reply with nothing of its own (no text, no attachment) on a thread that is linked: the same links.
-  if (!i.target && !!i.ownTextEmpty && !i.attachments.length && (i.threadLinks?.length ?? 0) >= 1) return { kind: 'INHERIT_THREAD', reason: `no text of its own — follows the thread's ${i.threadLinks!.length} link(s)` };
+  // Round V: a reply that only LINKS (nothing to file or fill) follows the set of records its thread covers — never Unprocessed.
+  if (!i.target && talk && (i.threadLinks?.length ?? 0) >= 1) return { kind: 'INHERIT_THREAD', reason: `${i.ownTextEmpty ? 'no text of its own' : 'nothing to file'} — follows the thread's ${i.threadLinks!.length} link(s)` };
+  // Round V: a multi-product subject naming several ORDERS — link-only emails link to all of them; one that files asks a person.
+  if (!i.target && (i.links?.length ?? 0) > 1) return talk ? { kind: 'MULTI_LINK', reason: `the subject names ${i.links!.length} orders — linked to all, nothing filed` } : { kind: 'PICK', reason: `the subject names ${i.links!.length} orders and the email files documents — pick the record` };
   // A schedule sheet about several shipments: linked to all of them, nothing filed.
   const sched = (i.attachmentTexts ?? []).find(isScheduleSheet);
   if (!i.target && sched && (i.candidates?.length ?? 0) >= 2) return { kind: 'MULTI_LINK', reason: `${sched.name} covers ${i.candidates!.map((c) => c.ref).join(' / ')} — linked to all, nothing filed` };
   // A customer-level price / cost sheet naming no record: General, linked to the customer only.
+  // Round V: contact details / introductions from a known counterparty → General (no shipment), not Unprocessed.
+  const knownCp = i.counterparty && !['OTHER', 'INTERNAL'].includes(String(i.counterparty)) ? String(i.counterparty) : null;
+  if (!i.target && !multi && talk && !(i.threadLinks?.length) && !i.keyInAims && knownCp && CONTACT.test(i.subject ?? '')) return { kind: 'GENERAL', reason: `contact / general message from ${knownCp} — general (no shipment)` };
   const cost = (i.attachmentTexts ?? []).find(isCostSheet);
   if (!i.target && !multi && !i.keyInAims && cost && i.customerKey) return { kind: 'GENERAL', reason: `${cost.name} is a price / cost sheet with no record reference — general (${i.customerKey})` };
   if (i.target && !i.check.length && !multi) {
@@ -166,5 +178,5 @@ export function orderSeed(i: { subject: string | null; keys?: Partial<{ piNo: st
 }
 
 /** "Auto · linked (conversation)" / "Auto · history" — the Processed label. */
-export const backlogAutoLabel = (kind: BacklogKind, customerKey?: string | null): string | null =>
-  kind === 'AUTO_LINK' ? 'linked (conversation)' : kind === 'HISTORY' ? 'history' : kind === 'INHERIT_THREAD' ? 'thread' : kind === 'MULTI_LINK' ? 'linked (schedule)' : kind === 'GENERAL' ? `general${customerKey ? ` (${customerKey})` : ''}` : null;
+export const backlogAutoLabel = (kind: BacklogKind, customerKey?: string | null, links = 0): string | null =>
+  kind === 'AUTO_LINK' ? 'linked (conversation)' : kind === 'HISTORY' ? 'history' : kind === 'INHERIT_THREAD' ? (links > 1 ? 'thread covers' : 'thread') : kind === 'MULTI_LINK' ? 'linked (schedule)' : kind === 'GENERAL' ? `general${customerKey ? ` (${customerKey})` : ''}` : null;

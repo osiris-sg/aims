@@ -30,9 +30,12 @@ describe('round U — auto-apply tiers', () => {
     expect(autoTier(conflict, ACCEPTED_15)).toBeNull();
   });
 
-  it("HIGH never when another order's key is in the subject / own text / attachment (guard d)", () => {
-    const d = decide(ev('RE: Copy documents //198GX05383', 'see attached', [{ name: 'CI.pdf', text: 'BL 276956322' }]));
-    expect(d.source).toBe('attachment');
+  it("HIGH never when another order's key is in the subject / own text (guard d); an attachment naming its own record is not a conflict (round V)", () => {
+    const split = decide(ev('RE: Copy documents //198GX05383', 'see attached', [{ name: 'CI.pdf', text: 'BL 276956322' }]));
+    expect(split.target).toEqual({ orderId: 'o15', shipmentId: 's15' });
+    expect(split.notes.join(' ')).toMatch(/attachment names #20-1 — it files there/);
+    const d = decide(ev('RE: Copy documents //198GX05383', 'about B/L 276956322 too'));
+    expect(d.blocked.some((b) => /^d:/.test(b))).toBe(true);
     expect(autoTier(d, null)).toBeNull();
   });
 
@@ -41,8 +44,10 @@ describe('round U — auto-apply tiers', () => {
     expect(d.source).toBe('thread');
     expect(autoTier(d, ACCEPTED_15)).toBe('medium');
     const alone = decide(ev('【11月納入】6005C-8インチ 40T 加藤', 'よろしく'), null);
-    expect(alone.source).toBe('subject-cues');
-    expect(autoTier(alone, null)).toBeNull();
+    expect(alone.source).toBe('order-cues'); // round V: the subject names the order itself → high
+    expect(autoTier(alone, null)).toBe('high');
+    const noMonth = decide(ev('6005C-8インチ 40T 加藤', 'よろしく'), null);
+    expect(autoTier(noMonth, null)).toBeNull();
   });
 
   it('MEDIUM only when the decision agrees with the accepted link; a subject key is not "high"', () => {

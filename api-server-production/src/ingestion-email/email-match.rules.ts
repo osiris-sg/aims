@@ -27,6 +27,8 @@ export type Where = 'subject' | 'attachment' | 'body' | 'quoted';
 export interface EmailEvidence {
   subject: string;
   body: string;
+  /** Round V: who the email is with (SUS / KATO / HOEI / MITSUI_SOKO / VEDANTA / OTHER / INTERNAL) — a customer cue when the subject has none. */
+  counterparty?: string | null;
   /** Each attachment's name and (first-page) text. */
   attachments: Array<{ name: string; text: string }>;
   /** For the delivery-month year ("11月納入" in an October email → this November). */
@@ -94,7 +96,8 @@ export function validPiNo(v: string | null | undefined, patterns: string[] = [])
 
 // ── keys ─────────────────────────────────────────────────────────────────────
 export interface KeyHit {
-  kind: 'bl' | 'pi' | 'ci';
+  /** Round V: 'net' = an exact tonnage (3 decimals) equal to one open shipment's net weight — a hard key. */
+  kind: 'bl' | 'pi' | 'ci' | 'net';
   value: string;
   orderId: string;
   /** null: an order-level key (PI). */
@@ -127,6 +130,13 @@ export function findKeyHits(ev: EmailEvidence, records: MatchRecord[], ciPattern
     if (r.piNo && r.piNo.length >= 6) add('pi', r.piNo, r.orderId, null);
     const ci = validCiNo(r.ciNo, ciPatterns);
     if (ci) add('ci', ci, r.orderId, r.shipmentId);
+  }
+  // Round V: an exact tonnage to 3 decimals ("183.693T") that equals exactly ONE open shipment's net weight.
+  const text = parts.map(([, t]) => t).join('\n');
+  for (const m of text.matchAll(/(?<![\d.])(\d{1,4}\.\d{3})(?![\d])/g)) {
+    const v = m[1];
+    const owners = records.filter((r) => r.shipmentId && r.shipStatus !== 'CANCELLED' && r.netMt !== null && Number(r.netMt).toFixed(3) === v);
+    if (owners.length === 1) add('net', v, owners[0].orderId, owners[0].shipmentId);
   }
   return out;
 }
@@ -277,7 +287,7 @@ export interface Candidate {
 }
 
 /** Round T: which cue decided (see MATCH_PRIORITY). */
-export type MatchSource = 'attachment' | 'own' | 'subject' | 'own-cues' | 'thread' | 'subject-cues' | null;
+export type MatchSource = 'attachment' | 'own' | 'subject' | 'order-cues' | 'own-cues' | 'thread' | 'subject-cues' | null;
 
 /**
  * Round T (2026-10-22, owner: "Pick shipment / subject disagrees is the main problem half the time"). The cues an
@@ -298,8 +308,10 @@ export const MATCH_PRIORITY = ['attachment hard key', 'own-text hard key', 'subj
 
 export interface MatchDecision {
   target: { orderId: string; shipmentId: string | null } | null;
-  kind: 'pi' | 'bl' | 'ci' | 'thread' | 'cues' | null;
+  kind: 'pi' | 'bl' | 'ci' | 'net' | 'thread' | 'cues' | null;
   confidence: 'exact' | 'thread' | 'cues' | 'none';
+  /** Round V: several ORDERS the email is about (a multi-product subject: "11月納入6005Cー220t, 6063ー300t" → #18 + #19). Link-only → all of them. */
+  links?: Array<{ orderId: string; shipmentId: string | null }>;
   /** PARTIAL_AUTO may apply it (guards a–d hold; e is checked on the plan). */
   auto: boolean;
   /** Which guard kept it a suggestion ("b: B/L 198GX06445 only in the quoted body"). */
@@ -338,8 +350,8 @@ export interface ThreadContext {
 export type ThreadInput = ThreadContext | { orderId: string; shipmentId: string | null } | null;
 const threadContextOf = (t: ThreadInput): ThreadContext => (!t ? { accepted: null, traced: null, candidates: [] } : 'accepted' in t || 'traced' in t ? (t as ThreadContext) : { accepted: t as { orderId: string; shipmentId: string | null }, traced: null, candidates: [] });
 
-const KIND_LABEL: Record<KeyHit['kind'], string> = { bl: 'B/L', pi: 'PI', ci: 'CI' };
-const KIND_RANK: Record<KeyHit['kind'], number> = { pi: 0, bl: 1, ci: 2 };
+const KIND_LABEL: Record<KeyHit['kind'], string> = { bl: 'B/L', pi: 'PI', ci: 'CI', net: 'net' };
+const KIND_RANK: Record<KeyHit['kind'], number> = { pi: 0, bl: 1, ci: 2, net: 3 };
 
 /**
  * Round T: product cues in the email's OWN text — the same words as the subject's, but only grades that some
@@ -350,6 +362,65 @@ export function ownTextCues(own: string, records: MatchRecord[], date?: Date | n
   const known = new Set(records.map((r) => grade4(r.grade)).filter((g): g is string => !!g));
   const grades = c.grades.filter((g) => known.has(g));
   return { ...c, grades, multi: false };
+}
+
+/**
+ * Round V: ORDER-level cues — the subject (or the own text) names the order, not a shipment: customer (a word, or the
+ * email's counterparty) + delivery month (N月納入) + grade + total quantity (± tolerance). "6005C材220MT 2026年11月納入分"
+ * from SUS → #18. A multi-product subject ("11月納入6005Cー220t, 6063ー300t") → #18 + #19. Customer + month with no
+ * product at all → every order of that customer in that month.
+ */
+export interface OrderCue {
+  grade: string | null;
+  qty: number | null;
+}
+const GRADE_RE = /(?<![\d.])(6\d{3}|1\d{3}|P1020|P0507)[A-Z]?(?!\d)/gi;
+export function productSegments(text: string): OrderCue[] {
+  const t = (text ?? '').normalize('NFKC');
+  const marks = [...t.matchAll(GRADE_RE)].map((m) => ({ g: grade4(m[1]), i: m.index ?? 0 }));
+  const out: OrderCue[] = [];
+  for (let k = 0; k < marks.length; k++) {
+    const seg = t.slice(marks[k].i, marks[k + 1]?.i ?? Math.min(t.length, marks[k].i + 60));
+    const q = /(?<![\d.])(\d{1,4}(?:\.\d+)?)\s*(?:MT|T|t|トン)(?![A-Za-z])/.exec(seg.replace(/\d+(?:\.\d+)?\s*(?:インチ|inch|in\b|")/gi, ''));
+    if (!out.some((o) => o.grade === marks[k].g && o.qty === (q ? Number(q[1]) : null))) out.push({ grade: marks[k].g, qty: q ? Number(q[1]) : null });
+  }
+  return out;
+}
+export const ORDER_QTY_TOLERANCE = 0.1;
+export function orderCuesMatch(ev: EmailEvidence, records: MatchRecord[], cues: SubjectCues, ownCues: SubjectCues): { orders: Array<{ orderId: string; why: string }>; ambiguous: string[]; cue: string } | null {
+  const months = [...new Set([...cues.months, ...ownCues.months])];
+  const cp = ['SUS', 'KATO', 'HOEI'].includes(String(ev.counterparty ?? '')) ? String(ev.counterparty) : null;
+  const customers = [...new Set([...cues.customers, ...ownCues.customers, ...(cp ? [cp] : [])])];
+  // The delivery month is the anchor; the customer narrows it when known (a forwarder's mail has no customer word).
+  if (!months.length) return null;
+  const known = new Set(records.map((r) => grade4(r.grade)).filter((g): g is string => !!g));
+  const { own } = splitQuoted(ev.body ?? '');
+  // The email's OWN words narrow a combined subject down ("6005C 8インチ 40t 分の納品" on a three-product thread).
+  // Only grades some record has count (a phone number is not a grade).
+  const ownSegs = productSegments(own.slice(0, 2000)).filter((x) => x.grade && known.has(x.grade));
+  const segs = (ownSegs.length ? ownSegs : productSegments(ev.subject ?? '').filter((x) => x.grade && known.has(x.grade))).filter((x, i, a) => a.findIndex((y) => y.grade === x.grade && y.qty === x.qty) === i);
+  const open = records.filter((r) => r.orderStatus === 'OPEN');
+  const byOrder = new Map<string, MatchRecord>();
+  for (const r of open) if (!byOrder.has(r.orderId)) byOrder.set(r.orderId, r);
+  const inScope = [...byOrder.values()].filter((r) => (!customers.length || (r.customerKey && customers.includes(r.customerKey))) && r.deliveryMonth && months.includes(r.deliveryMonth));
+  if (!inScope.length) return null;
+  // Customer + month with no product needs a customer (every order of that month across customers is not a link).
+  if (!segs.length && !customers.length) return null;
+  const label = (r: MatchRecord) => `#${r.orderNo} (${r.customerKey} ${r.deliveryMonth} ${grade4(r.grade) ?? '?'} ${r.qtyMt ?? '?'} t)`;
+  const orders: Array<{ orderId: string; why: string }> = [];
+  const ambiguous: string[] = [];
+  if (!segs.length) {
+    // Customer + month, no product: every order of that customer in that month.
+    for (const r of inScope) orders.push({ orderId: r.orderId, why: `${r.customerKey} ${r.deliveryMonth}` });
+    return { orders, ambiguous, cue: `${customers.join('/')} ${months.join('/')}` };
+  }
+  for (const seg of segs) {
+    const fits = inScope.filter((r) => (seg.grade ? grade4(r.grade) === seg.grade : true) && (seg.qty === null || r.qtyMt === null ? true : Math.abs(seg.qty - r.qtyMt) <= Math.max(1, r.qtyMt * ORDER_QTY_TOLERANCE)));
+    if (fits.length === 1) orders.push({ orderId: fits[0].orderId, why: `${seg.grade ?? ''}${seg.qty !== null ? ` ${seg.qty} t` : ''} → ${label(fits[0])}` });
+    else if (fits.length > 1) ambiguous.push(`${seg.grade ?? ''} ${seg.qty ?? ''} t fits ${fits.map(label).join(', ')}`);
+  }
+  const uniq = orders.filter((o, i, a) => a.findIndex((x) => x.orderId === o.orderId) === i);
+  return uniq.length || ambiguous.length ? { orders: uniq, ambiguous, cue: segs.map((x) => `${x.grade ?? '?'}${x.qty !== null ? ` ${x.qty} t` : ''}`).join(' / ') } : null;
 }
 
 /** The one record (order, and its shipment when exactly one) a set of hits names; null when none or several. */
@@ -403,6 +474,7 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
   if (cues.multi) out.notes.push('the subject names several products (a combined thread) — it does not decide');
   const quotedOthers = (orderId: string | null) => [...new Set(quotedOnly.filter((h) => h.orderId !== orderId).map((h) => `#${records.find((r) => r.orderId === h.orderId)?.orderNo ?? '?'}`))];
 
+  let ignoreAttachmentOthers = false;
   /** Subject conflicts (the CHECK chip): only a SINGLE-product subject can disagree; a month alone never contradicts a hard key. */
   const conflictsFor = (rec: MatchRecord | null, hardKey: boolean): string[] => {
     if (!rec || cues.multi) return [];
@@ -424,8 +496,9 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
       out.check.push(...conflicts);
     }
     if (rec && cues.multi === false && cues.months.length && rec.deliveryMonth && !cues.months.includes(rec.deliveryMonth) && extra.hardKey) out.notes.push(`the subject's month (${cues.months.join('/')}) is not ${rec.deliveryMonth} — a stale thread subject`);
-    // Guard d: another order's key in the subject / own text / an attachment (quoted history is a note only).
-    const otherStrong = [...new Set(strongHits.filter((h) => h.orderId !== target.orderId).map((h) => `#${records.find((r) => r.orderId === h.orderId)?.orderNo ?? '?'}`))];
+    // Guard d: another order's key in the subject / own text / an attachment (quoted history is a note only;
+    // round V: an attachment that files to its own record is not a conflict either).
+    const otherStrong = [...new Set(strongHits.filter((h) => h.orderId !== target.orderId && !(ignoreAttachmentOthers && h.where.every((w) => w === 'attachment' || w === 'quoted'))).map((h) => `#${records.find((r) => r.orderId === h.orderId)?.orderNo ?? '?'}`))];
     if (otherStrong.length) {
       out.blocked.push(`d: another order's key is in the email (${otherStrong.join(', ')})`);
       out.notes.push(`also mentions ${otherStrong.join(', ')}`);
@@ -436,8 +509,16 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
     return out;
   };
 
+  // Round V: attachments naming a DIFFERENT record than the email's own text / subject key: the email links where
+  // its own words point; each attachment files to the record its own content names (the service splits them).
+  const attOne = oneRecord(at('attachment'));
+  const textOne = oneRecord(at('body')) ?? oneRecord(at('subject'));
+  const splitAttachments = !!attOne && !!textOne && !attOne.several && !textOne.several && (attOne.orderId !== textOne.orderId || (attOne.shipmentId ?? null) !== (textOne.shipmentId ?? null));
+  if (splitAttachments) out.notes.push(`the attachment names ${refOf(attOne!.orderId, attOne!.shipmentId)} — it files there; the email itself is about ${refOf(textOne!.orderId, textOne!.shipmentId)}`);
+  ignoreAttachmentOthers = splitAttachments;
   // 1–3. Hard keys: attachment, then own text, then subject.
   for (const [where, source, label] of [['attachment', 'attachment', 'attachment'], ['body', 'own', 'email text'], ['subject', 'subject', 'subject']] as Array<[Where, MatchSource, string]>) {
+    if (where === 'attachment' && splitAttachments) continue;
     const hits = at(where);
     const one = oneRecord(hits);
     if (!one) continue;
@@ -453,7 +534,9 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
     }
     const target = { orderId: one.orderId, shipmentId: one.shipmentId };
     if (one.several === 'shipments') out.blocked.push(`a: keys of several shipments of ${refOf(one.orderId, null)} in the ${label}`);
-    finish(target, source, { kind: one.hit.kind, confidence: 'exact', keyLabel: `${KIND_LABEL[one.hit.kind]} ${one.hit.value}`, reason: `${KIND_LABEL[one.hit.kind]} ${one.hit.value} is in the ${label}`, hardKey: true });
+    const recForKey = recOf(target.orderId, target.shipmentId);
+    const corroborated = where === 'subject' && recForKey && !cues.multi && cueScore(cues, recForKey).score > 0 && !cueConflicts(cues, recForKey).length;
+    finish(target, source, { kind: one.hit.kind, confidence: 'exact', keyLabel: `${KIND_LABEL[one.hit.kind]} ${one.hit.value}`, reason: `${KIND_LABEL[one.hit.kind]} ${one.hit.value} is in the ${label}${corroborated ? ' (corroborated by the subject)' : ''}`, hardKey: true });
     out.auto = out.blocked.length === 0;
     return out;
   }
@@ -471,6 +554,18 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
     out.blocked.push(`a: matched by the email's own words (${ownBest.s.reasons.join(', ')}) — confirm`);
     return out;
   }
+
+  // 4a. Round V: ORDER-level cues — the subject / own text names the order (customer + month + grade + total qty).
+  const oc = orderCuesMatch(ev, records, cues, ownCues);
+  if (oc && oc.orders.length === 1 && !oc.ambiguous.length) {
+    const o = oc.orders[0];
+    const recs = records.filter((r) => r.orderId === o.orderId);
+    finish({ orderId: o.orderId, shipmentId: recs.length === 1 && recs[0].shipmentId ? recs[0].shipmentId : null }, 'order-cues', { kind: 'cues', confidence: 'cues', reason: `the subject names the order: ${o.why}`, hardKey: false });
+    out.check = []; // the subject IS the order's description; nothing to disagree with
+    out.blocked = out.blocked.filter((b) => !/^c:/.test(b));
+    return out;
+  }
+  if (oc?.ambiguous.length) out.notes.push(`order cues fit several orders: ${oc.ambiguous.join('; ')}`);
 
   // 5. The thread link. A combined thread follows the candidate the own text (else a single-product subject) describes.
   if (threadCombined.length > 1) {
@@ -490,10 +585,13 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
       out.blocked.push(`a: followed the thread's ${refOf(agree[0].cand.orderId, agree[0].cand.shipmentId)} by ${how} — confirm`);
       return out;
     }
+    // Round V: nothing in the reply says which — a link-only reply links to EVERY record the thread covers; one that
+    // files a document asks a person to pick.
+    out.links = threadCombined.map((c) => ({ orderId: c.orderId, shipmentId: c.shipmentId ?? null }));
     out.multiOrderIds = [...new Set(threadCombined.map((c) => c.orderId))];
-    out.reason = `this thread covers ${refs.join(' / ')} — pick the shipment`;
+    out.reason = `this thread covers ${refs.join(' / ')} — a link-only reply links to all of them; a document needs a person to pick`;
     out.blocked.push(`a: pick the shipment (thread covers ${refs.join('/')})`);
-    out.notes.push(`pick the shipment — the thread covers ${refs.join(' / ')}`);
+    out.notes.push(`the thread covers ${refs.join(' / ')}`);
     return out;
   }
   if (thread.accepted) {
@@ -505,6 +603,16 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
   if (thread.traced) {
     finish({ orderId: thread.traced.orderId, shipmentId: thread.traced.shipmentId }, 'thread', { kind: 'thread', confidence: 'thread', threadFrom: 'traced', keyLabel: thread.traced.keyLabel, reason: `${thread.traced.keyLabel} is in an earlier email of this thread${thread.traced.date ? ` (${thread.traced.date})` : ''}`, hardKey: false });
     out.blocked.push(`b: ${thread.traced.keyLabel} is in an earlier email of the thread, not in this one — confirm`);
+    return out;
+  }
+  // 5b. Round V: a multi-product subject naming several ORDERS (after the thread: a person's accepted link wins).
+  if (oc && oc.orders.length > 1) {
+    out.links = oc.orders.map((o) => ({ orderId: o.orderId, shipmentId: null }));
+    out.multiOrderIds = oc.orders.map((o) => o.orderId);
+    out.source = 'order-cues';
+    out.reason = `the subject names several orders: ${oc.orders.map((o) => o.why).join('; ')} — link-only emails link to all of them`;
+    out.notes.push(`orders named: ${oc.orders.map((o) => refOf(o.orderId, null)).join(', ')}`);
+    out.blocked.push(`a: several orders named (${oc.orders.map((o) => refOf(o.orderId, null)).join(', ')})`);
     return out;
   }
   // Own cues with a single-link thread that was not accepted / traced (plain) — still the email's own words.
@@ -551,7 +659,9 @@ export type AutoTier = 'high' | 'medium' | null;
 export function autoTier(d: MatchDecision, thread: ThreadInput): AutoTier {
   if (!d.target || d.check.length) return null;
   if (d.blocked.some((b) => /^d:/.test(b))) return null;
-  if (d.source === 'attachment' || d.source === 'own') return 'high';
+  if (d.source === 'attachment' || d.source === 'own' || d.source === 'order-cues') return 'high';
+  // Round V: a subject key whose subject also DESCRIBES that record (qty / grade / customer agree) is as good as a hard key.
+  if (d.source === 'subject' && d.reason && /corroborated/.test(d.reason)) return 'high';
   const t = threadContextOf(thread);
   if (!t.accepted) return null;
   const same = t.accepted.orderId === d.target.orderId && (t.accepted.shipmentId ?? null) === (d.target.shipmentId ?? null);

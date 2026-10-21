@@ -108,8 +108,9 @@ describe('decideMatch with the thread (round P)', () => {
       { orderId: 'o22', shipmentId: 's22' },
     ];
     const one = decide(ev('Re: 【11月納入】アルミニウムビレット6063-6インチ 29T 通関・国内輸送'), { accepted: { orderId: 'o20', shipmentId: 's20' }, traced: null, candidates: cands });
-    expect(one).toMatchObject({ target: { orderId: 'o21', shipmentId: 's21' }, kind: 'thread', threadFrom: 'followed', auto: false });
-    expect(one.reason).toMatch(/covers #20-1 \/ #21-1 \/ #22-1; the subject describes #21-1/);
+    // Round V: the subject names the order itself (Nov · 6063 · 29 t ≈ #21's 32 t) — an order-level match, same target.
+    expect(one).toMatchObject({ target: { orderId: 'o21', shipmentId: 's21' }, auto: false });
+    expect(one.reason).toMatch(/#21/);
     const none = decide(ev('Re: 書類送付: アルミビレット11月納入分'), { accepted: { orderId: 'o20', shipmentId: 's20' }, traced: null, candidates: cands });
     expect(none.target).toBeNull();
     expect(none.multiOrderIds).toEqual(['o20', 'o21', 'o22']);

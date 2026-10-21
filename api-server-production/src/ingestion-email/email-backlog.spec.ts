@@ -79,7 +79,9 @@ describe('round R follow-up: empty, general, inherit the thread, multi-link a sc
     expect(v).toMatchObject({ kind: 'INHERIT_THREAD' });
     expect(v.reason).toMatch(/3 link/);
     // With its own text it is judged on that text instead.
-    expect(classifyEmail(base({ subject: 'Re: 【11月納入】…', ownTextEmpty: false, threadLinks: links, multiOrderIds: ['o20', 'o21', 'o22'] })).kind).toBe('PICK');
+    // Round V: a reply WITH text but nothing to file still follows the thread (link-only is never Unprocessed); one that files asks a person.
+    expect(classifyEmail(base({ subject: 'Re: 【11月納入】…', ownTextEmpty: false, threadLinks: links, multiOrderIds: ['o20', 'o21', 'o22'] })).kind).toBe('INHERIT_THREAD');
+    expect(classifyEmail(base({ subject: 'Re: 【11月納入】…', ownTextEmpty: false, filesSomething: true, attachments: [{ name: 'AN.pdf', slot: 'ARRIVAL_NOTICE' }], threadLinks: links, multiOrderIds: ['o20', 'o21', 'o22'] })).kind).toBe('PICK');
   });
   it('a schedule sheet covering several candidate shipments → MULTI_LINK (linked to all, nothing filed)', () => {
     const cands = [{ orderId: 'o15', shipmentId: 's15', ref: '#15-1' }, { orderId: 'o16', shipmentId: 's16a', ref: '#16-1' }, { orderId: 'o16', shipmentId: 's16b', ref: '#16-2' }];

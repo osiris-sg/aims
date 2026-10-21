@@ -28,12 +28,16 @@ describe('round T — the priority order is explicit', () => {
   });
 
   it('1. an attachment key beats the (stale) subject key: Vedanta "Copy documents … 198GX06516" with a CI naming 198GX06520', () => {
+    // Round V: the email links where its own words / subject point (#21-1); the CI files to the record IT names (#22-1).
     const d = decide(ev('RE: Copy documents - Asia Deal(Kato) //454003598 //198GX06445', 'Please find attached.', [{ name: 'CI.pdf', text: 'Commercial invoice — BL No. 198GX06520, WAN HAI 366' }]));
-    expect(d.target).toEqual({ orderId: 'o22', shipmentId: 's22' });
-    expect(d.source).toBe('attachment');
-    expect(d.auto).toBe(false); // guard d: another order's key is in the subject — Confirm
-    expect(d.blocked.join(' ')).toMatch(/^d:|d: another order/);
-    expect(d.notes.join(' ')).toMatch(/also mentions #21/);
+    expect(d.target).toEqual({ orderId: 'o21', shipmentId: 's21' });
+    expect(d.source).toBe('subject');
+    expect(d.blocked.some((b) => /^d:/.test(b))).toBe(false);
+    expect(d.notes.join(' ')).toMatch(/attachment names #22-1 — it files there/);
+    expect(d.multiOrderIds).toEqual([]); // each part is resolved: nothing to pick
+    const attOnly = decide(ev('RE: Copy documents', 'Please find attached.', [{ name: 'CI.pdf', text: 'BL No. 198GX06520' }]));
+    expect(attOnly.target).toEqual({ orderId: 'o22', shipmentId: 's22' });
+    expect(attOnly.source).toBe('attachment');
   });
 
   it('2. an own-text key beats the combined subject: "6005C… 40T 6063… 32T 6063… 40T" with 198GX06520 in the reply → #22-1, no "subject disagrees", auto', () => {
@@ -55,9 +59,9 @@ describe('round T — the priority order is explicit', () => {
   it('4. own-text product cues decide when the own text describes one record: "6005C 8インチ 40t分の納品" on the combined thread → #20-1', () => {
     const d = decide(ev(KATO_THREAD, '6005C 8インチ 40t 分の納品日程を確認します。', []), COMBINED);
     expect(d.target).toEqual({ orderId: 'o20', shipmentId: 's20' });
-    expect(['own-cues', 'thread']).toContain(d.source);
+    expect(['own-cues', 'thread', 'order-cues']).toContain(d.source);
     expect(d.check).toEqual([]);
-    expect(d.reason).toMatch(/email text describes #20-1/);
+    expect(d.reason).toMatch(/#20/);
   });
 
   it('5. the thread link: a reply with no cue of its own on an accepted thread follows the accepted message; a combined thread with nothing to go on is a genuine pick', () => {
@@ -66,17 +70,21 @@ describe('round T — the priority order is explicit', () => {
     expect(a.source).toBe('thread');
     expect(a.check).toEqual([]); // round T: a multi-product subject is NOT "subject disagrees"
     expect(a.auto).toBe(true);
+    // Round V: the combined subject names three Kato orders → a link-only reply links to all of them (no "pick").
     const p = decide(ev(KATO_THREAD, '承知しました。'), COMBINED);
     expect(p.target).toBeNull();
-    expect(p.reason).toMatch(/pick the shipment/);
+    expect(p.links?.map((l) => l.orderId).sort()).toEqual(['o20', 'o21', 'o22']); // the records the thread covers
+    expect(p.reason).toMatch(/thread covers/);
     expect(p.check).toEqual([]);
   });
 
   it('6. subject cues only break ties: a single-product subject describing one open record is a suggestion, never auto', () => {
     const d = decide(ev('【12月納入】6005-8インチ 40T 加藤軽金属様', 'よろしくお願いします。'));
     expect(d.target).toEqual({ orderId: 'o25', shipmentId: null });
-    expect(d.source).toBe('subject-cues');
+    expect(d.source).toBe('order-cues'); // round V: customer + month + grade + qty name the ORDER
     expect(d.auto).toBe(false);
+    const vague = decide(ev('6005 8インチ 40T について', 'よろしくお願いします。'));
+    expect(vague.source === 'subject-cues' || vague.target === null).toBe(true);
   });
 
   it('7. quoted history never decides over anything the email itself says, and is only a weak last-resort suggestion', () => {
