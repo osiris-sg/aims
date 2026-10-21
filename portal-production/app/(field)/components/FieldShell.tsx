@@ -2,7 +2,7 @@
 
 import React, { useEffect } from "react";
 import { Box, GlobalStyles } from "@mui/material";
-import { ThemeProvider } from "@mui/material/styles";
+import { useTheme } from "@mui/material/styles";
 import { useAuth, useClerk } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { ToastContainer } from "react-toastify";
@@ -11,8 +11,7 @@ import { OrganizationProvider } from "../../portal/context/OrganizationContext";
 import { BackgroundLocationProvider } from "../context/BackgroundLocationContext";
 import { PushNotificationsProvider, unregisterDeviceToken } from "../context/PushNotificationsContext";
 import { useRoleGate } from "../../portal/hooks/useRoleGate";
-import { useThemeMode } from "@/contexts/ThemeModeContext";
-import { fieldDarkTheme, fieldLightTheme } from "@/themes/fieldTheme";
+import { FieldThemeProvider } from "../context/FieldThemeContext";
 import { FieldAppBarProvider } from "./FieldAppBar";
 
 interface Props {
@@ -45,8 +44,6 @@ export default function FieldShell({ children }: Props) {
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const { signOut } = useClerk();
   const { onlyNormalUser } = useRoleGate();
-  const { mode } = useThemeMode();
-  const fieldTheme = mode === "dark" ? fieldDarkTheme : fieldLightTheme;
 
   // If Clerk has loaded and the user isn't signed in, bounce out of the field
   // app — every endpoint requires a token, so staying here just shows blank
@@ -77,63 +74,75 @@ export default function FieldShell({ children }: Props) {
     <OrganizationProvider>
       <BackgroundLocationProvider>
         <PushNotificationsProvider>
-          {/* The field app's own look (SiteClock-style, themes/fieldTheme).
+          {/* The field app's own look (SiteClock-style, themes/fieldTheme) and
+              its own Light / Dark / Follow phone choice (FieldThemeContext).
               Scoped to this route group: the office portal keeps its theme,
               and the printed documents re-enter it via OfficeThemeScope. */}
-          <ThemeProvider theme={fieldTheme}>
-            <GlobalStyles
-              styles={{
-                body: { backgroundColor: fieldTheme.palette.background.default, color: fieldTheme.palette.text.primary },
-                // react-toastify, themed like SiteClock's floating snackbars.
-                ".Toastify__toast": {
-                  borderRadius: 12,
-                  fontFamily: fieldTheme.typography.fontFamily,
-                  fontSize: 14,
-                  fontWeight: 500,
-                  minHeight: 52,
-                  boxShadow: "0 6px 20px rgba(0,0,0,0.18)",
-                  margin: "0 12px 8px",
-                },
-                ".Toastify__toast-container--top-center": { top: "calc(8px + env(safe-area-inset-top, 0px))" },
-                ".Toastify__toast-theme--light": {
-                  background: fieldTheme.palette.mode === "dark" ? "#2A2F36" : "#1F2933",
-                  color: "#F4F6F9",
-                },
-                ".Toastify__toast-theme--dark": { background: "#E3E6EB", color: "#1A1C1F" },
-                ".Toastify__close-button": { color: "inherit", opacity: 0.7 },
-              }}
-            />
-            <Box
-              sx={{
-                minHeight: "100vh",
-                width: "100%",
-                display: "flex",
-                flexDirection: "column",
-                bgcolor: "background.default",
-                color: "text.primary",
-                fontFamily: fieldTheme.typography.fontFamily,
-              }}
-            >
-              {/* The top bar carries the sign-out button (it used to float
-                  top-right on every screen). */}
-              <FieldAppBarProvider onSignOut={handleSignOut}>{children}</FieldAppBarProvider>
-              {/* Field-flow toasts (e.g. "Item created and assigned to …"). Lives
-                  at the layout level so a toast fired right before a
-                  router.replace survives the navigation. */}
-              <ToastContainer
-                position="top-center"
-                autoClose={3000}
-                hideProgressBar
-                newestOnTop
-                closeOnClick
-                pauseOnFocusLoss={false}
-                draggable
-                theme={mode === "dark" ? "dark" : "light"}
-              />
-            </Box>
-          </ThemeProvider>
+          <FieldThemeProvider>
+            <FieldShellBody onSignOut={handleSignOut}>{children}</FieldShellBody>
+          </FieldThemeProvider>
         </PushNotificationsProvider>
       </BackgroundLocationProvider>
     </OrganizationProvider>
+  );
+}
+
+/** Everything under the field theme: global styles, page column, app bar, toasts. */
+function FieldShellBody({ onSignOut, children }: { onSignOut: () => void; children: React.ReactNode }) {
+  const fieldTheme = useTheme();
+  const mode = fieldTheme.palette.mode;
+  return (
+    <>
+      <GlobalStyles
+        styles={{
+          body: { backgroundColor: fieldTheme.palette.background.default, color: fieldTheme.palette.text.primary },
+          // react-toastify, themed like SiteClock's floating snackbars.
+          ".Toastify__toast": {
+            borderRadius: 12,
+            fontFamily: fieldTheme.typography.fontFamily,
+            fontSize: 14,
+            fontWeight: 500,
+            minHeight: 52,
+            boxShadow: "0 6px 20px rgba(0,0,0,0.18)",
+            margin: "0 12px 8px",
+          },
+          ".Toastify__toast-container--top-center": { top: "calc(8px + env(safe-area-inset-top, 0px))" },
+          ".Toastify__toast-theme--light": {
+            background: mode === "dark" ? "#2A2F36" : "#1F2933",
+            color: "#F4F6F9",
+          },
+          ".Toastify__toast-theme--dark": { background: "#E3E6EB", color: "#1A1C1F" },
+          ".Toastify__close-button": { color: "inherit", opacity: 0.7 },
+        }}
+      />
+      <Box
+        sx={{
+          minHeight: "100vh",
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          bgcolor: "background.default",
+          color: "text.primary",
+          fontFamily: fieldTheme.typography.fontFamily,
+        }}
+      >
+        {/* The top bar carries the sign-out button (it used to float
+            top-right on every screen) and the theme choice. */}
+        <FieldAppBarProvider onSignOut={onSignOut}>{children}</FieldAppBarProvider>
+        {/* Field-flow toasts (e.g. "Item created and assigned to …"). Lives
+            at the layout level so a toast fired right before a
+            router.replace survives the navigation. */}
+        <ToastContainer
+          position="top-center"
+          autoClose={3000}
+          hideProgressBar
+          newestOnTop
+          closeOnClick
+          pauseOnFocusLoss={false}
+          draggable
+          theme={mode === "dark" ? "dark" : "light"}
+        />
+      </Box>
+    </>
   );
 }

@@ -1,16 +1,22 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Box, IconButton, Tooltip, Typography } from "@mui/material";
+import { Box, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import LogoutIcon from "@mui/icons-material/Logout";
+import LightModeIcon from "@mui/icons-material/LightMode";
+import DarkModeIcon from "@mui/icons-material/DarkMode";
+import BrightnessAutoIcon from "@mui/icons-material/BrightnessAuto";
+import CheckIcon from "@mui/icons-material/Check";
 import { fieldChrome } from "@/themes/fieldTheme";
+import { useFieldTheme, type FieldThemePreference } from "../context/FieldThemeContext";
 
 /**
  * The field app's top bar (SiteClock AppBar): navy in light, dark surface in
- * dark, rendered ONCE by the field layout so the sign-out button is on every
- * screen (it used to float top-right at zIndex 1200; the bar keeps that layer).
+ * dark, rendered ONCE by the field layout so the sign-out button and the theme
+ * choice (Light / Dark / Follow phone) are on every screen (sign-out used to
+ * float top-right at zIndex 1200; the bar keeps that layer).
  *
  * Screens describe the bar with `useFieldAppBar({ title, onBack })`:
  * - no title  -> the AIMS wordmark (home tabs pass `section` as the suffix);
@@ -160,6 +166,7 @@ function FieldAppBar({
             </Box>
           )}
         </Box>
+        <ThemeChoiceButton color={fg} />
         <Tooltip title="Sign out">
           <IconButton aria-label="Sign out" onClick={onSignOut} sx={{ color: fg }}>
             <LogoutIcon />
@@ -167,5 +174,68 @@ function FieldAppBar({
         </Tooltip>
       </Box>
     </Box>
+  );
+}
+
+const THEME_CHOICES: { value: FieldThemePreference; label: string; Icon: typeof LightModeIcon }[] = [
+  { value: "light", label: "Light", Icon: LightModeIcon },
+  { value: "dark", label: "Dark", Icon: DarkModeIcon },
+  { value: "system", label: "Follow phone", Icon: BrightnessAutoIcon },
+];
+
+/**
+ * Sun / moon / auto icon next to sign-out opening the Light / Dark / Follow
+ * phone menu. Saved per device by FieldThemeContext and applied instantly.
+ * A stable toolbar button, so an element anchor is fine here (the row-menu
+ * click-position rule is for tables that re-render under the menu).
+ */
+function ThemeChoiceButton({ color }: { color: string }) {
+  const { preference, setPreference } = useFieldTheme();
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const current = THEME_CHOICES.find((c) => c.value === preference) ?? THEME_CHOICES[2];
+  const CurrentIcon = current.Icon;
+  return (
+    <>
+      <Tooltip title={`Theme: ${current.label}`}>
+        <IconButton
+          aria-label="Theme"
+          aria-haspopup="menu"
+          aria-expanded={anchorEl ? "true" : undefined}
+          onClick={(e) => setAnchorEl(e.currentTarget)}
+          sx={{ color }}
+        >
+          <CurrentIcon />
+        </IconButton>
+      </Tooltip>
+      <Menu
+        anchorEl={anchorEl}
+        open={!!anchorEl}
+        onClose={() => setAnchorEl(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{ paper: { sx: { minWidth: 200, mt: 0.5 } } }}
+      >
+        {THEME_CHOICES.map(({ value, label, Icon }) => {
+          const selected = value === preference;
+          return (
+            <MenuItem
+              key={value}
+              selected={selected}
+              onClick={() => {
+                setPreference(value);
+                setAnchorEl(null);
+              }}
+              sx={{ minHeight: 44 }}
+            >
+              <ListItemIcon>
+                <Icon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary={label} primaryTypographyProps={{ fontWeight: selected ? 700 : 500 }} />
+              {selected && <CheckIcon fontSize="small" sx={{ ml: 1.5, color: "primary.main" }} />}
+            </MenuItem>
+          );
+        })}
+      </Menu>
+    </>
   );
 }

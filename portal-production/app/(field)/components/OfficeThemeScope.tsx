@@ -3,8 +3,6 @@
 import React from "react";
 import { ThemeProvider } from "@mui/material/styles";
 import lightTheme from "@/themes/lightTheme";
-import darkTheme from "@/themes/darkTheme";
-import { useThemeMode } from "@/contexts/ThemeModeContext";
 
 /**
  * Re-provides the OFFICE theme inside the field app, for the printed-document
@@ -14,8 +12,11 @@ import { useThemeMode } from "@/contexts/ThemeModeContext";
  * spreading the PARENT theme, so under the field theme they would pick up the
  * field typography and component overrides and the paper would change. Wrapping
  * them here keeps the parent exactly what it was before the field redesign.
+ *
+ * Always the LIGHT office theme: these are paper documents, and they keep
+ * their fixed light look whatever the rider chose for the app (Light / Dark /
+ * Follow phone) and whatever the office portal's own toggle says.
  */
 export default function OfficeThemeScope({ children }: { children: React.ReactNode }) {
-  const { mode } = useThemeMode();
-  return <ThemeProvider theme={mode === "dark" ? darkTheme : lightTheme}>{children}</ThemeProvider>;
+  return <ThemeProvider theme={lightTheme}>{children}</ThemeProvider>;
 }
