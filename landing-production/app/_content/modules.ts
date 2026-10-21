@@ -212,7 +212,7 @@ export const MODULE_PAGES: ModulePage[] = [
       },
       {
         title: "Attendance from the field app.",
-        body: "Technicians already carry the AIMS Field app. Clock in and out on the same phone, with location.",
+        body: "Technicians already carry the SiteJobs field app. Clock in and out on the same phone, with location.",
         bullets: ["NFC or GPS clock-in", "Hours per project", "Exceptions flagged for review"],
       },
       {

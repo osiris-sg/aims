@@ -136,7 +136,7 @@ export default function MaintenanceReportsListPage() {
         {/* Disabled "New Report" button — reports originate from the field app's
             NFC scan flow. The span wrapper is required because MUI disabled
             buttons don't fire pointer events, which would suppress the Tooltip. */}
-        <Tooltip title="Use the AIMS Field app to create reports">
+        <Tooltip title="Use the SiteJobs app to create reports">
           <span>
             <Button
               variant="contained"

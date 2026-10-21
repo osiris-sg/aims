@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Box, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip, Typography } from "@mui/material";
+import { Box, Divider, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import LogoutIcon from "@mui/icons-material/Logout";
@@ -9,6 +9,8 @@ import LightModeIcon from "@mui/icons-material/LightMode";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import BrightnessAutoIcon from "@mui/icons-material/BrightnessAuto";
 import CheckIcon from "@mui/icons-material/Check";
+import PolicyIcon from "@mui/icons-material/Policy";
+import { PRIVACY_POLICY_URL } from "@/lib/legal";
 import { fieldChrome } from "@/themes/fieldTheme";
 import { useFieldTheme, type FieldThemePreference } from "../context/FieldThemeContext";
 
@@ -185,7 +187,8 @@ const THEME_CHOICES: { value: FieldThemePreference; label: string; Icon: typeof 
 
 /**
  * Sun / moon / auto icon next to sign-out opening the Light / Dark / Follow
- * phone menu. Saved per device by FieldThemeContext and applied instantly.
+ * phone menu, plus the privacy policy link (Play requires it to be reachable
+ * in-app). Saved per device by FieldThemeContext and applied instantly.
  * A stable toolbar button, so an element anchor is fine here (the row-menu
  * click-position rule is for tables that re-render under the menu).
  */
@@ -235,6 +238,15 @@ function ThemeChoiceButton({ color }: { color: string }) {
             </MenuItem>
           );
         })}
+        <Divider sx={{ my: 0.5 }} />
+        {/* target=_blank: the Capacitor shell hands a new-window request to the
+            system browser, so the policy opens in Chrome and Back returns here. */}
+        <MenuItem component="a" href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer" onClick={() => setAnchorEl(null)} sx={{ minHeight: 44 }}>
+          <ListItemIcon>
+            <PolicyIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Privacy policy" primaryTypographyProps={{ fontWeight: 500 }} />
+        </MenuItem>
       </Menu>
     </>
   );

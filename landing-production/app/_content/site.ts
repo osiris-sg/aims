@@ -186,6 +186,7 @@ export const FOOTER = {
       title: "Company",
       links: [
         { label: "Book a demo", href: DEMO_URL },
+        { label: "Privacy policy", href: "/privacy" },
       ],
     },
   ],
@@ -205,7 +206,7 @@ export const BADGE_LABEL: Record<ModuleBadge, string> = {
  */
 export type Screen = { file: string; alt: string; kind: "desktop" | "phone"; caption?: string };
 export const SCREENS: Record<string, Screen> = {
-  "field-scan": { file: "field-scan.png", alt: "AIMS Field app: tap an asset tag", kind: "phone", caption: "Tap an asset tag" },
+  "field-scan": { file: "field-scan.png", alt: "SiteJobs field app: tap an asset tag", kind: "phone", caption: "Tap an asset tag" },
   "field-photos": { file: "field-photos.png", alt: "Guided 4-angle condition photo capture", kind: "phone", caption: "Guided 4-angle condition photos" },
   "field-route": { file: "field-route.png", alt: "Completed delivery run with photos, signature and linked Delivery Order", kind: "desktop", caption: "Proof of delivery in the office" },
   "guest-delivery": { file: "guest-delivery.png", alt: "Zero-login delivery link for a driver", kind: "phone", caption: "Zero-login driver link" },
@@ -224,7 +225,7 @@ export const SCREENS: Record<string, Screen> = {
 export const FIELD_BAND = {
   eyebrow: "In the field",
   title: "Proof that comes back from the van by itself.",
-  body: "The AIMS Field app on an Android handheld: tap the NFC sticker, let AI read the nameplate, walk the four-angle photo set, take one signature at the end. and the Delivery Order and a priced draft invoice are already in the office.",
+  body: "The SiteJobs field app on an Android handheld: tap the NFC sticker, let AI read the nameplate, walk the four-angle photo set, take one signature at the end. and the Delivery Order and a priced draft invoice are already in the office.",
   points: [
     "NFC tap identifies the unit; AI reads model + serial off the label",
     "Front · Left · Back · Right photos, enforced on the phone and the server; before/after side-by-side on return",

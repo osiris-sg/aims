@@ -29,11 +29,11 @@ export const metadata: Metadata = {
   icons: { icon: "/favicon.png", apple: "/apple-icon.png" },
   manifest: "/manifest.json",
   // iOS "Add to Home Screen": launch full-screen (no Safari chrome), label the
-  // home-screen icon "AIMS Field", and keep the default status-bar style. The
+  // home-screen icon "SiteJobs", and keep the default status-bar style. The
   // apple-touch-icon itself is served from app/apple-icon.png by convention.
   appleWebApp: {
     capable: true,
-    title: "AIMS Field",
+    title: "SiteJobs",
     statusBarStyle: "default",
   },
 };

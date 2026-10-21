@@ -1,21 +1,43 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# SiteJobs release build (minify + shrinkResources on). Capacitor finds plugin
+# methods by reflection, so plugin classes and their annotated methods must
+# survive R8. Capacitor's AAR ships consumer rules for @CapacitorPlugin; the
+# rules below restate them for our own plugins and the third-party ones, and
+# keep Firebase Messaging, which is registered through the manifest.
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Capacitor core + bridge
+-keep class com.getcapacitor.** { *; }
+-keep @com.getcapacitor.annotation.CapacitorPlugin public class * {
+    @com.getcapacitor.annotation.PermissionCallback <methods>;
+    @com.getcapacitor.annotation.ActivityCallback <methods>;
+    @com.getcapacitor.annotation.Permission <methods>;
+    @com.getcapacitor.PluginMethod public <methods>;
+}
+-keep @com.getcapacitor.NativePlugin public class * {
+    @com.getcapacitor.PluginMethod public <methods>;
+}
+-keepclassmembers class * extends com.getcapacitor.Plugin { public <methods>; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Our plugins (BtPrinter, DeviceCamera, SystemPrint) and the PdfPrint helper
+-keep class so.osiris.aims.field.** { *; }
+-keep class android.print.PdfPrintCallbacks { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Capacitor community / Capgo plugins
+-keep class com.capacitorjs.plugins.** { *; }
+-keep class com.capgo.** { *; }
+-keep class app.capgo.** { *; }
+-keep class io.ionic.** { *; }
+
+# Firebase Cloud Messaging (push notifications)
+-keep class com.google.firebase.** { *; }
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.firebase.**
+-dontwarn com.google.android.gms.**
+
+# JS interface: the bridge exposes methods to the WebView by name
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+-keepattributes JavascriptInterface, *Annotation*, Signature, InnerClasses, EnclosingMethod
+
+# Keep the names R8 would otherwise obfuscate in stack traces we read
+-keepattributes SourceFile, LineNumberTable

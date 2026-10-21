@@ -38,7 +38,7 @@ import { request } from "@/helpers/request";
 
 const STORAGE_KEY = "aims-field-active-delivery";
 const PING_INTERVAL_M = 0; // 0 = emit on every native callback (OS-driven timing)
-const NOTIFICATION_TITLE = "AIMS Field — Tracking delivery";
+const NOTIFICATION_TITLE = "SiteJobs: tracking delivery";
 const NOTIFICATION_MESSAGE =
   "Recording GPS location until you acknowledge the delivery.";
 
@@ -57,6 +57,11 @@ const MAX_QUEUE = 1000; // hard cap; oldest fixes evicted beyond this (bounded m
 // Shown once (until the tech visits Settings) to explain that Android needs
 // "Allow all the time" for tracking to survive the screen turning off.
 const BG_NOTICE_KEY = "aims-field-bg-location-notice-ack";
+// Google Play "prominent disclosure" for background location: a full-screen
+// in-app notice shown BEFORE the first location permission request, stating
+// what is collected, when, and why. "Continue" remembers the acceptance on
+// this device; "Not now" starts nothing and asks again next delivery.
+const BG_DISCLOSURE_KEY = "aims-field-bg-location-disclosure-ack";
 
 interface ActiveDelivery {
   reportId: string;
@@ -137,6 +142,42 @@ export function BackgroundLocationProvider({
   // background-location prompt from JS with this plugin, so we explain and route
   // to Settings via BackgroundGeolocation.openSettings()).
   const [bgNoticeOpen, setBgNoticeOpen] = useState(false);
+
+  // Prominent disclosure (see BG_DISCLOSURE_KEY). start() awaits the rider's
+  // answer through this resolver before it asks the OS for location.
+  const [disclosureOpen, setDisclosureOpen] = useState(false);
+  const disclosureResolveRef = useRef<((accepted: boolean) => void) | null>(null);
+  const ensureDisclosureAccepted = useCallback(
+    () =>
+      new Promise<boolean>((resolve) => {
+        let acked = false;
+        try {
+          acked = window.localStorage.getItem(BG_DISCLOSURE_KEY) === "1";
+        } catch {
+          acked = false;
+        }
+        if (acked) {
+          resolve(true);
+          return;
+        }
+        disclosureResolveRef.current = resolve;
+        setDisclosureOpen(true);
+      }),
+    [],
+  );
+  const answerDisclosure = useCallback((accepted: boolean) => {
+    if (accepted) {
+      try {
+        window.localStorage.setItem(BG_DISCLOSURE_KEY, "1");
+      } catch {
+        // Storage unavailable: the notice shows again next delivery.
+      }
+    }
+    setDisclosureOpen(false);
+    const resolve = disclosureResolveRef.current;
+    disclosureResolveRef.current = null;
+    resolve?.(accepted);
+  }, []);
 
   // Drain the queue: POST buffered fixes in batches. A failed batch is LEFT in
   // the queue and retried on the next tick (or the next `online` event) instead
@@ -236,6 +277,14 @@ export function BackgroundLocationProvider({
             "Background tracking only runs inside the Android shell, not in browser sessions.",
         );
         setError("Background tracking is only available in the native app.");
+        return;
+      }
+      // Play policy: disclose background collection before the OS prompt.
+      // Declining starts nothing (no active record, so no resume either); the
+      // delivery itself carries on without a recorded route.
+      if (!opts?.isResume && !(await ensureDisclosureAccepted())) {
+        // eslint-disable-next-line no-console
+        console.log("[bgLocation] tracking not started: disclosure declined");
         return;
       }
       setError(null);
@@ -353,7 +402,7 @@ export function BackgroundLocationProvider({
         clearActive();
       }
     },
-    [isAvailable, getToken, enqueuePing, flushQueue],
+    [isAvailable, getToken, enqueuePing, flushQueue, ensureDisclosureAccepted],
   );
 
   const stop = useCallback(async () => {
@@ -490,6 +539,97 @@ export function BackgroundLocationProvider({
   return (
     <BackgroundLocationContext.Provider value={value}>
       {children}
+      {disclosureOpen && (
+        // Full-screen, plain inline styles (no MUI) so it renders the same on
+        // every device, and fixed light like the other document-style surfaces.
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="aims-bg-disclosure-title"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 2001,
+            background: "#FFFFFF",
+            color: "#1A1C1F",
+            display: "flex",
+            flexDirection: "column",
+            padding: "calc(24px + env(safe-area-inset-top, 0px)) 24px calc(24px + env(safe-area-inset-bottom, 0px))",
+            fontFamily: "Roboto, system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif",
+          }}
+        >
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", maxWidth: 480, width: "100%", margin: "0 auto" }}>
+            <div
+              aria-hidden="true"
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: 20,
+                background: "#E3EEFB",
+                color: "#14365C",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 20,
+              }}
+            >
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z" />
+              </svg>
+            </div>
+            <h2 id="aims-bg-disclosure-title" style={{ margin: "0 0 12px", fontSize: 22, fontWeight: 800, lineHeight: 1.25, letterSpacing: "-0.01em" }}>
+              SiteJobs records your location during deliveries
+            </h2>
+            <p style={{ margin: "0 0 12px", fontSize: 15, lineHeight: 1.55 }}>
+              SiteJobs collects location data to record the delivery route while a delivery you started is active,{" "}
+              <strong>even when the app is closed or not in use</strong>. Recording stops when the delivery is acknowledged
+              or the run ends, and a notification is shown the whole time.
+            </p>
+            <p style={{ margin: "0 0 12px", fontSize: 15, lineHeight: 1.55 }}>
+              The route is saved with the delivery as proof of delivery for your organisation and its customer. It is not
+              used for advertising and is never sold.
+            </p>
+            <p style={{ margin: "0 0 24px", fontSize: 13.5, lineHeight: 1.5, color: "#5A6472" }}>
+              Next, Android will ask for location permission. To keep recording with the screen off, choose{" "}
+              <strong>Allow all the time</strong> in the app&apos;s location settings. You can change this at any time in
+              Settings.
+            </p>
+            <button
+              type="button"
+              onClick={() => answerDisclosure(true)}
+              style={{
+                width: "100%",
+                minHeight: 48,
+                borderRadius: 12,
+                border: "none",
+                background: "#14365C",
+                color: "#FFFFFF",
+                fontSize: 15,
+                fontWeight: 700,
+                marginBottom: 10,
+              }}
+            >
+              Continue
+            </button>
+            <button
+              type="button"
+              onClick={() => answerDisclosure(false)}
+              style={{
+                width: "100%",
+                minHeight: 44,
+                borderRadius: 12,
+                border: "1px solid #D7DDE5",
+                background: "#FFFFFF",
+                color: "#14365C",
+                fontSize: 15,
+                fontWeight: 600,
+              }}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
       {bgNoticeOpen && (
         // Plain inline-styled overlay (no MUI dependency) so it renders reliably
         // inside the field route group on the Sunmi device. Screen only.

@@ -134,7 +134,7 @@ export default function PrintReportPage() {
 
       {!isSystemPrintAvailable() && (
         <Alert severity="info" sx={{ width: "100%", maxWidth: 360 }}>
-          Printing and saving need the AIMS Field app.
+          Printing and saving need the SiteJobs app.
         </Alert>
       )}
 
