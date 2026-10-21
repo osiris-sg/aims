@@ -19,6 +19,8 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 // temp-signature module.
 const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
+  // Fixture previews (round P): the page itself 404s unless PREVIEW_FIXTURES=1.
+  "/preview(.*)",
   "/guest(.*)",
   "/pay(.*)",
   "/sign/(.*)",

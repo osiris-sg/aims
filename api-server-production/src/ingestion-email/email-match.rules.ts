@@ -268,7 +268,28 @@ export interface MatchDecision {
   candidates: Candidate[];
   /** "B/L 198GX04630" — what an auto-apply is labelled with in Processed. */
   keyLabel: string | null;
+  /** Round P: one line saying how the match was found ("B/L 198GX… from an earlier email of this thread"). */
+  reason: string | null;
+  /** Round P, thread matches: inherited from an accepted / auto-applied message, or traced back to a key in an earlier message. */
+  threadFrom?: 'accepted' | 'traced' | 'followed' | null;
 }
+
+/**
+ * Round P: what the email's thread already knows (the service gathers it from the stored earlier messages —
+ * Message-ID chain, else the same subject).
+ *   accepted    an earlier message a person accepted (or PARTIAL_AUTO applied) — the thread's link
+ *   traced      the EARLIEST message of the thread whose own subject / attachment names carry a record key
+ *   candidates  the distinct orders / shipments the thread's messages are linked to (a combined thread covers
+ *               several) — a reply naming only one product follows that one, else "pick the shipment"
+ */
+export interface ThreadContext {
+  accepted: { orderId: string; shipmentId: string | null } | null;
+  traced: { orderId: string; shipmentId: string | null; keyLabel: string; date: string | null } | null;
+  candidates: Array<{ orderId: string; shipmentId: string | null }>;
+}
+/** The pre-round-P shape (an accepted earlier email) still works. */
+export type ThreadInput = ThreadContext | { orderId: string; shipmentId: string | null } | null;
+const threadContextOf = (t: ThreadInput): ThreadContext => (!t ? { accepted: null, traced: null, candidates: [] } : 'accepted' in t || 'traced' in t ? (t as ThreadContext) : { accepted: t as { orderId: string; shipmentId: string | null }, traced: null, candidates: [] });
 
 const KIND_LABEL: Record<KeyHit['kind'], string> = { bl: 'B/L', pi: 'PI', ci: 'CI' };
 const KIND_RANK: Record<KeyHit['kind'], number> = { pi: 0, bl: 1, ci: 2 };
@@ -282,8 +303,9 @@ const KIND_RANK: Record<KeyHit['kind'], number> = { pi: 0, bl: 1, ci: 2 };
  *   3. Subject cues: the best-scoring open record when clearly ahead (≥ 4 and ≥ 2 above the next) ("cues").
  * Candidates: the top 3 by subject cues (a key hit adds 10), with reasons — the inbox picker shows them first.
  */
-export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; hits: KeyHit[]; thread: { orderId: string; shipmentId: string | null } | null }): MatchDecision {
-  const { ev, records, thread } = input;
+export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; hits: KeyHit[]; thread: ThreadInput }): MatchDecision {
+  const { ev, records } = input;
+  const thread = threadContextOf(input.thread);
   const cues = subjectCues(ev.subject, ev.date);
   const recOf = (orderId: string, shipmentId: string | null) => records.find((r) => r.orderId === orderId && (shipmentId === null || r.shipmentId === shipmentId)) ?? null;
   const strong = (h: KeyHit) => h.where.includes('subject') || h.where.includes('attachment');
@@ -305,7 +327,11 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
     .sort((a, b) => b.score - a.score);
   const candidates: Candidate[] = scored.slice(0, 3).map((x) => ({ orderId: x.r.orderId, shipmentId: x.r.shipmentId, ref: recordRef(x.r), score: x.score, reasons: x.reasons }));
 
-  const out: MatchDecision = { target: null, kind: null, confidence: 'none', auto: false, blocked: [], check: [], multiOrderIds: [], candidates, keyLabel: null };
+  const out: MatchDecision = { target: null, kind: null, confidence: 'none', auto: false, blocked: [], check: [], multiOrderIds: [], candidates, keyLabel: null, reason: null, threadFrom: null };
+  const refOf = (orderId: string, shipmentId: string | null) => {
+    const r = recOf(orderId, shipmentId);
+    return r ? recordRef(r) : `#${records.find((x) => x.orderId === orderId)?.orderNo ?? '?'}`;
+  };
   if (dropped.length) out.check.push(`ignored ${dropped.map((h) => `${KIND_LABEL[h.kind]} ${h.value}`).join(', ')} — only in the quoted body, and the subject describes another order`);
   if (cues.multi) out.check.push('the subject names several products — pick the shipment(s)');
 
@@ -340,6 +366,7 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
       out.kind = mine[0].kind;
       out.confidence = 'exact';
       out.keyLabel = `${KIND_LABEL[mine[0].kind]} ${mine[0].value}`;
+      out.reason = `${out.keyLabel} is in the ${mine[0].where.includes('subject') ? 'subject' : mine[0].where.includes('attachment') ? 'attachment' : 'quoted text'}`;
       if (!mine.some(strong)) out.blocked.push(`b: ${out.keyLabel} is only in the body (quoted / forwarded text)`);
       const rec = recOf(orderId, shipmentId);
       const conflicts = rec ? cueConflicts(cues, rec) : [];
@@ -358,10 +385,62 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
     return out;
   }
   out.blocked.push('a: no exact B/L / PI / CI of a record in the email');
-  if (thread) {
-    out.target = thread;
+  // Round P — the thread. 1. An accepted / auto-applied earlier message: the same link ("thread" — a person may
+  // have confirmed it; auto only link-only, see the service). 2. A combined thread (several links): the reply
+  // follows the one its subject describes, else "pick the shipment". 3. The earliest key in the thread.
+  const combined = thread.candidates.length > 1 ? thread.candidates : thread.candidates.length === 1 && thread.accepted && (thread.candidates[0].orderId !== thread.accepted.orderId || (thread.candidates[0].shipmentId ?? null) !== (thread.accepted.shipmentId ?? null)) ? [thread.accepted, ...thread.candidates] : [];
+  if (combined.length > 1) {
+    const refs = combined.map((c) => refOf(c.orderId, c.shipmentId));
+    const agree = combined
+      .map((c) => ({ c, rec: recOf(c.orderId, c.shipmentId) }))
+      .filter(({ rec }) => rec && !cueConflicts(cues, rec).length && cueScore(cues, rec).score > 0)
+      .map(({ c, rec }) => ({ c, s: cueScore(cues, rec!) }))
+      .sort((a, b) => b.s.score - a.s.score);
+    if (!cues.multi && agree.length && (agree.length === 1 || agree[0].s.score > agree[1].s.score)) {
+      out.target = agree[0].c;
+      out.kind = 'thread';
+      out.confidence = 'thread';
+      out.threadFrom = 'followed';
+      out.reason = `this thread covers ${refs.join(' / ')}; the subject describes ${refOf(agree[0].c.orderId, agree[0].c.shipmentId)} (${agree[0].s.reasons.join(', ')})`;
+      out.blocked.push(`a: followed the thread's ${refOf(agree[0].c.orderId, agree[0].c.shipmentId)} by the subject — confirm`);
+      return out;
+    }
+    out.multiOrderIds = [...new Set(combined.map((c) => c.orderId))];
+    out.reason = `this thread covers ${refs.join(' / ')} — pick the shipment`;
+    out.blocked.push(`a: pick the shipment (thread covers ${refs.join('/')})`);
+    out.check.push(`pick the shipment — the thread covers ${refs.join(' / ')}`);
+    return out;
+  }
+  if (thread.accepted) {
+    out.target = thread.accepted;
     out.kind = 'thread';
     out.confidence = 'thread';
+    out.threadFrom = 'accepted';
+    out.reason = `an earlier email of this thread was linked to ${refOf(thread.accepted.orderId, thread.accepted.shipmentId)}`;
+    const rec = recOf(thread.accepted.orderId, thread.accepted.shipmentId);
+    const conflicts = rec ? cueConflicts(cues, rec) : [];
+    if (conflicts.length) {
+      out.blocked.push(`c: the subject disagrees (${conflicts.join('; ')})`);
+      out.check.push(...conflicts);
+    }
+    // Link-only auto (the service also requires: nothing to file). A reply that files documents stays "Confirm match".
+    out.auto = !conflicts.length && !cues.multi;
+    return out;
+  }
+  if (thread.traced) {
+    out.target = { orderId: thread.traced.orderId, shipmentId: thread.traced.shipmentId };
+    out.kind = 'thread';
+    out.confidence = 'thread';
+    out.threadFrom = 'traced';
+    out.keyLabel = thread.traced.keyLabel;
+    out.reason = `${thread.traced.keyLabel} is in an earlier email of this thread${thread.traced.date ? ` (${thread.traced.date})` : ''}`;
+    out.blocked.push(`b: ${thread.traced.keyLabel} is in an earlier email of the thread, not in this one — confirm`);
+    const rec = recOf(thread.traced.orderId, thread.traced.shipmentId);
+    const conflicts = rec ? cueConflicts(cues, rec) : [];
+    if (conflicts.length) {
+      out.blocked.push(`c: the subject disagrees (${conflicts.join('; ')})`);
+      out.check.push(...conflicts);
+    }
     return out;
   }
   const open = scored.filter((x) => x.open);
@@ -370,10 +449,12 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
     out.target = { orderId: best.r.orderId, shipmentId: best.r.shipmentId };
     out.kind = 'cues';
     out.confidence = 'cues';
+    out.reason = `the subject describes ${recordRef(best.r)} (${best.reasons.join(', ')})`;
     out.check.push(`matched by the subject only (${best.reasons.join(', ')})`);
   } else if (cues.multi) {
     out.multiOrderIds = [...new Set(open.filter((x) => x.score > 0).slice(0, 3).map((x) => x.r.orderId))];
-  }
+    out.reason = 'the subject names several products';
+  } else out.reason = 'no record number in the email or its thread, and the subject fits no single order';
   return out;
 }
 

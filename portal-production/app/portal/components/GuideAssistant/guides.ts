@@ -231,22 +231,22 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'trade-email-inbox',
-    title: 'Check the email inbox (Shipments)',
+    title: 'Check the email inbox (Sales)',
     module: 'SHIPMENTS',
     description:
-      'How the shipments email intake works: Shipments → Inbox lists the emails matched to orders / shipments — accept suggestions, "Change order…" to pick the right shipment(s) with a preview, ignore, undo, or delete mail that is not about a shipment. In PARTIAL AUTO an email is filed by itself only when its own B/L / PI / CI is in the subject or an attachment and nothing contradicts it ("Auto · B/L …").',
+      'How the email intake works: Sales → Inbox lists the intake emails as threads in two tabs — Unprocessed (needs you: Confirm match · Pick order · Pick shipment · Check) and Processed (filed, with who / when and Undo). Confirm a suggestion, "Change order…" to pick the right shipment(s) with a preview, ignore, undo, or delete mail that is not about a shipment. In PARTIAL AUTO an email is filed by itself only when its own B/L / PI / CI is in the subject or an attachment and nothing contradicts it ("Auto · B/L …"); a link-only reply on a confirmed thread is linked by itself ("Auto · thread").',
     route: '/portal/shipments/inbox',
     steps: [
       {
         route: '/portal/shipments/inbox',
         selector: '[data-tour="inbox-tabs"]',
-        title: 'Four tabs',
-        body: 'Suggested: matched, waiting for Accept. Unmatched: assign an order / shipment from the ⋮ menu. Processed: done — Undo is always there. Unsure: kept 14 days for you to check.',
+        title: 'Two tabs',
+        body: 'Unprocessed: every email that still needs you — the chip says why (Confirm match, Pick order, Pick shipment, Check). Processed: what was filed, by whom and when — Undo is always there.',
       },
       {
-        selector: '[data-tour="inbox-table"]',
-        title: 'Each email',
-        body: 'Date, sent / received, who it is with, the subject, the order / shipment it matched and what it does. Click a row for the details.',
+        selector: '[data-tour="inbox-thread"]',
+        title: 'One row per thread',
+        body: 'Replies are grouped with their first email: the chip is the shipment the thread is linked to, then "5 emails · 3 files". Expand it to see each message and what Confirm will do ("files COA.pdf to step 3b").',
         patient: true,
       },
       {
@@ -414,22 +414,34 @@ export const GUIDES: Guide[] = [
   },
   {
     id: 'trade-home-alerts',
-    title: 'My tasks today (Shipments)',
+    title: 'The Sales dashboard: emails to confirm, tasks, arrivals',
     module: 'SHIPMENTS',
     description:
-      'Where the reminders are (import tax funding, arrival notices, free time, invoice / deposit due dates, stuck steps): the bell (top right) and the "Tasks (n)" button on the Orders list, each with ✓ done / ✕ dismiss. There is no Shipments Home page (round O) — Orders is the landing page; the manager money / margin table is off with it. Reminder rules are in Settings → Shipping → Alerts.',
-    route: '/portal/shipments',
+      'Sales › Dashboard (the landing page): one line "To do: n emails to confirm · n tasks overdue · n arriving this week", then the emails waiting for you (Confirm · Change order… · Not shipment), what was filed automatically in the last 3 days (Undo), the reminders (✓ done / ✕ dismiss — also in the bell and the Orders "Tasks (n)" button) and the shipments arriving in the next 7 days with their free time. Reminder rules are in Settings → Shipping → Alerts.',
+    route: '/portal/shipments/dashboard',
     steps: [
       {
-        route: '/portal/shipments',
-        selector: '[data-tour="orders-tasks"]',
-        title: 'Tasks (n)',
-        body: 'The reminders due now and in the next 3 days, in a side panel. The red number is how many are overdue.',
+        route: '/portal/shipments/dashboard',
+        selector: '[data-tour="dashboard-todo"]',
+        title: 'What needs you today',
+        body: 'Emails to confirm, tasks overdue and shipments arriving this week, in one line.',
+      },
+      {
+        selector: '[data-tour="dashboard-emails"]',
+        title: 'Emails to confirm',
+        body: 'Each thread shows the shipment it will be linked to and what Confirm does ("files COA.pdf to step 3b"). Confirm, "Change order…" to pick another shipment, or "Not shipment". "See all in Inbox" opens the full list.',
+        patient: true,
+      },
+      {
+        selector: '[data-tour="dashboard-filed"]',
+        title: 'Filed automatically',
+        body: 'What the intake filed by itself in the last 3 days (its own B/L / PI / CI in the subject, or a link-only reply on a confirmed thread). Undo takes it back.',
+        patient: true,
       },
       {
         selector: '[data-tour="my-tasks"]',
-        title: 'Done / dismiss',
-        body: '✓ marks a reminder done; ✕ dismisses it until its date moves (e.g. the ETA changes). Clicking the text opens the order. The same list is in the bell, top right.',
+        title: 'Tasks',
+        body: '✓ marks a reminder done; ✕ dismisses it until its date moves. Overdue ones come first. The same list is in the bell, top right.',
         patient: true,
       },
     ],

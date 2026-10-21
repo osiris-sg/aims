@@ -16,6 +16,7 @@ import BlDefaultsForm from "@/app/portal/shipments/_components/BlDefaultsForm";
 import DocSettingsForm from "@/app/portal/shipments/_components/DocSettingsForm";
 import EmailIntakePanel from "@/app/portal/shipments/_components/EmailIntakePanel";
 import EmailFilterForm from "@/app/portal/shipments/_components/EmailFilterForm";
+import FilterPreviewPanel from "@/app/portal/shipments/_components/FilterPreviewPanel";
 import EstimatorRatesForm from "@/app/portal/shipments/_components/EstimatorRatesForm";
 import AlertRulesForm from "@/app/portal/shipments/_components/AlertRulesForm";
 import TradeTheme from "@/app/portal/shipments/_components/TradeTheme";
@@ -80,10 +81,14 @@ export default function ShippingSettingsPage() {
           </Section>
           <Section
             title="Email filter"
-            hint="Which senders the intake keeps. Start with the trial run, check Shipments › Inbox › Filter preview for false drops, then enforce."
+            hint="Which senders the intake keeps. Start with the trial run, check the preview below for false drops, then enforce."
             tour="settings-email-filter"
           >
             <EmailFilterForm />
+            <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>
+              Filter preview (last 30 days)
+            </Typography>
+            <FilterPreviewPanel />
           </Section>
         </Stack>
       </Box>

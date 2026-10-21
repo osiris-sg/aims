@@ -24,18 +24,18 @@ type Phase = "dashboard" | "opening" | "aimee" | "closing";
 const REVEAL_MS = 640;
 
 export default function Page() {
-  const { isAimsChatEnabled, isLoading, isShipmentsHomeEnabled } = useOrganizationFeatures();
+  const { isAimsChatEnabled, isLoading } = useOrganizationFeatures();
   const router = useRouter();
   const { loading: configLoading, isModuleEnabled } = useConfiguration();
-  // A trade org (Shipments on, the generic Dashboard module off — ADH) lands on Shipments, not the asset dashboard:
-  // Orders (round O), or Home with the enableShipmentsHome flag. This is also the org-switch landing (the switch reloads /portal).
+  // A trade org (Shipments on, the generic Dashboard module off — ADH) lands on Sales › Dashboard (round P), not the
+  // asset dashboard. This is also the org-switch landing (the switch reloads /portal).
   const tradeHome = !configLoading && isModuleEnabled("SHIPMENTS") && !isModuleEnabled("DASHBOARD");
   useEffect(() => {
-    if (!tradeHome || isLoading) return;
+    if (!tradeHome) return;
     const q = new URLSearchParams(window.location.search);
     if (q.get("chat") || q.get("aimee") === "1") return;
-    router.replace(shipmentsLanding(isShipmentsHomeEnabled));
-  }, [tradeHome, isLoading, isShipmentsHomeEnabled, router]);
+    router.replace(shipmentsLanding());
+  }, [tradeHome, router]);
   const [phase, setPhase] = useState<Phase | null>(null);
   const [prompt, setPrompt] = useState<string | undefined>();
   const origin = useRef<{ x: number; y: number }>({ x: 0, y: 0 });

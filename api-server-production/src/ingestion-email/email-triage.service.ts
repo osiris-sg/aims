@@ -12,7 +12,8 @@ import { TradeConfigService } from '../shipments/trade-config.service';
 import { sha256Of, TradeFilesService } from '../shipments/trade-files.service';
 import { TradeStepsService } from '../shipments/trade-steps.service';
 import { StoredEmailMeta } from './email-store';
-import { DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, telexTiedTo, validCiNo } from './email-match.rules';
+import { DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, recordRef, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
+import { groupThreads, normMessageId, threadHeadersFromEml, threadLink, unprocessedReason } from './email-threads';
 import { supplierKeyPatterns } from '../shipments/trade-profile';
 import {
   counterpartyByDomain,
@@ -142,6 +143,20 @@ export class EmailTriageService {
     if (!meta.emlKey) throw new BadRequestException('This email was not stored');
     const cfg = await this.prisma.emailIngestConfig.findUnique({ where: { organizationId }, select: { routingMode: true } });
     const mode = intakeModeOf(cfg?.routingMode);
+    // Round P: thread headers. A worker deployed before header support posts none; the raw .eml still has them.
+    if (!meta.inReplyTo && !meta.references?.length && meta.emlSource === 'raw') {
+      try {
+        const head = (await this.s3.downloadFile(meta.emlKey)).subarray(0, 32_000).toString('latin1');
+        const th = threadHeadersFromEml(head);
+        if (th.inReplyTo || th.references.length) {
+          meta.inReplyTo = th.inReplyTo;
+          meta.references = th.references;
+          await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { rawMeta: { ...(log.rawMeta as object), inReplyTo: th.inReplyTo, references: th.references } as any } });
+        }
+      } catch (e) {
+        this.logger.warn(`[email-triage] thread headers of ${logId}: ${(e as Error)?.message}`);
+      }
+    }
     const settings = await this.config.getSettings(organizationId);
     const ownDomains = ownDomainsOf(settings.docDefaults);
     const customerDomains = Object.values(settings.customerProfiles ?? {})
@@ -275,7 +290,7 @@ export class EmailTriageService {
     if (manualList?.length) {
       targets = [];
       for (const m of manualList) targets.push({ ...(await this.resolveManual(organizationId, m)), attachmentIndexes: m.attachmentIndexes });
-      decision = { target: null, kind: null, confidence: 'exact', auto: false, blocked: ['picked by hand'], check: [], multiOrderIds: [], candidates: prev.candidates ?? [], keyLabel: null };
+      decision = { target: null, kind: null, confidence: 'exact', auto: false, blocked: ['picked by hand'], check: [], multiOrderIds: [], candidates: prev.candidates ?? [], keyLabel: null, reason: 'picked by hand', threadFrom: null };
     } else {
       decision = await this.decide(organizationId, log, ev);
       targets = decision.target ? [decision.target] : [];
@@ -287,8 +302,18 @@ export class EmailTriageService {
     const unsupported = plan.filter((a) => a.kind === 'file' && a.status === 'planned' && a.stepOk === false);
     const blocked = [...decision.blocked, ...(unsupported.length ? [`e: no step takes ${[...new Set(unsupported.map((a) => a.docType))].join(', ')}`] : [])];
     const state: InboxState = opts.keepState ?? (!targets.length || needsShipment ? 'UNMATCHED' : 'SUGGESTED');
+    // Round P: a thread-inherited link applies by itself only when it is link-only (nothing to file) and came from an
+    // accepted / auto-applied message with no conflict (guards 1a–1e otherwise unchanged). Anything that files
+    // documents stays "Confirm match".
+    const filesSomething = plan.some((a) => a.kind === 'file' && a.status === 'planned');
+    const threadAuto = decision.kind === 'thread' ? decision.threadFrom === 'accepted' && decision.auto && !filesSomething && !decision.check.length : true;
+    if (decision.kind === 'thread' && !threadAuto && decision.threadFrom === 'accepted' && filesSomething) blocked.push('thread: files documents — confirm');
     const auto =
-      !opts.safe && !manualList && state === 'SUGGESTED' && (mode === 'AUTO' ? !decision.check.length : mode === 'PARTIAL_AUTO' ? decision.auto && !unsupported.length && !needsShipment : false);
+      !opts.safe &&
+      !manualList &&
+      state === 'SUGGESTED' &&
+      threadAuto &&
+      (mode === 'AUTO' ? !decision.check.length : mode === 'PARTIAL_AUTO' ? decision.auto && !unsupported.length && !needsShipment : false);
     await this.prisma.emailIngestLog.update({
       where: { id: logId },
       data: {
@@ -303,6 +328,8 @@ export class EmailTriageService {
           candidates: decision.candidates,
           multiOrderIds: decision.multiOrderIds,
           keyLabel: decision.keyLabel,
+          reason: manualList ? 'picked by hand' : decision.reason,
+          threadFrom: decision.threadFrom ?? null,
           targets: targets.map((t) => ({ orderId: t.orderId ?? null, shipmentId: t.shipmentId ?? null, ...(t.attachmentIndexes ? { attachmentIndexes: t.attachmentIndexes } : {}) })),
           // What the intake suggested first — "Accept" vs "Change order…" is measured against it.
           suggested: prev.suggested ?? (manualList ? null : (targets[0] ?? null)),
@@ -312,7 +339,7 @@ export class EmailTriageService {
       },
     });
     if (auto) {
-      await this.execute(organizationId, logId, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: decision.keyLabel });
+      await this.execute(organizationId, logId, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: decision.kind === 'thread' ? 'thread' : decision.keyLabel });
       return 'PROCESSED';
     }
     return state;
@@ -323,7 +350,7 @@ export class EmailTriageService {
     const e = ev ?? (await this.evidence(log));
     const records = await this.matchRecords(organizationId);
     const hits = findKeyHits(e, records, await this.ciPatterns(organizationId));
-    const thread = await this.acceptedThread(organizationId, log);
+    const thread = await this.threadContext(organizationId, log, records);
     return decideMatch({ ev: e, records, hits, thread });
   }
 
@@ -397,23 +424,60 @@ export class EmailTriageService {
     return [...DEFAULT_CONTRACT_PATTERNS, ...supplierKeyPatterns(s.supplierProfiles).contract];
   }
 
-  /** Thread follow: the order an earlier email of this thread was ACCEPTED (or auto-applied) to. */
-  private async acceptedThread(organizationId: string, log: { id: string; threadKey: string | null; inReplyTo: string | null }): Promise<{ orderId: string; shipmentId: string | null } | null> {
-    if (!log.threadKey && !log.inReplyTo) return null;
-    const prior: Array<{ orderId: string | null; shipmentId: string | null; actions: any }> = await this.prisma.emailIngestLog.findMany({
-      where: {
-        organizationId,
-        id: { not: log.id },
-        inboxState: 'PROCESSED',
-        orderId: { not: null },
-        OR: [...(log.inReplyTo ? [{ messageId: log.inReplyTo }] : []), ...(log.threadKey ? [{ threadKey: log.threadKey }] : [])],
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-      select: { orderId: true, shipmentId: true, actions: true },
+  /** The stored earlier / later messages of this email's thread: its Message-ID chain (In-Reply-To / References, both ways), else the same normalised subject. */
+  private async threadRows(organizationId: string, log: { id: string; messageId?: string | null; threadKey: string | null; inReplyTo: string | null; rawMeta?: unknown }): Promise<any[]> {
+    const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta>;
+    const ids = [log.inReplyTo ?? meta.inReplyTo, ...(meta.references ?? [])].map(normMessageId).filter((x): x is string => !!x);
+    const mine = normMessageId(log.messageId);
+    const or: any[] = [];
+    if (ids.length) or.push({ messageId: { in: [...new Set(ids.flatMap((i) => [i, `<${i}>`]))] } });
+    if (mine) or.push({ inReplyTo: { in: [mine, `<${mine}>`] } });
+    if (log.threadKey) or.push({ threadKey: log.threadKey });
+    if (!or.length) return [];
+    return this.prisma.emailIngestLog.findMany({
+      where: { organizationId, id: { not: log.id }, inboxState: { in: ['SUGGESTED', 'UNMATCHED', 'PROCESSED', 'UNSURE'] }, OR: or },
+      orderBy: { createdAt: 'asc' },
+      take: 60,
+      select: { id: true, messageId: true, subject: true, orderId: true, shipmentId: true, inboxState: true, actions: true, emailDate: true, createdAt: true, rawMeta: true, triage: true },
     });
-    const hit = prior.find((p) => p.actions?.review?.outcome !== 'IGNORED');
-    return hit?.orderId ? { orderId: hit.orderId, shipmentId: hit.shipmentId } : null;
+  }
+
+  /**
+   * Round P — what the thread already knows (see ThreadContext): the accepted / auto-applied link, the distinct
+   * links of a combined thread, and the earliest message whose own subject / attachment NAMES carry a record key
+   * (trace-back; attachment contents are not re-read here).
+   */
+  private async threadContext(organizationId: string, log: any, records: MatchRecord[]): Promise<ThreadContext> {
+    const rows = await this.threadRows(organizationId, log);
+    const out: ThreadContext = { accepted: null, traced: null, candidates: [] };
+    if (!rows.length) return out;
+    const processed = rows.filter((r) => r.inboxState === 'PROCESSED' && r.orderId && r.actions?.review?.outcome !== 'IGNORED');
+    const newest = [...processed].reverse()[0];
+    if (newest) out.accepted = { orderId: newest.orderId, shipmentId: newest.shipmentId ?? null };
+    const seen = new Map<string, { orderId: string; shipmentId: string | null }>();
+    for (const r of processed.length ? processed : rows.filter((r) => r.orderId && r.actions?.confidence !== 'cues')) {
+      if (!r.orderId) continue;
+      const k = `${r.orderId}:${r.shipmentId ?? ''}`;
+      if (!seen.has(k)) seen.set(k, { orderId: r.orderId, shipmentId: r.shipmentId ?? null });
+    }
+    out.candidates = [...seen.values()];
+    const ci = await this.ciPatterns(organizationId);
+    for (const r of rows) {
+      const meta = (r.rawMeta ?? {}) as Partial<StoredEmailMeta>;
+      const ev: EmailEvidence = { subject: r.subject ?? '', body: '', attachments: (meta.attachments ?? []).map((a) => ({ name: a.name, text: '' })), date: r.emailDate ?? null };
+      const hit = findKeyHits(ev, records, ci).find((h) => h.where.includes('subject') || h.where.includes('attachment'));
+      if (!hit) continue;
+      const rec = records.find((x) => x.orderId === hit.orderId && (hit.shipmentId === null || x.shipmentId === hit.shipmentId));
+      out.traced = {
+        orderId: hit.orderId,
+        shipmentId: hit.shipmentId,
+        keyLabel: `${hit.kind === 'bl' ? 'B/L' : hit.kind === 'pi' ? 'PI' : 'CI'} ${hit.value}`,
+        date: r.emailDate ? new Date(r.emailDate).toISOString().slice(0, 10) : null,
+      };
+      void rec;
+      break;
+    }
+    return out;
   }
 
   private async withSingleShipment(organizationId: string, t: IntakeTarget): Promise<IntakeTarget> {
@@ -778,16 +842,138 @@ export class EmailTriageService {
   }
 
   private async refs(organizationId: string, orderIds: string[], shipmentIds: string[]) {
-    const [orders, ships]: [Array<{ id: string; orderNo: number }>, Array<{ id: string; seqNo: number | null; blNumber: string | null; order: { orderNo: number } | null }>] = await Promise.all([
-      orderIds.length ? this.prisma.tradeOrder.findMany({ where: { organizationId, id: { in: orderIds } }, select: { id: true, orderNo: true } }) : [],
-      shipmentIds.length
-        ? this.prisma.shipment.findMany({ where: { organizationId, id: { in: shipmentIds } }, select: { id: true, seqNo: true, blNumber: true, order: { select: { orderNo: true } } } })
-        : [],
+    const oSel = { id: true, orderNo: true, grade: true, qtyMt: true, customer: { select: { name: true } } };
+    const [orders, ships]: [any[], any[]] = await Promise.all([
+      orderIds.length ? this.prisma.tradeOrder.findMany({ where: { organizationId, id: { in: orderIds } }, select: oSel }) : [],
+      shipmentIds.length ? this.prisma.shipment.findMany({ where: { organizationId, id: { in: shipmentIds } }, select: { id: true, seqNo: true, blNumber: true, netWeightMt: true, order: { select: oSel } } }) : [],
     ]);
+    // "#20-1 · Kato 6005 40t · B/L 276956322" — the record in one line (round P).
+    const short = (name: string | null | undefined) => (name ?? '').split(/[\s,]+/)[0] || null;
+    const qty = (v: unknown) => (v === null || v === undefined || v === '' ? null : `${Number(v) % 1 ? Number(v).toFixed(1) : Number(v)}t`);
+    const label = (ref: string, o: any, bl?: string | null, net?: unknown) => [ref, [short(o?.customer?.name), o?.grade, qty(net ?? o?.qtyMt)].filter(Boolean).join(' ') || null, bl ? `B/L ${bl}` : null].filter(Boolean).join(' · ');
     return {
-      order: new Map(orders.map((o) => [o.id, `#${o.orderNo}`])),
-      ship: new Map(ships.map((s) => [s.id, s.order ? `#${s.order.orderNo}${s.seqNo ? `-${s.seqNo}` : ''}` : (s.blNumber ?? 'shipment')])),
+      order: new Map<string, string>(orders.map((o) => [o.id, `#${o.orderNo}`])),
+      ship: new Map<string, string>(ships.map((s) => [s.id, s.order ? `#${s.order.orderNo}${s.seqNo ? `-${s.seqNo}` : ''}` : (s.blNumber ?? 'shipment')])),
+      orderLabel: new Map<string, string>(orders.map((o) => [o.id, label(`#${o.orderNo}`, o)])),
+      shipLabel: new Map<string, string>(ships.map((s) => [s.id, label(s.order ? `#${s.order.orderNo}${s.seqNo ? `-${s.seqNo}` : ''}` : 'shipment', s.order, s.blNumber, s.netWeightMt)])),
     };
+  }
+
+  /** Round P: the step a filed / planned document goes to ("3b · Shipping documents") and the document types' labels. */
+  private async stepLabels(organizationId: string, actions: IntakeAction[]) {
+    const types: Array<{ code: string; label: string }> = await Promise.resolve(this.prisma.tradeDocType?.findMany({ where: { organizationId }, select: { code: true, label: true } }) ?? []).catch(() => []);
+    const typeLabel = new Map(types.map((t) => [t.code, t.label]));
+    const steps = new Map<string, { id: string; displayNo: string | null; title: string } | null>();
+    for (const a of actions) {
+      if (a.kind !== 'file' || !a.ownerId || !a.docType) continue;
+      const k = `${a.ownerKind}:${a.ownerId}:${a.docType}`;
+      if (steps.has(k)) continue;
+      const owner = a.ownerKind === 'order' ? { orderId: a.ownerId } : a.ownerKind === 'supplierOrder' ? { supplierOrderId: a.ownerId } : { shipmentId: a.ownerId };
+      const st = await this.prisma.tradeStep.findFirst({
+        where: { organizationId, ...owner, OR: [{ requiredDocTypes: { has: a.docType } }, { optionalDocTypes: { has: a.docType } }] },
+        orderBy: { sortOrder: 'asc' },
+        select: { id: true, displayNo: true, title: true },
+      });
+      steps.set(k, st ?? null);
+    }
+    return { typeLabel, stepOf: (a: IntakeAction) => steps.get(`${a.ownerKind}:${a.ownerId}:${a.docType}`) ?? null };
+  }
+
+  /**
+   * Round P — Shipments › Inbox as threads: UNPROCESSED (Suggested + Unmatched + Unsure, each with the reason it
+   * needs a person) or PROCESSED (accepted / auto-applied / ignored, with who and when). One row per thread
+   * (Message-ID chain, else the subject), its messages newest first, the thread's link and counts.
+   */
+  async threads(organizationId: string, tab: 'UNPROCESSED' | 'PROCESSED', opts: { limit?: number; sinceDays?: number } = {}) {
+    const states = tab === 'PROCESSED' ? ['PROCESSED'] : ['SUGGESTED', 'UNMATCHED', 'UNSURE'];
+    const all: any[] = await this.prisma.emailIngestLog.findMany({
+      where: { organizationId, inboxState: { in: ['SUGGESTED', 'UNMATCHED', 'UNSURE', 'PROCESSED'] } },
+      orderBy: { createdAt: 'desc' },
+      take: 600,
+    });
+    const counts = { unprocessed: all.filter((l) => l.inboxState !== 'PROCESSED').length, processed: all.filter((l) => l.inboxState === 'PROCESSED').length };
+    const refs = await this.refs(organizationId, [...new Set(all.map((l) => l.orderId).filter(Boolean))], [...new Set(all.map((l) => l.shipmentId).filter(Boolean))]);
+    const labels = await this.stepLabels(organizationId, all.flatMap((l) => [...(((l.actions ?? {}) as any).planned ?? []), ...(((l.actions ?? {}) as any).done ?? [])]));
+    const rowOf = (l: any) => {
+      const m = (l.rawMeta ?? {}) as Partial<StoredEmailMeta>;
+      const a = (l.actions ?? {}) as Record<string, any>;
+      return { id: l.id, messageId: l.messageId, inReplyTo: l.inReplyTo ?? m.inReplyTo ?? null, references: m.references ?? [], threadKey: l.threadKey, date: l.emailDate ?? m.date ?? l.createdAt, inboxState: l.inboxState, orderId: l.orderId, shipmentId: l.shipmentId, confidence: a.confidence ?? null, outcome: a.review?.outcome ?? null };
+    };
+    const since = opts.sinceDays ? Date.now() - opts.sinceDays * 86_400_000 : null;
+    const grouped = groupThreads(all.map(rowOf));
+    const byId = new Map(all.map((l) => [l.id, l]));
+    const linkOf = (orderId: string | null, shipmentId: string | null) => ({ orderId, shipmentId, ref: shipmentId ? (refs.ship.get(shipmentId) ?? null) : orderId ? (refs.order.get(orderId) ?? null) : null, label: shipmentId ? (refs.shipLabel.get(shipmentId) ?? null) : orderId ? (refs.orderLabel.get(orderId) ?? null) : null });
+    const threads = grouped
+      .map((t) => {
+        const inTab = t.messages.filter((r) => states.includes(r.inboxState ?? '') && (!since || new Date(r.date ?? 0).getTime() >= since));
+        if (!inTab.length) return null;
+        const link = threadLink(t.messages);
+        const messages = inTab.map((r) => this.shapeMessage(byId.get(r.id), refs, labels, t.messages.length));
+        const files = t.messages.reduce((n, r) => n + ((((byId.get(r.id)?.rawMeta ?? {}) as Partial<StoredEmailMeta>).attachments ?? []).length), 0);
+        const latest = byId.get(t.messages[0].id);
+        return {
+          id: t.id,
+          by: t.by,
+          subject: latest?.subject ?? null,
+          latest: t.latest,
+          emails: t.messages.length,
+          files,
+          link: link ? { ...linkOf(link.orderId, link.shipmentId), from: link.from, combined: link.combined.map((c) => linkOf(c.orderId, c.shipmentId)) } : null,
+          messages,
+          /** Messages of the thread outside this tab (a Processed one on an Unprocessed thread, and the other way round). */
+          otherCount: t.messages.length - inTab.length,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => !!x);
+    return { tab, counts, total: threads.length, threads: opts.limit ? threads.slice(0, opts.limit) : threads };
+  }
+
+  /** The inbox row plus (round P) the reason it needs a person, how it was matched, and what is / would be filed where. */
+  private shapeMessage(l: any, refs: Awaited<ReturnType<EmailTriageService['refs']>>, labels: Awaited<ReturnType<EmailTriageService['stepLabels']>>, threadSize: number) {
+    const base = this.shape(l, refs);
+    const a = (l.actions ?? {}) as Record<string, any>;
+    const list: IntakeAction[] = base.done.length ? base.done : base.planned;
+    const multiRefs = (a.multiOrderIds ?? []).map((id: string) => refs.order.get(id) ?? null).filter(Boolean);
+    const needsShipment = base.planned.some((x) => x.kind === 'file' && x.status === 'skipped' && x.reason === 'pick the shipment');
+    const files = list
+      .filter((x) => x.kind === 'file' && (x.status === 'planned' || x.status === 'done'))
+      .map((x) => {
+        const st = labels.stepOf(x);
+        return {
+          name: x.filename ?? '',
+          docType: x.docType ?? null,
+          docLabel: (x.docType && labels.typeLabel.get(x.docType)) || x.docType || null,
+          status: x.status,
+          ownerKind: x.ownerKind ?? null,
+          ownerId: x.ownerId ?? null,
+          ref: x.ownerKind === 'order' ? (refs.order.get(x.ownerId!) ?? null) : (refs.ship.get(x.ownerId!) ?? null),
+          stepId: st?.id ?? null,
+          stepNo: st?.displayNo ?? null,
+          stepTitle: st?.title ?? null,
+        };
+      });
+    const fields = list.filter((x) => x.kind === 'field' && (x.status === 'planned' || x.status === 'done')).map((x) => ({ field: x.field ?? '', value: x.value ?? '', status: x.status }));
+    const link = base.orderId || base.shipmentId ? { orderId: base.orderId, shipmentId: base.shipmentId, ref: base.matched, label: base.shipmentId ? (refs.shipLabel.get(base.shipmentId) ?? base.matched) : base.orderId ? (refs.orderLabel.get(base.orderId) ?? base.matched) : null } : null;
+    return {
+      ...base,
+      reason: unprocessedReason({ inboxState: base.inboxState, orderId: base.orderId, shipmentId: base.shipmentId, check: base.check, multiOrderRefs: multiRefs, needsShipment }),
+      matchReason: a.reason ?? null,
+      threadFrom: a.threadFrom ?? null,
+      threadSize,
+      linked: link ? { ...link, files, fields, linkOnly: !files.length && !fields.length } : null,
+      /** "Confirmed by Sayaka · 21 Oct 10:12" / "Auto · B/L 198GX…" (Processed). */
+      by: base.review ? { outcome: (base.review as any).outcome, name: (base.review as any).by ?? null, at: (base.review as any).at ?? null, autoLabel: base.autoLabel ?? null } : null,
+    };
+  }
+
+  /** Round P — the Sales dashboard: emails to confirm (threads, newest first) and what was filed by itself in the last 3 days. */
+  async dashboard(organizationId: string) {
+    const [todo, done] = await Promise.all([this.threads(organizationId, 'UNPROCESSED', { limit: 10 }), this.threads(organizationId, 'PROCESSED', { sinceDays: 3 })]);
+    const filedAuto = done.threads
+      .flatMap((t) => t.messages.map((m) => ({ ...m, threadSubject: t.subject })))
+      .filter((m) => m.by?.outcome === 'AUTO')
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return { toConfirm: { emails: todo.counts.unprocessed, threads: todo.threads, total: todo.total }, filedAuto };
   }
 
   private shape(l: any, refs: { order: Map<string, string>; ship: Map<string, string> }) {

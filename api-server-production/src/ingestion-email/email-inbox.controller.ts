@@ -67,6 +67,20 @@ export class EmailInboxController {
     return this.triage.ignore(this.org(req), id, this.actor(req));
   }
 
+  @Get('threads')
+  @Permissions('shipments:read')
+  @ApiOperation({ summary: 'Round P: the inbox as threads — UNPROCESSED (to confirm, with the reason) or PROCESSED (done, with who / when). Message-ID chain, else the subject.' })
+  threads(@Query('tab') tab: string | undefined, @Req() req: Req2) {
+    return this.triage.threads(this.org(req), tab === 'PROCESSED' ? 'PROCESSED' : 'UNPROCESSED');
+  }
+
+  @Get('dashboard')
+  @Permissions('shipments:read')
+  @ApiOperation({ summary: 'Round P: the Sales dashboard — emails to confirm (newest threads) and what was filed by itself in the last 3 days.' })
+  dashboard(@Req() req: Req2) {
+    return this.triage.dashboard(this.org(req));
+  }
+
   @Get()
   @Permissions('shipments:read')
   @ApiOperation({ summary: 'Triaged intake emails for one inbox tab (SUGGESTED | UNMATCHED | PROCESSED | UNSURE), with tab counts.' })

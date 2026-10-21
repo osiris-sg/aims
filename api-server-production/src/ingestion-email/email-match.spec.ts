@@ -109,9 +109,10 @@ describe('guard d — no other order in the email', () => {
 });
 
 describe('thread follow', () => {
-  it('no key: an accepted earlier email of the thread → its order ("thread"), never auto', () => {
+  it('no key: an accepted earlier email of the thread → its order ("thread"); auto only link-only (the service checks the plan), never when the subject disagrees', () => {
     const d = decide(ev('Re: 書類送付', 'thanks'), { orderId: 'o22', shipmentId: 's22' });
-    expect(d).toMatchObject({ target: { orderId: 'o22', shipmentId: 's22' }, kind: 'thread', confidence: 'thread', auto: false });
+    expect(d).toMatchObject({ target: { orderId: 'o22', shipmentId: 's22' }, kind: 'thread', confidence: 'thread', auto: true, threadFrom: 'accepted' });
+    expect(d.reason).toMatch(/earlier email of this thread/);
   });
 });
 

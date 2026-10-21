@@ -139,16 +139,19 @@ const MONEY_PERMISSIONS = ['shipments:money'];
 // the global rule and every other org stay untouched. User Management (8) and
 // Audit (9) keep their catalog order.
 // hideInMenu: the module stays ON (routes, data, permissions) but is left out of the menus.
-const ENABLED_MODULES: Array<{ code: string; route?: string; icon?: string; sortOrder?: number; hideInMenu?: boolean; subMenus?: Array<{ key: string; label: string }> }> = [
+const ENABLED_MODULES: Array<{ code: string; displayName?: string; route?: string; icon?: string; sortOrder?: number; hideInMenu?: boolean; subMenus?: Array<{ key: string; label: string }> }> = [
   {
     code: 'SHIPMENTS',
+    // Round P (2026-10-21): the top-nav item reads "Sales" (the module, its routes /portal/shipments/* and its
+    // permissions are unchanged — only the label). Under it: Dashboard · Orders · Shipments · Inbox.
+    displayName: 'Sales',
     sortOrder: -3, // first — before the global Sales pin (0.5)
     subMenus: [
-      // Home (my tasks + pipeline; money for ADH Manager), Orders (one order process, grouped by ship
-      // month), Shipments (every B/L) and the triaged email Inbox. Round H (2026-10): Declaration, Payments
-      // and Stock left the menu (their pages sit behind enableTradeLegacyPages, off).
-      // Round O: the Home row stays stored but the menus drop it while enableShipmentsHome is off (hide, don't delete).
-      { key: 'dashboard', label: 'Home' },
+      // Dashboard (round P: email-first — emails to confirm, filed automatically, tasks, arriving this week; the
+      // old Home with cash / margin sits behind enableShipmentsHome, off), Orders (one order process), Shipments
+      // (every B/L) and the triaged email Inbox. Round H (2026-10): Declaration, Payments and Stock left the menu
+      // (their pages sit behind enableTradeLegacyPages, off).
+      { key: 'dashboard', label: 'Dashboard' },
       { key: 'list', label: 'Orders' },
       { key: 'shipments', label: 'Shipments' },
       { key: 'inbox', label: 'Inbox' },
@@ -206,7 +209,7 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableConfirmQuotation: false, // keeps quotation confirm from auto-creating Orders
   enableTradeLegacyPages: false, // round H: Declaration / Payments / Stock / Supplier orders pages hidden
   enableTradePipelineGrid: false, // round K: Home's pipeline grid hidden (Orders list progress bars instead)
-  enableShipmentsHome: false, // round O: no Home page — Orders is the landing; tasks live in the bell + Orders "Tasks"
+  enableShipmentsHome: false, // round O/P: the OLD Home (cash / margin) stays off; the Dashboard route shows the email-first dashboard
 };
 
 const NUMBER_FORMATS = [
@@ -902,7 +905,7 @@ async function main() {
       ...(wanted?.subMenus ? { subMenus: wanted.subMenus } : {}),
       ...(wanted?.hideInMenu ? { hideInMenu: true } : {}),
     };
-    const row = { enabled, displayName: cat.displayName, icon: wanted?.icon ?? cat.icon, sortOrder: wanted?.sortOrder ?? cat.sortOrder, config };
+    const row = { enabled, displayName: wanted?.displayName ?? cat.displayName, icon: wanted?.icon ?? cat.icon, sortOrder: wanted?.sortOrder ?? cat.sortOrder, config };
     if (APPLY) {
       await plat.organizationModule.upsert({
         where: { organizationId_moduleCode: { organizationId: orgId, moduleCode: cat.moduleCode } },
@@ -912,7 +915,7 @@ async function main() {
     }
     write(
       'module',
-      `${cat.moduleCode.padEnd(20)} ${enabled ? 'ON ' : 'off'}${enabled ? `  order ${row.sortOrder}` : ''}${wanted?.route ? `  ${wanted.route}` : ''}${wanted?.subMenus ? `  (${wanted.subMenus.map((s) => s.key).join(', ')})` : ''}${wanted?.hideInMenu ? '  [hidden from menu]' : ''}`,
+      `${cat.moduleCode.padEnd(20)} ${enabled ? 'ON ' : 'off'}${enabled ? `  order ${row.sortOrder}` : ''}${wanted?.displayName ? `  "${wanted.displayName}"` : ''}${wanted?.route ? `  ${wanted.route}` : ''}${wanted?.subMenus ? `  (${wanted.subMenus.map((s) => s.key).join(', ')})` : ''}${wanted?.hideInMenu ? '  [hidden from menu]' : ''}`,
     );
   }
 

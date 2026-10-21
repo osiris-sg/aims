@@ -103,8 +103,10 @@ export default function OrderPage() {
   const lateSteps = useMemo(() => orderSteps.filter((x) => x.sortOrder >= LATE_FROM), [orderSteps]);
   const shipSteps = useMemo(() => [...(s?.steps ?? [])].filter((x) => !(x.notApplicable && x.skipReason?.startsWith("Moved to the order"))).sort(byOrder), [s?.steps]);
   const current = firstOpen(earlySteps) ?? firstOpen(shipSteps) ?? firstOpen(lateSteps);
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [userPicked, setUserPicked] = useState(false);
+  // Round P: ?step=<stepId> (from an inbox "Linked to" chip) opens that step card.
+  const wantedStep = params?.get("step") ?? null;
+  const [openId, setOpenId] = useState<string | null>(wantedStep);
+  const [userPicked, setUserPicked] = useState(!!wantedStep);
   const shown = userPicked ? openId : (current?.id ?? null);
   const onOpen = (stepId: string | null) => {
     setUserPicked(true);

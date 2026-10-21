@@ -34,12 +34,14 @@ import configuration from '../config/configuration';
 import { ActionLogModule } from '../src/action-log/action-log.module';
 import { ActionLogService } from '../src/action-log/action-log.service';
 import { PushModule } from '../src/push/push.module';
+import { ClerkModule } from '../src/clerk/clerk.module';
 import { IngestionEmailModule } from '../src/ingestion-email/ingestion-email.module';
 import { EmailTriageService } from '../src/ingestion-email/email-triage.service';
 import { PrismaService } from '../src/common/prisma.service';
 import { runAsOrg } from '../src/common/tenancy/tenant-context';
 
-@Module({ imports: [ConfigModule.forRoot({ load: [configuration], isGlobal: true }), ActionLogModule, PushModule, IngestionEmailModule] })
+// ClerkModule (global in the app): UsersService needs the Clerk client since the Clerk production prep (round N).
+@Module({ imports: [ConfigModule.forRoot({ load: [configuration], isGlobal: true }), ClerkModule, ActionLogModule, PushModule, IngestionEmailModule] })
 class RetriageModule {}
 
 const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3);
@@ -219,6 +221,10 @@ async function rematchAll(prisma: PrismaService, triage: EmailTriageService, act
   const lines: string[] = [];
   let changed = 0;
   let auto = 0;
+  // Round P summary: how many are now linked through their thread, how many still need a person and why.
+  const byThread = { accepted: 0, traced: 0, followed: 0 };
+  const needs: Record<string, number> = {};
+  const beforeBucket = (r: { inboxState: string | null; orderId: string | null; shipmentId: string | null; actions: any }) => `${(r.inboxState ?? '?').slice(0, 9)}${r.orderId || r.shipmentId ? ` ${r.actions?.confidence ?? ''}`.trimEnd() : ''}`;
   for (const [i, r] of rows.entries()) {
     try {
       const out = await triage.rematchStored(ORG!, r.id, APPLY_REMATCH);
@@ -228,16 +234,25 @@ async function rematchAll(prisma: PrismaService, triage: EmailTriageService, act
       const after = t ? `${await ref(t.orderId, t.shipmentId)}${multi}` : out.decision.multiOrderIds.length ? `multi: ${(await Promise.all(out.decision.multiOrderIds.map((o) => ref(o, null)))).join(', ')}` : '—';
       if (before !== after) changed++;
       if (out.wouldAuto) auto++;
+      if (out.decision.kind === 'thread' && out.decision.threadFrom) byThread[out.decision.threadFrom]++;
       const fields = out.plan.filter((a) => a.kind === 'field').map((a) => `${a.status === 'planned' ? 'fill' : 'skip'} ${a.field}`).join(', ');
       const why = out.wouldAuto ? 'yes' : `no — ${out.blocked[0] ?? 'no match'}`;
+      // What a person still has to do (the inbox reason chip), by kind.
+      const needsShipment = out.plan.some((a) => a.kind === 'file' && a.status === 'skipped' && a.reason === 'pick the shipment');
+      const reason = out.wouldAuto ? null : out.decision.check.length ? 'check — subject disagrees' : out.decision.multiOrderIds.length > 1 || needsShipment ? 'pick shipment' : !t ? (r.inboxState === 'UNSURE' ? 'is it a shipment?' : 'pick order') : 'confirm match';
+      if (reason) needs[reason] = (needs[reason] ?? 0) + 1;
       lines.push(
-        `${String(i + 1).padStart(2)}. [${(r.inboxState ?? '').slice(0, 9).padEnd(9)}] ${subject60(r.subject).padEnd(60)} | ${before.padEnd(8)} → ${after.padEnd(14)} | ${out.decision.confidence.padEnd(6)} | auto: ${why}${out.decision.check.length ? ` | check: ${out.decision.check.join('; ').slice(0, 120)}` : ''}${fields ? ` | ${fields}` : ''}`,
+        `${String(i + 1).padStart(2)}. ${subject60(r.subject).padEnd(60)} | ${beforeBucket(r).padEnd(16)} ${before.padEnd(8)} → ${after.padEnd(14)} ${out.decision.confidence.padEnd(6)} ${(out.decision.reason ?? '').slice(0, 90).padEnd(90)} | auto: ${why}${out.decision.check.length ? ` | check: ${out.decision.check.join('; ').slice(0, 100)}` : ''}${fields ? ` | ${fields}` : ''}`,
       );
-      if (APPLY_REMATCH) actionLog.system('email-rematch', 'TRIAGE', 'EmailIngestLog', { organizationId: ORG!, resourceId: r.id, details: { before, after, confidence: out.decision.confidence } });
+      if (APPLY_REMATCH) actionLog.system('email-rematch', 'TRIAGE', 'EmailIngestLog', { organizationId: ORG!, resourceId: r.id, details: { before, after, confidence: out.decision.confidence, reason: out.decision.reason } });
     } catch (e) {
-      lines.push(`${String(i + 1).padStart(2)}. [${r.inboxState}] ${subject60(r.subject)} | FAILED: ${String((e as Error)?.message ?? e).slice(0, 120)}`);
+      lines.push(`${String(i + 1).padStart(2)}. ${subject60(r.subject)} | FAILED: ${String((e as Error)?.message ?? e).slice(0, 120)}`);
     }
   }
+  console.log(`    ${'subject (60)'.padEnd(60)} | ${'before'.padEnd(16)} ${'match'.padEnd(8)} → ${'after'.padEnd(14)} ${'conf.'.padEnd(6)} ${'reason'.padEnd(90)} | would-auto`);
   console.log(lines.join('\n'));
+  const threaded = byThread.accepted + byThread.traced + byThread.followed;
   console.log(`\n${rows.length} re-matched · ${changed} with a different match · ${auto} would auto-apply under PARTIAL_AUTO (none applied by this run)`);
+  console.log(`linked by thread: ${threaded} (inherited from an accepted email ${byThread.accepted} · traced back to a key ${byThread.traced} · followed the thread's product ${byThread.followed})`);
+  console.log(`still need a person: ${rows.length - auto} — ${Object.entries(needs).map(([k, v]) => `${v} ${k}`).join(' · ') || 'none'}`);
 }

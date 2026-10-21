@@ -546,14 +546,53 @@ describe('PARTIAL_AUTO, the order picker, multi-shipment emails, thread follow, 
     expect(x.uploads.map((u) => u.shipmentIds[0])).toEqual(['s-11-1', 's-11-1', 's-11-1', 's-20-1', 's-20-1']);
   });
 
-  it('thread follow: once accepted, a reply without keys is suggested to the same shipment ("thread") — never applied by itself', async () => {
+  it('thread inheritance (round P): once accepted, a link-only reply is linked to the same shipment by itself ("thread"); a reply that files a document stays "Confirm match"', async () => {
     const x = setup('PARTIAL_AUTO');
     const first = await x.receiveRaw({ subject: '書類送付の件', text: 'dummy', messageId: '<t1@x>', ai: shipmentAi() });
     expect(first.triaged.inboxState).toBe('UNMATCHED');
     await x.triage.assign(ORG, first.logId, { shipmentId: 's-20-1', accept: true }, { id: 'u1', name: 'Sayaka' });
+    // Link-only (no files, no fields, no conflict): applied by itself, labelled "thread".
     const reply = await x.receiveRaw({ subject: 'Re: 書類送付の件', text: '承知しました', messageId: '<t2@x>', inReplyTo: '<t1@x>', ai: shipmentAi() });
-    expect(reply.triaged.inboxState).toBe('SUGGESTED');
-    expect(await x.triage.row(ORG, reply.logId)).toMatchObject({ matched: '#20-1', confidence: 'thread' });
+    expect(reply.triaged.inboxState).toBe('PROCESSED');
+    const row = await x.triage.row(ORG, reply.logId);
+    expect(row).toMatchObject({ matched: '#20-1', confidence: 'thread', autoLabel: 'thread' });
+    expect(row.review).toMatchObject({ outcome: 'AUTO' });
+    expect(x.uploads).toHaveLength(0);
+    // The same thread, but with a document to file: a suggestion ("Confirm match"), nothing filed.
+    const pdf = Buffer.from('%PDF-1.4 dummy').toString('base64');
+    const withFile = await x.receiveRaw({
+      subject: 'Re: 書類送付の件',
+      text: 'A/N attached',
+      messageId: '<t3@x>',
+      inReplyTo: '<t1@x>',
+      attachments: [{ filename: 'AN_20-1.pdf', contentType: 'application/pdf', contentBase64: pdf }],
+      ai: { ...shipmentAi(), attachments: [{ filename: 'AN_20-1.pdf', docType: 'ARRIVAL_NOTICE', confidence: 0.9 }] },
+    });
+    expect(withFile.triaged.inboxState).toBe('SUGGESTED');
+    const row2 = await x.triage.row(ORG, withFile.logId);
+    expect(row2).toMatchObject({ matched: '#20-1', confidence: 'thread' });
+    expect(row2.blocked).toContain('thread: files documents — confirm');
+    expect(x.uploads).toHaveLength(0);
+    // A thread with no accepted message but a key in its first email: the reply is traced back to it — a suggestion.
+    const keyed = await x.receiveRaw({ subject: '198GX04630 AN・出庫依頼書送付', text: 'dummy', messageId: '<k1@x>', ai: shipmentAi({ blNo: '198GX04630' }) });
+    expect(keyed.triaged.inboxState).toBe('PROCESSED'); // exact B/L in the subject: PARTIAL_AUTO (link-only)
+    await x.triage.undo(ORG, keyed.logId, { id: 'u1', name: 'Sayaka' }).catch(() => undefined); // nothing filed → nothing to undo
+    const traced = await x.receiveRaw({ subject: 'Re: AN・出庫依頼書送付', text: 'ok', messageId: '<k2@x>', inReplyTo: '<k1@x>', ai: shipmentAi() });
+    const row3 = await x.triage.row(ORG, traced.logId);
+    expect(row3).toMatchObject({ matched: '#11-1', confidence: 'thread' });
+    // The inbox as threads: the two threads, each with its link.
+    const unprocessed = await x.triage.threads(ORG, 'UNPROCESSED');
+    const t = unprocessed.threads.find((th) => th.messages.some((m) => m.id === withFile.logId))!;
+    expect(t.link).toMatchObject({ ref: '#20-1', from: 'processed' });
+    expect(t.messages[0].reason).toMatchObject({ code: 'CONFIRM', label: 'Confirm match' });
+    expect(t.emails).toBe(3);
+    const processed = await x.triage.threads(ORG, 'PROCESSED');
+    const auto = processed.threads.flatMap((th) => th.messages).find((m) => m.id === reply.logId)!;
+    expect(auto.by).toMatchObject({ outcome: 'AUTO', autoLabel: 'thread' });
+    expect(auto.linked).toMatchObject({ ref: '#20-1', linkOnly: true });
+    const dash = await x.triage.dashboard(ORG);
+    expect(dash.filedAuto.map((m) => m.id)).toContain(reply.logId);
+    expect(dash.toConfirm.emails).toBeGreaterThan(0);
   });
 
   it('accept rate: accepted as-is, changed, ignored, rejected and auto are counted', async () => {
