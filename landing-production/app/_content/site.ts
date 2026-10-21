@@ -186,6 +186,7 @@ export const FOOTER = {
       title: "Company",
       links: [
         { label: "Book a demo", href: DEMO_URL },
+        { label: "Privacy policy", href: "/privacy" },
       ],
     },
   ],
