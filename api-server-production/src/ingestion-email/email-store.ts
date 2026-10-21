@@ -31,6 +31,8 @@ export type StoredEmailMeta = {
   inReplyTo?: string | null;
   references?: string[];
   bodyText?: string;
+  /** Round Q: the raw MIME said Auto-Submitted / X-Autoreply (read at triage). */
+  autoSubmitted?: boolean;
 };
 
 /** A file name safe as an S3 key segment (keeps Japanese characters, drops path / control chars). */

@@ -29,6 +29,10 @@ describe('obvious non-shipment mail is hidden, not purged', () => {
     expect(hideReason('Weekly sync', [{ name: 'invite.ics' }])).toBe('meeting invite');
     expect(hideReason('不在のご連絡 Re: ビレット案件（10月納入6005ー120t）')).toBe('auto-reply / out of office');
     expect(hideReason('Automatic reply: 書類送付')).toBe('auto-reply / out of office');
+    // A date / time prefix (prod, 2026-10-21) and the MIME's own say-so.
+    expect(hideReason('10/21 15:00~不在のご連絡 Re: 【11月納入】アルミニウムビレット6005C-8インチ 40T')).toBe('auto-reply / out of office');
+    expect(hideReason('Re: 【11月納入】アルミニウムビレット', [], { autoSubmitted: true })).toBe('auto-reply / out of office (auto-submitted)');
+    expect(classifyEmail(base({ subject: 'Re: 書類送付', autoSubmitted: true, target: t, confidence: 'exact' })).kind).toBe('HIDE');
     expect(hideReason('Aluminium market newsletter — October')).toBe('newsletter');
     expect(hideReason('Re: 10/16 朝 ビレット 納品明細', [{ name: 'COA.pdf' }])).toBeNull();
     expect(hideReason('Re: 書類送付', [{ name: 'invite.ics' }, { name: 'PL.pdf' }])).toBeNull();

@@ -40,8 +40,10 @@ describe('thread grouping', () => {
   });
   it('raw .eml head: Message-ID / In-Reply-To / References, folded lines joined, body ignored', () => {
     const raw = ['From: a@x', 'Message-ID: <m1@mail.example>', 'In-Reply-To: <m0@mail.example>', 'References: <r1@mail.example>', '\t<m0@mail.example>', 'Subject: Re: x', '', 'Message-ID: <in-the-body@x>'].join('\r\n');
-    expect(threadHeadersFromEml(raw)).toEqual({ messageId: 'm1@mail.example', inReplyTo: 'm0@mail.example', references: ['r1@mail.example', 'm0@mail.example'] });
-    expect(threadHeadersFromEml('From: a@x\r\n\r\nbody')).toEqual({ messageId: null, inReplyTo: null, references: [] });
+    expect(threadHeadersFromEml(raw)).toEqual({ messageId: 'm1@mail.example', inReplyTo: 'm0@mail.example', references: ['r1@mail.example', 'm0@mail.example'], autoSubmitted: false });
+    expect(threadHeadersFromEml('From: a@x\r\n\r\nbody')).toEqual({ messageId: null, inReplyTo: null, references: [], autoSubmitted: false });
+    // An Exchange out-of-office: Auto-Submitted / X-Autoreply, no thread headers.
+    expect(threadHeadersFromEml('Message-ID: <a@x>\r\nAuto-Submitted: auto-replied\r\nX-Autoreply: yes\r\n\r\nbody').autoSubmitted).toBe(true);
     expect(normMessageId(' <abc@x> ')).toBe('abc@x');
     expect(normMessageId('')).toBeNull();
   });

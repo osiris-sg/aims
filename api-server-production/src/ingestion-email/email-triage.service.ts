@@ -146,15 +146,16 @@ export class EmailTriageService {
     const cfg = await this.prisma.emailIngestConfig.findUnique({ where: { organizationId }, select: { routingMode: true } });
     const mode = intakeModeOf(cfg?.routingMode);
     // Round P: thread headers. A worker deployed before header support posts none; the raw .eml still has them.
-    if (!meta.inReplyTo && !meta.references?.length && meta.emlSource === 'raw') {
+    if (((!meta.inReplyTo && !meta.references?.length) || meta.autoSubmitted === undefined) && meta.emlSource === 'raw') {
       try {
         const head = (await this.s3.downloadFile(meta.emlKey)).subarray(0, 32_000).toString('latin1');
         const th = threadHeadersFromEml(head);
-        if (th.inReplyTo || th.references.length) {
+        if (!meta.inReplyTo && !meta.references?.length && (th.inReplyTo || th.references.length)) {
           meta.inReplyTo = th.inReplyTo;
           meta.references = th.references;
-          await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { rawMeta: { ...(log.rawMeta as object), inReplyTo: th.inReplyTo, references: th.references } as any } });
         }
+        meta.autoSubmitted = th.autoSubmitted;
+        await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { rawMeta: { ...(log.rawMeta as object), inReplyTo: meta.inReplyTo ?? null, references: meta.references ?? [], autoSubmitted: th.autoSubmitted } as any } });
       } catch (e) {
         this.logger.warn(`[email-triage] thread headers of ${logId}: ${(e as Error)?.message}`);
       }
@@ -390,6 +391,7 @@ export class EmailTriageService {
     const unhidden = !!(log.actions as any)?.unhidden;
     const input: BacklogInput = {
       unhidden,
+      autoSubmitted: !!(meta as { autoSubmitted?: boolean }).autoSubmitted,
       inboxState: log.inboxState ?? null,
       verdict: log.verdict ?? null,
       subject: log.subject ?? null,

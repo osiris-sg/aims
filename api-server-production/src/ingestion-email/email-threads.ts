@@ -37,7 +37,7 @@ export const normMessageId = (v: string | null | undefined): string | null => {
 };
 
 /** Message-ID, In-Reply-To and References from a raw RFC 822 head (folded lines joined; stops at the blank line). */
-export function threadHeadersFromEml(raw: string): { messageId: string | null; inReplyTo: string | null; references: string[] } {
+export function threadHeadersFromEml(raw: string): { messageId: string | null; inReplyTo: string | null; references: string[]; autoSubmitted: boolean } {
   const head = raw.split(/\r?\n\r?\n/)[0] ?? '';
   const lines = head.split(/\r?\n/);
   const h: Record<string, string> = {};
@@ -53,7 +53,10 @@ export function threadHeadersFromEml(raw: string): { messageId: string | null; i
     h[cur] = (h[cur] ? h[cur] + ' ' : '') + line.slice(i + 1).trim();
   }
   const ids = (v: string | undefined) => (v ?? '').match(/<[^<>\s]+>/g)?.map((x) => normMessageId(x)!).filter(Boolean) ?? [];
-  return { messageId: ids(h['message-id'])[0] ?? null, inReplyTo: ids(h['in-reply-to'])[0] ?? null, references: ids(h['references']) };
+  // Round Q: an auto-reply / out-of-office by its headers (Exchange: Auto-Submitted: auto-replied, X-Autoreply,
+  // X-Auto-Response-Suppress) — stronger than the subject.
+  const autoSubmitted = /^auto-(replied|generated)/i.test(h['auto-submitted'] ?? '') || 'x-autoreply' in h || 'x-autorespond' in h || /^(yes|true|1)$/i.test(h['x-autoreply'] ?? '');
+  return { messageId: ids(h['message-id'])[0] ?? null, inReplyTo: ids(h['in-reply-to'])[0] ?? null, references: ids(h['references']), autoSubmitted };
 }
 
 export interface Thread<T extends ThreadRow> {

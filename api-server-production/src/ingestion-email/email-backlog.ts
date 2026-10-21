@@ -28,6 +28,8 @@ export type BacklogKind = 'HIDE' | 'AUTO' | 'CONFIRM' | 'AUTO_LINK' | 'HISTORY' 
 export interface BacklogInput {
   /** A person un-hid it: never hidden again. */
   unhidden?: boolean;
+  /** The raw MIME said Auto-Submitted / X-Autoreply (the store keeps it as rawMeta.autoSubmitted). */
+  autoSubmitted?: boolean;
   inboxState: string | null;
   verdict: string | null;
   subject: string | null;
@@ -70,11 +72,13 @@ export interface OrderSeed {
 
 const CALENDAR_RESPONSE = /^\s*(accepted|declined|tentative|tentatively accepted|承諾|辞退|仮承諾|受諾|出席|欠席)\s*[:：]/i;
 const INVITE = /^\s*(invitation|updated invitation|canceled|cancelled|招待|会議出席依頼|予定)\s*[:：]/i;
-const AUTO_REPLY = /^\s*(re:\s*)?(automatic reply|auto[- ]?reply|autoreply|out of office|out-of-office|自動応答|自動返信|不在|不在のご連絡|不在通知|休暇中)/i;
+// A date / time prefix is allowed ("10/21 15:00~不在のご連絡 Re: …").
+const AUTO_REPLY = /^\s*(re:\s*)?[\d/:~\-\s]{0,24}(automatic reply|auto[- ]?reply|autoreply|out of office|out-of-office|自動応答|自動返信|不在|不在のご連絡|不在通知|休暇中)/i;
 const NEWSLETTER = /(newsletter|メールマガジン|メルマガ|unsubscribe|配信停止|webinar|ウェビナー|キャンペーン|セミナーのご案内)/i;
 
 /** Why an email is obvious non-shipment mail, else null. */
-export function hideReason(subject: string | null | undefined, attachments: Array<{ name: string }> = []): string | null {
+export function hideReason(subject: string | null | undefined, attachments: Array<{ name: string }> = [], headers: { autoSubmitted?: boolean } = {}): string | null {
+  if (headers.autoSubmitted) return 'auto-reply / out of office (auto-submitted)';
   const s = (subject ?? '').normalize('NFKC');
   const names = attachments.map((a) => a.name.toLowerCase());
   const icsOnly = names.length > 0 && names.every((n) => /\.ics$/.test(n));
@@ -90,7 +94,7 @@ export const conversationOnly = (i: Pick<BacklogInput, 'attachments' | 'filesSom
 
 export function classifyEmail(i: BacklogInput): BacklogVerdict {
   if (i.inboxState === 'PROCESSED' || i.inboxState === 'PURGED' || i.inboxState === 'HIDDEN') return { kind: i.inboxState === 'HIDDEN' ? 'HIDE' : 'AUTO', reason: `already ${i.inboxState?.toLowerCase()}` };
-  const hide = i.unhidden ? null : hideReason(i.subject, i.attachments);
+  const hide = i.unhidden ? null : hideReason(i.subject, i.attachments, { autoSubmitted: i.autoSubmitted });
   if (hide) return { kind: 'HIDE', reason: hide };
   const talk = conversationOnly(i);
   const multi = i.multiOrderIds.length > 1;
