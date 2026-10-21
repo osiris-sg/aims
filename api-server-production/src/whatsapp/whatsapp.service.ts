@@ -7,6 +7,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron } from '@nestjs/schedule';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { OnboardDto, SendTemplateDto, SendTextDto } from './dto/whatsapp.dto';
@@ -426,6 +427,33 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     logFields: { templateName?: string; body?: string; fromPhoneNumberId?: string },
   ) {
     const connection = await this.requireConnection(organizationId, logFields.fromPhoneNumberId);
+
+    // THE CHOKEPOINT FOR "ACCEPTED" vs "DELIVERED".
+    //
+    // Meta takes a free-form message outside the 24h window with 200 OK and
+    // kills it seconds later on the status webhook, so a caller that reads the
+    // 200 as delivery is wrong and cannot find out in time. That mistake has
+    // now cost lead-assignment cards, PA approval prompts, appointment notices
+    // and confirm cards, each in its own way.
+    //
+    // INTERACTIVE payloads are refused here when the window is shut, because
+    // they are the ones with a working alternative: every caller has a plain
+    // text path through the linked-device bridge, which has no window at all.
+    // Refusing loudly makes those fallbacks fire instead of being skipped on a
+    // false success.
+    //
+    // Plain text and templates still go. Text may legitimately be a reply
+    // inside a window our own record cannot see (coexistence numbers send from
+    // the Business app too), and templates are exactly what a closed window
+    // calls for. Both are covered by recoverFromClosedWindow if they fail.
+    if (payload?.type === 'interactive' && payload?.to) {
+      if (!(await this.windowOpen(organizationId, String(payload.to)))) {
+        throw new BadRequestException(
+          `24h window closed for ${payload.to} — interactive message not sent. Send it as plain text instead.`,
+        );
+      }
+    }
+
     try {
       const resp = await this.graph<{ messages?: Array<{ id: string }> }>(
         `${connection.phoneNumberId}/messages`,
@@ -2453,5 +2481,52 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       }
     }
     return { received: true };
+  }
+
+  /**
+   * Nightly: does every connected line still have the templates we rely on?
+   *
+   * A template is per-WABA, but the code names one globally
+   * (WHATSAPP_NOTIFY_TEMPLATE). aims_notify existed on the Osiris line and not
+   * on Denzel's, so the closed-window recovery worked for lead cards and
+   * failed with "(#132001) Template name does not exist" on the very line it
+   * was built for — discovered only by reading a failed row (guru 2026-10-22).
+   *
+   * Checks and reports; it cannot create a template, since Meta has to review
+   * one. 02:30 UTC = 10:30 SGT.
+   */
+  @Cron('30 2 * * *')
+  async auditWhatsAppTemplates(): Promise<Array<{ organizationId: string; missing: string[] }>> {
+    const required = [process.env.WHATSAPP_NOTIFY_TEMPLATE || 'aims_notify'];
+    const connections = await this.prisma.whatsAppConnection.findMany({
+      where: { status: 'CONNECTED' },
+      select: { organizationId: true, wabaId: true, displayPhoneNumber: true, accessToken: true },
+    });
+    const gaps: Array<{ organizationId: string; missing: string[] }> = [];
+    for (const c of connections) {
+      if (!c.wabaId) {
+        this.logger.warn(`Template audit: no wabaId recorded for ${c.displayPhoneNumber || c.organizationId}`);
+        continue;
+      }
+      try {
+        const res = await this.graph<{ data?: Array<{ name: string; status: string }> }>(
+          `${c.wabaId}/message_templates?fields=name,status&limit=200`,
+          { method: 'GET', token: c.accessToken },
+        );
+        const approved = new Set((res.data || []).filter((t) => t.status === 'APPROVED').map((t) => t.name));
+        const missing = required.filter((r) => !approved.has(r));
+        if (missing.length) {
+          gaps.push({ organizationId: c.organizationId, missing });
+          this.logger.error(
+            `Template audit: ${c.displayPhoneNumber || c.organizationId} is missing APPROVED template(s) ${missing.join(', ')} — ` +
+              `closed-window recovery will fail on that line until they are created and approved in WhatsApp Manager.`,
+          );
+        }
+      } catch (e: any) {
+        this.logger.warn(`Template audit failed for ${c.displayPhoneNumber || c.organizationId}: ${e.message}`);
+      }
+    }
+    if (!gaps.length) this.logger.log(`Template audit: all ${connections.length} connected line(s) have ${required.join(', ')}`);
+    return gaps;
   }
 }
