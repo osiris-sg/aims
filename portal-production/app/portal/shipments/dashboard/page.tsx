@@ -21,7 +21,8 @@ export default function SalesDashboardPage() {
   const { isLoading, isShipmentsHomeEnabled } = useOrganizationFeatures();
   const { hasPermission, userRoles } = useUserPermissions();
   // ADH Manager (shipments:money) or a platform admin role (the API lets osirisadmin / superadmin through too).
-  const canAdmin = hasPermission("shipments", "money") || userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes(String(r?.name ?? "").toLowerCase()));
+  // (A platform admin "viewing as" ADH has no role row in the org — the same convention as the nav: no roles = admin.)
+  const canAdmin = hasPermission("shipments", "money") || userRoles.length === 0 || userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes(String(r?.name ?? "").toLowerCase()));
   const [view, setView] = useState<View>("overview");
   useEffect(() => {
     try {
