@@ -14,7 +14,13 @@ export const L = {
     notDeal: "Not a deal",
     askLater: "Ask later",
     undo: "Undo",
-    left: (n: number) => (n === 1 ? "1 left" : `${n} left`),
+    /** "4 questions (14 emails)" — N threads that carry a question, M unprocessed emails. */
+    questions: (n: number, emails: number) => `${n === 1 ? "1 question" : `${n} questions`} (${emails === 1 ? "1 email" : `${emails} emails`})`,
+    /** The same pair for a tab / section title: "4 questions · 14 emails". */
+    questionsDot: (n: number, emails: number) => `${n === 1 ? "1 question" : `${n} questions`} · ${emails === 1 ? "1 email" : `${emails} emails`}`,
+    left: (n: number, emails: number) => `${n === 1 ? "1 question left" : `${n} questions left`} (${emails === 1 ? "1 email" : `${emails} emails`})`,
+    /** "Question 1 of 4" — the card's place in the queue. */
+    position: (i: number, n: number) => `Question ${i} of ${n}`,
     allDone: "All done — nothing waiting for you.",
     earlier: (n: number) => (n === 1 ? "1 earlier email" : `${n} earlier emails`),
     latest: "Latest",
@@ -43,7 +49,10 @@ export const L = {
     notDeal: "案件ではない",
     askLater: "後で",
     undo: "元に戻す",
-    left: (n: number) => `残り ${n} 件`,
+    questions: (n: number, emails: number) => `質問 ${n} 件（メール ${emails} 件）`,
+    questionsDot: (n: number, emails: number) => `質問 ${n} 件 · メール ${emails} 件`,
+    left: (n: number, emails: number) => `残り 質問 ${n} 件（メール ${emails} 件）`,
+    position: (i: number, n: number) => `質問 ${i} / ${n}`,
     allDone: "すべて完了 — 待ちはありません。",
     earlier: (n: number) => `以前のメール ${n} 件`,
     latest: "最新",
@@ -172,8 +181,14 @@ export function timeline<T extends { id: string; date: string }>(messages: T[]):
   return sorted.map((m, i) => ({ n: i + 1, m, latest: i === sorted.length - 1 }));
 }
 
-/** The "n left" counter after an answer: the threads still waiting (excluding the one just answered). */
-export const leftCount = (threads: Array<Pick<InboxThread, "id">>, answeredId: string | null): number => threads.filter((t) => t.id !== answeredId).length;
+/**
+ * The "3 questions left (10 emails)" counter: the threads still waiting (excluding the one just answered / shown)
+ * and the unprocessed emails they hold.
+ */
+export function leftCount(threads: Array<Pick<InboxThread, "id" | "messages">>, answeredId: string | null): { questions: number; emails: number } {
+  const rest = threads.filter((t) => t.id !== answeredId);
+  return { questions: rest.length, emails: rest.reduce((n, t) => n + t.messages.filter((m) => m.inboxState !== "PROCESSED").length, 0) };
+}
 
 /** One status line for a collapsed thread card: the question title (waiting) or the result headline (done). */
 export function cardStatus(t: Pick<InboxThread, "question" | "messages" | "general">, lang: InboxLang): { text: string; tone: ResultBox["tone"] } {

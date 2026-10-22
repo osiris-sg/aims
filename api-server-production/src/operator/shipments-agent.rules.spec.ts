@@ -1,4 +1,4 @@
-import { batchText, digestText, dueAtFor, forbiddenAsk, inQuietHours, isDigestTime, nextAllowed, parseRecordRef, prefsOf, refusalText, replyLanguage, shipmentsSystemPrompt, DEFAULT_WHATSAPP_PREFS } from './shipments-agent.rules';
+import { dueAtFor, forbiddenAsk, inQuietHours, isDigestTime, nextAllowed, parseRecordRef, prefsOf, refusalText, replyLanguage, shipmentsSystemPrompt, DEFAULT_WHATSAPP_PREFS } from './shipments-agent.rules';
 
 const jst = (iso: string) => new Date(`${iso}+09:00`);
 
@@ -75,33 +75,9 @@ describe('WhatsApp shipments agent — language, references, refusals', () => {
     expect(p).toContain('only act through the tools listed');
     expect(p).toContain('Japanese now');
     expect(p).not.toContain('—');
+    expect(p).toContain('NO EMOJIS');
+    expect(p).toContain('never email domains');
   });
 });
 
-describe('WhatsApp shipments agent — digest & batching', () => {
-  const input = {
-    dateLabel: 'Thu 22 Oct',
-    emails: { autoFiled: [{ ref: '#19-1', what: '計量検収票.pdf' }, { ref: '#16-2', what: 'import permit' }], needsYou: 2, noOrder: 3 },
-    tasks: { overdue: [{ title: '#18-1: tax funding due' }], today: [{ title: '#20-1: AN expected' }] },
-    arriving: [{ ref: '#19-1', vessel: 'WAN HAI 366', eta: '30 Oct' }],
-    portalUrl: 'https://app.ai-ms.io/portal/shipments/dashboard',
-  };
-
-  it('says emails, tasks and arrivals in point form, under the template limit', () => {
-    const t = digestText(input, 'en');
-    expect(t).toContain('2 auto-filed · 2 need you · 3 no order yet');
-    expect(t).toContain('計量検収票.pdf → #19-1');
-    expect(t).toContain('1 overdue · 1 due today');
-    expect(t).toContain('#19-1 WAN HAI 366 ETA 30 Oct');
-    expect(t.length).toBeLessThanOrEqual(1000);
-    expect(digestText(input, 'ja')).toContain('おはようございます');
-    expect(digestText({ ...input, arriving: [] }, 'en')).toContain('Nothing arriving this week');
-  });
-
-  it('batches several due lines into one message', () => {
-    expect(batchText([{ text: 'only one' }])).toBe('only one');
-    const t = batchText([{ text: 'A' }, { text: 'B' }, { text: 'C' }]);
-    expect(t.startsWith('3 updates:')).toBe(true);
-    expect(t).toContain('• B');
-  });
-});
+// Round X: the digest / batch text moved to push-text.ts — see push-text.spec.ts.

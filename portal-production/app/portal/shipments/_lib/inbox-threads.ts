@@ -2,10 +2,10 @@
 // in helpers/inboxThreads.test.mjs. No React, no MUI.
 import type { InboxBy, InboxLinked, InboxLinkedFile, InboxMessage } from "./api";
 
-/** "To do: 4 emails to confirm · 2 tasks overdue · 3 arriving this week" (the dashboard's top line). */
-export function toDoLine(c: { emails: number; overdue: number; arriving: number }): string {
+/** "To do: 4 questions (14 emails) · 2 tasks overdue · 3 arriving this week" (the dashboard's top line). */
+export function toDoLine(c: { questions: number; emails: number; overdue: number; arriving: number }): string {
   const n = (v: number, one: string, many: string) => `${v} ${v === 1 ? one : many}`;
-  const parts = [c.emails ? `${n(c.emails, "email", "emails")} to confirm` : null, c.overdue ? `${n(c.overdue, "task", "tasks")} overdue` : null, c.arriving ? `${c.arriving} arriving this week` : null].filter(Boolean);
+  const parts = [c.questions ? `${n(c.questions, "question", "questions")} (${n(c.emails, "email", "emails")})` : null, c.overdue ? `${n(c.overdue, "task", "tasks")} overdue` : null, c.arriving ? `${c.arriving} arriving this week` : null].filter(Boolean);
   return parts.length ? `To do: ${parts.join(" · ")}` : "Nothing to do — all emails are linked, no task overdue, nothing arriving this week.";
 }
 

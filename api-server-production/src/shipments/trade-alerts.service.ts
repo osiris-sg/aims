@@ -1,4 +1,5 @@
 import { isTestRecord, testRecordIds } from './trade-test-orders';
+import { freeTimeLine, stepOverdueLine } from '../operator/push-text';
 import { ShipmentsNotifyService } from './shipments-notify.service';
 import { CUSTOM_KIND } from './trade-alerts';
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
@@ -234,7 +235,13 @@ export class TradeAlertsService {
       await this.notifications.emit({ organizationId, kind: 'TRADE_ALERT', title: a.title, body: a.detail, entityType: 'trade-alert', entityId: a.id, linkUrl: a.linkUrl });
       await this.prisma.tradeAlert.update({ where: { id: a.id }, data: { notifiedAt: now } });
       // Round S: free time ending / a stuck step also reach the linked staff on WhatsApp (batched, quiet hours).
-      if (this.whatsapp && (a.kind === 'FREE_TIME' || a.kind === 'STEP_STUCK')) await this.whatsapp.queue(organizationId, 'EVENT', `${a.kind === 'FREE_TIME' ? '⏳' : '⚠️'} ${a.title}${a.detail ? ` · ${a.detail}` : ''}`, { linkUrl: a.linkUrl, dedupeKey: `alert:${a.id}:${a.dueAt.toISOString().slice(0, 10)}` });
+      if (this.whatsapp && (a.kind === 'FREE_TIME' || a.kind === 'STEP_STUCK')) {
+        // Round X: one plain line, no emojis: "#14-1 detention free time ended 20 Oct, check costs" / "#21-1 step overdue: Customs tax estimate".
+        const ref = /^(#\d+(?:-\d+)?)/.exec(a.title)?.[1] ?? a.title.split(':')[0];
+        const rest = a.title.replace(/^#\d+(?:-\d+)?\s*[:：]?\s*/, '');
+        const line = (lang: 'en' | 'ja') => (a.kind === 'FREE_TIME' ? freeTimeLine(ref, /demurrage/i.test(a.title) ? 'demurrage' : 'detention', a.dueAt, lang) : stepOverdueLine(ref, rest.replace(/\s*\(.*\)\s*$/, ''), lang));
+        await this.whatsapp.queue(organizationId, 'EVENT', line('en'), { linkUrl: a.linkUrl, dedupeKey: `alert:${a.id}:${a.dueAt.toISOString().slice(0, 10)}`, textFor: (p) => line(p.lang) });
+      }
     }
     return due.length;
   }

@@ -24,7 +24,6 @@ import { OperatorAuthService } from '../src/operator/operator-auth.service';
 import { WebAdapter } from '../src/operator/adapters/web.adapter';
 import { ShipmentsOutboxService } from '../src/operator/shipments-outbox.service';
 import { TradeAlertsService } from '../src/shipments/trade-alerts.service';
-import { digestText } from '../src/operator/shipments-agent.rules';
 import { OperatorContext } from '../src/operator/operator.types';
 import { PrismaService } from '../src/common/prisma.service';
 import { runAsOrg } from '../src/common/tenancy/tenant-context';
@@ -190,9 +189,34 @@ async function main() {
     // ── 5. the digest ──
     say('\n━━ 5. Morning digest (what Sayaka would get at 08:30 JST)');
     const input = await outbox.digestInput(ORG);
-    say('  ' + digestText(input, 'en').replace(/\n/g, '\n  '));
+    say('  ' + outbox.digestFor(input, 'en').replace(/\n/g, '\n  '));
     say('  ---');
-    say('  ' + digestText(input, 'ja').replace(/\n/g, '\n  '));
+    say('  ' + outbox.digestFor(input, 'ja').replace(/\n/g, '\n  '));
+
+    // ── 6. Round X: free-text assignment in chat — a Confirm card before any link; an ambiguous one asks which ──
+    say('\n━━ 6. Round X: free-text assignment (each must show a Confirm card before linking; the ambiguous one must ask)');
+    await prisma.operatorSession.deleteMany({ where: { channelUserId: CHAT } }).catch(() => null);
+    const stateOf = async (needle: string) => {
+      const r: any = await prisma.emailIngestLog.findFirst({ where: { organizationId: ORG, subject: { contains: needle } }, orderBy: { createdAt: 'desc' }, select: { inboxState: true, shipmentId: true, orderId: true } });
+      return r ? `${r.inboxState}${r.shipmentId || r.orderId ? ' (linked)' : ''}` : 'not found';
+    };
+    say(`  (before: DET=${await stateOf('DET費用')} · Isewan=${await stateOf('インゴット')})`);
+    await user('the DET email from Toshiro is #16-1');
+    say(`  → Confirm button shown: ${lastButtons.some((b) => b.data.startsWith('confirm:'))} · DET state before tapping: ${await stateOf('DET費用')}`);
+    await user('cancel');
+    lastButtons.splice(0);
+    await user('さっきの三井倉庫のメールは #21-1 です');
+    say(`  → Confirm button shown: ${lastButtons.some((b) => b.data.startsWith('confirm:'))} (expected: false — three Mitsui emails, it must ask which)`);
+    lastButtons.splice(0);
+    await user('the Isewan ingot email is not a shipment');
+    say(`  → Confirm button shown: ${lastButtons.some((b) => b.data.startsWith('confirm:'))} · Isewan state before tapping: ${await stateOf('インゴット')}`);
+    await user('cancel');
+    lastButtons.splice(0);
+    await user('the Mitsui email is #22-1');
+    say(`  → Confirm button shown: ${lastButtons.some((b) => b.data.startsWith('confirm:'))} (expected: false — it must ask which of the Mitsui emails)`);
+    say(`  (after: DET=${await stateOf('DET費用')} · Isewan=${await stateOf('インゴット')} — nothing linked without a tap)`);
+    const emoji = transcript.filter((l) => /🤖/.test(l)).map((l) => l.replace('🤖', '')).some((l) => /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(l));
+    say(`  → any emoji in the assistant's replies: ${emoji} (expected: false)`);
 
     await prisma.operatorSession.deleteMany({ where: { channelUserId: CHAT } }).catch(() => null);
   });

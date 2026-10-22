@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { etaChangedLine } from '../operator/push-text';
 import { TradeAlertsService } from './trade-alerts.service';
 import { etaTrail, withEtaChange } from './trade-alerts';
 import { carrierOf } from './trade-carrier';
@@ -339,7 +340,8 @@ export class ShipmentsService {
       const s: any = await this.prisma.shipment.findFirst({ where: { id, organizationId }, select: { seqNo: true, vessel: true, eta: true, order: { select: { orderNo: true } } } });
       const ref = s?.order?.orderNo ? `#${s.order.orderNo}${s.seqNo ? `-${s.seqNo}` : ''}` : 'shipment';
       const when = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '—');
-      await this.whatsapp.queue(organizationId, 'EVENT', `🚢 ${ref} ETA ${when(existingEta)} → ${when(s?.eta)}${s?.vessel ? ` (${s.vessel})` : ''}${actor?.name ? ` · by ${actor.name}` : ''}`, { linkUrl: s?.order ? `/portal/shipments/orders/${(await this.prisma.shipment.findFirst({ where: { id }, select: { orderId: true } }))?.orderId}?shipment=${id}` : null, dedupeKey: `eta:${id}:${s?.eta ? new Date(s.eta).toISOString().slice(0, 10) : 'none'}` });
+      void when;
+      await this.whatsapp.queue(organizationId, 'EVENT', etaChangedLine(ref, existingEta, s?.eta, 'en'), { textFor: (p) => etaChangedLine(ref, existingEta, s?.eta, p.lang), linkUrl: s?.order ? `/portal/shipments/orders/${(await this.prisma.shipment.findFirst({ where: { id }, select: { orderId: true } }))?.orderId}?shipment=${id}` : null, dedupeKey: `eta:${id}:${s?.eta ? new Date(s.eta).toISOString().slice(0, 10) : 'none'}` });
     }
     return this.getById(organizationId, id);
   }

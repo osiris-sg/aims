@@ -72,7 +72,7 @@ describe('ShipmentsNotifyService.queue', () => {
 });
 
 describe('ShipmentsOutboxService.drain', () => {
-  it('sends one batched text per user, the digest as the template, on the line the user last wrote to', async () => {
+  it('sends one batched text per user, the digest as plain text (lines kept; the closed-window recovery falls back), on the line the user last wrote to', async () => {
     const { prisma, rows } = prismaMock([]);
     const now = jst('2026-10-22T10:20:00');
     rows.push(
@@ -82,13 +82,15 @@ describe('ShipmentsOutboxService.drain', () => {
       { id: 'r4', organizationId: 'org-adh', userId: 'u2', to: '819000000002', kind: 'EVENT', text: 'later', dueAt: jst('2026-10-22T10:25:00'), status: 'QUEUED', createdAt: new Date(4) },
     );
     const whatsapp: any = { sendText: jest.fn(async () => undefined), sendTemplate: jest.fn(async () => true), rememberContext: jest.fn() };
-    const svc = new ShipmentsOutboxService(prisma, new ShipmentsNotifyService(prisma), { myTasks: jest.fn(async () => []) } as any, whatsapp);
+    const svc = new ShipmentsOutboxService(prisma, new ShipmentsNotifyService(prisma), { myTasks: jest.fn(async () => []) } as any, whatsapp, { dashboard: jest.fn(async () => ({ toConfirm: { emails: 0, total: 0 } })) } as any);
     const r = await svc.drain(now);
     expect(r).toEqual({ sent: 3, failed: 0 });
     expect(whatsapp.rememberContext).toHaveBeenCalledWith('819000000001', 'line-osiris');
-    expect(whatsapp.sendTemplate).toHaveBeenCalledWith('819000000001', 'aims_notify', 'Good morning');
-    expect(whatsapp.sendText).toHaveBeenCalledTimes(1);
-    expect(whatsapp.sendText.mock.calls[0][1]).toBe('2 updates:\n• A\n• B');
+    expect(whatsapp.sendTemplate).not.toHaveBeenCalled();
+    expect(whatsapp.sendText).toHaveBeenCalledTimes(2);
+    expect(whatsapp.sendText.mock.calls[0][1]).toBe('Good morning');
+    // Two event lines due together: the lines, then the Dashboard link once — no bullets, no emojis.
+    expect(whatsapp.sendText.mock.calls[1][1]).toBe('A\nB\nOpen the Dashboard: https://app.ai-ms.io/portal/shipments/dashboard');
     expect(rows.filter((x) => x.status === 'SENT').map((x) => x.id).sort()).toEqual(['r1', 'r2', 'r3']);
     expect(rows.find((x) => x.id === 'r4').status).toBe('QUEUED'); // not due yet
   });
@@ -99,7 +101,7 @@ describe('ShipmentsOutboxService.drain', () => {
     prisma.whatsAppConnection.findFirst = jest.fn(async () => null);
     rows.push({ id: 'r1', organizationId: 'org-adh', userId: 'u1', to: '819000000001', kind: 'EVENT', text: 'A', dueAt: new Date(0), status: 'QUEUED', createdAt: new Date(1) });
     const whatsapp: any = { sendText: jest.fn(), sendTemplate: jest.fn(), rememberContext: jest.fn() };
-    const svc = new ShipmentsOutboxService(prisma, new ShipmentsNotifyService(prisma), { myTasks: jest.fn() } as any, whatsapp);
+    const svc = new ShipmentsOutboxService(prisma, new ShipmentsNotifyService(prisma), { myTasks: jest.fn() } as any, whatsapp, { dashboard: jest.fn() } as any);
     expect(await svc.drain(new Date())).toEqual({ sent: 0, failed: 1 });
     expect(rows[0]).toMatchObject({ status: 'FAILED', error: 'no WhatsApp line to send from' });
     expect(whatsapp.sendText).not.toHaveBeenCalled();

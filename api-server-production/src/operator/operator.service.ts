@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { stripEmoji } from './push-text';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
 import { CHAT_UPLOAD_PROJECT_COST_FLAG, isOrgFeatureEnabled } from '../common/org-features';
@@ -275,6 +276,7 @@ export class OperatorService {
     const profile = await this.profileOf(ctx.organizationId);
     ctx.profile = profile;
     if (profile === 'shipments') {
+      msg.plain = true; // round X (owner): no emojis anywhere in the shipments assistant's replies
       if (msg.channel === 'whatsapp' && !(await isOrgFeatureEnabled(this.prisma, ctx.organizationId, 'enableWhatsAppAgent'))) {
         this.logger.log(`whatsapp agent off for ${ctx.organizationName}: ignored a message from a linked user`);
         return;
@@ -1452,7 +1454,7 @@ export class OperatorService {
       channel: adapter.channel,
       parse: (b) => adapter.parse(b),
       sendText: async (c, raw) => {
-        const t = plainDashes(raw);
+        const t = msg.plain ? stripEmoji(plainDashes(raw)) : plainDashes(raw);
         await adapter.sendText(c, t);
         await rec({ kind: 'text', text: t });
         if (mirror) await mirror(() => this.whatsapp.sendText(channelUserId, `💻 ${t}`));
@@ -1465,7 +1467,9 @@ export class OperatorService {
         await rec({ kind: 'document', url, filename, text: caption, documentId: documentId || fromUrl });
         if (mirror) await mirror(() => this.whatsapp.sendDocument(channelUserId, url, filename, caption));
       },
-      sendButtons: async (c, t, b) => {
+      sendButtons: async (c, rawT, rawB) => {
+        const t = msg.plain ? stripEmoji(plainDashes(rawT)) : rawT;
+        const b = msg.plain ? rawB.map((x) => ({ ...x, label: stripEmoji(x.label) || x.label })) : rawB;
         await adapter.sendButtons(c, t, b);
         await rec({ kind: 'buttons', text: t, buttons: b });
         // Buttons stay on the web: a tap must land on the screen that holds them.
@@ -1473,7 +1477,9 @@ export class OperatorService {
       },
     };
     if (adapter.sendList) {
-      w.sendList = async (c, t, label, rows) => {
+      w.sendList = async (c, rawT, label, rawRows) => {
+        const t = msg.plain ? stripEmoji(plainDashes(rawT)) : rawT;
+        const rows = msg.plain ? rawRows.map((r) => ({ ...r, title: stripEmoji(r.title) || r.title })) : rawRows;
         await adapter.sendList!(c, t, label, rows);
         await rec({ kind: 'list', text: t, buttons: rows.map((r) => ({ label: r.title, data: r.id })) });
       };

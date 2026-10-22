@@ -106,6 +106,26 @@ describe('history and no order', () => {
     expect(k.seed).toMatchObject({ contractNo: '454003598', grade: '6005', qtyMt: 220 });
     expect(orderSeed({ subject: '【11月納入】アルミニウムビレット 加藤 6063 40T', date: new Date('2026-10-20') })).toMatchObject({ grade: '6063', qtyMt: 40, customerKey: 'KATO', deliveryMonth: '2026-11' });
   });
+  it('round X: an email with a known key is NEVER a new-deal / is-it-a-shipment card — keys only in the quoted text → pick the shipment', () => {
+    const quoted = [{ orderId: 'o15', shipmentId: 's15-1', ref: '#15-1' }, { orderId: 'o16', shipmentId: 's16-1', ref: '#16-1' }];
+    const v = classifyEmail(base({ subject: 'RE: Request for Extension of Detention Free Time for Japan WANHAI Shipments', keys: { piNo: null, contractNo: null }, quotedRecords: quoted }));
+    expect(v.kind).toBe('PICK');
+    expect(v.reason).toContain('#15-1, #16-1');
+    expect(v.links).toEqual([{ orderId: 'o15', shipmentId: 's15-1' }, { orderId: 'o16', shipmentId: 's16-1' }]);
+    expect(classifyEmail(base({ inboxState: 'UNSURE', verdict: 'UNSURE', subject: 'MOVO manual', quotedRecords: quoted })).kind).toBe('PICK');
+    expect(classifyEmail(base({ subject: 'x', keyInAims: true })).kind).toBe('PICK');
+    expect(classifyEmail(base({ subject: 'x', keyInAims: true })).kind).not.toBe('NO_ORDER');
+    // A reply about DET costs naming 6005C: the cue candidates are the options, never a new deal.
+    const det = classifyEmail(base({ subject: 'Re:【ご相談】直近のDET費用及びディテンション回避策について', verdict: 'SHIPMENT', cueCandidates: [{ orderId: 'o16', shipmentId: 's16-1', ref: '#16-1' }, { orderId: 'o16', shipmentId: 's16-2', ref: '#16-2' }] }));
+    expect(det.kind).toBe('PICK');
+    expect(det.links).toHaveLength(2);
+    expect(classifyEmail(base({ subject: 'Re: DET costs', verdict: 'SHIPMENT' })).kind).toBe('PICK');
+    // An import enquiry that is not a reply is a possible new deal, even when the AI was unsure.
+    expect(classifyEmail(base({ subject: 'アルミインゴット輸入の件', inboxState: 'UNSURE', verdict: 'UNSURE' })).kind).toBe('NO_ORDER');
+    // The replies of that new-deal thread stay a new deal (no earlier link in the thread), even with loose cues.
+    expect(classifyEmail(base({ subject: 'RE: アルミインゴット輸入の件', verdict: 'SHIPMENT', cueCandidates: [{ orderId: 'o13', shipmentId: 's13-1', ref: '#13-1' }] })).kind).toBe('NO_ORDER');
+    expect(classifyEmail(base({ subject: 'Re: Draft - Sales Contract- 6063- 50 tne', keys: { piNo: 'SIAE_PI_26100906', contractNo: null } })).kind).toBe('NO_ORDER');
+  });
   it('Unsure mail with nothing to go on stays "Is it a shipment?"; processed / hidden rows are left alone', () => {
     expect(classifyEmail(base({ inboxState: 'UNSURE', verdict: 'UNSURE', subject: '諸掛りについて' }))).toMatchObject({ kind: 'IS_SHIPMENT' });
     expect(classifyEmail(base({ inboxState: 'UNSURE', verdict: 'UNSURE', subject: 'Accepted: 三井倉庫様 打合せ' }))).toMatchObject({ kind: 'HIDE' });

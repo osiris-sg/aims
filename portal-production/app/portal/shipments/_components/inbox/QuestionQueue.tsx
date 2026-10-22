@@ -1,7 +1,7 @@
 "use client";
 
 // Round W — QUEUE MODE: one question card at a time. After an answer, a banner says what happened ("Linked to
-// #18-2 · 2 files filed") with Undo, and the next question loads by itself ("3 left"). The other waiting threads
+// #18-2 · 2 files filed") with Undo, and the next question loads by itself ("3 questions left (10 emails)"). The other waiting threads
 // are listed under the card (one line each: the question + the subject) — click one to jump to it.
 
 import React, { useEffect, useState } from "react";
@@ -29,7 +29,7 @@ export function QuestionQueue({ threads, lang, busy, onAnswer, onUndo, onCreateO
   const labels = L[lang];
   const waiting = threads.filter((t) => !!t.question);
   const [currentId, setCurrentId] = useState<string | null>(null);
-  const [last, setLast] = useState<{ result: InboxAnswerResult; left: number; undone: boolean } | null>(null);
+  const [last, setLast] = useState<{ result: InboxAnswerResult; left: { questions: number; emails: number }; undone: boolean } | null>(null);
   const current = waiting.find((t) => t.id === currentId) ?? waiting[0] ?? null;
   useEffect(() => {
     if (current && current.id !== currentId) setCurrentId(current.id);
@@ -43,6 +43,7 @@ export function QuestionQueue({ threads, lang, busy, onAnswer, onUndo, onCreateO
     setCurrentId(next?.id ?? null);
   };
   const rest = waiting.filter((t) => t.id !== current?.id);
+  const restLeft = leftCount(waiting, current?.id ?? null);
   const listed = listLimit ? rest.slice(0, listLimit) : rest;
   return (
     <Stack spacing={1.5} data-tour="question-queue">
@@ -69,13 +70,13 @@ export function QuestionQueue({ threads, lang, busy, onAnswer, onUndo, onCreateO
           {last.undone ? (lang === "ja" ? "元に戻しました" : "Undone") : last.result.text}
           {!last.undone && (
             <Typography component="span" variant="body2" sx={{ ml: 1, opacity: 0.75 }}>
-              · {last.left ? labels.left(last.left) : labels.allDone}
+              · {last.left.questions ? labels.left(last.left.questions, last.left.emails) : labels.allDone}
             </Typography>
           )}
         </Alert>
       )}
       {current ? (
-        <QuestionCard t={current} lang={lang} busy={busy} onAnswer={answer} onCreateOrder={onCreateOrder} onOpenThread={onOpenThread} position={waiting.length > 1 ? `${waiting.findIndex((t) => t.id === current.id) + 1} / ${waiting.length}` : null} />
+        <QuestionCard t={current} lang={lang} busy={busy} onAnswer={answer} onCreateOrder={onCreateOrder} onOpenThread={onOpenThread} position={waiting.length > 1 ? labels.position(waiting.findIndex((t) => t.id === current.id) + 1, waiting.length) : null} />
       ) : (
         <Paper variant="outlined" sx={{ p: 3, textAlign: "center" }}>
           <Typography variant="body1" sx={{ fontWeight: 600 }}>
@@ -86,7 +87,7 @@ export function QuestionQueue({ threads, lang, busy, onAnswer, onUndo, onCreateO
       {listed.length > 0 && (
         <Box>
           <Typography variant="overline" color="text.secondary">
-            {labels.left(rest.length)}
+            {labels.left(restLeft.questions, restLeft.emails)}
           </Typography>
           <List dense disablePadding data-tour="question-list">
             {listed.map((t) => {

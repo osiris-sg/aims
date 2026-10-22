@@ -12,8 +12,16 @@ test("language follows the browser; labels exist in both", () => {
   assert.equal(uiLangOf("ja-JP"), "ja");
   assert.equal(uiLangOf("en-SG"), "en");
   assert.equal(uiLangOf(null), "en");
-  assert.equal(L.en.left(3), "3 left");
-  assert.equal(L.ja.left(3), "残り 3 件");
+  assert.equal(L.en.left(3, 10), "3 questions left (10 emails)");
+  assert.equal(L.en.left(1, 2), "1 question left (2 emails)");
+  assert.equal(L.ja.left(3, 10), "残り 質問 3 件（メール 10 件）");
+  assert.equal(L.en.questions(4, 14), "4 questions (14 emails)");
+  assert.equal(L.en.questions(1, 1), "1 question (1 email)");
+  assert.equal(L.ja.questions(4, 14), "質問 4 件（メール 14 件）");
+  assert.equal(L.en.questionsDot(4, 14), "4 questions · 14 emails");
+  assert.equal(L.ja.questionsDot(4, 14), "質問 4 件 · メール 14 件");
+  assert.equal(L.en.position(1, 4), "Question 1 of 4");
+  assert.equal(L.ja.position(1, 4), "質問 1 / 4");
   assert.equal(L.en.earlier(1), "1 earlier email");
 });
 
@@ -44,7 +52,9 @@ test("a thread whose emails went to different places: one line per email, oldest
 test("timeline: 1 → n oldest first, the newest marked Latest; 'n left' excludes the answered thread; card status = the question or the result", () => {
   const tl = timeline([{ id: "new", date: "2026-10-21T11:00:00.000Z" }, { id: "old", date: "2026-10-20T11:00:00.000Z" }]);
   assert.deepEqual(tl.map((x) => [x.n, x.m.id, x.latest]), [[1, "old", false], [2, "new", true]]);
-  assert.equal(leftCount([{ id: "t1" }, { id: "t2" }, { id: "t3" }], "t2"), 2);
+  const msgs = (states) => states.map((inboxState, i) => ({ id: `m${i}`, inboxState }));
+  assert.deepEqual(leftCount([{ id: "t1", messages: msgs(["SUGGESTED", "PROCESSED", "SUGGESTED"]) }, { id: "t2", messages: msgs(["SUGGESTED"]) }, { id: "t3", messages: msgs(["UNMATCHED"]) }], "t2"), { questions: 2, emails: 3 });
+  assert.deepEqual(leftCount([{ id: "t1", messages: msgs(["SUGGESTED"]) }], "t1"), { questions: 0, emails: 0 });
   assert.deepEqual(cardStatus({ question: { title: "Which shipment is this about?" }, messages: [], general: null }, "en"), { text: "Which shipment is this about?", tone: "wait" });
   assert.deepEqual(cardStatus({ question: null, messages: [{ inboxState: "PROCESSED", linked: linked({ ref: "#15-1" }), general: null, by: null, done: [] }], general: null }, "en"), { text: "🔗 Linked to #15-1 — no documents filed.", tone: "link" });
 });

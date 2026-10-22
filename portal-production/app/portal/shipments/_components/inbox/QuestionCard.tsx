@@ -6,12 +6,12 @@
 // Create order", "Not about a shipment" / "Not a deal" and "Ask later". One tap = done. EN / JA from the API.
 
 import React, { useState } from "react";
-import { Box, Button, Chip, Collapse, Paper, Stack, Typography } from "@mui/material";
+import { Box, Button, Chip, Paper, Stack, Typography } from "@mui/material";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import type { InboxAnswer, InboxLang, InboxQuestionOption, InboxThread } from "../../_lib/api";
 import { L } from "../../_lib/inbox-cards";
 import { fromParts, whenShort } from "../../_lib/inbox-threads";
-import { EmailView } from "./EmailView";
+import { EmailDialog } from "./EmailDialog";
 
 export interface QuestionCardProps {
   t: InboxThread;
@@ -20,7 +20,7 @@ export interface QuestionCardProps {
   onAnswer: (t: InboxThread, a: InboxAnswer) => void;
   onCreateOrder: (t: InboxThread) => void;
   onOpenThread: (t: InboxThread) => void;
-  /** "1 of 4" in queue mode. */
+  /** "Question 1 of 4" in queue mode. */
   position?: string | null;
 }
 
@@ -75,7 +75,7 @@ export function QuestionCard({ t, lang, busy, onAnswer, onCreateOrder, onOpenThr
           )}
         </Box>
 
-        {/* The latest email: who, when, the first lines; expand for the full email. */}
+        {/* The latest email: who, when, the first lines; "Show the full email" opens it in a pop-up. */}
         <Box sx={{ borderLeft: "3px solid", borderColor: "divider", pl: 1.5 }} data-tour="question-email">
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
             <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap title={newest.from}>
@@ -94,14 +94,14 @@ export function QuestionCard({ t, lang, busy, onAnswer, onCreateOrder, onOpenThr
           <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.25 }} noWrap title={newest.subject ?? ""}>
             {newest.subject || "(no subject)"}
           </Typography>
-          {!full && newest.preview && (
+          {newest.preview && (
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
               {newest.preview}
             </Typography>
           )}
           <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
-            <Button size="small" onClick={() => setFull((f) => !f)} sx={{ textTransform: "none", px: 0.5 }} data-tour="question-show-full">
-              {full ? labels.hideFull : labels.showFull}
+            <Button size="small" onClick={() => setFull(true)} sx={{ textTransform: "none", px: 0.5 }} data-tour="question-show-full">
+              {labels.showFull}
             </Button>
             {earlier > 0 && (
               <Button size="small" onClick={() => onOpenThread(t)} sx={{ textTransform: "none", px: 0.5 }} data-tour="question-earlier">
@@ -109,11 +109,7 @@ export function QuestionCard({ t, lang, busy, onAnswer, onCreateOrder, onOpenThr
               </Button>
             )}
           </Stack>
-          <Collapse in={full} unmountOnExit>
-            <Box sx={{ mt: 1 }}>
-              <EmailView id={newest.id} compactHeaders company={newest.company ?? null} lang={lang} />
-            </Box>
-          </Collapse>
+          <EmailDialog message={newest} lang={lang} open={full} onClose={() => setFull(false)} />
         </Box>
 
         {q.kind === "NEW_DEAL" && q.details.length > 0 && (

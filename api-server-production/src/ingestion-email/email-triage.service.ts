@@ -16,7 +16,8 @@ import { StoredEmailMeta } from './email-store';
 import { companyOf, companyOverridesOf } from './email-companies';
 import { attachmentHits, attachmentTarget, autoTier, DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, orderCuesMatch, ownTextCues, recordRef, subjectCues, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
 import { auditLink, AuditResult, RECHECK_TEXT } from './email-audit';
-import { answerText, Lang, QuestionCard, QuestionInput, questionOf, questionWhatsAppText } from './email-question';
+import { answerText, Lang, QuestionCard, QuestionInput, questionOf } from './email-question';
+import { arrivalNoticeLine, filedLine, importPermitLine, needsCheckText, NeedsCheckInput, senderLine } from '../operator/push-text';
 import { splitQuoted } from './email-quote';
 import { blockRemoteContent, parseEmail, ParsedEmail } from './email-mime';
 import { buildReasonerPrompt, judgeReasoner, parseReasonerOutput, ReasonerContext, ReasonerJudgement, ReasonerRecordRow, ReasonerThreadMessage } from './email-reasoner';
@@ -282,17 +283,36 @@ export class EmailTriageService {
   /** Round S: an email that now waits for a person → WhatsApp "needs you" (batched; once per email). */
   /** Round W: the WhatsApp question — the card's title, what AIMS found, numbered options, "Reply 1, 2 or 3" (in the user's language). */
   private async notifyNeedsMe(organizationId: string, logId: string, state: InboxState) {
-    if (!this.whatsapp || (state !== 'SUGGESTED' && state !== 'UNMATCHED')) return;
+    if (!this.whatsapp || (state !== 'SUGGESTED' && state !== 'UNMATCHED' && state !== 'UNSURE')) return;
     try {
       const q = await this.questionOfLog(organizationId, logId, 'en');
       if (!q) return;
-      if (q.card.kind === 'NEW_DEAL') return; // the digest counts these; creating an order is a portal job
       const ja = await this.questionOfLog(organizationId, logId, 'ja');
-      const text = questionWhatsAppText(q.card, q.subject60);
-      await this.whatsapp.queue(organizationId, 'NEEDS_ME', text, { linkUrl: '/portal/shipments/dashboard', dedupeKey: `needs:${logId}`, textFor: (prefs) => (prefs.lang === 'ja' && ja ? questionWhatsAppText(ja.card, ja.subject60) : text) });
+      const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId }, select: { fromAddress: true, emailDate: true, createdAt: true, subject: true } });
+      const company = companyOf(log?.fromAddress, await this.companyOverrides(organizationId)).name;
+      const base = { from: log?.fromAddress ?? null, company, date: log?.emailDate ?? log?.createdAt ?? null, subject: log?.subject ?? null, portalUrl: this.portalUrl() };
+      const input = (card: QuestionCard): NeedsCheckInput => ({ ...base, kind: card.kind, options: card.options.map((o) => ({ ref: o.ref })), says: /says (.+?), but/.exec(q.card.title)?.[1] ?? null });
+      const text = needsCheckText(input(q.card), 'en');
+      await this.whatsapp.queue(organizationId, 'NEEDS_ME', text, { linkUrl: '/portal/shipments/dashboard', dedupeKey: `needs:${logId}`, textFor: (prefs) => (prefs.lang === 'ja' && ja ? needsCheckText(input(ja.card), 'ja') : text) });
     } catch {
       /* best effort */
     }
+  }
+
+  /** The Dashboard link the pushes point at. */
+  portalUrl(): string {
+    return `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}/portal/shipments/dashboard`;
+  }
+
+  /** "Toshiro Takekoshi (Asia Deal Hub)" for a From header — the org's company map applied (round X, for chat replies). */
+  async senderLabel(organizationId: string, from: string | null | undefined): Promise<string> {
+    return senderLine(from, companyOf(from, await this.companyOverrides(organizationId)).name);
+  }
+
+  /** The company behind a From header ("Vedanta"), else the domain. */
+  async companyLabel(organizationId: string, from: string | null | undefined): Promise<string> {
+    const c = companyOf(from, await this.companyOverrides(organizationId));
+    return c.name ?? c.domain ?? '?';
   }
 
   /** Round W: the question card of one unprocessed email (its thread's card) — for WhatsApp and the numbered reply. */
@@ -378,10 +398,15 @@ export class EmailTriageService {
       const refOf = (a: IntakeAction) => (a.ownerKind === 'order' ? refs.order.get(a.ownerId!) : refs.ship.get(a.ownerId!)) ?? 'record';
       const subj = (log?.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 50);
       for (const a of files) {
-        if (a.docType === 'ARRIVAL_NOTICE') await this.whatsapp.queue(organizationId, 'EVENT', `⚓ Arrival notice filed → ${refOf(a)} ("${subj}")`, { linkUrl: '/portal/shipments/inbox', dedupeKey: `an:${log.id}:${a.ownerId}` });
-        else if (a.docType === 'IMPORT_PERMIT') await this.whatsapp.queue(organizationId, 'EVENT', `🛃 Import permit filed → ${refOf(a)} ("${subj}")`, { linkUrl: '/portal/shipments/inbox', dedupeKey: `permit:${log.id}:${a.ownerId}` });
+        // Round X: one plain line per event, no emojis, in the user's language.
+        if (a.docType === 'ARRIVAL_NOTICE') await this.whatsapp.queue(organizationId, 'EVENT', arrivalNoticeLine(refOf(a), 'en'), { linkUrl: '/portal/shipments/dashboard', dedupeKey: `an:${log.id}:${a.ownerId}`, textFor: (p) => arrivalNoticeLine(refOf(a), p.lang) });
+        else if (a.docType === 'IMPORT_PERMIT') await this.whatsapp.queue(organizationId, 'EVENT', importPermitLine(refOf(a), 'en'), { linkUrl: '/portal/shipments/dashboard', dedupeKey: `permit:${log.id}:${a.ownerId}`, textFor: (p) => importPermitLine(refOf(a), p.lang) });
       }
-      if (review === 'AUTO') await this.whatsapp.queue(organizationId, 'FILED', `📎 Filed ${files.length} file${files.length > 1 ? 's' : ''} → ${[...new Set(files.map(refOf))].join(', ')} ("${subj}")`, { linkUrl: '/portal/shipments/inbox', dedupeKey: `filed:${log.id}` });
+      void subj;
+      if (review === 'AUTO') {
+        const refs2 = [...new Set(files.map(refOf))].join(', ');
+        await this.whatsapp.queue(organizationId, 'FILED', filedLine(refs2, files.length, 'en'), { linkUrl: '/portal/shipments/dashboard', dedupeKey: `filed:${log.id}`, textFor: (p) => filedLine(refs2, files.length, p.lang) });
+      }
     } catch {
       /* best effort */
     }
@@ -421,7 +446,7 @@ export class EmailTriageService {
     if (manualList?.length) {
       targets = [];
       for (const m of manualList) targets.push({ ...(await this.resolveManual(organizationId, m)), attachmentIndexes: m.attachmentIndexes });
-      decision = { target: null, kind: null, confidence: 'exact', auto: false, blocked: ['picked by hand'], check: [], notes: [], source: null, sources: [], sourceLines: [], multiOrderIds: [], candidates: prev.candidates ?? [], keyLabel: null, reason: 'picked by hand', threadFrom: null };
+      decision = { quoted: [], target: null, kind: null, confidence: 'exact', auto: false, blocked: ['picked by hand'], check: [], notes: [], source: null, sources: [], sourceLines: [], multiOrderIds: [], candidates: prev.candidates ?? [], keyLabel: null, reason: 'picked by hand', threadFrom: null };
     } else {
       decision = await this.decide(organizationId, log, ev);
       targets = decision.target ? [decision.target] : [];
@@ -543,6 +568,7 @@ export class EmailTriageService {
           sourceLines: decision.sourceLines ?? [],
           blocked,
           candidates: decision.candidates,
+          quoted: decision.quoted ?? [],
           multiOrderIds: decision.multiOrderIds,
           keyLabel: decision.keyLabel,
           reason: manualList ? 'picked by hand' : decision.reason,
@@ -773,6 +799,8 @@ export class EmailTriageService {
       wouldAuto,
       targetClosed,
       keyInAims: decision.kind === 'pi' || decision.kind === 'bl' || decision.kind === 'ci' || decision.multiOrderIds.length > 0,
+      quotedRecords: decision.quoted ?? [],
+      cueCandidates: decision.candidates.filter((c) => (c.reasons ?? []).length && c.score > 0).map((c) => ({ orderId: c.orderId, shipmentId: c.shipmentId, ref: c.ref })),
       keys: { piNo: keys.piNo ?? null, contractNo: keys.contractNo ?? null },
       date: log.emailDate ?? null,
     };
@@ -1598,6 +1626,7 @@ export class EmailTriageService {
     for (const c of (m.candidates ?? []) as Array<{ orderId: string; shipmentId: string | null; ref: string; score?: number; reasons: string[] }>) if ((c.reasons ?? []).length && (c.score ?? 1) > 0) candidates.push({ orderId: c.orderId, shipmentId: c.shipmentId, ref: c.ref, why: c.reasons ?? [] });
     for (const l of [...((m.targets ?? []) as Array<{ orderId: string | null; shipmentId: string | null }>), ...(thread.links ?? [])]) if (l.orderId) candidates.push({ orderId: l.orderId, shipmentId: l.shipmentId ?? null, ref: refOf(l.orderId, l.shipmentId ?? null), why: [lang === 'ja' ? 'このスレッドの出荷' : 'one of this thread\u2019s shipments'] });
     for (const id of (m.multiOrderIds ?? []) as string[]) candidates.push({ orderId: id, shipmentId: null, ref: refOf(id, null), why: [lang === 'ja' ? 'メールに記載' : 'named in the email'] });
+    for (const r of (m.quoted ?? []) as Array<{ orderId: string; shipmentId: string | null; ref: string }>) candidates.push({ orderId: r.orderId, shipmentId: r.shipmentId, ref: refOf(r.orderId, r.shipmentId), why: [lang === 'ja' ? '引用部分に記載' : 'named in the quoted text'] });
     const q = m.question as { kind?: string; current?: string[]; secondTargets?: Array<{ orderId: string; shipmentId: string | null }>; secondText?: string } | null;
     const recheck = q?.kind === 'RECHECK' ? { current: q.current ?? [], second: (q.secondTargets ?? []).map((s) => ({ ...s, ref: refOf(s.orderId, s.shipmentId) })), secondText: q.secondText ?? '' } : null;
     return questionOf({
@@ -1796,6 +1825,8 @@ export class EmailTriageService {
       blocked: (actions as { blocked?: string[] }).blocked ?? [],
       /** The picker's top 3 (ref, score, reasons). */
       candidates: (actions as { candidates?: unknown[] }).candidates ?? [],
+      /** Round X: records named only in the quoted text (the "which shipment?" options of a reply with no key of its own). */
+      quoted: (actions as { quoted?: unknown[] }).quoted ?? [],
       multiOrderIds: (actions as { multiOrderIds?: string[] }).multiOrderIds ?? [],
       targets: (actions as { targets?: unknown[] }).targets ?? [],
       review: (actions as { review?: unknown }).review ?? null,

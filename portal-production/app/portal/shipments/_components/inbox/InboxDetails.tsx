@@ -9,7 +9,8 @@
 // different" opens the picker for that email only.
 
 import React, { useEffect, useState } from "react";
-import { Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Link as MuiLink, Stack, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Link as MuiLink, Stack, Typography } from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useShipmentsApi, type InboxAnswer, type InboxAnswerResult, type InboxLang, type InboxMessage, type InboxRow, type InboxThread } from "../../_lib/api";
@@ -186,8 +187,8 @@ export function InboxDetailsDialog({
   const href = newest?.linked?.ref ? orderHref(newest.linked.orderId, newest.linked.shipmentId) : null;
   return (
     <Dialog open={!!open} onClose={onClose} maxWidth="md" fullWidth transitionDuration={{ enter: 225, exit: 0 }} disableRestoreFocus data-tour="email-dialog">
-      <DialogTitle sx={{ pr: 6 }}>
-        <Typography variant="h6" sx={{ fontWeight: 700, minWidth: 0 }} noWrap title={open?.subject ?? ""}>
+      <DialogTitle sx={{ pr: 7 }}>
+        <Typography variant="h6" component="div" sx={{ fontWeight: 700, minWidth: 0 }} noWrap title={open?.subject ?? ""}>
           {open?.subject || "(no subject)"}
         </Typography>
         {messages.length > 1 && (
@@ -195,6 +196,9 @@ export function InboxDetailsDialog({
             {labels.emails(messages.length)}
           </Typography>
         )}
+        <IconButton aria-label="Close" onClick={onClose} sx={{ position: "absolute", right: 8, top: 8 }} data-tour="email-dialog-close">
+          <CloseIcon />
+        </IconButton>
       </DialogTitle>
       <DialogContent dividers>
         {open?.error && <Alert severity="warning" sx={{ mb: 1 }}>AI triage: {open.error}</Alert>}

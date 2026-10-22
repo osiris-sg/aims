@@ -18,6 +18,7 @@
  * audit helper (AuditService + ActionLogService), preview (PDF push) and choice (buttons) outcomes, the
  * "find before you act / never invent an id" discipline and the plain-text answer formats.
  */
+import { senderName } from './push-text';
 import { Injectable, Logger } from '@nestjs/common';
 import type Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'crypto';
@@ -589,7 +590,9 @@ export class ShipmentsToolsService {
   private line(m: any) {
     return {
       emailId: m.id,
-      from: domainOf(m.from),
+      // Round X: the company behind the sender ("Vedanta", "Mitsui Soko"), never the domain; the person's name beside it.
+      from: m.company ? `${senderName(m.from)} (${m.company})` : senderName(m.from),
+      company: m.company ?? domainOf(m.from),
       subject: subject60(m.subject),
       date: ymd(m.date ?? m.receivedAt),
       ...(m.inboxState === 'PROCESSED'
@@ -720,9 +723,10 @@ export class ShipmentsToolsService {
   }
 
   private async needsMe(org: string) {
-    const [emails, tasks] = await Promise.all([this.emailsRecent(org, 14), this.tasksDue(org)]);
+    // Round X: the "need your check" numbers are the Dashboard's own (questions = threads waiting, and the emails behind them).
+    const [emails, tasks, dash] = await Promise.all([this.emailsRecent(org, 14), this.tasksDue(org), this.triage.dashboard(org, 'en').catch(() => null)]);
     const free = (tasks.result.tasks as any[]).filter((t) => t.kind === 'FREE_TIME');
-    return { result: { emailsNeedingDecision: emails.result.needsYou, noOrderYet: emails.result.noOrderYet.length, overdueTasks: (tasks.result.tasks as any[]).filter((t) => t.overdue), dueToday: (tasks.result.tasks as any[]).filter((t) => t.dueToday), freeTimeEndingSoon: free } };
+    return { result: { questions: dash?.toConfirm.total ?? null, questionEmails: dash?.toConfirm.emails ?? null, emailsNeedingDecision: emails.result.needsYou, noOrderYet: emails.result.noOrderYet.length, overdueTasks: (tasks.result.tasks as any[]).filter((t) => t.overdue), dueToday: (tasks.result.tasks as any[]).filter((t) => t.dueToday), freeTimeEndingSoon: free } };
   }
 
   private async listDocuments(ctx: OperatorContext, raw: string) {
@@ -805,7 +809,15 @@ export class ShipmentsToolsService {
     if (!to) return null;
     const sent: any = await this.prisma.whatsAppOutbox.findFirst({ where: { organizationId: ctx.organizationId, to, kind: 'NEEDS_ME', status: 'SENT', sentAt: { gte: new Date(Date.now() - 24 * 3600_000) } }, orderBy: { sentAt: 'desc' }, select: { dedupeKey: true } }).catch(() => null);
     const logId = /^needs:([0-9a-f-]{36})/i.exec(sent?.dedupeKey ?? '')?.[1];
-    if (!logId) return null;
+    if (!logId) {
+      // Round X: the window closed (no alert in the last 24 h) — ask which email she means instead of guessing.
+      const dash = await this.triage.dashboard(ctx.organizationId, lang).catch(() => null);
+      if (!dash?.toConfirm.total) return null;
+      const url = this.triage.portalUrl();
+      return lang === 'ja'
+        ? `その番号はアラートへの返信ですが、最後のアラートは24時間以上前です。どのメールの件ですか？ 件名を送るか、ダッシュボードで確認してください: ${url}`
+        : `That reply is for an alert, but the last one was more than 24 hours ago. Which email do you mean? Send its subject, or check it on the Dashboard: ${url}`;
+    }
     const q = await this.triage.questionOfLog(ctx.organizationId, logId, lang);
     if (!q) return lang === 'ja' ? 'その質問はもう対応済みです。' : 'That question is already handled.';
     const r = parseNumberedReply(text, q.card);
@@ -814,7 +826,7 @@ export class ShipmentsToolsService {
     if (r.kind === 'create_order') return lang === 'ja' ? '注文の作成はポータルで: /portal/shipments/dashboard（質問カードの「注文を作成」）' : 'Create the order in the portal: /portal/shipments/dashboard (the card\u2019s "Create order" button starts it prefilled).';
     const body = r.kind === 'record' ? { kind: 'record' as const, orderId: r.option.orderId, shipmentId: r.option.shipmentId } : { kind: r.kind };
     const out = await this.triage.answer(ctx.organizationId, { ids: q.answerIds, answer: body }, actor, lang);
-    return `✅ ${out.text}`;
+    return out.text;
   }
 
   private async emailLink(ctx: OperatorContext, emailId: string, ref: string | null): Promise<ShipToolOutcome> {
@@ -835,7 +847,7 @@ export class ShipmentsToolsService {
   private async emailNotShipment(ctx: OperatorContext, emailId: string): Promise<ShipToolOutcome> {
     const row: any = await this.triage.row(ctx.organizationId, emailId);
     if (row.inboxState === 'PROCESSED') return { result: { error: 'That email is already processed.' } };
-    return { pending: pend(`"${subject60(row.subject)}" (${domainOf(row.from)}) → not a shipment email`, { op: 'email_dismiss', emailId, subject: subject60(row.subject) }), result: { held: true } };
+    return { pending: pend(`"${subject60(row.subject)}" (${row.company ?? domainOf(row.from)}) → not a shipment email`, { op: 'email_dismiss', emailId, subject: subject60(row.subject) }), result: { held: true } };
   }
 
   private async taskDone(ctx: OperatorContext, taskId: string, dismiss: boolean): Promise<ShipToolOutcome> {

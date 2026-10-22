@@ -344,6 +344,8 @@ export interface MatchDecision {
   /** Several orders in one email: the ones it touches. */
   multiOrderIds: string[];
   candidates: Candidate[];
+  /** Round X: the records named ONLY in the quoted / forwarded text (a known key anywhere is never a "new deal"). */
+  quoted: Array<{ orderId: string; shipmentId: string | null; ref: string }>;
   /** "B/L 198GX04630" — what an auto-apply is labelled with in Processed. */
   keyLabel: string | null;
   /** Round P: one line saying how the match was found ("B/L 198GX… from an earlier email of this thread"). */
@@ -488,7 +490,8 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
     })
     .sort((a, b) => b.score - a.score);
   const candidates: Candidate[] = scored.slice(0, 3).map((x) => ({ orderId: x.r.orderId, shipmentId: x.r.shipmentId, ref: recordRef(x.r), score: x.score, reasons: x.reasons }));
-  const out: MatchDecision = { target: null, kind: null, confidence: 'none', auto: false, blocked: [], check: [], notes: [], source: null, sources: [], sourceLines: [], multiOrderIds: [], candidates, keyLabel: null, reason: null, threadFrom: null };
+  const quotedRecords = [...new Map(quotedOnly.map((h) => [`${h.orderId}:${h.shipmentId ?? ''}`, { orderId: h.orderId, shipmentId: h.shipmentId, ref: refOf(h.orderId, h.shipmentId) }])).values()];
+  const out: MatchDecision = { quoted: quotedRecords, target: null, kind: null, confidence: 'none', auto: false, blocked: [], check: [], notes: [], source: null, sources: [], sourceLines: [], multiOrderIds: [], candidates, keyLabel: null, reason: null, threadFrom: null };
   // Round W (rule 3): every independent place that agrees with a target — computed for whatever decides.
   const ocAll = orderCuesMatch(ev, records, cues, ownCues);
   const agreeing = (target: { orderId: string; shipmentId: string | null }): { families: SourceFamily[]; lines: string[] } => {

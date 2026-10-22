@@ -15,9 +15,14 @@ import { TradeAlertsService } from '../shipments/trade-alerts.service';
 import { ShipmentsNotifyService } from '../shipments/shipments-notify.service';
 import { tradeToday } from '../shipments/shipments.rules';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
-import { batchText, DigestInput, digestText, isDigestTime, jstDateLabel, jstDay, shipmentRefOf } from './shipments-agent.rules';
+import { isDigestTime, jstDay, shipmentRefOf } from './shipments-agent.rules';
+import { batchText, DigestInput, digestText, shortTask, stripEmoji } from './push-text';
+import { EmailTriageService } from '../ingestion-email/email-triage.service';
 
 const NOTIFY_TEMPLATE = () => process.env.WHATSAPP_NOTIFY_TEMPLATE || 'aims_notify';
+/** Round X: a structured digest template (one variable per line), once Meta approves it; unset = send the digest as plain text (the closed-window recovery falls back to aims_notify / the bridge). */
+const DIGEST_TEMPLATE = () => process.env.WHATSAPP_DIGEST_TEMPLATE || '';
+const PORTAL = () => `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}/portal/shipments/dashboard`;
 
 @Injectable()
 export class ShipmentsOutboxService {
@@ -29,6 +34,7 @@ export class ShipmentsOutboxService {
     private readonly notify: ShipmentsNotifyService,
     private readonly alerts: TradeAlertsService,
     private readonly whatsapp: WhatsAppAdapter,
+    private readonly triage: EmailTriageService,
   ) {}
 
   @Cron('* * * * *')
@@ -60,7 +66,7 @@ export class ShipmentsOutboxService {
         await runAsOrg(org, async () => {
           if (!(await this.notify.enabled(org))) return;
           const input = await this.digestInput(org, now);
-          await this.notify.queue(org, 'DIGEST', digestText(input, 'en'), { dedupeKey: `digest:${jstDay(now)}`, textFor: (prefs) => digestText(input, prefs.lang), at: now });
+          await this.notify.queue(org, 'DIGEST', this.digestFor(input, 'en'), { dedupeKey: `digest:${jstDay(now)}`, textFor: (prefs) => this.digestFor(input, prefs.lang), at: now });
         });
       } catch (e: any) {
         this.logger.warn(`digest for ${org} failed: ${e?.message}`);
@@ -68,37 +74,39 @@ export class ShipmentsOutboxService {
     }
   }
 
-  /** The digest's facts: emails since yesterday's digest, tasks overdue / today, arrivals this week. */
+  /**
+   * The digest's facts. Round X: the "need your check" number is the Dashboard's own (questions = threads waiting
+   * for a person, and the emails behind them — the same query the portal and the "What needs me?" tool read), the
+   * auto-filed emails are a COUNT only, tasks overdue are short, arrivals are soonest first.
+   */
   async digestInput(org: string, now = new Date()): Promise<DigestInput> {
     const since = new Date(now.getTime() - 24 * 3600_000);
     const today = tradeToday(now);
     const week = new Date(Date.parse(today) + 7 * 86_400_000);
-    const [emails, tasks, ships, orders, shipments]: [any[], any[], any[], any[], any[]] = await Promise.all([
-      this.prisma.emailIngestLog.findMany({ where: { organizationId: org, inboxState: { in: ['SUGGESTED', 'UNMATCHED', 'UNSURE', 'PROCESSED'] }, OR: [{ createdAt: { gte: since } }, { inboxState: { in: ['SUGGESTED', 'UNMATCHED', 'UNSURE'] } }] }, select: { id: true, subject: true, inboxState: true, orderId: true, shipmentId: true, actions: true, createdAt: true } }),
+    const [filed, dash, tasks, ships]: [number, { toConfirm: { emails: number; total: number } }, any[], any[]] = await Promise.all([
+      this.prisma.emailIngestLog.count({ where: { organizationId: org, inboxState: 'PROCESSED', createdAt: { gte: since }, actions: { path: ['review', 'outcome'], equals: 'AUTO' } } }).catch(async () => {
+        const rows: any[] = await this.prisma.emailIngestLog.findMany({ where: { organizationId: org, inboxState: 'PROCESSED', createdAt: { gte: since } }, select: { actions: true } });
+        return rows.filter((e) => e.actions?.review?.outcome === 'AUTO').length;
+      }),
+      this.triage.dashboard(org, 'en'),
       this.alerts.myTasks(org, now),
       this.prisma.shipment.findMany({ where: { organizationId: org, status: 'OPEN', eta: { gte: new Date(today), lte: week }, NOT: { order: { isTest: true } } }, orderBy: { eta: 'asc' }, select: { id: true, seqNo: true, vessel: true, eta: true, order: { select: { orderNo: true } } } }),
-      this.prisma.tradeOrder.findMany({ where: { organizationId: org }, select: { id: true, orderNo: true } }),
-      this.prisma.shipment.findMany({ where: { organizationId: org }, select: { id: true, seqNo: true, order: { select: { orderNo: true } } } }),
     ]);
-    const orderRef = new Map(orders.map((o) => [o.id, `#${o.orderNo}`]));
-    const shipRef = new Map(shipments.map((s) => [s.id, shipmentRefOf(s.order?.orderNo, s.seqNo)]));
-    const refOf = (e: any) => (e.shipmentId && shipRef.get(e.shipmentId)) || (e.orderId && orderRef.get(e.orderId)) || 'linked';
-    const autoFiled = emails
-      .filter((e) => e.inboxState === 'PROCESSED' && e.actions?.review?.outcome === 'AUTO' && e.createdAt >= since)
-      .map((e) => {
-        const files = (e.actions?.done ?? []).filter((a: any) => a.kind === 'file' && a.status === 'done');
-        return { ref: refOf(e), what: files.length ? `${files.length} file${files.length > 1 ? 's' : ''}` : (e.actions?.autoLabel ?? 'linked').toString().slice(0, 30) };
-      });
-    const open = emails.filter((e) => e.inboxState !== 'PROCESSED');
-    const noOrder = open.filter((e) => e.actions?.backlog?.kind === 'NO_ORDER').length;
     const dueOf = (t: any) => new Date(t.dueAt).toISOString().slice(0, 10);
     return {
-      dateLabel: jstDateLabel(now),
-      emails: { autoFiled, needsYou: open.length - noOrder, noOrder },
-      tasks: { overdue: tasks.filter((t) => t.status === 'DUE' && dueOf(t) < today).map((t) => ({ title: t.title })), today: tasks.filter((t) => dueOf(t) === today).map((t) => ({ title: t.title })) },
-      arriving: ships.map((s) => ({ ref: shipmentRefOf(s.order?.orderNo, s.seqNo), vessel: s.vessel, eta: new Date(s.eta).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) })),
-      portalUrl: `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}/portal/shipments/dashboard`,
+      at: now,
+      filedAuto: filed,
+      questions: dash.toConfirm.total,
+      questionEmails: dash.toConfirm.emails,
+      overdue: tasks.filter((t) => t.status === 'DUE' && dueOf(t) < today).map((t) => t.title as string),
+      arriving: ships.map((s) => ({ ref: shipmentRefOf(s.order?.orderNo, s.seqNo), eta: s.eta })),
+      portalUrl: PORTAL(),
     };
+  }
+
+  /** The digest in one language (the overdue titles shortened in that language). */
+  digestFor(input: DigestInput, lang: 'en' | 'ja'): string {
+    return digestText({ ...input, overdue: input.overdue.map((t) => shortTask(t, lang)) }, lang);
   }
 
   // ── drain ──────────────────────────────────────────────────────────────────
@@ -124,13 +132,19 @@ export class ShipmentsOutboxService {
       const digests = rows.filter((r) => r.kind === 'DIGEST');
       const others = rows.filter((r) => r.kind !== 'DIGEST');
       for (const d of digests) {
-        const ok = await this.whatsapp.sendTemplate(to, NOTIFY_TEMPLATE(), d.text).catch(() => false);
-        await this.mark([d], ok, 'template send failed');
+        // Round X: plain text keeps its lines (the closed-window recovery resends it via the bridge or aims_notify);
+        // a structured digest template (WHATSAPP_DIGEST_TEMPLATE, one variable per line) is used once approved.
+        const text = stripEmoji(d.text);
+        const tpl = DIGEST_TEMPLATE();
+        const ok = tpl
+          ? await this.whatsapp.sendTemplateLines(to, tpl, text.split('\n'), /[぀-ヿ一-鿿]/.test(text) ? 'ja' : 'en').catch(() => false)
+          : await this.whatsapp.sendText(to, text).then(() => true).catch(() => false);
+        await this.mark([d], ok, tpl ? 'template send failed' : 'text send failed');
         ok ? sent++ : failed++;
       }
       if (others.length) {
         const lang = others.some((r) => /[぀-ヿ一-鿿]/.test(r.text)) ? 'ja' : 'en';
-        const ok = await this.whatsapp.sendText(to, batchText(others, lang)).then(() => true).catch(() => false);
+        const ok = await this.whatsapp.sendText(to, batchText(others, lang, PORTAL())).then(() => true).catch(() => false);
         await this.mark(others, ok, 'text send failed');
         ok ? (sent += others.length) : (failed += others.length);
       }

@@ -63,6 +63,10 @@ export interface BacklogInput {
   targetClosed: boolean;
   /** The email names a record key (B/L / PI / CI / contract) that exists in AIMS. */
   keyInAims: boolean;
+  /** Round X: records named only in the quoted / forwarded text — a known key anywhere means it is about existing shipments. */
+  quotedRecords?: Array<{ orderId: string; shipmentId: string | null; ref: string }>;
+  /** Round X: records the email's own words describe (grade / customer / port cues), any score — the "which shipment?" options of a reply with no key. */
+  cueCandidates?: Array<{ orderId: string; shipmentId: string | null; ref: string }>;
   /** The keys the triage read (for the NO_ORDER seed). */
   keys?: Partial<{ piNo: string | null; contractNo: string | null }> | null;
   date?: Date | null;
@@ -160,8 +164,28 @@ export function classifyEmail(i: BacklogInput): BacklogVerdict {
   }
   if (i.target && i.check.length) return { kind: talk ? 'PICK' : 'CONFIRM', reason: `the subject disagrees (${i.check.join('; ')})` };
   if (multi) return { kind: 'PICK', reason: 'several orders / shipments fit' };
-  if (i.verdict === 'UNSURE' && !i.keyInAims) return { kind: 'IS_SHIPMENT', reason: 'the AI could not tell whether it is shipment mail' };
-  return { kind: 'NO_ORDER', reason: i.keyInAims ? 'its order / shipment is not in AIMS' : 'no record number, nothing in the thread, no subject match', seed: orderSeed(i) };
+  // Round X (owner): an email with a known B/L / CI / PI / contract key is NEVER a "new deal" or "is it a shipment?"
+  // card — it is about existing shipments; when the key sits only in the quoted text, a person picks the shipment.
+  const quoted = i.quotedRecords ?? [];
+  if (quoted.length) return { kind: 'PICK', reason: `the quoted text names ${quoted.map((q) => q.ref).join(', ')} — pick the shipment`, links: quoted.map((q) => ({ orderId: q.orderId, shipmentId: q.shipmentId })) };
+  if (i.keyInAims) return { kind: 'PICK', reason: 'a known record number in the email — pick the record' };
+  // Round X: a REPLY about existing shipments (DET costs, a delivery question) is never a "new deal"; its grade /
+  // customer cues name the shipments to pick from. A new deal reads like one: a PI / contract / quote / import
+  // enquiry that is not a reply.
+  const subject = (i.subject ?? '').normalize('NFKC');
+  const replySubject = /^\s*(re|fw|fwd|aw|返信|転送)\s*[:：]/i.test(subject);
+  // A reply inside a thread that already points at records (a thread of a new deal has none).
+  const inThread = (i.threadLinks?.length ?? 0) > 0;
+  const seed = orderSeed(i);
+  // A PI / contract number, a contract / PI / quotation subject or a PI attachment: a deal in the making, reply or not.
+  const strongDeal = !!(i.keys?.piNo || i.keys?.contractNo) || /\b(PI|proforma|contract|quotation|quote|offer)\b|見積|契約/i.test(subject) || i.attachments.some((a) => /\bPI\b|_PI_|proforma|contract|契約/i.test(a.name));
+  const dealish = strongDeal || /\b(enquiry|inquiry|import)\b|新規|案件|輸入|インゴット|ingot/i.test(subject) || !!(seed.grade && seed.qtyMt);
+  const cues = i.cueCandidates ?? [];
+  if (strongDeal) return { kind: 'NO_ORDER', reason: 'a PI / contract with no order yet', seed };
+  if (cues.length && (inThread || !dealish)) return { kind: 'PICK', reason: `the email describes ${cues.map((c) => c.ref).join(', ')} — pick the shipment`, links: cues.map((c) => ({ orderId: c.orderId, shipmentId: c.shipmentId })) };
+  if (replySubject && !dealish && i.verdict === 'SHIPMENT') return { kind: 'PICK', reason: 'a reply about shipment matters with no record number — pick the shipment' };
+  if (i.verdict === 'UNSURE' && !dealish) return { kind: 'IS_SHIPMENT', reason: 'the AI could not tell whether it is shipment mail' };
+  return { kind: 'NO_ORDER', reason: 'no record number, nothing in the thread, no subject match', seed };
 }
 
 /** What the order form starts from for a "No order yet" thread: the keys and the subject's grade / qty / customer / month. */

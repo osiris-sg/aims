@@ -169,6 +169,14 @@ export class WhatsAppAdapter implements ChannelAdapter {
     });
   }
 
+  /** Round X: a template whose body has one {{n}} per line — each line is one parameter (newlines are not allowed inside a parameter). */
+  async sendTemplateLines(chatId: string, templateName: string, lines: string[], language = 'en'): Promise<boolean> {
+    return this.sendMessage(chatId, {
+      type: 'template',
+      template: { name: templateName, language: { code: language }, components: [{ type: 'body', parameters: lines.map((l) => ({ type: 'text', text: cleanText(l).replace(/\s+/g, ' ').trim().slice(0, 300) || '-' })) }] },
+    });
+  }
+
   async sendText(chatId: string, text: string): Promise<void> {
     for (const chunk of chunkText(cleanText(text), 4000)) {
       // WhatsApp caps a text body at 4096 chars.

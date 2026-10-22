@@ -2,8 +2,8 @@
 
 // Round P — Sales › Dashboard, email-first (owner feedback: the person using
 // this mostly needs to know "which emails do I need to confirm, and what did
-// the system already file"). One line at the top ("To do: 4 emails to confirm
-// · 2 tasks overdue · 3 arriving this week"), then: 1. Emails to confirm
+// the system already file"). One line at the top ("To do: 4 questions (14
+// emails) · 2 tasks overdue · 3 arriving this week"), then: 1. Emails to confirm
 // (unprocessed threads, newest first, max 10 + "See all in Inbox"), 2. Filed
 // automatically (last 3 days, with Undo), 3. Tasks (the bell's reminders,
 // overdue first), 4. Arriving this week (ETA in the next 7 days). The view is
@@ -94,20 +94,21 @@ export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTas
   const counts = taskCounts(tasks, today);
   const arriving = arrivingThisWeek(shipments ?? [], today);
   const emails = inbox?.toConfirm.emails ?? 0;
-  const line = toDoLine({ emails, overdue: counts.overdue, arriving: arriving.length });
+  const questions = inbox?.toConfirm.total ?? 0;
+  const line = toDoLine({ questions, emails, overdue: counts.overdue, arriving: arriving.length });
   const sortedTasks = [...(tasks ?? [])].sort((a, b) => Number(isOverdue(b, today)) - Number(isOverdue(a, today)) || a.dueAt.localeCompare(b.dueAt));
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1200, mx: "auto" }} data-tour="sales-dashboard">
       <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5 }}>
         Dashboard
       </Typography>
-      <Typography variant="body1" sx={{ mb: 2, fontWeight: 600, color: emails || counts.overdue ? "warning.main" : "text.secondary" }} data-tour="dashboard-todo">
+      <Typography variant="body1" sx={{ mb: 2, fontWeight: 600, color: questions || counts.overdue ? "warning.main" : "text.secondary" }} data-tour="dashboard-todo">
         {data.loading ? "Loading…" : line}
       </Typography>
       <Stack spacing={2}>
         <Section
           title={actions.lang === "ja" ? "確認が必要なメール" : "Emails waiting for you"}
-          count={inbox ? emails : ""}
+          count={inbox ? L[actions.lang].questionsDot(questions, emails) : ""}
           tour="dashboard-emails"
           action={
             <Button component={Link} href="/portal/shipments/dashboard?view=emails" size="small" sx={{ textTransform: "none" }} data-tour="dashboard-see-all-emails">

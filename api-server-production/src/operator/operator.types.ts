@@ -56,6 +56,8 @@ export interface InboundMessage {
   /** Several files in one message (web composer). The first one is also
    *  mirrored into `attachment` so single-file readers keep working. */
   attachments?: Array<{ dataUri: string; mimetype: string; filename?: string }>;
+  /** Round X: set once the org's profile is known to be shipments — every outbound text / button label is sent without emojis. */
+  plain?: boolean;
   /** True when `text` came from transcribing a voice note — the operator echoes
    *  what it heard so the user can catch a mis-transcription. */
   fromVoice?: boolean;

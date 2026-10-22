@@ -253,6 +253,39 @@ describe('ShipmentsToolsService — every write is confirm-first, re-checked at 
   });
 });
 
+describe('ShipmentsToolsService — round X: bare replies, sender names, one shared count', () => {
+  it('"1" answers the last alert (no emoji in the reply); with no alert in 24h it asks which email she means; "What needs me?" reads the Dashboard count', async () => {
+    const { svc, prisma, triage } = build();
+    const ctx = ctxWith(STAFF);
+    prisma.whatsAppOutbox = { findFirst: jest.fn(async () => ({ dedupeKey: 'needs:11111111-1111-1111-1111-111111111111:user_sayaka' })) };
+    triage.questionOfLog = jest.fn(async () => ({ card: { kind: 'WHICH', options: [{ id: 'r:o16:s16-1', orderId: 'o16', shipmentId: 's16-1', ref: '#16-1', summary: '#16-1', why: '', suggested: false }, { id: 'r:o16:s16-2', orderId: 'o16', shipmentId: 's16-2', ref: '#16-2', summary: '#16-2', why: '', suggested: false }], extras: {}, title: 'Which shipment is this about?', found: '', details: [], replyHint: '', lang: 'en' }, answerIds: ['log1'], subject60: 'Re: DET' }));
+    triage.answer = jest.fn(async () => ({ text: 'Linked to #16-2', ids: ['log1'], kind: 'record' }));
+    triage.dashboard = jest.fn(async () => ({ toConfirm: { emails: 14, total: 4, threads: [] }, filedAuto: [] }));
+    triage.portalUrl = () => 'https://app.ai-ms.io/portal/shipments/dashboard';
+    expect(await svc.answerNumbered(ctx, '819000000000', '2', 'en')).toBe('Linked to #16-2');
+    expect(triage.answer).toHaveBeenCalledWith('org-adh', { ids: ['log1'], answer: { kind: 'record', orderId: 'o16', shipmentId: 's16-2' } }, expect.objectContaining({ via: 'whatsapp' }), 'en');
+    prisma.whatsAppOutbox.findFirst = jest.fn(async () => null);
+    expect(await svc.answerNumbered(ctx, '819000000000', '1', 'en')).toMatch(/^That reply is for an alert, but the last one was more than 24 hours ago\. Which email do you mean\?/);
+    expect(await svc.answerNumbered(ctx, '819000000000', '1', 'ja')).toMatch(/どのメールの件ですか/);
+    triage.dashboard = jest.fn(async () => ({ toConfirm: { emails: 0, total: 0, threads: [] }, filedAuto: [] }));
+    expect(await svc.answerNumbered(ctx, '819000000000', '1', 'en')).toBeNull(); // nothing open: the message goes to the assistant
+    triage.dashboard = jest.fn(async () => ({ toConfirm: { emails: 14, total: 4, threads: [] }, filedAuto: [] }));
+    triage.threads = jest.fn(async () => ({ threads: [] }));
+    const out: any = await svc.execute(ctx, 'needs_me', {});
+    expect(out.result).toMatchObject({ questions: 4, questionEmails: 14 });
+  });
+
+  it('emails_recent names the sender "Name (Company)", never the domain', async () => {
+    const { svc, triage } = build();
+    triage.threads = jest.fn(async (_o: string, tab: string) => ({ threads: tab === 'PROCESSED' ? [{ messages: [{ id: 'e1', from: 'Kana Enomoto <k@mitsui-soko.co.jp>', company: 'Mitsui Soko', subject: 'Re: 納品明細', date: '2026-10-22', inboxState: 'PROCESSED', by: { outcome: 'AUTO' }, linked: { ref: '#19-1' }, done: [] }] }] : [] }));
+    const out: any = await svc.execute(ctxWith(STAFF), 'emails_recent', { days: 1 });
+    const line = [...(out.result.autoFiled ?? []), ...(out.result.handledByPeople ?? []), ...(out.result.needsYou ?? [])][0];
+    expect(line.from).toBe('Kana Enomoto (Mitsui Soko)');
+    expect(line.company).toBe('Mitsui Soko');
+    expect(JSON.stringify(out)).not.toContain('mitsui-soko.co.jp');
+  });
+});
+
 describe('ShipmentsToolsService — a file sent on WhatsApp goes through the email intake', () => {
   it('stores it like a store-only email (source whatsapp), triages it, proposes a Confirm card; a caption naming a record wins over the suggestion', async () => {
     const { svc, prisma, s3, triage } = build();
