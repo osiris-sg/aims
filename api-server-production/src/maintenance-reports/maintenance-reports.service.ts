@@ -1517,7 +1517,9 @@ export class MaintenanceReportsService {
   async getDoView(doId: string, organizationId: string) {
     const document = await this.documentsService.getById(doId, organizationId);
     if (!document) throw new NotFoundException('Delivery order not found');
-    if (document.type !== 'DELIVERY_ORDER') {
+    // RETURN_DELIVERY_ORDER too (2026-10-22): the field app prints / downloads
+    // the RDO from its "Return completed" screen through this same aggregator.
+    if (document.type !== 'DELIVERY_ORDER' && document.type !== 'RETURN_DELIVERY_ORDER') {
       throw new ForbiddenException('Not a delivery order');
     }
 

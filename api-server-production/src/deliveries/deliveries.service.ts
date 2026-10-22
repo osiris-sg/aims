@@ -15,6 +15,7 @@ import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { ScheduleDeliveryDto, ClaimScheduledDto } from './dto/schedule-delivery.dto';
 import { ScheduleReturnDto } from './dto/schedule-return.dto';
+import { AdHocReturnDto } from './dto/adhoc-return.dto';
 
 // Item-lifecycle rank for folds/comparisons. Shared enum with DocumentItem:
 // not_delivered → delivering → not_installed → completed (monotonic).
@@ -2339,7 +2340,17 @@ export class DeliveriesService {
       // and a signal that is always on carries no information.
       const noPhotos = !(photoCountByRun.get(d.id) ?? 0);
       const missing: string[] | null =
-        d.origin === DeliveryOrigin.AD_HOC
+        d.origin === DeliveryOrigin.AD_HOC && d.direction === DeliveryDirection.RETURN
+          ? // AD-HOC RETURN (2026-10-22): the rider keyed item IDs in on site. What
+            // the office still has to fill in is who it came from and which
+            // untagged lines need a real unit ("Link unit" on the run page). PO,
+            // quotation and photos are outbound paperwork, never asked of a return.
+            [
+              ...(!d.customerId ? ['customer'] : []),
+              ...(!d.projectId ? ['project'] : []),
+              ...(d.items.some((i) => !i.assetId && !i.inventoryId) ? ['untagged items'] : []),
+            ]
+          : d.origin === DeliveryOrigin.AD_HOC
           ? [
               ...(!runDoc || !(poNoByDoc.get(runDoc.id) ?? null) ? ['PO'] : []),
               ...(!d.customerId && !(runDoc && custIdByDoc.get(runDoc.id)) ? ['customer'] : []),
@@ -5022,6 +5033,285 @@ export class DeliveriesService {
       entityId: documentId,
       linkUrl: doc?.documentTemplateId ? `/portal/documents/${doc.type}/${doc.documentTemplateId}/${documentId}` : null,
     });
+  }
+
+  /**
+   * AD-HOC RETURN (field, 2026-10-22): the rider is on site with items to bring
+   * back and nothing scheduled. They key in each item's ID (serial / SKU), an
+   * optional "collected from", and optional photos per item.
+   *
+   * Each ID is matched the way the manual-serial resolver matches (sku first,
+   * then the nameplate serialNumber; case-insensitive, separators ignored):
+   *   - a unit out on rental (or sold) -> a NORMAL unit return line, collected
+   *     exactly like a scanned return (unsigned DO_ACK, rental -> instock,
+   *     off-hire when it was the deployment's last unit);
+   *   - anything else (no such unit, or a unit that is not out) -> a free-typed
+   *     "Untagged item: <ID>" line. The raw ID is kept in that description and
+   *     listed again in the run's notes, so the office can find it and link a
+   *     real unit later (linkUnitToReturnLine). Untagged lines move no stock.
+   * A second ID resolving to the SAME unit is dropped (a unit sits on a run once).
+   *
+   * The run is born AD_HOC + RETURN and folds to `delivered` here; the rider's
+   * one signature (finalizeReturn, unchanged) completes it and mints the RDO,
+   * on which untagged lines print as plain description rows.
+   */
+  async createAdHocReturn(dto: AdHocReturnDto, organizationId: string, riderUserId: string) {
+    const norm = (s: string | null | undefined) => (s ?? '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+    const seen = new Set<string>();
+    const typed: Array<{ raw: string; key: string; photos: string[] }> = [];
+    for (const l of dto.lines ?? []) {
+      const raw = String(l?.id ?? '').trim();
+      const key = norm(raw);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      typed.push({ raw, key, photos: (l.photos ?? []).map((k) => String(k).trim()).filter(Boolean).slice(0, 8) });
+    }
+    if (!typed.length) throw new BadRequestException('Enter at least one item ID');
+
+    // Org-scoped fleet, normalised compare in JS (same reasoning as
+    // inventories.fieldResolveBySerial: SQL cannot index-strip separators).
+    const fleet = await this.prisma.inventory.findMany({
+      where: { organizationId },
+      select: { id: true, sku: true, serialNumber: true, status: true, assetId: true, asset: { select: { name: true, skuKey: true } } },
+    });
+    type FleetUnit = (typeof fleet)[number];
+    const bySku = new Map<string, FleetUnit>();
+    const bySerial = new Map<string, FleetUnit>();
+    for (const u of fleet) {
+      const k = norm(u.sku);
+      if (k && !bySku.has(k)) bySku.set(k, u);
+      const sn = norm(u.serialNumber);
+      if (sn && !bySerial.has(sn)) bySerial.set(sn, u);
+    }
+    type Reason = 'not_found' | 'not_out' | 'duplicate' | null;
+    const resolved = typed.map((t) => {
+      const found = bySku.get(t.key) ?? bySerial.get(t.key) ?? null;
+      let unit: FleetUnit | null = null;
+      let reason: Reason = null;
+      if (!found) reason = 'not_found';
+      else if (found.status !== InventoryStatus.rental && found.status !== InventoryStatus.sold) reason = 'not_out';
+      else unit = found;
+      return { ...t, found, unit, reason };
+    });
+    const usedUnit = new Set<string>();
+    for (const r of resolved) {
+      if (!r.unit) continue;
+      if (usedUnit.has(r.unit.id)) {
+        r.unit = null;
+        r.reason = 'duplicate';
+      } else usedUnit.add(r.unit.id);
+    }
+    const lines = resolved.filter((r) => r.reason !== 'duplicate');
+    const untaggedDescription = (raw: string) => `Untagged item: ${raw}`;
+    const untaggedRaw = lines.filter((r) => !r.unit).map((r) => r.raw);
+    const collectedFrom = dto.collectedFrom?.trim() || null;
+    const notes = [
+      'Ad-hoc return recorded in the field.',
+      ...(collectedFrom ? [`Collected from: ${collectedFrom}.`] : []),
+      ...(untaggedRaw.length ? [`Untagged IDs: ${untaggedRaw.join(', ')}.`] : []),
+    ].join(' ');
+    const now = new Date();
+
+    let delivery: Prisma.DeliveryGetPayload<{ include: { items: true } }> | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const latest = await this.prisma.delivery.findFirst({
+        where: { organizationId },
+        orderBy: { deliveryNumber: 'desc' },
+        select: { deliveryNumber: true },
+      });
+      const deliveryNumber = (latest?.deliveryNumber ?? 0) + 1;
+      try {
+        delivery = await this.prisma.delivery.create({
+          data: {
+            organizationId,
+            deliveryNumber,
+            direction: DeliveryDirection.RETURN,
+            origin: DeliveryOrigin.AD_HOC,
+            riderUserId,
+            riderName: dto.riderName,
+            siteAddress: collectedFrom,
+            notes,
+            items: {
+              create: lines.map((r, i) =>
+                r.unit
+                  ? {
+                      assetId: r.unit.assetId,
+                      inventoryId: r.unit.id,
+                      description: r.unit.asset?.name ?? r.unit.sku,
+                      quantity: 1,
+                      sortOrder: (i + 1) * 100,
+                      // Collection happens right below (collectReturnUnit needs
+                      // `delivering`), so the line is born mid-walk.
+                      deliveryStatus: DeliveryStatus.delivering,
+                      deliveringAt: now,
+                    }
+                  : {
+                      assetId: null,
+                      inventoryId: null,
+                      description: untaggedDescription(r.raw),
+                      quantity: 1,
+                      sortOrder: (i + 1) * 100,
+                      assetClass: AssetClass.ACCESSORY,
+                      deliveryStatus: DeliveryStatus.delivering,
+                      deliveringAt: now,
+                    },
+              ),
+            },
+          },
+          include: { items: true },
+        });
+        break;
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && attempt === 0) {
+          continue; // serial collision - recompute and retry once
+        }
+        throw err;
+      }
+    }
+    if (!delivery) throw new Error('Failed to assign a unique delivery number after retries');
+
+    // Proof + collection per line, mirroring a scanned return: a DO_START (the
+    // condition photos live here) and an UNSIGNED DO_ACK that finalizeReturn's
+    // one signature stamps. Units are collected through the same helper the
+    // per-unit collect endpoint uses; untagged lines through the free-typed one.
+    for (const r of lines) {
+      const item = r.unit
+        ? delivery.items.find((i) => i.inventoryId === r.unit!.id)
+        : delivery.items.find((i) => !i.inventoryId && !i.assetId && i.description === untaggedDescription(r.raw));
+      if (!item) continue;
+      const label = r.unit ? `${r.unit.sku}${r.unit.asset?.name ? ` (${r.unit.asset.name})` : ''}` : `untagged ${r.raw}`;
+      const proofBase = {
+        organizationId,
+        technicianUserId: riderUserId,
+        assetId: r.unit?.assetId ?? null,
+        inventoryId: r.unit?.id ?? null,
+        deliveryId: delivery.id,
+        deliveryItemId: item.id,
+        ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+        ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+        ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+      };
+      await this.prisma.maintenanceServiceReport.create({
+        data: {
+          ...proofBase,
+          kind: 'DO_START',
+          status: 'draft',
+          description: `Return started (ad-hoc): ${label}`,
+          ...(r.photos.length ? { photos: r.photos } : {}),
+        },
+      });
+      await this.prisma.maintenanceServiceReport.create({
+        data: {
+          ...proofBase,
+          kind: 'DO_ACK',
+          status: 'draft',
+          description: `Return collected (ad-hoc): ${label}`,
+        },
+      });
+      if (r.unit) await this.collectReturnUnit(delivery.id, r.unit.id, organizationId);
+      else await this.collectReturnFreeTyped(delivery.id, item.id, organizationId);
+    }
+    await this.recomputeRunStatus(delivery.id, organizationId);
+    this.logger.log(
+      `Ad-hoc return #${delivery.deliveryNumber}: ${lines.filter((r) => r.unit).length} unit line(s), ${untaggedRaw.length} untagged line(s).`,
+    );
+
+    const run = await this.findById(delivery.id, organizationId);
+    const itemByInv = new Map(delivery.items.filter((i) => i.inventoryId).map((i) => [i.inventoryId as string, i.id]));
+    const itemByDesc = new Map(delivery.items.filter((i) => !i.inventoryId).map((i) => [i.description ?? '', i.id]));
+    return {
+      ...run,
+      // What each typed ID became, for the rider's review before signing.
+      lines: resolved.map((r) => ({
+        raw: r.raw,
+        matched: !!r.unit,
+        reason: r.reason,
+        itemId: r.unit ? itemByInv.get(r.unit.id) ?? null : r.reason === 'duplicate' ? null : itemByDesc.get(untaggedDescription(r.raw)) ?? null,
+        sku: r.unit?.sku ?? r.found?.sku ?? null,
+        assetName: r.unit?.asset?.name ?? r.found?.asset?.name ?? null,
+        status: r.unit?.status ?? r.found?.status ?? null,
+      })),
+    };
+  }
+
+  /**
+   * OFFICE (run page, 2026-10-22): give an untagged return line its real unit.
+   * The line becomes an ordinary unit line and the unit is brought back exactly
+   * as a collection would have done it (rental -> instock, off-hire when it was
+   * the deployment's last unit). The line's proof rows are re-pointed at the
+   * unit, and if the RDO already exists its matching description row gains the
+   * unit's serial / item code. The raw typed ID stays in the run notes.
+   */
+  async linkUnitToReturnLine(deliveryId: string, itemId: string, inventoryId: string, organizationId: string) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { id: true, direction: true, status: true, deliveryNumber: true, notes: true, items: { select: { inventoryId: true } } },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.direction !== DeliveryDirection.RETURN) throw new BadRequestException('Only a return run has untagged lines to link');
+    if (run.status === 'cancelled') throw new BadRequestException('This return was cancelled');
+    const item = await this.prisma.deliveryItem.findFirst({
+      where: { id: itemId, deliveryId },
+      select: { id: true, assetId: true, inventoryId: true, description: true, documentId: true },
+    });
+    if (!item) throw new NotFoundException('Item is not on this delivery');
+    if (item.assetId || item.inventoryId) throw new BadRequestException('This line already has a unit');
+    const unit = await this.prisma.inventory.findFirst({
+      where: { id: inventoryId, organizationId },
+      select: { id: true, sku: true, status: true, assetId: true, year: true, asset: { select: { name: true, skuKey: true } } },
+    });
+    if (!unit) throw new NotFoundException('Unit not found in this organization');
+    if (run.items.some((i) => i.inventoryId === unit.id)) throw new BadRequestException(`${unit.sku} is already on this return`);
+    if (unit.status !== InventoryStatus.rental && unit.status !== InventoryStatus.sold) {
+      throw new BadRequestException(`Only a unit out on rental (or sold) can be linked to a return line. ${unit.sku} is ${unit.status}.`);
+    }
+    const rawId = (item.description ?? '').replace(/^Untagged item:\s*/i, '').trim();
+    const description = unit.asset?.name ?? unit.sku;
+
+    await this.prisma.deliveryItem.update({
+      where: { id: item.id },
+      data: { assetId: unit.assetId, inventoryId: unit.id, description, assetClass: null },
+    });
+    // The line's DO_START / DO_ACK now evidence this unit.
+    await this.prisma.maintenanceServiceReport.updateMany({
+      where: { deliveryId, deliveryItemId: item.id },
+      data: { assetId: unit.assetId, inventoryId: unit.id },
+    });
+    // Stock: as if it had been collected on the run (same guarded flip + off-hire
+    // as collectReturnUnit; nothing happens for a sold unit).
+    await this.prisma.inventory.updateMany({
+      where: { id: unit.id, organizationId, status: InventoryStatus.rental },
+      data: { status: InventoryStatus.instock },
+    });
+    await this.offHireDeploymentOnReturn(unit.id, organizationId);
+    // RDO row (the run completed before the office got here): the plain
+    // description row becomes a unit row, same fields completeReturnRun writes.
+    if (item.documentId) {
+      const doc = await this.prisma.document.findUnique({ where: { id: item.documentId }, select: { config: true } });
+      const cfg = ((doc?.config as any) ?? {}) as Record<string, any>;
+      const rows: any[] = Array.isArray(cfg.items) ? [...cfg.items] : [];
+      const idx = rows.findIndex((row) => !row?.inventoryItemId && String(row?.description ?? '') === String(item.description ?? ''));
+      if (idx >= 0) {
+        rows[idx] = {
+          ...rows[idx],
+          description,
+          inventoryItemId: unit.id,
+          serialNumbers: [unit.sku],
+          ...(unit.asset?.skuKey ? { skuKey: unit.asset.skuKey, itemCode: unit.asset.skuKey } : {}),
+          ...(unit.year != null ? { year: unit.year } : {}),
+          ...(unit.assetId ? { deliveryGroup: unit.assetId } : {}),
+        };
+        await this.prisma.document.update({ where: { id: item.documentId }, data: { config: { ...cfg, items: rows } } });
+      }
+    }
+    if (rawId) {
+      await this.prisma.delivery.update({
+        where: { id: deliveryId },
+        data: { notes: `${run.notes ?? ''} Linked: ${rawId} = ${unit.sku}.`.trim() },
+      });
+    }
+    this.logger.log(`Return run #${run.deliveryNumber}: untagged line "${rawId}" linked to unit ${unit.sku}.`);
+    return { ...(await this.findById(deliveryId, organizationId)), linked: { itemId: item.id, inventoryId: unit.id, sku: unit.sku, rawId } };
   }
 
   async skipInstall(deliveryId: string, inventoryId: string, organizationId: string) {

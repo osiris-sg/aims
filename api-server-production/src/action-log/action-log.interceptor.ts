@@ -112,6 +112,9 @@ const VERB_ACTIONS: Record<string, string> = {
   unskip: 'UNSKIP',
   // Ad-hoc delivery: POST :id/attach-project (deploy + commit + draft invoice).
   'attach-project': 'ATTACH',
+  // Ad-hoc return (2026-10-22): POST /deliveries/adhoc-return records the run;
+  // POST :id/items/:itemId/link-unit gives an untagged line its real unit.
+  'adhoc-return': 'CREATE', 'link-unit': 'LINK',
   'bulk-download': 'EXPORT', pdf: 'EXPORT', generate: 'CREATE', 'meter-reading': 'UPDATE',
   // Document attachments: POST :id/attachments = ATTACH, :id/attachments/remove = DETACH
   // (the trailing segment wins, so "remove" must map before generic fallbacks).

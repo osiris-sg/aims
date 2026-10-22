@@ -11,6 +11,7 @@ import { CreateDoFromDeliveryDto, LinkDeliveryDto } from './dto/link-delivery.dt
 import { AckAllDto, AddItemPhotosDto, AssignDeliveryItemDto, FreeTypedEndDto, FreeTypedStartDto, SetDeploymentTypeDto, SkipInstallDto } from './dto/assign-delivery.dto';
 import { ScheduleDeliveryDto, ClaimScheduledDto, ClaimReturnDto } from './dto/schedule-delivery.dto';
 import { ScheduleReturnDto } from './dto/schedule-return.dto';
+import { AdHocReturnDto } from './dto/adhoc-return.dto';
 
 interface ClerkRequest extends Request {
   user?: { id?: string };
@@ -69,6 +70,22 @@ export class DeliveriesController {
 
   // Field: a rider claims a scheduled run by scanning a matching unit — binds +
   // reserves it, sets the rider, starts the run.
+  // Field: AD-HOC RETURN. The rider keys in item IDs on site (nothing
+  // scheduled); matched units become unit lines and are collected, unknown IDs
+  // stay "Untagged item" lines for the office. Static route: declared before
+  // the :id routes. Then the ordinary finalize-return signature completes it.
+  @Post('adhoc-return')
+  @Permissions('maintenance-reports:create')
+  adhocReturn(
+    @Body() dto: AdHocReturnDto,
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    const riderUserId = req.user?.id;
+    if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.createAdHocReturn(dto, org.id, riderUserId);
+  }
+
   @Post(':id/claim-scheduled')
   @Permissions('maintenance-reports:create')
   claimScheduled(
@@ -366,6 +383,21 @@ export class DeliveriesController {
     const riderUserId = req.user?.id;
     if (!riderUserId) throw new UnauthorizedException('Missing authenticated user');
     return this.service.acknowledgeReturnUnit(id, inventoryId, dto, org.id, riderUserId);
+  }
+
+  // OFFICE: link a real unit to an untagged line on a return run. The line
+  // becomes a unit line and the unit's stock / deployment are updated as if it
+  // had been collected on the run. Same office persona as link / create-DO.
+  @Post(':id/items/:itemId/link-unit')
+  @Permissions('documents:create-basic')
+  linkUnit(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() body: { inventoryId?: string },
+    @UserOrganization() org: { id: string },
+  ) {
+    if (!body?.inventoryId) throw new BadRequestException('inventoryId is required');
+    return this.service.linkUnitToReturnLine(id, itemId, body.inventoryId, org.id);
   }
 
   // Field: pass an item over during the walk-through and move to the next one.

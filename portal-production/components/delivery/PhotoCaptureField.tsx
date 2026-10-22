@@ -36,6 +36,8 @@ interface Props {
   /** Notifies the parent while an upload is in flight (to disable submit). */
   onUploadingChange?: (uploading: boolean) => void;
   disabled?: boolean;
+  /** Cap on photos; capture controls disable at the cap (deleting still works). */
+  maxPhotos?: number;
 }
 
 /**
@@ -56,12 +58,18 @@ export default function PhotoCaptureField({
   onError,
   onUploadingChange,
   disabled,
+  maxPhotos,
 }: Props) {
   const { uploading, captureMode, camMsg, setCamMsg, ingestFiles, takeNativePhotos } =
     usePhotoUploader({ upload, onError, onUploadingChange });
 
+  const atCap = maxPhotos != null && photos.length >= maxPhotos;
   const append = (captured: CapturedPhoto[]) => {
-    if (captured.length > 0) onChange([...photos, ...captured]);
+    if (captured.length === 0) return;
+    const room = maxPhotos != null ? Math.max(0, maxPhotos - photos.length) : captured.length;
+    const kept = captured.slice(0, room);
+    if (kept.length < captured.length) onError?.(`Only ${maxPhotos} photos are kept per item.`);
+    if (kept.length > 0) onChange([...photos, ...kept]);
   };
 
   const handleFiles = (files: FileList | null) => {
@@ -76,7 +84,7 @@ export default function PhotoCaptureField({
     <Box>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
         <Typography variant="subtitle2">
-          {label} ({photos.length})
+          {label} ({photos.length}{maxPhotos != null ? `/${maxPhotos}` : ""})
         </Typography>
         {uploading && <CircularProgress size={16} />}
       </Stack>
@@ -124,7 +132,7 @@ export default function PhotoCaptureField({
               variant="contained"
               startIcon={<PhotoCameraIcon />}
               onClick={() => void takeNativePhotos().then(append)}
-              disabled={uploading || disabled}
+              disabled={uploading || disabled || atCap}
               fullWidth
             >
               Take photos
@@ -142,7 +150,7 @@ export default function PhotoCaptureField({
             component="label"
             variant="contained"
             startIcon={<PhotoCameraIcon />}
-            disabled={uploading || disabled}
+            disabled={uploading || disabled || atCap}
             fullWidth
           >
             Take photos
@@ -161,7 +169,7 @@ export default function PhotoCaptureField({
           component="label"
           variant="outlined"
           startIcon={<AddPhotoAlternateIcon />}
-          disabled={uploading || disabled}
+          disabled={uploading || disabled || atCap}
           fullWidth
         >
           Choose from gallery

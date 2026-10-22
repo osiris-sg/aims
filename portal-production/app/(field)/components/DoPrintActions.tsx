@@ -20,14 +20,15 @@ import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
  * and print from there. Both are native-shell only. The offscreen A4 surface
  * is mounted here, so the caller only passes the DO id.
  */
-export function DoPrintActions({ doId }: { doId: string | null }) {
+export function DoPrintActions({ doId, docLabel = "DO" }: { doId: string | null; docLabel?: "DO" | "RDO" }) {
+  const docName = docLabel === "RDO" ? "return delivery order" : "delivery order";
   const { surface: printSurface, printDoViaSystem, downloadDo, progress: printProgress } = useDoA4Print();
   const [printing, setPrinting] = useState(false);
   const [printMsg, setPrintMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const doPrint = useCallback(async () => {
     if (!doId) {
-      setPrintMsg({ ok: false, text: "This run has no delivery order linked to it yet, so there is nothing to print." });
+      setPrintMsg({ ok: false, text: `This run has no ${docName} linked to it yet, so there is nothing to print.` });
       return;
     }
     setPrinting(true);
@@ -47,7 +48,7 @@ export function DoPrintActions({ doId }: { doId: string | null }) {
 
   const doDownload = async () => {
     if (!doId) {
-      setPrintMsg({ ok: false, text: "This run has no delivery order linked to it yet, so there is nothing to download." });
+      setPrintMsg({ ok: false, text: `This run has no ${docName} linked to it yet, so there is nothing to download.` });
       return;
     }
     setPrinting(true);
@@ -73,13 +74,13 @@ export function DoPrintActions({ doId }: { doId: string | null }) {
           fullWidth
           sx={FIELD_BUTTON_SX}
         >
-          {printing ? "Printing…" : "Print DO"}
+          {printing ? "Printing…" : `Print ${docLabel}`}
         </Button>
       ) : (
         <Tooltip title="Printing needs the SiteJobs app">
           <span style={{ width: "100%" }}>
             <Button variant="contained" startIcon={<PrintIcon />} disabled fullWidth sx={FIELD_BUTTON_SX}>
-              Print DO
+              Print {docLabel}
             </Button>
           </span>
         </Tooltip>
@@ -94,7 +95,7 @@ export function DoPrintActions({ doId }: { doId: string | null }) {
           fullWidth
           sx={FIELD_BUTTON_SX}
         >
-          Download DO
+          Download {docLabel}
         </Button>
       )}
 

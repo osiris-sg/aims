@@ -60,6 +60,9 @@ interface Report {
 interface Run {
   id: string;
   deliveryNumber: number;
+  // RETURN runs land here too (2026-10-22, ad-hoc returns): the title reads
+  // "Return completed" and the print actions render the RDO.
+  direction?: "OUTBOUND" | "RETURN";
   // Run-level DO, derived server-side: set only when every linked item shares
   // one document. Null on a multi-DO run — see printableDoId.
   document: { id: string; name: string | null } | null;
@@ -95,7 +98,8 @@ export default function FinishedDeliveryDetailPage() {
   // ?by=driver: the rider's phone followed a driver's sign-off here.
   const byDriver = search?.get("by") === "driver";
 
-  useFieldAppBar({ title: run ? `Delivery #${run.deliveryNumber}` : "Delivery" });
+  const isReturn = run?.direction === "RETURN";
+  useFieldAppBar({ title: run ? `${isReturn ? "Return" : "Delivery"} #${run.deliveryNumber}` : "Delivery" });
 
   useEffect(() => {
     (async () => {
@@ -178,7 +182,7 @@ export default function FinishedDeliveryDetailPage() {
       <Stack alignItems="center" spacing={1} sx={{ py: 2 }}>
         <CheckCircleIcon color="success" sx={{ fontSize: 64 }} />
         <Typography variant="h5" sx={{ textAlign: "center" }}>
-          {partlySigned ? `Signed for ${signedCount} ${signedCount === 1 ? "item" : "items"}` : "Delivery completed"}
+          {partlySigned ? `Signed for ${signedCount} ${signedCount === 1 ? "item" : "items"}` : isReturn ? "Return completed" : "Delivery completed"}
         </Typography>
         {partlySigned && remaining > 0 && (
           <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center" }}>
@@ -192,19 +196,19 @@ export default function FinishedDeliveryDetailPage() {
           </Typography>
         )}
         <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "monospace" }}>
-          Delivery #{run.deliveryNumber}
+          {isReturn ? "Return" : "Delivery"} #{run.deliveryNumber}
         </Typography>
       </Stack>
 
       {!ack && (
         <Alert severity="info">
-          No signed delivery is stored for this run. The printout will show the items without a signature.
+          No signed {isReturn ? "return" : "delivery"} is stored for this run. The printout will show the items without a signature.
         </Alert>
       )}
 
       {/* Print DO / Download DO (native shell only), shared with the basket of a
           partly signed run. */}
-      <DoPrintActions doId={printableDoId} />
+      <DoPrintActions doId={printableDoId} docLabel={isReturn ? "RDO" : "DO"} />
 
       <Button
         variant="outlined"

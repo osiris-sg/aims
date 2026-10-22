@@ -27,8 +27,9 @@ import { EmptyState } from "../components/fieldUi";
  * them.
  *
  * The selected tab lives in the query string (?tab=…) so Back from a run lands
- * on the same tab. "+" opens /scan/new, which is where scanning now lives:
- * this page deliberately does NOT listen for NFC.
+ * on the same tab. The "Ad-hoc" button (2026-10-22, was the "+") opens the
+ * /scan/adhoc chooser: New delivery (the scan flow, /scan/new) or New return
+ * (keyed-in item IDs). This page deliberately does NOT listen for NFC.
  */
 
 type DeliveriesTab = "pending" | "progress" | "completed";
@@ -154,8 +155,9 @@ export default function DeliveriesHomePage() {
         search={q}
         onSearch={setQ}
         placeholder="Search delivery #, project, customer, address"
-        addLabel="Scan a unit"
-        onAdd={() => router.push("/scan/new")}
+        addLabel="Ad-hoc delivery or return"
+        addButtonLabel="Ad-hoc"
+        onAdd={() => router.push("/scan/adhoc")}
         tabs={TABS}
         tab={tab}
         onTab={selectTab}

@@ -18,8 +18,10 @@ import {
   DialogTitle,
   Divider,
   FormControlLabel,
+  IconButton,
   List,
   ListItemButton,
+  Menu,
   MenuItem,
   ListItemText,
   Paper,
@@ -38,6 +40,7 @@ import {
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import LinkIcon from "@mui/icons-material/Link";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import NoteAddIcon from "@mui/icons-material/NoteAdd";
 import PlaceIcon from "@mui/icons-material/Place";
 import { request } from "@/helpers/request";
@@ -268,6 +271,15 @@ export default function DeliveryDetailPage() {
   const [attachProjectId, setAttachProjectId] = useState("");
   const [attaching, setAttaching] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
+  // Link unit (ad-hoc RETURN runs, 2026-10-22): the untagged line's kebab menu
+  // (anchored to the click position, see CLAUDE.md) and the unit picker.
+  const [lineMenu, setLineMenu] = useState<{ pos: { left: number; top: number }; itemId: string } | null>(null);
+  const [linkItem, setLinkItem] = useState<RunDetail["items"][number] | null>(null);
+  const [unitQuery, setUnitQuery] = useState("");
+  const [units, setUnits] = useState<Array<{ id: string; sku: string; serialNumber: string | null; status: string; assetName: string | null }> | null>(null);
+  const [unitsError, setUnitsError] = useState<string | null>(null);
+  const [unitId, setUnitId] = useState<string | null>(null);
+  const [linking, setLinking] = useState(false);
 
   // Load the org's projects when the dialog opens. Scoped to the run's customer
   // when it has one — the backend refuses a cross-customer project, so offering
@@ -295,6 +307,37 @@ export default function DeliveryDetailPage() {
     })();
     return () => { cancelled = true; };
   }, [attachOpen, run?.customer?.id, getToken]);
+
+  // Units the office can pick for an untagged line: everything out on rental
+  // (or sold), filtered client-side by what they type. Prefilled with the ID
+  // the rider keyed in, which is usually the serial itself.
+  useEffect(() => {
+    if (!linkItem) return;
+    let cancelled = false;
+    setUnits(null);
+    setUnitsError(null);
+    setUnitId(null);
+    setUnitQuery((linkItem.description ?? "").replace(/^Untagged item:\s*/i, "").trim());
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const rows: any[] = [];
+        for (const status of ["rental", "sold"]) {
+          const res = await request({ path: "/inventories/by-status", method: "POST" }, { status }, token);
+          if (res?.success === false) throw new Error(res?.message ?? "Could not load units");
+          const body = res?.data ?? res;
+          if (Array.isArray(body)) rows.push(...body);
+        }
+        if (!cancelled) {
+          setUnits(rows.map((u) => ({ id: u.id, sku: u.sku, serialNumber: u.serialNumber ?? null, status: u.status, assetName: u.asset?.name ?? null })));
+        }
+      } catch (e: any) {
+        if (!cancelled) setUnitsError(e?.message ?? "Could not load units");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [linkItem, getToken]);
 
   const doAttachProject = async () => {
     if (!attachProjectId || attaching) return;
@@ -482,6 +525,29 @@ export default function DeliveryDetailPage() {
   // the backend (which never touches unit status — the DO flip reads this type).
   // RENTAL is the default, so a no-deployment unit never calls this (the Sale
   // button is disabled and re-clicking the selected Rental button is a no-op).
+  const doLinkUnit = async () => {
+    if (!run || !linkItem || !unitId || linking) return;
+    setLinking(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: `/deliveries/${run.id}/items/${linkItem.id}/link-unit`, method: "POST" },
+        { inventoryId: unitId },
+        token,
+      );
+      if (res?.success === false) throw new Error(res?.message ?? "Could not link the unit");
+      const linked = (res?.data ?? res)?.linked;
+      toast.success(linked?.sku ? `${linked.sku} linked. The unit is back in stock.` : "Unit linked.");
+      setLinkItem(null);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not link the unit");
+    } finally {
+      setLinking(false);
+    }
+  };
+
   const setItemType = async (inventoryId: string, type: "RENTAL" | "SALE") => {
     setTypeBusy(inventoryId);
     setActionError(null);
@@ -539,6 +605,17 @@ export default function DeliveryDetailPage() {
   // Scheduled runs have asset-only items (no unit yet) — nothing to link/create
   // a DO from until a rider delivers, so the link panel is hidden for them.
   const hasUnlinked = unlinkedItems.length > 0 && run.status !== "cancelled" && run.status !== "scheduled";
+  // Untagged lines on a return run (ad-hoc returns): each gets a "Link unit" action.
+  const isReturnRun = run.direction === "RETURN";
+  const canLinkUnits = isReturnRun && run.status !== "cancelled" && run.items.some((i) => !i.asset && !i.inventory);
+  const normId = (v: string | null | undefined) => (v ?? "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+  const unitMatches = (units ?? [])
+    .filter((u) => {
+      const q = normId(unitQuery);
+      return !q || normId(u.sku).includes(q) || normId(u.serialNumber).includes(q) || normId(u.assetName).includes(q);
+    })
+    .slice(0, 25);
+  const linkRawId = (linkItem?.description ?? "").replace(/^Untagged item:\s*/i, "").trim();
 
   const cancelScheduled = async () => {
     if (!run) return;
@@ -733,6 +810,7 @@ export default function DeliveryDetailPage() {
               <TableCell>Status</TableCell>
               <TableCell>Rental / Sale</TableCell>
               <TableCell>Linked DO</TableCell>
+              {canLinkUnits && <TableCell align="right" />}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -753,7 +831,7 @@ export default function DeliveryDetailPage() {
                       // Free-typed line (no asset AND no unit) — awaiting resolution
                       // to a real catalog asset/unit (Phase 2 adds the action).
                       !it.inventory ? (
-                        <Chip size="small" color="warning" variant="outlined" label="Needs resolution" />
+                        <Chip size="small" color="warning" variant="outlined" label={isReturnRun ? "Untagged" : "Needs resolution"} />
                       ) : (
                         "—"
                       )
@@ -808,12 +886,87 @@ export default function DeliveryDetailPage() {
                       <Typography variant="body2" color="text.secondary">—</Typography>
                     )}
                   </TableCell>
+                  {canLinkUnits && (
+                    <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                      {!it.asset && !it.inventory && (
+                        <IconButton
+                          size="small"
+                          aria-label="Line actions"
+                          onClick={(e) => setLineMenu({ pos: { left: e.clientX, top: e.clientY }, itemId: it.id })}
+                        >
+                          <MoreVertIcon fontSize="small" />
+                        </IconButton>
+                      )}
+                    </TableCell>
+                  )}
                 </TableRow>
               );
             })}
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* Untagged line actions (ad-hoc returns). Anchored to the click position. */}
+      <Menu open={!!lineMenu} onClose={() => setLineMenu(null)} anchorReference="anchorPosition" anchorPosition={lineMenu?.pos}>
+        <MenuItem
+          onClick={() => {
+            const it = run.items.find((i) => i.id === lineMenu?.itemId) ?? null;
+            setLineMenu(null);
+            setLinkItem(it);
+          }}
+        >
+          <LinkIcon fontSize="small" style={{ marginRight: 8 }} /> Link unit
+        </MenuItem>
+      </Menu>
+      <Dialog open={!!linkItem} onClose={() => !linking && setLinkItem(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Link a unit to &quot;{linkRawId || "this line"}&quot;</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Pick the real unit the rider collected. The line becomes a unit line and the unit comes back to stock as if
+            it had been returned on this run{linkItem?.documentId ? ", and its row on the Return Delivery Order is updated" : ""}.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Search serial, SKU or model"
+            value={unitQuery}
+            onChange={(e) => setUnitQuery(e.target.value)}
+            sx={{ mb: 1.5 }}
+          />
+          {unitsError && <Alert severity="error" sx={{ mb: 1.5 }}>{unitsError}</Alert>}
+          {units === null && !unitsError ? (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 3 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : unitMatches.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">No unit out on rental matches.</Typography>
+          ) : (
+            <List dense disablePadding sx={{ maxHeight: 320, overflow: "auto", border: 1, borderColor: "divider", borderRadius: 1 }}>
+              {unitMatches.map((u) => (
+                <ListItemButton key={u.id} selected={unitId === u.id} onClick={() => setUnitId(u.id)}>
+                  <ListItemText
+                    primary={<span style={{ fontFamily: "monospace" }}>{u.sku}</span>}
+                    secondary={[u.assetName, u.serialNumber && u.serialNumber !== u.sku ? `S/N ${u.serialNumber}` : null].filter(Boolean).join(" · ")}
+                  />
+                  <Chip size="small" variant="outlined" label={u.status} />
+                </ListItemButton>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLinkItem(null)} disabled={linking}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => void doLinkUnit()}
+            disabled={!unitId || linking}
+            startIcon={linking ? <CircularProgress size={16} color="inherit" /> : <LinkIcon />}
+          >
+            Link unit
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Proof — the office's evidence the delivery happened */}
       <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
