@@ -99,8 +99,8 @@ export const isJapaneseText = (s: string | null | undefined): boolean => /[぀-�
 
 // Round AC (owner): the fallback must never show a greeting, an addressee ("埣村様", "Dear Sayaka,"), an
 // @mention / mailto, a quoted header or a sign-off — only the first real sentence of the sender's own text.
-const GREETING_RE = /^(hi|hello|hey|dear|good\s+(morning|afternoon|evening|day)|greetings|hola|bonjour)\b/i;
-const JA_GREETING_RE = /^(こんにちは|こんばんは|おはよう|お世話になっ|お世話様|お疲れ様|お疲れさま|いつもお世話|いつも大変お世話|いつも大変|平素より|平素は|日頃より|ご無沙汰|初めまして|はじめまして|お忙しいところ)/;
+const GREETING_RE = /^(hi|hello|hey|dear|good\s+(morning|afternoon|evening|day)|greetings|hola|bonjour|thank(s| you)( very much| so much)? for (your|the|this|reaching)|thanks for)\b/i;
+const JA_GREETING_RE = /^(こんにちは|こんばんは|おはよう|お世話になっ|お世話様|お疲れ様|お疲れさま|いつもお世話|いつも大変お世話|いつも大変|平素より|平素は|日頃より|ご無沙汰|初めまして|はじめまして|お忙しいところ|(下記|早速の|早々の|ご丁寧な)?(ご連絡|ご返信|ご回答|ご返答|メール|ご送付|ご確認)(を)?(いただき|頂き|下さり|くださり)?(、)?(誠に)?ありがとう|ありがとうございます)/;
 /** "埣村様" / "竹本様," / "各位" / "SUS 御中" / "山田さん" — a line that only names the addressee. */
 const ADDRESSEE_RE = /^[^。．.!?！？]{0,40}?(様|さま|殿|御中|各位|さん|san)\s*[,、，:：]?\s*$/u;
 /** "@Sayaka Matsuki<mailto:…>," / "<mailto:…>" / a bare address or URL. */

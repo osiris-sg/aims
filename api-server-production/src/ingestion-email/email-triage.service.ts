@@ -1848,6 +1848,8 @@ export class EmailTriageService {
       }
     }
     const summary = isJapaneseText(own) ? (both.ja ?? both.en) : (both.en ?? both.ja);
+    // A forced re-run never trades a stored AI summary for the fallback sentence (the AI call failed this time).
+    if (source !== 'ai' && (existing.en || existing.ja) && (log.triage ?? {})?.summarySource === 'ai') return { summary: summaryForLang(existing, 'en'), en: existing.en, ja: existing.ja, before, stored: false, source: 'stored' };
     if (opts.dryRun || !summary) return { summary, en: both.en, ja: both.ja, before, stored: false, source };
     await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { triage: { ...((log.triage ?? {}) as Record<string, unknown>), summary, summaryEn: both.en, summaryJa: both.ja, summaryAt: new Date().toISOString(), summarySource: source } as any } });
     return { summary, en: both.en, ja: both.ja, before, stored: true, source };

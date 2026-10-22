@@ -30,6 +30,8 @@ describe('round AB — the one-line email summary (display text only)', () => {
     expect(fallbackSummary('Hi all,\nFrom: Someone <a@b.c>\nSent: Monday\nSubject: x\n\nThe vessel is delayed to 30 Oct. Please advise.')).toBe('The vessel is delayed to 30 Oct.');
     expect(fallbackSummary('Yogesh Kumar\nVedanta Aluminium Metal Ltd. ships No. 2 and 3 next week. Thanks.')).toBe('Yogesh Kumar Vedanta Aluminium Metal Ltd. ships No. 2 and 3 next week.');
     expect(fallbackSummary('Thanks and regards,\nYogesh')).toBeNull();
+    expect(fallbackSummary('下記ご連絡ありがとうございます。配送先の会社名を教えてください。')).toBe('配送先の会社名を教えてください。');
+    expect(fallbackSummary('Thank you for your email. The containers were returned on 20 Oct.')).toBe('The containers were returned on 20 Oct.');
     expect(fallbackSummary('')).toBeNull();
     expect(fallbackSummary('---\n\n')).toBeNull();
     expect(fallbackSummary(`${'y'.repeat(200)}`)?.length).toBe(160);
