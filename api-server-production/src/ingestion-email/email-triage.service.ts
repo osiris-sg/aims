@@ -290,18 +290,21 @@ export class EmailTriageService {
       const ja = await this.questionOfLog(organizationId, logId, 'ja');
       const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId }, select: { fromAddress: true, emailDate: true, createdAt: true, subject: true } });
       const company = companyOf(log?.fromAddress, await this.companyOverrides(organizationId)).name;
-      const base = { from: log?.fromAddress ?? null, company, date: log?.emailDate ?? log?.createdAt ?? null, subject: log?.subject ?? null, portalUrl: this.portalUrl(organizationId) };
+      const base = { from: log?.fromAddress ?? null, company, date: log?.emailDate ?? log?.createdAt ?? null, subject: log?.subject ?? null, portalUrl: this.portalUrl(organizationId, 'emails') };
       const input = (card: QuestionCard): NeedsCheckInput => ({ ...base, kind: card.kind, options: card.options.map((o) => ({ ref: o.ref })), says: /says (.+?), but/.exec(q.card.title)?.[1] ?? null });
       const text = needsCheckText(input(q.card), 'en');
-      await this.whatsapp.queue(organizationId, 'NEEDS_ME', text, { linkUrl: '/portal/shipments/dashboard', dedupeKey: `needs:${logId}`, textFor: (prefs) => (prefs.lang === 'ja' && ja ? needsCheckText(input(ja.card), 'ja') : text) });
+      await this.whatsapp.queue(organizationId, 'NEEDS_ME', text, { linkUrl: '/portal', dedupeKey: `needs:${logId}`, textFor: (prefs) => (prefs.lang === 'ja' && ja ? needsCheckText(input(ja.card), 'ja') : text) });
     } catch {
       /* best effort */
     }
   }
 
   /** The Dashboard link the pushes point at. */
-  portalUrl(organizationId?: string): string {
-    return `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}/portal/shipments/dashboard${organizationId ? `?aorg=${organizationId}` : ''}`;
+  portalUrl(organizationId?: string, view?: 'emails'): string {
+    // Round Z: the Sales dashboard is the portal home (/portal; ?view=emails = the full email view); ?aorg=<org>
+    // lets an admin's link open under that org (helpers/request.ts adopts it).
+    const q = [view ? `view=${view}` : null, organizationId ? `aorg=${organizationId}` : null].filter(Boolean).join('&');
+    return `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}/portal${q ? `?${q}` : ''}`;
   }
 
   /** "Toshiro Takekoshi (Asia Deal Hub)" for a From header — the org's company map applied (round X, for chat replies). */
@@ -399,13 +402,13 @@ export class EmailTriageService {
       const subj = (log?.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 50);
       for (const a of files) {
         // Round X: one plain line per event, no emojis, in the user's language.
-        if (a.docType === 'ARRIVAL_NOTICE') await this.whatsapp.queue(organizationId, 'EVENT', arrivalNoticeLine(refOf(a), 'en'), { linkUrl: '/portal/shipments/dashboard', dedupeKey: `an:${log.id}:${a.ownerId}`, textFor: (p) => arrivalNoticeLine(refOf(a), p.lang) });
-        else if (a.docType === 'IMPORT_PERMIT') await this.whatsapp.queue(organizationId, 'EVENT', importPermitLine(refOf(a), 'en'), { linkUrl: '/portal/shipments/dashboard', dedupeKey: `permit:${log.id}:${a.ownerId}`, textFor: (p) => importPermitLine(refOf(a), p.lang) });
+        if (a.docType === 'ARRIVAL_NOTICE') await this.whatsapp.queue(organizationId, 'EVENT', arrivalNoticeLine(refOf(a), 'en'), { linkUrl: '/portal', dedupeKey: `an:${log.id}:${a.ownerId}`, textFor: (p) => arrivalNoticeLine(refOf(a), p.lang) });
+        else if (a.docType === 'IMPORT_PERMIT') await this.whatsapp.queue(organizationId, 'EVENT', importPermitLine(refOf(a), 'en'), { linkUrl: '/portal', dedupeKey: `permit:${log.id}:${a.ownerId}`, textFor: (p) => importPermitLine(refOf(a), p.lang) });
       }
       void subj;
       if (review === 'AUTO') {
         const refs2 = [...new Set(files.map(refOf))].join(', ');
-        await this.whatsapp.queue(organizationId, 'FILED', filedLine(refs2, files.length, 'en'), { linkUrl: '/portal/shipments/dashboard', dedupeKey: `filed:${log.id}`, textFor: (p) => filedLine(refs2, files.length, p.lang) });
+        await this.whatsapp.queue(organizationId, 'FILED', filedLine(refs2, files.length, 'en'), { linkUrl: '/portal', dedupeKey: `filed:${log.id}`, textFor: (p) => filedLine(refs2, files.length, p.lang) });
       }
     } catch {
       /* best effort */

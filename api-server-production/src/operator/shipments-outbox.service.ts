@@ -25,7 +25,7 @@ const DIGEST_TEMPLATE = () => process.env.WHATSAPP_DIGEST_TEMPLATE || '';
 /** The approved per-kind templates for a single "needs a check" push (aims_needs_check / aims_new_deal / aims_recheck); unset = plain text. */
 const PUSH_TEMPLATE: Record<PushTemplateKind, () => string> = { needs_check: () => process.env.WHATSAPP_NEEDS_TEMPLATE || '', new_deal: () => process.env.WHATSAPP_NEW_DEAL_TEMPLATE || '', recheck: () => process.env.WHATSAPP_RECHECK_TEMPLATE || '' };
 /** The Dashboard link; ?aorg=<org> lets an admin's link open under that org (helpers/request.ts adopts it). */
-const PORTAL = (org?: string) => `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}/portal/shipments/dashboard${org ? `?aorg=${org}` : ''}`;
+const PORTAL = (org?: string) => `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}/portal${org ? `?aorg=${org}` : ''}`;
 
 @Injectable()
 export class ShipmentsOutboxService {

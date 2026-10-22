@@ -90,7 +90,7 @@ describe('ShipmentsOutboxService.drain', () => {
     expect(whatsapp.sendText).toHaveBeenCalledTimes(2);
     expect(whatsapp.sendText.mock.calls[0][1]).toBe('Good morning');
     // Two event lines due together: the lines, then the Dashboard link once — no bullets, no emojis.
-    expect(whatsapp.sendText.mock.calls[1][1]).toBe('A\nB\nOpen the Dashboard: https://app.ai-ms.io/portal/shipments/dashboard?aorg=org-adh'); // ?aorg: an admin's link opens under ADH
+    expect(whatsapp.sendText.mock.calls[1][1]).toBe('A\nB\nOpen the Dashboard: https://app.ai-ms.io/portal?aorg=org-adh'); // ?aorg: an admin's link opens under ADH
     expect(rows.filter((x) => x.status === 'SENT').map((x) => x.id).sort()).toEqual(['r1', 'r2', 'r3']);
     expect(rows.find((x) => x.id === 'r4').status).toBe('QUEUED'); // not due yet
   });
@@ -100,7 +100,7 @@ describe('ShipmentsOutboxService.drain', () => {
     process.env.WHATSAPP_NEEDS_TEMPLATE = 'aims_needs_check';
     try {
       const { prisma, rows } = prismaMock([]);
-      const url = 'https://app.ai-ms.io/portal/shipments/dashboard';
+      const url = 'https://app.ai-ms.io/portal';
       const digest = `Good morning. Thu 22 Oct\n- 18 emails filed automatically\n- 4 need your check (14 emails)\nOpen the Dashboard: ${url}`;
       const needs = `New email needs your check\nFrom: Toshiro Takekoshi (Asia Deal Hub), 22 Oct 11:50\nSubject: Re: DET\nAIMS isn't sure which shipment this is for: #16-1 or #16-2.\nReply 1 for #16-1, 2 for #16-2, or check it on the Dashboard: ${url}`;
       rows.push(

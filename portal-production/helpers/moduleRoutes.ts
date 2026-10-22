@@ -19,7 +19,7 @@ const HOME_ROUTE = "/portal";
 /** Admin is its own gate (osiris-admin only), not a per-org module. */
 const IGNORED_CODES: ReadonlySet<string> = new Set(["ADMIN"]);
 /** Where an org with Sales lands; everyone else stays on the portal home. */
-const SHIPMENTS_LANDING = "/portal/shipments/dashboard";
+const SHIPMENTS_LANDING = "/portal"; // round Z: the Sales dashboard renders at the portal home
 
 /** True when `pathname` is `route` itself or lies under it ("/x" matches "/x" and "/x/y", not "/xy"). */
 function underRoute(pathname: string, route: string): boolean {

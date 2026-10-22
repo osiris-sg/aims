@@ -8,7 +8,7 @@ import { useConfiguration } from "./context/ConfigurationContext";
 import { HOME_VIEW_EVENT, closeAimee, openAimee, readHomeView, type AimeeOpenDetail } from "./chat/homeView";
 import ChatHome from "./chat/ChatHome";
 import AimeeBar from "./chat/AimeeBar";
-import { shipmentsLanding } from "@/helpers/shipmentsNav";
+import SalesDashboard from "./shipments/_components/SalesDashboard";
 
 // Landing page. Every org sees the dashboard. Orgs with enableAimsChat also
 // get AIMEE on top of it: a strip with her face and an "Ask AIMEE" pill.
@@ -27,16 +27,11 @@ export default function Page() {
   const { isAimsChatEnabled, isLoading } = useOrganizationFeatures();
   const router = useRouter();
   const { loading: configLoading, isModuleEnabled } = useConfiguration();
-  // An org with the Shipments module (ADH) lands on Sales › Dashboard (round P; round Y: whatever the generic
-  // Dashboard module says), not the asset dashboard. This is also the org-switch and after-login landing
-  // (the switch loads /portal; Clerk's fallbackRedirectUrl is /portal).
+  // Round Z: /portal renders the active org's OWN dashboard — the Sales dashboard (Overview / Admin, emails, tasks,
+  // arrivals; ?view=emails = the full email view) for an org with the SHIPMENTS module, the asset dashboard for
+  // everyone else. No redirect: an org switch reloads /portal and the right dashboard appears. This is also the
+  // after-login landing (Clerk's fallbackRedirectUrl is /portal).
   const tradeHome = !configLoading && isModuleEnabled("SHIPMENTS");
-  useEffect(() => {
-    if (!tradeHome) return;
-    const q = new URLSearchParams(window.location.search);
-    if (q.get("chat") || q.get("aimee") === "1") return;
-    router.replace(shipmentsLanding());
-  }, [tradeHome, router]);
   const [phase, setPhase] = useState<Phase | null>(null);
   const [prompt, setPrompt] = useState<string | undefined>();
   const origin = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -118,7 +113,8 @@ export default function Page() {
     closeAimee();
   }, [router]);
 
-  if (isLoading || phase === null || tradeHome) return null;
+  if (isLoading || phase === null || configLoading) return null;
+  if (tradeHome) return <SalesDashboard />;
   if (!isAimsChatEnabled) return <DashboardOverview />;
 
   const aimeeShown = phase !== "dashboard";

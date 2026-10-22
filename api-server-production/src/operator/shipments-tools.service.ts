@@ -823,7 +823,7 @@ export class ShipmentsToolsService {
     const r = parseNumberedReply(text, q.card);
     if (!r) return null;
     const actor = { id: ctx.clerkUserId, name: ctx.actor.name ?? ctx.actor.email ?? null, via: 'whatsapp' as const };
-    if (r.kind === 'create_order') return lang === 'ja' ? '注文の作成はポータルで: /portal/shipments/dashboard（質問カードの「注文を作成」）' : 'Create the order in the portal: /portal/shipments/dashboard (the card\u2019s "Create order" button starts it prefilled).';
+    if (r.kind === 'create_order') return lang === 'ja' ? '注文の作成はポータルで: /portal（質問カードの「注文を作成」）' : 'Create the order in the portal: /portal (the card\u2019s "Create order" button starts it prefilled).';
     const body = r.kind === 'record' ? { kind: 'record' as const, orderId: r.option.orderId, shipmentId: r.option.shipmentId } : { kind: r.kind };
     const out = await this.triage.answer(ctx.organizationId, { ids: q.answerIds, answer: body }, actor, lang);
     return out.text;

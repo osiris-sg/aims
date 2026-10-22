@@ -261,7 +261,7 @@ describe('ShipmentsToolsService — round X: bare replies, sender names, one sha
     triage.questionOfLog = jest.fn(async () => ({ card: { kind: 'WHICH', options: [{ id: 'r:o16:s16-1', orderId: 'o16', shipmentId: 's16-1', ref: '#16-1', summary: '#16-1', why: '', suggested: false }, { id: 'r:o16:s16-2', orderId: 'o16', shipmentId: 's16-2', ref: '#16-2', summary: '#16-2', why: '', suggested: false }], extras: {}, title: 'Which shipment is this about?', found: '', details: [], replyHint: '', lang: 'en' }, answerIds: ['log1'], subject60: 'Re: DET' }));
     triage.answer = jest.fn(async () => ({ text: 'Linked to #16-2', ids: ['log1'], kind: 'record' }));
     triage.dashboard = jest.fn(async () => ({ toConfirm: { emails: 14, total: 4, threads: [] }, filedAuto: [] }));
-    triage.portalUrl = () => 'https://app.ai-ms.io/portal/shipments/dashboard';
+    triage.portalUrl = () => 'https://app.ai-ms.io/portal';
     expect(await svc.answerNumbered(ctx, '819000000000', '2', 'en')).toBe('Linked to #16-2');
     expect(triage.answer).toHaveBeenCalledWith('org-adh', { ids: ['log1'], answer: { kind: 'record', orderId: 'o16', shipmentId: 's16-2' } }, expect.objectContaining({ via: 'whatsapp' }), 'en');
     prisma.whatsAppOutbox.findFirst = jest.fn(async () => null);

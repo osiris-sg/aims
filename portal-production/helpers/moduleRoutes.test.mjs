@@ -76,7 +76,7 @@ test("Biofuel on /portal/shipments/orders is not allowed; ADH is", () => {
 });
 
 test("landingFor: Sales › Dashboard with SHIPMENTS on, the portal home otherwise", () => {
-  assert.equal(landingFor(adh), "/portal/shipments/dashboard");
+  assert.equal(landingFor(adh), "/portal");
   assert.equal(landingFor(biofuel), "/portal");
   assert.equal(landingFor([]), "/portal");
 });

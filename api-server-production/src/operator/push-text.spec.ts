@@ -5,7 +5,7 @@
 import { batchText, dateLabel, digestTemplateParams, digestText, pushTemplateParams, etaChangedLine, freeTimeLine, needsCheckBatchText, needsCheckText, pushToLine, senderLine, shortTask, stepOverdueLine, stripEmoji, trimSubject } from './push-text';
 
 const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
-const URL = 'https://app.ai-ms.io/portal/shipments/dashboard';
+const URL = 'https://app.ai-ms.io/portal';
 const jst = (iso: string) => new Date(`${iso}+09:00`);
 
 describe('helpers', () => {
@@ -92,7 +92,7 @@ describe('(e) events', () => {
 });
 
 describe('Meta templates: the pushes read back into one parameter per line', () => {
-  const URL2 = 'https://app.ai-ms.io/portal/shipments/dashboard';
+  const URL2 = 'https://app.ai-ms.io/portal';
   it('aims_digest: [day, filed, waiting, overdue, arriving, link], EN and JA, zero lines → "none"', () => {
     const full = { at: jst('2026-10-22T08:30:00'), filedAuto: 18, questions: 4, questionEmails: 14, overdue: ['#19-1 import tax funds', '#14-1 detention'], arriving: [{ ref: '#20-1', eta: jst('2026-10-24T00:00:00') }, { ref: '#19-1', eta: null }], portalUrl: URL2 };
     expect(digestTemplateParams(digestText(full, 'en'), 'en')).toEqual(['Thu 22 Oct', '18 emails', '4 questions (14 emails)', '2: #19-1 import tax funds, #14-1 detention', '2 shipments (first: #20-1, Sat 24 Oct)', URL2]);

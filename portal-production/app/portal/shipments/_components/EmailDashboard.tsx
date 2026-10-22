@@ -24,6 +24,7 @@ import { L, resultBox } from "../_lib/inbox-cards";
 import { HOME_KEY, TradeTasksList, useMyTasks, useRefreshTasks } from "./TradeTasks";
 import { InboxThreadList, type InboxActions } from "./inbox/InboxThreadList";
 import { useInboxActions } from "./inbox/useInboxActions";
+import { SHIPMENTS_EMAILS } from "@/helpers/shipmentsNav";
 
 export interface EmailDashboardData {
   inbox: InboxDashboard | undefined;
@@ -111,7 +112,7 @@ export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTas
           count={inbox ? L[actions.lang].questionsDot(questions, emails) : ""}
           tour="dashboard-emails"
           action={
-            <Button component={Link} href="/portal/shipments/dashboard?view=emails" size="small" sx={{ textTransform: "none" }} data-tour="dashboard-see-all-emails">
+            <Button component={Link} href={SHIPMENTS_EMAILS} size="small" sx={{ textTransform: "none" }} data-tour="dashboard-see-all-emails">
               {L[actions.lang].seeAll}
             </Button>
           }
@@ -128,7 +129,7 @@ export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTas
               footer={
                 inbox && inbox.toConfirm.total > inbox.toConfirm.threads.length ? (
                   <Typography variant="caption" color="text.secondary">
-                    <Link href="/portal/shipments/dashboard?view=emails">{L[actions.lang].seeAll}</Link> ({inbox.toConfirm.total})
+                    <Link href={SHIPMENTS_EMAILS}>{L[actions.lang].seeAll}</Link> ({inbox.toConfirm.total})
                   </Typography>
                 ) : undefined
               }

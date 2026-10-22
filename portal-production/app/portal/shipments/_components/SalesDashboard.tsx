@@ -1,6 +1,8 @@
 "use client";
 
-// Dashboard (/portal/shipments/dashboard) — its own top-level nav item since round T (2026-10-22). One page,
+// Round Z (2026-10-22): the Sales dashboard IS the portal home — /portal renders this for an org with the SHIPMENTS
+// module (app/portal/page.tsx), the way Biofuel gets its own dashboard there; /portal/shipments/dashboard redirects.
+// One page,
 // two views behind a toggle: "Overview" (the email-first dashboard, round P) and "Admin" (money in / out,
 // expected vs received, per-order margin & profit, 3-month summary) — the Admin toggle shows only for roles
 // with shipments:money (ADH Manager / Admin); the API enforces it too. The old Home (LegacyHome) stays behind
@@ -13,10 +15,10 @@ import { useSearchParams } from "next/navigation";
 import { Box, CircularProgress, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
-import EmailDashboard from "../_components/EmailDashboard";
-import LegacyHome from "../_components/LegacyHome";
-import AdminDashboard from "../_components/AdminDashboard";
-import EmailsAll from "../_components/inbox/EmailsAll";
+import EmailDashboard from "./EmailDashboard";
+import LegacyHome from "./LegacyHome";
+import AdminDashboard from "./AdminDashboard";
+import EmailsAll from "./inbox/EmailsAll";
 import { SHIPMENTS_HOME } from "@/helpers/shipmentsNav";
 
 type View = "overview" | "admin";
@@ -28,7 +30,7 @@ const Spinner = () => (
   </Box>
 );
 
-export default function SalesDashboardPage() {
+export default function SalesDashboard() {
   // useSearchParams needs a Suspense boundary for the static render.
   return (
     <Suspense fallback={<Spinner />}>

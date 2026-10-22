@@ -31,13 +31,13 @@ test("a stored `inbox` submenu row is filtered out whatever the org's module row
 });
 
 test("the emails live on the Dashboard now: the old Inbox URL's target is the Dashboard sub-view", () => {
-  assert.equal(SHIPMENTS_EMAILS, "/portal/shipments/dashboard?view=emails");
+  assert.equal(SHIPMENTS_EMAILS, "/portal?view=emails");
   assert.ok(SHIPMENTS_EMAILS.startsWith(SHIPMENTS_HOME));
 });
 
 test("every landing goes to Sales › Dashboard (portal root, org switch, nav); the URLs are unchanged", () => {
   assert.equal(shipmentsLanding(), SHIPMENTS_HOME);
-  assert.equal(SHIPMENTS_HOME, "/portal/shipments/dashboard");
+  assert.equal(SHIPMENTS_HOME, "/portal");
   assert.equal(SHIPMENTS_ORDERS, "/portal/shipments");
 });
 

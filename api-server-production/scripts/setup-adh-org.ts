@@ -145,7 +145,8 @@ const ENABLED_MODULES: Array<{ code: string; displayName?: string; route?: strin
     // toggle (Admin = the money view, ADH Manager / Admin only; the API enforces shipments:money).
     code: 'DASHBOARD',
     displayName: 'Dashboard',
-    route: '/portal/shipments/dashboard',
+    // Round Z (2026-10-22): the Sales dashboard renders at the portal home; /portal/shipments/dashboard redirects.
+    route: '/portal',
     icon: 'Dashboard',
     sortOrder: -4,
     subMenus: [],
@@ -163,7 +164,7 @@ const ENABLED_MODULES: Array<{ code: string; displayName?: string; route?: strin
       // (their pages sit behind enableTradeLegacyPages, off).
       // Round T (2026-10-22): Dashboard left the Sales menu — it is its own top-level item (the DASHBOARD module below).
       // Round W (2026-10-22): Inbox left the menu — the Dashboard is the email home ("See all emails" →
-      // /portal/shipments/dashboard?view=emails; the old /portal/shipments/inbox URL redirects there). The portal
+      // /portal?view=emails (round Z); the old /portal/shipments/inbox URL redirects there). The portal
       // also drops a stored `inbox` row on its own (helpers/shipmentsNav.ts visibleSalesSubmenus).
       { key: 'list', label: 'Orders' },
       { key: 'shipments', label: 'Shipments' },

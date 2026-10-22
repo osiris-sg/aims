@@ -11,7 +11,7 @@
 /** The Orders list — the Shipments module's own route. */
 export const SHIPMENTS_ORDERS = "/portal/shipments";
 /** Sales › Dashboard — the landing page. */
-export const SHIPMENTS_HOME = "/portal/shipments/dashboard";
+export const SHIPMENTS_HOME = "/portal"; // round Z: the Sales dashboard is the portal home
 
 /** Where a trade org lands (portal root, org switch, "Sales" in the nav). */
 export function shipmentsLanding(): string {
@@ -22,7 +22,7 @@ export function shipmentsLanding(): string {
 export const SALES_MENU_LABELS = ["Dashboard", "Orders", "Shipments"] as const;
 
 /** The full two-tab email view (Unprocessed / Processed) — a Dashboard sub-view since round W. */
-export const SHIPMENTS_EMAILS = "/portal/shipments/dashboard?view=emails";
+export const SHIPMENTS_EMAILS = "/portal?view=emails";
 
 /** Sales (SHIPMENTS) submenu keys that never show, whatever the stored module row says (round W: `inbox`). */
 export const RETIRED_SALES_SUBMENUS: ReadonlySet<string> = new Set(["inbox"]);

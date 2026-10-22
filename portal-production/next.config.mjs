@@ -9,6 +9,18 @@ const nextConfig = {
   swcMinify: false,
   async redirects() {
     return [
+      // Round Z (2026-10-22): the Sales dashboard is the portal home; the old URLs keep working (query kept:
+      // /portal/shipments/dashboard?view=emails → /portal?view=emails).
+      {
+        source: "/portal/shipments/dashboard",
+        destination: "/portal",
+        permanent: true,
+      },
+      {
+        source: "/portal/shipments/inbox",
+        destination: "/portal?view=emails",
+        permanent: true,
+      },
       {
         source: "/portal/invoices",
         destination: "/portal/sales/invoices",

@@ -235,10 +235,10 @@ export const GUIDES: Guide[] = [
     module: 'SHIPMENTS',
     description:
       'How the emails work now: AIMS files what it is sure about by itself (two independent clues must agree). Everything else becomes a QUESTION CARD on the Dashboard — a plain question ("Which shipment is this about?"), what AIMS found, the latest email, and big answer options; one tap answers it for the whole thread, with Undo, and the next question loads. "See all emails" opens the two-tab view (Unprocessed / Processed) with the thread timeline and the result of every email.',
-    route: '/portal/shipments/dashboard',
+    route: '/portal',
     steps: [
       {
-        route: '/portal/shipments/dashboard',
+        route: '/portal',
         selector: '[data-tour="question-card"]',
         title: 'One question per thread',
         body: 'The title is the question. Under it: what AIMS found, and the latest email\'s first lines ("Show the full email" to read it; "3 earlier emails" opens the thread).',
@@ -354,7 +354,7 @@ export const GUIDES: Guide[] = [
         body: 'One domain per line (vedanta.co.in, mitsui-soko.co.jp…). For someone writing from gmail.com add their address on the right, never the whole domain. Save.',
       },
       {
-        route: '/portal/shipments/dashboard?view=emails',
+        route: '/portal?view=emails',
         selector: '[data-tour="inbox-filter-preview"]',
         title: 'Filter preview',
         body: 'What the filter kept / would drop in the last 30 days. Rows marked "false drop" are shipment mail it would lose — fix the allow-list before enforcing.',
@@ -418,10 +418,10 @@ export const GUIDES: Guide[] = [
     module: 'SHIPMENTS',
     description:
       'Sales › Dashboard (the landing page): one line "To do: n emails to confirm · n tasks overdue · n arriving this week", then the emails waiting for you (Confirm · Change order · Not shipment), what was filed automatically in the last 3 days (Undo), the reminders (✓ done / ✕ dismiss — also in the bell and the Orders "Tasks (n)" button) and the shipments arriving in the next 7 days with their free time. Reminder rules are in Settings → Shipping → Alerts.',
-    route: '/portal/shipments/dashboard',
+    route: '/portal',
     steps: [
       {
-        route: '/portal/shipments/dashboard',
+        route: '/portal',
         selector: '[data-tour="dashboard-todo"]',
         title: 'What needs you today',
         body: 'Emails to confirm, tasks overdue and shipments arriving this week, in one line.',
