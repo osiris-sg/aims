@@ -738,7 +738,8 @@ export type InboxQuestion = {
   details: string[];
   replyHint: string;
 };
-export type InboxAnswer = { kind: "record"; orderId: string | null; shipmentId: string | null } | { kind: "not_shipment" } | { kind: "not_deal" } | { kind: "later" };
+/** Round AA: a "record" answer may name several shipments (`targets`, up to 10); `orderId` / `shipmentId` = the first one (back-compat). */
+export type InboxAnswer = { kind: "record"; orderId?: string | null; shipmentId?: string | null; targets?: Array<{ orderId: string; shipmentId: string | null }> } | { kind: "not_shipment" } | { kind: "not_deal" } | { kind: "later" };
 export type InboxAnswerResult = { kind: InboxAnswer["kind"]; ids: string[]; refs: string[]; files: number; text: string };
 export type InboxThreadLink = { orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null; from: "processed" | "suggested"; combined: Array<{ orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null }> };
 export type InboxThread = { id: string; by: "headers" | "subject" | "both"; section?: "NO_ORDER" | null; subject: string | null; latest: string | null; emails: number; files: number; link: InboxThreadLink | null; general?: { customerKey: string | null } | null; messages: InboxMessage[]; otherCount: number; /** Round W: one question per thread, the ids it answers for, the earlier-email count. */ question?: InboxQuestion | null; answerIds?: string[]; earlier?: number };

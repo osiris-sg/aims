@@ -1,6 +1,6 @@
 // Round W (2026-10-22) — the question cards, the result box and the thread timeline, in words. Pure, no React,
 // tested in helpers/inboxCards.test.mjs. English + Japanese follow the browser (uiLang).
-import type { InboxLang, InboxLinkedFile, InboxMessage, InboxThread } from "./api";
+import type { InboxAnswer, InboxLang, InboxLinkedFile, InboxMessage, InboxQuestion, InboxQuestionOption, InboxThread } from "./api";
 
 /** The UI language: Japanese when the browser is, else English (the API's cards follow the same `lang`). */
 export const uiLangOf = (navigatorLanguage: string | null | undefined): InboxLang => (/^ja\b/i.test(navigatorLanguage ?? "") ? "ja" : "en");
@@ -25,8 +25,20 @@ export const L = {
     earlier: (n: number) => (n === 1 ? "1 earlier email" : `${n} earlier emails`),
     latest: "Latest",
     why: "Why?",
-    showFull: "Show the full email",
+    showFull: "Show full email",
     hideFull: "Hide",
+    /** Round AA — the minimal card + the "Choose shipment" dialog (confirm-first). */
+    chooseShipment: "Choose shipment",
+    answer: "Answer",
+    likely: "Likely",
+    allShipments: "All shipments",
+    selectAll: "Select all",
+    searchShipments: "Search by ref, customer, grade, B/L or vessel",
+    noShipments: "No open shipment matches.",
+    loadingShipments: "Loading shipments…",
+    confirm: "Confirm",
+    cancel: "Cancel",
+    picked: (n: number) => (n === 1 ? "1 shipment picked" : `${n} shipments picked`),
     waiting: "⏳ Waiting for you",
     linkOnly: (ref: string) => `🔗 Linked to ${ref} — no documents filed.`,
     added: (ref: string, summary: string | null) => `✅ Added to ${ref}${summary ? ` — ${summary}` : ""}`,
@@ -59,6 +71,17 @@ export const L = {
     why: "理由",
     showFull: "メール全文を表示",
     hideFull: "閉じる",
+    chooseShipment: "出荷を選ぶ",
+    answer: "回答する",
+    likely: "候補",
+    allShipments: "すべての出荷",
+    selectAll: "すべて選択",
+    searchShipments: "番号・顧客・グレード・B/L・本船で検索",
+    noShipments: "該当する出荷はありません。",
+    loadingShipments: "出荷を読み込み中…",
+    confirm: "確定",
+    cancel: "キャンセル",
+    picked: (n: number) => `出荷 ${n} 件を選択`,
     waiting: "⏳ 確認待ち",
     linkOnly: (ref: string) => `🔗 ${ref} に紐付け — 書類の登録なし`,
     added: (ref: string, summary: string | null) => `✅ ${ref} に登録${summary ? ` — ${summary}` : ""}`,
@@ -212,4 +235,82 @@ export function headerSummary(h: { from: string; to: string; cc: string }, compa
   const from = `${name(h.from)}${company ? ` (${company})` : ""}`;
   if (lang === "ja") return `${from} から${first ? ` · ${first}${more > 0 ? ` +${more}` : ""} 宛` : ""}`;
   return `From ${from}${first ? ` · to ${first}${more > 0 ? ` + ${more}` : ""}` : ""}`;
+}
+
+// ── Round AA: the minimal question card + the "Choose shipment" dialog ───────────────────────────────────────────
+
+/** The subject trimmed to ~50 characters with "…"; "(no subject)" when empty. */
+export function trimSubject(subject: string | null | undefined, max = 50): string {
+  const s = (subject ?? "").replace(/\s+/g, " ").trim();
+  if (!s) return "(no subject)";
+  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
+}
+
+/** The sender's display name from a From header ("Name <a@b>" → Name; a bare address → its local part) — mirrors inbox-threads' fromParts (no runtime import: node --test). */
+const senderName = (from: string | null | undefined): string => {
+  const s = (from ?? "").trim();
+  const m = /^"?([^"<]*?)"?\s*<([^<>]+)>$/.exec(s);
+  if (m) return m[1].trim() || m[2].split("@")[0];
+  return s.replace(/^<|>$/g, "").split("@")[0] || "—";
+};
+
+/** "22 Oct 14:31" (EN, as whenShort) / "10/22 14:31" (JA) in Tokyo — the date of the card line. */
+export function whenCard(iso: string | null | undefined, lang: InboxLang): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  if (lang === "ja") {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tokyo", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(d).map((p) => [p.type, p.value]));
+    return `${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`;
+  }
+  return new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tokyo", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }).format(d).replace(",", "");
+}
+
+/**
+ * The ONE line under the card's question: "From Vedanta · 22 Oct 14:31 · RE: Request for Extension of Detention…"
+ * (JA: "Vedanta から · 10/22 14:31 · 件名…"). The sender COMPANY, else the sender's name from the From header.
+ */
+export function cardFromLine(m: Pick<InboxMessage, "from" | "company" | "date" | "subject">, lang: InboxLang): string {
+  const who = (m.company ?? "").trim() || senderName(m.from);
+  const when = whenCard(m.date, lang);
+  const subject = trimSubject(m.subject);
+  const head = lang === "ja" ? `${who} から` : `From ${who}`;
+  return [head, when || null, subject].filter(Boolean).join(" · ");
+}
+
+export const optionKey = (o: { orderId: string; shipmentId: string | null }) => `${o.orderId}:${o.shipmentId ?? ""}`;
+
+/** AIMS's LIKELY records: the card's options in their order, deduped by orderId:shipmentId. */
+export function likelyOptions(q: Pick<InboxQuestion, "options"> | null | undefined): InboxQuestionOption[] {
+  const seen = new Set<string>();
+  const out: InboxQuestionOption[] = [];
+  for (const o of q?.options ?? []) {
+    const k = optionKey(o);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(o);
+  }
+  return out;
+}
+
+/** What the person chose in the dialog — shipments ticked, or one of the text options. */
+export type ChooseSelection = { kind: "shipments"; targets: Array<{ orderId: string; shipmentId: string | null }> } | { kind: "not_shipment" } | { kind: "later" };
+
+/**
+ * The answer payload Confirm sends. Several shipments → `targets` (+ the first as orderId / shipmentId for the old
+ * shape); one → the same; "Not about a shipment" → not_deal on a NEW_DEAL card, else not_shipment; "Ask later" →
+ * later. Null when nothing is chosen.
+ */
+export function answerFor(sel: ChooseSelection, questionKind: InboxQuestion["kind"]): InboxAnswer | null {
+  if (sel.kind === "later") return { kind: "later" };
+  if (sel.kind === "not_shipment") return { kind: questionKind === "NEW_DEAL" ? "not_deal" : "not_shipment" };
+  const seen = new Set<string>();
+  const targets = sel.targets.filter((t) => {
+    const k = optionKey(t);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  if (!targets.length) return null;
+  return { kind: "record", orderId: targets[0].orderId, shipmentId: targets[0].shipmentId, targets };
 }

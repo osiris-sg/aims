@@ -298,6 +298,27 @@ export class OperatorService {
         await adapter.sendText(msg.chatId, shipmentsHelp(ctx.organizationName, lang));
         return;
       }
+      // Round AA: "18-1" / "18-1 18-2" after a shipment question → a Confirm card first; nothing applies on the reply itself.
+      if (ShipmentsToolsService.REFS_REPLY.test(text)) {
+        const pending = await this.shipTools.pendingForRefs(ctx, msg.channelUserId, text, lang).catch((e) => {
+          this.logger.warn(`shipment reply failed: ${(e as Error)?.message}`);
+          return null;
+        });
+        if (typeof pending === 'string') {
+          await adapter.sendText(msg.chatId, pending);
+          return;
+        }
+        if (pending) {
+          const session = await this.loadSession(...this.sk(msg));
+          this.holdPending(session, pending);
+          await this.saveSession(...this.sk(msg), session);
+          await adapter.sendButtons(msg.chatId, `${pending.summary}\n\n${lang === 'ja' ? '確定しますか？' : 'Confirm?'}`, [
+            { label: 'Confirm', data: `confirm:${pending.id}` },
+            { label: 'Cancel', data: `cancel:${pending.id}` },
+          ]);
+          return;
+        }
+      }
       // Round W: "1" / "2" / "0" / "X" answers the last question card sent to this number.
       if (/^\s*([0-9]|x|×)\s*$/i.test(text)) {
         const answered = await this.shipTools.answerNumbered(ctx, msg.channelUserId, text, lang).catch((e) => {

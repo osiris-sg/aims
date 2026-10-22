@@ -47,15 +47,13 @@ describe('(a) morning digest', () => {
 
 describe('(b) (c) (d) an email needs a check', () => {
   const which = { kind: 'WHICH' as const, from: 'Toshiro Takekoshi <toshiro.takekoshi@asiadealhub.com>', company: 'Asia Deal Hub', date: jst('2026-10-22T11:50:00'), subject: 'Re:【ご相談】直近のDET費用及びディテンション回避策について', options: [{ ref: '#16-1' }, { ref: '#16-2' }], portalUrl: URL };
-  it('WHICH, EN: five lines, reply codes, the link', () => {
-    expect(needsCheckText(which, 'en')).toBe(['New email needs your check', 'From: Toshiro Takekoshi (Asia Deal Hub), 22 Oct 11:50', 'Subject: Re:【ご相談】直近のDET費用及びディテンション回避策について', "AIMS isn't sure which shipment this is for: #16-1 or #16-2.", `Reply 1 for #16-1, 2 for #16-2, or check it on the Dashboard: ${URL}`].join('\n'));
-  });
-  it('WHICH, JA', () => {
-    expect(needsCheckText(which, 'ja')).toBe(['新しいメールの確認が必要です', '差出人: Toshiro Takekoshi (Asia Deal Hub)、10/22 11:50', '件名: Re:【ご相談】直近のDET費用及びディテンション回避策について', 'AIMSはどの出荷の件か判断できません: #16-1 か #16-2。', `#16-1 なら 1、#16-2 なら 2 と返信、またはダッシュボードで確認: ${URL}`].join('\n'));
-  });
-  it('CONFIRM / CHECK / IS_SHIPMENT lines', () => {
-    expect(needsCheckText({ ...which, kind: 'CONFIRM', options: [{ ref: '#16-1' }] }, 'en')).toContain("AIMS thinks this is about #16-1 but isn't sure.\nReply 1 to confirm #16-1, or check it");
-    expect(needsCheckText({ ...which, kind: 'CHECK', options: [{ ref: '#18-2' }], says: '6063' }, 'en')).toContain('The subject says 6063, but AIMS matched #18-2.');
+  it('round AA — a shipment question is minimal: no suggestions, ask for the shipment number (WHICH / CONFIRM / CHECK alike)', () => {
+    const t = needsCheckText(which, 'en');
+    expect(t).toBe(['New email from Asia Deal Hub needs a shipment (22 Oct 11:50)', 'Subject: Re:【ご相談】直近のDET費用及びディテンション回避策について', `Send the shipment number (e.g. 18-1, or several: 18-1 18-2), or check the Dashboard: ${URL}`].join('\n'));
+    expect(t).not.toMatch(/#16-1|AIMS thinks|Reply 1/);
+    expect(needsCheckText({ ...which, kind: 'CONFIRM', options: [{ ref: '#16-1' }] }, 'en')).toBe(t);
+    expect(needsCheckText({ ...which, kind: 'CHECK', options: [{ ref: '#18-2' }], says: '6063' }, 'en')).toBe(t);
+    expect(needsCheckText(which, 'ja')).toBe(['Asia Deal Hub からの新しいメールに出荷の指定が必要です（10/22 11:50）', '件名: Re:【ご相談】直近のDET費用及びディテンション回避策について', `出荷番号を送ってください（例: 18-1、複数なら 18-1 18-2）。またはダッシュボードで確認: ${URL}`].join('\n'));
     expect(needsCheckText({ ...which, kind: 'IS_SHIPMENT', options: [] }, 'en')).toContain("AIMS isn't sure this is about a shipment at all.\nReply 1 if it is, X if not, or check it");
   });
   it('(c) new deal and (d) re-check', () => {
@@ -69,12 +67,12 @@ describe('(b) (c) (d) an email needs a check', () => {
   it('several in one batch: one line each, no reply codes; read back from the stored text too', () => {
     const items = [which, { ...which, kind: 'CONFIRM' as const, from: 'docs@vedanta.co.in', company: 'Vedanta', subject: 'RE: Copy documents - Asia Deal(Sus) //454003255 //198GX06516', options: [{ ref: '#19-1' }] }, { ...which, kind: 'NEW_DEAL' as const, from: 'taomura@isewan.co.jp', company: 'Isewan', subject: 'アルミインゴット輸入の件', options: [] }];
     const t = needsCheckBatchText(items, 'en');
-    expect(t).toBe(['3 new emails need your check', '- Asia Deal Hub · Re:【ご相談】直近のDET費用及びディテンション回避策に… · which shipment?', '- Vedanta · RE: Copy documents - Asia Dea… · is it #19-1?', '- Isewan · アルミインゴット輸入の件 · new deal?', `Check them on the Dashboard: ${URL}`].join('\n'));
+    expect(t).toBe(['3 new emails need your check', '- Asia Deal Hub · Re:【ご相談】直近のDET費用及びディテンション回避策に… · which shipment?', '- Vedanta · RE: Copy documents - Asia Dea… · which shipment?', '- Isewan · アルミインゴット輸入の件 · new deal?', `Check them on the Dashboard: ${URL}`].join('\n'));
     expect(t).not.toMatch(/Reply/);
     // The outbox stores text only: the same batch is rebuilt from the stored pushes.
     const stored = items.map((i) => ({ text: needsCheckText(i, 'en') }));
     expect(batchText(stored, 'en', URL)).toBe(t);
-    expect(pushToLine(needsCheckText(items[1], 'en'), 'en')).toBe('Vedanta · RE: Copy documents - Asia Dea… · is it #19-1?');
+    expect(pushToLine(needsCheckText(items[1], 'en'), 'en')).toBe('Vedanta · RE: Copy documents - Asia Dea… · which shipment?');
     expect(batchText(items.map((i) => ({ text: needsCheckText(i, 'ja') })), 'ja', URL).split('\n')[0]).toBe('新しいメール 3 件の確認が必要です');
   });
 });
@@ -102,7 +100,7 @@ describe('Meta templates: the pushes read back into one parameter per line', () 
   });
   it('needs_check / new_deal / recheck pushes map to their template; a batch does not', () => {
     const which = { kind: 'WHICH' as const, from: 'Toshiro Takekoshi <t@asiadealhub.com>', company: 'Asia Deal Hub', date: jst('2026-10-22T11:50:00'), subject: 'Re: DET', options: [{ ref: '#16-1' }, { ref: '#16-2' }], portalUrl: URL2 };
-    expect(pushTemplateParams(needsCheckText(which, 'en'))).toEqual({ kind: 'needs_check', lang: 'en', params: ['Toshiro Takekoshi (Asia Deal Hub), 22 Oct 11:50', 'Re: DET', "AIMS isn't sure which shipment this is for: #16-1 or #16-2.", `Reply 1 for #16-1, 2 for #16-2, or check it on the Dashboard: ${URL2}`] });
+    expect(pushTemplateParams(needsCheckText(which, 'en'))).toEqual({ kind: 'needs_check', lang: 'en', params: ['Asia Deal Hub, 22 Oct 11:50', 'Re: DET', 'It needs a shipment.', `Send the shipment number (e.g. 18-1, or several: 18-1 18-2), or check the Dashboard: ${URL2}`] });
     expect(pushTemplateParams(needsCheckText(which, 'ja'))?.kind).toBe('needs_check');
     expect(pushTemplateParams(needsCheckText({ ...which, kind: 'NEW_DEAL', from: 'taomura@isewan.co.jp', company: 'Isewan', options: [] }, 'en'))).toEqual({ kind: 'new_deal', lang: 'en', params: ['taomura (Isewan), 22 Oct', 'Re: DET', URL2] });
     expect(pushTemplateParams(needsCheckText({ ...which, kind: 'NEW_DEAL', from: 'taomura@isewan.co.jp', company: 'Isewan', options: [] }, 'ja'))).toEqual({ kind: 'new_deal', lang: 'ja', params: ['taomura (Isewan)、10/22', 'Re: DET', URL2] });

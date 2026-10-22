@@ -67,7 +67,7 @@ interface ToolDef {
 }
 
 /** The write operations a Confirm card can carry (the model never names these; the tools do). */
-export type ShipOp = 'email_accept' | 'email_assign' | 'email_dismiss' | 'task_status' | 'task_snooze' | 'reminder_create' | 'set_eta' | 'shipment_add' | 'order_create' | 'step_done' | 'add_note' | 'payment_record' | 'generated_doc_create';
+export type ShipOp = 'email_accept' | 'email_assign' | 'email_answer' | 'email_dismiss' | 'task_status' | 'task_snooze' | 'reminder_create' | 'set_eta' | 'shipment_add' | 'order_create' | 'step_done' | 'add_note' | 'payment_record' | 'generated_doc_create';
 
 export const SHIPMENTS_READ = 'shipments:read';
 export const SHIPMENTS_WRITE = 'shipments:update';
@@ -156,6 +156,13 @@ export class ShipmentsToolsService {
         const row: any = await this.triage.assign(org, a.emailId, { orderId: a.orderId ?? null, shipmentId: a.shipmentId ?? null, accept: true }, actor);
         this.log(ctx, 'UPDATE', 'EmailIngestLog', a.emailId, subject60(row?.subject), `linked to ${a.ref}`);
         return { ok: true, message: `${subject60(row?.subject)} → ${a.ref}${this.filedLine(row)}` };
+      }
+      case 'email_answer': {
+        // Round AA: the WhatsApp reply "18-1" / "18-1 18-2" to a shipment question, confirmed — the same answer path as
+        // the Dashboard's Choose-shipment dialog (every unprocessed email of the thread, all picked shipments).
+        const out = await this.triage.answer(org, { ids: a.ids, answer: { kind: 'record', targets: a.targets } }, actor, a.lang ?? 'en');
+        this.log(ctx, 'UPDATE', 'EmailIngestLog', a.ids[0], a.subject, `linked to ${a.refs.join(' + ')} (WhatsApp reply)`);
+        return { ok: true, message: out.text };
       }
       case 'email_dismiss': {
         await this.triage.dismiss(org, a.emailId, actor);
@@ -804,6 +811,30 @@ export class ShipmentsToolsService {
    * 1..n = that record, 0 = ask later, X = not a shipment (not a deal). Null when there is no open question — the
    * message then goes to the assistant as usual.
    */
+  /** Round AA: "18-1" / "#18-1 18-2" sent after a shipment question → a Confirm card (nothing applied until the tap), or null. */
+  static readonly REFS_REPLY = /^\s*#?\d{1,5}-\d{1,3}(?:[\s,、]+#?\d{1,5}-\d{1,3})*\s*$/;
+  async pendingForRefs(ctx: OperatorContext, digits: string, text: string, lang: 'ja' | 'en'): Promise<PendingAction | string | null> {
+    if (!ShipmentsToolsService.REFS_REPLY.test(text)) return null;
+    const to = digits.replace(/\D/g, '');
+    if (!to) return null;
+    const sent: any = await this.prisma.whatsAppOutbox.findFirst({ where: { organizationId: ctx.organizationId, to, kind: 'NEEDS_ME', status: 'SENT', sentAt: { gte: new Date(Date.now() - 24 * 3600_000) } }, orderBy: { sentAt: 'desc' }, select: { dedupeKey: true } }).catch(() => null);
+    const logId = /^needs:([0-9a-f-]{36})/i.exec(sent?.dedupeKey ?? '')?.[1];
+    if (!logId) return null;
+    const q = await this.triage.questionOfLog(ctx.organizationId, logId, lang);
+    if (!q) return lang === 'ja' ? 'その質問はもう対応済みです。' : 'That question is already handled.';
+    const raw = [...new Set(text.split(/[\s,、]+/).map((x) => x.trim().replace(/^#/, '')).filter(Boolean))].slice(0, 10);
+    const targets: Array<{ orderId: string | null; shipmentId: string | null }> = [];
+    const refs: string[] = [];
+    const unknown: string[] = [];
+    for (const r of raw) {
+      const hit = await this.resolve(ctx.organizationId, r);
+      if (!hit || 'many' in hit || !hit.shipment) unknown.push(`#${r}`);
+      else { targets.push({ orderId: hit.shipment.orderId ?? null, shipmentId: hit.shipment.id }); refs.push(hit.shipment.ref); }
+    }
+    if (unknown.length) return lang === 'ja' ? `${unknown.join('、')} という出荷はありません。出荷番号を確認してください（例: 18-1）。` : `${unknown.join(', ')} ${unknown.length === 1 ? 'is not a shipment' : 'are not shipments'} in AIMS. Check the number (e.g. 18-1).`;
+    return pend(`"${q.subject60}" → ${refs.join(' + ')}${q.answerIds.length > 1 ? ` (${q.answerIds.length} emails)` : ''}`, { op: 'email_answer', ids: q.answerIds, targets, refs, subject: q.subject60, lang });
+  }
+
   async answerNumbered(ctx: OperatorContext, digits: string, text: string, lang: 'ja' | 'en'): Promise<string | null> {
     const to = digits.replace(/\D/g, '');
     if (!to) return null;

@@ -99,7 +99,8 @@ export type ReviewOutcome = 'AUTO' | 'ACCEPTED' | 'CHANGED' | 'REJECTED' | 'IGNO
 /** Who reviewed; `via` marks a decision made outside the portal (round S: 'whatsapp'). */
 export type EmailActor = { id: string | null; name: string | null; via?: 'whatsapp' | null };
 /** Round W: a question card's answer. */
-export type AnswerBody = { kind: 'record'; orderId?: string | null; shipmentId?: string | null } | { kind: 'not_shipment' } | { kind: 'not_deal' } | { kind: 'later' };
+/** Round AA: `targets` = several shipments picked in the Choose-shipment dialog (the email is linked to all of them). */
+export type AnswerBody = { kind: 'record'; orderId?: string | null; shipmentId?: string | null; targets?: Array<{ orderId: string | null; shipmentId: string | null }> } | { kind: 'not_shipment' } | { kind: 'not_deal' } | { kind: 'later' };
 
 const MODEL = 'claude-sonnet-4-6';
 /** Round R: the thread reasoner (reads the whole thread + attachment text against the open records). */
@@ -344,9 +345,14 @@ export class EmailTriageService {
       const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id, organizationId } });
       if (!log || log.inboxState === 'PROCESSED' || log.inboxState === 'HIDDEN' || log.inboxState === 'PURGED') continue;
       if (a.kind === 'record') {
-        if (!a.orderId && !a.shipmentId) throw new BadRequestException('Pick an order or a shipment');
-        const row = await this.assign(organizationId, id, { targets: [{ orderId: a.orderId ?? null, shipmentId: a.shipmentId ?? null }], accept: true }, actor);
+        const targets = (a.targets?.length ? a.targets : [{ orderId: a.orderId ?? null, shipmentId: a.shipmentId ?? null }]).filter((t) => t.orderId || t.shipmentId).slice(0, 10);
+        if (!targets.length) throw new BadRequestException('Pick an order or a shipment');
+        const row = await this.assign(organizationId, id, { targets, accept: true }, actor);
         if (row.matched) refs.add(row.matched);
+        if (targets.length > 1) {
+          const named = await this.refs(organizationId, targets.map((t) => t.orderId).filter((x): x is string => !!x), targets.map((t) => t.shipmentId).filter((x): x is string => !!x));
+          for (const t of targets) { const r = t.shipmentId ? named.ship.get(t.shipmentId) : t.orderId ? named.order.get(t.orderId) : null; if (r) refs.add(r); }
+        }
         files += (row.done ?? []).filter((x: IntakeAction) => x.kind === 'file' && x.status === 'done').length;
       } else if (a.kind === 'not_shipment' || a.kind === 'not_deal') {
         await this.prisma.emailIngestLog.update({

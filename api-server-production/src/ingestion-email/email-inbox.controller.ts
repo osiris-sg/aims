@@ -246,7 +246,9 @@ function cleanAnswer(a: unknown): AnswerBody | null {
   if (o.kind === 'record') {
     const orderId = id(o.orderId);
     const shipmentId = id(o.shipmentId);
-    return orderId || shipmentId ? { kind: 'record', orderId, shipmentId } : null;
+    // Round AA: several shipments at once (the Choose-shipment dialog), at most 10.
+    const targets = Array.isArray(o.targets) ? o.targets.map((t: any) => ({ orderId: id(t?.orderId), shipmentId: id(t?.shipmentId) })).filter((t: any) => t.orderId || t.shipmentId).slice(0, 10) : [];
+    return orderId || shipmentId || targets.length ? { kind: 'record', orderId: orderId ?? targets[0]?.orderId ?? null, shipmentId: shipmentId ?? targets[0]?.shipmentId ?? null, ...(targets.length ? { targets } : {}) } : null;
   }
   return o.kind === 'not_shipment' || o.kind === 'not_deal' || o.kind === 'later' ? { kind: o.kind } : null;
 }

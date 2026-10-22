@@ -80,3 +80,48 @@ test("thread result: a link-only reply after a filed email still shows 'Added to
   const other = { ...reply, id: "c", linked: linked({ ref: "#15-1", orderId: "o15", shipmentId: "s15" }) };
   assert.equal(threadResult([other, first], (iso) => iso.slice(11, 16), "en").multi.length, 2);
 });
+
+// Round AA: the minimal card's one line, the dialog's likely options, the answer payload Confirm sends.
+test("card line: From Company · date · subject (EN / JA), the sender's name when no company, the subject trimmed to 50", async () => {
+  const { cardFromLine, trimSubject, whenCard } = await import("../app/portal/shipments/_lib/inbox-cards.ts");
+  const m = { from: '"Rahul Sharma" <rahul@vedanta.co.in>', company: "Vedanta", date: "2026-10-22T05:31:00.000Z", subject: "RE: Request for Extension of Detention Free Time for Container MSKU1234567" };
+  assert.equal(cardFromLine(m, "en"), "From Vedanta · 22 Oct 14:31 · RE: Request for Extension of Detention Free Time…");
+  assert.equal(cardFromLine(m, "ja"), "Vedanta から · 10/22 14:31 · RE: Request for Extension of Detention Free Time…");
+  assert.equal(cardFromLine({ ...m, company: null, subject: "Short" }, "en"), "From Rahul Sharma · 22 Oct 14:31 · Short");
+  assert.equal(cardFromLine({ from: "ops@wanhai.com", company: "", date: "2026-10-22T05:31:00.000Z", subject: null }, "ja"), "ops から · 10/22 14:31 · (no subject)");
+  assert.equal(trimSubject("  a   b  "), "a b");
+  assert.equal(trimSubject("x".repeat(50)), "x".repeat(50));
+  assert.equal(trimSubject("x".repeat(51)), `${"x".repeat(49)}…`);
+  assert.equal(whenCard("2026-01-05T15:07:00.000Z", "ja"), "01/06 00:07");
+  assert.equal(whenCard("2026-01-05T15:07:00.000Z", "en"), "6 Jan 00:07");
+  assert.equal(whenCard(null, "en"), "");
+});
+
+test("likely options: the card's options in order, deduped by orderId:shipmentId (an order-level option stays)", async () => {
+  const { likelyOptions } = await import("../app/portal/shipments/_lib/inbox-cards.ts");
+  const o = (id, orderId, shipmentId) => ({ id, orderId, shipmentId, ref: `#${orderId}`, summary: id, why: "", suggested: false });
+  const got = likelyOptions({ options: [o("a", "o18", "s2"), o("b", "o18", "s1"), o("c", "o18", "s2"), o("d", "o19", null), o("e", "o19", null)] });
+  assert.deepEqual(got.map((x) => x.id), ["a", "b", "d"]);
+  assert.deepEqual(likelyOptions(null), []);
+  assert.deepEqual(likelyOptions({ options: [] }), []);
+});
+
+test("answer payload: several shipments → targets + the first as orderId/shipmentId; one → the same; not-shipment on a NEW_DEAL card → not_deal; later → later; nothing → null", async () => {
+  const { answerFor } = await import("../app/portal/shipments/_lib/inbox-cards.ts");
+  const many = answerFor({ kind: "shipments", targets: [{ orderId: "o18", shipmentId: "s2" }, { orderId: "o19", shipmentId: null }, { orderId: "o18", shipmentId: "s2" }] }, "WHICH");
+  assert.deepEqual(many, { kind: "record", orderId: "o18", shipmentId: "s2", targets: [{ orderId: "o18", shipmentId: "s2" }, { orderId: "o19", shipmentId: null }] });
+  const one = answerFor({ kind: "shipments", targets: [{ orderId: "o19", shipmentId: null }] }, "CONFIRM");
+  assert.deepEqual(one, { kind: "record", orderId: "o19", shipmentId: null, targets: [{ orderId: "o19", shipmentId: null }] });
+  assert.deepEqual(answerFor({ kind: "not_shipment" }, "NEW_DEAL"), { kind: "not_deal" });
+  assert.deepEqual(answerFor({ kind: "not_shipment" }, "WHICH"), { kind: "not_shipment" });
+  assert.deepEqual(answerFor({ kind: "later" }, "NEW_DEAL"), { kind: "later" });
+  assert.equal(answerFor({ kind: "shipments", targets: [] }, "WHICH"), null);
+  assert.equal(L.en.chooseShipment, "Choose shipment");
+  assert.equal(L.ja.chooseShipment, "出荷を選ぶ");
+  assert.equal(L.en.showFull, "Show full email");
+  assert.equal(L.ja.showFull, "メール全文を表示");
+  assert.equal(L.en.answer, "Answer");
+  assert.equal(L.ja.answer, "回答する");
+  assert.equal(L.en.confirm, "Confirm");
+  assert.equal(L.ja.confirm, "確定");
+});

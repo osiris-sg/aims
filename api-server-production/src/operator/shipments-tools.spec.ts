@@ -275,6 +275,27 @@ describe('ShipmentsToolsService — round X: bare replies, sender names, one sha
     expect(out.result).toMatchObject({ questions: 4, questionEmails: 14 });
   });
 
+  it('round AA: "18-1 18-2" after a shipment question holds a Confirm card; the tap links every email of the thread to both; an unknown number is refused', async () => {
+    const { svc, prisma, triage } = build();
+    const ctx = ctxWith(STAFF);
+    prisma.whatsAppOutbox = { findFirst: jest.fn(async () => ({ dedupeKey: 'needs:11111111-1111-1111-1111-111111111111:user_sayaka' })) };
+    triage.questionOfLog = jest.fn(async () => ({ card: { kind: 'WHICH', options: [], extras: {}, title: 'Which shipment is this about?', found: '', details: [], replyHint: '', lang: 'en' }, answerIds: ['log1', 'log2'], subject60: 'RE: Detention Free Time' }));
+    triage.answer = jest.fn(async () => ({ text: 'Linked to #18-1 + #18-2 (2 emails)', ids: ['log1', 'log2'], kind: 'record', refs: ['#18-1', '#18-2'], files: 0 }));
+    prisma.shipment.findFirst = jest.fn(async ({ where }: any) => (where.seqNo === 1 ? { id: 's18-1', seqNo: 1, orderId: 'o18', blNumber: '198GX06322', order: { orderNo: 18 } } : where.seqNo === 2 ? { id: 's18-2', seqNo: 2, orderId: 'o18', blNumber: '198GX06516', order: { orderNo: 18 } } : null));
+    prisma.tradeOrder.findFirst = jest.fn(async ({ where }: any) => (where.orderNo === 18 ? { id: 'o18', orderNo: 18, shipments: [{ id: 's18-1' }, { id: 's18-2' }] } : null));
+    const pending = await svc.pendingForRefs(ctx, '819000000000', '18-1 18-2', 'en');
+    expect(typeof pending).toBe('object');
+    expect((pending as any).summary).toMatch(/"RE: Detention Free Time" → #18-1 \+ #18-2 \(2 emails\)/);
+    expect(triage.answer).not.toHaveBeenCalled(); // nothing applied before Confirm
+    const r = await svc.runPending(ctx, pending as any);
+    expect(r).toEqual({ ok: true, message: 'Linked to #18-1 + #18-2 (2 emails)' });
+    expect(triage.answer).toHaveBeenCalledWith('org-adh', { ids: ['log1', 'log2'], answer: { kind: 'record', targets: [{ orderId: 'o18', shipmentId: 's18-1' }, { orderId: 'o18', shipmentId: 's18-2' }] } }, expect.objectContaining({ via: 'whatsapp' }), 'en');
+    expect(await svc.pendingForRefs(ctx, '819000000000', '99-9', 'en')).toMatch(/#99-9 is not a shipment in AIMS/);
+    expect(await svc.pendingForRefs(ctx, '819000000000', 'hello', 'en')).toBeNull();
+    expect(ShipmentsToolsService.REFS_REPLY.test('#18-1, 18-2')).toBe(true);
+    expect(ShipmentsToolsService.REFS_REPLY.test('1')).toBe(false);
+  });
+
   it('emails_recent names the sender "Name (Company)", never the domain', async () => {
     const { svc, triage } = build();
     triage.threads = jest.fn(async (_o: string, tab: string) => ({ threads: tab === 'PROCESSED' ? [{ messages: [{ id: 'e1', from: 'Kana Enomoto <k@mitsui-soko.co.jp>', company: 'Mitsui Soko', subject: 'Re: 納品明細', date: '2026-10-22', inboxState: 'PROCESSED', by: { outcome: 'AUTO' }, linked: { ref: '#19-1' }, done: [] }] }] : [] }));

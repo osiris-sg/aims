@@ -3,10 +3,13 @@
 
 // Round W — an email opens as its THREAD TIMELINE. First the RESULT, big and in plain words ("✅ Added to #16-2 —
 // SUS · 6005 · 20.4 t · B/L 198GX06003" + one clickable line per filed document; "🔗 Linked to #15-1 — no
-// documents filed."; "⏳ Waiting for you" + the question card), then Undo / Change order, the "why" behind a small
-// "Why?" link, then the timeline: numbered 1 → n, oldest first, each with date + sender + first line, the newest
-// marked "Latest" — click one to read it (From/To/Cc collapsed to one line). Per-email override: "This one is
-// different" opens the picker for that email only.
+// documents filed."; "⏳ Waiting for you"), then Undo / Change order, the "why" behind a small "Why?" link.
+// Round AA — the EMAIL comes first: the newest email is shown expanded right under the result box (the styled email
+// + attachments), then the timeline of the EARLIER emails: numbered 1 → n-1, oldest first, each with date + sender +
+// first line — click one to read it (From/To/Cc collapsed to one line). A waiting thread no longer embeds the
+// question card: "Choose shipment" / "Answer" opens the confirm-first ChooseShipmentDialog. The title carries the
+// same "From Company · date · subject" line as the card. Per-email override: "This one is different" opens the
+// picker for that email only.
 
 import React, { useEffect, useState } from "react";
 import { Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Link as MuiLink, Stack, Typography } from "@mui/material";
@@ -14,12 +17,12 @@ import CloseIcon from "@mui/icons-material/Close";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useShipmentsApi, type InboxAnswer, type InboxAnswerResult, type InboxLang, type InboxMessage, type InboxRow, type InboxThread } from "../../_lib/api";
-import { L, resultBox, threadResult, timeline, type ResultBox } from "../../_lib/inbox-cards";
+import { cardFromLine, L, resultBox, threadResult, timeline, type ResultBox } from "../../_lib/inbox-cards";
 import { fromParts, orderHref, whenShort } from "../../_lib/inbox-threads";
 import { toast } from "../../_lib/toast";
 import { EmailView } from "./EmailView";
 import { PiTablePanel } from "./PiTablePanel";
-import { QuestionCard } from "./QuestionCard";
+import { ChooseShipmentDialog } from "./ChooseShipmentDialog";
 
 const KEY_LABEL: Record<string, string> = { blNo: "B/L", piNo: "PI", ciNo: "CI", contractNo: "Contract", containerNo: "Container", telexCode: "Telex", invoiceNo: "Invoice", poNo: "PO", vessel: "Vessel", voyage: "Voyage", orderRef: "Ref" };
 
@@ -168,13 +171,14 @@ export function InboxDetailsDialog({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [why, setWhy] = useState(false);
   const [last, setLast] = useState<InboxAnswerResult | null>(null);
+  const [choose, setChoose] = useState(false);
   const messages = q.data?.messages ?? [];
-  // The newest message opens; the one the person clicked opens too.
+  // The newest message is always shown expanded (above the timeline); the one the person clicked opens too.
   useEffect(() => {
     if (!q.data || !id) return;
-    const newest = timeline(q.data.messages).find((x) => x.latest)?.m.id;
-    setExpanded({ ...(newest ? { [newest]: true } : {}), [id]: true });
+    setExpanded({ [id]: true });
     setLast(null);
+    setChoose(false);
   }, [q.data, id]);
   useEffect(() => {
     if (q.isError) toast.error((q.error as Error)?.message || "Could not load the thread");
@@ -183,17 +187,22 @@ export function InboxDetailsDialog({
   const newest = timeline(messages).find((x) => x.latest)?.m ?? (open as InboxMessage | null);
   const r = messages.length ? threadResult(messages, whenShort, lang) : newest ? resultBox(newest as InboxMessage, lang) : null;
   const multi = messages.length ? threadResult(messages, whenShort, lang).multi : [];
-  const waiting = thread?.question && thread.messages.some((m) => m.inboxState !== "PROCESSED");
+  const waiting = !!thread?.question && thread.messages.some((m) => m.inboxState !== "PROCESSED");
   const href = newest?.linked?.ref ? orderHref(newest.linked.orderId, newest.linked.shipmentId) : null;
+  const rows = timeline(messages);
+  const latest = rows.find((x) => x.latest) ?? null;
+  const earlier = rows.filter((x) => !x.latest);
+  const headEmail = (latest?.m ?? newest) as InboxMessage | null;
   return (
     <Dialog open={!!open} onClose={onClose} maxWidth="md" fullWidth transitionDuration={{ enter: 225, exit: 0 }} disableRestoreFocus data-tour="email-dialog">
       <DialogTitle sx={{ pr: 7 }}>
         <Typography variant="h6" component="div" sx={{ fontWeight: 700, minWidth: 0 }} noWrap title={open?.subject ?? ""}>
           {open?.subject || "(no subject)"}
         </Typography>
-        {messages.length > 1 && (
-          <Typography variant="caption" color="text.secondary">
-            {labels.emails(messages.length)}
+        {headEmail && (
+          <Typography variant="caption" color="text.secondary" component="div" noWrap title={headEmail.from} data-tour="email-dialog-from">
+            {cardFromLine(headEmail, lang)}
+            {messages.length > 1 ? ` · ${labels.emails(messages.length)}` : ""}
           </Typography>
         )}
         <IconButton aria-label="Close" onClick={onClose} sx={{ position: "absolute", right: 8, top: 8 }} data-tour="email-dialog-close">
@@ -210,8 +219,20 @@ export function InboxDetailsDialog({
               <Alert severity={last.kind === "record" ? "success" : "info"} action={<Button size="small" color="inherit" onClick={() => void onAnswerUndo(last).then(() => setLast(null))}>{labels.undo}</Button>}>
                 {last.text}
               </Alert>
-            ) : waiting && thread ? (
-              <QuestionCard t={thread} lang={lang} busy={pending} onAnswer={async (t, a) => setLast(await onAnswer(t, a))} onCreateOrder={onCreateOrder} onOpenThread={() => undefined} />
+            ) : waiting && thread && r ? (
+              <>
+                <ResultBoxView r={{ tone: "wait", headline: labels.waiting, lines: thread.question?.title ? [{ text: thread.question.title, href: null }] : [] }} lang={lang} />
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                  <Button size="small" variant="contained" disabled={pending} onClick={() => setChoose(true)} sx={{ textTransform: "none" }} data-tour="question-choose">
+                    {thread.question?.kind === "NEW_DEAL" || thread.question?.kind === "IS_SHIPMENT" ? labels.answer : labels.chooseShipment}
+                  </Button>
+                  <Button size="small" onClick={() => setWhy((w) => !w)} sx={{ textTransform: "none" }} data-tour="why-link">
+                    {labels.why}
+                  </Button>
+                </Stack>
+                <Collapse in={why} unmountOnExit>{newest && <WhyPanel m={newest as InboxMessage} />}</Collapse>
+                <ChooseShipmentDialog open={choose} t={thread} lang={lang} busy={pending} onClose={() => setChoose(false)} onAnswer={(t, a) => void onAnswer(t, a).then((res) => setLast(res))} onCreateOrder={onCreateOrder} />
+              </>
             ) : r ? (
               <>
                 <ResultBoxView r={r} lines={multi} lang={lang} />
@@ -238,10 +259,28 @@ export function InboxDetailsDialog({
                 <Collapse in={why} unmountOnExit>{newest && <WhyPanel m={newest as InboxMessage} />}</Collapse>
               </>
             ) : null}
-            {messages.length > 0 && (
+            {latest && (
+              <Box sx={{ border: "1px solid", borderColor: "primary.main", borderRadius: 1, p: 1.5 }} data-tour="thread-latest-email">
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
+                  <Chip size="small" color="primary" label={labels.latest} sx={{ height: 20 }} />
+                  <Typography variant="caption" color="text.secondary">
+                    {whenShort(latest.m.date)}
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 0 }} noWrap title={latest.m.from}>
+                    {fromParts(latest.m.from).name}
+                    {latest.m.company ? ` (${latest.m.company})` : ""}
+                  </Typography>
+                </Stack>
+                <EmailView id={latest.m.id} compactHeaders company={latest.m.company ?? null} lang={lang} />
+              </Box>
+            )}
+            {earlier.length > 0 && (
               <Stack spacing={0.75} data-tour="thread-timeline">
-                {timeline(messages).map(({ n, m, latest }) => (
-                  <TimelineRow key={m.id} n={n} m={m} latest={latest} lang={lang} open={!!expanded[m.id]} onToggle={() => setExpanded((e) => ({ ...e, [m.id]: !e[m.id] }))} onDifferent={messages.length > 1 ? (mm) => onChangeOrder(mm) : undefined} />
+                <Typography variant="overline" color="text.secondary">
+                  {labels.earlier(earlier.length)}
+                </Typography>
+                {earlier.map(({ n, m, latest: isLatest }) => (
+                  <TimelineRow key={m.id} n={n} m={m} latest={isLatest} lang={lang} open={!!expanded[m.id]} onToggle={() => setExpanded((e) => ({ ...e, [m.id]: !e[m.id] }))} onDifferent={(mm) => onChangeOrder(mm)} />
                 ))}
               </Stack>
             )}

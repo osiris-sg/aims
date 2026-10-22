@@ -234,20 +234,20 @@ export const GUIDES: Guide[] = [
     title: 'Answer the email questions (Dashboard)',
     module: 'SHIPMENTS',
     description:
-      'How the emails work now: AIMS files what it is sure about by itself (two independent clues must agree). Everything else becomes a QUESTION CARD on the Dashboard — a plain question ("Which shipment is this about?"), what AIMS found, the latest email, and big answer options; one tap answers it for the whole thread, with Undo, and the next question loads. "See all emails" opens the two-tab view (Unprocessed / Processed) with the thread timeline and the result of every email.',
+      'How the emails work now: AIMS files what it is sure about by itself (two independent clues must agree). Everything else becomes a QUESTION CARD on the Dashboard — a plain question ("Which shipment is this about?"), one line "From Vedanta · 22 Oct 14:31 · subject", and two buttons: "Choose shipment" (tick one or several shipments in a pop-up, then Confirm — nothing is applied before Confirm) and "Show full email" (the thread pop-up, the email first). The answer covers the whole thread, with Undo, and the next question loads. "See all emails" opens the two-tab view (Unprocessed / Processed) with the thread timeline and the result of every email.',
     route: '/portal',
     steps: [
       {
         route: '/portal',
         selector: '[data-tour="question-card"]',
         title: 'One question per thread',
-        body: 'The title is the question. Under it: what AIMS found, and the latest email\'s first lines ("Show the full email" to read it; "3 earlier emails" opens the thread).',
+        body: 'The title is the question. Under it, one line: who sent the latest email (the company), when, and the subject. "Show full email" opens the thread pop-up with the email first and the earlier emails under it.',
         patient: true,
       },
       {
-        selector: '[data-tour="question-options"]',
-        title: 'Tap the answer',
-        body: 'Each option is a shipment or order with its summary and why it might be the one — AIMS\'s own pick is outlined. One tap links (and files) every email of the thread. Or: "New deal → Create order", "Not about a shipment", "Ask later".',
+        selector: '[data-tour="question-choose"]',
+        title: 'Choose shipment, then Confirm',
+        body: 'Opens a pop-up: search, then tick one or several shipments — AIMS\'s likely ones first ("Select all"), then every open shipment. Under the list: "Not about a shipment", "New deal → Create order" (new-deal cards), "Ask later". Nothing happens until you press Confirm; the result shows with Undo and the next question loads.',
         patient: true,
       },
       {
