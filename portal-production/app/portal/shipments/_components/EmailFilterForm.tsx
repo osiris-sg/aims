@@ -49,7 +49,8 @@ const MODES: Array<{ value: EmailFilterMode; label: string; hint: string }> = [
 /** The filter payload with the round-W company list (typed here; `_lib/api.ts` keeps its own shape). */
 type EmailFilterWithCompanies = EmailFilter & { emailCompanies?: Record<string, string>; companyDefaults?: Record<string, string> };
 type CompanyRow = { domain: string; name: string };
-const COMPANY_DOMAIN_RE = /^[a-z0-9.-]+\.[a-z]{2,}$/;
+// Round AC: a domain, or ONE exact address (a counterparty on free mail: purchasing@gmail.com → "SIAE (PT Sri Indah …)").
+const COMPANY_DOMAIN_RE = /^(?:[a-z0-9._%+-]+@)?[a-z0-9.-]+\.[a-z]{2,}$/;
 const COMPANY_NAME_MAX = 60;
 const COMPANY_LIST_MAX = 200;
 
@@ -74,7 +75,7 @@ function companiesOf(rows: CompanyRow[]): { map: Record<string, string> } | { er
     const domain = r.domain.trim().toLowerCase().replace(/^@/, "");
     const name = r.name.trim();
     if (!domain && !name) continue; // an empty row is just skipped
-    if (!COMPANY_DOMAIN_RE.test(domain)) return { error: `"${r.domain.trim() || "(empty)"}" is not an email domain (like isewan.co.jp)` };
+    if (!COMPANY_DOMAIN_RE.test(domain)) return { error: `"${r.domain.trim() || "(empty)"}" is not an email domain or address (like isewan.co.jp or purchasing@gmail.com)` };
     if (!name || name.length > COMPANY_NAME_MAX) return { error: `The company name for ${domain} must be 1–${COMPANY_NAME_MAX} characters` };
     map[domain] = name;
   }

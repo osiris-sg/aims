@@ -73,6 +73,8 @@ export const FREE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
 
 /** A domain the override list accepts: lower-case labels, a dot, a 2+ letter TLD. */
 export const COMPANY_DOMAIN_RE = /^[a-z0-9.-]+\.[a-z]{2,}$/;
+/** Round AC: a key of the org's list — a domain, or ONE exact address (a counterparty on free mail: purchasing@gmail.com → "SIAE"). */
+export const COMPANY_KEY_RE = /^(?:[a-z0-9._%+-]+@)?[a-z0-9.-]+\.[a-z]{2,}$/;
 export const COMPANY_NAME_MAX = 60;
 export const COMPANY_LIST_MAX = 200;
 
@@ -104,6 +106,9 @@ export function companyOf(from: string | null | undefined, overrides?: Record<st
   const addr = emailOf(from);
   const domain = (addr.split('@')[1] ?? '').trim().toLowerCase() || null;
   if (!domain) return { name: '—', domain: null, known: false };
+  // Round AC: an exact address in the org's list wins (one gmail mailbox → its company, not all of gmail.com).
+  const exact = overrides?.[addr.trim().toLowerCase()];
+  if (typeof exact === 'string' && exact.trim()) return { name: exact.trim(), domain, known: true };
   if (FREE_MAIL_DOMAINS.has(domain)) {
     const o = lookup(domain, overrides);
     return o ? { name: o, domain, known: true } : { name: domain, domain, known: false };
@@ -113,15 +118,15 @@ export function companyOf(from: string | null | undefined, overrides?: Record<st
 }
 
 /**
- * Validate an org's override list (Settings → Email filter → Companies): lower-case domains, names of
- * 1–60 characters, at most 200 rows. Returns the clean map or throws with a message naming the row.
+ * Validate an org's override list (Settings → Email filter → Companies): lower-case domains or exact addresses
+ * (round AC), names of 1–60 characters, at most 200 rows. Returns the clean map or throws with a message naming the row.
  */
 export function cleanCompanyOverrides(v: unknown, fail: (msg: string) => never): Record<string, string> {
   if (!v || typeof v !== 'object' || Array.isArray(v)) fail('emailCompanies must map a domain to a company name');
   const out: Record<string, string> = {};
   for (const [rawDomain, rawName] of Object.entries(v as Record<string, unknown>)) {
     const domain = String(rawDomain).trim().toLowerCase().replace(/^@/, '');
-    if (!COMPANY_DOMAIN_RE.test(domain) || domain.length > 253) fail(`"${String(rawDomain).slice(0, 80)}" is not an email domain (like isewan.co.jp)`);
+    if (!COMPANY_KEY_RE.test(domain) || domain.length > 253) fail(`"${String(rawDomain).slice(0, 80)}" is not an email domain or address (like isewan.co.jp or purchasing@gmail.com)`);
     const name = typeof rawName === 'string' ? rawName.trim() : '';
     if (!name || name.length > COMPANY_NAME_MAX) fail(`The company name for ${domain} must be 1–${COMPANY_NAME_MAX} characters`);
     out[domain] = name;

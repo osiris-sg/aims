@@ -16,6 +16,11 @@ describe('companyOf', () => {
     expect(companyOf('a@katokei.co.jp').name).toBe('Kato');
     expect(companyOf('a@mitsui-soko.co.jp').name).toBe('Mitsui Soko');
     expect(companyOf('a@wanhai.com').name).toBe('Wan Hai');
+    // Round AC: one exact address on free mail maps to its company; the rest of gmail.com stays the domain.
+    expect(companyOf('"SIAE purchasing" <purchasing@gmail.com>', { 'purchasing@gmail.com': 'SIAE (PT Sri Indah Aluminium Extrusion)' }).name).toBe('SIAE (PT Sri Indah Aluminium Extrusion)');
+    expect(companyOf('other@gmail.com', { 'purchasing@gmail.com': 'SIAE' }).name).toBe('gmail.com');
+    expect(cleanCompanyOverrides({ 'Purchasing@Gmail.com': 'SIAE' }, (m) => { throw new Error(m); })).toEqual({ 'purchasing@gmail.com': 'SIAE' });
+    expect(() => cleanCompanyOverrides({ 'not an address': 'x' }, (m) => { throw new Error(m); })).toThrow(/domain or address/);
     expect(companyOf('a@asiadealhub.com').name).toBe('Asia Deal Hub');
   });
   it('a "Name <addr>" header: the address decides, the display name is ignored (untrusted)', () => {

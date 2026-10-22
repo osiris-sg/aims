@@ -54,14 +54,31 @@ import {
   TriageResult,
   validateTriage,
   cleanSummary,
+  cleanSummaries,
   domainOf,
   fallbackSummary,
+  isJapaneseText,
+  Summaries,
+  summaryForLang,
   summaryPrompt,
 } from './email-triage.rules';
 
-/** Round AB: an inbox row's one-line summary — stored at triage time (`triage.summary`), else the first line of the sender's own text. Display text only. */
-export function summaryOfLog(l: { triage?: unknown; rawMeta?: unknown }): string | null {
-  const stored = cleanSummary(((l.triage ?? {}) as { summary?: unknown }).summary);
+/** Round AC: the stored summaries of a row (triage.summaryEn / summaryJa; an older row's single `summary` counts for the email's language). */
+export function storedSummaries(l: { triage?: unknown; rawMeta?: unknown }): Summaries {
+  const t = (l.triage ?? {}) as { summary?: unknown; summaryEn?: unknown; summaryJa?: unknown };
+  const both: Summaries = { en: cleanSummary(t.summaryEn), ja: cleanSummary(t.summaryJa) };
+  if (both.en || both.ja) return both;
+  const one = cleanSummary(t.summary);
+  return one ? (isJapaneseText(one) ? { en: null, ja: one } : { en: one, ja: null }) : both;
+}
+
+/**
+ * Round AB / AC: an inbox row's one-line summary in the viewer's language — stored at triage time (English and
+ * Japanese), else the first real sentence of the sender's own text (greetings / addressees / quoted headers
+ * skipped). Display text only.
+ */
+export function summaryOfLog(l: { triage?: unknown; rawMeta?: unknown }, lang: 'en' | 'ja' = 'en'): string | null {
+  const stored = summaryForLang(storedSummaries(l), lang);
   if (stored) return stored;
   return fallbackSummary(splitQuoted(String(((l.rawMeta ?? {}) as { bodyText?: string }).bodyText ?? '')).own);
 }
@@ -303,10 +320,12 @@ export class EmailTriageService {
       const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId }, select: { fromAddress: true, emailDate: true, createdAt: true, subject: true, triage: true, rawMeta: true } });
       const company = companyOf(log?.fromAddress, await this.companyOverrides(organizationId)).name;
       // Round AB: the same one-line summary as the card, under the subject.
-      const base = { from: log?.fromAddress ?? null, company, date: log?.emailDate ?? log?.createdAt ?? null, subject: log?.subject ?? null, summary: log ? summaryOfLog(log) : null, portalUrl: this.portalUrl(organizationId, 'emails') };
-      const input = (card: QuestionCard): NeedsCheckInput => ({ ...base, kind: card.kind, options: card.options.map((o) => ({ ref: o.ref })), says: /says (.+?), but/.exec(q.card.title)?.[1] ?? null });
+      const base = { from: log?.fromAddress ?? null, company, date: log?.emailDate ?? log?.createdAt ?? null, subject: log?.subject ?? null, summary: log ? summaryOfLog(log, 'en') : null, portalUrl: this.portalUrl(organizationId, 'emails') };
+      // Round AC: the recipient's language picks the summary too.
+      const baseJa = { ...base, summary: log ? summaryOfLog(log, 'ja') : null };
+      const input = (card: QuestionCard, b = base): NeedsCheckInput => ({ ...b, kind: card.kind, options: card.options.map((o) => ({ ref: o.ref })), says: /says (.+?), but/.exec(q.card.title)?.[1] ?? null });
       const text = needsCheckText(input(q.card), 'en');
-      await this.whatsapp.queue(organizationId, 'NEEDS_ME', text, { linkUrl: '/portal', dedupeKey: `needs:${logId}`, textFor: (prefs) => (prefs.lang === 'ja' && ja ? needsCheckText(input(ja.card), 'ja') : text) });
+      await this.whatsapp.queue(organizationId, 'NEEDS_ME', text, { linkUrl: '/portal', dedupeKey: `needs:${logId}`, textFor: (prefs) => (prefs.lang === 'ja' && ja ? needsCheckText(input(ja.card, baseJa), 'ja') : text) });
     } catch {
       /* best effort */
     }
@@ -1708,7 +1727,7 @@ export class EmailTriageService {
     const counts = { unprocessed: all.filter((l) => l.inboxState !== 'PROCESSED' && !snoozed(l)).length, processed: all.filter((l) => l.inboxState === 'PROCESSED').length, snoozed: all.filter((l) => l.inboxState !== 'PROCESSED' && snoozed(l)).length };
     // Round W: the question card's other options (the second pass's records, a multi-link email's targets) need refs too.
     const extra = all.flatMap((l) => [...(((l.actions ?? {}) as any).question?.secondTargets ?? []), ...(((l.actions ?? {}) as any).targets ?? []), ...(((l.actions ?? {}) as any).candidates ?? [])] as Array<{ orderId?: string | null; shipmentId?: string | null }>);
-    const refs = await this.refs(organizationId, [...new Set([...all.map((l) => l.orderId), ...extra.map((t) => t.orderId)].filter(Boolean))], [...new Set([...all.map((l) => l.shipmentId), ...extra.map((t) => t.shipmentId)].filter(Boolean))]);
+    const refs = { ...(await this.refs(organizationId, [...new Set([...all.map((l) => l.orderId), ...extra.map((t) => t.orderId)].filter(Boolean))], [...new Set([...all.map((l) => l.shipmentId), ...extra.map((t) => t.shipmentId)].filter(Boolean))])), lang };
     const labels = await this.stepLabels(organizationId, all.flatMap((l) => [...(((l.actions ?? {}) as any).planned ?? []), ...(((l.actions ?? {}) as any).done ?? [])]));
     const rowOf = (l: any) => {
       const m = (l.rawMeta ?? {}) as Partial<StoredEmailMeta>;
@@ -1802,35 +1821,42 @@ export class EmailTriageService {
    * Round AB: the one-line summary of an email already in the inbox, made ONCE and stored in `triage.summary` (new mail
    * gets it from the triage call itself). Returns the stored or new summary; `dryRun` only computes it.
    */
-  async summarize(organizationId: string, logId: string, opts: { dryRun?: boolean; force?: boolean } = {}): Promise<{ summary: string | null; stored: boolean; source: 'stored' | 'ai' | 'fallback' | 'none' }> {
+  async summarize(organizationId: string, logId: string, opts: { dryRun?: boolean; force?: boolean } = {}): Promise<{ summary: string | null; en: string | null; ja: string | null; before: string | null; stored: boolean; source: 'stored' | 'ai' | 'fallback' | 'none' }> {
     const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId }, select: { id: true, subject: true, fromAddress: true, triage: true, rawMeta: true } });
     if (!log) throw new NotFoundException('Email not found');
-    const existing = cleanSummary((log.triage ?? {})?.summary);
-    if (existing && !opts.force) return { summary: existing, stored: true, source: 'stored' };
+    // Round AC: what the English card shows today (a stored summary, else the fallback sentence) — the backfill prints before → after.
+    const before = summaryOfLog(log, 'en');
+    const existing = storedSummaries(log);
+    if (existing.en && existing.ja && !opts.force) return { summary: existing.en, en: existing.en, ja: existing.ja, before, stored: true, source: 'stored' };
     const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta> & { bodyText?: string };
     const own = splitQuoted(String(meta.bodyText ?? '')).own;
-    let summary: string | null = null;
+    let both: Summaries = { en: null, ja: null };
     let source: 'ai' | 'fallback' | 'none' = 'none';
     try {
       const [system, user] = summaryPrompt({ subject: log.subject ?? '', from: log.fromAddress, body: own || String(meta.bodyText ?? ''), attachments: (meta.attachments ?? []).map((a) => a.name) });
-      summary = cleanSummary(((await this.ai(system, user)) as { summary?: unknown } | null)?.summary);
-      if (summary) source = 'ai';
+      const r = (await this.ai(system, user)) as Record<string, unknown> | null;
+      both = cleanSummaries(r && typeof r === 'object' && 'summary' in r ? r.summary : r);
+      if (both.en || both.ja) source = 'ai';
     } catch {
       /* fall back below */
     }
-    if (!summary) {
-      summary = fallbackSummary(own);
-      if (summary) source = 'fallback';
+    if (!both.en && !both.ja) {
+      const fb = fallbackSummary(own);
+      if (fb) {
+        both = isJapaneseText(fb) ? { en: null, ja: fb } : { en: fb, ja: null };
+        source = 'fallback';
+      }
     }
-    if (opts.dryRun || !summary) return { summary, stored: false, source };
-    await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { triage: { ...((log.triage ?? {}) as Record<string, unknown>), summary, summaryAt: new Date().toISOString(), summarySource: source } as any } });
-    return { summary, stored: true, source };
+    const summary = isJapaneseText(own) ? (both.ja ?? both.en) : (both.en ?? both.ja);
+    if (opts.dryRun || !summary) return { summary, en: both.en, ja: both.ja, before, stored: false, source };
+    await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { triage: { ...((log.triage ?? {}) as Record<string, unknown>), summary, summaryEn: both.en, summaryJa: both.ja, summaryAt: new Date().toISOString(), summarySource: source } as any } });
+    return { summary, en: both.en, ja: both.ja, before, stored: true, source };
   }
 
-  /** Round AB: the open questions (Unprocessed) that have no stored summary yet — the backfill's work list. */
-  async summariesMissing(organizationId: string): Promise<Array<{ id: string; fromDomain: string; subject60: string }>> {
+  /** Round AB: the open questions (Unprocessed) without a stored summary in both languages — the backfill's work list (`all`: every open question). */
+  async summariesMissing(organizationId: string, all = false): Promise<Array<{ id: string; fromDomain: string; subject60: string }>> {
     const rows: any[] = await this.prisma.emailIngestLog.findMany({ where: { organizationId, inboxState: { in: ['SUGGESTED', 'UNMATCHED', 'UNSURE'] } }, orderBy: { createdAt: 'desc' }, select: { id: true, fromAddress: true, subject: true, triage: true } });
-    return rows.filter((r) => !cleanSummary((r.triage ?? {})?.summary)).map((r) => ({ id: r.id, fromDomain: domainOf(emailOf(r.fromAddress)), subject60: (r.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) }));
+    return rows.filter((r) => all || !(storedSummaries(r).en && storedSummaries(r).ja)).map((r) => ({ id: r.id, fromDomain: domainOf(emailOf(r.fromAddress)), subject60: (r.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) }));
   }
 
   /** Round P — the Sales dashboard: emails to confirm (threads, newest first) and what was filed by itself in the last 3 days. */
@@ -1843,7 +1869,7 @@ export class EmailTriageService {
     return { toConfirm: { emails: todo.counts.unprocessed, threads: todo.threads, total: todo.total }, filedAuto };
   }
 
-  private shape(l: any, refs: { order: Map<string, string>; ship: Map<string, string>; companies?: Record<string, string> }) {
+  private shape(l: any, refs: { order: Map<string, string>; ship: Map<string, string>; companies?: Record<string, string>; lang?: Lang }) {
     const meta = (l.rawMeta ?? {}) as Partial<StoredEmailMeta>;
     const actions = (l.actions ?? {}) as { planned?: IntakeAction[]; done?: IntakeAction[]; matchedBy?: string | null };
     const triage = (l.triage ?? {}) as Partial<TriageResult> & { error?: string | null };
@@ -1859,8 +1885,8 @@ export class EmailTriageService {
       inboxState: l.inboxState,
       subject: l.subject,
       from: l.fromAddress,
-      /** Round AB: the one-line summary stored at triage time; the body's first own line when there is none. Display text only. */
-      summary: summaryOfLog(l),
+      /** Round AB / AC: the one-line summary in the viewer's language (stored at triage time); the body's first real sentence when there is none. Display text only. */
+      summary: summaryOfLog(l, refs.lang ?? 'en'),
       attachments: (meta.attachments ?? []).map((a, i) => ({ index: i, name: a.name, docType: (triage.attachments ?? []).find((t) => t.filename === a.name)?.docType ?? null })),
       orderId: l.orderId,
       shipmentId: l.shipmentId,

@@ -3,7 +3,10 @@
  * New mail gets its summary from the triage call itself; this fills the rows that were triaged before round AB.
  *
  *   DATABASE_URL=<db> TENANCY_MODE=<mode> npx ts-node -r tsconfig-paths/register --transpile-only \
- *     scripts/backfill-email-summaries.ts --org=<organization id> [--apply] [--limit=50]
+ *     scripts/backfill-email-summaries.ts --org=<organization id> [--apply] [--limit=50] [--all]
+ *
+ * Round AC: summaries are stored in English AND Japanese (the card shows the viewer's language); --all re-summarises
+ * every open question (also rows that already have one) and prints before → after (the English card text).
  *
  * Without --apply nothing is written: the work list (from-domain + subject 60) and the summary each row WOULD get.
  * The summary is display text only (email content is untrusted — it never drives an action); printed here as the
@@ -30,6 +33,7 @@ const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.sl
 const ORG = arg('org')!;
 const APPLY = process.argv.includes('--apply');
 const LIMIT = Number(arg('limit') ?? 50);
+const ALL = process.argv.includes('--all');
 
 async function main() {
   if (!ORG || !/^[0-9a-f-]{36}$/i.test(ORG)) throw new Error('--org=<organization id> is required');
@@ -42,12 +46,12 @@ async function main() {
   console.log(`org: ${org.name} · mode: ${APPLY ? 'APPLY' : 'DRY RUN (nothing written)'}`);
   const counts = { ai: 0, fallback: 0, none: 0 };
   await runAsOrg(ORG, async () => {
-    const missing = await triage.summariesMissing(ORG);
-    console.log(`open questions without a summary: ${missing.length}${missing.length > LIMIT ? ` (doing ${LIMIT})` : ''}\n`);
+    const missing = await triage.summariesMissing(ORG, ALL);
+    console.log(`open questions ${ALL ? '(all, re-summarised)' : 'without a summary'}: ${missing.length}${missing.length > LIMIT ? ` (doing ${LIMIT})` : ''}\n`);
     for (const m of missing.slice(0, LIMIT)) {
-      const r = await triage.summarize(ORG, m.id, { dryRun: !APPLY });
+      const r = await triage.summarize(ORG, m.id, { dryRun: !APPLY, force: ALL });
       counts[r.source === 'stored' ? 'ai' : r.source]++;
-      console.log(`${APPLY ? (r.stored ? 'stored ' : 'skipped') : 'would  '} ${r.source.padEnd(8)} ${m.fromDomain.padEnd(24)} "${m.subject60}" → ${r.summary ? r.summary.slice(0, 80) : '(nothing to summarise)'}`);
+      console.log(`${APPLY ? (r.stored ? 'stored ' : 'skipped') : 'would  '} ${r.source.padEnd(8)} ${m.fromDomain.padEnd(24)} "${m.subject60}"\n         before: ${r.before ?? '(none)'}\n         en:     ${r.en ?? '(none)'}\n         ja:     ${r.ja ?? '(none)'}`);
     }
   });
   if (APPLY) await actionLog.system('backfill-email-summaries', 'UPDATE', 'EmailIngestLog', { organizationId: ORG, details: counts });
