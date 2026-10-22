@@ -1,4 +1,5 @@
 import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { orgIdOf, TradeRequest } from './shipments.request';
@@ -6,6 +7,7 @@ import { TradeDashboardService } from './trade-dashboard.service';
 import { TradeAdminDashboardService } from './trade-admin-dashboard.service';
 
 /** Management view / staff home: pipeline grid, stock (everyone), money (ADH Manager — shipments:money). */
+@RequiresModule('SHIPMENTS')
 @Controller('trade-dashboard')
 @UseGuards(ClerkAuthGuard)
 export class TradeDashboardController {

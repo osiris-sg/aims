@@ -242,6 +242,15 @@ export class ConfigurationService {
 
   // ===================== COMPLETE CONFIGURATION =====================
 
+  /** Round Y: orgs with `moduleCode` enabled that this user may use (admin: every org; else only the org the request is scoped to). */
+  async organizationsWithModule(moduleCode: string, isOsirisAdmin: boolean, organizationId: string | null): Promise<Array<{ id: string; name: string }>> {
+    const rows = await this.prisma.organizationModule.findMany({
+      where: { moduleCode, enabled: true, ...(isOsirisAdmin ? {} : { organizationId: organizationId ?? '' }) },
+      select: { organization: { select: { id: true, name: true } } },
+    });
+    return rows.map((r) => r.organization).filter((o): o is { id: string; name: string } => !!o).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   async getCompleteConfiguration(organizationId: string) {
     let [modules, uiConfig, customFields] = await Promise.all([
       this.getOrganizationModules(organizationId),

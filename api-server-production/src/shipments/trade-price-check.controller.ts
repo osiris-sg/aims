@@ -1,10 +1,12 @@
 import { Controller, Get, Param, ParseUUIDPipe, Req, UseGuards } from '@nestjs/common';
+import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { orgIdOf, TradeRequest } from './shipments.request';
 import { TradePriceCheckService } from './trade-price-check.service';
 
 /** Price check panels: expected unit price from the contract vs the PI / CI / invoice (read-only). */
+@RequiresModule('SHIPMENTS')
 @Controller('trade-price-check')
 @UseGuards(ClerkAuthGuard)
 export class TradePriceCheckController {

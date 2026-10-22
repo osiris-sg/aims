@@ -1,9 +1,11 @@
 import { Body, Controller, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
+import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { actorOf, orgIdOf, TradeRequest } from './shipments.request';
 import { TradeStepsService } from './trade-steps.service';
 
+@RequiresModule('SHIPMENTS')
 @Controller('trade-steps')
 @UseGuards(ClerkAuthGuard)
 export class TradeStepsController {

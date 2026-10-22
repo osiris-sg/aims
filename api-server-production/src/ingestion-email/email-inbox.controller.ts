@@ -1,4 +1,5 @@
 import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
@@ -24,6 +25,7 @@ const TABS: InboxState[] = ['SUGGESTED', 'UNMATCHED', 'PROCESSED', 'UNSURE'];
  */
 @ApiTags('email-inbox')
 @ApiBearerAuth()
+@RequiresModule('SHIPMENTS')
 @Controller('email-inbox')
 @UseGuards(ClerkAuthGuard)
 export class EmailInboxController {

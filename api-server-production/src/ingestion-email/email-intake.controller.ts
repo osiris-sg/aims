@@ -1,4 +1,5 @@
 import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Patch, Query, Req, UseGuards } from '@nestjs/common';
+import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { Prisma } from '@prisma/client';
@@ -20,6 +21,7 @@ interface RequestWithOrganization extends Request {
 // Shipments permission, not organizations:read — ADH staff run it.
 @ApiTags('email-intake')
 @ApiBearerAuth()
+@RequiresModule('SHIPMENTS')
 @Controller('email-intake')
 @UseGuards(ClerkAuthGuard)
 export class EmailIntakeController {

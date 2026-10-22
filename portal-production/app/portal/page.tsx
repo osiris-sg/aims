@@ -27,9 +27,10 @@ export default function Page() {
   const { isAimsChatEnabled, isLoading } = useOrganizationFeatures();
   const router = useRouter();
   const { loading: configLoading, isModuleEnabled } = useConfiguration();
-  // A trade org (Shipments on, the generic Dashboard module off — ADH) lands on Sales › Dashboard (round P), not the
-  // asset dashboard. This is also the org-switch landing (the switch reloads /portal).
-  const tradeHome = !configLoading && isModuleEnabled("SHIPMENTS") && !isModuleEnabled("DASHBOARD");
+  // An org with the Shipments module (ADH) lands on Sales › Dashboard (round P; round Y: whatever the generic
+  // Dashboard module says), not the asset dashboard. This is also the org-switch and after-login landing
+  // (the switch loads /portal; Clerk's fallbackRedirectUrl is /portal).
+  const tradeHome = !configLoading && isModuleEnabled("SHIPMENTS");
   useEffect(() => {
     if (!tradeHome) return;
     const q = new URLSearchParams(window.location.search);

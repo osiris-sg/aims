@@ -1,4 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -17,6 +18,7 @@ const pdfOrImage = FileInterceptor('file', {
 });
 
 /** AI reading of trade PDFs: PI → contract draft, B/L draft → shipment draft + checks. */
+@RequiresModule('SHIPMENTS')
 @Controller('trade-extract')
 @UseGuards(ClerkAuthGuard)
 export class TradeExtractController {

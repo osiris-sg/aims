@@ -1,10 +1,12 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { LinkTradeDocumentDto, SearchInvoicesQuery } from './dto/trade-document.dto';
 import { actorOf, orgIdOf, TradeRequest } from './shipments.request';
 import { TradeDocumentsService } from './trade-documents.service';
 
+@RequiresModule('SHIPMENTS')
 @Controller('trade-documents')
 @UseGuards(ClerkAuthGuard)
 export class TradeDocumentsController {

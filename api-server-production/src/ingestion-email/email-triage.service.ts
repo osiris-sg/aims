@@ -290,7 +290,7 @@ export class EmailTriageService {
       const ja = await this.questionOfLog(organizationId, logId, 'ja');
       const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId }, select: { fromAddress: true, emailDate: true, createdAt: true, subject: true } });
       const company = companyOf(log?.fromAddress, await this.companyOverrides(organizationId)).name;
-      const base = { from: log?.fromAddress ?? null, company, date: log?.emailDate ?? log?.createdAt ?? null, subject: log?.subject ?? null, portalUrl: this.portalUrl() };
+      const base = { from: log?.fromAddress ?? null, company, date: log?.emailDate ?? log?.createdAt ?? null, subject: log?.subject ?? null, portalUrl: this.portalUrl(organizationId) };
       const input = (card: QuestionCard): NeedsCheckInput => ({ ...base, kind: card.kind, options: card.options.map((o) => ({ ref: o.ref })), says: /says (.+?), but/.exec(q.card.title)?.[1] ?? null });
       const text = needsCheckText(input(q.card), 'en');
       await this.whatsapp.queue(organizationId, 'NEEDS_ME', text, { linkUrl: '/portal/shipments/dashboard', dedupeKey: `needs:${logId}`, textFor: (prefs) => (prefs.lang === 'ja' && ja ? needsCheckText(input(ja.card), 'ja') : text) });
@@ -300,8 +300,8 @@ export class EmailTriageService {
   }
 
   /** The Dashboard link the pushes point at. */
-  portalUrl(): string {
-    return `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}/portal/shipments/dashboard`;
+  portalUrl(organizationId?: string): string {
+    return `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}/portal/shipments/dashboard${organizationId ? `?aorg=${organizationId}` : ''}`;
   }
 
   /** "Toshiro Takekoshi (Asia Deal Hub)" for a From header — the org's company map applied (round X, for chat replies). */

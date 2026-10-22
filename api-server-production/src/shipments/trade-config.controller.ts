@@ -1,10 +1,12 @@
 import { Body, Controller, Get, Patch, Query, Req, UseGuards } from '@nestjs/common';
+import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { orgIdOf, TradeRequest } from './shipments.request';
 import { UpdateTradeSettingsDto } from './dto/trade-settings.dto';
 import { TradeConfigService } from './trade-config.service';
 
+@RequiresModule('SHIPMENTS')
 @Controller('trade-config')
 @UseGuards(ClerkAuthGuard)
 export class TradeConfigController {

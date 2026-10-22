@@ -1,10 +1,12 @@
 import { Controller, Get, Param, ParseUUIDPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { orgIdOf, TradeRequest } from './shipments.request';
 import { TradeAlertsService } from './trade-alerts.service';
 
 /** Alerts and reminders (tax funding, A/N, free time, due dates, stuck steps) and "My tasks today". */
+@RequiresModule('SHIPMENTS')
 @Controller('trade-alerts')
 @UseGuards(ClerkAuthGuard)
 export class TradeAlertsController {

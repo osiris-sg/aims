@@ -12,6 +12,7 @@ import { useThemeMode } from "@/contexts/ThemeModeContext";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import FieldOnlyGuard from "./components/FieldOnlyGuard";
+import ModuleRouteGuard from "./components/ModuleRouteGuard";
 import GuideAssistant from "./components/GuideAssistant/GuideAssistant";
 import TopNavBar from "@/components/TopNav/TopNavBar";
 import { useOrganizationFeatures } from "./hooks/useOrganizationFeatures";
@@ -105,7 +106,8 @@ export default function Layout(props: Props) {
                 }}
               >
                 {!embed && <TopNavBar />}
-                {children}
+                {/* A page renders only when its module is on for the org being viewed (round Y). */}
+                <ModuleRouteGuard>{children}</ModuleRouteGuard>
               </Box>
               {/* AIMS Guide bubble (bottom-right) — global for every org. */}
               {!embed && <GuideBubble pathname={pathname} />}

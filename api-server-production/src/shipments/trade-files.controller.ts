@@ -1,4 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
@@ -8,6 +9,7 @@ import { actorOf, orgIdOf, TradeRequest } from './shipments.request';
 import { decodeUploadName, resolveTradeFileMime, TRADE_FILE_EXTENSIONS, TRADE_FILE_MAX_BYTES } from './shipments.rules';
 import { TradeFilesService } from './trade-files.service';
 
+@RequiresModule('SHIPMENTS')
 @Controller('trade-files')
 @UseGuards(ClerkAuthGuard)
 export class TradeFilesController {

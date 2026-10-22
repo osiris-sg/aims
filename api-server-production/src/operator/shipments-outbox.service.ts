@@ -24,7 +24,8 @@ const NOTIFY_TEMPLATE = () => process.env.WHATSAPP_NOTIFY_TEMPLATE || 'aims_noti
 const DIGEST_TEMPLATE = () => process.env.WHATSAPP_DIGEST_TEMPLATE || '';
 /** The approved per-kind templates for a single "needs a check" push (aims_needs_check / aims_new_deal / aims_recheck); unset = plain text. */
 const PUSH_TEMPLATE: Record<PushTemplateKind, () => string> = { needs_check: () => process.env.WHATSAPP_NEEDS_TEMPLATE || '', new_deal: () => process.env.WHATSAPP_NEW_DEAL_TEMPLATE || '', recheck: () => process.env.WHATSAPP_RECHECK_TEMPLATE || '' };
-const PORTAL = () => `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}/portal/shipments/dashboard`;
+/** The Dashboard link; ?aorg=<org> lets an admin's link open under that org (helpers/request.ts adopts it). */
+const PORTAL = (org?: string) => `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}/portal/shipments/dashboard${org ? `?aorg=${org}` : ''}`;
 
 @Injectable()
 export class ShipmentsOutboxService {
@@ -102,7 +103,7 @@ export class ShipmentsOutboxService {
       questionEmails: dash.toConfirm.emails,
       overdue: tasks.filter((t) => t.status === 'DUE' && dueOf(t) < today).map((t) => t.title as string),
       arriving: ships.map((s) => ({ ref: shipmentRefOf(s.order?.orderNo, s.seqNo), eta: s.eta })),
-      portalUrl: PORTAL(),
+      portalUrl: PORTAL(org),
     };
   }
 
@@ -162,7 +163,7 @@ export class ShipmentsOutboxService {
       if (asText.length) {
         const lang = asText.some((r) => /[぀-ヿ一-鿿]/.test(r.text)) ? 'ja' : 'en';
         const others = asText;
-        const ok = await this.whatsapp.sendText(to, batchText(others, lang, PORTAL())).then(() => true).catch(() => false);
+        const ok = await this.whatsapp.sendText(to, batchText(others, lang, PORTAL(org))).then(() => true).catch(() => false);
         await this.mark(others, ok, 'text send failed');
         ok ? (sent += others.length) : (failed += others.length);
       }

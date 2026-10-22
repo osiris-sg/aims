@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { CreateSupplierOrderDto, DeclarationDto, LinkOrdersDto, ListSupplierOrdersQuery, UpdateSupplierOrderDto } from './dto/supplier-order.dto';
@@ -6,6 +7,7 @@ import { actorOf, orgIdOf, TradeRequest } from './shipments.request';
 import { SupplierOrdersService } from './supplier-orders.service';
 
 /** Supplier orders (Vedanta's PI per contract / customer / month) and the monthly declaration. */
+@RequiresModule('SHIPMENTS')
 @Controller('supplier-orders')
 @UseGuards(ClerkAuthGuard)
 export class SupplierOrdersController {

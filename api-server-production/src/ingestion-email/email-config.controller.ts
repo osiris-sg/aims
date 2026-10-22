@@ -1,4 +1,5 @@
 import { Body, Controller, ForbiddenException, Get, Param, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { Request } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
@@ -15,6 +16,7 @@ interface RequestWithOrganization extends Request {
 // selected org) but non-platform-admins may only touch their own org.
 @ApiTags('email-ingest')
 @ApiBearerAuth()
+@RequiresModule('SHIPMENTS')
 @Controller('email-ingest')
 @UseGuards(ClerkAuthGuard)
 export class EmailConfigController {

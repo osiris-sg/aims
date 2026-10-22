@@ -171,6 +171,19 @@ export class ConfigurationController {
     return this.configurationService.updateUIConfig(userOrganization.id, updateUIConfigDto);
   }
 
+  // ===================== ROUND Y: WHERE IS A MODULE ON? =====================
+
+  /**
+   * The organizations this user may work in that have `code` enabled — the portal's route guard switches an
+   * admin (viewing as another org) to the right org when they open a deep link. An osiris admin may use any org;
+   * everyone else only their own.
+   */
+  @Get('modules/:code/organizations')
+  @ApiOperation({ summary: 'Organizations available to this user with the module enabled' })
+  async organizationsWithModule(@Param('code') code: string, @Req() req: Request & { isOsirisAdmin?: boolean; userOrganization?: { id: string } }) {
+    return this.configurationService.organizationsWithModule(String(code).toUpperCase(), !!req.isOsirisAdmin, req.userOrganization?.id ?? null);
+  }
+
   // ===================== COMPLETE CONFIGURATION =====================
 
   @Get('complete')

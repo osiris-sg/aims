@@ -90,7 +90,7 @@ describe('ShipmentsOutboxService.drain', () => {
     expect(whatsapp.sendText).toHaveBeenCalledTimes(2);
     expect(whatsapp.sendText.mock.calls[0][1]).toBe('Good morning');
     // Two event lines due together: the lines, then the Dashboard link once — no bullets, no emojis.
-    expect(whatsapp.sendText.mock.calls[1][1]).toBe('A\nB\nOpen the Dashboard: https://app.ai-ms.io/portal/shipments/dashboard');
+    expect(whatsapp.sendText.mock.calls[1][1]).toBe('A\nB\nOpen the Dashboard: https://app.ai-ms.io/portal/shipments/dashboard?aorg=org-adh'); // ?aorg: an admin's link opens under ADH
     expect(rows.filter((x) => x.status === 'SENT').map((x) => x.id).sort()).toEqual(['r1', 'r2', 'r3']);
     expect(rows.find((x) => x.id === 'r4').status).toBe('QUEUED'); // not due yet
   });

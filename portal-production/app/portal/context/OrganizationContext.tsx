@@ -40,9 +40,13 @@ interface OrganizationContextType {
   // The org id stored in sessionStorage. Non-null only when admin has actively
   // selected a different org. Cleared when picking "home".
   activeOrgId: string | null;
-  // Setter that updates sessionStorage and reloads the page so every cache,
-  // saga, and react-query store is rebuilt against the new org.
-  setActiveOrgId: (id: string | null) => void;
+  // Setter that updates sessionStorage and does a FULL page load so every
+  // cache, saga, and react-query store is rebuilt against the new org. By
+  // default it lands on /portal (round Y: an org switch never keeps the
+  // current URL — the page you were on may not exist for the new org);
+  // `keepUrl: true` reloads the current URL instead (the module guard's
+  // cross-org auto-switch uses it to keep a deep link).
+  setActiveOrgId: (id: string | null, opts?: SetActiveOrgOptions) => void;
   isLoaded: boolean;
   error: string | null;
   // True when the backend answered the bootstrap with "User is not assigned
@@ -53,7 +57,13 @@ interface OrganizationContextType {
   noOrganization: boolean;
 }
 
+export interface SetActiveOrgOptions {
+  keepUrl?: boolean;
+}
+
 const STORAGE_KEY = "aims-admin-active-org";
+/** Where an org switch lands: /portal routes trade orgs on to Sales › Dashboard. */
+const SWITCH_LANDING = "/portal";
 const NO_ORG_RE = /not assigned to any organi[sz]ation/i;
 const ADMIN_ORG_NAME = "osiris-platform";
 
@@ -211,17 +221,22 @@ function useOrganizationFetcher(enabled: boolean): OrganizationContextType {
     };
   }, [user, fetchUserOrganization]);
 
-  const setActiveOrgId = useCallback((id: string | null) => {
+  const setActiveOrgId = useCallback((id: string | null, opts?: SetActiveOrgOptions) => {
     if (typeof window === "undefined") return;
     if (id) {
       window.sessionStorage.setItem(STORAGE_KEY, id);
     } else {
       window.sessionStorage.removeItem(STORAGE_KEY);
     }
-    // Full reload — every Redux/saga/React-Query cache is org-scoped and
+    // Full page load — every Redux/saga/React-Query cache is org-scoped and
     // invalidating in place is significantly more code (and easy to miss a
-    // place). A reload is one line and guaranteed consistent.
-    window.location.reload();
+    // place). A full load is one line and guaranteed consistent. It lands on
+    // /portal (the new org's home) unless the caller asks to keep the URL.
+    if (opts?.keepUrl) {
+      window.location.reload();
+    } else {
+      window.location.assign(SWITCH_LANDING);
+    }
   }, []);
 
   const isOsirisAdmin = realOrganization?.name === ADMIN_ORG_NAME;

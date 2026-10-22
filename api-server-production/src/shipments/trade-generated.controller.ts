@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Header, Param, ParseUUIDPipe, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { Response } from 'express';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -8,6 +9,7 @@ import { GENERATED_TEMPLATES, TradeGeneratedService } from './trade-generated.se
 import { TradeHubService } from './trade-hub.service';
 
 /** In-app generated trade documents (Customer PL / COA, ADH 請求書, SG→JP IV/PL, Shipping Instructions). */
+@RequiresModule('SHIPMENTS')
 @Controller('trade-generated')
 @UseGuards(ClerkAuthGuard)
 export class TradeGeneratedController {
