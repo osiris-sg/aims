@@ -2556,6 +2556,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           { method: 'GET', token: c.accessToken },
         );
         const approved = new Set((res.data || []).filter((t) => t.status === 'APPROVED').map((t) => t.name));
+        // Round X: the shipments push templates under review — their status lands in the daily log (names only).
+        const aims = (res.data || []).filter((t) => /^aims_/.test(t.name)).map((t) => `${t.name}=${t.status}`);
+        if (aims.length) this.logger.log(`Template audit (${c.displayPhoneNumber || c.organizationId}): ${aims.join(', ')}`);
         const missing = required.filter((r) => !approved.has(r));
         if (missing.length) {
           gaps.push({ organizationId: c.organizationId, missing });

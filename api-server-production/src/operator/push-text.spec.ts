@@ -2,7 +2,7 @@
  * Round X — WhatsApp pushes: short, plain, no emojis; sender "Name (Company)"; subjects trimmed to ~50; batched
  * "needs a check" pushes become one line each; EN and JA.
  */
-import { batchText, dateLabel, digestText, etaChangedLine, freeTimeLine, needsCheckBatchText, needsCheckText, pushToLine, senderLine, shortTask, stepOverdueLine, stripEmoji, trimSubject } from './push-text';
+import { batchText, dateLabel, digestTemplateParams, digestText, pushTemplateParams, etaChangedLine, freeTimeLine, needsCheckBatchText, needsCheckText, pushToLine, senderLine, shortTask, stepOverdueLine, stripEmoji, trimSubject } from './push-text';
 
 const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
 const URL = 'https://app.ai-ms.io/portal/shipments/dashboard';
@@ -88,5 +88,26 @@ describe('(e) events', () => {
     expect(batchText([{ text: '#19-1 arrival notice filed' }], 'en', URL)).toBe('#19-1 arrival notice filed');
     expect(batchText([{ text: '#19-1 arrival notice filed' }, { text: '#22-1 ETA changed: 28 Oct -> 30 Nov' }], 'en', URL)).toBe(`#19-1 arrival notice filed\n#22-1 ETA changed: 28 Oct -> 30 Nov\nOpen the Dashboard: ${URL}`);
     expect(EMOJI.test(batchText([{ text: '🚢 #19-1 arrival notice filed' }, { text: '⏳ x' }], 'en', URL))).toBe(false);
+  });
+});
+
+describe('Meta templates: the pushes read back into one parameter per line', () => {
+  const URL2 = 'https://app.ai-ms.io/portal/shipments/dashboard';
+  it('aims_digest: [day, filed, waiting, overdue, arriving, link], EN and JA, zero lines → "none"', () => {
+    const full = { at: jst('2026-10-22T08:30:00'), filedAuto: 18, questions: 4, questionEmails: 14, overdue: ['#19-1 import tax funds', '#14-1 detention'], arriving: [{ ref: '#20-1', eta: jst('2026-10-24T00:00:00') }, { ref: '#19-1', eta: null }], portalUrl: URL2 };
+    expect(digestTemplateParams(digestText(full, 'en'), 'en')).toEqual(['Thu 22 Oct', '18 emails', '4 questions (14 emails)', '2: #19-1 import tax funds, #14-1 detention', '2 shipments (first: #20-1, Sat 24 Oct)', URL2]);
+    expect(digestTemplateParams(digestText({ ...full, questions: 0, questionEmails: 0, overdue: [], arriving: [] }, 'en'), 'en')).toEqual(['Thu 22 Oct', '18 emails', 'nothing', 'none', 'none', URL2]);
+    expect(digestTemplateParams(digestText({ ...full, overdue: ['#19-1 輸入税の資金'] }, 'ja'), 'ja')).toEqual(['10月22日（木）', '18 件', '質問 4 件（メール 14 件）', '1 件: #19-1 輸入税の資金', '2 件（最初: #20-1、10/24（土））', URL2]);
+    expect(digestTemplateParams('hello', 'en')).toBeNull();
+  });
+  it('needs_check / new_deal / recheck pushes map to their template; a batch does not', () => {
+    const which = { kind: 'WHICH' as const, from: 'Toshiro Takekoshi <t@asiadealhub.com>', company: 'Asia Deal Hub', date: jst('2026-10-22T11:50:00'), subject: 'Re: DET', options: [{ ref: '#16-1' }, { ref: '#16-2' }], portalUrl: URL2 };
+    expect(pushTemplateParams(needsCheckText(which, 'en'))).toEqual({ kind: 'needs_check', lang: 'en', params: ['Toshiro Takekoshi (Asia Deal Hub), 22 Oct 11:50', 'Re: DET', "AIMS isn't sure which shipment this is for: #16-1 or #16-2.", `Reply 1 for #16-1, 2 for #16-2, or check it on the Dashboard: ${URL2}`] });
+    expect(pushTemplateParams(needsCheckText(which, 'ja'))?.kind).toBe('needs_check');
+    expect(pushTemplateParams(needsCheckText({ ...which, kind: 'NEW_DEAL', from: 'taomura@isewan.co.jp', company: 'Isewan', options: [] }, 'en'))).toEqual({ kind: 'new_deal', lang: 'en', params: ['taomura (Isewan), 22 Oct', 'Re: DET', URL2] });
+    expect(pushTemplateParams(needsCheckText({ ...which, kind: 'NEW_DEAL', from: 'taomura@isewan.co.jp', company: 'Isewan', options: [] }, 'ja'))).toEqual({ kind: 'new_deal', lang: 'ja', params: ['taomura (Isewan)、10/22', 'Re: DET', URL2] });
+    expect(pushTemplateParams(needsCheckText({ ...which, kind: 'RECHECK' }, 'en'))).toEqual({ kind: 'recheck', lang: 'en', params: ['Toshiro Takekoshi (Asia Deal Hub), 22 Oct', 'Re: DET', URL2] });
+    expect(pushTemplateParams(needsCheckBatchText([which, { ...which, kind: 'CONFIRM' }], 'en'))).toBeNull();
+    expect(pushTemplateParams('#19-1 arrival notice filed')).toBeNull();
   });
 });

@@ -95,6 +95,32 @@ describe('ShipmentsOutboxService.drain', () => {
     expect(rows.find((x) => x.id === 'r4').status).toBe('QUEUED'); // not due yet
   });
 
+  it('with the approved templates configured, the digest and a single needs-check push go as templates (one parameter per line); a batch stays text', async () => {
+    process.env.WHATSAPP_DIGEST_TEMPLATE = 'aims_digest';
+    process.env.WHATSAPP_NEEDS_TEMPLATE = 'aims_needs_check';
+    try {
+      const { prisma, rows } = prismaMock([]);
+      const url = 'https://app.ai-ms.io/portal/shipments/dashboard';
+      const digest = `Good morning. Thu 22 Oct\n- 18 emails filed automatically\n- 4 need your check (14 emails)\nOpen the Dashboard: ${url}`;
+      const needs = `New email needs your check\nFrom: Toshiro Takekoshi (Asia Deal Hub), 22 Oct 11:50\nSubject: Re: DET\nAIMS isn't sure which shipment this is for: #16-1 or #16-2.\nReply 1 for #16-1, 2 for #16-2, or check it on the Dashboard: ${url}`;
+      rows.push(
+        { id: 'r1', organizationId: 'org-adh', userId: 'u1', to: '819000000001', kind: 'DIGEST', text: digest, dueAt: new Date(0), status: 'QUEUED', createdAt: new Date(1) },
+        { id: 'r2', organizationId: 'org-adh', userId: 'u1', to: '819000000001', kind: 'NEEDS_ME', text: needs, dueAt: new Date(0), status: 'QUEUED', createdAt: new Date(2) },
+        { id: 'r3', organizationId: 'org-adh', userId: 'u1', to: '819000000001', kind: 'EVENT', text: '#19-1 arrival notice filed', dueAt: new Date(0), status: 'QUEUED', createdAt: new Date(3) },
+      );
+      const whatsapp: any = { sendText: jest.fn(async () => undefined), sendTemplate: jest.fn(), sendTemplateLines: jest.fn(async () => true), rememberContext: jest.fn() };
+      const svc = new ShipmentsOutboxService(prisma, new ShipmentsNotifyService(prisma), { myTasks: jest.fn() } as any, whatsapp, { dashboard: jest.fn() } as any);
+      expect(await svc.drain(new Date())).toEqual({ sent: 3, failed: 0 });
+      expect(whatsapp.sendTemplateLines).toHaveBeenCalledWith('819000000001', 'aims_digest', ['Thu 22 Oct', '18 emails', '4 questions (14 emails)', 'none', 'none', url], 'en');
+      expect(whatsapp.sendTemplateLines).toHaveBeenCalledWith('819000000001', 'aims_needs_check', ['Toshiro Takekoshi (Asia Deal Hub), 22 Oct 11:50', 'Re: DET', "AIMS isn't sure which shipment this is for: #16-1 or #16-2.", `Reply 1 for #16-1, 2 for #16-2, or check it on the Dashboard: ${url}`], 'en');
+      expect(whatsapp.sendText).toHaveBeenCalledTimes(1);
+      expect(whatsapp.sendText.mock.calls[0][1]).toBe('#19-1 arrival notice filed');
+    } finally {
+      delete process.env.WHATSAPP_DIGEST_TEMPLATE;
+      delete process.env.WHATSAPP_NEEDS_TEMPLATE;
+    }
+  });
+
   it('marks rows FAILED when there is no line to send from', async () => {
     const { prisma, rows } = prismaMock([]);
     prisma.whatsAppMessage.findFirst = jest.fn(async () => null);

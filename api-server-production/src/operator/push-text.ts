@@ -295,3 +295,45 @@ export function batchText(items: Array<{ text: string }>, lang: Lang = 'en', por
   if (rest.length) parts.push(rest.length === 1 && rest[0].includes('\n') ? rest[0] : eventsBatchText(rest.map((t) => t.split('\n')[0]), url, lang));
   return clip(parts.join('\n\n'), 3500);
 }
+
+// ── Meta templates (round X): one parameter per line of the push ─────────────
+// A parameter may not hold a newline, a template may not start or end with one, and the fixed words must outnumber
+// the variables — so the approved bodies (scripts/whatsapp-templates.ts) carry the fixed words and the pushes are
+// read back into their values here. Our own text layout is stable and tested.
+
+/** The aims_digest parameters: [day, filed, waiting, overdue, arriving, link]. */
+export function digestTemplateParams(text: string, lang: Lang): string[] | null {
+  const ls = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const ja = lang === 'ja';
+  const day = (ja ? /^おはようございます。(.+)$/ : /^Good morning\. (.+)$/).exec(ls[0] ?? '')?.[1];
+  const url = /(https?:\/\/\S+)/.exec(ls[ls.length - 1] ?? '')?.[1];
+  if (!day || !url) return null;
+  const find = (re: RegExp) => ls.map((l) => re.exec(l)?.[1]).find((x): x is string => x !== undefined) ?? null;
+  const filed = ja ? find(/^- メール (\d+ 件)を自動処理$/) : find(/^- (\d+ emails?) filed automatically$/);
+  const waiting = ja ? (find(/^- (\d+ 件の確認が必要です（メール \d+ 件）)$/)?.replace(/^(\d+) 件の確認が必要です（メール (\d+) 件）$/, '質問 $1 件（メール $2 件）') ?? (ls.some((l) => /確認が必要なものはありません/.test(l)) ? 'なし' : null)) : (find(/^- (\d+) needs? your check \((\d+ emails?)\)$/) ? ls.map((l) => /^- (\d+) needs? your check \((\d+ emails?)\)$/.exec(l)).filter(Boolean).map((m) => `${m![1]} question${m![1] === '1' ? '' : 's'} (${m![2]})`)[0] : ls.some((l) => /Nothing needs your check/.test(l)) ? 'nothing' : null);
+  const overdue = ja ? find(/^- 期限超過のタスク (\d+ 件: .+)$/) ?? 'なし' : find(/^- (\d+) tasks? overdue: (.+)$/) ? ls.map((l) => /^- (\d+) tasks? overdue: (.+)$/.exec(l)).filter(Boolean).map((m) => `${m![1]}: ${m![2]}`)[0] : 'none';
+  const arriving = ja ? find(/^- 今週到着 (\d+ 件（.+）)$/) ?? 'なし' : find(/^- (\d+) shipments? arriving this week \((.+)\)$/) ? ls.map((l) => /^- (\d+) (shipments?) arriving this week \((.+)\)$/.exec(l)).filter(Boolean).map((m) => `${m![1]} ${m![2]} (${m![3]})`)[0] : 'none';
+  if (!filed || !waiting) return null;
+  return [day, filed, waiting, overdue ?? 'none', arriving ?? 'none', url];
+}
+
+export type PushTemplateKind = 'needs_check' | 'new_deal' | 'recheck';
+
+/** A stored "needs a check" push → which template it maps to and its parameters, or null (a batch, an event, unknown). */
+export function pushTemplateParams(text: string): { kind: PushTemplateKind; lang: Lang; params: string[] } | null {
+  const ls = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const title = ls[0] ?? '';
+  const lang: Lang = /[぀-ヿ一-鿿]/.test(title) ? 'ja' : 'en';
+  const url = /(https?:\/\/\S+)/.exec(ls[ls.length - 1] ?? '')?.[1];
+  const subject = ls.map((l) => /^(?:Subject|件名): (.*)$/.exec(l)?.[1]).find((x): x is string => !!x);
+  if (!url || !subject) return null;
+  const fromLine = ls.map((l) => /^(?:From|差出人): (.*)$/.exec(l)?.[1]).find((x): x is string => !!x);
+  if (/^New email needs your check$|^新しいメールの確認が必要です$/.test(title)) {
+    if (!fromLine || ls.length < 5) return null;
+    return { kind: 'needs_check', lang, params: [fromLine, subject, ls[3], ls[4]] };
+  }
+  if (/^AIMS re-checked|^AIMSがメールを再確認/.test(title)) return fromLine ? { kind: 'recheck', lang, params: [fromLine, subject, url] } : null;
+  const dealFrom = /^New email from (.*)$/.exec(title)?.[1] ?? /^(.*) から新しいメール、(.*)$/.exec(title)?.slice(1).join('、');
+  if (dealFrom) return { kind: 'new_deal', lang, params: [dealFrom, subject, url] };
+  return null;
+}

@@ -16,12 +16,14 @@ import { ShipmentsNotifyService } from '../shipments/shipments-notify.service';
 import { tradeToday } from '../shipments/shipments.rules';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
 import { isDigestTime, jstDay, shipmentRefOf } from './shipments-agent.rules';
-import { batchText, DigestInput, digestText, shortTask, stripEmoji } from './push-text';
+import { batchText, DigestInput, digestTemplateParams, digestText, pushTemplateParams, PushTemplateKind, shortTask, stripEmoji } from './push-text';
 import { EmailTriageService } from '../ingestion-email/email-triage.service';
 
 const NOTIFY_TEMPLATE = () => process.env.WHATSAPP_NOTIFY_TEMPLATE || 'aims_notify';
 /** Round X: a structured digest template (one variable per line), once Meta approves it; unset = send the digest as plain text (the closed-window recovery falls back to aims_notify / the bridge). */
 const DIGEST_TEMPLATE = () => process.env.WHATSAPP_DIGEST_TEMPLATE || '';
+/** The approved per-kind templates for a single "needs a check" push (aims_needs_check / aims_new_deal / aims_recheck); unset = plain text. */
+const PUSH_TEMPLATE: Record<PushTemplateKind, () => string> = { needs_check: () => process.env.WHATSAPP_NEEDS_TEMPLATE || '', new_deal: () => process.env.WHATSAPP_NEW_DEAL_TEMPLATE || '', recheck: () => process.env.WHATSAPP_RECHECK_TEMPLATE || '' };
 const PORTAL = () => `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}/portal/shipments/dashboard`;
 
 @Injectable()
@@ -135,15 +137,31 @@ export class ShipmentsOutboxService {
         // Round X: plain text keeps its lines (the closed-window recovery resends it via the bridge or aims_notify);
         // a structured digest template (WHATSAPP_DIGEST_TEMPLATE, one variable per line) is used once approved.
         const text = stripEmoji(d.text);
+        const lang = /[぀-ヿ一-鿿]/.test(text) ? 'ja' : 'en';
         const tpl = DIGEST_TEMPLATE();
-        const ok = tpl
-          ? await this.whatsapp.sendTemplateLines(to, tpl, text.split('\n'), /[぀-ヿ一-鿿]/.test(text) ? 'ja' : 'en').catch(() => false)
-          : await this.whatsapp.sendText(to, text).then(() => true).catch(() => false);
-        await this.mark([d], ok, tpl ? 'template send failed' : 'text send failed');
+        const params = tpl ? digestTemplateParams(text, lang) : null;
+        // The structured template when it exists and the text reads back into its 6 values; plain text otherwise.
+        const ok = (tpl && params ? await this.whatsapp.sendTemplateLines(to, tpl, params, lang).catch(() => false) : false) || (await this.whatsapp.sendText(to, text).then(() => true).catch(() => false));
+        await this.mark([d], ok, 'digest send failed');
         ok ? sent++ : failed++;
       }
-      if (others.length) {
-        const lang = others.some((r) => /[぀-ヿ一-鿿]/.test(r.text)) ? 'ja' : 'en';
+      // Round X: a single "needs a check" push goes as its approved template when one is configured (lands outside
+      // the 24h window too); batches and events go as one text (the closed-window recovery covers those).
+      const asTemplate: any[] = [];
+      const asText: any[] = [];
+      for (const r of others) {
+        const t = r.kind === 'NEEDS_ME' ? pushTemplateParams(stripEmoji(r.text)) : null;
+        (t && PUSH_TEMPLATE[t.kind]() && others.filter((x) => x.kind === 'NEEDS_ME').length === 1 ? asTemplate : asText).push(r);
+      }
+      for (const r of asTemplate) {
+        const t = pushTemplateParams(stripEmoji(r.text))!;
+        const ok = (await this.whatsapp.sendTemplateLines(to, PUSH_TEMPLATE[t.kind](), t.params, t.lang).catch(() => false)) || (await this.whatsapp.sendText(to, stripEmoji(r.text)).then(() => true).catch(() => false));
+        await this.mark([r], ok, 'push send failed');
+        ok ? sent++ : failed++;
+      }
+      if (asText.length) {
+        const lang = asText.some((r) => /[぀-ヿ一-鿿]/.test(r.text)) ? 'ja' : 'en';
+        const others = asText;
         const ok = await this.whatsapp.sendText(to, batchText(others, lang, PORTAL())).then(() => true).catch(() => false);
         await this.mark(others, ok, 'text send failed');
         ok ? (sent += others.length) : (failed += others.length);

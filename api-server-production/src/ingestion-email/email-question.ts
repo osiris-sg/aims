@@ -153,7 +153,8 @@ export function questionOf(i: QuestionInput): QuestionCard {
   } else if (i.suggested) push(opt(i.suggested, true));
   for (const c of i.candidates) push(opt(c, false));
   // An order-level option is redundant when one of its shipments is already an option ("#20" next to "#20-1").
-  const opts = options.filter((o) => o.shipmentId || !options.some((x) => x.shipmentId && x.orderId === o.orderId)).slice(0, 4);
+  // Round X: up to 8 options — a detention request quoting every Wan Hai shipment names them all.
+  const opts = options.filter((o) => o.shipmentId || !options.some((x) => x.shipmentId && x.orderId === o.orderId)).slice(0, 8);
 
   // "What AIMS found": from · files · keys or mentions · thread.
   const cues = subjectCues(i.subject, i.date ?? null);
