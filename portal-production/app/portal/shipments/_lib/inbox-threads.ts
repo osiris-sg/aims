@@ -2,14 +2,6 @@
 // in helpers/inboxThreads.test.mjs. No React, no MUI.
 import type { InboxBy, InboxLinked, InboxLinkedFile, InboxMessage } from "./api";
 
-/** "To do: 4 questions (14 emails) · 2 tasks overdue · 3 arriving this week" (the dashboard's top line). */
-/** Round AB: tasks and arrivals only — the email questions are the cards under it, never a count. */
-export function toDoLine(c: { overdue: number; arriving: number }): string {
-  const n = (v: number, one: string, many: string) => `${v} ${v === 1 ? one : many}`;
-  const parts = [c.overdue ? `${n(c.overdue, "task", "tasks")} overdue` : null, c.arriving ? `${c.arriving} arriving this week` : null].filter(Boolean);
-  return parts.length ? `To do: ${parts.join(" · ")}` : "Nothing to do: no task overdue, nothing arriving this week.";
-}
-
 /** "Name <a@b.c>" → { name: "Name", email: "a@b.c" }; a bare address → its local part as the name. */
 /** Round S: a file sent to the assistant on WhatsApp is stored as an email from "<name> via WhatsApp <…@whatsapp>". */
 export const isWhatsAppSource = (from: string | null | undefined) => /@whatsapp>?$/i.test((from ?? "").trim());

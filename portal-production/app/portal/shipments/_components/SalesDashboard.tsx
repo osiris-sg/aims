@@ -12,7 +12,7 @@
 import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Box, CircularProgress, Stack, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
+import { Box, CircularProgress, Stack, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import EmailDashboard from "./EmailDashboard";
@@ -83,10 +83,8 @@ function SalesDashboardInner() {
   return (
     <Box>
       {canAdmin && (
-        <Stack direction="row" spacing={2} alignItems="center" sx={{ px: { xs: 1.5, md: 3 }, pt: 2 }} data-tour="dashboard-toggle">
-          <Typography variant="h5" sx={{ fontWeight: 800 }}>
-            Dashboard
-          </Typography>
+        // Round AC (owner): no "Dashboard" heading — the Overview / Admin toggle alone, on the first line, left-aligned with the content column.
+        <Stack direction="row" spacing={2} alignItems="center" sx={{ px: { xs: 1.5, md: 3 }, pt: 2, maxWidth: showAdmin ? 1400 : 1200, mx: "auto" }} data-tour="dashboard-toggle">
           <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && pick(v)}>
             <ToggleButton value="overview" sx={{ textTransform: "none", px: 2 }}>
               Overview

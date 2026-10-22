@@ -417,16 +417,11 @@ export const GUIDES: Guide[] = [
     title: 'The Sales dashboard: emails to confirm, tasks, arrivals',
     module: 'SHIPMENTS',
     description:
-      'Sales › Dashboard (the landing page): one line "To do: n emails to confirm · n tasks overdue · n arriving this week", then the emails waiting for you (Confirm · Change order · Not shipment), what was filed automatically in the last 3 days (Undo), the reminders (✓ done / ✕ dismiss — also in the bell and the Orders "Tasks (n)" button) and the shipments arriving in the next 7 days with their free time. Reminder rules are in Settings → Shipping → Alerts.',
+      'Sales › Dashboard (the landing page, /portal): the Overview / Admin toggle top-left, then the emails waiting for you (Confirm · Change order · Not shipment), what was filed automatically in the last 3 days (Undo), the reminders (✓ done / ✕ dismiss — also in the bell and the Orders "Tasks (n)" button) and the shipments arriving in the next 7 days with their free time. Reminder rules are in Settings → Shipping → Alerts.',
     route: '/portal',
     steps: [
       {
         route: '/portal',
-        selector: '[data-tour="dashboard-todo"]',
-        title: 'What needs you today',
-        body: 'Emails to confirm, tasks overdue and shipments arriving this week, in one line.',
-      },
-      {
         selector: '[data-tour="dashboard-emails"]',
         title: 'Emails to confirm',
         body: 'Each thread shows the shipment it will be linked to and what Confirm does ("files COA.pdf to step 3b"). Confirm, "Change order" to pick another shipment, or "Not shipment". "See all in Inbox" opens the full list.',

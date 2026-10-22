@@ -25,7 +25,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { defaultShipmentId, focusStepId, headerLine2 } from "../../_lib/order-focus";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { recordFileCount, STEP_PAYMENT, useShipmentsApi, type AnExtraction, type BlExtraction, type Order, type PermitCheck, type PermitExtraction, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
-import { blLabel, depositTermLabel, fmtDay, fmtDmy, fmtMoney, fmtMt, fmtYen, stepLabel, shortCustomer } from "../../_lib/format";
+import { blLabel, depositTermLabel, fmtDay, fmtDmy, fmtMoney, fmtMt, fmtYen, shortParty, stepLabel, shortCustomer } from "../../_lib/format";
 import RecordHeader from "../../_components/RecordHeader";
 import ShipmentOverview from "../../_components/ShipmentOverview";
 import StepCards, { type StepContext } from "../../_components/StepCards";
@@ -669,7 +669,6 @@ function orderTitle(o: Order): string {
   return [o.label, shortCustomer(o.customer?.name), o.grade || o.product, o.qtyMt != null ? `${fmtMt(o.qtyMt)} MT` : null].filter(Boolean).join(" · ");
 }
 /** "Vedanta" / "SIAE" / "Inalum" — the supplier's short name (round R header line 2). */
-const shortParty = (name: string | null | undefined): string | null => (/vedanta/i.test(name ?? "") ? "Vedanta" : /siae|sri indah/i.test(name ?? "") ? "SIAE" : /inalum/i.test(name ?? "") ? "Inalum" : shortCustomer(name));
 
 /** What each order step / document is about. */
 function orderContext(o: Order): StepContext {
@@ -777,7 +776,8 @@ function OrderOverview({ order: o, onEdit }: { order: Order; onEdit: () => void 
       <Grid container spacing={2} sx={{ mt: 0.5 }}>
         <Grid item xs={12} md={6} data-tour="order-vedanta-side">
           <Typography variant="overline" color="text.secondary">
-            Vedanta side
+            {/* Round AC (owner): the supplier's own name — "MIND ID side" on #9, "Vedanta side" on Vedanta orders. */}
+            {shortParty(o.supplier?.name) ?? "Supplier"} side
           </Typography>
           <Grid container spacing={1.5}>
             <Grid item xs={6}>

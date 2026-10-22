@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
+import { shortParty } from "../_lib/format";
+
 // New Order / Edit order. An order (ADH's "#19") is one customer, one ship
 // month → delivery month, one product and quantity. The contract (yearly LTC)
 // is optional; picking it fills customer / supplier and the premiums from its
@@ -430,7 +432,7 @@ export default function OrderFormDialog({
               </Grid>
               <Grid item xs={12}>
                 <Typography variant="overline" color="text.secondary">
-                  Vedanta side — PI and deposit
+                  {shortParty((suppliers.data ?? []).find((c) => c.id === form.supplierId)?.name) ?? "Supplier"} side — PI and deposit
                 </Typography>
               </Grid>
               <Grid item xs={6} sm={3}>

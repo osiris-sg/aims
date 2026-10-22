@@ -20,7 +20,7 @@ import { useShipments } from "../_lib/hooks";
 import { fmtDmy, shortCustomer } from "../_lib/format";
 import { FREE_DAYS_HELP, freeDays } from "../_lib/free-days";
 import { isOverdue, taskCounts, tradeTodayYmd } from "../_lib/tasks";
-import { arrivingThisWeek, byLine, orderHref, toDoLine } from "../_lib/inbox-threads";
+import { arrivingThisWeek, byLine, orderHref } from "../_lib/inbox-threads";
 import { L, resultBox } from "../_lib/inbox-cards";
 import { HOME_KEY, TradeTasksList, useMyTasks, useRefreshTasks } from "./TradeTasks";
 import { InboxThreadList, type InboxActions } from "./inbox/InboxThreadList";
@@ -95,18 +95,10 @@ export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTas
   const { inbox, tasks, shipments, today } = data;
   const counts = taskCounts(tasks, today);
   const arriving = arrivingThisWeek(shipments ?? [], today);
-  const questions = inbox?.toConfirm.total ?? 0;
-  // Round AB: the email questions are the cards below — the top line counts only tasks and arrivals.
-  const line = toDoLine({ overdue: counts.overdue, arriving: arriving.length });
+  // Round AC (owner): no "Dashboard" heading and no "To do: …" line — tasks and arrivals have their own sections below.
   const sortedTasks = [...(tasks ?? [])].sort((a, b) => Number(isOverdue(b, today)) - Number(isOverdue(a, today)) || a.dueAt.localeCompare(b.dueAt));
   return (
-    <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1200, mx: "auto" }} data-tour="sales-dashboard">
-      <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5 }}>
-        Dashboard
-      </Typography>
-      <Typography variant="body1" sx={{ mb: 2, fontWeight: 600, color: questions || counts.overdue ? "warning.main" : "text.secondary" }} data-tour="dashboard-todo">
-        {data.loading ? "Loading…" : line}
-      </Typography>
+    <Box sx={{ p: { xs: 1.5, md: 3 }, pt: { xs: 1, md: 2 }, maxWidth: 1200, mx: "auto" }} data-tour="sales-dashboard">
       <Stack spacing={2}>
         <Section
           title={actions.lang === "ja" ? "確認が必要なメール" : "Emails waiting for you"}

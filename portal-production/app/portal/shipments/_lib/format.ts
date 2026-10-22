@@ -169,3 +169,7 @@ export function shortCustomer(name: string | null | undefined): string | null {
       .trim() || n
   );
 }
+
+/** Round AC: the supplier's short name for labels ("Vedanta side", "MIND ID side", "SIAE side"); falls back to the customer rule. */
+export const shortParty = (name: string | null | undefined): string | null =>
+  /vedanta/i.test(name ?? "") ? "Vedanta" : /siae|sri indah/i.test(name ?? "") ? "SIAE" : /mind id/i.test(name ?? "") ? "MIND ID" : /inalum/i.test(name ?? "") ? "Inalum" : shortCustomer(name);
