@@ -33,11 +33,17 @@ export class AdHocReturnDto {
   @Type(() => AdHocReturnLineDto)
   lines!: AdHocReturnLineDto[];
 
-  @ApiPropertyOptional({ description: 'Free text: the customer / site the items were collected from.' })
+  @ApiPropertyOptional({ description: 'Free text: who the items were collected from. Printed on the RDO until a real customer is attached.' })
   @IsOptional()
   @IsString()
-  @MaxLength(300)
-  collectedFrom?: string;
+  @MaxLength(200)
+  customerText?: string;
+
+  @ApiPropertyOptional({ description: 'Free text: the project / site. Stored as the run site and printed on the RDO until a real project is attached.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  projectText?: string;
 
   @ApiPropertyOptional({ description: 'Display name of the rider (snapshot).' })
   @IsOptional()

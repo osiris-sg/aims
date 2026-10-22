@@ -29,6 +29,28 @@ const RANK: Record<DeliveryStatus, number> = {
 /** Thrown to skip DO creation for a draft; caught by the same best-effort catch. */
 class SkipDraftDo extends Error {}
 
+/**
+ * AD-HOC RETURN notes (2026-10-22): the run's `notes` is the only free-text
+ * home for what the rider typed (no schema change), one fact per line:
+ *   Customer: <text>      Project: <text>      Item: <ID as typed>  (one per ID)
+ *   Untagged IDs: a, b    Linked: <ID> = <sku>
+ * The field sign screen reads the Item / Customer lines back; the RDO prints
+ * Customer / Project while no real customer / project is linked.
+ */
+export function parseAdHocReturnNotes(notes: string | null | undefined): { customer: string | null; project: string | null; items: string[] } {
+  const out = { customer: null as string | null, project: null as string | null, items: [] as string[] };
+  for (const line of (notes ?? '').split(/\r?\n/)) {
+    const m = /^(Customer|Project|Item):\s*(.*)$/.exec(line.trim());
+    if (!m) continue;
+    const value = m[2].trim();
+    if (!value) continue;
+    if (m[1] === 'Customer') out.customer = out.customer ?? value;
+    else if (m[1] === 'Project') out.project = out.project ?? value;
+    else out.items.push(value);
+  }
+  return out;
+}
+
 import { enqueueDeliveryGroupPost } from '../delivery-group-posts/enqueue';
 @Injectable()
 export class DeliveriesService {
@@ -4904,7 +4926,7 @@ export class DeliveriesService {
       const run = await this.prisma.delivery.findFirst({
         where: { id: deliveryId, organizationId },
         select: {
-          id: true, deliveryNumber: true, projectId: true, siteAddress: true,
+          id: true, deliveryNumber: true, projectId: true, siteAddress: true, notes: true, origin: true,
           customer: { select: { id: true, name: true } },
           items: { select: { assetId: true, inventoryId: true, description: true, quantity: true, documentId: true, deliveryStatus: true } },
         },
@@ -4955,11 +4977,18 @@ export class DeliveriesService {
         { projectId: run.projectId, siteAddress: run.siteAddress, customerId: run.customer?.id, date: new Date() },
         organizationId,
       );
+      // AD-HOC RETURN: what the rider typed stands in on the paper until the
+      // office links the real customer / project (then the real ones win).
+      const typed = run.origin === DeliveryOrigin.AD_HOC ? parseAdHocReturnNotes(run.notes) : { customer: null, project: null, items: [] };
+      const typedCustomer = !run.customer && typed.customer ? typed.customer : null;
+      const typedProject = !run.projectId && typed.project ? typed.project : null;
       const config: Record<string, any> = {
         items,
         ...(run.customer ? { customerId: run.customer.id, customerName: run.customer.name, customer: { id: run.customer.id, name: run.customer.name } } : {}),
+        ...(typedCustomer ? { customerName: typedCustomer, customer: { name: typedCustomer } } : {}),
         note: `Return of ${collected.length} unit(s) collected on delivery run #${run.deliveryNumber}.`,
         ...header,
+        ...(typedProject ? { projectName: typedProject, documentInfo: { ...(header.documentInfo ?? {}), projectName: typedProject } } : {}),
       };
       // Scheduled return: the run is born-linked to an RDO-PENDING-NN placeholder
       // (createScheduledReturn minted it, mirroring the DO scheme). Claim the real
@@ -5037,8 +5066,12 @@ export class DeliveriesService {
 
   /**
    * AD-HOC RETURN (field, 2026-10-22): the rider is on site with items to bring
-   * back and nothing scheduled. They key in each item's ID (serial / SKU), an
-   * optional "collected from", and optional photos per item.
+   * back and nothing scheduled. They key in each item's ID (serial / SKU) and
+   * optional photos per item.
+   *
+   * "Customer" and "Project" are free text (both optional): the project text is
+   * stored as the run's siteAddress, both go into the notes, and both print on
+   * the RDO until the office attaches the real customer / project.
    *
    * Each ID is matched the way the manual-serial resolver matches (sku first,
    * then the nameplate serialNumber; case-insensitive, separators ignored):
@@ -5104,12 +5137,17 @@ export class DeliveriesService {
     const lines = resolved.filter((r) => r.reason !== 'duplicate');
     const untaggedDescription = (raw: string) => `Untagged item: ${raw}`;
     const untaggedRaw = lines.filter((r) => !r.unit).map((r) => r.raw);
-    const collectedFrom = dto.collectedFrom?.trim() || null;
+    const customerText = dto.customerText?.trim() || null;
+    const projectText = dto.projectText?.trim() || null;
+    // One fact per line (see parseAdHocReturnNotes). Every typed ID is kept
+    // in order so the sign screen can list the items exactly as typed.
     const notes = [
       'Ad-hoc return recorded in the field.',
-      ...(collectedFrom ? [`Collected from: ${collectedFrom}.`] : []),
-      ...(untaggedRaw.length ? [`Untagged IDs: ${untaggedRaw.join(', ')}.`] : []),
-    ].join(' ');
+      ...(customerText ? [`Customer: ${customerText}`] : []),
+      ...(projectText ? [`Project: ${projectText}`] : []),
+      ...typed.map((t) => `Item: ${t.raw}`),
+      ...(untaggedRaw.length ? [`Untagged IDs: ${untaggedRaw.join(', ')}`] : []),
+    ].join('\n');
     const now = new Date();
 
     let delivery: Prisma.DeliveryGetPayload<{ include: { items: true } }> | null = null;
@@ -5129,7 +5167,9 @@ export class DeliveriesService {
             origin: DeliveryOrigin.AD_HOC,
             riderUserId,
             riderName: dto.riderName,
-            siteAddress: collectedFrom,
+            // The free-text project doubles as the site, so the RDO's
+            // "Delivery From" reads it through the ordinary header path.
+            siteAddress: projectText,
             notes,
             items: {
               create: lines.map((r, i) =>
@@ -5307,7 +5347,7 @@ export class DeliveriesService {
     if (rawId) {
       await this.prisma.delivery.update({
         where: { id: deliveryId },
-        data: { notes: `${run.notes ?? ''} Linked: ${rawId} = ${unit.sku}.`.trim() },
+        data: { notes: `${run.notes ?? ''}\nLinked: ${rawId} = ${unit.sku}`.trim() },
       });
     }
     this.logger.log(`Return run #${run.deliveryNumber}: untagged line "${rawId}" linked to unit ${unit.sku}.`);

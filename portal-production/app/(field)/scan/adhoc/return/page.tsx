@@ -6,7 +6,6 @@ import { useAuth, useUser } from "@clerk/nextjs";
 import { Alert, Box, Button, CircularProgress, IconButton, Paper, Stack, TextField, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import CloseIcon from "@mui/icons-material/Close";
-import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import { capturePosition } from "@/helpers/geolocation";
@@ -16,13 +15,17 @@ import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 import FieldBackButton from "../../../components/FieldBackButton";
 
 /**
- * AD-HOC RETURN, screen 1 (2026-10-22): the rider keys in the ID of every item
- * they are bringing back (serial or SKU), optionally where it was collected
- * from and up to 8 photos per item. Continue creates the return run
- * (POST /deliveries/adhoc-return): each ID that matches a unit out on rental
- * becomes a normal unit return line and is collected (stock back to instock);
- * anything else becomes an "Untagged item: <ID>" line for the office. The
- * review + customer signature is screen 2 (/scan/adhoc/return/:id/sign).
+ * AD-HOC RETURN, screens 1 and 2 (2026-10-22). One page, two steps, so the
+ * run is created only once everything is typed:
+ *   items    the ID of every item being brought back (serial or SKU), "Add
+ *            another item", up to 8 photos per item, Continue.
+ *   details  free-text Customer and Project (both optional), Continue + Back.
+ * Continue on `details` posts /deliveries/adhoc-return: a matching unit out on
+ * rental becomes a normal unit return line and is collected (stock back to
+ * instock); anything else stays an "Untagged item: <ID>" line for the office.
+ * Customer / Project ride on the run (notes + site) and print on the RDO until
+ * the office attaches the real ones. The signature is screen 3
+ * (/scan/adhoc/return/:id/sign).
  */
 
 const MAX_PHOTOS = 8;
@@ -38,8 +41,10 @@ export default function AdHocReturnEntryPage() {
   const router = useRouter();
   const { getToken } = useAuth();
   const { user } = useUser();
+  const [step, setStep] = useState<"items" | "details">("items");
   const [lines, setLines] = useState<Line[]>([{ key: 1, id: "", photos: [] }]);
-  const [collectedFrom, setCollectedFrom] = useState("");
+  const [customer, setCustomer] = useState("");
+  const [project, setProject] = useState("");
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +53,8 @@ export default function AdHocReturnEntryPage() {
     if (typeof window !== "undefined" && window.history.length > 1) router.back();
     else router.replace("/scan/adhoc");
   }, [router]);
-  useFieldAppBar({ title: "New return", onBack: goBack, backDisabled: submitting });
+  const back = step === "details" ? () => setStep("items") : goBack;
+  useFieldAppBar({ title: "New return", onBack: back, backDisabled: submitting });
 
   const uploadPhoto = async (blob: Blob): Promise<string | null> => {
     const token = await getToken();
@@ -80,7 +86,8 @@ export default function AdHocReturnEntryPage() {
         { path: "/deliveries/adhoc-return", method: "POST" },
         {
           lines: filled.map((l) => ({ id: l.id.trim(), ...(l.photos.length ? { photos: l.photos.map((p) => p.key) } : {}) })),
-          ...(collectedFrom.trim() ? { collectedFrom: collectedFrom.trim() } : {}),
+          ...(customer.trim() ? { customerText: customer.trim() } : {}),
+          ...(project.trim() ? { projectText: project.trim() } : {}),
           ...(technicianName ? { riderName: technicianName, technicianName } : {}),
           ...(gps ? { latitude: gps.latitude, longitude: gps.longitude } : {}),
         },
@@ -98,15 +105,53 @@ export default function AdHocReturnEntryPage() {
     }
   };
 
+  if (step === "details") {
+    return (
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
+        <TextField
+          label="Customer"
+          value={customer}
+          onChange={(e) => setCustomer(e.target.value)}
+          fullWidth
+          size="small"
+          inputProps={{ maxLength: 200 }}
+          disabled={submitting}
+        />
+        <TextField
+          label="Project"
+          value={project}
+          onChange={(e) => setProject(e.target.value)}
+          fullWidth
+          size="small"
+          inputProps={{ maxLength: 200 }}
+          disabled={submitting}
+        />
+
+        {error && (
+          <Alert severity="error" onClose={() => setError(null)}>
+            {error}
+          </Alert>
+        )}
+
+        <Button variant="contained" onClick={() => void submit()} disabled={!canContinue} fullWidth sx={FIELD_BUTTON_SX}>
+          {submitting ? <CircularProgress size={22} color="inherit" /> : "Continue"}
+        </Button>
+        <Button
+          variant="outlined"
+          color="inherit"
+          onClick={() => setStep("items")}
+          disabled={submitting}
+          fullWidth
+          sx={{ ...FIELD_BUTTON_SX, color: "text.primary", borderColor: "divider", bgcolor: "background.paper", fontWeight: 600 }}
+        >
+          Back
+        </Button>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Stack direction="row" spacing={1.5} alignItems="center">
-        <AssignmentReturnIcon color="primary" sx={{ fontSize: 32 }} />
-        <Typography variant="body2" color="text.secondary">
-          Key in the ID on each item you are bringing back. A known unit is returned to stock; an unknown ID is kept for the office to sort out.
-        </Typography>
-      </Stack>
-
       {lines.map((l, idx) => (
         <Paper key={l.key} variant="outlined" sx={{ borderRadius: "16px", p: 2 }}>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
@@ -132,7 +177,7 @@ export default function AdHocReturnEntryPage() {
             sx={{ mb: 2 }}
           />
           <PhotoCaptureField
-            label="Photos (optional)"
+            label="Photos"
             photos={l.photos}
             onChange={(photos) => setLine(l.key, { photos })}
             upload={uploadPhoto}
@@ -155,25 +200,14 @@ export default function AdHocReturnEntryPage() {
         Add another item
       </Button>
 
-      <TextField
-        label="Collected from (optional)"
-        placeholder="Customer or site"
-        value={collectedFrom}
-        onChange={(e) => setCollectedFrom(e.target.value)}
-        fullWidth
-        size="small"
-        inputProps={{ maxLength: 300 }}
-        disabled={submitting}
-      />
-
       {error && (
         <Alert severity="error" onClose={() => setError(null)}>
           {error}
         </Alert>
       )}
 
-      <Button variant="contained" onClick={() => void submit()} disabled={!canContinue} fullWidth sx={FIELD_BUTTON_SX}>
-        {submitting ? <CircularProgress size={22} color="inherit" /> : `Continue${filled.length ? ` (${filled.length})` : ""}`}
+      <Button variant="contained" onClick={() => setStep("details")} disabled={!canContinue} fullWidth sx={FIELD_BUTTON_SX}>
+        {`Continue${filled.length ? ` (${filled.length})` : ""}`}
       </Button>
 
       <FieldBackButton disabled={submitting} />

@@ -3,35 +3,28 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Alert, Box, Button, CircularProgress, Divider, Stack, TextField, Typography } from "@mui/material";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
+import { Alert, Box, Button, CircularProgress, Divider, TextField, Typography } from "@mui/material";
 import { request } from "@/helpers/request";
 import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/SignaturePadField";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
-import { FIELD_BUTTON_SX, ListCard, StatusChip } from "@/app/(field)/components/fieldUi";
+import { FIELD_BUTTON_SX, ListCard } from "@/app/(field)/components/fieldUi";
 
 /**
- * AD-HOC RETURN, screen 2 (2026-10-22): the review + the one customer
- * signature. Shows which typed IDs matched a unit (returned to stock) and
- * which stayed untagged (kept for the office), then the customer's name and
- * signature. Completing posts the ordinary finalize-return, which stamps the
- * proof, completes the lines and creates the Return Delivery Order, and lands
- * on the finished screen with Print / Download RDO.
+ * AD-HOC RETURN, screen 3 (2026-10-22): the items as typed, the customer name
+ * (prefilled from screen 2) and the one signature. Completing posts the
+ * ordinary finalize-return, which stamps the proof, completes the lines and
+ * creates the Return Delivery Order, then lands on the finished screen with
+ * Print / Download RDO. Matched vs untagged is the office's view, not shown
+ * here.
  *
- * Reload-safe: everything shown is read back off the run, so a rider who
- * backs out finds the same run under In progress and can finish it from the
- * basket's "Ready to finish" card as well.
+ * Reload-safe: everything is read back off the run (the typed IDs and the
+ * customer live on its notes, one "Item:" / "Customer:" line each).
  */
 
 interface RunItem {
   id: string;
   description: string | null;
-  assetId: string | null;
-  inventoryId: string | null;
-  deliveryStatus: string;
-  inventory: { sku: string | null; status?: string | null } | null;
-  asset: { name: string | null } | null;
+  inventory: { sku: string | null } | null;
 }
 
 interface Run {
@@ -39,11 +32,21 @@ interface Run {
   deliveryNumber: number;
   status: string;
   direction?: "OUTBOUND" | "RETURN";
-  siteAddress: string | null;
+  notes: string | null;
   items: RunItem[];
 }
 
-const untaggedId = (description: string | null) => (description ?? "").replace(/^Untagged item:\s*/i, "").trim();
+/** The "Item:" / "Customer:" lines the run was born with (see the API's parseAdHocReturnNotes). */
+function parseNotes(notes: string | null | undefined): { customer: string | null; items: string[] } {
+  const out = { customer: null as string | null, items: [] as string[] };
+  for (const line of (notes ?? "").split(/\r?\n/)) {
+    const m = /^(Customer|Item):\s*(.*)$/.exec(line.trim());
+    if (!m || !m[2].trim()) continue;
+    if (m[1] === "Customer") out.customer = out.customer ?? m[2].trim();
+    else out.items.push(m[2].trim());
+  }
+  return out;
+}
 
 export default function AdHocReturnSignPage() {
   const router = useRouter();
@@ -80,6 +83,8 @@ export default function AdHocReturnSignPage() {
           return;
         }
         setRun(data);
+        const typed = parseNotes(data.notes).customer;
+        if (typed) setCustomerName(typed);
       } catch (e: any) {
         if (!cancelled) setError(e?.message ?? "Could not load this return");
       } finally {
@@ -91,8 +96,12 @@ export default function AdHocReturnSignPage() {
     };
   }, [deliveryId, getToken, router]);
 
-  const matched = run?.items.filter((i) => i.inventoryId) ?? [];
-  const untagged = run?.items.filter((i) => !i.inventoryId && !i.assetId) ?? [];
+  // The IDs exactly as typed; a run without them (none born here) falls back
+  // to its lines.
+  const typedItems = parseNotes(run?.notes).items;
+  const items: string[] = typedItems.length
+    ? typedItems
+    : (run?.items ?? []).map((i) => i.inventory?.sku || (i.description ?? "").replace(/^Untagged item:\s*/i, "") || "Item");
 
   const submit = async () => {
     if (!run) return;
@@ -145,86 +154,23 @@ export default function AdHocReturnSignPage() {
 
   return (
     <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
-      <Typography variant="body2" color="text.secondary">
-        Check what was recognised, then take the customer&apos;s signature.
-        {run.siteAddress ? ` Collected from ${run.siteAddress}.` : ""}
-      </Typography>
-
       <Box>
-        <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
-          Matched units ({matched.length})
+        <Typography variant="subtitle1" sx={{ mb: 0.75 }}>
+          Items
         </Typography>
-        {matched.length === 0 ? (
-          <Typography variant="body2" color="text.secondary">
-            None of the IDs matched a unit out on rental.
-          </Typography>
-        ) : (
-          <ListCard>
-            {matched.map((it, i) => (
-              <React.Fragment key={it.id}>
-                {i > 0 && <Divider sx={{ mx: 2 }} />}
-                <Stack direction="row" spacing={1.5} alignItems="center" sx={{ px: 2, py: 1.5 }}>
-                  <CheckCircleIcon color="success" fontSize="small" />
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography variant="body2" fontWeight={600} sx={{ fontFamily: "monospace" }}>
-                      {it.inventory?.sku ?? "Unit"}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {it.asset?.name ?? it.description ?? ""}
-                    </Typography>
-                  </Box>
-                  <StatusChip label="BACK IN STOCK" tone="good" />
-                </Stack>
-              </React.Fragment>
-            ))}
-          </ListCard>
-        )}
+        <ListCard>
+          {items.map((id, i) => (
+            <React.Fragment key={`${id}-${i}`}>
+              {i > 0 && <Divider sx={{ mx: 2 }} />}
+              <Typography variant="body2" sx={{ px: 2, py: 1.5, fontFamily: "monospace", fontWeight: 600 }}>
+                {id}
+              </Typography>
+            </React.Fragment>
+          ))}
+        </ListCard>
       </Box>
 
-      <Box>
-        <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
-          Untagged items ({untagged.length})
-        </Typography>
-        {untagged.length === 0 ? (
-          <Typography variant="body2" color="text.secondary">
-            Every ID matched a unit.
-          </Typography>
-        ) : (
-          <>
-            <ListCard>
-              {untagged.map((it, i) => (
-                <React.Fragment key={it.id}>
-                  {i > 0 && <Divider sx={{ mx: 2 }} />}
-                  <Stack direction="row" spacing={1.5} alignItems="center" sx={{ px: 2, py: 1.5 }}>
-                    <HelpOutlineIcon color="warning" fontSize="small" />
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="body2" fontWeight={600} sx={{ fontFamily: "monospace" }}>
-                        {untaggedId(it.description) || "Item"}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Not a known unit out on rental
-                      </Typography>
-                    </Box>
-                    <StatusChip label="FOR OFFICE" tone="warn" />
-                  </Stack>
-                </React.Fragment>
-              ))}
-            </ListCard>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
-              Untagged items go on the return note as typed. The office links them to real units later.
-            </Typography>
-          </>
-        )}
-      </Box>
-
-      <Divider />
-
-      <Typography variant="h6" fontWeight={700}>
-        Customer signature
-      </Typography>
-      <Typography variant="body2" color="text.secondary">
-        One signature covers the whole return. It completes the collection and creates the Return Delivery Order.
-      </Typography>
+      <Typography variant="subtitle1">Customer signature</Typography>
 
       <TextField
         label="Customer name"
