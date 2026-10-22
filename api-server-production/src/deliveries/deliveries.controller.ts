@@ -337,6 +337,24 @@ export class DeliveriesController {
     });
   }
 
+  // OFFICE: attach the real customer and/or project to an ad-hoc RETURN (run
+  // + RDO header; matched units' assignments closed at the return date).
+  @Post(':id/attach-customer-project')
+  @Permissions('projects:update')
+  attachCustomerProject(
+    @Param('id') id: string,
+    @Body() body: { projectId?: string | null; customerId?: string | null },
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    if (!body?.projectId && !body?.customerId) throw new BadRequestException('projectId or customerId is required');
+    const u: any = req.user || {};
+    const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+    return this.service.attachCustomerProjectToAdHocReturn(id, body, org.id, {
+      actor: { id: u.id, name: name || undefined, email: u.emailAddresses?.[0]?.emailAddress },
+    });
+  }
+
   // CUSTOMER SIGNATURE (outbound). Full sign-off once every item is delivered;
   // a partial sign-off for the items handed over so far (run stays open).
   @Post(':id/finalize')

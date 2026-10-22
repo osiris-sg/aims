@@ -271,6 +271,14 @@ export default function DeliveryDetailPage() {
   const [attachProjectId, setAttachProjectId] = useState("");
   const [attaching, setAttaching] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
+  // Attach customer / project (ad-hoc RETURN runs, 2026-10-22).
+  const [attachReturnOpen, setAttachReturnOpen] = useState(false);
+  const [returnCustomers, setReturnCustomers] = useState<Array<{ id: string; name: string }>>([]);
+  const [returnProjects, setReturnProjects] = useState<Array<{ id: string; name: string; customerId: string | null }>>([]);
+  const [returnCustomerId, setReturnCustomerId] = useState("");
+  const [returnProjectId, setReturnProjectId] = useState("");
+  const [attachingReturn, setAttachingReturn] = useState(false);
+  const [attachReturnError, setAttachReturnError] = useState<string | null>(null);
   // Link unit (ad-hoc RETURN runs, 2026-10-22): the untagged line's kebab menu
   // (anchored to the click position, see CLAUDE.md) and the unit picker.
   const [lineMenu, setLineMenu] = useState<{ pos: { left: number; top: number }; itemId: string } | null>(null);
@@ -307,6 +315,33 @@ export default function DeliveryDetailPage() {
     })();
     return () => { cancelled = true; };
   }, [attachOpen, run?.customer?.id, getToken]);
+
+  // Customers + projects for the ad-hoc return dialog, loaded when it opens.
+  useEffect(() => {
+    if (!attachReturnOpen) return;
+    let cancelled = false;
+    setAttachReturnError(null);
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const [cRes, pRes] = await Promise.all([
+          request({ path: "/customers", method: "POST" }, { page: 1, limit: 500 }, token),
+          request({ path: "/projects", method: "POST" }, { page: 1, limit: 500 }, token),
+        ]);
+        const cBody = cRes?.data ?? cRes;
+        const pBody = pRes?.data ?? pRes;
+        const cList = Array.isArray(cBody?.docs) ? cBody.docs : Array.isArray(cBody) ? cBody : [];
+        const pList = Array.isArray(pBody?.docs) ? pBody.docs : Array.isArray(pBody) ? pBody : [];
+        if (cancelled) return;
+        setReturnCustomers(cList.map((c: any) => ({ id: c.id, name: c.name })));
+        setReturnProjects(pList.map((p: any) => ({ id: p.id, name: p.name, customerId: p.customerId ?? p.customer?.id ?? null })));
+      } catch {
+        if (!cancelled) setAttachReturnError("Could not load customers and projects");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [attachReturnOpen, getToken]);
 
   // Units the office can pick for an untagged line: everything out on rental
   // (or sold), filtered client-side by what they type. Prefilled with the ID
@@ -525,6 +560,34 @@ export default function DeliveryDetailPage() {
   // the backend (which never touches unit status — the DO flip reads this type).
   // RENTAL is the default, so a no-deployment unit never calls this (the Sale
   // button is disabled and re-clicking the selected Rental button is a no-op).
+  const doAttachReturn = async () => {
+    if (!run || attachingReturn || (!returnCustomerId && !returnProjectId)) return;
+    setAttachingReturn(true);
+    setAttachReturnError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request(
+        { path: `/deliveries/${run.id}/attach-customer-project`, method: "POST" },
+        { ...(returnProjectId ? { projectId: returnProjectId } : {}), ...(returnCustomerId ? { customerId: returnCustomerId } : {}) },
+        token,
+      );
+      if (res?.success === false) throw new Error(res?.message ?? "Could not attach");
+      const summary = (res?.data ?? res)?.attachResult?.summary;
+      toast.success(summary || "Attached.", { autoClose: 12000 });
+      setAttachReturnOpen(false);
+      setReturnCustomerId("");
+      setReturnProjectId("");
+      await load();
+    } catch (e: any) {
+      const msg = e?.message ?? "Could not attach";
+      setAttachReturnError(msg);
+      toast.error(msg);
+    } finally {
+      setAttachingReturn(false);
+    }
+  };
+
   const doLinkUnit = async () => {
     if (!run || !linkItem || !unitId || linking) return;
     setLinking(true);
@@ -679,6 +742,17 @@ export default function DeliveryDetailPage() {
             <Box sx={{ flex: 1 }} />
             <Button size="small" variant="contained" onClick={() => setAttachOpen(true)}>
               Attach project
+            </Button>
+          </>
+        )}
+        {/* The return twin: an ad-hoc return knows only what the rider typed.
+            Attaching the real customer / project fixes the run and its RDO
+            (Bill To etc.) and closes the units' assignments on that project. */}
+        {run.origin === "AD_HOC" && run.direction === "RETURN" && !run.project && run.status !== "cancelled" && (
+          <>
+            <Box sx={{ flex: 1 }} />
+            <Button size="small" variant="contained" onClick={() => setAttachReturnOpen(true)}>
+              Attach customer / project
             </Button>
           </>
         )}
@@ -1230,6 +1304,68 @@ export default function DeliveryDetailPage() {
           <Button onClick={() => setAttachOpen(false)} disabled={attaching}>Cancel</Button>
           <Button variant="contained" onClick={() => void doAttachProject()} disabled={attaching || !attachProjectId}>
             {attaching ? <CircularProgress size={18} /> : "Attach"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={attachReturnOpen} onClose={() => !attachingReturn && setAttachReturnOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Attach customer / project</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            This return was recorded in the field with typed names. Picking the real customer and project puts
+            them on the run and on the Return Delivery Order, and closes the returned units&apos; assignments on
+            that project at the return date. Signatures and proof are not touched.
+          </Typography>
+          {attachReturnError && <Alert severity="error" sx={{ mb: 2 }}>{attachReturnError}</Alert>}
+          <TextField
+            select
+            fullWidth
+            size="small"
+            label="Customer"
+            value={returnCustomerId}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+              setReturnCustomerId(e.target.value);
+              // A project of another customer no longer fits.
+              const p = returnProjects.find((x) => x.id === returnProjectId);
+              if (p && e.target.value && p.customerId && p.customerId !== e.target.value) setReturnProjectId("");
+            }}
+            disabled={attachingReturn}
+            sx={{ mb: 2 }}
+          >
+            <MenuItem value="">Not yet</MenuItem>
+            {returnCustomers.map((c) => (
+              <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            select
+            fullWidth
+            size="small"
+            label="Project"
+            value={returnProjectId}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+              setReturnProjectId(e.target.value);
+              const p = returnProjects.find((x) => x.id === e.target.value);
+              if (p?.customerId) setReturnCustomerId(p.customerId);
+            }}
+            disabled={attachingReturn}
+          >
+            <MenuItem value="">Not yet</MenuItem>
+            {returnProjects
+              .filter((p) => !returnCustomerId || !p.customerId || p.customerId === returnCustomerId)
+              .map((p) => (
+                <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+              ))}
+          </TextField>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAttachReturnOpen(false)} disabled={attachingReturn}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => void doAttachReturn()}
+            disabled={attachingReturn || (!returnCustomerId && !returnProjectId)}
+          >
+            {attachingReturn ? <CircularProgress size={18} /> : "Attach"}
           </Button>
         </DialogActions>
       </Dialog>

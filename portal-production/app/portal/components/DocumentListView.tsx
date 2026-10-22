@@ -9,6 +9,8 @@ import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import StatusChip from "@/components/StatusChip";
 import {
+  Stack,
+  Chip,
   Box,
   Card,
   CardContent,
@@ -325,7 +327,20 @@ export default function DocumentListView({
       // Fixed-width chip/date columns: the flexible width goes to Customer
       // and Reference instead (guru 2026-08-18).
       pxWidth: 150,
-      cell: ({ row }: any) => <StatusChip status={row.original.status} />,
+      cell: ({ row }: any) => {
+        // An RDO born from an ad-hoc return has no real customer / project
+        // until the office attaches them on the delivery run (2026-10-22).
+        const r = row.original;
+        const isRdo = ["RETURN_DELIVERY_ORDER", "RDO"].includes(String(r.documentType || "").toUpperCase());
+        const c: any = r.config || {};
+        const needsInfo = isRdo && (!(c?.customer?.id || c?.customerId) || !r.projectId);
+        return (
+          <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap>
+            <StatusChip status={r.status} />
+            {needsInfo && <Chip size="small" color="warning" variant="outlined" label="Needs info" sx={{ height: 20, fontSize: "0.7rem" }} />}
+          </Stack>
+        );
+      },
     },
     dateColumn === "issue"
       ? {

@@ -5354,6 +5354,159 @@ export class DeliveriesService {
     return { ...(await this.findById(deliveryId, organizationId)), linked: { itemId: item.id, inventoryId: unit.id, sku: unit.sku, rawId } };
   }
 
+  /**
+   * OFFICE (run page, 2026-10-22): attach the real customer and/or project to
+   * an AD-HOC RETURN. The return twin of attachProjectToAdHocRun, without the
+   * deploy / commit / invoice steps (a return off-hires, it never deploys):
+   *   1. The RDO(s) get the customer block (customerId, name, code, address,
+   *      email, Bill To), the project name and Document.projectId. Only those
+   *      keys: lines, signature and proof rows are never touched.
+   *   2. Matched units: their still-open assignment on THAT project is closed
+   *      at the return date, and the deployment off-hired when it has no other
+   *      unit still out (same guard as collection). Idempotent.
+   *   3. LAST, the run gets projectId + customerId; the typed Customer /
+   *      Project text (notes, siteAddress) is replaced by the real names, so
+   *      Missing clears.
+   * Picking a project implies its customer. A customer alone is allowed (the
+   * project can follow later); a project whose customer differs from the one
+   * picked is refused rather than guessed.
+   */
+  async attachCustomerProjectToAdHocReturn(
+    deliveryId: string,
+    dto: { projectId?: string | null; customerId?: string | null },
+    organizationId: string,
+    opts: { actor?: { id?: string; name?: string; email?: string } } = {},
+  ) {
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: {
+        id: true, deliveryNumber: true, origin: true, direction: true, status: true, projectId: true, customerId: true, notes: true, siteAddress: true, completedAt: true,
+        project: { select: { name: true } },
+        items: { select: { id: true, inventoryId: true, assetId: true, description: true, documentId: true, deliveredAt: true, completedAt: true } },
+      },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.origin !== DeliveryOrigin.AD_HOC || run.direction !== DeliveryDirection.RETURN) {
+      throw new BadRequestException('Only an ad-hoc return needs its customer and project attached here');
+    }
+    if (run.status === 'cancelled') throw new BadRequestException('This return was cancelled');
+    if (run.projectId) throw new BadRequestException(`Already attached to ${run.project?.name ?? 'a project'}`);
+    const projectId = dto.projectId?.trim() || null;
+    const pickedCustomerId = dto.customerId?.trim() || null;
+    if (!projectId && !pickedCustomerId) throw new BadRequestException('Pick a customer or a project');
+
+    const customerSelect = { id: true, name: true, customerCode: true, address: true, email: true, phone: true, gstRegNo: true } as const;
+    const project = projectId
+      ? await this.prisma.project.findFirst({
+          where: { id: projectId, organizationId },
+          select: { id: true, name: true, address: true, customerId: true, customer: { select: customerSelect } },
+        })
+      : null;
+    if (projectId && !project) throw new NotFoundException('Project not found in this organization');
+    const pickedCustomer = pickedCustomerId
+      ? await this.prisma.customer.findFirst({ where: { id: pickedCustomerId, organizationId }, select: customerSelect })
+      : null;
+    if (pickedCustomerId && !pickedCustomer) throw new NotFoundException('Customer not found in this organization');
+    if (project?.customerId && pickedCustomer && project.customerId !== pickedCustomer.id) {
+      throw new BadRequestException(`${project.name} belongs to ${project.customer?.name ?? 'another customer'}, not ${pickedCustomer.name}. Pick a project of that customer, or just the customer.`);
+    }
+    const customer = project?.customer ?? pickedCustomer ?? null;
+    if (!project && !customer) throw new BadRequestException('Pick a customer or a project');
+    if (!project && run.customerId && run.customerId === customer?.id) {
+      throw new BadRequestException(`${customer?.name} is already attached; pick a project to attach as well`);
+    }
+
+    // 1. The RDO(s): header only.
+    const documentIds = [...new Set(run.items.map((i) => i.documentId).filter((v): v is string => !!v))];
+    for (const docId of documentIds) {
+      const doc = await this.prisma.document.findFirst({ where: { id: docId, organizationId }, select: { id: true, config: true } });
+      if (!doc) continue;
+      const cfg: Record<string, any> = { ...((doc.config as any) ?? {}) };
+      cfg.documentInfo = { ...(cfg.documentInfo ?? {}) };
+      if (customer) {
+        cfg.customerId = customer.id;
+        cfg.customerName = customer.name;
+        if (customer.customerCode) cfg.customerCode = customer.customerCode;
+        if (customer.address) cfg.customerAddress = customer.address;
+        if (customer.email) cfg.customerEmail = customer.email;
+        // Replace the typed name block outright: the real record wins.
+        cfg.customer = { ...customer };
+        cfg.billTo = customer.address ?? '';
+      }
+      if (project) {
+        cfg.projectName = project.name;
+        cfg.documentInfo.projectName = project.name;
+        // "Delivery From" was the typed project text; the project's own site replaces it.
+        cfg.deliveryTo = project.address ?? project.name;
+      }
+      await this.prisma.document.update({
+        where: { id: docId },
+        data: { config: cfg as Prisma.InputJsonValue, ...(project ? { projectId: project.id } : {}) },
+      });
+    }
+
+    // 2. Matched units: close the open assignment on this project at the return date.
+    let closed = 0;
+    let offHired = 0;
+    const notes: string[] = [];
+    if (project) {
+      for (const it of run.items) {
+        if (!it.inventoryId) continue;
+        const returnedAt = it.completedAt ?? it.deliveredAt ?? run.completedAt ?? new Date();
+        const assignment = await this.prisma.assignment.findFirst({
+          where: { projectId: project.id, inventoryId: it.inventoryId, endDate: null },
+          select: { id: true, projectDeploymentId: true },
+        });
+        if (!assignment) continue;
+        await this.prisma.assignment.update({ where: { id: assignment.id }, data: { endDate: returnedAt } });
+        closed++;
+        const depId = assignment.projectDeploymentId;
+        if (!depId) continue;
+        const dep = await this.prisma.projectDeployment.findUnique({ where: { id: depId }, select: { status: true } });
+        if (dep?.status !== DeploymentStatus.ACTIVE) continue;
+        const siblings = await this.prisma.assignment.findMany({
+          where: { projectDeploymentId: depId, endDate: null, inventoryId: { not: it.inventoryId } },
+          select: { inventoryId: true },
+        });
+        const sibIds = siblings.map((s) => s.inventoryId).filter((v): v is string => !!v);
+        const stillOut = sibIds.length ? await this.prisma.inventory.count({ where: { id: { in: sibIds }, status: InventoryStatus.rental } }) : 0;
+        if (stillOut > 0) {
+          notes.push(`${stillOut} other unit(s) of the same deployment are still out, so it keeps billing`);
+          continue;
+        }
+        try {
+          await this.projectsService.offHireDeployment(depId, organizationId, returnedAt.toISOString());
+          offHired++;
+        } catch (err: any) {
+          this.logger.warn(`attachCustomerProjectToAdHocReturn: off-hire of deployment ${depId} failed: ${err?.message}`);
+          notes.push('A deployment could not be off-hired; check the project page');
+        }
+      }
+    }
+
+    // 3. LAST, the run: real ids in, typed text out.
+    const keptNotes = (run.notes ?? '')
+      .split(/\r?\n/)
+      .filter((line) => !/^(Customer|Project):/.test(line.trim()));
+    const attachedLine = `Attached by office: ${[customer?.name, project?.name].filter(Boolean).join(' / ')}`;
+    await this.prisma.delivery.update({
+      where: { id: deliveryId },
+      data: {
+        ...(project ? { projectId: project.id, siteAddress: project.address ?? project.name } : {}),
+        ...(customer ? { customerId: customer.id } : {}),
+        notes: [...keptNotes, attachedLine].join('\n').trim(),
+      },
+    });
+    this.logger.log(`Ad-hoc return #${run.deliveryNumber}: attached ${attachedLine.slice(20)}; ${closed} assignment(s) closed, ${offHired} deployment(s) off-hired.`);
+    const summary = [
+      `Attached ${[customer?.name, project?.name].filter(Boolean).join(' / ')}.`,
+      documentIds.length ? 'The Return Delivery Order now carries them.' : 'No Return Delivery Order yet; it gets them when the customer signs.',
+      closed ? `${closed} assignment(s) closed on the return date${offHired ? `, ${offHired} deployment(s) off-hired` : ''}.` : '',
+      ...notes.map((n) => `${n}.`),
+    ].filter(Boolean).join(' ');
+    return { ...(await this.findById(deliveryId, organizationId)), attachResult: { summary, closed, offHired } };
+  }
+
   async skipInstall(deliveryId: string, inventoryId: string, organizationId: string) {
     const updated = await this.advanceDeliveryItem(deliveryId, inventoryId, 'skip', organizationId);
     if (!updated) {
