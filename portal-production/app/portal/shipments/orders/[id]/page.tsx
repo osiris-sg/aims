@@ -326,6 +326,7 @@ export default function OrderPage() {
     } else toast.success(act === "reopen" && r?.reopenedContract ? `Shipment reopened — order ${r.reopenedContract} was reopened too` : `Shipment ${act === "complete" ? "completed" : act === "cancel" ? "cancelled" : "reopened"}`);
   };
 
+  const unconfirmed = (o.checkFields ?? []).includes("status");
   return (
     // Round N: a fixed width (100% up to 1100px) — it no longer shrinks to the content and jumps when a step opens.
     <Box sx={{ p: { xs: 1.5, md: 3 }, width: "100%", maxWidth: 1100, mx: "auto", boxSizing: "border-box" }}>
@@ -361,6 +362,14 @@ export default function OrderPage() {
             : undefined
         }
         onActed={() => (manual.current = true)}
+        badge={
+          // Round AB (owner): "status" in checkFields = ADH has not confirmed the order yet (the INALM sample) — no reminders until "Mark confirmed".
+          unconfirmed ? (
+            <Tooltip title="ADH has not confirmed this order yet (shipped or not?). No reminders or alerts for it until it is marked confirmed below.">
+              <Chip size="small" color="warning" variant="outlined" label="Unconfirmed" sx={{ height: 20 }} data-tour="order-unconfirmed" />
+            </Tooltip>
+          ) : null
+        }
         subtitle={
           // Round R: line 2 = "Vedanta → SUS · Contract 454003422 · Sep 26 → Nov 26 · Invoice #1 + #2" — nothing else.
           <Typography variant="body2" color="text.secondary" data-tour="order-header-line2">
@@ -713,7 +722,7 @@ function OrderOverview({ order: o, onEdit }: { order: Order; onEdit: () => void 
   const p = o.profile;
   const check = new Set(o.checkFields ?? []);
   const confirm = useTradeMutation((a, oid: string) => a.updateOrder(oid, { checkFields: [] }));
-  const CHECK_LABELS: Record<string, string> = { customerId: "customer", contractId: "contract", clientPremium: "client premium", supplierPremium: "supplier premium", currentStep: "current step" };
+  const CHECK_LABELS: Record<string, string> = { customerId: "customer", contractId: "contract", clientPremium: "client premium", supplierPremium: "supplier premium", currentStep: "current step", status: "status (unconfirmed)" };
   const ck = (k: string | string[], value: React.ReactNode) =>
     (Array.isArray(k) ? k : [k]).some((x) => check.has(x)) ? (
       <>

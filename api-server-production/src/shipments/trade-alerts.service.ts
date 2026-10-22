@@ -1,4 +1,4 @@
-import { isTestRecord, testRecordIds } from './trade-test-orders';
+import { ALERTABLE_ORDER, isTestRecord, isUnconfirmed, mutedRecordIds } from './trade-test-orders';
 import { freeTimeLine, stepOverdueLine } from '../operator/push-text';
 import { ShipmentsNotifyService } from './shipments-notify.service';
 import { CUSTOM_KIND } from './trade-alerts';
@@ -63,8 +63,8 @@ export class TradeAlertsService {
     const out: PlannedAlert[] = [];
     // Shipments: CI received → tax funding / A/N; discharge / ETA → free time.
     const ships: any[] = await this.prisma.shipment.findMany({
-      // Round N: no reminders for test orders.
-      where: { organizationId, status: 'OPEN', orderId: { not: null }, order: { isTest: false } },
+      // Round N: no reminders for test orders; round AB: nor for unconfirmed ones ("status" in checkFields).
+      where: { organizationId, status: 'OPEN', orderId: { not: null }, order: ALERTABLE_ORDER },
       select: {
         id: true,
         seqNo: true,
@@ -112,13 +112,14 @@ export class TradeAlertsService {
     const receiptStep = (orderId: string | null, code: string) => receipts.find((r) => r.orderId === orderId && r.code === code);
     const invs: any[] = await this.prisma.tradeGeneratedDoc.findMany({
       where: { organizationId, status: 'FINAL', docType: { in: ['INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE'] } },
-      select: { id: true, docType: true, number: true, header: true, rows: true, orderId: true, shipmentId: true, order: { select: { status: true, customer: { select: { name: true } } } }, shipment: { select: { orderId: true, order: { select: { status: true, customer: { select: { name: true } } } } } } },
+      select: { id: true, docType: true, number: true, header: true, rows: true, orderId: true, shipmentId: true, order: { select: { status: true, isTest: true, checkFields: true, customer: { select: { name: true } } } }, shipment: { select: { orderId: true, order: { select: { status: true, isTest: true, checkFields: true, customer: { select: { name: true } } } } } } },
     });
     for (const g of invs) {
       const total = generatedInvoiceTotal(g);
       if (total <= 0) continue; // credit notes are not collected
       const orderId = g.orderId ?? g.shipment?.orderId ?? null;
       const order = g.order ?? g.shipment?.order ?? null;
+      if (order?.isTest || isUnconfirmed(order)) continue; // round AB: no reminders for test / unconfirmed orders
       const step = receiptStep(orderId, g.docType === 'INVOICE_1' ? 'INVOICE_1' : 'INVOICE_2');
       const paid = stepPaymentOf(step?.payment)?.amount ?? 0;
       const facts: InvoiceFacts = {
@@ -139,7 +140,7 @@ export class TradeAlertsService {
     }
     // Supplier deposits: PI date + the order's deposit term, until paid (step 1 done / paid).
     const deposits: any[] = await this.prisma.tradeOrder.findMany({
-      where: { organizationId, status: 'OPEN', isTest: false, piDate: { not: null } },
+      where: { organizationId, status: 'OPEN', ...ALERTABLE_ORDER, piDate: { not: null } },
       select: { id: true, year: true, orderNo: true, piNo: true, piDate: true, depositPaidAt: true, depositDueDays: true, depositDueUnit: true, steps: { where: { code: 'PI_PAYMENT' }, select: { status: true, notApplicable: true, payment: true } } },
     });
     for (const o of deposits) {
@@ -170,7 +171,7 @@ export class TradeAlertsService {
           },
         })
       : [];
-    const test = stuck.length ? await testRecordIds(this.prisma, organizationId) : null;
+    const test = stuck.length ? await mutedRecordIds(this.prisma, organizationId) : null;
     for (const st of stuck) {
       const open = (st.shipment?.status ?? st.order?.status ?? st.supplierOrder?.status) === 'OPEN';
       if (!open) continue;
@@ -266,7 +267,7 @@ export class TradeAlertsService {
   /** The daily digest to ADH staff (users holding shipments:read in the org) — AIMS's own mailer. */
   async digest(organizationId: string, now = new Date()) {
     const soon = new Date(now.getTime() + 3 * 86_400_000);
-    const test = await testRecordIds(this.prisma, organizationId);
+    const test = await mutedRecordIds(this.prisma, organizationId);
     const alerts: any[] = (
       await this.prisma.tradeAlert.findMany({
         where: { organizationId, status: { in: ['DUE', 'SCHEDULED'] }, dueAt: { lte: soon } },
@@ -315,14 +316,14 @@ export class TradeAlertsService {
     });
     // A record's own alerts always show; the org-wide list leaves test orders out (round N).
     if (q.shipmentId || q.orderId) return rows;
-    const test = await testRecordIds(this.prisma, organizationId);
+    const test = await mutedRecordIds(this.prisma, organizationId);
     return rows.filter((a) => !isTestRecord(test, a));
   }
 
   /** "My tasks today": due now and the next 3 days. */
   async myTasks(organizationId: string, now = new Date()) {
     const soon = new Date(now.getTime() + 3 * 86_400_000);
-    const test = await testRecordIds(this.prisma, organizationId);
+    const test = await mutedRecordIds(this.prisma, organizationId);
     const rows: any[] = await this.prisma.tradeAlert.findMany({ where: { organizationId, status: { in: ['DUE', 'SCHEDULED'] }, dueAt: { lte: soon } }, orderBy: { dueAt: 'asc' }, take: 100, select: ALERT_SELECT });
     return rows.filter((a) => !isTestRecord(test, a));
   }

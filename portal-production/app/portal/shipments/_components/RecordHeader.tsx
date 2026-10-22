@@ -35,6 +35,7 @@ export default function RecordHeader({
   onCancel,
   onReopen,
   extraMenu,
+  badge,
   blockers = [],
   onActed,
 }: {
@@ -53,6 +54,8 @@ export default function RecordHeader({
   onReopen: () => Promise<unknown>;
   /** Round N: more ⋮ items (e.g. "Mark as test" for ADH Managers). */
   extraMenu?: Array<{ label: string; hint?: string; onClick: () => void }>;
+  /** Round AB: a small chip after the status (an order's "Unconfirmed"). */
+  badge?: React.ReactNode;
   /** Other things Complete waits for (a contract: "shipment 198GX04822"). */
   blockers?: string[];
   /** Called before a manual action runs (so the page can tell it from an auto-complete). */
@@ -107,6 +110,7 @@ export default function RecordHeader({
           {title}
         </Typography>
         <RecordStatusChip status={status} />
+        {badge}
         {progress && <ProgressCell progress={progress} width={100} />}
         {progress && currentStep !== undefined && (
           // Round R: "Step 4 · Customer docs" right after the bar — no caption.
