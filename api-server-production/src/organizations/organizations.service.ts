@@ -218,7 +218,7 @@ export class OrganizationsService {
 
   async update(
     id: string,
-    data: { name?: string; address?: string; phoneNumber?: string; registrationNumber?: string; logo?: string | null; defaultStamp?: string | null; customDocumentTypes?: Record<string, string>; taxRate?: number; taxApplicable?: boolean; absorbTax?: boolean; defaultCurrency?: string; quoteRoundingStep?: number; docTypeDefaults?: Record<string, { tnc?: string; notes?: string; footerMessage?: string }> | null; bankDetails?: Record<string, string> },
+    data: { name?: string; address?: string; phoneNumber?: string; registrationNumber?: string; email?: string | null; website?: string | null; logo?: string | null; defaultStamp?: string | null; customDocumentTypes?: Record<string, string>; taxRate?: number; taxApplicable?: boolean; absorbTax?: boolean; defaultCurrency?: string; quoteRoundingStep?: number; docTypeDefaults?: Record<string, { tnc?: string; notes?: string; footerMessage?: string }> | null; bankDetails?: Record<string, string> },
   ) {
     // Wipe guard (guru 2026-09-09): the Company Profile form always PATCHes the
     // FULL bankDetails block from on-screen values. A save from a tab whose

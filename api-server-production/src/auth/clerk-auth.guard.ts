@@ -33,6 +33,8 @@ const USER_ORG_SELECT = {
       address: true,
       phoneNumber: true,
       registrationNumber: true,
+      email: true,
+      website: true,
       logo: true,
       defaultStamp: true,
       customDocumentTypes: true,
@@ -253,7 +255,7 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
         where: { id: String(headerVal) },
         select: {
           id: true, name: true, address: true, phoneNumber: true,
-          registrationNumber: true, logo: true, defaultStamp: true,
+          registrationNumber: true, email: true, website: true, logo: true, defaultStamp: true,
           customDocumentTypes: true, taxRate: true, taxApplicable: true,
           absorbTax: true, defaultCurrency: true, quoteRoundingStep: true,
           docTypeDefaults: true, pointsBalance: true, bankDetails: true,

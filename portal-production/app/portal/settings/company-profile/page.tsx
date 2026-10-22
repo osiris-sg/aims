@@ -53,6 +53,9 @@ export default function OrganizationSettingsPage() {
       address: organization?.address || "",
       phoneNumber: organization?.phoneNumber || "",
       registrationNumber: organization?.registrationNumber || "",
+      // Letterhead contact lines (printed by client layouts such as WCT's).
+      email: (organization as any)?.email || "",
+      website: (organization as any)?.website || "",
       taxRate: organization?.taxRate ?? 9,
       // Org-wide defaults for the per-document tax toggles. The doc editor
       // seeds new docs from these (documentInfo.taxApplicable / .absorbTax).
@@ -69,6 +72,8 @@ export default function OrganizationSettingsPage() {
       bankBranchCode: organization?.bankDetails?.branchCode || "",
       bankCode: organization?.bankDetails?.bankCode || "",
       bankCurrencyCode: organization?.bankDetails?.currencyCode || "SGD",
+      // PayNow UEN printed on the letterhead (bankDetails JSON, no schema change).
+      paynowUen: (organization as any)?.bankDetails?.paynowUen || "",
       logo: organization?.logo ? [{ data: organization.logo }] : undefined,
       defaultStamp: organization?.defaultStamp ? [{ data: organization.defaultStamp }] : undefined,
       customDocumentTypes: organization?.customDocumentTypes || {},
@@ -152,6 +157,8 @@ export default function OrganizationSettingsPage() {
       address: data.address,
       phoneNumber: data.phoneNumber,
       registrationNumber: data.registrationNumber,
+      email: (data.email || "").trim(),
+      website: (data.website || "").trim(),
       // Tax rate + inclusive/exclusive now live in Accounting Setup → Financial
       // Settings (single source of truth). Only the per-doc "tax applicable"
       // default remains org-level.
@@ -169,6 +176,7 @@ export default function OrganizationSettingsPage() {
         currencyCode: data.bankCurrencyCode || "SGD",
         // PayNow QR for the public Click-to-pay page.
         paynowQrKey: paynowQrKey || "",
+        paynowUen: (data.paynowUen || "").trim(),
         // Extra accounts printed with "OR" separators; drop all-empty rows.
         additionalBanks: additionalBanks.filter((b) =>
           Object.entries(b).some(([k, v]) => k !== "currencyCode" && String(v || "").trim())
@@ -290,6 +298,8 @@ export default function OrganizationSettingsPage() {
             <FormInputBox control={control} name="address" label="Address" placeHolder="Enter address" />
             <FormInputBox control={control} name="phoneNumber" label="Phone Number" placeHolder="Enter phone" />
             <FormInputBox control={control} name="registrationNumber" label="Registration No" placeHolder="Enter registration number" />
+            <FormInputBox control={control} name="email" label="Email (letterhead)" placeHolder="e.g. info@company.com.sg" />
+            <FormInputBox control={control} name="website" label="Website (letterhead)" placeHolder="e.g. www.company.com.sg" />
             <FormSelect
               control={control}
               name="defaultCurrency"
@@ -323,6 +333,9 @@ export default function OrganizationSettingsPage() {
                 </Box>
                 <Box sx={{ flex: 1 }}>
                   <FormInputBox control={control} name="bankCurrencyCode" label="Currency Code" placeHolder="Enter currency" />
+                </Box>
+                <Box sx={{ flex: 1 }}>
+                  <FormInputBox control={control} name="paynowUen" label="PayNow UEN" placeHolder="e.g. 201724603K001" />
                 </Box>
               </Box>
 

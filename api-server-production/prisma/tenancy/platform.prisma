@@ -23,6 +23,10 @@ model Organization {
   address                  String?
   phoneNumber              String?
   registrationNumber       String?
+  // Letterhead contact lines (2026-10-22, WCT layout): printed under the
+  // address on client layouts that show them. Edited on Company Profile.
+  email                    String?
+  website                  String?
   logo                     String?
   defaultStamp             String?
   customDocumentTypes      Json?

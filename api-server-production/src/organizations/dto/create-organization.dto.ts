@@ -34,6 +34,16 @@ export class CreateOrganizationDto {
   @IsOptional()
   registrationNumber?: string;
 
+  @ApiProperty({ required: false, description: 'Letterhead email line' })
+  @IsString()
+  @IsOptional()
+  email?: string;
+
+  @ApiProperty({ required: false, description: 'Letterhead website line' })
+  @IsString()
+  @IsOptional()
+  website?: string;
+
   @ApiProperty({ required: false, description: 'Key/URL for organization logo (null to clear)' })
   @IsOptional()
   logo?: string | null;

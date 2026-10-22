@@ -11,6 +11,8 @@ interface Organization {
   address?: string | null;
   phoneNumber?: string | null;
   registrationNumber?: string | null;
+  email?: string | null;
+  website?: string | null;
   taxRate?: number | null;
   logo?: string | null;
   defaultStamp?: string | null;
@@ -23,6 +25,7 @@ interface Organization {
     branchCode?: string;
     bankCode?: string;
     currencyCode?: string;
+    paynowUen?: string;
   } | null;
 }
 
