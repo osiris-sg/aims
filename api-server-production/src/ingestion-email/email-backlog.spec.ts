@@ -100,7 +100,7 @@ describe('history and no order', () => {
   it('no key, nothing in the thread, no subject match → NO_ORDER with a seed from the keys and the subject', () => {
     const v = classifyEmail(base({ subject: 'Re: Draft - Sales Contract- 6063- 50 tne', keys: { piNo: 'SIAE_PI_26100906', contractNo: null } }));
     expect(v.kind).toBe('NO_ORDER');
-    expect(v.seed).toMatchObject({ piNo: 'SIAE_PI_26100906', grade: '6063' });
+    expect(v.seed).toMatchObject({ piNo: 'SIAE_PI_26100906', grade: '6063', qtyMt: 50 }); // "50 tne" is a quantity (round W follow-up)
     const k = classifyEmail(base({ subject: '書類送付: 6005C材220MT 2026年11月納入分 ーアジアディールハブ', keys: { piNo: null, contractNo: '454003598' }, keyInAims: false }));
     expect(k.kind).toBe('NO_ORDER');
     expect(k.seed).toMatchObject({ contractNo: '454003598', grade: '6005', qtyMt: 220 });

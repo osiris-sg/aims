@@ -165,7 +165,7 @@ export function questionOf(i: QuestionInput): QuestionCard {
   if (i.recheck) return { ...base, kind: 'RECHECK', title: t.recheck, replyHint: t.replyHint(opts.length) };
   if (i.reasonCode === 'NO_ORDER') {
     const s = i.seed;
-    const what = [s?.grade, s?.qtyMt ? `${s.qtyMt}t` : null].filter(Boolean).join(' ');
+    const what = [s?.grade, s?.qtyMt ? `${s.qtyMt} t` : null].filter(Boolean).join(' · ');
     const details = [s?.piNo ? `PI ${s.piNo}` : null, s?.contractNo ? (ja ? `契約 ${s.contractNo}` : `Contract ${s.contractNo}`) : null, [s?.grade, s?.qtyMt ? `${s.qtyMt} t` : null].filter(Boolean).join(' · ') || null, s?.customerKey ?? null, s?.deliveryMonth ? (ja ? `納入 ${s.deliveryMonth}` : `delivery ${s.deliveryMonth}`) : null, ...i.attachments.filter((a) => /\bPI\b|_PI_|proforma|contract/i.test(a)).slice(0, 2)].filter((x): x is string => !!x);
     return { ...base, kind: 'NEW_DEAL', title: what ? t.newDealKnown(what) : t.newDeal, options: [], details, extras: { createOrder: true, notShipment: false, notDeal: true, askLater: true }, replyHint: t.replyHintDeal };
   }

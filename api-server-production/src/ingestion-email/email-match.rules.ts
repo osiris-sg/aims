@@ -124,12 +124,18 @@ export function findKeyHits(ev: EmailEvidence, records: MatchRecord[], ciPattern
     if (!where.length || out.some((h) => h.kind === kind && h.value === value && h.shipmentId === shipmentId && h.orderId === orderId)) return;
     out.push({ kind, value, orderId, shipmentId, where });
   };
+  // Round W follow-up: a CI no. is one invoice's; one stored on several shipments (a backfill slip) names none of them.
+  const ciOwners = new Map<string, number>();
+  for (const r of records) {
+    const ci = validCiNo(r.ciNo, ciPatterns);
+    if (ci && r.shipmentId) ciOwners.set(ci, (ciOwners.get(ci) ?? 0) + 1);
+  }
   for (const r of records) {
     const bl = r.bl ? blCore(r.bl) : '';
     if (bl.length >= 8) add('bl', bl, r.orderId, r.shipmentId);
     if (r.piNo && r.piNo.length >= 6) add('pi', r.piNo, r.orderId, null);
     const ci = validCiNo(r.ciNo, ciPatterns);
-    if (ci) add('ci', ci, r.orderId, r.shipmentId);
+    if (ci && (ciOwners.get(ci) ?? 0) <= 1) add('ci', ci, r.orderId, r.shipmentId);
   }
   // Round V: an exact tonnage to 3 decimals ("183.693T") that equals exactly ONE open shipment's net weight.
   const text = parts.map(([, t]) => t).join('\n');
@@ -191,6 +197,9 @@ function deliveryMonthOf(m: number, date: Date | null | undefined): string {
   return `${y}-${String(m).padStart(2, '0')}`;
 }
 
+/** A tonnage with its unit: "40T", "50 t", "50MT", "50 tne", "50 tonnes", "50 tons", "300トン" (round W follow-up: the SIAE "50 tne" subject). */
+export const QTY_RE = /(?<![\d.])(\d{1,4}(?:\.\d+)?)\s*(?:MT|M\/T|T|tne|tonnes?|tons?|トン)(?![A-Za-z])/gi;
+
 export function subjectCues(subject: string | null | undefined, date?: Date | null): SubjectCues {
   const t = (subject ?? '').normalize('NFKC');
   const months = [...t.matchAll(/(\d{1,2})\s*月\s*納入/g)].map((m) => Number(m[1])).filter((m) => m >= 1 && m <= 12).map((m) => deliveryMonthOf(m, date));
@@ -199,7 +208,7 @@ export function subjectCues(subject: string | null | undefined, date?: Date | nu
     ...[...t.matchAll(/(\d+(?:\.\d+)?)\s*(?:インチ|inch|in\b|")/gi)].map((m) => Number(m[1])),
     ...[...t.matchAll(/(?<!\d)(203|178|152|254)\s*(?:MM|ｍｍ)?(?!\d)/gi)].map((m) => Math.round(Number(m[1]) / 25.4)),
   ];
-  const qtys = [...t.matchAll(/(?<![\d.])(\d{1,4}(?:\.\d+)?)\s*(?:MT|T|トン)(?![A-Za-z])/g)].map((m) => Number(m[1]));
+  const qtys = [...t.matchAll(QTY_RE)].map((m) => Number(m[1]));
   const customers = CUSTOMER_WORDS.filter(([re]) => re.test(t)).map(([, k]) => k);
   const ports = PORT_WORDS.filter(([re]) => re.test(t)).map(([, k]) => k);
   const segments = t.split(/[\/／、,]/).filter((s) => /(?<![\d.])(6\d{3}|1\d{3}|P1020)/i.test(s));
@@ -391,7 +400,7 @@ export function productSegments(text: string): OrderCue[] {
   const out: OrderCue[] = [];
   for (let k = 0; k < marks.length; k++) {
     const seg = t.slice(marks[k].i, marks[k + 1]?.i ?? Math.min(t.length, marks[k].i + 60));
-    const q = /(?<![\d.])(\d{1,4}(?:\.\d+)?)\s*(?:MT|T|t|トン)(?![A-Za-z])/.exec(seg.replace(/\d+(?:\.\d+)?\s*(?:インチ|inch|in\b|")/gi, ''));
+    const q = new RegExp(QTY_RE.source, 'i').exec(seg.replace(/\d+(?:\.\d+)?\s*(?:インチ|inch|in\b|")/gi, ''));
     if (!out.some((o) => o.grade === marks[k].g && o.qty === (q ? Number(q[1]) : null))) out.push({ grade: marks[k].g, qty: q ? Number(q[1]) : null });
   }
   return out;

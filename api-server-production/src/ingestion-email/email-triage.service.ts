@@ -1026,7 +1026,13 @@ export class EmailTriageService {
         const other = await this.prisma.shipment.findFirst({ where: { organizationId, blNumber: { contains: keys.blNo }, NOT: { id: target.shipmentId } }, select: { id: true } });
         if (!other) fill('blNumber', keys.blNo);
       }
-      fill('ciNumber', validCiNo(keys.ciNo, await this.ciPatterns(organizationId)));
+      // Round W follow-up: a CI no. is ONE invoice's (XP2652102551 ≠ XP2652102552) — never filled by a split (multi-target)
+      // email, and never when another shipment already carries it.
+      const ciNo = validCiNo(keys.ciNo, await this.ciPatterns(organizationId));
+      if (ciNo && !multi && s && !s.ciNumber) {
+        const other = await this.prisma.shipment.findFirst({ where: { organizationId, ciNumber: ciNo, NOT: { id: target.shipmentId } }, select: { id: true } });
+        if (!other) fill('ciNumber', ciNo);
+      }
       if (keys.telexCode && s && !s.telexReleaseCode) {
         // Only when the email ties the code to this B/L (subject, or the same line / paragraph).
         if (telexTiedTo(ev, keys.telexCode, s.blNumber ?? keys.blNo)) fill('telexReleaseCode', keys.telexCode);

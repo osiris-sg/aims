@@ -12,7 +12,7 @@ describe('round W — question cards', () => {
     const q = questionOf(base({ candidates: [] }));
     expect(q.kind).toBe('CONFIRM');
     expect(q.title).toBe('Is this email about #18-2?');
-    expect(q.found).toBe('From Mitsui Soko · 1 file · mentions 6005 · no B/L number · reply in the "ビレット案件（11月納入6005Cー220t, 6063ー3" thread');
+    expect(q.found).toBe('From Mitsui Soko · 1 file · mentions 6005 and 20.416 t · no B/L number · reply in the "ビレット案件（11月納入6005Cー220t, 6063ー3" thread');
     expect(q.options).toHaveLength(1);
     expect(q.options[0]).toMatchObject({ ref: '#18-2', summary: '#18-2 · SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct', why: 'net 20.416 t in the subject', suggested: true });
     expect(questionOf(base({ candidates: [], suggested: { orderId: 'o18', shipmentId: 's18-2', ref: '#18-2', why: [] } })).options[0].why).toBe(''); // the chip says "AIMS's pick", not the text
@@ -40,7 +40,7 @@ describe('round W — question cards', () => {
     expect(c.title).toBe('The subject says 6063, but AIMS matched #18-2 — which is right?');
     const d = questionOf(base({ reasonCode: 'NO_ORDER', suggested: null, candidates: [], attachments: ['PI-26100906- Asia deal hub.pdf'], seed: { piNo: 'SIAE_PI_26100906', contractNo: null, grade: '6063', qtyMt: 50, customerKey: null, deliveryMonth: null } }));
     expect(d.kind).toBe('NEW_DEAL');
-    expect(d.title).toBe("Is this about the new 6063 50t deal? It isn't in AIMS yet.");
+    expect(d.title).toBe("Is this about the new 6063 · 50 t deal? It isn't in AIMS yet.");
     expect(d.details).toEqual(['PI SIAE_PI_26100906', '6063 · 50 t', 'PI-26100906- Asia deal hub.pdf']);
     expect(d.options).toEqual([]);
     expect(d.extras).toEqual({ createOrder: true, notShipment: false, notDeal: true, askLater: true });
@@ -59,7 +59,7 @@ describe('round W — question cards', () => {
     const q = questionOf(base({ lang: 'ja' }));
     expect(q.title).toBe('どの出荷の件ですか？');
     expect(questionOf(base({ lang: 'ja', candidates: [] })).title).toBe('このメールは #18-2 の件ですか？');
-    expect(q.found).toMatch(/^Mitsui Soko から · 添付 1 件 · 6005 に言及 · B\/L番号なし · 「/);
+    expect(q.found).toMatch(/^Mitsui Soko から · 添付 1 件 · 6005・20.416 t に言及 · B\/L番号なし · 「/);
     expect(q.options[0].why).toBe('件名に正味 20.416 t');
     expect(q.options[1].why).toBe('材質 6063（件名） · 件名のみ一致');
     expect(q.replyHint).toBe('1 か 2 で返信 · 0 = 後で · X = 出荷ではない');
