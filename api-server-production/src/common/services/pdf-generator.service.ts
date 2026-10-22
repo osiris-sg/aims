@@ -32,7 +32,14 @@ export class PdfGeneratorService {
        *  page (guru's paper rule); documents are one page and pass nothing.
        *  It has to be Puppeteer's footer rather than CSS, because only the
        *  print engine knows the page count. */
-      pageNumbers?: { label?: string };
+      pageNumbers?: {
+        label?: string;
+        /** "Page 2 of 3" (default) or "Page 2/3" (client layouts that print it so). */
+        format?: 'of' | 'slash';
+        fontPx?: number;
+        /** Horizontal inset, normally the page's left/right margin. */
+        paddingX?: string;
+      };
       /** A4 landscape (Kato's 計量検収票). Default portrait. */
       landscape?: boolean;
     },
@@ -101,10 +108,12 @@ export class PdfGeneratorService {
               // no template, Chrome prints its own title/date strip.
               headerTemplate: '<span></span>',
               footerTemplate:
-                `<div style="width:100%;font-size:8px;font-family:Helvetica,Arial,sans-serif;` +
-                `color:#444;padding:0 10mm;display:flex;justify-content:space-between;">` +
-                `<span>${(footer.label || '').replace(/[<>&]/g, '')}</span>` +
-                `<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>` +
+                `<div style="width:100%;font-size:${footer.fontPx || 8}px;font-family:Helvetica,Arial,sans-serif;` +
+                `color:${footer.fontPx ? '#000' : '#444'};padding:0 ${footer.paddingX || '10mm'};display:flex;justify-content:space-between;align-items:flex-end;">` +
+                `<span style="${footer.fontPx ? 'font-weight:700;' : ''}">${(footer.label || '').replace(/[<>&]/g, '')}</span>` +
+                (footer.format === 'slash'
+                  ? `<span>Page <span class="pageNumber"></span>/<span class="totalPages"></span></span>`
+                  : `<span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>`) +
                 `</div>`,
             }
           : {}),

@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Patch, Body, Param, Query, Delete, Req, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
+import { pdfOptionsFor } from '../common/services/document-html';
 import { DocumentsService, DocumentActor } from './documents.service';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { CreateDocumentWithTimelineDto } from './dto/create-document-with-timeline.dto';
@@ -502,12 +503,42 @@ export class DocumentsController {
     return await this.documentsService.untagTemplateFromAsset(body.assetId, body.templateId, organizationId);
   }
 
+  /**
+   * The editor's live preview for server-rendered layouts (a template whose
+   * design picks a named layout, e.g. WCT): the SAME HTML the PDF is made
+   * from, for the editor's iframe — what the office sees is what prints.
+   * Takes the unsaved form state, so `documentId` may be a temp id; the
+   * template id then supplies the design.
+   */
+  @Post('preview-html')
+  @Permissions('documents:generate-pdf')
+  async previewHtml(
+    @Body() body: { documentType: string; documentId?: string; templateId?: string; data: any },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
+    }
+    const docId = body.documentId && !String(body.documentId).startsWith('temp_') ? body.documentId : undefined;
+    const styled = await this.documentsService.designForDocument(docId, organizationId, body.templateId);
+    const html = this.pdfGeneratorService.generateInvoiceHtml({
+      documentType: body.documentType,
+      ...(body.data || {}),
+      design: styled.design,
+      logoUrl: styled.logoUrl,
+      organization: req.userOrganization,
+    });
+    return { html, layout: styled.design?.layout || 'standard' };
+  }
+
   @Post('generate-pdf')
   @Permissions('documents:generate-pdf')
   async generatePdf(
     @Body() body: {
       documentType: string;
       documentId: string;
+      templateId?: string;
       data: any;
     },
     @Req() req: RequestWithOrganization,
@@ -520,16 +551,20 @@ export class DocumentsController {
 
       // One renderer for every type; the ported layouts pick themselves by
       // documentType. The template's design knobs ride along.
-      const styled = await this.documentsService.designForDocument(body.documentId, organizationId);
-      const html = this.pdfGeneratorService.generateInvoiceHtml({
+      const docId = body.documentId && !String(body.documentId).startsWith('temp_') ? body.documentId : undefined;
+      const styled = await this.documentsService.designForDocument(docId, organizationId, body.templateId);
+      const renderData = {
         documentType: body.documentType,
         ...body.data,
         design: styled.design,
         logoUrl: styled.logoUrl,
-      });
+        organization: req.userOrganization,
+      };
+      const html = this.pdfGeneratorService.generateInvoiceHtml(renderData);
 
-      // Generate PDF from HTML
-      const pdfBuffer = await this.pdfGeneratorService.generatePdfFromHtml(html);
+      // Generate PDF from HTML — ported layouts carry their page margins (and
+      // the WCT layout its per-page footer), legacy layouts their own geometry.
+      const pdfBuffer = await this.pdfGeneratorService.generatePdfFromHtml(html, pdfOptionsFor(body.documentType, renderData));
 
       // Upload to S3
       const { url, key } = await this.s3Service.uploadPdf(

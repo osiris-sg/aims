@@ -95,22 +95,28 @@ export const MODULE_CATALOG: CatalogModule[] = [
     config: { route: '/portal/orders' },
   },
   {
+    // RETIRED top-nav tab (guru 2026-10-22: "remove them from all orgs"). The
+    // sales flows under Sales/Accounting replaced it. Kept in the catalog only
+    // so stored rows keep merging; scripts/retire-legacy-nav-modules.ts switched
+    // off every org's row, including ADH Japan's re-pointed one (guru: all orgs).
     moduleCode: 'DOCUMENTS',
     displayName: 'Documents',
     icon: 'Description',
     sortOrder: 6,
-    defaultEnabled: true,
+    defaultEnabled: false,
     config: {
       route: '/portal/documents',
       subMenus: ['templates', 'extraction'],
     },
   },
   {
+    // RETIRED top-nav tab (guru 2026-10-22) — invoices live under Sales and
+    // Accounting → Accounts Receivable. See the DOCUMENTS note above.
     moduleCode: 'INVOICES',
     displayName: 'Invoices',
     icon: 'AssignmentRounded',
     sortOrder: 7,
-    defaultEnabled: true,
+    defaultEnabled: false,
     config: { route: '/portal/invoices' },
   },
   {

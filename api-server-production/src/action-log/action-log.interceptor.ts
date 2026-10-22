@@ -22,6 +22,7 @@ const SKIP_PATHS = [
   '/action-log', // never log reads of the log itself
   '/admin/audit', // legacy audit reads
   '/lock/heartbeat', // document presence heartbeat (useDocumentLock)
+  '/documents/preview-html', // editor's live server-rendered preview (debounced on every keystroke)
   '/location-ping', // field app GPS batches
   '/admin/dashboard', // polled stats
   '/handoff/status', // rider's 5 s poll while a trip is with a driver

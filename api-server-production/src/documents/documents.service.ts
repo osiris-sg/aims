@@ -24,7 +24,7 @@ import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { AuditService } from 'src/common/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as moment from 'moment';
-import { isPortedType, PORTED_PDF_MARGIN } from '../common/services/document-html';
+import { pdfOptionsFor } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 
@@ -6633,13 +6633,20 @@ export class DocumentsService {
     return { design, logoUrl };
   }
 
-  /** Same, starting from a document id (the editor's generate-pdf call). */
-  async designForDocument(documentId: string | undefined, organizationId: string): Promise<{ design: any; logoUrl: string | null }> {
-    if (!documentId) return { design: resolveDesign(null), logoUrl: null };
-    const doc = await this.prisma.document
-      .findFirst({ where: { id: documentId, organizationId }, select: { documentTemplateId: true, organization: { select: { logo: true } } } })
-      .catch(() => null);
-    return this.designForTemplate(doc?.documentTemplateId, doc?.organization);
+  /** Same, starting from a document id (the editor's generate-pdf call).
+   *  A document not saved yet (the editor sends `temp_…`) has no row, so the
+   *  editor also names the template it is working from — a new WCT quotation
+   *  previews in its layout before the first save. */
+  async designForDocument(documentId: string | undefined, organizationId: string, templateId?: string | null): Promise<{ design: any; logoUrl: string | null }> {
+    const doc = documentId
+      ? await this.prisma.document
+          .findFirst({ where: { id: documentId, organizationId }, select: { documentTemplateId: true, organization: { select: { logo: true } } } })
+          .catch(() => null)
+      : null;
+    const org = doc?.organization ?? (await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { logo: true } }).catch(() => null));
+    const effectiveTemplateId = doc?.documentTemplateId || templateId || null;
+    if (!effectiveTemplateId) return { design: resolveDesign(null), logoUrl: null };
+    return this.designForTemplate(effectiveTemplateId, org);
   }
 
   async getOrGeneratePdfUrl(
@@ -6712,7 +6719,7 @@ export class DocumentsService {
           };
         }
         const styled = await this.designForTemplate(p.document.documentTemplateId, p.document.organization);
-        const html = this.pdfGeneratorService.generateInvoiceHtml({
+        const renderData = {
           // Selects the ported portal layout for this type (falls back to the
           // legacy generic layout for types not ported yet).
           documentType: p.document.type,
@@ -6732,11 +6739,9 @@ export class DocumentsService {
           config: p.config,
           isQuotation: p.isQuotation,
           dueDate: p.dueDate,
-        });
-        const pdfBuffer = await this.pdfGeneratorService.generatePdfFromHtml(
-          html,
-          isPortedType(p.document.type) ? { margin: PORTED_PDF_MARGIN } : undefined,
-        );
+        };
+        const html = this.pdfGeneratorService.generateInvoiceHtml(renderData);
+        const pdfBuffer = await this.pdfGeneratorService.generatePdfFromHtml(html, pdfOptionsFor(p.document.type, renderData));
         const { key } = await this.s3Service.uploadPdf(organizationId, p.document.type, documentId, pdfBuffer);
         return await this.s3Service.getSignedUrl(key, 3600);
       }

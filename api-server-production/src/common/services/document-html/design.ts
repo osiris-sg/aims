@@ -14,8 +14,21 @@
 export type DesignFont = 'helvetica' | 'calibri' | 'times' | 'georgia' | 'courier';
 export type LogoPosition = 'none' | 'left' | 'center' | 'right';
 export type HeaderAlign = 'center' | 'left';
+/**
+ * Page LAYOUT (2026-10-22). 'standard' is the stock AIMS frame for the type.
+ * A named layout is a whole page shape written for one client's paper
+ * documents (wct = WCT (S) Systems' quotation / tax invoice / delivery order:
+ * logo beside the company block, Job Location + Subject boxes, S/No column,
+ * GST line, Sales Person / Confirmation of Order block, letterhead on every
+ * page). Any org may pick it for a template; the other knobs still apply
+ * where the layout honours them (title, logo, footer line).
+ */
+export type DocumentLayout = 'standard' | 'wct';
+export const DOCUMENT_LAYOUTS: DocumentLayout[] = ['standard', 'wct'];
 
 export interface DocumentDesign {
+  /** Which page shape renders the document. */
+  layout: DocumentLayout;
   /** Hex colour for the title, rules and table header line. Black by default. */
   accentColor: string;
   fontFamily: DesignFont;
@@ -37,6 +50,7 @@ export interface DocumentDesign {
 }
 
 export const DEFAULT_DESIGN: DocumentDesign = {
+  layout: 'standard',
   accentColor: '#000000',
   fontFamily: 'helvetica',
   logoPosition: 'none',
@@ -69,7 +83,9 @@ export function resolveDesign(raw: any): DocumentDesign {
   const font = String(raw.fontFamily || '') as DesignFont;
   const logo = String(raw.logoPosition || '') as LogoPosition;
   const align = String(raw.headerAlign || '') as HeaderAlign;
+  const layout = String(raw.layout || '') as DocumentLayout;
   return {
+    layout: DOCUMENT_LAYOUTS.includes(layout) ? layout : DEFAULT_DESIGN.layout,
     accentColor: HEX.test(accent) ? accent.toLowerCase() : DEFAULT_DESIGN.accentColor,
     fontFamily: font in DESIGN_FONTS ? font : DEFAULT_DESIGN.fontFamily,
     logoPosition: (['none', 'left', 'center', 'right'] as LogoPosition[]).includes(logo) ? logo : DEFAULT_DESIGN.logoPosition,

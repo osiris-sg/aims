@@ -9,8 +9,16 @@
 export type DesignFont = "helvetica" | "calibri" | "times" | "georgia" | "courier";
 export type LogoPosition = "none" | "left" | "center" | "right";
 export type HeaderAlign = "center" | "left";
+/** Page shape: the stock frame, or a client layout (see the server copy). */
+export type DocumentLayout = "standard" | "wct";
+export const DOCUMENT_LAYOUTS: DocumentLayout[] = ["standard", "wct"];
+export const DOCUMENT_LAYOUT_LABELS: Record<DocumentLayout, string> = {
+  standard: "Standard",
+  wct: "WCT (S) Systems",
+};
 
 export interface DocumentDesign {
+  layout: DocumentLayout;
   accentColor: string;
   fontFamily: DesignFont;
   logoPosition: LogoPosition;
@@ -25,6 +33,7 @@ export interface DocumentDesign {
 }
 
 export const DEFAULT_DESIGN: DocumentDesign = {
+  layout: "standard",
   accentColor: "#000000",
   fontFamily: "helvetica",
   logoPosition: "none",
@@ -64,7 +73,9 @@ export function resolveDesign(raw: any): DocumentDesign {
   const font = String(raw.fontFamily || "") as DesignFont;
   const logo = String(raw.logoPosition || "") as LogoPosition;
   const align = String(raw.headerAlign || "") as HeaderAlign;
+  const layout = String(raw.layout || "") as DocumentLayout;
   return {
+    layout: DOCUMENT_LAYOUTS.includes(layout) ? layout : DEFAULT_DESIGN.layout,
     accentColor: HEX.test(accent) ? accent.toLowerCase() : DEFAULT_DESIGN.accentColor,
     fontFamily: font in DESIGN_FONTS ? font : DEFAULT_DESIGN.fontFamily,
     logoPosition: (["none", "left", "center", "right"] as LogoPosition[]).includes(logo) ? logo : DEFAULT_DESIGN.logoPosition,

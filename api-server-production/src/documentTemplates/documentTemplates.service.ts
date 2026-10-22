@@ -522,11 +522,16 @@ export class DocumentTemplatesService {
         include: { organization: { select: { id: true, name: true } } },
         orderBy: [{ designName: 'asc' }],
       });
+      // An org with nothing of its own gets exactly ONE seeded standard — the
+      // same one getDocumentTemplateByType resolves (newest isDefault). Every
+      // org's seeded set is flagged isDefault, so listing them all put three
+      // "Standard Quotation" copies in the create picker (guru, 2026-10-22).
       if (!activeIds.length && templates.length === 0) {
         templates = await this.prisma.documentTemplate.findMany({
           where: { type, isDefault: true },
           include: { organization: { select: { id: true, name: true } } },
-          orderBy: [{ designName: 'asc' }],
+          orderBy: [{ createdAt: 'desc' }],
+          take: 1,
         });
       }
 

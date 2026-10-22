@@ -81,12 +81,15 @@ import {
   DragIndicator as DragIndicatorIcon,
 } from "@mui/icons-material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import DocumentAssistantDrawer, { ProposalPatch } from "./DocumentAssistantDrawer";
 import DocumentHistoryDrawer from "./DocumentHistoryDrawer";
 import DocumentAttachmentsDialog from "./DocumentAttachmentsDialog";
 import QuotationSelectDialog from "./QuotationSelectDialog";
 import { AutoAwesome as AutoAwesomeIcon } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
+import ServerDocumentPreview, { type ServerDocumentPreviewHandle } from "./ServerDocumentPreview";
+import { resolveDesign as resolveTemplateDesign } from "@/app/portal/documents/design";
 import RouteOrderPointsEditor from "./RouteOrderPointsEditor";
 // Shared dialog — same component used by the Field Reports tab on the
 // project detail page. Renders a Leaflet map of the live delivery route
@@ -350,6 +353,12 @@ export default function TabbedDocumentCreator({
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
   const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled } = useOrganizationFeatures();
+  // The Project header row + the DO "project required" rule only make sense
+  // for orgs that run the Projects module. An org without it (Chong Aik, guru
+  // 2026-10-22) must not see "Select a project / Create new project" even when
+  // the enableQuotationProjectLink flag was cloned on.
+  const { isModuleEnabled } = useConfiguration();
+  const isProjectLinkShown = isQuotationProjectLinkEnabled && isModuleEnabled("PROJECTS");
   // "Sync to Xero" only shows when the editor was opened from the accounting
   // section (?from=/portal/accounting/... set by the embedded AR list).
   const openedFromAccounting =
@@ -823,6 +832,14 @@ export default function TabbedDocumentCreator({
   // The template's design knobs (styleConfig) for the preview, fetched via the
   // design route, which also serves templates borrowed from the shared pool.
   const [templateDesign, setTemplateDesign] = useState<any>(null);
+  // A template whose Design picks a named page layout (e.g. WCT) is drawn by
+  // the API's renderer, not by CleanDocumentPreview — the preview is then the
+  // server's HTML in an iframe (see ServerDocumentPreview), and Print prints
+  // that iframe. The template id rides along so an unsaved document previews
+  // in its layout before the first save.
+  const usesServerPreview = resolveTemplateDesign(templateDesign).layout !== "standard";
+  const serverPreviewRef = useRef<ServerDocumentPreviewHandle | null>(null);
+  const previewTemplateId: string | undefined = templateId || existingData?.documentTemplateId || existingData?.templateId || undefined;
   const [isLoadingFieldConfig, setIsLoadingFieldConfig] = useState(true);
 
   const { getToken } = useAuth();
@@ -2711,6 +2728,7 @@ export default function TabbedDocumentCreator({
         {
           documentType,
           documentId: documentId || `temp_${Date.now()}`,
+          templateId: previewTemplateId,
           data: documentData,
         },
         token
@@ -2750,6 +2768,17 @@ export default function TabbedDocumentCreator({
   };
 
   const handlePrint = () => {
+    if (usesServerPreview) {
+      // Server-rendered layout: print the preview iframe (its letterhead
+      // repeats per page; page numbers come with the generated PDF).
+      if (!previewMode) {
+        setPreviewMode(true);
+        setTimeout(() => serverPreviewRef.current?.print(), 1200);
+      } else {
+        serverPreviewRef.current?.print();
+      }
+      return;
+    }
     // Switch to preview mode first if not already, then trigger browser print
     if (!previewMode) {
       setPreviewMode(true);
@@ -4331,7 +4360,7 @@ export default function TabbedDocumentCreator({
               onClick={() => {
                 // Project link is MANDATORY on delivery orders before confirm
                 // (only enforced where the picker feature is enabled).
-                if (isQuotationProjectLinkEnabled && !(formData.projectId || existingData?.projectId)) {
+                if (isProjectLinkShown && !(formData.projectId || existingData?.projectId)) {
                   toast.error("Select a project before confirming this Delivery Order");
                   return;
                 }
@@ -5091,7 +5120,7 @@ export default function TabbedDocumentCreator({
                       // customer we show a plain DISABLED TextField with a hint,
                       // NOT a disabled Autocomplete: a disabled Autocomplete's
                       // portal used to swallow Customer Code clicks.
-                      (isQuotation || isDeliveryOrder || isInvoiceTypeDoc) && isQuotationProjectLinkEnabled && tab.tabId === "general"
+                      (isQuotation || isDeliveryOrder || isInvoiceTypeDoc) && isProjectLinkShown && tab.tabId === "general"
                         ? {
                             label: isDeliveryOrder ? "Project *" : "Project",
                             content: formData.customer?.id ? (
@@ -7128,6 +7157,25 @@ export default function TabbedDocumentCreator({
               "@media print": { "& > div": { zoom: 1 } },
             }}
           >
+            {usesServerPreview ? (
+              <ServerDocumentPreview
+                ref={serverPreviewRef}
+                documentType={documentType}
+                documentId={documentId}
+                templateId={previewTemplateId}
+                data={{
+                  ...formData,
+                  items,
+                  tableColumnOrder: (existingData as any)?.tableColumnOrder ?? existingData?.config?.tableColumnOrder,
+                  columnLabels: (existingData as any)?.columnLabels ?? existingData?.config?.columnLabels,
+                  internalColumns: (existingData as any)?.internalColumns ?? existingData?.config?.internalColumns,
+                  // Money stamps live on the saved config, not the form: the
+                  // invoice layout prints Amount Paid / Amount Due from them.
+                  paidToDate: existingData?.config?.paidToDate,
+                  outstandingBalance: existingData?.config?.outstandingBalance,
+                }}
+              />
+            ) : (
             <div ref={printContentRef}>
               <CleanDocumentPreview
                 documentType={documentType}
@@ -7215,6 +7263,7 @@ export default function TabbedDocumentCreator({
                 maintenanceReports={(existingData as any)?.maintenanceReports ?? []}
               />
             </div>
+            )}
           </Box>
         )}
       </Box>

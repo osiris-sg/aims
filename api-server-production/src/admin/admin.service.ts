@@ -817,8 +817,8 @@ export class AdminService {
       ] } },
       { moduleCode: 'CUSTOMERS', displayName: 'Customers', icon: 'PeopleRounded', sortOrder: 30, config: { route: '/portal/customers' } },
       { moduleCode: 'SUPPLIERS', displayName: 'Suppliers', icon: 'LocalShipping', sortOrder: 35, config: { route: '/portal/suppliers' } },
-      { moduleCode: 'DOCUMENTS', displayName: 'Documents', icon: 'Description', sortOrder: 40, config: { route: '/portal/documents' } },
-      { moduleCode: 'INVOICES', displayName: 'Invoices', icon: 'Receipt', sortOrder: 50, config: { route: '/portal/invoices' } },
+      // DOCUMENTS / INVOICES: retired top-nav tabs (guru 2026-10-22) — no longer
+      // seeded; they stay in MODULE_CATALOG as defaultEnabled:false opt-ins.
       { moduleCode: 'PROJECTS', displayName: 'Projects', icon: 'AccountTree', sortOrder: 60, config: { route: '/portal/projects' } },
       { moduleCode: 'USER_MANAGEMENT', displayName: 'User Management', icon: 'ManageAccounts', sortOrder: 70, config: { route: '/portal/user-management' } },
       { moduleCode: 'AUDIT', displayName: 'Audit', icon: 'Security', sortOrder: 80, config: { route: '/portal/audit' } },

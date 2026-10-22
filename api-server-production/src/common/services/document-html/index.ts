@@ -15,6 +15,7 @@ import { renderInvoiceBody } from './invoice';
 import { renderIdQuotationBody } from './id-quotation';
 import { renderIdVoBody } from './id-vo';
 import { renderNoteBody } from './note';
+import { renderWctBody, wctFooterLine } from './wct';
 import { DocumentDesign, resolveDesign } from './design';
 
 /** Interior-design quotation (config.templateVariant 'ID' / config.quote tree). */
@@ -26,10 +27,40 @@ const VO_TYPES = ['VARIATION_ORDER', 'VO'];
 const INVOICE_TYPES = ['INVOICE', 'TI', 'TI2'];
 const CREDIT_NOTE_TYPES = ['CREDIT_NOTE', 'CN'];
 const DEBIT_NOTE_TYPES = ['DEBIT_NOTE', 'DN'];
+/** Only a named layout (design.layout = 'wct') renders these on the server;
+ *  the stock delivery order is still the portal's own sheet + legacy PDF. */
+const DELIVERY_ORDER_TYPES = ['DELIVERY_ORDER', 'DO'];
 
 /** Page margins for ported layouts — matches the portal's print geometry
  *  (@page margin 20mm 15mm) and applies to every page, unlike CSS padding. */
 export const PORTED_PDF_MARGIN = { top: '20mm', right: '15mm', bottom: '20mm', left: '15mm' };
+
+/** Page geometry for the WCT layout: a shallower top so the repeated
+ *  letterhead sits where the paper puts it; room below for the footer line. */
+export const WCT_PDF_MARGIN = { top: '12mm', right: '14mm', bottom: '18mm', left: '14mm' };
+
+/** The WCT layout covers quotations, invoices and delivery orders. */
+export function isWctLayout(type: string, design: any): boolean {
+  const t = String(type || '').toUpperCase();
+  const d = resolveDesign(design);
+  return d.layout === 'wct' && (QUOTATION_TYPES.includes(t) || INVOICE_TYPES.includes(t) || DELIVERY_ORDER_TYPES.includes(t));
+}
+
+/**
+ * Puppeteer options for a document's PDF: ported layouts print with the
+ * portal's page margins; the WCT layout also prints its footer line and
+ * "Page n/N" on every page. Legacy (unported) layouts return undefined and
+ * keep their own geometry.
+ */
+export function pdfOptionsFor(
+  type: string,
+  data: any,
+): { margin: { top: string; right: string; bottom: string; left: string }; pageNumbers?: { label?: string; format?: 'of' | 'slash'; fontPx?: number; paddingX?: string } } | undefined {
+  if (isWctLayout(type, data?.design)) {
+    return { margin: WCT_PDF_MARGIN, pageNumbers: { label: wctFooterLine(data), format: 'slash', fontPx: 10, paddingX: WCT_PDF_MARGIN.left } };
+  }
+  return isPortedType(type) ? { margin: PORTED_PDF_MARGIN } : undefined;
+}
 
 export function isPortedType(type: string): boolean {
   const t = String(type || '').toUpperCase();
@@ -55,6 +86,13 @@ export function renderDocumentHtml(type: string, data: any, organization?: any):
   // version — static labels from the built-in dictionary, free text from the
   // document's cached config.quoteZh translation map.
   const lang: 'en' | 'zh' = data?.lang === 'zh' ? 'zh' : 'en';
+  // A named page layout (template design knob) replaces the stock frame for
+  // the types it covers. The ID quotation keeps its own renderer regardless.
+  if (design.layout === 'wct' && !isIdQuotation(data)) {
+    const org = organization || data?.organization || data?.company || {};
+    const kind = QUOTATION_TYPES.includes(t) ? 'quotation' : INVOICE_TYPES.includes(t) ? 'invoice' : DELIVERY_ORDER_TYPES.includes(t) ? 'do' : null;
+    if (kind) return pageShell(renderWctBody(kind, data || {}, org, design), design);
+  }
   if (QUOTATION_TYPES.includes(t)) {
     const org = organization || data?.organization || data?.company || {};
     if (isIdQuotation(data)) {

@@ -1,0 +1,117 @@
+"use client";
+
+/**
+ * Editor preview for SERVER-RENDERED layouts (a template whose Design picks a
+ * named layout such as WCT). The portal's CleanDocumentPreview draws the stock
+ * layouts itself; a named layout exists only in the API's document-html
+ * renderer, so the editor shows the renderer's own HTML in an iframe — the
+ * same HTML the PDF is made from, so what the office sees is what prints.
+ * (CIEL's ID quotation previews the same way.)
+ *
+ * Re-renders a moment after the last edit (POST /documents/preview-html with
+ * the unsaved form state). `print()` prints the iframe's document.
+ */
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { Box, CircularProgress, Typography } from "@mui/material";
+import { useAuth } from "@clerk/nextjs";
+import { request } from "@/helpers/request";
+
+export interface ServerDocumentPreviewHandle {
+  print: () => void;
+}
+
+interface Props {
+  documentType: string;
+  documentId?: string;
+  templateId?: string;
+  /** The editor's form state (+ items). Any change re-renders. */
+  data: any;
+  /** Dark-mode-safe backdrop is the parent's; the paper itself is always white. */
+  minHeight?: number | string;
+}
+
+const PREVIEW_CSS = `<style>
+  @media screen {
+    html { background: transparent; }
+    body { background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.25); max-width: 210mm; min-height: 297mm; margin: 12px auto 24px; }
+  }
+</style>`;
+
+const ServerDocumentPreview = forwardRef<ServerDocumentPreviewHandle, Props>(function ServerDocumentPreview(
+  { documentType, documentId, templateId, data, minHeight = "calc(100vh - 220px)" },
+  ref,
+) {
+  const { getToken } = useAuth();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [html, setHtml] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [rendering, setRendering] = useState(false);
+  const seq = useRef(0);
+  // Serialised once per change so the effect compares content, not identity
+  // (the editor rebuilds its data object on every render).
+  const payload = JSON.stringify({ documentType, documentId, templateId, data });
+
+  useEffect(() => {
+    const mine = ++seq.current;
+    const t = setTimeout(async () => {
+      setRendering(true);
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not authenticated");
+        const body = JSON.parse(payload);
+        const res: any = await request({ path: "/documents/preview-html", method: "POST" }, body, token);
+        if (mine !== seq.current) return;
+        const out = res?.data ?? res;
+        if (res?.success === false || !out?.html) throw new Error(res?.message || "Preview failed");
+        setHtml(String(out.html).replace("</head>", `${PREVIEW_CSS}</head>`));
+        setError(null);
+      } catch (e: any) {
+        if (mine === seq.current) setError(e?.message || "Could not render the preview");
+      } finally {
+        if (mine === seq.current) setRendering(false);
+      }
+    }, 450);
+    return () => clearTimeout(t);
+  }, [payload, getToken]);
+
+  useImperativeHandle(ref, () => ({
+    print: () => {
+      const w = iframeRef.current?.contentWindow;
+      if (!w) return;
+      w.focus();
+      w.print();
+    },
+  }));
+
+  return (
+    <Box sx={{ position: "relative", width: "100%", minHeight }}>
+      {rendering && (
+        <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}>
+          <CircularProgress size={18} />
+        </Box>
+      )}
+      {error && (
+        <Typography sx={{ p: 2, color: "error.main", fontSize: "0.85rem" }} data-testid="server-preview-error">
+          {error}
+        </Typography>
+      )}
+      {html ? (
+        <Box
+          component="iframe"
+          ref={iframeRef}
+          title="Document preview"
+          srcDoc={html}
+          sx={{ width: "100%", height: minHeight, border: 0, bgcolor: "transparent", display: "block" }}
+        />
+      ) : (
+        !error && (
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: 320 }}>
+            <CircularProgress size={28} />
+          </Box>
+        )
+      )}
+    </Box>
+  );
+});
+
+export default ServerDocumentPreview;

@@ -27,7 +27,7 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
-import { DEFAULT_DESIGN, DESIGN_FONT_LABELS, DESIGN_FONTS, isDefaultDesign, resolveDesign, type DocumentDesign } from "@/app/portal/documents/design";
+import { DEFAULT_DESIGN, DESIGN_FONT_LABELS, DESIGN_FONTS, DOCUMENT_LAYOUT_LABELS, DOCUMENT_LAYOUTS, isDefaultDesign, resolveDesign, type DocumentDesign } from "@/app/portal/documents/design";
 
 interface Props {
   open: boolean;
@@ -159,6 +159,23 @@ export default function TemplateDesignDialog({ open, templateId, templateName, s
             </Stack>
           ) : (
             <Stack gap={2}>
+              {field(
+                "Layout",
+                <Box>
+                  <TextField select size="small" fullWidth value={design.layout} onChange={(e) => set("layout", e.target.value as DocumentDesign["layout"])}>
+                    {DOCUMENT_LAYOUTS.map((k) => (
+                      <MenuItem key={k} value={k}>
+                        {DOCUMENT_LAYOUT_LABELS[k]}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <Typography sx={{ fontSize: "0.72rem", color: "text.secondary", mt: 0.5 }}>
+                    {design.layout === "wct"
+                      ? "Client page shape: letterhead on every page, Job Location and Subject boxes, S/No column, GST line, signature block. Quotations, tax invoices and delivery orders."
+                      : "The standard page shape for the document type."}
+                  </Typography>
+                </Box>,
+              )}
               {field(
                 "Accent colour",
                 <Stack direction="row" gap={1} alignItems="center">
