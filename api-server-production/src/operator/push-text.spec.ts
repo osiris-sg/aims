@@ -56,6 +56,20 @@ describe('(b) (c) (d) an email needs a check', () => {
     expect(needsCheckText(which, 'ja')).toBe(['Asia Deal Hub からの新しいメールに出荷の指定が必要です（10/22 11:50）', '件名: Re:【ご相談】直近のDET費用及びディテンション回避策について', `出荷番号を送ってください（例: 18-1、複数なら 18-1 18-2）。またはダッシュボードで確認: ${URL}`].join('\n'));
     expect(needsCheckText({ ...which, kind: 'IS_SHIPMENT', options: [] }, 'en')).toContain("AIMS isn't sure this is about a shipment at all.\nReply 1 if it is, X if not, or check it");
   });
+  it('round AB — the stored summary is one line under the subject, in every kind; the template slots still parse', () => {
+    const s = { ...which, summary: 'Asks to extend the detention free time for two containers.' };
+    const t = needsCheckText(s, 'en').split('\n');
+    expect(t[1]).toBe('Subject: Re:【ご相談】直近のDET費用及びディテンション回避策について');
+    expect(t[2]).toBe('Says: Asks to extend the detention free time for two containers.');
+    expect(t[3]).toMatch(/^Send the shipment number/);
+    expect(needsCheckText(s, 'ja').split('\n')[2]).toBe('内容: Asks to extend the detention free time for two containers.');
+    expect(needsCheckText({ ...s, kind: 'IS_SHIPMENT', options: [] }, 'en').split('\n').slice(2, 5)).toEqual(['Subject: Re:【ご相談】直近のDET費用及びディテンション回避策について', 'Says: Asks to extend the detention free time for two containers.', "AIMS isn't sure this is about a shipment at all."]);
+    expect(needsCheckText({ ...s, kind: 'NEW_DEAL', options: [] }, 'en').split('\n')[2]).toBe('Says: Asks to extend the detention free time for two containers.');
+    expect(needsCheckText({ ...s, kind: 'RECHECK', options: [] }, 'en').split('\n')[3]).toBe('Says: Asks to extend the detention free time for two containers.');
+    expect(needsCheckText({ ...s, summary: '  ' }, 'en')).toBe(needsCheckText(which, 'en'));
+    expect(pushTemplateParams(needsCheckText(s, 'en'))).toEqual({ kind: 'needs_check', lang: 'en', params: ['Asia Deal Hub, 22 Oct 11:50', 'Re:【ご相談】直近のDET費用及びディテンション回避策について', 'It needs a shipment.', `Send the shipment number (e.g. 18-1, or several: 18-1 18-2), or check the Dashboard: ${URL}`] });
+    expect(pushTemplateParams(needsCheckText({ ...s, kind: 'IS_SHIPMENT', options: [] }, 'en'))).toEqual({ kind: 'needs_check', lang: 'en', params: ['Toshiro Takekoshi (Asia Deal Hub), 22 Oct 11:50', 'Re:【ご相談】直近のDET費用及びディテンション回避策について', "AIMS isn't sure this is about a shipment at all.", `Reply 1 if it is, X if not, or check it on the Dashboard: ${URL}`] });
+  });
   it('(c) new deal and (d) re-check', () => {
     const deal = { ...which, kind: 'NEW_DEAL' as const, from: 'taomura@isewan.co.jp', company: 'Isewan', date: jst('2026-10-21T09:13:00'), subject: 'アルミインゴット輸入の件', options: [] };
     expect(needsCheckText(deal, 'en')).toBe(['New email from taomura (Isewan), 21 Oct', 'Subject: アルミインゴット輸入の件', "This looks like a new deal that isn't in AIMS yet.", `Check it on the Dashboard: ${URL}`].join('\n'));

@@ -2,9 +2,10 @@
 
 // Round P — Sales › Dashboard, email-first (owner feedback: the person using
 // this mostly needs to know "which emails do I need to confirm, and what did
-// the system already file"). One line at the top ("To do: 4 questions (14
-// emails) · 2 tasks overdue · 3 arriving this week"), then: 1. Emails to confirm
-// (unprocessed threads, newest first, max 10 + "See all in Inbox"), 2. Filed
+// the system already file"). One line at the top ("To do: 2 tasks overdue · 3
+// arriving this week" — round AB: no email counts), then: 1. Emails waiting for
+// you (round AB: every question as its own numbered card, 5 then "Show N more";
+// header = title + "See all emails", no counts), 2. Filed
 // automatically (last 3 days, with Undo), 3. Tasks (the bell's reminders,
 // overdue first), 4. Arriving this week (ETA in the next 7 days). The view is
 // presentational (the preview route renders it from fixtures); the default
@@ -94,9 +95,9 @@ export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTas
   const { inbox, tasks, shipments, today } = data;
   const counts = taskCounts(tasks, today);
   const arriving = arrivingThisWeek(shipments ?? [], today);
-  const emails = inbox?.toConfirm.emails ?? 0;
   const questions = inbox?.toConfirm.total ?? 0;
-  const line = toDoLine({ questions, emails, overdue: counts.overdue, arriving: arriving.length });
+  // Round AB: the email questions are the cards below — the top line counts only tasks and arrivals.
+  const line = toDoLine({ overdue: counts.overdue, arriving: arriving.length });
   const sortedTasks = [...(tasks ?? [])].sort((a, b) => Number(isOverdue(b, today)) - Number(isOverdue(a, today)) || a.dueAt.localeCompare(b.dueAt));
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1200, mx: "auto" }} data-tour="sales-dashboard">
@@ -109,7 +110,6 @@ export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTas
       <Stack spacing={2}>
         <Section
           title={actions.lang === "ja" ? "確認が必要なメール" : "Emails waiting for you"}
-          count={inbox ? L[actions.lang].questionsDot(questions, emails) : ""}
           tour="dashboard-emails"
           action={
             <Button component={Link} href={SHIPMENTS_EMAILS} size="small" sx={{ textTransform: "none" }} data-tour="dashboard-see-all-emails">
@@ -120,20 +120,7 @@ export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTas
           {data.loading && !inbox ? (
             <CircularProgress size={22} />
           ) : (
-            <InboxThreadList
-              tab="UNPROCESSED"
-              threads={inbox?.toConfirm.threads ?? []}
-              actions={actions}
-              emptyText={L[actions.lang].nothing}
-              listLimit={5}
-              footer={
-                inbox && inbox.toConfirm.total > inbox.toConfirm.threads.length ? (
-                  <Typography variant="caption" color="text.secondary">
-                    <Link href={SHIPMENTS_EMAILS}>{L[actions.lang].seeAll}</Link> ({inbox.toConfirm.total})
-                  </Typography>
-                ) : undefined
-              }
-            />
+            <InboxThreadList tab="UNPROCESSED" threads={inbox?.toConfirm.threads ?? []} actions={actions} emptyText={L[actions.lang].nothing} />
           )}
         </Section>
         <Section title="Filed automatically" count={inbox ? `last 3 days: ${inbox.filedAuto.length}` : ""} tour="dashboard-filed">

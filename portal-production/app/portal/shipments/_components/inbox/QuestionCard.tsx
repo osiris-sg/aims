@@ -1,57 +1,78 @@
 "use client";
 
-// Round AA — the QUESTION CARD, minimal and confirm-first (owner: "clicking an option applied instantly and the
-// card showed far too much"). The card shows ONLY the plain question, one line "From Vedanta · 22 Oct 14:31 ·
-// subject…", and two buttons: "Choose shipment" (→ the ChooseShipmentDialog: tick one or several, Confirm) and
-// "Show full email" (→ the thread pop-up, the email first). A NEW_DEAL / IS_SHIPMENT card says "Answer" instead
-// and opens the same dialog. No single click on the card applies anything. EN / JA from the API.
+// Round AB — ONE question card in the list (owner: every question as its own card, numbered). Top to bottom: the
+// number badge + the question (prominent); the subject in full (max 2 lines, tooltip for the rest; Japanese renders
+// fully); "Vedanta · 22 Oct 14:31"; the stored one-line summary of the email, muted (display text only — it never
+// drives an action); "Answer" (→ the round AA Choose-shipment dialog: nothing applies until Confirm) and "Show full
+// email" (→ the thread pop-up). Styled like the Operations dashboard's cards (outlined, same padding, small grey
+// labels, accent button). EN / JA from the API. No em dashes.
 
 import React, { useState } from "react";
-import { Button, Paper, Stack, Typography } from "@mui/material";
+import { Box, Button, Paper, Stack, Tooltip, Typography } from "@mui/material";
 import type { InboxAnswer, InboxLang, InboxThread } from "../../_lib/api";
-import { cardFromLine, L } from "../../_lib/inbox-cards";
+import { cardSummary, cardWhoLine, fullSubject, L } from "../../_lib/inbox-cards";
 import { ChooseShipmentDialog } from "./ChooseShipmentDialog";
 
 export interface QuestionCardProps {
   t: InboxThread;
   lang: InboxLang;
+  /** 1-based place in the list — the small circular badge. */
+  n: number;
   busy?: boolean;
   onAnswer: (t: InboxThread, a: InboxAnswer) => void;
   onCreateOrder: (t: InboxThread) => void;
   onOpenThread: (t: InboxThread) => void;
-  /** "Question 1 of 4" in queue mode. */
-  position?: string | null;
 }
 
-export function QuestionCard({ t, lang, busy, onAnswer, onCreateOrder, onOpenThread, position }: QuestionCardProps) {
+export function QuestionCard({ t, lang, n, busy, onAnswer, onCreateOrder, onOpenThread }: QuestionCardProps) {
   const q = t.question;
   const [choose, setChoose] = useState(false);
   const newest = t.messages[0];
   const labels = L[lang];
   if (!q || !newest) return null;
-  const answerOnly = q.kind === "NEW_DEAL" || q.kind === "IS_SHIPMENT";
+  const subject = fullSubject(t.subject ?? newest.subject);
+  const summary = cardSummary(newest);
   return (
-    <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, borderRadius: 2 }} data-tour="question-card" data-kind={q.kind}>
-      <Stack spacing={1.25}>
-        {position && (
-          <Typography variant="caption" color="text.secondary">
-            {position}
+    <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 } }} data-tour="question-card" data-kind={q.kind}>
+      <Stack direction="row" spacing={1.25} alignItems="flex-start">
+        <Box
+          sx={{ mt: 0.25, width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, bgcolor: "primary.lighter", color: "primary.main", fontSize: 13, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
+          data-tour="question-number"
+          aria-label={`${n}`}
+        >
+          {n}
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.3, wordBreak: "break-word" }} data-tour="question-title">
+            {q.title}
           </Typography>
-        )}
-        <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.3 }} data-tour="question-title">
-          {q.title}
-        </Typography>
-        <Typography variant="body2" color="text.secondary" noWrap title={`${newest.from} · ${newest.subject ?? ""}`} data-tour="question-from">
-          {cardFromLine(newest, lang)}
-        </Typography>
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-          <Button variant="contained" disabled={busy} onClick={() => setChoose(true)} sx={{ textTransform: "none" }} data-tour="question-choose">
-            {answerOnly ? labels.answer : labels.chooseShipment}
-          </Button>
-          <Button variant="outlined" color="inherit" onClick={() => onOpenThread(t)} sx={{ textTransform: "none" }} data-tour="question-show-full">
-            {labels.showFull}
-          </Button>
-        </Stack>
+          <Tooltip title={subject} enterDelay={400} placement="top-start">
+            <Typography
+              variant="body2"
+              sx={{ mt: 0.75, fontWeight: 600, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", wordBreak: "break-word", overflowWrap: "anywhere" }}
+              lang={/[぀-ヿ一-鿿]/.test(subject) ? "ja" : undefined}
+              data-tour="question-subject"
+            >
+              {subject}
+            </Typography>
+          </Tooltip>
+          <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mt: 0.25 }} title={newest.from} data-tour="question-from">
+            {cardWhoLine(newest, lang)}
+          </Typography>
+          {summary && (
+            <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5, wordBreak: "break-word" }} noWrap title={summary} data-tour="question-summary">
+              {summary}
+            </Typography>
+          )}
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1.25 }}>
+            <Button size="small" variant="contained" disabled={busy} onClick={() => setChoose(true)} sx={{ textTransform: "none" }} data-tour="question-choose">
+              {labels.answer}
+            </Button>
+            <Button size="small" variant="outlined" color="inherit" onClick={() => onOpenThread(t)} sx={{ textTransform: "none" }} data-tour="question-show-full">
+              {labels.showFull}
+            </Button>
+          </Stack>
+        </Box>
       </Stack>
       <ChooseShipmentDialog open={choose} t={t} lang={lang} busy={busy} onClose={() => setChoose(false)} onAnswer={onAnswer} onCreateOrder={onCreateOrder} />
     </Paper>

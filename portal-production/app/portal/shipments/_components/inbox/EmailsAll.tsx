@@ -1,8 +1,8 @@
 "use client";
 
 // Round W — "See all emails": the full two-tab view (a Dashboard sub-view, no longer a nav item).
-//   Unprocessed (4 questions · 14 emails) — the question queue: one card at a time, answered with one tap,
-//                     "3 questions left (10 emails)".
+//   Unprocessed — the question list (round AB): every question as its own numbered card, 5 then "Show N more";
+//                     no counts in the tab.
 //   Processed (n)   — one card per thread: the latest email + what was done ("✅ Added to #16-2 — …"), Undo,
 //                     "3 earlier emails" → the timeline.
 // Hidden / purged mail is not shown (Org Settings → Shipping → Email filter → Hidden brings a hidden one back).
@@ -26,9 +26,8 @@ export default function EmailsAll() {
   const qp = useQuery({ queryKey: ["trade-inbox", "threads", "PROCESSED", act.lang], queryFn: () => api.inboxThreads("PROCESSED", act.lang), refetchInterval: 30_000, enabled: tab === "PROCESSED" });
   const q = tab === "UNPROCESSED" ? qu : qp;
   const counts = qu.data?.counts ?? qp.data?.counts;
-  const questions = qu.data ? qu.data.threads.filter((t) => !!t.question).length : null;
   const labels = L[act.lang];
-  const unprocessedLabel = `${act.lang === "ja" ? "未処理" : "Unprocessed"}${counts ? (act.lang === "ja" ? `（${labels.questionsDot(questions ?? 0, counts.unprocessed)}）` : ` (${labels.questionsDot(questions ?? 0, counts.unprocessed)})`) : ""}`;
+  const unprocessedLabel = act.lang === "ja" ? "未処理" : "Unprocessed";
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1000, mx: "auto" }} data-tour="emails-all">
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }} data-tour="inbox-tabs">

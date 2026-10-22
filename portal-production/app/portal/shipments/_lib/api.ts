@@ -724,7 +724,7 @@ export type InboxBy = { outcome: "AUTO" | "ACCEPTED" | "CHANGED" | "REJECTED" | 
 /** Round Q: the backlog kind and, for "No order yet", what the order form starts from. */
 export type OrderSeed = { piNo: string | null; contractNo: string | null; grade: string | null; qtyMt: number | null; customerKey: string | null; deliveryMonth: string | null };
 export type InboxBacklog = { kind: "HIDE" | "AUTO" | "CONFIRM" | "AUTO_LINK" | "HISTORY" | "PICK" | "NO_ORDER" | "IS_SHIPMENT"; reason: string; seed: OrderSeed | null };
-export type InboxMessage = InboxRow & { reason: InboxReason | null; matchReason: string | null; threadFrom: "accepted" | "traced" | "followed" | null; threadSize: number; linked: InboxLinked | null; by: InboxBy | null; backlog?: InboxBacklog | null; evidence?: string | null; reviewConfidence?: string | null; /** Round W: the email's first lines (own text). */ preview?: string };
+export type InboxMessage = InboxRow & { reason: InboxReason | null; matchReason: string | null; threadFrom: "accepted" | "traced" | "followed" | null; threadSize: number; linked: InboxLinked | null; by: InboxBy | null; backlog?: InboxBacklog | null; evidence?: string | null; reviewConfidence?: string | null; /** Round W: the email's first lines (own text). */ preview?: string; /** Round AB: the stored one-line summary (display text only; the body's first line when none). */ summary?: string | null };
 /** Round W: the question card of an unprocessed thread (see api-server email-question.ts). */
 export type InboxLang = "en" | "ja";
 export type InboxQuestionOption = { id: string; orderId: string; shipmentId: string | null; ref: string; summary: string; why: string; suggested: boolean };

@@ -3,10 +3,11 @@
 import type { InboxBy, InboxLinked, InboxLinkedFile, InboxMessage } from "./api";
 
 /** "To do: 4 questions (14 emails) · 2 tasks overdue · 3 arriving this week" (the dashboard's top line). */
-export function toDoLine(c: { questions: number; emails: number; overdue: number; arriving: number }): string {
+/** Round AB: tasks and arrivals only — the email questions are the cards under it, never a count. */
+export function toDoLine(c: { overdue: number; arriving: number }): string {
   const n = (v: number, one: string, many: string) => `${v} ${v === 1 ? one : many}`;
-  const parts = [c.questions ? `${n(c.questions, "question", "questions")} (${n(c.emails, "email", "emails")})` : null, c.overdue ? `${n(c.overdue, "task", "tasks")} overdue` : null, c.arriving ? `${c.arriving} arriving this week` : null].filter(Boolean);
-  return parts.length ? `To do: ${parts.join(" · ")}` : "Nothing to do — all emails are linked, no task overdue, nothing arriving this week.";
+  const parts = [c.overdue ? `${n(c.overdue, "task", "tasks")} overdue` : null, c.arriving ? `${c.arriving} arriving this week` : null].filter(Boolean);
+  return parts.length ? `To do: ${parts.join(" · ")}` : "Nothing to do: no task overdue, nothing arriving this week.";
 }
 
 /** "Name <a@b.c>" → { name: "Name", email: "a@b.c" }; a bare address → its local part as the name. */

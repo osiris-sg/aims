@@ -5,10 +5,11 @@ import assert from "node:assert/strict";
 import { arrivingThisWeek, byLine, fromParts, linkedChip, linkedFileLine, orderHref, threadCounts, toDoLine, whatHappens } from "../app/portal/shipments/_lib/inbox-threads.ts";
 
 test('dashboard top line: "To do: 4 questions (14 emails) · 2 tasks overdue · 3 arriving this week", singulars, and the empty state', () => {
-  assert.equal(toDoLine({ questions: 4, emails: 14, overdue: 2, arriving: 3 }), "To do: 4 questions (14 emails) · 2 tasks overdue · 3 arriving this week");
-  assert.equal(toDoLine({ questions: 1, emails: 1, overdue: 1, arriving: 0 }), "To do: 1 question (1 email) · 1 task overdue");
-  assert.equal(toDoLine({ questions: 0, emails: 0, overdue: 0, arriving: 1 }), "To do: 1 arriving this week");
-  assert.equal(toDoLine({ questions: 0, emails: 0, overdue: 0, arriving: 0 }), "Nothing to do — all emails are linked, no task overdue, nothing arriving this week.");
+  // Round AB: no email counts on the line — the questions are the cards.
+  assert.equal(toDoLine({ overdue: 2, arriving: 3 }), "To do: 2 tasks overdue · 3 arriving this week");
+  assert.equal(toDoLine({ overdue: 1, arriving: 0 }), "To do: 1 task overdue");
+  assert.equal(toDoLine({ overdue: 0, arriving: 0 }), "Nothing to do: no task overdue, nothing arriving this week.");
+  assert.equal(toDoLine({ overdue: 0, arriving: 1 }), "To do: 1 arriving this week");
 });
 
 test("who sent it: name + address, or the local part", () => {

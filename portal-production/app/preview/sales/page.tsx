@@ -6,7 +6,7 @@ import PreviewClient from "./PreviewClient";
 
 export const dynamic = "force-dynamic";
 
-export default function PreviewSalesPage({ searchParams }: { searchParams?: { view?: string } }) {
+export default function PreviewSalesPage({ searchParams }: { searchParams?: { view?: string; many?: string } }) {
   if (process.env.PREVIEW_FIXTURES !== "1") notFound();
-  return <PreviewClient view={searchParams?.view === "inbox" ? "inbox" : "dashboard"} />;
+  return <PreviewClient view={searchParams?.view === "inbox" ? "inbox" : "dashboard"} many={searchParams?.many === "1"} />;
 }

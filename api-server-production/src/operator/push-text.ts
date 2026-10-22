@@ -151,7 +151,15 @@ export type NeedsCheckInput = {
   options: Array<{ ref: string }>;
   /** CHECK: what the subject says ("6063"). */
   says?: string | null;
+  /** Round AB: the stored one-line summary of the email (display text only) — one line under the subject. */
+  summary?: string | null;
   portalUrl: string;
+};
+
+/** Round AB: the summary line under the subject ("Says: …" / "内容: …"), or nothing when there is none. */
+const summaryLine = (i: NeedsCheckInput, lang: Lang): string | null => {
+  const s = (i.summary ?? '').replace(/\s+/g, ' ').trim();
+  return s ? (lang === 'ja' ? `内容: ${s}` : `Says: ${s}`) : null;
 };
 
 const link = (lang: Lang, url: string, what: 'check' | 'confirm' | 'open') =>
@@ -178,9 +186,11 @@ export function needsCheckText(i: NeedsCheckInput, lang: Lang = 'en'): string {
   const subject = trimSubject(i.subject);
   const refs = i.options.map((o) => o.ref);
   const lines: string[] = [];
+  const says = summaryLine(i, lang);
   if (i.kind === 'NEW_DEAL') {
     lines.push(ja ? `${who} から新しいメール、${when}` : `New email from ${who}, ${when}`);
     lines.push(ja ? `件名: ${subject}` : `Subject: ${subject}`);
+    if (says) lines.push(says);
     lines.push(ja ? 'AIMSにまだない新しい案件のようです。' : "This looks like a new deal that isn't in AIMS yet.");
     lines.push(link(lang, i.portalUrl, 'check').replace(/^check/, 'Check'));
     return stripEmoji(lines.join('\n'));
@@ -189,6 +199,7 @@ export function needsCheckText(i: NeedsCheckInput, lang: Lang = 'en'): string {
     lines.push(ja ? 'AIMSがメールを再確認したところ、確信が持てなくなりました' : "AIMS re-checked an email and isn't sure anymore");
     lines.push(ja ? `差出人: ${who}、${when}` : `From: ${who}, ${when}`);
     lines.push(ja ? `件名: ${subject}` : `Subject: ${subject}`);
+    if (says) lines.push(says);
     lines.push(link(lang, i.portalUrl, 'confirm'));
     return stripEmoji(lines.join('\n'));
   }
@@ -196,6 +207,7 @@ export function needsCheckText(i: NeedsCheckInput, lang: Lang = 'en'): string {
     lines.push(ja ? '新しいメールの確認が必要です' : 'New email needs your check');
     lines.push(ja ? `差出人: ${who}、${when}` : `From: ${who}, ${when}`);
     lines.push(ja ? `件名: ${subject}` : `Subject: ${subject}`);
+    if (says) lines.push(says);
     lines.push(ja ? 'AIMSは出荷の件かどうか判断できません。' : "AIMS isn't sure this is about a shipment at all.");
     lines.push(replyLine(i, lang));
     return stripEmoji(lines.join('\n'));
@@ -205,6 +217,7 @@ export function needsCheckText(i: NeedsCheckInput, lang: Lang = 'en'): string {
   const company = (i.company ?? '').trim() || senderName(i.from);
   lines.push(ja ? `${company} からの新しいメールに出荷の指定が必要です（${when}）` : `New email from ${company} needs a shipment (${when})`);
   lines.push(ja ? `件名: ${subject}` : `Subject: ${subject}`);
+  if (says) lines.push(says);
   lines.push(ja ? `出荷番号を送ってください（例: 18-1、複数なら 18-1 18-2）。またはダッシュボードで確認: ${i.portalUrl}` : `Send the shipment number (e.g. 18-1, or several: 18-1 18-2), or check the Dashboard: ${i.portalUrl}`);
   return stripEmoji(lines.join('\n'));
 }
@@ -332,13 +345,15 @@ export function pushTemplateParams(text: string): { kind: PushTemplateKind; lang
   const subject = ls.map((l) => /^(?:Subject|件名): (.*)$/.exec(l)?.[1]).find((x): x is string => !!x);
   if (!url || !subject) return null;
   const fromLine = ls.map((l) => /^(?:From|差出人): (.*)$/.exec(l)?.[1]).find((x): x is string => !!x);
+  // Round AB: a "Says: …" summary line may sit under the subject — the template slots read the LAST lines, not fixed positions.
+  const last = (n: number) => ls[ls.length - n] ?? '';
   if (/^New email needs your check$|^新しいメールの確認が必要です$/.test(title)) {
     if (!fromLine || ls.length < 5) return null;
-    return { kind: 'needs_check', lang, params: [fromLine, subject, ls[3], ls[4]] };
+    return { kind: 'needs_check', lang, params: [fromLine, subject, last(2), last(1)] };
   }
   // Round AA: "New email from Vedanta needs a shipment (22 Oct 14:31)" / Subject / "Send the shipment number …, or check the Dashboard: link"
   const ship = /^New email from (.*) needs a shipment \((.*)\)$/.exec(title) ?? /^(.*) からの新しいメールに出荷の指定が必要です（(.*)）$/.exec(title);
-  if (ship && ls.length >= 3) return { kind: 'needs_check', lang, params: [`${ship[1]}, ${ship[2]}`, subject, lang === 'ja' ? '出荷の指定が必要です。' : 'It needs a shipment.', ls[2]] };
+  if (ship && ls.length >= 3) return { kind: 'needs_check', lang, params: [`${ship[1]}, ${ship[2]}`, subject, lang === 'ja' ? '出荷の指定が必要です。' : 'It needs a shipment.', last(1)] };
   if (/^AIMS re-checked|^AIMSがメールを再確認/.test(title)) return fromLine ? { kind: 'recheck', lang, params: [fromLine, subject, url] } : null;
   const dealFrom = /^New email from (.*)$/.exec(title)?.[1] ?? /^(.*) から新しいメール、(.*)$/.exec(title)?.slice(1).join('、');
   if (dealFrom) return { kind: 'new_deal', lang, params: [dealFrom, subject, url] };

@@ -3,7 +3,7 @@
 // the "n left" counter, the collapsed header line.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cardStatus, docPlainName, headerSummary, L, leftCount, resultBox, threadResultLines, timeline, uiLangOf } from "../app/portal/shipments/_lib/inbox-cards.ts";
+import { cardStatus, docPlainName, headerSummary, L, resultBox, threadResultLines, timeline, uiLangOf } from "../app/portal/shipments/_lib/inbox-cards.ts";
 
 const file = (o) => ({ name: "22AA198GX06003.pdf", docType: "BUNDLE_LIST", docLabel: "Bundle list (NO.取りリスト)", status: "done", ownerKind: "shipment", ownerId: "s16-2", ref: "#16-2", stepId: "st9", stepNo: "9", stepTitle: "Bundle list", ...o });
 const linked = (o) => ({ orderId: "o16", shipmentId: "s16-2", ref: "#16-2", label: "#16-2 · SUS 6005 20.4t · B/L 198GX06003", files: [], fields: [], linkOnly: true, ...o });
@@ -12,16 +12,12 @@ test("language follows the browser; labels exist in both", () => {
   assert.equal(uiLangOf("ja-JP"), "ja");
   assert.equal(uiLangOf("en-SG"), "en");
   assert.equal(uiLangOf(null), "en");
-  assert.equal(L.en.left(3, 10), "3 questions left (10 emails)");
-  assert.equal(L.en.left(1, 2), "1 question left (2 emails)");
-  assert.equal(L.ja.left(3, 10), "残り 質問 3 件（メール 10 件）");
-  assert.equal(L.en.questions(4, 14), "4 questions (14 emails)");
-  assert.equal(L.en.questions(1, 1), "1 question (1 email)");
-  assert.equal(L.ja.questions(4, 14), "質問 4 件（メール 14 件）");
-  assert.equal(L.en.questionsDot(4, 14), "4 questions · 14 emails");
-  assert.equal(L.ja.questionsDot(4, 14), "質問 4 件 · メール 14 件");
-  assert.equal(L.en.position(1, 4), "Question 1 of 4");
-  assert.equal(L.ja.position(1, 4), "質問 1 / 4");
+  // Round AB: no counts, no "Question 1 of 4", no "N questions left" — only "Show N more".
+  assert.equal(L.en.showMore(3), "Show 3 more");
+  assert.equal(L.ja.showMore(3), "他 3 件を表示");
+  assert.equal(L.en.left, undefined);
+  assert.equal(L.en.position, undefined);
+  assert.equal(L.en.questionsDot, undefined);
   assert.equal(L.en.earlier(1), "1 earlier email");
 });
 
@@ -53,8 +49,7 @@ test("timeline: 1 → n oldest first, the newest marked Latest; 'n left' exclude
   const tl = timeline([{ id: "new", date: "2026-10-21T11:00:00.000Z" }, { id: "old", date: "2026-10-20T11:00:00.000Z" }]);
   assert.deepEqual(tl.map((x) => [x.n, x.m.id, x.latest]), [[1, "old", false], [2, "new", true]]);
   const msgs = (states) => states.map((inboxState, i) => ({ id: `m${i}`, inboxState }));
-  assert.deepEqual(leftCount([{ id: "t1", messages: msgs(["SUGGESTED", "PROCESSED", "SUGGESTED"]) }, { id: "t2", messages: msgs(["SUGGESTED"]) }, { id: "t3", messages: msgs(["UNMATCHED"]) }], "t2"), { questions: 2, emails: 3 });
-  assert.deepEqual(leftCount([{ id: "t1", messages: msgs(["SUGGESTED"]) }], "t1"), { questions: 0, emails: 0 });
+  assert.equal(msgs(["SUGGESTED"]).length, 1);
   assert.deepEqual(cardStatus({ question: { title: "Which shipment is this about?" }, messages: [], general: null }, "en"), { text: "Which shipment is this about?", tone: "wait" });
   assert.deepEqual(cardStatus({ question: null, messages: [{ inboxState: "PROCESSED", linked: linked({ ref: "#15-1" }), general: null, by: null, done: [] }], general: null }, "en"), { text: "🔗 Linked to #15-1 — no documents filed.", tone: "link" });
 });
@@ -89,6 +84,20 @@ test("card line: From Company · date · subject (EN / JA), the sender's name wh
   assert.equal(cardFromLine(m, "ja"), "Vedanta から · 10/22 14:31 · RE: Request for Extension of Detention Free Time…");
   assert.equal(cardFromLine({ ...m, company: null, subject: "Short" }, "en"), "From Rahul Sharma · 22 Oct 14:31 · Short");
   assert.equal(cardFromLine({ from: "ops@wanhai.com", company: "", date: "2026-10-22T05:31:00.000Z", subject: null }, "ja"), "ops から · 10/22 14:31 · (no subject)");
+});
+
+test("round AB — the card list: company line, full subject, stored summary with the body's first line as the fallback", async () => {
+  const { cardWhoLine, cardSummary, fullSubject, trimSubject, whenCard } = await import("../app/portal/shipments/_lib/inbox-cards.ts");
+  const m = { from: "Rahul Sharma <rahul@vedanta.example>", company: "Vedanta", date: "2026-10-22T05:31:00.000Z", subject: "  RE: Request for   Extension of Detention Free Time for 198GX06003 / 198GX05781  " };
+  assert.equal(cardWhoLine(m, "en"), "Vedanta · 22 Oct 14:31");
+  assert.equal(cardWhoLine(m, "ja"), "Vedanta · 10/22 14:31");
+  assert.equal(cardWhoLine({ ...m, company: null }, "en"), "Rahul Sharma · 22 Oct 14:31");
+  assert.equal(fullSubject(m.subject), "RE: Request for Extension of Detention Free Time for 198GX06003 / 198GX05781");
+  assert.equal(fullSubject(""), "(no subject)");
+  assert.equal(cardSummary({ summary: " Asks to extend the free time for two containers. ", preview: "Dear Sayaka, please…" }), "Asks to extend the free time for two containers.");
+  assert.equal(cardSummary({ summary: null, preview: "Dear Sayaka, please see the attached arrival notice." }), "Dear Sayaka, please see the attached arrival notice.");
+  assert.equal(cardSummary({ summary: "", preview: "" }), null);
+  assert.equal(cardSummary({ summary: "x".repeat(200), preview: "" }).length, 160);
   assert.equal(trimSubject("  a   b  "), "a b");
   assert.equal(trimSubject("x".repeat(50)), "x".repeat(50));
   assert.equal(trimSubject("x".repeat(51)), `${"x".repeat(49)}…`);

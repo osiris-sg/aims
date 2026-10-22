@@ -1,7 +1,7 @@
 "use client";
 
 // Round W — the email list. ONE card per thread = the latest relevant email only.
-//   Unprocessed: the question queue (QuestionQueue) — one card at a time, the rest listed under it.
+//   Unprocessed: the question list (QuestionList, round AB) — every question as its own numbered card, 5 then "Show N more".
 //   Processed:   a thread card per thread — the latest email (sender, date, first lines, attachments), the result in
 //                plain words ("✅ Added to #16-2 — …" / "🔗 Linked to #15-1"), "3 earlier emails" → the timeline.
 // Actions live on the THREAD card (they cover the thread's unprocessed emails); per-email overrides inside the timeline.
@@ -12,7 +12,7 @@ import AttachFileIcon from "@mui/icons-material/AttachFile";
 import type { InboxAnswer, InboxAnswerResult, InboxLang, InboxMessage, InboxThread } from "../../_lib/api";
 import { L, threadResult } from "../../_lib/inbox-cards";
 import { fromParts, whenShort } from "../../_lib/inbox-threads";
-import { QuestionQueue } from "./QuestionQueue";
+import { QuestionList } from "./QuestionList";
 
 export interface InboxActions {
   lang: InboxLang;
@@ -94,10 +94,10 @@ export function ThreadCard({ t, actions }: { t: InboxThread; actions: InboxActio
   );
 }
 
-/** The list: the question queue (Unprocessed) or thread cards (Processed). */
-export function InboxThreadList({ threads, actions, tab, emptyText, listLimit, footer }: { threads: InboxThread[]; actions: InboxActions; tab: "UNPROCESSED" | "PROCESSED"; emptyText: string; listLimit?: number; footer?: React.ReactNode }) {
+/** The list: the question list (Unprocessed) or thread cards (Processed). */
+export function InboxThreadList({ threads, actions, tab, emptyText, footer }: { threads: InboxThread[]; actions: InboxActions; tab: "UNPROCESSED" | "PROCESSED"; emptyText: string; footer?: React.ReactNode }) {
   if (tab === "UNPROCESSED") {
-    return <QuestionQueue threads={threads} lang={actions.lang} busy={actions.pending} onAnswer={actions.onAnswer} onUndo={actions.onAnswerUndo} onCreateOrder={actions.onCreateOrder} onOpenThread={(t) => actions.onOpen(t.messages[0], t)} listLimit={listLimit} footer={footer} />;
+    return <QuestionList threads={threads} lang={actions.lang} busy={actions.pending} onAnswer={actions.onAnswer} onUndo={actions.onAnswerUndo} onCreateOrder={actions.onCreateOrder} onOpenThread={(t) => actions.onOpen(t.messages[0], t)} footer={footer} />;
   }
   if (!threads.length) {
     return (

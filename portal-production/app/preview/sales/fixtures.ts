@@ -309,3 +309,45 @@ export const SHIPMENTS: ShipmentListItem[] = [
 ];
 
 export const PREVIEW_TODAY = TODAY;
+
+// ── Round AB: the question cards (every thread carries its question + a stored one-line summary) ─────────────
+const question = (kind: InboxThread["question"] extends infer Q ? (Q extends { kind: infer K } ? K : never) : never, title: string, options: Array<{ orderId: string; shipmentId: string | null; ref: string; summary: string }> = []): NonNullable<InboxThread["question"]> =>
+  ({ kind, lang: "en", title, found: "", options: options.map((o) => ({ id: `r:${o.orderId}:${o.shipmentId ?? ""}`, why: "", suggested: false, ...o })), extras: { createOrder: true, notShipment: true, notDeal: false, askLater: true }, details: [], replyHint: "" }) as NonNullable<InboxThread["question"]>;
+const withQuestion = (t: InboxThread, q: NonNullable<InboxThread["question"]>, summary: string): InboxThread => ({ ...t, question: q, messages: t.messages.map((m, i) => (i === 0 ? { ...m, summary } : m)) });
+
+const Q1 = question("CONFIRM", "Is this email about #15-1?", [{ orderId: "o", shipmentId: "s", ref: "#15-1", summary: "#15-1 · SUS 6063 · 306 t · WAN HAI 366 · ETA 14 Oct" }]);
+const Q2 = question("WHICH", "Which shipment is this about?", [
+  { orderId: "o20", shipmentId: "s20", ref: "#20-1", summary: "#20-1 · Kato 6005 · 35.7 t · WAN HAI 326 · ETA 24 Oct" },
+  { orderId: "o21", shipmentId: "s21", ref: "#21-1", summary: "#21-1 · Kato 6063 HSB · 29 t · ETA 29 Oct" },
+]);
+const Q3 = question("CHECK", "The subject says 6005, but AIMS matched #18-2. Which is right?", [{ orderId: "o", shipmentId: "s", ref: "#18-2", summary: "#18-2 · SUS 6063 · 300 t · B/L 198GX06003" }]);
+const Q4 = question("IS_SHIPMENT", "Is this email about a shipment at all?");
+const Q5 = question("NEW_DEAL", "Is this about the new 6063 · 50 t deal? It isn't in AIMS yet.");
+UNPROCESSED.splice(
+  0,
+  UNPROCESSED.length,
+  withQuestion(UNPROCESSED[0], Q1, "Sends the delivery details for the 16 Oct morning billet delivery."),
+  withQuestion(UNPROCESSED[1], Q2, "Sends the shipping documents for the November deliveries (6005 40 t, 6063 HSB 32 t, 6063 40 t)."),
+  withQuestion(UNPROCESSED[2], Q3, "Attaches the arrival notice for B/L 198GX06003 and the import permit."),
+  withQuestion(UNPROCESSED[3], Q4, "Asks whether the port charges statement can be settled by the end of the month."),
+  withQuestion(UNPROCESSED[4], Q5, "Sends the draft sales contract for 50 t of 6063 billet for review."),
+);
+DASHBOARD.toConfirm = { emails: 6, threads: UNPROCESSED, total: UNPROCESSED.length };
+
+/** Seven questions: the five above + a short subject + a long Japanese subject (the "Show 2 more" screenshot). */
+const extra = (id: string, subject: string, from: string, company: string | null, date: string, summary: string, q: NonNullable<InboxThread["question"]>): InboxThread =>
+  withQuestion({ id, by: "subject", subject, latest: date, emails: 1, files: 0, link: null, otherCount: 0, messages: [msg({ subject, from, date, company, counterparty: "OTHER", inboxState: "UNMATCHED", reason: { code: "PICK_SHIPMENT", label: "Pick the shipment" } })] } as InboxThread, q, summary);
+export const UNPROCESSED_MANY: InboxThread[] = [
+  ...UNPROCESSED,
+  extra("t6", "Invoice", '"Wan Hai Lines" <ops@wanhai.example>', "Wan Hai", "2026-10-21T09:12:00+09:00", "Sends the freight invoice for container WHSU5123456 and asks for payment within 7 days.", question("WHICH", "Which shipment is this about?")),
+  extra(
+    "t7",
+    "【重要】11月納入分アルミニウムビレット（6005 8インチ 40トン、6063HSB 6インチ 32トン、6063 8インチ 40トン）の書類送付および通関手続きのご確認のお願い（本船 WAN HAI 326 E045 / B/L 276956322）",
+    '"三井倉庫 国際輸送部" <ops@mitsui-soko.example>',
+    "Mitsui Soko",
+    "2026-10-21T08:40:00+09:00",
+    "11月納入分3件の書類を送付し、通関手続きの確認を依頼しています。",
+    question("WHICH", "Which shipment is this about?"),
+  ),
+];
+export const DASHBOARD_MANY: InboxDashboard = { ...DASHBOARD, toConfirm: { emails: 9, threads: UNPROCESSED_MANY, total: UNPROCESSED_MANY.length } };

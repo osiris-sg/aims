@@ -34,17 +34,17 @@ describe('round W — question cards', () => {
     expect(orders.title).toBe('Which order is this about?');
   });
 
-  it('CHECK: "The subject says 6063, but AIMS matched #18-2 — which is right?"; NEW_DEAL: one card with the PI details and Create order / Not a deal', () => {
+  it('CHECK: "The subject says 6063, but AIMS matched #18-2. Which is right?"; NEW_DEAL: one card with the PI details and Create order / Not a deal', () => {
     const c = questionOf(base({ reasonCode: 'CHECK', check: ['grade 6063 ≠ 6005'] }));
     expect(c.kind).toBe('CHECK');
-    expect(c.title).toBe('The subject says 6063, but AIMS matched #18-2 — which is right?');
+    expect(c.title).toBe('The subject says 6063, but AIMS matched #18-2. Which is right?');
     const d = questionOf(base({ reasonCode: 'NO_ORDER', suggested: null, candidates: [], attachments: ['PI-26100906- Asia deal hub.pdf'], seed: { piNo: 'SIAE_PI_26100906', contractNo: null, grade: '6063', qtyMt: 50, customerKey: null, deliveryMonth: null } }));
     expect(d.kind).toBe('NEW_DEAL');
     expect(d.title).toBe("Is this about the new 6063 · 50 t deal? It isn't in AIMS yet.");
     expect(d.details).toEqual(['PI SIAE_PI_26100906', '6063 · 50 t', 'PI-26100906- Asia deal hub.pdf']);
     expect(d.options).toEqual([]);
     expect(d.extras).toEqual({ createOrder: true, notShipment: false, notDeal: true, askLater: true });
-    expect(questionOf(base({ reasonCode: 'NO_ORDER', suggested: null, candidates: [], seed: null })).title).toBe('New deal not in AIMS yet — create the order?');
+    expect(questionOf(base({ reasonCode: 'NO_ORDER', suggested: null, candidates: [], seed: null })).title).toBe('New deal not in AIMS yet. Create the order?');
     expect(questionOf(base({ reasonCode: 'IS_SHIPMENT', suggested: null, candidates: [] })).title).toBe('Is this email about a shipment at all?');
   });
 
@@ -63,7 +63,7 @@ describe('round W — question cards', () => {
     expect(q.options[0].why).toBe('件名に正味 20.416 t');
     expect(q.options[1].why).toBe('材質 6063（件名） · 件名のみ一致');
     expect(q.replyHint).toBe('1 か 2 で返信 · 0 = 後で · X = 出荷ではない');
-    expect(questionOf(base({ lang: 'ja', reasonCode: 'NO_ORDER', suggested: null, candidates: [], seed: null })).title).toBe('AIMSにまだない新しい案件です — 注文を作成しますか？');
+    expect(questionOf(base({ lang: 'ja', reasonCode: 'NO_ORDER', suggested: null, candidates: [], seed: null })).title).toBe('AIMSにまだない新しい案件です。注文を作成しますか？');
     expect(plainReason('B/L 198GX06003 in the attachment', 'ja')).toBe('添付にB/L 198GX06003');
     expect(plainReason('B/L 198GX06003 in the attachment', 'en')).toBe('B/L 198GX06003 in the attachment');
     expect(plainReason('an earlier email of this thread was linked to #15-1', 'en')).toBe('an earlier email in this thread went to #15-1');

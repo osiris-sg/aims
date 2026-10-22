@@ -14,14 +14,10 @@ export const L = {
     notDeal: "Not a deal",
     askLater: "Ask later",
     undo: "Undo",
-    /** "4 questions (14 emails)" — N threads that carry a question, M unprocessed emails. */
-    questions: (n: number, emails: number) => `${n === 1 ? "1 question" : `${n} questions`} (${emails === 1 ? "1 email" : `${emails} emails`})`,
-    /** The same pair for a tab / section title: "4 questions · 14 emails". */
-    questionsDot: (n: number, emails: number) => `${n === 1 ? "1 question" : `${n} questions`} · ${emails === 1 ? "1 email" : `${emails} emails`}`,
-    left: (n: number, emails: number) => `${n === 1 ? "1 question left" : `${n} questions left`} (${emails === 1 ? "1 email" : `${emails} emails`})`,
-    /** "Question 1 of 4" — the card's place in the queue. */
-    position: (i: number, n: number) => `Question ${i} of ${n}`,
-    allDone: "All done — nothing waiting for you.",
+    /** Round AB: the list shows 5 cards, then "Show 3 more". */
+    showMore: (n: number) => `Show ${n} more`,
+    showLess: "Show fewer",
+    allDone: "All done. Nothing is waiting for you.",
     earlier: (n: number) => (n === 1 ? "1 earlier email" : `${n} earlier emails`),
     latest: "Latest",
     why: "Why?",
@@ -61,11 +57,9 @@ export const L = {
     notDeal: "案件ではない",
     askLater: "後で",
     undo: "元に戻す",
-    questions: (n: number, emails: number) => `質問 ${n} 件（メール ${emails} 件）`,
-    questionsDot: (n: number, emails: number) => `質問 ${n} 件 · メール ${emails} 件`,
-    left: (n: number, emails: number) => `残り 質問 ${n} 件（メール ${emails} 件）`,
-    position: (i: number, n: number) => `質問 ${i} / ${n}`,
-    allDone: "すべて完了 — 待ちはありません。",
+    showMore: (n: number) => `他 ${n} 件を表示`,
+    showLess: "閉じる",
+    allDone: "すべて完了。待ちはありません。",
     earlier: (n: number) => `以前のメール ${n} 件`,
     latest: "最新",
     why: "理由",
@@ -204,15 +198,6 @@ export function timeline<T extends { id: string; date: string }>(messages: T[]):
   return sorted.map((m, i) => ({ n: i + 1, m, latest: i === sorted.length - 1 }));
 }
 
-/**
- * The "3 questions left (10 emails)" counter: the threads still waiting (excluding the one just answered / shown)
- * and the unprocessed emails they hold.
- */
-export function leftCount(threads: Array<Pick<InboxThread, "id" | "messages">>, answeredId: string | null): { questions: number; emails: number } {
-  const rest = threads.filter((t) => t.id !== answeredId);
-  return { questions: rest.length, emails: rest.reduce((n, t) => n + t.messages.filter((m) => m.inboxState !== "PROCESSED").length, 0) };
-}
-
 /** One status line for a collapsed thread card: the question title (waiting) or the result headline (done). */
 export function cardStatus(t: Pick<InboxThread, "question" | "messages" | "general">, lang: InboxLang): { text: string; tone: ResultBox["tone"] } {
   if (t.question) return { text: t.question.title, tone: "wait" };
@@ -267,7 +252,17 @@ export function whenCard(iso: string | null | undefined, lang: InboxLang): strin
 }
 
 /**
- * The ONE line under the card's question: "From Vedanta · 22 Oct 14:31 · RE: Request for Extension of Detention…"
+ * Round AB: the card's company line, "Vedanta · 22 Oct 14:31" (JA "Vedanta · 10/22 14:31"). The sender COMPANY, else the
+ * sender's name from the From header. The subject has its own line now (full, wrapping).
+ */
+export function cardWhoLine(m: Pick<InboxMessage, "from" | "company" | "date">, lang: InboxLang): string {
+  const who = (m.company ?? "").trim() || senderName(m.from);
+  const when = whenCard(m.date, lang);
+  return [who, when || null].filter(Boolean).join(" · ");
+}
+
+/**
+ * The ONE line of the opened email's title (round AA pop-up): "From Vedanta · 22 Oct 14:31 · RE: Request for Extension…"
  * (JA: "Vedanta から · 10/22 14:31 · 件名…"). The sender COMPANY, else the sender's name from the From header.
  */
 export function cardFromLine(m: Pick<InboxMessage, "from" | "company" | "date" | "subject">, lang: InboxLang): string {
@@ -276,6 +271,20 @@ export function cardFromLine(m: Pick<InboxMessage, "from" | "company" | "date" |
   const subject = trimSubject(m.subject);
   const head = lang === "ja" ? `${who} から` : `From ${who}`;
   return [head, when || null, subject].filter(Boolean).join(" · ");
+}
+
+/** The subject in full for the card, whitespace collapsed; "(no subject)" when empty. */
+export const fullSubject = (subject: string | null | undefined): string => (subject ?? "").replace(/\s+/g, " ").trim() || "(no subject)";
+
+/**
+ * Round AB: the muted one-line summary under the company line — the stored summary (made once when the email was
+ * triaged), else the first line of the email's own text (the preview), else nothing. Display text only.
+ */
+export function cardSummary(m: Pick<InboxMessage, "summary" | "preview">, max = 160): string | null {
+  const stored = (m.summary ?? "").replace(/\s+/g, " ").trim();
+  const line = stored || (m.preview ?? "").replace(/\s+/g, " ").trim();
+  if (!line) return null;
+  return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 }
 
 export const optionKey = (o: { orderId: string; shipmentId: string | null }) => `${o.orderId}:${o.shipmentId ?? ""}`;
