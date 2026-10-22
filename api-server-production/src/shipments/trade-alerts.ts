@@ -17,7 +17,7 @@
  *   STEP_STUCK    an open step unchanged for N days (setting, default 7)
  */
 
-import { IMPORT_NOTE } from './trade-open-orders';
+import { BACKFILL_NOTE, IMPORT_NOTE } from './trade-open-orders';
 
 export interface AlertRules {
   taxFundingDaysBefore: number;
@@ -134,11 +134,13 @@ export const NOT_TRACKED_NOTE = 'Imported, payment not tracked.';
  * step. Such an invoice raises no "outstanding" reminder; the step reads
  * "Imported, payment not tracked" instead. A receipt recorded on the step, or an
  * open order, means the money IS tracked and the normal due-date rule applies.
+ * Round AB: a step the SUS backfill marked done ("Backfilled from price log, no document…") counts the same way.
  */
 export function receiptNotTracked(i: { orderStatus: string | null | undefined; stepSkipReason: string | null | undefined; paid: number }, importNote: string = IMPORT_NOTE): boolean {
   if (i.paid > 0) return false;
   if (i.orderStatus && i.orderStatus !== 'OPEN') return true;
-  return (i.stepSkipReason ?? null) === importNote;
+  const note = i.stepSkipReason ?? '';
+  return note === importNote || note.startsWith(BACKFILL_NOTE);
 }
 
 export interface DepositFacts {

@@ -4,7 +4,7 @@
  * no "outstanding" reminder; a live shipment keeps its free-time reminders.
  */
 import { NOT_TRACKED_NOTE, planInvoiceAlert, planShipmentAlerts, receiptNotTracked, reconcileAlert, DEFAULT_ALERT_RULES, ShipmentFacts } from './trade-alerts';
-import { IMPORT_NOTE } from './trade-open-orders';
+import { BACKFILL_NOTE, IMPORT_NOTE } from './trade-open-orders';
 import { TradeAlertsService } from './trade-alerts.service';
 import { DEFAULT_ORG_FEATURES } from '../organizations/default-features';
 
@@ -17,6 +17,10 @@ describe('imported invoices: payment not tracked, no reminder', () => {
     expect(receiptNotTracked({ orderStatus: 'CANCELLED', stepSkipReason: null, paid: 0 })).toBe(true);
     // Step 2 imported "completed before AIMS" on an open order.
     expect(receiptNotTracked({ orderStatus: 'OPEN', stepSkipReason: IMPORT_NOTE, paid: 0 })).toBe(true);
+    // Round AB: the SUS backfill's note (with or without a derived figure after it) is "not tracked" too.
+    expect(receiptNotTracked({ orderStatus: 'OPEN', stepSkipReason: BACKFILL_NOTE, paid: 0 })).toBe(true);
+    expect(receiptNotTracked({ orderStatus: 'OPEN', stepSkipReason: `${BACKFILL_NOTE} · Invoice #1 ≈ USD 987,915.00 (derived)`, paid: 0 })).toBe(true);
+    expect(receiptNotTracked({ orderStatus: 'OPEN', stepSkipReason: 'something else', paid: 0 })).toBe(false);
     // A live order: tracked, the due-date reminder applies.
     expect(receiptNotTracked({ orderStatus: 'OPEN', stepSkipReason: null, paid: 0 })).toBe(false);
     expect(receiptNotTracked({ orderStatus: null, stepSkipReason: null, paid: 0 })).toBe(false);
