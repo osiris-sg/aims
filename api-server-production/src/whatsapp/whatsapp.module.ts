@@ -6,13 +6,14 @@ import { WhatsAppService } from './whatsapp.service';
 import { LeadsModule } from '../leads/leads.module';
 import { OperatorModule } from '../operator/operator.module';
 import { ProjectCostingModule } from '../project-costing/project-costing.module';
+import { CommonModule } from '../common/common.module';
 
 // WhatsApp Business Platform (Meta Cloud API) integration. Orgs connect their
 // own number via Embedded Signup (we are the Tech Provider app); the module
 // stores the per-org WABA/phone/token, receives inbound webhooks, and sends
 // template/text messages.
 @Module({
-  imports: [OperatorModule, LeadsModule, ProjectCostingModule],
+  imports: [OperatorModule, LeadsModule, ProjectCostingModule, CommonModule],
   controllers: [WhatsAppController],
   providers: [WhatsAppService, WhatsAppAgentService, PrismaService],
   exports: [WhatsAppService],

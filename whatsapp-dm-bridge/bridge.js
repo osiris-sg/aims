@@ -18,7 +18,15 @@
  *
  *   1. link a phone by QR
  *   2. relay 1:1 messages, both directions, to AIMS
- *   3. nothing else
+ *   3. relay the GROUPS named in WATCH_GROUPS, and nothing else
+ *   4. carry the attachments with them
+ *
+ * Groups were out of scope at first ("this agent wont be in grps so dont
+ * worry"). They are in scope now, for one reason: an invoice posted into a
+ * client group is work AIMS should see (guru 2026-10-24). They stay OPT-IN per
+ * group, because this phone belongs to the company and sits in plenty of chats
+ * that are none of AIMS's business. WATCH_GROUPS empty means no groups at all,
+ * exactly as before.
  *
  * It sends NOTHING to WhatsApp. It cannot reply, and cannot post into a group.
  * That is deliberate: a read-only relay cannot embarrass anyone, and automation
@@ -121,6 +129,55 @@ async function post(pathname, body) {
   }
 }
 
+/**
+ * Which groups this bridge relays, and how big a file it will carry.
+ *
+ * WATCH_GROUPS is a comma-separated list of group jids
+ * (120363...@g.us) or case-insensitive name fragments ("CIEL INVOICE").
+ * Empty means NO groups, which is how this bridge has always behaved: the
+ * phone it runs on is in chats that have nothing to do with AIMS, so watching
+ * is opt-in per group rather than all-or-nothing.
+ */
+const WATCH_GROUPS = String(process.env.WATCH_GROUPS || '')
+  .split(',')
+  .map((v) => v.trim())
+  .filter(Boolean);
+const MAX_MEDIA_BYTES = Number(process.env.MAX_MEDIA_BYTES || 15 * 1024 * 1024);
+
+/** jid -> group name, filled by reportGroups so rows read like the chat does. */
+const groupNames = new Map();
+
+function isWatchedGroup(groupId) {
+  if (!WATCH_GROUPS.length) return false;
+  const name = String(groupNames.get(groupId) || '').toLowerCase();
+  return WATCH_GROUPS.some((w) => {
+    if (w.endsWith('@g.us')) return w === groupId;
+    return name.includes(w.toLowerCase());
+  });
+}
+
+/**
+ * Tell AIMS which groups this phone is in.
+ *
+ * Saves asking someone to open WhatsApp and read a member list, and it is the
+ * only way to learn a group's jid without guessing. Runs at startup and then
+ * hourly, since groups get created and renamed.
+ */
+async function reportGroups() {
+  try {
+    const chats = await client.getChats();
+    const groups = chats
+      .filter((c) => c.isGroup)
+      .map((c) => ({ id: c.id?._serialized || String(c.id), name: c.name || '' }));
+    for (const g of groups) groupNames.set(g.id, g.name);
+    await post('/whatsapp/dm-bridge/groups', { key: LABEL, groups });
+    const watched = groups.filter((g) => isWatchedGroup(g.id));
+    console.log(`👥 ${groups.length} group(s) on this phone; watching ${watched.length}${watched.length ? ': ' + watched.map((g) => g.name).join(', ') : ''}`);
+  } catch (e) {
+    console.error('✖ group report failed:', e && e.message ? e.message : e);
+  }
+}
+
 client.on('qr', async (qr) => {
   // Headless host: render the QR into the logs so it can be scanned from the
   // log viewer, and emit the raw string so it can be re-rendered elsewhere.
@@ -140,7 +197,13 @@ client.on('ready', () => {
   const me = client.info?.wid?.user || 'unknown';
   const name = client.info?.pushname || '';
   console.log(`✅ ${LABEL} live — linked as +${me} ${name ? '(' + name + ')' : ''} for org ${ORG_ID}`);
-  console.log('   Relaying 1:1 messages only. This bridge never sends.');
+  console.log(
+    `   Relaying 1:1 messages${WATCH_GROUPS.length ? ` plus ${WATCH_GROUPS.length} watched group pattern(s)` : ' only'}. This bridge never sends.`,
+  );
+  // Report straight away so the group jids are known before the first
+  // message arrives, then hourly to pick up renames and new chats.
+  reportGroups();
+  setInterval(reportGroups, 60 * 60 * 1000);
 });
 
 // message_create fires for BOTH directions, which is what makes the thread
@@ -151,18 +214,45 @@ client.on('message_create', async (msg) => {
   try {
     const chatId = String(msg.from || '');
     const toId = String(msg.to || '');
-    // Groups belong to the other bridge. Status broadcasts are noise.
-    if (chatId.endsWith('@g.us') || toId.endsWith('@g.us')) return;
-    if (chatId.startsWith('status@') || toId.startsWith('status@')) return;
+    if (chatId.startsWith('status@') || toId.startsWith('status@')) return; // status broadcasts are noise
+
+    const groupId = chatId.endsWith('@g.us') ? chatId : toId.endsWith('@g.us') ? toId : null;
+    // GROUPS are opt-in, one at a time. This bridge lives on a company phone
+    // that sits in plenty of chats which are none of AIMS's business, so a
+    // group is relayed only when WATCH_GROUPS names it. Everything else is
+    // dropped exactly as before.
+    if (groupId && !isWatchedGroup(groupId)) return;
 
     const outbound = !!msg.fromMe;
-    const counterparty = (outbound ? toId : chatId).split('@')[0].replace(/\D/g, '');
+    const counterparty = groupId
+      ? groupId
+      : (outbound ? toId : chatId).split('@')[0].replace(/\D/g, '');
     if (!counterparty) return;
 
     const body = String(msg.body || '');
     // Media arrives with an empty body; record the kind so the thread is not
     // full of unexplained blanks.
     const text = body || (msg.type && msg.type !== 'chat' ? `[${msg.type}]` : '');
+
+    // Pull the FILE down, not just its label. An invoice photographed into a
+    // group is the reason for watching it, and "[image]" is not an invoice.
+    // Big files are skipped rather than held in memory.
+    let attachment;
+    if (msg.hasMedia) {
+      try {
+        const media = await msg.downloadMedia();
+        if (media?.data) {
+          const bytes = Buffer.byteLength(media.data, 'base64');
+          if (bytes > MAX_MEDIA_BYTES) {
+            console.log(`   ↷ media skipped (${Math.round(bytes / 1e6)}MB > ${Math.round(MAX_MEDIA_BYTES / 1e6)}MB)`);
+          } else {
+            attachment = { base64: media.data, mimetype: media.mimetype, filename: media.filename || undefined };
+          }
+        }
+      } catch (e) {
+        console.error('   ✖ media download failed:', e && e.message ? e.message : e);
+      }
+    }
 
     const res = await post('/whatsapp/dm-bridge/message', {
       organizationId: ORG_ID,
@@ -172,9 +262,19 @@ client.on('message_create', async (msg) => {
       waMessageId: msg.id?._serialized || undefined,
       sentAt: msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : undefined,
       payload: { type: msg.type, hasMedia: !!msg.hasMedia, from: chatId, to: toId },
+      ...(groupId
+        ? {
+            groupId,
+            groupName: groupNames.get(groupId) || undefined,
+            // In a group the sender is a person, not the chat itself.
+            senderPhone: String(msg.author || '').split('@')[0].replace(/\D/g, '') || undefined,
+          }
+        : {}),
+      ...(attachment ? { attachment } : {}),
     });
     if (res?.stored) {
-      console.log(`${outbound ? '→' : '←'} ${counterparty}  ${text.slice(0, 70)}`);
+      const where = groupId ? `[${groupNames.get(groupId) || groupId}]` : counterparty;
+      console.log(`${outbound ? '→' : '←'} ${where}  ${text.slice(0, 60)}${attachment ? `  📎 ${attachment.filename || attachment.mimetype}` : ''}`);
     }
   } catch (e) {
     console.error('✖ relay failed:', e && e.message ? e.message : e);

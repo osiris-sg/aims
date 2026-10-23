@@ -1,7 +1,8 @@
 # whatsapp-dm-bridge
 
-Mirrors one phone's **1:1** WhatsApp conversations into AIMS. Read-only: it
-never sends a message and cannot post into a group.
+Mirrors one phone's **1:1** WhatsApp conversations into AIMS, plus any groups
+it is explicitly told to watch. Read-only: it never sends a message and cannot
+post into a group.
 
 ## Why it exists
 
@@ -24,7 +25,10 @@ once. This one stays small on purpose.
 1. Prints a QR on first boot (scan from the phone, Linked devices → Link a device)
 2. Relays every 1:1 message, **both directions**, to
    `POST /whatsapp/dm-bridge/message`
-3. Nothing else
+3. Relays the groups named in `WATCH_GROUPS`, and no others
+4. Downloads attachments and stores them in S3, so a row has a file behind it
+5. Reports the groups the phone is in to `POST /whatsapp/dm-bridge/groups`,
+   at startup and hourly
 
 Outbound matters as much as inbound: replies typed by hand on the phone are
 relayed too, so the CRM thread is complete rather than half a conversation.
@@ -41,9 +45,32 @@ secret the API checks as `WHATSAPP_GROUP_BRIDGE_TOKEN`.
 
 The QR appears in the worker's logs whenever there is no session on the disk.
 
+### Watching a group
+
+`WATCH_GROUPS` is a comma-separated list of group jids (`120363…@g.us`) or
+case-insensitive name fragments (`CIEL INVOICE`). **Empty means no groups**,
+which is how this bridge behaved before groups existed as an option.
+
+Opt-in per group is deliberate: the phone belongs to the company and sits in
+plenty of chats that are none of AIMS's business. Watching everything would
+ingest all of them.
+
+To find a group's id, read what the bridge reports:
+
+```
+GET /whatsapp/dm-bridge/groups?key=<BRIDGE_LABEL>
+     -H "X-Group-Bridge-Token: <token>"
+```
+
+`MAX_MEDIA_BYTES` caps what it will carry (default 15MB); anything larger is
+logged and skipped rather than held in memory.
+
 ## Limits
 
 - Unofficial. WhatsApp can log the device out; re-scan to recover.
-- Media is recorded as `[image]`, `[document]` and so on. Files are not downloaded.
+- Media is downloaded and stored in S3 (`payload.media` holds the key, url,
+  mimetype and filename). Files over `MAX_MEDIA_BYTES` are skipped.
+- A group is relayed only if `WATCH_GROUPS` names it; the phone's other groups
+  are never read.
 - No automation yet. Adding replies means deciding what it should say, and that
   decision has not been made.

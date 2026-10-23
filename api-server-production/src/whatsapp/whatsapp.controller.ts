@@ -333,6 +333,10 @@ export class WhatsAppController {
       waMessageId?: string;
       sentAt?: string;
       payload?: any;
+      groupId?: string;
+      groupName?: string;
+      senderPhone?: string;
+      attachment?: { base64: string; mimetype: string; filename?: string };
     },
   ) {
     this.assertBridgeToken(req);
@@ -345,7 +349,30 @@ export class WhatsAppController {
       waMessageId: body.waMessageId,
       sentAt: body.sentAt,
       payload: body.payload,
+      groupId: body.groupId,
+      groupName: body.groupName,
+      senderPhone: body.senderPhone,
+      attachment: body.attachment,
     });
+  }
+
+  @Public()
+  @Post('dm-bridge/groups')
+  @ApiOperation({ summary: 'DM bridge: publish the groups its linked phone is in' })
+  async setBridgeGroups(
+    @Req() req: RequestWithOrganization,
+    @Body() body: { key?: string; groups?: Array<{ id: string; name: string }> },
+  ) {
+    this.assertBridgeToken(req);
+    return this.service.setBridgeGroups(body?.key || 'default', Array.isArray(body?.groups) ? body.groups : []);
+  }
+
+  @Public()
+  @Get('dm-bridge/groups')
+  @ApiOperation({ summary: 'DM bridge: read the groups its linked phone is in' })
+  async getBridgeGroups(@Req() req: RequestWithOrganization, @Query('key') key?: string) {
+    this.assertBridgeToken(req);
+    return this.service.getBridgeGroups(key || 'default');
   }
 
   @Public()

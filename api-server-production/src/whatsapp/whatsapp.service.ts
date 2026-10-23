@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
+import { S3Service } from '../common/services/s3.service';
 import { OnboardDto, SendTemplateDto, SendTextDto } from './dto/whatsapp.dto';
 import { WhatsAppAgentService } from './whatsapp-agent.service';
 import { LeadsService } from '../leads/leads.service';
@@ -52,6 +53,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     private readonly operator: OperatorService,
     private readonly operatorAuth: OperatorAuthService,
     private readonly projectCosting: ProjectCostingService,
+    private readonly s3: S3Service,
     @Optional() private readonly templateStatus?: TemplateStatusService,
   ) {}
 
@@ -1346,6 +1348,21 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
    * Idempotent on waMessageId: the library re-emits on reconnect, and a
    * relayed message must not become two rows.
    */
+  /** Group lists each DM bridge reports, so we can see which chats its phone
+   *  is actually in without guessing or asking someone to check a handset. */
+  private readonly bridgeGroups = new Map<string, { groups: Array<{ id: string; name: string }>; at: number }>();
+
+  setBridgeGroups(key: string, groups: Array<{ id: string; name: string }>) {
+    this.bridgeGroups.set(key, { groups, at: Date.now() });
+    return { ok: true, count: groups.length };
+  }
+
+  getBridgeGroups(key: string) {
+    const row = this.bridgeGroups.get(key);
+    if (!row) return { groups: [], ageMs: null };
+    return { groups: row.groups, ageMs: Date.now() - row.at };
+  }
+
   async storeBridgeMessage(args: {
     organizationId: string;
     direction: 'INBOUND' | 'OUTBOUND';
@@ -1354,13 +1371,27 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     waMessageId?: string | null;
     sentAt?: string | null;
     payload?: any;
+    /** Set when the message came from a GROUP the bridge watches. The group
+     *  jid becomes the counterparty, so a thread stays a thread; the human who
+     *  sent it rides along in the payload. */
+    groupId?: string | null;
+    groupName?: string | null;
+    senderPhone?: string | null;
+    /** A photo/PDF/video the bridge downloaded. Stored in S3; the row keeps
+     *  the key and a short description, never the bytes. */
+    attachment?: { base64: string; mimetype: string; filename?: string | null } | null;
   }) {
     const org = await this.prisma.organization.findUnique({
       where: { id: args.organizationId },
       select: { id: true },
     });
     if (!org) throw new BadRequestException('Unknown organization');
-    const counterparty = String(args.counterparty || '').replace(/\D/g, '') || 'unknown';
+    // A GROUP keeps its jid as the counterparty. Stripping non-digits (right
+    // for a phone number) would turn 120363...@g.us into a bare number and
+    // scatter one group's messages across unrelated threads.
+    const counterparty = args.groupId
+      ? String(args.groupId).slice(0, 180)
+      : String(args.counterparty || '').replace(/\D/g, '') || 'unknown';
     const waMessageId = args.waMessageId ? String(args.waMessageId).slice(0, 180) : null;
 
     if (waMessageId) {
@@ -1370,6 +1401,26 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       });
       if (existing) return { id: existing.id, stored: false };
     }
+    // Media: keep the FILE, not just a "[document]" marker. An invoice posted
+    // into a group is the whole point of watching it, and the row is useless
+    // without something to open (guru 2026-10-24).
+    let media: { key: string; url: string; mimetype: string; filename: string } | null = null;
+    if (args.attachment?.base64) {
+      try {
+        const buf = Buffer.from(args.attachment.base64, 'base64');
+        const ext = (args.attachment.filename || '').includes('.')
+          ? args.attachment.filename!.split('.').pop()!.slice(0, 8)
+          : (args.attachment.mimetype || '').split('/').pop()?.slice(0, 8) || 'bin';
+        const safeName = (args.attachment.filename || `wa-${Date.now()}.${ext}`).replace(/[^\w.\-]+/g, '_').slice(0, 120);
+        const key = `whatsapp/${args.organizationId}/${Date.now()}_${safeName}`;
+        const url = await this.s3.uploadFile(key, buf, args.attachment.mimetype || 'application/octet-stream');
+        media = { key, url, mimetype: args.attachment.mimetype || 'application/octet-stream', filename: safeName };
+      } catch (e: any) {
+        // Never lose the message because the file would not store.
+        this.logger.warn(`Bridge attachment upload failed: ${e.message}`);
+      }
+    }
+
     const created = await this.prisma.whatsAppMessage.create({
       data: {
         organizationId: args.organizationId,
@@ -1378,13 +1429,18 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         waMessageId,
         body: args.body ?? null,
         status: args.direction === 'OUTBOUND' ? 'sent' : 'received',
-        payload: args.payload ?? undefined,
+        payload: {
+          ...(args.payload || {}),
+          ...(args.groupId ? { groupId: args.groupId, groupName: args.groupName || null, senderPhone: args.senderPhone || null } : {}),
+          ...(media ? { media } : {}),
+        },
         // The linked device reports when the message actually happened; a
         // backlog replayed on reconnect would otherwise all read "now".
         ...(args.sentAt && !isNaN(new Date(args.sentAt).getTime()) ? { createdAt: new Date(args.sentAt) } : {}),
       },
     });
-    if (args.direction === 'INBOUND') {
+    // Contacts are people. A group jid in that table would masquerade as one.
+    if (args.direction === 'INBOUND' && !args.groupId) {
       await this.upsertContact(args.organizationId, counterparty, { lastMessageAt: new Date() }).catch(() => null);
     }
     return { id: created.id, stored: true };
