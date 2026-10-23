@@ -6,6 +6,7 @@ import { MarketingModule } from '../marketing/marketing.module';
 import { LeadsModule } from '../leads/leads.module';
 import { DeliveriesModule } from '../deliveries/deliveries.module';
 import { PrismaService } from '../common/prisma.service';
+import { TemplateStatusService } from './template-status.service';
 import { CommonModule } from '../common/common.module';
 import { CustomersModule } from '../customers/customers.module';
 import { AssetsModule } from '../assets/assets.module';
@@ -75,7 +76,7 @@ import { AuthModule } from '../auth/auth.module';
     IngestionEmailModule, // round S: email_link / intake from a WhatsApp file
   ],
   controllers: [OperatorController, OperatorWebController],
-  providers: [OperatorService, OperatorAuthService, OperatorToolsService, ShipmentsToolsService, ShipmentsOutboxService, TelegramAdapter, WhatsAppAdapter, WebAdapter, PrismaService],
-  exports: [OperatorService, OperatorAuthService, WhatsAppAdapter, WebAdapter],
+  providers: [OperatorService, OperatorAuthService, OperatorToolsService, ShipmentsToolsService, ShipmentsOutboxService, TelegramAdapter, WhatsAppAdapter, WebAdapter, PrismaService, TemplateStatusService],
+  exports: [OperatorService, OperatorAuthService, WhatsAppAdapter, WebAdapter, TemplateStatusService],
 })
 export class OperatorModule {}

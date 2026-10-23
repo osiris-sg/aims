@@ -2,8 +2,8 @@
  * WhatsApp staff notifications (ADH, round S, 2026-10-21) — the SEND side.
  *
  * Every minute: (1) at 08:30 JST, build each shipments org's morning digest and queue it per user
- * (a DIGEST row goes out as the approved `aims_notify` utility template, so it lands outside the
- * 24-hour window); (2) drain due QUEUED rows — one message per user with every due line in it —
+ * (a DIGEST row goes out as the APPROVED aims_digest / aims_digest_v2 template when the line has one — round AD:
+ * decided from Meta's list, env vars only as overrides — else as plain text); (2) drain due QUEUED rows — one message per user with every due line in it —
  * through the WhatsApp adapter, on the business line the user last wrote to (else the org's own
  * line). Quiet hours and the 10-minute batch were applied when the rows were queued.
  */
@@ -16,15 +16,13 @@ import { ShipmentsNotifyService } from '../shipments/shipments-notify.service';
 import { tradeToday } from '../shipments/shipments.rules';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
 import { isDigestTime, jstDay, shipmentRefOf } from './shipments-agent.rules';
-import { batchText, DigestInput, digestTemplateParams, digestText, pushTemplateParams, PushTemplateKind, shortTask, stripEmoji } from './push-text';
+import { batchText, DigestInput, digestTemplateParams, digestText, pushTemplateParams, shortTask, stripEmoji } from './push-text';
 import { EmailTriageService } from '../ingestion-email/email-triage.service';
 import { ShortLinksService } from '../short-links/short-links.service';
+import { TemplateStatusService } from './template-status.service';
 
-const NOTIFY_TEMPLATE = () => process.env.WHATSAPP_NOTIFY_TEMPLATE || 'aims_notify';
-/** Round X: a structured digest template (one variable per line), once Meta approves it; unset = send the digest as plain text (the closed-window recovery falls back to aims_notify / the bridge). */
-const DIGEST_TEMPLATE = () => process.env.WHATSAPP_DIGEST_TEMPLATE || '';
-/** The approved per-kind templates for a single "needs a check" push (aims_needs_check / aims_new_deal / aims_recheck); unset = plain text. */
-const PUSH_TEMPLATE: Record<PushTemplateKind, () => string> = { needs_check: () => process.env.WHATSAPP_NEEDS_TEMPLATE || '', new_deal: () => process.env.WHATSAPP_NEW_DEAL_TEMPLATE || '', recheck: () => process.env.WHATSAPP_RECHECK_TEMPLATE || '' };
+// Round AD: the template names come from TemplateStatusService (what Meta APPROVED on the sending line's WABA; v2
+// preferred; the WHATSAPP_*_TEMPLATE env vars remain optional overrides). '' = plain text.
 /** Round AD: the Dashboard link is a short one (https://app.ai-ms.io/go/<token>, 30 days, login required) — see ShortLinksService. */
 const DASHBOARD_PATH = '/portal';
 
@@ -40,6 +38,7 @@ export class ShipmentsOutboxService {
     private readonly whatsapp: WhatsAppAdapter,
     private readonly triage: EmailTriageService,
     private readonly links: ShortLinksService,
+    private readonly templates: TemplateStatusService,
   ) {}
 
   @Cron('* * * * *')
@@ -141,7 +140,7 @@ export class ShipmentsOutboxService {
         // a structured digest template (WHATSAPP_DIGEST_TEMPLATE, one variable per line) is used once approved.
         const text = stripEmoji(d.text);
         const lang = /[぀-ヿ一-鿿]/.test(text) ? 'ja' : 'en';
-        const tpl = DIGEST_TEMPLATE();
+        const tpl = await this.templates.shipmentsTemplate('digest', lang, line).catch(() => '');
         const params = tpl ? digestTemplateParams(text, lang) : null;
         // The structured template when it exists and the text reads back into its 6 values; plain text otherwise.
         const ok = (tpl && params ? await this.whatsapp.sendTemplateLines(to, tpl, params, lang).catch(() => false) : false) || (await this.whatsapp.sendText(to, text).then(() => true).catch(() => false));
@@ -150,15 +149,17 @@ export class ShipmentsOutboxService {
       }
       // Round X: a single "needs a check" push goes as its approved template when one is configured (lands outside
       // the 24h window too); batches and events go as one text (the closed-window recovery covers those).
-      const asTemplate: any[] = [];
+      const asTemplate: Array<{ row: any; name: string; t: NonNullable<ReturnType<typeof pushTemplateParams>> }> = [];
       const asText: any[] = [];
+      const single = others.filter((x) => x.kind === 'NEEDS_ME').length === 1;
       for (const r of others) {
         const t = r.kind === 'NEEDS_ME' ? pushTemplateParams(stripEmoji(r.text)) : null;
-        (t && PUSH_TEMPLATE[t.kind]() && others.filter((x) => x.kind === 'NEEDS_ME').length === 1 ? asTemplate : asText).push(r);
+        const name = t && single ? await this.templates.shipmentsTemplate(t.kind, t.lang, line).catch(() => '') : '';
+        if (t && name) asTemplate.push({ row: r, name, t });
+        else asText.push(r);
       }
-      for (const r of asTemplate) {
-        const t = pushTemplateParams(stripEmoji(r.text))!;
-        const ok = (await this.whatsapp.sendTemplateLines(to, PUSH_TEMPLATE[t.kind](), t.params, t.lang).catch(() => false)) || (await this.whatsapp.sendText(to, stripEmoji(r.text)).then(() => true).catch(() => false));
+      for (const { row: r, name, t } of asTemplate) {
+        const ok = (await this.whatsapp.sendTemplateLines(to, name, t.params, t.lang).catch(() => false)) || (await this.whatsapp.sendText(to, stripEmoji(r.text)).then(() => true).catch(() => false));
         await this.mark([r], ok, 'push send failed');
         ok ? sent++ : failed++;
       }

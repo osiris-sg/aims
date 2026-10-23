@@ -4,8 +4,7 @@ import {
   Logger,
   NotFoundException,
   OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+  OnModuleInit, Optional, } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { randomInt } from 'crypto';
@@ -14,6 +13,7 @@ import { OnboardDto, SendTemplateDto, SendTextDto } from './dto/whatsapp.dto';
 import { WhatsAppAgentService } from './whatsapp-agent.service';
 import { LeadsService } from '../leads/leads.service';
 import { OperatorService } from '../operator/operator.service';
+import { TemplateStatusService } from '../operator/template-status.service';
 import { OperatorAuthService } from '../operator/operator-auth.service';
 import { ProjectCostingService } from '../project-costing/project-costing.service';
 
@@ -52,6 +52,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     private readonly operator: OperatorService,
     private readonly operatorAuth: OperatorAuthService,
     private readonly projectCosting: ProjectCostingService,
+    @Optional() private readonly templateStatus?: TemplateStatusService,
   ) {}
 
   onModuleInit() {
@@ -427,7 +428,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const templateName = process.env.WHATSAPP_NOTIFY_TEMPLATE || 'aims_notify';
+    // Round AD (owner): an org WITH the SHIPMENTS module uses aims_notify_utility once Meta approved it on its WABA;
+    // every other org keeps WHATSAPP_NOTIFY_TEMPLATE || aims_notify exactly as before (TemplateStatusService decides).
+    const templateName = (await this.templateStatus?.notifyTemplate(organizationId).catch(() => null)) || process.env.WHATSAPP_NOTIFY_TEMPLATE || 'aims_notify';
     await this.dispatch(
       organizationId,
       {
@@ -2551,10 +2554,12 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
       try {
-        const res = await this.graph<{ data?: Array<{ name: string; status: string }> }>(
-          `${c.wabaId}/message_templates?fields=name,status&limit=200`,
+        const res = await this.graph<{ data?: Array<{ name: string; status: string; language?: string }> }>(
+          `${c.wabaId}/message_templates?fields=name,status,language&limit=200`,
           { method: 'GET', token: c.accessToken },
         );
+        // Round AD: the audit primes the template-status cache the pushes decide from (name · language · status only).
+        this.templateStatus?.prime(c.wabaId, (res.data || []).map((t) => ({ name: t.name, language: t.language ?? 'en', status: t.status })));
         const approved = new Set((res.data || []).filter((t) => t.status === 'APPROVED').map((t) => t.name));
         // Round X: the shipments push templates under review — their status lands in the daily log (names only).
         const aims = (res.data || []).filter((t) => /^aims_/.test(t.name)).map((t) => `${t.name}=${t.status}`);
