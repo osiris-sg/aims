@@ -163,8 +163,12 @@ function isWatchedGroup(groupId) {
  * only way to learn a group's jid without guessing. Runs at startup and then
  * hourly, since groups get created and renamed.
  */
-async function reportGroups() {
+async function reportGroups(attempt = 1) {
   try {
+    // getChats() called the instant 'ready' fires throws from inside the
+    // page's own store, with a one-character minified message ("r") that says
+    // nothing. The store is simply not populated yet, so retry rather than
+    // treat the first failure as the answer.
     const chats = await client.getChats();
     const groups = chats
       .filter((c) => c.isGroup)
@@ -172,9 +176,20 @@ async function reportGroups() {
     for (const g of groups) groupNames.set(g.id, g.name);
     await post('/whatsapp/dm-bridge/groups', { key: LABEL, groups });
     const watched = groups.filter((g) => isWatchedGroup(g.id));
-    console.log(`👥 ${groups.length} group(s) on this phone; watching ${watched.length}${watched.length ? ': ' + watched.map((g) => g.name).join(', ') : ''}`);
+    console.log(
+      `👥 ${groups.length} group(s) on this phone; watching ${watched.length}` +
+        `${watched.length ? ': ' + watched.map((g) => g.name).join(', ') : ''}`,
+    );
+    for (const g of groups) console.log(`     ${g.id}  ${g.name}`);
   } catch (e) {
-    console.error('✖ group report failed:', e && e.message ? e.message : e);
+    const detail = e && (e.stack || e.message) ? e.stack || e.message : String(e);
+    if (attempt < 5) {
+      const wait = attempt * 15_000;
+      console.error(`   ↷ group report attempt ${attempt} failed (${String(detail).slice(0, 120)}), retrying in ${wait / 1000}s`);
+      setTimeout(() => reportGroups(attempt + 1), wait);
+      return;
+    }
+    console.error('✖ group report failed after 5 attempts:', String(detail).slice(0, 400));
   }
 }
 
@@ -200,10 +215,10 @@ client.on('ready', () => {
   console.log(
     `   Relaying 1:1 messages${WATCH_GROUPS.length ? ` plus ${WATCH_GROUPS.length} watched group pattern(s)` : ' only'}. This bridge never sends.`,
   );
-  // Report straight away so the group jids are known before the first
-  // message arrives, then hourly to pick up renames and new chats.
-  reportGroups();
-  setInterval(reportGroups, 60 * 60 * 1000);
+  // Not straight away: the chat store is still filling when 'ready' fires.
+  // Hourly after that, to pick up renames and new chats.
+  setTimeout(() => reportGroups(), 15_000);
+  setInterval(() => reportGroups(), 60 * 60 * 1000);
 });
 
 // message_create fires for BOTH directions, which is what makes the thread
