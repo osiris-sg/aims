@@ -2,7 +2,7 @@
  * Round W, Part B — the question card: plain-language titles (EN / JA), "what AIMS found", answer options with a
  * record summary and why, the WhatsApp text with numbered options, and the numbered reply.
  */
-import { answerText, parseNumberedReply, plainReason, questionOf, QuestionInput, questionWhatsAppText } from './email-question';
+import { answerText, parseNumberedReply, plainReason, questionOf, QuestionInput, questionWhatsAppText, REPLY_WORDS } from './email-question';
 
 const summaryOf = (orderId: string, shipmentId: string | null) => ({ 'o18:s18-2': '#18-2 · SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct', 'o19:s19-1': '#19-1 · SUS 6063 · 281.9 t · WAN HAI 366 · ETA 29 Oct', 'o18:': '#18 · SUS 6005 · 220 t' })[`${orderId}:${shipmentId ?? ''}`] ?? null;
 const base = (o: Partial<QuestionInput>): QuestionInput => ({ lang: 'en', reasonCode: 'CONFIRM', subject: 'Re: 11月納入 6005C 20.416t', company: 'Mitsui Soko', attachments: ['NO_LIST.pdf'], keys: { blNo: null }, threadSize: 3, threadSubject: 'ビレット案件（11月納入6005Cー220t, 6063ー300t）', suggested: { orderId: 'o18', shipmentId: 's18-2', ref: '#18-2', why: ['net 20.416 in the subject'] }, candidates: [{ orderId: 'o19', shipmentId: 's19-1', ref: '#19-1', why: ['grade 6063 (subject)', 'subject only'] }], check: [], summaryOf, ...o });
@@ -92,5 +92,24 @@ describe('round W — question cards', () => {
     expect(answerText('not_shipment', 'en')).toBe('Hidden — not about a shipment');
     expect(answerText('not_deal', 'ja')).toBe('非表示にしました — 案件ではない');
     expect(answerText('later', 'en')).toBe('Asked again tomorrow');
+  });
+});
+
+describe('round AE — the words a push invites (typed or a quick-reply button tap)', () => {
+  const q: any = { kind: 'WHICH', options: [{ id: 'r:o1:s1', orderId: 'o1', shipmentId: 's1', ref: '#18-1', summary: '', why: '', suggested: true }] };
+  const deal: any = { kind: 'NEW_DEAL', options: [] };
+  it('later / ask later / 後で = later; not a shipment / 出荷ではない = X; NEW / create order only on a new-deal card', () => {
+    expect(parseNumberedReply('later', q)).toEqual({ kind: 'later' });
+    expect(parseNumberedReply('Ask later', q)).toEqual({ kind: 'later' });
+    expect(parseNumberedReply('後で', q)).toEqual({ kind: 'later' });
+    expect(parseNumberedReply('Not a shipment', q)).toEqual({ kind: 'not_shipment' });
+    expect(parseNumberedReply('出荷ではない', q)).toEqual({ kind: 'not_shipment' });
+    expect(parseNumberedReply('NEW', deal)).toEqual({ kind: 'create_order' });
+    expect(parseNumberedReply('Create order', deal)).toEqual({ kind: 'create_order' });
+    expect(parseNumberedReply('Not a deal', deal)).toEqual({ kind: 'not_deal' });
+    expect(parseNumberedReply('new', q)).toBeNull();
+    for (const w of ['1', 'x', 'NEW', 'later', 'Ask later', 'Not a shipment', '注文を作成', '後で']) expect(REPLY_WORDS.test(w)).toBe(true);
+    expect(REPLY_WORDS.test('what came in today?')).toBe(false);
+    expect(REPLY_WORDS.test('18-1')).toBe(false); // the shipment-number path handles it
   });
 });

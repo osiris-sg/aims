@@ -3,7 +3,8 @@ import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select,
 
 // WhatsApp shipments assistant (round S): per-user pushes. Mirrors the API defaults.
 type WaPrefs = { digest: boolean; needsMe: boolean; filed: boolean; events: boolean; quietFrom: string; quietTo: string; lang: "en" | "ja" };
-const WA_DEFAULTS: WaPrefs = { digest: true, needsMe: true, filed: false, events: true, quietFrom: "21:00", quietTo: "08:00", lang: "en" };
+// Round AE (owner, 2026-10-23): only "needs your answer" is pushed — digest / events / filed default off (the backend queues only NEEDS_ME).
+const WA_DEFAULTS: WaPrefs = { digest: false, needsMe: true, filed: false, events: false, quietFrom: "21:00", quietTo: "08:00", lang: "en" };
 const waPrefsOf = (v: any): WaPrefs => ({ ...WA_DEFAULTS, ...(v && typeof v === "object" ? v : {}) });
 import { useForm } from "react-hook-form";
 import FormInputBox from "@/form-components/FormInputBox";

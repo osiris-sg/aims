@@ -15,8 +15,8 @@ import { TradeAlertsService } from '../shipments/trade-alerts.service';
 import { ShipmentsNotifyService } from '../shipments/shipments-notify.service';
 import { tradeToday } from '../shipments/shipments.rules';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
-import { isDigestTime, jstDay, shipmentRefOf } from './shipments-agent.rules';
-import { batchText, DigestInput, digestTemplateParams, digestText, pushTemplateParams, shortTask, stripEmoji } from './push-text';
+import { isDigestTime, jstDay, SHIPMENTS_PUSH_KINDS_ON, shipmentRefOf } from './shipments-agent.rules';
+import { answerBatchParamsOf, answerBatchText, batchText, DigestInput, digestTemplateParams, digestText, parseAnswerPush, renderTemplate, ANSWER_TEMPLATES, shortTask, stripEmoji } from './push-text';
 import { EmailTriageService } from '../ingestion-email/email-triage.service';
 import { ShortLinksService } from '../short-links/short-links.service';
 import { TemplateStatusService } from './template-status.service';
@@ -65,6 +65,7 @@ export class ShipmentsOutboxService {
   }
 
   async digests(now = new Date()) {
+    if (!SHIPMENTS_PUSH_KINDS_ON.includes('DIGEST')) return; // round AE (owner): the digest is off — the code stays
     for (const org of await this.shipmentsOrgs()) {
       try {
         await runAsOrg(org, async () => {
@@ -147,32 +148,81 @@ export class ShipmentsOutboxService {
         await this.mark([d], ok, 'digest send failed');
         ok ? sent++ : failed++;
       }
-      // Round X: a single "needs a check" push goes as its approved template when one is configured (lands outside
-      // the 24h window too); batches and events go as one text (the closed-window recovery covers those).
-      const asTemplate: Array<{ row: any; name: string; t: NonNullable<ReturnType<typeof pushTemplateParams>> }> = [];
-      const asText: any[] = [];
-      const single = others.filter((x) => x.kind === 'NEEDS_ME').length === 1;
-      for (const r of others) {
-        const t = r.kind === 'NEEDS_ME' ? pushTemplateParams(stripEmoji(r.text)) : null;
-        const name = t && single ? await this.templates.shipmentsTemplate(t.kind, t.lang, line).catch(() => '') : '';
-        if (t && name) asTemplate.push({ row: r, name, t });
-        else asText.push(r);
+      // Round AE (owner): the "needs your answer" pushes are ONE message family that looks the same everywhere — the
+      // approved template when the line has it (inside or outside the 24h window), else the identical plain text inside
+      // the window; outside it the row is HELD (kept QUEUED, retried) until the template is approved — never dropped.
+      const needs = others.filter((r) => r.kind === 'NEEDS_ME');
+      const rest = others.filter((r) => r.kind !== 'NEEDS_ME');
+      if (needs.length) {
+        const r = await this.sendAnswerPushes(org, to, line, needs, now);
+        sent += r.sent;
+        failed += r.failed;
       }
-      for (const { row: r, name, t } of asTemplate) {
-        const ok = (await this.whatsapp.sendTemplateLines(to, name, t.params, t.lang).catch(() => false)) || (await this.whatsapp.sendText(to, stripEmoji(r.text)).then(() => true).catch(() => false));
-        await this.mark([r], ok, 'push send failed');
-        ok ? sent++ : failed++;
-      }
-      if (asText.length) {
-        const lang = asText.some((r) => /[぀-ヿ一-鿿]/.test(r.text)) ? 'ja' : 'en';
-        const others = asText;
-        const ok = await this.whatsapp.sendText(to, batchText(others, lang, await this.links.url(org, DASHBOARD_PATH))).then(() => true).catch(() => false);
-        await this.mark(others, ok, 'text send failed');
-        ok ? (sent += others.length) : (failed += others.length);
+      if (rest.length) {
+        const lang = rest.some((r) => /[぀-ヿ一-鿿]/.test(r.text)) ? 'ja' : 'en';
+        const ok = await this.whatsapp.sendText(to, batchText(rest, lang, await this.links.url(org, DASHBOARD_PATH))).then(() => true).catch(() => false);
+        await this.mark(rest, ok, 'text send failed');
+        ok ? (sent += rest.length) : (failed += rest.length);
       }
     }
     if (sent || failed) this.logger.log(`outbox: sent ${sent}, failed ${failed}`);
     return { sent, failed };
+  }
+
+  /**
+   * The answer pushes of one user due together. One row → its variant's template (values read back from the stored
+   * text); several → the batch template (count, latest, link). Rows whose email is no longer open are SKIPPED.
+   */
+  private async sendAnswerPushes(org: string, to: string, line: string, rows: any[], now: Date): Promise<{ sent: number; failed: number }> {
+    const live: any[] = [];
+    for (const r of rows) {
+      const logId = /^needs:([0-9a-f-]{36})/i.exec(r.dedupeKey ?? '')?.[1];
+      const open = logId ? await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId: org, inboxState: { in: ['SUGGESTED', 'UNMATCHED', 'UNSURE'] } }, select: { id: true } }).catch(() => ({ id: logId })) : { id: null };
+      if (logId && !open) await this.prisma.whatsAppOutbox.updateMany({ where: { id: { in: [r.id] } }, data: { status: 'SKIPPED', error: 'answered before it was sent' } });
+      else live.push(r);
+    }
+    if (!live.length) return { sent: 0, failed: 0 };
+    const parsed = live.map((r) => ({ r, p: parseAnswerPush(stripEmoji(r.text)) }));
+    // The language is the push's own (its title), never the subject's script — an English push often carries a Japanese subject.
+    const lang: 'en' | 'ja' = parsed.some((x) => x.p?.lang === 'ja') || (parsed.every((x) => !x.p) && parsed.some((x) => /[぀-ヿ一-鿿]/.test((x.r.text ?? '').split('\n')[0]))) ? 'ja' : 'en';
+    let kind: 'answer' | 'answer_deal' | 'answer_is_shipment' | 'answer_recheck' | 'answer_batch';
+    let params: string[];
+    let text: string;
+    if (live.length === 1 && parsed[0].p) {
+      kind = parsed[0].p.variant;
+      params = parsed[0].p.params;
+      text = renderTemplate(ANSWER_TEMPLATES[kind][lang], params);
+    } else if (live.length === 1) {
+      // An older row (round X–AD layout): plain text as stored.
+      kind = 'answer';
+      params = [];
+      text = stripEmoji(live[0].text);
+    } else {
+      const latest = [...parsed].sort((a, b) => new Date(b.r.createdAt).getTime() - new Date(a.r.createdAt).getTime())[0];
+      const url = latest.p?.url ?? (await this.links.url(org, DASHBOARD_PATH));
+      const who = latest.p ? { who: latest.p.who, when: latest.p.when, subject: latest.p.subject } : { who: '-', when: '-', subject: '-' };
+      kind = 'answer_batch';
+      params = answerBatchParamsOf(live.length, who, url);
+      text = answerBatchText(live.length, who, url, lang);
+    }
+    const name = params.length ? await this.templates.answerTemplate(kind, lang, line).catch(() => '') : '';
+    if (name && (await this.whatsapp.sendTemplateLines(to, name, params, lang).catch(() => false))) {
+      await this.mark(live, true, '');
+      return { sent: live.length, failed: 0 };
+    }
+    const res = await this.whatsapp.sendTextResult(to, text).catch((e: any) => ({ ok: false, code: null as number | null, message: String(e?.message ?? e) }));
+    if (res.ok) {
+      await this.mark(live, true, '');
+      return { sent: live.length, failed: 0 };
+    }
+    if (res.code === 131047 || /re-?engagement/i.test(res.message ?? '')) {
+      // The 24-hour window is closed and the template is not approved yet: hold, retry in 30 minutes, never drop.
+      await this.prisma.whatsAppOutbox.updateMany({ where: { id: { in: live.map((r) => r.id) } }, data: { status: 'QUEUED', dueAt: new Date(now.getTime() + 30 * 60_000), error: `held: 24h window closed — waiting for the approved template ${name || 'aims_answer*'}` } });
+      this.logger.log(`outbox: held ${live.length} answer push(es) for …${to.slice(-3)} until the template is approved`);
+      return { sent: 0, failed: 0 };
+    }
+    await this.mark(live, false, `send failed${res.message ? `: ${res.message.slice(0, 120)}` : ''}`);
+    return { sent: 0, failed: live.length };
   }
 
   private async mark(rows: any[], ok: boolean, err: string) {

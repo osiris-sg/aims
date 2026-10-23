@@ -199,10 +199,16 @@ export function answerText(kind: 'record' | 'not_shipment' | 'not_deal' | 'later
 }
 
 /** The reply numbers of a WhatsApp question: 1..n = options, 0 = later, X = not a shipment (or not a deal). */
+/** Round AE: the words a push (or its quick-reply button) invites — read as a typed reply, in both languages. */
+export const REPLY_WORDS = /^\s*(?:[0-9]|x|×|new|later|ask later|not a shipment|not a deal|create order|新規|後で|出荷ではない|案件ではない|注文を作成)\s*$/i;
+
 export function parseNumberedReply(text: string, q: Pick<QuestionCard, 'kind' | 'options'>): { kind: 'record'; option: QuestionOption } | { kind: 'later' } | { kind: 'not_shipment' } | { kind: 'not_deal' } | { kind: 'create_order' } | null {
   const s = text.trim().toLowerCase();
-  if (s === '0') return { kind: 'later' };
+  if (s === '0' || s === 'later' || s === 'ask later' || s === '後で') return { kind: 'later' };
   if (s === 'x' || s === '×') return { kind: q.kind === 'NEW_DEAL' ? 'not_deal' : 'not_shipment' };
+  if (s === 'not a shipment' || s === '出荷ではない') return { kind: 'not_shipment' };
+  if (s === 'not a deal' || s === '案件ではない') return { kind: 'not_deal' };
+  if (s === 'new' || s === 'create order' || s === '新規' || s === '注文を作成') return q.kind === 'NEW_DEAL' ? { kind: 'create_order' } : null;
   if (!/^[1-9]$/.test(s)) return null;
   const n = Number(s);
   if (q.kind === 'NEW_DEAL') return n === 1 ? { kind: 'create_order' } : n === 2 ? { kind: 'not_deal' } : null;

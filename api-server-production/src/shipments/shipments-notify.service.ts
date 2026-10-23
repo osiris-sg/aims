@@ -12,7 +12,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { isOrgFeatureEnabled } from '../common/org-features';
-import { dueAtFor, KIND_PREF, OutboxKind, prefsOf, WhatsAppPrefs } from '../operator/shipments-agent.rules';
+import { dueAtFor, KIND_PREF, OutboxKind, prefsOf, SHIPMENTS_PUSH_KINDS_ON, WhatsAppPrefs } from '../operator/shipments-agent.rules';
 
 export const WHATSAPP_AGENT_FLAG = 'enableWhatsAppAgent';
 
@@ -49,6 +49,8 @@ export class ShipmentsNotifyService {
   /** Queue `text` for every opted-in user. Never throws (a notification must never break the flow that raised it). */
   async queue(organizationId: string, kind: OutboxKind, text: string, opts: QueueOpts = {}): Promise<number> {
     try {
+      // Round AE (owner): only "needs your answer" goes out on its own — the digest / events / filed kinds are off.
+      if (!SHIPMENTS_PUSH_KINDS_ON.includes(kind)) return 0;
       if (!(await this.enabled(organizationId))) return 0;
       const at = opts.at ?? new Date();
       let n = 0;

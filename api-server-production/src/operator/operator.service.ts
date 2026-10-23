@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
 import { CHAT_UPLOAD_PROJECT_COST_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 import { matchProjectByAddress } from '../common/address-match';
+import { REPLY_WORDS } from '../ingestion-email/email-question';
 import { OperatorAuthService } from './operator-auth.service';
 import { OperatorToolsService } from './operator-tools.service';
 import { ShipmentsToolsService } from './shipments-tools.service';
@@ -319,8 +320,8 @@ export class OperatorService {
           return;
         }
       }
-      // Round W: "1" / "2" / "0" / "X" answers the last question card sent to this number.
-      if (/^\s*([0-9]|x|×)\s*$/i.test(text)) {
+      // Round W: "1" / "2" / "0" / "X" answers the last question card sent to this number. Round AE: also NEW / later and the quick-reply button titles.
+      if (REPLY_WORDS.test(text)) {
         const answered = await this.shipTools.answerNumbered(ctx, msg.channelUserId, text, lang).catch((e) => {
           this.logger.warn(`numbered answer failed: ${(e as Error)?.message}`);
           return null;

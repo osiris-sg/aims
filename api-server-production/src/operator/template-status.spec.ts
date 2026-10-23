@@ -2,7 +2,7 @@
  * Round AD — template names are decided in code from Meta's APPROVED list: v2 when approved, else the round X name,
  * else plain text; the notify utility twin only for SHIPMENTS orgs; env vars stay optional overrides.
  */
-import { pickNotifyTemplate, pickShipmentsTemplate, TemplateRow } from './template-status.service';
+import { pickAnswerTemplate, pickNotifyTemplate, pickShipmentsTemplate, TemplateRow } from './template-status.service';
 
 const row = (name: string, language: string, status = 'APPROVED'): TemplateRow => ({ name, language, status });
 const ADH_TODAY: TemplateRow[] = [
@@ -41,5 +41,16 @@ describe('closed-window notify template', () => {
     expect(pickNotifyTemplate([row('aims_notify_utility', 'en', 'PENDING')], true, NONE)).toBe('aims_notify');
     expect(pickNotifyTemplate([row('aims_notify_utility', 'en')], true, NONE)).toBe('aims_notify_utility');
     expect(pickNotifyTemplate([row('aims_notify_utility', 'en')], true, { WHATSAPP_NOTIFY_TEMPLATE: 'custom' })).toBe('custom');
+  });
+});
+
+describe('round AE — the "needs your answer" family', () => {
+  it('its name only when APPROVED for that language; nothing else is ever substituted', () => {
+    const rows = [row('aims_answer', 'en'), row('aims_answer', 'ja', 'PENDING'), row('aims_answer_batch', 'en'), row('aims_needs_check_v2', 'en')];
+    expect(pickAnswerTemplate(rows, 'answer', 'en')).toBe('aims_answer');
+    expect(pickAnswerTemplate(rows, 'answer', 'ja')).toBe('');
+    expect(pickAnswerTemplate(rows, 'answer_deal', 'en')).toBe('');
+    expect(pickAnswerTemplate(rows, 'answer_batch', 'en')).toBe('aims_answer_batch');
+    expect(pickAnswerTemplate([], 'answer_recheck', 'en')).toBe('');
   });
 });

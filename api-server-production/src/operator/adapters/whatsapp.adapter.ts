@@ -119,6 +119,20 @@ export class WhatsAppAdapter implements ChannelAdapter {
   /** Send an actual message payload (type text/document/interactive) and log it
    *  to the org's WhatsApp thread. Returns true on success. */
   private async sendMessage(chatId: string, payload: Record<string, any>): Promise<boolean> {
+    return (await this.sendMessageResult(chatId, payload)).ok;
+  }
+
+  /** Round AE: the outcome WITH Meta's error code — 131047 = the 24-hour window is closed (the outbox then waits for the template). */
+  async sendTextResult(chatId: string, text: string): Promise<{ ok: boolean; code: number | null; message: string | null }> {
+    const chunks = chunkText(cleanText(text), 4000);
+    let last = { ok: true, code: null as number | null, message: null as string | null };
+    for (const chunk of chunks) {
+      last = await this.sendMessageResult(chatId, { type: 'text', text: { preview_url: false, body: chunk } });
+      if (!last.ok) break;
+    }
+    return last;
+  }
+  private async sendMessageResult(chatId: string, payload: Record<string, any>): Promise<{ ok: boolean; code: number | null; message: string | null }> {
     const body = { messaging_product: 'whatsapp', recipient_type: 'individual', to: chatId, ...payload };
     const { ok, json, organizationId } = await this.post(chatId, body);
     if (organizationId) {
@@ -142,7 +156,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
         })
         .catch(() => null);
     }
-    return ok;
+    return { ok, code: typeof json?.error?.code === 'number' ? json.error.code : null, message: json?.error?.message ?? null };
   }
 
   /** Native "typing…" indicator. Marks the sender's latest inbound as read and

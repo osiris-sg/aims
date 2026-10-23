@@ -412,7 +412,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     // The template below stays as the fallback for an org with no bridge —
     // and it is only a fallback now, which also means a line without an
     // approved aims_notify is no longer stranded.
-    if (this.bridgeAlive(organizationId)) {
+    // Round AE (owner): the bridge is the unofficial WhatsApp Web session — never for a SHIPMENTS org (ToS / ban risk).
+    const shipmentsOrg = (await this.templateStatus?.hasShipments(organizationId).catch(() => false)) ?? false;
+    if (this.bridgeAlive(organizationId) && !shipmentsOrg) {
       await this.prisma.whatsAppScheduledMessage.create({
         data: {
           organizationId,

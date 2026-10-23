@@ -23,7 +23,11 @@ export type WhatsAppPrefs = {
   lang: 'en' | 'ja';
 };
 
-export const DEFAULT_WHATSAPP_PREFS: WhatsAppPrefs = { digest: true, needsMe: true, filed: false, events: true, quietFrom: '21:00', quietTo: '08:00', lang: 'en' };
+// Round AE (owner, 2026-10-23): the ONLY message AIMS sends on its own is "an email needs your answer". The digest,
+// events and "filed" pushes stay in the code, default OFF, and are not queued at all for now (SHIPMENTS_PUSH_KINDS_ON).
+export const DEFAULT_WHATSAPP_PREFS: WhatsAppPrefs = { digest: false, needsMe: true, filed: false, events: false, quietFrom: '21:00', quietTo: '08:00', lang: 'en' };
+/** The outbox kinds that may be queued at all (owner decision; the other kinds' code is kept for later). */
+export const SHIPMENTS_PUSH_KINDS_ON: ReadonlyArray<OutboxKind> = ['NEEDS_ME'];
 
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
 

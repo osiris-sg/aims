@@ -13,6 +13,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { ANSWER_TEMPLATE_NAME, AnswerTemplateKind } from './push-text';
 
 export type ShipmentsTemplateKind = 'digest' | 'needs_check' | 'new_deal' | 'recheck';
 export interface TemplateRow {
@@ -38,6 +39,12 @@ export function pickShipmentsTemplate(rows: TemplateRow[], kind: ShipmentsTempla
   if (isApproved(rows, `${base}_v2`, lang)) return `${base}_v2`;
   if (isApproved(rows, base, lang)) return base;
   return '';
+}
+
+/** Round AE: the "needs your answer" family — the ONE message AIMS sends on its own. APPROVED on the line's WABA → its name, else '' (plain text inside the window; the outbox holds the push outside it). */
+export function pickAnswerTemplate(rows: TemplateRow[], kind: AnswerTemplateKind, lang: 'en' | 'ja'): string {
+  const name = ANSWER_TEMPLATE_NAME[kind];
+  return isApproved(rows, name, lang) ? name : '';
 }
 
 /** Pure: the closed-window notify template — the utility twin only for SHIPMENTS orgs, and only once approved. */
@@ -103,6 +110,11 @@ export class TemplateStatusService {
   /** The shipments push template for this kind + language on the sending line ('' = send plain text). */
   async shipmentsTemplate(kind: ShipmentsTemplateKind, lang: 'en' | 'ja', phoneNumberId: string): Promise<string> {
     return pickShipmentsTemplate(await this.templatesForLine(phoneNumberId), kind, lang);
+  }
+
+  /** Round AE: the "needs your answer" template of this kind + language on the sending line ('' = not approved yet). */
+  async answerTemplate(kind: AnswerTemplateKind, lang: 'en' | 'ja', phoneNumberId: string): Promise<string> {
+    return pickAnswerTemplate(await this.templatesForLine(phoneNumberId), kind, lang);
   }
 
   /** The closed-window notify template for an org (its own line's WABA). Non-SHIPMENTS orgs: unchanged behaviour. */

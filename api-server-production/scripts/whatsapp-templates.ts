@@ -9,16 +9,18 @@
  *   --waba=<last 4 digits>  only that WABA (the ADH line's is the one ending 6521)
  *   --include-notify  also the UTILITY twin of aims_notify (aims_notify_utility) — switch WHATSAPP_NOTIFY_TEMPLATE to it once approved
  *   --v2              the round AD bodies (aims_*_v2) instead of the approved round X ones
+ *   --v3              the round AE "needs your answer" family (aims_answer*) — the one message AIMS sends on its own
  *
  *   npx ts-node --transpile-only scripts/whatsapp-templates.ts --list
  */
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
+import { ANSWER_TEMPLATE_BUTTONS, ANSWER_TEMPLATE_NAME, ANSWER_TEMPLATES, AnswerTemplateKind } from '../src/operator/push-text';
 
 const GRAPH = process.env.WHATSAPP_GRAPH_VERSION || 'v21.0';
 const ex = (lines: string[]) => lines;
 
-type Tpl = { name: string; language: 'en' | 'ja'; category: 'UTILITY'; body: string; example: string[] };
+type Tpl = { name: string; language: 'en' | 'ja'; category: 'UTILITY'; body: string; example: string[]; /** Round AE: QUICK_REPLY button titles (max 3 per template). */ buttons?: string[] };
 /** Each line of the push is a parameter; the fixed words are the template's own. The examples are what Meta sees in review. */
 export const TEMPLATES: Tpl[] = [
   // Meta rules met here: no variable at the start or the end, and enough fixed words per variable.
@@ -50,11 +52,27 @@ export const TEMPLATES_V2: Tpl[] = [
   { name: 'aims_recheck_v2', language: 'ja', category: 'UTILITY', body: 'AIMSがメールを再確認したところ、確信が持てなくなりました。\n{{1}}\n{{2}}\nAIMSで出荷を確認してください: {{3}}\nAIMS 出荷アシスタントからのお知らせです。', example: ex(['Vedanta · 10/21', 'TELEX MSG - Asia Deal(Sus) //454003255 //198GX06516', 'https://app.ai-ms.io/go/abc123']) },
 ];
 
+/**
+ * Round AE (owner): the ONE message family — "an email needs your answer". Bodies come from src/operator/push-text.ts
+ * (the plain-text push renders the same body), UTILITY, EN + JA, with proposed QUICK_REPLY buttons. --v3 selects it.
+ * Not submitted until the owner approves the wording.
+ */
+export const TEMPLATES_V3: Tpl[] = (Object.keys(ANSWER_TEMPLATES) as AnswerTemplateKind[]).flatMap((kind) =>
+  (['en', 'ja'] as const).map((language): Tpl => ({
+    name: ANSWER_TEMPLATE_NAME[kind],
+    language,
+    category: 'UTILITY',
+    body: ANSWER_TEMPLATES[kind][language],
+    example: kind === 'answer_batch' ? ex(['3', language === 'ja' ? 'SUS · 10/23 06:53' : 'SUS · 23 Oct 06:53', 'Re: 書類送付: 6005C材220MT 2026年11月納入分', 'https://app.ai-ms.io/go/k7m2xq4p']) : ex(['SUS', language === 'ja' ? '10/23 06:53' : '23 Oct 06:53', 'Re: 書類送付: 6005C材220MT 2026年11月納入分', language === 'ja' ? 'SUSが11月の納入予定を変更し、ADHに確認を求めています。' : 'SUS revised the November delivery schedule and asks ADH to confirm.', 'https://app.ai-ms.io/go/k7m2xq4p']),
+    buttons: ANSWER_TEMPLATE_BUTTONS[kind][language],
+  })),
+);
+
 /** The Graph API body for one template (what --submit posts). */
 /** The same body as the approved aims_notify (MARKETING), as a UTILITY template — cheaper, not subject to marketing limits. */
 export const NOTIFY_UTILITY: Tpl = { name: 'aims_notify_utility', language: 'en', category: 'UTILITY', body: 'AIMS update: {{1}}\nReply to this message to open the chat, or check the Dashboard: {{2}}\nSent by AIMS, the shipments assistant.', example: ex(['New email needs your check. From: Toshiro Takekoshi (Asia Deal Hub), 22 Oct 11:50. Subject: Re: DET costs. AIMS is not sure which shipment this is for: #16-1 or #16-2.', 'https://app.ai-ms.io/portal/shipments/dashboard']) };
 
-export const graphBody = (t: Tpl) => ({ name: t.name, language: t.language, category: t.category, components: [{ type: 'BODY', text: t.body, example: { body_text: [t.example] } }] });
+export const graphBody = (t: Tpl) => ({ name: t.name, language: t.language, category: t.category, components: [{ type: 'BODY', text: t.body, example: { body_text: [t.example] } }, ...(t.buttons?.length ? [{ type: 'BUTTONS', buttons: t.buttons.slice(0, 3).map((text) => ({ type: 'QUICK_REPLY', text })) }] : [])] });
 
 async function graph<T>(path: string, token: string, init: { method: 'GET' | 'POST'; body?: unknown }): Promise<T> {
   const res = await fetch(`https://graph.facebook.com/${GRAPH}/${path}`, { method: init.method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: init.body ? JSON.stringify(init.body) : undefined });
@@ -65,9 +83,9 @@ async function graph<T>(path: string, token: string, init: { method: 'GET' | 'PO
 
 async function main() {
   const args = process.argv.slice(2);
-  const base = args.includes('--v2') ? TEMPLATES_V2 : TEMPLATES;
+  const base = args.includes('--v3') ? TEMPLATES_V3 : args.includes('--v2') ? TEMPLATES_V2 : TEMPLATES;
   if (args.includes('--show')) {
-    for (const t of base) console.log(`\n=== ${t.name} (${t.language}, ${t.category})\n${t.body}\n--- example values: ${JSON.stringify(t.example)}`);
+    for (const t of base) console.log(`\n=== ${t.name} (${t.language}, ${t.category})\n${t.body}\n--- example values: ${JSON.stringify(t.example)}${t.buttons?.length ? `\n--- quick-reply buttons: ${t.buttons.join(' | ')}` : ''}`);
     return;
   }
   const p = new PrismaClient();
