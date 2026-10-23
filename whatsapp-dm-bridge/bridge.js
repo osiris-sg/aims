@@ -217,6 +217,21 @@ client.on('authenticated', () => console.log('🔐 authenticated'));
 client.on('auth_failure', (m) => console.error('✖ auth failure:', m));
 client.on('disconnected', (r) => console.error('✖ disconnected:', r));
 
+// BETWEEN 'authenticated' AND 'ready' THERE WAS SILENCE.
+//
+// A restart on 2026-10-24 logged "🔐 authenticated" and then nothing for half
+// an hour: no crash, no OOM, no QR, no error. The client was syncing, which
+// is a normal state, but the bridge said nothing while it happened, so a long
+// sync and a hung process looked identical from the outside.
+//
+// whatsapp-web.js reports both. Logging them costs nothing and is the
+// difference between "stuck" and "47% through a resync, leave it alone".
+client.on('loading_screen', (percent, message) =>
+  console.log(`⏳ loading ${percent ?? '?'}% ${message || ''}`.trimEnd()),
+);
+client.on('change_state', (state) => console.log(`↔ state: ${state}`));
+client.on('auth_failure', (m) => console.error('✖ auth failure:', m));
+
 client.on('ready', () => {
   const me = client.info?.wid?.user || 'unknown';
   const name = client.info?.pushname || '';
