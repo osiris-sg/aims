@@ -12,10 +12,11 @@ import {
   Typography,
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import PrintIcon from "@mui/icons-material/Print";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import { ReportPrintCss } from "../_lib/report-doc";
+import { ReportPrintExportButton, type ReportExportModel } from "../_lib/report-export";
 
 type Movement = { code: string; name: string; movement?: number; cashImpact: number };
 
@@ -71,6 +72,39 @@ export default function CashFlowPage() {
     load();
   }, [load]);
 
+  // Report print/export standard (CLAUDE.md): one Print / Export control. Print
+  // prints the A4 paper only (ReportPrintCss hides the app chrome).
+  const exportModel = (): ReportExportModel | null => {
+    if (!data) return null;
+    const rows: string[][] = [];
+    const bold: number[] = [];
+    const push = (label: string, value: number | null, isBold = false) => {
+      if (isBold) bold.push(rows.length);
+      rows.push([label, value === null ? "" : fmt(value)]);
+    };
+    push("CASH FLOWS FROM OPERATING ACTIVITIES", null, true);
+    push("Net income for the period", data.operating.netIncome);
+    data.operating.adjustments.forEach((m) => push(`${m.code} ${m.name}`, m.cashImpact));
+    push("Net cash from operating activities", data.operating.total, true);
+    push("CASH FLOWS FROM INVESTING ACTIVITIES", null, true);
+    data.investing.movements.forEach((m) => push(`${m.code} ${m.name}`, m.cashImpact));
+    push("Net cash from investing activities", data.investing.total, true);
+    push("CASH FLOWS FROM FINANCING ACTIVITIES", null, true);
+    data.financing.movements.forEach((m) => push(`${m.code} ${m.name}`, m.cashImpact));
+    push("Net cash from financing activities", data.financing.total, true);
+    push("Beginning cash & bank", data.summary.beginningCash, true);
+    push("Net change in cash", data.summary.netChangeInCash, true);
+    push("Ending cash & bank (computed)", data.summary.beginningCash + data.summary.netChangeInCash, true);
+    push("Ending cash & bank (actual from GL)", data.summary.actualEndingCash, true);
+    return {
+      title: "CASH FLOW STATEMENT",
+      orgName: organization?.name || "",
+      metaLines: [`Period : ${new Date(data.startDate).toLocaleDateString("en-GB")} to ${new Date(data.endDate).toLocaleDateString("en-GB")}`],
+      tables: [{ headers: ["", "Amount"], rows, boldRows: bold }],
+      note: data.summary.reconciles ? undefined : `Reconciliation diff: ${fmt(data.summary.reconciliationDiff)}`,
+    };
+  };
+
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       <Box className="no-print">
@@ -101,9 +135,7 @@ export default function CashFlowPage() {
             onChange={(e) => setPeriod((p) => ({ ...p, to: e.target.value }))}
           />
           <Box sx={{ flex: 1 }} />
-          <Button startIcon={<PrintIcon />} variant="outlined" size="small" onClick={() => window.print()}>
-            Print
-          </Button>
+          <ReportPrintExportButton getModel={exportModel} onPrint={() => window.print()} />
           <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
             Refresh
           </Button>
@@ -205,18 +237,7 @@ export default function CashFlowPage() {
         </Box>
       )}
 
-      <style jsx global>{`
-        @media print {
-          .no-print { display: none !important; }
-          @page { size: A4; margin: 0; }
-          body { background: white !important; }
-          [data-print-paper] {
-            box-shadow: none !important;
-            margin: 0 !important;
-            padding: 20mm !important;
-          }
-        }
-      `}</style>
+      <ReportPrintCss />
     </Box>
   );
 }

@@ -23,6 +23,8 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import { ReportPrintExportButton, type ReportExportModel } from "../_lib/report-export";
 
 type Month = { month: number; budget: number; actual: number; variance: number; variancePct: number | null };
 
@@ -49,6 +51,7 @@ const currentYear = () => new Date().getFullYear();
 
 export default function BudgetVsActualPage() {
   const { request } = useAccountingApi();
+  const { organization } = useOrganization();
   const [year, setYear] = useState(currentYear());
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,6 +83,30 @@ export default function BudgetVsActualPage() {
     .filter((r) => r.totalBudget !== 0)
     .sort((a, b) => Math.abs(b.totalVariance) - Math.abs(a.totalVariance))
     .slice(0, 3);
+
+  // Report print/export standard (CLAUDE.md): one Print / Export control.
+  const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const exportModel = (): ReportExportModel | null => {
+    if (!rows.length) return null;
+    const monthly = viewMode === "MONTHLY";
+    const headers = ["Account", "Description", ...(monthly ? MONTHS : []), "Budget", "Actual", "Variance", "%"];
+    const body = rows.map((r) => [
+      r.code,
+      r.name,
+      ...(monthly ? r.months.map((m) => money(m.actual)) : []),
+      money(r.totalBudget),
+      money(r.totalActual),
+      money(r.totalVariance),
+      r.totalVariancePct !== null ? `${r.totalVariancePct.toFixed(0)}%` : "",
+    ]);
+    body.push(["TOTAL", "", ...(monthly ? MONTHS.map(() => "") : []), money(totals.budget), money(totals.actual), money(totalVar), ""]);
+    return {
+      title: "BUDGET VS ACTUAL",
+      orgName: organization?.name || "",
+      metaLines: [`Year : ${year}`, monthly ? "Monthly actuals with year totals" : "Year-to-date totals"],
+      tables: [{ headers, rows: body, boldRows: [body.length - 1] }],
+    };
+  };
 
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
@@ -117,6 +144,7 @@ export default function BudgetVsActualPage() {
             ))}
           </TextField>
           <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>Refresh</Button>
+          <ReportPrintExportButton getModel={exportModel} />
           <Button startIcon={<OpenInNewIcon />} variant="outlined" size="small" component={Link} href="/portal/accounting/budget">
             Edit budgets
           </Button>
