@@ -25,10 +25,10 @@ interface ModuleOrg {
  *   2. failing that, go to /portal (the org's home — /portal itself lands
  *      Sales orgs on their Dashboard).
  * While the configuration loads, or while deciding, a small spinner stands in
- * for the page so a disallowed page never mounts (no flash, no fetches). Until
- * the module list is in, only the Sales hubs are knowable, so every path but
- * /portal itself waits for it; paths that then belong to no module
- * (/portal/settings, /portal/chat, …) render as normal.
+ * for the page so a disallowed page never mounts (no flash, no fetches).
+ * Hotfix 2026-10-23: only the Sales hubs (/portal/shipments/*,
+ * /portal/trade-documents/*) are guarded; every other path needs no module
+ * and renders at once, without waiting for the module list.
  */
 export default function ModuleRouteGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "";
@@ -77,8 +77,8 @@ export default function ModuleRouteGuard({ children }: { children: React.ReactNo
     };
   }, [settled, code, enabled, pathname, organization?.id, realOrganization?.id, getToken, router, setActiveOrgId]);
 
-  const isRoot = pathname.replace(/\/+$/, "") === "/portal";
-  if (isRoot || (settled && enabled)) return <>{children}</>;
+  // Nothing to guard: render straight away.
+  if (code === null || (settled && enabled)) return <>{children}</>;
   return (
     <Box
       role="status"
