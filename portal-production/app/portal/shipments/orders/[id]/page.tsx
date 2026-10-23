@@ -113,7 +113,12 @@ export default function OrderPage() {
     setUserPicked(true);
     setOpenId(stepId);
   };
-  useEffect(() => setUserPicked(false), [id, shipmentId]);
+  // Round AF: a ?step= deep link (a filed document line, the order chip) WINS over the default open step — before, this
+  // reset fired on mount and the page fell back to the current step, so the link only scrolled without opening the card.
+  useEffect(() => {
+    setUserPicked(!!wantedStep);
+    if (wantedStep) setOpenId(wantedStep);
+  }, [id, shipmentId, wantedStep]);
 
   // Round R: on open and on a shipment switch (not on every re-render), scroll to the step card that is open —
   // the order's early open step, else the selected shipment's open step, else the order's late step (a ?step=
