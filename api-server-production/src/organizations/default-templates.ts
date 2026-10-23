@@ -39,7 +39,11 @@ export const DEFAULT_DOCUMENT_TEMPLATES: DefaultTemplateSpec[] = [
   },
   { type: 'SALES_ORDER', templateVariant: 'SO', name: 'Sales Order' },
   { type: 'DELIVERY_ORDER', templateVariant: 'DO', name: 'Delivery Order' },
-  { type: 'INVOICE', templateVariant: 'TI', name: 'Invoice' },
+  // TI2 = the full invoice field set WITH the right-hand totals column (Rate /
+  // Gross / Disc / Sub-total / Tax / GST / Nett). Plain TI is Biofuel's legacy
+  // layout and has no summary fields, so a TI invoice renders an empty box on
+  // the right of the General tab (guru 2026-10-24, Chong Aik).
+  { type: 'INVOICE', templateVariant: 'TI2', name: 'Invoice' },
   { type: 'CREDIT_NOTE', templateVariant: 'CN', name: 'Credit Note' },
   { type: 'DEBIT_NOTE', templateVariant: 'DN', name: 'Debit Note' },
   { type: 'PO', templateVariant: 'PO', name: 'Purchase Order' },

@@ -1283,7 +1283,10 @@ export default function DynamicFormFields({
         )}
       </Box>
 
-      {/* Right Column - Summary/Totals */}
+      {/* Right Column - Summary/Totals. Skipped entirely when the template
+          defines no summary fields (plain TI invoices, DOs) — an empty bordered
+          box used to sit there (guru 2026-10-24). */}
+      {(prependRightRow || rightFields.length > 0) && (
       <Box
         sx={{
           minWidth: { xs: 0, md: 300 },
@@ -1300,6 +1303,7 @@ export default function DynamicFormFields({
         {prependRightRow && <Box sx={rightRowSx}>{prependRightRow}</Box>}
         {rightFields.map((field) => renderRightRow(field))}
       </Box>
+      )}
     </Box>
   );
 }
