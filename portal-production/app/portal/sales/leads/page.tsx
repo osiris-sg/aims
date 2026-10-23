@@ -79,6 +79,7 @@ type Lead = {
   status: string;
   assignedToUserId: string | null;
   assignedToName: string | null;
+  assignedAt: string | null;
   firstContactDeadline: string | null;
   replacementDeadline: string | null;
   quotationId: string | null;
@@ -638,6 +639,10 @@ export default function LeadsPage() {
         header: "Designer",
         cell: ({ row }: any) => {
           const l: Lead = row.original;
+          // Lead ageing (Summer 2026-10-14): how long since this lead was
+          // handed out — amber past 7 days, red past the 14-day replacement window.
+          const ageDays = l.assignedAt ? Math.floor((Date.now() - new Date(l.assignedAt).getTime()) / 86400000) : null;
+          const ageColor = ageDays == null ? undefined : ageDays >= 14 ? "error.main" : ageDays >= 7 ? "warning.main" : "text.secondary";
           return (
             <Box onClick={(e) => e.stopPropagation()}>
               {designerOnly ? (
@@ -654,6 +659,11 @@ export default function LeadsPage() {
                   renderInput={(p) => <TextField {...p} placeholder="Assign" variant="standard" InputProps={{ ...p.InputProps, disableUnderline: true, sx: { fontSize: 13 } }} />}
                   sx={{ minWidth: 140 }}
                 />
+              )}
+              {l.assignedToName && ageDays != null && (
+                <Typography variant="caption" sx={{ display: "block", color: ageColor, lineHeight: 1.2 }}>
+                  assigned {ageDays === 0 ? "today" : `${ageDays}d ago`} · {moment(l.assignedAt).format("DD MMM")}
+                </Typography>
               )}
             </Box>
           );

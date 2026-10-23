@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { LeadsService, MANUAL_SOURCES } from './leads.service';
@@ -42,6 +42,10 @@ export class LeadsController {
   }
 
   @Get()
+  @ApiOperation({
+    summary:
+      'List sales leads. Filters: ?assignedToName=<designer name, fuzzy> or ?assignedToUserId=, ?status=, ?source=, ?replyState=replied|contacted|never, ?search=. Rows include assignedAt (when the lead was handed to the designer — use it for lead age) and firstContactedAt/firstReplyAt.',
+  })
   @Permissions('documents:read')
   list(
     @Req() req: RequestWithOrganization,
@@ -51,9 +55,10 @@ export class LeadsController {
     @Query('status') status?: string,
     @Query('source') source?: string,
     @Query('assignedToUserId') assignedToUserId?: string,
+    @Query('assignedToName') assignedToName?: string,
     @Query('replyState') replyState?: string,
   ) {
-    return this.service.list(orgId(req), { page: Number(page) || 1, limit: Number(limit) || 20, search, status, source, assignedToUserId, replyState, callerUserId: req.user?.id });
+    return this.service.list(orgId(req), { page: Number(page) || 1, limit: Number(limit) || 20, search, status, source, assignedToUserId, assignedToName, replyState, callerUserId: req.user?.id });
   }
 
   @Get(':id')

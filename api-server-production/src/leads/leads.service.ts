@@ -356,13 +356,16 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     return names.length > 0 && names.every((n) => n === 'Designer');
   }
 
-  async list(organizationId: string, opts: { page?: number; limit?: number; search?: string; status?: string; source?: string; assignedToUserId?: string; replyState?: string; callerUserId?: string }) {
+  async list(organizationId: string, opts: { page?: number; limit?: number; search?: string; status?: string; source?: string; assignedToUserId?: string; assignedToName?: string; replyState?: string; callerUserId?: string }) {
     const page = Math.max(1, opts.page || 1);
     const limit = Math.min(100, Math.max(1, opts.limit || 20));
     const where: any = { organizationId };
     if (opts.status) where.status = opts.status;
     if (opts.source) where.source = opts.source;
     if (opts.assignedToUserId) where.assignedToUserId = opts.assignedToUserId;
+    // Filter by designer NAME too (guru 2026-10-24: the agent asked "leads for
+    // Summer" and had to filter client-side — ids aren't what people say).
+    if (opts.assignedToName?.trim()) where.assignedToName = { contains: opts.assignedToName.trim(), mode: 'insensitive' };
     // Replied-vs-never tiles (guru 2026-10-03) — all three states live over
     // ASSIGNED leads only, matching the stats block.
     if (opts.replyState === 'replied') where.firstReplyAt = { not: null };
