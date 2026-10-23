@@ -102,7 +102,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
       <ListItemIcon sx={{ minWidth: 36 }}>
         <Checkbox edge="start" size="small" checked={ticked.has(key)} tabIndex={-1} disableRipple />
       </ListItemIcon>
-      <ListItemText primary={primary} secondary={secondary || undefined} primaryTypographyProps={{ variant: "body2", fontWeight: 600, sx: { wordBreak: "break-word" } }} secondaryTypographyProps={{ variant: "caption", noWrap: true }} />
+      <ListItemText primary={primary} secondary={secondary || undefined} primaryTypographyProps={{ variant: "body2", fontWeight: 600, sx: { wordBreak: "break-word" } }} secondaryTypographyProps={{ variant: "caption", sx: { wordBreak: "break-word" } }} />
     </ListItemButton>
   );
   const textOption = (s: Special, label: string, tour: string) => (

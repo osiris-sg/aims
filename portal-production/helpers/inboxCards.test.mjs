@@ -80,8 +80,8 @@ test("thread result: a link-only reply after a filed email still shows 'Added to
 test("card line: From Company · date · subject (EN / JA), the sender's name when no company, the subject trimmed to 50", async () => {
   const { cardFromLine, trimSubject, whenCard } = await import("../app/portal/shipments/_lib/inbox-cards.ts");
   const m = { from: '"Rahul Sharma" <rahul@vedanta.co.in>', company: "Vedanta", date: "2026-10-22T05:31:00.000Z", subject: "RE: Request for Extension of Detention Free Time for Container MSKU1234567" };
-  assert.equal(cardFromLine(m, "en"), "From Vedanta · 22 Oct 14:31 · RE: Request for Extension of Detention Free Time…");
-  assert.equal(cardFromLine(m, "ja"), "Vedanta から · 10/22 14:31 · RE: Request for Extension of Detention Free Time…");
+  assert.equal(cardFromLine(m, "en"), `From Vedanta · 22 Oct 14:31 · ${m.subject.replace(/\s+/g, " ").trim()}`); // round AD: the subject in full, never "…"
+  assert.equal(cardFromLine(m, "ja"), `Vedanta から · 10/22 14:31 · ${m.subject.replace(/\s+/g, " ").trim()}`);
   assert.equal(cardFromLine({ ...m, company: null, subject: "Short" }, "en"), "From Rahul Sharma · 22 Oct 14:31 · Short");
   assert.equal(cardFromLine({ from: "ops@wanhai.com", company: "", date: "2026-10-22T05:31:00.000Z", subject: null }, "ja"), "ops から · 10/22 14:31 · (no subject)");
 });
@@ -97,10 +97,10 @@ test("round AB — the card list: company line, full subject, stored summary wit
   assert.equal(cardSummary({ summary: " Asks to extend the free time for two containers. ", preview: "Dear Sayaka, please…" }), "Asks to extend the free time for two containers.");
   assert.equal(cardSummary({ summary: null, preview: "Dear Sayaka, please see the attached arrival notice." }), "Dear Sayaka, please see the attached arrival notice.");
   assert.equal(cardSummary({ summary: "", preview: "" }), null);
-  assert.equal(cardSummary({ summary: "x".repeat(200), preview: "" }).length, 160);
+  assert.equal(cardSummary({ summary: "x".repeat(200), preview: "" }).length, 200); // round AD: never cut — the card wraps
   assert.equal(trimSubject("  a   b  "), "a b");
   assert.equal(trimSubject("x".repeat(50)), "x".repeat(50));
-  assert.equal(trimSubject("x".repeat(51)), `${"x".repeat(49)}…`);
+  assert.equal(trimSubject("x".repeat(51)), "x".repeat(51)); // round AD: never cut
   assert.equal(whenCard("2026-01-05T15:07:00.000Z", "ja"), "01/06 00:07");
   assert.equal(whenCard("2026-01-05T15:07:00.000Z", "en"), "6 Jan 00:07");
   assert.equal(whenCard(null, "en"), "");

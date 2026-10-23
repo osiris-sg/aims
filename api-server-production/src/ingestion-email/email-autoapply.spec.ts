@@ -39,8 +39,10 @@ describe('round U — auto-apply tiers', () => {
     const split = decide(ev('RE: Copy documents //198GX05383', 'see attached', [{ name: 'CI.pdf', text: 'BL 276956322' }]));
     expect(split.target).toEqual({ orderId: 'o15', shipmentId: 's15' });
     expect(split.notes.join(' ')).toMatch(/attachment names #20-1 — it files there/);
+    // Round AD: two records named by hard key in the own content → "several records named" (a link-only email links to both; a document asks); never a tier.
     const d = decide(ev('RE: Copy documents //198GX05383', 'about B/L 276956322 too'));
-    expect(d.blocked.some((b) => /^d:/.test(b))).toBe(true);
+    expect(d.blocked.some((b) => /^a: several records named/.test(b))).toBe(true);
+    expect(d.links).toHaveLength(2);
     expect(autoTier(d, null)).toBeNull();
   });
 

@@ -51,7 +51,7 @@ export default function PipelineGrid({ data }: { data: Pipeline }) {
                     <Typography variant="body2" sx={{ fontWeight: 800 }}>
                       {o.label}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" noWrap component="div" sx={{ maxWidth: 90 }}>
+                    <Typography variant="caption" color="text.secondary" component="div" sx={{ maxWidth: 120, wordBreak: "break-word" }}>
                       {o.customerName ?? ""}
                     </Typography>
                   </TableCell>
@@ -62,7 +62,7 @@ export default function PipelineGrid({ data }: { data: Pipeline }) {
               {data.rows.map((r) => (
                 <TableRow key={r.no}>
                   <TableCell sx={{ position: "sticky", left: 0, bgcolor: "background.paper", zIndex: 1 }}>
-                    <Typography variant="body2" noWrap>
+                    <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
                       <b>{r.no}</b> {r.title}
                     </Typography>
                   </TableCell>

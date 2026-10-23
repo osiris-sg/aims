@@ -5,7 +5,7 @@
 // a small amber marker = the step being worked on (red, with a red-tinted
 // track, when overdue) — the count "7/14" on the same line, right side, and
 // one line of label under it ("Step 7 · Customs docs & tax": the furthest-
-// behind open step; ellipsis; full name in a tooltip). The denominator is the
+// behind open step; round AD: wraps, never "…"). The denominator is the
 // order's whole process (shipment steps count as not started before the first
 // shipment). An order with several shipments shows each shipment's mini bar on
 // hover (#19-1 8/10, #19-2 6/10).
@@ -57,7 +57,7 @@ export default function ProgressBarCell({ bar, shipments }: { bar?: ListBar | nu
         </Typography>
       </Stack>
       <Tooltip title={bar.title ?? ""} disableHoverListener={!bar.title || ships.length >= 2} placement="bottom-start">
-        <Typography variant="caption" component="div" noWrap sx={{ mt: 0.25, overflow: "hidden", textOverflow: "ellipsis" }} data-testid="bar-label">
+        <Typography variant="caption" component="div" sx={{ mt: 0.25, whiteSpace: "normal", wordBreak: "break-word" }} data-testid="bar-label">
           {bar.label ?? "—"}
         </Typography>
       </Tooltip>

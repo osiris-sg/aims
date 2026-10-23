@@ -81,6 +81,13 @@ export interface BacklogInput {
   candidates?: Array<{ orderId: string; shipmentId: string | null; ref: string }>;
   /** Each attachment's name + a text snippet (to recognise a price / cost sheet or a schedule). */
   attachmentTexts?: Array<{ name: string; text: string }>;
+  // ── round AD ──
+  /** `links` came from hard keys of several records in the email's own content (not a multi-product subject). */
+  linksByKey?: boolean;
+  /** The decision's independent agreeing sources (two = may apply by itself). */
+  sources?: string[];
+  /** When the target is an ORDER: its live shipments (a schedule sheet links to all of them). */
+  orderShipments?: Array<{ orderId: string; shipmentId: string; ref: string }>;
 }
 
 const COST_SHEET = /価格推移|諸掛|単価|cost|price|料金|費用|見積|quotation|quote/i;
@@ -147,7 +154,16 @@ export function classifyEmail(i: BacklogInput): BacklogVerdict {
   // Round V: a reply that only LINKS (nothing to file or fill) follows the set of records its thread covers — never Unprocessed.
   if (!i.target && talk && (i.threadLinks?.length ?? 0) >= 1) return { kind: 'INHERIT_THREAD', reason: `${i.ownTextEmpty ? 'no text of its own' : 'nothing to file'} — follows the thread's ${i.threadLinks!.length} link(s)` };
   // Round V: a multi-product subject naming several ORDERS — link-only emails link to all of them; one that files asks a person.
-  if (!i.target && (i.links?.length ?? 0) > 1) return talk ? { kind: 'MULTI_LINK', reason: `the subject names ${i.links!.length} orders — linked to all, nothing filed` } : { kind: 'PICK', reason: `the subject names ${i.links!.length} orders and the email files documents — pick the record` };
+  // Round AD: the same when the email's own content names several records by hard key (B/L / exact tonnage / CI).
+  if (!i.target && (i.links?.length ?? 0) > 1) {
+    const what = i.linksByKey ? `the email names ${i.links!.length} records` : `the subject names ${i.links!.length} orders`;
+    return talk ? { kind: 'MULTI_LINK', reason: `${what} — linked to all, nothing filed` } : { kind: 'PICK', reason: `${what} and the email files documents — pick the record` };
+  }
+  // Round AD (owner): a schedule sheet for an ORDER with several live shipments, matched by two sources (the subject's
+  // order description + the thread) — linked to the order's shipments, nothing filed (a schedule covers them all).
+  if (i.target && !i.target.shipmentId && (i.orderShipments?.length ?? 0) > 1 && !i.check.length && !multi && (i.sources?.length ?? 0) >= 2 && i.attachments.some((a) => a.slot === 'DELIVERY_SCHEDULE') && i.attachments.every((a) => !a.slot || a.slot === 'DELIVERY_SCHEDULE' || a.slot === 'BUNDLE_LIST') && !i.fillsSomething) {
+    return { kind: 'MULTI_LINK', reason: `${i.attachments.filter((a) => a.slot === 'DELIVERY_SCHEDULE').map((a) => a.name).join(', ')} is a delivery schedule for the order — linked to ${i.orderShipments!.map((s) => s.ref).join(' / ')}, nothing filed`, links: i.orderShipments!.map((s) => ({ orderId: s.orderId, shipmentId: s.shipmentId })) };
+  }
   // A schedule sheet about several shipments: linked to all of them, nothing filed.
   const sched = (i.attachmentTexts ?? []).find(isScheduleSheet);
   if (!i.target && sched && (i.candidates?.length ?? 0) >= 2) return { kind: 'MULTI_LINK', reason: `${sched.name} covers ${i.candidates!.map((c) => c.ref).join(' / ')} — linked to all, nothing filed` };
@@ -167,6 +183,9 @@ export function classifyEmail(i: BacklogInput): BacklogVerdict {
   // Round X (owner): an email with a known B/L / CI / PI / contract key is NEVER a "new deal" or "is it a shipment?"
   // card — it is about existing shipments; when the key sits only in the quoted text, a person picks the shipment.
   const quoted = i.quotedRecords ?? [];
+  // Round AD (owner): a reply with nothing to file that quotes SEVERAL shipments (a detention request listing every
+  // Wan Hai B/L) is about all of them — linked to all, nothing filed; the nightly self-check re-verifies it.
+  if (quoted.length > 1 && talk && i.verdict === 'SHIPMENT') return { kind: 'MULTI_LINK', reason: `a reply with nothing to file that quotes ${quoted.length} shipments (${quoted.map((q) => q.ref).join(', ')}) — linked to all, nothing filed`, links: quoted.map((q) => ({ orderId: q.orderId, shipmentId: q.shipmentId })) };
   if (quoted.length) return { kind: 'PICK', reason: `the quoted text names ${quoted.map((q) => q.ref).join(', ')} — pick the shipment`, links: quoted.map((q) => ({ orderId: q.orderId, shipmentId: q.shipmentId })) };
   if (i.keyInAims) return { kind: 'PICK', reason: 'a known record number in the email — pick the record' };
   // Round X: a REPLY about existing shipments (DET costs, a delivery question) is never a "new deal"; its grade /
@@ -202,5 +221,8 @@ export function orderSeed(i: { subject: string | null; keys?: Partial<{ piNo: st
 }
 
 /** "Auto · linked (conversation)" / "Auto · history" — the Processed label. */
-export const backlogAutoLabel = (kind: BacklogKind, customerKey?: string | null, links = 0): string | null =>
-  kind === 'AUTO_LINK' ? 'linked (conversation)' : kind === 'HISTORY' ? 'history' : kind === 'INHERIT_THREAD' ? (links > 1 ? 'thread covers' : 'thread') : kind === 'MULTI_LINK' ? 'linked (schedule)' : kind === 'GENERAL' ? `general${customerKey ? ` (${customerKey})` : ''}` : null;
+export const backlogAutoLabel = (kind: BacklogKind, customerKey?: string | null, links = 0, reason = ''): string | null =>
+  kind === 'AUTO_LINK' ? 'linked (conversation)' : kind === 'HISTORY' ? 'history' : kind === 'INHERIT_THREAD' ? (links > 1 ? 'thread covers' : 'thread') : kind === 'MULTI_LINK' ? multiLinkLabel(reason) : kind === 'GENERAL' ? `general${customerKey ? ` (${customerKey})` : ''}` : null;
+
+/** Round AD: "linked (orders)" for a multi-product subject, "linked (B/Ls)" for keys / quoted shipments, else "linked (schedule)". */
+export const multiLinkLabel = (reason: string): string => (/names \d+ orders/.test(reason) ? 'linked (orders)' : /names \d+ records|quotes \d+ shipments/.test(reason) ? 'linked (B/Ls)' : 'linked (schedule)');

@@ -19,11 +19,11 @@ export function EmailDialog({ message, lang, open, onClose }: { message: InboxMe
   return (
     <Dialog open={open && !!m} onClose={onClose} maxWidth="md" fullWidth transitionDuration={{ enter: 225, exit: 0 }} disableRestoreFocus data-tour="email-popup">
       <DialogTitle sx={{ pr: 7 }}>
-        <Typography variant="h6" component="div" sx={{ fontWeight: 700, minWidth: 0 }} noWrap title={m?.subject ?? ""}>
+        <Typography variant="h6" component="div" sx={{ fontWeight: 700, minWidth: 0, wordBreak: "break-word", overflowWrap: "anywhere" }}>
           {m?.subject || "(no subject)"}
         </Typography>
         {m && (
-          <Typography variant="caption" color="text.secondary" component="div" noWrap title={m.from}>
+          <Typography variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word" }} title={m.from}>
             {lang === "ja" ? `${from} から` : `From ${from}`} · {whenShort(m.date)}
           </Typography>
         )}

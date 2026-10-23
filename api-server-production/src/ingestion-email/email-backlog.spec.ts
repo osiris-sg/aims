@@ -108,10 +108,15 @@ describe('history and no order', () => {
   });
   it('round X: an email with a known key is NEVER a new-deal / is-it-a-shipment card — keys only in the quoted text → pick the shipment', () => {
     const quoted = [{ orderId: 'o15', shipmentId: 's15-1', ref: '#15-1' }, { orderId: 'o16', shipmentId: 's16-1', ref: '#16-1' }];
+    // Round AD (owner): a reply with nothing to file that quotes several shipments links to all of them by itself.
     const v = classifyEmail(base({ subject: 'RE: Request for Extension of Detention Free Time for Japan WANHAI Shipments', keys: { piNo: null, contractNo: null }, quotedRecords: quoted }));
-    expect(v.kind).toBe('PICK');
+    expect(v.kind).toBe('MULTI_LINK');
     expect(v.reason).toContain('#15-1, #16-1');
     expect(v.links).toEqual([{ orderId: 'o15', shipmentId: 's15-1' }, { orderId: 'o16', shipmentId: 's16-1' }]);
+    // With a document to file it is still "pick the shipment".
+    const f = classifyEmail(base({ subject: 'RE: Request for Extension of Detention Free Time for Japan WANHAI Shipments', keys: { piNo: null, contractNo: null }, quotedRecords: quoted, attachments: [{ name: 'a.pdf', slot: 'OTHER' }] }));
+    expect(f.kind).toBe('PICK');
+    expect(f.links).toEqual(v.links);
     expect(classifyEmail(base({ inboxState: 'UNSURE', verdict: 'UNSURE', subject: 'MOVO manual', quotedRecords: quoted })).kind).toBe('PICK');
     expect(classifyEmail(base({ subject: 'x', keyInAims: true })).kind).toBe('PICK');
     expect(classifyEmail(base({ subject: 'x', keyInAims: true })).kind).not.toBe('NO_ORDER');

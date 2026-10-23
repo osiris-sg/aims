@@ -92,7 +92,7 @@ export function SourcePdfPane({ fileId, fileName, file, stacked = false }: { fil
         gap: 0.5,
       }}
     >
-      <Typography variant="caption" color="text.secondary" noWrap title={name}>
+      <Typography variant="caption" color="text.secondary" sx={{ wordBreak: "break-word" }}>
         {file ? `Reading ${name}…` : name}
       </Typography>
       <Box sx={{ flex: 1, minHeight: 0, border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden", bgcolor: "background.default" }}>

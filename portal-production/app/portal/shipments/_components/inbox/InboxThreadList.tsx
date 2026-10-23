@@ -40,19 +40,19 @@ export function ThreadCard({ t, actions }: { t: InboxThread; actions: InboxActio
     <Paper variant="outlined" sx={{ mb: 1, p: 1.5, cursor: "pointer", "&:hover": { bgcolor: "action.hover" } }} onClick={() => actions.onOpen(newest, t)} data-tour="thread-card">
       <Stack direction="row" spacing={1} alignItems="flex-start">
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="body2" sx={{ fontWeight: 700, color }} noWrap title={r.headline} data-tour="thread-result">
+          <Typography variant="body2" sx={{ fontWeight: 700, color, wordBreak: "break-word" }} data-tour="thread-result">
             {multi.length ? (lang === "ja" ? `${multi.length} 件の送り先` : `${multi.length} destinations`) : r.headline}
           </Typography>
           {multi.map((l, i) => (
-            <Typography key={i} variant="caption" color="text.secondary" component="div" noWrap>
+            <Typography key={i} variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word" }}>
               {l.text}
             </Typography>
           ))}
-          <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.25 }} noWrap title={t.subject ?? ""}>
+          <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.25, wordBreak: "break-word", overflowWrap: "anywhere" }}>
             {t.subject || "(no subject)"}
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-            <Typography variant="caption" noWrap title={newest.from}>
+            <Typography variant="caption" title={newest.from} sx={{ wordBreak: "break-word" }}>
               {from.name}
             </Typography>
             {newest.company && <Chip size="small" variant="outlined" label={newest.company} sx={{ height: 18 }} />}
@@ -72,7 +72,7 @@ export function ThreadCard({ t, actions }: { t: InboxThread; actions: InboxActio
             )}
           </Stack>
           {newest.preview && (
-            <Typography variant="caption" color="text.secondary" component="div" noWrap>
+            <Typography variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word" }}>
               {newest.preview}
             </Typography>
           )}

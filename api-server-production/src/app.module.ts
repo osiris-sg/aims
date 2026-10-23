@@ -86,6 +86,7 @@ import { PostingQueueModule } from './posting-queue/posting-queue.module';
 import { ApiV1Module } from './api-v1/api-v1.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { OperatorModule } from './operator/operator.module';
+import { ShortLinksModule } from './short-links/short-links.module';
 import { GuideModule } from './guide/guide.module';
 import { ActionLogModule } from './action-log/action-log.module';
 import { ActionLogInterceptor } from './action-log/action-log.interceptor';
@@ -175,6 +176,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     ApiV1Module,
     WhatsAppModule,
     OperatorModule,
+    ShortLinksModule,
     ActionLogModule,
   ],
   controllers: [AppController],

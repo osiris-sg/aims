@@ -84,6 +84,11 @@ export function auditLink(i: AuditInput): AuditResult {
   if (i.general) return { ...base, verdict: second.apply ? 'DISAGREE_UNCLEAR' : 'NO_ANSWER', secondText: `names ${secondRefs.join(' + ')}${second.apply ? ' (verified)' : ' (unverified)'}` };
   const covered = picks.every((p) => i.current.some((c) => same(c, p)));
   if (covered) return { ...base, verdict: 'AGREE', secondText: `names ${secondRefs.join(' + ')}` };
+  // Round AD (owner): the second pass names MORE records than the link, and a hard key in the email supports the
+  // link (a telex whose subject names #18-2 while its table also lists the sister B/Ls) — not a doubt. The extra
+  // records are reported, the link stays.
+  const includesCurrent = i.current.length > 0 && i.current.every((c) => picks.some((p) => same(c, p)));
+  if (includesCurrent && hardCurrent.length) return { ...base, verdict: 'AGREE', secondText: `names ${secondRefs.join(' + ')} — includes the linked ${currentRefs.join(' + ')}, which ${hardCurrent[0]} supports` };
   const clear = second.apply && !hardCurrent.length && hardSecond.length > 0;
   return { ...base, verdict: clear ? 'DISAGREE_CLEAR' : 'DISAGREE_UNCLEAR', secondText: `names ${secondRefs.join(' + ')}${second.apply ? ' (verified by a hard key)' : ' (unverified)'}`, move: clear ? second.targets : null };
 }

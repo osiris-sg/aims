@@ -68,7 +68,7 @@ export function EmailFilterExtras() {
                   <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtDateTime(r.date)}</TableCell>
                   <TableCell>{r.fromDomain}</TableCell>
                   <TableCell sx={{ maxWidth: 380 }}>
-                    <Typography variant="body2" noWrap title={r.subject}>
+                    <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
                       {r.subject || "(no subject)"}
                     </Typography>
                   </TableCell>
@@ -137,7 +137,7 @@ function FilterPreviewPanel() {
                   <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtDateTime(r.date)}</TableCell>
                   <TableCell>{r.fromDomain}</TableCell>
                   <TableCell sx={{ maxWidth: 380 }}>
-                    <Typography variant="body2" noWrap title={r.subject}>
+                    <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
                       {r.subject || "(no subject)"}
                     </Typography>
                   </TableCell>

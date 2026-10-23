@@ -138,7 +138,7 @@ export function FileViewer({ file, onClose }: { file: PreviewFile | null; onClos
             {file.docRef}
           </Typography>
         )}
-        <Typography component="span" variant={file?.docRef ? "body1" : "h6"} color={file?.docRef ? "text.secondary" : undefined} noWrap sx={{ minWidth: 0 }}>
+        <Typography component="span" variant={file?.docRef ? "body1" : "h6"} color={file?.docRef ? "text.secondary" : undefined} sx={{ minWidth: 0, wordBreak: "break-word" }}>
           {file?.fileName}
         </Typography>
         <IconButton aria-label="Close" onClick={onClose} sx={{ position: "absolute", right: 8, top: 8 }}>

@@ -1,10 +1,12 @@
 /**
- * WhatsApp pushes for the shipments assistant (ADH, round X, 2026-10-22) — the TEXT, pure and tested.
+ * WhatsApp pushes for the shipments assistant (ADH, round X, 2026-10-22; round AD layout, 2026-10-23) — the TEXT,
+ * pure and tested.
  *
- * Owner's rules: no emojis anywhere; short lines, one fact per line, at most ~8 lines; say what happened and what
- * to do (usually "check the Dashboard") with the link; never list auto-filed emails one by one (the count only);
- * the language follows the user's setting (EN / JA). Subjects are trimmed to ~50 chars, senders read
- * "Name (Company)" from the domain → company map, never the raw address.
+ * Owner's rules (round AD): no "…" anywhere — a subject or a summary is never cut; a blank line between sections;
+ * labels only where needed (no "From:" / "Subject:" / "Says:"); the sender is the COMPANY only ("Vedanta", not
+ * "Aluminium.Exports (Vedanta)"); the org's own name tail is dropped from subjects ("_アジアディールハブ"); the digest
+ * is plain lines, no bullets, no "(19 emails)"; the link is a short one (https://app.ai-ms.io/go/abc123). Still: no
+ * emojis, one fact per line, never list auto-filed emails one by one, the language follows the user's setting.
  *
  * Everything here is data in, text out. Nothing turns words into actions.
  */
@@ -13,23 +15,27 @@ export type Lang = 'en' | 'ja';
 const JST_OFFSET_MS = 9 * 3600_000;
 const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}\u{2300}-\u{23FF}\u{2190}-\u{21FF}\u{25A0}-\u{25FF}]/gu;
 
-/** Every emoji / pictograph removed, the spacing tidied. */
+/** Every emoji / pictograph removed, the spacing tidied (blank lines between sections are kept). */
 export function stripEmoji(s: string): string {
   return String(s ?? '')
     .replace(EMOJI_RE, '')
     .replace(/[ \t]{2,}/g, ' ')
-    .replace(/^[ \t]+/gm, (m) => m) // keep indents
     .replace(/[ \t]+$/gm, '')
     .replace(/^\s*[·•]\s*$/gm, '')
     .trim();
 }
 
-/** "Re:【ご相談】直近のDET費用及びディテンション回避策について" → at most `n` chars + "…". */
-export function trimSubject(subject: string | null | undefined, n = 50): string {
+/** The org's own name as a subject tail ("…_アジアディールハブ", "… ーアジアディールハブ", "… - Asia Deal Hub"). */
+const OWN_NAME_TAIL_RE = /[\s_＿ー－\-–—~〜]+\s*(アジアディールハブ|Asia ?Deal ?Hub|ADH Japan|ADH)\s*$/i;
+
+/** Round AD: the subject in full — whitespace collapsed, the own-name tail dropped, never cut; "(no subject)" when empty. */
+export function cleanSubject(subject: string | null | undefined): string {
   const s = (subject ?? '').replace(/\s+/g, ' ').trim();
   if (!s) return '(no subject)';
-  return s.length <= n ? s : `${s.slice(0, n - 1).trimEnd()}…`;
+  return s.replace(OWN_NAME_TAIL_RE, '').trim() || s;
 }
+/** Kept under its old name for callers: no trimming any more (owner: wrap, never "…"). */
+export const trimSubject = (subject: string | null | undefined, _n?: number): string => cleanSubject(subject);
 
 /** The display name of a From header ("Toshiro Takekoshi <t@asiadealhub.com>" → "Toshiro Takekoshi"; a bare address → its local part). */
 export function senderName(from: string | null | undefined): string {
@@ -39,7 +45,12 @@ export function senderName(from: string | null | undefined): string {
   return (s.replace(/^<|>$/g, '').split('@')[0] || '?').trim();
 }
 
-/** "Toshiro Takekoshi (Asia Deal Hub)" — the company from the domain map; a domain alone when unmapped. */
+/** Round AD: who the push names — the COMPANY from the domain map ("Vedanta"), else the From header's name. */
+export function senderWho(from: string | null | undefined, company: string | null | undefined): string {
+  return (company ?? '').trim() || senderName(from);
+}
+
+/** "Toshiro Takekoshi (Asia Deal Hub)" — for chat replies (the pushes use senderWho). */
 export function senderLine(from: string | null | undefined, company: string | null | undefined): string {
   const name = senderName(from);
   const c = (company ?? '').trim();
@@ -79,7 +90,13 @@ export function etaLabel(d: Date | string | null | undefined, lang: Lang): strin
   return lang === 'ja' ? `${p.mo}/${p.d}（${DOW_JA[p.dow]}）` : `${DOW_EN[p.dow]} ${p.d} ${MON[p.mo - 1]}`;
 }
 
+/** WhatsApp's hard size limit only (4096 chars) — never reached by our pushes; the one place a cut may happen. */
+export const WHATSAPP_MAX = 4000;
 export const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 1) + '…');
+
+const URL_RE = /(https?:\/\/\S+)/;
+const JA_RE = /[぀-ヿ一-鿿]/;
+export const sections = (parts: Array<string | null | undefined>) => parts.filter((p): p is string => !!p && !!p.trim()).join('\n\n');
 
 // ── (a) the morning digest ───────────────────────────────────────────────────
 
@@ -88,7 +105,7 @@ export type DigestInput = {
   at: Date;
   /** Emails filed by themselves since yesterday's digest — the COUNT only, never listed. */
   filedAuto: number;
-  /** The Dashboard's own numbers: questions (threads waiting for a person) and the emails behind them. */
+  /** The Dashboard's own numbers: questions (threads waiting for a person) and the emails behind them (not shown since round AD). */
   questions: number;
   questionEmails: number;
   /** Overdue tasks as "#19-1 import tax funds" (already short). */
@@ -116,27 +133,27 @@ export function shortTask(title: string, lang: Lang): string {
   ];
   for (const [re, en, ja] of known) if (re.test(rest)) return `${ref} ${lang === 'ja' ? ja : en}`.trim();
   rest = rest.replace(/\s*\(.*?\)\s*/g, ' ').replace(/\b(ends?|due|expected|by)\b.*$/i, '').replace(/\s+/g, ' ').trim();
-  return `${ref} ${clip(rest, 24)}`.trim();
+  return `${ref} ${rest}`.trim();
 }
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 export function digestText(d: DigestInput, lang: Lang = 'en'): string {
   const ja = lang === 'ja';
-  const lines: string[] = [ja ? `おはようございます。${dayLabel(d.at, 'ja')}` : `Good morning. ${dayLabel(d.at, 'en')}`];
-  lines.push(ja ? `- メール ${d.filedAuto} 件を自動処理` : `- ${d.filedAuto} email${d.filedAuto === 1 ? '' : 's'} filed automatically`);
-  if (d.questions > 0) lines.push(ja ? `- ${d.questions} 件の確認が必要です（メール ${d.questionEmails} 件）` : `- ${d.questions} need${d.questions === 1 ? 's' : ''} your check (${d.questionEmails} email${d.questionEmails === 1 ? '' : 's'})`);
-  else lines.push(ja ? '- 確認が必要なものはありません' : '- Nothing needs your check');
+  const facts: string[] = [];
+  facts.push(ja ? `メール ${d.filedAuto} 件を自動処理` : `${plural(d.filedAuto, 'email')} filed automatically`);
+  facts.push(d.questions > 0 ? (ja ? `${d.questions} 件の確認が必要です` : `${d.questions} need${d.questions === 1 ? 's' : ''} your check`) : ja ? '確認が必要なものはありません' : 'Nothing needs your check');
   if (d.overdue.length) {
     const shown = d.overdue.slice(0, 3).join(ja ? '、' : ', ');
     const more = d.overdue.length > 3 ? (ja ? ` ほか ${d.overdue.length - 3} 件` : ` and ${d.overdue.length - 3} more`) : '';
-    lines.push(ja ? `- 期限超過のタスク ${d.overdue.length} 件: ${shown}${more}` : `- ${d.overdue.length} task${d.overdue.length === 1 ? '' : 's'} overdue: ${shown}${more}`);
+    facts.push(ja ? `期限超過のタスク ${d.overdue.length} 件: ${shown}${more}` : `${plural(d.overdue.length, 'task')} overdue: ${shown}${more}`);
   }
   if (d.arriving.length) {
     const first = d.arriving[0];
     const when = etaLabel(first.eta, lang);
-    lines.push(ja ? `- 今週到着 ${d.arriving.length} 件（最初: ${first.ref}${when ? `、${when}` : ''}）` : `- ${d.arriving.length} shipment${d.arriving.length === 1 ? '' : 's'} arriving this week (first: ${first.ref}${when ? `, ${when}` : ''})`);
+    facts.push(ja ? `今週到着 ${d.arriving.length} 件、最初は ${first.ref}${when ? `（${when}）` : ''}` : `${plural(d.arriving.length, 'shipment')} arriving this week, first ${first.ref}${when ? ` on ${when}` : ''}`);
   }
-  lines.push(ja ? `ダッシュボードを開く: ${d.portalUrl}` : `Open the Dashboard: ${d.portalUrl}`);
-  return stripEmoji(lines.join('\n'));
+  return stripEmoji(sections([ja ? `おはようございます。${dayLabel(d.at, 'ja')}` : `Good morning. ${dayLabel(d.at, 'en')}`, facts.join('\n'), d.portalUrl]));
 }
 
 // ── (b) (c) (d) an email needs a person ──────────────────────────────────────
@@ -147,102 +164,70 @@ export type NeedsCheckInput = {
   company: string | null;
   date: Date | string | null;
   subject: string | null;
-  /** The card's options in order (reply 1..n). */
+  /** The card's options in order (not shown since round AA — the person answers with the shipment number). */
   options: Array<{ ref: string }>;
-  /** CHECK: what the subject says ("6063"). */
+  /** CHECK: what the subject says ("6063") — unused since round AA, kept for callers. */
   says?: string | null;
-  /** Round AB: the stored one-line summary of the email (display text only) — one line under the subject. */
+  /** Round AB: the stored one-line summary of the email (display text only) — its own section under the subject. */
   summary?: string | null;
   portalUrl: string;
 };
 
-/** Round AB: the summary line under the subject ("Says: …" / "内容: …"), or nothing when there is none. */
-const summaryLine = (i: NeedsCheckInput, lang: Lang): string | null => {
-  const s = (i.summary ?? '').replace(/\s+/g, ' ').trim();
-  return s ? (lang === 'ja' ? `内容: ${s}` : `Says: ${s}`) : null;
-};
+const TITLE = {
+  shipment: { en: 'New email needs a shipment', ja: '新しいメールに出荷の指定が必要です' },
+  is_shipment: { en: 'Is this email about a shipment?', ja: 'このメールは出荷の件ですか？' },
+  new_deal: { en: 'New email looks like a new deal', ja: '新しい案件のようなメールです' },
+  recheck: { en: "AIMS re-checked an email and isn't sure anymore", ja: 'AIMSがメールを再確認したところ、確信が持てなくなりました' },
+} as const;
+const CLOSING = {
+  shipment: { en: 'Reply with the shipment number (e.g. 18-1), or open AIMS:', ja: '出荷番号で返信してください（例: 18-1）。またはAIMSを開く:' },
+  is_shipment: { en: 'Reply 1 if it is, X if not, or open AIMS:', ja: '出荷の件なら 1、違えば X と返信、またはAIMSを開く:' },
+  new_deal: { en: "It isn't in AIMS yet. Open AIMS to create the order:", ja: 'AIMSにはまだありません。AIMSで注文を作成:' },
+  recheck: { en: 'Please confirm the shipment in AIMS:', ja: 'AIMSで出荷を確認してください:' },
+} as const;
+type PushForm = keyof typeof TITLE;
+const formOf = (kind: NeedsCheckInput['kind']): PushForm => (kind === 'NEW_DEAL' ? 'new_deal' : kind === 'RECHECK' ? 'recheck' : kind === 'IS_SHIPMENT' ? 'is_shipment' : 'shipment');
+const QUESTION = {
+  shipment: { en: 'Which shipment?', ja: 'どの出荷？' },
+  is_shipment: { en: 'About a shipment?', ja: '出荷の件？' },
+  new_deal: { en: 'New deal?', ja: '新しい案件？' },
+  recheck: { en: 'Re-check', ja: '再確認' },
+} as const;
 
-const link = (lang: Lang, url: string, what: 'check' | 'confirm' | 'open') =>
-  lang === 'ja'
-    ? what === 'confirm' ? `ダッシュボードで出荷を確認してください: ${url}` : what === 'open' ? `ダッシュボードを開く: ${url}` : `ダッシュボードで確認: ${url}`
-    : what === 'confirm' ? `Please confirm the shipment on the Dashboard: ${url}` : what === 'open' ? `Open the Dashboard: ${url}` : `check it on the Dashboard: ${url}`;
-
-/** The "Reply 1 for #16-1, 2 for #16-2, or check it on the Dashboard: <link>" line. */
-function replyLine(i: NeedsCheckInput, lang: Lang): string {
-  const ja = lang === 'ja';
-  const opts = i.options.slice(0, 4);
-  if (i.kind === 'IS_SHIPMENT') return ja ? `出荷の件なら 1、違えば X と返信、または${link('ja', i.portalUrl, 'check')}` : `Reply 1 if it is, X if not, or ${link('en', i.portalUrl, 'check')}`;
-  if (!opts.length) return ja ? link('ja', i.portalUrl, 'check') : `Check it on the Dashboard: ${i.portalUrl}`;
-  if (opts.length === 1) return ja ? `${opts[0].ref} なら 1 と返信、または${link('ja', i.portalUrl, 'check')}` : `Reply 1 to confirm ${opts[0].ref}, or ${link('en', i.portalUrl, 'check')}`;
-  const list = opts.map((o, n) => (ja ? `${o.ref} なら ${n + 1}` : `${n + 1} for ${o.ref}`));
-  return ja ? `${list.join('、')} と返信、または${link('ja', i.portalUrl, 'check')}` : `Reply ${list.join(', ')}, or ${link('en', i.portalUrl, 'check')}`;
-}
-
-/** One push for one email, by card kind (b: CONFIRM / WHICH / CHECK / IS_SHIPMENT; c: NEW_DEAL; d: RECHECK). */
-export function needsCheckText(i: NeedsCheckInput, lang: Lang = 'en'): string {
-  const ja = lang === 'ja';
-  const who = senderLine(i.from, i.company);
+/** "SUS · 23 Oct 06:53" (a new deal / re-check: the date only). */
+export function whoLine(i: Pick<NeedsCheckInput, 'from' | 'company' | 'date' | 'kind'>, lang: Lang): string {
   const when = dateLabel(i.date, lang, i.kind !== 'NEW_DEAL' && i.kind !== 'RECHECK');
-  const subject = trimSubject(i.subject);
-  const refs = i.options.map((o) => o.ref);
-  const lines: string[] = [];
-  const says = summaryLine(i, lang);
-  if (i.kind === 'NEW_DEAL') {
-    lines.push(ja ? `${who} から新しいメール、${when}` : `New email from ${who}, ${when}`);
-    lines.push(ja ? `件名: ${subject}` : `Subject: ${subject}`);
-    if (says) lines.push(says);
-    lines.push(ja ? 'AIMSにまだない新しい案件のようです。' : "This looks like a new deal that isn't in AIMS yet.");
-    lines.push(link(lang, i.portalUrl, 'check').replace(/^check/, 'Check'));
-    return stripEmoji(lines.join('\n'));
-  }
-  if (i.kind === 'RECHECK') {
-    lines.push(ja ? 'AIMSがメールを再確認したところ、確信が持てなくなりました' : "AIMS re-checked an email and isn't sure anymore");
-    lines.push(ja ? `差出人: ${who}、${when}` : `From: ${who}, ${when}`);
-    lines.push(ja ? `件名: ${subject}` : `Subject: ${subject}`);
-    if (says) lines.push(says);
-    lines.push(link(lang, i.portalUrl, 'confirm'));
-    return stripEmoji(lines.join('\n'));
-  }
-  if (i.kind === 'IS_SHIPMENT') {
-    lines.push(ja ? '新しいメールの確認が必要です' : 'New email needs your check');
-    lines.push(ja ? `差出人: ${who}、${when}` : `From: ${who}, ${when}`);
-    lines.push(ja ? `件名: ${subject}` : `Subject: ${subject}`);
-    if (says) lines.push(says);
-    lines.push(ja ? 'AIMSは出荷の件かどうか判断できません。' : "AIMS isn't sure this is about a shipment at all.");
-    lines.push(replyLine(i, lang));
-    return stripEmoji(lines.join('\n'));
-  }
-  // Round AA (owner: minimal): a shipment question never lists suggestions — ask for the shipment number.
-  void refs;
-  const company = (i.company ?? '').trim() || senderName(i.from);
-  lines.push(ja ? `${company} からの新しいメールに出荷の指定が必要です（${when}）` : `New email from ${company} needs a shipment (${when})`);
-  lines.push(ja ? `件名: ${subject}` : `Subject: ${subject}`);
-  if (says) lines.push(says);
-  lines.push(ja ? `出荷番号を送ってください（例: 18-1、複数なら 18-1 18-2）。またはダッシュボードで確認: ${i.portalUrl}` : `Send the shipment number (e.g. 18-1, or several: 18-1 18-2), or check the Dashboard: ${i.portalUrl}`);
-  return stripEmoji(lines.join('\n'));
+  return [senderWho(i.from, i.company), when || null].filter(Boolean).join(' · ');
 }
 
-/** The one-line form used when several pushes go out together: "Mitsui Soko · 11月納入 Kato… · which shipment?". */
-export function needsCheckLine(i: NeedsCheckInput, lang: Lang = 'en'): string {
-  const ja = lang === 'ja';
-  const who = (i.company ?? '').trim() || senderName(i.from);
-  const q =
-    i.kind === 'WHICH' || i.kind === 'CHECK' || i.kind === 'CONFIRM' ? (ja ? 'どの出荷？' : 'which shipment?') // round AA: never a suggestion
-    : i.kind === 'IS_SHIPMENT' ? (ja ? '出荷の件？' : 'about a shipment?')
-    : i.kind === 'NEW_DEAL' ? (ja ? '新しい案件？' : 'new deal?')
-    : ja ? '再確認' : 're-check';
-  return `${who} · ${trimSubject(i.subject, 30)} · ${q}`;
+/**
+ * One push for one email (round AD layout):
+ *   title / "Company · date time" / subject / blank / summary / blank / what to do / short link
+ */
+export function needsCheckText(i: NeedsCheckInput, lang: Lang = 'en'): string {
+  const form = formOf(i.kind);
+  const summary = (i.summary ?? '').replace(/\s+/g, ' ').trim();
+  const head = [TITLE[form][lang], whoLine(i, lang), cleanSubject(i.subject)].join('\n');
+  return stripEmoji(sections([head, summary || null, `${CLOSING[form][lang]}\n${i.portalUrl}`]));
 }
 
-/** Several "needs a check" pushes due together → one message, one line each, no reply codes. */
+/** One BLOCK of a batch: "Company · date time" / subject / "Which shipment?" (round AD: no "…", no bullets). */
+export function needsCheckBlock(i: NeedsCheckInput, lang: Lang = 'en'): string {
+  return [whoLine(i, lang), cleanSubject(i.subject), QUESTION[formOf(i.kind)][lang]].join('\n');
+}
+/** Kept under its old name: the block's lines joined with " · ". */
+export const needsCheckLine = (i: NeedsCheckInput, lang: Lang = 'en') => needsCheckBlock(i, lang).split('\n').join(' · ');
+
+const OPEN_AIMS = { en: 'Open AIMS:', ja: 'AIMSを開く:' } as const;
+const batchHeader = (n: number, lang: Lang) => (lang === 'ja' ? `新しいメール ${n} 件の確認が必要です` : `${n} new emails need your check`);
+const andMore = (n: number, lang: Lang) => (lang === 'ja' ? `ほか ${n} 件` : `and ${n} more`);
+
+/** Several "needs a check" pushes due together → one message: a header, one block per email, the link once. */
 export function needsCheckBatchText(items: NeedsCheckInput[], lang: Lang = 'en'): string {
   if (items.length === 1) return needsCheckText(items[0], lang);
-  const ja = lang === 'ja';
-  const lines = [ja ? `新しいメール ${items.length} 件の確認が必要です` : `${items.length} new emails need your check`];
-  for (const i of items.slice(0, 6)) lines.push(`- ${needsCheckLine(i, lang)}`);
-  if (items.length > 6) lines.push(ja ? `- ほか ${items.length - 6} 件` : `- and ${items.length - 6} more`);
-  lines.push(ja ? `ダッシュボードで確認: ${items[0].portalUrl}` : `Check them on the Dashboard: ${items[0].portalUrl}`);
-  return stripEmoji(lines.join('\n'));
+  const blocks = items.slice(0, 6).map((i) => needsCheckBlock(i, lang));
+  if (items.length > 6) blocks.push(andMore(items.length - 6, lang));
+  return stripEmoji(sections([batchHeader(items.length, lang), ...blocks, `${OPEN_AIMS[lang]}\n${items[0].portalUrl}`]));
 }
 
 // ── (e) events, one line each ────────────────────────────────────────────────
@@ -262,55 +247,81 @@ export function freeTimeLine(ref: string, kind: 'detention' | 'demurrage', ended
 }
 export const stepOverdueLine = (ref: string, step: string, lang: Lang = 'en') => (lang === 'ja' ? `${ref} 期限超過: ${step}` : `${ref} step overdue: ${step}`);
 
-/** Several event lines due together: the lines, then the Dashboard link once. */
+/** Several event lines due together: the lines, a blank line, the link once. */
 export function eventsBatchText(lines: string[], portalUrl: string, lang: Lang = 'en'): string {
   const out = lines.map((l) => stripEmoji(l)).filter(Boolean).slice(0, 7);
-  if (lines.length > 7) out.push(lang === 'ja' ? `ほか ${lines.length - 7} 件` : `and ${lines.length - 7} more`);
-  out.push(lang === 'ja' ? `ダッシュボードを開く: ${portalUrl}` : `Open the Dashboard: ${portalUrl}`);
-  return out.join('\n');
+  if (lines.length > 7) out.push(andMore(lines.length - 7, lang));
+  return sections([out.join('\n'), portalUrl]);
 }
 
 /** Lines that read as "needs a check" pushes (their first line) — the outbox batches those separately from events. */
-export const isNeedsCheckPush = (text: string) => /^(New email needs your check|新しいメールの確認が必要です|New email from .*|.* から新しいメール、.*|.* からの新しいメールに出荷の指定が必要です|AIMS re-checked|AIMSがメールを再確認)/.test(text.split('\n')[0] ?? '');
+const NEEDS_TITLES: string[] = Object.values(TITLE).flatMap((t) => [t.en, t.ja]);
+const OLD_NEEDS_RE = /^(New email needs your check|新しいメールの確認が必要です|New email from .*|.* から新しいメール、.*|.* からの新しいメールに出荷の指定が必要です|AIMS re-checked|AIMSがメールを再確認)/;
+export const isNeedsCheckPush = (text: string) => {
+  const first = text.split('\n')[0] ?? '';
+  return NEEDS_TITLES.includes(first.trim()) || OLD_NEEDS_RE.test(first);
+};
 
-/**
- * A stored "needs a check" push → its one-line form, read back from our own stable layout (the outbox keeps
- * text only). Lines: title / From: … / Subject: … / the question / the reply line.
- */
-export function pushToLine(text: string, lang: Lang = 'en'): string {
-  const ls = text.split('\n');
-  const get = (re: RegExp) => ls.map((l) => re.exec(l)?.[1] ?? null).find((x): x is string => !!x) ?? null;
-  const from = get(/^(?:From|差出人): (.*?)(?:, |、)\d/) ?? get(/^New email from (.*?) needs a shipment/) ?? get(/^(.*?) からの新しいメールに出荷/) ?? get(/^(?:New email from|.*?から新しいメール)\s*(.*?)(?:, |、)\d/) ?? get(/^(.*?) から新しいメール/) ?? '?';
-  const company = /\(([^()]+)\)\s*$/.exec(from)?.[1] ?? from;
-  const subject = get(/^(?:Subject|件名): (.*)$/) ?? '';
-  const title = ls[0] ?? '';
-  const q = /re-checked|再確認/.test(title) ? (lang === 'ja' ? '再確認' : 're-check')
-    : /needs a shipment|出荷の指定が必要/.test(title) ? (lang === 'ja' ? 'どの出荷？' : 'which shipment?')
-    : /New email from|から新しいメール/.test(title) ? (lang === 'ja' ? '新しい案件？' : 'new deal?')
-    : /needs a shipment|出荷の指定が必要|isn't sure which|どの出荷の件か/.test(text) ? (lang === 'ja' ? 'どの出荷？' : 'which shipment?')
-    : /about a shipment at all|出荷の件かどうか/.test(text) ? (lang === 'ja' ? '出荷の件？' : 'about a shipment?')
-    : (() => { const r = /(?:matched|thinks this is about|AIMSは) (#\d+(?:-\d+)?)/.exec(text)?.[1]; return r ? (lang === 'ja' ? `${r} の件？` : `is it ${r}?`) : lang === 'ja' ? '確認' : 'check'; })();
-  return `${company} · ${trimSubject(subject, 30)} · ${q}`;
+/** The push's form from its first line (round AD titles; the round X–AC titles still read). */
+function formOfTitle(title: string): PushForm | null {
+  for (const [k, v] of Object.entries(TITLE) as Array<[PushForm, { en: string; ja: string }]>) if (v.en === title || v.ja === title) return k;
+  if (/re-checked|再確認/.test(title)) return 'recheck';
+  if (/needs a shipment|出荷の指定が必要/.test(title)) return 'shipment';
+  if (/^New email needs your check$|^新しいメールの確認が必要です$/.test(title)) return 'is_shipment';
+  if (/^New email from|から新しいメール/.test(title)) return 'new_deal';
+  return null;
 }
 
-/** The whole due batch of one user: "needs a check" pushes together, event lines together. */
+/** A stored push (the outbox keeps text only) → its lines: title, who, subject, summary, url. Old-layout rows (From:/Subject:) still read. */
+export function parsePush(text: string): { form: PushForm | null; lang: Lang; title: string; who: string; subject: string; summary: string | null; url: string | null } {
+  const ls = text.split('\n').map((l) => l.trimEnd());
+  const title = (ls[0] ?? '').trim();
+  const lang: Lang = JA_RE.test(title) ? 'ja' : 'en';
+  const url = URL_RE.exec([...ls].reverse().find((l) => URL_RE.test(l)) ?? '')?.[1] ?? null;
+  const form = formOfTitle(title);
+  const oldSubject = ls.map((l) => /^(?:Subject|件名): (.*)$/.exec(l)?.[1]).find((x): x is string => !!x);
+  if (oldSubject !== undefined) {
+    const who = ls.map((l) => /^(?:From|差出人): (.*)$/.exec(l)?.[1]).find((x): x is string => !!x) ?? /^New email from (.*?) needs a shipment \((.*)\)$/.exec(title)?.slice(1).join(', ') ?? /^(.*?) からの新しいメールに出荷の指定が必要です（(.*)）$/.exec(title)?.slice(1).join('、') ?? /^New email from (.*)$/.exec(title)?.[1] ?? /^(.*) から新しいメール、(.*)$/.exec(title)?.slice(1).join('、') ?? '?';
+    const says = ls.map((l) => /^(?:Says|内容): (.*)$/.exec(l)?.[1]).find((x): x is string => !!x) ?? null;
+    return { form, lang, title, who, subject: oldSubject, summary: says, url };
+  }
+  const who = (ls[1] ?? '').trim();
+  const subject = (ls[2] ?? '').trim();
+  // The summary is the section between the subject and the closing section (the last two lines).
+  const body = ls.slice(3).map((l) => l.trim());
+  const closing = Math.max(0, body.length - 2);
+  const summary = body.slice(0, closing).join(' ').trim() || null;
+  return { form, lang, title, who, subject, summary, url };
+}
+
+/** A stored "needs a check" push → its block in a batch ("Company · date" / subject / "Which shipment?"). */
+export function pushToBlock(text: string, lang: Lang = 'en'): string {
+  const p = parsePush(text);
+  // "SUS · 23 Oct 06:53" (round AD) or "Name (Company), 22 Oct 14:31" (older rows) → "Company · 22 Oct 14:31".
+  const [first, ...rest] = p.who.split(/ · |, |、/);
+  const company = /\(([^()]+)\)\s*$/.exec(first)?.[1] ?? first;
+  const line = [company.trim(), rest.join(' ').trim()].filter(Boolean).join(' · ');
+  return [line, cleanSubject(p.subject), QUESTION[p.form ?? 'shipment'][lang]].join('\n');
+}
+/** Kept under its old name. */
+export const pushToLine = (text: string, lang: Lang = 'en') => pushToBlock(text, lang).split('\n').join(' · ');
+
+/** The whole due batch of one user: "needs a check" pushes as blocks, event lines together, the link once. */
 export function batchText(items: Array<{ text: string }>, lang: Lang = 'en', portalUrl?: string): string {
   const texts = items.map((i) => stripEmoji(i.text)).filter(Boolean);
-  if (texts.length === 1) return clip(texts[0], 3500);
+  if (texts.length === 1) return clip(texts[0], WHATSAPP_MAX);
   const needs = texts.filter(isNeedsCheckPush);
   const rest = texts.filter((t) => !isNeedsCheckPush(t));
-  const url = portalUrl ?? /(https?:\/\/\S+)\s*$/.exec(texts.map((t) => t.split('\n').pop() ?? '').find((l) => /https?:\/\//.test(l)) ?? '')?.[1] ?? '';
+  const url = portalUrl ?? texts.map((t) => parsePush(t).url).find((u): u is string => !!u) ?? '';
   const parts: string[] = [];
   if (needs.length === 1) parts.push(needs[0]);
   else if (needs.length > 1) {
-    const ja = lang === 'ja';
-    const lines = [ja ? `新しいメール ${needs.length} 件の確認が必要です` : `${needs.length} new emails need your check`, ...needs.slice(0, 6).map((t) => `- ${pushToLine(t, lang)}`)];
-    if (needs.length > 6) lines.push(ja ? `- ほか ${needs.length - 6} 件` : `- and ${needs.length - 6} more`);
-    lines.push(ja ? `ダッシュボードで確認: ${url}` : `Check them on the Dashboard: ${url}`);
-    parts.push(lines.join('\n'));
+    const blocks = needs.slice(0, 6).map((t) => pushToBlock(t, lang));
+    if (needs.length > 6) blocks.push(andMore(needs.length - 6, lang));
+    parts.push(sections([batchHeader(needs.length, lang), ...blocks, `${OPEN_AIMS[lang]}\n${url}`]));
   }
   if (rest.length) parts.push(rest.length === 1 && rest[0].includes('\n') ? rest[0] : eventsBatchText(rest.map((t) => t.split('\n')[0]), url, lang));
-  return clip(parts.join('\n\n'), 3500);
+  return clip(parts.join('\n\n'), WHATSAPP_MAX);
 }
 
 // ── Meta templates (round X): one parameter per line of the push ─────────────
@@ -323,39 +334,36 @@ export function digestTemplateParams(text: string, lang: Lang): string[] | null 
   const ls = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const ja = lang === 'ja';
   const day = (ja ? /^おはようございます。(.+)$/ : /^Good morning\. (.+)$/).exec(ls[0] ?? '')?.[1];
-  const url = /(https?:\/\/\S+)/.exec(ls[ls.length - 1] ?? '')?.[1];
+  const url = URL_RE.exec(ls[ls.length - 1] ?? '')?.[1];
   if (!day || !url) return null;
-  const find = (re: RegExp) => ls.map((l) => re.exec(l)?.[1]).find((x): x is string => x !== undefined) ?? null;
-  const filed = ja ? find(/^- メール (\d+ 件)を自動処理$/) : find(/^- (\d+ emails?) filed automatically$/);
-  const waiting = ja ? (find(/^- (\d+ 件の確認が必要です（メール \d+ 件）)$/)?.replace(/^(\d+) 件の確認が必要です（メール (\d+) 件）$/, '質問 $1 件（メール $2 件）') ?? (ls.some((l) => /確認が必要なものはありません/.test(l)) ? 'なし' : null)) : (find(/^- (\d+) needs? your check \((\d+ emails?)\)$/) ? ls.map((l) => /^- (\d+) needs? your check \((\d+ emails?)\)$/.exec(l)).filter(Boolean).map((m) => `${m![1]} question${m![1] === '1' ? '' : 's'} (${m![2]})`)[0] : ls.some((l) => /Nothing needs your check/.test(l)) ? 'nothing' : null);
-  const overdue = ja ? find(/^- 期限超過のタスク (\d+ 件: .+)$/) ?? 'なし' : find(/^- (\d+) tasks? overdue: (.+)$/) ? ls.map((l) => /^- (\d+) tasks? overdue: (.+)$/.exec(l)).filter(Boolean).map((m) => `${m![1]}: ${m![2]}`)[0] : 'none';
-  const arriving = ja ? find(/^- 今週到着 (\d+ 件（.+）)$/) ?? 'なし' : find(/^- (\d+) shipments? arriving this week \((.+)\)$/) ? ls.map((l) => /^- (\d+) (shipments?) arriving this week \((.+)\)$/.exec(l)).filter(Boolean).map((m) => `${m![1]} ${m![2]} (${m![3]})`)[0] : 'none';
+  const find = (re: RegExp) => ls.map((l) => re.exec(l)).find((m): m is RegExpExecArray => !!m) ?? null;
+  const filed = ja ? find(/^-? ?メール (\d+ 件)を自動処理$/)?.[1] : find(/^-? ?(\d+ emails?) filed automatically$/)?.[1];
+  let waiting: string | null = null;
+  if (ja) {
+    const m = find(/^-? ?(\d+) 件の確認が必要です(?:（メール (\d+) 件）)?$/);
+    waiting = m ? `質問 ${m[1]} 件${m[2] ? `（メール ${m[2]} 件）` : ''}` : ls.some((l) => /確認が必要なものはありません/.test(l)) ? 'なし' : null;
+  } else {
+    const m = find(/^-? ?(\d+) needs? your check(?: \((\d+ emails?)\))?$/);
+    waiting = m ? `${m[1]} question${m[1] === '1' ? '' : 's'}${m[2] ? ` (${m[2]})` : ''}` : ls.some((l) => /Nothing needs your check/.test(l)) ? 'nothing' : null;
+  }
+  const overdue = ja ? (find(/^-? ?期限超過のタスク (\d+ 件: .+)$/)?.[1] ?? 'なし') : (() => { const m = find(/^-? ?(\d+) tasks? overdue: (.+)$/); return m ? `${m[1]}: ${m[2]}` : 'none'; })();
+  const arriving = ja
+    ? (() => { const m = find(/^-? ?今週到着 (\d+ 件)(?:、最初は (.+?)(?:（(.+)）)?|（最初: (.+)）)$/); return m ? (m[4] ? `${m[1]}（最初: ${m[4]}）` : `${m[1]}（最初: ${m[2]}${m[3] ? `、${m[3]}` : ''}）`) : 'なし'; })()
+    : (() => { const m = find(/^-? ?(\d+) (shipments?) arriving this week(?:, first (.+?)(?: on (.+))?| \(first: (.+)\))$/); return m ? (m[5] ? `${m[1]} ${m[2]} (first: ${m[5]})` : `${m[1]} ${m[2]} (first: ${m[3]}${m[4] ? `, ${m[4]}` : ''})`) : 'none'; })();
   if (!filed || !waiting) return null;
-  return [day, filed, waiting, overdue ?? 'none', arriving ?? 'none', url];
+  return [day, filed, waiting, overdue, arriving, url];
 }
 
 export type PushTemplateKind = 'needs_check' | 'new_deal' | 'recheck';
 
-/** A stored "needs a check" push → which template it maps to and its parameters, or null (a batch, an event, unknown). */
+/** A stored "needs a check" push → which approved template it maps to and its parameters, or null (a batch, an event, unknown). */
 export function pushTemplateParams(text: string): { kind: PushTemplateKind; lang: Lang; params: string[] } | null {
-  const ls = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  const title = ls[0] ?? '';
-  const lang: Lang = /[぀-ヿ一-鿿]/.test(title) ? 'ja' : 'en';
-  const url = /(https?:\/\/\S+)/.exec(ls[ls.length - 1] ?? '')?.[1];
-  const subject = ls.map((l) => /^(?:Subject|件名): (.*)$/.exec(l)?.[1]).find((x): x is string => !!x);
-  if (!url || !subject) return null;
-  const fromLine = ls.map((l) => /^(?:From|差出人): (.*)$/.exec(l)?.[1]).find((x): x is string => !!x);
-  // Round AB: a "Says: …" summary line may sit under the subject — the template slots read the LAST lines, not fixed positions.
-  const last = (n: number) => ls[ls.length - n] ?? '';
-  if (/^New email needs your check$|^新しいメールの確認が必要です$/.test(title)) {
-    if (!fromLine || ls.length < 5) return null;
-    return { kind: 'needs_check', lang, params: [fromLine, subject, last(2), last(1)] };
-  }
-  // Round AA: "New email from Vedanta needs a shipment (22 Oct 14:31)" / Subject / "Send the shipment number …, or check the Dashboard: link"
-  const ship = /^New email from (.*) needs a shipment \((.*)\)$/.exec(title) ?? /^(.*) からの新しいメールに出荷の指定が必要です（(.*)）$/.exec(title);
-  if (ship && ls.length >= 3) return { kind: 'needs_check', lang, params: [`${ship[1]}, ${ship[2]}`, subject, lang === 'ja' ? '出荷の指定が必要です。' : 'It needs a shipment.', last(1)] };
-  if (/^AIMS re-checked|^AIMSがメールを再確認/.test(title)) return fromLine ? { kind: 'recheck', lang, params: [fromLine, subject, url] } : null;
-  const dealFrom = /^New email from (.*)$/.exec(title)?.[1] ?? /^(.*) から新しいメール、(.*)$/.exec(title)?.slice(1).join('、');
-  if (dealFrom) return { kind: 'new_deal', lang, params: [dealFrom, subject, url] };
-  return null;
+  const p = parsePush(text);
+  if (!p.form || !p.url || !p.subject || !p.who) return null;
+  const ja = p.lang === 'ja';
+  if (p.form === 'recheck') return { kind: 'recheck', lang: p.lang, params: [p.who, p.subject, p.url] };
+  if (p.form === 'new_deal') return { kind: 'new_deal', lang: p.lang, params: [p.who, p.subject, p.url] };
+  const found = p.form === 'is_shipment' ? (ja ? 'AIMSは出荷の件かどうか判断できません。' : "AIMS isn't sure this is about a shipment at all.") : ja ? '出荷の指定が必要です。' : 'It needs a shipment.';
+  const next = `${CLOSING[p.form][p.lang]} ${p.url}`;
+  return { kind: 'needs_check', lang: p.lang, params: [p.who, p.subject, p.summary ? `${found} ${p.summary}` : found, next] };
 }

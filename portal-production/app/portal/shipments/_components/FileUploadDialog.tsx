@@ -247,7 +247,7 @@ export default function FileUploadDialog({
                     primary={
                       <Stack direction="row" spacing={1} alignItems="center">
                         {r.status === "error" && <ErrorOutlineIcon color="error" fontSize="small" />}
-                        <Typography variant="body2" noWrap sx={{ maxWidth: 360 }}>
+                        <Typography variant="body2" sx={{ maxWidth: 360, wordBreak: "break-word" }}>
                           {r.file.name}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">

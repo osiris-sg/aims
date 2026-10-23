@@ -1,14 +1,14 @@
 "use client";
 
 // Round AB — ONE question card in the list (owner: every question as its own card, numbered). Top to bottom: the
-// number badge + the question (prominent); the subject in full (max 2 lines, tooltip for the rest; Japanese renders
-// fully); "Vedanta · 22 Oct 14:31"; the stored one-line summary of the email, muted (display text only — it never
+// number badge + the question (prominent); the subject in full (round AD, owner: it WRAPS, never clamped or cut with
+// "…"); "Vedanta · 22 Oct 14:31"; the stored one-line summary of the email, muted and wrapping (display text only — it never
 // drives an action); "Answer" (→ the round AA Choose-shipment dialog: nothing applies until Confirm) and "Show full
 // email" (→ the thread pop-up). Styled like the Operations dashboard's cards (outlined, same padding, small grey
 // labels, accent button). EN / JA from the API. No em dashes.
 
 import React, { useState } from "react";
-import { Box, Button, Paper, Stack, Tooltip, Typography } from "@mui/material";
+import { Box, Button, Paper, Stack, Typography } from "@mui/material";
 import type { InboxAnswer, InboxLang, InboxThread } from "../../_lib/api";
 import { cardSummary, cardWhoLine, fullSubject, L } from "../../_lib/inbox-cards";
 import { ChooseShipmentDialog } from "./ChooseShipmentDialog";
@@ -46,21 +46,14 @@ export function QuestionCard({ t, lang, n, busy, onAnswer, onCreateOrder, onOpen
           <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.3, wordBreak: "break-word" }} data-tour="question-title">
             {q.title}
           </Typography>
-          <Tooltip title={subject} enterDelay={400} placement="top-start">
-            <Typography
-              variant="body2"
-              sx={{ mt: 0.75, fontWeight: 600, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", wordBreak: "break-word", overflowWrap: "anywhere" }}
-              lang={/[぀-ヿ一-鿿]/.test(subject) ? "ja" : undefined}
-              data-tour="question-subject"
-            >
-              {subject}
-            </Typography>
-          </Tooltip>
+          <Typography variant="body2" sx={{ mt: 0.75, fontWeight: 600, wordBreak: "break-word", overflowWrap: "anywhere" }} lang={/[぀-ヿ一-鿿]/.test(subject) ? "ja" : undefined} data-tour="question-subject">
+            {subject}
+          </Typography>
           <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mt: 0.25 }} title={newest.from} data-tour="question-from">
             {cardWhoLine(newest, lang)}
           </Typography>
           {summary && (
-            <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5, wordBreak: "break-word" }} noWrap title={summary} data-tour="question-summary">
+            <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5, wordBreak: "break-word", overflowWrap: "anywhere" }} data-tour="question-summary">
               {summary}
             </Typography>
           )}

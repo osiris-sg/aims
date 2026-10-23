@@ -8,6 +8,7 @@
  *   --submit --confirm POST the missing ones to the connected WABA(s) (Meta reviews them)   [outward: ask first]
  *   --waba=<last 4 digits>  only that WABA (the ADH line's is the one ending 6521)
  *   --include-notify  also the UTILITY twin of aims_notify (aims_notify_utility) — switch WHATSAPP_NOTIFY_TEMPLATE to it once approved
+ *   --v2              the round AD bodies (aims_*_v2) instead of the approved round X ones
  *
  *   npx ts-node --transpile-only scripts/whatsapp-templates.ts --list
  */
@@ -31,6 +32,24 @@ export const TEMPLATES: Tpl[] = [
   { name: 'aims_recheck', language: 'ja', category: 'UTILITY', body: 'AIMSがメールを再確認したところ、確信が持てなくなりました。\n差出人: {{1}}\n件名: {{2}}\nダッシュボードで出荷を確認してください: {{3}}\nAIMS 出荷アシスタントからのお知らせです。', example: ex(['Toshiro Takekoshi (Asia Deal Hub)、10/22', 'Re:【ご相談】直近のDET費用及びディテンション回避策について', 'https://app.ai-ms.io/portal/shipments/dashboard']) },
 ];
 
+/**
+ * Round AD (owner): the pushes' plain-text layout changed (no labels, blank lines between sections, the sender as the
+ * company, a short link). The templates above are APPROVED on Meta (checked 2026-10-23) and are NOT changed — a
+ * template send still reads "From: / Subject:" with the fixed words Meta approved. These v2 bodies match the new
+ * layout; submit them with --v2 --submit --confirm when the owner says so, then switch the WHATSAPP_*_TEMPLATE env
+ * vars to the v2 names. Meta rules kept: no variable first or last, enough fixed words per variable.
+ */
+export const TEMPLATES_V2: Tpl[] = [
+  { name: 'aims_digest_v2', language: 'en', category: 'UTILITY', body: 'Good morning from AIMS, {{1}}.\nEmails filed automatically: {{2}}\nNeed your check: {{3}}\nTasks overdue: {{4}}\nArriving this week: {{5}}\nOpen AIMS: {{6}}\nSent by AIMS, the shipments assistant.', example: ex(['Fri 23 Oct', '9 emails', '5 questions', '2: #19-1 import tax funds, #14-1 detention', '8 shipments (first: #20-1, Sat 24 Oct)', 'https://app.ai-ms.io/go/abc123']) },
+  { name: 'aims_digest_v2', language: 'ja', category: 'UTILITY', body: 'おはようございます。AIMSより {{1}} のまとめです。\n自動処理したメール: {{2}}\n確認が必要: {{3}}\n期限超過のタスク: {{4}}\n今週の到着: {{5}}\nAIMSを開く: {{6}}\nAIMS 出荷アシスタントからのお知らせです。', example: ex(['10月23日（金）', 'メール 9 件', '質問 5 件', '2 件: #19-1 輸入税の資金、#14-1 ディテンション', '8 件（最初: #20-1、10/24（土））', 'https://app.ai-ms.io/go/abc123']) },
+  { name: 'aims_needs_check_v2', language: 'en', category: 'UTILITY', body: 'A new email in AIMS needs your check.\n{{1}}\n{{2}}\n{{3}}\n{{4}}\nSent by AIMS, the shipments assistant.', example: ex(['SUS · 23 Oct 06:53', 'Re: 書類送付: 6005C材220MT 2026年11月納入分', 'It needs a shipment. SUS revised the November delivery schedule and asks ADH to confirm.', 'Reply with the shipment number (e.g. 18-1), or open AIMS: https://app.ai-ms.io/go/abc123']) },
+  { name: 'aims_needs_check_v2', language: 'ja', category: 'UTILITY', body: 'AIMSに届いた新しいメールの確認が必要です。\n{{1}}\n{{2}}\n{{3}}\n{{4}}\nAIMS 出荷アシスタントからのお知らせです。', example: ex(['SUS · 10/23 06:53', 'Re: 書類送付: 6005C材220MT 2026年11月納入分', '出荷の指定が必要です。SUSが11月の納入予定を変更し、ADHに確認を求めています。', '出荷番号で返信してください（例: 18-1）。またはAIMSを開く: https://app.ai-ms.io/go/abc123']) },
+  { name: 'aims_new_deal_v2', language: 'en', category: 'UTILITY', body: 'A new email in AIMS looks like a new deal.\n{{1}}\n{{2}}\nIt is not in AIMS yet. Open AIMS to create the order: {{3}}\nSent by AIMS, the shipments assistant.', example: ex(['Isewan · 21 Oct', 'アルミインゴット輸入の件', 'https://app.ai-ms.io/go/abc123']) },
+  { name: 'aims_new_deal_v2', language: 'ja', category: 'UTILITY', body: 'AIMSに新しい案件のようなメールが届きました。\n{{1}}\n{{2}}\nAIMSにはまだありません。AIMSで注文を作成: {{3}}\nAIMS 出荷アシスタントからのお知らせです。', example: ex(['Isewan · 10/21', 'アルミインゴット輸入の件', 'https://app.ai-ms.io/go/abc123']) },
+  { name: 'aims_recheck_v2', language: 'en', category: 'UTILITY', body: 'AIMS re-checked an email and is not sure anymore.\n{{1}}\n{{2}}\nPlease confirm the shipment in AIMS: {{3}}\nSent by AIMS, the shipments assistant.', example: ex(['Vedanta · 21 Oct', 'TELEX MSG - Asia Deal(Sus) //454003255 //198GX06516', 'https://app.ai-ms.io/go/abc123']) },
+  { name: 'aims_recheck_v2', language: 'ja', category: 'UTILITY', body: 'AIMSがメールを再確認したところ、確信が持てなくなりました。\n{{1}}\n{{2}}\nAIMSで出荷を確認してください: {{3}}\nAIMS 出荷アシスタントからのお知らせです。', example: ex(['Vedanta · 10/21', 'TELEX MSG - Asia Deal(Sus) //454003255 //198GX06516', 'https://app.ai-ms.io/go/abc123']) },
+];
+
 /** The Graph API body for one template (what --submit posts). */
 /** The same body as the approved aims_notify (MARKETING), as a UTILITY template — cheaper, not subject to marketing limits. */
 export const NOTIFY_UTILITY: Tpl = { name: 'aims_notify_utility', language: 'en', category: 'UTILITY', body: 'AIMS update: {{1}}\nReply to this message to open the chat, or check the Dashboard: {{2}}\nSent by AIMS, the shipments assistant.', example: ex(['New email needs your check. From: Toshiro Takekoshi (Asia Deal Hub), 22 Oct 11:50. Subject: Re: DET costs. AIMS is not sure which shipment this is for: #16-1 or #16-2.', 'https://app.ai-ms.io/portal/shipments/dashboard']) };
@@ -46,15 +65,16 @@ async function graph<T>(path: string, token: string, init: { method: 'GET' | 'PO
 
 async function main() {
   const args = process.argv.slice(2);
+  const base = args.includes('--v2') ? TEMPLATES_V2 : TEMPLATES;
   if (args.includes('--show')) {
-    for (const t of TEMPLATES) console.log(`\n=== ${t.name} (${t.language}, ${t.category})\n${t.body}\n--- example values: ${JSON.stringify(t.example)}`);
+    for (const t of base) console.log(`\n=== ${t.name} (${t.language}, ${t.category})\n${t.body}\n--- example values: ${JSON.stringify(t.example)}`);
     return;
   }
   const p = new PrismaClient();
   const conns: any[] = await p.whatsAppConnection.findMany({ where: { status: 'CONNECTED' }, select: { organizationId: true, wabaId: true, displayPhoneNumber: true, accessToken: true, phoneNumberId: true } });
   const seen = new Set<string>();
   const only = args.find((a) => a.startsWith('--waba='))?.slice(7);
-  const wanted = args.includes('--include-notify') ? [...TEMPLATES, NOTIFY_UTILITY] : TEMPLATES;
+  const wanted = args.includes('--include-notify') ? [...base, NOTIFY_UTILITY] : base;
   for (const c of conns) {
     if (!c.wabaId || seen.has(c.wabaId)) continue;
     if (only && !c.wabaId.endsWith(only)) continue;

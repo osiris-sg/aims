@@ -30,8 +30,9 @@ export const ProgressCell = ({ progress, width = 120 }: { progress?: Progress; w
 };
 
 /** "9. Send arrival notice …", "Completed" when every step is done, "—" with no steps. */
-// Round Q: step names wrap to a second line instead of "…".
+// Round Q: step names wrap to a second line instead of "…". Round AD (owner: no "…" anywhere): always — `wrap` is kept for callers.
 export const CurrentStepCell = ({ step, progress, maxWidth = 260, wrap = true }: { step?: CurrentStep; progress?: Progress; maxWidth?: number | string; wrap?: boolean }) => {
+  void wrap;
   if (!step) {
     return progress?.total ? (
       <Typography variant="body2" sx={{ color: "success.main", fontWeight: 600 }}>
@@ -44,7 +45,7 @@ export const CurrentStepCell = ({ step, progress, maxWidth = 260, wrap = true }:
     );
   }
   return (
-    <Typography variant="body2" title={step.label} sx={wrap ? { minWidth: 160, maxWidth, whiteSpace: "normal" } : { maxWidth, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+    <Typography variant="body2" title={step.label} sx={{ minWidth: 160, maxWidth, whiteSpace: "normal", wordBreak: "break-word" }}>
       {step.label}
     </Typography>
   );

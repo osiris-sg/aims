@@ -98,10 +98,10 @@ function TimelineRow({ n, m, latest, open, onToggle, lang, onDifferent }: { n: n
         <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
           {whenShort(m.date)}
         </Typography>
-        <Typography variant="body2" sx={{ fontWeight: 700, flexShrink: 0 }} noWrap title={m.from}>
+        <Typography variant="body2" sx={{ fontWeight: 700, flexShrink: 0, wordBreak: "break-word" }} title={m.from}>
           {from.name}
         </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ flex: 1, minWidth: 0 }} noWrap>
+        <Typography variant="body2" color="text.secondary" sx={{ flex: 1, minWidth: 0, wordBreak: "break-word" }}>
           {m.preview || m.subject || ""}
         </Typography>
         {m.attachments.length > 0 && (
@@ -196,11 +196,11 @@ export function InboxDetailsDialog({
   return (
     <Dialog open={!!open} onClose={onClose} maxWidth="md" fullWidth transitionDuration={{ enter: 225, exit: 0 }} disableRestoreFocus data-tour="email-dialog">
       <DialogTitle sx={{ pr: 7 }}>
-        <Typography variant="h6" component="div" sx={{ fontWeight: 700, minWidth: 0 }} noWrap title={open?.subject ?? ""}>
+        <Typography variant="h6" component="div" sx={{ fontWeight: 700, minWidth: 0, wordBreak: "break-word", overflowWrap: "anywhere" }}>
           {open?.subject || "(no subject)"}
         </Typography>
         {headEmail && (
-          <Typography variant="caption" color="text.secondary" component="div" noWrap title={headEmail.from} data-tour="email-dialog-from">
+          <Typography variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word" }} title={headEmail.from} data-tour="email-dialog-from">
             {cardFromLine(headEmail, lang)}
             {messages.length > 1 ? ` · ${labels.emails(messages.length)}` : ""}
           </Typography>

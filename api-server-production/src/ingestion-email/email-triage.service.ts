@@ -14,7 +14,7 @@ import { TradeStepsService } from '../shipments/trade-steps.service';
 import { ShipmentsNotifyService } from '../shipments/shipments-notify.service';
 import { StoredEmailMeta } from './email-store';
 import { companyOf, companyOverridesOf } from './email-companies';
-import { attachmentHits, attachmentTarget, autoTier, DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, orderCuesMatch, ownTextCues, recordRef, subjectCues, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
+import { attachmentHits, attachmentTarget, autoTier, DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, orderCuesMatch, ownTextCues, recordRef, SourceFamily, subjectCues, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
 import { auditLink, AuditResult, RECHECK_TEXT } from './email-audit';
 import { answerText, Lang, QuestionCard, QuestionInput, questionOf } from './email-question';
 import { arrivalNoticeLine, filedLine, importPermitLine, needsCheckText, NeedsCheckInput, senderLine } from '../operator/push-text';
@@ -23,6 +23,7 @@ import { blockRemoteContent, parseEmail, ParsedEmail } from './email-mime';
 import { buildReasonerPrompt, judgeReasoner, parseReasonerOutput, ReasonerContext, ReasonerJudgement, ReasonerRecordRow, ReasonerThreadMessage } from './email-reasoner';
 import { groupThreads, normMessageId, threadHeadersFromEml, threadLink, unprocessedReason } from './email-threads';
 import { backlogAutoLabel, BacklogInput, BacklogVerdict, classifyEmail } from './email-backlog';
+import { ShortLinksService } from '../short-links/short-links.service';
 import { supplierKeyPatterns } from '../shipments/trade-profile';
 import {
   counterpartyByDomain,
@@ -61,6 +62,8 @@ import {
   Summaries,
   summaryForLang,
   summaryPrompt,
+  isInlineImage,
+  summaryTooLong,
 } from './email-triage.rules';
 
 /** Round AC: the stored summaries of a row (triage.summaryEn / summaryJa; an older row's single `summary` counts for the email's language). */
@@ -114,6 +117,20 @@ export interface IntakeAction {
 export type InboxState = 'SUGGESTED' | 'UNMATCHED' | 'PROCESSED' | 'UNSURE' | 'PURGED' | 'HIDDEN';
 /** STORE (keep only) · TRIAGE (suggest) · PARTIAL_AUTO (apply only when the guards hold) · AUTO (apply every clean match). */
 export type IntakeMode = 'TRIAGE' | 'PARTIAL_AUTO' | 'AUTO';
+/** Round AD: what a dry-run re-match WOULD do (nothing written) — the owner's "re-run on the open questions" script. */
+export interface RematchPreview {
+  state: InboxState;
+  /** How it would apply by itself (null = stays a question). */
+  apply: 'AUTO' | 'AUTO_LINK' | 'HISTORY' | 'GENERAL' | 'INHERIT_THREAD' | 'MULTI_LINK' | 'HIDE' | null;
+  label: string | null;
+  targets: IntakeTarget[];
+  links: Array<{ orderId: string; shipmentId: string | null }>;
+  plan: IntakeAction[];
+  decision: { kind: string | null; source: string | null; reason: string | null; blocked: string[]; check: string[]; notes: string[]; sources: string[]; sourceLines: string[]; candidates: string[] };
+  verdict: BacklogVerdict | null;
+  reasoner: { apply: boolean; reason: string; evidence: string } | null;
+  tier: string | null;
+}
 export const ROUTING_MODES = ['STORE', 'TRIAGE', 'PARTIAL_AUTO', 'AUTO'] as const;
 export const intakeModeOf = (v: string | null | undefined): IntakeMode => (v === 'AUTO' ? 'AUTO' : v === 'PARTIAL_AUTO' ? 'PARTIAL_AUTO' : 'TRIAGE');
 /** An order / shipment the email goes to (the picker may give several, each with its own attachments). */
@@ -169,6 +186,7 @@ export class EmailTriageService {
     private readonly steps: TradeStepsService,
     private readonly actionLog: ActionLogService,
     @Optional() private readonly whatsapp?: ShipmentsNotifyService,
+    @Optional() private readonly shortLinks?: ShortLinksService,
   ) {}
 
   /** After the webhook stored an email: triage it in the background (the provider isn't kept waiting). */
@@ -319,8 +337,8 @@ export class EmailTriageService {
       const ja = await this.questionOfLog(organizationId, logId, 'ja');
       const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId }, select: { fromAddress: true, emailDate: true, createdAt: true, subject: true, triage: true, rawMeta: true } });
       const company = companyOf(log?.fromAddress, await this.companyOverrides(organizationId)).name;
-      // Round AB: the same one-line summary as the card, under the subject.
-      const base = { from: log?.fromAddress ?? null, company, date: log?.emailDate ?? log?.createdAt ?? null, subject: log?.subject ?? null, summary: log ? summaryOfLog(log, 'en') : null, portalUrl: this.portalUrl(organizationId, 'emails') };
+      // Round AB: the same one-line summary as the card, under the subject. Round AD: a short link.
+      const base = { from: log?.fromAddress ?? null, company, date: log?.emailDate ?? log?.createdAt ?? null, subject: log?.subject ?? null, summary: log ? summaryOfLog(log, 'en') : null, portalUrl: await this.portalUrl(organizationId, 'emails') };
       // Round AC: the recipient's language picks the summary too.
       const baseJa = { ...base, summary: log ? summaryOfLog(log, 'ja') : null };
       const input = (card: QuestionCard, b = base): NeedsCheckInput => ({ ...b, kind: card.kind, options: card.options.map((o) => ({ ref: o.ref })), says: /says (.+?), but/.exec(q.card.title)?.[1] ?? null });
@@ -331,12 +349,12 @@ export class EmailTriageService {
     }
   }
 
-  /** The Dashboard link the pushes point at. */
-  portalUrl(organizationId?: string, view?: 'emails'): string {
-    // Round Z: the Sales dashboard is the portal home (/portal; ?view=emails = the full email view); ?aorg=<org>
-    // lets an admin's link open under that org (helpers/request.ts adopts it).
-    const q = [view ? `view=${view}` : null, organizationId ? `aorg=${organizationId}` : null].filter(Boolean).join('&');
-    return `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}/portal${q ? `?${q}` : ''}`;
+  /** The Dashboard link the pushes point at — round AD: a short link (https://app.ai-ms.io/go/<token>; login required; 30 days). */
+  async portalUrl(organizationId?: string, view?: 'emails'): Promise<string> {
+    // Round Z: the Sales dashboard is the portal home (/portal; ?view=emails = the full email view).
+    const path = `/portal${view ? `?view=${view}` : ''}`;
+    if (organizationId && this.shortLinks) return this.shortLinks.url(organizationId, path);
+    return `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}${path}${organizationId ? `${view ? '&' : '?'}aorg=${organizationId}` : ''}`;
   }
 
   /** "Toshiro Takekoshi (Asia Deal Hub)" for a From header — the org's company map applied (round X, for chat replies). */
@@ -474,11 +492,13 @@ export class EmailTriageService {
     keys: TriageKeys,
     mode: IntakeMode,
     manual?: IntakeTarget | IntakeTarget[],
-    opts: { safe?: boolean; keepState?: InboxState } = {},
+    opts: { safe?: boolean; keepState?: InboxState; dryRun?: boolean; capture?: (p: RematchPreview) => void } = {},
   ): Promise<InboxState> {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) throw new NotFoundException('Email not found');
     const prev = ((log.actions ?? {}) as Record<string, any>) ?? {};
+    // Round AD: `dryRun` computes everything (rules, reasoner, plan, verdict) and hands it to `capture` — nothing is written.
+    const dry = !!opts.dryRun;
     const ev = await this.evidence(log);
     const manualList = manual ? (Array.isArray(manual) ? manual : [manual]) : null;
     let decision: MatchDecision;
@@ -495,7 +515,7 @@ export class EmailTriageService {
       const split = await this.splitByAttachment(organizationId, log, ev, decision);
       if (split) {
         targets = split.targets;
-        decision = { ...decision, target: split.targets[0] ? { orderId: split.targets[0].orderId!, shipmentId: split.targets[0].shipmentId ?? null } : decision.target, kind: 'bl', confidence: 'exact', auto: split.auto, blocked: split.auto ? [] : decision.blocked, check: [], source: 'attachment', multiOrderIds: [], reason: split.reason, keyLabel: split.keyLabel, threadFrom: null };
+        decision = { ...decision, target: split.targets[0] ? { orderId: split.targets[0].orderId!, shipmentId: split.targets[0].shipmentId ?? null } : decision.target, kind: 'bl', confidence: 'exact', auto: split.auto, blocked: split.auto ? [] : decision.blocked, check: [], source: 'attachment', multiOrderIds: [], reason: split.reason, keyLabel: split.keyLabel, threadFrom: null, sources: split.sources, sourceLines: split.sourceLines, links: undefined };
       }
     }
     // An order with one live shipment: the shipment documents go there.
@@ -505,6 +525,7 @@ export class EmailTriageService {
     // the org has it on. It may only pick rows from the open-records table; applied by itself only when its evidence
     // is verified (a hard key in the email's own content, or a unique product match) and nothing conflicts.
     let reasoned: ReasonerJudgement | null = null;
+    let reasonerSources: { sources: SourceFamily[]; sourceLines: string[] } | null = null;
     if (!manualList && !opts.safe && (!targets.length || decision.multiOrderIds.length > 1 || decision.check.length || decision.source === 'own-cues' || decision.threadFrom === 'followed') && (await this.reasonerOn(organizationId))) {
       reasoned = await this.reason(organizationId, log, ev).catch((e) => {
         this.logger.warn(`[email-reasoner] ${logId}: ${(e as Error)?.message}`);
@@ -520,11 +541,15 @@ export class EmailTriageService {
         const strong = findKeyHits(ev, recs, await this.ciPatterns(organizationId)).filter((h) => h.where.some((w) => w !== 'quoted') && h.orderId === first.orderId && (!h.shipmentId || !first.shipmentId || h.shipmentId === first.shipmentId));
         const { own: ownTxt } = splitQuoted(ev.body ?? '');
         const oc = orderCuesMatch(ev, recs, subjectCues(ev.subject, ev.date), ownTextCues(ownTxt, recs, ev.date));
-        const second = [
-          tc.accepted && tc.accepted.orderId === first.orderId && (!tc.accepted.shipmentId || !first.shipmentId || tc.accepted.shipmentId === first.shipmentId) ? 'the thread' : null,
-          strong.length ? `${strong[0].kind === 'bl' ? 'B/L' : strong[0].kind.toUpperCase()} ${strong[0].value} in the email` : null,
-          oc && !oc.ambiguous.length && oc.orders.length === 1 && oc.orders[0].orderId === first.orderId ? 'the order description' : null,
-        ].filter((x): x is string => !!x);
+        const strongFamily = (h: { where: string[] }): SourceFamily => (h.where.includes('attachment') ? 'attachment' : h.where.includes('subject') ? 'subject' : 'own-text');
+        const secondSources: Array<{ family: SourceFamily; line: string }> = [
+          tc.accepted && tc.accepted.orderId === first.orderId && (!tc.accepted.shipmentId || !first.shipmentId || tc.accepted.shipmentId === first.shipmentId) ? { family: 'thread' as SourceFamily, line: 'an earlier email of this thread was linked to the same record' } : null,
+          strong.length ? { family: strongFamily(strong[0]), line: `${strong[0].kind === 'bl' ? 'B/L' : strong[0].kind.toUpperCase()} ${strong[0].value} in the ${strongFamily(strong[0]) === 'own-text' ? 'email text' : strongFamily(strong[0])}` } : null,
+          oc && !oc.ambiguous.length && oc.orders.length === 1 && oc.orders[0].orderId === first.orderId ? { family: 'subject' as SourceFamily, line: `the subject names the order (${oc.orders[0].why})` } : null,
+        ].filter((x): x is { family: SourceFamily; line: string } => !!x);
+        const second = secondSources.map((x) => x.line);
+        // Round AD: the reasoner's verified reading is one source, the agreeing rule hit the other — recorded so the two-source gate sees them.
+        reasonerSources = { sources: ['reasoner', ...secondSources.map((x) => x.family)].filter((f, i, a) => a.indexOf(f) === i) as SourceFamily[], sourceLines: [`AIMS read the email and thread: ${reasoned.evidence}`, ...second] };
         if (!second.length) {
           const picked = reasoned.targets.map((t) => ({ orderId: t.orderId, shipmentId: t.shipmentId, attachmentIndexes: t.attachmentIndexes }));
           targets = picked;
@@ -547,9 +572,9 @@ export class EmailTriageService {
           if (j >= 0) typed[j] = entry;
           else typed.push(entry);
         }
-        await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { triage: { ...triage, attachments: typed } as any } });
+        if (!dry) await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { triage: { ...triage, attachments: typed } as any } });
         log.triage = { ...triage, attachments: typed } as any;
-        decision = { ...decision, target: { orderId: targets[0].orderId!, shipmentId: targets[0].shipmentId ?? null }, kind: 'bl', confidence: 'exact', auto: true, blocked: [], check: [], multiOrderIds: [], reason: `reasoner: ${reasoned.evidence}`, keyLabel: reasoned.keyLabel, threadFrom: null };
+        decision = { ...decision, target: { orderId: targets[0].orderId!, shipmentId: targets[0].shipmentId ?? null }, kind: 'bl', confidence: 'exact', auto: true, blocked: [], check: [], multiOrderIds: [], reason: `reasoner: ${reasoned.evidence}`, keyLabel: reasoned.keyLabel, threadFrom: null, links: undefined, ...(reasonerSources ?? {}) };
         plan = await this.buildPlan(organizationId, log, keys, targets, ev);
       } else if (reasoned) decision = { ...decision, reason: `reasoner: ${reasoned.reason}` };
     }
@@ -583,6 +608,14 @@ export class EmailTriageService {
     const tierAuto = !auto && !!tier && mode === 'PARTIAL_AUTO' && !unsupported.length && !needsShipment && !decision.check.length && (await this.reasonerOn(organizationId)) && (await this.slotsFree(organizationId, plan));
     const applyNow = auto || tierAuto;
     const verdict = manualList ? null : await this.classify(organizationId, log, decision, plan, targets, keys, applyNow);
+    if (dry) {
+      const linkOnlyKind = verdict && (verdict.kind === 'AUTO_LINK' || verdict.kind === 'HISTORY') && mode !== 'TRIAGE' && state === 'SUGGESTED' && !plan.some((a) => a.kind === 'file' && a.status === 'planned');
+      const inherit = verdict && mode !== 'TRIAGE' && (verdict.kind === 'GENERAL' || verdict.kind === 'INHERIT_THREAD' || verdict.kind === 'MULTI_LINK');
+      const apply: RematchPreview['apply'] = verdict?.kind === 'HIDE' ? 'HIDE' : applyNow ? 'AUTO' : linkOnlyKind ? (verdict!.kind as 'AUTO_LINK' | 'HISTORY') : inherit ? (verdict!.kind as 'GENERAL' | 'INHERIT_THREAD' | 'MULTI_LINK') : null;
+      const label = apply === 'AUTO' ? (tierAuto ? `reviewed · ${decision.keyLabel ?? (decision.source === 'thread' ? 'thread' : 'subject')}` : verdict?.kind === 'HISTORY' ? 'history' : reasoned?.apply ? `reasoned · ${reasoned.keyLabel ?? 'thread'}` : decision.kind === 'thread' ? 'thread' : decision.keyLabel) : apply && apply !== 'HIDE' ? backlogAutoLabel(verdict!.kind, verdict!.customerKey, verdict!.links?.length ?? 0, verdict!.reason) : null;
+      opts.capture?.({ state: apply ? (apply === 'HIDE' ? 'HIDDEN' : 'PROCESSED') : state, apply, label, targets, links: verdict?.links ?? decision.links ?? [], plan, decision: { kind: decision.kind, source: decision.source, reason: decision.reason, blocked, check: decision.check, notes: decision.notes ?? [], sources: decision.sources ?? [], sourceLines: decision.sourceLines ?? [], candidates: decision.candidates.map((c) => c.ref) }, verdict, reasoner: reasoned ? { apply: reasoned.apply, reason: reasoned.reason, evidence: reasoned.evidence } : null, tier });
+      return apply ? (apply === 'HIDE' ? 'HIDDEN' : 'PROCESSED') : state;
+    }
     if (verdict?.kind === 'HIDE') {
       await this.prisma.emailIngestLog.update({
         where: { id: logId },
@@ -676,7 +709,7 @@ export class EmailTriageService {
         } as any,
       },
     });
-    await this.execute(organizationId, logId, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: verdict.kind === 'MULTI_LINK' && /names \d+ orders/.test(verdict.reason) ? 'linked (orders)' : backlogAutoLabel(verdict.kind, verdict.customerKey, verdict.links?.length ?? 0) });
+    await this.execute(organizationId, logId, SYSTEM_ACTOR, { review: 'AUTO', autoLabel: backlogAutoLabel(verdict.kind, verdict.customerKey, verdict.links?.length ?? 0, verdict.reason) });
   }
 
   /**
@@ -684,9 +717,10 @@ export class EmailTriageService {
    * other than the email's target), each attachment goes to the record its content names; attachments naming
    * nothing follow the email's target. Auto only when every typed attachment is keyed (guard 1b per file).
    */
-  private async splitByAttachment(organizationId: string, log: any, ev: EmailEvidence, decision: MatchDecision): Promise<{ targets: IntakeTarget[]; auto: boolean; reason: string; keyLabel: string | null } | null> {
+  private async splitByAttachment(organizationId: string, log: any, ev: EmailEvidence, decision: MatchDecision): Promise<{ targets: IntakeTarget[]; auto: boolean; reason: string; keyLabel: string | null; sources: SourceFamily[]; sourceLines: string[] } | null> {
     const triage = (log.triage ?? {}) as Partial<TriageResult>;
-    const typedIdx = (triage.attachments ?? []).map((a) => ev.attachments.findIndex((x) => x.name === a.filename)).filter((i) => i >= 0);
+    // Round AD: only attachments that map to a document slot count (an inline signature image or an untyped file never blocks the split's auto).
+    const typedIdx = (triage.attachments ?? []).filter((a) => a.confidence >= 0.5 && TRIAGE_DOC_TYPES[a.docType] && !isInlineImage(a.filename)).map((a) => ev.attachments.findIndex((x) => x.name === a.filename)).filter((i) => i >= 0);
     if (!typedIdx.length) return null;
     const records = await this.matchRecords(organizationId);
     const per = attachmentHits(ev, records, await this.ciPatterns(organizationId)).map((h) => ({ index: h.index, target: attachmentTarget(h.hits) }));
@@ -711,7 +745,15 @@ export class EmailTriageService {
       byTarget.set(k, t);
     }
     const refs = [...byTarget.keys()].map((k) => recordRef(records.find((r) => r.orderId === k.split(':')[0] && (k.split(':')[1] ? r.shipmentId === k.split(':')[1] : true))!));
-    return { targets: [...byTarget.values()], auto: rest.length === 0, reason: `each attachment's own content names its shipment: ${keyed.map((p) => `${ev.attachments[p.index].name} → ${p.target!.keyLabel}`).join(', ')} (${refs.join(' / ')})`, keyLabel: keyed[0].target!.keyLabel };
+    // Round AD (owner): attachment key + the subject's order description = two sources. The subject names every
+    // keyed target's order (a multi-product subject names each product's order) → 'subject' agrees.
+    const { own: ownTxt } = splitQuoted(ev.body ?? '');
+    const oc = orderCuesMatch(ev, records, subjectCues(ev.subject, ev.date), ownTextCues(ownTxt, records, ev.date));
+    const keyedOrders = [...new Set(keyed.map((p) => p.target!.orderId))];
+    const subjectAgrees = !!oc && !oc.ambiguous.length && keyedOrders.every((o) => oc.orders.some((x) => x.orderId === o));
+    const sources: SourceFamily[] = subjectAgrees ? ['attachment', 'subject'] : ['attachment'];
+    const sourceLines = [...keyed.map((p) => `${p.target!.keyLabel} in the attachment ${ev.attachments[p.index].name}`), ...(subjectAgrees ? [`the subject names the order${keyedOrders.length > 1 ? 's' : ''} (${oc!.orders.map((o) => o.why).join('; ')})`] : [])];
+    return { targets: [...byTarget.values()], auto: rest.length === 0, reason: `each attachment's own content names its shipment: ${keyed.map((p) => `${ev.attachments[p.index].name} → ${p.target!.keyLabel}`).join(', ')} (${refs.join(' / ')})`, keyLabel: keyed[0].target!.keyLabel, sources, sourceLines };
   }
 
   /** The org flag enableEmailReasoner (default off). */
@@ -827,7 +869,7 @@ export class EmailTriageService {
       verdict: log.verdict ?? null,
       subject: log.subject ?? null,
       // Round V: inline signature images never count as a document to file.
-      attachments: (meta.attachments ?? []).map((a) => ({ name: a.name, slot: /^image\d*\.(png|jpe?g|gif)$/i.test(a.name) ? null : slotOf(a.name) })),
+      attachments: (meta.attachments ?? []).map((a) => ({ name: a.name, slot: isInlineImage(a.name) ? null : slotOf(a.name) })),
       filesSomething: plan.some((a) => a.kind === 'file' && a.status === 'planned'),
       fillsSomething: plan.some((a) => a.kind === 'field' && a.status === 'planned'),
       target: t ? { orderId: t.orderId!, shipmentId: t.shipmentId ?? null } : null,
@@ -843,6 +885,10 @@ export class EmailTriageService {
       cueCandidates: decision.candidates.filter((c) => (c.reasons ?? []).length && c.score > 0).map((c) => ({ orderId: c.orderId, shipmentId: c.shipmentId, ref: c.ref })),
       keys: { piNo: keys.piNo ?? null, contractNo: keys.contractNo ?? null },
       date: log.emailDate ?? null,
+      // Round AD: links from hard keys, the agreeing sources, the order's live shipments (schedule sheets link to all).
+      linksByKey: !!decision.links?.length && /several records named/.test((decision.blocked ?? []).join(' ')),
+      sources: decision.sources ?? [],
+      orderShipments: t?.orderId && !t.shipmentId ? records.filter((r) => r.orderId === t.orderId && r.shipmentId && r.shipStatus !== 'CANCELLED').map((r) => ({ orderId: r.orderId, shipmentId: r.shipmentId!, ref: recordRef(r) })) : [],
     };
     const v = classifyEmail(input);
     if (v.kind === 'INHERIT_THREAD') v.links = threadLinks;
@@ -1061,7 +1107,7 @@ export class EmailTriageService {
     const atts = (meta.attachments ?? []).map((a, i) => ({ a, i })).filter(({ i }) => !target.attachmentIndexes || target.attachmentIndexes.includes(i));
     for (const { a, i } of atts) {
       // Round V: inline signature images (image001.png …) are never "something to file".
-      if (/^image\d*\.(png|jpe?g|gif)$/i.test(a.name)) {
+      if (isInlineImage(a.name)) {
         out.push({ kind: 'file', status: 'skipped', reason: 'inline image', attachmentIndex: i, filename: a.name });
         continue;
       }
@@ -1833,9 +1879,17 @@ export class EmailTriageService {
     let both: Summaries = { en: null, ja: null };
     let source: 'ai' | 'fallback' | 'none' = 'none';
     try {
-      const [system, user] = summaryPrompt({ subject: log.subject ?? '', from: log.fromAddress, body: own || String(meta.bodyText ?? ''), attachments: (meta.attachments ?? []).map((a) => a.name) });
+      const input = { subject: log.subject ?? '', from: log.fromAddress, body: own || String(meta.bodyText ?? ''), attachments: (meta.attachments ?? []).map((a) => a.name) };
+      const [system, user] = summaryPrompt(input);
       const r = (await this.ai(system, user)) as Record<string, unknown> | null;
       both = cleanSummaries(r && typeof r === 'object' && 'summary' in r ? r.summary : r);
+      // Round AD (owner): never cut a summary — when the model runs long (over ~20 words / ~40 characters a clause), ask once more, shorter.
+      if ((both.en && summaryTooLong(both.en, 'en')) || (both.ja && summaryTooLong(both.ja, 'ja'))) {
+        const [system2, user2] = summaryPrompt(input, { shorter: true });
+        const r2 = (await this.ai(system2, user2).catch(() => null)) as Record<string, unknown> | null;
+        const again = cleanSummaries(r2 && typeof r2 === 'object' && 'summary' in r2 ? r2.summary : r2);
+        both = { en: again.en && !summaryTooLong(again.en, 'en') ? again.en : (again.en && both.en && summaryTooLong(both.en, 'en') ? again.en : both.en), ja: again.ja && !summaryTooLong(again.ja, 'ja') ? again.ja : (again.ja && both.ja && summaryTooLong(both.ja, 'ja') ? again.ja : both.ja) };
+      }
       if (both.en || both.ja) source = 'ai';
     } catch {
       /* fall back below */
@@ -1856,9 +1910,18 @@ export class EmailTriageService {
   }
 
   /** Round AB: the open questions (Unprocessed) without a stored summary in both languages — the backfill's work list (`all`: every open question). */
-  async summariesMissing(organizationId: string, all = false): Promise<Array<{ id: string; fromDomain: string; subject60: string }>> {
-    const rows: any[] = await this.prisma.emailIngestLog.findMany({ where: { organizationId, inboxState: { in: ['SUGGESTED', 'UNMATCHED', 'UNSURE'] } }, orderBy: { createdAt: 'desc' }, select: { id: true, fromAddress: true, subject: true, triage: true } });
-    return rows.filter((r) => all || !(storedSummaries(r).en && storedSummaries(r).ja)).map((r) => ({ id: r.id, fromDomain: domainOf(emailOf(r.fromAddress)), subject60: (r.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) }));
+  async summariesMissing(organizationId: string, all: boolean | 'missing' | 'all' | 'long' = false): Promise<Array<{ id: string; fromDomain: string; subject60: string }>> {
+    const mode = all === true ? 'all' : all === false ? 'missing' : all;
+    // Round AD: `long` = every row (open or processed, last 60 days) whose stored summary runs over the limit — re-made, never cut.
+    const where = mode === 'long' ? { organizationId, inboxState: { in: ['SUGGESTED', 'UNMATCHED', 'UNSURE', 'PROCESSED'] }, createdAt: { gte: new Date(Date.now() - 60 * 86_400_000) } } : { organizationId, inboxState: { in: ['SUGGESTED', 'UNMATCHED', 'UNSURE'] } };
+    const rows: any[] = await this.prisma.emailIngestLog.findMany({ where, orderBy: { createdAt: 'desc' }, select: { id: true, fromAddress: true, subject: true, triage: true } });
+    const pick = (r: any) => {
+      const st = storedSummaries(r);
+      if (mode === 'all') return true;
+      if (mode === 'long') return (!!st.en && summaryTooLong(st.en, 'en')) || (!!st.ja && summaryTooLong(st.ja, 'ja'));
+      return !(st.en && st.ja);
+    };
+    return rows.filter(pick).map((r) => ({ id: r.id, fromDomain: domainOf(emailOf(r.fromAddress)), subject60: (r.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) }));
   }
 
   /** Round P — the Sales dashboard: emails to confirm (threads, newest first) and what was filed by itself in the last 3 days. */

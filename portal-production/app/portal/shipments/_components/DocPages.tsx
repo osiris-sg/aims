@@ -320,7 +320,7 @@ function FullPage({
   return (
     <Dialog open={open} onClose={onClose} fullScreen PaperProps={{ sx: { bgcolor: "rgba(20,20,20,.96)" } }}>
       <Stack direction="row" alignItems="center" sx={{ px: 2, py: 1, color: "#fff" }}>
-        <Typography variant="body2" sx={{ flex: 1 }} noWrap>
+        <Typography variant="body2" sx={{ flex: 1, wordBreak: "break-word" }}>
           {fileName}
           {doc ? ` · Page ${page} of ${pages}` : ""}
         </Typography>

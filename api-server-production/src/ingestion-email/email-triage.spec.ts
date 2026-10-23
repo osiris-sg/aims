@@ -17,7 +17,7 @@ describe('round AB — the one-line email summary (display text only)', () => {
     expect(validateTriage({ ...base, summary: '  Summary: Asks to extend the free time   for two containers. ' })?.summary).toBe('Asks to extend the free time for two containers.');
     expect(validateTriage(base)?.summary).toBeNull();
     expect(validateTriage({ ...base, summary: 42 })?.summary).toBeNull();
-    expect(validateTriage({ ...base, summary: 'x'.repeat(300) })?.summary?.length).toBe(160);
+    expect(validateTriage({ ...base, summary: 'x'.repeat(300) })?.summary?.length).toBe(300); // round AD: never cut
   });
   it('fallbackSummary = the first real sentence of the own text (greetings, addressees, @mentions, quoted headers skipped), trimmed', () => {
     expect(fallbackSummary('Dear Sayaka,\n\nPlease find the arrival notice for 198GX06003 attached.\nRegards')).toBe('Please find the arrival notice for 198GX06003 attached.');
@@ -34,7 +34,7 @@ describe('round AB — the one-line email summary (display text only)', () => {
     expect(fallbackSummary('Thank you for your email. The containers were returned on 20 Oct.')).toBe('The containers were returned on 20 Oct.');
     expect(fallbackSummary('')).toBeNull();
     expect(fallbackSummary('---\n\n')).toBeNull();
-    expect(fallbackSummary(`${'y'.repeat(200)}`)?.length).toBe(160);
+    expect(fallbackSummary(`${'y'.repeat(200)}`)?.length).toBe(200); // round AD: never cut
     expect(cleanSummary(null)).toBeNull();
   });
   it('round AC: the AI summary comes in both languages; an old single string counts for the email\'s language', () => {
@@ -372,7 +372,7 @@ function setup(mode: 'AUTO' | 'TRIAGE' | 'PARTIAL_AUTO' = 'AUTO') {
   /** A hand-made email (no .eml): what the worker posts, with an AI answer. */
   const receiveRaw = async (p: { subject: string; text: string; from?: string; messageId: string; inReplyTo?: string; ai: unknown; attachments?: Array<{ filename: string; contentType: string; contentBase64: string }> }) => {
     (triage.ai as jest.Mock).mockImplementationOnce(async () => p.ai);
-    const r = await ingest.handleInbound({ from: p.from ?? 'ops@mitsui-soko.co.jp', to: `docs+${ORG}@inbound.osiris.sg`, subject: p.subject, text: p.text, messageId: p.messageId, date: 'Tue, 20 Oct 2026 10:14:00 +0900', inReplyTo: p.inReplyTo, attachments: p.attachments ?? [] } as any);
+    const r = await ingest.handleInbound({ from: p.from ?? 'ops@mitsui-soko.co.jp', to: `docs+${ORG}@inbound.osiris.sg`, subject: p.subject, text: p.text, messageId: p.messageId, date: new Date(Date.now() - 3600_000).toUTCString() /* round AD: relative — the Dashboard's 3-day window made a fixed date a time bomb */, inReplyTo: p.inReplyTo, attachments: p.attachments ?? [] } as any);
     const logId = (r as any).logId as string;
     return { logId, triaged: await triage.triage(ORG, logId) };
   };

@@ -57,7 +57,7 @@ function FiledRow({ m, lang, onUndo, onOpen }: { m: InboxMessage & { threadSubje
   return (
     <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ py: 0.75, borderTop: "1px solid", borderColor: "divider", cursor: "pointer" }} onClick={() => onOpen(m)} data-tour="dashboard-filed-row">
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="body2" sx={{ fontWeight: 700, color: r.tone === "done" ? "success.main" : "primary.main" }} noWrap title={r.headline}>
+        <Typography variant="body2" sx={{ fontWeight: 700, color: r.tone === "done" ? "success.main" : "primary.main", wordBreak: "break-word" }}>
           {href ? (
             <Link href={href} onClick={(e) => e.stopPropagation()} style={{ textDecoration: "none", color: "inherit" }}>
               {r.headline}
@@ -66,11 +66,11 @@ function FiledRow({ m, lang, onUndo, onOpen }: { m: InboxMessage & { threadSubje
             r.headline
           )}
         </Typography>
-        <Typography variant="caption" color="text.secondary" noWrap component="div" title={m.subject ?? ""}>
+        <Typography variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word", overflowWrap: "anywhere" }}>
           {m.subject || "(no subject)"} · {byLine(m.by)}
         </Typography>
         {r.lines.map((l, i) => (
-          <Typography key={i} variant="caption" color="text.secondary" component="div" noWrap>
+          <Typography key={i} variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word" }}>
             • {l.text}
           </Typography>
         ))}

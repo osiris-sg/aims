@@ -98,11 +98,11 @@ export function TradeTasksList({
                 router.push(a.linkUrl);
               }}
             >
-              <Typography variant="body2" noWrap>
+              <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
                 {a.title}
               </Typography>
               {a.detail && (
-                <Typography variant="caption" color="text.secondary" noWrap component="div">
+                <Typography variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word" }}>
                   {a.detail}
                 </Typography>
               )}

@@ -844,7 +844,7 @@ export class ShipmentsToolsService {
       // Round X: the window closed (no alert in the last 24 h) — ask which email she means instead of guessing.
       const dash = await this.triage.dashboard(ctx.organizationId, lang).catch(() => null);
       if (!dash?.toConfirm.total) return null;
-      const url = this.triage.portalUrl(ctx.organizationId);
+      const url = await this.triage.portalUrl(ctx.organizationId);
       return lang === 'ja'
         ? `その番号はアラートへの返信ですが、最後のアラートは24時間以上前です。どのメールの件ですか？ 件名を送るか、ダッシュボードで確認してください: ${url}`
         : `That reply is for an alert, but the last one was more than 24 hours ago. Which email do you mean? Send its subject, or check it on the Dashboard: ${url}`;

@@ -298,7 +298,8 @@ export interface Candidate {
 /** Round T: which cue decided (see MATCH_PRIORITY). */
 export type MatchSource = 'attachment' | 'own' | 'subject' | 'order-cues' | 'own-cues' | 'thread' | 'subject-cues' | null;
 /** Round W: the independent places a match can come from (a key and product words in the SAME text are one source). */
-export type SourceFamily = 'attachment' | 'own-text' | 'subject' | 'thread';
+export type SourceFamily = 'attachment' | 'own-text' | 'subject' | 'thread' | 'reasoner';
+// 'reasoner' (round AD): the thread reasoner's verified reading, recorded as its own source next to the rule hit that agreed with it.
 
 /**
  * Round T (2026-10-22, owner: "Pick shipment / subject disagrees is the main problem half the time"). The cues an
@@ -570,6 +571,31 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
   const splitAttachments = !!attOne && !!textOne && !attOne.several && !textOne.several && (attOne.orderId !== textOne.orderId || (attOne.shipmentId ?? null) !== (textOne.shipmentId ?? null));
   if (splitAttachments) out.notes.push(`the attachment names ${refOf(attOne!.orderId, attOne!.shipmentId)} — it files there; the email itself is about ${refOf(textOne!.orderId, textOne!.shipmentId)}`);
   ignoreAttachmentOthers = splitAttachments;
+  // Round AD (owner, 2026-10-23): hard keys of SEVERAL records in the email's own content (the subject's exact
+  // tonnages, B/Ls in the own text, attachment names) — the email is about all of them. A link-only email links
+  // to every one by itself (the service's MULTI_LINK); one that files a document asks a person to pick.
+  // "Several" counts across the subject, the own text and the attachments together (not per place), so a reply
+  // whose subject names #19-1 + #19-2 by tonnage and whose text names #18-1 by B/L links to all three.
+  const ownContent = strongHits.filter((h) => !(splitAttachments && h.where.every((w) => w === 'attachment' || w === 'quoted')));
+  const namedKeys = new Map<string, { orderId: string; shipmentId: string | null; hit: KeyHit }>();
+  for (const h of [...ownContent].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind])) {
+    // An order-level key (PI) of an order whose shipment is already named adds nothing.
+    if (!h.shipmentId && [...namedKeys.values()].some((x) => x.orderId === h.orderId)) continue;
+    const k = `${h.orderId}:${h.shipmentId ?? ''}`;
+    if (!namedKeys.has(k)) namedKeys.set(k, { orderId: h.orderId, shipmentId: h.shipmentId, hit: h });
+  }
+  const namedList = [...namedKeys.values()].filter((x) => x.shipmentId || ![...namedKeys.values()].some((y) => y.shipmentId && y.orderId === x.orderId));
+  if (namedList.length > 1) {
+    const refs = namedList.map((x) => refOf(x.orderId, x.shipmentId));
+    const labels = namedList.map((x) => `${KIND_LABEL[x.hit.kind]} ${x.hit.value}`);
+    out.links = namedList.map((x) => ({ orderId: x.orderId, shipmentId: x.shipmentId }));
+    out.multiOrderIds = [...new Set(namedList.map((x) => x.orderId))];
+    out.source = null;
+    out.reason = `the email names ${refs.join(', ')} (${labels.join(', ')}) — a link-only email links to all of them; a document needs a person to pick`;
+    out.blocked.push(`a: several records named (${refs.join(', ')})`);
+    out.notes.push(`several records in the email: ${refs.join(', ')}`);
+    return out;
+  }
   // 1–3. Hard keys: attachment, then own text, then subject.
   for (const [where, source, label] of [['attachment', 'attachment', 'attachment'], ['body', 'own', 'email text'], ['subject', 'subject', 'subject']] as Array<[Where, MatchSource, string]>) {
     if (where === 'attachment' && splitAttachments) continue;
@@ -737,6 +763,12 @@ export function telexTiedTo(ev: EmailEvidence, code: string, bl: string | null):
   if (contains(ev.subject ?? '', code)) return true;
   const core = bl ? blCore(bl) : '';
   if (!core) return false;
+  // Round AD (owner): a telex whose SUBJECT names this B/L (and no other) with the code in the email's own text —
+  // "TELEX MSG - … //198GX06516 …" + "Telex code for subject BL - RINVIZ026A212" — is tied to it, whatever the
+  // table below lists.
+  const subjectBls: string[] = ((ev.subject ?? '').match(/\d{3}[A-Z]{2}\d{5}/gi) ?? []).map((b) => b.toUpperCase());
+  const { own: ownText } = splitQuoted(ev.body ?? '');
+  if (subjectBls.length && subjectBls.every((b) => b === core) && contains(ownText, code)) return true;
   const texts = [ev.body ?? '', ...ev.attachments.map((a) => a.text ?? '')];
   for (const t of texts) {
     for (const para of t.split(/\n\s*\n/)) {

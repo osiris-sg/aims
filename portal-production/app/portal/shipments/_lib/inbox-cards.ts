@@ -224,11 +224,10 @@ export function headerSummary(h: { from: string; to: string; cc: string }, compa
 
 // ── Round AA: the minimal question card + the "Choose shipment" dialog ───────────────────────────────────────────
 
-/** The subject trimmed to ~50 characters with "…"; "(no subject)" when empty. */
-export function trimSubject(subject: string | null | undefined, max = 50): string {
+/** Round AD (owner: no "…" anywhere): the subject in full, whitespace collapsed; "(no subject)" when empty. The `max` is ignored. */
+export function trimSubject(subject: string | null | undefined, _max = 50): string {
   const s = (subject ?? "").replace(/\s+/g, " ").trim();
-  if (!s) return "(no subject)";
-  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
+  return s || "(no subject)";
 }
 
 /** The sender's display name from a From header ("Name <a@b>" → Name; a bare address → its local part) — mirrors inbox-threads' fromParts (no runtime import: node --test). */
@@ -280,11 +279,10 @@ export const fullSubject = (subject: string | null | undefined): string => (subj
  * Round AB: the muted one-line summary under the company line — the stored summary (made once when the email was
  * triaged), else the first line of the email's own text (the preview), else nothing. Display text only.
  */
-export function cardSummary(m: Pick<InboxMessage, "summary" | "preview">, max = 160): string | null {
+export function cardSummary(m: Pick<InboxMessage, "summary" | "preview">, _max = 160): string | null {
   const stored = (m.summary ?? "").replace(/\s+/g, " ").trim();
   const line = stored || (m.preview ?? "").replace(/\s+/g, " ").trim();
-  if (!line) return null;
-  return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
+  return line || null; // round AD: never cut — the card wraps
 }
 
 export const optionKey = (o: { orderId: string; shipmentId: string | null }) => `${o.orderId}:${o.shipmentId ?? ""}`;

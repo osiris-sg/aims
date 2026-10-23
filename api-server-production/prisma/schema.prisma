@@ -4347,3 +4347,18 @@ model TradeAlert {
   @@unique([organizationId, key])
   @@index([organizationId, status, dueAt])
 }
+
+/// Round AD (2026-10-23): short redirect links for the WhatsApp pushes — https://app.ai-ms.io/go/<token> →
+/// (organization, portal path); 30-day expiry; resolved only for a signed-in member of the org (or an osiris admin).
+model ShortLink {
+  id             String    @id @default(uuid())
+  token          String    @unique
+  organizationId String
+  path           String
+  expiresAt      DateTime
+  hits           Int       @default(0)
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([organizationId, path, createdAt])
+}

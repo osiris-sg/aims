@@ -100,7 +100,7 @@ export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose
                   return (
                     <TableRow key={r.key}>
                       <TableCell sx={{ maxWidth: 220 }}>
-                        <Typography variant="body2" noWrap title={r.fileName}>
+                        <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
                           {r.fileName}
                         </Typography>
                       </TableCell>

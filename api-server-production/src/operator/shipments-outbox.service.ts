@@ -18,14 +18,15 @@ import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
 import { isDigestTime, jstDay, shipmentRefOf } from './shipments-agent.rules';
 import { batchText, DigestInput, digestTemplateParams, digestText, pushTemplateParams, PushTemplateKind, shortTask, stripEmoji } from './push-text';
 import { EmailTriageService } from '../ingestion-email/email-triage.service';
+import { ShortLinksService } from '../short-links/short-links.service';
 
 const NOTIFY_TEMPLATE = () => process.env.WHATSAPP_NOTIFY_TEMPLATE || 'aims_notify';
 /** Round X: a structured digest template (one variable per line), once Meta approves it; unset = send the digest as plain text (the closed-window recovery falls back to aims_notify / the bridge). */
 const DIGEST_TEMPLATE = () => process.env.WHATSAPP_DIGEST_TEMPLATE || '';
 /** The approved per-kind templates for a single "needs a check" push (aims_needs_check / aims_new_deal / aims_recheck); unset = plain text. */
 const PUSH_TEMPLATE: Record<PushTemplateKind, () => string> = { needs_check: () => process.env.WHATSAPP_NEEDS_TEMPLATE || '', new_deal: () => process.env.WHATSAPP_NEW_DEAL_TEMPLATE || '', recheck: () => process.env.WHATSAPP_RECHECK_TEMPLATE || '' };
-/** The Dashboard link; ?aorg=<org> lets an admin's link open under that org (helpers/request.ts adopts it). */
-const PORTAL = (org?: string) => `${process.env.PORTAL_URL || 'https://app.ai-ms.io'}/portal${org ? `?aorg=${org}` : ''}`;
+/** Round AD: the Dashboard link is a short one (https://app.ai-ms.io/go/<token>, 30 days, login required) — see ShortLinksService. */
+const DASHBOARD_PATH = '/portal';
 
 @Injectable()
 export class ShipmentsOutboxService {
@@ -38,6 +39,7 @@ export class ShipmentsOutboxService {
     private readonly alerts: TradeAlertsService,
     private readonly whatsapp: WhatsAppAdapter,
     private readonly triage: EmailTriageService,
+    private readonly links: ShortLinksService,
   ) {}
 
   @Cron('* * * * *')
@@ -103,7 +105,7 @@ export class ShipmentsOutboxService {
       questionEmails: dash.toConfirm.emails,
       overdue: tasks.filter((t) => t.status === 'DUE' && dueOf(t) < today).map((t) => t.title as string),
       arriving: ships.map((s) => ({ ref: shipmentRefOf(s.order?.orderNo, s.seqNo), eta: s.eta })),
-      portalUrl: PORTAL(org),
+      portalUrl: await this.links.url(org, DASHBOARD_PATH),
     };
   }
 
@@ -163,7 +165,7 @@ export class ShipmentsOutboxService {
       if (asText.length) {
         const lang = asText.some((r) => /[぀-ヿ一-鿿]/.test(r.text)) ? 'ja' : 'en';
         const others = asText;
-        const ok = await this.whatsapp.sendText(to, batchText(others, lang, PORTAL(org))).then(() => true).catch(() => false);
+        const ok = await this.whatsapp.sendText(to, batchText(others, lang, await this.links.url(org, DASHBOARD_PATH))).then(() => true).catch(() => false);
         await this.mark(others, ok, 'text send failed');
         ok ? (sent += others.length) : (failed += others.length);
       }

@@ -61,7 +61,7 @@ function AttachmentRow({ a }: { a: EmailMessage["attachments"][number] }) {
   return (
     <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, px: 1, py: 0.5 }} data-tour="email-attachment">
       <Stack direction="row" spacing={1} alignItems="center">
-        <Typography variant="body2" sx={{ flex: 1, minWidth: 0 }} noWrap title={a.name}>
+        <Typography variant="body2" sx={{ flex: 1, minWidth: 0, wordBreak: "break-word" }} title={a.name}>
           📎 {a.name} <span style={{ opacity: 0.6 }}>· {fmtSize(a.size)}</span>
         </Typography>
         {canPreview && (
@@ -133,7 +133,7 @@ function LinksList({ links }: { links: EmailLink[] }) {
               sx={{ textTransform: "none", justifyContent: "flex-start", minWidth: 0, fontWeight: 400 }}
               title={l.href}
             >
-              <Typography variant="body2" noWrap sx={{ maxWidth: 420 }}>
+              <Typography variant="body2" sx={{ maxWidth: 420, wordBreak: "break-word", textAlign: "left" }}>
                 {l.text}
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ ml: 0.75, whiteSpace: "nowrap" }}>

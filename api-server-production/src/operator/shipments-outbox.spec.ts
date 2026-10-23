@@ -6,6 +6,8 @@ import { ShipmentsNotifyService } from '../shipments/shipments-notify.service';
 import { ShipmentsOutboxService } from './shipments-outbox.service';
 
 const jst = (iso: string) => new Date(`${iso}+09:00`);
+/** Round AD: the outbox asks the short-link service for the Dashboard link. */
+const links: any = { url: jest.fn(async (org: string, path: string) => `https://app.ai-ms.io/go/t-${org}${path === '/portal' ? '' : '-emails'}`) };
 
 function prismaMock(profiles: any[], features: Record<string, boolean> = { enableWhatsAppAgent: true }) {
   const rows: any[] = [];
@@ -82,15 +84,15 @@ describe('ShipmentsOutboxService.drain', () => {
       { id: 'r4', organizationId: 'org-adh', userId: 'u2', to: '819000000002', kind: 'EVENT', text: 'later', dueAt: jst('2026-10-22T10:25:00'), status: 'QUEUED', createdAt: new Date(4) },
     );
     const whatsapp: any = { sendText: jest.fn(async () => undefined), sendTemplate: jest.fn(async () => true), rememberContext: jest.fn() };
-    const svc = new ShipmentsOutboxService(prisma, new ShipmentsNotifyService(prisma), { myTasks: jest.fn(async () => []) } as any, whatsapp, { dashboard: jest.fn(async () => ({ toConfirm: { emails: 0, total: 0 } })) } as any);
+    const svc = new ShipmentsOutboxService(prisma, new ShipmentsNotifyService(prisma), { myTasks: jest.fn(async () => []) } as any, whatsapp, { dashboard: jest.fn(async () => ({ toConfirm: { emails: 0, total: 0 } })) } as any, links);
     const r = await svc.drain(now);
     expect(r).toEqual({ sent: 3, failed: 0 });
     expect(whatsapp.rememberContext).toHaveBeenCalledWith('819000000001', 'line-osiris');
     expect(whatsapp.sendTemplate).not.toHaveBeenCalled();
     expect(whatsapp.sendText).toHaveBeenCalledTimes(2);
     expect(whatsapp.sendText.mock.calls[0][1]).toBe('Good morning');
-    // Two event lines due together: the lines, then the Dashboard link once — no bullets, no emojis.
-    expect(whatsapp.sendText.mock.calls[1][1]).toBe('A\nB\nOpen the Dashboard: https://app.ai-ms.io/portal?aorg=org-adh'); // ?aorg: an admin's link opens under ADH
+    // Two event lines due together: the lines, a blank line, the SHORT Dashboard link once — no bullets, no emojis.
+    expect(whatsapp.sendText.mock.calls[1][1]).toBe('A\nB\n\nhttps://app.ai-ms.io/go/t-org-adh');
     expect(rows.filter((x) => x.status === 'SENT').map((x) => x.id).sort()).toEqual(['r1', 'r2', 'r3']);
     expect(rows.find((x) => x.id === 'r4').status).toBe('QUEUED'); // not due yet
   });
@@ -100,19 +102,19 @@ describe('ShipmentsOutboxService.drain', () => {
     process.env.WHATSAPP_NEEDS_TEMPLATE = 'aims_needs_check';
     try {
       const { prisma, rows } = prismaMock([]);
-      const url = 'https://app.ai-ms.io/portal';
-      const digest = `Good morning. Thu 22 Oct\n- 18 emails filed automatically\n- 4 need your check (14 emails)\nOpen the Dashboard: ${url}`;
-      const needs = `New email needs your check\nFrom: Toshiro Takekoshi (Asia Deal Hub), 22 Oct 11:50\nSubject: Re: DET\nAIMS isn't sure which shipment this is for: #16-1 or #16-2.\nReply 1 for #16-1, 2 for #16-2, or check it on the Dashboard: ${url}`;
+      const url = 'https://app.ai-ms.io/go/abc123';
+      const digest = `Good morning. Thu 22 Oct\n\n18 emails filed automatically\n4 need your check\n\n${url}`;
+      const needs = `New email needs a shipment\nAsia Deal Hub · 22 Oct 11:50\nRe: DET\n\nADH asks about DET costs.\n\nReply with the shipment number (e.g. 18-1), or open AIMS:\n${url}`;
       rows.push(
         { id: 'r1', organizationId: 'org-adh', userId: 'u1', to: '819000000001', kind: 'DIGEST', text: digest, dueAt: new Date(0), status: 'QUEUED', createdAt: new Date(1) },
         { id: 'r2', organizationId: 'org-adh', userId: 'u1', to: '819000000001', kind: 'NEEDS_ME', text: needs, dueAt: new Date(0), status: 'QUEUED', createdAt: new Date(2) },
         { id: 'r3', organizationId: 'org-adh', userId: 'u1', to: '819000000001', kind: 'EVENT', text: '#19-1 arrival notice filed', dueAt: new Date(0), status: 'QUEUED', createdAt: new Date(3) },
       );
       const whatsapp: any = { sendText: jest.fn(async () => undefined), sendTemplate: jest.fn(), sendTemplateLines: jest.fn(async () => true), rememberContext: jest.fn() };
-      const svc = new ShipmentsOutboxService(prisma, new ShipmentsNotifyService(prisma), { myTasks: jest.fn() } as any, whatsapp, { dashboard: jest.fn() } as any);
+      const svc = new ShipmentsOutboxService(prisma, new ShipmentsNotifyService(prisma), { myTasks: jest.fn() } as any, whatsapp, { dashboard: jest.fn() } as any, links);
       expect(await svc.drain(new Date())).toEqual({ sent: 3, failed: 0 });
-      expect(whatsapp.sendTemplateLines).toHaveBeenCalledWith('819000000001', 'aims_digest', ['Thu 22 Oct', '18 emails', '4 questions (14 emails)', 'none', 'none', url], 'en');
-      expect(whatsapp.sendTemplateLines).toHaveBeenCalledWith('819000000001', 'aims_needs_check', ['Toshiro Takekoshi (Asia Deal Hub), 22 Oct 11:50', 'Re: DET', "AIMS isn't sure which shipment this is for: #16-1 or #16-2.", `Reply 1 for #16-1, 2 for #16-2, or check it on the Dashboard: ${url}`], 'en');
+      expect(whatsapp.sendTemplateLines).toHaveBeenCalledWith('819000000001', 'aims_digest', ['Thu 22 Oct', '18 emails', '4 questions', 'none', 'none', url], 'en');
+      expect(whatsapp.sendTemplateLines).toHaveBeenCalledWith('819000000001', 'aims_needs_check', ['Asia Deal Hub · 22 Oct 11:50', 'Re: DET', 'It needs a shipment. ADH asks about DET costs.', `Reply with the shipment number (e.g. 18-1), or open AIMS: ${url}`], 'en');
       expect(whatsapp.sendText).toHaveBeenCalledTimes(1);
       expect(whatsapp.sendText.mock.calls[0][1]).toBe('#19-1 arrival notice filed');
     } finally {
@@ -127,7 +129,7 @@ describe('ShipmentsOutboxService.drain', () => {
     prisma.whatsAppConnection.findFirst = jest.fn(async () => null);
     rows.push({ id: 'r1', organizationId: 'org-adh', userId: 'u1', to: '819000000001', kind: 'EVENT', text: 'A', dueAt: new Date(0), status: 'QUEUED', createdAt: new Date(1) });
     const whatsapp: any = { sendText: jest.fn(), sendTemplate: jest.fn(), rememberContext: jest.fn() };
-    const svc = new ShipmentsOutboxService(prisma, new ShipmentsNotifyService(prisma), { myTasks: jest.fn() } as any, whatsapp, { dashboard: jest.fn() } as any);
+    const svc = new ShipmentsOutboxService(prisma, new ShipmentsNotifyService(prisma), { myTasks: jest.fn() } as any, whatsapp, { dashboard: jest.fn() } as any, links);
     expect(await svc.drain(new Date())).toEqual({ sent: 0, failed: 1 });
     expect(rows[0]).toMatchObject({ status: 'FAILED', error: 'no WhatsApp line to send from' });
     expect(whatsapp.sendText).not.toHaveBeenCalled();

@@ -3,7 +3,7 @@
  * New mail gets its summary from the triage call itself; this fills the rows that were triaged before round AB.
  *
  *   DATABASE_URL=<db> TENANCY_MODE=<mode> npx ts-node -r tsconfig-paths/register --transpile-only \
- *     scripts/backfill-email-summaries.ts --org=<organization id> [--apply] [--limit=50] [--all]
+ *     scripts/backfill-email-summaries.ts --org=<organization id> [--apply] [--limit=50] [--all | --long]
  *
  * Round AC: summaries are stored in English AND Japanese (the card shows the viewer's language); --all re-summarises
  * every open question (also rows that already have one) and prints before → after (the English card text).
@@ -34,6 +34,8 @@ const ORG = arg('org')!;
 const APPLY = process.argv.includes('--apply');
 const LIMIT = Number(arg('limit') ?? 50);
 const ALL = process.argv.includes('--all');
+/** Round AD: only the stored summaries that run over the owner's limit (~20 words EN / ~40 characters a clause JA), open AND processed rows of the last 60 days. */
+const LONG = process.argv.includes('--long');
 
 async function main() {
   if (!ORG || !/^[0-9a-f-]{36}$/i.test(ORG)) throw new Error('--org=<organization id> is required');
@@ -46,10 +48,10 @@ async function main() {
   console.log(`org: ${org.name} · mode: ${APPLY ? 'APPLY' : 'DRY RUN (nothing written)'}`);
   const counts = { ai: 0, fallback: 0, none: 0 };
   await runAsOrg(ORG, async () => {
-    const missing = await triage.summariesMissing(ORG, ALL);
-    console.log(`open questions ${ALL ? '(all, re-summarised)' : 'without a summary'}: ${missing.length}${missing.length > LIMIT ? ` (doing ${LIMIT})` : ''}\n`);
+    const missing = await triage.summariesMissing(ORG, LONG ? 'long' : ALL ? 'all' : 'missing');
+    console.log(`${LONG ? 'emails whose summary runs over the limit' : `open questions ${ALL ? '(all, re-summarised)' : 'without a summary'}`}: ${missing.length}${missing.length > LIMIT ? ` (doing ${LIMIT})` : ''}\n`);
     for (const m of missing.slice(0, LIMIT)) {
-      const r = await triage.summarize(ORG, m.id, { dryRun: !APPLY, force: ALL });
+      const r = await triage.summarize(ORG, m.id, { dryRun: !APPLY, force: ALL || LONG });
       counts[r.source === 'stored' ? 'ai' : r.source]++;
       console.log(`${APPLY ? (r.stored ? 'stored ' : 'skipped') : 'would  '} ${r.source.padEnd(8)} ${m.fromDomain.padEnd(24)} "${m.subject60}"\n         before: ${r.before ?? '(none)'}\n         en:     ${r.en ?? '(none)'}\n         ja:     ${r.ja ?? '(none)'}`);
     }
