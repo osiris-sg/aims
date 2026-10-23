@@ -1,16 +1,31 @@
 "use client";
 
-import AccountingReportsView from "../_lib/AccountingReportsView";
+import { Suspense, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Box, CircularProgress } from "@mui/material";
 
-// "Reports" section — financial statements, tax, and the remaining reports that
-// aren't part of the ledger / AR / AP sub-sections.
+// RETIRED (guru 2026-10-24): every accounting report lives under General
+// Ledger, Accounts Receivable or Accounts Payable. Old links and bookmarks
+// (/portal/accounting/reports?tab=pl …) land in the General Ledger section,
+// which resolves any ?tab= key from the full registry.
+function ReportsRedirect() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const qs = searchParams.toString();
+    router.replace(`/portal/accounting/ledger${qs ? `?${qs}` : ""}`);
+  }, [router, searchParams]);
+  return (
+    <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+      <CircularProgress size={28} />
+    </Box>
+  );
+}
+
 export default function ReportsPage() {
   return (
-    <AccountingReportsView
-      basePath="/portal/accounting/reports"
-      title="Reports"
-      subtitle="Financial statements, tax and other reports. Star the ones you use most."
-      categories={["Financial", "Tax & Compliance", "Assets & Other"]}
-    />
+    <Suspense fallback={null}>
+      <ReportsRedirect />
+    </Suspense>
   );
 }

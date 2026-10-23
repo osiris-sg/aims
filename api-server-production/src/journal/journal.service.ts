@@ -618,7 +618,7 @@ export class JournalService {
         severity: 'info',
         title: `${draftJournalCount} draft journal ${draftJournalCount === 1 ? 'entry' : 'entries'} pending review`,
         count: draftJournalCount,
-        link: '/portal/accounting/reports?tab=audit',
+        link: '/portal/accounting/ledger?tab=journal',
       });
     }
     if (unpostedConfirmedDocsCount > 0) {
@@ -627,7 +627,7 @@ export class JournalService {
         title: `${unpostedConfirmedDocsCount} confirmed ${unpostedConfirmedDocsCount === 1 ? 'invoice has' : 'invoices have'} not posted to GL`,
         detail: 'Auto-post should have caught these — needs investigation',
         count: unpostedConfirmedDocsCount,
-        link: '/portal/accounting/reports?tab=audit',
+        link: '/portal/accounting/ledger?tab=journal',
       });
     }
     if (outOfBalanceDrafts.length > 0) {
@@ -635,14 +635,14 @@ export class JournalService {
         severity: 'error',
         title: `${outOfBalanceDrafts.length} draft ${outOfBalanceDrafts.length === 1 ? 'entry is' : 'entries are'} out of balance`,
         count: outOfBalanceDrafts.length,
-        link: '/portal/accounting/reports?tab=audit',
+        link: '/portal/accounting/ledger?tab=journal',
       });
     }
     if (taxOutstanding > 0) {
       actionQueue.push({
         severity: 'info',
         title: `GST payable: ${taxOutstanding.toFixed(2)} — ready to file`,
-        link: '/portal/accounting/reports?tab=gst',
+        link: '/portal/accounting/ledger?tab=gst',
       });
     }
 

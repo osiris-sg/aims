@@ -59,6 +59,6 @@ export const TrialBalanceReport = () => <TrialBalanceXero basePath={GL_BASE} />;
 export const JournalReport = () => <JournalReportXero basePath={GL_BASE} />;
 export const BankSummary = () => <BankSummaryReport basePath={GL_BASE} />;
 export const ForeignBankListing = () => <ForeignBankListingReport basePath={GL_BASE} />;
-export const ProfitLoss = () => <ProfitLossXero basePath="/portal/accounting/reports" />;
-export const BalanceSheet = () => <BalanceSheetXero basePath="/portal/accounting/reports" />;
+export const ProfitLoss = () => <ProfitLossXero basePath="/portal/accounting/ledger" />;
+export const BalanceSheet = () => <BalanceSheetXero basePath="/portal/accounting/ledger" />;
 export const GSTReturn = () => <GSTReportShell basePath={GL_BASE} />;

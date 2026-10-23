@@ -92,7 +92,7 @@ export class CloseService {
       detail: unpostedInvoices === 0
         ? `All confirmed invoices through ${cutOffDate.toISOString().slice(0, 10)} have GL entries`
         : `${unpostedInvoices} confirmed invoice(s) missing GL — auto-post should have handled these`,
-      action: unpostedInvoices > 0 ? { label: 'Investigate', link: '/portal/accounting/reports?tab=audit' } : undefined,
+      action: unpostedInvoices > 0 ? { label: 'Investigate', link: '/portal/accounting/ledger?tab=journal' } : undefined,
     });
 
     // 3. No draft journal entries in the period
@@ -111,7 +111,7 @@ export class CloseService {
       detail: draftEntries === 0
         ? 'All journals dated in the period are posted or voided'
         : `${draftEntries} draft entry/entries — post or void before closing`,
-      action: draftEntries > 0 ? { label: 'Review drafts', link: '/portal/accounting/reports?tab=audit' } : undefined,
+      action: draftEntries > 0 ? { label: 'Review drafts', link: '/portal/accounting/ledger?tab=journal' } : undefined,
     });
 
     // 4. All posted entries in the period are balanced
@@ -128,7 +128,7 @@ export class CloseService {
       detail: unbalanced.length === 0
         ? 'Trial balance ties out — debits === credits across all postings'
         : `${unbalanced.length} unbalanced entry/entries — must be fixed before closing`,
-      action: unbalanced.length > 0 ? { label: 'View audit trail', link: '/portal/accounting/reports?tab=audit' } : undefined,
+      action: unbalanced.length > 0 ? { label: 'View audit trail', link: '/portal/accounting/ledger?tab=journal' } : undefined,
     });
 
     // 5. Tax payable visible (informational — not blocking)
@@ -142,7 +142,7 @@ export class CloseService {
           label: `GST payable: ${tax.toFixed(2)}`,
           status: 'warn',
           detail: 'File the GST return before closing the period',
-          action: { label: 'Open GST report', link: '/portal/accounting/reports?tab=gst' },
+          action: { label: 'Open GST report', link: '/portal/accounting/ledger?tab=gst' },
         });
       } else {
         items.push({

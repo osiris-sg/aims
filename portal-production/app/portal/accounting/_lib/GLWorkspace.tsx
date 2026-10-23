@@ -73,6 +73,9 @@ const GL_REPORTS: { key: string; label: string; description: string; tab?: strin
   { key: "account-transactions", label: "Account Transactions", description: "Transactions for chosen accounts over a period", tab: "account-transactions" },
   { key: "journal", label: "Journal Report", description: "Every posted journal with its balanced lines", tab: "journal" },
   { key: "bank-summary", label: "Bank Summary", description: "Opening balance, cash in and out, closing balance per bank account", tab: "bank-summary" },
+  { key: "cash-flow", label: "Cash Flow Statement", description: "Operating, investing and financing cash movements", tab: "cf" },
+  { key: "budget-vs-actual", label: "Budget vs Actual", description: "Compare budgeted to actual amounts per account", tab: "ba" },
+  { key: "fixed-assets", label: "Fixed Assets Register", description: "Fixed asset register and depreciation", tab: "fa" },
 ];
 
 type TbRow = {

@@ -89,7 +89,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
 
@@ -197,6 +197,10 @@ export default function DynamicSidebarContent() {
   // Submenu keys to hide per module (also moved into Master Files).
   const HIDDEN_SUBMENUS: Record<string, string[]> = {
     INVENTORY: ['products', 'list'], // Products + Inventory Items → Master Files
+    // Accounting → Reports retired (guru 2026-10-24): every report sits under
+    // General Ledger / AR / AP. Hidden here so orgs whose stored subMenus still
+    // carry it (see scripts/retire-accounting-reports-submenu.ts) don't show it.
+    ACCOUNTING: ['reports'],
   };
   // Display-order overrides (win over each module's stored sortOrder). Sales sits
   // just below Dashboard so it appears above Inventory for every org.
@@ -220,6 +224,8 @@ export default function DynamicSidebarContent() {
         const key = typeof s === 'string' ? s : s?.key;
         // CRM → Marketing rides on the enableAdsInsights org flag.
         if (key === 'marketing' && m.moduleCode === 'CRM' && !isAdsInsightsEnabled) return false;
+        // Accounting → Posting Queue rides on the enablePostingQueue org flag (guru 2026-10-24).
+        if (key === 'posting-queue' && m.moduleCode === 'ACCOUNTING' && !isPostingQueueEnabled) return false;
         // Round P: every Sales (Shipments) submenu shows (same rule as the top bar) — except the retired
         // ones (round W: Inbox left the menu; the Dashboard hosts the emails now), whatever the DB row says.
         if (m.moduleCode === 'SHIPMENTS' && visibleSalesSubmenus([s]).length === 0) return false;

@@ -28,6 +28,7 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./_lib/api";
 import JournalEntryDialog from "./_lib/JournalEntryDialog";
@@ -66,6 +67,7 @@ const fmt = (n: number) =>
 export default function AccountingHubPage() {
   const { request } = useAccountingApi();
   const router = useRouter();
+  const { isPostingQueueEnabled } = useOrganizationFeatures();
   const [hub, setHub] = useState<Hub | null>(null);
   const [loading, setLoading] = useState(true);
   const [newJournalOpen, setNewJournalOpen] = useState(false);
@@ -153,7 +155,7 @@ export default function AccountingHubPage() {
           changePct={kpis.revenueMtdChange}
           changeLabel="vs last month"
           accent="success"
-          link="/portal/accounting/reports?tab=pl"
+          link="/portal/accounting/ledger?tab=pl"
           secondary={`YTD: ${fmt(kpis.revenueYtd)}`}
         />
         <KpiTile
@@ -163,7 +165,7 @@ export default function AccountingHubPage() {
           changePct={kpis.netProfitMtdChange}
           changeLabel="vs last month"
           accent={kpis.netProfitMtd >= 0 ? "success" : "error"}
-          link="/portal/accounting/reports?tab=pl"
+          link="/portal/accounting/ledger?tab=pl"
           secondary={`YTD: ${fmt(kpis.netProfitYtd)}`}
         />
         <KpiTile
@@ -171,14 +173,14 @@ export default function AccountingHubPage() {
           icon={<AccountBalanceWalletIcon />}
           value={kpis.cashBalance}
           accent="info"
-          link="/portal/accounting/reports?tab=gl"
+          link="/portal/accounting/ledger?tab=gl"
         />
         <KpiTile
           title="GST Payable"
           icon={<PercentIcon />}
           value={kpis.taxOutstanding}
           accent={kpis.taxOutstanding > 0 ? "warning" : "success"}
-          link="/portal/accounting/reports?tab=gst"
+          link="/portal/accounting/ledger?tab=gst"
           secondary={kpis.taxOutstanding > 0 ? "Ready to file" : "Nothing due"}
         />
       </Box>
@@ -195,7 +197,7 @@ export default function AccountingHubPage() {
           icon={<RequestQuoteIcon />}
           value={kpis.arBalance}
           accent="info"
-          link="/portal/reports/statement-of-account"
+          link="/portal/accounting/receivables"
           secondary="Customers owe you"
           compact
         />
@@ -204,7 +206,7 @@ export default function AccountingHubPage() {
           icon={<PaymentsIcon />}
           value={kpis.apBalance}
           accent="warning"
-          link="/portal/accounting/reports?tab=gl"
+          link="/portal/accounting/payables"
           secondary="You owe suppliers"
           compact
         />
@@ -251,7 +253,7 @@ export default function AccountingHubPage() {
             variant="outlined"
             startIcon={<ReceiptIcon />}
             component={Link}
-            href="/portal/accounting/reports?tab=journal"
+            href="/portal/accounting/ledger?tab=journal"
           >
             View Journal Log
           </Button>
@@ -309,15 +311,17 @@ export default function AccountingHubPage() {
           >
             Bills (AP)
           </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<OpenInNewIcon />}
-            component={Link}
-            href="/portal/accounting/posting-queue"
-          >
-            Posting Queue
-          </Button>
+          {isPostingQueueEnabled && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<OpenInNewIcon />}
+              component={Link}
+              href="/portal/accounting/posting-queue"
+            >
+              Posting Queue
+            </Button>
+          )}
           <Button
             size="small"
             variant="outlined"
@@ -341,9 +345,9 @@ export default function AccountingHubPage() {
             variant="outlined"
             startIcon={<OpenInNewIcon />}
             component={Link}
-            href="/portal/accounting/reports"
+            href="/portal/accounting/ledger"
           >
-            All Reports
+            General Ledger
           </Button>
           <Button
             size="small"

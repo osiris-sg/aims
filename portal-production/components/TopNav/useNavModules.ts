@@ -61,7 +61,7 @@ export function useNavModules() {
       (s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled)) &&
       ((s.path !== "/portal/settings/shipping" && s.path !== "/portal/settings/customers") || showShippingSettings(isModuleEnabled)),
   );
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled } = useOrganizationFeatures();
 
   const isAdminUser =
     userRoles.length === 0 ||
@@ -83,6 +83,8 @@ export function useNavModules() {
         const key = typeof s === "string" ? s : s?.key;
         // CRM → Marketing rides on the enableAdsInsights org flag.
         if (key === "marketing" && m.moduleCode === "CRM" && !isAdsInsightsEnabled) return false;
+        // Accounting → Posting Queue rides on the enablePostingQueue org flag (guru 2026-10-24).
+        if (key === "posting-queue" && m.moduleCode === "ACCOUNTING" && !isPostingQueueEnabled) return false;
         // Round P: every Sales (Shipments) submenu shows — Dashboard · Orders · Shipments — except the retired
         // ones (round W: Inbox left the menu; the Dashboard hosts the emails now), whatever the DB row says.
         if (m.moduleCode === "SHIPMENTS" && visibleSalesSubmenus([s]).length === 0) return false;

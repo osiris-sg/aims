@@ -81,6 +81,10 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Default ON for every org, new and existing (guru, 2026-08-23) — an org
   // only loses the tab if an admin explicitly switches it off.
   enableActionLog: true,
+  // Accounting → Posting Queue sub-tab (guru 2026-10-24: "posting queue sub tab
+  // should be a feature flag as well"). Gates the nav entry + Finance Hub quick
+  // action; the page itself stays admin-only. Default OFF; Biofuel ON.
+  enablePostingQueue: false,
   // CRM → Marketing: Meta ads insights dashboard (spend/CPC/CPL/watch time,
   // true CPL + ROAS from AIMS leads & signed contracts). Needs a connected
   // Meta ad account (system-user token). Default OFF.
@@ -199,6 +203,7 @@ export function useOrganizationFeatures() {
     isNotificationsEnabled: features.enableNotifications ?? true,
     isAppointmentBookingEnabled: features.enableAppointmentBooking ?? false,
     isAdsInsightsEnabled: features.enableAdsInsights ?? false,
+    isPostingQueueEnabled: features.enablePostingQueue ?? false,
     isOpsDashboardEnabled: features.enableOpsDashboard ?? false,
     isAimsChatEnabled: features.enableAimsChat ?? false,
     isTemplateDesignEnabled: features.enableTemplateDesign ?? FEATURE_FLAG_DEFAULTS.enableTemplateDesign,

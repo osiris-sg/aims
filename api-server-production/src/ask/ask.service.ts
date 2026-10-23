@@ -337,7 +337,7 @@ When answering financial questions:
       },
       {
         name: 'show_link',
-        description: 'Emit a deep link to a full report page. E.g. /portal/accounting/reports?tab=pl for P&L.',
+        description: 'Emit a deep link to a full report page. E.g. /portal/accounting/ledger?tab=pl for P&L, /portal/accounting/receivables?tab=ar-aging for aged receivables.',
         input_schema: {
           type: 'object',
           properties: {

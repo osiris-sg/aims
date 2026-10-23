@@ -130,7 +130,7 @@ export function ProfitLossXero({ basePath }: { basePath: string }) {
   return (
     <ReportShell
       title="Profit and Loss"
-      breadcrumb={{ label: "Reports", href: basePath }}
+      breadcrumb={{ label: "General Ledger", href: basePath }}
       loading={loading}
       onUpdate={load}
       filters={
@@ -293,7 +293,7 @@ export function BalanceSheetXero({ basePath }: { basePath: string }) {
   return (
     <ReportShell
       title="Balance Sheet"
-      breadcrumb={{ label: "Reports", href: basePath }}
+      breadcrumb={{ label: "General Ledger", href: basePath }}
       loading={loading}
       onUpdate={load}
       filters={

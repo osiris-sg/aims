@@ -66,7 +66,9 @@ export const MODULE_CATALOG: CatalogModule[] = [
         { key: 'invoices', label: 'Invoice' },
         { key: 'debit-notes', label: 'Debit Note' },
         { key: 'credit-notes', label: 'Credit Note' },
-        { key: 'stock-card', label: 'Stock Card' },
+        // Stock Card removed from Sales for all orgs (guru 2026-10-24) — it
+        // stays under Inventory; scripts/retire-sales-stock-card.ts drops it
+        // from existing per-org SALES rows.
       ],
     },
   },
@@ -147,17 +149,21 @@ export const MODULE_CATALOG: CatalogModule[] = [
     config: {
       route: '/portal/accounting',
       subMenus: [
-        // Collapsed from 8 legacy report pages → 3 focused entries. The Reports
-        // sub-page hosts the old GL / TB / P&L / BS / GST / Audit pages as tabs
-        // so they remain reachable but don't pollute the nav.
+        // Collapsed from 8 legacy report pages → 3 sections. Every report lives
+        // under General Ledger / AR / AP (guru 2026-10-24: the separate "Reports"
+        // entry is RETIRED — /portal/accounting/reports redirects to the ledger;
+        // orgs with their own subMenus copy are fixed by
+        // scripts/retire-accounting-reports-submenu.ts, and the sidebar hides the
+        // key regardless).
         { key: 'list', label: 'Dashboard' },
         { key: 'ledger', label: 'General Ledger' },
         { key: 'receivables', label: 'Accounts Receivable' },
         { key: 'payables', label: 'Accounts Payable' },
         // adminOnly: sidebar hides this from non-admin roles (superadmin/Admin
         // only) — the queue is where admins confirm-post unconfirmed things.
+        // ALSO gated by the enablePostingQueue org flag (guru 2026-10-24; default
+        // OFF, Biofuel ON) — the nav filters it client-side, no row change needed.
         { key: 'posting-queue', label: 'Posting Queue', adminOnly: true },
-        { key: 'reports', label: 'Reports' },
         { key: 'setup', label: 'Setup', href: '/portal/settings/accounting-setup' },
       ],
     },

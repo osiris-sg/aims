@@ -32,7 +32,6 @@ import BillsPage from "../bills/page";
 import BankReconciliationPage from "../bank-reconciliation/page";
 import StatementOfAccountPage from "../../reports/statement-of-account/page";
 import FixedAssetsPage from "../fixed-assets/page";
-import RecurringPage from "../recurring/page";
 import RecurringInvoicesView from "../recurring-invoices/RecurringInvoicesView";
 import {
   AgedReceivablesSummary, AgedReceivablesDetail, AgedPayablesSummary, AgedPayablesDetail,
@@ -50,10 +49,7 @@ import PurchasesBySupplierPage from "../purchases-by-supplier/page";
 export type ReportCategory =
   | "Receivables"
   | "Payables"
-  | "Ledger"
-  | "Financial"
-  | "Tax & Compliance"
-  | "Assets & Other";
+  | "Ledger";
 
 interface ReportEntry {
   key: string;
@@ -65,8 +61,9 @@ interface ReportEntry {
 
 // Single source of truth for every accounting report. Keep `key` stable — it's
 // used in the ?tab= URL param and in the favourites store. The sidebar splits
-// these categories across separate section pages (General Ledger / AR / AP /
-// Reports), but every section can deep-link to ANY report via ?tab= because the
+// these categories across the three section pages (General Ledger / AR / AP —
+// guru 2026-10-24: every report lives under GL, AR or AP, the old "Reports"
+// page is gone), but every section can deep-link to ANY report via ?tab= because the
 // active-report lookup below scans this full list.
 export const REPORTS: ReportEntry[] = [
   // Receivables
@@ -129,13 +126,12 @@ export const REPORTS: ReportEntry[] = [
   { key: "expense-listing", label: "Expense Listing", description: "Every expense and purchase transaction for a period, by account", category: "Ledger", Component: ExpenseListing },
   { key: "gst", label: "GST", description: "GST details by tax code + F5 summary for the period", category: "Ledger", Component: GSTReturn },
 
-  // Financial (remaining)
-  { key: "cf", label: "Cash Flow", description: "Operating, investing and financing cash movements", category: "Financial", Component: CashFlowPage },
-  { key: "ba", label: "Budget vs Actual", description: "Compare budgeted to actual amounts per account", category: "Financial", Component: BudgetVsActualPage },
-
-  // Assets & Other
-  { key: "fa", label: "Fixed Assets", description: "Fixed asset register and depreciation", category: "Assets & Other", Component: FixedAssetsPage },
-  { key: "recurring", label: "Recurring", description: "Scheduled recurring invoices and bills", category: "Assets & Other", Component: RecurringPage },
+  // Cash flow statement, budgets and the fixed-asset register are General
+  // Ledger matters (statement of cash flows sits beside P&L/BS; budgets are per
+  // GL account; the FA register drives the depreciation journals).
+  { key: "cf", label: "Cash Flow", description: "Operating, investing and financing cash movements", category: "Ledger", Component: CashFlowPage },
+  { key: "ba", label: "Budget vs Actual", description: "Compare budgeted to actual amounts per account", category: "Ledger", Component: BudgetVsActualPage },
+  { key: "fa", label: "Fixed Assets", description: "Fixed asset register and depreciation", category: "Ledger", Component: FixedAssetsPage },
   { key: "bankrec", label: "Bank Reconciliation", description: "Match bank statement lines to ledger entries", category: "Ledger", Component: BankReconciliationPage },
   { key: "bank-summary", label: "Bank Summary", description: "Opening balance, cash in and out, closing balance per bank account", category: "Ledger", Component: BankSummary },
   { key: "foreign-banks", label: "Foreign Bank Listing", description: "Foreign-currency bank accounts — foreign and local balances", category: "Ledger", Component: ForeignBankListing },

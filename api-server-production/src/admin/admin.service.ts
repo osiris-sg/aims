@@ -813,7 +813,6 @@ export class AdminService {
         { key: 'invoices', label: 'Invoice' },
         { key: 'debit-notes', label: 'Debit Note' },
         { key: 'credit-notes', label: 'Credit Note' },
-        { key: 'stock-card', label: 'Stock Card' },
       ] } },
       { moduleCode: 'CUSTOMERS', displayName: 'Customers', icon: 'PeopleRounded', sortOrder: 30, config: { route: '/portal/customers' } },
       { moduleCode: 'SUPPLIERS', displayName: 'Suppliers', icon: 'LocalShipping', sortOrder: 35, config: { route: '/portal/suppliers' } },

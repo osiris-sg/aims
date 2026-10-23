@@ -608,20 +608,20 @@ export const GUIDES: Guide[] = [
     id: 'view-financial-reports',
     title: 'View Financial Reports',
     description:
-      'Where to find accounting and financial reports: profit & loss, balance sheet, trial balance, GST, general ledger, aged receivables and payables.',
-    route: '/portal/accounting/reports',
+      'Where to find accounting and financial reports: profit & loss, balance sheet, trial balance, cash flow, GST, general ledger, aged receivables and payables.',
+    route: '/portal/accounting/ledger',
     module: 'ACCOUNTING',
     steps: [
       {
-        route: '/portal/accounting/reports',
-        selector: '[data-tour="nav-ACCOUNTING-reports"]',
-        title: 'Accounting → Reports',
-        body: "All financial reports live under Accounting → Reports — I've brought you here.",
+        route: '/portal/accounting/ledger',
+        selector: '[data-tour="nav-ACCOUNTING-ledger"]',
+        title: 'Accounting → General Ledger',
+        body: "Ledger-level reports live under Accounting → General Ledger — I've brought you here. Customer reports are under Accounts Receivable and supplier reports under Accounts Payable.",
       },
       {
-        route: '/portal/accounting/reports',
+        route: '/portal/accounting/ledger',
         title: 'Pick a report',
-        body: 'This page hosts the Trial Balance, Profit/Loss & Balance Sheet, GST report, General Ledger, aged receivables/payables and more as tabs. Each report lets you set the date range and drill into the underlying entries.',
+        body: 'This section hosts the Trial Balance, Profit/Loss & Balance Sheet, Cash Flow, GST report, General Ledger, Journal, Budget vs Actual and Fixed Assets. Each report lets you set the date range and drill into the underlying entries.',
       },
     ],
   },

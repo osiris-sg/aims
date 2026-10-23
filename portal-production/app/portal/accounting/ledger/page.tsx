@@ -2,15 +2,16 @@
 
 import AccountingReportsView from "../_lib/AccountingReportsView";
 
-// "General Ledger" section — Xero-style report tiles: GL Detail / GL Summary /
-// Trial Balance / Audit Trail. (The old all-accounts browser still lives at
-// /portal/accounting/general-ledger.)
+// "General Ledger" section — ledger, trial balance, journal, financial
+// statements (P&L, balance sheet, cash flow), GST, budgets, fixed assets and
+// bank reports. With enableLegacyAccountingUx it lands on the GL home
+// (GLWorkspace) whose "View Reports" dialog lists the same set.
 export default function LedgerSectionPage() {
   return (
     <AccountingReportsView
       basePath="/portal/accounting/ledger"
       title="General Ledger"
-      subtitle="Ledger, trial balance, journal, financial statements, GST, expense listing and bank reports."
+      subtitle="Ledger, trial balance, journal, financial statements, cash flow, GST, budgets, fixed assets and bank reports."
       categories={["Ledger"]}
     />
   );

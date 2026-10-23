@@ -101,7 +101,7 @@ export class AnomaliesService {
         title: `${duplicates.length} possible duplicate invoice ${duplicates.length === 1 ? 'group' : 'groups'} in the last 14 days`,
         detail: `${totalDup} entries grouped by same amount + customer hint — review and void any genuine duplicates`,
         count: duplicates.length,
-        link: '/portal/accounting/reports?tab=audit',
+        link: '/portal/accounting/ledger?tab=journal',
       },
     ];
   }
@@ -288,7 +288,7 @@ export class AnomaliesService {
           severity: 'info',
           title: `Unusual ${worst.line.account.code} amount: ${ROUND(worst.amt).toFixed(2)}`,
           detail: `${worst.line.account.name} — median is ${ROUND(median).toFixed(2)} over the last 60 days. Entry ${worst.line.journalEntry.journalNumber}.`,
-          link: '/portal/accounting/reports?tab=audit',
+          link: '/portal/accounting/ledger?tab=journal',
         });
       }
     }
@@ -380,7 +380,7 @@ export class AnomaliesService {
         title: `${count} draft journal entr${count === 1 ? 'y has' : 'ies have'} been sitting >7 days`,
         detail: 'Long-lived drafts mean the books are missing real activity. Post or void them.',
         count,
-        link: '/portal/accounting/reports?tab=audit',
+        link: '/portal/accounting/ledger?tab=journal',
       },
     ];
   }

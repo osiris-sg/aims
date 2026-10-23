@@ -62,7 +62,7 @@ const LEGACY_MODULES = new Set<string>([
 const KNOWLEDGE_FOOTER = `
 Spotlight anchors you may use in walkthrough steps (anchor field):
 - "nav-<MODULECODE>" — a sidebar module item (e.g. nav-SALES, nav-ACCOUNTING)
-- "nav-<MODULECODE>-<submenuKey>" — a sidebar submenu item (e.g. nav-SALES-delivery-orders, nav-ACCOUNTING-reports) — submenu keys are in the screen list
+- "nav-<MODULECODE>-<submenuKey>" — a sidebar submenu item (e.g. nav-SALES-delivery-orders, nav-ACCOUNTING-ledger) — submenu keys are in the screen list
 - "page-create-button" — the Create/New button on any list page
 - "page-filter-button" — the Filter button on any list page (opens the filter drawer: status, dates, customer…)
 - "page-search" — the search box on any list page
