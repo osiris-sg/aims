@@ -342,7 +342,7 @@ export default function StepCards({
                 direction={{ xs: "column", sm: "row" }}
                 spacing={1.5}
                 alignItems={{ xs: "flex-start", sm: "center" }}
-                sx={highlightFile && l.file.fileName === highlightFile ? { p: 1, mx: -1, borderRadius: 1, bgcolor: "warning.light", outline: "2px solid", outlineColor: "warning.main" } : undefined}
+                sx={highlightFile && l.file.fileName === highlightFile ? { p: 1, mx: -1, borderRadius: 1, bgcolor: "rgba(255, 193, 7, 0.16)", outline: "2px solid", outlineColor: "warning.main" } : undefined}
               >
                 <FileThumb file={{ id: l.file.id, fileName: l.file.fileName, mimeType: l.file.mimeType, hasThumb: l.file.hasThumb, docRef: l.file.docRef }} width={72} onOpen={view} />
                 <Box sx={{ minWidth: 0, flex: 1 }}>
