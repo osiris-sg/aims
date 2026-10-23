@@ -165,14 +165,23 @@ function isWatchedGroup(groupId) {
  */
 async function reportGroups(attempt = 1) {
   try {
-    // getChats() called the instant 'ready' fires throws from inside the
-    // page's own store, with a one-character minified message ("r") that says
-    // nothing. The store is simply not populated yet, so retry rather than
-    // treat the first failure as the answer.
-    const chats = await client.getChats();
-    const groups = chats
-      .filter((c) => c.isGroup)
-      .map((c) => ({ id: c.id?._serialized || String(c.id), name: c.name || '' }));
+    // Read WhatsApp's OWN collection rather than calling getChats().
+    //
+    // getChats() fails against the current web build with a minified "r: r"
+    // thrown from inside the page, and it keeps failing a minute later, so it
+    // is broken rather than slow. The group bridge has read the store directly
+    // since August on this same library version, so this is the proven path,
+    // not a workaround invented here.
+    const groups = await client.pupPage.evaluate(() => {
+      const coll = window.require('WAWebCollections').Chat;
+      const models = coll.getModelsArray?.() || coll.models || [];
+      return models
+        .filter((c) => String(c?.id?._serialized || '').endsWith('@g.us'))
+        .map((c) => ({
+          id: c.id._serialized,
+          name: c.formattedTitle || c.name || c.subject || c.groupMetadata?.subject || '',
+        }));
+    });
     for (const g of groups) groupNames.set(g.id, g.name);
     await post('/whatsapp/dm-bridge/groups', { key: LABEL, groups });
     const watched = groups.filter((g) => isWatchedGroup(g.id));
