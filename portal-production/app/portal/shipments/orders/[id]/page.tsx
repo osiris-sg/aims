@@ -104,6 +104,8 @@ export default function OrderPage() {
   const current = firstOpen(earlySteps) ?? firstOpen(shipSteps) ?? firstOpen(lateSteps);
   // Round P: ?step=<stepId> (from an inbox "Linked to" chip) opens that step card.
   const wantedStep = params?.get("step") ?? null;
+  // Round AF: ?file=<name> (from a result box / "Filed automatically") highlights that file inside the opened step.
+  const wantedFile = params?.get("file") ?? null;
   const [openId, setOpenId] = useState<string | null>(wantedStep);
   const [userPicked, setUserPicked] = useState(!!wantedStep);
   const shown = userPicked ? openId : (current?.id ?? null);
@@ -404,7 +406,7 @@ export default function OrderPage() {
               </Typography>
               {o.supplierProfile?.hasPI === false && <Chip size="small" variant="outlined" label="No PI (supplier profile)" />}
             </Stack>
-            <StepCards {...orderCards} steps={earlySteps} />
+            <StepCards {...orderCards} steps={earlySteps} highlightFile={wantedFile} />
           </Box>
 
           <Box>
@@ -476,6 +478,7 @@ export default function OrderPage() {
                 {/* Round R: no bar repeating the selected card — its ⋮ menu sits on the card. */}
                 <Box id="shipment-steps" />
                 <StepCards
+                  highlightFile={wantedFile}
                   // Step 11 moved to the order (round H): the shipment's old row stays in the data, not on screen.
                   steps={s.steps.filter((x) => !(x.notApplicable && x.skipReason?.startsWith("Moved to the order")))}
                   owner={shipOwner!}
@@ -532,7 +535,7 @@ export default function OrderPage() {
               <Typography variant="overline" color="text.secondary">
                 Order steps — invoice &amp; reconciliation
               </Typography>
-              <StepCards {...orderCards} steps={lateSteps} />
+              <StepCards {...orderCards} steps={lateSteps} highlightFile={wantedFile} />
             </Box>
           )}
         </Stack>

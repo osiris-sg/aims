@@ -3,41 +3,34 @@
 
 // Round W — an email opens as its THREAD TIMELINE. First the RESULT, big and in plain words ("✅ Added to #16-2 —
 // SUS · 6005 · 20.4 t · B/L 198GX06003" + one clickable line per filed document; "🔗 Linked to #15-1 — no
-// documents filed."; "⏳ Waiting for you"), then Undo / Change order, the "why" behind a small "Why?" link.
+// documents filed."; "⏳ Waiting for you"), then Undo / Change order.
 // Round AA — the EMAIL comes first: the newest email is shown expanded right under the result box (the styled email
 // + attachments), then the timeline of the EARLIER emails: numbered 1 → n-1, oldest first, each with date + sender +
-// first line — click one to read it (From/To/Cc collapsed to one line). A waiting thread no longer embeds the
-// question card: "Choose shipment" / "Answer" opens the confirm-first ChooseShipmentDialog. The title carries the
-// same "From Company · date · subject" line as the card. Per-email override: "This one is different" opens the
-// picker for that email only.
+// first line — click one to read it. A waiting thread's "Answer" opens the step-by-step flow (ChooseShipmentDialog).
+// Round AF (owner) — no "Why?" link and no key chips on screen (the evidence stays in the DB / Activity Log); ONE
+// scroll bar (the email frames grow to their content, nothing nested scrolls); "All files in this thread (n)" at the
+// top — every attachment of every stored email, newest first, with date + sender, preview + download; each earlier
+// email shows ITS attachments by name and opens with preview + download; one grey line when the replies quote earlier
+// emails AIMS never received. Clicking a filed document opens the order page on that shipment, step and file.
 
 import React, { useEffect, useState } from "react";
-import { Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Link as MuiLink, Stack, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Link as MuiLink, Stack, Tooltip, Typography } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
+import DownloadIcon from "@mui/icons-material/Download";
+import VisibilityIcon from "@mui/icons-material/Visibility";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useShipmentsApi, type InboxAnswer, type InboxAnswerResult, type InboxLang, type InboxMessage, type InboxRow, type InboxThread } from "../../_lib/api";
+import { useShipmentsApi, type InboxAnswer, type InboxAnswerResult, type InboxLang, type InboxMessage, type InboxRow, type InboxThread, type InboxThreadFile } from "../../_lib/api";
 import { cardFromLine, L, resultBox, threadResult, timeline, type ResultBox } from "../../_lib/inbox-cards";
 import { fromParts, orderHref, whenShort } from "../../_lib/inbox-threads";
+import { fmtSize } from "../../_lib/email-html";
 import { toast } from "../../_lib/toast";
 import { EmailView } from "./EmailView";
 import { PiTablePanel } from "./PiTablePanel";
 import { ChooseShipmentDialog } from "./ChooseShipmentDialog";
 
-const KEY_LABEL: Record<string, string> = { blNo: "B/L", piNo: "PI", ciNo: "CI", contractNo: "Contract", containerNo: "Container", telexCode: "Telex", invoiceNo: "Invoice", poNo: "PO", vessel: "Vessel", voyage: "Voyage", orderRef: "Ref" };
-
-/** The key chips of a message (record numbers the email names) — behind "Why?". */
-export function KeyChips({ keys }: { keys: Record<string, unknown> | null | undefined }) {
-  const entries = Object.entries(keys ?? {}).filter(([, v]) => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && !v.length));
-  if (!entries.length) return null;
-  return (
-    <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap data-tour="email-keys">
-      {entries.map(([k, v]) => (
-        <Chip key={k} size="small" variant="outlined" label={`${KEY_LABEL[k] ?? k} ${Array.isArray(v) ? v.join(", ") : String(v)}`} />
-      ))}
-    </Stack>
-  );
-}
+/** Inline signature / logo images never count as attachments in these lists (mirrors the backend's isInlineImage). */
+export const isInlineImageName = (name: string) => /^(image\d*|Outlook-[A-Za-z0-9]+|~?WRD\d*|oledata)\.(png|jpe?g|gif|bmp|emz)$/i.test((name ?? "").trim());
 
 /** The result box: the outcome first, big. */
 export function ResultBoxView({ r, lines, lang }: { r: ResultBox; lines?: Array<{ text: string; href: string | null }>; lang: InboxLang }) {
@@ -45,14 +38,14 @@ export function ResultBoxView({ r, lines, lang }: { r: ResultBox; lines?: Array<
   const all = lines?.length ? lines : r.lines;
   return (
     <Box sx={{ p: 1.5, borderRadius: 1.5, border: "1px solid", borderColor: color, bgcolor: "action.hover" }} data-tour="result-box" data-tone={r.tone}>
-      <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.3, color }}>
+      <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.3, color, wordBreak: "break-word" }}>
         {lines?.length ? (lang === "ja" ? `${lines.length} 件の送り先` : `${lines.length} destinations`) : r.headline}
       </Typography>
       {all.map((l, i) => (
-        <Typography key={i} variant="body2" component="div" sx={{ mt: 0.5 }}>
+        <Typography key={i} variant="body2" component="div" sx={{ mt: 0.5, wordBreak: "break-word" }}>
           •{" "}
           {l.href ? (
-            <MuiLink component={Link} href={l.href} underline="hover">
+            <MuiLink component={Link} href={l.href} underline="hover" data-tour="result-file-link">
               {l.text}
             </MuiLink>
           ) : (
@@ -64,21 +57,109 @@ export function ResultBoxView({ r, lines, lang }: { r: ResultBox; lines?: Array<
   );
 }
 
-/** "Why?" — the evidence, the notes, the raw key chips, the self-check. */
-function WhyPanel({ m }: { m: InboxMessage }) {
-  const lines = [...(m.sourceLines ?? []), ...(m.evidence ? [m.evidence] : []), ...((m as any).notes ?? []), ...(m.check?.length ? [`Check: ${m.check.join("; ")}`] : []), ...(m.selfCheck ? [`Re-checked ${whenShort(m.selfCheck.at)}: ${m.selfCheck.verdict.toLowerCase().replace(/_/g, " ")} — ${m.selfCheck.text}`] : [])];
+/** One file of the thread: name · date · sender, with Preview (PDF / image, inline) and Download — the URL is fetched on demand. */
+function ThreadFileRow({ f, lang }: { f: InboxThreadFile; lang: InboxLang }) {
+  const api = useShipmentsApi();
+  const labels = L[lang];
+  const [url, setUrl] = useState<string | null>(null);
+  const [preview, setPreview] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const isPdf = /pdf/i.test(f.contentType ?? "") || /\.pdf$/i.test(f.name);
+  const isImage = /^image\//i.test(f.contentType ?? "") || /\.(png|jpe?g|gif|webp)$/i.test(f.name);
+  const fetchUrl = async (): Promise<string | null> => {
+    if (url) return url;
+    setBusy(true);
+    try {
+      const r = await api.inboxAttachmentUrl(f.emailId, f.index);
+      setUrl(r.url);
+      return r.url;
+    } catch (e: any) {
+      toast.error(e?.message || "Could not get the file");
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const who = (f.company ?? "").trim() || fromParts(f.from).name;
   return (
-    <Box sx={{ pl: 1, borderLeft: "3px solid", borderColor: "divider" }} data-tour="why-panel">
-      <KeyChips keys={m.keys as any} />
-      {lines.map((l, i) => (
-        <Typography key={i} variant="caption" component="div" color="text.secondary">
-          · {l}
-        </Typography>
-      ))}
-      {m.by && (
-        <Typography variant="caption" component="div" color="text.secondary">
-          · {m.by.outcome === "AUTO" ? `Auto · ${m.by.autoLabel ?? ""}` : `${m.by.outcome.toLowerCase()} by ${m.by.name ?? "—"}${m.by.via === "whatsapp" ? " (WhatsApp)" : ""}`}
-          {m.by.at ? ` · ${whenShort(m.by.at)}` : ""}
+    <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, px: 1, py: 0.5 }} data-tour="thread-file">
+      <Stack direction="row" spacing={1} alignItems="center">
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: "break-word" }}>
+            📎 {f.name}
+            {f.size ? <span style={{ opacity: 0.6, fontWeight: 400 }}> · {fmtSize(f.size)}</span> : null}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" component="div">
+            {whenShort(f.date)} · {who}
+          </Typography>
+        </Box>
+        {(isPdf || isImage) && (
+          <Tooltip title={labels.preview}>
+            <IconButton
+              size="small"
+              disabled={busy}
+              aria-label={labels.preview}
+              onClick={async () => {
+                if (preview) return setPreview(false);
+                if (await fetchUrl()) setPreview(true);
+              }}
+            >
+              <VisibilityIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
+        <Tooltip title={labels.download}>
+          <IconButton
+            size="small"
+            disabled={busy}
+            aria-label={labels.download}
+            onClick={async () => {
+              const u = await fetchUrl();
+              if (u) window.open(u, "_blank", "noopener,noreferrer");
+            }}
+          >
+            <DownloadIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Stack>
+      <Collapse in={preview && !!url} unmountOnExit>
+        <Box sx={{ mt: 1, borderRadius: 1, overflow: "hidden", bgcolor: "background.default" }}>
+          {isImage ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={url!} alt={f.name} style={{ maxWidth: "100%", display: "block" }} />
+          ) : (
+            <iframe title={f.name} src={url!} sandbox="" style={{ width: "100%", height: 900, border: 0 }} />
+          )}
+        </Box>
+      </Collapse>
+    </Box>
+  );
+}
+
+/** "All files in this thread (n)": every attachment of every stored email, newest first; the gap line when the replies quote emails AIMS never received. */
+function ThreadFiles({ files, quotedMissing, lang }: { files: InboxThreadFile[]; quotedMissing: number; lang: InboxLang }) {
+  const labels = L[lang];
+  const [open, setOpen] = useState(true);
+  if (!files.length && !quotedMissing) return null;
+  return (
+    <Box data-tour="thread-files">
+      {files.length > 0 && (
+        <>
+          <Button size="small" onClick={() => setOpen((o) => !o)} sx={{ textTransform: "none", px: 0.5, fontWeight: 700 }} data-tour="thread-files-toggle">
+            {labels.threadFiles(files.length)} {open ? "▾" : "▸"}
+          </Button>
+          <Collapse in={open}>
+            <Stack spacing={0.75} sx={{ mt: 0.5 }}>
+              {files.map((f) => (
+                <ThreadFileRow key={`${f.emailId}:${f.index}`} f={f} lang={lang} />
+              ))}
+            </Stack>
+          </Collapse>
+        </>
+      )}
+      {quotedMissing > 0 && (
+        <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.75 }} data-tour="thread-gap">
+          {labels.notForwarded}
         </Typography>
       )}
     </Box>
@@ -88,29 +169,33 @@ function WhyPanel({ m }: { m: InboxMessage }) {
 function TimelineRow({ n, m, latest, open, onToggle, lang, onDifferent }: { n: number; m: InboxMessage; latest: boolean; open: boolean; onToggle: () => void; lang: InboxLang; onDifferent?: (m: InboxMessage) => void }) {
   const from = fromParts(m.from);
   const r = resultBox(m, lang);
-  const [why, setWhy] = useState(false);
+  const atts = m.attachments.filter((a) => !isInlineImageName(a.name));
   return (
-    <Box sx={{ border: "1px solid", borderColor: latest ? "primary.main" : "divider", borderRadius: 1, overflow: "hidden" }} data-tour="timeline-row">
-      <Stack direction="row" spacing={1} alignItems="center" onClick={onToggle} sx={{ px: 1.5, py: 1, cursor: "pointer", bgcolor: open ? "action.hover" : undefined }}>
-        <Typography variant="caption" sx={{ fontWeight: 800, width: 20, flexShrink: 0 }}>
+    <Box sx={{ border: "1px solid", borderColor: latest ? "primary.main" : "divider", borderRadius: 1 }} data-tour="timeline-row">
+      <Stack direction="row" spacing={1} alignItems="flex-start" onClick={onToggle} sx={{ px: 1.5, py: 1, cursor: "pointer", bgcolor: open ? "action.hover" : undefined }}>
+        <Typography variant="caption" sx={{ fontWeight: 800, width: 20, flexShrink: 0, pt: 0.25 }}>
           {n}
         </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-          {whenShort(m.date)}
-        </Typography>
-        <Typography variant="body2" sx={{ fontWeight: 700, flexShrink: 0, wordBreak: "break-word" }} title={m.from}>
-          {from.name}
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ flex: 1, minWidth: 0, wordBreak: "break-word" }}>
-          {m.preview || m.subject || ""}
-        </Typography>
-        {m.attachments.length > 0 && (
-          <Typography variant="caption" color="text.secondary">
-            📎 {m.attachments.length}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Typography variant="caption" color="text.secondary">
+              {whenShort(m.date)}
+            </Typography>
+            <Typography variant="body2" sx={{ fontWeight: 700, wordBreak: "break-word" }} title={m.from}>
+              {from.name}
+            </Typography>
+            {latest && <Chip size="small" color="primary" label={L[lang].latest} sx={{ height: 20 }} />}
+            {!latest && r.tone !== "wait" && m.linked?.ref && <Chip size="small" variant="outlined" label={m.linked.ref} sx={{ height: 20 }} />}
+          </Stack>
+          <Typography variant="body2" color="text.secondary" sx={{ wordBreak: "break-word" }}>
+            {m.preview || m.subject || ""}
           </Typography>
-        )}
-        {latest && <Chip size="small" color="primary" label={L[lang].latest} sx={{ height: 20 }} />}
-        {!latest && r.tone !== "wait" && m.linked?.ref && <Chip size="small" variant="outlined" label={m.linked.ref} sx={{ height: 20 }} />}
+          {atts.length > 0 && (
+            <Typography variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word" }} data-tour="timeline-attachments">
+              📎 {atts.map((a) => a.name).join(" · ")}
+            </Typography>
+          )}
+        </Box>
       </Stack>
       <Collapse in={open} unmountOnExit>
         <Box sx={{ px: 1.5, pb: 1.5 }}>
@@ -118,20 +203,12 @@ function TimelineRow({ n, m, latest, open, onToggle, lang, onDifferent }: { n: n
             <Typography variant="body2" sx={{ fontWeight: 700, color: r.tone === "done" ? "success.main" : r.tone === "link" ? "primary.main" : r.tone === "wait" ? "warning.main" : "text.secondary" }}>
               {r.headline}
             </Typography>
-            <Button size="small" onClick={() => setWhy((w) => !w)} sx={{ textTransform: "none", px: 0.5 }} data-tour="why-link">
-              {L[lang].why}
-            </Button>
             {onDifferent && m.inboxState !== "PROCESSED" && (
               <Button size="small" onClick={() => onDifferent(m)} sx={{ textTransform: "none", px: 0.5 }} data-tour="timeline-different">
                 {L[lang].thisOneDifferent}
               </Button>
             )}
           </Stack>
-          <Collapse in={why} unmountOnExit>
-            <Box sx={{ mb: 1 }}>
-              <WhyPanel m={m} />
-            </Box>
-          </Collapse>
           <EmailView id={m.id} compactHeaders company={m.company ?? null} lang={lang} />
         </Box>
       </Collapse>
@@ -169,7 +246,6 @@ export function InboxDetailsDialog({
   const id = open?.id ?? null;
   const q = useQuery({ queryKey: ["trade-inbox", "thread", id], queryFn: () => api.inboxThread(id!), enabled: !!id, staleTime: 60_000 });
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [why, setWhy] = useState(false);
   const [last, setLast] = useState<InboxAnswerResult | null>(null);
   const [choose, setChoose] = useState(false);
   const messages = q.data?.messages ?? [];
@@ -188,7 +264,8 @@ export function InboxDetailsDialog({
   const r = messages.length ? threadResult(messages, whenShort, lang) : newest ? resultBox(newest as InboxMessage, lang) : null;
   const multi = messages.length ? threadResult(messages, whenShort, lang).multi : [];
   const waiting = !!thread?.question && thread.messages.some((m) => m.inboxState !== "PROCESSED");
-  const href = newest?.linked?.ref ? orderHref(newest.linked.orderId, newest.linked.shipmentId) : null;
+  const firstFiled = newest?.linked?.files.find((f) => f.status === "done") ?? null;
+  const href = newest?.linked?.ref ? orderHref(newest.linked.orderId, newest.linked.shipmentId, firstFiled?.stepId ?? null, firstFiled?.name ?? null) : null;
   const rows = timeline(messages);
   const latest = rows.find((x) => x.latest) ?? null;
   const earlier = rows.filter((x) => !x.latest);
@@ -224,13 +301,9 @@ export function InboxDetailsDialog({
                 <ResultBoxView r={{ tone: "wait", headline: labels.waiting, lines: thread.question?.title ? [{ text: thread.question.title, href: null }] : [] }} lang={lang} />
                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                   <Button size="small" variant="contained" disabled={pending} onClick={() => setChoose(true)} sx={{ textTransform: "none" }} data-tour="question-choose">
-                    {thread.question?.kind === "NEW_DEAL" || thread.question?.kind === "IS_SHIPMENT" ? labels.answer : labels.chooseShipment}
-                  </Button>
-                  <Button size="small" onClick={() => setWhy((w) => !w)} sx={{ textTransform: "none" }} data-tour="why-link">
-                    {labels.why}
+                    {labels.answer}
                   </Button>
                 </Stack>
-                <Collapse in={why} unmountOnExit>{newest && <WhyPanel m={newest as InboxMessage} />}</Collapse>
                 <ChooseShipmentDialog open={choose} t={thread} lang={lang} busy={pending} onClose={() => setChoose(false)} onAnswer={(t, a) => void onAnswer(t, a).then((res) => setLast(res))} onCreateOrder={onCreateOrder} />
               </>
             ) : r ? (
@@ -238,7 +311,7 @@ export function InboxDetailsDialog({
                 <ResultBoxView r={r} lines={multi} lang={lang} />
                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                   {href && (
-                    <Button component={Link} href={href} size="small" variant="outlined" sx={{ textTransform: "none" }}>
+                    <Button component={Link} href={href} size="small" variant="outlined" sx={{ textTransform: "none" }} data-tour="result-order-chip">
                       {newest?.linked?.ref}
                     </Button>
                   )}
@@ -252,13 +325,10 @@ export function InboxDetailsDialog({
                       {labels.changeOrder}
                     </Button>
                   )}
-                  <Button size="small" onClick={() => setWhy((w) => !w)} sx={{ textTransform: "none" }} data-tour="why-link">
-                    {labels.why}
-                  </Button>
                 </Stack>
-                <Collapse in={why} unmountOnExit>{newest && <WhyPanel m={newest as InboxMessage} />}</Collapse>
               </>
             ) : null}
+            {q.data && <ThreadFiles files={q.data.files ?? []} quotedMissing={q.data.quotedMissing ?? 0} lang={lang} />}
             {latest && (
               <Box sx={{ border: "1px solid", borderColor: "primary.main", borderRadius: 1, p: 1.5 }} data-tour="thread-latest-email">
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
@@ -266,7 +336,7 @@ export function InboxDetailsDialog({
                   <Typography variant="caption" color="text.secondary">
                     {whenShort(latest.m.date)}
                   </Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 0 }} noWrap title={latest.m.from}>
+                  <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 0, wordBreak: "break-word" }} title={latest.m.from}>
                     {fromParts(latest.m.from).name}
                     {latest.m.company ? ` (${latest.m.company})` : ""}
                   </Typography>

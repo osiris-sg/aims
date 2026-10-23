@@ -158,7 +158,7 @@ export function digestText(d: DigestInput, lang: Lang = 'en'): string {
 
 // ── (b) the ONE message: "an email needs your answer" ────────────────────────
 
-export type AnswerVariant = 'answer' | 'answer_deal' | 'answer_is_shipment' | 'answer_recheck';
+export type AnswerVariant = 'answer' | 'answer_deal' | 'answer_recheck';
 export type AnswerTemplateKind = AnswerVariant | 'answer_batch';
 
 export type NeedsCheckInput = {
@@ -176,7 +176,8 @@ export type NeedsCheckInput = {
   portalUrl: string;
 };
 
-export const variantOf = (kind: NeedsCheckInput['kind']): AnswerVariant => (kind === 'NEW_DEAL' ? 'answer_deal' : kind === 'RECHECK' ? 'answer_recheck' : kind === 'IS_SHIPMENT' ? 'answer_is_shipment' : 'answer');
+/** Round AF: an "is it a shipment?" card asks the same yes/no as a "which shipment?" card, so both use aims_answer. */
+export const variantOf = (kind: NeedsCheckInput['kind']): AnswerVariant => (kind === 'NEW_DEAL' ? 'answer_deal' : kind === 'RECHECK' ? 'answer_recheck' : 'answer');
 
 /**
  * The template bodies, EXACTLY as submitted to Meta (one {{n}} per value, a value never holds a newline, no variable
@@ -185,20 +186,16 @@ export const variantOf = (kind: NeedsCheckInput['kind']): AnswerVariant => (kind
  */
 export const ANSWER_TEMPLATES: Record<AnswerTemplateKind, Record<Lang, string>> = {
   answer: {
-    en: 'New email needs your answer\nFrom {{1}} · {{2}}\nSubject: {{3}}\nSummary: {{4}}\nReply with the shipment number, or open AIMS: {{5}} to answer.',
-    ja: '新しいメールへの回答が必要です\n差出人 {{1}} · {{2}}\n件名: {{3}}\n要約: {{4}}\n出荷番号で返信するか、AIMS（{{5}}）を開いて回答してください。',
+    en: 'New email needs your answer\nFrom {{1}} · {{2}}\nSubject: {{3}}\nSummary: {{4}}\nIs this email about a shipment? Reply YES or NO, or open AIMS: {{5}} to answer.',
+    ja: '新しいメールへの回答が必要です\n差出人 {{1}} · {{2}}\n件名: {{3}}\n要約: {{4}}\nこのメールは出荷の件ですか？ はい か いいえ で返信するか、AIMS（{{5}}）を開いて回答してください。',
   },
   answer_deal: {
-    en: "New email needs your answer\nFrom {{1}} · {{2}}\nSubject: {{3}}\nSummary: {{4}}\nReply NEW to create the order or X if it's not a deal, or open AIMS: {{5}} to answer.",
-    ja: '新しいメールへの回答が必要です\n差出人 {{1}} · {{2}}\n件名: {{3}}\n要約: {{4}}\nNEW と返信すると注文を作成、案件でなければ X と返信、またはAIMS（{{5}}）を開いて回答してください。',
-  },
-  answer_is_shipment: {
-    en: "New email needs your answer\nFrom {{1}} · {{2}}\nSubject: {{3}}\nSummary: {{4}}\nReply X if it's not about a shipment or send the shipment number, or open AIMS: {{5}} to answer.",
-    ja: '新しいメールへの回答が必要です\n差出人 {{1}} · {{2}}\n件名: {{3}}\n要約: {{4}}\n出荷の件でなければ X と返信、出荷の件なら出荷番号を送るか、AIMS（{{5}}）を開いて回答してください。',
+    en: 'New email needs your answer\nFrom {{1}} · {{2}}\nSubject: {{3}}\nSummary: {{4}}\nIs this the new deal? Reply YES or NO, or open AIMS: {{5}} to answer.',
+    ja: '新しいメールへの回答が必要です\n差出人 {{1}} · {{2}}\n件名: {{3}}\n要約: {{4}}\nこの新しい案件の件ですか？ はい か いいえ で返信するか、AIMS（{{5}}）を開いて回答してください。',
   },
   answer_recheck: {
-    en: "AIMS isn't sure about an email anymore\nFrom {{1}} · {{2}}\nSubject: {{3}}\nSummary: {{4}}\nReply with the shipment number, or open AIMS: {{5}} to answer.",
-    ja: 'AIMSがメールについて確信が持てなくなりました\n差出人 {{1}} · {{2}}\n件名: {{3}}\n要約: {{4}}\n出荷番号で返信するか、AIMS（{{5}}）を開いて回答してください。',
+    en: "AIMS isn't sure about an email anymore\nFrom {{1}} · {{2}}\nSubject: {{3}}\nSummary: {{4}}\nIs this email about a shipment? Reply YES or NO, or open AIMS: {{5}} to answer.",
+    ja: 'AIMSがメールについて確信が持てなくなりました\n差出人 {{1}} · {{2}}\n件名: {{3}}\n要約: {{4}}\nこのメールは出荷の件ですか？ はい か いいえ で返信するか、AIMS（{{5}}）を開いて回答してください。',
   },
   // Several within 10 minutes. A value cannot hold a line break, so: the count, the latest email, the link.
   answer_batch: {
@@ -207,13 +204,13 @@ export const ANSWER_TEMPLATES: Record<AnswerTemplateKind, Record<Lang, string>> 
   },
 };
 /** Meta template names, one per variant (UTILITY, en + ja). */
-export const ANSWER_TEMPLATE_NAME: Record<AnswerTemplateKind, string> = { answer: 'aims_answer', answer_deal: 'aims_answer_deal', answer_is_shipment: 'aims_answer_is_shipment', answer_recheck: 'aims_answer_recheck', answer_batch: 'aims_answer_batch' };
+export const ANSWER_TEMPLATE_NAME: Record<AnswerTemplateKind, string> = { answer: 'aims_answer', answer_deal: 'aims_answer_deal', answer_recheck: 'aims_answer_recheck', answer_batch: 'aims_answer_batch' };
 /** Quick-reply buttons proposed per variant (the tap arrives as the button's text and is read like a typed reply). */
 export const ANSWER_TEMPLATE_BUTTONS: Record<AnswerTemplateKind, Record<Lang, string[]>> = {
-  answer: { en: ['Not a shipment', 'Ask later'], ja: ['出荷ではない', '後で'] },
-  answer_deal: { en: ['Create order', 'Not a deal', 'Ask later'], ja: ['注文を作成', '案件ではない', '後で'] },
-  answer_is_shipment: { en: ['Not a shipment', 'Ask later'], ja: ['出荷ではない', '後で'] },
-  answer_recheck: { en: ['Ask later'], ja: ['後で'] },
+  // Round AF: the buttons ARE the yes/no of step 1 (a tap arrives as the button text and is read like a typed reply).
+  answer: { en: ['Yes', 'No', 'Ask later'], ja: ['はい', 'いいえ', '後で'] },
+  answer_deal: { en: ['Yes', 'No', 'Ask later'], ja: ['はい', 'いいえ', '後で'] },
+  answer_recheck: { en: ['Yes', 'No', 'Ask later'], ja: ['はい', 'いいえ', '後で'] },
   answer_batch: { en: [], ja: [] },
 };
 
@@ -249,7 +246,7 @@ export function needsCheckBatchText(items: NeedsCheckInput[], lang: Lang = 'en')
   return answerBatchText(items.length, { who: senderWho(latest.from, latest.company), when: dateLabel(latest.date, lang, true), subject: cleanSubject(latest.subject) }, items[0].portalUrl, lang);
 }
 
-const VARIANTS: AnswerVariant[] = ['answer', 'answer_deal', 'answer_is_shipment', 'answer_recheck'];
+const VARIANTS: AnswerVariant[] = ['answer', 'answer_deal', 'answer_recheck'];
 /** The fixed words of a variant's LAST line (the variables removed) — tells the variants with a shared title apart. */
 const lastFixed = (k: AnswerVariant, l: Lang) => ANSWER_TEMPLATES[k][l].split('\n').pop()!.split(/\{\{\d+\}\}/)[0].trim();
 

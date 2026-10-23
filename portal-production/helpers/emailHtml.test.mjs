@@ -34,8 +34,11 @@ test("Load images restores https images only; javascript: / http: / file: stay b
 
 test("plain text is escaped, the frame is fully sandboxed with a no-network CSP", () => {
   assert.equal(textToHtml("<b>x</b> & y"), '<pre style="white-space:pre-wrap;word-break:break-word;font:14px/1.5 system-ui,sans-serif;margin:0">&lt;b&gt;x&lt;/b&gt; &amp; y</pre>');
-  assert.equal(FRAME_SANDBOX, "");
+  assert.equal(FRAME_SANDBOX, "allow-scripts"); // round AF: only our nonce'd resize script may run (CSP), never the email's
   const doc = frameDocument("<p>hi</p>", true);
+  assert.ok(!doc.includes("<script"), "no script without a frame id");
+  const sized = frameDocument("<p>hi</p>", true, { frameId: "abc12" });
+  assert.ok(sized.includes("script-src 'nonce-nabc12'") && sized.includes('<script nonce="nabc12">') && sized.includes("aims-email-frame"));
   assert.ok(doc.includes("default-src 'none'"));
   assert.ok(doc.includes('<base target="_blank">'));
   assert.ok(doc.includes("<p>hi</p>"));

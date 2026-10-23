@@ -40,23 +40,23 @@ describe('the template bodies (what Meta gets)', () => {
 
 describe('the ONE push', () => {
   it("needs a shipment: the owner's layout, EN", () => {
-    expect(needsCheckText(sus, 'en')).toBe(['New email needs your answer', 'From SUS · 23 Oct 06:53', 'Subject: Re: 書類送付: 6005C材220MT 2026年11月納入分', 'Summary: SUS revised the November delivery schedule and asks ADH to confirm.', `Reply with the shipment number, or open AIMS: ${URL} to answer.`].join('\n'));
+    expect(needsCheckText(sus, 'en')).toBe(['New email needs your answer', 'From SUS · 23 Oct 06:53', 'Subject: Re: 書類送付: 6005C材220MT 2026年11月納入分', 'Summary: SUS revised the November delivery schedule and asks ADH to confirm.', `Is this email about a shipment? Reply YES or NO, or open AIMS: ${URL} to answer.`].join('\n'));
     expect(needsCheckText({ ...sus, kind: 'CONFIRM' }, 'en')).toBe(needsCheckText(sus, 'en'));
     expect(needsCheckText({ ...sus, kind: 'CHECK' }, 'en')).toBe(needsCheckText(sus, 'en'));
     expect(answerParamsOf(sus, 'en')).toEqual(['SUS', '23 Oct 06:53', 'Re: 書類送付: 6005C材220MT 2026年11月納入分', 'SUS revised the November delivery schedule and asks ADH to confirm.', URL]);
   });
   it('JA, and a missing summary shows "-"', () => {
-    expect(needsCheckText({ ...sus, summary: 'SUSが11月の納入予定を変更し、ADHに確認を求めています。' }, 'ja')).toBe(['新しいメールへの回答が必要です', '差出人 SUS · 10/23 06:53', '件名: Re: 書類送付: 6005C材220MT 2026年11月納入分', '要約: SUSが11月の納入予定を変更し、ADHに確認を求めています。', `出荷番号で返信するか、AIMS（${URL}）を開いて回答してください。`].join('\n'));
+    expect(needsCheckText({ ...sus, summary: 'SUSが11月の納入予定を変更し、ADHに確認を求めています。' }, 'ja')).toBe(['新しいメールへの回答が必要です', '差出人 SUS · 10/23 06:53', '件名: Re: 書類送付: 6005C材220MT 2026年11月納入分', '要約: SUSが11月の納入予定を変更し、ADHに確認を求めています。', `このメールは出荷の件ですか？ はい か いいえ で返信するか、AIMS（${URL}）を開いて回答してください。`].join('\n'));
     expect(needsCheckText({ ...sus, summary: null }, 'en').split('\n')[3]).toBe('Summary: -');
   });
   it('the variants differ only in the title (re-check) or the last line', () => {
     const deal = needsCheckText({ ...sus, kind: 'NEW_DEAL', company: 'Isewan', subject: 'アルミインゴット輸入の件' }, 'en').split('\n');
     expect(deal[0]).toBe('New email needs your answer');
-    expect(deal[4]).toBe(`Reply NEW to create the order or X if it's not a deal, or open AIMS: ${URL} to answer.`);
-    expect(needsCheckText({ ...sus, kind: 'IS_SHIPMENT' }, 'en').split('\n')[4]).toBe(`Reply X if it's not about a shipment or send the shipment number, or open AIMS: ${URL} to answer.`);
+    expect(deal[4]).toBe(`Is this the new deal? Reply YES or NO, or open AIMS: ${URL} to answer.`);
+    expect(needsCheckText({ ...sus, kind: 'IS_SHIPMENT' }, 'en')).toBe(needsCheckText(sus, 'en')); // round AF: the same yes/no, the same template
     const re = needsCheckText({ ...sus, kind: 'RECHECK', company: 'Vedanta' }, 'en').split('\n');
     expect(re[0]).toBe("AIMS isn't sure about an email anymore");
-    expect(re[4]).toBe(`Reply with the shipment number, or open AIMS: ${URL} to answer.`);
+    expect(re[4]).toBe(`Is this email about a shipment? Reply YES or NO, or open AIMS: ${URL} to answer.`);
     expect(needsCheckText({ ...sus, kind: 'RECHECK' }, 'ja').split('\n')[0]).toBe('AIMSがメールについて確信が持てなくなりました');
   });
   it('the stored text reads back into its variant and values (both languages); older layouts and event lines do not', () => {
@@ -65,7 +65,7 @@ describe('the ONE push', () => {
         const p = parseAnswerPush(needsCheckText({ ...sus, kind }, lang))!;
         expect(p).toBeTruthy();
         expect(p.lang).toBe(lang);
-        expect(p.variant).toBe(kind === 'NEW_DEAL' ? 'answer_deal' : kind === 'IS_SHIPMENT' ? 'answer_is_shipment' : kind === 'RECHECK' ? 'answer_recheck' : 'answer');
+        expect(p.variant).toBe(kind === 'NEW_DEAL' ? 'answer_deal' : kind === 'RECHECK' ? 'answer_recheck' : 'answer');
         expect(p.params).toEqual(answerParamsOf(sus, lang));
         expect(renderTemplate(ANSWER_TEMPLATES[p.variant][lang], p.params)).toBe(needsCheckText({ ...sus, kind }, lang));
       }

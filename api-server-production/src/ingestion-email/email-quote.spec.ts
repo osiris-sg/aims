@@ -18,3 +18,39 @@ describe('splitQuoted', () => {
     expect(isQuoteMarker('BL(Maersk)：276956322')).toBe(false);
   });
 });
+
+describe('round AF — the earlier emails a reply quotes, and the ones AIMS never received', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { quotedEmailHeaders, missingQuotedEmails, parseQuotedDate } = require('./email-quote');
+  const quoted = [
+    '-----Original Message-----',
+    'From: Purchasing <purchasinglogistic.alumeid@gmail.com>',
+    'Sent: Tuesday, 21 October 2026 18:00',
+    'To: Sayaka',
+    'Subject: Re: Draft - Sales Contract- 6063- 50 tne',
+    '',
+    'Please find the PI attached.',
+    '',
+    'On 20 Oct 2026 at 11:30, Sayaka Matsuki <sayaka@asiadealhub.com> wrote:',
+    '> thanks',
+    '',
+    '2026年10月19日(日) 9:05 竹腰 <toshiro@asiadealhub.com>:',
+    '> 契約書ドラフトです',
+  ].join('\n');
+  it('reads Outlook, Gmail and Japanese header blocks (dates in JST), once each', () => {
+    const h = quotedEmailHeaders(quoted);
+    expect(h.map((x: any) => x.address)).toEqual(['purchasinglogistic.alumeid@gmail.com', 'sayaka@asiadealhub.com', 'toshiro@asiadealhub.com']);
+    expect(h[0].date?.toISOString()).toBe('2026-10-21T09:00:00.000Z');
+    expect(h[1].date?.toISOString()).toBe('2026-10-20T02:30:00.000Z');
+    expect(h[2].date?.toISOString()).toBe('2026-10-19T00:05:00.000Z');
+    expect(quotedEmailHeaders(`${quoted}\n\n${quoted}`)).toHaveLength(3);
+    expect(parseQuotedDate('Oct 21, 2026 at 6:00 PM')?.toISOString()).toBe('2026-10-21T09:00:00.000Z');
+  });
+  it('counts the quoted emails with no stored email of the same sender within 6 hours', () => {
+    const h = quotedEmailHeaders(quoted);
+    const stored = [{ from: 'Purchasing <purchasinglogistic.alumeid@gmail.com>', date: new Date('2026-10-21T09:02:00Z') }];
+    expect(missingQuotedEmails(h, stored)).toBe(2);
+    expect(missingQuotedEmails(h, [...stored, { from: 'sayaka@asiadealhub.com', date: new Date('2026-10-20T03:00:00Z') }, { from: '竹腰 <toshiro@asiadealhub.com>', date: null }])).toBe(0);
+    expect(missingQuotedEmails([], stored)).toBe(0);
+  });
+});

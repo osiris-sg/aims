@@ -80,11 +80,12 @@ export function byLine(by: InboxBy | null | undefined): string | null {
 }
 
 /** The order page, on that shipment, with the step expanded. */
-export function orderHref(orderId: string | null | undefined, shipmentId?: string | null, stepId?: string | null): string | null {
+export function orderHref(orderId: string | null | undefined, shipmentId?: string | null, stepId?: string | null, file?: string | null): string | null {
   if (!orderId) return null;
   const p = new URLSearchParams();
   if (shipmentId) p.set("shipment", shipmentId);
   if (stepId) p.set("step", stepId);
+  if (file) p.set("file", file); // round AF: highlight that file in the opened step
   const q = p.toString();
   return `/portal/shipments/orders/${orderId}${q ? `?${q}` : ""}`;
 }

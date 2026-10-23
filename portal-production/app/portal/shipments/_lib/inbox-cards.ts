@@ -20,7 +20,6 @@ export const L = {
     allDone: "All done. Nothing is waiting for you.",
     earlier: (n: number) => (n === 1 ? "1 earlier email" : `${n} earlier emails`),
     latest: "Latest",
-    why: "Why?",
     showFull: "Show full email",
     hideFull: "Hide",
     /** Round AA — the minimal card + the "Choose shipment" dialog (confirm-first). */
@@ -49,6 +48,24 @@ export const L = {
     seeAll: "See all emails",
     nothing: "No emails waiting.",
     toTimeline: "Open the thread",
+    // Round AF: the step-by-step Answer flow.
+    isShipmentQ: "Is this email about a shipment?",
+    yes: "Yes",
+    no: "No",
+    whatThen: "What is it then?",
+    existingShipment: "It's about an existing shipment",
+    askMeLater: "Ask me later",
+    whichShipment: "Which shipment?",
+    next: "Next",
+    back: "Back",
+    confirmLink: (n: number, refs: string) => `Link this email${n > 1 ? ` (${n} emails in the thread)` : ""} to ${refs}?`,
+    confirmNot: (n: number) => `Mark ${n > 1 ? `these ${n} emails` : "this email"} as not about a shipment?`,
+    confirmNotDeal: (n: number) => `Mark ${n > 1 ? `these ${n} emails` : "this email"} as not a deal?`,
+    threadFiles: (n: number) => `All files in this thread (${n})`,
+    noThreadFiles: "No files in this thread.",
+    notForwarded: "Earlier emails in this thread weren't forwarded to AIMS, so their attachments aren't here.",
+    preview: "Preview",
+    download: "Download",
   },
   ja: {
     createOrder: "新規案件 → 注文を作成",
@@ -62,7 +79,6 @@ export const L = {
     allDone: "すべて完了。待ちはありません。",
     earlier: (n: number) => `以前のメール ${n} 件`,
     latest: "最新",
-    why: "理由",
     showFull: "メール全文を表示",
     hideFull: "閉じる",
     chooseShipment: "出荷を選ぶ",
@@ -90,6 +106,23 @@ export const L = {
     seeAll: "すべてのメール",
     nothing: "待ちのメールはありません。",
     toTimeline: "スレッドを開く",
+    isShipmentQ: "このメールは出荷の件ですか？",
+    yes: "はい",
+    no: "いいえ",
+    whatThen: "では何の件ですか？",
+    existingShipment: "既存の出荷の件",
+    askMeLater: "後で聞いてください",
+    whichShipment: "どの出荷ですか？",
+    next: "次へ",
+    back: "戻る",
+    confirmLink: (n: number, refs: string) => `このメール${n > 1 ? `（スレッドのメール ${n} 件）` : ""}を ${refs} に紐付けますか？`,
+    confirmNot: (n: number) => `${n > 1 ? `この ${n} 件のメール` : "このメール"}を「出荷の件ではない」にしますか？`,
+    confirmNotDeal: (n: number) => `${n > 1 ? `この ${n} 件のメール` : "このメール"}を「案件ではない」にしますか？`,
+    threadFiles: (n: number) => `このスレッドのすべてのファイル（${n}）`,
+    noThreadFiles: "このスレッドにファイルはありません。",
+    notForwarded: "このスレッドの以前のメールはAIMSに転送されていないため、その添付はここにありません。",
+    preview: "プレビュー",
+    download: "ダウンロード",
   },
 } as const;
 
@@ -128,11 +161,12 @@ export interface ResultBox {
   lines: ResultLine[];
 }
 
-const orderHref = (orderId: string | null | undefined, shipmentId?: string | null, stepId?: string | null): string | null => {
+const orderHref = (orderId: string | null | undefined, shipmentId?: string | null, stepId?: string | null, file?: string | null): string | null => {
   if (!orderId) return null;
   const p = new URLSearchParams();
   if (shipmentId) p.set("shipment", shipmentId);
   if (stepId) p.set("step", stepId);
+  if (file) p.set("file", file); // round AF: the order page highlights this file in the opened step
   const q = p.toString();
   return `/portal/shipments/orders/${orderId}${q ? `?${q}` : ""}`;
 };
@@ -140,7 +174,7 @@ const orderHref = (orderId: string | null | undefined, shipmentId?: string | nul
 /** "22AA198GX06003.pdf → Bundle list (NO.取りリスト), step 9" — clickable into the slot on the order page. */
 export const fileLine = (f: InboxLinkedFile, lang: InboxLang, orderId: string | null): ResultLine => ({
   text: `${f.name} → ${docPlainName(f)}${f.stepNo ? `, ${L[lang].step(f.stepNo)}` : ""}`,
-  href: orderHref(f.ownerKind === "order" ? f.ownerId : orderId, f.ownerKind !== "order" ? f.ownerId : null, f.stepId),
+  href: orderHref(f.ownerKind === "order" ? f.ownerId : orderId, f.ownerKind !== "order" ? f.ownerId : null, f.stepId, f.name),
 });
 
 /** The result box of ONE message: what was done, in plain words, first. */
@@ -170,7 +204,7 @@ export function threadResultLines(messages: Array<Pick<InboxMessage, "id" | "dat
       const byType = new Map<string, number>();
       for (const f of filed) byType.set(docPlainName(f), (byType.get(docPlainName(f)) ?? 0) + 1);
       const docs = [...byType.entries()].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(", ");
-      return { text: `${when(m.date)} → ${m.linked!.ref}${docs ? ` · ${docs}` : lang === "ja" ? " · 紐付けのみ" : " · link only"}`, href: orderHref(m.linked!.orderId, m.linked!.shipmentId, filed[0]?.stepId ?? null) };
+      return { text: `${when(m.date)} → ${m.linked!.ref}${docs ? ` · ${docs}` : lang === "ja" ? " · 紐付けのみ" : " · link only"}`, href: orderHref(m.linked!.orderId, m.linked!.shipmentId, filed[0]?.stepId ?? null, filed[0]?.name ?? null) };
     });
 }
 

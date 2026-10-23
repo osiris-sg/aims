@@ -741,6 +741,9 @@ export type InboxQuestion = {
 /** Round AA: a "record" answer may name several shipments (`targets`, up to 10); `orderId` / `shipmentId` = the first one (back-compat). */
 export type InboxAnswer = { kind: "record"; orderId?: string | null; shipmentId?: string | null; targets?: Array<{ orderId: string; shipmentId: string | null }> } | { kind: "not_shipment" } | { kind: "not_deal" } | { kind: "later" };
 export type InboxAnswerResult = { kind: InboxAnswer["kind"]; ids: string[]; refs: string[]; files: number; text: string };
+/** Round AF: one attachment of a thread (inline signature images left out), with the email it came in. */
+export type InboxThreadFile = { emailId: string; index: number; name: string; contentType: string | null; size: number | null; date: string; from: string; company: string | null };
+export type InboxThreadDetail = { id: string; messages: InboxMessage[]; files: InboxThreadFile[]; /** Quoted earlier emails AIMS never received. */ quotedMissing: number; quotedTotal: number };
 export type InboxThreadLink = { orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null; from: "processed" | "suggested"; combined: Array<{ orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null }> };
 export type InboxThread = { id: string; by: "headers" | "subject" | "both"; section?: "NO_ORDER" | null; subject: string | null; latest: string | null; emails: number; files: number; link: InboxThreadLink | null; general?: { customerKey: string | null } | null; messages: InboxMessage[]; otherCount: number; /** Round W: one question per thread, the ids it answers for, the earlier-email count. */ question?: InboxQuestion | null; answerIds?: string[]; earlier?: number };
 export type HiddenEmail = { id: string; date: string; fromDomain: string; subject: string; reason: string | null };
@@ -1672,7 +1675,8 @@ export function useShipmentsApi() {
       inboxAnswerUndo: (ids: string[], kind: InboxAnswer["kind"]) => call<{ undone: number }>(`/email-inbox/answer/undo`, "POST", { ids, kind }),
       /** Round T: the whole email (headers, text, defused HTML, attachments) and its thread. */
       inboxMessage: (id: string) => call<EmailMessage>(`/email-inbox/${id}/message`),
-      inboxThread: (id: string) => call<{ id: string; messages: InboxMessage[] }>(`/email-inbox/${id}/thread`),
+      inboxThread: (id: string) => call<InboxThreadDetail>(`/email-inbox/${id}/thread`),
+      inboxAttachmentUrl: (id: string, index: number) => call<{ name: string; contentType: string; size: number; url: string }>(`/email-inbox/${id}/attachments/${index}/url`),
       inboxDashboard: (lang?: InboxLang) => call<InboxDashboard>(`/email-inbox/dashboard${qs({ lang })}`),
       inboxHidden: () => call<HiddenEmail[]>(`/email-inbox/hidden`),
       inboxUnhide: (id: string) => call<InboxRow>(`/email-inbox/${id}/unhide`, "POST"),

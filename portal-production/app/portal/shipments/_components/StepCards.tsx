@@ -26,7 +26,7 @@
 // for this step, and they can still be added once the step is done. Every
 // file / in-app document shows its document ID (454003255-1-CPL).
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Box, Button, ButtonBase, Checkbox, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Stack, Tooltip, Typography } from "@mui/material";
@@ -113,7 +113,10 @@ export default function StepCards({
   stepExtra,
   customerId,
   orderShipmentIds = [],
+  highlightFile = null,
 }: {
+  /** Round AF: the file (by name) to highlight and scroll to inside the opened step — from ?file= on the order page. */
+  highlightFile?: string | null;
   steps: TradeStep[];
   owner: LinkTarget;
   fileLinks: RecordFileLink[];
@@ -158,6 +161,20 @@ export default function StepCards({
   const [optOpen, setOptOpen] = useState<Record<string, boolean>>({});
   // Bulk upload with AI sorting: files dropped on a step's "Drop all documents here" zone.
   const [bulk, setBulk] = useState<{ step: TradeStep; files: File[] } | null>(null);
+  // Round AF: once the step card with the highlighted file is open, scroll that file row into view (one time).
+  const scrolledFile = useRef<string | null>(null);
+  useEffect(() => {
+    if (!highlightFile || !openId || scrolledFile.current === `${openId}:${highlightFile}`) return;
+    const t = setTimeout(() => {
+      const el = document.querySelector('[data-tour="file-highlight"]');
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        scrolledFile.current = `${openId}:${highlightFile}`;
+      }
+    }, 450);
+    return () => clearTimeout(t);
+  }, [highlightFile, openId, fileLinks]);
+
   const change = useTradeMutation((a, v: { id: string; action: "complete" | "reopen" }) => (v.action === "complete" ? a.completeStep(v.id) : a.reopenStep(v.id)));
   const tick = useTradeMutation((a, v: { id: string; key: string; done: boolean }) => a.setSubtask(v.id, v.key, v.done));
   // Invoice #2 / single invoice: which shipments of the customer it covers (picked before creating it).
@@ -309,7 +326,15 @@ export default function StepCards({
         {st.files.length > 0 ? (
           <Stack spacing={1} sx={{ mt: 1.25, ml: 3.5 }}>
             {st.files.map((l) => (
-              <Stack key={l.id} direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ xs: "flex-start", sm: "center" }}>
+              <Stack
+                key={l.id}
+                id={`file-${l.id}`}
+                data-tour={highlightFile && l.file.fileName === highlightFile ? "file-highlight" : undefined}
+                direction={{ xs: "column", sm: "row" }}
+                spacing={1.5}
+                alignItems={{ xs: "flex-start", sm: "center" }}
+                sx={highlightFile && l.file.fileName === highlightFile ? { p: 1, mx: -1, borderRadius: 1, bgcolor: "warning.light", outline: "2px solid", outlineColor: "warning.main" } : undefined}
+              >
                 <FileThumb file={{ id: l.file.id, fileName: l.file.fileName, mimeType: l.file.mimeType, hasThumb: l.file.hasThumb, docRef: l.file.docRef }} width={72} onOpen={view} />
                 <Box sx={{ minWidth: 0, flex: 1 }}>
                   <DocRef value={l.file.docRef} />

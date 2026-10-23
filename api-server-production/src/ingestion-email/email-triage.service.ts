@@ -18,7 +18,7 @@ import { attachmentHits, attachmentTarget, autoTier, DEFAULT_CI_PATTERNS, DEFAUL
 import { auditLink, AuditResult, RECHECK_TEXT } from './email-audit';
 import { answerText, Lang, QuestionCard, QuestionInput, questionOf } from './email-question';
 import { arrivalNoticeLine, filedLine, importPermitLine, needsCheckText, NeedsCheckInput, senderLine } from '../operator/push-text';
-import { splitQuoted } from './email-quote';
+import { splitQuoted, missingQuotedEmails, quotedEmailHeaders } from './email-quote';
 import { blockRemoteContent, parseEmail, ParsedEmail } from './email-mime';
 import { buildReasonerPrompt, judgeReasoner, parseReasonerOutput, ReasonerContext, ReasonerJudgement, ReasonerRecordRow, ReasonerThreadMessage } from './email-reasoner';
 import { groupThreads, normMessageId, threadHeadersFromEml, threadLink, unprocessedReason } from './email-threads';
@@ -1643,7 +1643,16 @@ export class EmailTriageService {
     const byId = new Map(full.map((r) => [r.id, r]));
     const refs = await this.refs(organizationId, [...new Set(full.map((r) => r.orderId).filter(Boolean))], [...new Set(full.map((r) => r.shipmentId).filter(Boolean))]);
     const labels = await this.stepLabels(organizationId, full.flatMap((r) => [...((r.actions as any)?.planned ?? []), ...((r.actions as any)?.done ?? [])]));
-    return { id: l.id, messages: rows.map((r) => this.shapeMessage(byId.get(r.id), refs, labels, rows.length)) };
+    // Round AF (owner): every attachment of every stored email in the thread (inline signature images left out), newest
+    // first, with its date and sender; and how many earlier emails the replies QUOTE that AIMS never received.
+    const companies = await this.companyOverrides(organizationId);
+    const files = full
+      .flatMap((r) => (((r.rawMeta ?? {}) as Partial<StoredEmailMeta>).attachments ?? []).map((a, index) => ({ emailId: r.id as string, index, name: a.name, contentType: a.contentType ?? null, size: a.size ?? null, date: (r.emailDate ?? r.createdAt) as Date, from: r.fromAddress as string, company: companyOf(r.fromAddress, companies).name })))
+      .filter((f) => !isInlineImage(f.name))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const quotedHeaders = quotedEmailHeaders(full.map((r) => splitQuoted(String(((r.rawMeta ?? {}) as { bodyText?: string }).bodyText ?? '')).quoted).join('\n\n'));
+    const quotedMissing = missingQuotedEmails(quotedHeaders, full.map((r) => ({ from: r.fromAddress, date: r.emailDate ?? r.createdAt })));
+    return { id: l.id, messages: rows.map((r) => this.shapeMessage(byId.get(r.id), refs, labels, rows.length)), files, quotedMissing, quotedTotal: quotedHeaders.length };
   }
 
   async attachmentUrl(organizationId: string, logId: string, index: number) {

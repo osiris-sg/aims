@@ -10,7 +10,7 @@
 // signature collapsed under a toggle, links listed under the email and opened only after a confirm).
 // "Show original" switches to the sanitised HTML as it came (styles kept, white page) — same sandbox.
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useId, useMemo, useState } from "react";
 import { Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Tooltip, Typography, useTheme } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
 import VisibilityIcon from "@mui/icons-material/Visibility";
@@ -89,7 +89,7 @@ function AttachmentRow({ a }: { a: EmailMessage["attachments"][number] }) {
             // eslint-disable-next-line @next/next/no-img-element
             <img src={a.url!} alt={a.name} style={{ maxWidth: "100%", display: "block" }} />
           ) : (
-            <iframe title={a.name} src={a.url!} sandbox="" style={{ width: "100%", height: 480, border: 0 }} />
+            <iframe title={a.name} src={a.url!} sandbox="" style={{ width: "100%", height: 900, border: 0 }} />
           )}
         </Box>
       </Collapse>
@@ -97,12 +97,28 @@ function AttachmentRow({ a }: { a: EmailMessage["attachments"][number] }) {
   );
 }
 
-/** A sandboxed frame for one piece of email HTML, sized from its text (the frame cannot report its height). */
-function BodyFrame({ title, doc, html, tour }: { title: string; doc: string; html: string; tour?: string }) {
-  const height = useMemo(() => estimateFrameHeight(html), [html]);
+/**
+ * A sandboxed frame for one piece of email HTML. Round AF (owner: one scroll bar): the frame grows to its content —
+ * our nonce'd script inside it reports the document height and the frame is resized to it, so there is no inner scroll.
+ * The text-based estimate is only the first paint.
+ */
+function BodyFrame({ title, html, dark, original, tour }: { title: string; html: string; dark: boolean; original?: boolean; tour?: string }) {
+  const frameId = useId().replace(/[^a-z0-9]/gi, "");
+  const doc = useMemo(() => frameDocument(html, dark, { original, frameId }), [html, dark, original, frameId]);
+  const [height, setHeight] = useState<number>(() => estimateFrameHeight(html));
+  useEffect(() => setHeight(estimateFrameHeight(html)), [html]);
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      const d = e.data as { type?: string; id?: string; height?: number } | null;
+      if (!d || d.type !== "aims-email-frame" || d.id !== frameId || typeof d.height !== "number") return;
+      setHeight(Math.min(20000, Math.max(40, Math.ceil(d.height) + 4)));
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [frameId]);
   return (
     <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, overflow: "hidden" }} data-tour={tour}>
-      <iframe title={title} sandbox={FRAME_SANDBOX} srcDoc={doc} referrerPolicy="no-referrer" style={{ width: "100%", height, border: 0, display: "block", background: "transparent" }} />
+      <iframe title={title} sandbox={FRAME_SANDBOX} srcDoc={doc} referrerPolicy="no-referrer" scrolling="no" style={{ width: "100%", height, border: 0, display: "block", background: "transparent", overflow: "hidden" }} />
     </Box>
   );
 }
@@ -193,9 +209,7 @@ export function EmailView({ id, compactHeaders = false, company = null, lang = "
     if (original) return bodyHtml(m, loadImages);
     return loadImages ? restoreRemoteImages(restyled!.html) : restyled!.html;
   }, [m, original, restyled, loadImages]);
-  const doc = useMemo(() => (m ? frameDocument(html, dark, { original: original && !!m.html }) : ""), [m, html, dark, original]);
   const signatureHtml = !original && restyled?.signatureHtml ? (loadImages ? restoreRemoteImages(restyled.signatureHtml) : restyled.signatureHtml) : null;
-  const signatureDoc = useMemo(() => (signatureHtml ? frameDocument(signatureHtml, dark) : ""), [signatureHtml, dark]);
   useEffect(() => {
     setShowOriginal(false);
     setShowSignature(false);
@@ -241,7 +255,7 @@ export function EmailView({ id, compactHeaders = false, company = null, lang = "
           )}
         </Stack>
       </Box>
-      <BodyFrame title="Email body" doc={doc} html={html} />
+      <BodyFrame title="Email body" html={html} dark={dark} original={original && !!m.html} />
       {!original && cleaned.length > 0 && (
         <Typography variant="caption" color="text.secondary">
           Cleaned for reading: {cleaned.join(" · ")}
@@ -253,7 +267,7 @@ export function EmailView({ id, compactHeaders = false, company = null, lang = "
             {showSignature ? "Hide signature" : "Show signature"}
           </Button>
           <Collapse in={showSignature} unmountOnExit>
-            <BodyFrame title="Email signature" doc={signatureDoc} html={signatureHtml} />
+            <BodyFrame title="Email signature" html={signatureHtml} dark={dark} />
           </Collapse>
         </Box>
       )}

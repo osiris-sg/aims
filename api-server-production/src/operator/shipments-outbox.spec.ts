@@ -88,7 +88,7 @@ describe('ShipmentsNotifyService.queue', () => {
 
 describe('ShipmentsOutboxService.drain', () => {
   const URL = 'https://app.ai-ms.io/go/k7m2xq4p';
-  const push = `New email needs your answer\nFrom SUS · 23 Oct 06:53\nSubject: Re: 書類送付: 6005C材220MT 2026年11月納入分\nSummary: SUS revised the November delivery schedule and asks ADH to confirm.\nReply with the shipment number, or open AIMS: ${URL} to answer.`;
+  const push = `New email needs your answer\nFrom SUS · 23 Oct 06:53\nSubject: Re: 書類送付: 6005C材220MT 2026年11月納入分\nSummary: SUS revised the November delivery schedule and asks ADH to confirm.\nIs this email about a shipment? Reply YES or NO, or open AIMS: ${URL} to answer.`;
   const whatsappMock = (textResult = { ok: true, code: null as number | null, message: null as string | null }) => ({ sendText: jest.fn(async () => undefined), sendTextResult: jest.fn(async () => textResult), sendTemplate: jest.fn(), sendTemplateLines: jest.fn(async () => true), rememberContext: jest.fn() }) as any;
   const svcOf = (prisma: any, whatsapp: any, templates: any) => new ShipmentsOutboxService(prisma, new ShipmentsNotifyService(prisma), { myTasks: jest.fn(async () => []) } as any, whatsapp, { dashboard: jest.fn(async () => ({ toConfirm: { emails: 0, total: 0 } })) } as any, links, templates);
 

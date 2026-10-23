@@ -38,7 +38,10 @@ export function restoreRemoteImages(html: string): string {
 }
 
 /** Attributes left on the iframe: nothing allowed at all (no scripts, no forms, no popups, no same-origin). */
-export const FRAME_SANDBOX = "";
+// Round AF (owner: one scroll bar): the frame runs ONE script of ours (nonce-bound by the frame's CSP) that reports its
+// content height, so the frame grows to its content and the dialog keeps the single scroll. No same-origin, no forms,
+// no popups, no navigation — the email's own scripts never survive DOMPurify, and the CSP allows only our nonce.
+export const FRAME_SANDBOX = "allow-scripts";
 
 /** Plain text → safe HTML for the frame (links stay text; line breaks kept). */
 export function textToHtml(text: string): string {
@@ -55,8 +58,10 @@ export const FRAME_FONT_STACK = "system-ui,-apple-system,'Segoe UI',Roboto,'Hira
  * always uses a white page, because the sender's colours were designed for one (black text on our dark
  * background was the bug this replaces).
  */
-export function frameDocument(bodyHtml: string, dark: boolean, opts?: { original?: boolean }): string {
+export function frameDocument(bodyHtml: string, dark: boolean, opts?: { original?: boolean; frameId?: string }): string {
   const original = !!opts?.original;
+  const nonce = opts?.frameId ? `n${opts.frameId.replace(/[^a-z0-9]/gi, "")}` : null;
+  const resize = nonce ? `<script nonce="${nonce}">(function(){var id=${JSON.stringify(opts!.frameId)};function send(){try{parent.postMessage({type:"aims-email-frame",id:id,height:Math.ceil(document.documentElement.scrollHeight)},"*")}catch(e){}}if(window.ResizeObserver){new ResizeObserver(send).observe(document.documentElement)}window.addEventListener("load",send);setTimeout(send,50);setTimeout(send,400);send()})()</script>` : "";
   const d = dark && !original;
   const fg = d ? "#e6e6e6" : "#1a1a1a";
   const bg = d ? "#121212" : "#ffffff";
@@ -67,7 +72,7 @@ export function frameDocument(bodyHtml: string, dark: boolean, opts?: { original
   const ours = original
     ? ""
     : `p{margin:0 0 .5em}h1,h2,h3,h4,h5,h6{margin:.6em 0 .3em;font-weight:600;line-height:1.3}h1{font-size:1.3em}h2{font-size:1.2em}h3{font-size:1.1em}h4,h5,h6{font-size:1em}ul,ol{margin:.3em 0 .6em;padding-left:1.4em}pre{white-space:pre-wrap;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace}hr{border:0;border-top:1px solid ${divider};margin:.8em 0}table{border-collapse:collapse;width:auto}td,th{padding:2px 8px 2px 0;vertical-align:top;text-align:left}th{font-weight:600}table.aims-grid td,table.aims-grid th{border-bottom:1px solid ${divider};padding:4px 8px}a{text-decoration:underline}.aims-host{font-size:11px;color:${muted};margin-left:4px;white-space:nowrap}.aims-host::before{content:"("}.aims-host::after{content:")"}`;
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid: https:; style-src 'unsafe-inline'; font-src data:"><base target="_blank"><style>${base}${ours}</style></head><body>${bodyHtml}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid: https:; style-src 'unsafe-inline'; font-src data:${nonce ? `; script-src 'nonce-${nonce}'` : ""}"><base target="_blank"><style>${base}${ours}</style></head><body>${bodyHtml}${resize}</body></html>`;
 }
 
 /** Humanised size for the attachment list. */

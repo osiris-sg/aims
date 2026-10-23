@@ -26,7 +26,7 @@ test("result box: added (headline + clickable file lines with plain document nam
   assert.equal(done.tone, "done");
   assert.equal(done.headline, "✅ Added to #16-2 — SUS 6005 20.4t · B/L 198GX06003");
   assert.deepEqual(done.lines.map((l) => l.text), ["22AA198GX06003.pdf → Bundle list (NO.取りリスト), step 9", "22AA198GX06003.xls → Bundle list (NO.取りリスト), step 9"]);
-  assert.equal(done.lines[0].href, "/portal/shipments/orders/o16?shipment=s16-2&step=st9");
+  assert.ok(done.lines[0].href.startsWith("/portal/shipments/orders/o16?shipment=s16-2&step=st9&file="), done.lines[0].href); // round AF: the file name rides along so the order page highlights it
   const link = resultBox({ inboxState: "PROCESSED", linked: linked({ ref: "#15-1" }), general: null, by: { outcome: "AUTO", name: null, at: null, autoLabel: "thread" }, done: [] }, "en");
   assert.deepEqual(link, { tone: "link", headline: "🔗 Linked to #15-1 — no documents filed.", lines: [] });
   assert.equal(resultBox({ inboxState: "SUGGESTED", linked: linked({}), general: null, by: null, done: [] }, "en").headline, "⏳ Waiting for you");

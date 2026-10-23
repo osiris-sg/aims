@@ -299,8 +299,29 @@ export class OperatorService {
         await adapter.sendText(msg.chatId, shipmentsHelp(ctx.organizationName, lang));
         return;
       }
+      // Round AF: the step-by-step answer flow — YES / NO to the push, then "what is it then?" 1 / 2 / 3 — a Confirm card
+      // before anything applies; a shipment number (below) ends the flow.
+      if (ShipmentsToolsService.YES_RE.test(text) || ShipmentsToolsService.NO_RE.test(text) || /^\s*[123]\s*$/.test(text)) {
+        const session = await this.loadSession(...this.sk(msg));
+        const flow = await this.shipTools.answerFlow(ctx, msg.channelUserId, text, lang, session).catch((e) => {
+          this.logger.warn(`answer flow failed: ${(e as Error)?.message}`);
+          return null;
+        });
+        if (flow) {
+          if (flow.pending) this.holdPending(session, flow.pending);
+          await this.saveSession(...this.sk(msg), session);
+          if (flow.reply) await adapter.sendText(msg.chatId, flow.reply);
+          if (flow.pending) await adapter.sendButtons(msg.chatId, `${flow.pending.summary}\n\n${lang === 'ja' ? '確定しますか？' : 'Confirm?'}`, [{ label: 'Confirm', data: `confirm:${flow.pending.id}` }, { label: 'Cancel', data: `cancel:${flow.pending.id}` }]);
+          return;
+        }
+      }
       // Round AA: "18-1" / "18-1 18-2" after a shipment question → a Confirm card first; nothing applies on the reply itself.
       if (ShipmentsToolsService.REFS_REPLY.test(text)) {
+        const sessionForFlow = await this.loadSession(...this.sk(msg));
+        if (sessionForFlow.answerFlow) {
+          sessionForFlow.answerFlow = null;
+          await this.saveSession(...this.sk(msg), sessionForFlow);
+        }
         const pending = await this.shipTools.pendingForRefs(ctx, msg.channelUserId, text, lang).catch((e) => {
           this.logger.warn(`shipment reply failed: ${(e as Error)?.message}`);
           return null;

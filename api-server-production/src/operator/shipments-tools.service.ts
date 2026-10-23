@@ -160,8 +160,10 @@ export class ShipmentsToolsService {
       case 'email_answer': {
         // Round AA: the WhatsApp reply "18-1" / "18-1 18-2" to a shipment question, confirmed — the same answer path as
         // the Dashboard's Choose-shipment dialog (every unprocessed email of the thread, all picked shipments).
-        const out = await this.triage.answer(org, { ids: a.ids, answer: { kind: 'record', targets: a.targets } }, actor, a.lang ?? 'en');
-        this.log(ctx, 'UPDATE', 'EmailIngestLog', a.ids[0], a.subject, `linked to ${a.refs.join(' + ')} (WhatsApp reply)`);
+        // Round AF: the card may also carry "not a shipment" / "not a deal" (the WhatsApp yes/no flow's step 2).
+        const body = a.answer ?? { kind: 'record', targets: a.targets };
+        const out = await this.triage.answer(org, { ids: a.ids, answer: body }, actor, a.lang ?? 'en');
+        this.log(ctx, 'UPDATE', 'EmailIngestLog', a.ids[0], a.subject, body.kind === 'record' ? `linked to ${(a.refs ?? []).join(' + ')} (WhatsApp reply)` : `${body.kind} (WhatsApp reply)`);
         return { ok: true, message: out.text };
       }
       case 'email_dismiss': {
@@ -833,6 +835,76 @@ export class ShipmentsToolsService {
     }
     if (unknown.length) return lang === 'ja' ? `${unknown.join('、')} という出荷はありません。出荷番号を確認してください（例: 18-1）。` : `${unknown.join(', ')} ${unknown.length === 1 ? 'is not a shipment' : 'are not shipments'} in AIMS. Check the number (e.g. 18-1).`;
     return pend(`"${q.subject60}" → ${refs.join(' + ')}${q.answerIds.length > 1 ? ` (${q.answerIds.length} emails)` : ''}`, { op: 'email_answer', ids: q.answerIds, targets, refs, subject: q.subject60, lang });
+  }
+
+  /** Round AF: the words of the step-by-step WhatsApp answer flow. */
+  static readonly YES_RE = /^\s*(yes|y|はい|そう|そうです)\s*[.。!！]?\s*$/i;
+  static readonly NO_RE = /^\s*(no|n|いいえ|違う|違います|ちがう)\s*[.。!！]?\s*$/i;
+
+  /** The last "needs your answer" push sent to this number in the last 24 h → its email id, or null. */
+  private async lastPushLogId(organizationId: string, digits: string): Promise<string | null> {
+    const to = digits.replace(/\D/g, '');
+    if (!to) return null;
+    const sent: any = await this.prisma.whatsAppOutbox.findFirst({ where: { organizationId, to, kind: 'NEEDS_ME', status: 'SENT', sentAt: { gte: new Date(Date.now() - 24 * 3600_000) } }, orderBy: { sentAt: 'desc' }, select: { dedupeKey: true } });
+    return /^needs:([0-9a-f-]{36})/i.exec(sent?.dedupeKey ?? '')?.[1] ?? null;
+  }
+
+  /**
+   * Round AF (owner): WhatsApp mirrors the Dashboard's step-by-step Answer flow. Step 1 is the push's own yes/no
+   * ("Is this email about a shipment?" / "Is this the new deal?"); YES → "Which shipment?" (a new deal: the create-order
+   * link); NO → step 2 "What is it then? 1 / 2 / 3"; 1 → which shipment, 2 → a Confirm card (nothing applies until
+   * Confirm), 3 → asked again tomorrow. The flow's step lives in the session; a shipment number ends it (REFS_REPLY).
+   * Returns null when the text is not part of the flow.
+   */
+  async answerFlow(ctx: OperatorContext, digits: string, text: string, lang: 'ja' | 'en', session: { answerFlow?: { logId: string; kind: string; step: 'what' | 'which'; at: string } | null }): Promise<{ reply?: string; pending?: PendingAction; done?: boolean } | null> {
+    const ja = lang === 'ja';
+    const yes = ShipmentsToolsService.YES_RE.test(text);
+    const no = ShipmentsToolsService.NO_RE.test(text);
+    const flow = session.answerFlow && Date.now() - new Date(session.answerFlow.at).getTime() < 24 * 3600_000 ? session.answerFlow : null;
+    const inWhat = !!flow && flow.step === 'what' && /^\s*[123]\s*$/.test(text);
+    if (!yes && !no && !inWhat) return null;
+    const logId = flow?.logId ?? (await this.lastPushLogId(ctx.organizationId, digits));
+    if (!logId) return null;
+    const q = await this.triage.questionOfLog(ctx.organizationId, logId, lang);
+    if (!q) {
+      session.answerFlow = null;
+      return { reply: ja ? 'その質問はもう対応済みです。' : 'That question is already handled.', done: true };
+    }
+    const url = await this.triage.portalUrl(ctx.organizationId);
+    const askWhich = ja ? 'どの出荷の件ですか？ 出荷番号で返信してください（例: 18-1、複数なら 18-1 18-2）。' : 'Which shipment? Reply with the shipment number (e.g. 18-1; several: 18-1 18-2).';
+    const askWhat = ja ? 'では何の件ですか？ 1 = 既存の出荷の件、2 = 出荷の件ではない、3 = 後で聞く' : "What is it then? Reply 1 = it's about an existing shipment, 2 = not about a shipment, 3 = ask me later.";
+    const actor = { id: ctx.clerkUserId, name: ctx.actor.name ?? ctx.actor.email ?? null, via: 'whatsapp' as const };
+    const notKind = q.card.kind === 'NEW_DEAL' ? 'not_deal' : 'not_shipment';
+    const n = q.answerIds.length;
+    const confirmNot = pend(
+      ja ? `「${q.subject60}」${n > 1 ? `（メール ${n} 件）` : ''} → ${notKind === 'not_deal' ? '案件ではない' : '出荷の件ではない'}` : `"${q.subject60}"${n > 1 ? ` (${n} emails)` : ''} → ${notKind === 'not_deal' ? 'not a deal' : 'not about a shipment'}`,
+      { op: 'email_answer', ids: q.answerIds, answer: { kind: notKind }, subject: q.subject60, lang },
+    );
+    if (yes && !inWhat) {
+      if (q.card.kind === 'NEW_DEAL') {
+        session.answerFlow = null;
+        return { reply: ja ? `注文の作成はAIMSで: ${url} （このスレッドの内容が入力済みで開きます）` : `Create the order in AIMS: ${url} (the form opens prefilled from this thread).`, done: true };
+      }
+      session.answerFlow = { logId, kind: q.card.kind, step: 'which', at: new Date().toISOString() };
+      return { reply: askWhich };
+    }
+    if (no && !inWhat) {
+      session.answerFlow = { logId, kind: q.card.kind, step: 'what', at: new Date().toISOString() };
+      return { reply: askWhat };
+    }
+    // Step 2's digits.
+    const pick = text.trim();
+    if (pick === '1') {
+      session.answerFlow = { logId, kind: q.card.kind, step: 'which', at: new Date().toISOString() };
+      return { reply: askWhich };
+    }
+    if (pick === '2') {
+      session.answerFlow = null;
+      return { pending: confirmNot };
+    }
+    session.answerFlow = null;
+    const out = await this.triage.answer(ctx.organizationId, { ids: q.answerIds, answer: { kind: 'later' } }, actor, lang);
+    return { reply: out.text, done: true };
   }
 
   async answerNumbered(ctx: OperatorContext, digits: string, text: string, lang: 'ja' | 'en'): Promise<string | null> {

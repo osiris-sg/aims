@@ -53,7 +53,8 @@ function Section({ title, count, children, tour, action }: { title: string; coun
 /** Round W: what was filed by itself — the result in plain words ("✅ Added to #16-2 — …", one line per document), with Undo. */
 function FiledRow({ m, lang, onUndo, onOpen }: { m: InboxMessage & { threadSubject?: string | null }; lang: "en" | "ja"; onUndo: (m: InboxMessage) => void; onOpen: (m: InboxMessage) => void }) {
   const r = resultBox(m, lang);
-  const href = orderHref(m.linked?.orderId, m.linked?.shipmentId, m.linked?.files[0]?.stepId ?? null);
+  const filed = (m.linked?.files ?? []).find((f) => f.status === "done") ?? m.linked?.files[0] ?? null;
+  const href = orderHref(m.linked?.orderId, m.linked?.shipmentId, filed?.stepId ?? null, filed?.name ?? null);
   return (
     <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ py: 0.75, borderTop: "1px solid", borderColor: "divider", cursor: "pointer" }} onClick={() => onOpen(m)} data-tour="dashboard-filed-row">
       <Box sx={{ flex: 1, minWidth: 0 }}>
