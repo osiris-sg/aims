@@ -161,19 +161,6 @@ export default function StepCards({
   const [optOpen, setOptOpen] = useState<Record<string, boolean>>({});
   // Bulk upload with AI sorting: files dropped on a step's "Drop all documents here" zone.
   const [bulk, setBulk] = useState<{ step: TradeStep; files: File[] } | null>(null);
-  // Round AF: once the step card with the highlighted file is open, scroll that file row into view (one time).
-  const scrolledFile = useRef<string | null>(null);
-  useEffect(() => {
-    if (!highlightFile || !openId || scrolledFile.current === `${openId}:${highlightFile}`) return;
-    const t = setTimeout(() => {
-      const el = document.querySelector('[data-tour="file-highlight"]');
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        scrolledFile.current = `${openId}:${highlightFile}`;
-      }
-    }, 450);
-    return () => clearTimeout(t);
-  }, [highlightFile, openId, fileLinks]);
 
   const change = useTradeMutation((a, v: { id: string; action: "complete" | "reopen" }) => (v.action === "complete" ? a.completeStep(v.id) : a.reopenStep(v.id)));
   const tick = useTradeMutation((a, v: { id: string; key: string; done: boolean }) => a.setSubtask(v.id, v.key, v.done));
@@ -206,6 +193,28 @@ export default function StepCards({
     const r = reqOf(s, docType);
     return { done: r ? r.satisfied : files.length > 0 || docs.some((d) => d.satisfies), files, docs, gens };
   };
+  // Round AF: once the step card with the highlighted file is open, scroll that file row into view (one time). A file
+  // that sits in the card's collapsed "Optional (n)" group (a second vendor invoice, an extra delivery note) opens it.
+  const scrolledFile = useRef<string | null>(null);
+  useEffect(() => {
+    if (!highlightFile || !openId) return;
+    const link = fileLinks.find((l) => l.file.fileName === highlightFile);
+    const step = steps.find((x) => x.id === openId);
+    if (link && step && !optOpen[openId]) {
+      const inRequiredRow = step.requiredDocTypes.some((dt) => stateOf(step, dt).files.some((l) => l.id === link.id));
+      if (!inRequiredRow) setOptOpen((o) => ({ ...o, [openId]: true }));
+    }
+    if (scrolledFile.current === `${openId}:${highlightFile}`) return;
+    const t = setTimeout(() => {
+      const el = document.querySelector('[data-tour="file-highlight"]');
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        scrolledFile.current = `${openId}:${highlightFile}`;
+      }
+    }, 450);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightFile, openId, fileLinks, optOpen]);
   /** An optional row: only files uploaded for this step (plus a required type's extra files). */
   const optionalStateOf = (s: TradeStep, docType: string): DocState => {
     const required = s.requiredDocTypes.includes(docType) ? stateOf(s, docType).files.map((l) => l.id) : [];
