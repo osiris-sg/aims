@@ -42,17 +42,27 @@ export function useInboxActions(onChanged: () => Promise<unknown> | void) {
     await Promise.all([qc.invalidateQueries({ queryKey: ["trade-inbox"] }), onChanged()]);
   };
   // "New deal → Create order": from the thread's PI attachment (the PI extractor) when there is one, else from the seed.
+  // Round AF: the REAL proforma invoice, not a remittance statement that mentions "PI" in its name (that read came back
+  // empty and the form opened blank); typed PI attachments first, then PI-looking names; a read with no PI number and
+  // no lines is skipped and the next candidate tried; the thread's seed fills whatever the PI left blank.
+  const isPiName = (n: string) => /\bPI\b|_PI_|proforma/i.test(n) && !/remittance|statement|deposit|slip|\bTT\b|payment|receipt|wise|invoice[-_ ]?\d/i.test(n);
   const createOrder = async (t: InboxThread) => {
-    const withPi = t.messages.find((m) => m.attachments.some((a) => a.docType === "PI" || /\bPI\b|_PI_/i.test(a.name)));
     const seed = t.messages.map((m) => m.backlog?.seed).find(Boolean) ?? null;
-    if (withPi) {
+    const candidates = t.messages
+      .flatMap((m) => m.attachments.filter((a) => a.docType === "PI" || isPiName(a.name)).map((a) => ({ m, a })))
+      .sort((x, y) => Number(y.a.docType === "PI") - Number(x.a.docType === "PI"));
+    if (candidates.length) {
       setCreating(true);
       try {
-        const pre = await api.inboxPiPrefill(withPi.id);
-        setCreate({ prefill: pre, seed });
-        return;
-      } catch (e: any) {
-        toast.error(e?.message || "Could not read the PI — starting from the thread's details");
+        for (const c of candidates.slice(0, 3)) {
+          const pre = await api.inboxPiPrefill(c.m.id).catch(() => null);
+          const d = pre?.result?.draft as { piNumber?: string | null; lines?: unknown[] } | undefined;
+          if (pre && d && (d.piNumber || d.lines?.length)) {
+            setCreate({ prefill: pre, seed });
+            return;
+          }
+        }
+        toast.info(lang === "ja" ? "PIを読めませんでした — スレッドの内容から開始します" : "Could not read a PI in this thread — starting from the thread's details");
       } finally {
         setCreating(false);
       }

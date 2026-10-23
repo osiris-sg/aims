@@ -150,8 +150,11 @@ export default function OrderFormDialog({
 
   // Bulk "New orders from PIs": start from that PI read (once the contracts list is in, to match the contract no.).
   useEffect(() => {
-    if (open && prefill?.result && !order && contracts.data) applyPi(prefill as any);
-    else if (open && seed && !order && !prefill) {
+    if (open && prefill?.result && !order && contracts.data) {
+      applyPi(prefill as any);
+      // Round AF: the thread's seed fills what the PI left blank (grade / quantity / PI no. / month).
+      if (seed) setForm((f) => ({ ...f, ...(!f.piNo && seed.piNo ? { piNo: seed.piNo } : {}), ...(!f.grade && seed.grade ? { grade: seed.grade } : {}), ...(!f.qtyMt && seed.qtyMt != null ? { qtyMt: String(seed.qtyMt) } : {}), ...(!f.deliveryMonth && seed.deliveryMonth ? { deliveryMonth: seed.deliveryMonth } : {}) }));
+    } else if (open && seed && !order && !prefill) {
       // The thread's keys / subject cues; the contract by its number when it exists.
       const c = seed.contractNo ? (contracts.data?.items ?? []).find((x: any) => x.contractNo === seed.contractNo) : null;
       setForm((f) => ({
