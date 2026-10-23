@@ -17,6 +17,19 @@ import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
 import { DateRangeSelect } from "./DateRangeSelect";
 
 const R = (n: number) => Math.round(n * 100) / 100;
+// Debit side = positive signed amounts; credit side = negatives (shown as
+// (x) by fmtAmount). Foreign columns are summed per side only where present.
+function sideTotals(lines: Array<{ amount: number; foreignAmount: number | null }>) {
+  let dr = 0, cr = 0, fDr = 0, fCr = 0, hasF = false;
+  for (const l of lines) {
+    if (l.amount > 0) dr = R(dr + l.amount); else cr = R(cr + l.amount);
+    if (l.foreignAmount != null) {
+      hasF = true;
+      if (l.foreignAmount > 0) fDr = R(fDr + l.foreignAmount); else fCr = R(fCr + l.foreignAmount);
+    }
+  }
+  return { dr, cr, fDr: hasF ? fDr : null, fCr: hasF ? fCr : null };
+}
 const todayISO = () => {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
@@ -108,22 +121,27 @@ export default function JvListingReport() {
     const pushSection = (label: string, lines: JvLine[], highlight: boolean) => {
       if (!lines.length) return;
       out.push({ kind: "row", key: `s-${label}`, cells: [{ text: label }, "", "", "", null, "", null], highlight });
-      let total = 0;
+      // A balanced journal nets to 0 in the single signed Amount column, so a
+      // plain sum printed "-" (guru 2026-10-23). Totals are shown per SIDE —
+      // debits and credits (which must agree) — the way an accountant reads a
+      // voucher listing.
+      const side = sideTotals(lines);
       for (let i = 0; i < lines.length; i++) {
         const l = lines[i];
-        total = R(total + l.amount);
         out.push({
           kind: "row",
           key: `${label}-${i}`,
           cells: [l.jvNo, fmtDate(l.date), l.accn, l.description, l.foreignAmount, l.curr, l.amount],
         });
       }
-      out.push({ kind: "subtotal", key: `t-${label}`, cells: ["SUB-TOTAL", "", "", "", null, "", total] });
+      out.push({ kind: "subtotal", key: `t-${label}-dr`, cells: ["SUB-TOTAL", "", "", "Debits", side.fDr, "", side.dr] });
+      out.push({ kind: "subtotal", key: `t-${label}-cr`, cells: ["", "", "", "Credits", side.fCr, "", side.cr] });
     };
     pushSection("Unconfirmed Journal Voucher(s)", sections.unconfirmed, true);
     pushSection("Confirmed Journal Voucher(s)", sections.confirmed, false);
-    const grand = R([...sections.unconfirmed, ...sections.confirmed].reduce((s, l) => s + l.amount, 0));
-    out.push({ kind: "total", key: "__grand", cells: ["GRAND TOTAL", "", "", "", null, "", grand] });
+    const grand = sideTotals([...sections.unconfirmed, ...sections.confirmed]);
+    out.push({ kind: "total", key: "__grand-dr", cells: ["GRAND TOTAL", "", "", "Debits", grand.fDr, "", grand.dr] });
+    out.push({ kind: "total", key: "__grand-cr", cells: ["", "", "", "Credits", grand.fCr, "", grand.cr] });
     return out;
   }, [sections]);
 
