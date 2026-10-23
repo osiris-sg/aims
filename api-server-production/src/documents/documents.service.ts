@@ -3726,9 +3726,41 @@ export class DocumentsService {
     }
   }
 
+  /**
+   * Lean navigation rows for the editor's prev/next arrows — every document of
+   * one template (or type) WITHOUT config, so an 18k-invoice org answers in
+   * well under a second instead of shipping 25.8k configs (guru 2026-10-23).
+   * The portal keeps its running-number series logic; it only needs
+   * id/name/type/templateId/status/createdAt.
+   */
+  async getDocumentsForNavigation(organizationId: string, opts: { templateId?: string; documentTypes?: string[] } = {}) {
+    try {
+      const where: any = { organizationId };
+      if (opts.templateId) where.documentTemplateId = opts.templateId;
+      else if (opts.documentTypes?.length) where.type = { in: opts.documentTypes };
+      const rows = await this.prisma.document.findMany({
+        where,
+        select: { id: true, name: true, type: true, documentTemplateId: true, status: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      // Plain array, like getAllDocuments — the global response wrapper adds
+      // the { success, data } envelope.
+      return rows.map((d) => ({
+        id: d.id,
+        name: d.name,
+        documentType: d.type,
+        templateId: d.documentTemplateId,
+        status: d.status,
+        createdAt: d.createdAt,
+      }));
+    } catch (error) {
+      throw new HttpException(`Fetch documents for navigation failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
   // Server-side paginated / filtered / sorted document list. ADDITIVE — the
-  // legacy getAllDocuments (fetch-all) stays for the editor's prev/next
-  // navigation and other consumers. Customer/item live in the `config` JSON;
+  // legacy getAllDocuments (fetch-all) stays for other consumers (the editor's
+  // prev/next arrows now use getDocumentsForNavigation). Customer/item live in the `config` JSON;
   // customer is filtered/searched via JSON paths (recent docs store
   // config.customer.id). Sort is limited to real columns (name/createdAt/
   // status/type) since Prisma orderBy can't target JSON paths.
@@ -3745,6 +3777,10 @@ export class DocumentsService {
       createdOn?: { startDate?: string | Date | null; endDate?: string | Date | null };
       sortBy?: 'name' | 'createdAt' | 'status' | 'type' | 'issueDate';
       sortDir?: 'asc' | 'desc';
+      // Only documents built on this template — the editor's Locate dialog
+      // (it used to pull EVERY document in the org and filter in the browser:
+      // 12s for Chong Aik's 25.8k documents — guru 2026-10-23).
+      templateId?: string;
     } = {},
     callerUserId?: string,
   ) {
@@ -3782,6 +3818,7 @@ export class DocumentsService {
 
       if (opts.documentTypes?.length) where.type = { in: opts.documentTypes };
       else if (opts.excludeTypes?.length) where.type = { notIn: opts.excludeTypes };
+      if (opts.templateId) where.documentTemplateId = opts.templateId;
 
       if (opts.status) {
         const s = (Array.isArray(opts.status) ? opts.status : [opts.status]).filter(Boolean);
@@ -4493,38 +4530,30 @@ export class DocumentsService {
 
   async getPastDescriptions(organizationId: string) {
     try {
-      // Fetch all documents for the organization
-      const documents = await this.prisma.document.findMany({
-        where: {
-          organizationId,
-        },
-        select: {
-          config: true,
-        },
-      });
-
-      // Extract unique descriptions from all document items
-      const descriptions = new Set<string>();
-
-      documents.forEach(document => {
-        const config = document.config as any;
-        if (config?.items && Array.isArray(config.items)) {
-          config.items.forEach((item: any) => {
-            if (item.description && typeof item.description === 'string' && item.description.trim()) {
-              descriptions.add(item.description.trim());
-            }
-          });
-        }
-      });
-
-      // Convert set to array and sort alphabetically
-      const sortedDescriptions = Array.from(descriptions).sort((a, b) =>
-        a.toLowerCase().localeCompare(b.toLowerCase())
-      );
+      // Distinct line descriptions for the editor's autocomplete, computed in
+      // SQL over the org's most recent 1,000 documents. It used to load EVERY
+      // document's config and walk the items in Node — 15.8s on Chong Aik's
+      // 25.8k documents, for a suggestion list nobody could scroll anyway
+      // (guru 2026-10-23). Capped at 2,000 suggestions.
+      const rows: Array<{ description: string }> = await this.prisma.$queryRaw`
+        SELECT DISTINCT btrim(item->>'description') AS description
+        FROM (
+          SELECT d.config
+          FROM "Document" d
+          WHERE d."organizationId" = ${organizationId}
+            AND jsonb_typeof(d.config->'items') = 'array'
+          ORDER BY d."createdAt" DESC
+          LIMIT 1000
+        ) recent,
+        jsonb_array_elements(recent.config->'items') AS item
+        WHERE jsonb_typeof(item->'description') = 'string'
+          AND btrim(item->>'description') <> ''
+        ORDER BY 1
+        LIMIT 2000`;
 
       return {
         success: true,
-        descriptions: sortedDescriptions,
+        descriptions: rows.map((r) => r.description),
       };
     } catch (error) {
       console.error('Failed to fetch past descriptions:', error);

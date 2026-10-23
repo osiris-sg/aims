@@ -111,6 +111,19 @@ export class DocumentsController {
     return await this.documentsService.getAllDocuments(organizationId);
   }
 
+  // Lean rows for the editor's prev/next arrows: id/name/type/template/status
+  // only, no config — the fetch-all list carried every document's config and
+  // took 12s on Chong Aik's 25.8k documents (guru 2026-10-23).
+  @Post('nav')
+  @Permissions('documents:read')
+  async getDocumentsForNavigation(@Req() req: RequestWithOrganization, @Body() body: any) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.getDocumentsForNavigation(organizationId, body || {});
+  }
+
   // Server-side paginated / filtered / sorted list (additive; see service).
   @Post('paginated')
   @Permissions('documents:read')

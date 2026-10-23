@@ -480,9 +480,17 @@ export class JournalService {
       };
     }
 
+    // Only the entry fields the rows need — the full JournalEntry per line
+    // (23k lines on Chong Aik's debtors control) was most of the payload.
     const lines = await this.prisma.journalEntryLine.findMany({
       where,
-      include: { journalEntry: true },
+      select: {
+        journalEntryId: true,
+        description: true,
+        debit: true,
+        credit: true,
+        journalEntry: { select: { journalNumber: true, entryDate: true, type: true, reference: true, description: true } },
+      },
       orderBy: { journalEntry: { entryDate: 'asc' } },
     });
 

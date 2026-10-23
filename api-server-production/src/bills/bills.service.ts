@@ -130,7 +130,7 @@ export class BillsService {
     return {
       id: doc.id,
       billNumber: doc.name || '',
-      billDate: c.billDate || c.date || doc.createdAt.toISOString(),
+      billDate: c.billDate || c.date || new Date(doc.createdAt as any).toISOString(),
       dueDate: c.dueDate || null,
       status: billStatus,
       reference: documentReferenceOf(c) || null,
@@ -182,28 +182,30 @@ export class BillsService {
     organizationId: string,
     opts?: { status?: string; supplierId?: string; startDate?: Date; endDate?: Date; limit?: number },
   ) {
-    const where: Prisma.DocumentWhereInput = {
-      organizationId,
-      type: 'BILL',
-      ...(opts?.supplierId && {
-        OR: [
-          { config: { path: ['supplierId'], equals: opts.supplierId } },
-          { config: { path: ['supplier', 'id'], equals: opts.supplierId } },
-        ],
-      }),
-    };
-    const docs = await this.prisma.document.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      // No hard cap by default — frontend (PageTable) paginates client-side.
-      // Caller can still pass an explicit `limit` to bound.
-      take: opts?.limit ?? undefined,
-      select: { id: true, name: true, createdAt: true, updatedAt: true, status: true, config: true, attachments: true },
-    });
+    // The list never shows lines, so strip the heavy config keys IN THE
+    // DATABASE (lines / items / images / extraction). Chong Aik's 3,353
+    // purchase-history bills carry 77k lines between them and the full
+    // configs took 19s to ship (guru 2026-10-23). The editor dialog reloads a
+    // bill through findOne (full config) when its row has no `lines`.
+    // Plain positional params only — no Prisma.sql fragments: the per-org
+    // tenancy client has its own Prisma namespace, so fragments built from
+    // '@prisma/client' are not recognised and get sent as "$2" (syntax error).
+    const supplierId: string | null = opts?.supplierId ?? null;
+    const limit: number | null = opts?.limit ?? null; // LIMIT NULL = no limit
+    const docs: any[] = await this.prisma.$queryRaw`
+      SELECT d.id, d.name, d.status, d."createdAt", d."updatedAt", d.attachments,
+             (d.config - 'lines' - 'items' - 'logo' - 'stamp' - 'signature' - 'signatures' - 'email' - 'extraction' - 'extractedData') AS config
+      FROM "Document" d
+      WHERE d."organizationId" = ${organizationId} AND d.type = 'BILL'
+        AND (${supplierId}::text IS NULL OR d.config->>'supplierId' = ${supplierId}::text OR d.config#>>'{supplier,id}' = ${supplierId}::text)
+      ORDER BY d."createdAt" DESC
+      LIMIT ${limit}::int`;
     const supplierNames = await this.hydrateSupplierNames(docs);
-    let bills = docs.map((d) =>
-      this.toBill(d, supplierNames.get(((d.config as any)?.supplierId || (d.config as any)?.supplier?.id) as string)),
-    );
+    let bills = docs.map((d) => {
+      const bill = this.toBill(d, supplierNames.get(((d.config as any)?.supplierId || (d.config as any)?.supplier?.id) as string));
+      // Mark the row as a list row: lines were stripped above.
+      return { ...bill, lines: undefined, linesOmitted: true };
+    });
 
     // Status / date filtering done in-memory (config-based fields aren't directly indexable here)
     if (opts?.status) bills = bills.filter((b) => b.status === opts.status);

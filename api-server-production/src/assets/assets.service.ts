@@ -239,6 +239,11 @@ export class AssetsService {
         whereClause.isTracked = filters.isTracked;
       }
 
+      // Exact ids (editor: the products a document's lines reference).
+      if (Array.isArray(filters?.ids) && filters.ids.length) {
+        whereClause.id = { in: filters.ids.slice(0, 1000) };
+      }
+
       // Created-on date range (server-side so it spans all pages)
       if (filters?.createdOn?.startDate || filters?.createdOn?.endDate) {
         whereClause.createdAt = {};
