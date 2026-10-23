@@ -54,10 +54,12 @@ export default function GoToLatestDocument({
       try {
         const token = await getToken();
 
-        // Fetch documents and redirect to latest
+        // Ask the server for the single newest document of these types. This
+        // used to fetch EVERY document in the org and sort in the browser —
+        // 12s for Chong Aik's 25.8k documents (guru 2026-10-23).
         const response = await request(
-          { path: "/documents", method: "POST" },
-          { organizationId: organization.id },
+          { path: "/documents/paginated", method: "POST" },
+          { documentTypes, limit: 1, sortBy: "createdAt", sortDir: "desc" },
           token ?? undefined
         );
 
@@ -66,12 +68,7 @@ export default function GoToLatestDocument({
           return;
         }
 
-        // Filter and get latest
-        const filteredDocs = response.data
-          .filter((doc: any) => documentTypes.includes(doc.documentType))
-          .sort((a: any, b: any) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          );
+        const filteredDocs: any[] = response.data.docs || [];
 
         if (filteredDocs.length === 0) {
           // No documents found - auto-create one

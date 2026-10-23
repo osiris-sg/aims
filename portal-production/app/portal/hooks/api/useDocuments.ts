@@ -72,7 +72,37 @@ interface PaginatedDocsOptions {
   createdOn?: { startDate: any; endDate: any };
   sortBy?: string;
   sortDir?: 'asc' | 'desc';
+  // Only documents built on this template (editor Locate dialog).
+  templateId?: string;
   enabled?: boolean;
+}
+
+// Lean rows for the editor's prev/next arrows (POST /documents/nav): every
+// document on one template, id/name/type/status only — no config.
+export function useGetDocumentNav(options: { templateId?: string; documentTypes?: string[]; enabled?: boolean } = {}) {
+  const { organization } = useOrganization();
+  const { getToken } = useAuth();
+  const organizationId = organization?.id;
+  const { enabled = true, ...params } = options;
+
+  const { data: documents = [], isLoading, error, refetch } = useQuery({
+    queryKey: ['documents-nav', organizationId, params],
+    queryFn: async () => {
+      const token = await getToken();
+      if (!token || !organizationId) return [];
+      const response = await request({ path: '/documents/nav', method: 'POST' }, params, token);
+      if (!response?.success) {
+        console.error('Failed to fetch documents (nav):', response?.message);
+        return [];
+      }
+      const rows = response.data;
+      return Array.isArray(rows) ? rows : rows?.data || [];
+    },
+    enabled: !!organizationId && enabled && !!(params.templateId || params.documentTypes?.length),
+    refetchOnMount: 'always',
+  });
+
+  return { documents, isLoading, error, refetch };
 }
 
 // Server-side paginated / filtered / sorted document list (POST /documents/paginated).

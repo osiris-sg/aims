@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { useGetDocuments, useDeleteDocument, useGetCustomers } from "@/app/portal/hooks/api";
+import { useGetDocumentsPaginated, useDeleteDocument, useGetCustomers } from "@/app/portal/hooks/api";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
@@ -112,17 +112,26 @@ export default function SalesDocumentList({
   const [uploadOpen, setUploadOpen] = useState(false);
   const uploadDocumentLabel = (createButtonLabel || createDocumentType).replace(/^(new|create)\s+/i, "");
 
-  // Fetch documents with new hook
-  const { documents = [], isLoading, error, refetch } = useGetDocuments();
+  // Server-side page: type / status / customer / date / search are applied in
+  // the query, so an org with 18k invoices ships 10 rows, not all of them (it
+  // used to fetch every document and filter in the browser — guru 2026-10-23).
+  const { docs: documents = [], total: totalDocs = 0, isLoading, error, refetch } = useGetDocumentsPaginated({
+    documentTypes: (filters as any).documentType ? [(filters as any).documentType] : documentTypes,
+    status: filters.status || undefined,
+    customerId: (filters as any).customerId || undefined,
+    createdOn:
+      filters.createdOn?.startDate || filters.createdOn?.endDate
+        ? { startDate: filters.createdOn?.startDate ?? null, endDate: filters.createdOn?.endDate ?? null }
+        : undefined,
+    search: (search || "").trim() || undefined,
+    page,
+    limit,
+    sortBy: "createdAt",
+    sortDir: "desc",
+  });
 
   // Customers for the Customer filter dropdown (stable, unfiltered options).
-  const { customers: filterCustomers = [] } = useGetCustomers({ limit: 1000 });
-  const customerNameById = useMemo(() => {
-    const m = new Map<string, string>();
-    (filterCustomers || []).forEach((c: any) => m.set(c.id, c.name));
-    return m;
-  }, [filterCustomers]);
-
+  const { customers: filterCustomers = [] } = useGetCustomers({ limit: 5000 });
   const filterConfig: FilterField[] = useMemo(() => {
     const cfg: FilterField[] = [
       { type: "dateRange", key: "createdOn", label: "Created On" },
@@ -136,37 +145,8 @@ export default function SalesDocumentList({
     return cfg;
   }, [filterCustomers, documentTypes]);
 
-  // Filter documents by the specified document types, plus the filter-drawer
-  // selections + search (previously stored but never applied).
-  const filteredDocuments = documents.filter((doc: any) => {
-    if (!documentTypes.includes(doc.documentType)) return false;
-    if ((filters as any).documentType && doc.documentType !== (filters as any).documentType) return false;
-    if ((filters as any).customerId) {
-      const name = customerNameById.get((filters as any).customerId);
-      const docCustId = doc.customerId || doc.customer?.id;
-      const docCustName = doc.associated_customer || doc.customer?.name;
-      if (!((docCustId && docCustId === (filters as any).customerId) || (!!name && docCustName === name))) return false;
-    }
-    if (filters.status && (doc.status || "").toLowerCase() !== filters.status.toLowerCase()) return false;
-    const start = filters.createdOn?.startDate ? new Date(filters.createdOn.startDate) : null;
-    const end = filters.createdOn?.endDate ? new Date(filters.createdOn.endDate) : null;
-    if (end) end.setHours(23, 59, 59, 999);
-    if (start || end) {
-      const c = doc.createdAt ? new Date(doc.createdAt) : null;
-      if (!c) return false;
-      if (start && c < start) return false;
-      if (end && c > end) return false;
-    }
-    const term = (search || "").trim().toLowerCase();
-    if (term) {
-      const hay = [doc.name, doc.associated_customer, doc.associated_item, doc.documentType, doc.status]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      if (!hay.includes(term)) return false;
-    }
-    return true;
-  });
+  // Rows come back already filtered and paged by the server.
+  const filteredDocuments = documents;
 
   // Delete document mutation
   const deleteDocumentMutation = useDeleteDocument();
@@ -269,7 +249,13 @@ export default function SalesDocumentList({
     return JSON.parse(JSON.stringify(date));
   };
 
+  const handleSetSearch = (value: string) => {
+    setPage(1);
+    setSearch(value);
+  };
+
   const handleSetFilters = (newFilters: Filters) => {
+    setPage(1);
     const updatedFilters = {
       ...newFilters,
       createdOn: {
@@ -397,11 +383,11 @@ export default function SalesDocumentList({
         filters={filters}
         setPage={setPage}
         setLimit={setLimit}
-        setSearch={setSearch}
+        setSearch={handleSetSearch}
         setFilters={handleSetFilters}
         filterConfig={filterConfig}
-        pageCount={Math.ceil(filteredDocuments.length / limit)}
-        totalDocs={filteredDocuments.length}
+        pageCount={Math.ceil(totalDocs / limit)}
+        totalDocs={totalDocs}
         headerContent={headerContent}
         actionButtons={[
           ...(createDocumentType

@@ -86,6 +86,12 @@ interface StockCardDialogProps {
   // Lock the Rental/Sales tabs to one mode (e.g. a "… Rental …" quotation
   // template only offers rental items). The other tab is hidden entirely.
   revenueModeLock?: "sales" | "rental";
+  // Large catalogues: `inventoryItems` is only the first page, so typing
+  // searches the server through `onSearch` instead of filtering the preload
+  // (guru 2026-10-23 — 87k products must not be paged into the browser).
+  onSearch?: (term: string) => Promise<InventoryItem[]>;
+  catalogueComplete?: boolean;
+  catalogueTotal?: number;
 }
 
 export default function StockCardDialog({
@@ -98,6 +104,9 @@ export default function StockCardDialog({
   showPoints = false,
   showCapacity = false,
   revenueModeLock,
+  onSearch,
+  catalogueComplete = true,
+  catalogueTotal = 0,
 }: StockCardDialogProps) {
   const getPoints = (it: InventoryItem) => {
     const p = it.points ?? it.asset?.points;
@@ -120,6 +129,33 @@ export default function StockCardDialog({
     return hit != null ? Number(hit.value) : null;
   };
   const [searchTerm, setSearchTerm] = useState("");
+  // Server search (large catalogues only): null = show the preload.
+  const serverSearch = !!onSearch && !catalogueComplete;
+  const [serverResults, setServerResults] = useState<InventoryItem[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const searchSeq = useRef(0);
+  useEffect(() => {
+    if (!serverSearch || !open) return;
+    const term = searchTerm.trim();
+    if (!term) {
+      setServerResults(null);
+      setSearching(false);
+      return;
+    }
+    const seq = ++searchSeq.current;
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const rows = await onSearch!(term);
+        if (seq === searchSeq.current) setServerResults(rows);
+      } catch {
+        if (seq === searchSeq.current) setServerResults([]);
+      } finally {
+        if (seq === searchSeq.current) setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [serverSearch, open, searchTerm, onSearch]);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedViewItem, setSelectedViewItem] = useState<InventoryItem | null>(null);
   // Keyboard navigation: highlighted row (Enter selects it; default = first match).
@@ -176,7 +212,9 @@ export default function StockCardDialog({
   // account either way) stay visible in both tabs so nothing disappears — they
   // just won't self-code until an account is set.
   const filteredItems = useMemo(() => {
-    let base = inventoryItems;
+    // Server results already match the term — only the Rental/Sales tab
+    // filter applies to them.
+    let base = serverResults ?? inventoryItems;
     if (showRevenueTabs) {
       base = base.filter((i) => {
         const s = accSales(i);
@@ -185,7 +223,7 @@ export default function StockCardDialog({
         return revenueMode === "rental" ? !!r : !!s;
       });
     }
-    if (!searchTerm.trim()) return base;
+    if (!searchTerm.trim() || serverResults) return base;
 
     const term = searchTerm.toLowerCase();
     // Free search across all fields (code + description + category).
@@ -200,10 +238,10 @@ export default function StockCardDialog({
       );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inventoryItems, searchTerm, showRevenueTabs, revenueMode]);
+  }, [inventoryItems, serverResults, searchTerm, showRevenueTabs, revenueMode]);
 
   // Reset the highlight to the first row whenever the filtered list changes.
-  useEffect(() => { setActiveIndex(0); }, [searchTerm, inventoryItems]);
+  useEffect(() => { setActiveIndex(0); }, [searchTerm, inventoryItems, serverResults]);
 
   // Keep the highlighted row scrolled into view as you arrow through.
   useEffect(() => { activeRowRef.current?.scrollIntoView({ block: "nearest" }); }, [activeIndex]);
@@ -232,6 +270,7 @@ export default function StockCardDialog({
 
   const handleClose = () => {
     setSearchTerm("");
+    setServerResults(null);
     onClose();
   };
 
@@ -312,6 +351,15 @@ export default function StockCardDialog({
               bgcolor: "background.paper",
             }}
           />
+          {serverSearch && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: -1, mb: 1 }}>
+              {searching
+                ? "Searching…"
+                : serverResults
+                  ? `${serverResults.length} match${serverResults.length === 1 ? "" : "es"}${serverResults.length >= 50 ? " (first 50 — refine the search)" : ""}`
+                  : `Showing the first ${inventoryItems.length} of ${catalogueTotal.toLocaleString()} ${itemType.toLowerCase()}s — type to search the full catalogue`}
+            </Typography>
+          )}
 
           {/* Rental / Sales tabs — a product credits its sales or rental account.
               When the template locks the mode, only that tab shows. */}
@@ -361,7 +409,7 @@ export default function StockCardDialog({
                 <TableRow>
                   <TableCell colSpan={(isAssetTrackingModeEnabled ? 8 : 7) + (showDealerPrice ? 1 : 0) + (showPoints ? 1 : 0) + (showCapacity ? 1 : 0)} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">
-                      {searchTerm ? `No ${itemType.toLowerCase()}s found matching your search` : `No ${itemType.toLowerCase()}s available`}
+                      {searching ? "Searching…" : searchTerm ? `No ${itemType.toLowerCase()}s found matching your search` : `No ${itemType.toLowerCase()}s available`}
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -490,7 +538,7 @@ export default function StockCardDialog({
           }}
         >
           <Typography variant="body2" color="text.secondary">
-            Showing {filteredItems.length} of {inventoryItems.length} {itemType.toLowerCase()}s
+            Showing {filteredItems.length} of {(serverResults ? serverResults.length : serverSearch ? catalogueTotal : inventoryItems.length).toLocaleString()} {itemType.toLowerCase()}s
           </Typography>
           <Typography variant="caption" color="text.secondary">
             Click on a row to select a {itemType.toLowerCase()}

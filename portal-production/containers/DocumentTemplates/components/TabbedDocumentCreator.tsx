@@ -129,7 +129,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { usePastDescriptions } from "../hooks/usePastDescriptions";
 import { useGetInventoriesForItemTable } from "../hooks/useGetInventoriesForItemTable";
 import { getTemplateFormFields } from "../utils/templateFieldSync";
-import { useGetDocuments } from "@/app/portal/hooks/api";
+import { useGetDocumentsPaginated } from "@/app/portal/hooks/api";
+
+// Template name + design per template id, shared by every editor mount in the session.
+const templateMetaCache = new Map<string, { name: string; design: any }>();
 import { TemplateFieldConfig } from "../types/templateFieldTypes";
 import {
   OrReceiptNoInput,
@@ -937,24 +940,22 @@ export default function TabbedDocumentCreator({
   const { pastDescriptions, isLoading: isLoadingDescriptions } = usePastDescriptions();
 
   // Inventory items for item table
-  const { inventoriesForDocument } = useGetInventoriesForItemTable();
+  const { inventoriesForDocument, catalogueComplete, catalogueTotal, searchCatalogue, rememberItems } = useGetInventoriesForItemTable();
 
-  // All documents for locate dialog
-  const { documents: allDocuments } = useGetDocuments();
+  // Documents for the Locate dialog: the latest 200 on this template, fetched
+  // server-side and only while the dialog is open. It used to pull EVERY
+  // document in the org on editor mount (12s for Chong Aik — guru 2026-10-23).
+  const locateTemplateId = existingData?.documentTemplateId || pathSegments[3];
+  const { docs: allDocuments } = useGetDocumentsPaginated({
+    templateId: locateTemplateId,
+    limit: 200,
+    sortBy: "createdAt",
+    sortDir: "desc",
+    enabled: locateDialogOpen && !!locateTemplateId,
+  });
 
-  // Filter documents for the locate dialog (same document type)
-  const documentsForLocate = useMemo(() => {
-    // Get the template ID from the current document
-    const templateId = existingData?.documentTemplateId || pathSegments[3];
-    if (!templateId || !allDocuments) return [];
-
-    // Filter documents by the same template ID and sort by createdAt (newest first)
-    return allDocuments
-      .filter((doc: any) => doc.templateId === templateId)
-      .sort((a: any, b: any) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-  }, [allDocuments, existingData?.documentTemplateId, pathSegments]);
+  // Already filtered to this template and newest-first by the server.
+  const documentsForLocate = useMemo(() => (locateTemplateId && allDocuments ? allDocuments : []), [allDocuments, locateTemplateId]);
 
 
   // Template configuration form for field visibility
@@ -1239,11 +1240,19 @@ export default function TabbedDocumentCreator({
   }, [documentType, templateId, existingData?.documentTemplateId, existingData?.templateId, propFieldDefinitions, getToken, mergeDoDetailsIntoGeneral]);
 
   // Fetch the active template's name (for the Stock Card rental/sales lock).
+  // Cached per template for the session: the page already fetched the template
+  // once with the document, so a second round-trip here only costs time.
   useEffect(() => {
     const effectiveTemplateId = templateId || existingData?.documentTemplateId || existingData?.templateId;
     if (!effectiveTemplateId) {
       setActiveTemplateName("");
       setTemplateDesign(null);
+      return;
+    }
+    const cached = templateMetaCache.get(effectiveTemplateId);
+    if (cached) {
+      setActiveTemplateName(cached.name);
+      setTemplateDesign(cached.design);
       return;
     }
     let cancelled = false;
@@ -1263,9 +1272,11 @@ export default function TabbedDocumentCreator({
         const json = await res.json();
         const tpl = json?.data ?? json;
         const djson = dres && dres.ok ? await dres.json().catch(() => null) : null;
+        const meta = { name: tpl?.name || "", design: djson?.data?.design ?? djson?.design ?? tpl?.styleConfig ?? null };
+        if (res.ok) templateMetaCache.set(effectiveTemplateId, meta);
         if (!cancelled) {
-          setActiveTemplateName(tpl?.name || "");
-          setTemplateDesign(djson?.data?.design ?? djson?.design ?? tpl?.styleConfig ?? null);
+          setActiveTemplateName(meta.name);
+          setTemplateDesign(meta.design);
         }
       } catch {
         if (!cancelled) setActiveTemplateName("");
@@ -1443,17 +1454,16 @@ export default function TabbedDocumentCreator({
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await request({ path: "/documents", method: "POST" }, { organizationId: organization?.id }, token);
-        if (cancelled || !res?.success) return;
+        // Server-side filter (type + customer + confirmed) instead of the
+        // fetch-all list — that carried every document in the org.
         const qTypes = ["QUOTATION", "QT", "QO", "QO1", "QO2"];
-        setRefQuotations(
-          (res.data || []).filter(
-            (d: any) =>
-              qTypes.includes(String(d.documentType || d.type || "").toUpperCase()) &&
-              d.config?.customerId === formData.customer.id &&
-              d.status === "confirmed",
-          ),
+        const res = await request(
+          { path: "/documents/paginated", method: "POST" },
+          { documentTypes: qTypes, customerId: formData.customer.id, status: "confirmed", limit: 200, sortBy: "createdAt", sortDir: "desc" },
+          token,
         );
+        if (cancelled || !res?.success) return;
+        setRefQuotations(res.data?.docs || []);
       } catch (e) {
         console.error("ref-quotation fetch failed:", e);
       }
@@ -3502,20 +3512,19 @@ export default function TabbedDocumentCreator({
       toast.error("Authentication required");
       return null;
     }
+    // Newest 200 quotations, filtered by type on the server (the old
+    // fetch-all pulled every document in the org first).
+    const quotationTypes = ["QUOTATION", "QT", "QO", "QO1"];
     const response = await request(
-      { path: "/documents", method: "POST" },
-      { organizationId: organization?.id },
+      { path: "/documents/paginated", method: "POST" },
+      { documentTypes: quotationTypes, limit: 200, sortBy: "createdAt", sortDir: "desc" },
       token
     );
     if (!response?.success) {
       toast.error("Failed to fetch quotations");
       return null;
     }
-    const quotationTypes = ["QUOTATION", "QT", "QO", "QO1"];
-    return (response.data || []).filter((doc: any) => {
-      const docType = doc.type || doc.documentType || "";
-      return quotationTypes.includes(docType.toUpperCase());
-    });
+    return response.data?.docs || [];
   };
 
   const handleExtractForDO = async () => {
@@ -3551,21 +3560,18 @@ export default function TabbedDocumentCreator({
         toast.error("Authentication required");
         return;
       }
+      // Newest 200 delivery orders, filtered on the server.
+      const doTypes = ["DELIVERY_ORDER", "DO"];
       const response = await request(
-        { path: "/documents", method: "POST" },
-        { organizationId: organization?.id },
+        { path: "/documents/paginated", method: "POST" },
+        { documentTypes: doTypes, limit: 200, sortBy: "createdAt", sortDir: "desc" },
         token
       );
       if (!response?.success) {
         toast.error("Failed to fetch documents");
         return;
       }
-      const doTypes = ["DELIVERY_ORDER", "DO"];
-      const deliveryOrders = (response.data || []).filter((doc: any) => {
-        const docType = doc.type || doc.documentType || "";
-        return doTypes.includes(docType.toUpperCase());
-      });
-      setDeliveryOrdersForExtract(deliveryOrders);
+      setDeliveryOrdersForExtract(response.data?.docs || []);
       setExtractDODialogOpen(true);
     } catch (error) {
       console.error("Error fetching documents:", error);
@@ -7857,6 +7863,9 @@ export default function TabbedDocumentCreator({
           setEditingItemId(null);
         }}
         onSelectItem={(picked: any) => {
+          // Keep the pick in the working set so line lookups (SKU, price
+          // tiers, stock card) resolve it — it may not be in the preload.
+          rememberItems([picked]);
           if (stockCardMode === "tag") {
             // Don't commit yet — open the pending-tag dialog so the user can
             // set the CU's own qty + price before the tag group is created.
@@ -7884,6 +7893,9 @@ export default function TabbedDocumentCreator({
         }
         showCapacity
         revenueModeLock={stockCardRevenueLock}
+        onSearch={searchCatalogue}
+        catalogueComplete={catalogueComplete}
+        catalogueTotal={catalogueTotal}
       />
 
       {/* Delivery Route dialog — triggered by the Show Route button at the

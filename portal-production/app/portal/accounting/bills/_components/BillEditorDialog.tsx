@@ -217,8 +217,7 @@ export default function BillEditorDialog({
       taxManualRef.current = true; // keep the stored tax until code/mode changes
       setInboundChannel(editing.inboundChannel || "MANUAL");
       setAttachments(Array.isArray(editing.attachments) ? editing.attachments : []);
-      const ls: any[] = Array.isArray(editing.lines) ? editing.lines : [];
-      setLines(
+      const toRows = (ls: any[]) =>
         ls.length > 0
           ? ls.map((l) => ({
               uid: Math.random().toString(36).slice(2),
@@ -228,8 +227,25 @@ export default function BillEditorDialog({
               amount: String(l.amount ?? ""),
               accountId: l.accountId || null,
             }))
-          : [newLine()],
-      );
+          : [newLine()];
+      if (editing.linesOmitted && editing.id) {
+        // List rows come without lines (the /bills list strips them — 77k
+        // lines across Chong Aik's bills made it a 19s call). Load the full
+        // bill for editing.
+        setLines([newLine()]);
+        let cancelled = false;
+        request<any>(`/bills/${editing.id}`)
+          .then((full) => {
+            if (cancelled || !full) return;
+            setLines(toRows(Array.isArray(full.lines) ? full.lines : []));
+            if (full.attachments) setAttachments(Array.isArray(full.attachments) ? full.attachments : []);
+          })
+          .catch((e: any) => toast.error(e?.message || "Failed to load bill lines"));
+        return () => {
+          cancelled = true;
+        };
+      }
+      setLines(toRows(Array.isArray(editing.lines) ? editing.lines : []));
     } else {
       setSupplierId(null);
       setBillNumber("");
@@ -245,7 +261,7 @@ export default function BillEditorDialog({
       setInboundChannel("MANUAL");
       setAttachments([]);
     }
-  }, [open, editing, loadSuppliersAndAccounts]);
+  }, [open, editing, loadSuppliersAndAccounts, request]);
 
   const linesSum = useMemo(
     () => lines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0),

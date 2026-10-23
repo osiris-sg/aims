@@ -8,7 +8,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
-import { useGetCustomers, useGetSuppliers, useGetDocuments } from "@/app/portal/hooks/api";
+import { useGetCustomers, useGetSuppliers, useGetDocumentNav } from "@/app/portal/hooks/api";
 import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProjects";
 import { useGetDeliveryOrders } from "@/containers/DocumentTemplates/hooks/useGetDeliveryOrders";
 import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSiteOffices";
@@ -31,6 +31,17 @@ interface CachedDocument {
 const documentCache = new Map<string, CachedDocument>();
 const fetchingDocs = new Set<string>();
 const templateCache = new Map<string, any>(); // Cache templates by ID
+// Field config per template: the neighbour prefetch used to re-request
+// /documentTemplates/:id/fields (+ the variant defaults) once PER DOCUMENT —
+// five identical round-trips on every arrow press (guru 2026-10-23).
+const fieldConfigCache = new Map<string, any>();
+const getTemplateFormFieldsCached = async (templateVariant: string, templateId: string | undefined, token: string) => {
+  const key = templateId || `variant:${templateVariant}`;
+  if (fieldConfigCache.has(key)) return fieldConfigCache.get(key);
+  const cfg = await getTemplateFormFields(templateVariant, templateId, token);
+  if (cfg) fieldConfigCache.set(key, cfg);
+  return cfg;
+};
 
 // Prefetch configuration
 const PREFETCH_COUNT = 5; // How many documents to prefetch in each direction
@@ -64,8 +75,9 @@ export default function page() {
     router.replace(`/portal/sales/variation-orders/${documentId}`);
   }, [isVoType, documentId, router]);
 
-  // Fetch all documents for navigation
-  const { documents: allDocuments = [], refetch: refetchDocuments } = useGetDocuments({});
+  // Documents on this template for the prev/next arrows — lean rows (no
+  // config). The fetch-all list took 12s on Chong Aik (guru 2026-10-23).
+  const { documents: allDocuments = [], refetch: refetchDocuments } = useGetDocumentNav({ templateId: id as string });
 
   // Prev/Next walks the RUNNING NUMBER, not the creation date, and stays inside
   // the document's own number series (guru 2026-10-20).
@@ -194,7 +206,7 @@ export default function page() {
 
       // Get field definitions (fallback only — server usually supplies these now)
       if (!fetchedFieldConfig) {
-        fetchedFieldConfig = await getTemplateFormFields(templateVariant, templateId, token);
+        fetchedFieldConfig = await getTemplateFormFieldsCached(templateVariant, templateId, token);
       }
 
       // Transform data
@@ -482,8 +494,10 @@ export default function page() {
   }, [currentIndex, filteredDocuments, getToken, getDocumentsToPrefetch, prefetchDocuments, type]);
 
   // Fetch data
-  const { customers = [] } = useGetCustomers({ limit: 1000 });
-  const { suppliers = [] } = useGetSuppliers({ limit: 1000 });
+  // The customer / supplier pickers filter client-side, so load the whole
+  // master: 1000 hid 614 of Chong Aik's 1,614 customers (guru 2026-10-23).
+  const { customers = [] } = useGetCustomers({ limit: 5000 });
+  const { suppliers = [] } = useGetSuppliers({ limit: 5000 });
   const { projects } = useGetProjects(selectedCustomerId); // Filter by customer
   const { deliveryOrders } = useGetDeliveryOrders(selectedCustomerId); // Filter by customer
   const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
@@ -512,7 +526,7 @@ export default function page() {
           ? urlTypeForSave
           : (documentMetadata?.variant || type);
         const templateId = documentMetadata?.documentTemplateId || params.id as string;
-        currentFieldConfig = await getTemplateFormFields(templateVariant, templateId, token);
+        currentFieldConfig = await getTemplateFormFieldsCached(templateVariant, templateId, token);
       }
 
       console.log("handleSave - Before transform - data.items:", data.items);
