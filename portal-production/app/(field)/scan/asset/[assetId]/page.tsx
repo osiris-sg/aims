@@ -15,6 +15,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
 import { request } from "@/helpers/request";
 import FieldBackButton from "../../../components/FieldBackButton";
+import { exitFor, isAdhocOrigin, withOrigin } from "../../../lib/scanOrigin";
 
 type DeliveryItemStatus = "not_delivered" | "delivering" | "not_installed" | "completed";
 
@@ -90,6 +91,8 @@ export default function AssetActionChooser() {
   const { getToken } = useAuth();
   const assetId = params?.assetId as string;
   const inventoryId = search?.get("inventoryId") ?? null;
+  // ?from=adhoc: reached via the chooser's "Scan or tag a unit"; exits go back there.
+  const adhoc = isAdhocOrigin(search);
   const [data, setData] = useState<ScanContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -140,7 +143,7 @@ export default function AssetActionChooser() {
     return (
       <Box sx={{ p: 2 }}>
         <Alert severity="error">{error ?? "Could not load asset"}</Alert>
-        <Button sx={{ mt: 2 }} onClick={() => router.push("/scan")}>Back</Button>
+        <Button sx={{ mt: 2 }} onClick={() => router.push(exitFor(adhoc))}>Back</Button>
       </Box>
     );
   }
@@ -471,7 +474,7 @@ export default function AssetActionChooser() {
       <Button
         variant="text"
         sx={{ mt: 2, color: "text.secondary", alignSelf: "center" }}
-        onClick={() => router.push("/scan/new")}
+        onClick={() => router.push(withOrigin("/scan/new", adhoc))}
       >
         Scan another asset
       </Button>

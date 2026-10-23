@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { Box, Button, Typography, Alert, CircularProgress } from "@mui/material";
 import NfcIcon from "@mui/icons-material/Nfc";
@@ -11,9 +11,12 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { useNfcScan } from "../../hooks/useNfcScan";
 import FieldBackButton from "../../components/FieldBackButton";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { exitFor, isAdhocOrigin, withOrigin } from "../../lib/scanOrigin";
 
 /**
- * Scan a unit (reached from the "+" on the Deliveries home, /scan).
+ * Scan a unit (reached from the Ad-hoc chooser: "New delivery", or "Scan or
+ * tag a unit" which adds ?from=adhoc so every back on the trip returns to the
+ * chooser rather than the Deliveries home).
  *
  * This is the old scan landing, minus its list shortcuts (those now live on
  * the home tabs). On NFC tap we read the chip's hardware UID. Every NFC tag has
@@ -27,19 +30,21 @@ import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
  */
 export default function ScanUnitPage() {
   const router = useRouter();
+  const search = useSearchParams();
+  const adhoc = isAdhocOrigin(search);
   const { getToken } = useAuth();
   const { features, isLoading } = useOrganizationFeatures();
   const nfc = useNfcScan();
   const [scanError, setScanError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Back to the Deliveries home. Pop history when we came from it, so the home
-  // comes back on the same tab (?tab=…); replace only when there is nothing to
-  // pop (a cold deep link).
+  // Back to where the trip began (the chooser, or the Deliveries home). Pop
+  // history when we came from it, so the home comes back on the same tab
+  // (?tab=…); replace only when there is nothing to pop (a cold deep link).
   const goHome = useCallback(() => {
     if (typeof window !== "undefined" && window.history.length > 1) router.back();
-    else router.replace("/scan");
-  }, [router]);
+    else router.replace(exitFor(adhoc));
+  }, [router, adhoc]);
 
   useFieldAppBar({ title: "Scan", onBack: goHome });
 
@@ -62,16 +67,16 @@ export default function ScanUnitPage() {
         const inventoryId = payload?.inventory?.id;
         if (assetId) {
           const query = inventoryId ? `?inventoryId=${encodeURIComponent(inventoryId)}` : "";
-          router.push(`/scan/asset/${assetId}${query}`);
+          router.push(withOrigin(`/scan/asset/${assetId}${query}`, adhoc));
           return;
         }
-        router.push(`/scan/bind?uid=${encodeURIComponent(uid)}`);
+        router.push(withOrigin(`/scan/bind?uid=${encodeURIComponent(uid)}`, adhoc));
       } catch (e: any) {
         // The request helper surfaces 404 as a thrown error in many setups.
         // Treat any non-success as "unbound tag" and push to bind.
         const status = e?.response?.status ?? e?.status;
         if (status === 404) {
-          router.push(`/scan/bind?uid=${encodeURIComponent(uid)}`);
+          router.push(withOrigin(`/scan/bind?uid=${encodeURIComponent(uid)}`, adhoc));
           return;
         }
         setScanError(e?.message ?? "Lookup failed");
@@ -79,7 +84,7 @@ export default function ScanUnitPage() {
         setBusy(false);
       }
     },
-    [getToken, router],
+    [getToken, router, adhoc],
   );
 
   // React to a scanned tag. The hook auto-stops after a successful read, so
@@ -155,7 +160,7 @@ export default function ScanUnitPage() {
         <Button
           variant={nfc.isSupported === false ? "contained" : "outlined"}
           size="large"
-          onClick={() => router.push("/scan/manual")}
+          onClick={() => router.push(withOrigin("/scan/manual", adhoc))}
           startIcon={<KeyboardIcon />}
           sx={{ minWidth: 260, minHeight: 52 }}
         >

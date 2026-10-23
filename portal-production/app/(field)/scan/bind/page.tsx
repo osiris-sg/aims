@@ -40,6 +40,7 @@ import { compressImageDataUrl } from "../../lib/imageCompress";
 import { useNfcScan } from "../../hooks/useNfcScan";
 import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { isAdhocOrigin, withOrigin } from "../../lib/scanOrigin";
 
 interface AssetOption {
   id: string;
@@ -81,6 +82,8 @@ export default function BindTagPage() {
   const search = useSearchParams();
   const { getToken } = useAuth();
   const uid = search?.get("uid") ?? "";
+  // ?from=adhoc: the trip began at the Ad-hoc chooser; keep it on every exit.
+  const adhoc = isAdhocOrigin(search);
   const nfc = useNfcScan(); // for the inline CHILD tags (parent tag is the URL uid)
   useFieldAppBar({ title: "New tag" });
 
@@ -586,7 +589,7 @@ export default function BindTagPage() {
         }
       }
 
-      router.replace(`/scan/asset/${assetId}?inventoryId=${inventoryId}`);
+      router.replace(withOrigin(`/scan/asset/${assetId}?inventoryId=${inventoryId}`, adhoc));
     } catch (e: any) {
       // Stay on review screen so the tech can correct (e.g. duplicate tag).
       setError(e?.message ?? "Failed to create inventory item.");
@@ -599,7 +602,7 @@ export default function BindTagPage() {
     return (
       <Box sx={{ p: 2 }}>
         <Alert severity="error">Missing tag UID. Go back and tap again.</Alert>
-        <Button sx={{ mt: 2 }} onClick={() => router.replace("/scan/new")}>Back to scan</Button>
+        <Button sx={{ mt: 2 }} onClick={() => router.replace(withOrigin("/scan/new", adhoc))}>Back to scan</Button>
       </Box>
     );
   }
@@ -912,7 +915,7 @@ export default function BindTagPage() {
 
       {error && <Alert severity="error">{error}</Alert>}
 
-      <Button sx={{ mt: 2 }} onClick={() => router.replace("/scan/new")}>Cancel</Button>
+      <Button sx={{ mt: 2 }} onClick={() => router.replace(withOrigin("/scan/new", adhoc))}>Cancel</Button>
 
       {/* Add a child asset type — name + skuKey → new child asset under the
           selected parent, appears as a new inline section ready to tag. */}

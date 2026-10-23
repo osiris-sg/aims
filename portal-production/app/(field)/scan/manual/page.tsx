@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
   Alert,
@@ -26,6 +26,7 @@ import { useNfcScan } from "../../hooks/useNfcScan";
 import NameplateCapture from "../../components/NameplateCapture";
 import { FIELD_BUTTON_SX, StatusChip } from "@/app/(field)/components/fieldUi";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { exitFor, isAdhocOrigin, withOrigin } from "../../lib/scanOrigin";
 
 // Normalized match (strip non-alphanumerics + lowercase) so an OCR'd "KBZ 43.7"
 // preselects the catalog "KBZ43.7". Exact-after-normalization only — no
@@ -69,6 +70,9 @@ interface ProjectOption {
  */
 export default function ManualEntryPage() {
   const router = useRouter();
+  const search = useSearchParams();
+  // ?from=adhoc: the trip began at the Ad-hoc chooser; every exit keeps it.
+  const adhoc = isAdhocOrigin(search);
   const { getToken } = useAuth();
   // Re-detect NFC capability here (the hook resolves it on mount, no scan
   // needed) rather than threading state from the scan home — a device without
@@ -156,7 +160,7 @@ export default function ManualEntryPage() {
     if (selectedAsset && m.assetId !== selectedAsset.id) {
       toast.info(`${m.sku} belongs to ${m.assetName ?? m.skuKey ?? "another asset"}`);
     }
-    router.push(`/scan/asset/${m.assetId}?inventoryId=${encodeURIComponent(m.inventoryId)}`);
+    router.push(withOrigin(`/scan/asset/${m.assetId}?inventoryId=${encodeURIComponent(m.inventoryId)}`, adhoc));
   };
 
   // Debounced customer search (300 ms) — same shape as /scan/bind. Only runs
@@ -311,7 +315,7 @@ export default function ManualEntryPage() {
           }
         }
       }
-      router.push(`/scan/asset/${assetId}?inventoryId=${encodeURIComponent(inventoryId)}`);
+      router.push(withOrigin(`/scan/asset/${assetId}?inventoryId=${encodeURIComponent(inventoryId)}`, adhoc));
     } catch (e: any) {
       setError(e?.message ?? "Could not create unit");
     } finally {
@@ -335,7 +339,7 @@ export default function ManualEntryPage() {
             ? "No tracked assets with units are available for manual entry yet."
             : "No assets are enabled for manual serial entry. An admin can enable it per asset (“Allow manual serial entry” in the asset editor)."}
         </Alert>
-        <Button sx={{ mt: 2 }} onClick={() => router.push("/scan")}>Back</Button>
+        <Button sx={{ mt: 2 }} onClick={() => router.push(exitFor(adhoc))}>Back</Button>
       </Box>
     );
   }
@@ -529,7 +533,7 @@ export default function ManualEntryPage() {
         </>
       )}
 
-      <Button variant="text" sx={{ color: "text.secondary", alignSelf: "center" }} onClick={() => router.push("/scan/new")}>
+      <Button variant="text" sx={{ color: "text.secondary", alignSelf: "center" }} onClick={() => router.push(withOrigin("/scan/new", adhoc))}>
         Back to scan
       </Button>
 
