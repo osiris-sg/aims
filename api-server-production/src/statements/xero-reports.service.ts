@@ -27,6 +27,11 @@ interface DocRow {
   templateId: string | null;
   contactId: string;
   contactName: string;
+  // Customer/supplier code from the master file, resolved here so every
+  // report shows it without the portal fetching the whole contact list
+  // (the AR/AP workspaces did that with limit=1000 and showed "—" for the
+  // 614 Chong Aik customers past the cap — guru 2026-10-23).
+  contactCode: string | null;
   date: Date;
   dueDate: Date | null;
   reference: string;
@@ -144,6 +149,7 @@ export class XeroReportsService {
         number: docRef(doc.type, doc.name || '(no #)'),
         contactId,
         contactName,
+        contactCode: null,
         date,
         dueDate,
         reference: documentReferenceOf(c),
@@ -160,16 +166,19 @@ export class XeroReportsService {
       });
     }
 
-    // Docs saved with only a flat contact id (e.g. recurring-generated
-    // invoices) have no name in config — resolve from the contact master.
-    const unknownIds = [...new Set(rows.filter((r) => r.contactName === 'Unknown').map((r) => r.contactId))];
-    if (unknownIds.length) {
-      const found = isAR
-        ? await this.prisma.customer.findMany({ where: { id: { in: unknownIds } }, select: { id: true, name: true } })
-        : await this.prisma.supplier.findMany({ where: { id: { in: unknownIds } }, select: { id: true, name: true } });
-      const nameById = new Map(found.map((f) => [f.id, f.name]));
+    // Resolve code (always) and name (when the doc config carries none, e.g.
+    // recurring-generated invoices) from the contact master in one query.
+    const contactIds = [...new Set(rows.map((r) => r.contactId))];
+    if (contactIds.length) {
+      const found: Array<{ id: string; name: string; code: string | null }> = isAR
+        ? (await this.prisma.customer.findMany({ where: { id: { in: contactIds } }, select: { id: true, name: true, customerCode: true } })).map((f) => ({ id: f.id, name: f.name, code: f.customerCode ?? null }))
+        : (await this.prisma.supplier.findMany({ where: { id: { in: contactIds } }, select: { id: true, name: true, supplierCode: true } })).map((f) => ({ id: f.id, name: f.name, code: f.supplierCode ?? null }));
+      const byId = new Map(found.map((f) => [f.id, f]));
       for (const r of rows) {
-        if (r.contactName === 'Unknown' && nameById.has(r.contactId)) r.contactName = nameById.get(r.contactId)!;
+        const m = byId.get(r.contactId);
+        if (!m) continue;
+        r.contactCode = m.code || null;
+        if (r.contactName === 'Unknown') r.contactName = m.name;
       }
     }
     return rows;
@@ -211,9 +220,9 @@ export class XeroReportsService {
 
     const nBuckets = periods + 2;
     if (level === 'summary') {
-      const byContact = new Map<string, { name: string; buckets: number[]; total: number; currency: string | null; foreignTotal: number }>();
+      const byContact = new Map<string, { name: string; code: string | null; buckets: number[]; total: number; currency: string | null; foreignTotal: number }>();
       for (const d of docs) {
-        const e = byContact.get(d.contactId) || { name: d.contactName, buckets: Array(nBuckets).fill(0), total: 0, currency: null, foreignTotal: 0 };
+        const e = byContact.get(d.contactId) || { name: d.contactName, code: d.contactCode, buckets: Array(nBuckets).fill(0), total: 0, currency: null, foreignTotal: 0 };
         e.buckets[bucketOf(d)] += d.outstanding;
         e.total += d.outstanding;
         if (d.currency) {
@@ -223,7 +232,7 @@ export class XeroReportsService {
         byContact.set(d.contactId, e);
       }
       const rows = [...byContact.entries()]
-        .map(([contactId, e]) => ({ contactId, contactName: e.name, buckets: e.buckets.map(R), total: R(e.total), currency: e.currency, foreignTotal: e.currency ? R(e.foreignTotal) : null }))
+        .map(([contactId, e]) => ({ contactId, contactName: e.name, contactCode: e.code, buckets: e.buckets.map(R), total: R(e.total), currency: e.currency, foreignTotal: e.currency ? R(e.foreignTotal) : null }))
         .sort((a, b) => a.contactName.localeCompare(b.contactName));
       const totals = Array(nBuckets).fill(0);
       let grand = 0;
@@ -245,9 +254,9 @@ export class XeroReportsService {
     }
 
     // detail: group by contact, one row per document
-    const byContact = new Map<string, { name: string; docs: any[]; buckets: number[]; total: number }>();
+    const byContact = new Map<string, { name: string; code: string | null; docs: any[]; buckets: number[]; total: number }>();
     for (const d of docs) {
-      const e = byContact.get(d.contactId) || { name: d.contactName, docs: [], buckets: Array(nBuckets).fill(0), total: 0 };
+      const e = byContact.get(d.contactId) || { name: d.contactName, code: d.contactCode, docs: [], buckets: Array(nBuckets).fill(0), total: 0 };
       const b = bucketOf(d);
       const bucketAmounts = Array(nBuckets).fill(0);
       bucketAmounts[b] = d.outstanding;
@@ -272,6 +281,7 @@ export class XeroReportsService {
       .map(([contactId, e]) => ({
         contactId,
         contactName: e.name,
+        contactCode: e.code,
         docs: e.docs.sort((a: any, b: any) => a.date.localeCompare(b.date)),
         subtotals: e.buckets.map(R),
         total: R(e.total),

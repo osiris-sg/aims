@@ -76,6 +76,10 @@ const AR_REPORTS: { key: string; label: string; description: string; tab?: strin
 type AgedRow = {
   contactId: string;
   contactName: string;
+  // Master-file code, resolved by the aged endpoint. The client-side lookup
+  // below is only a fallback: it fetches the contact list with limit=1000,
+  // which left every contact past the cap showing "—" (guru 2026-10-23).
+  contactCode?: string | null;
   buckets: number[];
   total: number;
   currency: string | null;
@@ -171,7 +175,7 @@ export default function ARWorkspace() {
     const term = search.trim().toLowerCase();
     if (!term) return rows;
     return rows.filter((r) =>
-      [r.contactName, codeById.get(r.contactId)].some((v) => String(v ?? "").toLowerCase().includes(term))
+      [r.contactName, r.contactCode, codeById.get(r.contactId)].some((v) => String(v ?? "").toLowerCase().includes(term))
     );
   }, [rows, search, codeById]);
   const visibleTotal = visibleRows.reduce((s, r) => s + r.total, 0);
@@ -452,7 +456,7 @@ export default function ARWorkspace() {
           getModel={() => {
             if (!rows.length) return null;
             const data = visibleRows.map((r) => [
-              codeById.get(r.contactId) || "",
+              r.contactCode || codeById.get(r.contactId) || "",
               r.contactName,
               fmt(r.total),
               r.currency || "SGD",
@@ -503,11 +507,11 @@ export default function ARWorkspace() {
                   hover
                   onClick={() => {
                     setToPeriod(cutOff);
-                    setSelected({ id: r.contactId, name: r.contactName, code: codeById.get(r.contactId) || "" });
+                    setSelected({ id: r.contactId, name: r.contactName, code: r.contactCode || codeById.get(r.contactId) || "" });
                   }}
                   sx={{ cursor: "pointer" }}
                 >
-                  <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{codeById.get(r.contactId) || "—"}</TableCell>
+                  <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{r.contactCode || codeById.get(r.contactId) || "—"}</TableCell>
                   <TableCell>{r.contactName}</TableCell>
                   <TableCell sx={{ ...monoRight, fontWeight: 600 }}>{fmt(r.total)}</TableCell>
                   <TableCell>{r.currency || "SGD"}</TableCell>
