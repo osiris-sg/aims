@@ -68,8 +68,9 @@ function build() {
   const extract: any = { extract: jest.fn(async () => ({ result: { draft: { customerId: 'c-sus', grade: '6063', size: '203 MM', qtyMt: 300, shipMonth: '2026-11', deliveryMonth: '2027-01', piNo: '9331004300', piAmount: 900000 } } })) };
   const adminDash: any = { admin: jest.fn(async () => DASH) };
   const config: any = { docTypeLabels: jest.fn(async () => new Map([['DELIVERY_REQUEST', '出庫・納入依頼書'], ['COA_CUSTOMER', 'Customer COA'], ['INVOICE_1', 'Invoice #1']])) };
-  const svc = new ShipmentsToolsService(prisma, auth, triage, alerts, files, shipments, s3, audit, actionLog, orders, steps, generated, extract, adminDash, config);
-  return { svc, prisma, triage, alerts, files, shipments, s3, audit, actionLog, orders, steps, generated, extract, adminDash, config };
+  const monthly: any = { list: jest.fn(), export: jest.fn(), summary: jest.fn() };
+  const svc = new ShipmentsToolsService(prisma, auth, triage, alerts, files, shipments, s3, audit, actionLog, orders, steps, generated, extract, adminDash, config, monthly);
+  return { monthly, svc, prisma, triage, alerts, files, shipments, s3, audit, actionLog, orders, steps, generated, extract, adminDash, config };
 }
 
 describe('ShipmentsToolsService — what the agent may call', () => {
@@ -78,7 +79,7 @@ describe('ShipmentsToolsService — what the agent may call', () => {
     const names = svc.names();
     for (const banned of ['api_get', 'api_write', 'api_docs', 'confirm_invoice', 'finalize', 'delete', 'settings', 'email_filter', 'test_flag', 'user']) expect(names.some((n) => n.includes(banned))).toBe(false);
     expect(names).toEqual(expect.arrayContaining(['emails_recent', 'find_email', 'email_text', 'record_status', 'arriving', 'shipments_by_step', 'orders_list', 'tasks_due', 'needs_me', 'list_documents', 'send_document', 'draft_reply', 'order_earnings', 'money_totals', 'email_link', 'email_not_shipment', 'task_done', 'task_snooze', 'reminder_create', 'set_eta', 'shipment_update', 'shipment_add', 'order_create', 'order_from_pi', 'step_done', 'add_note', 'payment_record', 'generated_doc_create']));
-    expect(names).toHaveLength(28);
+    expect(names).toHaveLength(29); // round AG: monthly_list
     const cat = svc.catalogue();
     expect(cat.filter((t) => t.mode === 'money').map((t) => t.name).sort()).toEqual(['money_totals', 'order_earnings', 'payment_record']);
     expect(cat.every((t) => t.origin === 'biofuel' || t.origin === 'adh')).toBe(true);

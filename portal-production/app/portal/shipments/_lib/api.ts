@@ -740,6 +740,22 @@ export type InboxQuestion = {
 };
 /** Round AA: a "record" answer may name several shipments (`targets`, up to 10); `orderId` / `shipmentId` = the first one (back-compat). */
 export type InboxAnswer = { kind: "record"; orderId?: string | null; shipmentId?: string | null; targets?: Array<{ orderId: string; shipmentId: string | null }> } | { kind: "not_shipment" } | { kind: "not_deal" } | { kind: "later" };
+/** Round AG — the Monthly order list. */
+export type MonthlyQuery = { from?: string; to?: string; basis?: "delivery" | "ship"; customerId?: string; supplier?: string; grade?: string; status?: string };
+export type MonthlyRow = {
+  orderId: string; shipmentId: string | null; stepId: string | null; first: boolean; span: number;
+  client: string; orderNo: string; shipmentRef: string | null; orderDate: string | null; billetType: string; supplier: string; ton: number | null;
+  shipMonth: string | null; deliveryMonth: string | null; orderStatus: "Open" | "Completed" | "Unconfirmed";
+  supplierContractNo: string | null; supplierOrderDate: string | null; supplierTon: number | null; supplierStatus: string;
+  shipmentStatus: string | null; managementNo: string | null; blNumber: string | null; etd: string | null; eta: string | null; month: string | null;
+};
+export type MonthlyBlock = { client: string; rows: MonthlyRow[]; orders: number; tons: number };
+export type MonthlyListResult = {
+  filter: { from: string; to: string; basis: "delivery" | "ship"; customerId: string | null; supplier: string | null; grade: string | null; status: string | null };
+  blocks: MonthlyBlock[];
+  options: { clients: Array<{ id: string; name: string }>; suppliers: string[]; grades: string[] };
+  totals: { orders: number; rows: number; tons: number };
+};
 export type InboxAnswerResult = { kind: InboxAnswer["kind"]; ids: string[]; refs: string[]; files: number; text: string };
 /** Round AF: one attachment of a thread (inline signature images left out), with the email it came in. */
 export type InboxThreadFile = { emailId: string; index: number; name: string; contentType: string | null; size: number | null; date: string; from: string; company: string | null };
@@ -1658,6 +1674,11 @@ export function useShipmentsApi() {
       },
       revertGenerated: (id: string) => call<GeneratedDoc>(`/trade-generated/${id}/revert`, "POST"),
       deleteGenerated: (id: string) => call<{ id: string; deleted: boolean }>(`/trade-generated/${id}`, "DELETE"),
+
+      // ── Round AG: the Monthly order list (ADH's spreadsheet layout) ─────────
+      monthlyList: (q: MonthlyQuery = {}) => call<MonthlyListResult>(`/trade-monthly-list${qs(q)}`),
+      monthlyExport: (q: MonthlyQuery, format: "xlsx" | "csv") => call<{ fileName: string; contentType: string; base64: string }>(`/trade-monthly-list/export${qs({ ...q, format })}`, "GET", {}, 60_000),
+      setManagementNo: (shipmentId: string, managementNo: string | null) => call<{ id: string; managementNo: string | null }>(`/trade-monthly-list/shipments/${shipmentId}/management-no`, "PATCH", { managementNo }),
 
       // ── Documents hub ────────────────────────────────────────────────────
       hub: (f: HubFilters = {}) => call<Paged<HubRow> & { categoryCounts: Record<string, number>; allCount: number }>(`/trade-hub${qs(f)}`),

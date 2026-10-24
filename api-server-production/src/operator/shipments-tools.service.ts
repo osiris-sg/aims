@@ -18,6 +18,7 @@
  * audit helper (AuditService + ActionLogService), preview (PDF push) and choice (buttons) outcomes, the
  * "find before you act / never invent an id" discipline and the plain-text answer formats.
  */
+import { MonthlyListService } from '../shipments/monthly-list.service';
 import { senderName } from './push-text';
 import { Injectable, Logger } from '@nestjs/common';
 import type Anthropic from '@anthropic-ai/sdk';
@@ -107,6 +108,7 @@ export class ShipmentsToolsService {
     private readonly extract: TradeExtractService,
     private readonly adminDash: TradeAdminDashboardService,
     private readonly config: TradeConfigService,
+    private readonly monthly: MonthlyListService,
   ) {}
 
   /** Tool definitions handed to Claude — only the ones this user's permissions allow. */
@@ -250,6 +252,30 @@ export class ShipmentsToolsService {
     const key = `whatsapp-previews/${ctx.organizationId}/${g.id}.pdf`;
     await this.s3.uploadFile(key, pdf.buffer, 'application/pdf');
     return { url: await this.s3.getSignedUrl(key, 3600), filename: pdf.fileName, caption: `Draft ${docType.replace(/_/g, ' ')} · ${ref} (not final)` };
+  }
+
+  // ── Round AG: the Monthly order list on WhatsApp — a short summary + the .xlsx (their layout) ─────────────
+
+  private async monthlyList(ctx: OperatorContext, a: Record<string, any>): Promise<ShipToolOutcome> {
+    const month = /^\d{4}-\d{2}$/.test(String(a.month ?? '')) ? String(a.month) : undefined;
+    const to = /^\d{4}-\d{2}$/.test(String(a.to ?? '')) ? String(a.to) : month;
+    let customerId: string | undefined;
+    if (a.customer) {
+      const all = await this.monthly.list(ctx.organizationId, {});
+      const want = String(a.customer).toLowerCase();
+      customerId = all.options.clients.find((c) => c.name.toLowerCase() === want || c.name.toLowerCase().includes(want))?.id;
+      if (!customerId) return { result: { error: `No client "${String(a.customer).slice(0, 40)}" — clients: ${all.options.clients.map((c) => c.name).join(', ')}` } };
+    }
+    const q = { from: month, to, basis: a.basis === 'ship' ? 'ship' : 'delivery', customerId };
+    const file = await this.monthly.export(ctx.organizationId, q, 'xlsx');
+    const lang = (ctx as any).lang === 'ja' ? 'ja' : 'en';
+    const text = this.monthly.summary(file.blocks, file.filter, lang);
+    const rows = file.blocks.reduce((n, b) => n + b.rows.length, 0);
+    if (!rows) return { result: { summary: text, file: null } };
+    const key = `whatsapp-previews/${ctx.organizationId}/monthly-${file.filter.from}-${file.filter.to}-${Date.now()}.xlsx`;
+    await this.s3.uploadFile(key, file.buffer, file.contentType);
+    this.log(ctx, 'VIEW', 'TradeOrder', undefined, file.fileName, `monthly list sent on WhatsApp (${file.filter.from}–${file.filter.to})`);
+    return { result: { summary: text, file: file.fileName, instruction: 'Reply with the summary text as is (plain lines, no bullets); the .xlsx is sent with it.' }, preview: { url: await this.s3.getSignedUrl(key, 3600), filename: file.fileName, caption: text.split('\n')[0] } } as ShipToolOutcome;
   }
 
   // ── Inbound files (same intake as email) ───────────────────────────────────
@@ -399,6 +425,15 @@ export class ShipmentsToolsService {
         origin: 'biofuel',
         input_schema: { type: 'object', properties: { customer: { type: 'string' }, month: { type: 'string', description: 'YYYY-MM' }, status: { type: 'string', enum: ['OPEN', 'COMPLETED', 'ALL'] } } },
         run: async (ctx, a) => this.ordersList(ctx.organizationId, a.customer ? String(a.customer) : null, a.month ? String(a.month) : null, a.status === 'ALL' ? null : a.status === 'COMPLETED' ? 'COMPLETED' : 'OPEN'),
+      },
+      {
+        name: 'monthly_list',
+        description: 'The Monthly order list (ADH\'s spreadsheet layout: per client, one row per shipment, order / supplier / shipment columns) for a delivery month or a range, as a short summary plus the .xlsx file sent on WhatsApp. "monthly list for November" → month "2026-11"; no month = this month and the next two. basis "ship" = by shipment month.',
+        permissions: [SHIPMENTS_READ],
+        mode: 'read',
+        origin: 'biofuel',
+        input_schema: { type: 'object', properties: { month: { type: 'string', description: 'YYYY-MM (one month)' }, to: { type: 'string', description: 'YYYY-MM, the end of a range starting at month' }, basis: { type: 'string', enum: ['delivery', 'ship'] }, customer: { type: 'string', description: '"Kato", "SUS", "Hoei" — optional' } } },
+        run: async (ctx, a) => this.monthlyList(ctx, a),
       },
       {
         name: 'tasks_due',

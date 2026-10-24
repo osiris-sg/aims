@@ -1597,6 +1597,8 @@ model Shipment {
   /// Warehouse stock: where the cargo is stored (e.g. "Mitsui Soko Honmoku") and since when (storage periods 期).
   warehouse         String?
   storageStartDate  DateTime?
+  /// Round AG: ADH's "管理NO" (Monthly order list) — a manual reference until ADH says what it is.
+  managementNo      String?
   createdById       String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt

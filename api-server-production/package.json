@@ -91,6 +91,7 @@
     "adm-zip": "^0.6.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "exceljs": "^4.4.0",
     "firebase-admin": "^14.3.0",
     "lucide-react": "^0.510.0",
     "moment": "^2.30.1",

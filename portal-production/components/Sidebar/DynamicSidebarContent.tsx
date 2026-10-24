@@ -47,7 +47,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { getListRouteFromPathname } from "@/app/portal/components/documentRoutes";
 import { useSidebar } from "./SidebarContext";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
-import { visibleSalesSubmenus } from "@/helpers/shipmentsNav";
+import { visibleSalesSubmenus, withSalesMonthly } from "@/helpers/shipmentsNav";
 
 // Material UI icon mapping
 const iconMap: Record<string, React.ComponentType> = {
@@ -217,8 +217,10 @@ export default function DynamicSidebarContent() {
       .filter(m => shownInMenu(m))
     .map(m => {
       const hide = HIDDEN_SUBMENUS[m.moduleCode];
-      const subMenus = (m.config as any)?.subMenus;
-      if (!Array.isArray(subMenus)) return m;
+      const rawSubMenus = (m.config as any)?.subMenus;
+      if (!Array.isArray(rawSubMenus)) return m;
+      // Round AG: Sales › Monthly list for SHIPMENTS orgs (in code — no module row changes).
+      const subMenus = m.moduleCode === 'SHIPMENTS' ? withSalesMonthly(rawSubMenus) : rawSubMenus;
       const filtered = subMenus.filter((s: any) => {
         if (typeof s === 'object' && s?.adminOnly && !isAdminUser) return false;
         const key = typeof s === 'string' ? s : s?.key;

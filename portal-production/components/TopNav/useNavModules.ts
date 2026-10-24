@@ -10,7 +10,7 @@ import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
-import { visibleSalesSubmenus } from "@/helpers/shipmentsNav";
+import { visibleSalesSubmenus, withSalesMonthly } from "@/helpers/shipmentsNav";
 
 // Mirrors DynamicSidebarContent — keep the two in sync.
 const HIDDEN_MODULES = new Set<string>(["CUSTOMERS", "SUPPLIERS"]);
@@ -76,8 +76,10 @@ export function useNavModules() {
     .filter((m: any) => shownInMenu(m))
     .map((m: any) => {
       const hide = HIDDEN_SUBMENUS[m.moduleCode];
-      const subMenus = (m.config as any)?.subMenus;
-      if (!Array.isArray(subMenus)) return m;
+      const rawSubMenus = (m.config as any)?.subMenus;
+      if (!Array.isArray(rawSubMenus)) return m;
+      // Round AG: Sales › Monthly list for SHIPMENTS orgs (in code — no module row changes).
+      const subMenus = m.moduleCode === "SHIPMENTS" ? withSalesMonthly(rawSubMenus) : rawSubMenus;
       const filtered = subMenus.filter((s: any) => {
         if (typeof s === "object" && s?.adminOnly && !isAdminUser) return false;
         const key = typeof s === "string" ? s : s?.key;

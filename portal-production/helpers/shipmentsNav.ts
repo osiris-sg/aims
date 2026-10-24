@@ -19,7 +19,15 @@ export function shipmentsLanding(): string {
 }
 
 /** The Sales menu as the user sees it (labels only — keys / routes are the module's). */
-export const SALES_MENU_LABELS = ["Dashboard", "Orders", "Shipments"] as const;
+export const SALES_MENU_LABELS = ["Dashboard", "Orders", "Shipments", "Monthly list"] as const;
+
+/** Round AG: Sales › Monthly list (ADH's spreadsheet layout) — added in code, so no module row has to change. */
+export const SALES_MONTHLY_SUBMENU = { key: "monthly", label: "Monthly list" } as const;
+export const SHIPMENTS_MONTHLY = "/portal/shipments/monthly";
+/** The Sales submenus with Monthly list appended when the stored row doesn't have it. */
+export function withSalesMonthly<T extends string | { key?: string; label?: string }>(subMenus: readonly T[]): Array<T | typeof SALES_MONTHLY_SUBMENU> {
+  return subMenus.some((s) => (typeof s === "string" ? s : s?.key) === SALES_MONTHLY_SUBMENU.key) ? [...subMenus] : [...subMenus, SALES_MONTHLY_SUBMENU];
+}
 
 /** The full two-tab email view (Unprocessed / Processed) — a Dashboard sub-view since round W. */
 export const SHIPMENTS_EMAILS = "/portal?view=emails";

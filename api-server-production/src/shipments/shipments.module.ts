@@ -1,3 +1,5 @@
+import { MonthlyListController } from './monthly-list.controller';
+import { MonthlyListService } from './monthly-list.service';
 import { Module } from '@nestjs/common';
 import { CommonModule } from '../common/common.module';
 import { DocumentExtractionModule } from '../document-extraction/document-extraction.module';
@@ -50,6 +52,7 @@ import { TradeStepsService } from './trade-steps.service';
 @Module({
   imports: [CommonModule, DocumentExtractionModule, DocumentsModule, DocumentTemplatesModule, EmailModule, NotificationsModule],
   controllers: [
+    MonthlyListController,
     OrdersController,
     SupplierOrdersController,
     TradePriceCheckController,
@@ -67,6 +70,7 @@ import { TradeStepsService } from './trade-steps.service';
     TradeExtractController,
   ],
   providers: [
+    MonthlyListService,
     ShipmentsNotifyService, // round S: WhatsApp staff notification queue
     OrdersService,
     SupplierOrdersService,
@@ -87,6 +91,6 @@ import { TradeStepsService } from './trade-steps.service';
     TradeExtractService,
     PrismaService,
   ],
-  exports: [ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService],
+  exports: [MonthlyListService, ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService],
 })
 export class ShipmentsModule {}

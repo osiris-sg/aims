@@ -4,7 +4,7 @@
 // (Round O: the tasks in the bell + the Orders "Tasks" panel; "Imported, payment not tracked".)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SALES_MENU_LABELS, SHIPMENTS_EMAILS, SHIPMENTS_HOME, SHIPMENTS_ORDERS, shipmentsLanding, visibleSalesSubmenus } from "./shipmentsNav.ts";
+import { SALES_MENU_LABELS, SHIPMENTS_EMAILS, SHIPMENTS_HOME, SHIPMENTS_ORDERS, shipmentsLanding, visibleSalesSubmenus, withSalesMonthly } from "./shipmentsNav.ts";
 import { bellBadge, isOverdue, taskCounts } from "../app/portal/shipments/_lib/tasks.ts";
 import { IMPORT_NOTE, receiptNotTracked } from "../app/portal/shipments/_lib/receipt.ts";
 
@@ -13,6 +13,7 @@ test("Sales menu: Dashboard · Orders · Shipments — no Inbox (round W)", () =
     { key: "dashboard", label: "Dashboard" },
     { key: "list", label: "Orders" },
     { key: "shipments", label: "Shipments" },
+    { key: "monthly", label: "Monthly list" },
   ];
   assert.deepEqual(menu.map((s) => s.label), [...SALES_MENU_LABELS]);
   assert.ok(!SALES_MENU_LABELS.includes("Inbox"));
@@ -64,4 +65,9 @@ test('"Imported, payment not tracked": a receiving step with no receipt on a clo
   assert.equal(receiptNotTracked("IN", null, true, null), false);
   assert.equal(receiptNotTracked("IN", { amount: 1 }, false, null), false);
   assert.equal(receiptNotTracked("OUT", null, false, null), false);
+});
+
+test("round AG: Monthly list is appended to the Sales submenus once, whatever the stored row says", () => {
+  assert.deepEqual(withSalesMonthly([{ key: "list", label: "Orders" }, { key: "shipments", label: "Shipments" }]).map((s) => s.key), ["list", "shipments", "monthly"]);
+  assert.deepEqual(withSalesMonthly(["list", "monthly"]), ["list", "monthly"]);
 });
