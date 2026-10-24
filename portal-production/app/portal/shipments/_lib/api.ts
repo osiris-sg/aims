@@ -1678,7 +1678,6 @@ export function useShipmentsApi() {
       // ── Round AG: the Monthly order list (ADH's spreadsheet layout) ─────────
       monthlyList: (q: MonthlyQuery = {}) => call<MonthlyListResult>(`/trade-monthly-list${qs(q)}`),
       monthlyExport: (q: MonthlyQuery, format: "xlsx" | "csv") => call<{ fileName: string; contentType: string; base64: string }>(`/trade-monthly-list/export${qs({ ...q, format })}`, "GET", {}, 60_000),
-      setManagementNo: (shipmentId: string, managementNo: string | null) => call<{ id: string; managementNo: string | null }>(`/trade-monthly-list/shipments/${shipmentId}/management-no`, "PATCH", { managementNo }),
 
       // ── Documents hub ────────────────────────────────────────────────────
       hub: (f: HubFilters = {}) => call<Paged<HubRow> & { categoryCounts: Record<string, number>; allCount: number }>(`/trade-hub${qs(f)}`),

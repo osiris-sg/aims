@@ -8,7 +8,8 @@
  *   Supplier information  Supplier Contract No · Order Date · Order ton · Status
  *   Shipment information  Order Status · 管理NO · BL Number · ETD · ETA
  * Both "Status" columns are COMPUTED (order status; PI / CI payment from steps 1 and 6) — ADH's sheet colours them
- * yellow, so does the export. 管理NO is the one manual column (stored on the shipment).
+ * yellow, so does the export. 管理NO is ADH's number for the client order: #n-s per shipment (#n on an order without one);
+ * Order No. is then the customer's PO no. when AIMS has it, else #n.
  */
 export type MonthBasis = 'delivery' | 'ship';
 export type OrderStatusWord = 'Open' | 'Completed' | 'Unconfirmed';
@@ -26,7 +27,6 @@ export interface ShipmentFact {
   etd: Date | string | null;
   eta: Date | string | null;
   deliveryMonth: string | null;
-  managementNo: string | null;
   /** The current step's label ("9. Send arrival notice …") and id, or null when every step is done. */
   currentStep: { id: string | null; label: string; code: string } | null;
   ciPayment: StepFact[];
@@ -38,6 +38,8 @@ export interface OrderFact {
   checkFields: string[];
   customerId: string;
   customerName: string;
+  /** The customer's own PO no. (Order No. when set). */
+  customerPoNo: string | null;
   /** Profile key (KATO / SUS / HOEI) when the customer has a profile. */
   customerKey: string | null;
   supplierName: string;
@@ -195,7 +197,7 @@ export function buildMonthlyList(orders: OrderFact[], f: MonthlyFilter): Monthly
     const base = {
       orderId: o.id,
       client,
-      orderNo: `#${o.orderNo}`,
+      orderNo: o.customerPoNo?.trim() || `#${o.orderNo}`,
       orderDate: day(o.orderDate),
       billetType: [o.grade, o.size].filter(Boolean).join(' ') || '—',
       supplier: shortSupplier(o.supplierName),
@@ -217,7 +219,7 @@ export function buildMonthlyList(orders: OrderFact[], f: MonthlyFilter): Monthly
         span: list.length,
         shipmentRef: s ? `#${o.orderNo}${s.seqNo ? `-${s.seqNo}` : ''}` : null,
         shipmentStatus: s ? shipmentStatus(s) : null,
-        managementNo: s?.managementNo ?? null,
+        managementNo: s ? `#${o.orderNo}${s.seqNo ? `-${s.seqNo}` : ''}` : `#${o.orderNo}`,
         blNumber: s?.blNumber ?? null,
         etd: day(s?.etd),
         eta: day(s?.eta),
@@ -267,7 +269,7 @@ export function rowCells(r: MonthlyRow): Array<string | number | null> {
   const o = r.first;
   return [
     o ? r.client : null,
-    r.shipmentRef ?? r.orderNo,
+    o ? r.orderNo : null,
     o ? r.orderDate : null,
     o ? r.billetType : null,
     o ? r.supplier : null,

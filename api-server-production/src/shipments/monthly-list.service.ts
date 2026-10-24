@@ -1,9 +1,9 @@
 /**
  * Round AG — the Monthly order list: reads orders (test / cancelled left out), their shipments, steps and supplier side,
  * and hands them to the pure builder (monthly-list.ts). The .xlsx (their layout) and CSV come from the same rows; the
- * WhatsApp tool sends a summary + the .xlsx. 管理NO is the one editable cell (Shipment.managementNo).
+ * WhatsApp tool sends a summary + the .xlsx. 管理NO is ADH's client-order number (#n-s), computed.
  */
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { TradeConfigService } from './trade-config.service';
 import { currentStepOf, tradeToday } from './shipments.rules';
@@ -50,6 +50,7 @@ export class MonthlyListService {
         checkFields: true,
         customerId: true,
         createdAt: true,
+        customerPoNo: true,
         customerPoDate: true,
         grade: true,
         size: true,
@@ -62,7 +63,7 @@ export class MonthlyListService {
         contract: { select: { contractNo: true, piDate: true } },
         supplierOrder: { select: { status: true, piDate: true, qtyMt: true, contract: { select: { contractNo: true } }, steps: { select: STEP } } },
         steps: { select: STEP },
-        shipments: { where: { status: { not: 'CANCELLED' } }, select: { id: true, seqNo: true, status: true, blNumber: true, etd: true, eta: true, deliveryMonth: true, managementNo: true, steps: { select: STEP } } },
+        shipments: { where: { status: { not: 'CANCELLED' } }, select: { id: true, seqNo: true, status: true, blNumber: true, etd: true, eta: true, deliveryMonth: true, steps: { select: STEP } } },
       },
     });
     return orders.map((o) => {
@@ -76,6 +77,7 @@ export class MonthlyListService {
         checkFields: o.checkFields ?? [],
         customerId: o.customerId,
         customerName: o.customer?.name ?? '—',
+        customerPoNo: o.customerPoNo ?? null,
         customerKey: keyOf(o.customerId),
         supplierName: o.supplier?.name ?? '—',
         orderDate: o.customerPoDate ?? o.createdAt,
@@ -100,7 +102,6 @@ export class MonthlyListService {
             etd: s.etd,
             eta: s.eta,
             deliveryMonth: s.deliveryMonth,
-            managementNo: s.managementNo ?? null,
             currentStep: cur ? { id: (s.steps ?? []).find((x: any) => x.code === cur.code)?.id ?? null, label: cur.label, code: cur.code } : null,
             ciPayment: (s.steps ?? []).filter((x: any) => x.code === 'CI_PAYMENT'),
           };
@@ -139,15 +140,5 @@ export class MonthlyListService {
 
   summary(blocks: MonthlyBlock[], f: ReturnType<MonthlyListService['filterOf']>, lang: 'en' | 'ja' = 'en') {
     return monthlySummary(blocks, f, lang);
-  }
-
-  /** 管理NO: the one manual cell (Activity Log has who / when — the PATCH is logged). */
-  async setManagementNo(organizationId: string, shipmentId: string, value: unknown) {
-    if (value !== null && typeof value !== 'string') throw new BadRequestException('managementNo must be text');
-    const v = typeof value === 'string' ? value.trim().slice(0, 60) || null : null;
-    const s = await this.prisma.shipment.findFirst({ where: { id: shipmentId, organizationId }, select: { id: true } });
-    if (!s) throw new NotFoundException('Shipment not found');
-    await this.prisma.shipment.update({ where: { id: shipmentId }, data: { managementNo: v } });
-    return { id: shipmentId, managementNo: v };
   }
 }

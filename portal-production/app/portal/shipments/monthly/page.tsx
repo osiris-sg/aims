@@ -5,14 +5,14 @@
 // the others), one row per shipment (an order with no shipment yet = one row; an order with 3 B/Ls = 3 rows whose order
 // / supplier cells are shown once, merged). Three column groups — Order information · Supplier information · Shipment
 // information — and the two yellow Status columns (computed: order status; PI / CI paid from steps 1 and 6). 管理NO is
-// the one editable cell. Filters: delivery / shipment month range (default: this month + the next two), client,
+// ADH's client-order number (#n-s per shipment). Filters: delivery / shipment month range (default: this month + the next two), client,
 // supplier, grade, status. Export: .xlsx in their layout, CSV. A row opens the order on that shipment's current step.
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Box, Button, CircularProgress, Menu, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useShipmentsApi, type MonthlyQuery, type MonthlyRow } from "../_lib/api";
 import { orderHref } from "../_lib/inbox-threads";
 import { toast } from "../_lib/toast";
@@ -45,62 +45,8 @@ function download(fileName: string, contentType: string, base64: string) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-/** 管理NO: click to edit, Enter / blur saves, Esc cancels. Only on shipment rows. */
-function ManagementNoCell({ r, onSaved }: { r: MonthlyRow; onSaved: () => void }) {
-  const api = useShipmentsApi();
-  const [edit, setEdit] = useState(false);
-  const [v, setV] = useState(r.managementNo ?? "");
-  useEffect(() => setV(r.managementNo ?? ""), [r.managementNo]);
-  if (!r.shipmentId) return null;
-  const save = async () => {
-    setEdit(false);
-    if ((r.managementNo ?? "") === v.trim()) return;
-    try {
-      await api.setManagementNo(r.shipmentId!, v.trim() || null);
-      onSaved();
-    } catch (e: any) {
-      toast.error(e?.message || "Could not save 管理NO");
-      setV(r.managementNo ?? "");
-    }
-  };
-  return edit ? (
-    <TextField
-      size="small"
-      autoFocus
-      value={v}
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => setV(e.target.value)}
-      onBlur={() => void save()}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === "Enter") void save();
-        if (e.key === "Escape") {
-          setV(r.managementNo ?? "");
-          setEdit(false);
-        }
-      }}
-      inputProps={{ style: { padding: "2px 6px", fontSize: 13 }, maxLength: 60 }}
-      sx={{ width: 110 }}
-    />
-  ) : (
-    <Box
-      component="span"
-      onClick={(e) => {
-        e.stopPropagation();
-        setEdit(true);
-      }}
-      title="Click to edit 管理NO"
-      sx={{ cursor: "text", display: "inline-block", minWidth: 60, minHeight: 18, borderBottom: "1px dashed", borderColor: "divider", color: r.managementNo ? "text.primary" : "text.disabled" }}
-      data-tour="monthly-kanri"
-    >
-      {r.managementNo || "—"}
-    </Box>
-  );
-}
-
 export default function MonthlyListPage() {
   const api = useShipmentsApi();
-  const qc = useQueryClient();
   const router = useRouter();
   const now = tokyoMonth();
   const [q, setQ] = useState<MonthlyQuery>({ from: now, to: addMonth(now, 2), basis: "delivery" });
@@ -125,7 +71,6 @@ export default function MonthlyListPage() {
     const href = orderHref(r.orderId, r.shipmentId, r.stepId);
     if (href) router.push(href);
   };
-  const refresh = () => void qc.invalidateQueries({ queryKey: ["trade-monthly-list"] });
 
   const cells = useMemo(
     () => (r: MonthlyRow) => {
@@ -135,7 +80,7 @@ export default function MonthlyListPage() {
       const merged = (i: number, v: React.ReactNode, sx: object = {}) => (o ? <TableCell key={i} rowSpan={span} sx={{ verticalAlign: "top", ...(YELLOW_COLS.has(i) ? YELLOW : {}), ...sx }}>{v}</TableCell> : null);
       return [
         merged(0, <b>{r.client}</b>),
-        <TableCell key={1} sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>{r.shipmentRef ?? r.orderNo}</TableCell>,
+        merged(1, r.orderNo, { fontWeight: 700, whiteSpace: "nowrap" }),
         merged(2, dmy(r.orderDate), { whiteSpace: "nowrap" }),
         merged(3, r.billetType),
         merged(4, r.supplier),
@@ -148,7 +93,7 @@ export default function MonthlyListPage() {
         merged(11, t3(r.supplierTon), { textAlign: "right", fontVariantNumeric: "tabular-nums" }),
         merged(12, r.supplierStatus, { fontWeight: 600 }),
         <TableCell key={13}>{r.shipmentStatus ?? ""}</TableCell>,
-        <TableCell key={14}><ManagementNoCell r={r} onSaved={refresh} /></TableCell>,
+        <TableCell key={14} sx={{ fontWeight: 700, whiteSpace: "nowrap" }} data-tour="monthly-kanri">{r.managementNo}</TableCell>,
         <TableCell key={15} sx={{ whiteSpace: "nowrap" }}>{r.blNumber ?? ""}</TableCell>,
         <TableCell key={16} sx={{ whiteSpace: "nowrap" }}>{dmy(r.etd)}</TableCell>,
         <TableCell key={17} sx={{ whiteSpace: "nowrap" }}>{dmy(r.eta)}</TableCell>,

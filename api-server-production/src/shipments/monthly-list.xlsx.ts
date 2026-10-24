@@ -12,7 +12,7 @@ const GROUP_FILL = ['FFDDEBF7', 'FFE2EFDA', 'FFFCE4D6'];
 const BORDER = { style: 'thin' as const, color: { argb: 'FF999999' } };
 const WIDTHS = [12, 10, 12, 22, 11, 9, 13, 13, 12, 18, 12, 10, 12, 26, 12, 16, 12, 12];
 /** Order + supplier columns (0-based) whose cells merge down over an order's shipment rows. */
-const ORDER_COLS = [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const ORDER_COLS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
 export async function monthlyXlsx(blocks: MonthlyBlock[], meta: { orgName: string; from: string; to: string; basis: 'delivery' | 'ship'; generatedAt: Date }): Promise<Buffer> {
   const wb = new Workbook();
