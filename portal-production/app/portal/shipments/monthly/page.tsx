@@ -159,7 +159,7 @@ export default function MonthlyListPage() {
   );
 
   return (
-    <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1800, mx: "auto" }} data-tour="monthly-list">
+    <Box sx={{ p: { xs: 1.5, md: 3 }, width: "100%", maxWidth: "100vw", minWidth: 0, boxSizing: "border-box" }} data-tour="monthly-list">
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }} flexWrap="wrap" useFlexGap>
         <Typography variant="h6" sx={{ fontWeight: 700, flex: 1 }}>
           Monthly order list
@@ -219,8 +219,8 @@ export default function MonthlyListPage() {
           <Typography color="text.secondary">No orders in this range.</Typography>
         </Paper>
       ) : (
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small" sx={{ "& td, & th": { borderRight: "1px solid", borderColor: "divider", px: 1, py: 0.5, fontSize: 13 } }}>
+        <TableContainer component={Paper} variant="outlined" sx={{ maxWidth: "100%", overflowX: "auto" }}>
+          <Table size="small" sx={{ "& td, & th": { borderRight: "1px solid", borderColor: "divider", px: 0.75, py: 0.5, fontSize: 12.5, verticalAlign: "top" } }}>
             <TableHead>
               <TableRow>
                 {GROUPS.map((g) => (
