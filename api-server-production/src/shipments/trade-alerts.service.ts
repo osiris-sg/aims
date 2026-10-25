@@ -1,7 +1,7 @@
 import { ALERTABLE_ORDER, isTestRecord, isUnconfirmed, mutedRecordIds } from './trade-test-orders';
 import { freeTimeLine, stepOverdueLine } from '../operator/push-text';
 import { ShipmentsNotifyService } from './shipments-notify.service';
-import { CUSTOM_KIND } from './trade-alerts';
+import { CUSTOM_KIND, STANDING_KINDS } from './trade-alerts';
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { Cron } from '@nestjs/schedule';
@@ -221,7 +221,7 @@ export class TradeAlertsService {
     }
     // Planned no more (record closed, step moved on): resolved.
     for (const left of byKey.values()) {
-      if (left.status === 'DONE' || left.kind === CUSTOM_KIND) continue; // round T: a person's own reminder is not the planner's to close
+      if (left.status === 'DONE' || STANDING_KINDS.has(left.kind)) continue; // round T: a person's own reminder is not the planner's to close
       await this.prisma.tradeAlert.update({ where: { id: left.id }, data: { status: 'DONE', resolvedAt: now } });
       updated++;
     }

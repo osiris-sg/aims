@@ -1725,6 +1725,9 @@ export function useShipmentsApi() {
         estimatorRates?: Partial<EstimatorRates>;
         alertRules?: Partial<AlertRules>;
       }) => call<TradeSettings>(`/trade-config/settings`, "PATCH", body),
+      /** Round AK: the Westmetall LME feed — status, and "Fetch now" (a preview while the org flag is off). */
+      lmeStatus: (month?: string) => call<LmeStatus>(`/trade-config/lme${qs({ month })}`),
+      lmeFetch: () => call<LmeFetchResult>(`/trade-config/lme/fetch`, "POST", {}, 90_000),
       suppliers: async () => {
         const r = await call<{ docs?: Party[] }>(`/suppliers`, "POST", { page: 1, limit: 500, search: "" });
         return r.docs ?? [];
@@ -1754,4 +1757,32 @@ export const targetGroup = (k: TargetKind) => (k === "order" ? "Orders" : k === 
 export function recordFileCount(r: { fileLinks: RecordFileLink[]; docLinks?: RecordDocLink[] }): number {
   const fileIds = new Set(r.fileLinks.map((l) => l.file.id));
   return r.fileLinks.length + (r.docLinks ?? []).filter((l) => !l.inAppFileId || !fileIds.has(l.inAppFileId)).length;
+}
+
+// ── Round AK: LME feed (Westmetall) ─────────────────────────────────────────
+export type LmeMonthState = "missing" | "westmetall" | "typed-agrees" | "typed-differs";
+export interface LmeStatus {
+  source: { name: string; url: string; averagesUrl: string; schedule: string };
+  switchedOn: boolean;
+  lastRun: { createdAt: string; ok: boolean; rows: number; error: string | null; trigger: string } | null;
+  runs: Array<{ createdAt: string; ok: boolean; rows: number; error: string | null; trigger: string }>;
+  month: string;
+  days: Array<{ date: string; cash: number; threeMonth: number | null; stock: number | null }>;
+  months: Array<{ month: string; westmetall: number; days: number; final: boolean; publishedAvg: number | null; table: number | null; state: LmeMonthState }>;
+  provisional: string[];
+}
+export interface LmeFetchResult {
+  ok: boolean;
+  error?: string;
+  preview: boolean;
+  latest: string | null;
+  months: Array<{ month: string; avg: number; days: number; final: boolean }>;
+  orgs: Array<{
+    plan: {
+      writes: Array<{ month: string; from: number | null; to: number; final: boolean; days: number; reason: string }>;
+      conflicts: Array<{ month: string; table: number; westmetall: number; final: boolean }>;
+      agree: string[];
+    };
+    revise: Array<{ key: string; month: string; used: number; final: number; ref: string; docLabel: string }>;
+  }>;
 }

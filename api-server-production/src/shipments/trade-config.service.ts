@@ -817,6 +817,8 @@ export function mergeDocDefaults(current: Record<string, unknown>, patch: Record
   const out: Record<string, unknown> = { ...current };
   for (const [k, v] of Object.entries(patch ?? {})) {
     if (!/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(k)) throw new BadRequestException(`Unknown document setting "${k}"`);
+    // Round AK: the LME feed's own record of what it wrote — never set or cleared from the settings form.
+    if (k === 'lmeAuto') throw new BadRequestException('lmeAuto is kept by the LME feed and cannot be edited');
     if (v === null) {
       delete out[k];
       continue;

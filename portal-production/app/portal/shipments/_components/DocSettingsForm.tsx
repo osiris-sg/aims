@@ -17,6 +17,7 @@ import UploadIcon from "@mui/icons-material/UploadFile";
 import { bankEntity, type BankAccount, type DeliveryProfile, type IssuingEntity } from "../_lib/api";
 import { useTradeMutation, useTradeSettings } from "../_lib/hooks";
 import { toast } from "../_lib/toast";
+import LmeFeedPanel from "./LmeFeedPanel";
 
 const SEAL_MAX = 1024 * 1024;
 const newId = (prefix: string) => `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -281,7 +282,7 @@ export default function DocSettingsForm() {
           }
         >
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-            The price check compares PIs, CIs and invoices with LME of the basis month + the contract&apos;s premium (+ QMJP). A month not listed is marked &quot;unknown&quot;, never wrong.
+            The price check compares PIs, CIs and invoices with LME of the basis month + the contract&apos;s premium (+ QMJP). A month not listed is marked &quot;unknown&quot;, never wrong. With the Westmetall feed on, empty months fill by themselves; a month you type here is never changed by the feed.
           </Typography>
           <Stack spacing={1} data-tour="settings-lme">
             {lme.map((r, i) => (
@@ -317,6 +318,7 @@ export default function DocSettingsForm() {
               </Typography>
             )}
           </Stack>
+          <LmeFeedPanel />
         </Section>
 
         <Section title="Email intake — never purge mail from">

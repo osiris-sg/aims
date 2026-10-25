@@ -85,6 +85,8 @@ const VERB_ACTIONS: Record<string, string> = {
   // Round H (2026-10): a step's payment (amount, date, account, proof) saved on the step; the inbox's PI table on the orders;
   // "+ New monthly order".
   payment: 'UPDATE', 'pi-table': 'UPDATE', monthly: 'CREATE',
+  // Round AK: Settings → Shipping → LME "Fetch now".
+  fetch: 'FETCH',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
   // Field delivery verbs (2026-09): the customer sign-off (full or partial, and
   // the guest link's), the return sign-off, ad-hoc acknowledge, install skip, and

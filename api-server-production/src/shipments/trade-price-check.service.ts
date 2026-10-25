@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { TradeConfigService } from './trade-config.service';
 import { MarketPrices, priceCheck, PriceCheck } from './trade-contract';
 import { addMonths } from './orders.service';
+import { cleanLmeAuto, provisionalMonths } from './lme-feed';
 
 const n = (v: unknown): number | null => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 const round2 = (v: number) => Math.round(v * 100) / 100;
@@ -27,9 +28,11 @@ export class TradePriceCheckService {
   private async prices(organizationId: string): Promise<MarketPrices> {
     const s = await this.config.getSettings(organizationId);
     const d = s.docDefaults as Record<string, unknown>;
+    const lmeByMonth = (d.lmeByMonth as Record<string, number> | undefined) ?? {};
     return {
-      lmeByMonth: (d.lmeByMonth as Record<string, number> | undefined) ?? {},
+      lmeByMonth,
       qmjpByQuarter: (d.qmjpByQuarter as Record<string, number> | undefined) ?? {},
+      provisionalMonths: provisionalMonths(lmeByMonth, cleanLmeAuto(d.lmeAuto)),
     };
   }
 

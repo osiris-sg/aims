@@ -128,6 +128,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableTradePipelineGrid: false,
   // Shipments › Home page — hidden since round O (Orders is the landing page; tasks in the bell + Orders "Tasks").
   enableShipmentsHome: false,
+  // LME feed (round AK): daily LME aluminium cash-settlement from Westmetall fills the empty months of the org's
+  // LME table (Settings → Shipping). OFF until the owner's go; while off nothing is written ("Fetch now" previews).
+  enableLmeFeed: false,
 };
 
 interface OrganizationUIConfig {

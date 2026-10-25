@@ -101,6 +101,8 @@ export interface MarketPrices {
   lmeByMonth: Record<string, number>;
   /** QMJP per quarter (USD/MT), "2026-3Q" → premium. */
   qmjpByQuarter: Record<string, number>;
+  /** Round AK: months whose LME is the feed's provisional average (month not over) — differences are "provisional", not errors. */
+  provisionalMonths?: string[];
 }
 
 /** provisional (round N): a PI's LME / unit differ — PI prices are provisional and settle on the CI (amber, not an error). */
@@ -153,6 +155,8 @@ export function priceCheck(input: {
   const upcharge = input.side === 'client' ? (row?.upcharge ?? n(fb.upcharge) ?? 0) : 0;
   if (!row) notes.push(input.basisMonth ? `No premium schedule row for ${input.basisMonth}${input.grade ? ` (${input.grade})` : ''} — using the order / contract line` : 'No basis month');
   const lme = input.basisMonth ? (input.prices.lmeByMonth[input.basisMonth] ?? null) : null;
+  const lmeProvisional = !!input.basisMonth && lme !== null && !!input.prices.provisionalMonths?.includes(input.basisMonth);
+  if (lmeProvisional) notes.push(`LME ${input.basisMonth} is provisional (month not over yet, Westmetall average so far)`);
   if (input.basisMonth && lme === null) notes.push(`No LME average stored for ${input.basisMonth} (Org Settings → Shipping → prices)`);
   const useQmjp = input.side === 'client' || !!input.mjpBased;
   const qmjp = useQmjp && input.basisMonth ? (input.prices.qmjpByQuarter[quarterOf(input.basisMonth)] ?? null) : null;
@@ -167,7 +171,7 @@ export function priceCheck(input: {
   const line = (key: PriceCheckLine['key'], label: string, expected: number | null, found: number | null | undefined): PriceCheckLine => {
     const f = n(found);
     const diff = expected === null || f === null ? null : round2(f - expected);
-    const off: CheckMark = input.provisional && (key === 'lme' || key === 'unit') ? 'provisional' : 'diff';
+    const off: CheckMark = (input.provisional || lmeProvisional) && (key === 'lme' || key === 'unit') ? 'provisional' : 'diff';
     return { key, label, expected, found: f, diff, mark: diff === null ? 'unknown' : Math.abs(diff) <= 0.01 ? 'ok' : off };
   };
   const lines = [

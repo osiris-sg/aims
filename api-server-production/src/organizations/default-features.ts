@@ -89,4 +89,9 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // ask the shipments assistant on WhatsApp and get the digest / "needs you" pushes. Default OFF
   // (ADH: switched on by setup-adh-org after the owner's go).
   enableWhatsAppAgent: false,
+  // LME feed (round AK, 2026-10-25): daily LME aluminium cash-settlement from Westmetall (07:00 JST) fills the empty
+  // months of the org's LME table and keeps its own provisional month current; typed months are never changed; a
+  // month turning final raises "revise CI / invoice" tasks. Only orgs with the SHIPMENTS module. Default OFF: while
+  // off nothing is written anywhere ("Fetch now" in Settings → Shipping previews). ADH after the owner's go.
+  enableLmeFeed: false,
 };

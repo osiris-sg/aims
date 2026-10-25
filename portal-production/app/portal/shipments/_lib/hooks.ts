@@ -218,6 +218,17 @@ export const useStepTemplates = (scope: "CONTRACT" | "SHIPMENT" | "ORDER") => {
 };
 
 /** Org trade defaults (B/L instruction texts). */
+/** Round AK: Settings → Shipping → LME feed status. */
+export const useLmeStatus = (month?: string, enabled = true) => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({
+    queryKey: [...SHIPMENT_KEYS.config, orgId, "lme", month ?? ""],
+    enabled: !!orgId && enabled,
+    queryFn: () => api.lmeStatus(month),
+  });
+};
+
 export const useTradeSettings = (enabled = true) => {
   const api = useShipmentsApi();
   const orgId = useOrgId();

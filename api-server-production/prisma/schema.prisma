@@ -4364,3 +4364,54 @@ model ShortLink {
 
   @@index([organizationId, path, createdAt])
 }
+
+/// Round AK: daily LME quotes from a public source (Westmetall) — shared market data, no organization data.
+/// Read by the SHIPMENTS LME feed only; orgs' own LME tables stay in TradeSetting.docDefaults.lmeByMonth.
+model LmeQuote {
+  id         String   @id @default(uuid())
+  /// "AL" (aluminium)
+  metal      String
+  /// "YYYY-MM-DD" (LME trading day)
+  date       String
+  cash       Decimal  @db.Decimal(12, 2)
+  threeMonth Decimal? @db.Decimal(12, 2)
+  stock      Int?
+  source     String
+  fetchedAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([metal, date])
+}
+
+/// Round AK: monthly cash-settlement average computed from LmeQuote (half-up, 2 dp); final once the month is over.
+model LmeMonthly {
+  id           String    @id @default(uuid())
+  metal        String
+  /// "YYYY-MM"
+  month        String
+  cashAvg      Decimal   @db.Decimal(12, 2)
+  days         Int
+  final        Boolean   @default(false)
+  /// The source's own published monthly average (cross-check), when it lists one.
+  publishedAvg Decimal?  @db.Decimal(12, 2)
+  source       String
+  finalizedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([metal, month])
+}
+
+/// Round AK: one LME fetch (cron or "Fetch now"): ok / error, rows read, what it changed.
+model LmeFetchRun {
+  id        String   @id @default(uuid())
+  source    String
+  trigger   String // CRON | MANUAL | SCRIPT
+  ok        Boolean
+  rows      Int      @default(0)
+  error     String?
+  summary   Json?
+  createdAt DateTime @default(now())
+
+  @@index([source, createdAt])
+}

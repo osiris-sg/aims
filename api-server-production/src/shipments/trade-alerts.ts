@@ -74,9 +74,11 @@ export function cleanAlertRules(v: Record<string, unknown>, fail: (msg: string) 
   return out;
 }
 
-export type AlertKind = 'TAX_FUNDING' | 'AN_EXPECTED' | 'FREE_TIME' | 'INVOICE_DUE' | 'PAYMENT_DUE' | 'STEP_STUCK' | 'CUSTOM';
+export type AlertKind = 'TAX_FUNDING' | 'AN_EXPECTED' | 'FREE_TIME' | 'INVOICE_DUE' | 'PAYMENT_DUE' | 'STEP_STUCK' | 'CUSTOM' | 'LME_REVISE';
 /** Round T: a reminder a person set ("remind me tomorrow 9am to chase Vedanta") — the sweep never plans or closes these. */
 export const CUSTOM_KIND: AlertKind = 'CUSTOM';
+/** Round AK: tasks raised by an event (an LME month turned final) — like CUSTOM, the hourly planner never closes them. */
+export const STANDING_KINDS: ReadonlySet<string> = new Set<string>(['CUSTOM', 'LME_REVISE']);
 
 export interface PlannedAlert {
   key: string;

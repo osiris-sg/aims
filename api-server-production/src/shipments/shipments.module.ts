@@ -20,6 +20,7 @@ import { TradePaymentsController } from './trade-payments.controller';
 import { TradePaymentsService } from './trade-payments.service';
 import { TradeAlertsController } from './trade-alerts.controller';
 import { TradeAlertsService } from './trade-alerts.service';
+import { LmeFeedService } from './lme-feed.service';
 import { TradeDashboardController } from './trade-dashboard.controller';
 import { TradeDashboardService } from './trade-dashboard.service';
 import { EmailModule } from '../email/email.module';
@@ -77,6 +78,7 @@ import { TradeStepsService } from './trade-steps.service';
     TradePriceCheckService,
     TradePaymentsService,
     TradeAlertsService,
+    LmeFeedService,
     TradeDashboardService,
     TradeAdminDashboardService, // round T: the Admin dashboard
     ContractsService,
