@@ -472,6 +472,39 @@ Return ONLY JSON: {"documentType": "INVOICE" | "BILL" | "CREDIT_NOTE_AR" | "CRED
     return { data, ...usage };
   }
 
+  /**
+   * Round AL — the same structured read for TEXT (a pasted carrier tracking page, a carrier email body): same model,
+   * key handling and JSON parsing as extractStructured; the text goes in as a quoted block (data, not instructions).
+   */
+  async extractStructuredFromText(
+    text: string,
+    systemPrompt: string,
+    userPrompt: string,
+    opts: { maxTokens?: number } = {},
+  ): Promise<{ data: any; model: string; inputTokens: number; outputTokens: number }> {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new HttpException('AI reading is not configured (missing ANTHROPIC_API_KEY)', HttpStatus.SERVICE_UNAVAILABLE);
+    const client = new Anthropic({ apiKey });
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: opts.maxTokens ?? 3000,
+      temperature: 0,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: [{ type: 'text', text: `<content>\n${text.slice(0, 20000)}\n</content>\n\n${userPrompt}` }] }],
+    });
+    const block = response.content.find((b) => b.type === 'text');
+    const raw = block && 'text' in block ? (block as any).text.trim() : '';
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new HttpException('No JSON returned by extractor', HttpStatus.INTERNAL_SERVER_ERROR);
+    let data: any;
+    try {
+      data = JSON.parse(this._sanitizeLlmJson(match[0]));
+    } catch (e) {
+      throw new HttpException(`Extractor returned malformed JSON: ${(e as Error).message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+    return { data, model: response.model, inputTokens: response.usage?.input_tokens ?? 0, outputTokens: response.usage?.output_tokens ?? 0 };
+  }
+
   // Claude-based extraction (claude-sonnet-4-6). Mirrors the bills.service
   // pattern: pass PDFs straight through as a "document" content block (no
   // pdf-to-png needed), images as an "image" block, and parse a JSON object

@@ -78,8 +78,8 @@ describe('ShipmentsToolsService — what the agent may call', () => {
     const { svc } = build();
     const names = svc.names();
     for (const banned of ['api_get', 'api_write', 'api_docs', 'confirm_invoice', 'finalize', 'delete', 'settings', 'email_filter', 'test_flag', 'user']) expect(names.some((n) => n.includes(banned))).toBe(false);
-    expect(names).toEqual(expect.arrayContaining(['emails_recent', 'find_email', 'email_text', 'record_status', 'arriving', 'shipments_by_step', 'orders_list', 'tasks_due', 'needs_me', 'list_documents', 'send_document', 'draft_reply', 'order_earnings', 'money_totals', 'email_link', 'email_not_shipment', 'task_done', 'task_snooze', 'reminder_create', 'set_eta', 'shipment_update', 'shipment_add', 'order_create', 'order_from_pi', 'step_done', 'add_note', 'payment_record', 'generated_doc_create']));
-    expect(names).toHaveLength(29); // round AG: monthly_list
+    expect(names).toEqual(expect.arrayContaining(['emails_recent', 'find_email', 'email_text', 'record_status', 'arriving', 'shipments_by_step', 'orders_list', 'tasks_due', 'needs_me', 'list_documents', 'send_document', 'draft_reply', 'order_earnings', 'money_totals', 'email_link', 'email_not_shipment', 'task_done', 'task_snooze', 'reminder_create', 'set_eta', 'shipment_update', 'shipment_add', 'order_create', 'order_from_pi', 'step_done', 'add_note', 'payment_record', 'generated_doc_create', 'tracking_from_text']));
+    expect(names).toHaveLength(30); // round AG: monthly_list · round AL: tracking_from_text
     const cat = svc.catalogue();
     expect(cat.filter((t) => t.mode === 'money').map((t) => t.name).sort()).toEqual(['money_totals', 'order_earnings', 'payment_record']);
     expect(cat.every((t) => t.origin === 'biofuel' || t.origin === 'adh')).toBe(true);
@@ -323,4 +323,31 @@ describe('ShipmentsToolsService — a file sent on WhatsApp goes through the ema
     expect(byCaption?.args).toMatchObject({ op: 'email_assign', emailId: 'log1', shipmentId: 's19-1', ref: '#19-1' });
     expect(await svc.pendingForCaption(ctx, { ...out.row, matched: '#19-1' }, 'permit.pdf', 'AN for #19-1')).toBeNull();
   });
+
+  it('round AL: a tracking screenshot → AIMS → tracking card → Confirm applies through the tracking service; a non-tracking photo falls back', async () => {
+    const m = build();
+    const ctx = ctxWith(STAFF);
+    const rows = [
+      { field: 'eta', label: 'Latest ETA (port of discharge)', aims: '2026-10-29', tracking: '2026-11-01', status: 'changed', suggested: true },
+      { field: 'arrivingVessel', label: 'Arriving vessel (本船)', aims: null, tracking: 'WAN HAI 365', status: 'new', suggested: true },
+      { field: 'totalBundles', label: 'Bundles', aims: '8', tracking: '6', status: 'note', suggested: false },
+    ];
+    const tracking: any = {
+      read: jest.fn(async () => ({ id: 't1', shipmentId: 's19-2', ref: '#19-2', source: 'SCREENSHOT', rows, bl: 'match', snapshot: { dropped: [] } })),
+      apply: jest.fn(async () => ({ ref: '#19-2', shipmentId: 's19-2', fields: ['eta', 'arrivingVessel'], values: {} })),
+    };
+    (m.svc as any).tracking = tracking;
+    const out: any = await m.svc.trackingCard(ctx, { image: { buffer: Buffer.from('png'), mimetype: 'image/png' } }, null);
+    expect(out.pending.summary).toContain('Latest ETA (port of discharge): 29 Oct → 1 Nov');
+    expect(out.pending.summary).toContain('Bundles: 8 → 6 (note only, not changed)');
+    expect(out.pending.args).toEqual({ op: 'tracking_apply', trackingId: 't1', fields: ['eta', 'arrivingVessel'], ref: '#19-2' });
+    const done = await m.svc.runPending(ctx, { ...out.pending, id: 'p1' });
+    expect(tracking.apply).toHaveBeenCalledWith(ctx.organizationId, 't1', ['eta', 'arrivingVessel'], expect.anything());
+    expect(done.message).toBe('#19-2: updated 2 fields from the tracking page.');
+    tracking.read.mockRejectedValueOnce(new Error("This doesn't look like carrier tracking information (no vessel, ETD or ETA found)."));
+    expect(await m.svc.trackingCard(ctx, { image: { buffer: Buffer.from('png'), mimetype: 'image/jpeg' } }, null)).toMatchObject({ notTracking: true });
+    tracking.read.mockRejectedValueOnce(new Error('No open shipment has B/L 198GX09999. Open the shipment and use Paste tracking there.'));
+    expect((await m.svc.trackingCard(ctx, { text: 'x'.repeat(30) }, null)).notTracking).toBeUndefined();
+  });
 });
+

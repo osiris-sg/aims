@@ -1314,8 +1314,11 @@ export class TradeGeneratedService {
     }
   }
 
-  /** 本船 / 海事№ for the SI: the latest A/N read's arriving vessel (transshipment) when it has one, else the shipment's (B/L). */
+  /** 本船 / 海事№ for the SI: the shipment's confirmed arriving vessel, else the latest A/N read's (transshipment), else the B/L's. */
   private async arrivingVessel(organizationId: string, shipmentId: string, vessel: string | null, voyageNo: string | null): Promise<{ vessel: string; voyageNo: string }> {
+    // Round AL: the arriving vessel confirmed on the shipment (tracking / carrier email) wins over the A/N read.
+    const own = await this.prisma.shipment.findFirst({ where: { id: shipmentId, organizationId }, select: { arrivingVessel: true, arrivingVoyageNo: true } });
+    if (own?.arrivingVessel) return { vessel: own.arrivingVessel, voyageNo: own.arrivingVoyageNo ?? '' };
     const ex = await this.prisma.tradeExtraction.findFirst({ where: { organizationId, shipmentId, kind: 'AN', status: 'DONE' }, orderBy: { createdAt: 'desc' }, select: { result: true } });
     const d = ((ex?.result as { draft?: { vessel?: string | null; voyageNo?: string | null; tsVessel?: string | null; tsVoyageNo?: string | null } } | null)?.draft ?? null);
     if (d?.tsVessel) return { vessel: d.tsVessel, voyageNo: d.tsVoyageNo ?? '' };

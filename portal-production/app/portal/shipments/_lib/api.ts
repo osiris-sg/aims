@@ -1189,6 +1189,13 @@ export type Shipment = {
   storageStartDate?: string | null;
   /** "8/6 → 8/16 → 8/17" — the ETA history. */
   etaTrail?: string;
+  /** Round AL — carrier tracking: arriving vessel after transhipment (本船), T/S port + dates, B/L release. */
+  arrivingVessel?: string | null;
+  arrivingVoyageNo?: string | null;
+  tsPort?: string | null;
+  tsEta?: string | null;
+  tsEtd?: string | null;
+  blReleaseType?: string | null;
   /** The carrier (from the shipping line / B/L) and its tracking page. */
   carrier?: { code: string; name: string; url: string; prefilled: boolean } | null;
   orderId?: string | null;
@@ -1433,7 +1440,29 @@ export function useShipmentsApi() {
       }
     };
 
+    // Round AL: a tracking screenshot and/or pasted page text → AIMS → tracking (nothing written until Apply).
+    const postTrackingRead = async (shipmentId: string, input: { text?: string; image?: File | null }): Promise<TrackingRead> => {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const form = new FormData();
+      if (input.image) form.append("image", input.image);
+      if (input.text) form.append("text", input.text);
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
+      if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+      try {
+        const res = await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/shipment-tracking/${shipmentId}/read-tracking`, form, { headers, timeout: 120000 });
+        return (res.data?.data ?? res.data) as TrackingRead;
+      } catch (e: any) {
+        if (e?.response?.status === 413) throw new Error("The screenshot is larger than 8 MB");
+        throw new Error(errorText(e?.response?.data?.message ?? e?.message, "Could not read the tracking page"));
+      }
+    };
+
     return {
+      trackingRead: postTrackingRead,
+      trackingApply: (trackingId: string, fields: string[]) => call<{ ref: string; fields: string[]; values: Record<string, unknown> }>(`/shipment-tracking/reads/${trackingId}/apply-tracking`, "POST", { fields }),
+      trackingList: (shipmentId: string) => call<TrackingHistoryRow[]>(`/shipment-tracking/${shipmentId}`),
       // ── Contracts ────────────────────────────────────────────────────────
       listContracts: (f: ContractFilters = {}) => call<Paged<ContractListItem>>(`/contracts${qs(f)}`),
       getContract: (id: string) => call<Contract>(`/contracts/${id}`),
@@ -1785,4 +1814,41 @@ export interface LmeFetchResult {
     };
     revise: Array<{ key: string; month: string; used: number; final: number; ref: string; docLabel: string }>;
   }>;
+}
+
+// ── Round AL: carrier tracking (screenshot / paste / carrier email) ────────
+export interface TrackingDiffRow {
+  field: string;
+  label: string;
+  aims: string | null;
+  tracking: string | null;
+  status: "same" | "new" | "changed" | "note";
+  handTyped?: boolean;
+  suggested: boolean;
+}
+export interface TrackingRead {
+  id: string;
+  shipmentId: string;
+  ref: string;
+  source: "SCREENSHOT" | "PASTE" | "EMAIL" | "PROVIDER";
+  bl: "match" | "mismatch" | "unknown";
+  rows: TrackingDiffRow[];
+  snapshot: {
+    carrier: string | null;
+    blNumber: string | null;
+    releaseType: string | null;
+    legs: Array<{ vessel: string | null; voyage: string | null; portOfLoading: string | null; etd: string | null; portOfDischarge: string | null; eta: string | null }>;
+    containers: string[];
+    dropped: string[];
+  };
+}
+export interface TrackingHistoryRow {
+  id: string;
+  source: string;
+  carrier: string | null;
+  blNumber: string | null;
+  applied: { fields: string[]; values: Record<string, unknown>; auto?: boolean } | null;
+  appliedByName: string | null;
+  appliedAt: string | null;
+  createdAt: string;
 }

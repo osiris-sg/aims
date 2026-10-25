@@ -63,6 +63,13 @@ export class UpdateShipmentDto extends PartialType(OmitType(CreateShipmentDto, [
   @IsOptional() @IsDateString() @IsTradeDate() storageStartDate?: string | null;
   /** A different supplier order than its order's (a split that differs). */
   @IsOptional() @IsUUID() supplierOrderId?: string | null;
+  /** Round AL — carrier tracking: the vessel arriving after transhipment (本船), the T/S port and dates, B/L release. */
+  @IsOptional() @IsString() @MaxLength(100) arrivingVessel?: string | null;
+  @IsOptional() @IsString() @MaxLength(50) arrivingVoyageNo?: string | null;
+  @IsOptional() @IsString() @MaxLength(100) tsPort?: string | null;
+  @IsOptional() @IsDateString() @IsTradeDate() tsEta?: string | null;
+  @IsOptional() @IsDateString() @IsTradeDate() tsEtd?: string | null;
+  @IsOptional() @IsString() @MaxLength(60) blReleaseType?: string | null;
   /** Where an ETA change came from (MANUAL, AN, BL …) — kept in the ETA history. */
   @IsOptional() @IsString() @MaxLength(40) etaSource?: string;
 

@@ -1027,6 +1027,29 @@ export class OperatorService {
     await adapter.sendTyping?.(msg.chatId).catch(() => null);
     for (const f of files.slice(0, 5)) {
       const name = f.filename || (f.mimetype.includes('pdf') ? 'document.pdf' : 'photo.jpg');
+      // Round AL: a screenshot of a carrier tracking page → "AIMS → tracking" + Confirm (not filed as a document).
+      if (/^image\//i.test(f.mimetype)) {
+        const ref = /#?\d{1,5}-\d{1,3}/.exec(caption ?? '')?.[0] ?? null;
+        const t = await this.shipTools
+          .trackingCard(ctx, { image: { buffer: Buffer.from(f.dataUri.replace(/^data:[^;]+;base64,/, ''), 'base64'), mimetype: f.mimetype } }, ref, lang)
+          .catch((e: any) => ({ result: { error: String(e?.message ?? e) }, notTracking: true }) as any);
+        if (t.pending) {
+          this.holdPending(session, t.pending);
+          await this.saveSession(...this.sk(msg), session);
+          await adapter.sendButtons(msg.chatId, `${t.pending.summary}\n\n${lang === 'ja' ? '反映しますか？' : 'Apply?'}`, [
+            { label: '\u2705 Confirm', data: `confirm:${t.pending.id}` },
+            { label: '\u274c Cancel', data: `cancel:${t.pending.id}` },
+          ]);
+          session.history = [...(session.history || []), { role: 'user' as const, content: `[tracking screenshot ${name} → ${t.result?.ref}, awaiting the user's Confirm]` }, { role: 'assistant' as const, content: 'Noted.' }].slice(-40);
+          await this.saveSession(...this.sk(msg), session);
+          continue;
+        }
+        if (!t.notTracking) {
+          const r: any = t.result ?? {};
+          await adapter.sendText(msg.chatId, r.upToDate ? (lang === 'ja' ? `${r.ref} は追跡情報と一致しています。` : `${r.ref} already matches the tracking page.`) : String(r.error ?? 'Could not read the tracking page.'));
+          continue;
+        }
+      }
       let out: Awaited<ReturnType<ShipmentsToolsService['intakeFile']>>;
       try {
         out = await this.shipTools.intakeFile(ctx, f, caption, msg.providerMessageId);

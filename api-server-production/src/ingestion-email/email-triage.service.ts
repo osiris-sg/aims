@@ -1,3 +1,4 @@
+import { CarrierTrackingService } from '../shipments/carrier-tracking.service';
 import Anthropic from '@anthropic-ai/sdk';
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
@@ -187,6 +188,7 @@ export class EmailTriageService {
     private readonly actionLog: ActionLogService,
     @Optional() private readonly whatsapp?: ShipmentsNotifyService,
     @Optional() private readonly shortLinks?: ShortLinksService,
+    @Optional() private readonly tracking?: CarrierTrackingService,
   ) {}
 
   /** After the webhook stored an email: triage it in the background (the provider isn't kept waiting). */
@@ -263,7 +265,7 @@ export class EmailTriageService {
       error = String(e?.message ?? e).slice(0, 300);
     }
     // Known senders / subjects (Wan Hai A/N, Mitsui Soko NO.取りリスト, 輸入許可書, Vedanta declaration) win over the AI.
-    const known = knownSender({ from: log.fromAddress, subject: log.subject, attachments: (meta.attachments ?? []).map((a, i) => ({ name: a.name, text: firstPages[i]?.firstPage ?? '' })) });
+    const known = knownSender({ from: log.fromAddress, subject: log.subject, body: meta.bodyText ?? '', attachments: (meta.attachments ?? []).map((a, i) => ({ name: a.name, text: firstPages[i]?.firstPage ?? '' })) });
     if (known && result) result = { ...result, attachments: withKnownTypes(result.attachments, known) };
     // Direction and counterparty: deterministic rules first, the AI's guess only as a fallback.
     const direction = directionOf(log.fromAddress, ownDomains);
@@ -318,6 +320,11 @@ export class EmailTriageService {
       return { verdict, inboxState: kept };
     }
     const state = await this.matchAndPlan(organizationId, logId, keys, mode);
+    // Round AL: a carrier status / ETA notice → the latest ETA (unless typed by hand) + empty fields, history kept.
+    if (known?.rule === 'CARRIER_TRACKING' && this.tracking) {
+      const r = await this.tracking.fromEmail(organizationId, logId, `${log.subject ?? ''}\n${meta.bodyText ?? ''}`, known.blNo ?? ((keys as any)?.blNo ?? null));
+      await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { triage: { ...(triage as any), tracking: r } as any } }).catch(() => null);
+    }
     this.actionLog.system('email-triage', state === 'PROCESSED' ? 'PROCESS' : 'TRIAGE', 'EmailIngestLog', {
       organizationId,
       resourceId: logId,

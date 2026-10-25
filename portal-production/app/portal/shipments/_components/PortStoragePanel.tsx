@@ -11,6 +11,8 @@
 import React, { useEffect, useState } from "react";
 import { Box, Button, Grid2, Paper, Stack, TextField, Typography } from "@mui/material";
 import LaunchIcon from "@mui/icons-material/Launch";
+import ContentPasteIcon from "@mui/icons-material/ContentPaste";
+import TrackingPasteDialog from "./TrackingPasteDialog";
 import type { Shipment } from "../_lib/api";
 import { useTradeMutation } from "../_lib/hooks";
 import { fmtDay } from "../_lib/format";
@@ -19,6 +21,7 @@ import { toast } from "../_lib/toast";
 export default function PortStoragePanel({ shipment: s }: { shipment: Shipment }) {
   const save = useTradeMutation((a, patch: Record<string, unknown>) => a.updateShipment(s.id, patch));
   const [f, setF] = useState<Record<string, string>>({});
+  const [pasteOpen, setPasteOpen] = useState(false);
   useEffect(() => {
     setF({
       dischargeDate: s.dischargeDate ? s.dischargeDate.slice(0, 10) : "",
@@ -79,12 +82,30 @@ export default function PortStoragePanel({ shipment: s }: { shipment: Shipment }
             Track ({s.carrier.name})
           </Button>
         )}
+        {canEdit && (
+          <Button size="small" variant="outlined" startIcon={<ContentPasteIcon />} onClick={() => setPasteOpen(true)} data-tour="shipment-tracking-paste">
+            Paste tracking
+          </Button>
+        )}
       </Stack>
+      <TrackingPasteDialog shipmentId={s.id} blNumber={s.blNumber ?? null} open={pasteOpen} onClose={() => setPasteOpen(false)} />
       <Box sx={{ mb: 1.5 }}>
         <Typography variant="caption" color="text.secondary">
           ETA {fmtDay(s.eta)}
           {s.etaTrail ? ` · history ${s.etaTrail}` : ""}
         </Typography>
+        {(s.tsPort || s.arrivingVessel || s.blReleaseType) && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+            {[
+              s.vessel ? `Ocean ${s.vessel}${s.voyageNo ? ` / ${s.voyageNo}` : ""}` : null,
+              s.tsPort ? `T/S ${s.tsPort}${s.tsEta ? ` arr ${fmtDay(s.tsEta)}` : ""}${s.tsEtd ? ` dep ${fmtDay(s.tsEtd)}` : ""}` : null,
+              s.arrivingVessel ? `Arriving (本船) ${s.arrivingVessel}${s.arrivingVoyageNo ? ` / ${s.arrivingVoyageNo}` : ""}` : null,
+              s.blReleaseType ?? null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </Typography>
+        )}
       </Box>
       <Grid2 container spacing={1.5}>
         <Grid2 size={{ xs: 12, sm: 4 }}>{field("dischargeDate", "Discharge date", "date")}</Grid2>

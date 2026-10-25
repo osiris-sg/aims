@@ -3969,6 +3969,14 @@ model Shipment {
   storageStartDate  DateTime?
   /// Round AG: ADH's "管理NO" (Monthly order list) — a manual reference until ADH says what it is.
   managementNo      String?
+  /// Round AL — carrier tracking (screenshot / paste / carrier email; a tracking API later): the vessel arriving at
+  /// the port of discharge after transhipment (= 本船 on the 出庫・納入依頼書), the T/S port and its dates, B/L release type.
+  arrivingVessel    String?
+  arrivingVoyageNo  String?
+  tsPort            String?
+  tsEta             DateTime?
+  tsEtd             DateTime?
+  blReleaseType     String?
   createdById       String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
@@ -4414,4 +4422,34 @@ model LmeFetchRun {
   createdAt DateTime @default(now())
 
   @@index([source, createdAt])
+}
+
+/// Round AL: one carrier-tracking read of a shipment (screenshot / pasted text / carrier email; a tracking API later):
+/// the normalized snapshot, AIMS → tracking per field at that time, and what a person (or the email rule) applied.
+model ShipmentTracking {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String
+  shipmentId     String    @db.Uuid
+  /// SCREENSHOT | PASTE | EMAIL | PROVIDER
+  source         String
+  /// The tracking API (later), e.g. "terminal49"; null for screenshot / paste / email.
+  provider       String?
+  carrier        String?
+  blNumber       String?
+  /// Normalized snapshot (legs, T/S, ETD / ETA, release type, bundles, weight, containers).
+  data           Json
+  /// What the reader returned (model JSON / provider payload).
+  raw            Json?
+  /// [{ field, label, aims, tracking, status, handTyped }] at read time.
+  diff           Json?
+  /// { fields: [...], values: {...} } once applied (Confirm, or the email rule's ETA update).
+  applied        Json?
+  appliedById    String?
+  appliedByName  String?
+  appliedAt      DateTime?
+  emailLogId     String?   @db.Uuid
+  createdById    String?
+  createdAt      DateTime  @default(now())
+
+  @@index([organizationId, shipmentId, createdAt])
 }

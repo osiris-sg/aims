@@ -18,9 +18,11 @@
  * audit helper (AuditService + ActionLogService), preview (PDF push) and choice (buttons) outcomes, the
  * "find before you act / never invent an id" discipline and the plain-text answer formats.
  */
+import { CarrierTrackingService } from '../shipments/carrier-tracking.service';
+import { diffLines } from '../shipments/carrier-tracking';
 import { MonthlyListService } from '../shipments/monthly-list.service';
 import { senderName } from './push-text';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import type Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'crypto';
 import { ActionLogService } from '../action-log/action-log.service';
@@ -68,7 +70,7 @@ interface ToolDef {
 }
 
 /** The write operations a Confirm card can carry (the model never names these; the tools do). */
-export type ShipOp = 'email_accept' | 'email_assign' | 'email_answer' | 'email_dismiss' | 'task_status' | 'task_snooze' | 'reminder_create' | 'set_eta' | 'shipment_add' | 'order_create' | 'step_done' | 'add_note' | 'payment_record' | 'generated_doc_create';
+export type ShipOp = 'email_accept' | 'email_assign' | 'email_answer' | 'email_dismiss' | 'task_status' | 'task_snooze' | 'reminder_create' | 'set_eta' | 'shipment_add' | 'order_create' | 'step_done' | 'add_note' | 'payment_record' | 'generated_doc_create' | 'tracking_apply';
 
 export const SHIPMENTS_READ = 'shipments:read';
 export const SHIPMENTS_WRITE = 'shipments:update';
@@ -109,6 +111,7 @@ export class ShipmentsToolsService {
     private readonly adminDash: TradeAdminDashboardService,
     private readonly config: TradeConfigService,
     private readonly monthly: MonthlyListService,
+    @Optional() private readonly tracking?: CarrierTrackingService,
   ) {}
 
   /** Tool definitions handed to Claude — only the ones this user's permissions allow. */
@@ -235,6 +238,12 @@ export class ShipmentsToolsService {
         const g: any = await this.generated.createBlank(org, { docType: a.docType, shipmentId: a.shipmentId ?? undefined, orderId: a.orderId ?? undefined }, actor);
         this.log(ctx, 'CREATE', 'TradeGeneratedDoc', g?.id, `${a.docLabel} ${a.ref}`, 'draft created on WhatsApp');
         return { ok: true, message: `Draft ${a.docLabel} created for ${a.ref} (${g?.number ?? 'no number yet'}). I will send the preview. Finalising stays in AIMS.` };
+      }
+      case 'tracking_apply': {
+        if (!this.tracking) return { ok: false, message: 'Tracking is not available.' };
+        const r: any = await this.tracking.apply(org, a.trackingId, a.fields ?? [], actor);
+        this.log(ctx, 'UPDATE', 'Shipment', r.shipmentId, a.ref, `tracking applied: ${(r.fields ?? []).join(', ') || 'nothing (already up to date)'}`);
+        return { ok: true, message: r.fields?.length ? `${a.ref}: updated ${r.fields.length} field${r.fields.length > 1 ? 's' : ''} from the tracking page.` : `${a.ref}: already up to date, nothing changed.` };
       }
       default:
         return { ok: false, message: 'That card is not one I can run.' };
@@ -562,6 +571,15 @@ export class ShipmentsToolsService {
         origin: 'biofuel',
         input_schema: { type: 'object', properties: { ref: { type: 'string' }, vessel: { type: 'string' }, blNumber: { type: 'string' }, eta: { type: 'string' }, arrived: { type: 'string' } }, required: ['ref'] },
         run: async (ctx, a) => this.shipmentUpdate(ctx, String(a.ref ?? ''), { eta: a.eta ? String(a.eta) : null, arrived: a.arrived ? String(a.arrived) : null, vessel: a.vessel ? String(a.vessel) : null, blNumber: a.blNumber ? String(a.blNumber) : null }),
+      },
+      {
+        name: 'tracking_from_text',
+        description: "The user PASTED a carrier's cargo-tracking page or notice (lines with a B/L, vessel / voyage, ETD, T/S port, ETA): read it and show what would change on that shipment (AIMS → tracking per field). Pass the pasted text verbatim. Shows a Confirm card; weights / bundles are notes only.",
+        permissions: [SHIPMENTS_WRITE],
+        mode: 'write',
+        origin: 'adh',
+        input_schema: { type: 'object', properties: { text: { type: 'string', description: 'the pasted tracking text, verbatim' }, ref: { type: 'string', description: 'the shipment ("#19-2") when the user named one' } }, required: ['text'] },
+        run: async (ctx, a) => this.trackingCard(ctx, { text: String(a.text ?? '') }, a.ref ? String(a.ref) : null),
       },
       {
         name: 'shipment_add',
@@ -1022,6 +1040,33 @@ export class ShipmentsToolsService {
       }
     }
     return { pending: pend(`Reminder${label}: "${title.trim().slice(0, 120)}" at ${when.toLocaleString('en-GB', { timeZone: 'Asia/Tokyo', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} JST`, { op: 'reminder_create', title: `${label ? `${label.slice(4)}: ` : ''}${title.trim()}`, dueAt: when.toISOString(), orderId, shipmentId }), result: { held: true } };
+  }
+
+  /**
+   * Round AL — a tracking screenshot / pasted page → "AIMS → tracking" per field + a Confirm card applying the
+   * suggested fields. Returns { notTracking: true } when it isn't tracking information (the caller falls back).
+   */
+  async trackingCard(ctx: OperatorContext, input: { text?: string; image?: { buffer: Buffer; mimetype: string } }, ref: string | null, lang: 'en' | 'ja' = 'en'): Promise<ShipToolOutcome & { notTracking?: boolean }> {
+    if (!this.tracking) return { result: { error: 'Tracking is not available.' } };
+    let shipmentId: string | null = null;
+    if (ref) {
+      const hit = await this.resolve(ctx.organizationId, ref);
+      if (hit && !('many' in hit) && hit.shipment) shipmentId = hit.shipment.id;
+    }
+    try {
+      const r = await this.tracking.read(ctx.organizationId, { shipmentId, text: input.text ?? null, image: input.image ?? null, source: input.image ? 'SCREENSHOT' : 'PASTE' }, { id: ctx.actor.id, name: `${ctx.actor.name ?? 'WhatsApp'} via WhatsApp` });
+      const lines = diffLines(r.rows, lang);
+      const fields = r.rows.filter((x) => x.suggested).map((x) => x.field);
+      this.log(ctx, 'VIEW', 'Shipment', r.shipmentId, r.ref, `tracking ${input.image ? 'screenshot' : 'text'} read: ${fields.length} field(s) differ`);
+      if (!fields.length) return { result: { ref: r.ref, upToDate: true, notes: lines, instruction: `Tell the user ${r.ref} already matches the tracking page${lines.length ? ' (notes: ' + lines.join('; ') + ')' : ''}.` } };
+      const dropped = r.snapshot.dropped.length ? `\n${lang === 'ja' ? '読み取れず除外' : 'Not used (not in the text)'}: ${r.snapshot.dropped.join(', ')}` : '';
+      return { pending: pend(`${r.ref} · ${lang === 'ja' ? '追跡情報の反映' : 'from the tracking page'}:\n${lines.join('\n')}${dropped}`, { op: 'tracking_apply', trackingId: r.id, fields, ref: r.ref }), result: { held: true, ref: r.ref } };
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      // A real tracking page for an unknown / other B/L is an answer; anything else (not tracking, a read failure) falls back.
+      if (/No open shipment has B\/L|This tracking is for B\/L|No B\/L on the page/.test(msg)) return { result: { error: msg } };
+      return { notTracking: true, result: { error: msg } };
+    }
   }
 
   private async shipmentUpdate(ctx: OperatorContext, raw: string, f: { eta?: string | null; arrived?: string | null; vessel?: string | null; blNumber?: string | null }): Promise<ShipToolOutcome> {

@@ -323,6 +323,9 @@ export class ShipmentsService {
             ...(dto.detFreeDays !== undefined ? { detFreeDays: dto.detFreeDays } : {}),
             ...(dto.demFreeDays !== undefined ? { demFreeDays: dto.demFreeDays } : {}),
             ...(dto.warehouse !== undefined ? { warehouse: optText(dto.warehouse) ?? null } : {}),
+            // Round AL — carrier tracking fields (from the tracking Confirm, a carrier email, or typed).
+            ...Object.fromEntries((['arrivingVessel', 'arrivingVoyageNo', 'tsPort', 'blReleaseType'] as const).filter((k) => dto[k] !== undefined).map((k) => [k, optText(dto[k]) ?? null])),
+            ...Object.fromEntries((['tsEta', 'tsEtd'] as const).filter((k) => dto[k] !== undefined).map((k) => [k, dto[k] ? new Date(dto[k] as string) : null])),
             ...(dto.supplierOrderId !== undefined ? { supplierOrderId: dto.supplierOrderId || null } : {}),
           },
         });

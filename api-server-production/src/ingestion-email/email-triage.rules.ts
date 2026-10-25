@@ -489,7 +489,7 @@ SHIPMENT = about a specific purchase / shipment (PI, contract, B/L, shipping doc
 export const SUPPLIER_ORDER_DOC_TYPES = new Set(['PI', 'CONTRACT', 'DEPOSIT_PROOF']);
 
 export interface KnownSenderHit {
-  rule: 'WANHAI_AN' | 'MITSUI_BUNDLE_LIST' | 'MITSUI_DELIVERY_DETAILS' | 'IMPORT_PERMIT' | 'VEDANTA_DECLARATION' | 'VEDANTA_COPY_DOCS' | 'CARRIER_CHARGES';
+  rule: 'WANHAI_AN' | 'MITSUI_BUNDLE_LIST' | 'MITSUI_DELIVERY_DETAILS' | 'IMPORT_PERMIT' | 'VEDANTA_DECLARATION' | 'VEDANTA_COPY_DOCS' | 'CARRIER_CHARGES' | 'CARRIER_TRACKING';
   counterparty?: Counterparty;
   blNo?: string | null;
   /** filename → triage doc type (overrides the AI). */
@@ -533,7 +533,7 @@ export function mitsuiListType(name: string, text = ''): 'BUNDLE_LIST' | 'DELIVE
  *  - "輸入許可書…" (subject or file name) → import permit
  *  - Vedanta "declaration" threads → supplier-order suggestions (the PI table)
  */
-export function knownSender(e: { from: string; subject: string | null; attachments: Array<{ name: string; text?: string }> }): KnownSenderHit | null {
+export function knownSender(e: { from: string; subject: string | null; attachments: Array<{ name: string; text?: string }>; body?: string | null }): KnownSenderHit | null {
   const from = emailOf(e.from);
   const subject = e.subject ?? '';
   const pdfs = e.attachments.filter((a) => /\.pdf$/i.test(a.name));
@@ -564,6 +564,10 @@ export function knownSender(e: { from: string; subject: string | null; attachmen
     const files = e.attachments.filter((a) => /\.(pdf|xlsx?|csv)$/i.test(a.name));
     return { rule: 'CARRIER_CHARGES', attachmentTypes: Object.fromEntries(files.map((a) => [a.name, 'VENDOR_INVOICE'])), forbidTypes: ['CI', 'PAYMENT_PROOF'] };
   }
+  // Round AL: a carrier's cargo-status / ETA-change / schedule notice (Wan Hai e-service subscription, …) — read for the
+  // ETA by CarrierTrackingService once linked; no document is filed from it.
+  const tracking = carrierTrackingHit(from, subject, e.body ?? '');
+  if (tracking) return tracking;
   const permitFiles = e.attachments.filter((a) => /輸入許可/.test(a.name.normalize('NFC')));
   if (/輸入許可/.test(subject.normalize('NFC')) || permitFiles.length) {
     const files = permitFiles.length ? permitFiles : pdfs;
@@ -578,6 +582,23 @@ export function knownSender(e: { from: string; subject: string | null; attachmen
     return { rule: 'VEDANTA_DECLARATION', counterparty: 'VEDANTA', attachmentTypes: Object.fromEntries(pdfs.filter((a) => /\bPI\b|933\d{7}/i.test(a.name)).map((a) => [a.name, 'PI'])) };
   }
   return null;
+}
+
+const TRACKING_CUE = /cargo\s*tracking|tracking\s*(notice|notification|information|update)|shipment\s*status|cargo\s*status|status\s*(update|notification|notice)|e\.?t\.?a\.?\s*(change|update|notice|revis|delay)|(change|revis\w*|update\w*)\s+(of\s+)?e\.?t\.?a\b|vessel\s*(schedule\s*)?(change|delay|substitut)|schedule\s*(change|update|delay)|delay\s*(notice|notification)|arrival\s*(date\s*)?(change|update|notice)|trans-?s?hipment\s*(notice|update|information)|t\/s\s*(notice|update)|本船変更|入港予定|スケジュール変更|遅延|動静/i;
+const CARRIER_FROM = /@(.+\.)?(wanhai\.com|maersk\.com|sitc\.(com|co\.jp)|rclgroup\.com|evergreen-line\.com)$/i;
+
+/**
+ * Round AL — a carrier notification about a B/L's status / ETA / schedule (not an A/N, not a debit note): the sender is
+ * a carrier domain and the subject (or the first lines of the body) says so. The B/L comes from the subject, else the body.
+ */
+export function carrierTrackingHit(from: string, subject: string, body: string): KnownSenderHit | null {
+  if (!CARRIER_FROM.test(from)) return null;
+  if (/arrival\s+notice|debit\s*note|invoice/i.test(subject)) return null;
+  const head = `${subject}\n${body.slice(0, 1500)}`;
+  if (!TRACKING_CUE.test(head)) return null;
+  const wanhaiBl = /\b(\d{3}[A-Z]{2}\d{5})\b/.exec(`${subject} ${body}`.toUpperCase());
+  const labelled = /B\s*\/?\s*L\s*(?:NO\.?|NUMBER|#)?\s*[:：]?\s*([A-Z0-9]{8,20})/i.exec(`${subject} ${body}`);
+  return { rule: 'CARRIER_TRACKING', counterparty: 'SHIPPING_LINE', blNo: (wanhaiBl?.[1] ?? labelled?.[1] ?? null)?.toUpperCase() ?? null, attachmentTypes: {} };
 }
 
 export interface DeclarationRow {

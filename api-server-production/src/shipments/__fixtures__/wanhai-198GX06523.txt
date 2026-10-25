@@ -1,0 +1,18 @@
+Tracking Information Content [By B/L No.]
+B/L No.            198GX06523
+B/L Issue Date     2026/10/06
+B/L Type           Telex Release
+Place of Receipt   VIZAG
+Port of Loading    VIZAG
+Port of Discharging YOKOHAMA
+Place of Delivery  YOKOHAMA
+
+Vessel / Voyage        Port              Date
+WAN HAI 366 / 51       VIZAG             ETD 2026/10/06
+                       PORT KLANG NORTH PORT  ETA 2026/10/10
+WAN HAI 365 / N046     PORT KLANG NORTH PORT  ETD 2026/10/20
+                       YOKOHAMA          ETA 2026/11/01
+
+B/L Total : 6 BDL   15,356 KGM
+Container No.   Size   Seal No.
+WHSU5162204     20GP   WHLV449201

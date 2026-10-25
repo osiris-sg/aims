@@ -21,6 +21,8 @@ import { TradePaymentsService } from './trade-payments.service';
 import { TradeAlertsController } from './trade-alerts.controller';
 import { TradeAlertsService } from './trade-alerts.service';
 import { LmeFeedService } from './lme-feed.service';
+import { CarrierTrackingService } from './carrier-tracking.service';
+import { CarrierTrackingController } from './carrier-tracking.controller';
 import { TradeDashboardController } from './trade-dashboard.controller';
 import { TradeDashboardService } from './trade-dashboard.service';
 import { EmailModule } from '../email/email.module';
@@ -53,6 +55,7 @@ import { TradeStepsService } from './trade-steps.service';
 @Module({
   imports: [CommonModule, DocumentExtractionModule, DocumentsModule, DocumentTemplatesModule, EmailModule, NotificationsModule],
   controllers: [
+    CarrierTrackingController,
     MonthlyListController,
     OrdersController,
     SupplierOrdersController,
@@ -79,6 +82,7 @@ import { TradeStepsService } from './trade-steps.service';
     TradePaymentsService,
     TradeAlertsService,
     LmeFeedService,
+    CarrierTrackingService,
     TradeDashboardService,
     TradeAdminDashboardService, // round T: the Admin dashboard
     ContractsService,
@@ -93,6 +97,6 @@ import { TradeStepsService } from './trade-steps.service';
     TradeExtractService,
     PrismaService,
   ],
-  exports: [MonthlyListService, ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService],
+  exports: [CarrierTrackingService, MonthlyListService, ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService],
 })
 export class ShipmentsModule {}

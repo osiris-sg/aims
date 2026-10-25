@@ -87,6 +87,8 @@ const VERB_ACTIONS: Record<string, string> = {
   payment: 'UPDATE', 'pi-table': 'UPDATE', monthly: 'CREATE',
   // Round AK: Settings → Shipping → LME "Fetch now".
   fetch: 'FETCH',
+  // Round AL: a carrier tracking read (screenshot / paste) and its Confirm.
+  'read-tracking': 'EXTRACT', 'apply-tracking': 'APPLY',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
   // Field delivery verbs (2026-09): the customer sign-off (full or partial, and
   // the guest link's), the return sign-off, ad-hoc acknowledge, install skip, and
