@@ -1,11 +1,11 @@
 /** Round AG — the Monthly order list in ADH's layout: blocks per client, rows per shipment, statuses, months, exports. */
 import * as ExcelJS from 'exceljs';
-import { buildMonthlyList, cleanMonths, defaultMonths, HEADERS, monthlyCsv, monthlySummary, OrderFact, rowCells, shipmentStatus, supplierStatus } from './monthly-list';
+import { buildMonthlyList, cleanMonths, defaultMonths, HEADERS, monthlyCsv, monthlySummary, OrderFact, orderDateOf, rowCells, shipmentStatus, supplierStatus } from './monthly-list';
 import { monthlyXlsx } from './monthly-list.xlsx';
 
 const step = (code: string, status: string) => ({ code, status, notApplicable: false });
 const ship = (seqNo: number, o: Partial<OrderFact['shipments'][number]> = {}): OrderFact['shipments'][number] => ({ id: `s${seqNo}`, seqNo, status: 'OPEN', blNumber: `198GX0${seqNo}000`, etd: '2026-09-30', eta: '2026-10-29', deliveryMonth: null, currentStep: { id: `st${seqNo}`, label: '9. Send arrival notice', code: 'AN' }, ciPayment: [step('CI_PAYMENT', 'NOT_STARTED')], ...o });
-const order = (o: Partial<OrderFact>): OrderFact => ({ id: `o${o.orderNo}`, orderNo: 1, status: 'OPEN', checkFields: [], customerId: 'c-sus', customerName: 'SUS Co., Ltd.', customerPoNo: null, customerKey: 'SUS', supplierName: 'Vedanta Limited', orderDate: '2026-08-01', grade: '6005', size: '203 MM X 5800 MM', qtyMt: 220, shipMonth: '2026-09', deliveryMonth: '2026-11', supplierContractNo: '454003598', piDate: '2026-07-14', piQtyMt: 220, supplierDone: false, piPayment: [step('PI_PAYMENT', 'DONE')], currentStepId: 'ost', shipments: [], ...o });
+const order = (o: Partial<OrderFact>): OrderFact => ({ id: `o${o.orderNo}`, orderNo: 1, status: 'OPEN', checkFields: [], customerId: 'c-sus', customerName: 'SUS Co., Ltd.', customerPoNo: null, customerKey: 'SUS', supplierName: 'Vedanta Limited', customerPoDate: '2026-08-01', grade: '6005', size: '203 MM X 5800 MM', qtyMt: 220, shipMonth: '2026-09', deliveryMonth: '2026-11', supplierContractNo: '454003598', piDate: '2026-07-14', piQtyMt: 220, supplierDone: false, piPayment: [step('PI_PAYMENT', 'DONE')], currentStepId: 'ost', shipments: [], ...o });
 const W = { from: '2026-10', to: '2026-12', basis: 'delivery' as const };
 
 describe('Monthly order list', () => {
@@ -84,6 +84,14 @@ describe('Monthly order list', () => {
     expect(ws.getCell(`O${susTitle + 1}`).value).toBe('#18-1');
     expect(ws.getCell(`O${susTitle + 3}`).value).toBe('#18-3');
     expect(ws.getCell(`A${susTitle + 3}`).isMerged).toBe(true);
+  });
+  it('customer Order Date = customer PO date only, else blank (never the PI date, never the AIMS creation / import date)', () => {
+    expect(orderDateOf({ customerPoDate: '2026-05-10' })).toBe('2026-05-10');
+    expect(orderDateOf({ customerPoDate: null })).toBeNull();
+    const withPi = buildMonthlyList([order({ orderNo: 51, customerPoDate: null, piDate: '2026-06-30', shipments: [ship(1)] })], W)[0].rows[0];
+    expect(withPi).toMatchObject({ orderDate: null, supplierOrderDate: '2026-06-30' });
+    const none = buildMonthlyList([order({ orderNo: 50, customerPoDate: null, piDate: null, shipments: [ship(1)] })], W)[0].rows[0];
+    expect(none).toMatchObject({ orderDate: null, supplierOrderDate: null });
   });
   it('the WhatsApp summary', () => {
     const t = monthlySummary(blocks, W, 'en');

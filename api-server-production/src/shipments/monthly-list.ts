@@ -43,7 +43,7 @@ export interface OrderFact {
   /** Profile key (KATO / SUS / HOEI) when the customer has a profile. */
   customerKey: string | null;
   supplierName: string;
-  orderDate: Date | string | null;
+  customerPoDate: Date | string | null;
   grade: string | null;
   size: string | null;
   qtyMt: number | null;
@@ -58,6 +58,13 @@ export interface OrderFact {
   /** The order's first open step id (the deep link of an order row without a shipment). */
   currentStepId: string | null;
   shipments: ShipmentFact[];
+}
+
+/** Customer Order Date: the customer's PO date only, else blank. Never the supplier PI date (that shows only in the
+ * Supplier "Order Date" column) and never the date AIMS created the order (imported orders would show the import day).
+ * The ADH task-list import carries no order date. */
+export function orderDateOf(o: Pick<OrderFact, 'customerPoDate'>): Date | string | null {
+  return o.customerPoDate ?? null;
 }
 
 export interface MonthlyRow {
@@ -198,7 +205,7 @@ export function buildMonthlyList(orders: OrderFact[], f: MonthlyFilter): Monthly
       orderId: o.id,
       client,
       orderNo: o.customerPoNo?.trim() || `#${o.orderNo}`,
-      orderDate: day(o.orderDate),
+      orderDate: day(orderDateOf(o)),
       billetType: [o.grade, o.size].filter(Boolean).join(' ') || '—',
       supplier: shortSupplier(o.supplierName),
       ton: o.qtyMt,
