@@ -47,7 +47,7 @@ const h = (v: unknown) => createHash('sha256').update(JSON.stringify(v ?? null))
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const log: any[] = [];
 
-type Attach = { kind: string; scope: 'shipment' | 'order'; target: string; step: string; docType: string; file: string };
+type Attach = { kind: string; scope: 'shipment' | 'order' | 'contract'; target: string; step: string; docType: string; file: string };
 type Fill = { target: string; field: string; value: string | number; src: string };
 
 (async () => {
@@ -81,7 +81,10 @@ type Fill = { target: string; field: string; value: string | number; src: string
     const orders: any[] = await prisma.tradeOrder.findMany({ where: { organizationId: ORG, year: 2026, isTest: false }, select: { id: true, orderNo: true, status: true, piNo: true, piDate: true, piAmount: true, customerPoNo: true, customerPoDate: true, steps: stepSel, fileLinks: linkSel } });
     const sos: any[] = await prisma.supplierOrder.findMany({ where: { organizationId: ORG, year: 2026 }, select: { id: true, soNo: true, piNo: true, piDate: true, piAmount: true } });
     const ships: any[] = await prisma.shipment.findMany({ where: { organizationId: ORG, order: { isTest: false, year: 2026 } }, select: { id: true, seqNo: true, status: true, blNumber: true, vessel: true, voyageNo: true, eta: true, etd: true, ciNumber: true, ciAmount: true, netWeightMt: true, grossWeightMt: true, totalBundles: true, totalPieces: true, portOfLoading: true, order: { select: { orderNo: true } }, steps: stepSel, fileLinks: linkSel } });
+    const contracts: any[] = await prisma.contract.findMany({ where: { organizationId: ORG }, select: { id: true, contractNo: true, status: true, fileLinks: linkSel } });
+    for (const k of contracts) k.steps = [{ id: null, displayNo: '' }];
     const byRef = (t: string) => {
+      if (t.startsWith('K:')) return { kind: 'contract', rec: contracts.find((k) => k.contractNo === t.slice(2)) };
       let m = t.match(/^#(\d+)-(\d+)$/);
       if (m) return { kind: 'shipment', rec: ships.find((s) => s.order?.orderNo === +m![1] && s.seqNo === +m![2]) };
       m = t.match(/^#(\d+)$/);
@@ -113,24 +116,24 @@ type Fill = { target: string; field: string; value: string | number; src: string
         if (!step) { stat.notFound++; console.log(`  NO STEP ${a.step} on ${a.target}`); continue; }
         if (rec.fileLinks.some((l: any) => l.file.sha256 === digest || (l.file.fileName && l.file.fileName.toLowerCase() === path.basename(rel).toLowerCase()))) { stat.skipLinked++; console.log(`  ALREADY ${a.target} has ${path.basename(rel)} — skip`); continue; }
         const multi = ['ARRIVAL_NOTICE', 'OTHER', 'CI_PAYMENT_PROOF', 'VENDOR_INVOICE'].includes(a.docType);
-        const filledBefore = rec.fileLinks.some((l: any) => l.stepId === step.id && l.file.docType === a.docType && !l.planned);
+        const filledBefore = rec.fileLinks.some((l: any) => (a.scope === 'contract' || l.stepId === step.id) && l.file.docType === a.docType && !l.planned);
         if (filledBefore && !multi) { stat.skipFilled++; console.log(`  SLOT FILLED ${a.target} step ${a.step} ${a.docType} — skip ${path.basename(rel)}`); continue; }
-        const ownerKey = a.scope === 'shipment' ? 'shipmentIds' : 'orderIds';
+        const ownerKey = a.scope === 'shipment' ? 'shipmentIds' : a.scope === 'contract' ? 'contractIds' : 'orderIds';
         console.log(`  ${fileId ? 'LINK  ' : 'UPLOAD'} ${a.target.padEnd(6)} ${a.step.padEnd(3)} ${a.docType.padEnd(22)} ${rel.split('/').slice(2).join('/')}`);
-        (willComplete.get(step.id) ?? willComplete.set(step.id, new Set()).get(step.id)!).add(a.docType);
+        if (step.id) (willComplete.get(step.id) ?? willComplete.set(step.id, new Set()).get(step.id)!).add(a.docType);
         if (!APPLY) { rec.fileLinks.push({ stepId: step.id, planned: true, file: { docType: a.docType, sha256: digest } }); fileId ? stat.link++ : stat.attach++; if (!fileId) knownBySha.set(digest, { id: (fileId = `planned:${digest}`) }); continue; }
         if (!fileId) {
           let name = path.basename(rel);
           if (!path.extname(name) && buf.subarray(0, 4).toString() === '%PDF') name += '.pdf';
           const ext = path.extname(name).slice(1).toLowerCase();
-          const r: any = await files.upload(ORG, { originalname: name, mimetype: MIME[ext] ?? 'application/octet-stream', size: buf.length, buffer: buf } as any, { docType: a.docType, stepId: step.id, [ownerKey]: rec.id, notes: `ADH Drive: ${rel.split('/').slice(2).join('/')}` } as any, ACTOR, { sha256: digest, completedShipmentsOk: true });
+          const r: any = await files.upload(ORG, { originalname: name, mimetype: MIME[ext] ?? 'application/octet-stream', size: buf.length, buffer: buf } as any, { docType: a.docType, ...(step.id ? { stepId: step.id } : {}), [ownerKey]: rec.id, notes: `ADH Drive: ${rel.split('/').slice(2).join('/')}` } as any, ACTOR, { sha256: digest, completedShipmentsOk: true });
           fileId = r.id;
           knownBySha.set(digest, { id: r.id });
           stat.attach++;
           await audit('CREATE', 'trade-file', r.id, { ref: a.target, step: a.step, docType: a.docType, fileName: name, drivePath: rel, sha256: digest, completedSteps: r.completedSteps ?? [] });
         } else {
-          await prisma.tradeFileLink.create({ data: { organizationId: ORG, fileId, stepId: step.id, contractId: null, supplierOrderId: null, shipmentId: a.scope === 'shipment' ? rec.id : null, orderId: a.scope === 'order' ? rec.id : null } });
-          const done = await config.syncSteps(prisma, ORG, [a.scope === 'shipment' ? { shipmentId: rec.id } : { orderId: rec.id }] as any, ACTOR as any, { docTypes: [a.docType] });
+          await prisma.tradeFileLink.create({ data: { organizationId: ORG, fileId, stepId: step.id, contractId: null, supplierOrderId: null, shipmentId: a.scope === 'shipment' ? rec.id : null, orderId: a.scope === 'order' ? rec.id : null, ...(a.scope === 'contract' ? { contractId: rec.id } : {}) } });
+          const done = await config.syncSteps(prisma, ORG, [a.scope === 'shipment' ? { shipmentId: rec.id } : a.scope === 'contract' ? { contractId: rec.id } : { orderId: rec.id }] as any, ACTOR as any, { docTypes: [a.docType] });
           stat.link++;
           await audit('LINK', 'trade-file', fileId, { ref: a.target, step: a.step, docType: a.docType, drivePath: rel, sha256: digest, completedSteps: done ?? [] });
         }
