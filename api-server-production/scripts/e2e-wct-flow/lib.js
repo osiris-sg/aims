@@ -79,15 +79,23 @@ async function api(page, apiPath, method = 'GET', body) {
   return json;
 }
 
-// Public (unauthenticated) API call — the guest/sign endpoints.
+// Public (unauthenticated) API call — the guest/sign endpoints. The public
+// surface is rate-limited, so a 429 is retried with backoff (the guest flow
+// uploads several photos per line).
 async function publicApi(page, apiPath, method = 'GET', body, multipart) {
-  const res = await page.request.fetch(`${API}${apiPath}`, {
-    method,
-    ...(multipart ? { multipart } : { headers: { 'Content-Type': 'application/json' }, data: body === undefined ? undefined : JSON.stringify(body) }),
-  });
-  const text = await res.text();
-  if (!res.ok()) throw new Error(`${method} ${apiPath} → ${res.status()} ${text.slice(0, 300)}`);
-  try { return JSON.parse(text); } catch { return text; }
+  for (let attempt = 0; ; attempt++) {
+    const res = await page.request.fetch(`${API}${apiPath}`, {
+      method,
+      ...(multipart ? { multipart } : { headers: { 'Content-Type': 'application/json' }, data: body === undefined ? undefined : JSON.stringify(body) }),
+    });
+    const text = await res.text();
+    if (res.status() === 429 && attempt < 6) {
+      await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
+      continue;
+    }
+    if (!res.ok()) throw new Error(`${method} ${apiPath} → ${res.status()} ${text.slice(0, 300)}`);
+    try { return JSON.parse(text); } catch { return text; }
+  }
 }
 
 // Tiny valid JPEG (1×1) — stands in for a proof photo on the guest run.

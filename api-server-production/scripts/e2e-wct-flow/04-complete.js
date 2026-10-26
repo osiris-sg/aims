@@ -32,11 +32,28 @@ async function main() {
       await beat(page, 2500);
       const view = await publicApi(page, `/public/delivery/${token}`);
       const v = view?.data ?? view;
-      const items = v.items || [];
+      // Items are under `deliveryItems`; each free-typed service line needs
+      // `minPhotos` condition photos before it can be delivered, and the photo
+      // upload returns { Key }.
+      const items = v.deliveryItems || v.items || [];
+      // Exact states only — a loose /delivered/ also matches "not_delivered".
+      const DELIVERED = /^(not_installed|installed|completed)$/i;
       for (const it of items) {
-        const up = await publicApi(page, `/public/delivery/${token}/photo`, 'POST', undefined, { file: { name: 'proof.jpg', mimeType: 'image/jpeg', buffer: TINY_JPEG } });
-        const url = up?.url || up?.data?.url || up?.key;
-        await publicApi(page, `/public/delivery/${token}/items/${it.id}/deliver`, 'POST', { photos: url ? [url] : [] });
+        if (DELIVERED.test(String(it.deliveryStatus || it.status || ''))) continue;
+        try {
+          const need = Math.max(1, Number(it.minPhotos) || 1);
+          const keys = [];
+          for (let k = 0; k < need; k++) {
+            const up = await publicApi(page, `/public/delivery/${token}/photo`, 'POST', undefined, { file: { name: `proof${k + 1}.jpg`, mimeType: 'image/jpeg', buffer: TINY_JPEG } });
+            const u = up?.data ?? up;
+            const key = u?.Key || u?.key || u?.url;
+            if (key) keys.push(key);
+          }
+          await publicApi(page, `/public/delivery/${token}/items/${it.id}/deliver`, 'POST', { photos: keys });
+          await beat(page, 600); // throttle: the public surface is rate-limited
+        } catch (e) {
+          console.log(`  item ${it.id} deliver skipped: ${e.message.slice(0, 120)}`);
+        }
       }
       await page.reload({ waitUntil: 'networkidle' }); await beat(page, 2000);
       // Signature: draw on the page's pad if present, else send one via API.
@@ -46,6 +63,10 @@ async function main() {
         await scribble(page, canvas);
         signature = await canvas.evaluate((c) => c.toDataURL('image/png'));
       }
+      // finalize requires a non-empty signature; the guest page may not expose a
+      // drawable canvas, so fall back to a valid 1×1 PNG data URL.
+      const FALLBACK_SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      if (!signature || signature.length < 100) signature = FALLBACK_SIG;
       await publicApi(page, `/public/delivery/${token}/finalize`, 'POST', { signature, signedByName: process.env.WCT_SIGNER || 'Tan Mei Ling', installNeeded: false });
       await page.reload({ waitUntil: 'networkidle' }); await beat(page, 2500);
       console.log('run finalized');
