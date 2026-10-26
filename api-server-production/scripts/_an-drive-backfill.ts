@@ -77,7 +77,7 @@ type Fill = { target: string; field: string; value: string | number; src: string
   await runAsOrg(ORG, async () => {
     const before = await snap();
     const stepSel = { select: { id: true, displayNo: true, code: true, status: true, requiredDocTypes: true } };
-    const linkSel = { select: { stepId: true, file: { select: { id: true, docType: true, sha256: true, fileName: true } } } };
+    const linkSel = { select: { stepId: true, file: { select: { id: true, docType: true, sha256: true, fileName: true, uploadedById: true } } } };
     const orders: any[] = await prisma.tradeOrder.findMany({ where: { organizationId: ORG, year: 2026, isTest: false }, select: { id: true, orderNo: true, status: true, piNo: true, piDate: true, piAmount: true, customerPoNo: true, customerPoDate: true, steps: stepSel, fileLinks: linkSel } });
     const sos: any[] = await prisma.supplierOrder.findMany({ where: { organizationId: ORG, year: 2026 }, select: { id: true, soNo: true, piNo: true, piDate: true, piAmount: true } });
     const ships: any[] = await prisma.shipment.findMany({ where: { organizationId: ORG, order: { isTest: false, year: 2026 } }, select: { id: true, seqNo: true, status: true, blNumber: true, vessel: true, voyageNo: true, eta: true, etd: true, ciNumber: true, ciAmount: true, netWeightMt: true, grossWeightMt: true, totalBundles: true, totalPieces: true, portOfLoading: true, order: { select: { orderNo: true } }, steps: stepSel, fileLinks: linkSel } });
@@ -116,7 +116,7 @@ type Fill = { target: string; field: string; value: string | number; src: string
         if (!step) { stat.notFound++; console.log(`  NO STEP ${a.step} on ${a.target}`); continue; }
         if (rec.fileLinks.some((l: any) => l.file.sha256 === digest || (l.file.fileName && l.file.fileName.toLowerCase() === path.basename(rel).toLowerCase()))) { stat.skipLinked++; console.log(`  ALREADY ${a.target} has ${path.basename(rel)} — skip`); continue; }
         const multi = ['ARRIVAL_NOTICE', 'OTHER', 'CI_PAYMENT_PROOF', 'VENDOR_INVOICE'].includes(a.docType);
-        const filledBefore = rec.fileLinks.some((l: any) => (a.scope === 'contract' || l.stepId === step.id) && l.file.docType === a.docType && !l.planned);
+        const filledBefore = rec.fileLinks.some((l: any) => (a.scope === 'contract' || l.stepId === step.id) && l.file.docType === a.docType && !l.planned && l.file.uploadedById !== ACTOR.id);
         if (filledBefore && !multi) { stat.skipFilled++; console.log(`  SLOT FILLED ${a.target} step ${a.step} ${a.docType} — skip ${path.basename(rel)}`); continue; }
         const ownerKey = a.scope === 'shipment' ? 'shipmentIds' : a.scope === 'contract' ? 'contractIds' : 'orderIds';
         console.log(`  ${fileId ? 'LINK  ' : 'UPLOAD'} ${a.target.padEnd(6)} ${a.step.padEnd(3)} ${a.docType.padEnd(22)} ${rel.split('/').slice(2).join('/')}`);
@@ -126,7 +126,7 @@ type Fill = { target: string; field: string; value: string | number; src: string
           let name = path.basename(rel);
           if (!path.extname(name) && buf.subarray(0, 4).toString() === '%PDF') name += '.pdf';
           const ext = path.extname(name).slice(1).toLowerCase();
-          const r: any = await files.upload(ORG, { originalname: name, mimetype: MIME[ext] ?? 'application/octet-stream', size: buf.length, buffer: buf } as any, { docType: a.docType, ...(step.id ? { stepId: step.id } : {}), [ownerKey]: rec.id, notes: `ADH Drive: ${rel.split('/').slice(2).join('/')}` } as any, ACTOR, { sha256: digest, completedShipmentsOk: true });
+          const r: any = await files.upload(ORG, { originalname: Buffer.from(name, 'utf8').toString('latin1'), mimetype: MIME[ext] ?? 'application/octet-stream', size: buf.length, buffer: buf } as any, { docType: a.docType, ...(step.id ? { stepId: step.id } : {}), [ownerKey]: rec.id, notes: `ADH Drive: ${rel.split('/').slice(2).join('/')}` } as any, ACTOR, { sha256: digest, completedShipmentsOk: true });
           fileId = r.id;
           knownBySha.set(digest, { id: r.id });
           stat.attach++;

@@ -56,7 +56,7 @@ describe('TradeStepsService.complete', () => {
     const { prisma, service } = setup(baseStep, []);
     await expect(service.complete(ORG, 'step-1', actor)).rejects.toThrow(/missing required document\(s\) on this shipment: B\/L draft/);
     expect(prisma.tradeStep.update).not.toHaveBeenCalled();
-    expect(prisma.tradeFileLink.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { organizationId: ORG, shipmentId: 'ship-1' } }));
+    expect(prisma.tradeFileLink.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { organizationId: ORG, hiddenAt: null, shipmentId: 'ship-1' } }));
   });
 
   it('marks DONE with completedAt and the actor once the file is linked', async () => {
@@ -144,7 +144,7 @@ describe('TradeFilesService.removeLink', () => {
     await expect(service.removeLink(ORG, 'file-1', 'link-1')).rejects.toThrow(/"B\/L draft approval" on shipment TEST-198GX04630 \(needs B\/L draft\)/);
     expect(prisma.tradeFileLink.delete).not.toHaveBeenCalled();
     // Remaining files are counted on the same shipment, excluding this file.
-    expect(prisma.tradeFileLink.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { organizationId: ORG, shipmentId: 'ship-1', NOT: { fileId: 'file-1' } } }));
+    expect(prisma.tradeFileLink.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { organizationId: ORG, hiddenAt: null, shipmentId: 'ship-1', NOT: { fileId: 'file-1' } } }));
   });
 
   it('allows it when another file of that type is still linked', async () => {

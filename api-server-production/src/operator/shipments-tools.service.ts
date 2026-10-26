@@ -722,7 +722,7 @@ export class ShipmentsToolsService {
   private async shipmentStatus(org: string, id: string) {
     const s: any = await this.prisma.shipment.findFirst({
       where: { id, organizationId: org },
-      select: { id: true, seqNo: true, blNumber: true, vessel: true, voyageNo: true, etd: true, eta: true, actualArrivalDate: true, dischargeDate: true, detFreeDays: true, demFreeDays: true, status: true, netWeightMt: true, portOfDischarge: true, notes: true, customer: { select: { name: true } }, order: { select: { orderNo: true, grade: true, product: true, size: true } }, steps: { select: { ...STEP_SEL, requiredDocTypes: true } }, fileLinks: { select: { file: { select: { docType: true, fileName: true } } } } },
+      select: { id: true, seqNo: true, blNumber: true, vessel: true, voyageNo: true, etd: true, eta: true, actualArrivalDate: true, dischargeDate: true, detFreeDays: true, demFreeDays: true, status: true, netWeightMt: true, portOfDischarge: true, notes: true, customer: { select: { name: true } }, order: { select: { orderNo: true, grade: true, product: true, size: true } }, steps: { select: { ...STEP_SEL, requiredDocTypes: true } }, fileLinks: { where: { hiddenAt: null }, select: { file: { select: { docType: true, fileName: true } } } } },
     });
     if (!s) return { error: 'Shipment not found' };
     const cur = currentStepOf(s.steps);

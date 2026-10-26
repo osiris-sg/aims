@@ -167,7 +167,7 @@ export class ShipmentsService {
         contractLine: { select: CONTRACT_LINE_SELECT },
         customer: { select: { id: true, name: true, customerCode: true } },
         steps: { orderBy: { sortOrder: 'asc' }, select: STEP_SELECT },
-        fileLinks: { orderBy: { createdAt: 'desc' }, select: FILE_LINK_SELECT },
+        fileLinks: { where: { hiddenAt: null }, orderBy: { createdAt: 'desc' }, select: FILE_LINK_SELECT },
         docLinks: { orderBy: { createdAt: 'desc' }, select: DOC_LINK_SELECT },
       },
     });

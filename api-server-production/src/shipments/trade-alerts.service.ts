@@ -77,7 +77,7 @@ export class TradeAlertsService {
         ciAmount: true,
         costs: true,
         order: { select: { orderNo: true } },
-        fileLinks: { select: { file: { select: { docType: true } } } },
+        fileLinks: { where: { hiddenAt: null }, select: { file: { select: { docType: true } } } },
         steps: { select: { code: true, status: true, skipReason: true } },
       },
     });

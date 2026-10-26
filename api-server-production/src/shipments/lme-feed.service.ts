@@ -292,7 +292,7 @@ export class LmeFeedService {
     }
     const ships: any[] = await this.prisma.shipment.findMany({
       where: { organizationId, status: 'OPEN', order: { shipMonth: m, isTest: false } },
-      select: { id: true, seqNo: true, ciNumber: true, orderId: true, order: { select: { orderNo: true } }, fileLinks: { where: { file: { docType: 'CI' } }, select: { fileId: true } } },
+      select: { id: true, seqNo: true, ciNumber: true, orderId: true, order: { select: { orderNo: true } }, fileLinks: { where: { hiddenAt: null, file: { docType: 'CI' } }, select: { fileId: true } } },
     });
     for (const s of ships) {
       const fileIds = s.fileLinks.map((l: any) => l.fileId);

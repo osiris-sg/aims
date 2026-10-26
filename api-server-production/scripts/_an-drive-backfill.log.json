@@ -1,0 +1,2763 @@
+[
+ {
+  "at": "2026-10-26T11:58:51.905Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "63a1cb85-563f-4b1a-9e52-0077c253123e",
+  "details": {
+   "ref": "K:454003598",
+   "step": "",
+   "docType": "CONTRACT",
+   "fileName": "Asia Deal 454003598.pdf",
+   "drivePath": "Document/Document/202607 Shipment 40t/Contract/Asia Deal 454003598.pdf",
+   "sha256": "1d18e9e9d108db823edf643b7b37e70895612fbc80258f995848aa6332161b55",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:52.397Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "cb518034-72df-421a-963d-d7e9d6af0e41",
+  "details": {
+   "ref": "K:454003652",
+   "step": "",
+   "docType": "CONTRACT",
+   "fileName": "ASIA DEAL Contract 454003652.pdf",
+   "drivePath": "Thailand/Thailand/202608 P1020 150t/ASIA DEAL Contract 454003652.pdf",
+   "sha256": "7ccaebdfd34c08d61bda48e5172132b87545be1ed0d787e3fd5f066c922dccce",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:52.957Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "2a0e69da-e352-4696-95fb-06404d6075c9",
+  "details": {
+   "ref": "#19-2",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000586446.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6063 8 inch 300ton/6063_8inch_198GX06523_15.296_MT_Yokohama_454003422/6063_8inch_15.296_MT_198GX06523/COA_9000586446.pdf",
+   "sha256": "43f68513e0228074585779528ffd1b1298965a11b5e287efe32760de4986cbdf",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:53.382Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "723a5347-e61b-480c-af2d-aa36c3e31fe2",
+  "details": {
+   "ref": "#2-1",
+   "step": "9",
+   "docType": "ARRIVAL_NOTICE",
+   "fileName": "WDMFT505_AN_JPYOK01_YSA4_0415_000112_198GX01385_A-MAIL (1).pdf",
+   "drivePath": "Docs/Docs/Docs 202603(Jan Shipment)/WDMFT505_AN_JPYOK01_YSA4_0415_000112_198GX01385_A-MAIL (1).pdf",
+   "sha256": "5581f722ccd53eea16da3adea0e668e11d814d3822522a44cde96c2ce50888d3",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:53.817Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "05282f39-8dcf-494a-a10e-e27edecd46c5",
+  "details": {
+   "ref": "#1-1",
+   "step": "9",
+   "docType": "ARRIVAL_NOTICE",
+   "fileName": "WDMFT505_AN_JPYOK01_YSA5_0325_000001_198GX00921-MAIL.pdf",
+   "drivePath": "Docs/Docs/Docs 202603(Jan Shipment)/WDMFT505_AN_JPYOK01_YSA5_0325_000001_198GX00921-MAIL.pdf",
+   "sha256": "99e4faab79b2614e6205455a1b58cf3aa018d206e00e3761ac9de47fbac909a7",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:54.570Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "74f0e849-3111-4bfe-8864-3cd7fc31de7a",
+  "details": {
+   "ref": "#1-1",
+   "step": "3b",
+   "docType": "BL",
+   "fileName": "198GX00921 (2).pdf",
+   "drivePath": "Docs/Docs/Docs 202604(Feb Shipment)/198GX00921 (2).pdf",
+   "sha256": "3ba8008b1f30b0f452d833077ed8482a75556428e099fada607b4412c7b8eb5f",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:54.866Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "f60871aa-8349-4761-8dea-139eccfef254",
+  "details": {
+   "ref": "#1-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "fileName": "COA.XLS",
+   "drivePath": "Docs/Docs/Docs 202604(Feb Shipment)/COA.XLS",
+   "sha256": "0212b6ca42972ebd48f4a6a13598ef18e6edb78bc5269e2ea441adef02ae2649",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:55.314Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "8b86143b-0823-4af9-9076-d6ee330c15a0",
+  "details": {
+   "ref": "#1-1",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000513647.pdf",
+   "drivePath": "Docs/Docs/Docs 202604(Feb Shipment)/COA_9000513647.pdf",
+   "sha256": "f34321c43fb9828ebe47b4117246616ac37a4a15940e5fdcb51b4fdc5eb7f272",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:55.719Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "f2614aca-a92a-4ae9-8865-d804eceb1bdf",
+  "details": {
+   "ref": "#1-1",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_Apr.pdf",
+   "drivePath": "Docs/Docs/Docs 202604(Feb Shipment)/COA_Apr.pdf",
+   "sha256": "d0a68d0b6a8dec67f27850951255fe2ca22454f406703f726f2cfea3e47f916e",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:56.139Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "58d8f2c9-2adf-4b34-8976-952cdea4fee3",
+  "details": {
+   "ref": "#1-1",
+   "step": "3b",
+   "docType": "CI",
+   "fileName": "COMMERCIAL_INVOICE_9000513647.pdf",
+   "drivePath": "Docs/Docs/Docs 202604(Feb Shipment)/COMMERCIAL_INVOICE_9000513647.pdf",
+   "sha256": "078e0cbd39064cb3ecb343ba8b9ed52f46acae4513fc42091116da162eeeef64",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:56.646Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "fceacc82-682e-4bba-96c2-3bf1b1fba848",
+  "details": {
+   "ref": "#1-1",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000513647.pdf",
+   "drivePath": "Docs/Docs/Docs 202604(Feb Shipment)/COO_9000513647.pdf",
+   "sha256": "62c3a42894b1d0eb65302e7a3b2a0f9b4db6dcb823593d578345688a7aa272cf",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:57.093Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "219fae95-cad0-4b25-9228-5dc0d9569c41",
+  "details": {
+   "ref": "#1-1",
+   "step": "10",
+   "docType": "IMPORT_PERMIT",
+   "fileName": "IM3Z640309_20260420091448.pdf",
+   "drivePath": "Docs/Docs/Docs 202604(Feb Shipment)/IM3Z640309_20260420091448.pdf",
+   "sha256": "a48295a9024d8c75b695e6eb86c974d31ccf2366885732d76e342b06b3d8f2ec",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:57.490Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "3655084d-aa22-478b-8415-16e2ecddc959",
+  "details": {
+   "ref": "#1-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "fileName": "INSURANCE CERTIFICATE.pdf",
+   "drivePath": "Docs/Docs/Docs 202604(Feb Shipment)/INSURANCE CERTIFICATE.pdf",
+   "sha256": "92d421a8d52d6e2edfd7c0d228001e94b9847fe7f33c1a53f83e8c57e3407938",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:57.900Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "6a6cf840-c83b-4fc7-8cf6-dc32d50bcf2a",
+  "details": {
+   "ref": "#1-1",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000513647.pdf",
+   "drivePath": "Docs/Docs/Docs 202604(Feb Shipment)/PACKING_LIST_9000513647.pdf",
+   "sha256": "9bd7643a62f80b7dfc7814e05d028ab75f9058837610f7c1ffc73c0233647251",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:58.334Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "ae594af2-30b3-497c-ab88-777d953b30f3",
+  "details": {
+   "ref": "#1-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000513647.pdf",
+   "drivePath": "Docs/Docs/Docs 202604(Feb Shipment)/PACKING_LIST_CONTAINER_9000513647.pdf",
+   "sha256": "aacce82b40efc44af0fa3bea4d695892bdafd49dae948bbbe61ed5f3395ab870",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:58.633Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "dc84d007-d921-4f80-ab31-b855b51ce421",
+  "details": {
+   "ref": "#1-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "fileName": "PL.XLS",
+   "drivePath": "Docs/Docs/Docs 202604(Feb Shipment)/PL.XLS",
+   "sha256": "87827d55d225c74413880d08c68d76cedcdc3cf36da872570b73f50e437f33a0",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:58.926Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "2c57642c-d2f4-4663-8e54-757068a88625",
+  "details": {
+   "ref": "#1-1",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "fileName": "PL_Apr.XLS.xlsx",
+   "drivePath": "Docs/Docs/Docs 202604(Feb Shipment)/PL_Apr.XLS.xlsx",
+   "sha256": "c85686e2ee16281ecd6cbb2d0eaf188b08b218e9f7cced93bc2a1289f55eed87",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:59.312Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "f4997972-6531-4ee2-a7de-477cfeb855c3",
+  "details": {
+   "ref": "#1-1",
+   "step": "9",
+   "docType": "ARRIVAL_NOTICE",
+   "fileName": "WDMFT505_AN_JPYOK01_YSA5_0325_000001_198GX00921_A-MAIL.pdf",
+   "drivePath": "Docs/Docs/Docs 202604(Feb Shipment)/WDMFT505_AN_JPYOK01_YSA5_0325_000001_198GX00921_A-MAIL.pdf",
+   "sha256": "d4cca1f8acabed303405c8f01d189615ed646060674fc12ff187044759de6c7b",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:58:59.804Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "d204d3b5-9d2a-4645-99dd-e1ce8608c5a8",
+  "details": {
+   "ref": "#2-1",
+   "step": "3b",
+   "docType": "BL",
+   "fileName": "198GX01385.pdf",
+   "drivePath": "Docs/Docs/Docs 202605(Mar Shipment)/198GX01385.pdf",
+   "sha256": "af0a5f214396179bec368ead0c559d7cf14173ea051069075f778a25ab8fcfe3",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:00.143Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "991bb010-0946-42f1-b9ab-b62451d7765a",
+  "details": {
+   "ref": "#2-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "fileName": "COA.XLS",
+   "drivePath": "Docs/Docs/Docs 202605(Mar Shipment)/COA.XLS",
+   "sha256": "6e74f38bc99b21538e0f9f5535429852e2bb0941d9bb922acc991452a3d2de22",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:00.617Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "323dd146-287b-45d6-9ccb-8ae03a826d77",
+  "details": {
+   "ref": "#2-1",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000523941.pdf",
+   "drivePath": "Docs/Docs/Docs 202605(Mar Shipment)/COA_9000523941.pdf",
+   "sha256": "f89f8ea53130161fbde84d87a1d64e116d3d6a0c1da8e26836334122f5ad3bb9",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:01.062Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "955cf4ac-a7d0-495f-babf-04c981031a70",
+  "details": {
+   "ref": "#2-1",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_May.pdf",
+   "drivePath": "Docs/Docs/Docs 202605(Mar Shipment)/COA_May.pdf",
+   "sha256": "f02ffa9c9559b2931b5691f508571d4f2f654ce38ced9ef3e12631d838d6da51",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:01.509Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "479e3d07-d162-4404-9f1c-efb6b87b3f8b",
+  "details": {
+   "ref": "#2-1",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000523941.PDF",
+   "drivePath": "Docs/Docs/Docs 202605(Mar Shipment)/COO_9000523941.PDF",
+   "sha256": "64df3d36d929803fcc14a7c83c9eca9d95c05c7b213c3f7aa967893f3694b0fa",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:01.997Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "5476b8af-c3fa-410b-b9b3-b1299f78ad2d",
+  "details": {
+   "ref": "#2-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "fileName": "INSURANCE CERTIFICATE.pdf",
+   "drivePath": "Docs/Docs/Docs 202605(Mar Shipment)/INSURANCE CERTIFICATE.pdf",
+   "sha256": "fbbba7cb0918f02c16a2715d37fd370698cc661f712e8ac0d99c1a6db5d7aadb",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:02.407Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "0cef1525-4222-4e9b-9df4-c6f568dff2bf",
+  "details": {
+   "ref": "#2-1",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "fileName": "PACKING LIST May.XLS.xlsx",
+   "drivePath": "Docs/Docs/Docs 202605(Mar Shipment)/PACKING LIST May.XLS.xlsx",
+   "sha256": "75fc18baeb77bd9af92cffd8ddcf4c3b2b039ee265b0f5df408f1c749f5bd06c",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:02.770Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "ab07cd89-511d-497f-9097-186c6e680895",
+  "details": {
+   "ref": "#2-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "fileName": "PACKING LIST.XLS",
+   "drivePath": "Docs/Docs/Docs 202605(Mar Shipment)/PACKING LIST.XLS",
+   "sha256": "fe1d0c62a4743753674cce1f1e146ed650d6c8c32fa627b0c2e4ffa14310392f",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:03.369Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "f9abcc86-7f4b-446f-bf59-132df331ed04",
+  "details": {
+   "ref": "#2-1",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000523941.pdf",
+   "drivePath": "Docs/Docs/Docs 202605(Mar Shipment)/PACKING_LIST_9000523941.pdf",
+   "sha256": "e6b5a0213beda6546bf5d04dd2bdea9d1039c8264c1669d73be820f8cce34652",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:03.832Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "78bc1d78-1dbc-48d3-afe3-daf1e4009e6f",
+  "details": {
+   "ref": "#2-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000523941.pdf",
+   "drivePath": "Docs/Docs/Docs 202605(Mar Shipment)/PACKING_LIST_CONTAINER_9000523941.pdf",
+   "sha256": "e7b4969322be3f2983de0d8e87cda94757df7931e51ac8df96f34bb6dd49bd63",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:04.359Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "fa53b0c4-3029-4973-9c03-8180588955f7",
+  "details": {
+   "ref": "#2-1",
+   "step": "9",
+   "docType": "ARRIVAL_NOTICE",
+   "fileName": "ARRIVAL NOTICE _ FREIGHT INVOICE.pdf",
+   "drivePath": "Docs/Docs/Docs 202605(Mar Shipment)/船２_6月とまとめて/ARRIVAL NOTICE _ FREIGHT INVOICE.pdf",
+   "sha256": "81be10990e0620efdb7b7030baaea101b8571fbf95c9616a6fec2eb2df66e282",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:04.820Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "731f2416-ff67-40c9-84b9-24b3af115b94",
+  "details": {
+   "ref": "#2-1",
+   "step": "3a",
+   "docType": "BL_DRAFT",
+   "fileName": "DRAFT BL-KMTCVTG0067502.pdf",
+   "drivePath": "Docs/Docs/Docs 202605(Mar Shipment)/船２_6月とまとめて/DRAFT BL-KMTCVTG0067502.pdf",
+   "sha256": "fad933dfd9f99b57ea79387e0cdb71d2cbcf8a346e53a6569697e0e82eb6b678",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:05.229Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "f6179bcd-e842-459a-b867-364aad4c208d",
+  "details": {
+   "ref": "#2-1",
+   "step": "9",
+   "docType": "TELEX_RELEASE",
+   "fileName": "KMTCVTG0067502 SRD.pdf",
+   "drivePath": "Docs/Docs/Docs 202605(Mar Shipment)/船２_6月とまとめて/三井倉庫様宛_SUS様_202605(6月)納入20.444t/KMTCVTG0067502 SRD.pdf",
+   "sha256": "130d15e2d6a66ad7ecd57ef9f52e6e2a84426788afd4d71f22dcbc2bb29a091b",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:06.035Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "366adc38-e1e3-40ce-b738-f88b8ce60857",
+  "details": {
+   "ref": "#4-1",
+   "step": "3b",
+   "docType": "BL",
+   "fileName": "BL_SUS6063_202606納入分(4月出荷)257t.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/250ton/BL_SUS6063_202606納入分(4月出荷)257t.pdf",
+   "sha256": "38745be90326b3d556e35ad68e86ce4ce6ebf9a2184b643fe61327791bc23d80",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:06.327Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "136ec837-ffd2-491a-8f35-fa73f5fb49ab",
+  "details": {
+   "ref": "#4-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "fileName": "COA.XLS",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/250ton/COA.XLS",
+   "sha256": "ad6652df418b2fc0cd33820a422c796e876aa54ddc17f4721f7280be00aeeb43",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:06.773Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "3c182766-8887-47e9-ab9e-b9e94f98d832",
+  "details": {
+   "ref": "#4-1",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000540251.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/250ton/COA_9000540251.pdf",
+   "sha256": "54aa80d67f28ba31933b81d361beb5e5ff3cf605c4b679f06889143accb71328",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:07.206Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "864453f6-bfde-4cc9-840a-7c9467560b20",
+  "details": {
+   "ref": "#4-1",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_Jun250t.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/250ton/COA_Jun250t.pdf",
+   "sha256": "39a6864b724b5c02238fe4899f6cd720c1b900dc2ba8c76fa81efccf6e0ffa42",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:07.624Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "398e737e-8fb3-406c-bc52-6d83d43164d6",
+  "details": {
+   "ref": "#4-1",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000540251.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/250ton/COO_9000540251.pdf",
+   "sha256": "f826889c28b55e9d676045d8a6c77068d5f66d851c633793356d73256335684b",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:08.067Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "97ded87b-f5fe-4a5d-93fb-452ca001f61c",
+  "details": {
+   "ref": "#4-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "fileName": "INSURANCE.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/250ton/INSURANCE.pdf",
+   "sha256": "405bb0811e1411ecaa072ac21d53b1e659c7ec3a01e83d128e1e2255b97817c2",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:08.372Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "62b15bdf-2c03-4deb-a358-eb0ea5d1d676",
+  "details": {
+   "ref": "#4-1",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "fileName": "PACKING LIST_JUN250t.xlsx",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/250ton/PACKING LIST_JUN250t.xlsx",
+   "sha256": "cd87d9631973aaf4fe73cad20f81985935e4170ddaebbc70544b71b222840809",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:08.784Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "2cd3791d-55c3-4107-a052-09daa1114def",
+  "details": {
+   "ref": "#4-1",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000540251.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/250ton/PACKING_LIST_9000540251.pdf",
+   "sha256": "4802c6c02ee0a8d88278313f708ef21730cefdf399e9fe1ca8695670a9412b7f",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:09.300Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "246b10b8-a98d-42e5-8e48-05da8e6c8dce",
+  "details": {
+   "ref": "#4-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000540251.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/250ton/PACKING_LIST_CONTAINER_9000540251.pdf",
+   "sha256": "aa678a45aba3445c410ba4e3d0b4def0ecc40ae525969d9f0f5efbb8bc9fcee8",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:09.589Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "7bd790da-de35-43af-888c-d6fe49bb8593",
+  "details": {
+   "ref": "#4-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "fileName": "PL.XLS",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/250ton/PL.XLS",
+   "sha256": "cb45e34ed4b2e58fc8fe413d054f1b3f984bed1f28e00e95f253f06fc6a56b52",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:09.987Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "420ec20e-9fcb-460b-b07f-c1037e3e59a2",
+  "details": {
+   "ref": "#4-1",
+   "step": "9",
+   "docType": "TELEX_RELEASE",
+   "fileName": "VTG0069547 SRD.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/250ton/VTG0069547 SRD.pdf",
+   "sha256": "23b53c6660c4e910d76dab092c6dc1250ab2578cb368809813107acb9ca8d2b7",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:10.299Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "1483a535-918c-4042-aefd-e0dda867935a",
+  "details": {
+   "ref": "#3-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "fileName": "COA.XLS",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/62ton/COA.XLS",
+   "sha256": "6827fe25da327632d53ecd1b7cdf104ea5f9d61a8f52bd9c75217d93851e4bde",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:10.734Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "3c490fd8-cbc6-43b6-be66-6ea4032db3b7",
+  "details": {
+   "ref": "#3-1",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000537659.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/62ton/COA_9000537659.pdf",
+   "sha256": "cf70b6610ea5c39975cec54cbeb47cce7de7a6734560ba9f4ab8883f29f0d409",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:11.126Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "e9fa53c2-f004-4494-9c60-e40221c6a8da",
+  "details": {
+   "ref": "#3-1",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_Jun_62t.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/62ton/COA_Jun_62t.pdf",
+   "sha256": "86bbd8f9fc9c780cd226eee8e02aadc6d032fb0f022b93c0c9edb53f88949471",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:11.541Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "8d49830f-bac5-4d6c-8319-a8d1b690ea7a",
+  "details": {
+   "ref": "#3-1",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000537659.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/62ton/COO_9000537659.pdf",
+   "sha256": "481bdb8ff688dbbb5239ad23765cfcfc24de2b666772c57fbf42104e455336a5",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:11.999Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "dcf6c922-240a-412a-961c-74699368bd5b",
+  "details": {
+   "ref": "#3-1",
+   "step": "3a",
+   "docType": "BL_DRAFT",
+   "fileName": "DRAFT BL-KMTCVTG0060509.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/62ton/DRAFT BL-KMTCVTG0060509.pdf",
+   "sha256": "272ae29f046bec371b25325fc7814da60e5fae54d6b41f56bdd5ed6ccbb0c695",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:12.449Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "7c84db81-3957-4a5e-93df-a20ea3edf264",
+  "details": {
+   "ref": "#3-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "fileName": "INSURANCE.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/62ton/INSURANCE.pdf",
+   "sha256": "ebac3f7df3468c46624373f50cba1ae549483e46aa3e25838ec14ec7e9a959a6",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:13.151Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "72765621-64e2-4b4a-b5a7-d75280a5ed45",
+  "details": {
+   "ref": "#3-1",
+   "step": "3b",
+   "docType": "BL",
+   "fileName": "KMTCVTG0060509.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/62ton/KMTCVTG0060509.pdf",
+   "sha256": "4bdc2f34c9eeeeccbdd1a0fa7b7bbdbb53905e4a2ecacbd76d1ceab0471a72ae",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:13.459Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "9d9180eb-4322-497d-a76a-707ba841ad86",
+  "details": {
+   "ref": "#3-1",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "fileName": "PACKING LIST_JUN62t.xlsx",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/62ton/PACKING LIST_JUN62t.xlsx",
+   "sha256": "712925e8e10291f75159bce5d953f61f028d7f5e28c789f91a5c3707f98197e2",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:13.876Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "b68640c7-e9fe-48de-91f1-dfca2816bce6",
+  "details": {
+   "ref": "#3-1",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000537659.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/62ton/PACKING_LIST_9000537659.pdf",
+   "sha256": "e53cd2d264887f581ac61efbbc14aa3cadd9478161c3ed040466a887ae28904d",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:14.458Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "4f6eabb5-c375-4e73-8ccd-0fe4b9624758",
+  "details": {
+   "ref": "#3-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000537659.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/62ton/PACKING_LIST_CONTAINER_9000537659.pdf",
+   "sha256": "96423940bb3a984318174fa1b1c7a6b78403145fb3d3952bbcd68dc0bb6a3685",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:14.758Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "6590fb69-0a4d-4337-a29c-0df9c396c9dc",
+  "details": {
+   "ref": "#3-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "fileName": "PL.XLS",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/62ton/PL.XLS",
+   "sha256": "10cf5813c5f71ee8e7fc03b04406324702231a71a4f79a57967dde8407540ba0",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:15.158Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "2ed17dc6-9e1a-42b4-b439-ae75e64f72f4",
+  "details": {
+   "ref": "#3-1",
+   "step": "9",
+   "docType": "TELEX_RELEASE",
+   "fileName": "KMTCVTG0060509 SRD.pdf",
+   "drivePath": "Docs/Docs/Docs 202606(Apr Shipment)/62ton/三井倉庫様宛_SUS様_202606納入61.332t/KMTCVTG0060509 SRD.pdf",
+   "sha256": "f74ea6139f3d38ce742b510276fa5ca70226976c740d50cb6f12544a44dc30d8",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:15.719Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "a0a9628f-ee78-40e4-a337-14298db30235",
+  "details": {
+   "ref": "#6-1",
+   "step": "3b",
+   "docType": "BL",
+   "fileName": "198GX03246.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/198GX03246.pdf",
+   "sha256": "0bb952dac8bddf8e08c7d13646caf8d467bbc40c2e373eeca7f5ef18f6733b44",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:16.251Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "41e68d17-733a-4607-b19a-c8dee6229d59",
+  "details": {
+   "ref": "#6-1",
+   "step": "3a",
+   "docType": "BL_DRAFT",
+   "fileName": "6063_260.224t May BL Dr 198GX03246.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/6063_260.224t May BL Dr 198GX03246.pdf",
+   "sha256": "f23232ddea601c23e5cc2b69521673716e6a52969fc76df1bfe26b6d9b3b0194",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:16.783Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "534251f4-449b-4405-bf1e-853a3e805d54",
+  "details": {
+   "ref": "#6-1",
+   "step": "6",
+   "docType": "CI_PAYMENT_PROOF",
+   "fileName": "CI MAY6063 250t payment slip DBS.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/CI MAY6063 250t payment slip DBS.pdf",
+   "sha256": "dbf6c6270b7981714e10a8af70055bdc736cc1e227f96f3271bc0272b7446837",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:17.118Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "5712e427-ef49-46da-8b2f-232c8af6aff9",
+  "details": {
+   "ref": "#6-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "fileName": "COA.XLS",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/COA.XLS",
+   "sha256": "61d426891d3f3c74b9e2c7706cba81c5ab787fbc4d0848c81ebecf6fc8c9a25d",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:17.716Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "78fdc81d-0155-4f13-a43a-ff84c436162f",
+  "details": {
+   "ref": "#6-1",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000554478.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/COA_9000554478.pdf",
+   "sha256": "437fdd9e60f5bb39a58d63b03b85c642d2fb088cbc865e32715d9a17aa232184",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:18.222Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "5e169276-1e9d-4598-acd9-de8669811d3f",
+  "details": {
+   "ref": "#6-1",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_集計ファイル_7月納入260. 224t_9000554478.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/COA_集計ファイル_7月納入260. 224t_9000554478.pdf",
+   "sha256": "d44e44cdaa29413ac560cbe4b0ddfbc636bf0c41aca96882262bb51093cf2c39",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:18.849Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "81a39495-1a3d-4915-b751-04509dfe1de2",
+  "details": {
+   "ref": "#6-1",
+   "step": "3b",
+   "docType": "CI",
+   "fileName": "COMMERCIAL_INVOICE_9000554478.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/COMMERCIAL_INVOICE_9000554478.pdf",
+   "sha256": "c41d719c57b3e2425d0cfd1c1754473ba501452aa005162dd863c9b589b07ae2",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:19.308Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "b186602d-eed5-4dda-8834-9077463eb247",
+  "details": {
+   "ref": "#6-1",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000554478.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/COO_9000554478.pdf",
+   "sha256": "1b7dcd5083de01f19375f51dcad3b8646da4ce0c30cbf82d0686a304f410d6d3",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:20.204Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "c8db4550-e494-4ab3-9980-5418062f1a93",
+  "details": {
+   "ref": "#6-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "fileName": "INSURANCE.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/INSURANCE.pdf",
+   "sha256": "e0fa9c41f20366303209d9b98f3be0277be69f5388ca57af467607dc708fd3f4",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:20.707Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "43d55d24-a2fe-47d4-af37-4ca3358dc02c",
+  "details": {
+   "ref": "#6-1",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "fileName": "PACKING LIST.xlsx",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/PACKING LIST.xlsx",
+   "sha256": "8149a3a45429b1b7867e84945715836a9117f45e0c0cf6b0defd97e50d69e9f1",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:21.153Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "f3ca64af-da54-43b4-b57f-48f08caeb8bc",
+  "details": {
+   "ref": "#6-1",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000554478.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/PACKING_LIST_9000554478.pdf",
+   "sha256": "669378242f952e6ba922461065f25347ab5be9b563efcc720ee7fb29373ed87a",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:21.602Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "271d59e3-ae1d-4efb-8a8f-775efb55fab6",
+  "details": {
+   "ref": "#6-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000554478.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/PACKING_LIST_CONTAINER_9000554478.pdf",
+   "sha256": "88562f9e2b5cea7002b3cf44bae88d02915310e5bd1c51b59f0cb5ffcd85137a",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:21.902Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "c25c114f-b7d9-4a0a-bf01-c26abadb4a94",
+  "details": {
+   "ref": "#6-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "fileName": "PL.XLS",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/PL.XLS",
+   "sha256": "34115cff777b573dd6e13bb82d643550428149119111498340e627a8a2ef8d28",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:22.876Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "06845f18-8a4e-4483-a256-95bee7241c3c",
+  "details": {
+   "ref": "#6-1",
+   "step": "14",
+   "docType": "OTHER",
+   "fileName": "NO取り時混入チェックリスト WEIGHT LIST-4.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/混入/NO取り時混入チェックリスト WEIGHT LIST-4.pdf",
+   "sha256": "ac97c316e687d21fff0cbcd8cc4c6412c7c0baaf096abdb7136d18c2faa0a9cf",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:23.276Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "b17eebde-25f1-45d6-92bd-9933c32c4365",
+  "details": {
+   "ref": "#6-1",
+   "step": "3b",
+   "docType": "OTHER",
+   "fileName": "PACKING_LIST_CONTAINER_9000554478 Mixed Bundles.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/混入/PACKING_LIST_CONTAINER_9000554478 Mixed Bundles.pdf",
+   "sha256": "e5cf4fc9e21b678fa62a41d8fea5b0173dfadc59b2ab28899dd5dfc03d3a88bf",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:23.850Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "cfad0620-005a-46a1-bba6-4fb94808a1f1",
+  "details": {
+   "ref": "#6-1",
+   "step": "3b",
+   "docType": "OTHER",
+   "fileName": "PACKING_LIST_CONTAINER_9000554478 混入通知付(260tうち後発分追加).pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/混入/PACKING_LIST_CONTAINER_9000554478 混入通知付(260tうち後発分追加).pdf",
+   "sha256": "cfcc0d2115232eaf3dc7fbf52b2be879868a642d1c2c40ef401319f2901afcc8",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:24.385Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "fc023809-555f-49ca-a6e9-8fdbc18e8da8",
+  "details": {
+   "ref": "#6-1",
+   "step": "14",
+   "docType": "OTHER",
+   "fileName": "例_納品書.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/250ton/混入/例_納品書.pdf",
+   "sha256": "56279f5cfc0c4c7fbc301a6aaa05dcdd6ac86aefc339752bb6367379499644b2",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:25.266Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "e08794da-7fd9-4369-8574-846eefe5291d",
+  "details": {
+   "ref": "#5-1",
+   "step": "3b",
+   "docType": "BL",
+   "fileName": "198GX02830_BL_2026年7月納入(5月出荷)_56.197t.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/62ton/198GX02830_BL_2026年7月納入(5月出荷)_56.197t.pdf",
+   "sha256": "0c6b3bfdeb5a826de24b7abdde9b3fa0ca525d91952bd172216b2f81c5bfb39b",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:25.560Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "bb71b28d-d0b7-4007-90fd-9b1438854be4",
+  "details": {
+   "ref": "#5-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "fileName": "COA.XLS",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/62ton/COA.XLS",
+   "sha256": "9d87aba38f0df5c53fa393f466c43a323c6eb3fe52478467dccf4e20f51f60f4",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:26.029Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "50e1f197-74c5-40eb-b760-6d6c2e2efba5",
+  "details": {
+   "ref": "#5-1",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000548460.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/62ton/COA_9000548460.pdf",
+   "sha256": "5d209035f1f848562cccca8a5c7264bc305cb72028b7117d12f4c41bbd7af833",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:26.425Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "6db2aa89-a12d-4130-ba81-b2ecf47f6c36",
+  "details": {
+   "ref": "#5-1",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_集計ファイル_7月納入56.197t 8インチ修正版.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/62ton/COA_集計ファイル_7月納入56.197t 8インチ修正版.pdf",
+   "sha256": "98551d3fe8899520b612a8839aaa3beb5b99a81907fe6a5b19991ae3dad23460",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:26.841Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "c0e26a58-b73b-4172-b0b6-58b945bc8b78",
+  "details": {
+   "ref": "#5-1",
+   "step": "3b",
+   "docType": "CI",
+   "fileName": "COMMERCIAL_INVOICE_9000548460.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/62ton/COMMERCIAL_INVOICE_9000548460.pdf",
+   "sha256": "cb6ec55ac08268f1f9c9b6957db690bc158cc60c2e0becd996d26cb80968cba7",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:27.264Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "96a0c67c-c923-48ab-a63a-eca34e36ae8f",
+  "details": {
+   "ref": "#5-1",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000548460.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/62ton/COO_9000548460.pdf",
+   "sha256": "e1a57ab26bfe186846ebe59052af5dcaf8235878f0255c0ac79f1a2a700759b0",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:27.763Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "56328042-e264-4368-8ec2-7f6d307113ba",
+  "details": {
+   "ref": "#5-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "fileName": "INSURANCE.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/62ton/INSURANCE.pdf",
+   "sha256": "6e21a4afd129873a29456a86117fae93fe71d2087534581680b6e4077dff0dab",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:28.062Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "7f440561-9979-48a4-ad40-24ee40832b82",
+  "details": {
+   "ref": "#5-1",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "fileName": "PACKING LIST_7月納入56.197t.xlsx",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/62ton/PACKING LIST_7月納入56.197t.xlsx",
+   "sha256": "c77eaa4f4eff3403a0065aebe0ff22bbc192337d6c09defd18570d7ca9c6d491",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:28.480Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "f0422b5e-3fa9-45a4-ae32-11c1a62e95e3",
+  "details": {
+   "ref": "#5-1",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000548460.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/62ton/PACKING_LIST_9000548460.pdf",
+   "sha256": "cefd4c155ae9cd79e02c519849368a737963c17f035de1e8da74f5086a21a528",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:28.894Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "6e399ab2-b66d-4927-a64d-2f6067dd84be",
+  "details": {
+   "ref": "#5-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000548460.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/62ton/PACKING_LIST_CONTAINER_9000548460.pdf",
+   "sha256": "64ae0e86620cbdb71356c8f721aba59129f203b7a30b2551461bf204f889cdcd",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:29.305Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "d8d252ee-d92b-4945-bd70-e2b13bc31205",
+  "details": {
+   "ref": "#5-1",
+   "step": "3b",
+   "docType": "OTHER",
+   "fileName": "PACKING_LIST_CONTAINER_9000548460混入通知付き.pdf",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/62ton/PACKING_LIST_CONTAINER_9000548460混入通知付き.pdf",
+   "sha256": "5652a6823d7f2ff3f62df9d0135c23c765b79a4a69ecb67ff80957d242e9e989",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:29.609Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "a9a84de9-edca-47c1-8aef-27d459b0e70f",
+  "details": {
+   "ref": "#5-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "fileName": "PL.XLS",
+   "drivePath": "Docs/Docs/Docs 202607(May Shipment)/62ton/PL.XLS",
+   "sha256": "f411d1b0861574c8be0a00d2763ec6b4dd956da1530bce8d3c16ddfd3435c936",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:30.350Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "d1cb1e29-7872-452d-87e7-7d402d1bd04b",
+  "details": {
+   "ref": "#8-1",
+   "step": "3b",
+   "docType": "BL",
+   "fileName": "198GX04346 SCAN.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/先着260t/198GX04346 SCAN.pdf",
+   "sha256": "e4cfc4cc7f4aa52b088e9396314f85c6323a59d1d22ac54c1725fa2a8395ff5b",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:30.665Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "798eda84-a610-4cc8-9fce-98ddd1254777",
+  "details": {
+   "ref": "#8-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "fileName": "COA.XLS",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/先着260t/COA.XLS",
+   "sha256": "fc2b4a0c775e5324095c811c718dac06969ab83abe9664d5755fc6d82a5ffd5c",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:31.140Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "e40bc4b1-2143-4fb6-9282-c0282098978a",
+  "details": {
+   "ref": "#8-1",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000560070.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/先着260t/COA_9000560070.pdf",
+   "sha256": "e9b927ecf2fcde9fddf265ae08e536488b7cfdc462351a60a1726526d58f8eea",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:31.552Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "6ad33c94-d749-4fb0-8be3-773abd4b3332",
+  "details": {
+   "ref": "#8-1",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_集計ファイル_AugFirst-come260t.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/先着260t/COA_集計ファイル_AugFirst-come260t.pdf",
+   "sha256": "aa2405a9a4af4b5f912deae8fd76095639fdba6bac64e2cada178e17dc6604a9",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:31.954Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "3ab0d5cb-0a18-4830-9ec1-bbb281306604",
+  "details": {
+   "ref": "#8-1",
+   "step": "3b",
+   "docType": "CI",
+   "fileName": "COMMERCIAL_INVOICE_9000560070.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/先着260t/COMMERCIAL_INVOICE_9000560070.pdf",
+   "sha256": "b192e5cdaf115770713b905648d49cc5e5799ffd24363e0527480231191793b1",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:32.647Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "61f2f761-9cc0-480b-92f9-26e8066e3678",
+  "details": {
+   "ref": "#8-1",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000560070.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/先着260t/COO_9000560070.pdf",
+   "sha256": "a2a7fc5b4e2cceb72021168ba3c72ca00eb65eceaed081f010f1ea460238f8b0",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:33.290Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "983fb621-5cad-4dce-b716-c95c923ab36f",
+  "details": {
+   "ref": "#8-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "fileName": "INSURANCE.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/先着260t/INSURANCE.pdf",
+   "sha256": "b6fac17180a71d1546db7f8208ae0363a8d0e9ce47448ceda98384d78d254548",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:33.624Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "6e930bba-d84b-4883-8285-fc3cc0683604",
+  "details": {
+   "ref": "#8-1",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "fileName": "PACKING LIST.XLS.xlsx",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/先着260t/PACKING LIST.XLS.xlsx",
+   "sha256": "78833f5a78bd5a484634af2a86a650a7d172b46f0784c6cbadf4676ddd49aa17",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:34.163Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "86feaca9-950f-41c8-bc53-39c6fc59a145",
+  "details": {
+   "ref": "#8-1",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000560070.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/先着260t/PACKING_LIST_9000560070.pdf",
+   "sha256": "36b6ebc8c0072f4fb6e22a7078b8662f13ffdaeaa90ecd0b573629b64cd505f8",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:34.779Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "ad0cac55-9f61-4f95-a4dc-d5042dee24c6",
+  "details": {
+   "ref": "#8-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000560070.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/先着260t/PACKING_LIST_CONTAINER_9000560070.pdf",
+   "sha256": "e8e6c96ab9e64c7184a4eca77bad70a139d76914ea85eb53afebcb7f43d30cb2",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:35.149Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "baaa8f26-186c-4728-a5ec-375748787c70",
+  "details": {
+   "ref": "#8-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "fileName": "PL.XLS",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/先着260t/PL.XLS",
+   "sha256": "24063be6151ba44fb3393c79fa95b3d0e8d4c71f89605ba5b6f5cec37e0f7b3e",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:35.507Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "59069952-3e6b-47a1-beac-ee3ab487137e",
+  "details": {
+   "ref": "#7-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "fileName": "COA.XLS",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/62ton/COA.XLS",
+   "sha256": "033ab684c9b6b91c6bb2ee2772ed9ffd98d0d667820d5eab0bb661617cca86f0",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:36.143Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "585d37ef-1972-4f5c-853b-36b00a304ba3",
+  "details": {
+   "ref": "#7-1",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000559780.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/62ton/COA_9000559780.pdf",
+   "sha256": "402626eed473d51a7403d38483ff5f7a166b5a349624cb692aed4716e41dfb54",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:36.696Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "3286056f-b7e3-4c38-bbe3-fc051bac59cc",
+  "details": {
+   "ref": "#7-1",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_集計ファイル_8月納入61.241ton.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/62ton/COA_集計ファイル_8月納入61.241ton.pdf",
+   "sha256": "b9c74bfb8eb972abeda9dc918c2a8bccde0e3646ee91f1b23983be10e8b9e02c",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:37.222Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "88acde93-1531-40e2-8db3-875ab4ee82d8",
+  "details": {
+   "ref": "#7-1",
+   "step": "3b",
+   "docType": "CI",
+   "fileName": "COMMERCIAL_INVOICE_9000559780.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/62ton/COMMERCIAL_INVOICE_9000559780.pdf",
+   "sha256": "02766869d8487ebae5bcdd910a13639dd514ae96a13a06ed745a3b4089465da8",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:37.645Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "f83646ac-10c9-45fc-b323-c21f9ff50c84",
+  "details": {
+   "ref": "#7-1",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000559780.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/62ton/COO_9000559780.pdf",
+   "sha256": "4753cf26161ab1a9a45e032fa7015f77d7cdbc7d9c174ed610a371cfe0292584",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:38.123Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "ae39990b-9f2b-49e7-9f4c-e10889b4e009",
+  "details": {
+   "ref": "#7-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "fileName": "INSURANCE.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/62ton/INSURANCE.pdf",
+   "sha256": "5397cba534b093626a9135cf9cc354284ffe32c0fe1e7d1c091b9cbc4b756915",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:38.876Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "b992b739-5e61-4cc4-81a9-a9f516cc3fd2",
+  "details": {
+   "ref": "#7-1",
+   "step": "3b",
+   "docType": "BL",
+   "fileName": "KMTCVTG0068777 scan.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/62ton/KMTCVTG0068777 scan.pdf",
+   "sha256": "fd7a2d221d241dc660252f20dc97d8c5b89d5e60b2c2c1505488e2e0f4dff7d1",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:39.174Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "d0bf654a-ea9f-445a-acdc-063f74cdc5bf",
+  "details": {
+   "ref": "#7-1",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "fileName": "PACKING LIST.XLS.xlsx",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/62ton/PACKING LIST.XLS.xlsx",
+   "sha256": "7dd55af1ec235b4eed384a38a2e1683af757717a967075cb990579dc5eaabc89",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:39.576Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "8862cb12-4fd1-4ff2-8e1d-a83561fbf41a",
+  "details": {
+   "ref": "#7-1",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000559780.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/62ton/PACKING_LIST_9000559780.pdf",
+   "sha256": "133ff9c98d4ca8bb36e7ad5aed783ae023fb031c546c78822b94d27fcd0b2c31",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:39.993Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "2267d989-a45c-4887-b214-7566687a3f9a",
+  "details": {
+   "ref": "#7-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000559780.pdf",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/62ton/PACKING_LIST_CONTAINER_9000559780.pdf",
+   "sha256": "ddc3f51a638518e6654507567132048f5755212fe435404540bdbe12c0ba49c7",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:40.286Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "4d474ca0-4192-4088-bcf1-0ad8b68ba345",
+  "details": {
+   "ref": "#7-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "fileName": "PL.XLS",
+   "drivePath": "Docs/Docs/Docs 202608(Jun Shipment)/62ton/PL.XLS",
+   "sha256": "9b214e17a8f629aa935f8f56bbdd443604eb023e384e61d03deb79a693e45d02",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:41.084Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "2725a572-8db5-480a-86bf-6e45499d6192",
+  "details": {
+   "ref": "#12-1",
+   "step": "3b",
+   "docType": "BL",
+   "fileName": "198GX04822 SCAN.pdf",
+   "drivePath": "Docs/Docs/Docs 202609(Jul Shipment)_/120ton/198GX04822 SCAN.pdf",
+   "sha256": "b7fb6330fb43a50cb023542086f26554ca16ab69b3ed6c01c15c5e14ae43324d",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:41.620Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "72b598c9-1eff-44f5-ae22-0404ca2cde6c",
+  "details": {
+   "ref": "#12-1",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000568205.pdf",
+   "drivePath": "Docs/Docs/Docs 202609(Jul Shipment)_/120ton/9月納入 6005C材122.478t/COA_9000568205.pdf",
+   "sha256": "ae335ce591dca7bd4b5ae5570ecc08856884d99c118c55ba75a0295651ad6785",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:42.279Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "db101473-7f0c-4626-aaa8-8fd6340baf4a",
+  "details": {
+   "ref": "#12-1",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_集計ファイル_Sep120t.pdf",
+   "drivePath": "Docs/Docs/Docs 202609(Jul Shipment)_/120ton/9月納入 6005C材122.478t/COA_集計ファイル_Sep120t.pdf",
+   "sha256": "5067e189263cc16c9547e22c28cf688a55c34b03a1cae777f5ca67b7b95d0294",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:42.876Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "c11f5bd9-25e0-4245-83c3-8d8cb17c8ae9",
+  "details": {
+   "ref": "#12-1",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000568205.pdf",
+   "drivePath": "Docs/Docs/Docs 202609(Jul Shipment)_/120ton/9月納入 6005C材122.478t/COO_9000568205.pdf",
+   "sha256": "63d039abd99e3969cd77e52daf812460c2d26997ea6bd52e4cac4acef4ddae94",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:43.343Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "1b314173-396d-4103-9a4b-6c5f6bd1f0ee",
+  "details": {
+   "ref": "#12-1",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "fileName": "PACKING LIST.XLS.xlsx",
+   "drivePath": "Docs/Docs/Docs 202609(Jul Shipment)_/120ton/9月納入 6005C材122.478t/PACKING LIST.XLS.xlsx",
+   "sha256": "ba556208195895f9109c64e98ec60338f3359f6f48c14ec59bcc35955c21bc86",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:44.042Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "2bb332a4-6afb-41b5-8bdc-7f575df77cff",
+  "details": {
+   "ref": "#12-1",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000568205.pdf",
+   "drivePath": "Docs/Docs/Docs 202609(Jul Shipment)_/120ton/9月納入 6005C材122.478t/PACKING_LIST_9000568205.pdf",
+   "sha256": "7286e95ea6f9d4240dc98ff13ce5e7a6b3ebe4e2421b5bc5650af5f633dd25d5",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:44.638Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "6de92c7a-b289-416a-b7c0-8b398c9a8696",
+  "details": {
+   "ref": "#12-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000568205.pdf",
+   "drivePath": "Docs/Docs/Docs 202609(Jul Shipment)_/120ton/9月納入 6005C材122.478t/PACKING_LIST_CONTAINER_9000568205.pdf",
+   "sha256": "7e718adfeb7395e9cad14d55809b1512170bce5063ba2ebee3074ec15c5da3f0",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:45.116Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "594a0c83-a2d5-4a8a-a10b-4c89f1fea8a7",
+  "details": {
+   "ref": "#12-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "fileName": "COA.XLS",
+   "drivePath": "Docs/Docs/Docs 202609(Jul Shipment)_/120ton/COA.XLS",
+   "sha256": "144601f00eed4ae7d71a577a6abec02e77cb81542e6c4fddd6d46e3ed38654be",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:45.737Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "9d854cd2-315c-440f-80f4-7d85b63ee0b3",
+  "details": {
+   "ref": "#12-1",
+   "step": "3b",
+   "docType": "CI",
+   "fileName": "COMMERCIAL_INVOICE_9000568205.pdf",
+   "drivePath": "Docs/Docs/Docs 202609(Jul Shipment)_/120ton/COMMERCIAL_INVOICE_9000568205.pdf",
+   "sha256": "22bab800517f0956b2f4a4fb7be3ad7eaa7f6f78926098a236dc0e37155dc9c2",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:46.532Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "8ef7b21d-2347-4de9-b02a-23c6aa8c40e5",
+  "details": {
+   "ref": "#12-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "fileName": "INSURANCE.pdf",
+   "drivePath": "Docs/Docs/Docs 202609(Jul Shipment)_/120ton/INSURANCE.pdf",
+   "sha256": "799c1a0f9f8202a01ae0163c07588cc4c78817ef4987e52b1cf6b0fbe3b0659d",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:46.930Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "cf9f13fa-737b-452a-999d-2b266799b97d",
+  "details": {
+   "ref": "#12-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "fileName": "PL.XLS",
+   "drivePath": "Docs/Docs/Docs 202609(Jul Shipment)_/120ton/PL.XLS",
+   "sha256": "6bdb4f96e06bca0bb24cc9cc6bb74fe727c7510c1318678a0b0da68241f5dd8d",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:47.499Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "c29d7c5d-f534-4df8-83f5-d6de043a7f0a",
+  "details": {
+   "ref": "#16-1",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000575157.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX05781_96.908 MT_Yokohama_454003255/10月納入_6005_96.908MT/COA_9000575157.pdf",
+   "sha256": "0d6dcc358ccc048eb832406ad4ad7eff72384482c6eb83af763e69c2987e28ae",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:48.162Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "422f7eac-738b-4aef-b914-31567b873e01",
+  "details": {
+   "ref": "#16-1",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_集計ファイル_Oct96.908t.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX05781_96.908 MT_Yokohama_454003255/10月納入_6005_96.908MT/COA_集計ファイル_Oct96.908t.pdf",
+   "sha256": "e3407ef3bc5fe11dcea4cb70d0bf4265f885e3492fdbd854c4296176cf008363",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:48.703Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "df3953be-74d9-4da3-8915-dfa90ee8ff6b",
+  "details": {
+   "ref": "#16-1",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000575157.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX05781_96.908 MT_Yokohama_454003255/10月納入_6005_96.908MT/COO_9000575157.pdf",
+   "sha256": "f472ad67a475b53b55fa8ada79b191152d1490eb6dcee0a547af80ec6b4fb66c",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:49.146Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "b6c02536-7c46-4fae-952c-af83835fd207",
+  "details": {
+   "ref": "#16-1",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "fileName": "PACKING LIST.XLS.xlsx",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX05781_96.908 MT_Yokohama_454003255/PACKING LIST.XLS.xlsx",
+   "sha256": "1f192e26f0d5263619b0011475e82c2fdf457b377f50b8dec02ecdf81ec3efbb",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:49.730Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "3559605d-5074-43b6-b03f-f2c5f84891e4",
+  "details": {
+   "ref": "#16-1",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000575157.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX05781_96.908 MT_Yokohama_454003255/10月納入_6005_96.908MT/PACKING_LIST_9000575157.pdf",
+   "sha256": "40740e95db4cae033629d3acd105abf968c25ad4ad71b76e0b24ce95e50c87e3",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:50.296Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "697ec055-0afa-46fd-a4c5-98be9d9e48b2",
+  "details": {
+   "ref": "#16-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000575157.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX05781_96.908 MT_Yokohama_454003255/10月納入_6005_96.908MT/PACKING_LIST_CONTAINER_9000575157.pdf",
+   "sha256": "e59c7b5d37a52f59f04b6e4786b0a3736f558199bd62c34f2316936441547c1a",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:51.235Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "759d20b3-cb8e-4ef6-bfbd-ac19706b90ef",
+  "details": {
+   "ref": "#16-1",
+   "step": "3b",
+   "docType": "BL",
+   "fileName": "198GX05781 (1).pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX05781_96.908 MT_Yokohama_454003255/198GX05781 (1).pdf",
+   "sha256": "b00472446474a2c404220a379173d5f587fb3d6419d7718d9809beaddd6721c2",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:51.732Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "14b98e2a-a400-43ea-b3d1-5c41d974d36a",
+  "details": {
+   "ref": "#16-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "fileName": "COA.XLS",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX05781_96.908 MT_Yokohama_454003255/COA.XLS",
+   "sha256": "620466a68624d3d889b46ada4aca3431ce658694677002a77f98862711f9c135",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:52.424Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "ea8f1a12-08af-465a-b228-2e811582fccc",
+  "details": {
+   "ref": "#16-1",
+   "step": "3b",
+   "docType": "CI",
+   "fileName": "COMMERCIAL_INVOICE_9000575157.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX05781_96.908 MT_Yokohama_454003255/COMMERCIAL_INVOICE_9000575157.pdf",
+   "sha256": "53334ff47208f88da12024ad843e73ea7aca42f921fdb8087d6505f4119bf39c",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:53.083Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "519d2472-8a94-432e-958c-ea36f42310fe",
+  "details": {
+   "ref": "#16-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "fileName": "INSURANCE.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX05781_96.908 MT_Yokohama_454003255/INSURANCE.pdf",
+   "sha256": "4ed5b71f582298a5dae452fea52372fe6ea1cd9900924bebe4a32c235d11b762",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:53.481Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "9f400395-781f-4958-acf3-e7ccc9915957",
+  "details": {
+   "ref": "#16-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "fileName": "PL.XLS",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX05781_96.908 MT_Yokohama_454003255/PL.XLS",
+   "sha256": "ad606fa280e866204b0711489af6c043ab9ba67899b2f8ed2b160f99d648a7c1",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:54.214Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "b71f662c-77b1-4e85-8d23-380a3346f988",
+  "details": {
+   "ref": "#16-2",
+   "step": "3b",
+   "docType": "BL",
+   "fileName": "198GX06003 OBL.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX06003_20.414_MT_Yokohama_454003255/198GX06003 OBL.pdf",
+   "sha256": "7dd14638016be4a354015542b983d39fa2554004fa9d6d0c5c10a8c0d57681b0",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:54.600Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "75f685b0-989b-4fbb-8c27-3388851a67a9",
+  "details": {
+   "ref": "#16-2",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "fileName": "COA.XLS",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX06003_20.414_MT_Yokohama_454003255/COA.XLS",
+   "sha256": "94199b75c12b6740db1a2c6bf171b9aee4ba4d872858362e60ce906f7c38d0fb",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:55.108Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "af676296-9b23-4593-bd57-bc00518bf5c7",
+  "details": {
+   "ref": "#16-2",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000582746.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX06003_20.414_MT_Yokohama_454003255/COA_9000582746.pdf",
+   "sha256": "89a6788cc7242393855350284b4f8769881d8f96afb4054d353272f5e694c456",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:55.635Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "b05290d6-4ac5-4de3-a9a7-833ac1f5f6aa",
+  "details": {
+   "ref": "#16-2",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_集計ファイル_Oct20.414t.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX06003_20.414_MT_Yokohama_454003255/COA_集計ファイル_Oct20.414t.pdf",
+   "sha256": "6e4d47d11e73c665bc219b7db00063353dbf0dbee0f77d3fb3462d339d82516f",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:56.133Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "e0470833-6003-4078-b0e0-eb0007bfe2f3",
+  "details": {
+   "ref": "#16-2",
+   "step": "3b",
+   "docType": "CI",
+   "fileName": "COMMERCIAL_INVOICE_9000582746 Reviced on SEP24.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX06003_20.414_MT_Yokohama_454003255/COMMERCIAL_INVOICE_9000582746 Reviced on SEP24.pdf",
+   "sha256": "3c5207479b1bc12b5796b93e60ceed310ffe2de84df712745f30cfe06dd764db",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:56.646Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "9df0aca4-2fe7-44c7-b00d-16916418269d",
+  "details": {
+   "ref": "#16-2",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000582746.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX06003_20.414_MT_Yokohama_454003255/COO_9000582746.pdf",
+   "sha256": "31e7cbac63d302c0f4bc75804297f158826bfe743fdc1a4fa63e9559ef5139c7",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:57.192Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "f0d12245-63bd-4d96-9c36-bcae8d83768c",
+  "details": {
+   "ref": "#16-2",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "fileName": "INSURANCE.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX06003_20.414_MT_Yokohama_454003255/INSURANCE.pdf",
+   "sha256": "d8d1e2df0e32ba8e52e328023e0d4acbad7d66c466a27434c888f034c0fb533e",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:57.585Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "f87d27ba-a4da-49dd-aace-8e984d231715",
+  "details": {
+   "ref": "#16-2",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "fileName": "PACKING LIST.XLS.xlsx",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX06003_20.414_MT_Yokohama_454003255/PACKING LIST.XLS.xlsx",
+   "sha256": "b2c31db23353ab4e0308f5bc19c11940aaf82f111ad43f02f53f5f588c375424",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:58.063Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "7556ab67-38e2-476a-8a0a-c0c8f2de4695",
+  "details": {
+   "ref": "#16-2",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000582746.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX06003_20.414_MT_Yokohama_454003255/PACKING_LIST_9000582746.pdf",
+   "sha256": "589eb4a49a9f882a86e8a6a14235c8e1f9f446f63f44bfdd06b41ffc5e6f763a",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:58.545Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "03344109-3f14-483f-9c3f-d03258d1e475",
+  "details": {
+   "ref": "#16-2",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000582746.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX06003_20.414_MT_Yokohama_454003255/PACKING_LIST_CONTAINER_9000582746.pdf",
+   "sha256": "b15fb154fe9711330ef9adfee74bec7a22efa65da327d9aac8a456dcd5967731",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:58.932Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "7a3f393e-380e-4d08-a1d3-dd17fd84848f",
+  "details": {
+   "ref": "#16-2",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "fileName": "PL.XLS",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6005 8 inch_198GX06003_20.414_MT_Yokohama_454003255/PL.XLS",
+   "sha256": "27ab80b35fbc744849483f70d4cb4bfe42c2d383038d9d020f82241253f6809d",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:59.463Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "377f271a-eb10-40b0-b305-7d936f04705d",
+  "details": {
+   "ref": "#15-1",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_6063_9000573398.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6063 8 Inch_198GX05383 _305.949 MT_Yokohama_454003422/10月納入_6063_305.949 MT/COA_6063_9000573398.pdf",
+   "sha256": "7ca6ec6aee33f0999d225fe7e84b5c9b80d85a576e01ba9bb3e4d1e601f083b3",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:59:59.975Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "83f1b994-4e63-4330-b68c-59c9691c3aa9",
+  "details": {
+   "ref": "#15-1",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_集計ファイル_Oct300t.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6063 8 Inch_198GX05383 _305.949 MT_Yokohama_454003422/10月納入_6063_305.949 MT/COA_集計ファイル_Oct300t.pdf",
+   "sha256": "4a3f6a6e4ddcfb181cad5d4247d4dc2e371420daf92431cc8bab4128cb7dc595",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:00.473Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "0d84e3fe-19cc-4050-a5aa-9bcc7396e35b",
+  "details": {
+   "ref": "#15-1",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000573398.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6063 8 Inch_198GX05383 _305.949 MT_Yokohama_454003422/10月納入_6063_305.949 MT/COO_9000573398.pdf",
+   "sha256": "0e3610a52140a7e900e05917dc323237ff217c8e082048cffbd3e23823ba4caa",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:00.877Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "d01bfcf3-b9c7-41d4-b55e-c086baaa1699",
+  "details": {
+   "ref": "#15-1",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "fileName": "PACKING LIST.xlsx",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6063 8 Inch_198GX05383 _305.949 MT_Yokohama_454003422/PACKING LIST.xlsx",
+   "sha256": "c460ccc82433344354ae450188a668ee87b2fe58f6dff9cbee9e72f9299ffdb2",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:01.409Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "197fccec-dfc6-4e7a-8413-8eb55b4d486f",
+  "details": {
+   "ref": "#15-1",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000573398.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6063 8 Inch_198GX05383 _305.949 MT_Yokohama_454003422/10月納入_6063_305.949 MT/PACKING_LIST_9000573398.pdf",
+   "sha256": "24700010269d625a38d3f8938e2ab16ab1c99ff2acf975297c519a77ab78c861",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:01.928Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "fb534c50-b5a3-4d87-98a2-f6a3a77651f8",
+  "details": {
+   "ref": "#15-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000573398.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6063 8 Inch_198GX05383 _305.949 MT_Yokohama_454003422/10月納入_6063_305.949 MT/PACKING_LIST_CONTAINER_9000573398.pdf",
+   "sha256": "32c25a92bf25c86063ce4aa0363f357f550c28b1b1e6f3ac97a32e4a41a5fb4e",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:02.342Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "25442e46-ef31-4137-b8b3-e404c1c3a0da",
+  "details": {
+   "ref": "#15-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "fileName": "COA.XLS",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6063 8 Inch_198GX05383 _305.949 MT_Yokohama_454003422/COA.XLS",
+   "sha256": "9151e3d2335a10987948ee0d090c758626d1b39edbbf119176148894824e709c",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:02.844Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "94e7ed5d-62da-4d96-b0dc-1def047c0f8d",
+  "details": {
+   "ref": "#15-1",
+   "step": "3b",
+   "docType": "CI",
+   "fileName": "COMMERCIAL_INVOICE REVISED 305.949 20260831 LME3249.63.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6063 8 Inch_198GX05383 _305.949 MT_Yokohama_454003422/COMMERCIAL_INVOICE REVISED 305.949 20260831 LME3249.63.pdf",
+   "sha256": "92db2ac13620adf884dd7f30851e9240816151f2cf6fa58a0241a7a40343987e",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:03.631Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "96baf564-bb67-4b54-80bc-47107f615fa8",
+  "details": {
+   "ref": "#15-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "fileName": "INSURANCE.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6063 8 Inch_198GX05383 _305.949 MT_Yokohama_454003422/INSURANCE.pdf",
+   "sha256": "980aa10d0bd5c8dd23b07fa3744ca88060307d0ef4f0e503bdb6516180747aa3",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:04.125Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "bcb72317-8d15-4934-9992-3c50f34d78a4",
+  "details": {
+   "ref": "#15-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "fileName": "PL.XLS",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6063 8 Inch_198GX05383 _305.949 MT_Yokohama_454003422/PL.XLS",
+   "sha256": "8d3e89b737de0de3267a802f69d12bbfd840eba72b7f9a32bf4d229420ce5dba",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:04.770Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "d0f978c3-1434-4497-bee9-bf5f23bdd63a",
+  "details": {
+   "ref": "#15-1",
+   "step": "9",
+   "docType": "ARRIVAL_NOTICE",
+   "fileName": "WDMFT505_AN_JPYOK01_YSA4_0924_000210_198GX05383-MAIL.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6063 8 Inch_198GX05383 _305.949 MT_Yokohama_454003422/WDMFT505_AN_JPYOK01_YSA4_0924_000210_198GX05383-MAIL.pdf",
+   "sha256": "7e8d52581b9348f79f1edc3d1cc2ea21d3847042b9fcd6afe420060185605597",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:05.330Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "101522ae-5831-42be-a2b5-18aa20766bf4",
+  "details": {
+   "ref": "#15-1",
+   "step": "9",
+   "docType": "ARRIVAL_NOTICE",
+   "fileName": "WDMFT505_AN_JPYOK01_YSA4_0924_000210_198GX05383_A-MAIL.pdf",
+   "drivePath": "Docs/Docs/Docs 202610(Aug Shipment)/6063 8 Inch_198GX05383 _305.949 MT_Yokohama_454003422/WDMFT505_AN_JPYOK01_YSA4_0924_000210_198GX05383_A-MAIL.pdf",
+   "sha256": "e4a1843a6cbea2185ab7fc438a9add3c03f768357317376123f61f369206ecc0",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:06.247Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "c98a0453-6996-4065-bc7b-786e722f0e02",
+  "details": {
+   "ref": "#18-2",
+   "step": "3b",
+   "docType": "BL",
+   "fileName": "198GX06516 OBL.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005 8 inch_198GX06516_20.416_MT_Yokohama_454003255/198GX06516 OBL.pdf",
+   "sha256": "03150dda074593e75d543587c028c3a19d0a537befc5191cae359914186b4739",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:06.887Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "17283937-55c5-4a33-8ba1-ea7f1f56edcc",
+  "details": {
+   "ref": "#18-2",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000586444.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005 8 inch_198GX06516_20.416_MT_Yokohama_454003255/6005 8 inch_20.416_MT_198GX06516/COA_9000586444.pdf",
+   "sha256": "8d2dfafd881f70cfd0cb3c1bc436df0d4ece37513dd60645c03f2b290c5598c1",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:07.540Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "13ee463f-805d-427f-a195-400a30fbd589",
+  "details": {
+   "ref": "#18-2",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000586444.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005 8 inch_198GX06516_20.416_MT_Yokohama_454003255/6005 8 inch_20.416_MT_198GX06516/COO_9000586444.pdf",
+   "sha256": "d00ddd6051d4e3787c37884812a6e82e4de20a5d9990d92d619bfecbab9b62f9",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:08.167Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "4f0b870e-3ae6-4f05-adb5-79224116760c",
+  "details": {
+   "ref": "#18-2",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000586444.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005 8 inch_198GX06516_20.416_MT_Yokohama_454003255/6005 8 inch_20.416_MT_198GX06516/PACKING_LIST_9000586444.pdf",
+   "sha256": "17d7ffb40a23f18a32176ebdbe8877fd29bc19a25bb13df3e78e845334459bea",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:08.713Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "5de2706e-aab0-4e2d-87a0-0243b0ad34fc",
+  "details": {
+   "ref": "#18-2",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000586444.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005 8 inch_198GX06516_20.416_MT_Yokohama_454003255/6005 8 inch_20.416_MT_198GX06516/PACKING_LIST_CONTAINER_9000586444.pdf",
+   "sha256": "447a6aab69dae12bb1044e88c98287cda4beeaccf8dc2fae8915702de301cf47",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:09.112Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "fcaeabeb-17d2-48a3-a040-c332c6d34728",
+  "details": {
+   "ref": "#18-2",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "fileName": "COA.XLS",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005 8 inch_198GX06516_20.416_MT_Yokohama_454003255/COA.XLS",
+   "sha256": "834fc4d5ba27d95c93450bfe6016e112354e1fe4e95208f9985e6c96afd5ff11",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:09.599Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "628e4fb8-dce0-4519-9f2f-4d8843a299b2",
+  "details": {
+   "ref": "#18-2",
+   "step": "3b",
+   "docType": "CI",
+   "fileName": "COMMERCIAL_INVOICE_9000586444.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005 8 inch_198GX06516_20.416_MT_Yokohama_454003255/COMMERCIAL_INVOICE_9000586444.pdf",
+   "sha256": "1d81a06b9f65976217d2f1bf29506f3f07ee27184d260075f6e7a5d921c9abf7",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:10.111Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "f3e44a67-471d-4e9f-86d7-2c6cb6e213c2",
+  "details": {
+   "ref": "#18-2",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "fileName": "INSURANCE  20.416  MT.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005 8 inch_198GX06516_20.416_MT_Yokohama_454003255/INSURANCE  20.416  MT.pdf",
+   "sha256": "f6f7c41a378f3d90344d9361ea755632acd08f9e677a07e2752c14b57269b56e",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:10.516Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "73d8ae64-96db-4957-a5e8-770fe29d266e",
+  "details": {
+   "ref": "#18-2",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "fileName": "PL.XLS",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005 8 inch_198GX06516_20.416_MT_Yokohama_454003255/PL.XLS",
+   "sha256": "55a1a3ed273ab398ec3b068c0953ded93ff2148875984fc7390d46076cfbf0f2",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:11.054Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "87e605e6-2999-4706-bd0c-73b51b4b31e3",
+  "details": {
+   "ref": "#18-1",
+   "step": "3b",
+   "docType": "OTHER",
+   "fileName": "COA Mixed Bundle 265C155617 sent on SEP23.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/6005_8inch_183.693MT_198GX06322/COA Mixed Bundle 265C155617 sent on SEP23.pdf",
+   "sha256": "27847e6966f9e74fd4e9c59987af61e8f60ed4673757e053a70ddd488480b1d6",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:11.598Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "07fbb32e-812c-4edf-b419-4d3de8b33fbc",
+  "details": {
+   "ref": "#18-1",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000584471.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/6005_8inch_183.693MT_198GX06322/COA_9000584471.pdf",
+   "sha256": "605dc6a7100a2e8fb77636271542f9956d13ecc57662f26308434fc7e604d1b4",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:12.104Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "ff036eae-7688-4f6b-99ed-4d2fb176c282",
+  "details": {
+   "ref": "#18-1",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000584471.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/6005_8inch_183.693MT_198GX06322/COO_9000584471.pdf",
+   "sha256": "466c4fcb42e576a09f10403ed66b9172672a60c6838531f100a87473c85d4343",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:12.614Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "07878d69-b9bf-48e7-ad82-ebcd64358922",
+  "details": {
+   "ref": "#18-1",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000584471.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/6005_8inch_183.693MT_198GX06322/PACKING_LIST_9000584471.pdf",
+   "sha256": "dd5ea7ef9ea27053e051ea713a8147d4037cb4e62e3fbbf4700590a039f10f1b",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:13.131Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "1ef5806c-97ec-4153-aa39-12e8b888c040",
+  "details": {
+   "ref": "#18-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000584471.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/6005_8inch_183.693MT_198GX06322/PACKING_LIST_CONTAINER_9000584471.pdf",
+   "sha256": "285d24f1f76011bc343de7174c5a0f40656532003a5f1f83661bb4960dcdc55b",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:13.525Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "d4459d72-6653-454e-b715-3e2960eeb761",
+  "details": {
+   "ref": "#18-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "fileName": "COA.XLS",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/COA.XLS",
+   "sha256": "e0ff6a8e399faedbfad7bbb7182f2b0235fd1331a2e702bb0145ccaa98d6b6d7",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:14.022Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "ce31f9cd-ae5e-44d5-9927-3bb7721d6a46",
+  "details": {
+   "ref": "#18-1",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_集計ファイル_Sep Shipment 6005_221.970t.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/COA_集計ファイル_Sep Shipment 6005_221.970t.pdf",
+   "sha256": "f80e32732e3f5f48b35c2f29e82d996a68c4205261d3ead873dd11b550ea538e",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:14.219Z",
+  "action": "LINK",
+  "resource": "trade-file",
+  "resourceId": "ce31f9cd-ae5e-44d5-9927-3bb7721d6a46",
+  "details": {
+   "ref": "#18-2",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/COA_集計ファイル_Sep Shipment 6005_221.970t.pdf",
+   "sha256": "f80e32732e3f5f48b35c2f29e82d996a68c4205261d3ead873dd11b550ea538e",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:14.367Z",
+  "action": "LINK",
+  "resource": "trade-file",
+  "resourceId": "ce31f9cd-ae5e-44d5-9927-3bb7721d6a46",
+  "details": {
+   "ref": "#18-3",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/COA_集計ファイル_Sep Shipment 6005_221.970t.pdf",
+   "sha256": "f80e32732e3f5f48b35c2f29e82d996a68c4205261d3ead873dd11b550ea538e",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:14.880Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "2a6e86db-e814-4509-a6b1-5f55eb03dbff",
+  "details": {
+   "ref": "#18-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "fileName": "INSURANCE.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/INSURANCE.pdf",
+   "sha256": "1930a9df83529de8f753d18bc881fb3f869548cad5509922f25bd8a2c82f2268",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:15.629Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "182e0b3f-e551-4126-a1c2-589c6297d739",
+  "details": {
+   "ref": "#18-1",
+   "step": "3b",
+   "docType": "BL",
+   "fileName": "OBL_6005_8inch_198GX06322_183.693_MT.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/OBL_6005_8inch_198GX06322_183.693_MT.pdf",
+   "sha256": "605967ed63662f0d48b1c435f4fb6ebaef445584e8520595bff2a19d3e35e374",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:16.065Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "2869c857-f5c2-426e-9798-615138494577",
+  "details": {
+   "ref": "#18-1",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "fileName": "PACKING LIST 6005 8inch 計221.970MT.xlsx",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/PACKING LIST 6005 8inch 計221.970MT.xlsx",
+   "sha256": "00529ae0d2618618b49cc999a1b3fb1d884f849ee7d9907e467826b318b7c6b8",
+   "completedSteps": [
+    "4. Create customer documents"
+   ]
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:16.239Z",
+  "action": "LINK",
+  "resource": "trade-file",
+  "resourceId": "2869c857-f5c2-426e-9798-615138494577",
+  "details": {
+   "ref": "#18-2",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/PACKING LIST 6005 8inch 計221.970MT.xlsx",
+   "sha256": "00529ae0d2618618b49cc999a1b3fb1d884f849ee7d9907e467826b318b7c6b8",
+   "completedSteps": [
+    "4. Create customer documents"
+   ]
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:16.415Z",
+  "action": "LINK",
+  "resource": "trade-file",
+  "resourceId": "2869c857-f5c2-426e-9798-615138494577",
+  "details": {
+   "ref": "#18-3",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/PACKING LIST 6005 8inch 計221.970MT.xlsx",
+   "sha256": "00529ae0d2618618b49cc999a1b3fb1d884f849ee7d9907e467826b318b7c6b8",
+   "completedSteps": [
+    "4. Create customer documents"
+   ]
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:16.820Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "d749d7a2-b918-4c87-9996-4ea57dd6d0c1",
+  "details": {
+   "ref": "#18-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "fileName": "PL.XLS",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/PL.XLS",
+   "sha256": "fe7db4c29370dac545d4745a235bb4950d0d651a07eb9573af0ba3c94d6e726a",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:17.417Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "42e409a0-d29d-4058-8540-337622e926f1",
+  "details": {
+   "ref": "#18-1",
+   "step": "3b",
+   "docType": "CI",
+   "fileName": "REVISED 8.COMMERCIAL_INVOICE_9000584471 183.693.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/REVISED 8.COMMERCIAL_INVOICE_9000584471 183.693.pdf",
+   "sha256": "c51dff2aa04097ca25dcceacdd7225191054e5bf4a6693cdb9870b15551ceed0",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:18.446Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "a3bd20e5-0cd2-4e8a-a89c-82974432fc22",
+  "details": {
+   "ref": "#18-3",
+   "step": "3b",
+   "docType": "BL",
+   "fileName": "198GX06524 OBL.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06524_17.861_MT_Yokohama_454003255/198GX06524 OBL.pdf",
+   "sha256": "582186de0a33aeed4e886e4d099d6728cd51c1df12ed3eb91a11b456843ac013",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:18.985Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "2aa7dc47-1503-4160-8aab-b38b1b268ad5",
+  "details": {
+   "ref": "#18-3",
+   "step": "3b",
+   "docType": "COA",
+   "fileName": "COA_9000586442.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06524_17.861_MT_Yokohama_454003255/6005_8inch_17.861_MT_198GX06524/COA_9000586442.pdf",
+   "sha256": "a405e5fc27c2a41a06a862c5e0735f7c34c1b86a11b6c8c8da42fbbf127ebef3",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:19.620Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "e5ef692d-64f2-435c-be19-fa962cfd8022",
+  "details": {
+   "ref": "#18-3",
+   "step": "3b",
+   "docType": "COO",
+   "fileName": "COO_9000586442.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06524_17.861_MT_Yokohama_454003255/6005_8inch_17.861_MT_198GX06524/COO_9000586442.pdf",
+   "sha256": "d16a4d9a5d4cc5b01a2ec170dfc2098af0f3bee5d9d81ddb7892fd8f46278acc",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:20.304Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "64a79a0c-884a-4b58-a606-f3ec7db7c0e8",
+  "details": {
+   "ref": "#18-3",
+   "step": "3b",
+   "docType": "PL",
+   "fileName": "PACKING_LIST_9000586442.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06524_17.861_MT_Yokohama_454003255/6005_8inch_17.861_MT_198GX06524/PACKING_LIST_9000586442.pdf",
+   "sha256": "8557c8fe6d0541896b998e01b568a41904ae8c2d41780a93d39919222dd6a699",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:00:20.868Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "e25fa9de-2e4e-45c9-a29a-fb0742850f3c",
+  "details": {
+   "ref": "#18-3",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "fileName": "PACKING_LIST_CONTAINER_9000586442.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06524_17.861_MT_Yokohama_454003255/6005_8inch_17.861_MT_198GX06524/PACKING_LIST_CONTAINER_9000586442.pdf",
+   "sha256": "fcfd4d299add528e09b8c1e0e93bbaf357f15a20e9b1f999ee219c724b187870",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T12:01:36.077Z",
+  "action": "UPDATE",
+  "resource": "trade-file",
+  "resourceId": "7f440561-9979-48a4-ad40-24ee40832b82",
+  "details": {
+   "field": "fileName",
+   "from": "PACKING LIST_7\b\re56.197t.xlsx",
+   "to": "PACKING LIST_7月納入56.197t.xlsx",
+   "reason": "upload name decoded to control characters (round AO first run); corrected"
+  }
+ },
+ {
+  "at": "2026-10-26T12:01:36.879Z",
+  "action": "UPDATE",
+  "resource": "trade-file",
+  "resourceId": "2869c857-f5c2-426e-9798-615138494577",
+  "details": {
+   "field": "fileName",
+   "from": "PACKING LIST 6005 8inch \b221.970MT.xlsx",
+   "to": "PACKING LIST 6005 8inch 計221.970MT.xlsx",
+   "reason": "upload name decoded to control characters (round AO first run); corrected"
+  }
+ },
+ {
+  "at": "2026-10-26T12:03:13.138Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "7a6d7d78-0ad4-46ac-82cd-c78fa168ef3c",
+  "details": {
+   "docType": "COA_XLS",
+   "fileName": "COA　17t.XLS",
+   "drivePath": "Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06524_17.861_MT_Yokohama_454003255/COA　17t.XLS",
+   "links": [
+    {
+     "shipmentId": "0ae0602f-dea1-4496-84b4-5e10d21e8da5",
+     "orderId": null,
+     "contractId": null,
+     "stepId": "93eb086c-03e5-4867-997c-14135a32bdb2"
+    }
+   ],
+   "note": "uploaded by the interrupted run (step sync failed after the file was stored); logged afterwards"
+  }
+ },
+ {
+  "at": "2026-10-26T12:02:28.244Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "ea31c5d6-57bd-4ce6-b3e4-3d3bbed7cb92",
+  "details": {
+   "ref": "K:454003598",
+   "step": "",
+   "docType": "CONTRACT",
+   "fileName": "Asia Deal 454003598 July-Aug26 _2_.pdf",
+   "drivePath": "Document/Document/202608 Shipment 80t(45+35)/Asia Deal 454003598 July-Aug26 _2_.pdf",
+   "sha256": "d4f6684e03539bf86ff831e614dce7daded7db8e4d72b12de5c6af492e31598c",
+   "completedSteps": []
+  }
+ }
+]

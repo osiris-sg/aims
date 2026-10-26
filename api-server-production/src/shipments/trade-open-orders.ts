@@ -63,6 +63,8 @@ export const CARRIER_LINES: Record<string, string> = {
 export const IMPORT_NOTE = 'completed before AIMS (from task list)';
 /** Round AB: the SUS backfill's note on every step it marks done (the step may carry a figure after it: "… · Invoice #1 ≈ USD …"). */
 export const BACKFILL_NOTE = 'Backfilled from price log, no document';
+/** Round AO: past deals created from ADH's Drive (orders #30–#40, #9-1, split shipments) — history, never chased. */
+export const DRIVE_BACKFILL_NOTE = 'Backfilled from Drive';
 /** Already in AIMS before the import (order #11): never touched. */
 export const SKIP_ORDERS = new Set([11]);
 
