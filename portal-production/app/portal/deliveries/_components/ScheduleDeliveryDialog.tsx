@@ -24,6 +24,7 @@ import {
 } from "@mui/material";
 import {
   ASSET_CLASS_OPTIONS,
+  SERVICE_LINE_CLASS_OPTIONS,
   DEFAULT_ASSET_CLASS,
   normalizeAssetClass,
   type AssetClass,
@@ -130,6 +131,14 @@ export default function ScheduleDeliveryDialog({
   const { getToken } = useAuth();
   const { organization } = useOrganization();
   const { isQuotationToDeliveryEnabled } = useOrganizationFeatures();
+  // Service-job org (enableQuotationToDelivery — WCT 2026-10-27): a run is a job
+  // from an accepted quotation, not a rental deployment. No Project and no Sales
+  // Order sections at all (the backend relaxes the same two rules under the same
+  // flag), the address comes from the customer, and a free-typed line is
+  // Equipment or SERVICE (work done on site) rather than Equipment or Accessory.
+  const serviceJobs = isQuotationToDeliveryEnabled;
+  const newFreeClass: AssetClass = serviceJobs ? "SERVICE" : DEFAULT_ASSET_CLASS;
+  const freeClassOptions = serviceJobs ? SERVICE_LINE_CLASS_OPTIONS : ASSET_CLASS_OPTIONS;
   const theme = useTheme();
   // Phone: this long form goes full-screen below sm
   const fullScreenDialog = useMediaQuery(theme.breakpoints.down("sm"));
@@ -582,6 +591,23 @@ export default function ScheduleDeliveryDialog({
     setAddressTouched(false); // it is an auto-fill again, not a hand-edit
   }, [project]);
 
+  // Service-job org: there is no project, so the delivery address auto-fills
+  // from the CUSTOMER's address instead — same genuine-change detection and the
+  // same hand-edit protection as the project fill above.
+  const prevAddrCustomerIdRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!serviceJobs) return;
+    const nextId = customer?.id ?? null;
+    if (prevAddrCustomerIdRef.current === nextId) return;
+    prevAddrCustomerIdRef.current = nextId;
+    const current = addressRef.current;
+    if (current && current !== autoFilledAddrRef.current) return; // hand-edited: keep it
+    const filled = customer?.address || "";
+    autoFilledAddrRef.current = filled;
+    setAddress(filled);
+    setAddressTouched(false);
+  }, [serviceJobs, customer]);
+
   const setRow = (i: number, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
@@ -656,7 +682,13 @@ export default function ScheduleDeliveryDialog({
     // current data, so this is defensive and simply won't fire).
     const poValue = cfg.poNo || cfg.referenceNo;
     if (poValue) setPoNumber(String(poValue));
-    if (cfg.customerAddress) {
+    // Service-job org: the quotation's Job Location is where the work happens
+    // (guru 2026-10-27), so it beats the billing address.
+    const jobLocation = serviceJobs ? cfg.documentInfo?.location || cfg.documentInfo?.jobLocation || cfg.location : null;
+    if (jobLocation) {
+      setAddress(String(jobLocation));
+      setAddressTouched(true);
+    } else if (cfg.customerAddress) {
       setAddress(String(cfg.customerAddress));
       setAddressTouched(true);
     }
@@ -665,7 +697,7 @@ export default function ScheduleDeliveryDialog({
     // column. Prefer the column, fall back to legacy config.projectId.
     const pid = q?.projectId ?? cfg.projectId;
     const pname = q?.projectName ?? cfg.projectName;
-    if (pid) {
+    if (pid && !serviceJobs) {
       const match = projectOptions.find((p) => p.id === pid);
       setProject(match ?? { id: String(pid), name: pname || "Project from quotation" });
     }
@@ -713,7 +745,7 @@ export default function ScheduleDeliveryDialog({
           const cleanText = htmlToText(it?.description);
           // Nothing matched → FREE-TYPED with PLAIN-TEXT description, so no line is
           // silently dropped and no raw HTML leaks into the field.
-          const freeRow: Row = { asset: null, description: cleanText, freeTyped: true, quantity: qty, assetClass: DEFAULT_ASSET_CLASS };
+          const freeRow: Row = { asset: null, description: cleanText, freeTyped: true, quantity: qty, assetClass: newFreeClass };
           if (!token) return freeRow;
           // 1. PRIMARY — itemCode → exact skuKey (the reliable catalog key).
           const itemCode = String(it?.itemCode || "").trim();
@@ -745,13 +777,13 @@ export default function ScheduleDeliveryDialog({
       // Never imply the project came from the quotation (they don't carry one).
       const parts = [`Quotation applied — ${matched}/${finalRows.length} line(s) matched a catalog product; the rest are free-typed.`];
       parts.push(filledPo ? "PO number filled." : "No PO on the quotation.");
-      parts.push(filledProject ? "Project taken from the quotation." : "This quotation has no project — pick one below (required).");
+      if (!serviceJobs) parts.push(filledProject ? "Project taken from the quotation." : "This quotation has no project — pick one below (required).");
       parts.push("Review products, quantities & address.");
       setNote(parts.join(" "));
     } else {
       const parts = ["Quotation applied — it had no line items."];
       parts.push(filledPo ? "PO number filled." : "No PO on the quotation.");
-      parts.push(filledProject ? "Project taken from the quotation." : "This quotation has no project — pick one below (required).");
+      if (!serviceJobs) parts.push(filledProject ? "Project taken from the quotation." : "This quotation has no project — pick one below (required).");
       setNote(parts.join(" "));
     }
   };
@@ -887,13 +919,14 @@ export default function ScheduleDeliveryDialog({
       <DialogTitle>{editRun ? "Edit scheduled delivery" : "Schedule a delivery"}</DialogTitle>
       <DialogContent dividers>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          The run is fulfilled when a rider starts a matching unit in the field and assigns it to
-          this project. No unit is reserved now.
+          {serviceJobs
+            ? "The job appears on the field app once scheduled. The technician starts it on site and the customer signs at the end."
+            : "The run is fulfilled when a rider starts a matching unit in the field and assigns it to this project. No unit is reserved now."}
         </Typography>
 
         {/* 1) CUSTOMER */}
         <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-          Customer &amp; project
+          {serviceJobs ? "Customer" : "Customer & project"}
         </Typography>
         <Autocomplete<CustomerOption, false, false, false>
           size="small"
@@ -932,156 +965,163 @@ export default function ScheduleDeliveryDialog({
           Extract from quotation
         </Button>
 
-        {/* 2) PROJECT */}
-        <Autocomplete<ProjectOption, false, false, false>
-          size="small"
-          options={projectOptions}
-          value={project}
-          onChange={(_, picked) => setProject(picked)}
-          getOptionLabel={(o) => o.name}
-          isOptionEqualToValue={(a, b) => a.id === b.id}
-          disabled={!customer}
-          noOptionsText={
-            <Button size="small" startIcon={<AddIcon />} onClick={() => setCreateProjectOpen(true)}>
-              Create project
-            </Button>
-          }
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label="Project"
-              placeholder={customer ? "Pick a project" : "Pick a customer first"}
-              required
-              error={!!customer && !project}
-              helperText="Required. The rider is matched back to this run by the project."
-            />
-          )}
-          sx={{ mb: 0.5 }}
-        />
-        {customer && (
-          <Button size="small" startIcon={<AddIcon />} onClick={() => setCreateProjectOpen(true)} sx={{ textTransform: "none", mb: 2 }}>
-            New project for {customer.name}
-          </Button>
-        )}
-
-        {/* OSI-84 — contact people for this project (saved to the project). The
-            DO's Attention uses the FIRST selected contact (primary-first). */}
-        {project && (
-          <Box sx={{ mb: 2 }}>
-            {/* A CHOOSING surface, not an editing one. Contacts arrive through
-                the customer information form, so this dialog neither creates
-                them (allowAddContact) nor shows their details (showDetails) nor
-                assigns their roles. The PICKER stays — it is how the office
-                chooses between two submitted DO contacts and corrects a bad
-                submission, which otherwise needs a whole new link. The role
-                rides on each chip so DO and Invoice are tellable apart at a
-                glance.
-
-                roleView="DELIVERY" narrows the VIEW to the people a delivery is
-                about — the DO contacts, or everything ungrouped on a project
-                that has no roles — using the same fallback the DO's Attention
-                resolver uses. It does NOT narrow what is saved: hidden links
-                ride back out through onChange, because this dialog's save
-                replaces the project's whole picker-owned set. */}
-            <ProjectContactPicker
-              customerId={customer?.id ?? null}
-              value={projectContacts}
-              onChange={(next) => void saveProjectContacts(next)}
-              allowAddContact={false}
-              showDetails={false}
-              roleView="DELIVERY"
-              label="Delivery contacts"
-            />
-
-            {/* Missing a role -> show the customer-information link outright.
-                No chips, no prose, no button: if the office has to be told the
-                project is short a contact, the useful thing is the link itself,
-                already there to copy. Nothing renders when both roles are
-                present — there is nothing to ask for. */}
-            {contactCoverage && (!contactCoverage.DO || !contactCoverage.INVOICE) && ciLink && (
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
-                <TextField
-                  value={ciLink}
-                  size="small"
-                  fullWidth
-                  label="Customer information link"
-                  InputProps={{ readOnly: true }}
-                  InputLabelProps={{ shrink: true }}
-                  onFocus={(e) => e.target.select()}
-                />
-                <Button size="small" onClick={() => void navigator.clipboard?.writeText(ciLink)}>
-                  Copy
+        {/* Service-job org: no Project, no Sales Order — the run is a job from
+            an accepted quotation (see serviceJobs above). */}
+        {!serviceJobs && (
+          <>
+            {/* 2) PROJECT */}
+            <Autocomplete<ProjectOption, false, false, false>
+              size="small"
+              options={projectOptions}
+              value={project}
+              onChange={(_, picked) => setProject(picked)}
+              getOptionLabel={(o) => o.name}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              disabled={!customer}
+              noOptionsText={
+                <Button size="small" startIcon={<AddIcon />} onClick={() => setCreateProjectOpen(true)}>
+                  Create project
                 </Button>
-              </Stack>
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Project"
+                  placeholder={customer ? "Pick a project" : "Pick a customer first"}
+                  required
+                  error={!!customer && !project}
+                  helperText="Required. The rider is matched back to this run by the project."
+                />
+              )}
+              sx={{ mb: 0.5 }}
+            />
+            {customer && (
+              <Button size="small" startIcon={<AddIcon />} onClick={() => setCreateProjectOpen(true)} sx={{ textTransform: "none", mb: 2 }}>
+                New project for {customer.name}
+              </Button>
             )}
-          </Box>
-        )}
 
-        {/* 2b) SALE ORDER — directly below the contacts, and REQUIRED to schedule.
-            Replaces the old free-typed PO number: the office picks a real
-            SALES_ORDER document, so the run carries a pointer (config.saleOrderId)
-            a later invoice can walk back to for prices, not just a PO string. */}
-        <Divider sx={{ my: 2 }} />
-        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-          Sales Order
-        </Typography>
-        <TextField
-          label="Sales Order"
-          placeholder="No Sales Order selected"
-          value={saleOrder ? `${saleOrder.name}${saleOrder.customerPo ? ` — ${saleOrder.customerPo}` : ""}` : ""}
-          onClick={() => void openSaleOrders()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              void openSaleOrders();
-            }
-          }}
-          fullWidth
-          size="small"
-          required
-          error={poTouched && !saleOrder}
-          InputProps={{
-            readOnly: true,
-            endAdornment: (
-              <InputAdornment position="end">
-                {saleOrder ? (
-                  <IconButton
-                    size="small"
-                    aria-label="Clear the selected Sales Order"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSaleOrder(null);
-                      setPoNumber("");
-                      setPoTouched(true);
-                    }}
-                  >
-                    <DeleteOutlineIcon fontSize="small" />
-                  </IconButton>
-                ) : (
-                  <SearchIcon fontSize="small" color="action" />
+            {/* OSI-84 — contact people for this project (saved to the project). The
+                DO's Attention uses the FIRST selected contact (primary-first). */}
+            {project && (
+              <Box sx={{ mb: 2 }}>
+                {/* A CHOOSING surface, not an editing one. Contacts arrive through
+                    the customer information form, so this dialog neither creates
+                    them (allowAddContact) nor shows their details (showDetails) nor
+                    assigns their roles. The PICKER stays — it is how the office
+                    chooses between two submitted DO contacts and corrects a bad
+                    submission, which otherwise needs a whole new link. The role
+                    rides on each chip so DO and Invoice are tellable apart at a
+                    glance.
+
+                    roleView="DELIVERY" narrows the VIEW to the people a delivery is
+                    about — the DO contacts, or everything ungrouped on a project
+                    that has no roles — using the same fallback the DO's Attention
+                    resolver uses. It does NOT narrow what is saved: hidden links
+                    ride back out through onChange, because this dialog's save
+                    replaces the project's whole picker-owned set. */}
+                <ProjectContactPicker
+                  customerId={customer?.id ?? null}
+                  value={projectContacts}
+                  onChange={(next) => void saveProjectContacts(next)}
+                  allowAddContact={false}
+                  showDetails={false}
+                  roleView="DELIVERY"
+                  label="Delivery contacts"
+                />
+
+                {/* Missing a role -> show the customer-information link outright.
+                    No chips, no prose, no button: if the office has to be told the
+                    project is short a contact, the useful thing is the link itself,
+                    already there to copy. Nothing renders when both roles are
+                    present — there is nothing to ask for. */}
+                {contactCoverage && (!contactCoverage.DO || !contactCoverage.INVOICE) && ciLink && (
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+                    <TextField
+                      value={ciLink}
+                      size="small"
+                      fullWidth
+                      label="Customer information link"
+                      InputProps={{ readOnly: true }}
+                      InputLabelProps={{ shrink: true }}
+                      onFocus={(e) => e.target.select()}
+                    />
+                    <Button size="small" onClick={() => void navigator.clipboard?.writeText(ciLink)}>
+                      Copy
+                    </Button>
+                  </Stack>
                 )}
-              </InputAdornment>
-            ),
-          }}
-          InputLabelProps={{ shrink: true }}
-          helperText={
-            poTouched && !saleOrder
-              ? "Pick a Sales Order — required to schedule. Save as draft if it does not exist yet."
-              : 'The Sales Order\'s customer PO lands on the draft DO as "Your PO No."'
-          }
-          sx={{ cursor: "pointer", "& .MuiInputBase-input": { cursor: "pointer" } }}
-        />
-        {/* Upload only. "Find" is gone — the search icon inside the field opens
-            the picker, and the field itself is clickable. Sits tight under the
-            field rather than a row away. */}
-        <Button
-          size="small"
-          startIcon={<CloudUploadIcon />}
-          onClick={() => setSoUploadOpen(true)}
-          sx={{ mt: 0.5, alignSelf: "flex-start" }}
-        >
-          Upload Sales Order
-        </Button>
+              </Box>
+            )}
+
+            {/* 2b) SALE ORDER — directly below the contacts, and REQUIRED to schedule.
+                Replaces the old free-typed PO number: the office picks a real
+                SALES_ORDER document, so the run carries a pointer (config.saleOrderId)
+                a later invoice can walk back to for prices, not just a PO string. */}
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+              Sales Order
+            </Typography>
+            <TextField
+              label="Sales Order"
+              placeholder="No Sales Order selected"
+              value={saleOrder ? `${saleOrder.name}${saleOrder.customerPo ? ` — ${saleOrder.customerPo}` : ""}` : ""}
+              onClick={() => void openSaleOrders()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  void openSaleOrders();
+                }
+              }}
+              fullWidth
+              size="small"
+              required
+              error={poTouched && !saleOrder}
+              InputProps={{
+                readOnly: true,
+                endAdornment: (
+                  <InputAdornment position="end">
+                    {saleOrder ? (
+                      <IconButton
+                        size="small"
+                        aria-label="Clear the selected Sales Order"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSaleOrder(null);
+                          setPoNumber("");
+                          setPoTouched(true);
+                        }}
+                      >
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    ) : (
+                      <SearchIcon fontSize="small" color="action" />
+                    )}
+                  </InputAdornment>
+                ),
+              }}
+              InputLabelProps={{ shrink: true }}
+              helperText={
+                poTouched && !saleOrder
+                  ? "Pick a Sales Order — required to schedule. Save as draft if it does not exist yet."
+                  : 'The Sales Order\'s customer PO lands on the draft DO as "Your PO No."'
+              }
+              sx={{ cursor: "pointer", "& .MuiInputBase-input": { cursor: "pointer" } }}
+            />
+            {/* Upload only. "Find" is gone — the search icon inside the field opens
+                the picker, and the field itself is clickable. Sits tight under the
+                field rather than a row away. */}
+            <Button
+              size="small"
+              startIcon={<CloudUploadIcon />}
+              onClick={() => setSoUploadOpen(true)}
+              sx={{ mt: 0.5, alignSelf: "flex-start" }}
+            >
+              Upload Sales Order
+            </Button>
+
+          </>
+        )}
 
         {/* 3) ADDRESS (auto-filled from the project; freely editable → DO "Deliver To").
             When auto-filled, render the text as clearly-present, editable content
@@ -1104,7 +1144,7 @@ export default function ScheduleDeliveryDialog({
           InputLabelProps={{ shrink: true, sx: { fontWeight: 400 } }}
           helperText={
             address && !addressTouched
-              ? "Auto-filled from the project — edit if needed"
+              ? (serviceJobs ? "Auto-filled from the customer's address — edit if needed" : "Auto-filled from the project — edit if needed")
               : "Where the goods go — lands on the DO's Deliver To"
           }
           sx={{
@@ -1122,8 +1162,8 @@ export default function ScheduleDeliveryDialog({
             floor, unit). NOT a saved list; per-delivery detail. Lands on the DO's
             config.machineLocation, rendered under "Deliver To". */}
         <TextField
-          label="Machine location (optional)"
-          placeholder="Specific spot on site — tower, floor, unit"
+          label={serviceJobs ? "Location on site (optional)" : "Machine location (optional)"}
+          placeholder={serviceJobs ? "Specific spot on site — kitchen, level, unit" : "Specific spot on site — tower, floor, unit"}
           value={machineLocation}
           onChange={(e) => setMachineLocation(e.target.value)}
           fullWidth
@@ -1134,7 +1174,7 @@ export default function ScheduleDeliveryDialog({
 
         {/* 4) PRODUCTS */}
         <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-          Products
+          {serviceJobs ? "Items" : "Products"}
         </Typography>
         <Stack spacing={1.5} sx={{ mb: 1 }}>
           {rows.map((row, i) => (
@@ -1182,7 +1222,7 @@ export default function ScheduleDeliveryDialog({
                   onChange={(e) => setRow(i, { assetClass: normalizeAssetClass(e.target.value) })}
                   sx={{ width: 140 }}
                 >
-                  {ASSET_CLASS_OPTIONS.map((o) => (
+                  {freeClassOptions.map((o) => (
                     <MenuItem key={o.value} value={o.value}>
                       {o.label}
                     </MenuItem>
@@ -1214,7 +1254,7 @@ export default function ScheduleDeliveryDialog({
           <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((rs) => [...rs, { asset: null, description: "", freeTyped: false, quantity: "1", assetClass: DEFAULT_ASSET_CLASS }])}>
             Add product
           </Button>
-          <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((rs) => [...rs, { asset: null, description: "", freeTyped: true, quantity: "1", assetClass: DEFAULT_ASSET_CLASS }])}>
+          <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((rs) => [...rs, { asset: null, description: "", freeTyped: true, quantity: "1", assetClass: newFreeClass }])}>
             Free type item
           </Button>
         </Stack>

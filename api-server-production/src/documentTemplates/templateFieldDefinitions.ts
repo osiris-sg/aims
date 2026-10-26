@@ -9,7 +9,7 @@
 export interface FieldDefinition {
   fieldName: string;
   displayLabel: string;
-  fieldType: "text" | "number" | "date" | "select" | "autocomplete" | "textarea" | "table" | "customer" | "salesman" | "supplier";
+  fieldType: "text" | "number" | "date" | "select" | "autocomplete" | "textarea" | "table" | "customer" | "salesman" | "supplier" | "siteLocation";
   required: boolean;
   gridSize?: 6 | 12;
   dataSource?: string;

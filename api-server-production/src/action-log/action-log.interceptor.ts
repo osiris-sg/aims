@@ -89,6 +89,8 @@ const VERB_ACTIONS: Record<string, string> = {
   fetch: 'FETCH',
   // Round AL: a carrier tracking read (screenshot / paste) and its Confirm.
   'read-tracking': 'EXTRACT', 'apply-tracking': 'APPLY',
+  // Deliveries: the office setting a line's Rental/Sale intent or its Equipment/Service class (WCT 2026-10-27).
+  'deployment-type': 'UPDATE', 'asset-class': 'UPDATE',
   // Round AM: Clients → Document formats — a sample hidden (kept, never deleted).
   hide: 'HIDE',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',

@@ -150,7 +150,10 @@ const formFieldsFor = (type: 'QUOTATION' | 'INVOICE' | 'DELIVERY_ORDER') => {
   if (type === 'DELIVERY_ORDER') left.push(f('deliveryTo', 'Ship To (address)', 'textarea'));
   left.push(f('documentInfo.contact', 'Attention')); // packed Contact Person / No. / Email row
   if (type !== 'DELIVERY_ORDER') {
-    left.push(half('documentInfo.location', 'Job Location'), half('documentInfo.subject', 'Subject'));
+    // Job Location is a dropdown of the customer's SAVED sites (SiteOffice rows)
+    // with "+ Add location" (guru 2026-10-27); the chosen site's text is stored
+    // in documentInfo.location and printed in the "Job Location:" box.
+    left.push(half('documentInfo.location', 'Job Location', 'siteLocation'), half('documentInfo.subject', 'Subject'));
   }
   if (type === 'QUOTATION') {
     // Reuse the org's salesman picker (shows the salesman's name) rather than a

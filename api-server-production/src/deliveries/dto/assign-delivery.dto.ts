@@ -49,6 +49,21 @@ export class SetDeploymentTypeDto {
   type!: 'RENTAL' | 'SALE';
 }
 
+/**
+ * Office action (service-job orgs, WCT 2026-10-27): set a FREE-TYPED line's
+ * class — Equipment (something supplied) or Service (work done on site). A
+ * catalog line reads its class off its asset and is refused.
+ */
+export class SetItemAssetClassDto {
+  @ApiProperty({ description: 'The delivery line (DeliveryItem UUID).' })
+  @IsUUID()
+  itemId!: string;
+
+  @ApiProperty({ enum: ['EQUIPMENT', 'ACCESSORY', 'SERVICE'], description: 'The class to stamp on the line.' })
+  @IsIn(['EQUIPMENT', 'ACCESSORY', 'SERVICE'])
+  assetClass!: 'EQUIPMENT' | 'ACCESSORY' | 'SERVICE';
+}
+
 /** Field action: rider says installation is not needed — item completes with installSkipped. */
 export class SkipInstallDto {
   @ApiProperty({ description: 'The unit whose installation is being skipped (UUID).' })

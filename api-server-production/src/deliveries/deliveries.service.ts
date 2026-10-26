@@ -2172,6 +2172,34 @@ export class DeliveriesService {
     };
   }
 
+  /**
+   * Office action (service-job orgs, WCT 2026-10-27): set a FREE-TYPED line's
+   * class. Equipment = something supplied (may later resolve to stock);
+   * Service = work done on site (nothing to scan, one condition photo). A
+   * catalog-backed line reads its class off the asset, so it is refused here.
+   * A finished or cancelled run is frozen — the photos were already taken
+   * against the class the line had.
+   */
+  async setItemAssetClass(deliveryId: string, itemId: string, assetClass: AssetClass, organizationId: string) {
+    const item = await this.prisma.deliveryItem.findFirst({
+      where: { id: itemId, delivery: { id: deliveryId, organizationId } },
+      select: { id: true, assetId: true, inventoryId: true, delivery: { select: { status: true } } },
+    });
+    if (!item) throw new NotFoundException('Delivery line not found on this run');
+    if (item.assetId || item.inventoryId) {
+      throw new BadRequestException('This line is a catalog product — its class comes from the product');
+    }
+    if (item.delivery.status === 'completed' || item.delivery.status === 'cancelled') {
+      throw new BadRequestException('This run is finished — the line can no longer be reclassified');
+    }
+    const updated = await this.prisma.deliveryItem.update({
+      where: { id: item.id },
+      data: { assetClass },
+      select: { id: true, assetClass: true },
+    });
+    return { itemId: updated.id, assetClass: updated.assetClass };
+  }
+
   async list(
     organizationId: string,
     opts: {

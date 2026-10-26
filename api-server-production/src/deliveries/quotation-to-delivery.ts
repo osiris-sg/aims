@@ -98,7 +98,13 @@ export async function autoDraftDeliveryFromQuotation(
       ? await prisma.customer.findFirst({ where: { id: customerId, organizationId }, select: { id: true } })
       : null;
 
-    const siteAddress = String(cfg.deliveryTo || cfg.customerAddress || cfg.customer?.address || '').trim();
+    // The job's site: the quotation's Job Location first (guru 2026-10-27 —
+    // WCT quotes carry where the work happens, which is not the billing
+    // address), then any Deliver To, then the customer's address.
+    const di: any = cfg.documentInfo || {};
+    const siteAddress = String(
+      di.location || di.jobLocation || cfg.location || cfg.deliveryTo || cfg.customerAddress || cfg.customer?.address || '',
+    ).trim();
 
     // Same per-org serial + P2002 retry as createScheduled; same qty-N → N
     // qty-1 slot expansion for catalog lines so a later promotion edit sees
@@ -134,7 +140,11 @@ export async function autoDraftDeliveryFromQuotation(
                       assetId: null,
                       inventoryId: null,
                       description: plainText(l.description) || 'Item',
-                      assetClass: 'EQUIPMENT',
+                      // A quotation line with no catalog product behind it is WORK in a
+                      // service-job org (the only orgs with this flag): a maintenance
+                      // visit, a degrease. The office flips a supplied item to Equipment
+                      // from the run page.
+                      assetClass: 'SERVICE',
                       quantity: qtyOf(l),
                       sortOrder: lineIdx * 100,
                     },

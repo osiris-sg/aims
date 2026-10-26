@@ -120,7 +120,9 @@ export default function DeliveriesQueuePage() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
-  const { isMaintenanceDatesEnabled } = useOrganizationFeatures();
+  const { isMaintenanceDatesEnabled, isQuotationToDeliveryEnabled } = useOrganizationFeatures();
+  // Service-job org (WCT): runs have no project, so the column is just Customer / Site.
+  const serviceJobs = isQuotationToDeliveryEnabled;
   // Anchored to the CLICK POSITION, not the button element — element anchors
   // detach when rows re-render and the menu then opens at the top-left
   // corner (full-sweep fix, guru 2026-09-14).
@@ -447,7 +449,7 @@ export default function DeliveriesQueuePage() {
                 <TableCell>Missing</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Rider</TableCell>
-                <TableCell>Project / Customer / Site</TableCell>
+                <TableCell>{serviceJobs ? "Customer / Site" : "Project / Customer / Site"}</TableCell>
                 <TableCell align="center">Items</TableCell>
                 <TableCell>Scheduled</TableCell>
                 <TableCell>Started</TableCell>

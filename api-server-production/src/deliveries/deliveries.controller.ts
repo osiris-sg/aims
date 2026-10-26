@@ -8,7 +8,7 @@ import { DeliveriesService } from './deliveries.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { CreateDoFromDeliveryDto, LinkDeliveryDto } from './dto/link-delivery.dto';
-import { AckAllDto, AddItemPhotosDto, AssignDeliveryItemDto, FreeTypedEndDto, FreeTypedStartDto, SetDeploymentTypeDto, SkipInstallDto } from './dto/assign-delivery.dto';
+import { AckAllDto, AddItemPhotosDto, AssignDeliveryItemDto, FreeTypedEndDto, FreeTypedStartDto, SetDeploymentTypeDto, SetItemAssetClassDto, SkipInstallDto } from './dto/assign-delivery.dto';
 import { ScheduleDeliveryDto, ClaimScheduledDto, ClaimReturnDto } from './dto/schedule-delivery.dto';
 import { ScheduleReturnDto } from './dto/schedule-return.dto';
 import { AdHocReturnDto } from './dto/adhoc-return.dto';
@@ -213,6 +213,19 @@ export class DeliveriesController {
     @UserOrganization() org: { id: string },
   ) {
     return this.service.setItemDeploymentType(id, dto.inventoryId, dto.type, org.id);
+  }
+
+  // Office (service-job orgs, WCT 2026-10-27): set a free-typed line's class —
+  // Equipment or Service. Writes DeliveryItem.assetClass only; the field photo
+  // gate and the run page read it.
+  @Post(':id/items/asset-class')
+  @Permissions('documents:create-basic')
+  setItemAssetClass(
+    @Param('id') id: string,
+    @Body() dto: SetItemAssetClassDto,
+    @UserOrganization() org: { id: string },
+  ) {
+    return this.service.setItemAssetClass(id, dto.itemId, dto.assetClass, org.id);
   }
 
   @Post(':id/items/skip-install')

@@ -210,6 +210,176 @@ function AddContactDialog({ cc, customerName }: { cc: ReturnType<typeof useCusto
   );
 }
 
+// ── Job Location (fieldType 'siteLocation', WCT 2026-10-27) ──────────────────
+// A dropdown of the customer's SAVED sites (SiteOffice rows: name + address)
+// with "+ Add location" — guru: "we presave certain locations and they can add
+// as well". The chosen site's text lands in the field (documentInfo.location)
+// and prints in the paper's "Job Location:" box. Same shape as the contact
+// picker above: fill-only, disabled until a customer is chosen.
+const siteLabelOf = (site: any) => {
+  const name = String(site?.name ?? '').trim();
+  const address = String(site?.address ?? '').trim();
+  if (name && address && name !== address) return `${name}, ${address}`;
+  return address || name;
+};
+
+function useCustomerSites(selectedCustomer: any, formData: any, setFormData: (d: any) => void, fieldName: string) {
+  const { getToken } = useAuth();
+  const customerId: string | undefined = selectedCustomer?.id;
+  // Saved sites per customer id (fetched once per customer, plus optimistic adds).
+  const [sitesById, setSitesById] = React.useState<Record<string, any[]>>({});
+  React.useEffect(() => {
+    if (!customerId || sitesById[customerId]) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const res = await request({ path: `/customers/${customerId}/site-offices`, method: 'GET' }, {}, token || undefined);
+        const list = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+        if (!cancelled) setSitesById((p) => ({ ...p, [customerId]: list }));
+      } catch {
+        if (!cancelled) setSitesById((p) => ({ ...p, [customerId]: [] }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerId]);
+  const sites: any[] = (customerId && sitesById[customerId]) || [];
+  const value: string = getNestedVal(formData, fieldName) || '';
+  const fill = (site: any | null) => setFormData(setNestedVal(formData, fieldName, site ? siteLabelOf(site) : ''));
+  const selectedId = sites.find((st) => siteLabelOf(st) === value)?.id || '';
+  const empty = { name: '', address: '' };
+  const [open, setOpen] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [draft, setDraft] = React.useState(empty);
+  const save = async () => {
+    if (!customerId) {
+      toast.error('Select a customer first');
+      return;
+    }
+    if (!draft.address.trim()) {
+      toast.error('The location address is required');
+      return;
+    }
+    setSaving(true);
+    try {
+      const token = await getToken();
+      const res = await request(
+        { path: `/customers/${customerId}/site-offices`, method: 'POST' },
+        { name: draft.name.trim() || draft.address.trim(), address: draft.address.trim(), contactDetails: [] },
+        token || undefined,
+      );
+      if (res?.success === false) throw new Error(res.message || 'Failed to add location');
+      const created = res?.id ? res : res?.data;
+      if (!created?.id) throw new Error('Failed to add location');
+      setSitesById((p) => ({ ...p, [customerId]: [...(p[customerId] || []), created] }));
+      fill(created);
+      setOpen(false);
+      setDraft(empty);
+      toast.success('Location saved');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to add location');
+    } finally {
+      setSaving(false);
+    }
+  };
+  return { sites, value, fill, selectedId, open, setOpen, saving, draft, setDraft, save };
+}
+
+function LocationPicker({ sl, inputSx, disabled }: { sl: ReturnType<typeof useCustomerSites>; inputSx: any; disabled?: boolean }) {
+  // A value typed before this became a dropdown (or carried from an older
+  // document) is still shown, so nothing on an existing quotation goes blank.
+  const legacy = sl.value && !sl.selectedId ? sl.value : '';
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%', minWidth: 0 }}>
+      <FormControl size="small" sx={{ flex: 1, minWidth: 0 }}>
+        <Select
+          displayEmpty
+          value={sl.selectedId || (legacy ? '__legacy__' : '')}
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === '__legacy__') return;
+            sl.fill(v ? sl.sites.find((st: any) => st.id === v) ?? null : null);
+          }}
+          sx={{ ...inputSx, fontSize: '13px' }}
+          renderValue={(val) => {
+            if (val === '__legacy__') return legacy;
+            const site = sl.sites.find((st: any) => st.id === val);
+            return site ? siteLabelOf(site) : <span style={{ color: '#9e9e9e' }}>{disabled ? 'Select a customer first' : 'Job location…'}</span>;
+          }}
+        >
+          <MenuItem value="" sx={{ fontSize: '13px', color: 'text.secondary' }}>
+            — none —
+          </MenuItem>
+          {legacy && (
+            <MenuItem value="__legacy__" sx={{ fontSize: '13px' }}>
+              {legacy}
+            </MenuItem>
+          )}
+          {sl.sites.map((st: any) => (
+            <MenuItem key={st.id} value={st.id} sx={{ fontSize: '13px' }}>
+              {siteLabelOf(st)}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+      <Button
+        size="small"
+        disabled={disabled}
+        onClick={() => sl.setOpen(true)}
+        sx={{ fontSize: '0.7rem', textTransform: 'none', minWidth: 'auto', px: 0.75, whiteSpace: 'nowrap' }}
+      >
+        + Add location
+      </Button>
+    </Box>
+  );
+}
+
+function AddLocationDialog({ sl, customerName }: { sl: ReturnType<typeof useCustomerSites>; customerName?: string }) {
+  return (
+    <Dialog open={sl.open} onClose={() => !sl.saving && sl.setOpen(false)} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ fontSize: '1rem' }}>Add location{customerName ? ` — ${customerName}` : ''}</DialogTitle>
+      <DialogContent>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+          <TextField
+            label="Site name (optional)"
+            placeholder="e.g. Suntec City outlet"
+            size="small"
+            fullWidth
+            autoFocus
+            value={sl.draft.name}
+            onChange={(e) => sl.setDraft({ ...sl.draft, name: e.target.value })}
+          />
+          <TextField
+            label="Address"
+            required
+            size="small"
+            fullWidth
+            multiline
+            minRows={2}
+            value={sl.draft.address}
+            onChange={(e) => sl.setDraft({ ...sl.draft, address: e.target.value })}
+          />
+          <Typography variant="caption" color="text.secondary">
+            Saved to the customer, so it can be picked again on the next document.
+          </Typography>
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => sl.setOpen(false)} disabled={sl.saving}>
+          Cancel
+        </Button>
+        <Button variant="contained" onClick={sl.save} disabled={sl.saving || !sl.draft.address.trim()}>
+          {sl.saving ? 'Saving…' : 'Save'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 // Separate component for customer/supplier field to properly use hooks
 interface CustomerCodeFieldProps {
   customers: any[];
@@ -931,6 +1101,10 @@ export default function DynamicFormFields({
     }
 
     switch (field.fieldType) {
+      case 'siteLocation':
+        // Job Location: the customer's saved sites + "+ Add location".
+        return <LocationPicker sl={sites} inputSx={inputSx} disabled={!mainCustomer} />;
+
       case 'customer':
         return (
           <CustomerCodeField
@@ -1346,6 +1520,9 @@ export default function DynamicFormFields({
   // picker and "+ Add contact", and the Attention readout is fill-only.
   const mainCustomer = (customers || []).find((c: any) => c.id === formData?.customer?.id);
   const cc = useCustomerContacts(mainCustomer, formData, setFormData);
+  // Job Location dropdown (fieldType 'siteLocation'): the customer's saved sites.
+  const siteField = orderedFields.find((f) => f.fieldType === 'siteLocation');
+  const sites = useCustomerSites(mainCustomer, formData, setFormData, siteField?.fieldName || 'documentInfo.location');
 
   // The Contact row's Attention is fill-only — written by useCustomerContacts
   // (pick / add a customer contact), never typed. See renderContactTermsRow.
@@ -1505,6 +1682,7 @@ export default function DynamicFormFields({
       {/* The Attention row's "+ Add contact" dialog (only when that row hosts
           the picker — otherwise CustomerCodeField renders its own). */}
       {pairContactTerms && <AddContactDialog cc={cc} customerName={mainCustomer?.name} />}
+      {siteField && <AddLocationDialog sl={sites} customerName={mainCustomer?.name} />}
     </Box>
   );
 }

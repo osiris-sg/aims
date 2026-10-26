@@ -1,5 +1,8 @@
-// Equipment vs Accessory (OSI-80). The class lives on Asset.assetClass, and on
-// DeliveryItem.assetClass for FREE-TYPED lines that have no asset behind them.
+// Equipment vs Accessory (OSI-80), plus SERVICE (WCT 2026-10-27). The class
+// lives on Asset.assetClass, and on DeliveryItem.assetClass for FREE-TYPED
+// lines that have no asset behind them. SERVICE is a delivery-line class only
+// (work done on site — a kitchen-hood degrease, a maintenance visit): nothing
+// to scan, nothing to resolve to stock, and one condition photo to start.
 //
 // Its only job today is to set how many photos the field must capture when a
 // unit is tagged: equipment gets a guided multi-angle sequence, an accessory
@@ -12,6 +15,7 @@ import { AssetClass } from '@prisma/client';
 export const MIN_PHOTOS_BY_ASSET_CLASS: Record<AssetClass, number> = {
   EQUIPMENT: 4, // Front, Back, Left, Right
   ACCESSORY: 1,
+  SERVICE: 1, // one "before" shot of the work area
 };
 
 /** The class every unclassified thing falls back to (matches the column default). */
@@ -20,14 +24,14 @@ export const DEFAULT_ASSET_CLASS: AssetClass = AssetClass.EQUIPMENT;
 /**
  * How many photos this class needs at tagging. Anything unrecognised (null on a
  * catalog-backed DeliveryItem, a legacy row, a bad string off the wire) is
- * treated as EQUIPMENT — the stricter of the two, so a missing class can never
- * quietly lower the bar.
+ * treated as EQUIPMENT — the strictest, so a missing class can never quietly
+ * lower the bar.
  */
 export function minPhotosForAssetClass(assetClass?: AssetClass | string | null): number {
   const key = String(assetClass ?? '').toUpperCase();
-  return key === AssetClass.ACCESSORY
-    ? MIN_PHOTOS_BY_ASSET_CLASS.ACCESSORY
-    : MIN_PHOTOS_BY_ASSET_CLASS.EQUIPMENT;
+  if (key === AssetClass.ACCESSORY) return MIN_PHOTOS_BY_ASSET_CLASS.ACCESSORY;
+  if (key === AssetClass.SERVICE) return MIN_PHOTOS_BY_ASSET_CLASS.SERVICE;
+  return MIN_PHOTOS_BY_ASSET_CLASS.EQUIPMENT;
 }
 
 /**

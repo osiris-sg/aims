@@ -8,7 +8,7 @@
 export interface FieldDefinition {
   fieldName: string; // Technical field name (path in data object) - how it appears in the form
   displayLabel: string; // User-facing label
-  fieldType: "text" | "number" | "date" | "select" | "autocomplete" | "textarea" | "table" | "customer" | "salesman" | "supplier";
+  fieldType: "text" | "number" | "date" | "select" | "autocomplete" | "textarea" | "table" | "customer" | "salesman" | "supplier" | "siteLocation";
   required: boolean;
   gridSize?: 6 | 12; // Grid column size (6 = half width, 12 = full width)
   dataSource?: string; // For select/autocomplete: 'customers', 'projects', 'deliveryOrders', etc.

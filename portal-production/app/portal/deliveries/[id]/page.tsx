@@ -45,6 +45,8 @@ import NoteAddIcon from "@mui/icons-material/NoteAdd";
 import PlaceIcon from "@mui/icons-material/Place";
 import { request } from "@/helpers/request";
 import { useOrganization } from "@hooks/useOrganization";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { normalizeAssetClass } from "@/helpers/assetClass";
 import ScheduleDeliveryDialog from "@/app/portal/deliveries/_components/ScheduleDeliveryDialog";
 import DeliveryGroupPostsPanel from "@/components/deliveries/DeliveryGroupPostsPanel";
 
@@ -245,6 +247,10 @@ export default function DeliveryDetailPage() {
   const router = useRouter();
   const { getToken } = useAuth();
   const { organization } = useOrganization();
+  // Service-job org (enableQuotationToDelivery — WCT 2026-10-27): runs are jobs
+  // from an accepted quotation, not rental deployments. No project to attach,
+  // and a line is Equipment or SERVICE (work on site) instead of Rental / Sale.
+  const { isQuotationToDeliveryEnabled: serviceJobs } = useOrganizationFeatures();
   const deliveryId = params?.id as string;
 
   const [run, setRun] = useState<RunDetail | null>(null);
@@ -254,6 +260,8 @@ export default function DeliveryDetailPage() {
   const [acting, setActing] = useState(false);
   // Per-item RENTAL/SALE toggle busy state, keyed by the unit being updated.
   const [typeBusy, setTypeBusy] = useState<string | null>(null);
+  // Per-line Equipment/Service busy state (service-job orgs), keyed by DeliveryItem id.
+  const [classBusy, setClassBusy] = useState<string | null>(null);
   // Per-item link selection — pre-checked with every unlinked item so the
   // default one-click flow still links the whole run.
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -642,6 +650,25 @@ export default function DeliveryDetailPage() {
     }
   };
 
+  // Office (service-job orgs): flip a free-typed line between Equipment (something
+  // supplied) and Service (work done on site). Writes DeliveryItem.assetClass; the
+  // field's photo gate reads it (Service = one photo, no unit scan).
+  const setItemClass = async (itemId: string, assetClass: "EQUIPMENT" | "SERVICE") => {
+    setClassBusy(itemId);
+    setActionError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request({ path: `/deliveries/${deliveryId}/items/asset-class`, method: "POST" }, { itemId, assetClass }, token);
+      if (res.success === false) throw new Error(res.message ?? "Couldn't update the line type");
+      setRun((prev) => (prev ? { ...prev, items: prev.items.map((it) => (it.id === itemId ? { ...it, assetClass } : it)) } : prev));
+    } catch (e: any) {
+      setActionError(e?.message ?? "Couldn't update the line type");
+    } finally {
+      setClassBusy(null);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", py: 10 }}>
@@ -737,7 +764,7 @@ export default function DeliveryDetailPage() {
             rather than deducted. Attaching a project creates the deployment and
             performs that deduction. Offered only while the run still has no
             project — re-pointing one is a separate, deliberate act. */}
-        {run.origin === "AD_HOC" && run.direction !== "RETURN" && !run.project && (
+        {!serviceJobs && run.origin === "AD_HOC" && run.direction !== "RETURN" && !run.project && (
           <>
             <Box sx={{ flex: 1 }} />
             <Button size="small" variant="contained" onClick={() => setAttachOpen(true)}>
@@ -882,7 +909,7 @@ export default function DeliveryDetailPage() {
               <TableCell>Description</TableCell>
               <TableCell align="center">Qty</TableCell>
               <TableCell>Status</TableCell>
-              <TableCell>Rental / Sale</TableCell>
+              <TableCell>{serviceJobs ? "Type" : "Rental / Sale"}</TableCell>
               <TableCell>Linked DO</TableCell>
               {canLinkUnits && <TableCell align="right" />}
             </TableRow>
@@ -905,7 +932,13 @@ export default function DeliveryDetailPage() {
                       // Free-typed line (no asset AND no unit) — awaiting resolution
                       // to a real catalog asset/unit (Phase 2 adds the action).
                       !it.inventory ? (
-                        <Chip size="small" color="warning" variant="outlined" label={isReturnRun ? "Untagged" : "Needs resolution"} />
+                        // A SERVICE line (service-job orgs) is work, not stock — there
+                        // is nothing to resolve it to.
+                        serviceJobs && normalizeAssetClass(it.assetClass) === "SERVICE" ? (
+                          <Chip size="small" variant="outlined" label="Service" />
+                        ) : (
+                          <Chip size="small" color="warning" variant="outlined" label={isReturnRun ? "Untagged" : "Needs resolution"} />
+                        )
                       ) : (
                         "—"
                       )
@@ -915,7 +948,26 @@ export default function DeliveryDetailPage() {
                   <TableCell align="center">{it.quantity}</TableCell>
                   <TableCell><Chip size="small" label={ic.label} color={ic.color} /></TableCell>
                   <TableCell>
-                    {!it.inventory ? (
+                    {serviceJobs ? (
+                      // Service-job org: Equipment / Service per free-typed line. A
+                      // catalog product is always Equipment (its class is the asset's).
+                      !it.asset && !it.inventory ? (
+                        <ToggleButtonGroup
+                          size="small"
+                          exclusive
+                          value={normalizeAssetClass(it.assetClass) === "SERVICE" ? "SERVICE" : "EQUIPMENT"}
+                          disabled={classBusy === it.id || run.status === "completed" || run.status === "cancelled"}
+                          onChange={(_, val) => {
+                            if (val) void setItemClass(it.id, val);
+                          }}
+                        >
+                          <ToggleButton value="EQUIPMENT" sx={{ textTransform: "none", py: 0.25 }}>Equipment</ToggleButton>
+                          <ToggleButton value="SERVICE" sx={{ textTransform: "none", py: 0.25 }}>Service</ToggleButton>
+                        </ToggleButtonGroup>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">Equipment</Typography>
+                      )
+                    ) : !it.inventory ? (
                       // Free-typed line — no unit, no deployment to set.
                       <Typography variant="body2" color="text.secondary">—</Typography>
                     ) : (

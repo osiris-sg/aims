@@ -18,6 +18,10 @@ datasource db {
 enum AssetClass {
   EQUIPMENT
   ACCESSORY
+  /// A SERVICE line (WCT 2026-10-27): work done on site, no unit to scan, one
+  /// condition photo. Used on free-typed DeliveryItem lines in service-job orgs
+  /// (enableQuotationToDelivery); never on a catalog Asset.
+  SERVICE
 }
 
 model Organization {
