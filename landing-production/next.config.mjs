@@ -10,10 +10,13 @@ const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "https://app.ai-ms.io").repl
 const nextConfig = {
   reactStrictMode: true,
   async redirects() {
-    return ["portal", "sign-in", "pay", "guest", "scan", "field", "submit"].flatMap((p) => [
+    // The privacy policy moved from /privacy to /privacy-policy (2026-10-27).
+    // Keep the old address working: SiteJobs builds and the Play listing link it.
+    const legal = [{ source: "/privacy", destination: "/privacy-policy", permanent: true }];
+    return [...legal, ...["portal", "sign-in", "pay", "guest", "scan", "field", "submit"].flatMap((p) => [
       { source: `/${p}`, destination: `${APP_URL}/${p}`, permanent: true },
       { source: `/${p}/:path*`, destination: `${APP_URL}/${p}/:path*`, permanent: true },
-    ]);
+    ])];
   },
 };
 
