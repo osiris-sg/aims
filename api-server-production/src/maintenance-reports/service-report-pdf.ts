@@ -80,9 +80,27 @@ export interface ServiceReportPdfInput {
   asset: { name: string; skuKey: string } | null;
   inventory: { sku: string; serialNumber: string | null } | null;
   orgName: string;
+  /** Owning org's logo (S3 key, URL or data URI). None = header unchanged. */
+  orgLogo?: string | null;
   /** Optional proof photos (S3 keys), printed at the very end. */
   photos?: string[] | null;
 }
+
+/**
+ * Org logo, top-left of the title bar (2026-10-26). Only emitted when the org
+ * HAS a logo, so a logo-less report stays byte-for-byte what it was. Absolute
+ * so the title stays centred and the bar keeps its height (a 40px logo fits
+ * inside it), so nothing below moves.
+ */
+const LOGO_CSS = `
+    .title-bar { position: relative; }
+    .title-logo { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); max-height: 40px; max-width: 140px; object-fit: contain; }
+`;
+
+const logoSrc = (logo?: string | null): string | null => {
+  if (!logo) return null;
+  return /^(https?:|data:)/i.test(logo) ? logo : `${S3_PREFIX}${logo}`;
+};
 
 /** Most photos a service report carries (field app + API enforce it). */
 export const MAX_SERVICE_REPORT_PHOTOS = 12;
@@ -377,6 +395,7 @@ export function buildServiceReportHtml(input: ServiceReportPdfInput): string {
   // Stamped at capture; absent => GENERIC_V1, which is every pre-template row.
   const templateId = templateFor(sd.templateId);
   const isEss = templateId === 'ESS_V1';
+  const logoUrl = logoSrc(input.orgLogo);
   const photos = (input.photos ?? []).filter((k) => typeof k === 'string' && k && !k.startsWith('data:')).slice(0, MAX_SERVICE_REPORT_PHOTOS);
 
   const checklistCellsHtml = CHECKLIST_LABELS.map((item) => {
@@ -430,11 +449,12 @@ export function buildServiceReportHtml(input: ServiceReportPdfInput): string {
     .sig-name { font-size: 11px; font-weight: 600; }
 
     .footer-text { margin-top: 18px; font-size: 10px; color: #444; line-height: 1.4; }
-${isEss ? ESS_PRINT_CSS : ''}${photos.length ? PHOTOS_PRINT_CSS : ''}  </style>
+${isEss ? ESS_PRINT_CSS : ''}${photos.length ? PHOTOS_PRINT_CSS : ''}${logoUrl ? LOGO_CSS : ''}  </style>
 </head>
 <body>
   <div class="page">
-    <div class="title-bar">
+    <div class="title-bar">${logoUrl ? `
+      <img class="title-logo" src="${esc(logoUrl)}" alt="" />` : ''}
       <h1>${esc(TEMPLATE_LABELS[templateId].toUpperCase())}</h1>
       <div class="org-line">${esc(input.orgName)}</div>
     </div>
