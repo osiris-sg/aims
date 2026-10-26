@@ -30,10 +30,14 @@ interface Props {
   minHeight?: number | string;
 }
 
+// The document is laid out at A4 width and scaled DOWN to fit the preview
+// column, so it never clips when the editor pane is narrow (guru 2026-10-27:
+// same clipping as the sign link). Fixed width, no auto margins.
+const FRAME_W = 794; // A4 width in CSS px at 96dpi
 const PREVIEW_CSS = `<style>
   @media screen {
     html { background: transparent; }
-    body { background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.25); max-width: 210mm; min-height: 297mm; margin: 12px auto 24px; }
+    body { background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.25); width: ${FRAME_W}px; min-height: 297mm; margin: 12px 0 24px; }
   }
 </style>`;
 
@@ -43,10 +47,38 @@ const ServerDocumentPreview = forwardRef<ServerDocumentPreviewHandle, Props>(fun
 ) {
   const { getToken } = useAuth();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [html, setHtml] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
+  // Fit the A4 document to the preview column width, and reserve the scaled
+  // height so the layout does not jump.
+  const [frameScale, setFrameScale] = useState(1);
+  const [contentH, setContentH] = useState<number | null>(null);
   const seq = useRef(0);
+
+  const measure = () => {
+    const w = wrapRef.current?.clientWidth || 0;
+    if (w > 0) setFrameScale(Math.min(1, w / FRAME_W));
+    try {
+      const doc = iframeRef.current?.contentDocument;
+      const h = doc?.body?.scrollHeight || doc?.documentElement?.scrollHeight || 0;
+      if (h > 0) setContentH(h + 24);
+    } catch {
+      /* unreadable → keep null; falls back to minHeight */
+    }
+  };
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth || 0;
+      if (w > 0) setFrameScale(Math.min(1, w / FRAME_W));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // Serialised once per change so the effect compares content, not identity
   // (the editor rebuilds its data object on every render).
   const payload = JSON.stringify({ documentType, documentId, templateId, data });
@@ -84,7 +116,7 @@ const ServerDocumentPreview = forwardRef<ServerDocumentPreviewHandle, Props>(fun
   }));
 
   return (
-    <Box sx={{ position: "relative", width: "100%", minHeight }}>
+    <Box ref={wrapRef} sx={{ position: "relative", width: "100%", minHeight, overflow: "auto" }}>
       {rendering && (
         <Box sx={{ position: "absolute", top: 8, right: 8, zIndex: 1 }}>
           <CircularProgress size={18} />
@@ -96,13 +128,24 @@ const ServerDocumentPreview = forwardRef<ServerDocumentPreviewHandle, Props>(fun
         </Typography>
       )}
       {html ? (
-        <Box
-          component="iframe"
-          ref={iframeRef}
-          title="Document preview"
-          srcDoc={html}
-          sx={{ width: "100%", height: minHeight, border: 0, bgcolor: "transparent", display: "block" }}
-        />
+        <Box sx={{ width: "100%", height: contentH ? `${Math.round(contentH * frameScale)}px` : minHeight }}>
+          <Box
+            component="iframe"
+            ref={iframeRef}
+            title="Document preview"
+            srcDoc={html}
+            onLoad={measure}
+            sx={{
+              width: `${FRAME_W}px`,
+              height: contentH ? `${contentH}px` : minHeight,
+              border: 0,
+              bgcolor: "transparent",
+              display: "block",
+              transform: `scale(${frameScale})`,
+              transformOrigin: "top left",
+            }}
+          />
+        </Box>
       ) : (
         !error && (
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: 320 }}>

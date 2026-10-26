@@ -69,6 +69,12 @@ export default function PublicSignPage() {
   // measured / if unreadable → the style falls back to 72vh).
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [iframeH, setIframeH] = useState<number | null>(null);
+  // The document is laid out at A4 width (FRAME_W) and scaled DOWN to fit its
+  // column, so the paper never clips when the screen is narrow (guru
+  // 2026-10-27: the sign link cut the document off on small screens).
+  const FRAME_W = 794; // A4 width in CSS px at 96dpi
+  const docBoxRef = useRef<HTMLDivElement>(null);
+  const [frameScale, setFrameScale] = useState(1);
 
   useEffect(() => {
     (async () => {
@@ -93,6 +99,8 @@ export default function PublicSignPage() {
     const measure = () => {
       setCanvasW(padRef.current?.clientWidth || 600);
       setDpr(window.devicePixelRatio || 1);
+      const w = docBoxRef.current?.clientWidth || 0;
+      if (w > 0) setFrameScale(Math.min(1, w / FRAME_W));
     };
     measure();
     window.addEventListener("resize", measure);
@@ -121,6 +129,10 @@ export default function PublicSignPage() {
   // readable; if it is ever unreadable we leave the height null and the style
   // falls back to 72vh (with the iframe's own internal scroll).
   const measureFrame = useCallback(() => {
+    // Recompute the fit-to-column scale first, then the height (measured at the
+    // fixed A4 width so it is consistent with the scaled render).
+    const w = docBoxRef.current?.clientWidth || 0;
+    if (w > 0) setFrameScale(Math.min(1, w / FRAME_W));
     try {
       const doc = frameRef.current?.contentDocument;
       const h = doc?.body?.scrollHeight || doc?.documentElement?.scrollHeight || 0;
@@ -231,20 +243,38 @@ export default function PublicSignPage() {
           sticky beside the document on desktop so the client never scrolls to
           the bottom to sign. Stacks back to one column on phones. */}
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: signed ? "1fr" : "minmax(0, 1fr) 400px" }, gap: 3, alignItems: "start" }}>
-      <Paper elevation={0} sx={{ border: "1px solid #ddd", borderRadius: 2, overflow: "hidden", bgcolor: "#fff", p: { xs: 1.5, md: 3 }, minWidth: 0 }}>
-        {/* The srcDoc HTML is only <style> + <div class="idq"> — no <body>
-            margin, no max-width — so the document renders flush; the Paper
-            padding (12/24px) gives it breathing room. Height auto-fits the
-            content (measureFrame on load + resize) and falls back to 72vh with
+      <Paper elevation={0} sx={{ border: "1px solid #ddd", borderRadius: 2, overflow: "hidden", bgcolor: "#fff", p: { xs: 1, md: 1.5 }, minWidth: 0 }}>
+        {/* The document is rendered at a fixed A4 width (FRAME_W) and scaled to
+            fit this column, so it never clips on a narrow screen. The wrapper
+            is the measured width; its height is the scaled document height so
+            the layout reserves exactly the right space. Falls back to 72vh with
             the iframe's own scroll if the content height is ever unreadable. */}
-        <iframe
-          ref={frameRef}
-          title="Quotation"
-          srcDoc={data.html}
-          sandbox="allow-same-origin"
-          onLoad={measureFrame}
-          style={{ display: "block", width: "100%", height: iframeH ? `${iframeH}px` : "72vh", minHeight: 200, border: 0, background: "#fff" }}
-        />
+        <Box
+          ref={docBoxRef}
+          sx={{
+            width: "100%",
+            height: iframeH ? `${Math.round(iframeH * frameScale)}px` : "72vh",
+            overflow: "hidden",
+          }}
+        >
+          <iframe
+            ref={frameRef}
+            title="Quotation"
+            srcDoc={data.html}
+            sandbox="allow-same-origin"
+            onLoad={measureFrame}
+            style={{
+              display: "block",
+              width: `${FRAME_W}px`,
+              height: iframeH ? `${iframeH}px` : "100%",
+              minHeight: 200,
+              border: 0,
+              background: "#fff",
+              transform: `scale(${frameScale})`,
+              transformOrigin: "top left",
+            }}
+          />
+        </Box>
       </Paper>
 
       {!signed && (
