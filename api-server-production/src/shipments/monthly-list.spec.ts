@@ -120,4 +120,14 @@ describe('Monthly order list', () => {
     expect(buildMonthlyList([o], { ...W, supplierId: 'other' })).toEqual([]);
     expect(buildMonthlyList([order({ orderNo: 61, checkFields: ['status'], shipments: [] })], W)[0].rows[0]).toMatchObject({ orderStage: 'WAITING_SHIPMENT', unconfirmed: true });
   });
+  it('round AM: an order on two supplier orders (split declaration) — Order ton summed, both contract · PI listed', () => {
+    const o = order({ orderNo: 23, qtyMt: 200, piQtyMt: 100, supplierContractNo: '454003255', piDate: null, supplierLines: [
+      { contractNo: '454003255', piNo: '9331004319', piDate: null, qtyMt: 100 },
+      { contractNo: '454003422', piNo: '9331004321', piDate: '2026-09-22', qtyMt: 100 },
+    ], shipments: [] });
+    const r = buildMonthlyList([o], W)[0].rows[0];
+    expect(r).toMatchObject({ supplierTon: 200, supplierContractNo: '454003255 · PI 9331004319\n454003422 · PI 9331004321', supplierOrderDate: '2026-09-22' });
+    // One supplier order: unchanged.
+    expect(buildMonthlyList([order({ orderNo: 24, supplierLines: [{ contractNo: '454003422', piNo: 'x', piDate: null, qtyMt: 200 }], shipments: [] })], W)[0].rows[0]).toMatchObject({ supplierContractNo: '454003598', supplierTon: 220 });
+  });
 });

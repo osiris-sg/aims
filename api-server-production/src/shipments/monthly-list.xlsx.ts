@@ -65,7 +65,7 @@ export async function monthlyXlsx(blocks: MonthlyBlock[], meta: { orgName: strin
         row.eachCell({ includeEmpty: true }, (cell, n) => {
           if (n > HEADERS.length) return;
           cell.border = { top: BORDER, bottom: BORDER, left: BORDER, right: BORDER };
-          cell.alignment = { vertical: 'middle', wrapText: n === 4 || n === 9 || n === 18 };
+          cell.alignment = { vertical: 'middle', wrapText: n === 4 || n === 9 || n === 10 || n === 18 };
           if (YELLOW_COLS.includes(n - 1)) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: YELLOW } };
           if (n === 6 || n === 12) cell.numFmt = '#,##0.000';
         });

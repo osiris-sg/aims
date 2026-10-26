@@ -72,9 +72,24 @@ export interface OrderFact {
   /** Round AM — the order-level steps (supplier order 0 / 1, the order's 2, 11, 13) and the PI no., for the stages. */
   orderSteps?: StepFact[];
   piNo?: string | null;
+  /** Round AM: every supplier order the order is bought under (its own + split ones, SupplierOrder.forOrderId). With more
+   * than one, Order ton = their sum and the contract cell lists "contract · PI" per supplier order. */
+  supplierLines?: Array<{ contractNo: string | null; piNo: string | null; piDate: Date | string | null; qtyMt: number | null }>;
   /** The order's first open step id (the deep link of an order row without a shipment). */
   currentStepId: string | null;
   shipments: ShipmentFact[];
+}
+
+/** Supplier cells: one supplier order as before; several (a split declaration) → summed tons, "contract · PI" per line. */
+export function supplierCells(o: Pick<OrderFact, 'supplierContractNo' | 'piDate' | 'piQtyMt' | 'supplierLines'>): { supplierContractNo: string | null; supplierOrderDate: string | null; supplierTon: number | null } {
+  const lines = o.supplierLines ?? [];
+  if (lines.length < 2) return { supplierContractNo: o.supplierContractNo, supplierOrderDate: day(o.piDate), supplierTon: o.piQtyMt };
+  const dates = lines.map((l) => day(l.piDate)).filter((d): d is string => !!d).sort();
+  return {
+    supplierContractNo: lines.map((l) => [l.contractNo ?? '—', l.piNo ? `PI ${l.piNo}` : null].filter(Boolean).join(' · ')).join('\n'),
+    supplierOrderDate: dates[0] ?? null,
+    supplierTon: lines.some((l) => l.qtyMt !== null) ? Math.round(lines.reduce((a, l) => a + (l.qtyMt ?? 0), 0) * 1000) / 1000 : null,
+  };
 }
 
 /** Customer Order Date: the customer's PO date only, else blank. Never the supplier PI date (that shows only in the
@@ -251,9 +266,7 @@ export function buildMonthlyList(orders: OrderFact[], f: MonthlyFilter): Monthly
       shipMonth: o.shipMonth,
       deliveryMonth: o.deliveryMonth,
       orderStatus: status,
-      supplierContractNo: o.supplierContractNo,
-      supplierOrderDate: day(o.piDate),
-      supplierTon: o.piQtyMt,
+      ...supplierCells(o),
       supplierStatus: supplierStatus(o),
       unconfirmed: status === 'Unconfirmed',
     };

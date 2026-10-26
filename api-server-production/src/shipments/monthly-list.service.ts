@@ -68,11 +68,16 @@ export class MonthlyListService {
         customer: { select: { name: true } },
         supplier: { select: { name: true } },
         contract: { select: { contractNo: true } },
-        supplierOrder: { select: { status: true, piNo: true, piDate: true, qtyMt: true, contract: { select: { contractNo: true } }, steps: { select: STEP } } },
+        supplierOrder: { select: { id: true, status: true, piNo: true, piDate: true, qtyMt: true, contract: { select: { contractNo: true } }, steps: { select: STEP } } },
         steps: { select: STEP },
         shipments: { where: { status: { not: 'CANCELLED' } }, select: { id: true, seqNo: true, status: true, blNumber: true, etd: true, eta: true, deliveryMonth: true, actualArrivalDate: true, dischargeDate: true, ciNumber: true, ciAmount: true, notes: true, steps: { select: STEP } } },
       },
     });
+    // Round AM: split declarations — supplier orders bought for an order beyond its own (SupplierOrder.forOrderId).
+    const extras: any[] = orders.length
+      ? await this.prisma.supplierOrder.findMany({ where: { organizationId, forOrderId: { in: orders.map((o) => o.id) }, status: { not: 'CANCELLED' } }, orderBy: [{ year: 'asc' }, { soNo: 'asc' }], select: { id: true, forOrderId: true, piNo: true, piDate: true, qtyMt: true, contract: { select: { contractNo: true } } } })
+      : [];
+    const lineOf = (so: any) => ({ contractNo: so.contract?.contractNo ?? null, piNo: so.piNo ?? null, piDate: so.piDate ?? null, qtyMt: num(so.qtyMt) });
     return orders.map((o) => {
       const piSteps = [...(o.supplierOrder?.steps ?? []), ...(o.steps ?? [])].filter((s: any) => s.code === 'PI_PAYMENT');
       const orderCurrent = currentStepOf([...(o.supplierOrder?.steps ?? []), ...(o.steps ?? [])]);
@@ -90,6 +95,7 @@ export class MonthlyListService {
         supplierId: o.supplierId ?? null,
         piNo: o.supplierOrder?.piNo ?? o.piNo ?? null,
         orderSteps: [...(o.supplierOrder?.steps ?? []), ...(o.steps ?? [])],
+        supplierLines: [...(o.supplierOrder ? [lineOf(o.supplierOrder)] : []), ...extras.filter((x) => x.forOrderId === o.id && x.id !== o.supplierOrder?.id).map(lineOf)],
         customerPoDate: o.customerPoDate ?? null,
         grade: o.grade,
         size: o.size,

@@ -126,6 +126,7 @@ function FormatCard({ customerId, f, lang, shipments }: { customerId: string; f:
           {lang === "ja" ? f.titleJa : f.title}
         </Typography>
         {!f.formatConfirmed && <Chip size="small" color="warning" variant="outlined" label={lang === "ja" ? "フォーマット未確認" : "format not yet confirmed"} />}
+        {!f.formatConfirmed && !f.samples.length && <Chip size="small" color="warning" label={lang === "ja" ? "ADHからサンプルが必要" : "needs a sample from ADH"} data-tour="client-format-needs-sample" />}
       </Stack>
       <Grid2 container spacing={1.5}>
         <Grid2 size={{ xs: 12, md: 6 }}>

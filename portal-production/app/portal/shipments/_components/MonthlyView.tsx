@@ -128,7 +128,7 @@ export default function MonthlyView({ customerId, supplierId, title = true }: { 
             </span>
           </Tooltip>
         </TableCell>,
-        merged(9, r.supplierContractNo ?? ""),
+        merged(9, r.supplierContractNo ?? "", { whiteSpace: "pre-line" }), // round AM: a split order lists "contract · PI" per supplier order
         merged(10, dmy(r.supplierOrderDate), { whiteSpace: "nowrap" }),
         merged(11, t3(r.supplierTon), { textAlign: "right", fontVariantNumeric: "tabular-nums" }),
         <TableCell key={12} sx={{ ...YELLOW, fontWeight: 600 }} data-tour="monthly-supplier-status">{supplierLabel(r)}</TableCell>,

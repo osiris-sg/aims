@@ -3859,6 +3859,9 @@ model SupplierOrder {
   depositPaidAt         DateTime?
   status                TradeRecordStatus @default(OPEN)
   notes                 String?
+  /// Round AM: also bought for this customer order, beyond the order's own supplier order (a split declaration:
+  /// #23's second 100 t on another contract / PI). Plain id; the Monthly view sums every supplier order of an order.
+  forOrderId            String?           @db.Uuid
   createdById           String?
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt

@@ -22,10 +22,11 @@ import { ClientsService } from '../src/shipments/clients.service';
 import { TradeConfigService } from '../src/shipments/trade-config.service';
 import { createSupplierOrderInTx } from '../src/shipments/trade-supplier-order';
 import { PrismaService } from '../src/common/prisma.service';
+import { runAsOrg } from '../src/common/tenancy/tenant-context';
 
 @Module({ imports: [ConfigModule.forRoot({ load: [configuration], isGlobal: true }), PushModule, ActionLogModule, ShipmentsModule] })
 class M {}
-const ORG = '056ed6da-42d3-438e-895b-84bb4df47a4c';
+const ORG = process.argv.find((a) => a.startsWith('--org='))?.slice(6) ?? '056ed6da-42d3-438e-895b-84bb4df47a4c';
 const SUS = 'a094ff62-47f7-41dc-93da-a17ddf505283';
 const APPLY = process.argv.includes('--apply');
 const PART = Number(process.argv.find((a) => a.startsWith('--part='))?.slice(7));
@@ -39,7 +40,8 @@ const SAMPLES = [
 const h = (v: unknown) => createHash('sha256').update(JSON.stringify(v ?? null)).digest('hex').slice(0, 12);
 const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 const log: any[] = [];
-const LOG = 'scripts/_am-prod-go.log.json';
+const LOG = ORG === '056ed6da-42d3-438e-895b-84bb4df47a4c' ? 'scripts/_am-prod-go.log.json' : 'scripts/_am-prod-go.dev.log.json';
+const NOTE23 = 'Client premium to confirm with ADH (sheet says 200 or 265; AIMS has 190). The negative margin after the split (454003422 half at 240) is not final.';
 
 (async () => {
   if (![1, 2, 3].includes(PART)) throw new Error('--part=1|2|3');
@@ -58,8 +60,10 @@ const LOG = 'scripts/_am-prod-go.log.json';
     await prisma.actionLog.create({ data: { actorType: 'SYSTEM', actorId: ACTOR.id, actorName: 'System creation', organizationId: ORG, channel: 'operator', action, resource, resourceId, details } });
     log.push({ at: new Date().toISOString(), action, resource, resourceId, details });
   };
+  // The org context: the tenancy router (per-org mode, dev) routes every query — and the split's transaction — to ADH.
+  await runAsOrg(ORG, async () => {
   const before = await snap();
-  const order = (no: number) => prisma.tradeOrder.findFirst({ where: { organizationId: ORG, orderNo: no, year: 2026, isTest: false }, select: { id: true, orderNo: true, grade: true, size: true, qtyMt: true, piNo: true, clientPremium: true, supplierPremium: true, upcharge: true, notes: true, contract: { select: { contractNo: true } }, supplierOrder: { select: { id: true, soNo: true, piNo: true, qtyMt: true, supplierPremium: true, notes: true, contract: { select: { contractNo: true } } } } } });
+  const order = (no: number) => prisma.tradeOrder.findFirst({ where: { organizationId: ORG, orderNo: no, year: 2026, isTest: false }, select: { id: true, orderNo: true, grade: true, size: true, qtyMt: true, piNo: true, checkFields: true, clientPremium: true, supplierPremium: true, upcharge: true, notes: true, contract: { select: { contractNo: true } }, supplierOrder: { select: { id: true, soNo: true, piNo: true, qtyMt: true, supplierPremium: true, notes: true, contract: { select: { contractNo: true } } } } } });
 
   if (PART === 1) {
     const p = await config.profileOf(ORG, SUS);
@@ -110,21 +114,23 @@ const LOG = 'scripts/_am-prod-go.log.json';
     console.log(`        S(new): 100 t on 454003422, PI 9331004321, premium 240, 6005, Oct'26 → margin ${m(240, 100).perT}/t × 100 t = USD ${m(240, 100).total.toLocaleString()}`);
     console.log(`        total margin USD ${(m(162, 100).total + m(240, 100).total).toLocaleString()} (was ${m(n(so.supplierPremium)!, qty).total.toLocaleString()}); blended supplier premium ${blended} → ${cp - blended}/t`);
     console.log(`        #23 order: supplier premium ${n(o.supplierPremium)} → ${blended} (blended, shown for your go — an overwrite); client premium ${cp} unchanged; PI no. stays empty (two PIs: on the supplier orders)`);
-    console.log(`        #23 stays linked to S${so.soNo}; the new supplier order notes "second 100 t of #23" (an order links to one supplier order; its shipments can point to either)`);
+    console.log(`        #23 stays linked to S${so.soNo}; the new supplier order gets forOrderId = #23 (Monthly view: Order ton 200, both contract · PI)`);
+    console.log(`        #23 flag: checkFields ${JSON.stringify(o.checkFields)} → + clientPremium if missing; note + "${NOTE23}"`);
     if (APPLY) {
       const fresh = await prisma.supplierOrder.findFirst({ where: { id: so.id }, select: { qtyMt: true, piNo: true, supplierPremium: true } });
       if (n(fresh.qtyMt) !== 200 || fresh.piNo || n(fresh.supplierPremium) !== 162) throw new Error(`S${so.soNo} changed since the dry run: ${JSON.stringify(fresh)}`);
       const newId: string = await prisma.$transaction(async (tx: any) => {
         await tx.supplierOrder.update({ where: { id: so.id }, data: { qtyMt: 100, piNo: '9331004319', notes: [so.notes, "Round AM split (owner's go): first 100 t of #23 on 454003255 (Oct'26 declaration, PI 9331004319, premium 162 for the first 103 t). Second 100 t: the 454003422 supplier order (PI 9331004321)."].filter(Boolean).join('\n') } });
-        return createSupplierOrderInTx(tx, config, ORG, { contractId: k422.id, declarationMonth: '2026-10', grade: o.grade, size: o.size, qtyMt: 100, supplierPremium: 240, piNo: '9331004321', notes: `Round AM split (owner's go): second 100 t of #23 (SUS 6005, Oct'26) on 454003422 — PI 9331004321 (shared with #24's 6063 200 t), premium 240.` } as any, { id: ACTOR.id, name: ACTOR.name });
+        const id = await createSupplierOrderInTx(tx, config, ORG, { contractId: k422.id, declarationMonth: '2026-10', grade: o.grade, size: o.size, qtyMt: 100, supplierPremium: 240, piNo: '9331004321', notes: `Round AM split (owner's go): second 100 t of #23 (SUS 6005, Oct'26) on 454003422 — PI 9331004321 (shared with #24's 6063 200 t), premium 240.` } as any, { id: ACTOR.id, name: ACTOR.name });
+        await tx.supplierOrder.update({ where: { id }, data: { forOrderId: o.id } });
+        const flags = [...new Set([...(o.checkFields ?? []), 'clientPremium'])];
+        await tx.tradeOrder.update({ where: { id: o.id }, data: { checkFields: flags, notes: [o.notes, NOTE23].filter(Boolean).join('\n'), ...(process.argv.includes('--blend') ? { supplierPremium: blended } : {}) } });
+        return id;
       });
+      await audit('UPDATE', 'trade-order', o.id, { ref: '#23', checkFields: { from: o.checkFields, to: [...new Set([...(o.checkFields ?? []), 'clientPremium'])] }, notesAppended: NOTE23, ...(process.argv.includes('--blend') ? { supplierPremium: { from: n(o.supplierPremium), to: blended } } : {}) });
       await audit('UPDATE', 'supplier-order', so.id, { ref: `S${so.soNo} (#23)`, qtyMt: { from: 200, to: 100 }, piNo: { from: null, to: '9331004319' } });
       const created = await prisma.supplierOrder.findFirst({ where: { id: newId }, select: { soNo: true } });
-      await audit('CREATE', 'supplier-order', newId, { ref: `S${created.soNo} (#23 second half)`, contract: '454003422', qtyMt: 100, piNo: '9331004321', supplierPremium: 240 });
-      if (process.argv.includes('--blend')) {
-        await prisma.tradeOrder.update({ where: { id: o.id }, data: { supplierPremium: blended } });
-        await audit('UPDATE', 'trade-order', o.id, { ref: '#23', supplierPremium: { from: n(o.supplierPremium), to: blended } });
-      }
+      await audit('CREATE', 'supplier-order', newId, { ref: `S${created.soNo} (#23 second half)`, forOrderId: o.id, contract: '454003422', qtyMt: 100, piNo: '9331004321', supplierPremium: 240 });
       console.log(`applied: S${so.soNo} updated, S${created.soNo} created${process.argv.includes('--blend') ? ', #23 supplier premium blended' : ''}`);
     }
   }
@@ -137,6 +143,7 @@ const LOG = 'scripts/_am-prod-go.log.json';
     fs.writeFileSync(LOG, JSON.stringify([...prev, ...log], null, 1));
     console.log(`log → ${LOG} (+${log.length})`);
   }
+  });
   await app.close();
   process.exit(0);
 })().catch((e) => { console.error(e?.message ?? e); if (log.length) fs.writeFileSync('scripts/_am-prod-go.partial.json', JSON.stringify(log, null, 1)); process.exit(1); });

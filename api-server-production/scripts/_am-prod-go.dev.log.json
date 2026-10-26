@@ -1,0 +1,55 @@
+[
+ {
+  "at": "2026-10-26T07:10:42.197Z",
+  "action": "UPDATE",
+  "resource": "trade-order",
+  "resourceId": "55df6342-1d02-4a78-8a35-205b0d213d78",
+  "details": {
+   "ref": "#23",
+   "checkFields": {
+    "from": [
+     "clientPremium"
+    ],
+    "to": [
+     "clientPremium"
+    ]
+   },
+   "notesAppended": "Client premium to confirm with ADH (sheet says 200 or 265; AIMS has 190). The negative margin after the split (454003422 half at 240) is not final.",
+   "supplierPremium": {
+    "from": 162,
+    "to": 201
+   }
+  }
+ },
+ {
+  "at": "2026-10-26T07:10:42.225Z",
+  "action": "UPDATE",
+  "resource": "supplier-order",
+  "resourceId": "321cf111-1c87-4003-8187-d1170c278655",
+  "details": {
+   "ref": "S16 (#23)",
+   "qtyMt": {
+    "from": 200,
+    "to": 100
+   },
+   "piNo": {
+    "from": null,
+    "to": "9331004319"
+   }
+  }
+ },
+ {
+  "at": "2026-10-26T07:10:42.284Z",
+  "action": "CREATE",
+  "resource": "supplier-order",
+  "resourceId": "4fd98c6a-9228-4d44-8524-41e93a0b6a18",
+  "details": {
+   "ref": "S20 (#23 second half)",
+   "forOrderId": "55df6342-1d02-4a78-8a35-205b0d213d78",
+   "contract": "454003422",
+   "qtyMt": 100,
+   "piNo": "9331004321",
+   "supplierPremium": 240
+  }
+ }
+]
