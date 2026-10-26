@@ -9,7 +9,7 @@ export function Nav() {
     <header className="nav">
       <div className="wrap nav-inner">
         <Link className="brand" href="/" aria-label="AIMS home">
-          <Image src="/aims-logo.png" alt="" width={28} height={28} priority />
+          <Image src="/aims-logo.png" alt="" width={28} height={28} priority unoptimized />
           <span>AIMS</span>
         </Link>
         <nav className="nav-links" aria-label="Primary">

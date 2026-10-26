@@ -8,7 +8,7 @@ export function Footer() {
         <div className="footer-cols">
           <div className="footer-brand">
             <div className="brand">
-              <Image src="/aims-logo.png" alt="" width={24} height={24} />
+              <Image src="/aims-logo.png" alt="" width={24} height={24} unoptimized />
               <span>AIMS</span>
             </div>
             <p className="footer-blurb">{FOOTER.blurb}</p>

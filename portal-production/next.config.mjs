@@ -11,25 +11,18 @@ const nextConfig = {
   // lives on aims-landing). Until the domains move, the two legal pages are
   // proxied from aims-landing on those hosts only; app.ai-ms.io is unaffected.
   async rewrites() {
-    const LANDING = "https://aims-landing.vercel.app";
+    const LANDING = (process.env.LANDING_ORIGIN || "https://aims-landing.vercel.app").replace(/\/$/, "");
     const onMarketingHost = [{ type: "host", value: "(www\\.)?ai-ms\\.io" }];
     return {
-      // The pages themselves (also their ?_rsc= requests).
       beforeFiles: [
+        // The pages themselves (also their ?_rsc= requests).
         { source: "/privacy-policy", has: onMarketingHost, destination: `${LANDING}/privacy-policy` },
         { source: "/terms", has: onMarketingHost, destination: `${LANDING}/terms` },
-        // The landing header/footer logo goes through the image optimizer.
-        {
-          source: "/_next/image",
-          has: [...onMarketingHost, { type: "query", key: "url", value: "/aims-logo.png" }],
-          destination: `${LANDING}/_next/image`,
-        },
-      ],
-      afterFiles: [],
-      // The landing build's own JS/CSS/fonts and icon: only used when this
-      // project has no such file, so the portal's assets are never shadowed.
-      fallback: [
-        { source: "/_next/static/:path*", has: onMarketingHost, destination: `${LANDING}/_next/static/:path*` },
+        // The landing build serves its JS/CSS/fonts under /landing-static
+        // (its assetPrefix), so they never collide with this app's /_next.
+        { source: "/landing-static/:path*", has: onMarketingHost, destination: `${LANDING}/landing-static/:path*` },
+        // Files this app does not have: the landing logo and icon.
+        { source: "/aims-logo.png", has: onMarketingHost, destination: `${LANDING}/aims-logo.png` },
         { source: "/icon.png", has: onMarketingHost, destination: `${LANDING}/icon.png` },
       ],
     };

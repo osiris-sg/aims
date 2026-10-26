@@ -9,6 +9,15 @@ const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "https://app.ai-ms.io").repl
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Multi-zone: www.ai-ms.io is served by the portal project, which proxies
+  // /privacy-policy and /terms from here. A distinct asset prefix lets it
+  // route this build's JS/CSS/fonts to us without touching its own /_next.
+  assetPrefix: "/landing-static",
+  async rewrites() {
+    return {
+      beforeFiles: [{ source: "/landing-static/_next/:path+", destination: "/_next/:path+" }],
+    };
+  },
   async redirects() {
     // The privacy policy moved from /privacy to /privacy-policy (2026-10-27).
     // Keep the old address working: SiteJobs builds and the Play listing link it.
