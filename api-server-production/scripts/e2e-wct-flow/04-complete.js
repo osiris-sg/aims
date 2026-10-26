@@ -17,6 +17,8 @@ async function main() {
       const res = await api(s.page, `/documents/${st.doDocumentId}/delivery-share-link`, 'POST', {});
       const r = res?.data ?? res;
       link = r.url || r.link || (r.token ? `${PORTAL}/guest/delivery/${r.token}` : null);
+      // dev has no PORTAL_URL configured, so the API hands back a relative path.
+      if (link && link.startsWith('/')) link = `${PORTAL}${link}`;
       if (!link) throw new Error(`no guest link in ${JSON.stringify(r).slice(0, 200)}`);
       console.log('guest link', link);
     } finally { await finish(s, '04a-guest-link'); }

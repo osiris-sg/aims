@@ -46,7 +46,18 @@ async function main() {
     await custInput.press('Enter');
     await beat(page, 800);
 
-    await page.getByLabel(/Job Location/i).first().fill('Yoshinoya, Suntec City Mall #B1-100').catch(() => {});
+    // Job Location is a dropdown of the customer's saved sites (2026-10-27):
+    // add one through "+ Add location" (it is saved to the customer and selected).
+    try {
+      await page.getByRole('button', { name: /\+ Add location/ }).first().click();
+      const dlg = page.getByRole('dialog', { name: /Add location/ });
+      await dlg.getByLabel(/Site name/i).fill('Suntec City outlet');
+      await dlg.getByLabel(/^Address/i).fill('Yoshinoya, Suntec City Mall #B1-100');
+      await dlg.getByRole('button', { name: /^Save$/ }).click();
+      await page.waitForTimeout(1500);
+    } catch (e) {
+      console.log('job location not set:', String(e.message).slice(0, 120));
+    }
     await page.getByLabel(/^Subject/i).first().fill('Kitchen exhaust system chemical degreasing — maintenance agreement').catch(() => {});
     await beat(page, 600);
 

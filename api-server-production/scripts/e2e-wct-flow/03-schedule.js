@@ -49,7 +49,8 @@ async function main() {
     // The run now carries its DO; read it back via the API for stage 4.
     const run = await api(page, `/deliveries/${runId}`);
     const r = run?.data ?? run;
-    const doId = r?.documentId || r?.items?.find((i) => i.documentId)?.documentId || r?.document?.id;
+    const items = r?.items || r?.run?.items || r?.data?.items || [];
+    const doId = r?.documentId || items.find((i) => i.documentId)?.documentId || r?.document?.id || r?.run?.document?.id;
     state.save({ runId, doDocumentId: doId || null });
     console.log('scheduled run', runId, 'DO document', doId);
 
