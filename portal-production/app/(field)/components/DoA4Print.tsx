@@ -96,7 +96,7 @@ export function useDoA4Print(): UseDoA4PrintResult {
    * document on paper is the same one either way.
    */
   const prepare = useCallback(
-    async (doId: string): Promise<{ node: HTMLElement; documentNumber: string }> => {
+    async (doId: string): Promise<{ node: HTMLElement | null; html?: string; documentNumber: string }> => {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
 
@@ -104,7 +104,13 @@ export function useDoA4Print(): UseDoA4PrintResult {
       if (res?.success === false || !res?.data) {
         throw new Error(res?.message ?? "Delivery order not found");
       }
-      const { document: docRow, documentNumber, status, maintenanceReports: reports, templateVariant, fieldConfig } = res.data;
+      const { document: docRow, documentNumber, status, maintenanceReports: reports, templateVariant, fieldConfig, serverHtml } = res.data;
+      // A template with a named page layout (WCT): the server already rendered
+      // the whole document (sign-off + proof photos included) — print THAT,
+      // there is no offscreen sheet to serialise.
+      if (typeof serverHtml === "string" && serverHtml.trim()) {
+        return { node: null, html: serverHtml, documentNumber: documentNumber ?? "Delivery Order" };
+      }
       const formData = transformBackendDataForForm(docRow?.config ?? {}, fieldConfig);
       formData.name = documentNumber;
       formData.documentNumber = documentNumber;
@@ -137,15 +143,18 @@ export function useDoA4Print(): UseDoA4PrintResult {
     async (doId: string) => {
       setProgress({ page: 1, pageCount: 1, fraction: 0, label: "Loading the delivery order…" });
       try {
-        const { node, documentNumber } = await prepare(doId);
+        const prepared = await prepare(doId);
+        const { documentNumber } = prepared;
         setProgress({ page: 1, pageCount: 1, fraction: 0.5, label: "Preparing the document…" });
-        const html = await serializeNodeToPrintHtml(node, {
-          title: documentNumber,
-          pageStyle: DO_PRINT_PAGE_STYLE,
-          // The DO sheet, inside A4 less its own 6mm ring.
-          fitSelector: '[data-print-sheet="do"]',
-          fitBandMm: 285,
-        });
+        const html =
+          prepared.html ??
+          (await serializeNodeToPrintHtml(prepared.node!, {
+            title: documentNumber,
+            pageStyle: DO_PRINT_PAGE_STYLE,
+            // The DO sheet, inside A4 less its own 6mm ring.
+            fitSelector: '[data-print-sheet="do"]',
+            fitBandMm: 285,
+          }));
         setProgress({ page: 1, pageCount: 1, fraction: 0.9, label: "Opening the print dialog…" });
         await printHtmlViaSystem(html, documentNumber);
       } finally {
@@ -166,14 +175,17 @@ export function useDoA4Print(): UseDoA4PrintResult {
     async (doId: string) => {
       setProgress({ page: 1, pageCount: 1, fraction: 0, label: "Loading the delivery order…" });
       try {
-        const { node, documentNumber } = await prepare(doId);
+        const prepared = await prepare(doId);
+        const { documentNumber } = prepared;
         setProgress({ page: 1, pageCount: 1, fraction: 0.5, label: "Preparing the document…" });
-        const html = await serializeNodeToPrintHtml(node, {
-          title: documentNumber,
-          pageStyle: DO_PRINT_PAGE_STYLE,
-          fitSelector: '[data-print-sheet="do"]',
-          fitBandMm: 285,
-        });
+        const html =
+          prepared.html ??
+          (await serializeNodeToPrintHtml(prepared.node!, {
+            title: documentNumber,
+            pageStyle: DO_PRINT_PAGE_STYLE,
+            fitSelector: '[data-print-sheet="do"]',
+            fitBandMm: 285,
+          }));
         setProgress({ page: 1, pageCount: 1, fraction: 0.9, label: "Saving the PDF…" });
         return await savePdfViaSystem(html, documentNumber);
       } finally {

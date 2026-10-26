@@ -24,7 +24,7 @@ import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { AuditService } from 'src/common/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as moment from 'moment';
-import { pdfOptionsFor } from '../common/services/document-html';
+import { pdfOptionsFor, isWctLayout } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 
@@ -6702,6 +6702,52 @@ export class DocumentsService {
     return this.designForTemplate(effectiveTemplateId, org);
   }
 
+  /**
+   * Server-rendered HTML for a document whose template uses a NAMED page
+   * layout (design.layout = 'wct'), or null when it does not. The guest DO
+   * link, the field app's Print DO and the signed-DO PDF call this so a WCT
+   * delivery order prints as the client's paper (guru 2026-10-27: "how come
+   * the DO isn't the template I sent you") instead of the portal's stock
+   * sheet. `data` is the config the caller is allowed to show (the public
+   * link passes its sanitised copy); `reports` are the DO's field reports —
+   * the renderer draws the customer's sign-off and the proof photos from them.
+   */
+  /** Document.revisionNumber (0 = original, n = "Create Revision" n), or null. */
+  async revisionNumberOf(documentId: string, organizationId: string): Promise<number | null> {
+    const row = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { revisionNumber: true } }).catch(() => null);
+    return row?.revisionNumber ?? null;
+  }
+
+  async serverDocumentHtml(
+    doc: { id: string; type: string; name?: string | null; documentTemplateId?: string | null; revisionNumber?: number | null; organization?: any },
+    organizationId: string,
+    data: any,
+    reports: any[] = [],
+  ): Promise<{ html: string; pdfOptions: ReturnType<typeof pdfOptionsFor> } | null> {
+    const styled = await this.designForDocument(doc.id, organizationId, doc.documentTemplateId ?? null);
+    if (!isWctLayout(doc.type, styled.design)) return null;
+    const org =
+      doc.organization ??
+      (await this.prisma.organization.findUnique({ where: { id: organizationId } }).catch(() => null)) ??
+      {};
+    const bucket = process.env.RESOURCE_BUCKET || 'aims-osiris';
+    const region = process.env.AWS_REGION || 'ap-southeast-1';
+    const renderData = {
+      documentType: doc.type,
+      ...(data || {}),
+      name: doc.name ?? data?.name,
+      revisionNumber: doc.revisionNumber ?? null,
+      design: styled.design,
+      logoUrl: styled.logoUrl,
+      organization: org,
+      company: org,
+      maintenanceReports: Array.isArray(reports) ? reports : [],
+      photoBaseUrl: `https://${bucket}.s3.${region}.amazonaws.com/`,
+    };
+    const html = this.pdfGeneratorService.generateInvoiceHtml(renderData);
+    return html ? { html, pdfOptions: pdfOptionsFor(doc.type, renderData) } : null;
+  }
+
   async getOrGeneratePdfUrl(
     documentId: string,
     organizationId: string,
@@ -7102,6 +7148,7 @@ export class DocumentsService {
       design: styled.design,
       logoUrl: styled.logoUrl,
       name: document.name,
+      revisionNumber: (document as any).revisionNumber ?? null,
       organization: document.organization,
       company: document.organization,
       customer: config.customer || { name: config.customerName },

@@ -1534,6 +1534,16 @@ export class MaintenanceReportsService {
       templateVariant = defs?.templateVariant ?? templateVariant;
     }
 
+    // Named page layout (WCT): the server's own HTML, which the field app
+    // prints / saves as-is instead of its offscreen stock sheet.
+    const served = await this.documentsService
+      .serverDocumentHtml(
+        { id: document.id, type: document.type, name: document.name, documentTemplateId: document.documentTemplateId, revisionNumber: (document as any).revisionNumber ?? null, organization: (document as any).organization },
+        organizationId,
+        { ...(document.config as any), name: document.name, documentType: document.type },
+        document.maintenanceReports,
+      )
+      .catch(() => null);
     return {
       document: {
         id: document.id,
@@ -1547,6 +1557,7 @@ export class MaintenanceReportsService {
       maintenanceReports: document.maintenanceReports,
       templateVariant,
       fieldConfig,
+      serverHtml: served?.html ?? null,
     };
   }
 

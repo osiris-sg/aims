@@ -1407,6 +1407,21 @@ export default function TabbedDocumentCreator({
     applySnapshot(next);
   }, [applySnapshot]);
 
+  // Confirm / stock-commit handlers persist through guardedSave (which does not
+  // clear the dirty flag — only the manual Save path does) and then reload to
+  // show the confirmed state. Reloading with the flag still set armed the
+  // browser's "Reload site? Changes that you made may not be saved." prompt
+  // (guru 2026-10-27, WCT confirm). Everything is already saved at that point,
+  // so mark the document clean and bypass the guard for THIS reload; the ref
+  // is needed because the re-render may not land before location.reload().
+  const bypassUnloadGuardRef = useRef(false);
+  const reloadAfterCommit = useCallback(() => {
+    isDirtyRef.current = false;
+    setHasUnsavedChanges(false);
+    bypassUnloadGuardRef.current = true;
+    window.location.reload();
+  }, []);
+
   const setFormData = useCallback((update: any) => {
     pushHistory();
     isDirtyRef.current = true;
@@ -2926,7 +2941,7 @@ export default function TabbedDocumentCreator({
       setConfirmDialogOpen(false);
 
       // Full page reload to update the status
-      window.location.reload();
+      reloadAfterCommit();
     } catch (error) {
       console.error("Error confirming document:", error);
       toast.error("Failed to confirm document");
@@ -2981,7 +2996,7 @@ export default function TabbedDocumentCreator({
       // (the backend skips it too), so the post-confirm "Go to Order" dialog
       // would only confuse. Reload straight to the confirmed state instead.
       if (!isModuleEnabled("ORDERS")) {
-        window.location.reload();
+        reloadAfterCommit();
         return;
       }
 
@@ -3051,7 +3066,7 @@ export default function TabbedDocumentCreator({
       setConfirmPODialogOpen(false);
 
       // Full page reload to update the status
-      window.location.reload();
+      reloadAfterCommit();
     } catch (error) {
       console.error("Error confirming PO/PR:", error);
       const docLabel = isPurchaseReturn ? "Purchase Return" : "Purchase Order";
@@ -3094,7 +3109,7 @@ export default function TabbedDocumentCreator({
       setConfirmAdjustmentDialogOpen(false);
 
       // Full page reload to update the status
-      window.location.reload();
+      reloadAfterCommit();
     } catch (error) {
       console.error("Error confirming adjustment:", error);
       const docLabel = isStockAdjustmentIn ? "Stock Adjustment In" : "Stock Adjustment Out";
@@ -3161,7 +3176,7 @@ export default function TabbedDocumentCreator({
       setConfirmDODialogOpen(false);
 
       // Full page reload to update the status
-      window.location.reload();
+      reloadAfterCommit();
     } catch (error) {
       console.error("Error confirming DO:", error);
       toast.error("Failed to confirm Delivery Order");
@@ -3241,7 +3256,7 @@ export default function TabbedDocumentCreator({
       setConfirmPRDialogOpen(false);
 
       // Full page reload to update the status
-      window.location.reload();
+      reloadAfterCommit();
     } catch (error) {
       console.error("Error confirming PR:", error);
       toast.error("Failed to confirm Purchase Return");
@@ -3318,7 +3333,7 @@ export default function TabbedDocumentCreator({
       }
 
       // Full page reload to update the status
-      window.location.reload();
+      reloadAfterCommit();
     } catch (error) {
       console.error("Error confirming Invoice:", error);
       toast.error("Failed to confirm Invoice");
@@ -4144,6 +4159,7 @@ export default function TabbedDocumentCreator({
   useEffect(() => {
     if (!hasUnsavedChanges) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (bypassUnloadGuardRef.current) return; // a deliberate post-commit reload
       e.preventDefault();
       e.returnValue = "";
     };
@@ -7899,7 +7915,7 @@ export default function TabbedDocumentCreator({
           <Button
             onClick={() => {
               setConvertQuotationDialogOpen(false);
-              window.location.reload();
+              reloadAfterCommit();
             }}
           >
             Leave it

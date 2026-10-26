@@ -143,7 +143,8 @@ const formFieldsFor = (type: 'QUOTATION' | 'INVOICE' | 'DELIVERY_ORDER') => {
     half('documentInfo.date', 'Date', 'date', { required: true }),
     half('documentInfo.referenceNo', 'Reference'),
   ];
-  if (type === 'INVOICE') left.push(half('documentInfo.revision', 'Invoice Rev'));
+  // Invoice Rev is NOT a typed field: the WCT renderer prints R<n> from the
+  // document's own revision (⋮ → Create Revision), so no box here (guru 2026-10-27).
   if (type === 'DELIVERY_ORDER') left.push(half('documentInfo.quotationNo', 'Quotation Number'));
   left.push(f('customer', 'Customer', 'customer', { required: true, dataSource: 'customers' }));
   left.push(f('billTo', type === 'DELIVERY_ORDER' ? 'Sold To (address)' : 'Bill To (address)', 'textarea'));

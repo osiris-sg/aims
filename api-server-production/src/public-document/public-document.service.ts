@@ -545,12 +545,41 @@ export class PublicDocumentService {
       }
     }
 
+    const publicReports = reports.map((r: any) => ({
+      id: r.id,
+      kind: r.kind,
+      photos: r.photos ?? [],
+      signature: r.signature ?? null,
+      signedByName: r.signedByName ?? null,
+      signedAt: r.signedAt ?? null,
+      technicianName: r.technicianName ?? null,
+      createdAt: r.createdAt,
+      subjectAsset: r.subjectAsset ?? null,
+      subjectSku: r.subjectSku ?? null,
+      subjectLabel: r.subjectLabel ?? null,
+      signedDateText: r.signedDateText ?? null,
+    }));
+    // A template with a named page layout (WCT) is rendered on the SERVER and
+    // the page shows that HTML instead of the stock sheet — the sanitised data
+    // above is what gets rendered, so nothing extra leaks.
+    const served = await this.documentsService
+      .serverDocumentHtml(
+        { id: full.id, type: full.type, name: full.name, documentTemplateId: full.documentTemplateId, revisionNumber: full.revisionNumber, organization: org },
+        link.organizationId,
+        { ...data, documentType: full.type },
+        publicReports,
+      )
+      .catch(() => null);
+
     return {
       state: 'ok' as const,
       // View-only links (Operator PA): the page must not offer signing.
       viewOnly: PublicDocumentService.isViewOnly(token),
       documentType,
       data,
+      serverHtml: served?.html ?? null,
+      // Puppeteer geometry for that HTML (margins + footer line) — the signed-DO PDF uses it.
+      serverPdfOptions: served?.pdfOptions ?? null,
       organization: {
         id: org.id ?? null,
         name: org.name ?? null,

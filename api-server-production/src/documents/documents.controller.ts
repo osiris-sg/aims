@@ -535,9 +535,13 @@ export class DocumentsController {
     }
     const docId = body.documentId && !String(body.documentId).startsWith('temp_') ? body.documentId : undefined;
     const styled = await this.documentsService.designForDocument(docId, organizationId, body.templateId);
+    // The WCT invoice prints "Invoice Rev" from the real revision feature
+    // (Document.revisionNumber), which the editor's form state does not carry.
+    const revisionNumber = docId ? await this.documentsService.revisionNumberOf(docId, organizationId) : null;
     const html = this.pdfGeneratorService.generateInvoiceHtml({
       documentType: body.documentType,
       ...(body.data || {}),
+      revisionNumber,
       design: styled.design,
       logoUrl: styled.logoUrl,
       organization: req.userOrganization,

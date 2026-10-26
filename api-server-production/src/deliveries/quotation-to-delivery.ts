@@ -221,16 +221,30 @@ export async function applyQuotationLinkToDoConfig(
       if (k) seen.set(k, (seen.get(k) || 0) + 1);
     }
     const priceByDesc = new Map<string, number>();
+    // The quotation line itself, for the bookkeeping keys that must follow the
+    // line onto the DO and then the invoice: the revenue account (accountCode —
+    // WCT's service lines post to SS001), item code, uom and the service flags.
+    // Without them the invoice posted with the default sales account (guru
+    // 2026-10-27: "are all the services linked to an account code?").
+    const lineByDesc = new Map<string, any>();
     for (const l of qLines) {
       const k = normDesc(l.description);
       if (!k || seen.get(k)! > 1) continue;
+      lineByDesc.set(k, l);
       const p = Number(l.unitPrice);
       if (!isFinite(p) || p <= 0) continue;
       priceByDesc.set(k, p);
     }
+    const CARRY = ['accountCode', 'itemCode', 'uom', 'isService', 'revenueTag', 'taxCode', 'taxRate'];
     if (Array.isArray(cfg.items)) {
       for (const line of cfg.items) {
         if (!line || line.assetId) continue; // catalog lines price via the invoice ladder
+        const src = lineByDesc.get(normDesc(line.description));
+        if (src) {
+          for (const k of CARRY) {
+            if ((line[k] === undefined || line[k] === null || line[k] === '') && src[k] !== undefined && src[k] !== null && src[k] !== '') line[k] = src[k];
+          }
+        }
         if (Number(line.unitPrice) > 0) continue; // never overwrite an office-typed price
         const p = priceByDesc.get(normDesc(line.description));
         if (p === undefined) continue;

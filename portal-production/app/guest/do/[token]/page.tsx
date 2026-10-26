@@ -16,7 +16,7 @@
  * trigger an invoice. Everything else on the page remains read-only.
  */
 
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import {
   Alert,
@@ -92,6 +92,8 @@ const PRINT_PAGE_STYLE = `
 `;
 
 interface PublicDocView {
+  // Server-rendered HTML for a template with a named page layout (WCT); null = stock sheet.
+  serverHtml?: string | null;
   state: "ok" | "revoked" | "notfound";
   documentType?: string;
   data?: any;
@@ -113,6 +115,29 @@ function NeutralMessage() {
         </Typography>
       </Card>
     </Container>
+  );
+}
+
+/**
+ * A template with a NAMED page layout (WCT) is rendered on the server — the
+ * API hands this page the finished HTML (the same the editor previews and the
+ * PDF prints, with the customer's sign-off and proof photos). Show that body
+ * inside the print sheet instead of the stock CleanDocumentPreview. The
+ * server page's own <style> rules are scoped under .wct, so only the body
+ * (which carries them) is injected; the page shell's body rules are dropped.
+ */
+function ServerRenderedSheet({ html }: { html: string }) {
+  const body = useMemo(() => {
+    const m = /<body[^>]*>([\s\S]*)<\/body>/i.exec(html);
+    return m ? m[1] : html;
+  }, [html]);
+  return (
+    <div
+      data-print-paper
+      data-print-sheet="do"
+      style={{ width: DOC_WIDTH_PX, background: "#fff", padding: "12mm 14mm", fontFamily: "Arial, Helvetica, sans-serif", fontSize: 13, lineHeight: 1.6, color: "#000", boxSizing: "border-box" }}
+      dangerouslySetInnerHTML={{ __html: body }}
+    />
   );
 }
 
@@ -395,6 +420,9 @@ export default function PublicDocumentViewPage() {
                 inside the transformed box (the transform is on the parent and
                 is not cloned) — exactly how the portal wraps the preview. */}
             <div ref={printContentRef}>
+              {view.serverHtml ? (
+                <ServerRenderedSheet html={view.serverHtml} />
+              ) : (
               <CleanDocumentPreview
                 documentType={view.documentType || "DO"}
                 data={view.data || {}}
@@ -405,6 +433,7 @@ export default function PublicDocumentViewPage() {
                 // signing; the server refuses it too.
                 onSignRequest={view.viewOnly ? undefined : openSignDialog}
               />
+              )}
             </div>
           </Box>
         </Box>

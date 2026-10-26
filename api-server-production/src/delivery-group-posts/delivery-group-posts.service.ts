@@ -134,6 +134,15 @@ export class DeliveryGroupPostsService implements OnModuleInit {
     const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { name: true } });
     if (!doc) throw new NotFoundException('Delivery order not found');
     const link: any = await this.publicDocs.getOrCreateViewOnlyLink(documentId, organizationId);
+    // A named page layout (WCT) is rendered on the server: make the PDF from
+    // that HTML directly — the same document the guest link and the field app
+    // show — rather than photographing the portal's stock sheet.
+    const view: any = link?.token ? await this.publicDocs.getPublicView(link.token).catch(() => null) : null;
+    if (view?.serverHtml) {
+      const buffer = await this.pdf.generatePdfFromHtml(view.serverHtml, view.serverPdfOptions ?? undefined);
+      const safe = String(doc.name || 'DO').replace(/[^a-zA-Z0-9._-]/g, '_');
+      return { buffer, fileName: `${safe}-signed.pdf` };
+    }
     if (!link?.url || !/^https?:\/\//.test(link.url)) throw new Error('PORTAL_URL is not configured, so the DO page cannot be opened');
     const buffer = await this.pdf.generatePdfFromUrl(link.url, {
       waitForSelector: DO_SHEET,

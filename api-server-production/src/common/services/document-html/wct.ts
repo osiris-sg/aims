@@ -88,6 +88,23 @@ const CSS = `
   .wct .sign .r { text-align: right; padding-bottom: 12px; }
   .wct .sign .r .accept { font-size: 11.5px; }
   .wct .sign .r .accept img { display: block; max-height: 48px; max-width: 170px; margin: 6px 0 2px auto; }
+  /* Delivery order: the customer's sign-off under the lines (field app /
+     guest link), then the condition photos on a page of their own. */
+  .wct .rcv { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-top: 28px; page-break-inside: avoid; break-inside: avoid; }
+  .wct .rcv .box { min-width: 230px; }
+  .wct .rcv .box .lbl { font-weight: 700; margin-bottom: 4px; }
+  .wct .rcv .box .sig { height: 56px; display: flex; align-items: flex-end; margin: 2px 0 4px; }
+  .wct .rcv .box .sig img { display: block; max-height: 56px; max-width: 200px; }
+  .wct .rcv .box .ln { border-top: 1px solid #000; padding-top: 3px; font-size: 11.5px; }
+  .wct .proof { page-break-before: always; break-before: page; }
+  .wct .proof h3 { text-align: center; font-size: 14px; font-weight: 700; letter-spacing: 1px; margin: 4px 0 12px; }
+  .wct .proof .rep { margin-bottom: 14px; page-break-inside: avoid; break-inside: avoid; }
+  .wct .proof .rep + .rep { border-top: 1px solid #ccc; padding-top: 12px; }
+  .wct .proof .rep .hd { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; font-size: 11.5px; color: #333; }
+  .wct .proof .rep .hd b { font-size: 12.5px; color: #000; }
+  .wct .proof .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .wct .proof .grid .ph { width: 100%; aspect-ratio: 4 / 3; overflow: hidden; border: 1px solid #ccc; }
+  .wct .proof .grid .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .wct .closing { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-top: 56px; page-break-inside: avoid; break-inside: avoid; }
   .wct .closing .director { font-weight: 700; }
   .wct .footnote { margin-top: 10px; font-weight: 700; }
@@ -268,6 +285,65 @@ function signBlock(di: (k: string, d?: any) => any, cfg?: any): string {
   </div>`;
 }
 
+/** A field photo key → URL. Keys are S3 object keys (public-read bucket, the
+ *  same base the portal uses); data: and http(s) values pass through. */
+function photoUrl(key: any, base: string): string {
+  const k = String(key || '').trim();
+  if (!k) return '';
+  if (/^(data:|https?:\/\/)/i.test(k)) return k;
+  return `${base}${k}`;
+}
+
+const SIG_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
+
+/**
+ * Delivery order sign-off + proof photos (field app / guest link), read from
+ * the DO's linked field reports — the same rows the portal's stock sheet
+ * draws. Received by: the LATEST customer signature (a later partial sign-off
+ * replaces the displayed one). Delivered by: the DO_START technician. The
+ * photos go on a page of their own so page 1 stays the paper document.
+ */
+function doProof(data: any): { received: string; appendix: string } {
+  const reports: any[] = Array.isArray(data?.maintenanceReports) ? data.maintenanceReports : [];
+  if (!reports.length) return { received: '', appendix: '' };
+  const base = String(data?.photoBaseUrl || 'https://aims-osiris.s3.ap-southeast-1.amazonaws.com/');
+  const at = (r: any) => new Date(r?.signedAt ?? r?.createdAt ?? 0).getTime() || 0;
+  const signed = reports.filter((r) => (r.kind === 'DO_ACK' || r.kind === 'DO_INSTALL') && typeof r.signature === 'string' && SIG_RE.test(r.signature));
+  const latest = signed.length ? signed.reduce((best, r) => (at(r) >= at(best) ? r : best)) : null;
+  const start = reports.find((r) => r.kind === 'DO_START');
+  const tech = first(start?.technicianName, reports.find((r) => r.technicianName)?.technicianName);
+  const signedDate = latest ? first(latest.signedDateText, latest.signedAt ? paperDate(latest.signedAt) : '') : '';
+  const received =
+    latest || tech
+      ? `<div class="rcv">
+    <div class="box">
+      <div class="lbl">Received by:</div>
+      <div class="sig">${latest ? `<img src="${latest.signature}" alt="" />` : ''}</div>
+      <div class="ln">${latest ? `${escapeHtml(latest.signedByName || '')}${signedDate ? ` &nbsp;·&nbsp; ${escapeHtml(signedDate)}` : ''}` : 'Name / Signature / Date'}</div>
+    </div>
+    <div class="box">
+      <div class="lbl">Delivered by:</div>
+      <div class="sig"></div>
+      <div class="ln">${escapeHtml(tech)}</div>
+    </div>
+  </div>`
+      : '';
+  const withPhotos = reports.filter((r) => Array.isArray(r.photos) && r.photos.length > 0);
+  const label = (k: string) => (k === 'DO_START' ? 'Delivery Started' : k === 'DO_INSTALL' ? 'Installation Acknowledged' : 'Delivery Acknowledged');
+  const appendix = withPhotos.length
+    ? `<div class="proof"><h3>PROOF OF DELIVERY</h3>${withPhotos
+        .map((r) => {
+          const subject = first(r.subjectLabel, r.subjectAsset && r.subjectSku ? `${r.subjectAsset} (${r.subjectSku})` : r.subjectAsset, r.subjectSku);
+          return `<div class="rep">
+      <div class="hd"><b>${label(String(r.kind))}</b><span>${escapeHtml(r.createdAt ? new Date(r.createdAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Singapore' }) : '')}</span>${r.technicianName ? `<span>By: ${escapeHtml(r.technicianName)}</span>` : ''}${subject ? `<span><b>${escapeHtml(subject)}</b></span>` : ''}</div>
+      <div class="grid">${(r.photos as any[]).map((k) => `<div class="ph"><img src="${escapeHtml(photoUrl(k, base))}" alt="" /></div>`).join('')}</div>
+    </div>`;
+        })
+        .join('')}</div>`
+    : '';
+  return { received, appendix };
+}
+
 export function renderWctBody(kind: WctDocKind, data: any, organization: any, design: DocumentDesign): string {
   const di = makeDi(data);
   const org = organization || data?.organization || {};
@@ -277,6 +353,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
 
   // ── delivery order ──────────────────────────────────────────────────────
   if (kind === 'do') {
+    const proof = doProof(data);
     const customer = data?.customer || {};
     const soldName = first(customer.name, data?.customerName);
     const soldAddr = billToText(first(data?.billTo, customer.address, data?.customerAddress), soldName);
@@ -305,7 +382,9 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     </div>
     ${linesTable(data, items, 'do', 'SGD')}
     ${data?.remarks || di('remarks') ? `<div class="remarks" style="margin-top:16px;"><b>Remarks:</b>${richContent(first(data?.remarks, di('remarks')), 'font-size:12.5px;line-height:1.5;')}</div>` : ''}
-    ${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}`;
+    ${proof.received}
+    ${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}
+    ${proof.appendix}`;
     return sheet(letterhead(org, data, 'Delivery Order No', docNumber), body);
   }
 
@@ -316,7 +395,14 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   const paid = amountPaidOf(cfg) ?? 0;
   const outstanding = outstandingOf(cfg);
   const due = outstanding !== null ? Math.max(0, outstanding) : Math.max(0, Math.round((t.total - paid) * 100) / 100);
-  const revision = first(di('revision'), di('invoiceRev'));
+  // Invoice Rev = the document's revision from "Create Revision" (Document.
+  // revisionNumber: R0 = the original, R1… each revision); a legacy typed
+  // value still prints.
+  const revision = first(
+    di('revision'),
+    di('invoiceRev'),
+    data?.revisionNumber !== undefined && data?.revisionNumber !== null && data?.revisionNumber !== '' ? `R${data.revisionNumber}` : '',
+  );
   const showTotals = ((data?.showTotals ?? data?.documentInfo?.showTotals) ?? true) !== false;
 
   const header = `
