@@ -16,6 +16,7 @@ interface OrganizationFeatures {
   enableAssetPoints?: boolean;
   enableItemTagging?: boolean;
   enableConfirmQuotation?: boolean;
+  enableQuotationESign?: boolean;
   enableCappitechOrders?: boolean;
   enableNettRoundDown?: boolean;
   enableQuotationProjectLink?: boolean;
@@ -48,6 +49,10 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableItemTagging: false,
   enablePOAsProject: false,
   enableConfirmQuotation: false,
+  // Quotation e-sign for the generic editor (WCT 2026-10-26): "Send for
+  // signature" in the editor's ⋯ menu mints the public /sign/<token> link;
+  // the client's drawn signature prints on the document. Default OFF.
+  enableQuotationESign: false,
   // Gates the rich Cappitech Orders flow; default false = slim Orders (Biofuel default).
   enableCappitechOrders: false,
   enableDocumentListView: false,
@@ -196,6 +201,7 @@ export function useOrganizationFeatures() {
     isAssetPointsEnabled: features.enableAssetPoints ?? false,
     isItemTaggingEnabled: features.enableItemTagging ?? false,
     isConfirmQuotationEnabled: features.enableConfirmQuotation ?? false,
+    isQuotationESignEnabled: features.enableQuotationESign ?? false,
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,
     isQuotationProjectLinkEnabled: features.enableQuotationProjectLink ?? false,

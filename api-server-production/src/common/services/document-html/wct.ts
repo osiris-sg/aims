@@ -87,6 +87,8 @@ const CSS = `
   .wct .sign { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-top: 36px; page-break-inside: avoid; break-inside: avoid; }
   .wct .sign .l p { margin-bottom: 12px; }
   .wct .sign .r { text-align: right; padding-bottom: 12px; }
+  .wct .sign .r .accept { font-size: 11.5px; }
+  .wct .sign .r .accept img { display: block; max-height: 48px; max-width: 170px; margin: 6px 0 2px auto; }
   .wct .closing { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-top: 56px; page-break-inside: avoid; break-inside: avoid; }
   .wct .closing .director { font-weight: 700; }
   .wct .footnote { margin-top: 10px; font-weight: 700; }
@@ -247,9 +249,17 @@ function jobBoxes(di: (k: string, d?: any) => any): string {
   }</div>`;
 }
 
-function signBlock(di: (k: string, d?: any) => any): string {
+function signBlock(di: (k: string, d?: any) => any, cfg?: any): string {
   const sales = first(di('salesPersonName'), typeof di('salesPerson') === 'string' ? di('salesPerson') : di('salesPerson')?.name);
   const contact = first(di('salesContact'), di('salesPersonContact'));
+  // E-signed quotation (public /sign link): the client's drawn signature
+  // prints under "Confirmation of Order". The data URL is re-validated here
+  // so only the shape public-sign stores can reach the src attribute.
+  const sig: any = cfg?.clientSignature;
+  const sigImg = typeof sig?.image === 'string' && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(sig.image) ? sig.image : '';
+  const accepted = sigImg
+    ? `<div class="accept"><img src="${sigImg}" alt="" /><div>Accepted by ${escapeHtml(sig.name || '')}${sig.signedAt ? ` on ${escapeHtml(paperDate(sig.signedAt))}` : ''}</div></div>`
+    : '';
   return `
   <div class="sign">
     <div class="l">
@@ -257,7 +267,7 @@ function signBlock(di: (k: string, d?: any) => any): string {
       <p>Contact: ${escapeHtml(contact)}</p>
       <p style="margin-bottom:0;">Yours Sincerely</p>
     </div>
-    <div class="r">Confirmation of Order</div>
+    <div class="r">Confirmation of Order${accepted}</div>
   </div>`;
 }
 
@@ -355,7 +365,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
         <div>Company Stamp &amp; Authorized Signature</div>
       </div>`;
 
-  const body = `${header}${linesTable(data, items, kind, t.currency)}${totals}${remarksBlock}${tncBlock}${signBlock(di)}${closing}`;
+  const body = `${header}${linesTable(data, items, kind, t.currency)}${totals}${remarksBlock}${tncBlock}${signBlock(di, cfg)}${closing}`;
   return sheet(letterhead(org, data, isInvoice ? 'Invoice No' : 'Quotation No', docNumber), body);
 }
 

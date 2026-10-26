@@ -1631,8 +1631,20 @@ export class DocumentsService {
           });
           const features = (uiConfig?.features as any) || {};
           if (features.enableConfirmQuotation) {
-            const order = await this.ordersService.createFromQuotation(id, organizationId);
-            console.log(`✅ QUOTATION→ORDER: created order ${order.orderNumber} (${order.id})`);
+            // Orders is a nav module of its own — an org that confirms
+            // quotations WITHOUT the Orders tab (WCT 2026-10-26) must not
+            // grow invisible Order rows. A stored module row decides; no
+            // row means the catalog default (on).
+            const ordersRow = await this.prisma.organizationModule.findFirst({
+              where: { organizationId, moduleCode: 'ORDERS' },
+              select: { enabled: true },
+            });
+            if (ordersRow && ordersRow.enabled === false) {
+              console.log('ℹ️ QUOTATION→ORDER: skipped — ORDERS module is off for this org');
+            } else {
+              const order = await this.ordersService.createFromQuotation(id, organizationId);
+              console.log(`✅ QUOTATION→ORDER: created order ${order.orderNumber} (${order.id})`);
+            }
           }
         } catch (err) {
           console.error('❌ QUOTATION→ORDER: failed to auto-create order', err);

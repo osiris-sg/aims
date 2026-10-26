@@ -122,6 +122,8 @@ import { installPrintFit } from "@/lib/printScale";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
+import BorderColorIcon from "@mui/icons-material/BorderColor";
+import QuotationSignLinkDialog from "./QuotationSignLinkDialog";
 import { useDocumentLock } from "@/app/portal/hooks/useDocumentLock";
 import { toast } from "react-toastify";
 import { useForm, Controller } from "react-hook-form";
@@ -355,7 +357,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled } = useOrganizationFeatures();
   // The Project header row + the DO "project required" rule only make sense
   // for orgs that run the Projects module. An org without it (Chong Aik, guru
   // 2026-10-22) must not see "Select a project / Create new project" even when
@@ -464,6 +466,8 @@ export default function TabbedDocumentCreator({
   // Order (matched by sourceQuotationId) and offer a one-click jump to it.
   const [convertQuotationDialogOpen, setConvertQuotationDialogOpen] = useState(false);
   const [linkedOrderId, setLinkedOrderId] = useState<string | null>(null);
+  // Client e-sign link dialog (generic quotations — enableQuotationESign).
+  const [signLinkDialogOpen, setSignLinkDialogOpen] = useState(false);
   const [isToolBarOpen, setToolBarOpen] = useState(false);
 
   // PDF generation states
@@ -2941,6 +2945,15 @@ export default function TabbedDocumentCreator({
       await persistProjectLinkIfChanged();
       toast.success("Quotation confirmed");
 
+      // Orders is a nav module of its own — an org that confirms quotations
+      // WITHOUT the Orders tab (WCT 2026-10-26) gets no auto-created Order
+      // (the backend skips it too), so the post-confirm "Go to Order" dialog
+      // would only confuse. Reload straight to the confirmed state instead.
+      if (!isModuleEnabled("ORDERS")) {
+        window.location.reload();
+        return;
+      }
+
       // The backend auto-creates an Order with sourceQuotationId = this doc's
       // id (gated by enableConfirmQuotation). Look it up so the dialog can
       // offer a direct jump. Best-effort — if the order isn't there yet
@@ -4601,6 +4614,14 @@ export default function TabbedDocumentCreator({
               <MenuItem onClick={() => { closeMoreMenu(); handleCreateRevision(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Create Revision</ListItemText>
+              </MenuItem>
+            )}
+            {/* Client e-sign link (enableQuotationESign): saved, unconfirmed
+                quotations only — signing is what confirms them. */}
+            {isQuotation && isQuotationESignEnabled && (existingData?.id || documentId) && !isDocumentConfirmedStatus && (
+              <MenuItem onClick={() => { closeMoreMenu(); setSignLinkDialogOpen(true); }}>
+                <ListItemIcon><BorderColorIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Send for signature</ListItemText>
               </MenuItem>
             )}
             {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (
@@ -7851,6 +7872,18 @@ export default function TabbedDocumentCreator({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Client e-sign link for generic quotations (enableQuotationESign). */}
+      {signLinkDialogOpen && (
+        <QuotationSignLinkDialog
+          open={signLinkDialogOpen}
+          documentId={(documentId || (existingData as any)?.id) as string}
+          documentNumber={formData?.documentInfo?.documentNumber || (existingData as any)?.name || null}
+          clientName={(formData as any)?.customer?.name || ""}
+          clientPhone={(formData as any)?.attention?.phoneNumber || (formData as any)?.customer?.mobile || (formData as any)?.customer?.phoneNumber || ""}
+          onClose={() => setSignLinkDialogOpen(false)}
+        />
+      )}
 
       {/* Stock Card Dialog for item selection. In "tag" mode the dialog re-uses
           the same picker but writes the chosen asset onto every checked row

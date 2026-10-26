@@ -111,6 +111,12 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableXeroIntegration: false,
   enableXeroConfirmSync: false,
   enableActionLog: true,
+  // 2026-10-26 (client call): every quotation must be ACCEPTED before a DO —
+  // staff confirm button AND the customer e-sign link both count. The ORDERS
+  // module is off for WCT, so confirming creates no Order (documents.service
+  // skips it when the stored module row is off).
+  enableConfirmQuotation: true,
+  enableQuotationESign: true,
 };
 // Role allowedModules codes that must not carry over (modules off on WCT).
 const DROP_FROM_ROLE_MODULES = new Set(['CRM', 'CUSTOMER_INFORMATION', 'AUDIT', 'ADMIN', 'USER_MANAGEMENT']);

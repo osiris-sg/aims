@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
+import { grossOf } from '../common/document-money';
 import { DocumentsService } from '../documents/documents.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ProjectCostingService } from '../project-costing/project-costing.service';
@@ -73,10 +74,30 @@ export class PublicSignService {
   }
 
   // ── office (authenticated) ────────────────────────────────────────────
+  /**
+   * Line / total stats for either quotation shape: the ID editor's tree
+   * (config.quote.sections[].areas[].items) or the generic editor's flat
+   * config.items (WCT 2026-10-26: generic quotations sign by link too).
+   */
+  private quoteStats(config: any): { lines: number; grand: number; isIdQuote: boolean } {
+    const cfg: any = config || {};
+    if (cfg.quote) {
+      const lines = (cfg.quote.sections || []).reduce((n: number, s: any) => n + (s.areas || []).reduce((m: number, a: any) => m + (a.items || []).length, 0), 0);
+      return { lines, grand: Number(cfg?.documentInfo?.grandTotal) || 0, isIdQuote: true };
+    }
+    const items = (Array.isArray(cfg.items) ? cfg.items : []).filter((it: any) => it && !it.isGroupHeader && !it.isTagGroup);
+    const summed = items.reduce((n: number, it: any) => {
+      const amount = Number(it.amount);
+      if (Number.isFinite(amount) && amount !== 0) return n + amount;
+      return n + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0);
+    }, 0);
+    const grand = Number(cfg?.documentInfo?.grandTotal) || grossOf(cfg) || Math.round(summed * 100) / 100;
+    return { lines: items.length, grand, isIdQuote: false };
+  }
+
   /** A quotation must carry at least one priced line before it can be signed. */
   private assertHasPricedLines(config: any) {
-    const grand = Number(config?.documentInfo?.grandTotal) || 0;
-    const lines = (config?.quote?.sections || []).reduce((n: number, s: any) => n + (s.areas || []).reduce((m: number, a: any) => m + (a.items || []).length, 0), 0);
+    const { lines, grand } = this.quoteStats(config);
     if (!lines || grand <= 0) throw new BadRequestException('Add priced lines to the quotation before sending it for signature');
   }
 
@@ -208,13 +229,13 @@ export class PublicSignService {
     const cfg: any = doc.config || {};
     const org = doc.organization;
     const quote = cfg.quote || {};
-    const grand = Number(cfg?.documentInfo?.grandTotal) || 0;
+    const grand = this.quoteStats(cfg).grand;
     const base = {
       state,
       document: {
         number: doc.name,
-        clientName: quote?.header?.clientName || cfg?.customer?.name || '',
-        address: quote?.header?.address || '',
+        clientName: quote?.header?.clientName || cfg?.customer?.name || cfg?.customerName || '',
+        address: quote?.header?.address || cfg?.customerAddress || cfg?.customer?.address || '',
         designer: quote?.header?.designer || '',
         grandTotal: grand,
         currency: 'SGD',
@@ -315,12 +336,18 @@ export class PublicSignService {
     if (doc.status === 'confirmed') throw new BadRequestException('This quotation has already been confirmed');
     this.assertHasPricedLines(doc.config);
     const cfg: any = doc.config || {};
+    const isIdQuote = !!cfg.quote;
     const quote = cfg.quote || {};
     const signedAt = new Date();
 
-    // Project: link to the existing one, else create one for this client/site
-    // (and seed the 10/40/45/5 payment schedule from the grand total).
-    const { projectId } = await this.projectFor({ id: doc.id, projectId: doc.projectId, organizationId: doc.organizationId, config: cfg }, signedAt);
+    // Project: ID quotations link to the existing one, else create one for
+    // this client/site (and seed the 10/40/45/5 payment schedule from the
+    // grand total). Generic quotations (WCT) keep whatever project link the
+    // document already has — no auto-created project, no ID milestones.
+    let projectId = doc.projectId || null;
+    if (isIdQuote) {
+      ({ projectId } = await this.projectFor({ id: doc.id, projectId: doc.projectId, organizationId: doc.organizationId, config: cfg }, signedAt));
+    }
 
     const clientSignature = { name, image, signedAt: signedAt.toISOString(), ip: meta.ip || null };
 
@@ -336,7 +363,7 @@ export class PublicSignService {
         this.logger.warn(`confirm-time number allocation failed for ${doc.id}: ${(e as Error).message}`);
       }
     }
-    const cfgOut: any = { ...cfg, clientSignature, quote: { ...quote, clientSignature } };
+    const cfgOut: any = { ...cfg, clientSignature, ...(isIdQuote ? { quote: { ...quote, clientSignature } } : {}) };
     if (allocatedName) {
       cfgOut.documentInfo = { ...(cfgOut.documentInfo || {}), documentNumber: allocatedName };
       cfgOut.quote = { ...cfgOut.quote, header: { ...(cfgOut.quote?.header || {}), contractNo: allocatedName } };
@@ -358,14 +385,21 @@ export class PublicSignService {
       this.prisma.documentSignLink.updateMany({ where: { documentId: doc.id, id: { not: link.id }, signedAt: null, revokedAt: null }, data: { revokedAt: signedAt } }),
     ]);
 
+    const clientLabel = quote?.header?.clientName || cfg?.customer?.name || cfg?.customerName || '';
     await this.notifications.emit({
       organizationId: doc.organizationId,
       kind: 'quotation_signed',
       title: `Quotation ${allocatedName || doc.name || ''} signed by ${name}`,
-      body: `${quote?.header?.clientName || ''} accepted the quotation — it is now confirmed and linked to its project.`,
+      body: isIdQuote
+        ? `${clientLabel} accepted the quotation — it is now confirmed and linked to its project.`
+        : `${clientLabel} accepted the quotation — it is now confirmed.`,
       entityType: 'document',
       entityId: doc.id,
-      linkUrl: `/portal/sales/quotations/id/${doc.id}`,
+      linkUrl: isIdQuote
+        ? `/portal/sales/quotations/id/${doc.id}`
+        : doc.documentTemplateId
+          ? `/portal/documents/${doc.type}/${doc.documentTemplateId}/${doc.id}`
+          : null,
     });
     this.logger.log(`quotation ${doc.name} signed by ${name} (${meta.ip || 'ip?'})`);
     return { ok: true, signedAt, projectId };
