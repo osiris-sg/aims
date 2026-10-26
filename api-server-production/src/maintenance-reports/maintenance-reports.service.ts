@@ -345,7 +345,7 @@ export class MaintenanceReportsService {
     photos?: string[] | null;
     asset: { name: string; skuKey: string } | null;
     inventory: { sku: string; serialNumber: string | null } | null;
-    organization: { name: string };
+    organization: { name: string; logo?: string | null };
   }): Promise<Buffer> {
     const sd = (report.serviceData as any) ?? {};
     const html = buildServiceReportHtml({
@@ -355,6 +355,7 @@ export class MaintenanceReportsService {
       asset: report.asset,
       inventory: report.inventory,
       orgName: report.organization.name,
+      orgLogo: report.organization.logo,
       photos: report.photos ?? [],
     });
     const margin = servicePdfMargin(sd, report.photos);
@@ -407,7 +408,7 @@ export class MaintenanceReportsService {
       include: {
         asset: { select: { name: true, skuKey: true } },
         inventory: { select: { sku: true, serialNumber: true } },
-        organization: { select: { name: true } },
+        organization: { select: { name: true, logo: true } },
       },
     });
     if (!report) {
@@ -888,6 +889,8 @@ export class MaintenanceReportsService {
         // button can construct /portal/documents/INVOICE/{templateId}/{docId}
         // without a second round-trip.
         invoiceDocument: { select: { id: true, documentTemplateId: true, name: true, status: true } },
+        // Logo for the printed header (office page + field download).
+        organization: { select: { logo: true } },
       },
     });
     if (!report) throw new NotFoundException('Service report not found');

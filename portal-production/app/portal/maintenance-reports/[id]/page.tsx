@@ -81,6 +81,8 @@ interface MsrDetail {
   asset: { id: string; name: string; skuKey: string } | null;
   inventory: { id: string; sku: string; serialNumber: string | null } | null;
   invoiceDocument: { id: string; documentTemplateId: string; name: string | null; status: string } | null;
+  /** Owning org's logo (S3 key or URL) for the header; none = no logo. */
+  organization?: { logo: string | null } | null;
 }
 
 const formatDateTime = (iso?: string | null) => {
@@ -194,6 +196,8 @@ export default function MaintenanceReportDetailPage() {
   const checkedSet = new Set(sd.checklist ?? []);
   const techSigUrl = sd.techSignatureKey ? `${RESOURCE_URL}${sd.techSignatureKey}` : null;
   const clientSigUrl = sd.clientSignatureKey ? `${RESOURCE_URL}${sd.clientSignatureKey}` : null;
+  const orgLogo = report.organization?.logo;
+  const logoUrl = orgLogo ? (/^(https?:|data:)/i.test(orgLogo) ? orgLogo : `${RESOURCE_URL}${orgLogo}`) : null;
 
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
@@ -249,6 +253,15 @@ export default function MaintenanceReportDetailPage() {
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 2 }}>
           <Box>
+            {/* White backing keeps a dark logo legible in dark mode. */}
+            {logoUrl && (
+              <Box
+                component="img"
+                src={logoUrl}
+                alt=""
+                sx={{ display: "block", maxHeight: 40, maxWidth: 160, objectFit: "contain", mb: 1, bgcolor: "#fff", p: 0.5, borderRadius: 0.5 }}
+              />
+            )}
             <Typography variant="h5" fontWeight={700}>{TEMPLATE_LABELS[templateId]}</Typography>
             <Typography variant="body2" color="text.secondary">
               Created {formatDateTime(report.createdAt)}

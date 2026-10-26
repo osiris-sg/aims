@@ -193,6 +193,8 @@ export function useMsrPrint(): UseMsrPrintResult {
   const checkedSet = new Set<number>(sd?.checklist ?? []);
   const techSigUrl = sd?.techSignatureKey ? `${RESOURCE_URL}${sd.techSignatureKey}` : null;
   const clientSigUrl = sd?.clientSignatureKey ? `${RESOURCE_URL}${sd.clientSignatureKey}` : null;
+  const orgLogo: string | null = report?.organization?.logo ?? null;
+  const logoUrl = orgLogo ? (/^(https?:|data:)/i.test(orgLogo) ? orgLogo : `${RESOURCE_URL}${orgLogo}`) : null;
 
   const surface = (
     <OfficeThemeScope>
@@ -205,6 +207,9 @@ export function useMsrPrint(): UseMsrPrintResult {
         {report && (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <Box sx={{ border: 1, borderColor: "divider", p: 2 }} className="msr-section">
+              {logoUrl && (
+                <img src={logoUrl} alt="" style={{ display: "block", maxHeight: 40, maxWidth: 160, objectFit: "contain", marginBottom: 8 }} />
+              )}
               <h2 style={{ margin: 0 }}>{TEMPLATE_LABELS[templateId]}</h2>
               <div style={{ fontSize: 12, color: "#555" }}>Report #{report.reportNumber ?? "—"}</div>
               <Box sx={{ display: "flex", gap: 4, mt: 1 }}>
