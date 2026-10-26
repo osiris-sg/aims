@@ -54,6 +54,35 @@ degreasing, MV fans, ductwork). They wanted:
 - Work Library seeded with CIEL's 10 trade sections (A–J), no items. Harmless
   now that the ID quotation flag is off; delete if unwanted.
 
+### Services master file (round 3, 2026-10-26)
+
+Guru's decision after the client call: keep the **normal editor** (not the
+CIEL sectioned editor), the template keeps WCT's look, and staff **select the
+services from a master list, each tied to a GL account**. That is the existing
+Revenue Master File (`RevenueItem`, Master Files → Services, "Add Service" in
+the editor) — so round 3 is data plus one editor improvement:
+
+- `scripts/setup-wct-services.ts` seeds WCT's 14 standard services verbatim
+  from the papers, all tied to **SS001 Credit Sales**: G01–G03 (general scope
+  lines), S01–S09 (service scope lines) at $0, and the two priced packages
+  **MA1X** (1×/year, hood + duct + fan, $800) and **MA3X** (3×/year, hood only,
+  $350). Idempotent (upsert by code), dry run by default, `--apply` to write.
+  WCT can add or reprice services later on Master Files → Services.
+- The "Add Service" picker (`RevenueItemPickerDialog`) gained a **multi-select
+  mode**: checkboxes per row, a header checkbox for everything visible, search
+  to narrow, and one "Add N services" button that appends the ticked lines in
+  master-file order (code order = paper order). One trip to the picker per
+  quotation instead of twelve. Re-coding an existing row via the pencil stays
+  single-pick. Every line carries its `accountCode`, so when the accepted
+  quotation becomes the invoice, `postFromInvoice` credits SS001 per line
+  (`revenueLines`) — no accountant re-coding.
+- Guide assistant: knowledge line updated, anchors `editor-add-service` and
+  `service-picker-add-selected`, and a prebuilt walkthrough
+  "Quote from your standard services".
+
+Not changed: no new feature flag (`enableServiceItems` is already ON in
+Biofuel's set, which WCT inherits), no schema change.
+
 ### Document templates (the main piece of work)
 
 Three WCT-owned templates, all with the design knob **`layout: 'wct'`**:
@@ -137,6 +166,8 @@ re-run with `--apply`; re-runs reconcile the overrides.
 | `api-server-production/scripts/setup-wct-org.ts` | Builds the org: org row, OrgTenant + permission catalogue (tenancy), UI config / flags, modules, roles, accounting, number formats, default templates, work sections, superadmins. `--env dev\|staging\|prod`, dry run by default, `--apply` to write. Idempotent. |
 | `api-server-production/scripts/setup-wct-templates.ts` | Letterhead profile, Doc Defaults (T&Cs), the three templates (columns, formFields, layout knob). Same flags. Idempotent, touches only WCT-owned rows. |
 | `api-server-production/scripts/_wct-preview.ts`, `_wct-pdf.ts` | One-off: render the Yoshinoya sample through the real renderer / Puppeteer for eyeballing. Not needed in prod. |
+| `api-server-production/scripts/setup-wct-services.ts` | Round 3: the 14 standard services (RevenueItem) tied to SS001. Same flags. Idempotent, touches only WCT's rows. |
+| `portal-production/containers/DocumentTemplates/components/RevenueItemPickerDialog.tsx` + `TabbedDocumentCreator.tsx` | Round 3: multi-select "Add Service" picker (`onSelectMany`), `data-tour="editor-add-service"`. |
 
 ## 6. Verified / not verified
 
@@ -152,7 +183,9 @@ Verified on dev:
 - API compiles and starts with the changes (watch-mode restart confirmed).
 
 **Not yet verified in Chrome** (the browser session was signed out when the
-pass was due; nobody has repeated it since):
+pass was due; nobody has repeated it since). Round 3 (services master +
+multi-select picker) was type-checked only — no browser pass, no end-to-end
+flow video yet (see §7):
 
 1. Editor: Sales → Quotation → New (WCT template) → Preview shows the iframe;
    edits re-render; **Print** prints the iframe; **Generate PDF** opens the
@@ -178,6 +211,14 @@ pass was due; nobody has repeated it since):
   not a salesman master record.
 - **Invoice Rev** (`documentInfo.revision`) is typed by hand; there is no
   revision counter.
+- **Flow video** (guru's ask): record the whole WCT flow once on dev —
+  Quotation (customer → Add Service → tick the scope lines + a package → Add →
+  Save) → accept (Confirm Quotation, or the customer e-sign link) → the draft
+  schedule appears on Deliveries → set date + save → DO → field completion →
+  auto invoice → Accounting shows the SS001 credit per line. Needs a signed-in
+  browser against a running dev stack (the PC Remote Control session had a
+  Playwright harness for this in its scratchpad; it ran out of memory before
+  recording). `scripts/setup-wct-services.ts --env dev --apply` must run first.
 
 ## 8. Prod / staging rollout (guru runs these with `!`)
 
@@ -190,6 +231,8 @@ npm run db:push:prod                                   # email / website columns
 npx ts-node --transpile-only scripts/setup-wct-org.ts --env prod             # dry run, read it
 npx ts-node --transpile-only scripts/setup-wct-org.ts --env prod --apply
 npx ts-node --transpile-only scripts/setup-wct-templates.ts --env prod --apply
+npx ts-node --transpile-only scripts/setup-wct-services.ts --env prod             # dry run — expect 14 creates, account SS001
+npx ts-node --transpile-only scripts/setup-wct-services.ts --env prod --apply
 ```
 
 Same with `--env staging` and `npm run db:push:staging` for staging. The org

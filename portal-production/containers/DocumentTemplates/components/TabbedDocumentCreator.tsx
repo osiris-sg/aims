@@ -99,7 +99,7 @@ import RichTextDescription from "./RichTextDescription";
 import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields, { headerInputSx } from "./DynamicFormFields";
 import StockCardDialog from "./StockCardDialog";
-import RevenueItemPickerDialog from "./RevenueItemPickerDialog";
+import RevenueItemPickerDialog, { type RevenueItem } from "./RevenueItemPickerDialog";
 import { resolveQuotationGroup, insertItemGrouped, makeGroupHeaderItem, mergeRates, dissolveMerge, normalizeRateMerges, contiguityError, mergeMembers, mergeRunPosition, setMergePriceOn, setMergeQuantityOn, RateMergeColumn } from "./quotationItemGroups";
 import LocateDocumentDialog from "./LocateDocumentDialog";
 import ExtractQuotationDialog from "./ExtractQuotationDialog";
@@ -2065,6 +2065,21 @@ export default function TabbedDocumentCreator({
       return;
     }
     setItems([...items, makeServiceItem({ itemCode: rev.code || "", description: rev.name, unitPrice: up, amount: up, accountCode: rev.accountCode, isService: rev.type === "SERVICE" })]);
+  };
+  // Multi-pick from the master file (WCT, guru 2026-10-26): one trip to the
+  // picker appends every ticked service, in master-file order, each carrying
+  // its own GL account. Only when APPENDING — re-coding an existing row via the
+  // pencil stays single-pick, because that action targets one row.
+  const addRevenueItemLines = (revs: RevenueItem[]) => {
+    if (!Array.isArray(revs) || revs.length === 0) return;
+    // Distinct ids: makeServiceItem's Date.now()+random can collide inside one
+    // synchronous loop, and duplicate ids break delete / reorder.
+    const base = Date.now();
+    const lines = revs.map((rev, i) => {
+      const up = rev.unitPrice != null ? Number(rev.unitPrice) : 0;
+      return makeServiceItem({ id: base + i, itemCode: rev.code || "", description: rev.name, unitPrice: up, amount: up, accountCode: rev.accountCode, isService: rev.type === "SERVICE" });
+    });
+    setItems([...items, ...lines]);
   };
 
   const deleteItem = (id: number) => {
@@ -6867,6 +6882,7 @@ export default function TabbedDocumentCreator({
                           startIcon={<AddIcon />}
                           onClick={() => setRevenueItemPickerOpen(true)}
                           size="small"
+                          data-tour="editor-add-service"
                         >
                           Add Service
                         </Button>
@@ -7969,6 +7985,7 @@ export default function TabbedDocumentCreator({
         open={revenueItemPickerOpen}
         onClose={() => { setRevenueItemPickerOpen(false); setEditingItemId(null); }}
         onSelect={addRevenueItemLine}
+        onSelectMany={editingItemId == null ? addRevenueItemLines : undefined}
         onBlank={addBlankServiceLine}
         typeFilter="SERVICE"
       />

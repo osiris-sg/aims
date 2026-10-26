@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
+  DialogActions,
   DialogContent,
   DialogTitle,
   IconButton,
@@ -39,16 +41,28 @@ export type RevenueItem = {
 // Master-file picker used by "Add Item / Add Service" in the invoice editor.
 // Selecting a row returns the item (with its GL accountCode) so the added line
 // self-codes and the invoice posts to the ledger deterministically.
+//
+// Two modes:
+//  - single (default): click a row → that one line is added and the dialog
+//    closes. Used when re-coding an existing row via the pencil.
+//  - multi (`onSelectMany` given): rows carry a checkbox, the header checkbox
+//    ticks every visible row, and "Add N services" appends them all in list
+//    order (sorted by code — the order the master file was written in). Built
+//    for WCT (guru 2026-10-26), whose quotations repeat the same dozen scope
+//    lines (G-/S- services + a maintenance package) on every job: one trip to
+//    the picker instead of twelve.
 export default function RevenueItemPickerDialog({
   open,
   onClose,
   onSelect,
+  onSelectMany,
   onBlank,
   typeFilter,
 }: {
   open: boolean;
   onClose: () => void;
   onSelect: (item: RevenueItem) => void;
+  onSelectMany?: (items: RevenueItem[]) => void; // multi-select mode when given
   onBlank?: () => void; // add an ad-hoc blank line
   typeFilter?: string; // "SERVICE" to show services only
 }) {
@@ -56,6 +70,11 @@ export default function RevenueItemPickerDialog({
   const [items, setItems] = useState<RevenueItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState("");
+  const multi = typeof onSelectMany === "function";
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  // A fresh open starts with nothing ticked — last job's picks must not leak
+  // into the next quotation.
+  useEffect(() => { if (open) setSelectedIds(new Set()); }, [open]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -87,6 +106,36 @@ export default function RevenueItemPickerDialog({
     return items.filter((i) => i.name.toLowerCase().includes(s) || (i.code || "").toLowerCase().includes(s) || (i.accountName || "").toLowerCase().includes(s) || i.accountCode.includes(s));
   }, [items, q]);
 
+  const toggle = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const visibleSelected = filtered.filter((i) => selectedIds.has(i.id)).length;
+  const allVisibleSelected = filtered.length > 0 && visibleSelected === filtered.length;
+  const toggleAllVisible = () =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) filtered.forEach((i) => next.delete(i.id));
+      else filtered.forEach((i) => next.add(i.id));
+      return next;
+    });
+  const addSelected = () => {
+    if (!onSelectMany) return;
+    // List order (by code), not click order, so the lines land on the
+    // document the way the master file reads.
+    const picked = items.filter((i) => selectedIds.has(i.id));
+    if (picked.length === 0) return;
+    onSelectMany(picked);
+    onClose();
+  };
+  const handleRowClick = (it: RevenueItem) => {
+    if (multi) toggle(it.id);
+    else { onSelect(it); onClose(); }
+  };
+
   return (
     <Dialog
       open={open}
@@ -106,7 +155,7 @@ export default function RevenueItemPickerDialog({
       }}
     >
       <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span>Add item / service</span>
+        <span>{multi ? "Add services" : "Add item / service"}</span>
         <IconButton size="small" onClick={onClose}><CloseIcon fontSize="small" /></IconButton>
       </DialogTitle>
       <DialogContent dividers>
@@ -136,6 +185,17 @@ export default function RevenueItemPickerDialog({
             <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow>
+                  {multi && (
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        size="small"
+                        checked={allVisibleSelected}
+                        indeterminate={visibleSelected > 0 && !allVisibleSelected}
+                        onChange={toggleAllVisible}
+                        inputProps={{ "aria-label": "Select all visible services" }}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Type</TableCell>
                   <TableCell sx={{ fontWeight: 700 }} align="right">Unit price</TableCell>
@@ -145,9 +205,22 @@ export default function RevenueItemPickerDialog({
               <TableBody>
                 {filtered.map((it) => (
                   <TableRow
-                    key={it.id} hover sx={{ cursor: "pointer", "&:hover": { bgcolor: (t) => alpha(t.palette.primary.main, 0.06) } }}
-                    onClick={() => { onSelect(it); onClose(); }}
+                    key={it.id} hover
+                    selected={multi && selectedIds.has(it.id)}
+                    sx={{ cursor: "pointer", "&:hover": { bgcolor: (t) => alpha(t.palette.primary.main, 0.06) } }}
+                    onClick={() => handleRowClick(it)}
                   >
+                    {multi && (
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          size="small"
+                          checked={selectedIds.has(it.id)}
+                          onChange={() => toggle(it.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          inputProps={{ "aria-label": `Select ${it.name}` }}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>{it.name}</Typography>
                       {/* Code + the GL account it posts to, same badge the invoice
@@ -178,9 +251,24 @@ export default function RevenueItemPickerDialog({
           </TableContainer>
         )}
         <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mt: 1 }}>
-          Click a row to add it — the line will post to its mapped GL account automatically.
+          {multi
+            ? "Tick the services for this job, then Add — each line posts to its mapped GL account automatically."
+            : "Click a row to add it — the line will post to its mapped GL account automatically."}
         </Typography>
       </DialogContent>
+      {multi && (
+        <DialogActions sx={{ px: 3, py: 1.5, justifyContent: "space-between" }}>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            {selectedIds.size === 0 ? "Nothing selected" : `${selectedIds.size} selected`}
+          </Typography>
+          <Stack direction="row" gap={1}>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="contained" startIcon={<AddIcon />} disabled={selectedIds.size === 0} onClick={addSelected} data-tour="service-picker-add-selected">
+              {selectedIds.size === 0 ? "Add services" : `Add ${selectedIds.size} ${selectedIds.size === 1 ? "service" : "services"}`}
+            </Button>
+          </Stack>
+        </DialogActions>
+      )}
     </Dialog>
   );
 }

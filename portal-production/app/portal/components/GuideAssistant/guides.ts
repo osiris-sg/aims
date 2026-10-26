@@ -166,6 +166,53 @@ export const GUIDES: Guide[] = [
       'How to create a quotation (quote) for a customer: where Quotations live, starting a new one, adding items and prices, and confirming/sending it.',
     extraFinalNote: 'Once accepted, you can turn a quotation into a delivery order or invoice.',
   }),
+  // Quotation built from the Services master file (orgs with enableServiceItems
+  // — WCT, guru 2026-10-26: their quotes repeat the same scope lines on every
+  // job, so staff tick them from the list instead of typing). Lines arrive
+  // already tied to a GL account, so the invoice posts without re-coding.
+  {
+    id: 'quotation-from-services',
+    title: 'Quote from your standard services',
+    description:
+      'How to build a quotation by selecting services from the Services master file (Add Service → tick several → Add): the lines come in with their standard description, price and GL account. For orgs that quote a fixed list of services (e.g. kitchen-exhaust cleaning scope lines + a maintenance package). NOT for products/stock items, NOT for uploading a file.',
+    route: '/portal/sales/quotations',
+    module: 'SALES',
+    steps: [
+      {
+        route: '/portal/sales/quotations',
+        selector: '[data-tour="page-create-button"]',
+        title: 'Start a new quotation',
+        body: 'Click here to open a blank quotation. If a template picker appears, choose your company\'s quotation template and continue.',
+        advanceOn: 'click',
+      },
+      {
+        selector: '[data-tour="editor-customer"]',
+        patient: true,
+        title: 'Choose the customer',
+        body: 'Type the customer code or use the search icon. Bill To, attention and contact details fill in from the customer record.',
+      },
+      {
+        selector: '[data-tour="editor-add-service"]',
+        patient: true,
+        title: 'Open the services list',
+        body: 'Click Add Service. The picker lists every service in your master file with its standard price and the GL account it posts to.',
+        advanceOn: 'click',
+      },
+      {
+        selector: '[data-tour="service-picker-add-selected"]',
+        patient: true,
+        title: 'Tick the services for this job, then Add',
+        body: 'Tick each service this job needs — the header checkbox ticks everything shown, and the search box narrows the list. Press "Add N services" and they land on the quotation in list order. Adjust quantities or prices on the lines afterwards if needed; the GL account stays with each line.',
+        advanceOn: 'click',
+      },
+      {
+        selector: '[data-tour="editor-confirm"]',
+        patient: true,
+        title: 'Save, then confirm or send for e-signature',
+        body: 'Save keeps it as a draft. Confirm Quotation accepts it on the customer\'s behalf; Send Email or the sign link lets the customer accept online. Once accepted, a draft delivery schedule is created for the job automatically (orgs with quotation-to-delivery).',
+      },
+    ],
+  },
   documentGuide({
     id: 'create-credit-note',
     label: 'Credit Note',
