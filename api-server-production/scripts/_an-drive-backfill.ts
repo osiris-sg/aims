@@ -29,6 +29,10 @@ import { ShipmentsModule } from '../src/shipments/shipments.module';
 import { TradeFilesService } from '../src/shipments/trade-files.service';
 import { TradeConfigService } from '../src/shipments/trade-config.service';
 import { PrismaService } from '../src/common/prisma.service';
+import { S3Service } from '../src/common/services/s3.service';
+import { TradeThumbsService } from '../src/shipments/trade-thumbs.service';
+import { randomUUID } from 'crypto';
+import { resolveTradeFileMime, sanitizeFileName } from '../src/shipments/shipments.rules';
 import { runAsOrg } from '../src/common/tenancy/tenant-context';
 
 @Module({ imports: [ConfigModule.forRoot({ load: [configuration], isGlobal: true }), PushModule, ActionLogModule, ShipmentsModule] })
@@ -60,6 +64,8 @@ type Fill = { target: string; field: string; value: string | number; src: string
   const prisma: any = app.get(PrismaService);
   const files = app.get(TradeFilesService);
   const config = app.get(TradeConfigService);
+  const s3 = app.get(S3Service);
+  const thumbs = app.get(TradeThumbsService);
   const audit = async (action: string, resource: string, resourceId: string, details: any) => {
     await prisma.actionLog.create({ data: { actorType: 'SYSTEM', actorId: ACTOR.id, actorName: 'System creation', organizationId: ORG, channel: 'operator', action, resource, resourceId, details } });
     log.push({ at: new Date().toISOString(), action, resource, resourceId, details });
@@ -77,7 +83,7 @@ type Fill = { target: string; field: string; value: string | number; src: string
   await runAsOrg(ORG, async () => {
     const before = await snap();
     const stepSel = { select: { id: true, displayNo: true, code: true, status: true, requiredDocTypes: true } };
-    const linkSel = { select: { stepId: true, file: { select: { id: true, docType: true, sha256: true, fileName: true, uploadedById: true } } } };
+    const linkSel = { where: { hiddenAt: null }, select: { stepId: true, file: { select: { id: true, docType: true, sha256: true, fileName: true, uploadedById: true } } } };
     const orders: any[] = await prisma.tradeOrder.findMany({ where: { organizationId: ORG, year: 2026, isTest: false }, select: { id: true, orderNo: true, status: true, piNo: true, piDate: true, piAmount: true, customerPoNo: true, customerPoDate: true, steps: stepSel, fileLinks: linkSel } });
     const sos: any[] = await prisma.supplierOrder.findMany({ where: { organizationId: ORG, year: 2026 }, select: { id: true, soNo: true, piNo: true, piDate: true, piAmount: true } });
     const ships: any[] = await prisma.shipment.findMany({ where: { organizationId: ORG, order: { isTest: false, year: 2026 } }, select: { id: true, seqNo: true, status: true, blNumber: true, vessel: true, voyageNo: true, eta: true, etd: true, ciNumber: true, ciAmount: true, netWeightMt: true, grossWeightMt: true, totalBundles: true, totalPieces: true, portOfLoading: true, order: { select: { orderNo: true } }, steps: stepSel, fileLinks: linkSel } });
@@ -126,7 +132,22 @@ type Fill = { target: string; field: string; value: string | number; src: string
           let name = path.basename(rel);
           if (!path.extname(name) && buf.subarray(0, 4).toString() === '%PDF') name += '.pdf';
           const ext = path.extname(name).slice(1).toLowerCase();
-          const r: any = await files.upload(ORG, { originalname: Buffer.from(name, 'utf8').toString('latin1'), mimetype: MIME[ext] ?? 'application/octet-stream', size: buf.length, buffer: buf } as any, { docType: a.docType, ...(step.id ? { stepId: step.id } : {}), [ownerKey]: rec.id, notes: `ADH Drive: ${rel.split('/').slice(2).join('/')}` } as any, ACTOR, { sha256: digest, completedShipmentsOk: true });
+          // Round AO: a completed order (history #30–#40) refuses uploads ("Reopen before adding documents") — store the
+          // file the same way TradeFilesService.upload does (key under the org prefix, document ID, link on the step).
+          const closedOrder = a.scope === 'order' && rec.status && rec.status !== 'OPEN';
+          const r: any = closedOrder ? await (async () => {
+            const mimeType = resolveTradeFileMime(name, MIME[ext] ?? 'application/octet-stream')!;
+            const fid = randomUUID();
+            const key = `shipments/${ORG}/${new Date().getUTCFullYear()}/${fid}_${sanitizeFileName(name)}`;
+            await s3.uploadFile(key, buf, mimeType);
+            await prisma.$transaction(async (tx: any) => {
+              const docRef = await config.docRefFor(tx, ORG, { orderId: rec.id } as any, a.docType);
+              await tx.tradeFile.create({ data: { id: fid, organizationId: ORG, docType: a.docType, s3Key: key, fileName: name, mimeType, sizeBytes: buf.length, uploadedById: ACTOR.id, uploadedByName: ACTOR.name, notes: `ADH Drive: ${rel.split('/').slice(2).join('/')}`, docRef, source: 'UPLOAD', sha256: digest } });
+              await tx.tradeFileLink.create({ data: { organizationId: ORG, fileId: fid, orderId: rec.id, stepId: step.id } });
+            });
+            await thumbs.make(ORG, fid, buf).catch(() => null);
+            return { id: fid, completedSteps: [] };
+          })() : await files.upload(ORG, { originalname: Buffer.from(name, 'utf8').toString('latin1'), mimetype: MIME[ext] ?? 'application/octet-stream', size: buf.length, buffer: buf } as any, { docType: a.docType, ...(step.id ? { stepId: step.id } : {}), [ownerKey]: rec.id, notes: `ADH Drive: ${rel.split('/').slice(2).join('/')}` } as any, ACTOR, { sha256: digest, completedShipmentsOk: true });
           fileId = r.id;
           knownBySha.set(digest, { id: r.id });
           stat.attach++;

@@ -1,0 +1,1438 @@
+[
+ {
+  "at": "2026-10-26T12:12:31.910Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "ec8a0e06-11b0-4a38-9f3f-7b6f755d7523",
+  "details": {
+   "ref": "#21-1",
+   "field": "ciNumber",
+   "from": "XP2652102552",
+   "to": "XP2652102456",
+   "source": "Drive: Document/202609 Shipment …/6063 6 inch HSB_198GX06445_28.963_MT_Nagoya_454003598/COMMERCIAL_INVOICE_9000586235.pdf (Invoice No. XP2652102456, BL No. 198GX06445)",
+   "go": "owner, round AO item 2"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:31.957Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "ec8a0e06-11b0-4a38-9f3f-7b6f755d7523",
+  "details": {
+   "ref": "#21-1",
+   "field": "ciAmount",
+   "from": null,
+   "to": "113935.23",
+   "source": "CI XP2652102456 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:32.004Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "ec8a0e06-11b0-4a38-9f3f-7b6f755d7523",
+  "details": {
+   "ref": "#21-1",
+   "field": "totalBundles",
+   "from": null,
+   "to": "17",
+   "source": "CI XP2652102456 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:32.049Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "ec8a0e06-11b0-4a38-9f3f-7b6f755d7523",
+  "details": {
+   "ref": "#21-1",
+   "field": "totalPieces",
+   "from": null,
+   "to": "102",
+   "source": "CI XP2652102456 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:32.096Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "ec8a0e06-11b0-4a38-9f3f-7b6f755d7523",
+  "details": {
+   "ref": "#21-1",
+   "field": "portOfLoading",
+   "from": null,
+   "to": "VISAKHAPATNAM PORT, INDIA",
+   "source": "CI XP2652102456 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:35.343Z",
+  "action": "UPDATE",
+  "resource": "trade-file-link",
+  "resourceId": "4a4692b8-02ce-47f0-8c40-31fbc659a296",
+  "details": {
+   "fileId": "219fae95-cad0-4b25-9228-5dc0d9569c41",
+   "fileName": "IM3Z640309_20260420091448.pdf",
+   "from": "#1-1 step 10",
+   "to": "#2-1 step 10",
+   "reason": "the permit is for B/L 198GX01385 (#2); round AN filed it by folder on #1-1"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:38.615Z",
+  "action": "HIDE",
+  "resource": "trade-file-link",
+  "resourceId": "139568c1-7877-43cd-af93-0140ed8fbea7",
+  "details": {
+   "ref": "#11-1",
+   "step": "6",
+   "docType": "CI_PAYMENT_PROOF",
+   "fileName": "dummy.pdf",
+   "fileId": "0a8a5b60-b512-401a-a19f-406e6bb585dc",
+   "reason": "placeholder dummy.pdf (owner, round AO item 6)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:38.642Z",
+  "action": "HIDE",
+  "resource": "trade-file-link",
+  "resourceId": "063b5301-31e4-4bc1-b267-1b707ebeb75d",
+  "details": {
+   "ref": "#11-1",
+   "step": "7",
+   "docType": "TAX_ESTIMATE",
+   "fileName": "dummy.pdf",
+   "fileId": "e9d20d93-dea3-4a2a-a9a1-541f7af2d28e",
+   "reason": "placeholder dummy.pdf (owner, round AO item 6)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:38.669Z",
+  "action": "HIDE",
+  "resource": "trade-file-link",
+  "resourceId": "93ce5cc5-0dfa-4adc-a585-87540456aed5",
+  "details": {
+   "ref": "#11-1",
+   "step": "9",
+   "docType": "ARRIVAL_NOTICE",
+   "fileName": "dummy.pdf",
+   "fileId": "007d0ac1-528b-450e-b09a-8f510d535a0c",
+   "reason": "placeholder dummy.pdf (owner, round AO item 6)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:38.698Z",
+  "action": "HIDE",
+  "resource": "trade-file-link",
+  "resourceId": "b0f99989-93de-4d9d-9dbc-406726de3edd",
+  "details": {
+   "ref": "#11-1",
+   "step": "9",
+   "docType": "TELEX_RELEASE",
+   "fileName": "dummy.pdf",
+   "fileId": "dbfb1381-231f-4d18-b16c-d480b62a5602",
+   "reason": "placeholder dummy.pdf (owner, round AO item 6)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:38.724Z",
+  "action": "HIDE",
+  "resource": "trade-file-link",
+  "resourceId": "116a34ab-8609-43ef-ac9b-264cc2df4124",
+  "details": {
+   "ref": "#11-1",
+   "step": "9",
+   "docType": "DELIVERY_SCHEDULE",
+   "fileName": "dummy.pdf",
+   "fileId": "86b41a33-7b0d-460b-b0f0-3fd37d397218",
+   "reason": "placeholder dummy.pdf (owner, round AO item 6)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:38.749Z",
+  "action": "HIDE",
+  "resource": "trade-file-link",
+  "resourceId": "d6ca7b02-d7b9-4adf-8e95-612185967595",
+  "details": {
+   "ref": "#11-1",
+   "step": "10",
+   "docType": "IMPORT_PERMIT",
+   "fileName": "dummy.pdf",
+   "fileId": "0355f339-c5f6-45dc-8754-a1e3fbf92ae0",
+   "reason": "placeholder dummy.pdf (owner, round AO item 6)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:38.777Z",
+  "action": "HIDE",
+  "resource": "trade-file-link",
+  "resourceId": "d78a83f8-071a-4f14-b7d7-7391e7a3b5b4",
+  "details": {
+   "ref": "#11-1",
+   "step": "12",
+   "docType": "VENDOR_INVOICE",
+   "fileName": "dummy.pdf",
+   "fileId": "21661fb8-b63d-4127-a6ab-ebecfc51538e",
+   "reason": "placeholder dummy.pdf (owner, round AO item 6)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:38.805Z",
+  "action": "HIDE",
+  "resource": "trade-file-link",
+  "resourceId": "d59e1169-2a24-4729-9a53-ec5c9a4f861f",
+  "details": {
+   "ref": "#11-1",
+   "step": "12",
+   "docType": "PAYMENT_PROOF",
+   "fileName": "dummy.pdf",
+   "fileId": "310256c5-31e3-46f7-89eb-73e363dc2a93",
+   "reason": "placeholder dummy.pdf (owner, round AO item 6)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:38.834Z",
+  "action": "HIDE",
+  "resource": "trade-file-link",
+  "resourceId": "ec034e29-085a-43f2-88a1-56cd519bcd94",
+  "details": {
+   "ref": "#11-1",
+   "step": "3b",
+   "docType": "CI",
+   "fileName": "COMMERCIAL_INVOICE_9000565680.pdf",
+   "fileId": "acd87708-84c8-42c9-96e2-6fcd8cb5dc22",
+   "reason": "provisional CI (6月平均); the final CI 1,148,593.71 replaces it (owner, round AO item 6)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:42.720Z",
+  "action": "CREATE",
+  "resource": "shipment",
+  "resourceId": "3c8d4620-82b3-41b2-811d-6c452cb1883a",
+  "details": {
+   "ref": "#2-2",
+   "orderNo": 2,
+   "blNumber": "KMTCVTG0067502",
+   "vessel": "ZHONG GU GUI YANG",
+   "voyageNo": "0FDH6E",
+   "etd": "2026-04-25T00:00:00.000Z",
+   "netWeightMt": 20.444,
+   "grossWeightMt": 20.524,
+   "totalBundles": 8,
+   "totalPieces": 40,
+   "ciNumber": "XP2652100127",
+   "ciAmount": null,
+   "portOfLoading": "VISAKHAPATNAM PORT, INDIA",
+   "portOfDischarge": "YOKOHAMA, JAPAN",
+   "deliveryMonth": "2026-06",
+   "status": "COMPLETED",
+   "stepsDone": 10,
+   "source": "COO / PL 9000537651 (XP2652100127; no CI in the Drive); delivered with June (folder 船２_6月とまとめて)",
+   "go": "owner, round AO item 3"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:42.750Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "fb0a2070-3e24-43d3-a4e5-d09f3f64cf1c",
+  "details": {
+   "ref": "#2-1",
+   "field": "netWeightMt",
+   "from": 61.374,
+   "to": 40.93,
+   "reason": "split: #2-1 keeps 198GX01385, KMTCVTG0067502 moved to #2-2",
+   "go": "owner, round AO item 3"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:42.787Z",
+  "action": "UPDATE",
+  "resource": "trade-file-link",
+  "resourceId": "12ebd930-ebb7-4c88-974a-2dd23e06bf02",
+  "details": {
+   "fileId": "fa53b0c4-3029-4973-9c03-8180588955f7",
+   "fileName": "ARRIVAL NOTICE _ FREIGHT INVOICE.pdf",
+   "from": "#2-1 step 9",
+   "to": "#2-2 step 9"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:42.821Z",
+  "action": "UPDATE",
+  "resource": "trade-file-link",
+  "resourceId": "909cebd6-bae4-45a4-a58d-bf28c5e09e49",
+  "details": {
+   "fileId": "731f2416-ff67-40c9-84b9-24b3af115b94",
+   "fileName": "DRAFT BL-KMTCVTG0067502.pdf",
+   "from": "#2-1 step 3a",
+   "to": "#2-2 step 3a"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:42.854Z",
+  "action": "UPDATE",
+  "resource": "trade-file-link",
+  "resourceId": "a9ae527a-b057-4c9c-af73-e52478f24e78",
+  "details": {
+   "fileId": "f6179bcd-e842-459a-b867-364aad4c208d",
+   "fileName": "KMTCVTG0067502 SRD.pdf",
+   "from": "#2-1 step 9",
+   "to": "#2-2 step 9"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:42.947Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "fb0a2070-3e24-43d3-a4e5-d09f3f64cf1c",
+  "details": {
+   "ref": "#2-1",
+   "field": "blNumber",
+   "from": null,
+   "to": "198GX01385",
+   "source": "COO / PL 9000523941 (XP2552104480; no CI in the Drive)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:42.995Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "fb0a2070-3e24-43d3-a4e5-d09f3f64cf1c",
+  "details": {
+   "ref": "#2-1",
+   "field": "vessel",
+   "from": null,
+   "to": "ZHONG GU XIONG AN",
+   "source": "COO / PL 9000523941 (XP2552104480; no CI in the Drive)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:43.047Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "fb0a2070-3e24-43d3-a4e5-d09f3f64cf1c",
+  "details": {
+   "ref": "#2-1",
+   "field": "voyageNo",
+   "from": null,
+   "to": "004E",
+   "source": "COO / PL 9000523941 (XP2552104480; no CI in the Drive)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:43.117Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "fb0a2070-3e24-43d3-a4e5-d09f3f64cf1c",
+  "details": {
+   "ref": "#2-1",
+   "field": "etd",
+   "from": null,
+   "to": "2026-03-24",
+   "source": "COO / PL 9000523941 (XP2552104480; no CI in the Drive)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:43.169Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "fb0a2070-3e24-43d3-a4e5-d09f3f64cf1c",
+  "details": {
+   "ref": "#2-1",
+   "field": "grossWeightMt",
+   "from": null,
+   "to": "41.09",
+   "source": "COO / PL 9000523941 (XP2552104480; no CI in the Drive)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:43.254Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "fb0a2070-3e24-43d3-a4e5-d09f3f64cf1c",
+  "details": {
+   "ref": "#2-1",
+   "field": "totalBundles",
+   "from": null,
+   "to": "16",
+   "source": "COO / PL 9000523941 (XP2552104480; no CI in the Drive)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:43.305Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "fb0a2070-3e24-43d3-a4e5-d09f3f64cf1c",
+  "details": {
+   "ref": "#2-1",
+   "field": "totalPieces",
+   "from": null,
+   "to": "80",
+   "source": "COO / PL 9000523941 (XP2552104480; no CI in the Drive)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:43.357Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "fb0a2070-3e24-43d3-a4e5-d09f3f64cf1c",
+  "details": {
+   "ref": "#2-1",
+   "field": "ciNumber",
+   "from": null,
+   "to": "XP2552104480",
+   "source": "COO / PL 9000523941 (XP2552104480; no CI in the Drive)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:43.416Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "fb0a2070-3e24-43d3-a4e5-d09f3f64cf1c",
+  "details": {
+   "ref": "#2-1",
+   "field": "portOfLoading",
+   "from": null,
+   "to": "VISAKHAPATNAM PORT, INDIA",
+   "source": "COO / PL 9000523941 (XP2552104480; no CI in the Drive)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:43.851Z",
+  "action": "CREATE",
+  "resource": "shipment",
+  "resourceId": "15674bce-fa5d-46bf-ae93-5563be58379a",
+  "details": {
+   "ref": "#8-2",
+   "orderNo": 8,
+   "blNumber": "198GX04631",
+   "vessel": "RACHA BHUM",
+   "voyageNo": "211E",
+   "etd": "2026-07-22T00:00:00.000Z",
+   "netWeightMt": 40.775,
+   "grossWeightMt": 40.935,
+   "totalBundles": 16,
+   "totalPieces": null,
+   "ciNumber": "XP2652101328",
+   "ciAmount": 163717.33,
+   "portOfLoading": "VISAKHAPATNAM PORT, INDIA",
+   "portOfDischarge": "YOKOHAMA, JAPAN",
+   "deliveryMonth": "2026-08",
+   "status": "COMPLETED",
+   "stepsDone": 10,
+   "source": "CI XP2652101328 (final)",
+   "go": "owner, round AO item 3"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:43.878Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "408bf9e4-4036-4198-88fa-db62dd2fdec8",
+  "details": {
+   "ref": "#8-1",
+   "field": "netWeightMt",
+   "from": 303.225,
+   "to": 262.45,
+   "reason": "split: #8-1 keeps 198GX04346, 198GX04631 moved to #8-2",
+   "go": "owner, round AO item 3"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:44.010Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "408bf9e4-4036-4198-88fa-db62dd2fdec8",
+  "details": {
+   "ref": "#8-1",
+   "field": "blNumber",
+   "from": null,
+   "to": "198GX04346",
+   "source": "CI XP2652101260 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:44.058Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "408bf9e4-4036-4198-88fa-db62dd2fdec8",
+  "details": {
+   "ref": "#8-1",
+   "field": "vessel",
+   "from": null,
+   "to": "WAN HAI 328",
+   "source": "CI XP2652101260 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:44.113Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "408bf9e4-4036-4198-88fa-db62dd2fdec8",
+  "details": {
+   "ref": "#8-1",
+   "field": "voyageNo",
+   "from": null,
+   "to": "E064",
+   "source": "CI XP2652101260 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:44.180Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "408bf9e4-4036-4198-88fa-db62dd2fdec8",
+  "details": {
+   "ref": "#8-1",
+   "field": "etd",
+   "from": null,
+   "to": "2026-07-15",
+   "source": "CI XP2652101260 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:44.229Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "408bf9e4-4036-4198-88fa-db62dd2fdec8",
+  "details": {
+   "ref": "#8-1",
+   "field": "grossWeightMt",
+   "from": null,
+   "to": "263.48",
+   "source": "CI XP2652101260 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:44.275Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "408bf9e4-4036-4198-88fa-db62dd2fdec8",
+  "details": {
+   "ref": "#8-1",
+   "field": "totalBundles",
+   "from": null,
+   "to": "103",
+   "source": "CI XP2652101260 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:44.437Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "408bf9e4-4036-4198-88fa-db62dd2fdec8",
+  "details": {
+   "ref": "#8-1",
+   "field": "ciNumber",
+   "from": null,
+   "to": "XP2652101260",
+   "source": "CI XP2652101260 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:44.494Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "408bf9e4-4036-4198-88fa-db62dd2fdec8",
+  "details": {
+   "ref": "#8-1",
+   "field": "ciAmount",
+   "from": null,
+   "to": "1053773.49",
+   "source": "CI XP2652101260 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:44.563Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "408bf9e4-4036-4198-88fa-db62dd2fdec8",
+  "details": {
+   "ref": "#8-1",
+   "field": "portOfLoading",
+   "from": null,
+   "to": "VISAKHAPATNAM PORT, INDIA",
+   "source": "CI XP2652101260 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:48.116Z",
+  "action": "CREATE",
+  "resource": "shipment",
+  "resourceId": "3ac81156-57a4-4cf2-bdbd-f768b0192213",
+  "details": {
+   "ref": "#9-1",
+   "blNumber": "MEDURQ949170",
+   "vessel": "MSC ANIELLO",
+   "voyageNo": "HI631A",
+   "etd": null,
+   "netWeightMt": 20.296,
+   "grossWeightMt": 20.464,
+   "totalBundles": 8,
+   "totalPieces": null,
+   "ciNumber": null,
+   "ciAmount": null,
+   "portOfLoading": null,
+   "portOfDischarge": "YOKOHAMA, JAPAN",
+   "deliveryMonth": "2026-08",
+   "eta": "2026-07-30T00:00:00.000Z",
+   "status": "COMPLETED",
+   "stepsDone": 10,
+   "source": "MSC arrival notice MEDURQ949170 (ETA 7/30/2026, NW 20,296 kg, GW 20,464 kg, 8 bundles)",
+   "go": "owner, round AO item 4"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:57.154Z",
+  "action": "CREATE",
+  "resource": "trade-order",
+  "resourceId": "acce2335-a6e2-4ae0-b376-88e28c6049f0",
+  "details": {
+   "ref": "#30",
+   "customer": "KATO",
+   "grade": "1070",
+   "size": "203 MM X 5800 MM",
+   "qtyMt": 2.03,
+   "qtySource": "shipped (trial, no PI)",
+   "shipMonth": "2024-03",
+   "deliveryMonth": "2024-04",
+   "pi": null,
+   "customerPoNo": null,
+   "clientPremium": null,
+   "status": "COMPLETED",
+   "stepsDone": 4,
+   "go": "owner, round AO item 5"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:57.167Z",
+  "action": "CREATE",
+  "resource": "shipment",
+  "resourceId": "50e3fb9a-2d99-4ac0-8e58-f009f8089a55",
+  "details": {
+   "ref": "#30-1",
+   "blNumber": "JJCVZNGMNC401842",
+   "vessel": "INTERASIA MOMENTUM",
+   "voyageNo": "E043",
+   "etd": "2024-03-30T00:00:00.000Z",
+   "netWeightMt": 2.03,
+   "grossWeightMt": 2.04,
+   "totalBundles": 1,
+   "totalPieces": 4,
+   "ciNumber": "XP2332100419",
+   "ciAmount": 6252.4,
+   "portOfLoading": "VISAKHAPATNAM PORT, INDIA",
+   "portOfDischarge": "NAGOYA, JAPAN",
+   "status": "COMPLETED",
+   "stepsDone": 10,
+   "source": "CI XP2332100419 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:57.826Z",
+  "action": "CREATE",
+  "resource": "trade-order",
+  "resourceId": "be8a2dcb-3dce-4183-9ebb-c2ffde5d997e",
+  "details": {
+   "ref": "#31",
+   "customer": "HOEI",
+   "grade": "P1020",
+   "size": "ingot",
+   "qtyMt": 25,
+   "qtySource": "PI 9331002708",
+   "shipMonth": "2024-06",
+   "deliveryMonth": "2024-07",
+   "pi": {
+    "no": "9331002708",
+    "date": "2024-05-31",
+    "amount": 68258.75
+   },
+   "customerPoNo": "PO2405044",
+   "clientPremium": {
+    "v": 85,
+    "src": "請求書_Thailand_Vedanta_202407.pdf (\"プレミアムベース85\")"
+   },
+   "status": "COMPLETED",
+   "stepsDone": 4,
+   "go": "owner, round AO item 5"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:57.838Z",
+  "action": "CREATE",
+  "resource": "shipment",
+  "resourceId": "78b2d9c3-4c46-4e4f-abd0-134d0520a9ba",
+  "details": {
+   "ref": "#31-1",
+   "blNumber": "SITGVZLC000319",
+   "vessel": "ZHONG GU BEI JING",
+   "voyageNo": "24005E",
+   "etd": "2024-07-01T00:00:00.000Z",
+   "netWeightMt": 24.458,
+   "grossWeightMt": 24.458,
+   "totalBundles": 25,
+   "totalPieces": null,
+   "ciNumber": "XP2452100908",
+   "ciAmount": 65200.14,
+   "portOfLoading": null,
+   "portOfDischarge": "LAEM CHABANG, THAILAND",
+   "status": "COMPLETED",
+   "stepsDone": 10,
+   "source": "CI XP2452100908 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:58.509Z",
+  "action": "CREATE",
+  "resource": "trade-order",
+  "resourceId": "58abdb58-d42f-48d2-ad6b-e4d775cffc51",
+  "details": {
+   "ref": "#32",
+   "customer": "HOEI",
+   "grade": "P1020",
+   "size": "ingot",
+   "qtyMt": 50,
+   "qtySource": "contract 454002801 (50 MT)",
+   "shipMonth": "2025-04",
+   "deliveryMonth": null,
+   "pi": null,
+   "customerPoNo": "PO2503036",
+   "clientPremium": null,
+   "status": "COMPLETED",
+   "stepsDone": 4,
+   "go": "owner, round AO item 5"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:58.524Z",
+  "action": "CREATE",
+  "resource": "shipment",
+  "resourceId": "63d83936-6945-4976-81fe-76e45096356a",
+  "details": {
+   "ref": "#32-1",
+   "blNumber": "252366442",
+   "vessel": "MARINA VOYAGER",
+   "voyageNo": "516E",
+   "etd": "2025-04-20T00:00:00.000Z",
+   "netWeightMt": 49.971,
+   "grossWeightMt": 49.971,
+   "totalBundles": 50,
+   "totalPieces": null,
+   "ciNumber": "XP2552100058",
+   "ciAmount": 128088.17,
+   "portOfLoading": null,
+   "portOfDischarge": "LAEM CHABANG, THAILAND",
+   "status": "COMPLETED",
+   "stepsDone": 10,
+   "source": "CI XP2552100058 (final copy \"Asia Deal49.971.pdf\")"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:59.137Z",
+  "action": "CREATE",
+  "resource": "trade-order",
+  "resourceId": "62830ea3-ca51-40b0-a868-180104078dac",
+  "details": {
+   "ref": "#33",
+   "customer": "KATO",
+   "grade": "6061",
+   "size": "203 MM X 5800 MM",
+   "qtyMt": 5,
+   "qtySource": "PI 9331003291",
+   "shipMonth": "2025-05",
+   "deliveryMonth": "2025-06",
+   "pi": {
+    "no": "9331003291",
+    "date": "2025-05-02",
+    "amount": 14307.5
+   },
+   "customerPoNo": null,
+   "clientPremium": {
+    "v": 350,
+    "src": "請求書正式ビレット_加藤軽金属_202506r.pdf (\"350(Billet Premium)\")"
+   },
+   "status": "COMPLETED",
+   "stepsDone": 4,
+   "go": "owner, round AO item 5"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:59.150Z",
+  "action": "CREATE",
+  "resource": "shipment",
+  "resourceId": "393ae98f-4ecc-4156-a279-d68bc4bde7d6",
+  "details": {
+   "ref": "#33-1",
+   "blNumber": "198FX01656",
+   "vessel": "WAN HAI 361",
+   "voyageNo": "E023",
+   "etd": "2025-05-16T00:00:00.000Z",
+   "netWeightMt": 5.106,
+   "grossWeightMt": 5.126,
+   "totalBundles": 2,
+   "totalPieces": null,
+   "ciNumber": "XP2552100395",
+   "ciAmount": null,
+   "portOfLoading": null,
+   "portOfDischarge": "NAGOYA, JAPAN",
+   "status": "COMPLETED",
+   "stepsDone": 10,
+   "source": "CI XP2552100395 (provisional) / COO"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:59.702Z",
+  "action": "CREATE",
+  "resource": "trade-order",
+  "resourceId": "0ace2ecb-6587-4df0-9aa5-992ca75a7e7b",
+  "details": {
+   "ref": "#34",
+   "customer": "HOEI",
+   "grade": "P1020",
+   "size": "ingot",
+   "qtyMt": 75,
+   "qtySource": "contract 454002897 / folder \"75トン\"",
+   "shipMonth": "2025-06",
+   "deliveryMonth": null,
+   "pi": null,
+   "customerPoNo": "PO2505052",
+   "clientPremium": null,
+   "status": "COMPLETED",
+   "stepsDone": 4,
+   "go": "owner, round AO item 5"
+  }
+ },
+ {
+  "at": "2026-10-26T12:12:59.717Z",
+  "action": "CREATE",
+  "resource": "shipment",
+  "resourceId": "d8c071b6-1438-4695-ade6-ce59c4d476db",
+  "details": {
+   "ref": "#34-1",
+   "blNumber": "VKTCB25000562",
+   "vessel": "BHUDTHI BHUM",
+   "voyageNo": "027E",
+   "etd": "2025-06-24T00:00:00.000Z",
+   "netWeightMt": 72.945,
+   "grossWeightMt": null,
+   "totalBundles": 75,
+   "totalPieces": null,
+   "ciNumber": "XP2552100819",
+   "ciAmount": 196840.62,
+   "portOfLoading": null,
+   "portOfDischarge": "LAEM CHABANG, THAILAND",
+   "status": "COMPLETED",
+   "stepsDone": 10,
+   "source": "CI XP2552100819 (final copy \"Asia Deal 72.945.pdf\")"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:00.365Z",
+  "action": "CREATE",
+  "resource": "trade-order",
+  "resourceId": "56822f94-05ca-484e-8116-d783620864a4",
+  "details": {
+   "ref": "#35",
+   "customer": "KATO",
+   "grade": "1070",
+   "size": "203 MM X 5800 MM",
+   "qtyMt": 20,
+   "qtySource": "PI 9221033941",
+   "shipMonth": "2025-08",
+   "deliveryMonth": "2025-09",
+   "pi": {
+    "no": "9221033941",
+    "date": "2025-08-05",
+    "amount": 56200
+   },
+   "customerPoNo": null,
+   "clientPremium": {
+    "v": 190,
+    "src": "請求書正式ビレット_加藤軽金属_202509_1.pdf (\"190(Billet Premium)\")"
+   },
+   "status": "COMPLETED",
+   "stepsDone": 4,
+   "go": "owner, round AO item 5"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:00.382Z",
+  "action": "CREATE",
+  "resource": "shipment",
+  "resourceId": "d8fb6ed7-ed6e-4217-a22e-b6f85231abb4",
+  "details": {
+   "ref": "#35-1",
+   "blNumber": "SITGHANG000989",
+   "vessel": "SITC SHUNDE",
+   "voyageNo": "V.2515N",
+   "etd": "2025-08-31T00:00:00.000Z",
+   "netWeightMt": 20.264,
+   "grossWeightMt": 20.344,
+   "totalBundles": 8,
+   "totalPieces": null,
+   "ciNumber": "XP2532100057",
+   "ciAmount": 57935.38,
+   "portOfLoading": null,
+   "portOfDischarge": "NAGOYA, JAPAN",
+   "status": "COMPLETED",
+   "stepsDone": 10,
+   "source": "CI XP2532100057 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:00.931Z",
+  "action": "CREATE",
+  "resource": "trade-order",
+  "resourceId": "247cbb89-50c6-4ae4-985b-a48e00713601",
+  "details": {
+   "ref": "#36",
+   "customer": "HOEI",
+   "grade": "P1020",
+   "size": "ingot",
+   "qtyMt": 100,
+   "qtySource": "contract 454003024 (100 MT)",
+   "shipMonth": "2025-08",
+   "deliveryMonth": "2025-09",
+   "pi": null,
+   "customerPoNo": null,
+   "clientPremium": null,
+   "status": "COMPLETED",
+   "stepsDone": 4,
+   "go": "owner, round AO item 5"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:00.944Z",
+  "action": "CREATE",
+  "resource": "shipment",
+  "resourceId": "91fd9046-80f5-4e95-94af-37e532e747e0",
+  "details": {
+   "ref": "#36-1",
+   "blNumber": "258823206",
+   "vessel": "MARINA VOYAGER",
+   "voyageNo": "536E",
+   "etd": "2025-09-08T00:00:00.000Z",
+   "netWeightMt": 98.613,
+   "grossWeightMt": 98.613,
+   "totalBundles": 100,
+   "totalPieces": null,
+   "ciNumber": "XP2552101868",
+   "ciAmount": 266507.55,
+   "portOfLoading": null,
+   "portOfDischarge": "LAEM CHABANG, THAILAND",
+   "status": "COMPLETED",
+   "stepsDone": 10,
+   "source": "CI XP2552101868 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:01.545Z",
+  "action": "CREATE",
+  "resource": "trade-order",
+  "resourceId": "d5e07b78-8236-4fd2-a0c5-3cf56fce44fe",
+  "details": {
+   "ref": "#37",
+   "customer": "KATO",
+   "grade": "6005",
+   "size": "203 MM X 5800 MM",
+   "qtyMt": 44,
+   "qtySource": "PI 9331003752",
+   "shipMonth": "2025-12",
+   "deliveryMonth": "2026-02",
+   "pi": {
+    "no": "9331003752",
+    "date": "2025-12-05",
+    "amount": 137043.72
+   },
+   "customerPoNo": null,
+   "clientPremium": {
+    "v": 195,
+    "src": "請求書正式ビレット_加藤軽金属_202601 - Rev.pdf (\"195(Billet Premium)\")"
+   },
+   "status": "COMPLETED",
+   "stepsDone": 4,
+   "go": "owner, round AO item 5"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:01.563Z",
+  "action": "CREATE",
+  "resource": "shipment",
+  "resourceId": "97d5d7da-8431-478a-8987-f2e30a478ca8",
+  "details": {
+   "ref": "#37-1",
+   "blNumber": "SITGHANG001633",
+   "vessel": "SITC PORT KLANG",
+   "voyageNo": "V.2515N",
+   "etd": "2026-01-07T00:00:00.000Z",
+   "netWeightMt": 40.854,
+   "grossWeightMt": 41.014,
+   "totalBundles": 16,
+   "totalPieces": null,
+   "ciNumber": "XP2552103352",
+   "ciAmount": 128013.97,
+   "portOfLoading": null,
+   "portOfDischarge": "NAGOYA, JAPAN",
+   "status": "COMPLETED",
+   "stepsDone": 10,
+   "source": "CI XP2552103352 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:02.175Z",
+  "action": "CREATE",
+  "resource": "trade-order",
+  "resourceId": "16c1e9a2-c7bc-45ff-b41c-e45bee34988b",
+  "details": {
+   "ref": "#38",
+   "customer": "SUS",
+   "grade": "6005",
+   "size": "203 MM X 5800 MM",
+   "qtyMt": 61.295,
+   "qtySource": "shipped (no PI in the Drive)",
+   "shipMonth": "2026-01",
+   "deliveryMonth": "2026-03",
+   "pi": null,
+   "customerPoNo": null,
+   "clientPremium": null,
+   "status": "COMPLETED",
+   "stepsDone": 5,
+   "go": "owner, round AO item 5"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:02.188Z",
+  "action": "CREATE",
+  "resource": "shipment",
+  "resourceId": "fe2d1896-0827-4ebc-aa84-2c52cf39a964",
+  "details": {
+   "ref": "#38-1",
+   "blNumber": "198GX00409",
+   "vessel": "EVER BRAVE",
+   "voyageNo": "096E",
+   "etd": "2026-02-06T00:00:00.000Z",
+   "netWeightMt": 61.295,
+   "grossWeightMt": 61.535,
+   "totalBundles": 24,
+   "totalPieces": null,
+   "ciNumber": "XP2552103786",
+   "ciAmount": 214863.49,
+   "portOfLoading": null,
+   "portOfDischarge": "YOKOHAMA, JAPAN",
+   "status": "COMPLETED",
+   "stepsDone": 10,
+   "source": "CI XP2552103786 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:02.733Z",
+  "action": "CREATE",
+  "resource": "trade-order",
+  "resourceId": "ed536b5b-8814-4198-9fac-07570c460c21",
+  "details": {
+   "ref": "#39",
+   "customer": "KATO",
+   "grade": "6063 HSB",
+   "size": "152 MM X 5800 MM",
+   "qtyMt": 22,
+   "qtySource": "PI 9331003961",
+   "shipMonth": "2026-04",
+   "deliveryMonth": "2026-06",
+   "pi": {
+    "no": "9331003961",
+    "date": "2026-04-15",
+    "amount": 90891.68
+   },
+   "customerPoNo": null,
+   "clientPremium": {
+    "v": 230,
+    "src": "請求書正式ビレット_加藤軽金属様6063‗22t_202605.pdf (\"Billet Premium 230\")"
+   },
+   "status": "COMPLETED",
+   "stepsDone": 4,
+   "go": "owner, round AO item 5"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:02.744Z",
+  "action": "CREATE",
+  "resource": "shipment",
+  "resourceId": "9ec4fc62-6f03-46df-b5be-490d3524e4c6",
+  "details": {
+   "ref": "#39-1",
+   "blNumber": "270182906",
+   "vessel": "ZEBRA",
+   "voyageNo": "619E",
+   "etd": "2026-05-10T00:00:00.000Z",
+   "netWeightMt": 20.536,
+   "grossWeightMt": 20.656,
+   "totalBundles": 12,
+   "totalPieces": null,
+   "ciNumber": "XP2652100381",
+   "ciAmount": 85576.18,
+   "portOfLoading": null,
+   "portOfDischarge": "NAGOYA, JAPAN",
+   "status": "COMPLETED",
+   "stepsDone": 10,
+   "source": "CI XP2652100381 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:03.244Z",
+  "action": "CREATE",
+  "resource": "trade-order",
+  "resourceId": "3c6cd503-a692-49f0-9766-4692b53129a0",
+  "details": {
+   "ref": "#40",
+   "customer": "HOEI",
+   "grade": "P0507",
+   "size": "ingot",
+   "qtyMt": 100,
+   "qtySource": "PI 9331004092",
+   "shipMonth": "2026-06",
+   "deliveryMonth": "2026-07",
+   "pi": {
+    "no": "9331004092",
+    "date": "2026-06-12",
+    "amount": 404400
+   },
+   "customerPoNo": "PO2606036",
+   "clientPremium": {
+    "v": 60,
+    "src": "請求書_豊栄メタルThailand様_P1020_99.354T_202606-07修正版.pdf (\"+ 60 プレミアムベース\", paid 17 Jul)"
+   },
+   "status": "COMPLETED",
+   "stepsDone": 4,
+   "go": "owner, round AO item 5"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:03.258Z",
+  "action": "CREATE",
+  "resource": "shipment",
+  "resourceId": "29e16aef-6b8b-4854-97d4-9550beb03797",
+  "details": {
+   "ref": "#40-1",
+   "blNumber": "KMTCVTG0066779",
+   "vessel": "XIN TAIN JIN",
+   "voyageNo": "108E",
+   "etd": "2026-07-12T00:00:00.000Z",
+   "netWeightMt": 99.354,
+   "grossWeightMt": 99.354,
+   "totalBundles": 100,
+   "totalPieces": null,
+   "ciNumber": "XP2652101288",
+   "ciAmount": 361354.47,
+   "portOfLoading": null,
+   "portOfDischarge": "LAEM CHABANG, THAILAND",
+   "status": "COMPLETED",
+   "stepsDone": 10,
+   "source": "CI XP2652101288 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:06.545Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "520924fc-f283-4a62-b6a0-76c89ff485b3",
+  "details": {
+   "ref": "#1-1",
+   "field": "etd",
+   "from": null,
+   "to": "2026-03-05",
+   "source": "CI XP2552104249 BL Date"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:06.621Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "88b950ef-e0ec-4a86-988e-b9c2a883e16b",
+  "details": {
+   "ref": "#3-1",
+   "field": "etd",
+   "from": null,
+   "to": "2026-04-25",
+   "source": "B/L KMTCVTG0060509 Shipped On Board Apr.25,2026"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:06.702Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "f51b52dc-c6b6-47e4-a3fa-ba35b5cc92fa",
+  "details": {
+   "ref": "#4-1",
+   "field": "etd",
+   "from": null,
+   "to": "2026-05-08",
+   "source": "COO XP2652100377 (B/L KMTCVTG0069547) date"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:06.777Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "601e57bb-3e06-45b6-8d69-2316bb1a1616",
+  "details": {
+   "ref": "#5-1",
+   "field": "etd",
+   "from": null,
+   "to": "2026-05-29",
+   "source": "CI XP2652100546 BL Date"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:06.850Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "8e89e6f3-c562-47d8-a7b0-989c9c106a55",
+  "details": {
+   "ref": "#6-1",
+   "field": "etd",
+   "from": null,
+   "to": "2026-06-13",
+   "source": "CI XP2652100827 BL Date"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:06.921Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "492151fd-4457-4f33-a98a-9d0b5abbf66f",
+  "details": {
+   "ref": "#7-1",
+   "field": "etd",
+   "from": null,
+   "to": "2026-07-07",
+   "source": "CI XP2652101117 BL Date"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:06.998Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "491fa3c2-c250-49d0-9318-2433d44ac175",
+  "details": {
+   "ref": "#17-1",
+   "field": "etd",
+   "from": null,
+   "to": "2026-08-24",
+   "source": "CI XP2652101870 BL Date"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:07.074Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "c55a56be-f768-401a-ad7e-2b70a29777b3",
+  "details": {
+   "ref": "#18-2",
+   "field": "etd",
+   "from": null,
+   "to": "2026-10-06",
+   "source": "CI XP2652102549 BL Date"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:07.150Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "0ae0602f-dea1-4496-84b4-5e10d21e8da5",
+  "details": {
+   "ref": "#18-3",
+   "field": "etd",
+   "from": null,
+   "to": "2026-10-06",
+   "source": "CI XP2652102548 BL Date"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:07.227Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "fa451c19-eb79-4bc0-b3ab-8644c6eaae00",
+  "details": {
+   "ref": "#19-1",
+   "field": "etd",
+   "from": null,
+   "to": "2026-10-06",
+   "source": "CI XP2652102551 BL Date"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:07.304Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "1c960d3a-35ff-4197-8ceb-7196fa92cde3",
+  "details": {
+   "ref": "#19-2",
+   "field": "etd",
+   "from": null,
+   "to": "2026-10-06",
+   "source": "CI XP2652102550 BL Date"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:10.549Z",
+  "action": "UPDATE",
+  "resource": "supplier-order",
+  "resourceId": "9b77af51-300c-4746-8bb1-76a454b7f94d",
+  "details": {
+   "ref": "S10",
+   "field": "piAmount",
+   "from": null,
+   "to": "156672",
+   "source": "PI 9331004266 line 40 t × 3916.8 = 156672"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:10.610Z",
+  "action": "UPDATE",
+  "resource": "trade-order",
+  "resourceId": "608eff42-e44a-410d-8f11-83c4f56130fe",
+  "details": {
+   "ref": "#20",
+   "field": "piAmount",
+   "from": null,
+   "to": "156672",
+   "source": "PI 9331004266 line 40 t × 3916.8 = 156672"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:10.675Z",
+  "action": "UPDATE",
+  "resource": "supplier-order",
+  "resourceId": "3eb9611e-4773-4339-8d80-22e403216184",
+  "details": {
+   "ref": "S11",
+   "field": "piAmount",
+   "from": null,
+   "to": "125401.6",
+   "source": "PI 9331004266 line 32 t × 3918.8 = 125401.6"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:10.740Z",
+  "action": "UPDATE",
+  "resource": "trade-order",
+  "resourceId": "e18d892c-6ec8-4575-9da5-aeff71d7b2d3",
+  "details": {
+   "ref": "#21",
+   "field": "piAmount",
+   "from": null,
+   "to": "125401.6",
+   "source": "PI 9331004266 line 32 t × 3918.8 = 125401.6"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:10.801Z",
+  "action": "UPDATE",
+  "resource": "supplier-order",
+  "resourceId": "a8ca6722-e761-4d32-b2bb-cbcee21d3293",
+  "details": {
+   "ref": "S12",
+   "field": "piAmount",
+   "from": null,
+   "to": "155672",
+   "source": "PI 9331004266 line 40 t × 3891.8 = 155672"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:10.865Z",
+  "action": "UPDATE",
+  "resource": "trade-order",
+  "resourceId": "6129c1c4-d41a-46f1-a5a7-44ee881e412c",
+  "details": {
+   "ref": "#22",
+   "field": "piAmount",
+   "from": null,
+   "to": "155672",
+   "source": "PI 9331004266 line 40 t × 3891.8 = 155672"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:10.924Z",
+  "action": "UPDATE",
+  "resource": "supplier-order",
+  "resourceId": "d92c4dc2-7634-4c54-bb03-5e74ca66f2d5",
+  "details": {
+   "ref": "S15",
+   "field": "piAmount",
+   "from": null,
+   "to": "158201.6",
+   "source": "PI 9331004320 line 40 t × 3955.04 = 158201.6"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:10.982Z",
+  "action": "UPDATE",
+  "resource": "trade-order",
+  "resourceId": "759a72ab-aeb2-4b27-8406-4fa26607901b",
+  "details": {
+   "ref": "#25",
+   "field": "piAmount",
+   "from": null,
+   "to": "158201.6",
+   "source": "PI 9331004320 line 40 t × 3955.04 = 158201.6"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:11.042Z",
+  "action": "UPDATE",
+  "resource": "supplier-order",
+  "resourceId": "94f5236a-448e-4a42-b02d-6f927c912936",
+  "details": {
+   "ref": "S16",
+   "field": "piAmount",
+   "from": null,
+   "to": "157201.6",
+   "source": "PI 9331004320 line 40 t × 3930.04 = 157201.6"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:11.107Z",
+  "action": "UPDATE",
+  "resource": "trade-order",
+  "resourceId": "51566dcc-f4bf-4b04-b3e6-7d97e6e72890",
+  "details": {
+   "ref": "#26",
+   "field": "piAmount",
+   "from": null,
+   "to": "157201.6",
+   "source": "PI 9331004320 line 40 t × 3930.04 = 157201.6"
+  }
+ },
+ {
+  "at": "2026-10-26T12:13:14.405Z",
+  "action": "UPDATE",
+  "resource": "customer-profile",
+  "resourceId": "8ebdc67b-224a-4f30-ac5c-929b4f17fd78",
+  "details": {
+   "port": {
+    "from": "Nagoya",
+    "to": "Laem Chabang"
+   },
+   "defaultBankId": {
+    "from": "dbs",
+    "to": "cfsb"
+   },
+   "docVariants": {
+    "from": {
+     "INVOICE": "INVOICE_SINGLE",
+     "CUSTOMER_PL": "CUSTOMER_PL_HOEI",
+     "CUSTOMER_COA": "CUSTOMER_COA_HOEI"
+    },
+    "to": {
+     "INVOICE": "INVOICE_SINGLE_HOEI_USD",
+     "CUSTOMER_PL": "CUSTOMER_PL_AS_RECEIVED",
+     "CUSTOMER_COA": "CUSTOMER_COA_AS_RECEIVED",
+     "SGJP_IV_PL": "SGJP_IV_PL_HOEI"
+    }
+   },
+   "partyBlocks": "set (Hoei / ISEWAN)",
+   "go": "owner, round AO item 7"
+  }
+ }
+]

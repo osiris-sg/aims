@@ -4,7 +4,7 @@
  * check against ADH's real files is scripts/_am-sus-verify.ts (0 differences on the 305.804 t shipment).
  */
 import * as ExcelJS from 'exceljs';
-import { buildSusCoaSummary, buildSusPackingList, renderSusCoaHtml, splitBatch, SusFormatError, susPackingListXlsx } from './trade-sus-formats';
+import { buildSusCoaSummary, buildSusPackingList, mergeSusCoaParts, plSheetName, renderSusCoaHtml, renderSusPlHtml, splitBatch, SUS_COA_FOOTER, SUS_COA_SIGN_BLOCK, SusFormatError, susLotPackingRows, susPackingListXlsx } from './trade-sus-formats';
 import { parseCoaPdfText } from './trade-coa';
 import { CUSTOMER_DOC_TEMPLATES, mergeProfiles, templateKeyFor, profileFor } from './trade-profile';
 
@@ -51,6 +51,60 @@ describe('SUS COA_集計ファイル', () => {
     expect(body).toContain('XP2652101334');
     expect(body).toContain('10.195');
     expect(body).not.toContain('ELECTRONICALLY SIGNED');
+  });
+  it("round AO: prints Vedanta's e-signature lines (as ADH's summaries) and totals with three decimals", () => {
+    const r = buildSusCoaSummary(COA, { piecesPerBundle: 5 });
+    const { body } = renderSusCoaHtml({ date: '2026-07-22', footer: SUS_COA_FOOTER, signBlock: SUS_COA_SIGN_BLOCK }, r.columns, r.rows);
+    expect(body).toContain('IT IS ELECTRONICALLY SIGNED DOCUMENT HENCE NOT REQUIRED PHYSICALLYSIGNED. SAME');
+    expect(body).toContain('FOR VEDANTA ALUMINIUM METAL LIMITED');
+    expect(body).toContain('(SEZ Unit)');
+    expect(body).toContain('10.195');
+    expect(body).not.toMatch(/<img|logo/i);
+  });
+});
+
+describe('round AO: SUS lot of several B/Ls', () => {
+  // Two B/Ls sharing cast 265C1132 (as Sep 6005's 265C1552 on 198GX06322 + 198GX06516).
+  const COA2 = { headers: COA_HEAD, rows: [coaRow('265C113207', '2.550', '2.560', chem6063), coaRow('266C113901', '2.551', '2.561', chemB)] };
+  it('one COA summary: a shared cast summed, a date per group of casts, every invoice no. in number order', () => {
+    const a = buildSusCoaSummary(COA, { piecesPerBundle: 5 });
+    const b = buildSusCoaSummary(COA2, { piecesPerBundle: 5 });
+    const m = mergeSusCoaParts([
+      { blNumber: '198GX06322', date: '2026-09-26', invoiceNo: 'XP2652102549', rows: a.rows },
+      { blNumber: '198GX06516', date: '2026-10-06', invoiceNo: 'XP2652102340', rows: b.rows },
+    ]);
+    expect(m.rows.map((r) => [r.batch, r.netwt, r.grosswt, r.bundles, r.pieces, r.fe])).toEqual([
+      ['265C1132', 7.648, 7.678, 3, 15, '0.1400'],
+      ['265C1134', 5.097, 5.117, 2, 10, '0.1600'],
+      ['266C1139', 2.551, 2.561, 1, 5, '0.1600'],
+    ]);
+    expect(m.dateLine).toBe('26/09/2026(265C1132,265C1134), 06/10/2026(266C1139)');
+    expect(m.date).toBe('2026-09-26');
+    expect(m.invoiceNo).toBe('XP2652102340, XP2652102549');
+    expect(m.notes[0]).toContain('265C1132 (198GX06322 + 198GX06516)');
+    const { body } = renderSusCoaHtml({ date: m.date, dateLine: m.dateLine, invoiceNo: m.invoiceNo }, a.columns, m.rows);
+    expect(body).toContain('26/09/2026(265C1132,265C1134), 06/10/2026(266C1139)');
+    expect(body).toContain('15.296');
+  });
+  it('one PACKING LIST workbook with a sheet per B/L named by its tonnage, numbered per sheet', async () => {
+    const one = buildSusPackingList(PL).rows;
+    const two = buildSusPackingList({ ...PL, rows: PL.rows.slice(0, 2) }).rows;
+    const rows = susLotPackingRows([{ blNumber: '198GX06522', rows: one }, { blNumber: '198GX06523', rows: two }]);
+    expect(plSheetName(one)).toBe('PL7.646T');
+    expect([...new Set(rows.map((r) => r.sheet))]).toEqual(['PL7.646T', 'PL5.098T']);
+    expect(rows.filter((r) => r.sheet === 'PL5.098T').map((r) => r.no)).toEqual([1, 2]);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load((await susPackingListXlsx(rows)) as any);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['PL7.646T', 'PL5.098T']);
+    const ws = wb.getWorksheet('PL5.098T')!;
+    expect(ws.getRow(1).values).toEqual([undefined, 'Sl. No.', 'Batch', 'Batch', 'Bundle No', 'Net Wt.', 'Gross Wt.', 'Container ID']);
+    expect([ws.getCell('E4').value, ws.getCell('F4').value, ws.getCell('G4').value]).toEqual([5.098, 5.118, 'Sub Total']);
+    expect(renderSusPlHtml('PACKING LIST', rows).body).toContain('Sheet PL5.098T · B/L 198GX06523');
+  });
+  it('a single B/L keeps the one-sheet "PL" workbook', async () => {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load((await susPackingListXlsx(buildSusPackingList(PL).rows)) as any);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['PL']);
   });
 });
 
