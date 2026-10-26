@@ -45,7 +45,7 @@ export class TradePriceCheckService {
         shipMonth: true,
         supplierPremium: true,
         contract: { select: { premiumSchedule: true, qmjpRule: true, lines: true } },
-        fileLinks: { select: { fileId: true, file: { select: { docType: true } } } },
+        fileLinks: { where: { hiddenAt: null }, select: { fileId: true, file: { select: { docType: true } } } },
       },
     });
     if (!o) throw new NotFoundException('Order not found');
@@ -82,7 +82,7 @@ export class TradePriceCheckService {
         supplierPremium: true,
         provisionalPricePerMt: true,
         contract: { select: { premiumSchedule: true, qmjpRule: true, lines: true } },
-        fileLinks: { select: { fileId: true, file: { select: { docType: true } } } },
+        fileLinks: { where: { hiddenAt: null }, select: { fileId: true, file: { select: { docType: true } } } },
       },
     });
     if (!so) throw new NotFoundException('Supplier order not found');

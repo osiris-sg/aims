@@ -4119,6 +4119,9 @@ model TradeFileLink {
   orderId         String?  @db.Uuid
   supplierOrderId String?  @db.Uuid
   stepId          String?  @db.Uuid
+  /// Round AO: hidden (placeholder / superseded file) — kept, never deleted; reads and step checks skip it.
+  hiddenAt        DateTime?
+  hiddenReason    String?
   createdAt       DateTime @default(now())
 
   file          TradeFile      @relation(fields: [fileId], references: [id], onDelete: Cascade)

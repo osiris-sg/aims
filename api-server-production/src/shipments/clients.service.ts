@@ -155,7 +155,7 @@ export class ClientsService {
         customer: { select: { id: true, name: true } },
         supplier: { select: { id: true, name: true } },
         lines: { orderBy: { sortOrder: 'asc' }, select: { id: true, grade: true, sizeSpec: true, quantityMt: true, supplierPremium: true, clientPremium: true, upcharge: true } },
-        fileLinks: { select: { file: { select: { id: true, docType: true, fileName: true, docRef: true, mimeType: true } } } },
+        fileLinks: { where: { hiddenAt: null }, select: { file: { select: { id: true, docType: true, fileName: true, docRef: true, mimeType: true } } } },
         _count: { select: { orders: true } },
       },
     });
@@ -390,7 +390,7 @@ export class ClientsService {
       where: { organizationId, status: { not: 'CANCELLED' }, order: { customerId, isTest: false } },
       orderBy: [{ etd: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
       take: 40,
-      select: { id: true, seqNo: true, blNumber: true, order: { select: { orderNo: true } }, fileLinks: { select: { file: { select: { docType: true } } } } },
+      select: { id: true, seqNo: true, blNumber: true, order: { select: { orderNo: true } }, fileLinks: { where: { hiddenAt: null }, select: { file: { select: { docType: true } } } } },
     });
     return rows.map((s) => {
       const types = new Set(s.fileLinks.map((l: any) => l.file?.docType));

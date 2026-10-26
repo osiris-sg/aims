@@ -99,7 +99,7 @@ export class ContractsService {
           },
         },
         steps: { orderBy: { sortOrder: 'asc' }, select: STEP_SELECT },
-        fileLinks: { orderBy: { createdAt: 'desc' }, select: FILE_LINK_SELECT },
+        fileLinks: { where: { hiddenAt: null }, orderBy: { createdAt: 'desc' }, select: FILE_LINK_SELECT },
         docLinks: { orderBy: { createdAt: 'desc' }, select: DOC_LINK_SELECT },
         orders: {
           orderBy: [{ year: 'desc' }, { orderNo: 'desc' }],

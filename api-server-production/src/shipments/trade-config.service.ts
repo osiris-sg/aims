@@ -227,7 +227,7 @@ export class TradeConfigService {
     const where = ownerWhere(owner);
     const [files, docLinks]: [Array<{ file: { docType: string } }>, Array<{ docType: string; documentId: string }>] = await Promise.all([
       db.tradeFileLink.findMany({
-        where: { organizationId, ...where, ...(exclude.fileId ? { NOT: { fileId: exclude.fileId } } : {}) },
+        where: { organizationId, hiddenAt: null, ...where, ...(exclude.fileId ? { NOT: { fileId: exclude.fileId } } : {}) },
         select: { file: { select: { docType: true } } },
       }),
       db.tradeDocumentLink.findMany({
@@ -273,7 +273,7 @@ export class TradeConfigService {
     if (!ships.length) return [];
     const ids = ships.map((x) => x.id);
     const [files, docLinks]: [Array<{ shipmentId: string | null; file: { docType: string } }>, Array<{ shipmentId: string | null; docType: string; documentId: string }>] = await Promise.all([
-      db.tradeFileLink.findMany({ where: { organizationId, shipmentId: { in: ids }, file: { docType: { in: ORDER_INVOICE_TYPES } } }, select: { shipmentId: true, file: { select: { docType: true } } } }),
+      db.tradeFileLink.findMany({ where: { organizationId, hiddenAt: null, shipmentId: { in: ids }, file: { docType: { in: ORDER_INVOICE_TYPES } } }, select: { shipmentId: true, file: { select: { docType: true } } } }),
       db.tradeDocumentLink.findMany({ where: { organizationId, shipmentId: { in: ids }, docType: { in: ORDER_INVOICE_TYPES } }, select: { shipmentId: true, docType: true, documentId: true } }),
     ]);
     const live = await this.countableDocumentIds(

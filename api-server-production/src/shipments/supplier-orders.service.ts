@@ -86,7 +86,7 @@ export class SupplierOrdersService {
         supplier: { select: { id: true, name: true, supplierCode: true, currency: true } },
         contract: { select: { id: true, contractNo: true, status: true, qpBasis: true, premiumSchedule: true } },
         steps: { orderBy: { sortOrder: 'asc' }, select: STEP_SELECT },
-        fileLinks: { orderBy: { createdAt: 'desc' }, select: FILE_LINK_SELECT },
+        fileLinks: { where: { hiddenAt: null }, orderBy: { createdAt: 'desc' }, select: FILE_LINK_SELECT },
         customerOrders: {
           orderBy: { orderNo: 'asc' },
           select: {

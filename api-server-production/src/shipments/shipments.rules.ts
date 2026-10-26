@@ -176,7 +176,8 @@ export function sanitizeFileName(name: string): string {
 export function decodeUploadName(name: string): string {
   if (!name || /^[\x00-\x7f]*$/.test(name)) return name;
   const utf8 = Buffer.from(name, 'latin1').toString('utf8');
-  return utf8.includes('�') ? name : utf8;
+  // A real Unicode name (not multer's latin1 view of UTF-8) can decode to control characters, e.g. U+3000 → NUL.
+  return utf8.includes('�') || /[\x00-\x1f]/.test(utf8) ? name : utf8;
 }
 
 /**

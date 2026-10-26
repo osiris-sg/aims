@@ -203,7 +203,7 @@ export class TradeFilesService {
         deliveryMonth: true,
         contract: { select: { contractNo: true } },
         order: { select: { grade: true, size: true, deliveryMonth: true } },
-        fileLinks: { orderBy: { createdAt: 'asc' }, select: { file: { select: { id: true, s3Key: true, fileName: true, docType: true, docRef: true } } } },
+        fileLinks: { where: { hiddenAt: null }, orderBy: { createdAt: 'asc' }, select: { file: { select: { id: true, s3Key: true, fileName: true, docType: true, docRef: true } } } },
       },
     });
     if (!s) throw new NotFoundException('Shipment not found');

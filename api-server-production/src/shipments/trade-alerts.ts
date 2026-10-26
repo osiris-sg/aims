@@ -17,7 +17,7 @@
  *   STEP_STUCK    an open step unchanged for N days (setting, default 7)
  */
 
-import { BACKFILL_NOTE, IMPORT_NOTE } from './trade-open-orders';
+import { BACKFILL_NOTE, DRIVE_BACKFILL_NOTE, IMPORT_NOTE } from './trade-open-orders';
 
 export interface AlertRules {
   taxFundingDaysBefore: number;
@@ -142,7 +142,7 @@ export function receiptNotTracked(i: { orderStatus: string | null | undefined; s
   if (i.paid > 0) return false;
   if (i.orderStatus && i.orderStatus !== 'OPEN') return true;
   const note = i.stepSkipReason ?? '';
-  return note === importNote || note.startsWith(BACKFILL_NOTE);
+  return note === importNote || note.startsWith(BACKFILL_NOTE) || note.startsWith(DRIVE_BACKFILL_NOTE);
 }
 
 export interface DepositFacts {
