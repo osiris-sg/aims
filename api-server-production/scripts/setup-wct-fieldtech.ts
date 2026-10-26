@@ -29,6 +29,9 @@ const argVal = (k: string, d?: string) => {
 const ENV = (argVal('--env', 'dev') || 'dev') as Env;
 const APPLY = args.includes('--apply');
 const USERNAME = argVal('--username', 'sitejob_wct') as string;
+// Optional fixed password (e.g. --password password for testing). When set,
+// Clerk's strength / breach check is skipped so a weak one is accepted.
+const CUSTOM_PASSWORD = argVal('--password');
 loadEnv(ENV);
 
 // 16 chars, mixed case + digits + symbol — easy to type once (same shape as
@@ -58,12 +61,19 @@ async function main() {
     let tempPassword: string | null = null;
 
     if (clerkUser) {
-      console.log(`  clerk      exists ${clerkUser.id} (password unchanged)`);
+      // Existing user: set the custom password if one was asked for, else leave it.
+      if (CUSTOM_PASSWORD && APPLY) {
+        await clerk.users.updateUser(clerkUser.id, { password: CUSTOM_PASSWORD, skipPasswordChecks: true });
+        tempPassword = CUSTOM_PASSWORD;
+        console.log(`  clerk      exists ${clerkUser.id} — password reset to the one provided`);
+      } else {
+        console.log(`  clerk      exists ${clerkUser.id} (password unchanged)`);
+      }
     } else if (!APPLY) {
-      console.log(`  clerk      would CREATE username "${USERNAME}" with a generated password`);
+      console.log(`  clerk      would CREATE username "${USERNAME}" with ${CUSTOM_PASSWORD ? 'the provided password' : 'a generated password'}`);
     } else {
-      tempPassword = genPassword();
-      clerkUser = await clerk.users.createUser({ username: USERNAME, password: tempPassword, skipPasswordChecks: false, skipPasswordRequirement: false });
+      tempPassword = CUSTOM_PASSWORD || genPassword();
+      clerkUser = await clerk.users.createUser({ username: USERNAME, password: tempPassword, skipPasswordChecks: !!CUSTOM_PASSWORD, skipPasswordRequirement: false });
       console.log(`  clerk      created ${clerkUser.id}`);
     }
 
