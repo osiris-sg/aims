@@ -1,0 +1,100 @@
+[
+ {
+  "at": "2026-10-26T11:38:19.149Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "af4b556b-28a2-491c-9337-e254bf9638c0",
+  "details": {
+   "ref": "#18-2",
+   "step": "3b",
+   "docType": "CI",
+   "fileName": "COMMERCIAL_INVOICE_9000586444.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005 8 inch_198GX06516_20.416_MT_Yokohama_454003255/COMMERCIAL_INVOICE_9000586444.pdf",
+   "sha256": "1d81a06b9f65976217d2f1bf29506f3f07ee27184d260075f6e7a5d921c9abf7",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:38:19.778Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "60ae2a17-a544-4222-8d91-e65ad92e755d",
+  "details": {
+   "ref": "#18-2",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_集計ファイル_Sep Shipment 6005_221.970t.pdf",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/COA_集計ファイル_Sep Shipment 6005_221.970t.pdf",
+   "sha256": "f80e32732e3f5f48b35c2f29e82d996a68c4205261d3ead873dd11b550ea538e",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:38:20.005Z",
+  "action": "LINK",
+  "resource": "trade-file",
+  "resourceId": "60ae2a17-a544-4222-8d91-e65ad92e755d",
+  "details": {
+   "ref": "#18-3",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "drivePath": "Docs/Docs/Docs 202611(Sep Shipment)/6005 8 inch 220 ton/6005_8inch_198GX06322_183.693_MT_Yokohama_454003255/COA_集計ファイル_Sep Shipment 6005_221.970t.pdf",
+   "sha256": "f80e32732e3f5f48b35c2f29e82d996a68c4205261d3ead873dd11b550ea538e",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:38:20.642Z",
+  "action": "CREATE",
+  "resource": "trade-file",
+  "resourceId": "f79ae8b1-2fc8-4fa5-a7ee-1d166c1eac7e",
+  "details": {
+   "ref": "#22",
+   "step": "1",
+   "docType": "PI",
+   "fileName": "Asia Deal Kato 454003598 PI 9331004266.pdf",
+   "drivePath": "Document/Document/202609 Shipment (6063 6inch 32t+6063 8inch 40t)/Asia Deal Kato 454003598 PI 9331004266.pdf",
+   "sha256": "04f048c2f390108e6e69bb2bf7c4b5014ac0c8af17c6eb33e2f84627e2c2f749",
+   "completedSteps": []
+  }
+ },
+ {
+  "at": "2026-10-26T11:38:20.691Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "b9890fd3-0c4c-4d9f-8dcf-e6aca569811e",
+  "details": {
+   "ref": "#18-2",
+   "field": "ciNumber",
+   "from": null,
+   "to": "XP2652102549",
+   "source": "CI XP2652102549 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T11:38:20.745Z",
+  "action": "UPDATE",
+  "resource": "shipment",
+  "resourceId": "b9890fd3-0c4c-4d9f-8dcf-e6aca569811e",
+  "details": {
+   "ref": "#18-2",
+   "field": "totalBundles",
+   "from": null,
+   "to": 8,
+   "source": "CI XP2652102549 (final)"
+  }
+ },
+ {
+  "at": "2026-10-26T11:38:20.798Z",
+  "action": "UPDATE",
+  "resource": "supplier-order",
+  "resourceId": "1efc4c92-2c8b-4c4c-8972-74bbaae6d5ad",
+  "details": {
+   "ref": "S12",
+   "field": "piNo",
+   "from": null,
+   "to": "9331004266",
+   "source": "PI 9331004266 PDF"
+  }
+ }
+]

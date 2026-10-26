@@ -31,7 +31,7 @@ describe('Clients', () => {
     expect(v.map((x) => [x.docType, x.step, x.generator, x.choose])).toEqual([
       ['CUSTOMER_COA', '4', 'CUSTOMER_COA_SUS_SUMMARY', 'variant'],
       ['CUSTOMER_PL', '4', 'CUSTOMER_PL_KATO', 'variant'],
-      ['SGJP_IV_PL', '7', 'SGJP_IV_PL', 'fixed'],
+      ['SGJP_IV_PL', '7', 'SGJP_IV_PL', 'variant'], // round AN: Hoei's sale invoice is a variant
       ['SHIPPING_INSTRUCTIONS', '9', 'SHIPPING_INSTRUCTIONS', 'fixed'],
       ['INVOICE', '11', 'INVOICE_2', 'billing'],
     ]);
