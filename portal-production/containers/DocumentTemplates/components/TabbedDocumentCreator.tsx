@@ -8854,7 +8854,10 @@ export default function TabbedDocumentCreator({
             current[parts[parts.length - 1]] = value;
             return newObj;
           };
-          setFormData(setNestedValue(formData, salesmanFieldName, salesman.salesmanCode || ""));
+          // Key by code when the salesman has one, else by id — a user with no
+          // salesman code is still selectable (guru 2026-10-27); the field
+          // echoes whatever they have (name, code if any).
+          setFormData(setNestedValue(formData, salesmanFieldName, salesman.salesmanCode || salesman.id || ""));
         }}
       />
 

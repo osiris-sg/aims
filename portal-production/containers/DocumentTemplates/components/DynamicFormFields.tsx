@@ -620,10 +620,13 @@ function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inpu
   }, [salesmen]);
 
   const currentValue = getNestedVal(formData, fieldName) || '';
-  // No pick = no match. A salesman whose code is blank ('' is not null, so
-  // getSalesmen returns it) otherwise matched an empty value and echoed as a
-  // phantom selection.
-  const selectedSalesman = currentValue ? salesmenArray.find((s: Salesman) => s.salesmanCode === currentValue) : undefined;
+  // The stored value is the salesman's CODE, or their id when they have no
+  // code (a user without a code is still selectable — guru 2026-10-27), so
+  // match on either. No pick = no match: a blank code must never match an
+  // empty value (that echoed a phantom selection).
+  const selectedSalesman = currentValue
+    ? salesmenArray.find((s: Salesman) => (s.salesmanCode && s.salesmanCode === currentValue) || s.id === currentValue)
+    : undefined;
   const [codeInput, setCodeInput] = React.useState(currentValue);
 
   // Update input when value changes
@@ -637,7 +640,7 @@ function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inpu
   // against re-render loops.
   React.useEffect(() => {
     if (!currentValue) return;
-    const s = salesmenArray.find((x: Salesman) => x.salesmanCode === currentValue);
+    const s = salesmenArray.find((x: Salesman) => (x.salesmanCode && x.salesmanCode === currentValue) || x.id === currentValue);
     if (!s) return;
     const nameKey = `${fieldName}Name`;
     if (getNestedVal(formData, nameKey) !== s.name) {
@@ -661,7 +664,9 @@ function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inpu
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', flex: 1, gap: 1 }}>
       <TextField
-        value={codeInput}
+        // A matched salesman shows their code (blank when they have none,
+        // the name echo beside identifies them); otherwise the typed text.
+        value={selectedSalesman ? selectedSalesman.salesmanCode || '' : codeInput}
         onChange={(e) => {
           const newVal = e.target.value.toUpperCase();
           setCodeInput(newVal);
