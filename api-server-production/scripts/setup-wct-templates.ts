@@ -153,11 +153,20 @@ const formFieldsFor = (type: 'QUOTATION' | 'INVOICE' | 'DELIVERY_ORDER') => {
     left.push(half('documentInfo.location', 'Job Location'), half('documentInfo.subject', 'Subject'));
   }
   if (type === 'QUOTATION') {
-    left.push(half('documentInfo.salesPersonName', 'Sales Person'), half('documentInfo.salesContact', 'Contact'));
+    // Reuse the org's salesman picker (shows the salesman's name) rather than a
+    // free-text box; Contact is the salesperson's own phone from the sign-off.
+    left.push(
+      half('documentInfo.salesPerson', 'Sales Person', 'salesman', { dataSource: 'salesmen' }),
+      half('documentInfo.salesContact', 'Contact'),
+    );
   }
+  // Explicit order so the editor lays them out exactly like this, grouped
+  // sensibly: document info, then Customer → Bill To → Attention together,
+  // then the job details, then the sign-off.
+  const ordered = left.map((fld, i) => ({ ...fld, displayOrder: i }));
   // The delivery order is a goods document with no prices — no money summary.
   const right = type === 'DELIVERY_ORDER' ? [] : SUMMARY_FIELDS;
-  return { tabs: [{ tabId: 'general', tabLabel: 'General', fields: [...left, ...right] }] };
+  return { tabs: [{ tabId: 'general', tabLabel: 'General', fields: [...ordered, ...right] }] };
 };
 
 // ── Templates (WCT-owned rows seeded by setup-wct-org.ts) ─────────────────
@@ -243,6 +252,15 @@ async function main() {
   log('docTypeDefaults', `${Object.keys(DOC_DEFAULTS).join(', ')} (T&Cs ${QUOTATION_TNC.split('\n').length} lines; invoice + cheque line)`);
   if (APPLY) {
     await plat.organization.update({ where: { id: ORG_ID }, data: { ...ORG_PROFILE, docTypeDefaults: defaults, bankDetails } });
+  }
+
+  // 1b. Editor flags: drop the Project picker row (guru 2026-10-27 — WCT does
+  // not link quotations to projects in the editor).
+  const ui = await plat.organizationUIConfig.findUnique({ where: { organizationId: ORG_ID } });
+  const features = { ...((ui?.features as any) || {}), enableQuotationProjectLink: false };
+  log('UIConfig', 'enableQuotationProjectLink → false (removes the Project row)');
+  if (APPLY && ui) {
+    await plat.organizationUIConfig.update({ where: { organizationId: ORG_ID }, data: { features } });
   }
 
   // 2. Templates — only rows WCT owns

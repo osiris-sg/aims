@@ -68,6 +68,148 @@ function useTaxCodes(): TaxCode[] {
   return codes;
 }
 
+// ── Customer points-of-contact (shared) ──────────────────────────────────
+// The "Attn To" picker + inline "+ Add contact" that fill the Attention
+// fields FROM A CUSTOMER CONTACT. The Attention row uses these when the
+// header has a Contact row — Attention is then fill-only (guru 2026-10-27:
+// an attention that is not one of the customer's contacts must not exist).
+// CustomerCodeField keeps its own in-cell copy for headers with no Contact row.
+const contactLabelOf = (c: any) => [c?.name, c?.phone].filter((v) => v && String(v).trim() !== '').join(' - ');
+
+function useCustomerContacts(selectedCustomer: any, formData: any, setFormData: (d: any) => void) {
+  const { getToken } = useAuth();
+  // Optimistically-added contacts, keyed by customer id, merged with the
+  // server list so a freshly created contact shows without a refetch.
+  const [localContacts, setLocalContacts] = React.useState<Record<string, any[]>>({});
+  const contacts: any[] = [
+    ...(Array.isArray(selectedCustomer?.contacts) ? selectedCustomer.contacts : []),
+    ...((selectedCustomer && localContacts[selectedCustomer.id]) || []),
+  ];
+  // Model field is `phone`; form field is `attention.phoneNumber`.
+  const fill = (poc: any) => {
+    let next = setNestedVal(formData, 'documentInfo.contact', contactLabelOf(poc));
+    next = setNestedVal(next, 'attention.name', poc?.name ?? '');
+    next = setNestedVal(next, 'attention.phoneNumber', poc?.phone ?? '');
+    next = setNestedVal(next, 'attention.email', poc?.email ?? '');
+    // DO templates store/print contactName + contactNumber ("Attn: Name
+    // (number)") — keep them in step so every printout stays exact.
+    next = setNestedVal(next, 'documentInfo.contactName', poc?.name ?? '');
+    next = setNestedVal(next, 'documentInfo.contactNumber', poc?.phone ?? '');
+    setFormData(next);
+  };
+  const empty = { name: '', phone: '', email: '', designation: '' };
+  const [open, setOpen] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [draft, setDraft] = React.useState(empty);
+  const save = async () => {
+    if (!selectedCustomer?.id) {
+      toast.error('Select a customer first');
+      return;
+    }
+    if (!draft.name.trim()) {
+      toast.error('Contact name is required');
+      return;
+    }
+    setSaving(true);
+    try {
+      const token = await getToken();
+      const res = await request(
+        { path: `/customers/${selectedCustomer.id}/contacts`, method: 'POST' },
+        { name: draft.name.trim(), phone: draft.phone.trim() || null, email: draft.email.trim() || null, designation: draft.designation.trim() || null },
+        token || undefined,
+      );
+      if (res?.success === false) throw new Error(res.message || 'Failed to add contact');
+      const created = res?.id ? res : res?.data;
+      if (!created?.id) throw new Error('Failed to add contact');
+      setLocalContacts((p) => ({ ...p, [selectedCustomer.id]: [...(p[selectedCustomer.id] || []), created] }));
+      fill(created);
+      toast.success('Contact added');
+      setOpen(false);
+      setDraft(empty);
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to add contact');
+    } finally {
+      setSaving(false);
+    }
+  };
+  const selectedId = contacts.find((c) => contactLabelOf(c) === getNestedVal(formData, 'documentInfo.contact'))?.id || '';
+  return { contacts, fill, selectedId, open, setOpen, saving, draft, setDraft, save };
+}
+
+function ContactPicker({ cc, inputSx, disabled }: { cc: ReturnType<typeof useCustomerContacts>; inputSx: any; disabled?: boolean }) {
+  return (
+    <>
+      {cc.contacts.length > 0 && (
+        <FormControl size="small" sx={{ minWidth: 180 }}>
+          <Select
+            displayEmpty
+            value={cc.selectedId}
+            disabled={disabled}
+            onChange={(e) => {
+              const poc = cc.contacts.find((c: any) => c.id === e.target.value);
+              if (poc) cc.fill(poc);
+            }}
+            sx={{ ...inputSx, fontSize: '13px' }}
+            renderValue={(val) => {
+              const poc = cc.contacts.find((c: any) => c.id === val);
+              return poc ? poc.name : <span style={{ color: '#9e9e9e' }}>Attn To…</span>;
+            }}
+          >
+            {cc.contacts.map((c: any) => (
+              <MenuItem key={c.id} value={c.id} sx={{ fontSize: '13px' }}>
+                {c.name}
+                {c.designation ? ` — ${c.designation}` : ''}
+                {c.phone ? ` (${c.phone})` : ''}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      )}
+      <Button
+        size="small"
+        disabled={disabled}
+        onClick={() => cc.setOpen(true)}
+        sx={{ fontSize: '0.7rem', textTransform: 'none', minWidth: 'auto', px: 0.75, whiteSpace: 'nowrap' }}
+      >
+        + Add contact
+      </Button>
+    </>
+  );
+}
+
+function AddContactDialog({ cc, customerName }: { cc: ReturnType<typeof useCustomerContacts>; customerName?: string }) {
+  const labels = { name: 'Name', phone: 'Phone', email: 'Email', designation: 'Designation' } as const;
+  return (
+    <Dialog open={cc.open} onClose={() => !cc.saving && cc.setOpen(false)} maxWidth="xs" fullWidth>
+      <DialogTitle sx={{ fontSize: '1rem' }}>Add contact{customerName ? ` — ${customerName}` : ''}</DialogTitle>
+      <DialogContent>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+          {(Object.keys(labels) as Array<keyof typeof labels>).map((k) => (
+            <TextField
+              key={k}
+              label={labels[k]}
+              required={k === 'name'}
+              autoFocus={k === 'name'}
+              size="small"
+              fullWidth
+              value={cc.draft[k]}
+              onChange={(e) => cc.setDraft({ ...cc.draft, [k]: e.target.value })}
+            />
+          ))}
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => cc.setOpen(false)} disabled={cc.saving}>
+          Cancel
+        </Button>
+        <Button variant="contained" onClick={cc.save} disabled={cc.saving || !cc.draft.name.trim()}>
+          {cc.saving ? 'Saving…' : 'Save'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 // Separate component for customer/supplier field to properly use hooks
 interface CustomerCodeFieldProps {
   customers: any[];
@@ -81,6 +223,10 @@ interface CustomerCodeFieldProps {
   // header has no Contact row to host it (e.g. quotations filter out
   // documentInfo.contact); invoices render the trio in the Contact row instead.
   showAttentionFields?: boolean;
+  // True when the header's Contact row hosts the contact picker / "+ Add
+  // contact" / Attention readout instead (see useCustomerContacts), so this
+  // cell renders only the code box and the name echo.
+  hideContactControls?: boolean;
 }
 
 function CustomerCodeField({
@@ -92,6 +238,7 @@ function CustomerCodeField({
   fieldName = 'customer',
   storeMode = 'object',
   showAttentionFields = true,
+  hideContactControls = false,
 }: CustomerCodeFieldProps) {
   // Helper to get nested value
   const getNestedVal = (obj: any, path: string) => {
@@ -297,7 +444,7 @@ function CustomerCodeField({
           fields remain the fallback (and manual override) for the no-contact
           case. The "+ Add contact" button shows whenever a customer is
           selected so the first POC can be created inline. */}
-      {storeMode === 'object' && selectedCustomer && (
+      {storeMode === 'object' && selectedCustomer && !hideContactControls && (
         <>
           {effectiveContacts.length > 0 && (
             <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -473,7 +620,10 @@ function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inpu
   }, [salesmen]);
 
   const currentValue = getNestedVal(formData, fieldName) || '';
-  const selectedSalesman = salesmenArray.find((s: Salesman) => s.salesmanCode === currentValue);
+  // No pick = no match. A salesman whose code is blank ('' is not null, so
+  // getSalesmen returns it) otherwise matched an empty value and echoed as a
+  // phantom selection.
+  const selectedSalesman = currentValue ? salesmenArray.find((s: Salesman) => s.salesmanCode === currentValue) : undefined;
   const [codeInput, setCodeInput] = React.useState(currentValue);
 
   // Update input when value changes
@@ -481,6 +631,20 @@ function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inpu
     const val = getNestedVal(formData, fieldName) || '';
     setCodeInput(val);
   }, [formData, fieldName]);
+
+  // Store the resolved name alongside the code (e.g. documentInfo.salesPersonName)
+  // so printouts show the salesman's name, not the code. Additive and guarded
+  // against re-render loops.
+  React.useEffect(() => {
+    if (!currentValue) return;
+    const s = salesmenArray.find((x: Salesman) => x.salesmanCode === currentValue);
+    if (!s) return;
+    const nameKey = `${fieldName}Name`;
+    if (getNestedVal(formData, nameKey) !== s.name) {
+      setFormData(setNestedVal(formData, nameKey, s.name));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentValue, salesmenArray]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -771,6 +935,7 @@ export default function DynamicFormFields({
             onOpenDialog={onOpenCustomerDialog}
             inputSx={inputSx}
             showAttentionFields={!pairContactTerms}
+            hideContactControls={pairContactTerms}
           />
         );
 
@@ -1156,8 +1321,13 @@ export default function DynamicFormFields({
   // order, everything else after in template order (stable sort).
   const visibleLeftFields = leftFields.filter((f) => !hiddenFields.includes(f.fieldName));
   const orderOf = (f: FieldDefinition) => {
+    // An explicit displayOrder on the field wins, so a template can lay out its
+    // own sensible order (WCT does); otherwise fall back to the global
+    // HEADER_FIELD_ORDER, unchanged for every other org.
+    const explicit = (f as any).displayOrder;
+    if (typeof explicit === 'number') return explicit;
     const i = HEADER_FIELD_ORDER.indexOf(f.fieldName);
-    return i === -1 ? HEADER_FIELD_ORDER.length : i;
+    return i === -1 ? 1000 : i;
   };
   const orderedFields = [...visibleLeftFields].sort((a, b) => orderOf(a) - orderOf(b));
 
@@ -1167,27 +1337,13 @@ export default function DynamicFormFields({
   const termsField = orderedFields.find((f) => f.fieldName === 'documentInfo.paymentTerms' || f.fieldName === 'paymentTerms');
   const pairContactTerms = Boolean(contactField);
 
-  // Contact row hosts the Attention trio (Contact Person / No. / Email) —
-  // same formData.attention.* bindings the POC "Attn To" dropdown fills.
-  // Name/phone edits also re-derive documentInfo.contact ("name - phone")
-  // so the printout keeps resolving as before.
-  const setAttention = (key: 'name' | 'phoneNumber' | 'email', val: string) => {
-    let next = setNestedValue(formData, `attention.${key}`, val);
-    if (key !== 'email') {
-      const name = key === 'name' ? val : getNestedValue(next, 'attention.name') || '';
-      const phone = key === 'phoneNumber' ? val : getNestedValue(next, 'attention.phoneNumber') || '';
-      next = setNestedValue(
-        next,
-        'documentInfo.contact',
-        [name, phone].filter((v) => String(v).trim() !== '').join(' - '),
-      );
-      // DO templates store/print contactName + contactNumber (preview renders
-      // "Attn: Name (number)") — keep them in sync so printouts stay exact.
-      if (key === 'name') next = setNestedValue(next, 'documentInfo.contactName', val);
-      if (key === 'phoneNumber') next = setNestedValue(next, 'documentInfo.contactNumber', val);
-    }
-    setFormData(next);
-  };
+  // When the header has a Contact row, THAT row hosts the customer-contact
+  // picker and "+ Add contact", and the Attention readout is fill-only.
+  const mainCustomer = (customers || []).find((c: any) => c.id === formData?.customer?.id);
+  const cc = useCustomerContacts(mainCustomer, formData, setFormData);
+
+  // The Contact row's Attention is fill-only — written by useCustomerContacts
+  // (pick / add a customer contact), never typed. See renderContactTermsRow.
 
   const attnName = getNestedValue(formData, 'attention.name') || '';
   const attnPhone = getNestedValue(formData, 'attention.phoneNumber') || '';
@@ -1206,37 +1362,38 @@ export default function DynamicFormFields({
     getNestedValue(formData, 'documentInfo.contactNumber') ||
     (legacyMatch ? legacyMatch[2] : legacyContact);
 
+  // Attention is FILL-ONLY: it comes from one of the customer's contacts
+  // (picked from "Attn To" or just added with "+ Add contact") and is shown as
+  // a readout — nothing here can be typed, so an attention that is not a
+  // contact of the customer cannot exist. Disabled until a customer is chosen.
+  const attnReadout = attnNameDisplay
+    ? [attnNameDisplay, attnPhoneDisplay, attnEmail].filter((v) => v && String(v).trim() !== '').join('  ·  ')
+    : mainCustomer
+    ? 'No contact chosen'
+    : 'Select a customer first';
   const renderContactTermsRow = () => (
     <Box
       key="contact-terms"
       sx={{ display: 'flex', alignItems: 'center', gap: 1, borderBottom: 1, borderColor: 'divider' }}
     >
       <Typography sx={leftLabelSx}>{contactField!.displayLabel}</Typography>
-      {/* Phone: the attention trio + Terms wrap instead of clipping. */}
-      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 1, flexWrap: { xs: 'wrap', md: 'nowrap' } }}>
-        {/* Placeholders, not floating labels — inputSx strips the notched
-            outline, so a shrunk MUI label renders detached above the box. */}
-        <TextField
-          placeholder="Contact Person"
-          size="small"
-          value={attnNameDisplay}
-          onChange={(e) => setAttention('name', e.target.value)}
-          sx={{ ...inputSx, flex: 1.2, maxWidth: 240 }}
-        />
-        <TextField
-          placeholder="Contact No."
-          size="small"
-          value={attnPhoneDisplay}
-          onChange={(e) => setAttention('phoneNumber', e.target.value)}
-          sx={{ ...inputSx, flex: 1, maxWidth: 200 }}
-        />
-        <TextField
-          placeholder="Email"
-          size="small"
-          value={attnEmail}
-          onChange={(e) => setAttention('email', e.target.value)}
-          sx={{ ...inputSx, flex: 1.2, maxWidth: 280 }}
-        />
+      {/* Phone: picker + readout + Terms wrap instead of clipping. */}
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 1, flexWrap: { xs: 'wrap', md: 'nowrap' }, py: 0.25 }}>
+        <ContactPicker cc={cc} inputSx={inputSx} disabled={!mainCustomer} />
+        <Typography
+          sx={{
+            fontSize: '13px',
+            fontFamily: fieldFontFamily,
+            color: attnNameDisplay ? 'text.primary' : 'text.disabled',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            minWidth: 0,
+          }}
+          title={attnReadout}
+        >
+          {attnReadout}
+        </Typography>
         {termsField && (
           <>
             <Typography sx={{ ...leftLabelSx, width: 90, ml: 'auto', borderLeft: 1 }}>
@@ -1257,14 +1414,16 @@ export default function DynamicFormFields({
   // unchanged. Textareas are always full-width; the Attention trio keeps its
   // own full row.
   const isHalf = (f: FieldDefinition) => f.gridSize === 6 && f.fieldType !== 'textarea';
-  const pairLabelSx = { ...leftLabelSx, width: 118 };
+  // Same label width as the full rows, so the first column's inputs line up
+  // across paired and full rows (the lines were jagged at 118).
+  const pairLabelSx = { ...leftLabelSx };
   const renderCell = (field: FieldDefinition, withRightBorder: boolean) => (
     <Box
       key={field.fieldName}
       sx={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, ...(withRightBorder ? { borderRight: { md: 1 }, borderColor: 'divider' } : {}) }}
     >
       <Typography sx={pairLabelSx}>{field.displayLabel}</Typography>
-      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', minWidth: 0, px: 0.5 }}>
+      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', minWidth: 0 }}>
         {customInputs?.[field.fieldName] ?? renderInput(field)}
       </Box>
     </Box>
@@ -1338,6 +1497,9 @@ export default function DynamicFormFields({
         {rightFields.map((field) => renderRightRow(field))}
       </Box>
       )}
+      {/* The Attention row's "+ Add contact" dialog (only when that row hosts
+          the picker — otherwise CustomerCodeField renders its own). */}
+      {pairContactTerms && <AddContactDialog cc={cc} customerName={mainCustomer?.name} />}
     </Box>
   );
 }

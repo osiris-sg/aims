@@ -112,15 +112,18 @@ export default function SalesmanSelectDialog({
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          bgcolor: "#0a0a0a",
-          color: "#fafafa",
+          // Theme tokens, not raw hexes — reads correctly in light and dark.
+          bgcolor: "primary.main",
+          color: "primary.contrastText",
           py: 1.5,
         }}
       >
-        <Typography variant="h6" fontWeight={500}>
+        {/* DialogTitle already renders an <h2>; a nested <h6> was a hydration
+            warning. Keep the h6 look, drop the heading element. */}
+        <Typography variant="h6" component="span" fontWeight={500}>
           Locate Salesman
         </Typography>
-        <IconButton onClick={handleClose} size="small" sx={{ color: "#fafafa" }}>
+        <IconButton onClick={handleClose} size="small" sx={{ color: "inherit" }}>
           <CloseIcon />
         </IconButton>
       </DialogTitle>
