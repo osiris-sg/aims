@@ -65,12 +65,36 @@
    "existing": "INSURANCE.pdf"
   },
   {
+   "kind": "attach",
+   "scope": "contract",
+   "target": "K:454003598",
+   "step": "",
+   "docType": "CONTRACT",
+   "file": "Document/Document/202607 Shipment 40t/Contract/Asia Deal 454003598.pdf"
+  },
+  {
+   "kind": "attach",
+   "scope": "contract",
+   "target": "K:454003598",
+   "step": "",
+   "docType": "CONTRACT",
+   "file": "Document/Document/202608 Shipment 80t(45+35)/Asia Deal 454003598 July-Aug26 _2_.pdf"
+  },
+  {
    "kind": "already-linked",
    "target": "#14",
    "step": "1",
    "docType": "PI",
    "file": "Thailand/Thailand/202608 P1020 150t/ASIA DEAL 454003652 PI 150t (revised)  9331004202.pdf",
    "existing": "ASIA DEAL 454003652 PI 9331004202.pdf"
+  },
+  {
+   "kind": "attach",
+   "scope": "contract",
+   "target": "K:454003652",
+   "step": "",
+   "docType": "CONTRACT",
+   "file": "Thailand/Thailand/202608 P1020 150t/ASIA DEAL Contract 454003652.pdf"
   },
   {
    "kind": "attach",
@@ -3087,6 +3111,16 @@
    "docType": "INVOICE_SINGLE",
    "file": "Document/Document/202609 Shipment (6063 6inch 32t+6063 8inch 40t)/対顧客請求書/(正)_請求書正式ビレット_加藤軽金属様6063 8inch_40.271t_(PRM260USDperMT)...pdf",
    "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#22",
+   "step": "11",
+   "docType": "OTHER",
+   "file": "Document/Document/202609 Shipment (6063 6inch 32t+6063 8inch 40t)/対顧客請求書/(正誤差額)_請求書_加藤軽金属様_11月納入6063材40.271Tビレットプレミアム差.pdf",
+   "already": null,
+   "note": "invoice 202610_004: premium difference 235→260 on 40.271 t (#22)"
   },
   {
    "kind": "attach",
