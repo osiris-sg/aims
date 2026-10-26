@@ -128,7 +128,18 @@ const ServerDocumentPreview = forwardRef<ServerDocumentPreviewHandle, Props>(fun
         </Typography>
       )}
       {html ? (
-        <Box sx={{ width: "100%", height: contentH ? `${Math.round(contentH * frameScale)}px` : minHeight }}>
+        /* The wrapper is exactly the SCALED paper size (the transform does
+           not change the iframe's layout box), so centring the wrapper
+           centres the visible page like every other org's preview. */
+        <Box
+          sx={{
+            width: `${Math.round(FRAME_W * frameScale)}px`,
+            maxWidth: "100%",
+            height: contentH ? `${Math.round(contentH * frameScale)}px` : minHeight,
+            overflow: "hidden",
+            mx: "auto",
+          }}
+        >
           <Box
             component="iframe"
             ref={iframeRef}
