@@ -17,6 +17,30 @@ degreasing, MV fans, ductwork). They wanted:
   "look at how we did the CIEL quotation template, something like that", i.e.
   a page layout of its own, not the stock AIMS frame.
 
+### Client call, 2026-10-26 (guru's notes, relayed to the PC session)
+
+1. Document chain: **Quotation → DO → Invoice → Service Report**, sent by
+   email and/or WhatsApp (both if possible).
+2. **Every quotation must be accepted before a DO** — accepted by a staff
+   button OR by the customer via a link (both exist: rounds 1–2 below).
+   Acceptance auto-creates the delivery as a DRAFT under the Delivery schedule,
+   waiting for office confirmation; once confirmed and the date arrives the
+   field app runs the job and the invoice auto-generates on completion (same
+   logic as Biofuel).
+3. **FOC jobs**: a DO + schedule WITHOUT a quotation must stay possible.
+   Whether an FOC job gets no invoice or a $0 invoice is still unanswered.
+4. **"Auto invoice to maintenance flow"** — a hand-off from the finished
+   job / invoice into the Service Report (MAINTENANCE) module. Does not exist
+   yet; exact meaning (auto-create a Service Report?) still to confirm.
+5. Group of four entities, each its own AIMS org with its own bank account and
+   letterhead: **WCT System** (~30 pax, the ONLY GST-registered one, 9 %),
+   **BC Air** (products, non-GST, 0 pax — item tracking modelled on it, WCT may
+   follow), **WCT Racking** (4–5 pax), **YMM** (2–3 pax). Open: own layouts
+   per entity or just own letterhead data; whether BC Air has any logins.
+6. Open design gap: how a WCT field tech STARTS a run with free-typed lines
+   only (nothing to scan — service jobs have no catalog unit); the guest
+   driver link may be the answer.
+
 ## 2. What exists on DEV today
 
 ### Org
@@ -166,6 +190,7 @@ re-run with `--apply`; re-runs reconcile the overrides.
 | `api-server-production/scripts/setup-wct-org.ts` | Builds the org: org row, OrgTenant + permission catalogue (tenancy), UI config / flags, modules, roles, accounting, number formats, default templates, work sections, superadmins. `--env dev\|staging\|prod`, dry run by default, `--apply` to write. Idempotent. |
 | `api-server-production/scripts/setup-wct-templates.ts` | Letterhead profile, Doc Defaults (T&Cs), the three templates (columns, formFields, layout knob). Same flags. Idempotent, touches only WCT-owned rows. |
 | `api-server-production/scripts/_wct-preview.ts`, `_wct-pdf.ts` | One-off: render the Yoshinoya sample through the real renderer / Puppeteer for eyeballing. Not needed in prod. |
+| `api-server-production/scripts/tenancy-push.ts` | Restored (was only on the dev PC): pushes `platform` + every `org_<name>` tenancy schema on DEV via the direct Neon host; `tenancy-push.ts wct osiris` for a subset, `--dry` to plan. Used to push `Delivery.sourceQuotationId` to `org_wct` / `org_osiris` / `org_biofuel`; the dev PUBLIC schema push failed (P4002) and may still be pending. |
 | `api-server-production/scripts/setup-wct-services.ts` | Round 3: the 14 standard services (RevenueItem) tied to SS001. Same flags. Idempotent, touches only WCT's rows. |
 | `portal-production/containers/DocumentTemplates/components/RevenueItemPickerDialog.tsx` + `TabbedDocumentCreator.tsx` | Round 3: multi-select "Add Service" picker (`onSelectMany`), `data-tour="editor-add-service"`. |
 
