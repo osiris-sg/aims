@@ -8,6 +8,16 @@ import React, { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TradeTheme from "@/app/portal/shipments/_components/TradeTheme";
 
+// Round AN: the shared-header variants (tab, search) are keyed by the normalised query (scripts/_an-preview-fixtures.ts).
+const norm = (q: Record<string, unknown>) =>
+  JSON.stringify(
+    Object.fromEntries(
+      Object.entries(q ?? {})
+        .filter(([, v]) => v !== undefined && v !== "")
+        .sort(([a], [b]) => a.localeCompare(b))
+    )
+  );
+
 function answer(d: any, key: readonly unknown[]): unknown {
   const [k0] = key;
   if (k0 === "trade-clients") {
@@ -19,10 +29,12 @@ function answer(d: any, key: readonly unknown[]): unknown {
   }
   if (k0 === "trade-monthly-list") {
     const q: any = key[1] ?? {};
+    if (!q.customerId && d.monthlyQ?.[norm(q)]) return d.monthlyQ[norm(q)];
     return q.customerId ? d.monthlyBy?.[q.customerId] : d.monthlyAll;
   }
   if (k0 === "trade-orders" && key[2] === "list") {
     const f: any = key[3] ?? {};
+    if (!f.customerId && d.ordersQ?.[norm(f)]) return d.ordersQ[norm(f)];
     return f.customerId ? d.ordersBy?.[f.customerId] : d.ordersAll;
   }
   return undefined;

@@ -10,8 +10,7 @@ import { useParams } from "next/navigation";
 import { Alert, Box, Chip, CircularProgress, Grid2, Paper, Stack, Tab, Tabs, Typography } from "@mui/material";
 import { useClientSupplier } from "../../../_lib/hooks";
 import OrdersListView from "../../../_components/OrdersListView";
-import MonthlyView from "../../../_components/MonthlyView";
-import OrdersViewToggle, { useOrdersView } from "../../../_components/OrdersViewToggle";
+import { useOrdersView } from "../../../_components/OrdersViewToggle";
 import { ClientsHeader, ContactsList, ContractsPanel, KV, T, useLang, useTab } from "../../_components/ClientsBits";
 
 const TABS = ["orders", "contracts", "details"] as const;
@@ -45,17 +44,7 @@ export default function ClientSupplierPage() {
             <Tab value="contracts" label={`${L.contracts} (${d.contracts.length})`} />
             <Tab value="details" label={L.details} />
           </Tabs>
-          {tab === "orders" &&
-            (view === "monthly" ? (
-              <>
-                <Stack direction="row" sx={{ mb: 1.5 }}>
-                  <OrdersViewToggle view={view} onChange={setView} />
-                </Stack>
-                <MonthlyView supplierId={d.supplier.id} title={false} />
-              </>
-            ) : (
-              <OrdersListView fixedSupplierId={d.supplier.id} toolbar={<OrdersViewToggle view={view} onChange={setView} />} />
-            ))}
+          {tab === "orders" && <OrdersListView fixedSupplierId={d.supplier.id} view={view} onViewChange={setView} />}
           {tab === "contracts" && <ContractsPanel contracts={d.contracts} party="supplier" />}
           {tab === "details" && (
             <Grid2 container spacing={2}>

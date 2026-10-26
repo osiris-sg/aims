@@ -131,3 +131,31 @@ describe('Monthly order list', () => {
     expect(buildMonthlyList([order({ orderNo: 24, supplierLines: [{ contractNo: '454003422', piNo: 'x', piDate: null, qtyMt: 200 }], shipments: [] })], W)[0].rows[0]).toMatchObject({ supplierContractNo: '454003598', supplierTon: 220 });
   });
 });
+
+describe('Monthly order list — round AN shared header (tabs, Search, main Filter)', () => {
+  const o16 = order({ orderNo: 16, contractIds: ['k1'], shipMonth: '2026-09', shipments: [ship(1, { blNumber: '198GX06516', vessel: 'WAN HAI 317' }), ship(2, { blNumber: '198GX06524' })] });
+  const o21 = order({ orderNo: 21, customerId: 'c-kato', customerName: '加藤軽金属株式会社', customerKey: 'KATO', grade: '6063', contractIds: ['k2'], shipMonth: '2026-08', shipments: [ship(1, { blNumber: 'KMTC1' })] });
+  const o14 = order({ orderNo: 14, status: 'COMPLETED', supplierDone: true, contractIds: ['k1'], shipments: [ship(1, { status: 'COMPLETED', currentStep: null })] });
+  const all = [o16, o21, o14];
+  const refs = (f: Partial<Parameters<typeof buildMonthlyList>[1]>) => buildMonthlyList(all, { ...W, ...f }).flatMap((b) => b.rows.map((r) => r.managementNo));
+
+  it('Pending / Completed / All tabs', () => {
+    expect(refs({ bucket: 'pending' })).toEqual(['#21-1', '#16-1', '#16-2']);
+    expect(refs({ bucket: 'completed' })).toEqual(['#14-1']);
+    expect(refs({ bucket: 'all' }).sort()).toEqual(['#14-1', '#16-1', '#16-2', '#21-1']);
+  });
+  it('Search: order no., a shipment ref, a B/L, a vessel, a customer, a grade', () => {
+    expect(refs({ q: '#16' })).toEqual(['#16-1', '#16-2']);
+    expect(refs({ q: '16-2' })).toEqual(['#16-2']);
+    expect(refs({ q: '198GX06516' })).toEqual(['#16-1']);
+    expect(refs({ q: 'wan hai' })).toEqual(['#16-1']);
+    expect(refs({ q: 'kato' })).toEqual(['#21-1']);
+    expect(refs({ q: '6063' })).toEqual(['#21-1']);
+    expect(refs({ q: 'nothing' })).toEqual([]);
+  });
+  it('main Filter: contract and ship month', () => {
+    expect(refs({ contractId: 'k1' }).sort()).toEqual(['#14-1', '#16-1', '#16-2']);
+    expect(refs({ shipMonth: '2026-08' })).toEqual(['#21-1']);
+    expect(refs({ shipMonth: 'none' })).toEqual([]);
+  });
+});

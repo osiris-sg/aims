@@ -610,7 +610,7 @@ export type OrderInput = Partial<{
   contractFileId: string;
   status: "CANCELLED";
 }>;
-export type OrderFilters = { bucket?: "pending" | "completed"; customerId?: string; supplierId?: string; contractId?: string; shipMonth?: string; includeTest?: "true"; q?: string; page?: number; pageSize?: number };
+export type OrderFilters = { bucket?: "pending" | "completed" | "all"; customerId?: string; supplierId?: string; contractId?: string; shipMonth?: string; includeTest?: "true"; q?: string; page?: number; pageSize?: number };
 /** Orders list month headers ("Sep 2026 — 4 orders, 600 MT"), counted over the whole filtered list. */
 export type OrderMonth = { month: string | null; orders: number; qtyMt: number | null; label: string };
 /** "+ New monthly order": one order per row. */
@@ -743,7 +743,7 @@ export type InboxQuestion = {
 /** Round AA: a "record" answer may name several shipments (`targets`, up to 10); `orderId` / `shipmentId` = the first one (back-compat). */
 export type InboxAnswer = { kind: "record"; orderId?: string | null; shipmentId?: string | null; targets?: Array<{ orderId: string; shipmentId: string | null }> } | { kind: "not_shipment" } | { kind: "not_deal" } | { kind: "later" };
 /** Round AG — the Monthly order list. */
-export type MonthlyQuery = { from?: string; to?: string; basis?: "delivery" | "ship"; customerId?: string; supplier?: string; grade?: string; status?: string; supplierId?: string; stage?: string };
+export type MonthlyQuery = { from?: string; to?: string; basis?: "delivery" | "ship"; customerId?: string; supplier?: string; grade?: string; status?: string; supplierId?: string; stage?: string; bucket?: "pending" | "completed"; q?: string; contractId?: string; shipMonth?: string };
 /** Round AM — plain-word statuses (computed from the steps). */
 export type OrderStageCode = "WAITING_SHIPMENT" | "INVOICE_1_TO_SEND" | "IN_TRANSIT" | "DOCS_SENT" | "ARRIVED" | "DELIVERED" | "FINAL_INVOICE" | "COMPLETED";
 export type SupplierStageCode = "NONE" | "PI_RECEIVED" | "DEPOSIT_PAID" | "SHIPPED" | "CI_RECEIVED" | "BALANCE_PAID" | "DONE";
@@ -761,6 +761,9 @@ export type MonthlyListResult = {
   blocks: MonthlyBlock[];
   options: { clients: Array<{ id: string; name: string }>; suppliers: string[]; grades: string[]; stages?: Array<{ code: OrderStageCode; en: string; ja: string }> };
   totals: { orders: number; rows: number; tons: number };
+  /** Round AN: the Pending / Completed / All tab counts in the window, and the other months a search matches. */
+  counts?: { pending: number; completed: number; all: number };
+  elsewhere?: string[];
 };
 export type InboxAnswerResult = { kind: InboxAnswer["kind"]; ids: string[]; refs: string[]; files: number; text: string };
 // ── Round AM: Clients (Customers · Suppliers) ─────────────────────────────
