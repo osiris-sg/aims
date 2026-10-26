@@ -806,6 +806,16 @@ export default function TabbedDocumentCreator({
   const isBiofuel =
     organization?.id === BIOFUEL_ORG_ID ||
     organization?.name === "Biofuel Industries Pte Ltd";
+  // WCT keeps the Subject field on quotations (its paper layout has a Subject
+  // box); every other org still drops it. Admin "viewing as WCT" sets the
+  // active-org in sessionStorage, so resolve the doc's org the same way the
+  // preview does rather than from the admin's own org.
+  const WCT_ORG_ID = "5c700000-0000-4000-8000-5c7000000001";
+  const docOrgId =
+    (existingData as any)?.organizationId ||
+    (typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null) ||
+    organization?.id;
+  const isWct = docOrgId === WCT_ORG_ID || organization?.name === "WCT";
 
   // Delivery route dialog state (DO-only). Opens with the linked DO_START
   // MaintenanceServiceReport's id; the shared DeliveryRouteDialog handles
@@ -4993,7 +5003,8 @@ export default function TabbedDocumentCreator({
                     fields={(() => {
                       let fields = tab.fields;
                       if (isQuotation) {
-                        fields = fields.filter((f: any) => f.fieldName !== "documentInfo.subject");
+                        // WCT keeps Subject (its layout prints a Subject box).
+                        if (!isWct) fields = fields.filter((f: any) => f.fieldName !== "documentInfo.subject");
                         // Salesperson mobile (default seeded "9818 9200", saved via
                         // formData.salesMobile) — a normal header row under Salesman
                         // code (ordering via HEADER_FIELD_ORDER). Biofuel quotes only,

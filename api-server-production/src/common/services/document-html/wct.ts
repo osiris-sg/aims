@@ -232,9 +232,12 @@ function billToBlock(data: any, di: (k: string, d?: any) => any): string {
   const customer = data?.customer || {};
   const name = first(customer.name, data?.customerName);
   const address = billToText(first(data?.billTo, customer.address, data?.customerAddress), name);
-  const attention = first(di('contact'), di('contactName'), data?.attention?.name, customer.contactPerson);
-  const email = first(di('contactEmail'), customer.email);
-  const phone = first(di('contactNumber'), customer.phoneNumber, customer.mobile, customer.phone);
+  // The editor's Attention trio stores the person in attention.name /
+  // documentInfo.contactName, the phone in contactNumber, and the email in
+  // attention.email — read all three so the printout matches what was typed.
+  const attention = first(di('contactName'), data?.attention?.name, di('contact'), customer.contactPerson);
+  const email = first(di('contactEmail'), data?.attention?.email, customer.email);
+  const phone = first(di('contactNumber'), data?.attention?.phoneNumber, customer.phoneNumber, customer.mobile, customer.phone);
   return `<div class="bill"><b>Bill To: ${escapeHtml(name)}</b>${address ? `\n${escapeHtml(address)}` : ''}${attention ? `\nAttention: ${escapeHtml(attention)}` : ''}${
     email || phone ? `\n${email ? `Email: ${escapeHtml(email)}` : ''}${email && phone ? '    ' : ''}${phone ? `Phone: ${escapeHtml(phone)}` : ''}` : ''
   }</div>`;

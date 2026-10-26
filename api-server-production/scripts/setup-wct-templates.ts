@@ -108,15 +108,9 @@ const f = (fieldName: string, displayLabel: string, fieldType: string = 'text', 
   required: false,
   ...extra,
 });
-const PARTY_FIELDS = [
-  f('customer', 'Customer', 'customer', { required: true, dataSource: 'customers' }),
-  f('billTo', 'Bill To (address)', 'textarea'),
-  f('documentInfo.contact', 'Attention'),
-  f('documentInfo.contactEmail', 'Email'),
-  f('documentInfo.contactNumber', 'Phone'),
-];
-const JOB_FIELDS = [f('documentInfo.location', 'Job Location'), f('documentInfo.subject', 'Subject')];
-const SALES_FIELDS = [f('documentInfo.salesPersonName', 'Sales Person'), f('documentInfo.salesContact', 'Sales Contact')];
+// gridSize 6 = half width (two per line); the editor pairs consecutive halves.
+const half = (fieldName: string, displayLabel: string, fieldType = 'text', extra: Record<string, unknown> = {}) =>
+  f(fieldName, displayLabel, fieldType, { gridSize: 6, ...extra });
 // Money / summary fields. DynamicFormFields routes any field whose name contains
 // rate / gross / disc / subTotal / gst / nett / taxApplicable / absorbTax into
 // the RIGHT (summary) column (the Rate / Gross / Disc / Sub-total / Tax / GST /
@@ -136,28 +130,32 @@ const SUMMARY_FIELDS = [
   f('documentInfo.gstAmount', 'GST Amount', 'number'),
   f('documentInfo.nettTotal', 'Nett Total', 'number'),
 ];
-// ONE tab per document (guru 2026-10-27). The left column holds the header
-// fields, the right column the money summary; DynamicFormFields splits them.
+// ONE tab per document (guru 2026-10-27). Only the fields that are actually on
+// WCT's papers, plus Reference. Short fields are half-width so they pack two
+// per line (Biofuel-style, no scroll); Customer and the address textareas take
+// a full row, and Attention is the editor's packed Contact Person / No / Email
+// trio (documentInfo.contact). Validity dropped (it is a T&C line, not a
+// field). The money summary lands in the right column.
 const formFieldsFor = (type: 'QUOTATION' | 'INVOICE' | 'DELIVERY_ORDER') => {
-  const number =
-    type === 'QUOTATION'
-      ? f('documentInfo.documentNumber', 'Quotation No.', 'text', { required: true })
-      : type === 'INVOICE'
-      ? f('documentInfo.documentNumber', 'Invoice No.', 'text', { required: true })
-      : f('documentInfo.documentNumber', 'Delivery Order No.', 'text', { required: true });
-  const header: any[] = [number, f('documentInfo.date', 'Date', 'date', { required: true })];
-  if (type === 'INVOICE') header.push(f('documentInfo.revision', 'Invoice Rev'), f('documentInfo.paymentTerms', 'Terms'));
-  if (type === 'QUOTATION') header.push(f('documentInfo.validityPeriod', 'Validity'));
-  if (type === 'DELIVERY_ORDER') header.push(f('documentInfo.quotationNo', 'Quotation Number'));
-  const left = [
-    ...header,
-    ...PARTY_FIELDS,
-    ...(type === 'DELIVERY_ORDER' ? [f('deliveryTo', 'Ship To (address)', 'textarea')] : JOB_FIELDS),
-    ...SALES_FIELDS,
-    f('documentInfo.remarks', 'Remarks', 'textarea'),
+  const numberLabel = type === 'QUOTATION' ? 'Quotation No.' : type === 'INVOICE' ? 'Invoice No.' : 'Delivery Order No.';
+  const left: any[] = [
+    half('documentInfo.documentNumber', numberLabel, 'text', { required: true }),
+    half('documentInfo.date', 'Date', 'date', { required: true }),
+    half('documentInfo.referenceNo', 'Reference'),
   ];
-  // The delivery order is a goods document with no prices, so it gets no
-  // money summary (its right column stays clean).
+  if (type === 'INVOICE') left.push(half('documentInfo.revision', 'Invoice Rev'));
+  if (type === 'DELIVERY_ORDER') left.push(half('documentInfo.quotationNo', 'Quotation Number'));
+  left.push(f('customer', 'Customer', 'customer', { required: true, dataSource: 'customers' }));
+  left.push(f('billTo', type === 'DELIVERY_ORDER' ? 'Sold To (address)' : 'Bill To (address)', 'textarea'));
+  if (type === 'DELIVERY_ORDER') left.push(f('deliveryTo', 'Ship To (address)', 'textarea'));
+  left.push(f('documentInfo.contact', 'Attention')); // packed Contact Person / No. / Email row
+  if (type !== 'DELIVERY_ORDER') {
+    left.push(half('documentInfo.location', 'Job Location'), half('documentInfo.subject', 'Subject'));
+  }
+  if (type === 'QUOTATION') {
+    left.push(half('documentInfo.salesPersonName', 'Sales Person'), half('documentInfo.salesContact', 'Contact'));
+  }
+  // The delivery order is a goods document with no prices — no money summary.
   const right = type === 'DELIVERY_ORDER' ? [] : SUMMARY_FIELDS;
   return { tabs: [{ tabId: 'general', tabLabel: 'General', fields: [...left, ...right] }] };
 };

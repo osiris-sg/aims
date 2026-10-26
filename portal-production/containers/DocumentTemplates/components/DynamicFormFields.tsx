@@ -1251,6 +1251,44 @@ export default function DynamicFormFields({
     </Box>
   );
 
+  // Left column as rows that pack half-width (gridSize 6) fields two per line
+  // (guru 2026-10-27: like the Biofuel editor, so the top section never
+  // scrolls). Fields with no gridSize stay full-width — every other org is
+  // unchanged. Textareas are always full-width; the Attention trio keeps its
+  // own full row.
+  const isHalf = (f: FieldDefinition) => f.gridSize === 6 && f.fieldType !== 'textarea';
+  const pairLabelSx = { ...leftLabelSx, width: 118 };
+  const renderCell = (field: FieldDefinition, withRightBorder: boolean) => (
+    <Box
+      key={field.fieldName}
+      sx={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, ...(withRightBorder ? { borderRight: { md: 1 }, borderColor: 'divider' } : {}) }}
+    >
+      <Typography sx={pairLabelSx}>{field.displayLabel}</Typography>
+      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', minWidth: 0, px: 0.5 }}>
+        {customInputs?.[field.fieldName] ?? renderInput(field)}
+      </Box>
+    </Box>
+  );
+  const renderPairRow = (a: FieldDefinition, b: FieldDefinition) => (
+    <Box
+      key={`${a.fieldName}|${b.fieldName}`}
+      sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, borderBottom: 1, borderColor: 'divider' }}
+    >
+      {renderCell(a, true)}
+      {renderCell(b, false)}
+    </Box>
+  );
+  const skipUnit = (f: FieldDefinition) => pairContactTerms && (f === contactField || (termsField && f === termsField));
+  const leftRows: React.ReactNode[] = [];
+  for (let k = 0; k < orderedFields.length; ) {
+    const f = orderedFields[k];
+    if (pairContactTerms && f === contactField) { leftRows.push(renderContactTermsRow()); k += 1; continue; }
+    if (pairContactTerms && termsField && f === termsField) { k += 1; continue; } // drawn inside the contact row
+    const next = orderedFields[k + 1];
+    if (isHalf(f) && next && !skipUnit(next) && isHalf(next)) { leftRows.push(renderPairRow(f, next)); k += 2; }
+    else { leftRows.push(renderRow(f)); k += 1; }
+  }
+
   return (
     // Phone: the fields column and the totals column stack instead of
     // squeezing side-by-side (the 300px totals panel pushed fields off-screen).
@@ -1268,11 +1306,7 @@ export default function DynamicFormFields({
           '& > div:last-of-type': { borderBottom: 'none' },
         }}
       >
-        {orderedFields.map((field) => {
-          if (pairContactTerms && (field === contactField || (termsField && field === termsField))) return null;
-          return renderRow(field);
-        })}
-        {pairContactTerms && renderContactTermsRow()}
+        {leftRows}
         {appendRow && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, borderBottom: 1, borderColor: 'divider' }}>
             <Typography sx={leftLabelSx}>{appendRow.label}</Typography>
