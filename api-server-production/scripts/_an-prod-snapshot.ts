@@ -11,7 +11,7 @@ const p = new PrismaClient();
 (async () => {
   const where = { organizationId: ADH };
   const fileSel = { select: { id: true, docType: true, fileName: true, docRef: true, source: true, sha256: true, sizeBytes: true, createdAt: true } };
-  const linkSel = { select: { id: true, stepId: true, file: fileSel } };
+  const linkSel = { where: { hiddenAt: null }, select: { id: true, stepId: true, file: fileSel } };
   const stepSel = { select: { id: true, code: true, displayNo: true, title: true, status: true, requiredDocTypes: true, optionalDocTypes: true, requiredFields: true, notApplicable: true } };
   const out = {
     at: new Date().toISOString(),

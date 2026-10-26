@@ -9,6 +9,9 @@
  *   PACKING LIST     CUSTOMER_PL_SUS_XLS: Vedanta's PL.xls / PL.csv per bundle with two columns added — the cast
  *                    (the batch's first 8 characters) and the bundle no. (the rest) — and the "Sub Total" row.
  *                    Finalized as an .xlsx (SUS takes a spreadsheet).
+ * Round AO: Vedanta's e-signature lines in the COA footer (as ADH prints them), and the lot layouts for a SUS delivery
+ * that came on several B/Ls — one COA summary across them (mergeSusCoaParts: casts summed, a date per group of casts,
+ * every invoice no.) and one PACKING LIST workbook with a sheet per B/L ("PL183.693T").
  * Pure: no Prisma, no Nest. The sheet readers are trade-sheet.parser (spreadsheets) and trade-coa (PDF text).
  */
 import { Workbook } from 'exceljs';
@@ -25,6 +28,13 @@ export const VEDANTA_PRODUCER_BLOCK = [
   'Works : VILLAGE BHURKHAMUNDA, KUREBAGA & BRUNDAMAL, JHARSUGUDA, ODISHA-768202, INDIA',
   'Regd. office : 1ST FLOOR,C WING,UNIT 103, CORPORATE AVENUE,ATUL PROJECTS,CHAKALA, ANDHERI (E), MUMBAI, MAHARASHTRA-400099, INDIA',
 ].join('\n');
+
+/**
+ * Round AO — the e-signature lines under ADH's COA_集計ファイル, copied as every ADH summary prints them (all 13 in the
+ * Drive, Jan–Oct 2026): two lines on the left and Vedanta's signature block on the right. Text only, no logo.
+ */
+export const SUS_COA_FOOTER = ['IT IS ELECTRONICALLY SIGNED DOCUMENT HENCE NOT REQUIRED PHYSICALLYSIGNED. SAME', 'TO BE TREATED AS ORIGINAL FOR VEDANTA LIMITEDALUMINIU'].join('\n');
+export const SUS_COA_SIGN_BLOCK = ['FOR VEDANTA ALUMINIUM METAL LIMITED', '(SEZ Unit)'].join('\n');
 
 export const SUS_COA_COLUMNS: GenColumn[] = [
   { key: 'batch', label: 'Cast No', visible: true, kind: 'text' },
@@ -183,20 +193,106 @@ export function buildSusPackingList(sheet: Sheet): { columns: GenColumn[]; rows:
   return { columns: SUS_PL_COLUMNS.map((c) => ({ ...c })), rows, notes, totals };
 }
 
-/** The SUS PACKING LIST as an .xlsx in their sample's layout: one sheet "PL", the header row, the bundles, "Sub Total". */
+/** ADH's sheet name for one B/L of a lot: "PL" + its net tonnage ("PL183.693T"). */
+export function plSheetName(rows: GenRow[]): string {
+  return `PL${r3(rows.reduce((a, r) => a + (Number(r.netMt) || 0), 0)).toFixed(3)}T`;
+}
+
+/** Round AO: a lot's PACKING LIST rows — each B/L's rows tagged with its sheet (and B/L), numbered per sheet. */
+export function susLotPackingRows(parts: Array<{ blNumber: string | null; rows: GenRow[] }>): GenRow[] {
+  const used = new Set<string>();
+  return parts.flatMap((p) => {
+    let name = plSheetName(p.rows);
+    for (let i = 2; used.has(name); i++) name = `${plSheetName(p.rows)} (${i})`;
+    used.add(name);
+    return p.rows.map((r, i) => ({ ...r, no: i + 1, sheet: name, bl: p.blNumber ?? null }));
+  });
+}
+
+/** Rows split by sheet (one group without a sheet tag = the single-B/L layout). */
+export function plSheets(rows: GenRow[]): Array<{ name: string; rows: GenRow[] }> {
+  const out: Array<{ name: string; rows: GenRow[] }> = [];
+  for (const r of rows) {
+    const name = typeof r.sheet === 'string' && r.sheet ? r.sheet : 'PL';
+    const g = out.find((x) => x.name === name) ?? (out.push({ name, rows: [] }), out[out.length - 1]);
+    g.rows.push(r);
+  }
+  return out.length ? out : [{ name: 'PL', rows: [] }];
+}
+
+/**
+ * The SUS PACKING LIST as an .xlsx in their sample's layout: a sheet "PL" with the header row, the bundles and "Sub
+ * Total"; a lot of several B/Ls (rows tagged by susLotPackingRows) gets one such sheet per B/L, as ADH's lot files.
+ */
 export async function susPackingListXlsx(rows: GenRow[]): Promise<Buffer> {
   const wb = new Workbook();
   wb.creator = 'AIMS';
-  const ws = wb.addWorksheet('PL');
-  ws.columns = [8, 14, 12, 11, 10, 10, 16].map((width) => ({ width }));
-  ws.addRow(SUS_PL_COLUMNS.map((c) => c.label)).font = { bold: true };
   const n = (v: unknown) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
-  rows.forEach((r, i) => ws.addRow([n(r.no) ?? i + 1, r.batch ?? '', r.cast ?? '', n(r.bundleNo), n(r.netMt), n(r.grossMt), r.container ?? '']));
-  const t = (k: string) => r3(rows.reduce((a, r) => a + (Number(r[k]) || 0), 0));
-  ws.addRow(['', '', null, null, t('netMt'), t('grossMt'), 'Sub Total']).font = { bold: true };
-  for (let i = 2; i <= rows.length + 2; i++) for (const c of [5, 6]) ws.getRow(i).getCell(c).numFmt = '0.000';
+  for (const sh of plSheets(rows)) {
+    const ws = wb.addWorksheet(sh.name);
+    ws.columns = [8, 14, 12, 11, 10, 10, 16].map((width) => ({ width }));
+    ws.addRow(SUS_PL_COLUMNS.map((c) => c.label)).font = { bold: true };
+    sh.rows.forEach((r, i) => ws.addRow([n(r.no) ?? i + 1, r.batch ?? '', r.cast ?? '', n(r.bundleNo), n(r.netMt), n(r.grossMt), r.container ?? '']));
+    const t = (k: string) => r3(sh.rows.reduce((a, r) => a + (Number(r[k]) || 0), 0));
+    ws.addRow(['', '', null, null, t('netMt'), t('grossMt'), 'Sub Total']).font = { bold: true };
+    for (let i = 2; i <= sh.rows.length + 2; i++) for (const c of [5, 6]) ws.getRow(i).getCell(c).numFmt = '0.000';
+  }
   const out = await wb.xlsx.writeBuffer();
   return Buffer.from(out as ArrayBuffer);
+}
+
+/** One B/L of a lot for the COA summary: its cast rows (buildSusCoaSummary) and its Vedanta COA date / invoice no. */
+export interface SusCoaPart {
+  blNumber: string | null;
+  date: string | null;
+  invoiceNo: string | null;
+  rows: GenRow[];
+}
+
+/**
+ * Round AO — one COA summary across a lot's B/Ls (ADH's "COA_集計ファイル_Sep Shipment 6005_221.970t"): a cast on
+ * several B/Ls is one row (net, gross, bundles, pieces summed; chemistry bundle-weighted, which is the cast's own value
+ * when the B/Ls agree), casts in cast order; the date line lists each date with its casts ("26/09/2026(265C1552,…),
+ * 06/10/2026(266C1465)" — a cast takes its earliest B/L date) and the invoice line every invoice no. in B/L order.
+ */
+export function mergeSusCoaParts(parts: SusCoaPart[]): { rows: GenRow[]; date: string; dateLine: string; invoiceNo: string; notes: string[] } {
+  const byCast = new Map<string, { row: GenRow; weight: number; date: string | null; bls: Set<string> }>();
+  const notes: string[] = [];
+  for (const p of parts) {
+    for (const r of p.rows) {
+      const cast = String(r.batch ?? '');
+      const w = Number(r.bundles) || 0;
+      const cur = byCast.get(cast);
+      if (!cur) {
+        byCast.set(cast, { row: { ...r }, weight: w, date: p.date, bls: new Set(p.blNumber ? [p.blNumber] : []) });
+        continue;
+      }
+      const a = cur.row;
+      for (const k of ['netwt', 'grosswt']) a[k] = r3((Number(a[k]) || 0) + (Number(r[k]) || 0));
+      for (const k of ['bundles', 'pieces']) a[k] = a[k] === null && r[k] === null ? null : (Number(a[k]) || 0) + (Number(r[k]) || 0);
+      for (const e of COA_ELEMENTS) {
+        const k = e.toLowerCase();
+        const x = a[k] === null || a[k] === undefined ? null : Number(a[k]);
+        const y = r[k] === null || r[k] === undefined ? null : Number(r[k]);
+        a[k] = x === null ? (y === null ? null : y.toFixed(4)) : y === null ? x.toFixed(4) : ((x * cur.weight + y * w) / Math.max(cur.weight + w, 1)).toFixed(4);
+      }
+      if (r.material && a.material && r.material !== a.material) notes.push(`${cast}: material ${a.material} on one B/L, ${r.material} on another — the first is kept`);
+      cur.weight += w;
+      if (p.date && (!cur.date || p.date < cur.date)) cur.date = p.date;
+      if (p.blNumber) cur.bls.add(p.blNumber);
+    }
+  }
+  const casts = [...byCast.entries()].sort(([x], [y]) => x.localeCompare(y));
+  const dates = new Map<string, string[]>();
+  for (const [cast, c] of casts) dates.set(c.date ?? '', [...(dates.get(c.date ?? '') ?? []), cast]);
+  const dmyOf = (d: string) => (/^\d{4}-\d{2}-\d{2}/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : d);
+  const dateLine = [...dates.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([d, cs]) => `${d ? dmyOf(d) : '—'}(${cs.join(',')})`).join(', ');
+  const isoDates = [...dates.keys()].filter(Boolean).sort();
+  // ADH lists the invoice nos. in number order (XP2652102340, …548, …549).
+  const invoiceNo = [...new Set(parts.map((p) => p.invoiceNo).filter((x): x is string => !!x))].sort().join(', ');
+  const shared = casts.filter(([, c]) => c.bls.size > 1).map(([cast, c]) => `${cast} (${[...c.bls].join(' + ')})`);
+  notes.unshift(`Lot of ${parts.length} B/Ls: ${parts.map((p) => p.blNumber ?? '?').join(', ')} — ${casts.length} casts${shared.length ? `; on several B/Ls: ${shared.join(', ')}` : ''}`);
+  return { rows: casts.map(([, c]) => c.row), date: isoDates[0] ?? '', dateLine, invoiceNo, notes };
 }
 
 export interface SusCoaHeader {
@@ -209,8 +305,12 @@ export interface SusCoaHeader {
   brand: string;
   origin: string;
   applicant: string;
-  /** Printed under the table (blank by default — the sample carries Vedanta's e-signature text; ADH decides). */
+  /** Printed under the table, left: Vedanta's e-signature lines (SUS_COA_FOOTER; editable). */
   footer: string;
+  /** Round AO: printed under it on the right: "FOR VEDANTA ALUMINIUM METAL LIMITED / (SEZ Unit)" (editable). */
+  signBlock?: string;
+  /** Round AO: a lot of several B/Ls — the date line with its casts, printed instead of the single date. */
+  dateLine?: string;
 }
 
 const esc = (v: unknown) =>
@@ -234,7 +334,8 @@ export function renderSusCoaHtml(h: Partial<Omit<SusCoaHeader, 'layout'>> & { la
   const cols = columns.filter((c) => c.visible);
   const num = (c: GenColumn) => c.kind === 'mt' || c.kind === 'number' || /^(fe|si|ti|mn|mg|zn|pb|cu|cr|al|ottot|zr|length)$/.test(c.key);
   const total = (k: string) => (rows.some((r) => r[k] !== null && r[k] !== undefined && r[k] !== '') ? rows.reduce((a, r) => a + (Number(r[k]) || 0), 0) : null);
-  const totalCell = (c: GenColumn) => (c.key === 'netwt' || c.key === 'grosswt' ? mt(total(c.key)) : c.key === 'bundles' || c.key === 'pieces' ? String(total(c.key) ?? '') : '');
+  // Totals with three decimals, as ADH prints them (221.970, 305.804).
+  const totalCell = (c: GenColumn) => (c.key === 'netwt' || c.key === 'grosswt' ? (total(c.key) === null ? '' : r3(Number(total(c.key))).toFixed(3)) : c.key === 'bundles' || c.key === 'pieces' ? String(total(c.key) ?? '') : '');
   const producer = String(h.producerBlock ?? '')
     .split('\n')
     .map((l) => {
@@ -243,7 +344,7 @@ export function renderSusCoaHtml(h: Partial<Omit<SusCoaHeader, 'layout'>> & { la
     })
     .join('');
   const kv: Array<[string, string]> = [
-    ['Date', dmy(h.date ?? '')],
+    ['Date', h.dateLine ? esc(h.dateLine) : dmy(h.date ?? '')],
     ['Invoice Number', esc(h.invoiceNo)],
     ['Description of Goods', esc(h.goodsDescription)],
     ['Brand', esc(h.brand)],
@@ -263,6 +364,7 @@ export function renderSusCoaHtml(h: Partial<Omit<SusCoaHeader, 'layout'>> & { la
   table.grid td.num { text-align: right; }
   table.grid tr.tot td { border-top: 1px solid #111; }
   .foot { margin-top: 18px; white-space: pre-line; font-size: 7.4pt; }
+  .sign { margin-top: 14px; white-space: pre-line; font-size: 7.4pt; text-align: right; }
   `;
   const body = `
   <div class="box"><table class="prod">${producer}</table></div>
@@ -274,28 +376,34 @@ export function renderSusCoaHtml(h: Partial<Omit<SusCoaHeader, 'layout'>> & { la
   <tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td class="${num(c) ? 'num' : ''}">${c.kind === 'mt' ? mt(r[c.key]) : esc(r[c.key] ?? '')}</td>`).join('')}</tr>`).join('')}
   <tr class="tot">${cols.map((c) => `<td class="${num(c) ? 'num' : ''}">${totalCell(c)}</td>`).join('')}</tr></tbody></table>
   ${h.footer ? `<div class="foot">${esc(h.footer)}</div>` : ''}
+  ${h.signBlock ? `<div class="sign">${esc(h.signBlock)}</div>` : ''}
   `;
   return { css, body };
 }
 
 /** The SUS PACKING LIST as HTML (the editor preview; the final file is the .xlsx). */
 export function renderSusPlHtml(title: string, rows: GenRow[]): { css: string; body: string } {
-  const t = (k: string) => mt(rows.reduce((a, r) => a + (Number(r[k]) || 0), 0));
+  const sheets = plSheets(rows);
+  const multi = sheets.length > 1;
   const css = `
   @page { size: A4; margin: 12mm; }
   body { font-size: 8.5pt; }
-  h1 { font-size: 12pt; margin: 0 0 8px; }
+  h1 { font-size: 12pt; margin: 0 0 8px; } h2 { font-size: 10pt; margin: 14px 0 4px; }
   table { border-collapse: collapse; } th, td { border: 1px solid #999; padding: 2px 6px; } th { background: #eee; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; } tr.tot td { font-weight: 700; }
   .note { color: #666; margin-top: 6px; font-size: 7.5pt; }
   `;
+  const block = (rs: GenRow[]) => {
+    const t = (k: string) => mt(rs.reduce((a, r) => a + (Number(r[k]) || 0), 0));
+    return `<table><thead><tr>${SUS_PL_COLUMNS.map((c) => `<th>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>
+  ${rs.map((r) => `<tr><td class="num">${esc(r.no)}</td><td>${esc(r.batch)}</td><td>${esc(r.cast)}</td><td class="num">${esc(r.bundleNo)}</td><td class="num">${mt(r.netMt)}</td><td class="num">${mt(r.grossMt)}</td><td>${esc(r.container)}</td></tr>`).join('')}
+  <tr class="tot"><td></td><td></td><td></td><td></td><td class="num">${t('netMt')}</td><td class="num">${t('grossMt')}</td><td>Sub Total</td></tr>
+  </tbody></table>`;
+  };
   const body = `
   <h1>${esc(title || 'PACKING LIST')}</h1>
-  <table><thead><tr>${SUS_PL_COLUMNS.map((c) => `<th>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>
-  ${rows.map((r) => `<tr><td class="num">${esc(r.no)}</td><td>${esc(r.batch)}</td><td>${esc(r.cast)}</td><td class="num">${esc(r.bundleNo)}</td><td class="num">${mt(r.netMt)}</td><td class="num">${mt(r.grossMt)}</td><td>${esc(r.container)}</td></tr>`).join('')}
-  <tr class="tot"><td></td><td></td><td></td><td></td><td class="num">${t('netMt')}</td><td class="num">${t('grossMt')}</td><td>Sub Total</td></tr>
-  </tbody></table>
-  <div class="note">Preview — SUS receives this as an Excel file (.xlsx) when the document is finalized.</div>
+  ${multi ? sheets.map((sh) => `<h2>Sheet ${esc(sh.name)}${sh.rows[0]?.bl ? ` · B/L ${esc(sh.rows[0].bl)}` : ''}</h2>${block(sh.rows)}`).join('') : block(rows)}
+  <div class="note">Preview — SUS receives this as an Excel file (.xlsx${multi ? `, one sheet per B/L` : ''}) when the document is finalized.</div>
   `;
   return { css, body };
 }

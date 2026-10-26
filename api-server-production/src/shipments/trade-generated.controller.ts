@@ -53,7 +53,7 @@ export class TradeGeneratedController {
   @Post()
   @Permissions('shipments:create')
   create(@Body() dto: CreateGeneratedDocDto, @Req() req: TradeRequest) {
-    return this.gen.createFromSource(orgIdOf(req), dto.shipmentId, dto.docType, dto.sourceFileId, actorOf(req));
+    return this.gen.createFromSource(orgIdOf(req), dto.shipmentId, dto.docType, dto.sourceFileId, actorOf(req), { coversShipmentIds: dto.coversShipmentIds });
   }
 
   /** A blank document of any template, prefilled from its contract / shipment. */

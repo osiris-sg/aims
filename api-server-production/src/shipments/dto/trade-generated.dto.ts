@@ -7,6 +7,8 @@ export class CreateGeneratedDocDto {
   @IsIn(['CUSTOMER_PL', 'CUSTOMER_COA']) docType: string;
   /** The supplier PL / COA spreadsheet (TradeFile on the same shipment) to prefill from. */
   @IsUUID() sourceFileId: string;
+  /** Round AO: a SUS lot picked by hand (other shipments of the same order); [] = this B/L only; omitted = automatic. */
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsUUID('all', { each: true }) coversShipmentIds?: string[];
 }
 
 /** Draft edits: any of header / columns / rows (validated as JSON shapes in the service). */

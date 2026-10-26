@@ -1,0 +1,1761 @@
+{
+ "plan": [
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#39",
+   "step": "0",
+   "docType": "CONTRACT",
+   "file": "Document/Document/202604Shipment22t/Vedanta/Contract/Asia Deal 454003446 (1) (1) (1).pdf"
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#32",
+   "step": "0",
+   "docType": "CONTRACT",
+   "file": "Thailand/Thailand/202505 P1020 50ton/Vedanta/Asia Deal 454002801 (1).pdf"
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#34",
+   "step": "0",
+   "docType": "CONTRACT",
+   "file": "Thailand/Thailand/202505 P1020 75トン/Asia Deal 454002897 (1).pdf"
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#36",
+   "step": "0",
+   "docType": "CONTRACT",
+   "file": "Thailand/Thailand/202508 P1020_100MT_9月納入/Asia deal 454003024 (1).pdf"
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#40",
+   "step": "0",
+   "docType": "CONTRACT",
+   "file": "Thailand/Thailand/202606P1020 100/Contract/ASia deal 454003575 (1).pdf"
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#31",
+   "step": "0",
+   "docType": "CONTRACT",
+   "file": "Thailand/Thailand/ASIA DEAL 454002382.pdf"
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#38-1",
+   "step": "3b",
+   "docType": "BL",
+   "file": "Docs/Docs/Docs 202603(Jan Shipment)/198GX00409 (2).pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#38-1",
+   "step": "3b",
+   "docType": "COA",
+   "file": "Docs/Docs/Docs 202603(Jan Shipment)/COA_9000500003.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#38-1",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "file": "Docs/Docs/Docs 202603(Jan Shipment)/COA_Mar.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#38-1",
+   "step": "3b",
+   "docType": "CI",
+   "file": "Docs/Docs/Docs 202603(Jan Shipment)/COMMERCIAL_INVOICE_9000500003.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#38-1",
+   "step": "3b",
+   "docType": "COO",
+   "file": "Docs/Docs/Docs 202603(Jan Shipment)/COO_9000500003.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#38-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "file": "Docs/Docs/Docs 202603(Jan Shipment)/IC.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#38-1",
+   "step": "3b",
+   "docType": "PL",
+   "file": "Docs/Docs/Docs 202603(Jan Shipment)/PACKING_LIST_9000500003.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#38-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "file": "Docs/Docs/Docs 202603(Jan Shipment)/PACKING_LIST_CONTAINER_9000500003.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#2-2",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "file": "Docs/Docs/Docs 202605(Mar Shipment)/船２_6月とまとめて/COA.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#2-2",
+   "step": "3b",
+   "docType": "COA",
+   "file": "Docs/Docs/Docs 202605(Mar Shipment)/船２_6月とまとめて/COA_9000537651.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#2-2",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "file": "Docs/Docs/Docs 202605(Mar Shipment)/船２_6月とまとめて/COA_May2.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#2-2",
+   "step": "3b",
+   "docType": "COO",
+   "file": "Docs/Docs/Docs 202605(Mar Shipment)/船２_6月とまとめて/COO_9000537651.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#2-2",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "file": "Docs/Docs/Docs 202605(Mar Shipment)/船２_6月とまとめて/INSURANCE CERTIFICATE.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#2-2",
+   "step": "3b",
+   "docType": "BL",
+   "file": "Docs/Docs/Docs 202605(Mar Shipment)/船２_6月とまとめて/KMTCVTG0067502.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#2-2",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "file": "Docs/Docs/Docs 202605(Mar Shipment)/船２_6月とまとめて/PACKING LIST MAY2.XLS.xlsx",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#2-2",
+   "step": "3b",
+   "docType": "PL",
+   "file": "Docs/Docs/Docs 202605(Mar Shipment)/船２_6月とまとめて/PACKING_LIST_9000537651.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#2-2",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "file": "Docs/Docs/Docs 202605(Mar Shipment)/船２_6月とまとめて/PACKING_LIST_CONTAINER_9000537651.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#2-2",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "file": "Docs/Docs/Docs 202605(Mar Shipment)/船２_6月とまとめて/PL.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#8-2",
+   "step": "3b",
+   "docType": "BL",
+   "file": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/後着40t/198GX04631 SCAN.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#8-2",
+   "step": "3b",
+   "docType": "COA",
+   "file": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/後着40t/8月納入 6063材後着40.775t/COA_9000565674.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#8-2",
+   "step": "3b",
+   "docType": "COO",
+   "file": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/後着40t/8月納入 6063材後着40.775t/COO_9000565674.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#8-2",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "file": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/後着40t/8月納入 6063材後着40.775t/PACKING LIST.XLS.xlsx",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#8-2",
+   "step": "3b",
+   "docType": "PL",
+   "file": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/後着40t/8月納入 6063材後着40.775t/PACKING_LIST_9000565674.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#8-2",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "file": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/後着40t/8月納入 6063材後着40.775t/PACKING_LIST_CONTAINER_9000565674.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#8-2",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "file": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/後着40t/COA.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#8-2",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "file": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/後着40t/COA_集計ファイル_Aug後着40t.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#8-2",
+   "step": "3b",
+   "docType": "CI",
+   "file": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/後着40t/COMMERCIAL_INVOICE_9000565674.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#8-2",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "file": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/後着40t/INSURANCE.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#8-2",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "file": "Docs/Docs/Docs 202608(Jun Shipment)/300ton/後着40t/PL.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#11-1",
+   "step": "3b",
+   "docType": "CI",
+   "file": "Docs/Docs/Docs 202609(Jul Shipment)_/300ton/20260801 20.COMMERCIAL_INVOICE_9000565680 305.804.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "10",
+   "docType": "OTHER",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/ID.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "7",
+   "docType": "SGJP_IV_PL",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/INVOICE & PACKING LIST_202505JP-SG_Nagoya.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "3b",
+   "docType": "OTHER",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/Vedanta/5.106  MT  .pdf",
+   "already": null,
+   "byFolder": true,
+   "note": "image-only scan (B/L or insurance), not read"
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#33",
+   "step": "1",
+   "docType": "PI",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/Vedanta/Asia Deal 454002846 PI 9331003291.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "3b",
+   "docType": "CI",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/Vedanta/Asia Deal 5.106.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/Vedanta/COA.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "3b",
+   "docType": "COA",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/Vedanta/COA_9000408202.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "3b",
+   "docType": "COO",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/Vedanta/COO_9000408202.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/Vedanta/IC 5.106.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "3b",
+   "docType": "PL",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/Vedanta/PACKING_LIST_9000408202.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/Vedanta/PACKING_LIST_CONTAINER_9000408202.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/Vedanta/PL.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "9",
+   "docType": "ARRIVAL_NOTICE",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/WDMFT505_AN_JPNGO01_CSNG3_0603_000183_198FX01656.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "9",
+   "docType": "ARRIVAL_NOTICE",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/WDMFT505_AN_JPNGO01_CSNG3_0603_000183_198FX01656_A.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "12",
+   "docType": "VENDOR_INVOICE",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/アジアディールパブ様請求書.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "12",
+   "docType": "VENDOR_INVOICE",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/大型Ｘ線検査料請求書.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "10",
+   "docType": "IMPORT_PERMIT",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/許可書.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#33",
+   "step": "11",
+   "docType": "INVOICE_SINGLE",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/請求書正式ビレット_加藤軽金属_202506r.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#33-1",
+   "step": "7",
+   "docType": "TAX_ESTIMATE",
+   "file": "Document/Document/202503見積_202505Ship_202506納入/輸入消費税計算ファイル_6月_Kato.xlsx",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#35",
+   "step": "1",
+   "docType": "PI",
+   "file": "Document/Document/202507見積1070_20ton/Asia Deal  434000702 PI 9221033941.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "7",
+   "docType": "SGJP_IV_PL",
+   "file": "Document/Document/202507見積1070_20ton/INVOICE & PACKING LIST_202509JP-SG_Nagoya.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "3b",
+   "docType": "BL",
+   "file": "Document/Document/202507見積1070_20ton/SITGHANG000989_ADH.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "3a",
+   "docType": "BL_DRAFT",
+   "file": "Document/Document/202507見積1070_20ton/SITGHANG000989_draft.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "3b",
+   "docType": "OTHER",
+   "file": "Document/Document/202507見積1070_20ton/Vedanta/20.264 MT.pdf",
+   "already": null,
+   "byFolder": true,
+   "note": "image-only scan (B/L or insurance), not read"
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "file": "Document/Document/202507見積1070_20ton/Vedanta/COA.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "3b",
+   "docType": "COA",
+   "file": "Document/Document/202507見積1070_20ton/Vedanta/COA_9000443319.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "3b",
+   "docType": "CI",
+   "file": "Document/Document/202507見積1070_20ton/Vedanta/COMMERCIAL_INVOICE_9000443319.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "3b",
+   "docType": "COO",
+   "file": "Document/Document/202507見積1070_20ton/Vedanta/COO_9000443319.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "file": "Document/Document/202507見積1070_20ton/Vedanta/IC.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "3b",
+   "docType": "PL",
+   "file": "Document/Document/202507見積1070_20ton/Vedanta/PACKING_LIST_9000443319.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "file": "Document/Document/202507見積1070_20ton/Vedanta/PACKING_LIST_CONTAINER_9000443319.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "file": "Document/Document/202507見積1070_20ton/Vedanta/PL.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "12",
+   "docType": "VENDOR_INVOICE",
+   "file": "Document/Document/202507見積1070_20ton/三井倉庫/20.264mt 請求書.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "9",
+   "docType": "OTHER",
+   "file": "Document/Document/202507見積1070_20ton/三井倉庫/入庫通知書.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "12",
+   "docType": "VENDOR_INVOICE",
+   "file": "Document/Document/202507見積1070_20ton/業務委託費(加藤軽)_202509.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#35",
+   "step": "11",
+   "docType": "INVOICE_SINGLE",
+   "file": "Document/Document/202507見積1070_20ton/請求書正式ビレット_加藤軽金属_202509.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "7",
+   "docType": "TAX_ESTIMATE",
+   "file": "Document/Document/202507見積1070_20ton/輸入消費税計算ファイル_Kato20mt9月.xlsx",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#35-1",
+   "step": "10",
+   "docType": "IMPORT_PERMIT",
+   "file": "Document/Document/202507見積1070_20ton/輸入許可書20.264mt.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#37-1",
+   "step": "12",
+   "docType": "VENDOR_INVOICE",
+   "file": "Document/Document/202512Ship6005 44ton/40.854mt  請求書.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#37",
+   "step": "1",
+   "docType": "PI",
+   "file": "Document/Document/202512Ship6005 44ton/Asia deal Kato 454003190 PI 9331003752.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#37-1",
+   "step": "7",
+   "docType": "SGJP_IV_PL",
+   "file": "Document/Document/202512Ship6005 44ton/JPSG/INVOICE & PACKING LIST_202601JP-SG_Nagoya.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#37-1",
+   "step": "9",
+   "docType": "TELEX_RELEASE",
+   "file": "Document/Document/202512Ship6005 44ton/TELEX RELEASE ADVICE - SITGHANG001633.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#37-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "file": "Document/Document/202512Ship6005 44ton/Vedanta/COA.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#37-1",
+   "step": "3b",
+   "docType": "COA",
+   "file": "Document/Document/202512Ship6005 44ton/Vedanta/COA_9000485264.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#37-1",
+   "step": "3b",
+   "docType": "CI",
+   "file": "Document/Document/202512Ship6005 44ton/Vedanta/COMMERCIAL_INVOICE_9000485264.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#37-1",
+   "step": "3b",
+   "docType": "COO",
+   "file": "Document/Document/202512Ship6005 44ton/Vedanta/COO_9000485264.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#37-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "file": "Document/Document/202512Ship6005 44ton/Vedanta/IC.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#37-1",
+   "step": "3b",
+   "docType": "PL",
+   "file": "Document/Document/202512Ship6005 44ton/Vedanta/PACKING_LIST_9000485264.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#37-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "file": "Document/Document/202512Ship6005 44ton/Vedanta/PACKING_LIST_CONTAINER_9000485264.PDF",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#37-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "file": "Document/Document/202512Ship6005 44ton/Vedanta/PL.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#37-1",
+   "step": "3b",
+   "docType": "BL",
+   "file": "Document/Document/202512Ship6005 44ton/Vedanta/SITGHANG001633 SCAN COPY.PDF",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#37",
+   "step": "11",
+   "docType": "INVOICE_SINGLE",
+   "file": "Document/Document/202512Ship6005 44ton/請求書正式ビレット_加藤軽金属_202601 - Rev1.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#37-1",
+   "step": "7",
+   "docType": "TAX_ESTIMATE",
+   "file": "Document/Document/202512Ship6005 44ton/輸入消費税計算ファイル_2026年2月Kato.xlsx",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#37-1",
+   "step": "10",
+   "docType": "IMPORT_PERMIT",
+   "file": "Document/Document/202512Ship6005 44ton/輸入許可書.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "12",
+   "docType": "VENDOR_INVOICE",
+   "file": "Document/Document/202604Shipment22t/6063-6インチ 国内運送費請求書.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "9",
+   "docType": "ARRIVAL_NOTICE",
+   "file": "Document/Document/202604Shipment22t/AN押印済_加藤軽金属様6063_20.536t_20260617.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "9",
+   "docType": "ARRIVAL_NOTICE",
+   "file": "Document/Document/202604Shipment22t/JPSG/AN_加藤軽金属様6月納品20t.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "7",
+   "docType": "SGJP_IV_PL",
+   "file": "Document/Document/202604Shipment22t/JPSG/INVOICE & PACKING LIST_加藤様202606納品(4月出荷)_22t.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#39",
+   "step": "11",
+   "docType": "PAYMENT_PROOF",
+   "file": "Document/Document/202604Shipment22t/Kato振込明細20260513.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "9",
+   "docType": "TELEX_RELEASE",
+   "file": "Document/Document/202604Shipment22t/RE_ Request for Telex message __ 270182906.eml",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "3b",
+   "docType": "BL",
+   "file": "Document/Document/202604Shipment22t/Vedanta/270182906_CertifiedTrueCopy.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#39",
+   "step": "1",
+   "docType": "PI",
+   "file": "Document/Document/202604Shipment22t/Vedanta/Asia DEal Kato 454003446 PI 9331003961.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "file": "Document/Document/202604Shipment22t/Vedanta/COA.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "3b",
+   "docType": "COA",
+   "file": "Document/Document/202604Shipment22t/Vedanta/COA_9000541447.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "4",
+   "docType": "CUSTOMER_COA",
+   "file": "Document/Document/202604Shipment22t/Vedanta/COA_加藤軽金属様Jun20t.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "3b",
+   "docType": "CI",
+   "file": "Document/Document/202604Shipment22t/Vedanta/COMMERCIAL_INVOICE_9000541447.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "3b",
+   "docType": "COO",
+   "file": "Document/Document/202604Shipment22t/Vedanta/COO_9000541447.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "file": "Document/Document/202604Shipment22t/Vedanta/INSURANCE.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "12",
+   "docType": "VENDOR_INVOICE",
+   "file": "Document/Document/202604Shipment22t/Vedanta/Maersk/Import Invoice 7680572195.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "3b",
+   "docType": "PL",
+   "file": "Document/Document/202604Shipment22t/Vedanta/PACKING_LIST_9000541447.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "file": "Document/Document/202604Shipment22t/Vedanta/PACKING_LIST_CONTAINER_9000541447.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "file": "Document/Document/202604Shipment22t/Vedanta/PL.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "4",
+   "docType": "CUSTOMER_PL",
+   "file": "Document/Document/202604Shipment22t/Vedanta/計量検収票_6月納入6063 20t.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#39",
+   "step": "11",
+   "docType": "INVOICE_SINGLE",
+   "file": "Document/Document/202604Shipment22t/請求書正式ビレット_加藤軽金属様6063‗22t_202605.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "7",
+   "docType": "TAX_ESTIMATE",
+   "file": "Document/Document/202604Shipment22t/輸入消費税計算ファイル_2026年6月Kato.xlsx",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#39-1",
+   "step": "10",
+   "docType": "IMPORT_PERMIT",
+   "file": "Document/Document/202604Shipment22t/輸入許可書 加藤軽金属 6063-22t ADH20260622.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "3b",
+   "docType": "BL",
+   "file": "Document/Document/shipment 202404/BL.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "file": "Document/Document/shipment 202404/COA.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "3b",
+   "docType": "COA",
+   "file": "Document/Document/shipment 202404/COA_9000273099.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "3b",
+   "docType": "CI",
+   "file": "Document/Document/shipment 202404/COMMERCIAL_INVOICE_9000273099.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "3b",
+   "docType": "COO",
+   "file": "Document/Document/shipment 202404/COO_9000273099.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "file": "Document/Document/shipment 202404/IC.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "9",
+   "docType": "TELEX_RELEASE",
+   "file": "Document/Document/shipment 202404/JJCVZNGMNC401842 - TELEX RELEASE NOTIFICATION.PDF",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#30",
+   "step": "11",
+   "docType": "INVOICE_SINGLE",
+   "file": "Document/Document/shipment 202404/Kato/請求書正式ビレット_加藤軽金属_202405.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "3b",
+   "docType": "PL",
+   "file": "Document/Document/shipment 202404/PACKING_LIST_9000273099.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "file": "Document/Document/shipment 202404/PACKING_LIST_CONTAINER_9000273099.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "file": "Document/Document/shipment 202404/PL.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "7",
+   "docType": "SGJP_IV_PL",
+   "file": "Document/Document/shipment 202404/SG-JP/INVOICE & PACKING LIST_JP-SG_202404Nagoya_20240424.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "10",
+   "docType": "IMPORT_PERMIT",
+   "file": "Document/Document/shipment 202404/三井倉庫/アジアディールハブジャパン様許可書.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "12",
+   "docType": "VENDOR_INVOICE",
+   "file": "Document/Document/shipment 202404/三井倉庫/アジアディール様：ご請求書.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "9",
+   "docType": "SHIPPING_INSTRUCTIONS",
+   "file": "Document/Document/shipment 202404/三井倉庫/出荷・納入依頼書_ADH.xlsx",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#30-1",
+   "step": "12",
+   "docType": "PAYMENT_PROOF",
+   "file": "Document/Document/shipment 202404/三井倉庫/振込明細_ADH20240426.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#32",
+   "step": "2",
+   "docType": "CUSTOMER_PO",
+   "file": "Thailand/Thailand/202505 P1020 50ton/Hoei/PO2503036 ADH(Rev).pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#32-1",
+   "step": "3b",
+   "docType": "OTHER",
+   "file": "Thailand/Thailand/202505 P1020 50ton/Vedanta Doc/49.971  MT  .pdf",
+   "already": null,
+   "byFolder": true,
+   "note": "image-only scan (B/L or insurance), not read"
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#32-1",
+   "step": "3b",
+   "docType": "CI",
+   "file": "Thailand/Thailand/202505 P1020 50ton/Vedanta Doc/Asia Deal49.971.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#32-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "file": "Thailand/Thailand/202505 P1020 50ton/Vedanta Doc/COA.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#32-1",
+   "step": "3b",
+   "docType": "COA",
+   "file": "Thailand/Thailand/202505 P1020 50ton/Vedanta Doc/COA_9000400086.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#32-1",
+   "step": "3b",
+   "docType": "COO",
+   "file": "Thailand/Thailand/202505 P1020 50ton/Vedanta Doc/COO_9000400086.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#32-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "file": "Thailand/Thailand/202505 P1020 50ton/Vedanta Doc/IC 49.971.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#32-1",
+   "step": "3b",
+   "docType": "PL",
+   "file": "Thailand/Thailand/202505 P1020 50ton/Vedanta Doc/PACKING_LIST_9000400086.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#32-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "file": "Thailand/Thailand/202505 P1020 50ton/Vedanta Doc/PACKING_LIST_CONTAINER_9000400086.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#32-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "file": "Thailand/Thailand/202505 P1020 50ton/Vedanta Doc/PL.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#34-1",
+   "step": "3b",
+   "docType": "BL",
+   "file": "Thailand/Thailand/202505 P1020 75トン/BL VKTCB25000562-LCH (1).pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#34-1",
+   "step": "7",
+   "docType": "SGJP_IV_PL",
+   "file": "Thailand/Thailand/202505 P1020 75トン/INVOICE & PACKING LIST_BL VKTCB25000562_Final.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#34",
+   "step": "2",
+   "docType": "CUSTOMER_PO",
+   "file": "Thailand/Thailand/202505 P1020 75トン/PO2505052 ADH (2).pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#34-1",
+   "step": "3b",
+   "docType": "OTHER",
+   "file": "Thailand/Thailand/202505 P1020 75トン/Vadanta/72.945 MT.pdf",
+   "already": null,
+   "byFolder": true,
+   "note": "image-only scan (B/L or insurance), not read"
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#34-1",
+   "step": "3b",
+   "docType": "CI",
+   "file": "Thailand/Thailand/202505 P1020 75トン/Vadanta/Asia Deal 72.945.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#34-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "file": "Thailand/Thailand/202505 P1020 75トン/Vadanta/COA.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#34-1",
+   "step": "3b",
+   "docType": "COA",
+   "file": "Thailand/Thailand/202505 P1020 75トン/Vadanta/COA_9000420746.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#34-1",
+   "step": "3b",
+   "docType": "COO",
+   "file": "Thailand/Thailand/202505 P1020 75トン/Vadanta/COO_9000420746.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#34-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "file": "Thailand/Thailand/202505 P1020 75トン/Vadanta/IC.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#34-1",
+   "step": "3b",
+   "docType": "PL",
+   "file": "Thailand/Thailand/202505 P1020 75トン/Vadanta/PACKING_LIST_9000420746.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#34-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "file": "Thailand/Thailand/202505 P1020 75トン/Vadanta/PACKING_LIST_CONTAINER_9000420746.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#34-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "file": "Thailand/Thailand/202505 P1020 75トン/Vadanta/PL.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#36-1",
+   "step": "7",
+   "docType": "SGJP_IV_PL",
+   "file": "Thailand/Thailand/202508 P1020_100MT_9月納入/INVOICE _ PACKING LIST_BL 258823206.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#36-1",
+   "step": "3b",
+   "docType": "OTHER",
+   "file": "Thailand/Thailand/202508 P1020_100MT_9月納入/Vedanta/98.613 MT.pdf",
+   "already": null,
+   "byFolder": true,
+   "note": "image-only scan (B/L or insurance), not read"
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#36-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "file": "Thailand/Thailand/202508 P1020_100MT_9月納入/Vedanta/COA.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#36-1",
+   "step": "3b",
+   "docType": "COA",
+   "file": "Thailand/Thailand/202508 P1020_100MT_9月納入/Vedanta/COA_9000445395.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#36-1",
+   "step": "3b",
+   "docType": "CI",
+   "file": "Thailand/Thailand/202508 P1020_100MT_9月納入/Vedanta/COMMERCIAL_INVOICE_9000445395.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#36-1",
+   "step": "3b",
+   "docType": "COO",
+   "file": "Thailand/Thailand/202508 P1020_100MT_9月納入/Vedanta/COO_9000445395.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#36-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "file": "Thailand/Thailand/202508 P1020_100MT_9月納入/Vedanta/IC.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#36-1",
+   "step": "3b",
+   "docType": "PL",
+   "file": "Thailand/Thailand/202508 P1020_100MT_9月納入/Vedanta/PACKING_LIST_9000445395.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#36-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "file": "Thailand/Thailand/202508 P1020_100MT_9月納入/Vedanta/PACKING_LIST_CONTAINER_9000445395.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#36-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "file": "Thailand/Thailand/202508 P1020_100MT_9月納入/Vedanta/PL.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#40",
+   "step": "2",
+   "docType": "CUSTOMER_PO",
+   "file": "Thailand/Thailand/202606P1020 100/Hoei Doc/PO2606036 ADH _1_.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#40",
+   "step": "11",
+   "docType": "INVOICE_SINGLE",
+   "file": "Thailand/Thailand/202606P1020 100/請求書_豊栄メタルThailand様_P1020_99.354T_202606-07修正版.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#40",
+   "step": "1",
+   "docType": "PI",
+   "file": "Thailand/Thailand/202606P1020 100/Hoei P1020 100MT Asia Deal 454003575 PI 9331004092.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#40-1",
+   "step": "7",
+   "docType": "SGJP_IV_PL",
+   "file": "Thailand/Thailand/202606P1020 100/INVOICE & PACKING LIST_BL KMTCVTG0066779.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#40-1",
+   "step": "6",
+   "docType": "CI_PAYMENT_PROOF",
+   "file": "Thailand/Thailand/202606P1020 100/June Shipment 2CIs  6005 62t & Hoei 100t",
+   "already": "CI_PAYMENT_PROOF:June Shipment 2CIs  6005 62t & Hoei 100t.pdf"
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#40-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "file": "Thailand/Thailand/202606P1020 100/RE_ BL DRAFT -Asia Deal(Sus)_454003575_99.354 MT_KMTCVTG0066779__Laem Chabang_June26/COA.XLS",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#40-1",
+   "step": "3b",
+   "docType": "COA",
+   "file": "Thailand/Thailand/202606P1020 100/RE_ BL DRAFT -Asia Deal(Sus)_454003575_99.354 MT_KMTCVTG0066779__Laem Chabang_June26/COA_9000562919.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#40-1",
+   "step": "3b",
+   "docType": "CI",
+   "file": "Thailand/Thailand/202606P1020 100/RE_ BL DRAFT -Asia Deal(Sus)_454003575_99.354 MT_KMTCVTG0066779__Laem Chabang_June26/COMMERCIAL_INVOICE_9000562919.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#40-1",
+   "step": "3b",
+   "docType": "COO",
+   "file": "Thailand/Thailand/202606P1020 100/RE_ BL DRAFT -Asia Deal(Sus)_454003575_99.354 MT_KMTCVTG0066779__Laem Chabang_June26/COO_9000562919.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#40-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "file": "Thailand/Thailand/202606P1020 100/RE_ BL DRAFT -Asia Deal(Sus)_454003575_99.354 MT_KMTCVTG0066779__Laem Chabang_June26/INSURANCE.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#40-1",
+   "step": "3b",
+   "docType": "BL",
+   "file": "Thailand/Thailand/202606P1020 100/RE_ BL DRAFT -Asia Deal(Sus)_454003575_99.354 MT_KMTCVTG0066779__Laem Chabang_June26/KMTCVTG0066779 SCAN.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#40-1",
+   "step": "3b",
+   "docType": "PL",
+   "file": "Thailand/Thailand/202606P1020 100/RE_ BL DRAFT -Asia Deal(Sus)_454003575_99.354 MT_KMTCVTG0066779__Laem Chabang_June26/PACKING_LIST_9000562919.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#40-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "file": "Thailand/Thailand/202606P1020 100/RE_ BL DRAFT -Asia Deal(Sus)_454003575_99.354 MT_KMTCVTG0066779__Laem Chabang_June26/PACKING_LIST_CONTAINER_9000562919.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#40-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "file": "Thailand/Thailand/202606P1020 100/RE_ BL DRAFT -Asia Deal(Sus)_454003575_99.354 MT_KMTCVTG0066779__Laem Chabang_June26/PL.XLS",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#40-1",
+   "step": "9",
+   "docType": "TELEX_RELEASE",
+   "file": "Thailand/Thailand/202606P1020 100/SRD MSG BL-KMTCVTG0066779.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#31-1",
+   "step": "3b",
+   "docType": "BL",
+   "file": "Thailand/Thailand/Houeiへ送付資料/BL'.pdf",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#31-1",
+   "step": "3b",
+   "docType": "COA_XLS",
+   "file": "Thailand/Thailand/Houeiへ送付資料/COA.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#31-1",
+   "step": "3b",
+   "docType": "COA",
+   "file": "Thailand/Thailand/Houeiへ送付資料/COA_9000307990.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#31-1",
+   "step": "3b",
+   "docType": "CI",
+   "file": "Thailand/Thailand/Houeiへ送付資料/COMMERCIAL_INVOICE_9000307990.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#31-1",
+   "step": "3b",
+   "docType": "COO",
+   "file": "Thailand/Thailand/Houeiへ送付資料/COO_9000307990.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#31-1",
+   "step": "3b",
+   "docType": "INSURANCE",
+   "file": "Thailand/Thailand/Houeiへ送付資料/IC.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#31-1",
+   "step": "7",
+   "docType": "SGJP_IV_PL",
+   "file": "Thailand/Thailand/Houeiへ送付資料/INVOICE & PACKING LIST_SITGVZLC000319.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#31-1",
+   "step": "3b",
+   "docType": "PL",
+   "file": "Thailand/Thailand/Houeiへ送付資料/PACKING_LIST_9000307990.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#31-1",
+   "step": "3b",
+   "docType": "CONTAINER_PL",
+   "file": "Thailand/Thailand/Houeiへ送付資料/PACKING_LIST_CONTAINER_9000307990.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#31-1",
+   "step": "3b",
+   "docType": "PL_XLS",
+   "file": "Thailand/Thailand/Houeiへ送付資料/PL.XLS",
+   "already": null,
+   "byFolder": true
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#31",
+   "step": "11",
+   "docType": "INVOICE_SINGLE",
+   "file": "Thailand/Thailand/Houeiへ送付資料/請求書_Thailand_Vedanta_202407.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#31",
+   "step": "1",
+   "docType": "PI",
+   "file": "Thailand/Thailand/P1020 25トン202405見積/ASIA DEAL 454002382 PI 9331002708.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "shipment",
+   "target": "#31-1",
+   "step": "9",
+   "docType": "TELEX_RELEASE",
+   "file": "Thailand/Thailand/P1020 25トン202405見積/Houeiへ送付資料/SITGVZLC000319_TELEX RELEASE.pdf",
+   "already": null
+  },
+  {
+   "kind": "attach",
+   "scope": "order",
+   "target": "#31",
+   "step": "2",
+   "docType": "CUSTOMER_PO",
+   "file": "Thailand/Thailand/P1020 25トン202405見積/Houeiへ送付資料/Sent/PO2405044 ADH(REV) (1).pdf",
+   "already": null
+  }
+ ]
+}

@@ -89,7 +89,7 @@ import {
   renderHoeiIvPlHtml,
   toHoeiLines,
 } from './trade-hoei-formats';
-import { applicantName, buildSusCoaSummary, buildSusPackingList, isSusTemplate, SUS_COA_COLUMNS, SUS_COA_TEMPLATE, SUS_PL_COLUMNS, SUS_PL_TEMPLATE, SusFormatError, susPackingListXlsx, VEDANTA_PRODUCER_BLOCK } from './trade-sus-formats';
+import { applicantName, buildSusCoaSummary, buildSusPackingList, isSusTemplate, mergeSusCoaParts, SUS_COA_COLUMNS, SUS_COA_FOOTER, SUS_COA_SIGN_BLOCK, SUS_COA_TEMPLATE, SUS_PL_COLUMNS, SUS_PL_TEMPLATE, SusCoaPart, SusFormatError, susLotPackingRows, susPackingListXlsx, VEDANTA_PRODUCER_BLOCK } from './trade-sus-formats';
 
 export type TemplateKind = 'table' | 'invoice' | 'single' | 'sgjp' | 'si';
 type Owner = { shipmentId: string; contractId?: undefined; orderId?: undefined } | { contractId: string; shipmentId?: undefined; orderId?: undefined } | { orderId: string; shipmentId?: undefined; contractId?: undefined };
@@ -314,8 +314,13 @@ export class TradeGeneratedService {
     return { ...g, contracts: [...contracts.values()], orders: [...orders.values()], shipments: [...shipments.values()] };
   }
 
-  /** New DRAFT prefilled from a supplier PL / COA spreadsheet on the same shipment. */
-  async createFromSource(organizationId: string, shipmentId: string, docType: string, sourceFileId: string, actor: TradeActor) {
+  /**
+   * New DRAFT prefilled from a supplier PL / COA spreadsheet on the same shipment.
+   * Round AO — SUS lots: a SUS COA summary / PACKING LIST covers every B/L of the delivery that needs one (susLot) —
+   * one summary across them / one workbook with a sheet per B/L. `opts.coversShipmentIds` picks the lot by hand
+   * ([] = this B/L only).
+   */
+  async createFromSource(organizationId: string, shipmentId: string, docType: string, sourceFileId: string, actor: TradeActor, opts: { coversShipmentIds?: string[] } = {}) {
     const t = this.template(docType);
     if (!t.sourceDocType) throw new BadRequestException(`${docType} is not created from a supplier file — use Create blank`);
     const shipment = await this.loadShipment(organizationId, shipmentId);
@@ -329,7 +334,8 @@ export class TradeGeneratedService {
     if (!isSource(src.fileName, t.sourcePdf)) throw new BadRequestException(`${src.fileName} is not a spreadsheet (.xls, .xlsx, .csv, .txt${t.sourcePdf ? ' or a COA PDF' : ''})`);
 
     const templateKey = templateKeyFor(await this.profileForShipment(organizationId, shipmentId), docType);
-    const { built, header } = await this.buildFromSource(organizationId, shipment, docType, src, templateKey);
+    const lot = isSusTemplate(templateKey) ? await this.susLot(organizationId, shipmentId, docType, opts.coversShipmentIds) : [];
+    const { built, header } = lot.length > 1 ? await this.buildSusLot(organizationId, shipment, docType, src, lot, templateKey) : await this.buildFromSource(organizationId, shipment, docType, src, templateKey);
     const docRef = await this.config.docRefFor(this.prisma, organizationId, { shipmentId }, docType);
     return this.prisma.tradeGeneratedDoc
       .create({
@@ -340,6 +346,7 @@ export class TradeGeneratedService {
           docRef,
           templateKey,
           issuingEntity: entityFor(docType),
+          ...(lot.length > 1 ? { coversShipmentIds: lot.map((m) => m.id) } : {}),
           header: header as any,
           columns: built.columns as any,
           rows: built.rows as any,
@@ -350,6 +357,84 @@ export class TradeGeneratedService {
         select: GEN_SELECT,
       })
       .then((g) => ({ ...g, importNotes: built.notes }));
+  }
+
+  /**
+   * Round AO — the B/Ls a SUS step-4 document covers, in B/L order (seqNo). By hand: `picked` (same order; [] = this
+   * B/L only). Automatic: this shipment plus the other open shipments of the same order and delivery month that have
+   * Vedanta's file for it and no document of this type yet (no draft / final covering them, no file in that slot).
+   * A B/L done on its own earlier stays separate (as ADH did for Aug's 96.908 t + 20.414 t); a lot whose B/Ls are all
+   * in gets one document (Sep's 183.693 + 20.416 + 17.861 t). One B/L → [] (the single layout, unchanged).
+   */
+  private async susLot(organizationId: string, shipmentId: string, docType: string, picked: string[] | undefined): Promise<Array<{ id: string; seqNo: number | null; blNumber: string | null; ciNumber: string | null; etd: Date | null }>> {
+    if (picked && !picked.length) return [];
+    const me = await this.prisma.shipment.findFirst({ where: { id: shipmentId, organizationId }, select: { orderId: true, customerId: true, deliveryMonth: true, order: { select: { deliveryMonth: true } } } });
+    if (!me?.orderId) return [];
+    const month = me.deliveryMonth ?? me.order?.deliveryMonth ?? null;
+    const sel = { id: true, seqNo: true, blNumber: true, ciNumber: true, etd: true, status: true, deliveryMonth: true, customerId: true };
+    const sibs: any[] = await this.prisma.shipment.findMany({ where: { organizationId, orderId: me.orderId, id: picked ? { in: [...new Set([shipmentId, ...picked])] } : undefined }, select: sel, orderBy: { seqNo: 'asc' } });
+    if (picked) {
+      const bad = picked.filter((id) => !sibs.some((x) => x.id === id));
+      if (bad.length) throw new BadRequestException('A SUS lot can only cover shipments of the same order');
+      return sibs.length > 1 ? sibs : [];
+    }
+    const out: any[] = [];
+    for (const x of sibs) {
+      if (x.id !== shipmentId) {
+        if (x.status !== 'OPEN' || (x.deliveryMonth ?? me.order?.deliveryMonth ?? null) !== month) continue;
+        const has = await this.prisma.tradeGeneratedDoc.findFirst({ where: { organizationId, docType, OR: [{ shipmentId: x.id }, { coversShipmentIds: { has: x.id } }] }, select: { id: true } });
+        if (has) continue;
+        const filed = await this.prisma.tradeFileLink.findFirst({ where: { organizationId, hiddenAt: null, shipmentId: x.id, file: { docType } }, select: { id: true } });
+        if (filed) continue;
+        if (!(await this.sources(organizationId, x.id, docType)).length) continue;
+      }
+      out.push(x);
+    }
+    return out.length > 1 ? out : [];
+  }
+
+  /** Round AO — a SUS lot's COA summary (one table across the B/Ls) or PACKING LIST (a sheet per B/L). */
+  private async buildSusLot(organizationId: string, shipment: HeaderShipment, docType: string, primarySrc: { id: string; fileName: string; s3Key: string }, lot: Array<{ id: string; seqNo: number | null; blNumber: string | null; ciNumber: string | null; etd: Date | null }>, templateKey: string): Promise<{ built: { columns: GenColumn[]; rows: GenRow[]; notes: string[] }; header: GenHeader }> {
+    const pieces = ((await this.config.getSettings(organizationId)).docDefaults as DocDefaults | undefined)?.customerCoaPiecesPerBundle ?? null;
+    const coaParts: SusCoaPart[] = [];
+    const plParts: Array<{ blNumber: string | null; rows: GenRow[] }> = [];
+    const notes: string[] = [];
+    for (const m of lot) {
+      let src = m.id === shipment.id ? primarySrc : null;
+      if (!src) {
+        const ranked = (await this.sources(organizationId, m.id, docType)) as Array<{ id: string; fileName: string }>;
+        const best = ranked.find((f) => !/\.pdf$/i.test(f.fileName)) ?? ranked[0];
+        src = best ? await this.prisma.tradeFile.findFirst({ where: { id: best.id, organizationId }, select: { id: true, fileName: true, s3Key: true } }) : null;
+      }
+      if (!src) throw new BadRequestException(`B/L ${m.blNumber ?? m.id} has no Vedanta ${docType === 'CUSTOMER_COA' ? 'COA' : 'packing list'} yet — add it at step 3b, or create this B/L's document on its own`);
+      try {
+        const buf = await this.s3.downloadFile(src.s3Key);
+        const pdf = /\.pdf$/i.test(src.fileName);
+        const sheet = pdf ? parseCoaPdfText(await pdfText(buf)) : parseSheetFile(buf);
+        const fromPdf = pdf ? { date: (sheet as { date?: string | null }).date ?? null, invoiceNo: (sheet as { invoiceNo?: string | null }).invoiceNo ?? null } : null;
+        if (templateKey === SUS_PL_TEMPLATE) {
+          const b = buildSusPackingList(sheet);
+          plParts.push({ blNumber: m.blNumber, rows: b.rows });
+          notes.push(`${m.blNumber ?? '?'} (${src.fileName}): ${b.notes.join('; ')}`);
+        } else {
+          const b = buildSusCoaSummary(sheet, { piecesPerBundle: pieces ?? 5 });
+          const date = fromPdf?.date ?? (await this.coaPdfDateFor(organizationId, m.id)) ?? isoDay(m.etd);
+          coaParts.push({ blNumber: m.blNumber, date, invoiceNo: fromPdf?.invoiceNo ?? m.ciNumber ?? null, rows: b.rows });
+          notes.push(`${m.blNumber ?? '?'} (${src.fileName}): ${b.notes.join('; ')}`);
+        }
+      } catch (e) {
+        if (e instanceof SheetFormatError || e instanceof CoaFormatError || e instanceof SusFormatError) throw new BadRequestException(`${src.fileName}: ${e.message}`);
+        throw e;
+      }
+    }
+    let header = await this.susHeader(organizationId, shipment, await this.defaultHeader(organizationId, shipment, this.template(docType).title, docType), docType, null);
+    if (templateKey === SUS_PL_TEMPLATE) {
+      const rows = susLotPackingRows(plParts);
+      return { built: { columns: SUS_PL_COLUMNS.map((c) => ({ ...c })), rows, notes: [`Lot of ${plParts.length} B/Ls — one sheet each: ${[...new Set(rows.map((r) => String(r.sheet)))].join(', ')}`, ...notes] }, header };
+    }
+    const merged = mergeSusCoaParts(coaParts);
+    header = { ...header, date: merged.date, dateLine: merged.dateLine, invoiceNo: merged.invoiceNo } as GenHeader;
+    return { built: { columns: SUS_COA_COLUMNS.map((c) => ({ ...c })), rows: merged.rows, notes: [...merged.notes, ...notes] }, header };
   }
 
   /**
@@ -1933,7 +2018,9 @@ export class TradeGeneratedService {
       brand: 'VEDANTA',
       origin: (s.countryOfOrigin ?? 'INDIA').toUpperCase(),
       applicant: applicantName(d.customerPlApplicant) || 'ASIA DEAL HUB PTE. LTD',
-      footer: '',
+      // Round AO: Vedanta's e-signature lines, as on every ADH COA_集計ファイル (text only, no logo; editable).
+      footer: SUS_COA_FOOTER,
+      signBlock: SUS_COA_SIGN_BLOCK,
     } as GenHeader;
   }
 }
