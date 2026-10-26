@@ -23,14 +23,26 @@ async function main() {
     await page.getByRole('button', { name: /^Edit$/ }).click();
     const dlg = page.getByRole('dialog');
     await dlg.waitFor();
-    // Date: tomorrow. MUI DatePicker — type into its text field.
+    // Date: tomorrow. MUI x-date-pickers DatePicker (dayjs adapter, MM/DD/YYYY
+    // segmented field) — focus and type the digits; the segments auto-advance.
+    // fill() does not work on the segmented input, which left Save disabled.
     const d = new Date(Date.now() + 86400000);
-    const dd = String(d.getDate()).padStart(2, '0'), mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dateInput = dlg.getByLabel(/^Date/i).first();
-    await dateInput.click(); await dateInput.fill(`${dd}/${mm}/${d.getFullYear()}`).catch(() => {});
-    await dlg.getByLabel(/^Time/i).first().fill('09:00').catch(() => {});
-    await beat(page);
-    await dlg.getByRole('button', { name: /Schedule|Save changes/ }).click();
+    const dd = String(d.getDate()).padStart(2, '0'), mm = String(d.getMonth() + 1).padStart(2, '0'), yyyy = d.getFullYear();
+    const dateField = dlg.getByRole('textbox', { name: /Date/i }).first();
+    await dateField.click();
+    await dateField.pressSequentially(`${mm}${dd}${yyyy}`, { delay: 70 });
+    // Time is a native type="time" field (defaults to 09:00).
+    const timeField = dlg.locator('input[type="time"]').first();
+    if (await timeField.isVisible().catch(() => false)) await timeField.fill('09:00').catch(() => {});
+    await beat(page, 800);
+    const submitBtn = dlg.getByRole('button', { name: /^(Schedule|Save changes)$/ });
+    await submitBtn.waitFor();
+    // Surface a still-disabled submit (missing rows / date) instead of timing out.
+    if (await submitBtn.isDisabled().catch(() => false)) {
+      const rowCount = await dlg.locator('input[type="time"]').count();
+      throw new Error(`Schedule button disabled — date or rows missing (time fields: ${rowCount}). Check the draft carried the quotation service lines.`);
+    }
+    await submitBtn.click();
     await page.waitForLoadState('networkidle').catch(() => {});
     await beat(page, 2000);
 

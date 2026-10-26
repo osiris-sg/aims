@@ -7,7 +7,9 @@ const CUSTOMER_NAME = process.env.WCT_TEST_CUSTOMER || 'Yoshinoya (Suntec City)'
 async function ensureCustomer(page) {
   // House convention: POST / = list (search). Fall back to create-by-name.
   let list = await api(page, '/customers', 'POST', { search: CUSTOMER_NAME, page: 1, limit: 10 }).catch(() => null);
-  const rows = Array.isArray(list) ? list : list?.data ?? list?.items ?? [];
+  // getCustomers returns { docs, ... }, wrapped by the response interceptor as
+  // { success, data: { docs } }.
+  const rows = Array.isArray(list) ? list : (list?.data?.docs ?? list?.docs ?? list?.data?.items ?? list?.data ?? list?.items ?? []);
   let c = rows.find((r) => String(r.name || '').toLowerCase() === CUSTOMER_NAME.toLowerCase());
   if (!c) c = await api(page, '/customers/create-by-name', 'POST', { name: CUSTOMER_NAME, address: '3 Temasek Boulevard, #B1-100 Suntec City Mall, Singapore 038983' });
   return c?.data ?? c;
@@ -17,6 +19,11 @@ async function main() {
   const s = await adminContext('01-quotation');
   const { page } = s;
   try {
+    // api() reads the Clerk session token off the page, so the page must be on
+    // the portal with Clerk loaded before the first API call.
+    await page.goto(`${PORTAL}/portal/sales/quotations`);
+    await page.waitForFunction(() => window.Clerk && window.Clerk.session, { timeout: 30000 });
+    await page.waitForLoadState('networkidle').catch(() => {});
     const customer = await ensureCustomer(page);
     const code = customer.code || customer.customerCode;
     console.log('customer', customer.id, code, customer.name);
@@ -66,6 +73,13 @@ async function main() {
     await page.getByRole('menuitem', { name: /Send for signature/i }).click();
     const linkInput = page.getByRole('dialog').locator('input[readonly]').first();
     await linkInput.waitFor({ timeout: 20000 });
+    // The field shows "Creating link…" until the token is minted — poll until
+    // it holds a real /sign/ URL.
+    await page.waitForFunction(
+      (el) => el && /\/sign\//.test(el.value || ''),
+      await linkInput.elementHandle(),
+      { timeout: 30000 },
+    );
     const signUrl = await linkInput.inputValue();
     if (!/\/sign\//.test(signUrl)) throw new Error(`unexpected sign link: ${signUrl}`);
     await beat(page, 1500);
