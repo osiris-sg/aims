@@ -8,6 +8,7 @@ import { PrismaService } from '../common/prisma.service';
 import { TradeConfigService } from './trade-config.service';
 import { currentStepOf, tradeToday } from './shipments.rules';
 import { buildMonthlyList, cleanMonths, MonthBasis, MonthlyBlock, monthlyCsv, monthlySummary, OrderFact, OrderStatusWord } from './monthly-list';
+import { ORDER_STAGE_LABELS, ORDER_STAGES, OrderStage } from './trade-stage';
 import { monthlyXlsx } from './monthly-list.xlsx';
 
 export interface MonthlyQuery {
@@ -18,6 +19,9 @@ export interface MonthlyQuery {
   supplier?: string;
   grade?: string;
   status?: string;
+  /** Round AM: the Clients page (a supplier's orders) and the Order Status filter (a stage code, e.g. IN_TRANSIT). */
+  supplierId?: string;
+  stage?: string;
 }
 
 const STEP = { id: true, code: true, title: true, displayNo: true, sortOrder: true, status: true, isOngoing: true, notApplicable: true };
@@ -34,7 +38,9 @@ export class MonthlyListService {
     const { from, to } = cleanMonths(q.from, q.to, today);
     const basis: MonthBasis = q.basis === 'ship' ? 'ship' : 'delivery';
     const status = (['Open', 'Completed', 'Unconfirmed'] as OrderStatusWord[]).find((s) => s.toLowerCase() === String(q.status ?? '').toLowerCase()) ?? null;
-    return { from, to, basis, customerId: q.customerId || null, supplier: q.supplier?.trim() || null, grade: q.grade?.trim() || null, status };
+    const stage = (ORDER_STAGES as string[]).includes(String(q.stage ?? '')) ? (q.stage as OrderStage) : null;
+    const uuid = (v?: string) => (v && /^[0-9a-f-]{36}$/i.test(v) ? v : null);
+    return { from, to, basis, customerId: uuid(q.customerId), supplier: q.supplier?.trim() || null, grade: q.grade?.trim() || null, status, supplierId: uuid(q.supplierId), stage, today };
   }
 
   /** The facts of every live, non-test order whose months could touch the window (a little wider: shipments may differ). */
@@ -57,12 +63,14 @@ export class MonthlyListService {
         shipMonth: true,
         deliveryMonth: true,
         piDate: true,
+        piNo: true,
+        supplierId: true,
         customer: { select: { name: true } },
         supplier: { select: { name: true } },
         contract: { select: { contractNo: true } },
-        supplierOrder: { select: { status: true, piDate: true, qtyMt: true, contract: { select: { contractNo: true } }, steps: { select: STEP } } },
+        supplierOrder: { select: { status: true, piNo: true, piDate: true, qtyMt: true, contract: { select: { contractNo: true } }, steps: { select: STEP } } },
         steps: { select: STEP },
-        shipments: { where: { status: { not: 'CANCELLED' } }, select: { id: true, seqNo: true, status: true, blNumber: true, etd: true, eta: true, deliveryMonth: true, steps: { select: STEP } } },
+        shipments: { where: { status: { not: 'CANCELLED' } }, select: { id: true, seqNo: true, status: true, blNumber: true, etd: true, eta: true, deliveryMonth: true, actualArrivalDate: true, dischargeDate: true, ciNumber: true, ciAmount: true, notes: true, steps: { select: STEP } } },
       },
     });
     return orders.map((o) => {
@@ -79,6 +87,9 @@ export class MonthlyListService {
         customerPoNo: o.customerPoNo ?? null,
         customerKey: keyOf(o.customerId),
         supplierName: o.supplier?.name ?? '—',
+        supplierId: o.supplierId ?? null,
+        piNo: o.supplierOrder?.piNo ?? o.piNo ?? null,
+        orderSteps: [...(o.supplierOrder?.steps ?? []), ...(o.steps ?? [])],
         customerPoDate: o.customerPoDate ?? null,
         grade: o.grade,
         size: o.size,
@@ -104,6 +115,12 @@ export class MonthlyListService {
             deliveryMonth: s.deliveryMonth,
             currentStep: cur ? { id: (s.steps ?? []).find((x: any) => x.code === cur.code)?.id ?? null, label: cur.label, code: cur.code } : null,
             ciPayment: (s.steps ?? []).filter((x: any) => x.code === 'CI_PAYMENT'),
+            steps: s.steps ?? [],
+            actualArrivalDate: s.actualArrivalDate,
+            dischargeDate: s.dischargeDate,
+            ciNumber: s.ciNumber,
+            ciAmount: num(s.ciAmount),
+            notes: s.notes,
           };
         }),
       } satisfies OrderFact;
@@ -119,6 +136,8 @@ export class MonthlyListService {
       clients: [...new Map(facts.map((o) => [o.customerId, { id: o.customerId, name: buildMonthlyList([o], { from: '0000-01', to: '9999-12', basis: 'delivery' })[0]?.client ?? o.customerName }])).values()].sort((a, b) => a.name.localeCompare(b.name)),
       suppliers: [...new Set(facts.map((o) => buildMonthlyList([o], { from: '0000-01', to: '9999-12', basis: 'delivery' })[0]?.rows[0]?.supplier).filter((x): x is string => !!x))].sort(),
       grades: [...new Set(facts.map((o) => (o.grade ?? '').trim()).filter(Boolean))].sort(),
+      // Round AM: the Order Status filter (plain words, EN + JA).
+      stages: ORDER_STAGES.map((code) => ({ code, ...ORDER_STAGE_LABELS[code] })),
     };
     return { filter: f, blocks, options, totals: { orders: blocks.reduce((a, b) => a + b.orders, 0), rows: blocks.reduce((a, b) => a + b.rows.length, 0), tons: blocks.reduce((a, b) => a + b.tons, 0) } };
   }

@@ -4,7 +4,7 @@
 // (Round O: the tasks in the bell + the Orders "Tasks" panel; "Imported, payment not tracked".)
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SALES_MENU_LABELS, SHIPMENTS_EMAILS, SHIPMENTS_HOME, SHIPMENTS_ORDERS, shipmentsLanding, visibleSalesSubmenus, withSalesMonthly } from "./shipmentsNav.ts";
+import { CLIENTS_ROUTE, SALES_MENU_LABELS, SHIPMENTS_EMAILS, SHIPMENTS_HOME, SHIPMENTS_MONTHLY, SHIPMENTS_ORDERS, clientsNavModule, isClientsPath, navLangOf, shipmentsLanding, visibleSalesSubmenus, withoutSalesMonthly } from "./shipmentsNav.ts";
 import { bellBadge, isOverdue, taskCounts } from "../app/portal/shipments/_lib/tasks.ts";
 import { IMPORT_NOTE, receiptNotTracked } from "../app/portal/shipments/_lib/receipt.ts";
 
@@ -13,7 +13,6 @@ test("Sales menu: Dashboard · Orders · Shipments — no Inbox (round W)", () =
     { key: "dashboard", label: "Dashboard" },
     { key: "list", label: "Orders" },
     { key: "shipments", label: "Shipments" },
-    { key: "monthly", label: "Monthly list" },
   ];
   assert.deepEqual(menu.map((s) => s.label), [...SALES_MENU_LABELS]);
   assert.ok(!SALES_MENU_LABELS.includes("Inbox"));
@@ -67,7 +66,22 @@ test('"Imported, payment not tracked": a receiving step with no receipt on a clo
   assert.equal(receiptNotTracked("OUT", null, false, null), false);
 });
 
-test("round AG: Monthly list is appended to the Sales submenus once, whatever the stored row says", () => {
-  assert.deepEqual(withSalesMonthly([{ key: "list", label: "Orders" }, { key: "shipments", label: "Shipments" }]).map((s) => s.key), ["list", "shipments", "monthly"]);
-  assert.deepEqual(withSalesMonthly(["list", "monthly"]), ["list", "monthly"]);
+test("round AM: Monthly list left the Sales menu (the Orders page's Monthly view); its URL goes there", () => {
+  assert.deepEqual(withoutSalesMonthly([{ key: "list", label: "Orders" }, { key: "shipments", label: "Shipments" }, { key: "monthly", label: "Monthly list" }]).map((s) => s.key), ["list", "shipments"]);
+  assert.deepEqual(withoutSalesMonthly(["list", "monthly"]), ["list"]);
+  assert.equal(SHIPMENTS_MONTHLY, "/portal/shipments/orders?view=monthly");
+});
+
+test("round AM: Clients sits right after Sales (EN / JA), under the SHIPMENTS-guarded routes", () => {
+  const en = clientsNavModule("en", -3);
+  assert.equal(en.displayName, "Clients");
+  assert.equal(en.sortOrder, -2.5);
+  assert.deepEqual(en.config.subMenus.map((s) => s.label), ["Customers", "Suppliers"]);
+  assert.deepEqual(clientsNavModule("ja", -3).config.subMenus.map((s) => s.label), ["顧客", "仕入先"]);
+  assert.equal(clientsNavModule("ja", -3).displayName, "取引先");
+  assert.ok(CLIENTS_ROUTE.startsWith("/portal/shipments/"));
+  assert.ok(isClientsPath("/portal/shipments/clients/customers/abc"));
+  assert.ok(!isClientsPath("/portal/shipments/orders"));
+  assert.equal(navLangOf("ja-JP"), "ja");
+  assert.equal(navLangOf("en-SG"), "en");
 });

@@ -19,15 +19,37 @@ export function shipmentsLanding(): string {
 }
 
 /** The Sales menu as the user sees it (labels only — keys / routes are the module's). */
-export const SALES_MENU_LABELS = ["Dashboard", "Orders", "Shipments", "Monthly list"] as const;
+export const SALES_MENU_LABELS = ["Dashboard", "Orders", "Shipments"] as const;
 
-/** Round AG: Sales › Monthly list (ADH's spreadsheet layout) — added in code, so no module row has to change. */
+/** Round AG added Sales › Monthly list in code; round AM made it the Orders page's Monthly view (the old URL redirects). */
 export const SALES_MONTHLY_SUBMENU = { key: "monthly", label: "Monthly list" } as const;
-export const SHIPMENTS_MONTHLY = "/portal/shipments/monthly";
-/** The Sales submenus with Monthly list appended when the stored row doesn't have it. */
-export function withSalesMonthly<T extends string | { key?: string; label?: string }>(subMenus: readonly T[]): Array<T | typeof SALES_MONTHLY_SUBMENU> {
-  return subMenus.some((s) => (typeof s === "string" ? s : s?.key) === SALES_MONTHLY_SUBMENU.key) ? [...subMenus] : [...subMenus, SALES_MONTHLY_SUBMENU];
+export const SHIPMENTS_MONTHLY = "/portal/shipments/orders?view=monthly";
+/** The Sales submenus without Monthly list (dropped even if a stored module row has it). */
+export function withoutSalesMonthly<T extends string | { key?: string; label?: string }>(subMenus: readonly T[]): T[] {
+  return subMenus.filter((s) => (typeof s === "string" ? s : s?.key) !== SALES_MONTHLY_SUBMENU.key);
 }
+
+/**
+ * Round AM: "Clients" — its own top-level item right after Sales, for SHIPMENTS orgs only (added in code, no module
+ * row). Customers · Suppliers. Routes sit under /portal/shipments so the SHIPMENTS route guard covers them.
+ */
+export const CLIENTS_ROUTE = "/portal/shipments/clients";
+export const CLIENTS_LABELS = { en: { top: "Clients", customers: "Customers", suppliers: "Suppliers" }, ja: { top: "取引先", customers: "顧客", suppliers: "仕入先" } } as const;
+export function clientsNavModule(lang: "en" | "ja", salesSortOrder: number) {
+  const L = CLIENTS_LABELS[lang];
+  return {
+    moduleCode: "CLIENTS",
+    displayName: L.top,
+    enabled: true,
+    icon: "PeopleRounded",
+    sortOrder: salesSortOrder + 0.5,
+    config: { route: CLIENTS_ROUTE, subMenus: [{ key: "customers", label: L.customers }, { key: "suppliers", label: L.suppliers }] },
+  };
+}
+/** Sales (route /portal/shipments) is not the active item on a Clients page. */
+export const isClientsPath = (path: string | null | undefined) => !!path && (path === CLIENTS_ROUTE || path.startsWith(`${CLIENTS_ROUTE}/`));
+/** The browser's UI language for nav labels (Japanese or English). */
+export const navLangOf = (navigatorLanguage: string | null | undefined): "en" | "ja" => (/^ja\b/i.test(navigatorLanguage ?? "") ? "ja" : "en");
 
 /** The full two-tab email view (Unprocessed / Processed) — a Dashboard sub-view since round W. */
 export const SHIPMENTS_EMAILS = "/portal?view=emails";

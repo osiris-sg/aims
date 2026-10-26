@@ -48,6 +48,41 @@ export interface CustomerProfile {
   defaultBankCheck?: boolean;
   /** 宛先 on this customer's Japanese PL / COA when it isn't the legal name alone (SUS: "SUS株式会社 福島製造グループ"). */
   docAddressee?: string;
+  /**
+   * Round AM — Clients → a customer → Document formats: per document type, the 宛先 / language override, a note, and
+   * the customer's sample files (stored by the Clients service only — a settings save never adds or changes them).
+   * The generator choice stays in docVariants.
+   */
+  docFormats?: Partial<Record<DocFormatType, DocFormat>>;
+}
+
+/** The documents AIMS makes for a customer, by step: 4 Customer COA / PL, 7 SG→JP IV & PL, 9 出庫・納入依頼書, 11 invoice. */
+export type DocFormatType = 'CUSTOMER_COA' | 'CUSTOMER_PL' | 'SGJP_IV_PL' | 'SHIPPING_INSTRUCTIONS' | 'INVOICE';
+export const DOC_FORMAT_TYPES: DocFormatType[] = ['CUSTOMER_COA', 'CUSTOMER_PL', 'SGJP_IV_PL', 'SHIPPING_INSTRUCTIONS', 'INVOICE'];
+export interface FormatSample {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  s3Key: string;
+  uploadedAt: string;
+  uploadedByName?: string | null;
+  /** Hidden from the list (never deleted). */
+  hidden?: boolean;
+}
+export interface DocFormat {
+  /** 'ja' (ADH's Japanese layout) | 'en' (the English table layout) — Customer PL / COA. */
+  language?: 'ja' | 'en';
+  /** This document's 宛先 (else the profile's docAddressee, else the legal name). */
+  addressee?: string;
+  notes?: string;
+  samples?: FormatSample[];
+}
+
+/** The format settings of one document type (INVOICE_SINGLE / INVOICE_2 → INVOICE). */
+export function formatOf(p: { docFormats?: CustomerProfile['docFormats'] } | null | undefined, docType: string): DocFormat | undefined {
+  const k = (/^INVOICE/.test(docType) ? 'INVOICE' : docType) as DocFormatType;
+  return p?.docFormats?.[k];
 }
 
 export const BILLING_MODES: BillingMode[] = ['TWO_STAGE', 'SINGLE'];
@@ -226,6 +261,9 @@ export const CUSTOMER_DOC_TEMPLATES: Record<string, { docType: 'CUSTOMER_PL' | '
   CUSTOMER_COA_SUS: { docType: 'CUSTOMER_COA', customer: 'SUS', formatConfirmed: false, label: '納品書兼分析試験成績報告書 (SUS)' },
   CUSTOMER_PL_HOEI: { docType: 'CUSTOMER_PL', customer: 'HOEI', formatConfirmed: false, label: '計量検収票 (Hoei)' },
   CUSTOMER_COA_HOEI: { docType: 'CUSTOMER_COA', customer: 'HOEI', formatConfirmed: false, label: '納品書兼分析試験成績報告書 (Hoei)' },
+  // Round AM: SUS's own formats from ADH's samples (Sayaka, 24–25 Oct) — see trade-sus-formats.ts.
+  CUSTOMER_COA_SUS_SUMMARY: { docType: 'CUSTOMER_COA', customer: 'SUS', formatConfirmed: true, label: 'COA_集計ファイル (SUS): COA summary by cast, PDF' },
+  CUSTOMER_PL_SUS_XLS: { docType: 'CUSTOMER_PL', customer: 'SUS', formatConfirmed: true, label: 'PACKING LIST (SUS): Excel from Vedanta\'s PL' },
 };
 
 const isText = (v: unknown, max = 4000) => typeof v === 'string' && v.length <= max;
@@ -260,6 +298,7 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
     const domains = Array.isArray(p.emailDomains) ? p.emailDomains.filter((d) => isText(d, 200)).map((d) => d.trim().toLowerCase().replace(/^@/, '')) : [];
     const dp = p.deliveryProfile;
     if (dp && (!isText(dp.siteName, 200) || !isText(dp.address, 500) || !isText(dp.notes ?? '', 4000))) fail('deliveryProfile needs siteName, address and notes');
+    const formats = mergeDocFormats((out[id] as CustomerProfile | undefined)?.docFormats, p.docFormats, fail);
     out[id] = {
       customerId: id,
       key: p.key?.trim() || undefined,
@@ -271,14 +310,53 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
       customsRatePerMt: p.customsRatePerMt === undefined || p.customsRatePerMt === null ? undefined : Number(p.customsRatePerMt),
       emailDomains: domains,
       docVariants: Object.fromEntries(Object.entries(dv).filter(([, v]) => !!v)) as DocVariants,
-      deliveryProfile: dp ? { siteName: dp.siteName.trim(), address: dp.address.trim(), notes: dp.notes ?? '' } : null,
+      // Round AM: the site's label / 倉庫名 / "to confirm" flag survive a save (they were dropped before).
+      deliveryProfile: dp ? { ...deliveryExtras(dp), siteName: dp.siteName.trim(), address: dp.address.trim(), notes: dp.notes ?? '' } : null,
       invoiceRemarks: p.invoiceRemarks ?? undefined,
       defaultBankId: p.defaultBankId?.trim() || undefined,
       defaultBankCheck: p.defaultBankCheck === true || undefined,
       docAddressee: p.docAddressee?.trim() || undefined,
+      ...(formats ? { docFormats: formats } : {}),
     };
   }
   return out;
+}
+
+/** The optional delivery-site keys kept on save (label, 倉庫名, warehouseCheck). */
+function deliveryExtras(dp: Record<string, unknown>) {
+  const out: Record<string, unknown> = {};
+  if (typeof dp.label === 'string' && dp.label.length <= 100) out.label = dp.label;
+  if (typeof dp.warehouseName === 'string' && dp.warehouseName.length <= 200) out.warehouseName = dp.warehouseName;
+  if (dp.warehouseCheck === true) out.warehouseCheck = true;
+  return out;
+}
+
+/**
+ * Document formats on save: language / 宛先 / notes from the patch (validated); samples always from the stored profile
+ * (only the Clients service adds or hides them). A patch without docFormats keeps the stored ones.
+ */
+export function mergeDocFormats(current: CustomerProfile['docFormats'], patch: unknown, fail: (msg: string) => never): CustomerProfile['docFormats'] | undefined {
+  if (patch === undefined || patch === null) return current && Object.keys(current).length ? current : undefined;
+  if (typeof patch !== 'object' || Array.isArray(patch)) fail('docFormats must be an object');
+  const out: NonNullable<CustomerProfile['docFormats']> = {};
+  const types = new Set([...Object.keys(current ?? {}), ...Object.keys(patch as object)]);
+  for (const k of types) {
+    if (!DOC_FORMAT_TYPES.includes(k as DocFormatType)) fail(`Unknown document format "${k}"`);
+    const t = k as DocFormatType;
+    const cur = current?.[t] ?? {};
+    const raw = ((patch as Record<string, unknown>)[k] ?? cur) as Record<string, unknown>;
+    if (typeof raw !== 'object') fail(`docFormats.${k} must be an object`);
+    if (raw.language !== undefined && raw.language !== null && raw.language !== '' && raw.language !== 'ja' && raw.language !== 'en') fail('language must be ja or en');
+    for (const f of ['addressee', 'notes'] as const) if (raw[f] !== undefined && raw[f] !== null && !isText(raw[f], f === 'notes' ? 2000 : 120)) fail(`docFormats.${k}.${f} must be text`);
+    const next: DocFormat = {
+      ...(raw.language === 'ja' || raw.language === 'en' ? { language: raw.language } : {}),
+      ...(typeof raw.addressee === 'string' && raw.addressee.trim() ? { addressee: raw.addressee.trim() } : {}),
+      ...(typeof raw.notes === 'string' && raw.notes.trim() ? { notes: raw.notes.trim() } : {}),
+      ...(cur.samples?.length ? { samples: cur.samples } : {}),
+    };
+    if (Object.keys(next).length) out[t] = next;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** The single invoice's 備考 block (Kato sample) for a port. */

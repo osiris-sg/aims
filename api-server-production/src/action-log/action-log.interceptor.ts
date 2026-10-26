@@ -61,7 +61,7 @@ const SKIP_GET_PATHS = [
 // house convention) — log them as VIEW, not CREATE.
 // trade-generated/preview (Shipments, 2026-10): renders live-preview HTML only.
 const VIEW_POST_RE =
-  /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview|documentTemplates\/variants\/[^/]+\/design-preview|trade-generated\/preview|email-inbox\/[0-9a-f-]{36}\/preview)$/;
+  /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview|documentTemplates\/variants\/[^/]+\/design-preview|trade-generated\/preview|trade-clients\/customers\/[0-9a-f-]{36}\/formats\/[A-Z_]+\/preview|email-inbox\/[0-9a-f-]{36}\/preview)$/;
 
 // Path verb segment → semantic action (checked against the LAST static segment).
 const VERB_ACTIONS: Record<string, string> = {
@@ -89,6 +89,8 @@ const VERB_ACTIONS: Record<string, string> = {
   fetch: 'FETCH',
   // Round AL: a carrier tracking read (screenshot / paste) and its Confirm.
   'read-tracking': 'EXTRACT', 'apply-tracking': 'APPLY',
+  // Round AM: Clients → Document formats — a sample hidden (kept, never deleted).
+  hide: 'HIDE',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
   // Field delivery verbs (2026-09): the customer sign-off (full or partial, and
   // the guest link's), the return sign-off, ad-hoc acknowledge, install skip, and

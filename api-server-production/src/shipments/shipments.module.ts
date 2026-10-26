@@ -1,3 +1,5 @@
+import { ClientsController } from './clients.controller';
+import { ClientsService } from './clients.service';
 import { MonthlyListController } from './monthly-list.controller';
 import { MonthlyListService } from './monthly-list.service';
 import { Module } from '@nestjs/common';
@@ -56,6 +58,7 @@ import { TradeStepsService } from './trade-steps.service';
   imports: [CommonModule, DocumentExtractionModule, DocumentsModule, DocumentTemplatesModule, EmailModule, NotificationsModule],
   controllers: [
     CarrierTrackingController,
+    ClientsController,
     MonthlyListController,
     OrdersController,
     SupplierOrdersController,
@@ -74,6 +77,7 @@ import { TradeStepsService } from './trade-steps.service';
     TradeExtractController,
   ],
   providers: [
+    ClientsService,
     MonthlyListService,
     ShipmentsNotifyService, // round S: WhatsApp staff notification queue
     OrdersService,

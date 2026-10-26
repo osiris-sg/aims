@@ -5,6 +5,7 @@
  */
 import { COA_JP_SUMMARY_KEYS } from './trade-coa';
 import { docShell, jpDate, lines as br, money, qty } from './trade-doc-shell';
+import { renderSusCoaHtml, renderSusPlHtml } from './trade-sus-formats';
 import { GenColumn, GenRow, plTotals, round3 } from './trade-sheet.parser';
 
 export interface GenRef {
@@ -30,7 +31,11 @@ export interface GenHeader {
    * 'jp' = ADH's Japanese customer documents: 計量検収票 (Customer PL) and
    * 納品書兼分析試験成績報告書 (Customer COA). The fields below belong to it.
    */
-  layout?: 'jp';
+  layout?: 'jp' | 'sus';
+  /** Round AM — SUS's own formats (layout 'sus'): Vedanta's producer block, the brand, and an optional footer line. */
+  producerBlock?: string;
+  brand?: string;
+  footer?: string;
   /** "様式2" / "様式 1" (top-left). */
   formLabel?: string;
   toSuffix?: string;
@@ -82,6 +87,10 @@ const fmtDay = (d: string) => {
 const mt = (v: unknown) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? '' : Number(v).toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 }));
 
 export function renderGeneratedHtml(docType: string, header: GenHeader, columns: GenColumn[], rows: GenRow[], opts: { draft?: boolean } = {}): string {
+  if (header.layout === 'sus') {
+    const x = docType === 'CUSTOMER_COA' ? renderSusCoaHtml(header, columns, rows) : renderSusPlHtml(header.title, rows);
+    return docShell({ title: header.title, css: x.css, body: x.body, draft: opts.draft });
+  }
   if (header.layout === 'jp') return docType === 'CUSTOMER_COA' ? renderCustomerCoaJp(header, columns, rows, opts) : renderCustomerPlJp(header, rows, opts);
   const cols = columns.filter((c) => c.visible);
   const refs = header.refs.filter((r) => r.visible && r.value);

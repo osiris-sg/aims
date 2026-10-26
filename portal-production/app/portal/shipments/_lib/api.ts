@@ -418,8 +418,10 @@ export type CustomerProfile = {
   customsRatePerMt?: number;
   emailDomains?: string[];
   docVariants: { CUSTOMER_PL?: string; CUSTOMER_COA?: string; INVOICE?: string };
-  deliveryProfile?: { siteName: string; address: string; notes: string } | null;
+  deliveryProfile?: { siteName: string; address: string; notes: string; label?: string | null; warehouseName?: string | null; warehouseCheck?: boolean } | null;
   invoiceRemarks?: string;
+  /** Round AM: per-document 宛先 / language / note / samples (Clients → Document formats). Kept as-is by a settings save. */
+  docFormats?: Record<string, unknown>;
   /** 弊社指定口座 preselected on this customer's invoices (any entity's account). */
   defaultBankId?: string;
   /** Default bank not confirmed yet — shown as "check". */
@@ -608,7 +610,7 @@ export type OrderInput = Partial<{
   contractFileId: string;
   status: "CANCELLED";
 }>;
-export type OrderFilters = { bucket?: "pending" | "completed"; customerId?: string; contractId?: string; shipMonth?: string; includeTest?: "true"; q?: string; page?: number; pageSize?: number };
+export type OrderFilters = { bucket?: "pending" | "completed"; customerId?: string; supplierId?: string; contractId?: string; shipMonth?: string; includeTest?: "true"; q?: string; page?: number; pageSize?: number };
 /** Orders list month headers ("Sep 2026 — 4 orders, 600 MT"), counted over the whole filtered list. */
 export type OrderMonth = { month: string | null; orders: number; qtyMt: number | null; label: string };
 /** "+ New monthly order": one order per row. */
@@ -741,22 +743,59 @@ export type InboxQuestion = {
 /** Round AA: a "record" answer may name several shipments (`targets`, up to 10); `orderId` / `shipmentId` = the first one (back-compat). */
 export type InboxAnswer = { kind: "record"; orderId?: string | null; shipmentId?: string | null; targets?: Array<{ orderId: string; shipmentId: string | null }> } | { kind: "not_shipment" } | { kind: "not_deal" } | { kind: "later" };
 /** Round AG — the Monthly order list. */
-export type MonthlyQuery = { from?: string; to?: string; basis?: "delivery" | "ship"; customerId?: string; supplier?: string; grade?: string; status?: string };
+export type MonthlyQuery = { from?: string; to?: string; basis?: "delivery" | "ship"; customerId?: string; supplier?: string; grade?: string; status?: string; supplierId?: string; stage?: string };
+/** Round AM — plain-word statuses (computed from the steps). */
+export type OrderStageCode = "WAITING_SHIPMENT" | "INVOICE_1_TO_SEND" | "IN_TRANSIT" | "DOCS_SENT" | "ARRIVED" | "DELIVERED" | "FINAL_INVOICE" | "COMPLETED";
+export type SupplierStageCode = "NONE" | "PI_RECEIVED" | "DEPOSIT_PAID" | "SHIPPED" | "CI_RECEIVED" | "BALANCE_PAID" | "DONE";
 export type MonthlyRow = {
   orderId: string; shipmentId: string | null; stepId: string | null; first: boolean; span: number;
   client: string; orderNo: string; shipmentRef: string | null; orderDate: string | null; billetType: string; supplier: string; ton: number | null;
   shipMonth: string | null; deliveryMonth: string | null; orderStatus: "Open" | "Completed" | "Unconfirmed";
   supplierContractNo: string | null; supplierOrderDate: string | null; supplierTon: number | null; supplierStatus: string;
   shipmentStatus: string | null; managementNo: string | null; blNumber: string | null; etd: string | null; eta: string | null; month: string | null;
+  orderStage: OrderStageCode; orderStageLabel: string; supplierStage: SupplierStageCode; supplierStageLabel: string; unconfirmed: boolean; notes: string | null;
 };
 export type MonthlyBlock = { client: string; rows: MonthlyRow[]; orders: number; tons: number };
 export type MonthlyListResult = {
   filter: { from: string; to: string; basis: "delivery" | "ship"; customerId: string | null; supplier: string | null; grade: string | null; status: string | null };
   blocks: MonthlyBlock[];
-  options: { clients: Array<{ id: string; name: string }>; suppliers: string[]; grades: string[] };
+  options: { clients: Array<{ id: string; name: string }>; suppliers: string[]; grades: string[]; stages?: Array<{ code: OrderStageCode; en: string; ja: string }> };
   totals: { orders: number; rows: number; tons: number };
 };
 export type InboxAnswerResult = { kind: InboxAnswer["kind"]; ids: string[]; refs: string[]; files: number; text: string };
+// ── Round AM: Clients (Customers · Suppliers) ─────────────────────────────
+export type ClientStats = { openOrders: number; tonsThisMonth: number; tonsLast3Months: number; last3From: string; last3To: string; lastDelivery: { date: string | null; month: string | null; ref: string } | null };
+export type ClientCustomerRow = ClientStats & { id: string; code: string | null; short: string; name: string; jpName: string | null; currency: string; contracts: number; billingMode: "TWO_STAGE" | "SINGLE"; hasProfile: boolean; port: string | null };
+export type ClientSupplierRow = { id: string; code: string | null; short: string; name: string; currency: string; hasPI: boolean; pricingMode: string; contracts: Array<{ contractNo: string; status: string }>; openOrders: number; pi: { waiting: number; received: number; depositPaid: number } | null; stats: ClientStats };
+export type ClientContract = {
+  id: string; contractNo: string; status: string; grade: string | null; sizeSpec: string | null; periodStart: string | null; periodEnd: string | null; annualQtyMt: string | number | null; tolerancePct: string | number | null;
+  incoterm: string | null; qpBasis: string | null; qmjpRule: string | null; balanceTerms: string | null; depositPercent: string | number | null; checkFields: string[];
+  premiumSchedule: Array<{ from: string; to: string | null; grade?: string | null; supplierPremium: number | null; clientPremium: number | null; upcharge: number | null }> | null;
+  customer: { id: string; name: string }; supplier: { id: string; name: string };
+  lines: Array<{ id: string; grade: string | null; sizeSpec: string | null; quantityMt: string | number | null; supplierPremium: string | number | null; clientPremium: string | number | null; upcharge: string | number | null }>;
+  files: Array<{ id: string; docType: string; fileName: string; docRef: string | null; mimeType: string }>; orders: number;
+};
+export type ClientContact = { email: string; messages: number; lastAt: string | null };
+export type FormatSampleView = { id: string; fileName: string; mimeType: string; sizeBytes: number; uploadedAt: string; uploadedByName?: string | null };
+export type DocFormatView = {
+  docType: "CUSTOMER_COA" | "CUSTOMER_PL" | "SGJP_IV_PL" | "SHIPPING_INSTRUCTIONS" | "INVOICE"; step: string; title: string; titleJa: string;
+  generator: string; generatorLabel: string; formatConfirmed: boolean; options: Array<{ key: string; label: string; formatConfirmed: boolean }>;
+  choose: "variant" | "billing" | "fixed"; previewable: boolean; language: "ja" | "en"; addressee: string | null; effectiveAddressee: string; notes: string | null; samples: FormatSampleView[];
+};
+export type ClientCustomerDetail = {
+  customer: { id: string; customerCode: string | null; name: string; jpName: string | null; jpAddress: string | null; jpContact: string | null; email: string | null; phone: string | null; address: string | null; currency: string; contacts: Array<{ id: string; name: string; email: string | null; phone: string | null; designation: string | null; isPrimary: boolean }> };
+  short: string; profile: CustomerProfile; hasProfile: boolean; stats: ClientStats; contracts: ClientContract[]; contacts: ClientContact[]; ports: string[];
+  deliverySites: Array<{ siteName: string; address: string; notes?: string; label?: string | null; warehouseCheck?: boolean; source: string }>;
+  formats: DocFormatView[];
+};
+export type ClientSupplierDetail = {
+  supplier: { id: string; supplierCode: string | null; name: string; email: string | null; phone: string | null; address: string | null; currency: string; gstRegNo: string | null };
+  short: string; profile: Record<string, any>; hasProfile: boolean; stats: ClientStats; contracts: ClientContract[]; contacts: ClientContact[];
+  documentSet: { source: string; required: Array<{ code: string; label: string }>; optional: Array<{ code: string; label: string }> };
+  terms: { hasPI: boolean; pricingMode: string; priceUnit: string | null; paymentTerms: { advancePct: number; balanceAgainst: string; balanceDays?: number | null; note?: string | null } | null; country: string | null; loadingPort: string | null; depositPercents: number[]; balanceTerms: Array<{ contractNo: string; text: string }>; lmeBasis: Array<{ contractNo: string; text: string }> };
+  openStages: Array<{ orderNo: number; supplierStage: SupplierStageCode; orderStage: OrderStageCode }>;
+};
+export type FormatPreview = { generator: string; source: string | null; notes: string[]; pdf: { fileName: string; contentType: string; base64: string }; xlsx: { fileName: string; contentType: string; base64: string } | null };
 /** Round AF: one attachment of a thread (inline signature images left out), with the email it came in. */
 export type InboxThreadFile = { emailId: string; index: number; name: string; contentType: string | null; size: number | null; date: string; from: string; company: string | null };
 export type InboxThreadDetail = { id: string; messages: InboxMessage[]; files: InboxThreadFile[]; /** Quoted earlier emails AIMS never received. */ quotedMissing: number; quotedTotal: number };
@@ -1461,6 +1500,32 @@ export function useShipmentsApi() {
 
     return {
       trackingRead: postTrackingRead,
+      // ── Round AM: Clients ─────────────────────────────────────────────────
+      clientCustomers: () => call<ClientCustomerRow[]>(`/trade-clients/customers`),
+      clientCustomer: (id: string) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}`),
+      clientSuppliers: () => call<ClientSupplierRow[]>(`/trade-clients/suppliers`),
+      clientSupplier: (id: string) => call<ClientSupplierDetail>(`/trade-clients/suppliers/${id}`),
+      clientUpdateFormat: (id: string, docType: string, body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null }) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}`, "PATCH", body),
+      clientHideSample: (id: string, docType: string, sampleId: string) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}/samples/${sampleId}/hide`, "PATCH", {}),
+      clientSampleUrl: (id: string, docType: string, sampleId: string) => call<{ url: string; fileName: string; mimeType: string }>(`/trade-clients/customers/${id}/formats/${docType}/samples/${sampleId}/url`),
+      clientPreviewShipments: (id: string) => call<Array<{ id: string; ref: string; blNumber: string | null; hasCoa: boolean; hasPl: boolean }>>(`/trade-clients/customers/${id}/preview-shipments`),
+      clientPreview: (id: string, docType: string, body: { shipmentId: string; generator?: string | null }) => call<FormatPreview>(`/trade-clients/customers/${id}/formats/${docType}/preview`, "POST", body, 120_000),
+      clientAddSample: async (id: string, docType: string, file: File): Promise<ClientCustomerDetail> => {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const form = new FormData();
+        form.append("file", file);
+        const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+        const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
+        if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+        try {
+          const res = await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/trade-clients/customers/${id}/formats/${docType}/samples`, form, { headers, timeout: 120000 });
+          return (res.data?.data ?? res.data) as ClientCustomerDetail;
+        } catch (e: any) {
+          if (e?.response?.status === 413) throw new Error("File is larger than 25 MB");
+          throw new Error(errorText(e?.response?.data?.message ?? e?.message, "Upload failed"));
+        }
+      },
       trackingApply: (trackingId: string, fields: string[]) => call<{ ref: string; fields: string[]; values: Record<string, unknown> }>(`/shipment-tracking/reads/${trackingId}/apply-tracking`, "POST", { fields }),
       trackingList: (shipmentId: string) => call<TrackingHistoryRow[]>(`/shipment-tracking/${shipmentId}`),
       // ── Contracts ────────────────────────────────────────────────────────

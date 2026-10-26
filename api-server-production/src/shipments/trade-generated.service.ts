@@ -58,7 +58,7 @@ import { TradeFilesService } from './trade-files.service';
 import { actualsTable, estimate } from './trade-estimator';
 import { entityFor, entityProblem } from './trade-entity';
 import { adjustmentLine, costVariance, creditIdsOf, creditLine, estimatedCostsUsd, isCreditNote } from './trade-credit';
-import { CUSTOMER_DOC_TEMPLATES, CustomerProfile, defaultSingleRemarks, templateKeyFor } from './trade-profile';
+import { CUSTOMER_DOC_TEMPLATES, CustomerProfile, defaultSingleRemarks, formatOf, templateKeyFor } from './trade-profile';
 import {
   renderSingleInvoiceHtml,
   singleAsInvoiceLines,
@@ -72,6 +72,7 @@ import {
   singleLineCalc,
 } from './trade-invoice-single';
 import { attachPiecesPng, containerPlFacts } from './trade-attach';
+import { applicantName, buildSusCoaSummary, buildSusPackingList, isSusTemplate, SUS_COA_COLUMNS, SUS_COA_TEMPLATE, SUS_PL_COLUMNS, SUS_PL_TEMPLATE, SusFormatError, susPackingListXlsx, VEDANTA_PRODUCER_BLOCK } from './trade-sus-formats';
 
 export type TemplateKind = 'table' | 'invoice' | 'single' | 'sgjp' | 'si';
 type Owner = { shipmentId: string; contractId?: undefined; orderId?: undefined } | { contractId: string; shipmentId?: undefined; orderId?: undefined } | { orderId: string; shipmentId?: undefined; contractId?: undefined };
@@ -310,37 +311,8 @@ export class TradeGeneratedService {
     if (!(t.sourceDocTypes ?? [t.sourceDocType]).includes(src.docType)) throw new BadRequestException(`The source must be a ${(t.sourceDocTypes ?? [t.sourceDocType]).join(' / ')} file (this one is ${src.docType})`);
     if (!isSource(src.fileName, t.sourcePdf)) throw new BadRequestException(`${src.fileName} is not a spreadsheet (.xls, .xlsx, .csv, .txt${t.sourcePdf ? ' or a COA PDF' : ''})`);
 
-    let built: { columns: GenColumn[]; rows: GenRow[]; notes: string[] };
-    let fromPdf: { date: string | null; invoiceNo: string | null } | null = null;
-    try {
-      const buf = await this.s3.downloadFile(src.s3Key);
-      if (docType === 'CUSTOMER_PL') {
-        const sheet = parseSheetFile(buf);
-        built = buildCustomerPl(sheet);
-        built = { ...built, notes: [...sheet.notes, ...built.notes] };
-      } else if (/\.pdf$/i.test(src.fileName)) {
-        const sheet = parseCoaPdfText(await pdfText(buf));
-        fromPdf = { date: sheet.date, invoiceNo: sheet.invoiceNo };
-        built = buildCustomerCoaJp(sheet);
-      } else {
-        const sheet = parseSheetFile(buf);
-        built = buildCustomerCoaJp(sheet);
-        built = { ...built, notes: [...sheet.notes, ...built.notes] };
-      }
-    } catch (e) {
-      if (e instanceof SheetFormatError || e instanceof CoaFormatError) throw new BadRequestException(`${src.fileName}: ${e.message}`);
-      throw e;
-    }
-    if (!built.rows.length) throw new BadRequestException(`${src.fileName} has no data rows`);
-
-    let header = await this.defaultHeader(organizationId, shipment, t.title, docType);
-    if (docType === 'CUSTOMER_COA') {
-      // 分析日付: the source's own date, else Vedanta's COA PDF, else the B/L (on-board) date — editable before finalizing.
-      const date = fromPdf?.date ?? (await this.coaPdfDateFor(organizationId, shipmentId)) ?? isoDay(shipment.etd);
-      if (date) header = { ...header, analysisDate: date };
-    }
     const templateKey = templateKeyFor(await this.profileForShipment(organizationId, shipmentId), docType);
-    if (docType === 'CUSTOMER_PL') header = await this.withAttachDefault(organizationId, shipmentId, templateKey, header);
+    const { built, header } = await this.buildFromSource(organizationId, shipment, docType, src, templateKey);
     const docRef = await this.config.docRefFor(this.prisma, organizationId, { shipmentId }, docType);
     return this.prisma.tradeGeneratedDoc
       .create({
@@ -361,6 +333,75 @@ export class TradeGeneratedService {
         select: GEN_SELECT,
       })
       .then((g) => ({ ...g, importNotes: built.notes }));
+  }
+
+  /**
+   * Rows + header of a Customer PL / COA built from a supplier file, in the format `templateKey` (the customer's, or the
+   * one being previewed in Clients → Document formats). Nothing is stored.
+   */
+  private async buildFromSource(organizationId: string, shipment: HeaderShipment, docType: string, src: { id: string; fileName: string; s3Key: string }, templateKey: string): Promise<{ built: { columns: GenColumn[]; rows: GenRow[]; notes: string[] }; header: GenHeader }> {
+    let built: { columns: GenColumn[]; rows: GenRow[]; notes: string[] };
+    let fromPdf: { date: string | null; invoiceNo: string | null } | null = null;
+    const pieces = ((await this.config.getSettings(organizationId)).docDefaults as DocDefaults | undefined)?.customerCoaPiecesPerBundle ?? null;
+    try {
+      const buf = await this.s3.downloadFile(src.s3Key);
+      if (isSusTemplate(templateKey)) {
+        const pdf = /\.pdf$/i.test(src.fileName);
+        const sheet = pdf ? parseCoaPdfText(await pdfText(buf)) : parseSheetFile(buf);
+        if (pdf) fromPdf = { date: (sheet as { date?: string | null }).date ?? null, invoiceNo: (sheet as { invoiceNo?: string | null }).invoiceNo ?? null };
+        const b = templateKey === SUS_PL_TEMPLATE ? buildSusPackingList(sheet) : buildSusCoaSummary(sheet, { piecesPerBundle: pieces ?? 5 });
+        built = { columns: b.columns, rows: b.rows, notes: [...((sheet as { notes?: string[] }).notes ?? []), ...b.notes] };
+      } else if (docType === 'CUSTOMER_PL') {
+        const sheet = parseSheetFile(buf);
+        built = buildCustomerPl(sheet);
+        built = { ...built, notes: [...sheet.notes, ...built.notes] };
+      } else if (/\.pdf$/i.test(src.fileName)) {
+        const sheet = parseCoaPdfText(await pdfText(buf));
+        fromPdf = { date: sheet.date, invoiceNo: sheet.invoiceNo };
+        built = buildCustomerCoaJp(sheet);
+      } else {
+        const sheet = parseSheetFile(buf);
+        built = buildCustomerCoaJp(sheet);
+        built = { ...built, notes: [...sheet.notes, ...built.notes] };
+      }
+    } catch (e) {
+      if (e instanceof SheetFormatError || e instanceof CoaFormatError || e instanceof SusFormatError) throw new BadRequestException(`${src.fileName}: ${e.message}`);
+      throw e;
+    }
+    if (!built.rows.length) throw new BadRequestException(`${src.fileName} has no data rows`);
+
+    let header = await this.defaultHeader(organizationId, shipment, this.template(docType).title, docType);
+    if (isSusTemplate(templateKey)) {
+      header = await this.susHeader(organizationId, shipment, header, docType, fromPdf);
+    } else if (docType === 'CUSTOMER_COA') {
+      // 分析日付: the source's own date, else Vedanta's COA PDF, else the B/L (on-board) date — editable before finalizing.
+      const date = fromPdf?.date ?? (await this.coaPdfDateFor(organizationId, shipment.id)) ?? isoDay(shipment.etd);
+      if (date) header = { ...header, analysisDate: date };
+    }
+    if (docType === 'CUSTOMER_PL') header = await this.withAttachDefault(organizationId, shipment.id, templateKey, header);
+    return { built, header };
+  }
+
+  /**
+   * Round AM — Clients → Document formats → Preview: the document `docType` of a real shipment in the format
+   * `templateKey`, from the shipment's best supplier file. Returns the HTML (the portal renders it as a PDF via the
+   * preview endpoint) and, for SUS's PACKING LIST, the .xlsx. Read-only: nothing is created or changed.
+   */
+  async previewFormat(organizationId: string, shipmentId: string, docType: string, templateKey: string): Promise<{ html: string; landscape: boolean; notes: string[]; source: string | null; xlsx: Buffer | null }> {
+    const shipment = await this.loadShipment(organizationId, shipmentId);
+    const best = (await this.sources(organizationId, shipmentId, docType))[0] as { id: string; fileName: string } | undefined;
+    if (!best) throw new BadRequestException(`This shipment has no ${docType === 'CUSTOMER_COA' ? 'COA (COA.xls or a COA PDF)' : 'packing list (PL.xls / PL)'} yet — pick a shipment whose step 3b has Vedanta's files`);
+    const src = await this.prisma.tradeFile.findFirst({ where: { id: best.id, organizationId }, select: { id: true, fileName: true, s3Key: true } });
+    if (!src) throw new BadRequestException('Source file not found');
+    const { built, header } = await this.buildFromSource(organizationId, shipment, docType, src, templateKey);
+    const printable = await this.hydrate(organizationId, docType, header);
+    const xlsx = docType === 'CUSTOMER_PL' && (header as { layout?: string }).layout === 'sus' ? await susPackingListXlsx(built.rows) : null;
+    return { html: this.render(docType, printable, built.columns, built.rows, { draft: true }), landscape: isLandscape(docType, printable), notes: built.notes, source: src.fileName, xlsx };
+  }
+
+  /** PDF bytes of an HTML document (the Clients preview). */
+  pdfOf(html: string, docType: string, landscape: boolean) {
+    return this.pdf.generatePdfFromHtml(html, { margin: marginFor(docType), landscape });
   }
 
   /** Edit a DRAFT (header / columns / rows). */
@@ -421,6 +462,12 @@ export class TradeGeneratedService {
       if (input.docType === 'CUSTOMER_PL') header = await this.withAttachDefault(organizationId, s.id, templateKey, header as GenHeader);
       columns = (input.docType === 'CUSTOMER_PL' ? CUSTOMER_PL_COLUMNS : COA_JP_COLUMNS).map((c) => ({ ...c }));
       rows = [input.docType === 'CUSTOMER_PL' ? { no: 1, batch: '', container: '', netMt: null, grossMt: null } : { batch: '', bundles: null, netwt: null }];
+      // Round AM: SUS's own formats start blank in their own columns.
+      if (isSusTemplate(templateKey)) {
+        header = await this.susHeader(organizationId, s, header as GenHeader, input.docType, null);
+        columns = (templateKey === SUS_PL_TEMPLATE ? SUS_PL_COLUMNS : SUS_COA_COLUMNS).map((c) => ({ ...c }));
+        rows = [templateKey === SUS_PL_TEMPLATE ? { no: 1, batch: '', cast: '', bundleNo: null, netMt: null, grossMt: null, container: '' } : { batch: '', material: '', netwt: null, grosswt: null, bundles: null, pieces: null }];
+      }
     } else if (input.docType === 'INVOICE_1' && owner.orderId) {
       // Invoice #1 on an order: one line for the order's product, priced at the LME of the month before shipment.
       const o = await this.loadOrder(organizationId, owner.orderId);
@@ -803,13 +850,19 @@ export class TradeGeneratedService {
 
     const seal = isInvoiceKind(t.kind) ? await this.sealFor(organizationId) : null;
     const printable = await this.hydrate(organizationId, g.docType, header);
-    const pdf = await this.pdf.generatePdfFromHtml(this.render(g.docType, printable, g.columns, rows, { draft: false, seal }), { margin: marginFor(g.docType), landscape: isLandscape(g.docType, printable) });
+    // Round AM: SUS's PACKING LIST is finalized as the spreadsheet SUS takes (.xlsx); everything else as a PDF.
+    const susXlsx = g.docType === 'CUSTOMER_PL' && (printable as { layout?: string } | null)?.layout === 'sus';
+    const pdf = susXlsx
+      ? await susPackingListXlsx(rows as GenRow[])
+      : await this.pdf.generatePdfFromHtml(this.render(g.docType, printable, g.columns, rows, { draft: false, seal }), { margin: marginFor(g.docType), landscape: isLandscape(g.docType, printable) });
     const [primary, ...more] = owners;
     const target = (o: { contractId?: string; shipmentId?: string; orderId?: string }) =>
       o.shipmentId ? { shipmentIds: [o.shipmentId] } : o.orderId ? { orderIds: [o.orderId] } : { contractIds: [o.contractId] };
     const file = await this.files.upload(
       organizationId,
-      { originalname: `${number}.pdf`, mimetype: 'application/pdf', size: pdf.length, buffer: pdf } as Express.Multer.File,
+      (susXlsx
+        ? { originalname: `PACKING LIST_${number}.xlsx`, mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: pdf.length, buffer: pdf }
+        : { originalname: `${number}.pdf`, mimetype: 'application/pdf', size: pdf.length, buffer: pdf }) as Express.Multer.File,
       {
         docType: g.docType,
         ...target(primary),
@@ -1271,7 +1324,8 @@ export class TradeGeneratedService {
    * else any PL PDF); the typed table stays as the fallback.
    */
   private async withAttachDefault(organizationId: string, shipmentId: string, templateKey: string | null, header: GenHeader): Promise<GenHeader> {
-    // Every 計量検収票 variant copies Kato's layout (SUS / Hoei until ADH sends their own samples).
+    // Every 計量検収票 variant copies Kato's layout (SUS / Hoei until ADH sends their own samples) — except SUS's own .xlsx.
+    if (isSusTemplate(templateKey)) return { ...header, bodyMode: 'table' } as GenHeader;
     if (!templateKey?.startsWith('CUSTOMER_PL_')) return { ...header, bodyMode: 'table' } as GenHeader;
     const pls: Array<{ id: string; fileName: string; mimeType: string; docType: string }> = await this.prisma.tradeFile.findMany({
       where: { organizationId, docType: { in: ['CONTAINER_PL', 'PL'] }, links: { some: { shipmentId } } },
@@ -1743,13 +1797,38 @@ export class TradeGeneratedService {
       select: { name: true, address: true, phoneNumber: true, registrationNumber: true },
     });
     const settings = await this.config.getSettings(organizationId);
-    const withCustomer = { ...s, customer: await this.addresseeOf(organizationId, s) };
-    return customerDocHeader(buildDefaultHeader(org, withCustomer, title, docType, tradeToday()), withCustomer, docType, (settings.docDefaults ?? {}) as DocDefaults);
+    const profile = await this.config.profileOf(organizationId, s.order?.customerId ?? s.customerId ?? null);
+    const withCustomer = { ...s, customer: shipmentAddressee(s, profile, docType) };
+    const h = customerDocHeader(buildDefaultHeader(org, withCustomer, title, docType, tradeToday()), withCustomer, docType, (settings.docDefaults ?? {}) as DocDefaults);
+    // Round AM: Clients → Document formats → language "English" prints the PL / COA in the English table layout.
+    if (h.layout === 'jp' && formatOf(profile, docType)?.language === 'en') {
+      const { layout: _jp, ...en } = h;
+      return en as GenHeader;
+    }
+    return h;
   }
 
-  /** 宛先 of a shipment's documents: the ORDER's customer (else the shipment's), with its profile's addressee. */
-  private async addresseeOf(organizationId: string, s: HeaderShipment) {
-    return shipmentAddressee(s, await this.config.profileOf(organizationId, s.order?.customerId ?? s.customerId ?? null));
+  /** Round AM — the header of SUS's own formats: Vedanta's producer block and key lines, filled from the shipment. */
+  private async susHeader(organizationId: string, s: HeaderShipment, base: GenHeader, docType: string, fromPdf: { date: string | null; invoiceNo: string | null } | null): Promise<GenHeader> {
+    const d = ((await this.config.getSettings(organizationId)).docDefaults ?? {}) as DocDefaults;
+    const grade = s.order?.grade ?? s.contractLine?.grade ?? '';
+    const size = s.order?.size ?? s.sizeSpec ?? s.contractLine?.sizeSpec ?? '';
+    const product = (s.order?.product ?? s.contractLine?.product ?? 'Aluminium Billet').toUpperCase();
+    if (docType === 'CUSTOMER_PL') return { ...base, layout: 'sus', title: 'PACKING LIST', bodyMode: 'table' } as GenHeader;
+    const date = fromPdf?.date ?? (await this.coaPdfDateFor(organizationId, s.id)) ?? isoDay(s.etd) ?? '';
+    return {
+      ...base,
+      layout: 'sus',
+      title: 'CERTIFICATE OF ANALYSIS',
+      producerBlock: VEDANTA_PRODUCER_BLOCK,
+      date,
+      invoiceNo: fromPdf?.invoiceNo ?? s.ciNumber ?? '',
+      goodsDescription: [product, grade ? `ALLOY ${grade}` : null, size.toUpperCase()].filter(Boolean).join(' '),
+      brand: 'VEDANTA',
+      origin: (s.countryOfOrigin ?? 'INDIA').toUpperCase(),
+      applicant: applicantName(d.customerPlApplicant) || 'ASIA DEAL HUB PTE. LTD',
+      footer: '',
+    } as GenHeader;
   }
 }
 
@@ -1856,10 +1935,13 @@ export function sgjpGoods(product: string | null | undefined, grade: string | nu
 /** The customer a shipment's PL / COA is addressed to: the order's (else the shipment's), with the profile's 宛先. */
 export function shipmentAddressee(
   s: { customer?: JpPartySource | null; order?: { customer?: JpPartySource | null } | null },
-  profile: { docAddressee?: string | null },
+  profile: { docAddressee?: string | null; docFormats?: CustomerProfile['docFormats'] },
+  docType?: string,
 ): JpPartySource | null {
   const c = s.order?.customer ?? s.customer;
-  return c ? { ...c, docAddressee: profile.docAddressee ?? null } : null;
+  // Round AM: a document's own 宛先 (Clients → Document formats) wins over the customer's.
+  const own = docType ? formatOf(profile, docType)?.addressee?.trim() : null;
+  return c ? { ...c, docAddressee: own || profile.docAddressee || null } : null;
 }
 
 /** 請求書 宛先: the customer's Japanese legal name (name only, as on ADH's invoices), else its name. */

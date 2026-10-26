@@ -10,7 +10,13 @@
  * Both "Status" columns are COMPUTED (order status; PI / CI payment from steps 1 and 6) — ADH's sheet colours them
  * yellow, so does the export. 管理NO is ADH's number for the client order: #n-s per shipment (#n on an order without one);
  * Order No. is then the customer's PO no. when AIMS has it, else #n.
+ * Round AM (2026-10-26): the list became the Orders page's "Monthly" view. The two Status columns are plain words, one
+ * per row (trade-stage.ts: Order status "Waiting for shipment … Completed", Supplier status "PI received … Done");
+ * the shipment group is 管理NO · BL Number · ETD · ETA · Notes (the shipment's own note — ADH's free text such as
+ * "11/9 2trks 40T…", "STORE until DEC?"). The current step stays on the row (shipmentStatus) for the tooltip.
  */
+import { orderStage, OrderStage, orderStageLabel, StageShipment, supplierStage, SupplierStage, supplierStageLabel } from './trade-stage';
+
 export type MonthBasis = 'delivery' | 'ship';
 export type OrderStatusWord = 'Open' | 'Completed' | 'Unconfirmed';
 
@@ -30,6 +36,13 @@ export interface ShipmentFact {
   /** The current step's label ("9. Send arrival notice …") and id, or null when every step is done. */
   currentStep: { id: string | null; label: string; code: string } | null;
   ciPayment: StepFact[];
+  /** Round AM — the stage evidence (every step of the shipment, arrival, CI) and ADH's free-text note. */
+  steps?: StepFact[];
+  actualArrivalDate?: Date | string | null;
+  dischargeDate?: Date | string | null;
+  ciNumber?: string | null;
+  ciAmount?: number | null;
+  notes?: string | null;
 }
 export interface OrderFact {
   id: string;
@@ -43,6 +56,7 @@ export interface OrderFact {
   /** Profile key (KATO / SUS / HOEI) when the customer has a profile. */
   customerKey: string | null;
   supplierName: string;
+  supplierId?: string | null;
   customerPoDate: Date | string | null;
   grade: string | null;
   size: string | null;
@@ -55,6 +69,9 @@ export interface OrderFact {
   /** The supplier order (or order) is COMPLETED. */
   supplierDone: boolean;
   piPayment: StepFact[];
+  /** Round AM — the order-level steps (supplier order 0 / 1, the order's 2, 11, 13) and the PI no., for the stages. */
+  orderSteps?: StepFact[];
+  piNo?: string | null;
   /** The order's first open step id (the deep link of an order row without a shipment). */
   currentStepId: string | null;
   shipments: ShipmentFact[];
@@ -85,7 +102,17 @@ export interface MonthlyRow {
   ton: number | null;
   shipMonth: string | null;
   deliveryMonth: string | null;
+  /** The order record in a word (Open / Unconfirmed / Completed) — the old Status column; still filterable. */
   orderStatus: OrderStatusWord;
+  /** Round AM — the row's plain status words (computed): Order Status and Supplier Status. */
+  orderStage: OrderStage;
+  orderStageLabel: string;
+  supplierStage: SupplierStage;
+  supplierStageLabel: string;
+  /** Imported with an unconfirmed status (checkFields "status") — shown as "check" next to the Order Status. */
+  unconfirmed: boolean;
+  /** The shipment's own note (ADH's free text); null for an order without a shipment. */
+  notes: string | null;
   supplierContractNo: string | null;
   supplierOrderDate: string | null;
   supplierTon: number | null;
@@ -113,6 +140,11 @@ export interface MonthlyFilter {
   supplier?: string | null;
   grade?: string | null;
   status?: OrderStatusWord | null;
+  /** Round AM: the Clients page's supplier filter, and the Order Status filter (stage code). */
+  supplierId?: string | null;
+  stage?: OrderStage | null;
+  /** "YYYY-MM-DD" (Tokyo) for the date-based stages; default the UTC day. */
+  today?: string;
 }
 
 const CLIENT_ORDER = ['KATO', 'SUS', 'HOEI'];
@@ -194,11 +226,18 @@ export function buildMonthlyList(orders: OrderFact[], f: MonthlyFilter): Monthly
     if (f.supplier && shortSupplier(o.supplierName).toLowerCase() !== f.supplier.toLowerCase() && o.supplierName.toLowerCase() !== f.supplier.toLowerCase()) continue;
     if (f.grade && !(o.grade ?? '').toLowerCase().startsWith(f.grade.toLowerCase())) continue;
     if (f.status && status !== f.status) continue;
+    if (f.supplierId && o.supplierId !== f.supplierId) continue;
     const ships = o.shipments.filter((s) => s.status !== 'CANCELLED').sort((a, b) => (a.seqNo ?? 0) - (b.seqNo ?? 0));
     const monthOf = (s: ShipmentFact | null) => (f.basis === 'ship' ? o.shipMonth : (s?.deliveryMonth ?? o.deliveryMonth));
     const inWindow = (m: string | null) => !!m && m >= f.from && m <= f.to;
     const kept = ships.filter((s) => inWindow(monthOf(s)));
-    const list: Array<ShipmentFact | null> = ships.length ? kept : inWindow(monthOf(null)) ? [null] : [];
+    const today = f.today ?? new Date().toISOString().slice(0, 10);
+    const asStage = (s: ShipmentFact): StageShipment => ({ status: s.status, blNumber: s.blNumber, etd: s.etd, eta: s.eta, actualArrivalDate: s.actualArrivalDate ?? null, dischargeDate: s.dischargeDate ?? null, ciNumber: s.ciNumber ?? null, ciAmount: s.ciAmount ?? null, steps: s.steps ?? s.ciPayment });
+    const stageOrder = { status: o.status, piNo: o.piNo ?? null, piDate: o.piDate, supplierDone: o.supplierDone, steps: o.orderSteps ?? o.piPayment, shipments: ships.map(asStage) };
+    const stageOf = (s: ShipmentFact | null) => orderStage(stageOrder, s ? asStage(s) : null, today);
+    const all: Array<ShipmentFact | null> = ships.length ? kept : inWindow(monthOf(null)) ? [null] : [];
+    // The Order Status filter keeps the matching rows; the order's merged cells then span what is left.
+    const list = f.stage ? all.filter((s) => stageOf(s) === f.stage) : all;
     if (!list.length) continue;
     const client = clientName(o.customerKey, o.customerName);
     const base = {
@@ -216,6 +255,7 @@ export function buildMonthlyList(orders: OrderFact[], f: MonthlyFilter): Monthly
       supplierOrderDate: day(o.piDate),
       supplierTon: o.piQtyMt,
       supplierStatus: supplierStatus(o),
+      unconfirmed: status === 'Unconfirmed',
     };
     list.forEach((s, i) =>
       rows.push({
@@ -226,6 +266,11 @@ export function buildMonthlyList(orders: OrderFact[], f: MonthlyFilter): Monthly
         span: list.length,
         shipmentRef: s ? `#${o.orderNo}${s.seqNo ? `-${s.seqNo}` : ''}` : null,
         shipmentStatus: s ? shipmentStatus(s) : null,
+        orderStage: stageOf(s),
+        orderStageLabel: orderStageLabel(stageOf(s)),
+        supplierStage: supplierStage(stageOrder, s ? asStage(s) : null, today),
+        supplierStageLabel: supplierStageLabel(supplierStage(stageOrder, s ? asStage(s) : null, today)),
+        notes: s?.notes?.trim() || null,
         managementNo: s ? `#${o.orderNo}${s.seqNo ? `-${s.seqNo}` : ''}` : `#${o.orderNo}`,
         blNumber: s?.blNumber ?? null,
         etd: day(s?.etd),
@@ -260,9 +305,11 @@ export const GROUPS = [
   { title: 'Supplier information', cols: 4 },
   { title: 'Shipment information', cols: 5 },
 ] as const;
-export const HEADERS = ['Client', 'Order No.', 'Order Date', 'Billet Type', 'Supplier', 'Ton', 'Shipment Month', 'Delivery Month', 'Status', 'Supplier Contract No', 'Order Date', 'Order ton', 'Status', 'Order Status', '管理NO', 'BL Number', 'ETD', 'ETA'] as const;
+export const HEADERS = ['Client', 'Order No.', 'Order Date', 'Billet Type', 'Supplier', 'Ton', 'Shipment Month', 'Delivery Month', 'Order Status', 'Supplier Contract No', 'Order Date', 'Order ton', 'Supplier Status', '管理NO', 'BL Number', 'ETD', 'ETA', 'Notes'] as const;
 /** The 0-based columns ADH colours yellow (the two Status columns). */
 export const YELLOW_COLS = [8, 12];
+/** Order / supplier columns shown once per order (merged over its shipment rows); the Status columns are per row. */
+export const MERGED_COLS = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11];
 
 const monthLabel = (ym: string | null) => {
   if (!ym || !YM.test(ym)) return ym ?? '';
@@ -271,7 +318,7 @@ const monthLabel = (ym: string | null) => {
 };
 export { monthLabel };
 
-/** One row's cells in their column order; the order / supplier cells empty on the follow-on rows of an order. */
+/** One row's cells in their column order; the order / supplier cells empty on the follow-on rows of an order (the two Status columns are the row's own). */
 export function rowCells(r: MonthlyRow): Array<string | number | null> {
   const o = r.first;
   return [
@@ -283,16 +330,16 @@ export function rowCells(r: MonthlyRow): Array<string | number | null> {
     o ? r.ton : null,
     o ? monthLabel(r.shipMonth) : null,
     o ? monthLabel(r.deliveryMonth) : null,
-    o ? r.orderStatus : null,
+    r.orderStageLabel + (r.unconfirmed ? ' (check)' : ''),
     o ? r.supplierContractNo : null,
     o ? r.supplierOrderDate : null,
     o ? r.supplierTon : null,
-    o ? r.supplierStatus : null,
-    r.shipmentStatus,
+    r.supplierStageLabel,
     r.managementNo,
     r.blNumber,
     r.etd,
     r.eta,
+    r.notes,
   ];
 }
 
@@ -324,7 +371,7 @@ export function monthlySummary(blocks: MonthlyBlock[], f: Pick<MonthlyFilter, 'f
   if (!orders) return lang === 'ja' ? `月次注文リスト ${range}（${basis}）: 該当する注文はありません。` : `Monthly order list ${range} (${basis}): no orders.`;
   const head = lang === 'ja' ? `月次注文リスト ${range}（${basis}）: 注文 ${orders} 件 · ${fmt(tons)} t` : `Monthly order list ${range} (${basis}): ${orders} order${orders === 1 ? '' : 's'} · ${fmt(tons)} t`;
   const lines = blocks.map((b) => {
-    const open = b.rows.filter((r) => r.first && r.orderStatus !== 'Completed').length;
+    const open = b.rows.filter((r) => r.first && r.orderStage !== 'COMPLETED').length;
     return lang === 'ja' ? `${b.client}: ${b.orders} 件 · ${fmt(b.tons)} t（未完了 ${open} 件）` : `${b.client}: ${b.orders} order${b.orders === 1 ? '' : 's'} · ${fmt(b.tons)} t (${open} open)`;
   });
   return [head, '', ...lines].join('\n');

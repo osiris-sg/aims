@@ -297,3 +297,26 @@ export function useTradeMutation<TVars, TResult>(fn: (api: ReturnType<typeof use
     },
   });
 }
+
+// ── Round AM: Clients (Customers · Suppliers) ──────────────────────────────
+export const CLIENT_KEYS = { all: ["trade-clients"] as const };
+export const useClientCustomers = () => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({ queryKey: [...CLIENT_KEYS.all, orgId, "customers"], enabled: !!orgId, queryFn: () => api.clientCustomers() });
+};
+export const useClientCustomer = (id: string | undefined) => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({ queryKey: [...CLIENT_KEYS.all, orgId, "customer", id], enabled: !!orgId && !!id, queryFn: () => api.clientCustomer(id!) });
+};
+export const useClientSuppliers = () => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({ queryKey: [...CLIENT_KEYS.all, orgId, "suppliers"], enabled: !!orgId, queryFn: () => api.clientSuppliers() });
+};
+export const useClientSupplier = (id: string | undefined) => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({ queryKey: [...CLIENT_KEYS.all, orgId, "supplier", id], enabled: !!orgId && !!id, queryFn: () => api.clientSupplier(id!) });
+};

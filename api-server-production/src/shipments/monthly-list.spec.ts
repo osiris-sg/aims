@@ -6,7 +6,7 @@ import { monthlyXlsx } from './monthly-list.xlsx';
 const step = (code: string, status: string) => ({ code, status, notApplicable: false });
 const ship = (seqNo: number, o: Partial<OrderFact['shipments'][number]> = {}): OrderFact['shipments'][number] => ({ id: `s${seqNo}`, seqNo, status: 'OPEN', blNumber: `198GX0${seqNo}000`, etd: '2026-09-30', eta: '2026-10-29', deliveryMonth: null, currentStep: { id: `st${seqNo}`, label: '9. Send arrival notice', code: 'AN' }, ciPayment: [step('CI_PAYMENT', 'NOT_STARTED')], ...o });
 const order = (o: Partial<OrderFact>): OrderFact => ({ id: `o${o.orderNo}`, orderNo: 1, status: 'OPEN', checkFields: [], customerId: 'c-sus', customerName: 'SUS Co., Ltd.', customerPoNo: null, customerKey: 'SUS', supplierName: 'Vedanta Limited', customerPoDate: '2026-08-01', grade: '6005', size: '203 MM X 5800 MM', qtyMt: 220, shipMonth: '2026-09', deliveryMonth: '2026-11', supplierContractNo: '454003598', piDate: '2026-07-14', piQtyMt: 220, supplierDone: false, piPayment: [step('PI_PAYMENT', 'DONE')], currentStepId: 'ost', shipments: [], ...o });
-const W = { from: '2026-10', to: '2026-12', basis: 'delivery' as const };
+const W = { from: '2026-10', to: '2026-12', basis: 'delivery' as const, today: '2026-10-26' };
 
 describe('Monthly order list', () => {
   const orders = [
@@ -24,10 +24,12 @@ describe('Monthly order list', () => {
     expect(sus.rows.map((r) => r.shipmentRef)).toEqual(['#18-1', '#18-2', '#18-3']);
     expect(sus.rows.map((r) => r.first)).toEqual([true, false, false]);
     expect(sus.rows[0].span).toBe(3);
-    expect(rowCells(sus.rows[1]).slice(0, 13).filter((x) => x !== null)).toEqual([]); // order / supplier cells on the first row only
+    // Order / supplier cells on the first row only; the two Status columns (8, 12) are each row's own (round AM).
+    expect(rowCells(sus.rows[1]).slice(0, 13).filter((x, i) => x !== null && i !== 8 && i !== 12)).toEqual([]);
+    expect(rowCells(sus.rows[1])[8]).toBe('In transit');
     // 管理NO = ADH's client-order number per shipment; Order No. = #n (or the customer's PO no. when AIMS has it).
     expect(sus.rows.map((r) => r.managementNo)).toEqual(['#18-1', '#18-2', '#18-3']);
-    expect(rowCells(sus.rows[1])[14]).toBe('#18-2');
+    expect(rowCells(sus.rows[1])[13]).toBe('#18-2');
     expect(sus.rows[0].orderNo).toBe('#18');
     expect(buildMonthlyList([order({ orderNo: 18, customerPoNo: 'PO-7781', shipments: [ship(1)] })], W)[0].rows[0]).toMatchObject({ orderNo: 'PO-7781', managementNo: '#18-1' });
     expect(sus.orders).toBe(1);
@@ -81,9 +83,12 @@ describe('Monthly order list', () => {
     const susTitle = [...Array(ws.rowCount).keys()].map((i) => i + 1).find((n) => String(ws.getCell(`A${n}`).value).startsWith('SUS'))!;
     expect(ws.getCell(`B${susTitle + 1}`).value).toBe('#18');
     expect(ws.getCell(`B${susTitle + 3}`).isMerged).toBe(true);
-    expect(ws.getCell(`O${susTitle + 1}`).value).toBe('#18-1');
-    expect(ws.getCell(`O${susTitle + 3}`).value).toBe('#18-3');
+    expect(ws.getCell(`N${susTitle + 1}`).value).toBe('#18-1');
+    expect(ws.getCell(`N${susTitle + 3}`).value).toBe('#18-3');
     expect(ws.getCell(`A${susTitle + 3}`).isMerged).toBe(true);
+    // Round AM: the Status columns are per row (not merged); Notes is the last column.
+    expect(ws.getCell(`I${susTitle + 3}`).isMerged).toBe(false);
+    expect(ws.getCell('R3').value).toBe('Notes');
   });
   it('customer Order Date = customer PO date only, else blank (never the PI date, never the AIMS creation / import date)', () => {
     expect(orderDateOf({ customerPoDate: '2026-05-10' })).toBe('2026-05-10');
@@ -98,5 +103,21 @@ describe('Monthly order list', () => {
     expect(t.split('\n')[0]).toBe('Monthly order list Oct 2026 – Dec 2026 (delivery month): 4 orders · 692 t');
     expect(t).toContain('SUS: 1 order · 220 t (1 open)');
     expect(monthlySummary([], { ...W, from: '2026-11', to: '2026-11' }, 'en')).toBe('Monthly order list Nov 2026 (delivery month): no orders.');
+  });
+  it('round AM: plain Order / Supplier Status per row, the stage filter, Notes, supplier filter', () => {
+    const o = order({ orderNo: 60, customerKey: 'SUS', supplierId: 'v1', piNo: '9331004321', orderSteps: [step('PI_PAYMENT', 'DONE'), step('INVOICE_1', 'DONE')], shipments: [
+      ship(1, { etd: '2026-10-06', eta: '2026-11-01', notes: '11/9 2trks 40T', steps: [step('BL_DRAFT_APPROVAL', 'DONE'), step('SEND_DOCS_SCHEDULE', 'DONE')] }),
+      ship(2, { blNumber: null, etd: null, steps: [] }),
+    ] });
+    const rows = buildMonthlyList([o], W)[0].rows;
+    expect(rows.map((r) => [r.orderStageLabel, r.supplierStageLabel, r.notes])).toEqual([
+      ['Docs sent, waiting for schedule', 'Shipped (B/L issued)', '11/9 2trks 40T'],
+      ['Waiting for shipment', 'Deposit paid', null],
+    ]);
+    expect(rowCells(rows[0])[17]).toBe('11/9 2trks 40T');
+    const only = buildMonthlyList([o], { ...W, stage: 'WAITING_SHIPMENT' })[0].rows;
+    expect(only.map((r) => [r.managementNo, r.first, r.span])).toEqual([['#60-2', true, 1]]);
+    expect(buildMonthlyList([o], { ...W, supplierId: 'other' })).toEqual([]);
+    expect(buildMonthlyList([order({ orderNo: 61, checkFields: ['status'], shipments: [] })], W)[0].rows[0]).toMatchObject({ orderStage: 'WAITING_SHIPMENT', unconfirmed: true });
   });
 });

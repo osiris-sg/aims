@@ -327,6 +327,36 @@ export const GUIDES: Guide[] = [
     ],
   },
   {
+    id: 'trade-orders-monthly-view',
+    title: 'See the monthly order list (Orders › Monthly)',
+    module: 'SHIPMENTS',
+    description:
+      'How to see ADH\'s monthly spreadsheet: Sales › Orders, switch "List | Monthly" to Monthly — one block per client, one row per shipment (管理NO #n-s), the yellow Order Status and Supplier Status in plain words (computed from the steps), Notes per shipment, a month picker (this month, ‹ ›, Range) and Export to Excel in ADH\'s layout. The old Sales › Monthly list opens here.',
+    route: '/portal/shipments',
+    steps: [
+      { route: '/portal/shipments', selector: '[data-tour="orders-view-toggle"]', title: 'List | Monthly', body: 'Monthly shows ADH\'s spreadsheet; the choice is remembered for you.' },
+      { selector: '[data-tour="monthly-month-picker"]', title: 'Pick the month', body: 'This month by default; ‹ › step a month, Range shows From / To.', patient: true },
+      { selector: '[data-tour="monthly-order-status"]', title: 'Order Status', body: 'Computed from the steps: Waiting for shipment → Invoice #1 to send → In transit → Docs sent → Arrived → Delivered → Final invoice / Xero → Completed. Hover for the current step.', patient: true },
+      { selector: '[data-tour="monthly-notes"]', title: 'Notes', body: 'The shipment\'s own note (e.g. "11/9 2trks 40T"). Click to type it.', patient: true },
+      { selector: '[data-tour="monthly-export"]', title: 'Export', body: 'Excel in ADH\'s layout (merged order cells, yellow status columns) or CSV.' },
+    ],
+  },
+  {
+    id: 'trade-client-doc-formats',
+    title: 'Set a customer\'s document formats (Clients)',
+    module: 'SHIPMENTS',
+    description:
+      'How to choose which format AIMS uses for a customer\'s documents (step 4 Customer COA / packing list, 7, 9, 11): Clients › Customers → the customer → Document formats. Pick the format, language and 宛先, add the customer\'s sample files, and Preview on a real shipment before saving. Step 4 "Create from Vedanta file" then uses it. NOT for editing one document (open it on the shipment\'s step 4).',
+    route: '/portal/shipments/clients/customers',
+    steps: [
+      { route: '/portal/shipments/clients/customers', selector: '[data-tour="clients-customers"]', title: 'Customers', body: 'Open the customer (SUS, Kato, Hoei …).' },
+      { selector: '[data-tour="client-tab-formats"]', title: 'Document formats', body: 'One card per document AIMS makes for this customer.', patient: true },
+      { selector: '[data-tour="client-format-generator"]', title: 'Format', body: 'E.g. SUS: COA_集計ファイル (COA summary by cast) and PACKING LIST (.xlsx from Vedanta\'s PL).', patient: true },
+      { selector: '[data-tour="client-format-sample"]', title: 'Samples', body: 'Keep the customer\'s own sample or template file with the format.', patient: true },
+      { selector: '[data-tour="client-format-preview"]', title: 'Preview', body: 'Pick a shipment with Vedanta\'s files and Preview — nothing is saved. Then Save the format.', patient: true },
+    ],
+  },
+  {
     id: 'trade-shipments-list',
     title: 'See every shipment (Shipments)',
     module: 'SHIPMENTS',

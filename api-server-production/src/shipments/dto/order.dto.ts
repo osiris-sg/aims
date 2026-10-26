@@ -73,6 +73,8 @@ export class ListOrdersQuery {
   /** pending = OPEN, completed = COMPLETED + CANCELLED. */
   @IsOptional() @IsIn(['pending', 'completed']) bucket?: 'pending' | 'completed';
   @IsOptional() @IsUUID() customerId?: string;
+  /** Round AM: a supplier's orders (Clients → Suppliers). */
+  @IsOptional() @IsUUID() supplierId?: string;
   @IsOptional() @IsUUID() contractId?: string;
   /** "2026-10", or "none" = orders without a ship month. */
   @IsOptional() @Matches(/^(\d{4}-\d{2}|none)$/) shipMonth?: string;

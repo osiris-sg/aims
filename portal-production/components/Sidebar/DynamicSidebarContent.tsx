@@ -47,7 +47,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { getListRouteFromPathname } from "@/app/portal/components/documentRoutes";
 import { useSidebar } from "./SidebarContext";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
-import { visibleSalesSubmenus, withSalesMonthly } from "@/helpers/shipmentsNav";
+import { clientsNavModule, isClientsPath, navLangOf, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
 
 // Material UI icon mapping
 const iconMap: Record<string, React.ComponentType> = {
@@ -92,6 +92,8 @@ export default function DynamicSidebarContent() {
   const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
+  const [navLang, setNavLang] = React.useState<'en' | 'ja'>('en');
+  React.useEffect(() => setNavLang(navLangOf(typeof navigator !== 'undefined' ? navigator.language : null)), []);
 
   // When we're inside a document editor URL (/portal/documents/<type>/...),
   // behave for sidebar-highlight purposes as if we were still on the
@@ -138,6 +140,8 @@ export default function DynamicSidebarContent() {
       return pathname === '/portal' || (!!route && route !== '/portal' && (pathname === route || pathname.startsWith(route + '/')));
     }
 
+    // Round AM: Clients lives under /portal/shipments — Sales isn't highlighted there.
+    if (module.moduleCode === 'SHIPMENTS' && isClientsPath(pathname)) return false;
     // Check if current path starts with the module's route
     if (route && pathname.startsWith(route)) {
       // Make sure it's not a false positive (e.g., /portal/documents matching /portal/document-extraction)
@@ -210,7 +214,7 @@ export default function DynamicSidebarContent() {
   const orderKey = (m: any) => ORDER_OVERRIDE[m.moduleCode] ?? m.sortOrder ?? 999;
 
   // Filter and sort enabled modules, then filter by role-based module access
-  const enabledModules = modules
+  const builtModules = modules
     .filter(m => m.enabled)
     .filter(m => isModuleAllowed(m.moduleCode))
     .filter(m => !HIDDEN_MODULES.has(m.moduleCode))
@@ -219,8 +223,8 @@ export default function DynamicSidebarContent() {
       const hide = HIDDEN_SUBMENUS[m.moduleCode];
       const rawSubMenus = (m.config as any)?.subMenus;
       if (!Array.isArray(rawSubMenus)) return m;
-      // Round AG: Sales › Monthly list for SHIPMENTS orgs (in code — no module row changes).
-      const subMenus = m.moduleCode === 'SHIPMENTS' ? withSalesMonthly(rawSubMenus) : rawSubMenus;
+      // Round AM: Sales › Monthly list is the Orders page's Monthly view now — never a menu item.
+      const subMenus = m.moduleCode === 'SHIPMENTS' ? withoutSalesMonthly(rawSubMenus) : rawSubMenus;
       const filtered = subMenus.filter((s: any) => {
         if (typeof s === 'object' && s?.adminOnly && !isAdminUser) return false;
         const key = typeof s === 'string' ? s : s?.key;
@@ -249,6 +253,10 @@ export default function DynamicSidebarContent() {
       }
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
     })
+    ;
+  // Round AM: "Clients" right after Sales for orgs whose menu has the SHIPMENTS module (same rule as the top bar).
+  const salesModule = builtModules.find((m: any) => m.moduleCode === 'SHIPMENTS');
+  const enabledModules = [...builtModules, ...(salesModule ? [clientsNavModule(navLang, orderKey(salesModule)) as any] : [])]
     .sort((a, b) => orderKey(a) - orderKey(b));
 
   // Resolve the URL for a single submenu key — same rules used when rendering

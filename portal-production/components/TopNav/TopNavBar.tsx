@@ -32,6 +32,7 @@ import logo from "@/components/Sidebar/aims-logo.png";
 import { resolveSubmenuRoute, submenuLabel, useNavModules } from "./useNavModules";
 import { HOME_VIEW_EVENT, closeAimee, openAimee, readHomeView, type HomeView } from "@/app/portal/chat/homeView";
 import AimeeFace from "@/app/portal/chat/AimeeFace";
+import { isClientsPath } from "@/helpers/shipmentsNav";
 
 // Deliberate hardcoded org check pending a general per-org nav-logo solution.
 // CIEL gets its cream mark (transparent PNG on the dark navy bar); ~2.2:1, so
@@ -193,6 +194,8 @@ export default function TopNavBar() {
     const route: string = m.config?.route || "";
     if (!route) return false;
     if (route === "/portal") return navPath === "/portal";
+    // Round AM: Clients lives under /portal/shipments — Sales isn't highlighted there.
+    if (m.moduleCode === "SHIPMENTS" && isClientsPath(navPath)) return false;
     return navPath === route || navPath.startsWith(route + "/");
   };
 

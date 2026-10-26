@@ -10,7 +10,8 @@ import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
-import { visibleSalesSubmenus, withSalesMonthly } from "@/helpers/shipmentsNav";
+import { useEffect, useState } from "react";
+import { clientsNavModule, navLangOf, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
 
 // Mirrors DynamicSidebarContent — keep the two in sync.
 const HIDDEN_MODULES = new Set<string>(["CUSTOMERS", "SUPPLIERS"]);
@@ -69,7 +70,9 @@ export function useNavModules() {
   const isMasterTier = userRoles.length === 0 || userRoles.some((r: any) => !SCOPED_ROLES.includes(r?.name));
 
   const orderKey = (m: any) => ORDER_OVERRIDE[m.moduleCode] ?? m.sortOrder ?? 999;
-  const navModules = (modules || [])
+  const [lang, setLang] = useState<"en" | "ja">("en");
+  useEffect(() => setLang(navLangOf(typeof navigator !== "undefined" ? navigator.language : null)), []);
+  const built = (modules || [])
     .filter((m: any) => m.enabled)
     .filter((m: any) => isModuleAllowed(m.moduleCode))
     .filter((m: any) => !HIDDEN_MODULES.has(m.moduleCode))
@@ -78,8 +81,8 @@ export function useNavModules() {
       const hide = HIDDEN_SUBMENUS[m.moduleCode];
       const rawSubMenus = (m.config as any)?.subMenus;
       if (!Array.isArray(rawSubMenus)) return m;
-      // Round AG: Sales › Monthly list for SHIPMENTS orgs (in code — no module row changes).
-      const subMenus = m.moduleCode === "SHIPMENTS" ? withSalesMonthly(rawSubMenus) : rawSubMenus;
+      // Round AM: Sales › Monthly list is the Orders page's Monthly view now — never a menu item.
+      const subMenus = m.moduleCode === "SHIPMENTS" ? withoutSalesMonthly(rawSubMenus) : rawSubMenus;
       const filtered = subMenus.filter((s: any) => {
         if (typeof s === "object" && s?.adminOnly && !isAdminUser) return false;
         const key = typeof s === "string" ? s : s?.key;
@@ -105,8 +108,10 @@ export function useNavModules() {
         filtered.push({ key: "dates", label: "Maintenance Dates" });
       }
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
-    })
-    .sort((a: any, b: any) => orderKey(a) - orderKey(b));
+    });
+  // Round AM: "Clients" right after Sales for orgs whose menu has the SHIPMENTS module (Sales).
+  const sales = built.find((m: any) => m.moduleCode === "SHIPMENTS");
+  const navModules = [...built, ...(sales ? [clientsNavModule(lang, orderKey(sales))] : [])].sort((a: any, b: any) => orderKey(a) - orderKey(b));
 
   // Flat list of every screen the user can reach: module roots + submenus +
   // the settings group. This is what the chat assistant is allowed to open.

@@ -5,14 +5,14 @@
  * shipment rows). The two Status columns are filled yellow like theirs. ExcelJS (SheetJS CE cannot write fills).
  */
 import { Workbook } from 'exceljs';
-import { GROUPS, HEADERS, MonthlyBlock, monthLabel, rowCells, YELLOW_COLS } from './monthly-list';
+import { GROUPS, HEADERS, MERGED_COLS, MonthlyBlock, monthLabel, rowCells, YELLOW_COLS } from './monthly-list';
 
 const YELLOW = 'FFFFFF00';
 const GROUP_FILL = ['FFDDEBF7', 'FFE2EFDA', 'FFFCE4D6'];
 const BORDER = { style: 'thin' as const, color: { argb: 'FF999999' } };
-const WIDTHS = [12, 10, 12, 22, 11, 9, 13, 13, 12, 18, 12, 10, 12, 26, 12, 16, 12, 12];
-/** Order + supplier columns (0-based) whose cells merge down over an order's shipment rows. */
-const ORDER_COLS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const WIDTHS = [12, 10, 12, 22, 11, 9, 13, 13, 22, 18, 12, 10, 18, 12, 16, 12, 12, 30];
+/** Order + supplier columns (0-based) whose cells merge down over an order's shipment rows (round AM: not the Status columns — they are per row). */
+const ORDER_COLS = MERGED_COLS;
 
 export async function monthlyXlsx(blocks: MonthlyBlock[], meta: { orgName: string; from: string; to: string; basis: 'delivery' | 'ship'; generatedAt: Date }): Promise<Buffer> {
   const wb = new Workbook();
@@ -65,7 +65,7 @@ export async function monthlyXlsx(blocks: MonthlyBlock[], meta: { orgName: strin
         row.eachCell({ includeEmpty: true }, (cell, n) => {
           if (n > HEADERS.length) return;
           cell.border = { top: BORDER, bottom: BORDER, left: BORDER, right: BORDER };
-          cell.alignment = { vertical: 'middle', wrapText: n === 4 || n === 14 };
+          cell.alignment = { vertical: 'middle', wrapText: n === 4 || n === 9 || n === 18 };
           if (YELLOW_COLS.includes(n - 1)) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: YELLOW } };
           if (n === 6 || n === 12) cell.numFmt = '#,##0.000';
         });

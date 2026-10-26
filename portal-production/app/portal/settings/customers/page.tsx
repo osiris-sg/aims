@@ -25,11 +25,13 @@ const PL = [
   { value: "CUSTOMER_PL_KATO", label: "計量検収票 — Kato layout" },
   { value: "CUSTOMER_PL_SUS", label: "計量検収票 — SUS (format not yet confirmed)" },
   { value: "CUSTOMER_PL_HOEI", label: "計量検収票 — Hoei (format not yet confirmed)" },
+  { value: "CUSTOMER_PL_SUS_XLS", label: "PACKING LIST (SUS) — Excel from Vedanta's PL" },
 ];
 const COA = [
   { value: "CUSTOMER_COA_KATO", label: "納品書兼分析試験成績報告書 — Kato layout" },
   { value: "CUSTOMER_COA_SUS", label: "納品書兼分析試験成績報告書 — SUS (format not yet confirmed)" },
   { value: "CUSTOMER_COA_HOEI", label: "納品書兼分析試験成績報告書 — Hoei (format not yet confirmed)" },
+  { value: "CUSTOMER_COA_SUS_SUMMARY", label: "COA_集計ファイル (SUS) — COA summary by cast, PDF" },
 ];
 
 const blank = (customerId: string): CustomerProfile => ({ customerId, billingMode: "TWO_STAGE", sendImportPermit: true, truckCapacityT: 20, docVariants: {} });

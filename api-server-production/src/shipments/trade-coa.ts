@@ -132,7 +132,8 @@ export function parseCoaPdfText(text: string): Sheet & { date: string | null; in
     if (vals.length === headers.length && /^(?=.*\d)[0-9A-Z]{5,}$/i.test(vals[0])) rows.push(vals);
   }
   if (!headers) throw new CoaFormatError('No COA table found in this PDF (expected a "Cast No … FE SI …" header)');
-  const dateM = /Date\s*[:：]\s*(\d{2})\/(\d{2})\/(\d{4})/i.exec(text);
+  // Vedanta's per-bundle COA PDF extracts its header date before the label ("22/07/2026DATE :"), the summary after it.
+  const dateM = /Date\s*[:：]\s*(\d{2})\/(\d{2})\/(\d{4})/i.exec(text) ?? /(\d{2})\/(\d{2})\/(\d{4})\s*DATE\s*[:：]/i.exec(text);
   const invM = /Invoice\s+Number\s*[:：]\s*([A-Z0-9-]+)/i.exec(text);
   return {
     headers: headers.map((h) => (h === 'NetWt' ? 'Net Wt' : h === 'GrossWt' ? 'Gross Wt' : h === 'CastNo' ? 'Cast No' : h)),

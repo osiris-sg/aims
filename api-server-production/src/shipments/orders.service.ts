@@ -71,6 +71,7 @@ export class OrdersService {
       // Round N: test orders only with "Show test orders".
       ...(query.includeTest === 'true' ? {} : { isTest: false }),
       ...(query.customerId ? { customerId: query.customerId } : {}),
+      ...(query.supplierId ? { supplierId: query.supplierId } : {}),
       ...(query.contractId ? { contractId: query.contractId } : {}),
       ...(query.shipMonth ? { shipMonth: query.shipMonth === 'none' ? null : query.shipMonth } : {}),
       ...(q
