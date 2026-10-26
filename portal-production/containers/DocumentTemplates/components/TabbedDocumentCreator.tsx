@@ -3468,6 +3468,34 @@ export default function TabbedDocumentCreator({
   const [moreMenuAnchor, setMoreMenuAnchor] = useState<null | HTMLElement>(null);
   const closeMoreMenu = () => setMoreMenuAnchor(null);
 
+  // Per-line GL account (guru 2026-10-27): the "GL <code>" chip under each
+  // line's item code opens a picker of the chart's accounts, so the office can
+  // fix the account a line posts to without leaving the editor (Review Posting
+  // stays for the AI-suggested pass). Accounts load once, on first open.
+  const [glMenu, setGlMenu] = useState<{ pos: { left: number; top: number }; itemId: any } | null>(null);
+  const [glAccounts, setGlAccounts] = useState<Array<{ id: string; code: string; name: string; accountType?: string }> | null>(null);
+  const openGlMenu = async (e: React.MouseEvent, itemId: any) => {
+    e.stopPropagation();
+    setGlMenu({ pos: { left: e.clientX, top: e.clientY }, itemId });
+    if (glAccounts) return;
+    try {
+      const token = await getToken();
+      const res: any = await request({ path: "/accounting/accounts", method: "GET" }, {}, token || undefined);
+      const list: any[] = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+      setGlAccounts(list.map((a) => ({ id: a.id, code: a.code, name: a.name, accountType: a.accountType })));
+    } catch {
+      setGlAccounts([]);
+    }
+  };
+  const pickGlAccount = (acc: { code: string; name: string } | null) => {
+    const id = glMenu?.itemId;
+    setGlMenu(null);
+    if (id === undefined) return;
+    setItems((rows: any[]) => rows.map((r) => (r.id === id ? { ...r, accountCode: acc?.code ?? null, accountName: acc?.name ?? null } : r)));
+  };
+  // Revenue accounts first — that is what a sales line posts to.
+  const glRank = (a: { accountType?: string }) => (/SALES|INCOME|REVENUE/i.test(a.accountType || "") ? 0 : 1);
+
   // Xero-style per-document "History & notes" drawer (⋮ menu).
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
 
@@ -4799,6 +4827,36 @@ export default function TabbedDocumentCreator({
                 <ListItemText>Bulk complete</ListItemText>
               </MenuItem>
             )}
+          </Menu>
+          {/* Per-line GL account picker (the chip under the item code). Anchored
+              to the click position so it never detaches on a table re-render. */}
+          <Menu
+            open={!!glMenu}
+            onClose={() => setGlMenu(null)}
+            anchorReference="anchorPosition"
+            anchorPosition={glMenu?.pos}
+            slotProps={{ paper: { sx: { maxHeight: 380, minWidth: 320 } } }}
+          >
+            {glAccounts === null && <MenuItem disabled>Loading accounts…</MenuItem>}
+            {glAccounts && glAccounts.length === 0 && <MenuItem disabled>No accounts in the chart of accounts</MenuItem>}
+            {glAccounts && glAccounts.length > 0 && (
+              <MenuItem onClick={() => pickGlAccount(null)} sx={{ color: "text.secondary" }}>
+                — no account (post to the default sales account) —
+              </MenuItem>
+            )}
+            {(glAccounts ?? [])
+              .slice()
+              .sort((a, b) => glRank(a) - glRank(b) || a.code.localeCompare(b.code))
+              .map((a) => (
+                <MenuItem
+                  key={a.id}
+                  dense
+                  selected={!!glMenu && items.some((r: any) => r.id === glMenu.itemId && r.accountCode === a.code)}
+                  onClick={() => pickGlAccount(a)}
+                >
+                  <ListItemText primary={`${a.code} — ${a.name}`} secondary={a.accountType || undefined} />
+                </MenuItem>
+              ))}
           </Menu>
         </Box>
       </Box>
@@ -6275,21 +6333,30 @@ export default function TabbedDocumentCreator({
                                           (guru 2026-08-17) — the code alone doesn't say
                                           which account it hits, so a mis-picked item is
                                           invisible until the ledger is wrong. */}
-                                      {item.accountCode && (
-                                        <Tooltip title={`Posts to GL account ${item.accountCode}${item.accountName ? ` — ${item.accountName}` : ""}`}>
+                                      {(item.accountCode || isInvoiceTypeDoc) && (
+                                        <Tooltip
+                                          title={
+                                            item.accountCode
+                                              ? `Posts to GL account ${item.accountCode}${item.accountName ? ` — ${item.accountName}` : ""} · click to change`
+                                              : "No GL account yet — click to pick the account this line posts to"
+                                          }
+                                        >
                                           <Typography
                                             variant="caption"
+                                            onClick={(e) => void openGlMenu(e, item.id)}
                                             sx={{
                                               display: "inline-block",
                                               mt: 0.25,
                                               px: 0.5,
                                               borderRadius: 0.5,
+                                              cursor: "pointer",
                                               fontVariantNumeric: "tabular-nums",
-                                              color: "text.secondary",
-                                              bgcolor: (t) => alpha(t.palette.primary.main, t.palette.mode === "dark" ? 0.18 : 0.08),
+                                              color: item.accountCode ? "text.secondary" : "warning.main",
+                                              bgcolor: (t) => alpha(item.accountCode ? t.palette.primary.main : t.palette.warning.main, t.palette.mode === "dark" ? 0.18 : 0.08),
+                                              "&:hover": { textDecoration: "underline" },
                                             }}
                                           >
-                                            GL {item.accountCode}{item.accountName ? ` · ${item.accountName}` : ""}
+                                            GL {item.accountCode ? `${item.accountCode}${item.accountName ? ` · ${item.accountName}` : ""}` : "— pick account"}
                                           </Typography>
                                         </Tooltip>
                                       )}

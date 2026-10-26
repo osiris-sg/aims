@@ -5823,6 +5823,13 @@ export class DocumentsService {
       doDoc.projectId ?? undefined,
     );
     console.log(`🧾 DO→INVOICE: created invoice ${invoice.id} from DO ${documentId}`);
+    // Post it to the GL right away (guru 2026-10-27: "if an invoice is created
+    // it should already post to GL") — the draft carries totals, tax and the
+    // quotation's account codes now, so it posts exactly as a saved invoice
+    // would; a later save voids + reposts, confirm marks the entry confirmed.
+    await this.repostGlForDocument(organizationId, invoice.id, 'INVOICE', invoiceConfig, invoice.name).catch((e: any) =>
+      console.warn(`DO→INVOICE: GL post for ${invoice.name} skipped: ${e?.message}`),
+    );
 
     // Notify the office that a draft invoice was created on completion. Only
     // reached in the NEW-creation branch (the idempotency guard above returns
