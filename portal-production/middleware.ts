@@ -27,7 +27,8 @@ const isPublicRoute = createRouteMatcher([
   "/schedule/(.*)",
   "/book/(.*)",
   "/signature/9eyFpEEFvrmPZN3qvwD_Zw",
-  // Legal pages proxied from the landing site on ai-ms.io (next.config rewrites).
+  // Legal pages proxied from the landing site on ai-ms.io. Also excluded from
+  // the matcher below; listed here too in case the matcher ever changes.
   "/privacy-policy",
   "/terms",
 ]);
@@ -43,7 +44,10 @@ export const config = {
   matcher: [
     // Skip Next.js internals and all static files, unless found in search params
     // (.mjs: the vendored pdf.js in /public/pdfjs, loaded by the in-app document viewer.)
-    "/((?!_next|[^?]*\\.(?:html?|css|m?js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    // privacy-policy / terms: the legal pages proxied from the landing site on
+    // ai-ms.io (next.config rewrites). Kept out of Clerk entirely so the dev
+    // instance's handshake redirect never touches them (crawlers, link previews).
+    "/((?!_next|privacy-policy$|terms$|[^?]*\\.(?:html?|css|m?js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
     // Always run for API routes
     "/(api|trpc)(.*)",
   ],
