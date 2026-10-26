@@ -26,7 +26,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import * as moment from 'moment';
 import { pdfOptionsFor, isWctLayout } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
-import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
+import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
 
 // Who performed a document action — derived from req.user in the controller.
 export interface DocumentActor {
@@ -5780,14 +5780,40 @@ export class DocumentsService {
       },
     );
 
-    const invoiceConfig = {
-      ...doConfigForInvoice,
-      items: pricedLines.map(({ deliveryGroup: _deliveryGroup, ...line }: any) => line),
-      date: new Date().toISOString(),
-      sourceDocumentId: documentId,
-      sourceDocumentNumber: doDoc.name ?? undefined,
-      sourceDocumentType: 'DELIVERY_ORDER',
-    };
+    // The DO's column layout (S/No · DESCRIPTION · QTY · REMARK on WCT) is a
+    // DO display setting — an invoice has its own template columns, so it must
+    // not ride along or the invoice editor shows a price-less goods table.
+    const { columnLabels: _cl, tableColumnOrder: _tco, internalColumns: _ic, ...invoiceBase } = doConfigForInvoice as any;
+    const invoiceLines = pricedLines.map(({ deliveryGroup: _deliveryGroup, ...line }: any) => line);
+    // Tax settings follow the source quotation when the DO came from one (the
+    // agreed GST treatment), else the org defaults. Totals are stamped NOW so
+    // the draft already carries nett / GST / outstanding — an invoice saved
+    // with no totals posted Dr 0 vs Cr <lines> in the posting review.
+    let taxSrc: any = null;
+    if (doConfig.sourceDocumentId && String(doConfig.sourceDocumentType || '').toUpperCase() === 'QUOTATION') {
+      const qo = await this.prisma.document.findFirst({ where: { id: doConfig.sourceDocumentId, organizationId }, select: { config: true } }).catch(() => null);
+      const qc: any = qo?.config || {};
+      taxSrc = { gstPercent: qc.gstPercent ?? qc.documentInfo?.gstPercent, taxApplicable: qc.taxApplicable ?? qc.documentInfo?.taxApplicable, absorbTax: qc.absorbTax ?? qc.documentInfo?.absorbTax };
+    }
+    if (!taxSrc || (taxSrc.gstPercent == null && taxSrc.taxApplicable == null && taxSrc.absorbTax == null)) {
+      const orgRow: any = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { taxRate: true, taxApplicable: true } }).catch(() => null);
+      taxSrc = { gstPercent: orgRow?.taxRate ?? 9, taxApplicable: orgRow?.taxApplicable === false ? 'N' : 'Y', absorbTax: 'N' };
+    }
+    const totals = computeDocumentTotals(invoiceLines, taxSrc);
+    const invoiceConfig = stampDocumentMoney(
+      {
+        ...invoiceBase,
+        items: invoiceLines,
+        date: new Date().toISOString(),
+        sourceDocumentId: documentId,
+        sourceDocumentNumber: doDoc.name ?? undefined,
+        sourceDocumentType: 'DELIVERY_ORDER',
+        ...totals,
+        showTotals: true,
+        documentInfo: { ...((invoiceBase as any).documentInfo || {}), ...totals },
+      },
+      { gross: totals.nettTotal, outstanding: totals.nettTotal, paid: 0 },
+    );
 
     const invoice = await this.createBasicDocument(
       templateId,

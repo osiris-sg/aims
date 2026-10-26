@@ -122,6 +122,9 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   // completion → auto invoice (the client call's flow). Also lets WCT
   // schedule without a Project / Sale Order.
   enableQuotationToDelivery: true,
+  // No Posting Queue page (guru 2026-10-27: same as Chong Aik) — invoices
+  // post on confirm; the accountant reviews in GL / AR / AP.
+  enablePostingQueue: false,
 };
 // Role allowedModules codes that must not carry over (modules off on WCT).
 const DROP_FROM_ROLE_MODULES = new Set(['CRM', 'CUSTOMER_INFORMATION', 'AUDIT', 'ADMIN', 'USER_MANAGEMENT']);

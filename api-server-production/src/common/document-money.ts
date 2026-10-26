@@ -94,3 +94,43 @@ export function stampDocumentMoney(
   if (vals.gross !== undefined) { out.totalWithTax = R(vals.gross); out.xeroGross = R(vals.gross); }
   return out;
 }
+
+
+/**
+ * Totals for a document built OUTSIDE the editor (an invoice auto-drafted from
+ * a delivery order). Mirrors the editor's standard formula (TabbedDocumentCreator
+ * totals effect) so the stored numbers equal what the office sees on opening it:
+ *   gross = Σ line amounts; no document discount;
+ *   tax inclusive (absorbTax 'Y'): gst = gross × g / (100 + g), nett = gross, subTotal = gross − gst
+ *   otherwise:                    gst = gross × g / 100,       nett = gross + gst, subTotal = gross
+ * An invoice saved with NO totals posted Dr 0 against Cr <lines> in the posting
+ * review (guru 2026-10-27, WCT INV202610-0002).
+ */
+export function computeDocumentTotals(
+  lines: Array<{ amount?: any; quantity?: any; unitPrice?: any }>,
+  tax: { gstPercent?: any; taxApplicable?: any; absorbTax?: any },
+): { grossTotal: number; subTotal: number; gstAmount: number; nettTotal: number; gstPercent: number; taxApplicable: 'Y' | 'N'; absorbTax: 'Y' | 'N' } {
+  const R = (n: number) => Math.round(n * 100) / 100;
+  const amountOf = (l: any) => {
+    const a = Number(l?.amount);
+    if (isFinite(a) && a !== 0) return a;
+    const q = Number(l?.quantity), u = Number(l?.unitPrice);
+    return isFinite(q) && isFinite(u) ? q * u : 0;
+  };
+  const grossTotal = R((Array.isArray(lines) ? lines : []).reduce((s, l) => s + amountOf(l), 0));
+  const applicable = !(tax?.taxApplicable === 'N' || tax?.taxApplicable === false);
+  const absorb = tax?.absorbTax === 'Y' || tax?.absorbTax === true;
+  const raw = Number(tax?.gstPercent);
+  const g = !applicable ? 0 : isFinite(raw) && raw >= 0 ? raw : 9;
+  let gstAmount: number, nettTotal: number, subTotal: number;
+  if (absorb && g > 0) {
+    gstAmount = (grossTotal * g) / (100 + g);
+    nettTotal = grossTotal;
+    subTotal = grossTotal - gstAmount;
+  } else {
+    gstAmount = (grossTotal * g) / 100;
+    nettTotal = grossTotal + gstAmount;
+    subTotal = grossTotal;
+  }
+  return { grossTotal, subTotal: R(subTotal), gstAmount: R(gstAmount), nettTotal: R(nettTotal), gstPercent: g, taxApplicable: applicable ? 'Y' : 'N', absorbTax: absorb ? 'Y' : 'N' };
+}

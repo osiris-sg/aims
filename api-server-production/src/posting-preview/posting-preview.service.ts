@@ -180,7 +180,11 @@ export class PostingPreviewService {
     let sumLines = 0;
     for (const l of docLines) sumLines += ROUND(l.amount || 0);
     // Inclusive: AR = the gross line total (tax already inside). Exclusive: net + tax.
-    const gross = inclusive ? rawSum : ROUND(dto.totalAmount != null ? dto.totalAmount : sumLines + tax);
+    // A document total of 0 while the lines carry amounts means the total was
+    // never stamped (an auto-drafted invoice the office has not saved yet) —
+    // fall back to lines + tax rather than showing Dr 0 vs Cr <lines>.
+    const docTotal = dto.totalAmount != null ? ROUND(dto.totalAmount) : null;
+    const gross = inclusive ? rawSum : ROUND(docTotal != null && (docTotal !== 0 || sumLines === 0) ? docTotal : sumLines + tax);
 
     // Dr Accounts Receivable (control) — shown first.
     out.push({
