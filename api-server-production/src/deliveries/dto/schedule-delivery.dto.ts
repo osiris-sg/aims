@@ -93,9 +93,9 @@ export class ScheduleDeliveryDto {
   @ApiProperty({
     required: false,
     description:
-      'Project (UUID). REQUIRED for a real schedule (the rider is matched back to the run by the project they assign in the field), optional when isDraft.',
+      'Project (UUID). REQUIRED for a real schedule (the rider is matched back to the run by the project they assign in the field), optional when isDraft. The requirement is enforced in the SERVICE, not here: orgs with enableQuotationToDelivery (service jobs from an accepted quotation — WCT 2026-10-26) schedule without one; every other org keeps the hard rule.',
   })
-  @ValidateIf((o) => !o.isDraft)
+  @IsOptional()
   @IsUUID()
   projectId?: string;
 
@@ -134,9 +134,9 @@ export class ScheduleDeliveryDto {
   @ApiProperty({
     required: false,
     description:
-      "Sale Order (Document of type SALES_ORDER) this delivery is against. REQUIRED for a real schedule, optional when isDraft — same rule as projectId, so a half-entered run can still be parked. Stored as config.saleOrderId on the draft DO, ALONGSIDE the display string in config.poNo: the pointer is what a later invoice walks back to for the Sale Order's prices, and matching on the PO text has caused repeated problems here. Deliberately NOT a Document column — a hard FK would orphan the 4 legacy free-text poNo rows and be null on 420 of 424 documents; this mirrors how projectId and config.projectName already coexist.",
+      "Sale Order (Document of type SALES_ORDER) this delivery is against. REQUIRED for a real schedule, optional when isDraft — same rule as projectId, now enforced in the SERVICE so enableQuotationToDelivery orgs are exempt. Stored as config.saleOrderId on the draft DO, ALONGSIDE the display string in config.poNo: the pointer is what a later invoice walks back to for the Sale Order's prices, and matching on the PO text has caused repeated problems here. Deliberately NOT a Document column — a hard FK would orphan the 4 legacy free-text poNo rows and be null on 420 of 424 documents; this mirrors how projectId and config.projectName already coexist.",
   })
-  @ValidateIf((o) => !o.isDraft)
+  @IsOptional()
   @IsUUID()
   saleOrderId?: string;
 

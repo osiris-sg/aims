@@ -3210,6 +3210,13 @@ model Delivery {
   /// committed, so the unit stays `reserved` until the office attaches a
   /// project and the deployment is created.
   origin            DeliveryOrigin    @default(SCHEDULED)
+  // Accepted QUOTATION this run was auto-created from (enableQuotationToDelivery,
+  // WCT 2026-10-26: signing/confirming a quotation auto-creates a DRAFT schedule).
+  // Written only by the quotation→delivery hook; also the idempotency key (one
+  // run per quotation). The DO minted at promotion reads it to stamp
+  // quotationNo + sourceDocument* (and the quote's prices) onto its config.
+  // Plain pointer, no FK — same reasoning as the frozen documentId below.
+  sourceQuotationId String?           @db.Uuid
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may
@@ -3231,6 +3238,7 @@ model Delivery {
   @@unique([organizationId, deliveryNumber])
   @@index([documentId])
   @@index([organizationId, status, createdAt])
+  @@index([organizationId, sourceQuotationId])
 }
 
 model DeliveryItem {

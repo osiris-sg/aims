@@ -3526,11 +3526,21 @@ export default function TabbedDocumentCreator({
       return null;
     }
     // Newest 200 quotations, filtered by type on the server (the old
-    // fetch-all pulled every document in the org first).
+    // fetch-all pulled every document in the org first). Orgs that run the
+    // quotation-acceptance workflow (enableConfirmQuotation — WCT 2026-10-26:
+    // "every quotation must be accepted before a DO") only extract from
+    // CONFIRMED quotations; orgs without the workflow keep seeing all of them
+    // (there, nothing ever reaches confirmed).
     const quotationTypes = ["QUOTATION", "QT", "QO", "QO1"];
     const response = await request(
       { path: "/documents/paginated", method: "POST" },
-      { documentTypes: quotationTypes, limit: 200, sortBy: "createdAt", sortDir: "desc" },
+      {
+        documentTypes: quotationTypes,
+        ...(isConfirmQuotationEnabled ? { status: "confirmed" } : {}),
+        limit: 200,
+        sortBy: "createdAt",
+        sortDir: "desc",
+      },
       token
     );
     if (!response?.success) {

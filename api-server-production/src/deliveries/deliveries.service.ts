@@ -52,6 +52,8 @@ export function parseAdHocReturnNotes(notes: string | null | undefined): { custo
 }
 
 import { enqueueDeliveryGroupPost } from '../delivery-group-posts/enqueue';
+import { isOrgFeatureEnabled } from 'src/common/org-features';
+import { QUOTATION_TO_DELIVERY_FLAG, applyQuotationLinkToDoConfig } from './quotation-to-delivery';
 @Injectable()
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
@@ -575,6 +577,12 @@ export class DeliveriesService {
     // is PROMOTED to a real schedule (updateScheduled).
     const isDraft = dto.isDraft === true;
     if (!isDraft && !dto.items?.length) throw new BadRequestException('At least one item is required');
+    // Service-job orgs (enableQuotationToDelivery, WCT 2026-10-26) schedule
+    // without a Project or a Sale Order: their runs are jobs from an accepted
+    // quotation, not rental deployments. Everyone else keeps the hard rule
+    // (the DTO's ValidateIf moved here so the requirement can be per-org).
+    const relaxedSchedule = await isOrgFeatureEnabled(this.prisma, organizationId, QUOTATION_TO_DELIVERY_FLAG);
+    if (!isDraft && !dto.saleOrderId && !relaxedSchedule) throw new BadRequestException('A Sale Order is required for a scheduled delivery');
     // projectId is REQUIRED (post-assign matching keys on it). Validate it up
     // front and derive the customer from the project when the office didn't send
     // one — the scheduled run must carry BOTH so the draft DO gets a customer and
@@ -585,7 +593,8 @@ export class DeliveriesService {
           select: { id: true, name: true, customerId: true },
         })
       : null;
-    if (!project && !isDraft) throw new NotFoundException('Project not found in this organization');
+    if (dto.projectId && !project) throw new NotFoundException('Project not found in this organization');
+    if (!project && !isDraft && !relaxedSchedule) throw new NotFoundException('Project not found in this organization');
     // Persist the picker's contact selection onto the project BEFORE the DO's
     // Attention is derived below (projectFirstContactAttention reads
     // ProjectContact), so the picked contacts land on the DO on the FIRST save
@@ -709,7 +718,7 @@ export class DeliveriesService {
         scheduledFor: dto.scheduledFor,
         items: dto.items,
         assetById,
-        projectName: project.name,
+        projectName: project?.name ?? '',
         deliveryAddress,
         poNumber: dto.poNumber,
         saleOrderId: dto.saleOrderId,
@@ -853,13 +862,19 @@ export class DeliveriesService {
     const willBeDraft = dto.isDraft === true;
     if (!willBeDraft && !dto.items?.length) throw new BadRequestException('At least one item is required');
 
+    // Same per-org relaxation as createScheduled: a service-job org promotes a
+    // draft (e.g. one auto-created from an accepted quotation) without a
+    // Project or a Sale Order.
+    const relaxedSchedule = await isOrgFeatureEnabled(this.prisma, organizationId, QUOTATION_TO_DELIVERY_FLAG);
+    if (!willBeDraft && !dto.saleOrderId && !relaxedSchedule) throw new BadRequestException('A Sale Order is required for a scheduled delivery');
     const project = dto.projectId
       ? await this.prisma.project.findFirst({
           where: { id: dto.projectId, organizationId },
           select: { id: true, name: true, customerId: true },
         })
       : null;
-    if (!project && !willBeDraft) throw new NotFoundException('Project not found in this organization');
+    if (dto.projectId && !project) throw new NotFoundException('Project not found in this organization');
+    if (!project && !willBeDraft && !relaxedSchedule) throw new NotFoundException('Project not found in this organization');
     // Persist the picker's selection before this path's DO Attention is derived
     // (a draft promoted here mints its DO now), same as createScheduled.
     if (dto.projectId && (dto.contacts !== undefined || dto.contactIds !== undefined)) {
@@ -966,6 +981,12 @@ export class DeliveriesService {
           attention: scheduledAttention,
           deliveryItemIdFor,
         });
+        // A run auto-created from an accepted quotation carries the quote onto
+        // its DO: quotationNo + sourceDocument* (the invoice's quote-price tier
+        // reads these) and the quoted prices on free-typed lines.
+        if (run.sourceQuotationId) {
+          await applyQuotationLinkToDoConfig(this.prisma, organizationId, run.sourceQuotationId, doConfig, this.logger);
+        }
         const pending = await this.prisma.document.findMany({
           where: { organizationId, name: { startsWith: 'DO-PENDING-' } },
           select: { name: true },
@@ -997,7 +1018,7 @@ export class DeliveriesService {
         const fragment = this.buildScheduledDoConfig({
           items: dto.items,
           assetById,
-          projectName: project.name,
+          projectName: project?.name ?? '',
           deliveryAddress,
           poNumber: dto.poNumber,
           saleOrderId: dto.saleOrderId,
@@ -1017,6 +1038,11 @@ export class DeliveriesService {
         // Same for Attention: set explicitly so a re-derived (or cleared) value
         // replaces the old snapshot rather than merging under it.
         fragment.attention = scheduledAttention ?? null;
+        // Re-stamp the quotation link on every regen: the rebuilt lines are
+        // price-0 again, and the merge must not lose quotationNo/sourceDocument*.
+        if (run.sourceQuotationId) {
+          await applyQuotationLinkToDoConfig(this.prisma, organizationId, run.sourceQuotationId, fragment, this.logger);
+        }
         await this.documentsService.replaceScheduledDoConfig(documentId, organizationId, fragment, dto.projectId);
       } catch (err: any) {
         this.logger.error(`updateScheduled: draft DO regen failed for run ${id}: ${err?.message}`, err?.stack);

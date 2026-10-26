@@ -117,6 +117,10 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   // skips it when the stored module row is off).
   enableConfirmQuotation: true,
   enableQuotationESign: true,
+  // Accepted quotation → draft scheduled delivery → DO on confirm → field
+  // completion → auto invoice (the client call's flow). Also lets WCT
+  // schedule without a Project / Sale Order.
+  enableQuotationToDelivery: true,
 };
 // Role allowedModules codes that must not carry over (modules off on WCT).
 const DROP_FROM_ROLE_MODULES = new Set(['CRM', 'CUSTOMER_INFORMATION', 'AUDIT', 'ADMIN', 'USER_MANAGEMENT']);

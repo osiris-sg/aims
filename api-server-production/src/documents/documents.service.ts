@@ -1650,6 +1650,18 @@ export class DocumentsService {
           console.error('❌ QUOTATION→ORDER: failed to auto-create order', err);
           // Best-effort: don't fail the quotation confirmation if order creation fails.
         }
+        // Quotation → DRAFT DELIVERY (enableQuotationToDelivery, WCT 2026-10-26):
+        // an accepted quotation auto-creates a draft scheduled run waiting for
+        // the office to confirm. Pure helper (never throws), flag-gated inside,
+        // idempotent on Delivery.sourceQuotationId. The e-sign path
+        // (public-sign.service sign()) makes the same call.
+        {
+          const { autoDraftDeliveryFromQuotation } = await import('../deliveries/quotation-to-delivery');
+          await autoDraftDeliveryFromQuotation(this.prisma, organizationId, id, {
+            warn: (m) => console.warn(`⚠️ ${m}`),
+            log: (m) => console.log(`🚚 ${m}`),
+          });
+        }
       }
 
       // ---- GL on save (no-draft model) ----

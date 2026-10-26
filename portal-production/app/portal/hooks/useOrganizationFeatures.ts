@@ -17,6 +17,7 @@ interface OrganizationFeatures {
   enableItemTagging?: boolean;
   enableConfirmQuotation?: boolean;
   enableQuotationESign?: boolean;
+  enableQuotationToDelivery?: boolean;
   enableCappitechOrders?: boolean;
   enableNettRoundDown?: boolean;
   enableQuotationProjectLink?: boolean;
@@ -53,6 +54,10 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // signature" in the editor's ⋯ menu mints the public /sign/<token> link;
   // the client's drawn signature prints on the document. Default OFF.
   enableQuotationESign: false,
+  // Quotation → Delivery (WCT 2026-10-26): an accepted quotation auto-creates
+  // a DRAFT scheduled delivery; scheduling needs no Project / Sale Order for
+  // these orgs. Default OFF.
+  enableQuotationToDelivery: false,
   // Gates the rich Cappitech Orders flow; default false = slim Orders (Biofuel default).
   enableCappitechOrders: false,
   enableDocumentListView: false,
@@ -202,6 +207,7 @@ export function useOrganizationFeatures() {
     isItemTaggingEnabled: features.enableItemTagging ?? false,
     isConfirmQuotationEnabled: features.enableConfirmQuotation ?? false,
     isQuotationESignEnabled: features.enableQuotationESign ?? false,
+    isQuotationToDeliveryEnabled: features.enableQuotationToDelivery ?? false,
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,
     isQuotationProjectLinkEnabled: features.enableQuotationProjectLink ?? false,

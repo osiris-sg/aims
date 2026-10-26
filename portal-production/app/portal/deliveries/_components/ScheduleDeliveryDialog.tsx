@@ -38,6 +38,7 @@ import SaleOrderSelectDialog, { SaleOrderRow, toSaleOrderRow } from "./SaleOrder
 import DocumentUploadDialog from "@/app/portal/components/DocumentUploadDialog";
 import ProjectContactPicker, { ContactLite, ContactAssignment } from "@/app/portal/projects/components/ProjectContactPicker";
 import { useOrganization } from "@hooks/useOrganization";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import ExtractQuotationDialog from "@/containers/DocumentTemplates/components/ExtractQuotationDialog";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
@@ -128,6 +129,7 @@ export default function ScheduleDeliveryDialog({
 }) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
+  const { isQuotationToDeliveryEnabled } = useOrganizationFeatures();
   const theme = useTheme();
   // Phone: this long form goes full-screen below sm
   const fullScreenDialog = useMediaQuery(theme.breakpoints.down("sm"));
@@ -589,11 +591,18 @@ export default function ScheduleDeliveryDialog({
     (r) => (r.freeTyped ? r.description.trim().length > 0 : !!r.asset) && (parseInt(r.quantity, 10) || 0) >= 1,
   );
   // A Sales Order is REQUIRED to schedule, mirroring projectId: the backend
-  // enforces the same rule with @ValidateIf((o) => !o.isDraft). A DRAFT is
-  // deliberately exempt — a job can arrive before its Sales Order does, and the
-  // office must still be able to park the run rather than lose what they typed.
+  // enforces the same rule in the service. A DRAFT is deliberately exempt — a
+  // job can arrive before its Sales Order does, and the office must still be
+  // able to park the run rather than lose what they typed. Orgs with
+  // enableQuotationToDelivery (service jobs from an accepted quotation — WCT)
+  // schedule without a Project or a Sale Order; the backend relaxes the same
+  // two rules for them.
   const canSubmit =
-    !!scheduleDate && !!scheduleTime && !!project && !!saleOrder && validRows.length > 0 && !submitting;
+    !!scheduleDate &&
+    !!scheduleTime &&
+    (isQuotationToDeliveryEnabled || (!!project && !!saleOrder)) &&
+    validRows.length > 0 &&
+    !submitting;
 
   // Fetch the customer's CONFIRMED quotations and open the extract dialog.
   // /documents is server-paginated (default 20 newest of ANY type), so we MUST

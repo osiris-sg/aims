@@ -1809,6 +1809,9 @@ model Delivery {
   /// An AD_HOC run completes down a third path: its DO is created but NOT
   /// committed, so the unit stays `reserved` until the office attaches a
   /// project and the deployment is created.
+  // Accepted QUOTATION this run was auto-created from (enableQuotationToDelivery,
+  // WCT 2026-10-26). Mirrors schema.prisma — see the comment there.
+  sourceQuotationId String?        @db.Uuid
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may
@@ -1829,6 +1832,7 @@ model Delivery {
   @@unique([organizationId, deliveryNumber])
   @@index([documentId])
   @@index([organizationId, status, createdAt])
+  @@index([organizationId, sourceQuotationId])
 }
 
 model DeliveryItem {

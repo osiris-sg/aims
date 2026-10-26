@@ -95,6 +95,14 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // signature prints in the WCT layout's "Confirmation of Order" block.
   // Signing confirms the quotation. Default OFF; enabled per org.
   enableQuotationESign: false,
+  // Quotation → Delivery (WCT 2026-10-26): an ACCEPTED quotation (staff
+  // confirm or client e-sign) auto-creates a DRAFT scheduled delivery from
+  // its lines, waiting on the Deliveries page for the office to set the date
+  // and confirm; promotion mints the DO with the quotation stamped on it
+  // (quotationNo + sourceDocument* + quoted prices), and field completion
+  // fires the draft invoice exactly like Biofuel. Also relaxes scheduling:
+  // these orgs schedule without a Project / Sale Order. Default OFF.
+  enableQuotationToDelivery: false,
   // LME feed (round AK, 2026-10-25): daily LME aluminium cash-settlement from Westmetall (07:00 JST) fills the empty
   // months of the org's LME table and keeps its own provisional month current; typed months are never changed; a
   // month turning final raises "revise CI / invoice" tasks. Only orgs with the SHIPMENTS module. Default OFF: while

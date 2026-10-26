@@ -385,6 +385,13 @@ export class PublicSignService {
       this.prisma.documentSignLink.updateMany({ where: { documentId: doc.id, id: { not: link.id }, signedAt: null, revokedAt: null }, data: { revokedAt: signedAt } }),
     ]);
 
+    // Quotation → DRAFT DELIVERY (enableQuotationToDelivery, WCT 2026-10-26):
+    // signing IS the acceptance, so the e-sign path triggers the same
+    // auto-draft the staff Confirm button does. Pure helper — flag-gated
+    // inside, idempotent, never throws.
+    const { autoDraftDeliveryFromQuotation } = await import('../deliveries/quotation-to-delivery');
+    await autoDraftDeliveryFromQuotation(this.prisma, doc.organizationId, doc.id, this.logger);
+
     const clientLabel = quote?.header?.clientName || cfg?.customer?.name || cfg?.customerName || '';
     await this.notifications.emit({
       organizationId: doc.organizationId,
