@@ -8,7 +8,13 @@ SRC = open(API + '/prisma/schema.prisma').read()
 
 PLATFORM = """Organization UserOrganization OrganizationModule OrganizationUIConfig ApiKey
   DocumentTemplate OrganizationActiveTemplate OrganizationMemberProfile DeviceToken WhatsAppConnection WhatsAppWebhookEvent
-  OperatorIdentity OperatorLinkCode OperatorSession ActionLog""".split()
+  OperatorIdentity OperatorLinkCode OperatorSession ActionLog
+  WhatsAppOutbox AirwallexConnection ShortLink LmeQuote LmeFetchRun LmeMonthly""".split()
+# Added 2026-10-26 (prod cutover audit): WhatsAppOutbox + AirwallexConnection are
+# already in the live prisma/tenancy/platform.prisma. ShortLink is resolved by
+# token before the org is known, like PublicToken. The three Lme* tables carry NO
+# organizationId at all — global market data (218 rows on prod), so they cannot
+# live in an org schema.
 LEGACY = 'Bill Transaction CustomerBalance ImportInvoice PassTrackerEntry'.split()
 MODULES = {
  'base': 'Role UserRole Permission Customer Supplier CustomField CustomFieldValue UserDashboardLayout Notification AuditLog EmailIngestConfig EmailIngestLog',
@@ -20,9 +26,15 @@ MODULES = {
  'projects': 'Project',
  'contacts': 'SiteOffice ContactDetail CustomerContact ProjectContact CustomerInfoRequest CustomerInfoContact',
  'rental': 'ProjectDeployment Assignment',
- 'field': 'Delivery DeliveryItem DeliveryShareLink MaintenanceServiceReport DeliveryLocationPing MaintenanceSchedule',
- 'interior': 'Lead LeadAttachment ProjectCost ProjectMilestone ProjectQuestStep ProjectScheduleItem ProjectShareLink QuestMediaRequest SupplierRebate Team WorkSection',
- 'comms': 'WhatsAppMessage WhatsAppQnA WhatsAppAgentConfig WhatsAppSuggestion WhatsAppScheduledMessage WhatsAppContact WhatsAppAppointment AdAccountConnection AdInsight',
+ 'field': 'Delivery DeliveryItem DeliveryShareLink MaintenanceServiceReport DeliveryLocationPing MaintenanceSchedule DeliveryGroupPost',
+ 'interior': 'Lead LeadAttachment ProjectCost ProjectMilestone ProjectQuestStep ProjectScheduleItem ProjectShareLink QuestMediaRequest SupplierRebate Team WorkSection DesignerAdvance DesignerAppointment DesignerBookingLink InvoiceIntake',
+ 'comms': 'WhatsAppMessage WhatsAppQnA WhatsAppAgentConfig WhatsAppSuggestion WhatsAppScheduledMessage WhatsAppContact WhatsAppAppointment AdAccountConnection AdInsight WhatsAppGroup',
+ # Asia Deal Hub's trade desk. Added 2026-10-26: these 19 tables shipped after
+ # modules.json was frozen and were in no module, so the copy would have created
+ # them empty and left 2,145 rows behind in public.
+ 'trade': """TradeOrder TradeStep TradeStepTemplate TradeFile TradeFileLink TradeDocType TradeDocumentLink TradeExtraction
+   TradeGeneratedDoc TradeAlert TradeSetting TradeCredit TradePayment TradePaymentAllocation Shipment ShipmentTracking
+   SupplierOrder Contract ContractLine""",
 }
 MODULES = {k: v.split() for k, v in MODULES.items()}
 CIEL_PROJECT = 'designer designerUserId stage commissionPct rebatePct source leadId'.split()
@@ -39,6 +51,28 @@ ORGS = {
  'yourworld': ("%your%world%",        ['base','accounting'], [], {}),
  'u2can':     ("U2CAN%",              ['base','accounting'], [], {}),
  'platformorg': ("osiris-platform%",  ['base','accounting','documents'], [], {'RevenueItem': WORK_ITEM}),
+ # Added 2026-10-26 for the PROD cutover. Module sets come from the rows each org
+ # actually holds on prod (scripts/_prod-tenancy-audit.ts), widened to the whole
+ # set its UI expects where the org mirrors another: demoindustries = Biofuel's
+ # set, demointerior = CIEL's. An unused module only costs empty tables; a
+ # MISSING one makes the app query a table that isn't there.
+ # Patterns must not overlap — the preflight requires each to match exactly one
+ # org, so DEMO INDUSTRIES / DEMO INTERIOR are spelled out in full.
+ # adhjapan + chongaik already have hand-edited prisma/tenancy/orgs files; they
+ # are registered here only so the copy SQL gets generated for them. Their table
+ # list is read from the live tenancy file, not from these modules.
+ 'adhjapan':    ("Asia Deal Hub%",     ['base','accounting','documents','trade'], [], STD_DROPS),
+ 'chongaik':    ("Chong Aik%",         ['base','accounting','stock','documents'], [], STD_DROPS),
+ 'denzel':      ("Denzel%",            ['base','accounting','documents','comms'], [], STD_DROPS),
+ 'demoindustries': ("DEMO INDUSTRIES%", ['base','accounting','stock','documents','projects','contacts','rental','field','comms'], [], STD_DROPS),
+ 'demointerior':   ("DEMO INTERIOR%",   ['base','accounting','documents','projects','interior','comms'], [],
+               {'Project': ['customerPoNumber', 'siteOfficeId']}),
+ # WCT (org name is exactly 'WCT' — setup-wct-org.ts ORG_NAME, so no wildcard,
+ # which also keeps it from colliding with a future 'WCT something'). Registered
+ # 2026-10-26 BEFORE the org exists on prod: without an entry it would be an
+ # unmapped org and the cutover would refuse to start, the way Test Org did.
+ # Its table list is read from the hand-edited prisma/tenancy/orgs/wct.prisma.
+ 'wct':         ("WCT",                ['base','accounting','stock','documents','projects','contacts','rental','field','comms','interior'], [], STD_DROPS),
 }
 NEW_COLS = {'Document': ['customerId', 'supplierId']}   # new, not in public → not copied (backfilled later)
 

@@ -1,4 +1,4 @@
--- org_biofuel · generated from orgs/biofuel.prisma (DRY RUN). Unqualified names resolve to org_biofuel via search_path.
+-- org_biofuel · generated from prisma/tenancy/orgs/biofuel.prisma (DRY RUN). Unqualified names resolve to org_biofuel via search_path.
 -- Adds every FK. If any copied row points at data that was not copied, this fails and rolls back: that is the integrity check.
 
 BEGIN;

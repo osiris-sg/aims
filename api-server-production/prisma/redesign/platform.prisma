@@ -14,11 +14,19 @@ datasource db {
 model Organization {
   id                       String                     @id @default(uuid())
   name                     String                     @unique
+  // Delivery group posts (2026-09-30): the fallback WhatsApp group when a
+  // delivery's project and customer have none.
+  deliveryOpsGroupId       String?
+  deliveryOpsGroupName     String?
   createdAt                DateTime                   @default(now())
   updatedAt                DateTime                   @updatedAt
   address                  String?
   phoneNumber              String?
   registrationNumber       String?
+  // Letterhead contact lines (2026-10-22, WCT layout): printed under the
+  // address on client layouts that show them. Edited on Company Profile.
+  email                    String?
+  website                  String?
   logo                     String?
   defaultStamp             String?
   customDocumentTypes      Json?
@@ -110,6 +118,7 @@ model OrganizationUIConfig {
   language         String?      @default("en")
   features         Json? // Feature flags: {enableProjects: true, enableDocumentAI: false}
   branding         Json? // Additional branding config
+  businessRules    Json? // Per-org business rules (src/org-rules) — restored 2026-10-26: the column exists on dev's platform schema WITH data and org-rules.service.ts reads it, but it was declared in no schema, so the next platform push would have dropped it.
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
   organization     Organization @relation(fields: [organizationId], references: [id])
@@ -185,16 +194,19 @@ model OrganizationActiveTemplate {
 }
 
 model OrganizationMemberProfile {
-  id             String   @id @default(uuid())
-  organizationId String
-  userId         String // Clerk user id
-  whatsappNumber String? // digits only, e.g. 6591234567
-  commissionPct  Float? // default share of project profit for this designer
+  id                String   @id @default(uuid())
+  organizationId    String
+  userId            String // Clerk user id
+  whatsappNumber    String? // digits only, e.g. 6591234567
+  // WhatsApp agent (ADH, round S 2026-10-21): per-user notification settings —
+  // { digest, needsMe, filed, events, quietFrom: "21:00", quietTo: "08:00" } (JST). null = defaults.
+  whatsappPrefs     Json?
+  commissionPct     Float? // default share of project profit for this designer
   yearlySalesTarget Float? // manager-set sales target (contract value signed per year)
-  signatureImage String? // saved signature (PNG data URL) for one-tap counter-signing
-  teamId         String? // hierarchy (CIEL 09-19): the Team this member belongs to
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  signatureImage    String? // saved signature (PNG data URL) for one-tap counter-signing
+  teamId            String? // hierarchy (CIEL 09-19): the Team this member belongs to
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@unique([organizationId, userId])
   @@index([whatsappNumber])
@@ -332,6 +344,113 @@ model ActionLog {
   @@index([resource, resourceId])
   @@index([organizationId, action, createdAt])
   @@index([createdAt])
+}
+
+model WhatsAppOutbox {
+  id             String    @id @default(uuid())
+  organizationId String
+  userId         String // Clerk user id
+  to             String // WhatsApp digits
+  kind           String // DIGEST | NEEDS_ME | FILED | EVENT
+  text           String
+  linkUrl        String?
+  dedupeKey      String? // one row per (org, dedupeKey) — a digest per day, an event once
+  dueAt          DateTime
+  status         String    @default("QUEUED") // QUEUED | SENT | FAILED | SKIPPED
+  sentAt         DateTime?
+  error          String?
+  createdAt      DateTime  @default(now())
+
+  @@unique([organizationId, dedupeKey])
+  @@index([status, dueAt])
+  @@index([organizationId, userId, status])
+}
+
+model AirwallexConnection {
+  id                  String    @id @default(uuid())
+  organizationId      String    @unique
+  // Airwallex API credentials (x-client-id + x-api-key → bearer token).
+  // clientId nullable: key can be seeded first, sync stays off until both set.
+  clientId            String?
+  apiKey              String
+  apiBase             String    @default("https://api.airwallex.com")
+  // Only intents whose merchant_order_id / metadata.order_id starts with this
+  // prefix belong to this org's ticket service.
+  orderPrefix         String    @default("STAR-")
+  // Posting map (codes resolved in the org's chart of accounts).
+  clearingAccountCode String    @default("CA103")
+  revenueAccountCode  String    @default("SS002")
+  feeAccountCode      String    @default("EX041")
+  refundAccountCode   String    @default("CS003")
+  enabled             Boolean   @default(false)
+  // Poll cursors per stream: only records created at/after these are fetched.
+  syncFrom            DateTime?
+  refundsFrom         DateTime?
+  feesFrom            DateTime?
+  lastSyncAt          DateTime?
+  lastError           String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model ShortLink {
+  id             String    @id @default(uuid())
+  token          String    @unique
+  organizationId String
+  path           String
+  expiresAt      DateTime
+  hits           Int       @default(0)
+  lastUsedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([organizationId, path, createdAt])
+}
+
+model LmeQuote {
+  id         String   @id @default(uuid())
+  /// "AL" (aluminium)
+  metal      String
+  /// "YYYY-MM-DD" (LME trading day)
+  date       String
+  cash       Decimal  @db.Decimal(12, 2)
+  threeMonth Decimal? @db.Decimal(12, 2)
+  stock      Int?
+  source     String
+  fetchedAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([metal, date])
+}
+
+model LmeFetchRun {
+  id        String   @id @default(uuid())
+  source    String
+  trigger   String // CRON | MANUAL | SCRIPT
+  ok        Boolean
+  rows      Int      @default(0)
+  error     String?
+  summary   Json?
+  createdAt DateTime @default(now())
+
+  @@index([source, createdAt])
+}
+
+model LmeMonthly {
+  id           String    @id @default(uuid())
+  metal        String
+  /// "YYYY-MM"
+  month        String
+  cashAvg      Decimal   @db.Decimal(12, 2)
+  days         Int
+  final        Boolean   @default(false)
+  /// The source's own published monthly average (cross-check), when it lists one.
+  publishedAvg Decimal?  @db.Decimal(12, 2)
+  source       String
+  finalizedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([metal, month])
 }
 
 /// NEW: local mirror of Clerk users (id = Clerk user id).

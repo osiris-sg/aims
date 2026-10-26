@@ -2,6 +2,7 @@
 -- Org matched by: name ILIKE 'CIEL%' (preflight checks it matches exactly one org).
 
 BEGIN;
+-- DocumentLine: new in the org schema, nothing to copy from public.
 INSERT INTO org_ciel."Role" ("id", "name", "description", "allowedModules", "createdAt", "updatedAt", "organizationId")
   SELECT t."id", t."name", t."description", t."allowedModules", t."createdAt", t."updatedAt", t."organizationId"
   FROM public."Role" t
@@ -17,8 +18,8 @@ INSERT INTO org_ciel."Permission" ("id", "name", "description", "resource", "act
   FROM public."Permission" t
   WHERE TRUE;
 
-INSERT INTO org_ciel."Customer" ("id", "customerCode", "name", "email", "phone", "address", "gstRegNo", "currency", "salesmanId", "xeroId", "xeroLastSyncAt", "createdAt", "updatedAt", "organizationId")
-  SELECT t."id", t."customerCode", t."name", t."email", t."phone", t."address", t."gstRegNo", t."currency", t."salesmanId", t."xeroId", t."xeroLastSyncAt", t."createdAt", t."updatedAt", t."organizationId"
+INSERT INTO org_ciel."Customer" ("id", "customerCode", "name", "email", "phone", "address", "gstRegNo", "currency", "salesmanId", "xeroId", "xeroLastSyncAt", "whatsappGroupId", "whatsappGroupName", "createdAt", "updatedAt", "organizationId")
+  SELECT t."id", t."customerCode", t."name", t."email", t."phone", t."address", t."gstRegNo", t."currency", t."salesmanId", t."xeroId", t."xeroLastSyncAt", t."whatsappGroupId", t."whatsappGroupName", t."createdAt", t."updatedAt", t."organizationId"
   FROM public."Customer" t
   WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'CIEL%');
 
@@ -222,13 +223,13 @@ INSERT INTO org_ciel."RecurringInvoiceTemplate" ("id", "organizationId", "code",
   FROM public."RecurringInvoiceTemplate" t
   WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'CIEL%');
 
-INSERT INTO org_ciel."Project" ("id", "projectNumber", "name", "description", "address", "organizationId", "customerId", "createdAt", "updatedAt", "startDate", "endDate", "status", "designer", "stage", "commissionPct", "designerUserId", "rebatePct", "source", "leadId")
-  SELECT t."id", t."projectNumber", t."name", t."description", t."address", t."organizationId", t."customerId", t."createdAt", t."updatedAt", t."startDate", t."endDate", t."status"::text::org_ciel."ProjectStatus", t."designer", t."stage", t."commissionPct", t."designerUserId", t."rebatePct", t."source", t."leadId"
+INSERT INTO org_ciel."Project" ("id", "projectNumber", "name", "description", "address", "organizationId", "customerId", "whatsappGroupId", "whatsappGroupName", "createdAt", "updatedAt", "startDate", "endDate", "status", "designer", "stage", "commissionPct", "designerUserId", "rebatePct", "source", "leadId")
+  SELECT t."id", t."projectNumber", t."name", t."description", t."address", t."organizationId", t."customerId", t."whatsappGroupId", t."whatsappGroupName", t."createdAt", t."updatedAt", t."startDate", t."endDate", t."status"::text::org_ciel."ProjectStatus", t."designer", t."stage", t."commissionPct", t."designerUserId", t."rebatePct", t."source", t."leadId"
   FROM public."Project" t
   WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'CIEL%');
 
-INSERT INTO org_ciel."Lead" ("id", "organizationId", "source", "ref", "name", "email", "phone", "whatsappPhone", "appointmentAt", "appointmentNote", "phones", "phoneVerified", "location", "propertyType", "propertyRooms", "propertyStatus", "keyCollection", "keyCollectionDate", "moveIn", "budget", "areas", "designStyle", "remarks", "approachNotes", "floorPlanUrl", "attachmentUrl", "attachmentKey", "status", "deadProofUrl", "deadProofKey", "deadAt", "assignedToUserId", "assignedToName", "assignedAt", "firstContactedAt", "firstContactDeadline", "replacementDeadline", "quotationId", "projectId", "emailFrom", "emailSubject", "receivedAt", "notes", "createdAt", "updatedAt")
-  SELECT t."id", t."organizationId", t."source", t."ref", t."name", t."email", t."phone", t."whatsappPhone", t."appointmentAt", t."appointmentNote", t."phones", t."phoneVerified", t."location", t."propertyType", t."propertyRooms", t."propertyStatus", t."keyCollection", t."keyCollectionDate", t."moveIn", t."budget", t."areas", t."designStyle", t."remarks", t."approachNotes", t."floorPlanUrl", t."attachmentUrl", t."attachmentKey", t."status", t."deadProofUrl", t."deadProofKey", t."deadAt", t."assignedToUserId", t."assignedToName", t."assignedAt", t."firstContactedAt", t."firstContactDeadline", t."replacementDeadline", t."quotationId", t."projectId", t."emailFrom", t."emailSubject", t."receivedAt", t."notes", t."createdAt", t."updatedAt"
+INSERT INTO org_ciel."Lead" ("id", "organizationId", "source", "ref", "name", "email", "phone", "whatsappPhone", "contactNudgeAt", "contactNudgeCount", "appointmentAt", "appointmentNote", "phones", "phoneVerified", "location", "propertyType", "propertyRooms", "propertyStatus", "keyCollection", "keyCollectionDate", "moveIn", "budget", "areas", "designStyle", "remarks", "approachNotes", "floorPlanUrl", "attachmentUrl", "attachmentKey", "status", "deadProofUrl", "deadProofKey", "deadAt", "assignedToUserId", "assignedToName", "assignedAt", "firstContactedAt", "firstReplyAt", "firstContactDeadline", "replacementDeadline", "quotationId", "projectId", "emailFrom", "emailSubject", "receivedAt", "notes", "createdAt", "updatedAt")
+  SELECT t."id", t."organizationId", t."source", t."ref", t."name", t."email", t."phone", t."whatsappPhone", t."contactNudgeAt", t."contactNudgeCount", t."appointmentAt", t."appointmentNote", t."phones", t."phoneVerified", t."location", t."propertyType", t."propertyRooms", t."propertyStatus", t."keyCollection", t."keyCollectionDate", t."moveIn", t."budget", t."areas", t."designStyle", t."remarks", t."approachNotes", t."floorPlanUrl", t."attachmentUrl", t."attachmentKey", t."status", t."deadProofUrl", t."deadProofKey", t."deadAt", t."assignedToUserId", t."assignedToName", t."assignedAt", t."firstContactedAt", t."firstReplyAt", t."firstContactDeadline", t."replacementDeadline", t."quotationId", t."projectId", t."emailFrom", t."emailSubject", t."receivedAt", t."notes", t."createdAt", t."updatedAt"
   FROM public."Lead" t
   WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'CIEL%');
 
@@ -245,6 +246,21 @@ INSERT INTO org_ciel."ProjectCost" ("id", "organizationId", "projectId", "date",
 INSERT INTO org_ciel."ProjectMilestone" ("id", "organizationId", "projectId", "kind", "label", "pct", "amount", "sortOrder", "dueTrigger", "invoiceId", "paidAmount", "paidAt", "paymentMethod", "createdAt", "updatedAt")
   SELECT t."id", t."organizationId", t."projectId", t."kind", t."label", t."pct", t."amount", t."sortOrder", t."dueTrigger", t."invoiceId", t."paidAmount", t."paidAt", t."paymentMethod", t."createdAt", t."updatedAt"
   FROM public."ProjectMilestone" t
+  WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'CIEL%');
+
+INSERT INTO org_ciel."DesignerAppointment" ("id", "organizationId", "designerUserId", "designerName", "title", "phone", "location", "note", "startAt", "endAt", "source", "status", "createdAt", "updatedAt")
+  SELECT t."id", t."organizationId", t."designerUserId", t."designerName", t."title", t."phone", t."location", t."note", t."startAt", t."endAt", t."source", t."status", t."createdAt", t."updatedAt"
+  FROM public."DesignerAppointment" t
+  WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'CIEL%');
+
+INSERT INTO org_ciel."DesignerBookingLink" ("id", "organizationId", "designerUserId", "designerName", "token", "slotMinutes", "hourStart", "hourEnd", "daysAhead", "revokedAt", "createdAt")
+  SELECT t."id", t."organizationId", t."designerUserId", t."designerName", t."token", t."slotMinutes", t."hourStart", t."hourEnd", t."daysAhead", t."revokedAt", t."createdAt"
+  FROM public."DesignerBookingLink" t
+  WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'CIEL%');
+
+INSERT INTO org_ciel."DesignerAdvance" ("id", "organizationId", "projectId", "projectName", "requestedById", "requestedByName", "amount", "reason", "requestSignature", "approveSignature", "status", "decidedById", "decidedByName", "decidedAt", "decisionNote", "paidAt", "createdAt", "updatedAt")
+  SELECT t."id", t."organizationId", t."projectId", t."projectName", t."requestedById", t."requestedByName", t."amount", t."reason", t."requestSignature", t."approveSignature", t."status", t."decidedById", t."decidedByName", t."decidedAt", t."decisionNote", t."paidAt", t."createdAt", t."updatedAt"
+  FROM public."DesignerAdvance" t
   WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'CIEL%');
 
 INSERT INTO org_ciel."ProjectQuestStep" ("id", "organizationId", "projectId", "stepNo", "title", "description", "paymentTag", "requiresProof", "status", "completedAt", "completedBy", "completedByName", "notes", "proofUrl", "proofKey", "skipReason", "points", "attachments", "createdAt", "updatedAt")
@@ -315,6 +331,11 @@ INSERT INTO org_ciel."WhatsAppContact" ("id", "organizationId", "waId", "profile
 INSERT INTO org_ciel."WhatsAppAppointment" ("id", "organizationId", "groupId", "groupName", "startsAt", "timeText", "topic", "venue", "tentative", "clientName", "remindAt", "reminderStatus", "remindedAt", "error", "sourceMessage", "createdBy", "createdAt", "updatedAt")
   SELECT t."id", t."organizationId", t."groupId", t."groupName", t."startsAt", t."timeText", t."topic", t."venue", t."tentative", t."clientName", t."remindAt", t."reminderStatus", t."remindedAt", t."error", t."sourceMessage", t."createdBy", t."createdAt", t."updatedAt"
   FROM public."WhatsAppAppointment" t
+  WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'CIEL%');
+
+INSERT INTO org_ciel."InvoiceIntake" ("id", "organizationId", "status", "attachmentUrl", "attachmentKey", "filename", "extraction", "matchedProjectId", "matchedProjectName", "source", "uploadedBy", "resolvedCostId", "createdAt", "updatedAt")
+  SELECT t."id", t."organizationId", t."status", t."attachmentUrl", t."attachmentKey", t."filename", t."extraction", t."matchedProjectId", t."matchedProjectName", t."source", t."uploadedBy", t."resolvedCostId", t."createdAt", t."updatedAt"
+  FROM public."InvoiceIntake" t
   WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'CIEL%');
 
 INSERT INTO org_ciel."AdAccountConnection" ("id", "organizationId", "adAccountId", "accessToken", "accountName", "currency", "status", "lastError", "lastSyncAt", "createdAt", "updatedAt")

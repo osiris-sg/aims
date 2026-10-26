@@ -1,4 +1,4 @@
--- org_osiris · generated from orgs/osiris.prisma (DRY RUN). Unqualified names resolve to org_osiris via search_path.
+-- org_osiris · generated from prisma/tenancy/orgs/osiris.prisma (DRY RUN). Unqualified names resolve to org_osiris via search_path.
 -- Adds every FK. If any copied row points at data that was not copied, this fails and rolls back: that is the integrity check.
 
 BEGIN;

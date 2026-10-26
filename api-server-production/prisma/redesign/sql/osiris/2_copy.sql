@@ -2,6 +2,7 @@
 -- Org matched by: name ILIKE 'Osiris Technology%' (preflight checks it matches exactly one org).
 
 BEGIN;
+-- DocumentLine: new in the org schema, nothing to copy from public.
 INSERT INTO org_osiris."Role" ("id", "name", "description", "allowedModules", "createdAt", "updatedAt", "organizationId")
   SELECT t."id", t."name", t."description", t."allowedModules", t."createdAt", t."updatedAt", t."organizationId"
   FROM public."Role" t
@@ -17,8 +18,8 @@ INSERT INTO org_osiris."Permission" ("id", "name", "description", "resource", "a
   FROM public."Permission" t
   WHERE TRUE;
 
-INSERT INTO org_osiris."Customer" ("id", "customerCode", "name", "email", "phone", "address", "gstRegNo", "currency", "salesmanId", "xeroId", "xeroLastSyncAt", "createdAt", "updatedAt", "organizationId")
-  SELECT t."id", t."customerCode", t."name", t."email", t."phone", t."address", t."gstRegNo", t."currency", t."salesmanId", t."xeroId", t."xeroLastSyncAt", t."createdAt", t."updatedAt", t."organizationId"
+INSERT INTO org_osiris."Customer" ("id", "customerCode", "name", "email", "phone", "address", "gstRegNo", "currency", "salesmanId", "xeroId", "xeroLastSyncAt", "whatsappGroupId", "whatsappGroupName", "createdAt", "updatedAt", "organizationId")
+  SELECT t."id", t."customerCode", t."name", t."email", t."phone", t."address", t."gstRegNo", t."currency", t."salesmanId", t."xeroId", t."xeroLastSyncAt", t."whatsappGroupId", t."whatsappGroupName", t."createdAt", t."updatedAt", t."organizationId"
   FROM public."Customer" t
   WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'Osiris Technology%');
 
@@ -242,13 +243,13 @@ INSERT INTO org_osiris."RecurringInvoiceTemplate" ("id", "organizationId", "code
   FROM public."RecurringInvoiceTemplate" t
   WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'Osiris Technology%');
 
-INSERT INTO org_osiris."Project" ("id", "projectNumber", "name", "description", "address", "organizationId", "customerId", "customerPoNumber", "createdAt", "updatedAt", "startDate", "endDate", "status", "siteOfficeId")
-  SELECT t."id", t."projectNumber", t."name", t."description", t."address", t."organizationId", t."customerId", t."customerPoNumber", t."createdAt", t."updatedAt", t."startDate", t."endDate", t."status"::text::org_osiris."ProjectStatus", t."siteOfficeId"
+INSERT INTO org_osiris."Project" ("id", "projectNumber", "name", "description", "address", "organizationId", "customerId", "customerPoNumber", "whatsappGroupId", "whatsappGroupName", "createdAt", "updatedAt", "startDate", "endDate", "status", "siteOfficeId")
+  SELECT t."id", t."projectNumber", t."name", t."description", t."address", t."organizationId", t."customerId", t."customerPoNumber", t."whatsappGroupId", t."whatsappGroupName", t."createdAt", t."updatedAt", t."startDate", t."endDate", t."status"::text::org_osiris."ProjectStatus", t."siteOfficeId"
   FROM public."Project" t
   WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'Osiris Technology%');
 
-INSERT INTO org_osiris."Delivery" ("id", "organizationId", "deliveryNumber", "direction", "status", "riderUserId", "riderName", "vehicleNumber", "handoffMode", "handedOffAt", "handedOffByUserId", "projectId", "customerId", "siteAddress", "notes", "scheduledFor", "isDraft", "documentId", "startedAt", "completedAt", "createdAt", "updatedAt")
-  SELECT t."id", t."organizationId", t."deliveryNumber", t."direction"::text::org_osiris."DeliveryDirection", t."status"::text::org_osiris."DeliveryRunStatus", t."riderUserId", t."riderName", t."vehicleNumber", t."handoffMode", t."handedOffAt", t."handedOffByUserId", t."projectId", t."customerId", t."siteAddress", t."notes", t."scheduledFor", t."isDraft", t."documentId", t."startedAt", t."completedAt", t."createdAt", t."updatedAt"
+INSERT INTO org_osiris."Delivery" ("id", "organizationId", "deliveryNumber", "direction", "status", "riderUserId", "riderName", "vehicleNumber", "handoffMode", "origin", "handedOffAt", "handedOffByUserId", "projectId", "customerId", "siteAddress", "notes", "scheduledFor", "isDraft", "sourceQuotationId", "documentId", "startedAt", "completedAt", "createdAt", "updatedAt")
+  SELECT t."id", t."organizationId", t."deliveryNumber", t."direction"::text::org_osiris."DeliveryDirection", t."status"::text::org_osiris."DeliveryRunStatus", t."riderUserId", t."riderName", t."vehicleNumber", t."handoffMode", t."origin"::text::org_osiris."DeliveryOrigin", t."handedOffAt", t."handedOffByUserId", t."projectId", t."customerId", t."siteAddress", t."notes", t."scheduledFor", t."isDraft", t."sourceQuotationId", t."documentId", t."startedAt", t."completedAt", t."createdAt", t."updatedAt"
   FROM public."Delivery" t
   WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'Osiris Technology%');
 
@@ -272,8 +273,8 @@ INSERT INTO org_osiris."DeliveryLocationPing" ("id", "reportId", "latitude", "lo
   FROM public."DeliveryLocationPing" t
   WHERE (EXISTS (SELECT 1 FROM public."MaintenanceServiceReport" p00 WHERE p00.id = t."reportId" AND p00."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'Osiris Technology%')));
 
-INSERT INTO org_osiris."MaintenanceSchedule" ("id", "organizationId", "assetId", "dueDate", "notes", "createdByUserId", "createdAt", "remindedAt", "cancelledAt")
-  SELECT t."id", t."organizationId", t."assetId", t."dueDate", t."notes", t."createdByUserId", t."createdAt", t."remindedAt", t."cancelledAt"
+INSERT INTO org_osiris."MaintenanceSchedule" ("id", "organizationId", "assetId", "dueDate", "notes", "createdByUserId", "createdAt", "remindedAt", "cancelledAt", "repeatEvery", "repeatUnit", "seriesId")
+  SELECT t."id", t."organizationId", t."assetId", t."dueDate", t."notes", t."createdByUserId", t."createdAt", t."remindedAt", t."cancelledAt", t."repeatEvery", t."repeatUnit", t."seriesId"
   FROM public."MaintenanceSchedule" t
   WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'Osiris Technology%');
 
@@ -320,6 +321,16 @@ INSERT INTO org_osiris."AdAccountConnection" ("id", "organizationId", "adAccount
 INSERT INTO org_osiris."AdInsight" ("id", "organizationId", "date", "campaignId", "campaignName", "adsetId", "adsetName", "adId", "adName", "spend", "impressions", "clicks", "linkClicks", "metaLeads", "thruplays", "videoAvgSec", "videoP25", "videoP50", "videoP75", "videoP100", "raw", "createdAt", "updatedAt")
   SELECT t."id", t."organizationId", t."date", t."campaignId", t."campaignName", t."adsetId", t."adsetName", t."adId", t."adName", t."spend", t."impressions", t."clicks", t."linkClicks", t."metaLeads", t."thruplays", t."videoAvgSec", t."videoP25", t."videoP50", t."videoP75", t."videoP100", t."raw", t."createdAt", t."updatedAt"
   FROM public."AdInsight" t
+  WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'Osiris Technology%');
+
+INSERT INTO org_osiris."DeliveryGroupPost" ("id", "organizationId", "deliveryId", "signedAt", "status", "final", "tripNumber", "groupId", "groupName", "groupSource", "caption", "photoKeys", "extraPhotoCount", "documentIds", "pdfKeys", "attempts", "error", "claimedAt", "claimedBy", "renderedAt", "sentAt", "messageIds", "createdAt", "updatedAt")
+  SELECT t."id", t."organizationId", t."deliveryId", t."signedAt", t."status", t."final", t."tripNumber", t."groupId", t."groupName", t."groupSource", t."caption", t."photoKeys", t."extraPhotoCount", t."documentIds", t."pdfKeys", t."attempts", t."error", t."claimedAt", t."claimedBy", t."renderedAt", t."sentAt", t."messageIds", t."createdAt", t."updatedAt"
+  FROM public."DeliveryGroupPost" t
+  WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'Osiris Technology%');
+
+INSERT INTO org_osiris."WhatsAppGroup" ("id", "organizationId", "groupId", "name", "lastSeenAt", "createdAt", "updatedAt")
+  SELECT t."id", t."organizationId", t."groupId", t."name", t."lastSeenAt", t."createdAt", t."updatedAt"
+  FROM public."WhatsAppGroup" t
   WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE 'Osiris Technology%');
 
 -- Role ↔ Permission links for this org's roles (implicit Prisma join table)

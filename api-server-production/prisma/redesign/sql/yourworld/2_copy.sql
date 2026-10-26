@@ -17,8 +17,8 @@ INSERT INTO org_yourworld."Permission" ("id", "name", "description", "resource",
   FROM public."Permission" t
   WHERE TRUE;
 
-INSERT INTO org_yourworld."Customer" ("id", "customerCode", "name", "email", "phone", "address", "gstRegNo", "currency", "salesmanId", "xeroId", "xeroLastSyncAt", "createdAt", "updatedAt", "organizationId")
-  SELECT t."id", t."customerCode", t."name", t."email", t."phone", t."address", t."gstRegNo", t."currency", t."salesmanId", t."xeroId", t."xeroLastSyncAt", t."createdAt", t."updatedAt", t."organizationId"
+INSERT INTO org_yourworld."Customer" ("id", "customerCode", "name", "email", "phone", "address", "gstRegNo", "currency", "salesmanId", "xeroId", "xeroLastSyncAt", "whatsappGroupId", "whatsappGroupName", "createdAt", "updatedAt", "organizationId")
+  SELECT t."id", t."customerCode", t."name", t."email", t."phone", t."address", t."gstRegNo", t."currency", t."salesmanId", t."xeroId", t."xeroLastSyncAt", t."whatsappGroupId", t."whatsappGroupName", t."createdAt", t."updatedAt", t."organizationId"
   FROM public."Customer" t
   WHERE t."organizationId" IN (SELECT id FROM public."Organization" WHERE name ILIKE '%your%world%');
 
