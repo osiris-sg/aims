@@ -10,8 +10,7 @@ import { useParams } from "next/navigation";
 import { Alert, Box, Chip, CircularProgress, Grid2, Paper, Stack, Tab, Tabs, Typography } from "@mui/material";
 import { useClientCustomer } from "../../../_lib/hooks";
 import OrdersListView from "../../../_components/OrdersListView";
-import MonthlyView from "../../../_components/MonthlyView";
-import OrdersViewToggle, { useOrdersView } from "../../../_components/OrdersViewToggle";
+import { useOrdersView } from "../../../_components/OrdersViewToggle";
 import { fmtDay } from "../../../_lib/format";
 import { billingLabel, ClientsHeader, ContactsList, ContractsPanel, KV, T, t3, useLang, useTab, ym } from "../../_components/ClientsBits";
 import DocumentFormatsPanel from "../../_components/DocumentFormatsPanel";
@@ -52,17 +51,7 @@ export default function ClientCustomerPage() {
             <Tab value="details" label={L.details} data-tour="client-tab-details" />
             <Tab value="formats" label={L.formats} data-tour="client-tab-formats" />
           </Tabs>
-          {tab === "orders" &&
-            (view === "monthly" ? (
-              <>
-                <Stack direction="row" sx={{ mb: 1.5 }}>
-                  <OrdersViewToggle view={view} onChange={setView} />
-                </Stack>
-                <MonthlyView customerId={d.customer.id} title={false} />
-              </>
-            ) : (
-              <OrdersListView fixedCustomerId={d.customer.id} toolbar={<OrdersViewToggle view={view} onChange={setView} />} />
-            ))}
+          {tab === "orders" && <OrdersListView fixedCustomerId={d.customer.id} view={view} onViewChange={setView} />}
           {tab === "contracts" && <ContractsPanel contracts={d.contracts} party="customer" />}
           {tab === "details" && (
             <Grid2 container spacing={2}>

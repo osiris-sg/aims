@@ -11,6 +11,10 @@
 // order" makes the month's orders from a small grid; "New orders from PIs"
 // reads PIs in bulk. "Tasks (n)" (round O — no Home page) opens "My tasks
 // today" in a side panel, the overdue count in red.
+// Round AN: the page header is shared by both views — "Orders", + New order, Tasks, + New monthly order, Filter, Search,
+// bell, and the List | Monthly switch with the Pending / Completed / All tabs stay put; only the content below changes
+// (the table, or the Monthly view with its toolbar). Search, the main Filter and the tab apply to both views and survive
+// the switch (one PageTable instance).
 
 import React, { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -29,16 +33,24 @@ import MonthlyOrderDialog from "./MonthlyOrderDialog";
 import { monthShort } from "../_lib/format";
 import { useDebounced } from "./useDebounced";
 import { TasksButton } from "./TradeTasks";
+import MonthlyView from "./MonthlyView";
+import OrdersViewToggle, { type OrdersView } from "./OrdersViewToggle";
 
 type Row = OrderRow;
 
 const orderHref = (id: string, shipmentId?: string) => `/portal/shipments/orders/${id}${shipmentId ? `?shipment=${shipmentId}` : ""}`;
 
-/** Round AM: the Orders list as a component — the Orders page's List view, and a client's Orders tab (pre-filtered, no create buttons). */
-export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolbar }: { fixedCustomerId?: string; fixedSupplierId?: string; toolbar?: React.ReactNode }) {
+type Bucket = "pending" | "completed" | "all";
+
+/** Round AM: the Orders list as a component — the Orders page's List view, and a client's Orders tab (pre-filtered, no create buttons).
+ * Round AN: with `view` it is the whole Orders page (or Orders tab) for both views — the shared header + the List table or the Monthly view. */
+export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolbar, view = "list", onViewChange }: { fixedCustomerId?: string; fixedSupplierId?: string; toolbar?: React.ReactNode; view?: OrdersView; onViewChange?: (v: OrdersView) => void }) {
   const router = useRouter();
   const params = useSearchParams();
-  const [bucket, setBucket] = useState<"pending" | "completed">(params?.get("tab") === "completed" ? "completed" : "pending");
+  const tabParam = params?.get("tab");
+  const [bucket, setBucket] = useState<Bucket>(tabParam === "completed" || tabParam === "all" ? tabParam : "pending");
+  const monthly = view === "monthly";
+  const [monthlyCounts, setMonthlyCounts] = useState<{ pending: number; completed: number; all: number } | null>(null);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [search, setSearch] = useState("");
@@ -56,7 +68,6 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
   const [toDelete, setToDelete] = useState<OrderListItem | null>(null);
   const del = useTradeMutation((api, id: string) => api.deleteOrder(id));
 
-
   const filterConfig: FilterField[] = useMemo(
     () => [
       { type: "select", key: "contractId", label: "Contract", options: (contracts.data?.items ?? []).map((c) => ({ value: c.id, label: [c.contractNo, c.customer?.name].filter(Boolean).join(" · ") })) },
@@ -68,7 +79,7 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
         options: (list.data?.months ?? []).map((m) => ({ value: m.month ?? "none", label: `${m.month ? monthShort(m.month) : "No ship month"} (${m.orders})` })),
       },
     ],
-    [contracts.data, customers.data, list.data?.months, fixedCustomerId],
+    [contracts.data, customers.data, list.data?.months, fixedCustomerId]
   );
 
   // Flat: the server sorts (ship month newest first, then order no. newest first).
@@ -83,7 +94,8 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
   const columns = useMemo(() => orderColumns({ onMenu: (e, row) => setMenu({ pos: { left: e.clientX, top: e.clientY }, row }) }), []);
 
   const filtered = !!(q || filters.contractId || filters.customerId || filters.shipMonth);
-  const counts = list.data?.counts;
+  const listCounts = list.data?.counts;
+  const counts = monthly ? monthlyCounts : listCounts ? { ...listCounts, all: listCounts.pending + listCounts.completed } : null;
   const tabs = (
     <Tabs
       value={bucket}
@@ -95,11 +107,12 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
     >
       <Tab value="pending" label={`Pending${counts ? ` (${counts.pending})` : ""}`} data-tour="shipments-tab-pending" />
       <Tab value="completed" label={`Completed${counts ? ` (${counts.completed})` : ""}`} data-tour="shipments-tab-completed" />
+      <Tab value="all" label={`All${counts ? ` (${counts.all})` : ""}`} data-tour="shipments-tab-all" />
     </Tabs>
   );
   const tabsRow = (
     <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
-      {toolbar}
+      {onViewChange ? <OrdersViewToggle view={view} onChange={onViewChange} /> : toolbar}
       {tabs}
     </Stack>
   );
@@ -147,11 +160,15 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
         rowHref={(r: Row) => hrefOf(r)}
         noSelectionColumn
         manualSorting
-        hideTable={!list.isLoading && !list.isError && !list.data?.items?.length}
+        hideTable={monthly || (!list.isLoading && !list.isError && !list.data?.items?.length)}
         headerContent={
           <>
             {tabsRow}
-            {list.isError ? (
+            {monthly ? (
+              <Box sx={{ mt: 1.5 }}>
+                <MonthlyView customerId={fixedCustomerId} supplierId={fixedSupplierId} bucket={bucket} search={q} mainFilters={filters} onClientChange={fixedCustomerId ? undefined : (id) => setFilters((f) => ({ ...f, customerId: id }))} onCounts={setMonthlyCounts} />
+              </Box>
+            ) : list.isError ? (
               <Alert severity="error">{(list.error as Error)?.message || "Could not load orders"}</Alert>
             ) : !list.isLoading && !list.data?.items?.length ? (
               filtered ? (
@@ -161,7 +178,14 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
               ) : bucket === "completed" ? (
                 <EmptyState title="No completed orders yet" />
               ) : (
-                <EmptyState title="No pending orders — start a new one" action={<Button variant="contained" onClick={() => setCreateOpen(true)}>+ New order</Button>} />
+                <EmptyState
+                  title="No pending orders — start a new one"
+                  action={
+                    <Button variant="contained" onClick={() => setCreateOpen(true)}>
+                      + New order
+                    </Button>
+                  }
+                />
               )
             ) : null}
           </>

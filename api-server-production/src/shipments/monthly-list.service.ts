@@ -22,6 +22,11 @@ export interface MonthlyQuery {
   /** Round AM: the Clients page (a supplier's orders) and the Order Status filter (a stage code, e.g. IN_TRANSIT). */
   supplierId?: string;
   stage?: string;
+  /** Round AN — the Orders page's shared header (tabs, Search, main Filter). */
+  bucket?: string;
+  q?: string;
+  contractId?: string;
+  shipMonth?: string;
 }
 
 const STEP = { id: true, code: true, title: true, displayNo: true, sortOrder: true, status: true, isOngoing: true, notApplicable: true };
@@ -40,7 +45,9 @@ export class MonthlyListService {
     const status = (['Open', 'Completed', 'Unconfirmed'] as OrderStatusWord[]).find((s) => s.toLowerCase() === String(q.status ?? '').toLowerCase()) ?? null;
     const stage = (ORDER_STAGES as string[]).includes(String(q.stage ?? '')) ? (q.stage as OrderStage) : null;
     const uuid = (v?: string) => (v && /^[0-9a-f-]{36}$/i.test(v) ? v : null);
-    return { from, to, basis, customerId: uuid(q.customerId), supplier: q.supplier?.trim() || null, grade: q.grade?.trim() || null, status, supplierId: uuid(q.supplierId), stage, today };
+    const bucket: 'pending' | 'completed' | null = q.bucket === 'pending' || q.bucket === 'completed' ? q.bucket : null;
+    const shipMonth = q.shipMonth === 'none' || /^\d{4}-\d{2}$/.test(q.shipMonth ?? '') ? q.shipMonth! : null;
+    return { from, to, basis, customerId: uuid(q.customerId), supplier: q.supplier?.trim() || null, grade: q.grade?.trim() || null, status, supplierId: uuid(q.supplierId), stage, today, bucket, q: q.q?.trim().slice(0, 100) || null, contractId: uuid(q.contractId), shipMonth };
   }
 
   /** The facts of every live, non-test order whose months could touch the window (a little wider: shipments may differ). */
@@ -67,15 +74,16 @@ export class MonthlyListService {
         supplierId: true,
         customer: { select: { name: true } },
         supplier: { select: { name: true } },
+        contractId: true,
         contract: { select: { contractNo: true } },
-        supplierOrder: { select: { id: true, status: true, piNo: true, piDate: true, qtyMt: true, contract: { select: { contractNo: true } }, steps: { select: STEP } } },
+        supplierOrder: { select: { id: true, status: true, piNo: true, piDate: true, qtyMt: true, contractId: true, contract: { select: { contractNo: true } }, steps: { select: STEP } } },
         steps: { select: STEP },
-        shipments: { where: { status: { not: 'CANCELLED' } }, select: { id: true, seqNo: true, status: true, blNumber: true, etd: true, eta: true, deliveryMonth: true, actualArrivalDate: true, dischargeDate: true, ciNumber: true, ciAmount: true, notes: true, steps: { select: STEP } } },
+        shipments: { where: { status: { not: 'CANCELLED' } }, select: { id: true, seqNo: true, status: true, blNumber: true, etd: true, eta: true, deliveryMonth: true, actualArrivalDate: true, dischargeDate: true, ciNumber: true, ciAmount: true, notes: true, vessel: true, steps: { select: STEP } } },
       },
     });
     // Round AM: split declarations — supplier orders bought for an order beyond its own (SupplierOrder.forOrderId).
     const extras: any[] = orders.length
-      ? await this.prisma.supplierOrder.findMany({ where: { organizationId, forOrderId: { in: orders.map((o) => o.id) }, status: { not: 'CANCELLED' } }, orderBy: [{ year: 'asc' }, { soNo: 'asc' }], select: { id: true, forOrderId: true, piNo: true, piDate: true, qtyMt: true, contract: { select: { contractNo: true } } } })
+      ? await this.prisma.supplierOrder.findMany({ where: { organizationId, forOrderId: { in: orders.map((o) => o.id) }, status: { not: 'CANCELLED' } }, orderBy: [{ year: 'asc' }, { soNo: 'asc' }], select: { id: true, forOrderId: true, piNo: true, piDate: true, qtyMt: true, contractId: true, contract: { select: { contractNo: true } } } })
       : [];
     const lineOf = (so: any) => ({ contractNo: so.contract?.contractNo ?? null, piNo: so.piNo ?? null, piDate: so.piDate ?? null, qtyMt: num(so.qtyMt) });
     return orders.map((o) => {
@@ -93,6 +101,7 @@ export class MonthlyListService {
         customerKey: keyOf(o.customerId),
         supplierName: o.supplier?.name ?? '—',
         supplierId: o.supplierId ?? null,
+        contractIds: [...new Set([o.contractId, o.supplierOrder?.contractId, ...extras.filter((x) => x.forOrderId === o.id).map((x) => x.contractId)].filter((x): x is string => !!x))],
         piNo: o.supplierOrder?.piNo ?? o.piNo ?? null,
         orderSteps: [...(o.supplierOrder?.steps ?? []), ...(o.steps ?? [])],
         supplierLines: [...(o.supplierOrder ? [lineOf(o.supplierOrder)] : []), ...extras.filter((x) => x.forOrderId === o.id && x.id !== o.supplierOrder?.id).map(lineOf)],
@@ -127,6 +136,7 @@ export class MonthlyListService {
             ciNumber: s.ciNumber,
             ciAmount: num(s.ciAmount),
             notes: s.notes,
+            vessel: s.vessel ?? null,
           };
         }),
       } satisfies OrderFact;
@@ -145,7 +155,14 @@ export class MonthlyListService {
       // Round AM: the Order Status filter (plain words, EN + JA).
       stages: ORDER_STAGES.map((code) => ({ code, ...ORDER_STAGE_LABELS[code] })),
     };
-    return { filter: f, blocks, options, totals: { orders: blocks.reduce((a, b) => a + b.orders, 0), rows: blocks.reduce((a, b) => a + b.rows.length, 0), tons: blocks.reduce((a, b) => a + b.tons, 0) } };
+    // Round AN: the Pending / Completed / All tab counts (orders in the window with the other filters), and — with a
+    // search — where else it matches (other months), so "#16" in the wrong month says where #16 is.
+    const ordersOf = (b: MonthlyBlock[]) => b.reduce((a, x) => a + x.orders, 0);
+    const counts = { pending: ordersOf(buildMonthlyList(facts, { ...f, bucket: 'pending' })), completed: ordersOf(buildMonthlyList(facts, { ...f, bucket: 'completed' })), all: ordersOf(buildMonthlyList(facts, { ...f, bucket: null })) };
+    const elsewhere = f.q
+      ? [...new Set(buildMonthlyList(facts, { ...f, from: '0000-01', to: '9999-12' }).flatMap((b) => b.rows.map((r) => r.month)).filter((m): m is string => !!m && (m < f.from || m > f.to)))].sort()
+      : [];
+    return { filter: f, blocks, options, counts, elsewhere, totals: { orders: blocks.reduce((a, b) => a + b.orders, 0), rows: blocks.reduce((a, b) => a + b.rows.length, 0), tons: blocks.reduce((a, b) => a + b.tons, 0) } };
   }
 
   private async orgName(organizationId: string) {

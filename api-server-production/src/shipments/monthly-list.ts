@@ -43,6 +43,8 @@ export interface ShipmentFact {
   ciNumber?: string | null;
   ciAmount?: number | null;
   notes?: string | null;
+  /** Round AN — for the shared Orders search (vessel name). */
+  vessel?: string | null;
 }
 export interface OrderFact {
   id: string;
@@ -57,6 +59,8 @@ export interface OrderFact {
   customerKey: string | null;
   supplierName: string;
   supplierId?: string | null;
+  /** Round AN — the main Filter's Contract (the order's own contract and its supplier orders' contracts). */
+  contractIds?: string[];
   customerPoDate: Date | string | null;
   grade: string | null;
   size: string | null;
@@ -160,6 +164,12 @@ export interface MonthlyFilter {
   stage?: OrderStage | null;
   /** "YYYY-MM-DD" (Tokyo) for the date-based stages; default the UTC day. */
   today?: string;
+  /** Round AN — the Orders page's shared header: Pending (open) / Completed / All tabs, the Search box and the main Filter. */
+  bucket?: 'pending' | 'completed' | 'all' | null;
+  q?: string | null;
+  contractId?: string | null;
+  /** The order's ship month ("none" = no ship month), as the List view's filter. */
+  shipMonth?: string | null;
 }
 
 const CLIENT_ORDER = ['KATO', 'SUS', 'HOEI'];
@@ -232,6 +242,24 @@ export function shipmentStatus(s: ShipmentFact): string {
   return s.currentStep.label.replace(/\s*\(.*?\)\s*$/, '');
 }
 
+/**
+ * Round AN — the Orders Search on the Monthly view, the List view's fields: "#16" / "16" = order no. 16 (all its rows),
+ * "#16-2" = that shipment's row; else (as the List's contains-search) order-level text (customer / client, PO no., PI no., grade, contract nos) keeps all
+ * the order's rows, shipment-level text (B/L, vessel, CI no.) keeps the matching shipment rows. Case-insensitive.
+ * Returns null when the order doesn't match, 'order' for all rows, or a predicate for the shipment rows.
+ */
+export function searchMatch(o: OrderFact, q: string | null | undefined): null | 'order' | ((s: ShipmentFact | null) => boolean) {
+  const t = (q ?? '').trim().toLowerCase();
+  if (!t) return 'order';
+  const no = /^#?(\d+)(?:-(\d+))?$/.exec(t);
+  if (no && Number(no[1]) === o.orderNo) return no[2] ? (s) => !!s && s.seqNo === Number(no[2]) : 'order';
+  const has = (v: string | null | undefined) => !!v && v.toLowerCase().includes(t);
+  const lines = o.supplierLines ?? [];
+  if ([o.customerName, clientName(o.customerKey, o.customerName), o.customerPoNo, o.piNo, o.grade, o.supplierContractNo, ...lines.flatMap((l) => [l.contractNo, l.piNo])].some(has)) return 'order';
+  const shipHit = (s: ShipmentFact | null) => !!s && [s.blNumber, s.vessel, s.ciNumber].some(has);
+  return o.shipments.some(shipHit) ? shipHit : null;
+}
+
 /** The rows of the list, grouped by client, filtered by the month window and the filters. Test / cancelled orders are the caller's to drop. */
 export function buildMonthlyList(orders: OrderFact[], f: MonthlyFilter): MonthlyBlock[] {
   const rows: Array<MonthlyRow & { rank: number; sortNo: number }> = [];
@@ -242,6 +270,12 @@ export function buildMonthlyList(orders: OrderFact[], f: MonthlyFilter): Monthly
     if (f.grade && !(o.grade ?? '').toLowerCase().startsWith(f.grade.toLowerCase())) continue;
     if (f.status && status !== f.status) continue;
     if (f.supplierId && o.supplierId !== f.supplierId) continue;
+    if (f.bucket === 'pending' && o.status !== 'OPEN') continue;
+    if (f.bucket === 'completed' && o.status === 'OPEN') continue;
+    if (f.contractId && !(o.contractIds ?? []).includes(f.contractId)) continue;
+    if (f.shipMonth && (f.shipMonth === 'none' ? o.shipMonth !== null : o.shipMonth !== f.shipMonth)) continue;
+    const hit = searchMatch(o, f.q);
+    if (!hit) continue;
     const ships = o.shipments.filter((s) => s.status !== 'CANCELLED').sort((a, b) => (a.seqNo ?? 0) - (b.seqNo ?? 0));
     const monthOf = (s: ShipmentFact | null) => (f.basis === 'ship' ? o.shipMonth : (s?.deliveryMonth ?? o.deliveryMonth));
     const inWindow = (m: string | null) => !!m && m >= f.from && m <= f.to;
@@ -250,7 +284,8 @@ export function buildMonthlyList(orders: OrderFact[], f: MonthlyFilter): Monthly
     const asStage = (s: ShipmentFact): StageShipment => ({ status: s.status, blNumber: s.blNumber, etd: s.etd, eta: s.eta, actualArrivalDate: s.actualArrivalDate ?? null, dischargeDate: s.dischargeDate ?? null, ciNumber: s.ciNumber ?? null, ciAmount: s.ciAmount ?? null, steps: s.steps ?? s.ciPayment });
     const stageOrder = { status: o.status, piNo: o.piNo ?? null, piDate: o.piDate, supplierDone: o.supplierDone, steps: o.orderSteps ?? o.piPayment, shipments: ships.map(asStage) };
     const stageOf = (s: ShipmentFact | null) => orderStage(stageOrder, s ? asStage(s) : null, today);
-    const all: Array<ShipmentFact | null> = ships.length ? kept : inWindow(monthOf(null)) ? [null] : [];
+    const inWin: Array<ShipmentFact | null> = ships.length ? kept : inWindow(monthOf(null)) ? [null] : [];
+    const all = hit === 'order' ? inWin : inWin.filter(hit);
     // The Order Status filter keeps the matching rows; the order's merged cells then span what is left.
     const list = f.stage ? all.filter((s) => stageOf(s) === f.stage) : all;
     if (!list.length) continue;
