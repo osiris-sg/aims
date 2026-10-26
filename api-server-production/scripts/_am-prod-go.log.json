@@ -1,0 +1,126 @@
+[
+ {
+  "at": "2026-10-26T07:00:57.098Z",
+  "action": "UPDATE",
+  "resource": "customer-profile",
+  "resourceId": "a094ff62-47f7-41dc-93da-a17ddf505283",
+  "details": {
+   "field": "docVariants.CUSTOMER_COA",
+   "from": "CUSTOMER_COA_SUS",
+   "to": "CUSTOMER_COA_SUS_SUMMARY"
+  }
+ },
+ {
+  "at": "2026-10-26T07:00:58.768Z",
+  "action": "UPDATE",
+  "resource": "customer-profile",
+  "resourceId": "a094ff62-47f7-41dc-93da-a17ddf505283",
+  "details": {
+   "field": "docVariants.CUSTOMER_PL",
+   "from": "CUSTOMER_PL_SUS",
+   "to": "CUSTOMER_PL_SUS_XLS"
+  }
+ },
+ {
+  "at": "2026-10-26T07:00:59.257Z",
+  "action": "CREATE",
+  "resource": "format-sample",
+  "resourceId": "53972b64-f392-4861-b68f-74e6e65edc88",
+  "details": {
+   "customerId": "a094ff62-47f7-41dc-93da-a17ddf505283",
+   "docType": "CUSTOMER_COA",
+   "fileName": "COA_集計ファイル_Sep300t.pdf",
+   "sizeBytes": 137168
+  }
+ },
+ {
+  "at": "2026-10-26T07:00:59.601Z",
+  "action": "CREATE",
+  "resource": "format-sample",
+  "resourceId": "cdffcb0a-d59b-4a1b-9d9b-a2ee8f533a04",
+  "details": {
+   "customerId": "a094ff62-47f7-41dc-93da-a17ddf505283",
+   "docType": "CUSTOMER_PL",
+   "fileName": "PACKING LIST.XLS.xlsx",
+   "sizeBytes": 15521
+  }
+ },
+ {
+  "at": "2026-10-26T07:01:02.853Z",
+  "action": "UPDATE",
+  "resource": "supplier-order",
+  "resourceId": "07ba4aa8-9496-4c98-8964-f98f299494ca",
+  "details": {
+   "field": "piNo",
+   "from": null,
+   "to": "9331004321",
+   "ref": "S14 (#24)",
+   "source": "Vedanta Oct'26 declaration (forwarded by ADH, 24–25 Oct)"
+  }
+ },
+ {
+  "at": "2026-10-26T07:01:02.902Z",
+  "action": "UPDATE",
+  "resource": "trade-order",
+  "resourceId": "7bb62d59-513d-4fc8-943f-71979717bd70",
+  "details": {
+   "field": "piNo",
+   "from": null,
+   "to": "9331004321",
+   "ref": "#24",
+   "source": "Vedanta Oct'26 declaration"
+  }
+ },
+ {
+  "at": "2026-10-26T07:01:02.996Z",
+  "action": "UPDATE",
+  "resource": "supplier-order",
+  "resourceId": "d92c4dc2-7634-4c54-bb03-5e74ca66f2d5",
+  "details": {
+   "field": "piNo",
+   "from": null,
+   "to": "9331004320",
+   "ref": "S15 (#25)",
+   "source": "Vedanta Oct'26 declaration (forwarded by ADH, 24–25 Oct)"
+  }
+ },
+ {
+  "at": "2026-10-26T07:01:03.042Z",
+  "action": "UPDATE",
+  "resource": "trade-order",
+  "resourceId": "759a72ab-aeb2-4b27-8406-4fa26607901b",
+  "details": {
+   "field": "piNo",
+   "from": null,
+   "to": "9331004320",
+   "ref": "#25",
+   "source": "Vedanta Oct'26 declaration"
+  }
+ },
+ {
+  "at": "2026-10-26T07:01:03.139Z",
+  "action": "UPDATE",
+  "resource": "supplier-order",
+  "resourceId": "94f5236a-448e-4a42-b02d-6f927c912936",
+  "details": {
+   "field": "piNo",
+   "from": null,
+   "to": "9331004320",
+   "ref": "S16 (#26)",
+   "source": "Vedanta Oct'26 declaration (forwarded by ADH, 24–25 Oct)"
+  }
+ },
+ {
+  "at": "2026-10-26T07:01:03.185Z",
+  "action": "UPDATE",
+  "resource": "trade-order",
+  "resourceId": "51566dcc-f4bf-4b04-b3e6-7d97e6e72890",
+  "details": {
+   "field": "piNo",
+   "from": null,
+   "to": "9331004320",
+   "ref": "#26",
+   "source": "Vedanta Oct'26 declaration"
+  }
+ }
+]
