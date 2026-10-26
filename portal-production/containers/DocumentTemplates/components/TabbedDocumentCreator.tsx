@@ -1735,10 +1735,16 @@ export default function TabbedDocumentCreator({
         // — templates that show a Contact field (QO/DO/PO/etc.) get an
         // auto-fill instead of forcing the user to retype the phone.
         const contactNeedsSeed = !formData.documentInfo?.contact && !!customer.phone;
+        // An EMPTY Bill To must be seeded from the customer's address too
+        // (guru 2026-10-27): a customer set via the code box already carries
+        // its address and code, so without this the write below never ran and
+        // Bill To stayed blank in the editor (the printout only fell back).
+        const billToNeedsSeed = !formData.billTo && !!customer.address;
         const needsUpdate =
           !formData.customer?.address ||
           !formData.customer?.customerCode ||
-          contactNeedsSeed;
+          contactNeedsSeed ||
+          billToNeedsSeed;
         // Stamp BEFORE the write: whether or not there was a gap to fill, this
         // customer has now been seen, so nothing may re-seed it later.
         seededCustomerRef.current = formData.customer.id;

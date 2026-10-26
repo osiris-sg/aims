@@ -66,7 +66,6 @@ const CSS = `
   table.wct-lines { width: 100%; border-collapse: separate; border-spacing: 0; }
   table.wct-lines th { border: 1.2px solid #000; padding: 5px 6px; font-weight: 400; font-size: 12.5px; text-align: left; white-space: nowrap; background: #fff; }
   table.wct-lines th + th { border-left: none; }
-  table.wct-lines th.gap { border: none; border-bottom: 1.2px solid #000; width: 0; padding: 0; }
   table.wct-lines td { border: none; padding: 6px 6px 2px; font-size: 12.5px; vertical-align: top; }
   /* A line item never splits across pages (seen: item 12's second line alone on page 2). */
   table.wct-lines tbody tr { page-break-inside: avoid; break-inside: avoid; }
@@ -206,23 +205,18 @@ function linesTable(data: any, items: any[], kind: WctDocKind, currency: string)
         return escapeHtml(it[c] ?? '');
     }
   };
-  // Header cells are each boxed, with the description cell's right border
-  // standing clear of the Qty cell — like the paper.
+  // Header cells are each boxed in one continuous row. (The paper leaves a
+  // sliver between the Description and Qty boxes; a spacer cell reproducing
+  // it rendered as a broken border, so it is gone — guru 2026-10-27.)
   const head = columns
-    .map((c, i) => {
-      const gap = c === 'quantity' && i > 0 ? `<th class="gap"></th>` : '';
-      return `${gap}<th style="${headStyle(c)}${widths[c] ? `width:${widths[c]};` : ''}">${escapeHtml(labels[c] || c)}</th>`;
-    })
+    .map((c) => `<th style="${headStyle(c)}${widths[c] ? `width:${widths[c]};` : ''}">${escapeHtml(labels[c] || c)}</th>`)
     .join('');
-  const hasGap = columns.includes('quantity') && columns.indexOf('quantity') > 0;
   const rows = items
     .map((it, i) => {
       if (it.isGroupHeader) {
-        return `<tr><td colspan="${columns.length + (hasGap ? 1 : 0)}" style="font-weight:700;text-decoration:underline;">${escapeHtml(it.description || '')}</td></tr>`;
+        return `<tr><td colspan="${columns.length}" style="font-weight:700;text-decoration:underline;">${escapeHtml(it.description || '')}</td></tr>`;
       }
-      return `<tr>${columns
-        .map((c, ci) => `${c === 'quantity' && ci > 0 ? '<td></td>' : ''}<td class="${cls(c)}">${value(c, it, i)}</td>`)
-        .join('')}</tr>`;
+      return `<tr>${columns.map((c) => `<td class="${cls(c)}">${value(c, it, i)}</td>`).join('')}</tr>`;
     })
     .join('');
   return `<table class="wct-lines"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
