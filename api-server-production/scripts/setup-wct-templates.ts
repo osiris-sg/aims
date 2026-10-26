@@ -117,13 +117,27 @@ const PARTY_FIELDS = [
 ];
 const JOB_FIELDS = [f('documentInfo.location', 'Job Location'), f('documentInfo.subject', 'Subject')];
 const SALES_FIELDS = [f('documentInfo.salesPersonName', 'Sales Person'), f('documentInfo.salesContact', 'Sales Contact')];
-const MONEY_FIELDS = [
+// Money / summary fields. DynamicFormFields routes any field whose name contains
+// rate / gross / disc / subTotal / gst / nett / taxApplicable / absorbTax into
+// the RIGHT (summary) column (the Rate / Gross / Disc / Sub-total / Tax / GST /
+// Nett rows, like Biofuel's non-formFields layout). Keeping them in the SAME
+// tab as the header fields is what fills the right side and lets everything sit
+// in one tab (guru 2026-10-27: "fit all the needed fields in one tab, like the
+// Biofuel editor's right section").
+const SUMMARY_FIELDS = [
+  f('documentInfo.rate', 'Rate', 'number'),
   f('documentInfo.currency', 'Currency', 'select', { options: [{ value: 'SGD', label: 'SGD' }, { value: 'USD', label: 'USD' }, { value: 'MYR', label: 'MYR' }], defaultValue: 'SGD' }),
+  f('documentInfo.grossTotal', 'Gross Total', 'number'),
+  f('documentInfo.discountAmount', 'Disc', 'number'),
+  f('documentInfo.subTotal', 'Sub-total', 'number'),
   f('documentInfo.taxApplicable', 'Tax', 'select', { options: [{ value: 'Y', label: 'Yes' }, { value: 'N', label: 'No' }], defaultValue: 'Y' }),
   f('documentInfo.absorbTax', 'Tax Inclusive', 'select', { options: [{ value: 'N', label: 'No' }, { value: 'Y', label: 'Yes' }], defaultValue: 'N' }),
-  f('documentInfo.gstPercent', 'GST %', 'number', { defaultValue: 9 }),
-  f('documentInfo.discountAmount', 'Discount Amount', 'number'),
+  f('documentInfo.gstPercent', 'GST', 'number', { defaultValue: 9 }),
+  f('documentInfo.gstAmount', 'GST Amount', 'number'),
+  f('documentInfo.nettTotal', 'Nett Total', 'number'),
 ];
+// ONE tab per document (guru 2026-10-27). The left column holds the header
+// fields, the right column the money summary; DynamicFormFields splits them.
 const formFieldsFor = (type: 'QUOTATION' | 'INVOICE' | 'DELIVERY_ORDER') => {
   const number =
     type === 'QUOTATION'
@@ -131,19 +145,21 @@ const formFieldsFor = (type: 'QUOTATION' | 'INVOICE' | 'DELIVERY_ORDER') => {
       : type === 'INVOICE'
       ? f('documentInfo.documentNumber', 'Invoice No.', 'text', { required: true })
       : f('documentInfo.documentNumber', 'Delivery Order No.', 'text', { required: true });
-  const general = [number, f('documentInfo.date', 'Date', 'date', { required: true })];
-  if (type === 'INVOICE') general.push(f('documentInfo.revision', 'Invoice Rev'), f('documentInfo.paymentTerms', 'Terms'));
-  if (type === 'QUOTATION') general.push(f('documentInfo.validityPeriod', 'Validity'));
-  if (type === 'DELIVERY_ORDER') general.push(f('documentInfo.quotationNo', 'Quotation Number'));
-  const tabs: Array<{ tabId: string; tabLabel: string; fields: unknown[] }> = [
-    { tabId: 'general', tabLabel: 'General', fields: [...general, ...PARTY_FIELDS, ...(type === 'DELIVERY_ORDER' ? [f('deliveryTo', 'Ship To (address)', 'textarea')] : JOB_FIELDS)] },
+  const header: any[] = [number, f('documentInfo.date', 'Date', 'date', { required: true })];
+  if (type === 'INVOICE') header.push(f('documentInfo.revision', 'Invoice Rev'), f('documentInfo.paymentTerms', 'Terms'));
+  if (type === 'QUOTATION') header.push(f('documentInfo.validityPeriod', 'Validity'));
+  if (type === 'DELIVERY_ORDER') header.push(f('documentInfo.quotationNo', 'Quotation Number'));
+  const left = [
+    ...header,
+    ...PARTY_FIELDS,
+    ...(type === 'DELIVERY_ORDER' ? [f('deliveryTo', 'Ship To (address)', 'textarea')] : JOB_FIELDS),
+    ...SALES_FIELDS,
+    f('documentInfo.remarks', 'Remarks', 'textarea'),
   ];
-  if (type !== 'DELIVERY_ORDER') {
-    tabs.push({ tabId: 'details', tabLabel: 'Details', fields: [...MONEY_FIELDS, ...SALES_FIELDS, f('documentInfo.remarks', 'Remarks', 'textarea')] });
-  } else {
-    tabs.push({ tabId: 'details', tabLabel: 'Details', fields: [f('documentInfo.remarks', 'Remarks', 'textarea')] });
-  }
-  return { tabs };
+  // The delivery order is a goods document with no prices, so it gets no
+  // money summary (its right column stays clean).
+  const right = type === 'DELIVERY_ORDER' ? [] : SUMMARY_FIELDS;
+  return { tabs: [{ tabId: 'general', tabLabel: 'General', fields: [...left, ...right] }] };
 };
 
 // ── Templates (WCT-owned rows seeded by setup-wct-org.ts) ─────────────────
