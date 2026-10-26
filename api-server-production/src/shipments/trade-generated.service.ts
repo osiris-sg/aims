@@ -72,6 +72,23 @@ import {
   singleLineCalc,
 } from './trade-invoice-single';
 import { attachPiecesPng, containerPlFacts } from './trade-attach';
+import {
+  AS_RECEIVED_COA,
+  HOEI_INVOICE_TEMPLATE,
+  HOEI_IVPL_TEMPLATE,
+  HoeiInvoiceHeader,
+  hoeiInvoiceDraft,
+  hoeiInvoiceFinalizeProblems,
+  HoeiIvPlHeader,
+  hoeiIvPlDraft,
+  hoeiIvPlFinalizeProblems,
+  hoeiParties,
+  isAsReceived,
+  isHoeiLayout,
+  renderHoeiInvoiceHtml,
+  renderHoeiIvPlHtml,
+  toHoeiLines,
+} from './trade-hoei-formats';
 import { applicantName, buildSusCoaSummary, buildSusPackingList, isSusTemplate, SUS_COA_COLUMNS, SUS_COA_TEMPLATE, SUS_PL_COLUMNS, SUS_PL_TEMPLATE, SusFormatError, susPackingListXlsx, VEDANTA_PRODUCER_BLOCK } from './trade-sus-formats';
 
 export type TemplateKind = 'table' | 'invoice' | 'single' | 'sgjp' | 'si';
@@ -340,6 +357,7 @@ export class TradeGeneratedService {
    * one being previewed in Clients → Document formats). Nothing is stored.
    */
   private async buildFromSource(organizationId: string, shipment: HeaderShipment, docType: string, src: { id: string; fileName: string; s3Key: string }, templateKey: string): Promise<{ built: { columns: GenColumn[]; rows: GenRow[]; notes: string[] }; header: GenHeader }> {
+    if (isAsReceived(templateKey)) throw new BadRequestException(asReceivedMessage(templateKey));
     let built: { columns: GenColumn[]; rows: GenRow[]; notes: string[] };
     let fromPdf: { date: string | null; invoiceNo: string | null } | null = null;
     const pieces = ((await this.config.getSettings(organizationId)).docDefaults as DocDefaults | undefined)?.customerCoaPiecesPerBundle ?? null;
@@ -459,6 +477,7 @@ export class TradeGeneratedService {
       }
       // The customer's template variant (Kato / SUS / Hoei); Kato's 計量検収票 body is a page of Vedanta's container PL.
       templateKey = templateKeyFor(await this.profileForShipment(organizationId, s.id), input.docType);
+      if (isAsReceived(templateKey)) throw new BadRequestException(asReceivedMessage(templateKey));
       if (input.docType === 'CUSTOMER_PL') header = await this.withAttachDefault(organizationId, s.id, templateKey, header as GenHeader);
       columns = (input.docType === 'CUSTOMER_PL' ? CUSTOMER_PL_COLUMNS : COA_JP_COLUMNS).map((c) => ({ ...c }));
       rows = [input.docType === 'CUSTOMER_PL' ? { no: 1, batch: '', container: '', netMt: null, grossMt: null } : { batch: '', bundles: null, netwt: null }];
@@ -502,7 +521,10 @@ export class TradeGeneratedService {
       // Single invoice (Kato / Hoei): billet at the shipment month's LME + QMJP + premium, the customs / trucking
       // lines in yen (from the estimator) and 他諸掛 — over every covered shipment.
       covers = await this.coveredShipments(organizationId, owner.shipmentId!, input.coversShipmentIds, input.docType);
-      const built = await this.singleInvoiceDraft(organizationId, covers, defaults, settings, org, today);
+      // Round AN: Hoei's 請求書 is Asia Deal Hub Pte. Ltd.'s, in USD only (trade-hoei-formats.ts).
+      templateKey = templateKeyFor(await this.profileForShipment(organizationId, owner.shipmentId!), input.docType);
+      const built = templateKey === HOEI_INVOICE_TEMPLATE ? await this.hoeiInvoice(organizationId, covers, defaults, today) : await this.singleInvoiceDraft(organizationId, covers, defaults, settings, org, today);
+      if (templateKey !== HOEI_INVOICE_TEMPLATE) templateKey = null;
       header = built.header;
       rows = built.rows;
     } else if (t.kind === 'invoice' && owner.shipmentId && (input.coversShipmentIds?.length ?? 0) > 1) {
@@ -566,6 +588,40 @@ export class TradeGeneratedService {
       const consignee = o?.consignee ?? s.contract?.consignee ?? null;
       const destPort = o?.destinationPort ?? s.contract?.destinationPort ?? null;
       const shipMonth = o?.shipMonth ?? s.contract?.shipmentMonth ?? null;
+      const cp = await this.profileForShipment(organizationId, s.id);
+      if (templateKeyFor(cp, 'SGJP_IV_PL') === HOEI_IVPL_TEMPLATE) {
+        // Round AN: Hoei's INVOICE & PACKING LIST — ADH SG's sale to Hoei, CIF Laem Chabang (trade-hoei-formats.ts).
+        templateKey = HOEI_IVPL_TEMPLATE;
+        const pl = s.netWeightMt === null || s.grossWeightMt === null || s.totalBundles === null ? await this.plTotalsFor(organizationId, s.id) : null;
+        const bank = defaultBank(defaults, cp.defaultBankId);
+        const d = hoeiIvPlDraft({
+          today,
+          shipMonth,
+          supplierBlock: supplier?.address ? `${supplier.name}\n${supplier.address}` : (defaults.sgjpShipperBlock ?? supplier?.name ?? ''),
+          parties: hoeiParties(cp, s.customer),
+          sellerBlock: defaults.sgjpSellerBlock ?? defaults.sgSellerBlock ?? org?.name ?? '',
+          signBlock: defaults.sgjpSignBlock ?? defaults.sgjpSellerBlock ?? org?.name ?? '',
+          bank: bank ? { id: bank.id, block: bank.block } : null,
+          portOfLoading: s.portOfLoading,
+          portOfDischarge: s.portOfDischarge ?? destPort,
+          countryOfOrigin: s.countryOfOrigin,
+          vessel: s.vessel,
+          voyageNo: s.voyageNo,
+          product: o?.product ?? s.contractLine?.product ?? s.commodity,
+          grade: o?.grade ?? s.contractLine?.grade ?? null,
+          hsCode: s.hsCode,
+          incoterm: o?.incoterm ?? s.contract?.incoterm ?? null,
+          lme: lmeForMonth(defaults, shipMonth),
+          qmjp: qmjpForMonth(defaults, shipMonth),
+          premium: num(o?.clientPremium),
+          netMt: dec(s.netWeightMt) ?? pl?.netMt ?? null,
+          grossMt: dec(s.grossWeightMt) ?? pl?.grossMt ?? null,
+          bundles: s.totalBundles ?? pl?.bundles ?? null,
+          pieces: s.totalPieces,
+        });
+        header = d.header;
+        rows = d.items;
+      } else {
       const h: SgjpHeaderV2 = {
         layout: 2,
         invoiceNo: sgjpInvoiceNo(today),
@@ -611,6 +667,7 @@ export class TradeGeneratedService {
         dimension: defaults.sgjpDimension ?? '',
       };
       rows = [item];
+      }
     } else {
       const s = await this.loadShipmentCtx(organizationId, owner.shipmentId!);
       this.assertOpen(s.status, 'shipment');
@@ -664,7 +721,7 @@ export class TradeGeneratedService {
         docType: input.docType,
         docRef,
         templateKey,
-        issuingEntity: entityFor(input.docType),
+        issuingEntity: templateKey === HOEI_INVOICE_TEMPLATE ? 'ADH_SG' : entityFor(input.docType),
         coversShipmentIds: covers,
         header: header as any,
         columns: columns as any,
@@ -683,7 +740,9 @@ export class TradeGeneratedService {
     const list = Array.isArray(rows) ? rows : [];
     const layout2 = (header as { layout?: unknown } | null)?.layout === 2;
     if (t.kind === 'invoice') return renderInvoiceHtml(header as InvoiceHeader, toInvoiceLines(list), opts);
+    if (t.kind === 'single' && isHoeiLayout(header)) return renderHoeiInvoiceHtml(header as HoeiInvoiceHeader, toHoeiLines(list), opts);
     if (t.kind === 'single') return renderSingleInvoiceHtml(header as SingleInvoiceHeader, toSingleLines(list), opts);
+    if (t.kind === 'sgjp' && isHoeiLayout(header)) return renderHoeiIvPlHtml(header as HoeiIvPlHeader, list as SgjpItem[], opts);
     // Documents created before the ADH layouts keep their original template.
     if (t.kind === 'sgjp') return layout2 ? renderSgjpV2Html(header as SgjpHeaderV2, list as SgjpItem[], opts) : renderSgjpHtml(header as SgjpHeader, list as PackingRow[], opts);
     if (t.kind === 'si') return layout2 ? renderSiV2Html(header as SiHeaderV2, list as SiRowV2[], opts) : renderSiHtml(header as SiHeader, list as ScheduleRow[], opts);
@@ -775,7 +834,9 @@ export class TradeGeneratedService {
     const blank = blankDocProblems(g.docType, g.header, rows);
     if (blank.length) throw new BadRequestException(finalizeMessage(blank));
     // A customer invoice is never issued by ADH SG.
-    const entityIssue = entityProblem(g.docType, (g as { issuingEntity?: string | null }).issuingEntity ?? entityFor(g.docType));
+    // Round AN: Hoei's 請求書 is Asia Deal Hub Pte. Ltd.'s (ADH SG sells to Thailand).
+    const hoei = isHoeiLayout(g.header);
+    const entityIssue = hoei ? null : entityProblem(g.docType, (g as { issuingEntity?: string | null }).issuingEntity ?? entityFor(g.docType));
     if (entityIssue) throw new BadRequestException(entityIssue);
     // Invoice #1 applying credits: each must still be open (or already used by this invoice) and the same customer's.
     const creditIds = g.docType === 'INVOICE_1' ? creditIdsOf(rows) : [];
@@ -798,7 +859,17 @@ export class TradeGeneratedService {
     let number = g.number;
     let header = g.header as any;
     let documentId = g.documentId;
-    if (t.kind === 'single') {
+    if (t.kind === 'single' && hoei) {
+      // Hoei's USD 請求書 (ADH SG): no 消費税, no FX; ADH Japan's Sales invoice isn't created (not ADH Japan's sale).
+      const problems = hoeiInvoiceFinalizeProblems(header as HoeiInvoiceHeader, toHoeiLines(rows));
+      if (problems.length) throw new BadRequestException(finalizeMessage(problems));
+      const hh = header as HoeiInvoiceHeader;
+      const printedNo = String(hh.invoiceNo ?? '').trim() || (hh.issueDate ?? '').replace(/-/g, '').slice(0, 8);
+      const clash = await this.prisma.tradeGeneratedDoc.findFirst({ where: { organizationId, docType: g.docType, status: 'FINAL', number: printedNo, id: { not: g.id } }, select: { id: true } });
+      if (clash) throw new BadRequestException(`Another single invoice is already numbered ${printedNo} — change the 番号 (e.g. ${printedNo}_2)`);
+      number = printedNo;
+      header = { ...header, invoiceNo: number };
+    } else if (t.kind === 'single') {
       const sl = toSingleLines(rows);
       const sh = header as SingleInvoiceHeader;
       const problems = singleFinalizeProblems(sl, sh.fxRate);
@@ -832,8 +903,8 @@ export class TradeGeneratedService {
       documentId = doc.id;
       number = doc.name;
       header = { ...header, invoiceNo: doc.name };
-    } else if (t.kind === 'sgjp' && header?.layout === 2) {
-      const problems = sgjpFinalizeProblems(rows as SgjpItem[]);
+    } else if (t.kind === 'sgjp' && (header?.layout === 2 || hoei)) {
+      const problems = hoei ? hoeiIvPlFinalizeProblems(header as HoeiIvPlHeader, rows as SgjpItem[]) : sgjpFinalizeProblems(rows as SgjpItem[]);
       if (problems.length) throw new BadRequestException(finalizeMessage(problems));
       // The SG→JP invoice no. (ADH + yyyymmdd) is the document number; split arrivals need different numbers.
       number = String(header.invoiceNo ?? '').trim() || `${t.short}-${g.shipment?.blNumber || g.id.slice(0, 8)}`;
@@ -893,7 +964,8 @@ export class TradeGeneratedService {
     });
     await this.bookCredits(organizationId, { ...g, number, header, rows }, creditIds);
     // The finalized SG→JP IV's amount is the customs CIF (step 7's import-tax estimate) — filled when blank.
-    if (g.docType === 'SGJP_IV_PL' && g.shipmentId) await this.fillCifFromSgjp(organizationId, g.shipmentId, rows);
+    // (Not Hoei's: its IV is the sale to Thailand, no Japanese import.)
+    if (g.docType === 'SGJP_IV_PL' && g.shipmentId && !hoei) await this.fillCifFromSgjp(organizationId, g.shipmentId, rows);
     return finalized;
   }
 
@@ -1522,6 +1594,40 @@ export class TradeGeneratedService {
    * charges in yen; 他諸掛 40 USD/MT. Rates and trucks come from the customer
    * profile + estimator; every figure is editable.
    */
+
+  /**
+   * Round AN — Hoei's 請求書 (trade-hoei-formats.ts): one USD line per covered shipment at the shipment month's LME +
+   * QMJP + the order's client premium (else 60), from Asia Deal Hub Pte. Ltd., 有効期限 = the end of the issue month.
+   */
+  private async hoeiInvoice(organizationId: string, covers: string[], defaults: DocDefaults, today: string): Promise<{ header: HoeiInvoiceHeader; rows: unknown[] }> {
+    const lines: Parameters<typeof hoeiInvoiceDraft>[0]['lines'] = [];
+    let first: Awaited<ReturnType<TradeGeneratedService['loadOrder']>> | null = null;
+    let profile: CustomerProfile | null = null;
+    for (const id of covers) {
+      const s = await this.prisma.shipment.findFirst({ where: { id, organizationId }, select: { id: true, netWeightMt: true, orderId: true, customerId: true } });
+      const o = s?.orderId ? await this.loadOrder(organizationId, s.orderId) : null;
+      first ??= o;
+      profile ??= await this.config.profileOf(organizationId, o?.customerId ?? s?.customerId ?? null);
+      lines.push({ quantity: dec(s?.netWeightMt ?? null), lme: o ? lmeForMonth(defaults, o.shipMonth) : null, qmjp: o ? qmjpForMonth(defaults, o.shipMonth) : null, premium: num(o?.clientPremium), product: o?.product ?? null, grade: o?.grade ?? null, shipmentId: s?.id ?? null, orderId: o?.id ?? null });
+    }
+    const bank = defaultBank(defaults, profile?.defaultBankId);
+    const sg = (defaults.sgjpSignBlock ?? defaults.sgjpSellerBlock ?? '').split(/\r?\n/).filter((l) => l.trim() && !/@|^\+|^tel/i.test(l.trim()));
+    const m = /^(\d{4})-(\d{2})/.exec(today);
+    const monthEnd = m ? new Date(Date.UTC(Number(m[1]), Number(m[2]), 0)).toISOString().slice(0, 10) : today;
+    const built = hoeiInvoiceDraft({
+      today,
+      toName: formatOf(profile, 'INVOICE')?.addressee || profile?.docAddressee || invoiceAddressee(first?.customer),
+      fromName: (defaults.sgSellerBlock ?? '').split(/\r?\n/)[0]?.trim() || (sg[0] ?? ''),
+      fromAddress: sg.slice(1).join('\n'),
+      bank: bank ? { id: bank.id, block: bank.block } : null,
+      shipMonth: first?.shipMonth ?? null,
+      validity: monthEnd,
+      dueDate: addBusinessDays(today, dueBusinessDays(defaults, 'INVOICE_SINGLE')),
+      lines,
+    });
+    return { header: built.header, rows: built.rows };
+  }
+
   private async singleInvoiceDraft(
     organizationId: string,
     covers: string[],
@@ -2103,4 +2209,9 @@ export function siWarehouse(profile: { warehouseName?: string | null; warehouseC
   if (profile?.warehouseCheck) return { warehouseName: '', warehouseCheck: true };
   if (port && !/yokohama|横浜/i.test(port)) return { warehouseName: '', warehouseCheck: true };
   return { warehouseName: orgDefault ?? '' };
+}
+
+/** Round AN: step 4 for a customer who gets Vedanta's own COA / PL (Hoei). */
+function asReceivedMessage(templateKey: string): string {
+  return `This customer gets Vedanta's ${templateKey === AS_RECEIVED_COA ? 'COA' : 'packing list'} as received (Clients → Document formats) — nothing to create; send Vedanta's file from step 3b`;
 }

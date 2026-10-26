@@ -19,6 +19,15 @@ export interface DocVariants {
   CUSTOMER_PL?: string;
   CUSTOMER_COA?: string;
   INVOICE?: string;
+  /** Round AN: step 7's INVOICE & PACKING LIST — SGJP_IV_PL (SG→JP customs, default) or SGJP_IV_PL_HOEI (SG→Thailand sale). */
+  SGJP_IV_PL?: string;
+}
+
+/** Round AN: the parties printed on the customer's own INVOICE & PACKING LIST (Hoei: Ship To / Buyer = Hoei, Notify = ISEWAN). */
+export interface PartyBlocks {
+  consignee?: string;
+  buyer?: string;
+  notify?: string;
 }
 
 export interface CustomerProfile {
@@ -54,6 +63,8 @@ export interface CustomerProfile {
    * The generator choice stays in docVariants.
    */
   docFormats?: Partial<Record<DocFormatType, DocFormat>>;
+  /** Round AN: Consignee / Buyer / Notify Party blocks of the customer's INVOICE & PACKING LIST (SGJP_IV_PL_HOEI). */
+  partyBlocks?: PartyBlocks;
 }
 
 /** The documents AIMS makes for a customer, by step: 4 Customer COA / PL, 7 SG→JP IV & PL, 9 出庫・納入依頼書, 11 invoice. */
@@ -250,6 +261,7 @@ export function templateKeyFor(p: CustomerProfile, docType: string): string {
   if (docType === 'CUSTOMER_PL') return p.docVariants.CUSTOMER_PL ?? 'CUSTOMER_PL_KATO';
   if (docType === 'CUSTOMER_COA') return p.docVariants.CUSTOMER_COA ?? 'CUSTOMER_COA_KATO';
   if (docType === 'INVOICE_SINGLE') return p.docVariants.INVOICE ?? 'INVOICE_SINGLE';
+  if (docType === 'SGJP_IV_PL') return p.docVariants.SGJP_IV_PL ?? 'SGJP_IV_PL';
   return docType;
 }
 
@@ -264,10 +276,19 @@ export const CUSTOMER_DOC_TEMPLATES: Record<string, { docType: 'CUSTOMER_PL' | '
   // Round AM: SUS's own formats from ADH's samples (Sayaka, 24–25 Oct) — see trade-sus-formats.ts.
   CUSTOMER_COA_SUS_SUMMARY: { docType: 'CUSTOMER_COA', customer: 'SUS', formatConfirmed: true, label: 'COA_集計ファイル (SUS): COA summary by cast, PDF' },
   CUSTOMER_PL_SUS_XLS: { docType: 'CUSTOMER_PL', customer: 'SUS', formatConfirmed: true, label: 'PACKING LIST (SUS): Excel from Vedanta\'s PL' },
+  // Round AN: Hoei gets Vedanta's own COA / PL as received (Drive Houeiへ送付資料/Sent) — nothing is generated at step 4.
+  CUSTOMER_COA_AS_RECEIVED: { docType: 'CUSTOMER_COA', customer: 'HOEI', formatConfirmed: true, label: "Vedanta's COA as received (forwarded, no ADH document)" },
+  CUSTOMER_PL_AS_RECEIVED: { docType: 'CUSTOMER_PL', customer: 'HOEI', formatConfirmed: true, label: "Vedanta's packing list as received (forwarded, no ADH document)" },
+};
+
+/** Round AN: variants of the other generated documents (step 7 INVOICE & PACKING LIST, step 11 invoice) — see trade-hoei-formats.ts. */
+export const OTHER_DOC_TEMPLATES: Record<string, { docType: 'SGJP_IV_PL' | 'INVOICE'; customer: string; formatConfirmed: boolean; label: string }> = {
+  SGJP_IV_PL_HOEI: { docType: 'SGJP_IV_PL', customer: 'HOEI', formatConfirmed: true, label: 'INVOICE & PACKING LIST (Hoei): ADH SG sale, CIF Laem Chabang, Notify Party, payment term + bank' },
+  INVOICE_SINGLE_HOEI_USD: { docType: 'INVOICE', customer: 'HOEI', formatConfirmed: true, label: '請求書 (Hoei): Asia Deal Hub Pte. Ltd., USD only, no 消費税' },
 };
 
 const isText = (v: unknown, max = 4000) => typeof v === 'string' && v.length <= max;
-const TEMPLATE_KEYS = new Set([...Object.keys(CUSTOMER_DOC_TEMPLATES), 'INVOICE_SINGLE', 'INVOICE_2']);
+const TEMPLATE_KEYS = new Set([...Object.keys(CUSTOMER_DOC_TEMPLATES), ...Object.keys(OTHER_DOC_TEMPLATES), 'INVOICE_SINGLE', 'INVOICE_2', 'SGJP_IV_PL']);
 
 /**
  * Validate a profiles patch ({ [customerId]: profile | null }) and merge it
@@ -292,13 +313,17 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
     if (p.defaultBankId !== undefined && p.defaultBankId !== null && p.defaultBankId !== '' && !isText(p.defaultBankId, 100)) fail('defaultBankId must be a bank account id');
     const dv = (p.docVariants ?? {}) as DocVariants;
     for (const [k, v] of Object.entries(dv)) {
-      if (!['CUSTOMER_PL', 'CUSTOMER_COA', 'INVOICE'].includes(k)) fail(`Unknown document variant "${k}"`);
+      if (!['CUSTOMER_PL', 'CUSTOMER_COA', 'INVOICE', 'SGJP_IV_PL'].includes(k)) fail(`Unknown document variant "${k}"`);
       if (v && !TEMPLATE_KEYS.has(v)) fail(`Unknown template "${v}"`);
     }
     const domains = Array.isArray(p.emailDomains) ? p.emailDomains.filter((d) => isText(d, 200)).map((d) => d.trim().toLowerCase().replace(/^@/, '')) : [];
     const dp = p.deliveryProfile;
     if (dp && (!isText(dp.siteName, 200) || !isText(dp.address, 500) || !isText(dp.notes ?? '', 4000))) fail('deliveryProfile needs siteName, address and notes');
     const formats = mergeDocFormats((out[id] as CustomerProfile | undefined)?.docFormats, p.docFormats, fail);
+    const pb = p.partyBlocks;
+    if (pb !== undefined && pb !== null && (typeof pb !== 'object' || Object.entries(pb).some(([k, v]) => !['consignee', 'buyer', 'notify'].includes(k) || (v !== undefined && v !== null && !isText(v, 600))))) fail('partyBlocks must be consignee / buyer / notify text');
+    // A save without partyBlocks (Org Settings → Customers doesn't know them) keeps the stored ones.
+    const parties = pb === undefined ? { ...((out[id] as CustomerProfile | undefined)?.partyBlocks ?? {}) } : pb ? Object.fromEntries(Object.entries(pb).filter(([, v]) => typeof v === 'string' && v.trim()).map(([k, v]) => [k, (v as string).trim()])) : {};
     out[id] = {
       customerId: id,
       key: p.key?.trim() || undefined,
@@ -317,6 +342,7 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
       defaultBankCheck: p.defaultBankCheck === true || undefined,
       docAddressee: p.docAddressee?.trim() || undefined,
       ...(formats ? { docFormats: formats } : {}),
+      ...(Object.keys(parties).length ? { partyBlocks: parties as PartyBlocks } : {}),
     };
   }
   return out;

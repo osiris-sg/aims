@@ -1,0 +1,987 @@
+{
+ "fills": [
+  {
+   "target": "#18-2",
+   "field": "totalPieces",
+   "value": 40,
+   "src": "CI XP2652102549 (final)"
+  },
+  {
+   "target": "#18-2",
+   "field": "ciNumber",
+   "value": "XP2652102549",
+   "src": "CI XP2652102549 (final)"
+  },
+  {
+   "target": "#18-2",
+   "field": "ciAmount",
+   "value": 78271.27,
+   "src": "CI XP2652102549 (final) sub-total before advance"
+  },
+  {
+   "target": "#18-2",
+   "field": "totalBundles",
+   "value": 8,
+   "src": "CI XP2652102549 (final)"
+  },
+  {
+   "target": "#18-2",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2652102549 (final)"
+  },
+  {
+   "target": "#12-1",
+   "field": "totalPieces",
+   "value": 240,
+   "src": "CI XP2652101584 (final)"
+  },
+  {
+   "target": "#12-1",
+   "field": "ciNumber",
+   "value": "XP2652101584",
+   "src": "CI XP2652101584 (final)"
+  },
+  {
+   "target": "#12-1",
+   "field": "ciAmount",
+   "value": 454758.36,
+   "src": "CI XP2652101584 (final) sub-total before advance"
+  },
+  {
+   "target": "#12-1",
+   "field": "totalBundles",
+   "value": 48,
+   "src": "CI XP2652101584 (final)"
+  },
+  {
+   "target": "#12-1",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2652101584 (final)"
+  },
+  {
+   "target": "#13-1",
+   "field": "totalPieces",
+   "value": 80,
+   "src": "CI XP2652101585 (final)"
+  },
+  {
+   "target": "#13-1",
+   "field": "ciNumber",
+   "value": "XP2652101585",
+   "src": "CI XP2652101585 (final)"
+  },
+  {
+   "target": "#13-1",
+   "field": "ciAmount",
+   "value": 155583.26,
+   "src": "CI XP2652101585 (final) sub-total before advance"
+  },
+  {
+   "target": "#13-1",
+   "field": "totalBundles",
+   "value": 16,
+   "src": "CI XP2652101585 (final)"
+  },
+  {
+   "target": "#13-1",
+   "field": "portOfLoading",
+   "value": "HALDIA PORT, INDIA",
+   "src": "CI XP2652101585 (final)"
+  },
+  {
+   "target": "#14-1",
+   "field": "totalPieces",
+   "value": 688,
+   "src": "CI XP2652102281 (final)"
+  },
+  {
+   "target": "#14-1",
+   "field": "ciNumber",
+   "value": "XP2652102281",
+   "src": "CI XP2652102281 (final)"
+  },
+  {
+   "target": "#14-1",
+   "field": "ciAmount",
+   "value": 551667.12,
+   "src": "CI XP2652102281 (final) sub-total before advance"
+  },
+  {
+   "target": "#14-1",
+   "field": "totalBundles",
+   "value": 152,
+   "src": "CI XP2652102281 (final)"
+  },
+  {
+   "target": "#14-1",
+   "field": "portOfLoading",
+   "value": "GANGAVARAM PORT, INDIA",
+   "src": "CI XP2652102281 (final)"
+  },
+  {
+   "target": "#15-1",
+   "field": "totalPieces",
+   "value": 600,
+   "src": "CI XP2652101843 (final)"
+  },
+  {
+   "target": "#15-1",
+   "field": "ciNumber",
+   "value": "XP2652101843",
+   "src": "CI XP2652101843 (final)"
+  },
+  {
+   "target": "#15-1",
+   "field": "ciAmount",
+   "value": 1177790.45,
+   "src": "CI XP2652101843 (final) sub-total before advance"
+  },
+  {
+   "target": "#15-1",
+   "field": "totalBundles",
+   "value": 120,
+   "src": "CI XP2652101843 (final)"
+  },
+  {
+   "target": "#15-1",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2652101843 (final)"
+  },
+  {
+   "target": "#16-1",
+   "field": "totalPieces",
+   "value": 190,
+   "src": "CI XP2652102035 (final)"
+  },
+  {
+   "target": "#16-1",
+   "field": "ciNumber",
+   "value": "XP2652102035",
+   "src": "CI XP2652102035 (final)"
+  },
+  {
+   "target": "#16-1",
+   "field": "ciAmount",
+   "value": 368892.9,
+   "src": "CI XP2652102035 (final) sub-total before advance"
+  },
+  {
+   "target": "#16-1",
+   "field": "totalBundles",
+   "value": 38,
+   "src": "CI XP2652102035 (final)"
+  },
+  {
+   "target": "#16-1",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2652102035 (final)"
+  },
+  {
+   "target": "#16-2",
+   "field": "totalPieces",
+   "value": 40,
+   "src": "CI XP2652102239 (final)"
+  },
+  {
+   "target": "#16-2",
+   "field": "ciNumber",
+   "value": "XP2652102239",
+   "src": "CI XP2652102239 (final)"
+  },
+  {
+   "target": "#16-2",
+   "field": "ciAmount",
+   "value": 77708.54,
+   "src": "CI XP2652102239 (final) sub-total before advance"
+  },
+  {
+   "target": "#16-2",
+   "field": "totalBundles",
+   "value": 8,
+   "src": "CI XP2652102239 (final)"
+  },
+  {
+   "target": "#16-2",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2652102239 (final)"
+  },
+  {
+   "target": "#17-1",
+   "field": "totalPieces",
+   "value": 80,
+   "src": "CI XP2652101870 (final)"
+  },
+  {
+   "target": "#17-1",
+   "field": "ciNumber",
+   "value": "XP2652101870",
+   "src": "CI XP2652101870 (final)"
+  },
+  {
+   "target": "#17-1",
+   "field": "ciAmount",
+   "value": 158180.27,
+   "src": "CI XP2652101870 (final) sub-total before advance"
+  },
+  {
+   "target": "#17-1",
+   "field": "totalBundles",
+   "value": 16,
+   "src": "CI XP2652101870 (final)"
+  },
+  {
+   "target": "#17-1",
+   "field": "portOfLoading",
+   "value": "HALDIA PORT, INDIA",
+   "src": "CI XP2652101870 (final)"
+  },
+  {
+   "target": "#19-1",
+   "field": "totalPieces",
+   "value": 560,
+   "src": "CI XP2652102551 (final)"
+  },
+  {
+   "target": "#19-1",
+   "field": "ciAmount",
+   "value": 1092949.22,
+   "src": "CI XP2652102551 (final) sub-total before advance"
+  },
+  {
+   "target": "#19-1",
+   "field": "totalBundles",
+   "value": 112,
+   "src": "CI XP2652102551 (final)"
+  },
+  {
+   "target": "#19-1",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2652102551 (final)"
+  },
+  {
+   "target": "#22-1",
+   "field": "totalPieces",
+   "value": 80,
+   "src": "CI XP2652102552 (final)"
+  },
+  {
+   "target": "#22-1",
+   "field": "ciNumber",
+   "value": "XP2652102552",
+   "src": "CI XP2652102552 (final)"
+  },
+  {
+   "target": "#22-1",
+   "field": "ciAmount",
+   "value": 157331.55,
+   "src": "CI XP2652102552 (final) sub-total before advance"
+  },
+  {
+   "target": "#22-1",
+   "field": "totalBundles",
+   "value": 16,
+   "src": "CI XP2652102552 (final)"
+  },
+  {
+   "target": "#22-1",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2652102552 (final)"
+  },
+  {
+   "target": "#19-2",
+   "field": "totalPieces",
+   "value": 30,
+   "src": "CI XP2652102550 (final)"
+  },
+  {
+   "target": "#19-2",
+   "field": "ciNumber",
+   "value": "XP2652102550",
+   "src": "CI XP2652102550 (final)"
+  },
+  {
+   "target": "#19-2",
+   "field": "ciAmount",
+   "value": 59299.84,
+   "src": "CI XP2652102550 (final) sub-total before advance"
+  },
+  {
+   "target": "#19-2",
+   "field": "totalBundles",
+   "value": 6,
+   "src": "CI XP2652102550 (final)"
+  },
+  {
+   "target": "#19-2",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2652102550 (final)"
+  },
+  {
+   "target": "#20-1",
+   "field": "totalPieces",
+   "value": 70,
+   "src": "CI XP2652102319 (final)"
+  },
+  {
+   "target": "#20-1",
+   "field": "ciNumber",
+   "value": "XP2652102319",
+   "src": "CI XP2652102319 (final)"
+  },
+  {
+   "target": "#20-1",
+   "field": "ciAmount",
+   "value": 140444.61,
+   "src": "CI XP2652102319 (final) sub-total before advance"
+  },
+  {
+   "target": "#20-1",
+   "field": "totalBundles",
+   "value": 14,
+   "src": "CI XP2652102319 (final)"
+  },
+  {
+   "target": "#20-1",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2652102319 (final)"
+  },
+  {
+   "target": "#18-3",
+   "field": "totalPieces",
+   "value": 35,
+   "src": "CI XP2652102548 (final)"
+  },
+  {
+   "target": "#18-3",
+   "field": "ciNumber",
+   "value": "XP2652102548",
+   "src": "CI XP2652102548 (final)"
+  },
+  {
+   "target": "#18-3",
+   "field": "ciAmount",
+   "value": 68475.86,
+   "src": "CI XP2652102548 (final) sub-total before advance"
+  },
+  {
+   "target": "#18-3",
+   "field": "totalBundles",
+   "value": 7,
+   "src": "CI XP2652102548 (final)"
+  },
+  {
+   "target": "#18-3",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2652102548 (final)"
+  },
+  {
+   "target": "#18-1",
+   "field": "totalPieces",
+   "value": 360,
+   "src": "CI XP2652102340 (final)"
+  },
+  {
+   "target": "#18-1",
+   "field": "ciNumber",
+   "value": "XP2652102340",
+   "src": "CI XP2652102340 (final)"
+  },
+  {
+   "target": "#18-1",
+   "field": "ciAmount",
+   "value": 704245.9,
+   "src": "CI XP2652102340 (final) sub-total before advance"
+  },
+  {
+   "target": "#18-1",
+   "field": "totalBundles",
+   "value": 72,
+   "src": "CI XP2652102340 (final)"
+  },
+  {
+   "target": "#18-1",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2652102340 (final)"
+  },
+  {
+   "target": "#1-1",
+   "field": "blNumber",
+   "value": "198GX00921",
+   "src": "CI XP2552104249 (final)"
+  },
+  {
+   "target": "#1-1",
+   "field": "vessel",
+   "value": "WAN HAI 312",
+   "src": "CI XP2552104249 (final)"
+  },
+  {
+   "target": "#1-1",
+   "field": "voyageNo",
+   "value": "E263",
+   "src": "CI XP2552104249 (final)"
+  },
+  {
+   "target": "#1-1",
+   "field": "totalPieces",
+   "value": 120,
+   "src": "CI XP2552104249 (final)"
+  },
+  {
+   "target": "#1-1",
+   "field": "ciNumber",
+   "value": "XP2552104249",
+   "src": "CI XP2552104249 (final)"
+  },
+  {
+   "target": "#1-1",
+   "field": "ciAmount",
+   "value": 209588.14,
+   "src": "CI XP2552104249 (final) sub-total before advance"
+  },
+  {
+   "target": "#1-1",
+   "field": "grossWeightMt",
+   "value": 61.481,
+   "src": "CI XP2552104249 (final)"
+  },
+  {
+   "target": "#1-1",
+   "field": "totalBundles",
+   "value": 24,
+   "src": "CI XP2552104249 (final)"
+  },
+  {
+   "target": "#1-1",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2552104249 (final)"
+  },
+  {
+   "target": "#3-1",
+   "field": "blNumber",
+   "value": "KMTCVTG0060509",
+   "src": "COO XP2652100135"
+  },
+  {
+   "target": "#3-1",
+   "field": "vessel",
+   "value": "ZHONG GU GUI YANG",
+   "src": "COO XP2652100135"
+  },
+  {
+   "target": "#3-1",
+   "field": "voyageNo",
+   "value": "0FDH6E",
+   "src": "COO XP2652100135"
+  },
+  {
+   "target": "#3-1",
+   "field": "grossWeightMt",
+   "value": 61.572,
+   "src": "COO XP2652100135"
+  },
+  {
+   "target": "#4-1",
+   "field": "blNumber",
+   "value": "KMTCVTG0069547",
+   "src": "COO XP2652100377"
+  },
+  {
+   "target": "#4-1",
+   "field": "vessel",
+   "value": "KMTC DELHI",
+   "src": "COO XP2652100377"
+  },
+  {
+   "target": "#4-1",
+   "field": "voyageNo",
+   "value": "2602E",
+   "src": "COO XP2652100377"
+  },
+  {
+   "target": "#4-1",
+   "field": "grossWeightMt",
+   "value": 258.627,
+   "src": "COO XP2652100377"
+  },
+  {
+   "target": "#5-1",
+   "field": "blNumber",
+   "value": "198GX02830",
+   "src": "CI XP2652100546 (final)"
+  },
+  {
+   "target": "#5-1",
+   "field": "vessel",
+   "value": "RACHA BHUM",
+   "src": "CI XP2652100546 (final)"
+  },
+  {
+   "target": "#5-1",
+   "field": "voyageNo",
+   "value": "209E",
+   "src": "CI XP2652100546 (final)"
+  },
+  {
+   "target": "#5-1",
+   "field": "totalPieces",
+   "value": 110,
+   "src": "CI XP2652100546 (final)"
+  },
+  {
+   "target": "#5-1",
+   "field": "ciNumber",
+   "value": "XP2652100546",
+   "src": "CI XP2652100546 (final)"
+  },
+  {
+   "target": "#5-1",
+   "field": "ciAmount",
+   "value": 235110.26,
+   "src": "CI XP2652100546 (final) sub-total before advance"
+  },
+  {
+   "target": "#5-1",
+   "field": "grossWeightMt",
+   "value": 56.417,
+   "src": "CI XP2652100546 (final)"
+  },
+  {
+   "target": "#5-1",
+   "field": "totalBundles",
+   "value": 22,
+   "src": "CI XP2652100546 (final)"
+  },
+  {
+   "target": "#5-1",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2652100546 (final)"
+  },
+  {
+   "target": "#6-1",
+   "field": "blNumber",
+   "value": "198GX03246",
+   "src": "CI XP2652100827 (final)"
+  },
+  {
+   "target": "#6-1",
+   "field": "vessel",
+   "value": "WAN HAI 328",
+   "src": "CI XP2652100827 (final)"
+  },
+  {
+   "target": "#6-1",
+   "field": "voyageNo",
+   "value": "E063",
+   "src": "CI XP2652100827 (final)"
+  },
+  {
+   "target": "#6-1",
+   "field": "totalPieces",
+   "value": 510,
+   "src": "CI XP2652100827 (final)"
+  },
+  {
+   "target": "#6-1",
+   "field": "ciNumber",
+   "value": "XP2652100827",
+   "src": "CI XP2652100827 (final)"
+  },
+  {
+   "target": "#6-1",
+   "field": "ciAmount",
+   "value": 1099883.58,
+   "src": "CI XP2652100827 (final) sub-total before advance"
+  },
+  {
+   "target": "#6-1",
+   "field": "grossWeightMt",
+   "value": 261.244,
+   "src": "CI XP2652100827 (final)"
+  },
+  {
+   "target": "#6-1",
+   "field": "totalBundles",
+   "value": 102,
+   "src": "CI XP2652100827 (final)"
+  },
+  {
+   "target": "#6-1",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2652100827 (final)"
+  },
+  {
+   "target": "#7-1",
+   "field": "blNumber",
+   "value": "KMTCVTG0068777",
+   "src": "CI XP2652101117 (final)"
+  },
+  {
+   "target": "#7-1",
+   "field": "vessel",
+   "value": "ENSENADA",
+   "src": "CI XP2652101117 (final)"
+  },
+  {
+   "target": "#7-1",
+   "field": "voyageNo",
+   "value": "0FDHQE",
+   "src": "CI XP2652101117 (final)"
+  },
+  {
+   "target": "#7-1",
+   "field": "totalPieces",
+   "value": 120,
+   "src": "CI XP2652101117 (final)"
+  },
+  {
+   "target": "#7-1",
+   "field": "ciNumber",
+   "value": "XP2652101117",
+   "src": "CI XP2652101117 (final)"
+  },
+  {
+   "target": "#7-1",
+   "field": "ciAmount",
+   "value": 243257.83,
+   "src": "CI XP2652101117 (final) sub-total before advance"
+  },
+  {
+   "target": "#7-1",
+   "field": "grossWeightMt",
+   "value": 61.481,
+   "src": "CI XP2652101117 (final)"
+  },
+  {
+   "target": "#7-1",
+   "field": "totalBundles",
+   "value": 24,
+   "src": "CI XP2652101117 (final)"
+  },
+  {
+   "target": "#7-1",
+   "field": "portOfLoading",
+   "value": "VISAKHAPATNAM PORT, INDIA",
+   "src": "CI XP2652101117 (final)"
+  },
+  {
+   "target": "#1-1",
+   "field": "eta",
+   "value": "2026-03-25",
+   "src": "Wan Hai A/N 198GX00921 \"Est. Arrival Date MAR 25 2026\""
+  },
+  {
+   "target": "S3",
+   "field": "piNo",
+   "value": "9331004129",
+   "src": "PI 9331004129 PDF"
+  },
+  {
+   "target": "S3",
+   "field": "piDate",
+   "value": "2026-06-30",
+   "src": "PI 9331004129 PDF"
+  },
+  {
+   "target": "S3",
+   "field": "piAmount",
+   "value": 204347.5,
+   "src": "PI 9331004129 PDF"
+  },
+  {
+   "target": "#13",
+   "field": "piNo",
+   "value": "9331004129",
+   "src": "PI 9331004129 PDF"
+  },
+  {
+   "target": "#13",
+   "field": "piDate",
+   "value": "2026-06-30",
+   "src": "PI 9331004129 PDF"
+  },
+  {
+   "target": "#13",
+   "field": "piAmount",
+   "value": 204347.5,
+   "src": "PI 9331004129 PDF"
+  },
+  {
+   "target": "S7",
+   "field": "piNo",
+   "value": "9331004188",
+   "src": "PI 9331004188 PDF"
+  },
+  {
+   "target": "S7",
+   "field": "piDate",
+   "value": "2026-07-24",
+   "src": "PI 9331004188 PDF"
+  },
+  {
+   "target": "S7",
+   "field": "piAmount",
+   "value": 150782.4,
+   "src": "PI 9331004188 PDF"
+  },
+  {
+   "target": "#17",
+   "field": "piNo",
+   "value": "9331004188",
+   "src": "PI 9331004188 PDF"
+  },
+  {
+   "target": "#17",
+   "field": "piDate",
+   "value": "2026-07-24",
+   "src": "PI 9331004188 PDF"
+  },
+  {
+   "target": "#17",
+   "field": "piAmount",
+   "value": 150782.4,
+   "src": "PI 9331004188 PDF"
+  },
+  {
+   "target": "S12",
+   "field": "piNo",
+   "value": "9331004266",
+   "src": "PI 9331004266 PDF"
+  },
+  {
+   "target": "S12",
+   "field": "piDate",
+   "value": "2026-09-01",
+   "src": "PI 9331004266 PDF"
+  },
+  {
+   "target": "#22",
+   "field": "piNo",
+   "value": "9331004266",
+   "src": "PI 9331004266 PDF"
+  },
+  {
+   "target": "#22",
+   "field": "piDate",
+   "value": "2026-09-01",
+   "src": "PI 9331004266 PDF"
+  },
+  {
+   "target": "S11",
+   "field": "piNo",
+   "value": "9331004266",
+   "src": "PI 9331004266 PDF"
+  },
+  {
+   "target": "S11",
+   "field": "piDate",
+   "value": "2026-09-01",
+   "src": "PI 9331004266 PDF"
+  },
+  {
+   "target": "#21",
+   "field": "piNo",
+   "value": "9331004266",
+   "src": "PI 9331004266 PDF"
+  },
+  {
+   "target": "#21",
+   "field": "piDate",
+   "value": "2026-09-01",
+   "src": "PI 9331004266 PDF"
+  },
+  {
+   "target": "S10",
+   "field": "piNo",
+   "value": "9331004266",
+   "src": "PI 9331004266 PDF"
+  },
+  {
+   "target": "S10",
+   "field": "piDate",
+   "value": "2026-09-01",
+   "src": "PI 9331004266 PDF"
+  },
+  {
+   "target": "#20",
+   "field": "piNo",
+   "value": "9331004266",
+   "src": "PI 9331004266 PDF"
+  },
+  {
+   "target": "#20",
+   "field": "piDate",
+   "value": "2026-09-01",
+   "src": "PI 9331004266 PDF"
+  },
+  {
+   "target": "S16",
+   "field": "piDate",
+   "value": "2026-09-22",
+   "src": "PI 9331004320 PDF"
+  },
+  {
+   "target": "#26",
+   "field": "piDate",
+   "value": "2026-09-22",
+   "src": "PI 9331004320 PDF"
+  },
+  {
+   "target": "S15",
+   "field": "piDate",
+   "value": "2026-09-22",
+   "src": "PI 9331004320 PDF"
+  },
+  {
+   "target": "#25",
+   "field": "piDate",
+   "value": "2026-09-22",
+   "src": "PI 9331004320 PDF"
+  },
+  {
+   "target": "S4",
+   "field": "piAmount",
+   "value": 549015,
+   "src": "PI 9331004202 PDF"
+  },
+  {
+   "target": "#14",
+   "field": "piAmount",
+   "value": 549015,
+   "src": "PI 9331004202 PDF"
+  },
+  {
+   "target": "#14",
+   "field": "customerPoNo",
+   "value": "PO2607052",
+   "src": "Hoei PO2607052 (issued 2026-07-31, 150 t, USD 3,913.64/t, total 587,046.00)"
+  },
+  {
+   "target": "#14",
+   "field": "customerPoDate",
+   "value": "2026-07-31",
+   "src": "Hoei PO2607052"
+  }
+ ],
+ "conflicts": [
+  {
+   "target": "#21-1",
+   "field": "ciNumber",
+   "aims": "XP2652102552",
+   "doc": "XP2652102456",
+   "src": "CI XP2652102456 for B/L 198GX06445; XP2652102552 is the CI of another B/L"
+  }
+ ],
+ "calls": [
+  {
+   "target": "#18-2",
+   "what": "ETD empty — B/L date 2026-10-06 (CI XP2652102549 (final)) is the shipped-on-board date, not always the sailing day; fill ETD with it?"
+  },
+  {
+   "target": "#17-1",
+   "what": "ETD empty — B/L date 2026-08-24 (CI XP2652101870 (final)) is the shipped-on-board date, not always the sailing day; fill ETD with it?"
+  },
+  {
+   "target": "#19-1",
+   "what": "ETD empty — B/L date 2026-10-06 (CI XP2652102551 (final)) is the shipped-on-board date, not always the sailing day; fill ETD with it?"
+  },
+  {
+   "target": "#19-2",
+   "what": "ETD empty — B/L date 2026-10-06 (CI XP2652102550 (final)) is the shipped-on-board date, not always the sailing day; fill ETD with it?"
+  },
+  {
+   "target": "#18-3",
+   "what": "ETD empty — B/L date 2026-10-06 (CI XP2652102548 (final)) is the shipped-on-board date, not always the sailing day; fill ETD with it?"
+  },
+  {
+   "target": "#21-1",
+   "what": "CI fields held back until the CI no. is corrected (amount 113,935.23, 17 bundles would follow)"
+  },
+  {
+   "target": "#1-1",
+   "what": "ETD empty — B/L date 2026-03-05 (CI XP2552104249 (final)) is the shipped-on-board date, not always the sailing day; fill ETD with it?"
+  },
+  {
+   "target": "#2-1",
+   "what": "holds 2 B/Ls (198GX01385 null t + KMTCVTG0067502 null t = 61.374 t) — AIMS is one shipment per B/L. Options: (a) fill #2-1 with 198GX01385 and add #2-2 for KMTCVTG0067502 (net weight split), (b) leave the B/L fields empty and attach both sets to #2-1 only."
+  },
+  {
+   "target": "#3-1",
+   "what": "ETD empty — B/L date 2026-04-25 (COO XP2652100135) is the shipped-on-board date, not always the sailing day; fill ETD with it?"
+  },
+  {
+   "target": "#4-1",
+   "what": "ETD empty — B/L date 2026-05-08 (COO XP2652100377) is the shipped-on-board date, not always the sailing day; fill ETD with it?"
+  },
+  {
+   "target": "#5-1",
+   "what": "ETD empty — B/L date 2026-05-29 (CI XP2652100546 (final)) is the shipped-on-board date, not always the sailing day; fill ETD with it?"
+  },
+  {
+   "target": "#6-1",
+   "what": "ETD empty — B/L date 2026-06-13 (CI XP2652100827 (final)) is the shipped-on-board date, not always the sailing day; fill ETD with it?"
+  },
+  {
+   "target": "#7-1",
+   "what": "ETD empty — B/L date 2026-07-07 (CI XP2652101117 (final)) is the shipped-on-board date, not always the sailing day; fill ETD with it?"
+  },
+  {
+   "target": "#8-1",
+   "what": "holds 2 B/Ls (198GX04346 262.45 t + 198GX04631 40.775 t = 303.225 t) — AIMS is one shipment per B/L. Options: (a) fill #8-1 with 198GX04346 and add #8-2 for 198GX04631 (net weight split), (b) leave the B/L fields empty and attach both sets to #8-1 only."
+  },
+  {
+   "target": "S12",
+   "what": "piAmount: PI 9331004266 covers 3 orders; fill this order's line amount USD 155,672.00 (total of the PI is different)?"
+  },
+  {
+   "target": "#22",
+   "what": "piAmount: PI 9331004266 covers 3 orders; fill this order's line amount USD 155,672.00 (total of the PI is different)?"
+  },
+  {
+   "target": "S11",
+   "what": "piAmount: PI 9331004266 covers 3 orders; fill this order's line amount USD 125,401.60 (total of the PI is different)?"
+  },
+  {
+   "target": "#21",
+   "what": "piAmount: PI 9331004266 covers 3 orders; fill this order's line amount USD 125,401.60 (total of the PI is different)?"
+  },
+  {
+   "target": "S10",
+   "what": "piAmount: PI 9331004266 covers 3 orders; fill this order's line amount USD 156,672.00 (total of the PI is different)?"
+  },
+  {
+   "target": "#20",
+   "what": "piAmount: PI 9331004266 covers 3 orders; fill this order's line amount USD 156,672.00 (total of the PI is different)?"
+  },
+  {
+   "target": "S16",
+   "what": "piAmount: PI 9331004320 covers 2 orders; fill this order's line amount USD 157,201.60 (total of the PI is different)?"
+  },
+  {
+   "target": "#26",
+   "what": "piAmount: PI 9331004320 covers 2 orders; fill this order's line amount USD 157,201.60 (total of the PI is different)?"
+  },
+  {
+   "target": "S15",
+   "what": "piAmount: PI 9331004320 covers 2 orders; fill this order's line amount USD 158,201.60 (total of the PI is different)?"
+  },
+  {
+   "target": "#25",
+   "what": "piAmount: PI 9331004320 covers 2 orders; fill this order's line amount USD 158,201.60 (total of the PI is different)?"
+  }
+ ]
+}

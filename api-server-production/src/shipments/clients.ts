@@ -4,7 +4,7 @@
  * Customer / Supplier records, the trade profiles (TradeSetting.customerProfiles / supplierProfiles: billing mode,
  * port, delivery site, docVariants = the step-4 generator, 宛先 …), contracts, orders and EmailIngestLog senders.
  */
-import { CUSTOMER_DOC_TEMPLATES, CustomerProfile, DocFormatType, FormatSample, formatOf } from './trade-profile';
+import { CUSTOMER_DOC_TEMPLATES, CustomerProfile, DocFormatType, FormatSample, formatOf, OTHER_DOC_TEMPLATES } from './trade-profile';
 import { delivered, StageShipment } from './trade-stage';
 
 /** "2026-10" + n months. */
@@ -115,7 +115,8 @@ export function contactsFrom(rows: SenderRow[], keys: string[], domains: string[
 export const DOC_FORMAT_SLOTS: Array<{ docType: DocFormatType; step: string; title: string; titleJa: string; choose: 'variant' | 'billing' | 'fixed'; previewable: boolean }> = [
   { docType: 'CUSTOMER_COA', step: '4', title: 'Customer COA', titleJa: '顧客向けCOA', choose: 'variant', previewable: true },
   { docType: 'CUSTOMER_PL', step: '4', title: 'Customer packing list', titleJa: '顧客向けパッキングリスト', choose: 'variant', previewable: true },
-  { docType: 'SGJP_IV_PL', step: '7', title: 'INVOICE & PACKING LIST (SG→JP, customs)', titleJa: '通関用 INVOICE & PACKING LIST', choose: 'fixed', previewable: false },
+  // Round AN: a variant per customer — the SG→JP customs invoice (SUS, Kato) or Hoei's SG→Thailand sale invoice.
+  { docType: 'SGJP_IV_PL', step: '7', title: 'INVOICE & PACKING LIST', titleJa: 'INVOICE & PACKING LIST', choose: 'variant', previewable: false },
   { docType: 'SHIPPING_INSTRUCTIONS', step: '9', title: '出庫・納入依頼書', titleJa: '出庫・納入依頼書', choose: 'fixed', previewable: false },
   { docType: 'INVOICE', step: '11', title: 'Invoice (請求書)', titleJa: '請求書', choose: 'billing', previewable: false },
 ];
@@ -141,7 +142,7 @@ export interface FormatView {
 }
 
 const FIXED_LABELS: Record<string, string> = {
-  SGJP_IV_PL: 'INVOICE & PACKING LIST (ADH layout, one per arrival)',
+  SGJP_IV_PL: 'INVOICE & PACKING LIST (SG→JP customs, ADH layout, one per arrival)',
   SHIPPING_INSTRUCTIONS: '出庫・納入依頼書 (Mitsui Soko, delivery site from the customer profile)',
   INVOICE_2: '請求書 Invoice #1 + #2 (two-stage: provisional, then final − #1)',
   INVOICE_SINGLE: '請求書 single invoice (after the B/L)',
@@ -153,14 +154,20 @@ export function formatViews(profile: CustomerProfile, legalName: string): Format
     const f = formatOf(profile, slot.docType);
     let generator: string;
     let options: FormatView['options'];
-    if (slot.choose === 'variant') {
+    if (slot.docType === 'SGJP_IV_PL') {
+      generator = profile.docVariants.SGJP_IV_PL ?? 'SGJP_IV_PL';
+      options = [{ key: 'SGJP_IV_PL', label: FIXED_LABELS.SGJP_IV_PL, formatConfirmed: true }, ...otherOptions('SGJP_IV_PL')];
+    } else if (slot.choose === 'variant') {
       generator = profile.docVariants[slot.docType as 'CUSTOMER_COA' | 'CUSTOMER_PL'] ?? `${slot.docType}_KATO`;
       options = Object.entries(CUSTOMER_DOC_TEMPLATES)
         .filter(([, t]) => t.docType === slot.docType)
         .map(([key, t]) => ({ key, label: t.label, formatConfirmed: t.formatConfirmed }));
     } else if (slot.choose === 'billing') {
-      generator = profile.billingMode === 'SINGLE' ? 'INVOICE_SINGLE' : 'INVOICE_2';
-      options = [{ key: generator, label: FIXED_LABELS[generator], formatConfirmed: true }];
+      const byBilling = profile.billingMode === 'SINGLE' ? 'INVOICE_SINGLE' : 'INVOICE_2';
+      // Round AN: a single-billing customer may take Hoei's USD 請求書 (docVariants.INVOICE); the layout follows billing otherwise.
+      const own = profile.docVariants.INVOICE && OTHER_DOC_TEMPLATES[profile.docVariants.INVOICE]?.docType === 'INVOICE' ? profile.docVariants.INVOICE : null;
+      generator = profile.billingMode === 'SINGLE' && own ? own : byBilling;
+      options = [{ key: byBilling, label: FIXED_LABELS[byBilling], formatConfirmed: true }, ...(profile.billingMode === 'SINGLE' ? otherOptions('INVOICE') : [])];
     } else {
       generator = slot.docType;
       options = [{ key: generator, label: FIXED_LABELS[generator], formatConfirmed: true }];
@@ -182,7 +189,14 @@ export function formatViews(profile: CustomerProfile, legalName: string): Format
   });
 }
 
+const otherOptions = (docType: 'SGJP_IV_PL' | 'INVOICE') =>
+  Object.entries(OTHER_DOC_TEMPLATES)
+    .filter(([, t]) => t.docType === docType)
+    .map(([key, t]) => ({ key, label: t.label, formatConfirmed: t.formatConfirmed }));
+
 /** A generator key valid for this document type (Clients → Document formats). */
 export function generatorFits(docType: string, key: string): boolean {
-  return CUSTOMER_DOC_TEMPLATES[key]?.docType === docType;
+  if (docType === 'SGJP_IV_PL' && key === 'SGJP_IV_PL') return true;
+  if (docType === 'INVOICE' && (key === 'INVOICE_SINGLE' || key === 'INVOICE_2')) return true;
+  return CUSTOMER_DOC_TEMPLATES[key]?.docType === docType || OTHER_DOC_TEMPLATES[key]?.docType === docType;
 }

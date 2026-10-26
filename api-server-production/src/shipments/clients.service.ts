@@ -15,7 +15,7 @@ import { TradeGeneratedService } from './trade-generated.service';
 import { TradeActor } from './shipments.request';
 import { clientStats, ClientOrderFact, contactsFrom, DOC_FORMAT_SLOTS, formatViews, generatorFits } from './clients';
 import { clientName, shortSupplier } from './monthly-list';
-import { CustomerProfile, DOC_FORMAT_TYPES, DocFormatType, FormatSample, profileFor, supplierProfileFor } from './trade-profile';
+import { CustomerProfile, DOC_FORMAT_TYPES, DocFormatType, FormatSample, OTHER_DOC_TEMPLATES, profileFor, supplierProfileFor } from './trade-profile';
 import { orderStage, supplierStage } from './trade-stage';
 
 const STEP = { code: true, status: true, notApplicable: true };
@@ -280,9 +280,15 @@ export class ClientsService {
     const p = await this.profileFor(organizationId, customerId);
     const next: CustomerProfile = { ...p, docVariants: { ...p.docVariants }, docFormats: { ...(p.docFormats ?? {}) } };
     if (body.generator !== undefined && body.generator !== null && body.generator !== '') {
-      if (slot.choose !== 'variant') throw new BadRequestException(slot.choose === 'billing' ? 'The invoice follows the billing mode (Org Settings → Customers)' : 'This document has one layout for every customer');
+      if (slot.choose === 'fixed') throw new BadRequestException('This document has one layout for every customer');
+      // Round AN: the invoice follows the billing mode; only a single-billing customer may pick Hoei's USD 請求書.
+      if (slot.choose === 'billing') {
+        const byBilling = p.billingMode === 'SINGLE' ? 'INVOICE_SINGLE' : 'INVOICE_2';
+        const usd = p.billingMode === 'SINGLE' && OTHER_DOC_TEMPLATES[body.generator]?.docType === 'INVOICE';
+        if (body.generator !== byBilling && !usd) throw new BadRequestException('The invoice follows the billing mode (Org Settings → Customers)');
+      }
       if (!generatorFits(t, body.generator)) throw new BadRequestException(`"${body.generator}" is not a ${slot.title} format`);
-      next.docVariants[t as 'CUSTOMER_COA' | 'CUSTOMER_PL'] = body.generator;
+      next.docVariants[t as 'CUSTOMER_COA' | 'CUSTOMER_PL' | 'SGJP_IV_PL' | 'INVOICE'] = body.generator;
     }
     const cur = next.docFormats![t] ?? {};
     next.docFormats![t] = {
