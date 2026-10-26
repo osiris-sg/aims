@@ -24,6 +24,7 @@ import SignatureCapture, { CapturedSignatures } from "../../../components/Signat
 import { BatchSignResult, signReports, uploadSignaturePair } from "../../../lib/signReports";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { ListCard } from "@/app/(field)/components/fieldUi";
+import RemoteSignLinkButton from "../../../components/RemoteSignLinkButton";
 
 /**
  * SIGN SEVERAL REPORTS AT ONCE.
@@ -217,6 +218,14 @@ function SignBatchInner() {
         onComplete={(captured) => void finish(captured)}
         onBackFromTech={() => router.push("/scan/reports/ongoing")}
       />
+
+      {/* Remote alternative: one link, the customer signs all of them. */}
+      {reports.every((r) => r.kind === "SERVICE") && (
+        <>
+          <Divider />
+          <RemoteSignLinkButton reportIds={reports.map((r) => r.id)} disabled={submitting} />
+        </>
+      )}
 
       {error && <Alert severity="error">{error}</Alert>}
     </Box>

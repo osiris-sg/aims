@@ -18,6 +18,7 @@ import { DocumentTemplatesModule } from './documentTemplates/documentTemplates.m
 import { UploadsModule } from './uploads/uploads.module';
 import { PublicDeliveryModule } from './public-delivery/public-delivery.module';
 import { PublicDocumentModule } from './public-document/public-document.module';
+import { ServiceReportSignModule } from './service-report-sign/service-report-sign.module';
 import { PublicSignModule } from './public-sign/public-sign.module';
 // TEMPORARY (2026-09): standalone signature capture for manual backfill. Remove with the module.
 import { TempSignatureModule } from './temp-signature/temp-signature.module';
@@ -156,6 +157,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     AirwallexSyncModule,
     PublicDeliveryModule,
     PublicDocumentModule,
+    ServiceReportSignModule,
     PublicSignModule,
     TempSignatureModule, // TEMPORARY — remove after backfill
     PushModule,

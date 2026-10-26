@@ -529,6 +529,36 @@ model DocumentShareLink {
   @@index([documentId])
 }
 
+// Remote customer signature for SERVICE reports (2026-10-26). The customer
+// could not sign on site, so the field app / portal mints an unguessable token
+// link; the customer opens /guest/service-report/<token> with no login, reads
+// the report(s), and signs once. One link may cover several reports of ONE
+// customer (the field's "Sign all N" batch). Submitting runs the SAME
+// MaintenanceReportsService.sign as the on-site flow (status -> completed,
+// deferred customer email). Single-use (signedAt), revocable (revokedAt),
+// expires like the DO guest delivery link. organizationId + reportIds are
+// PLAIN values (no FK, like CustomerInfoRequest) so per-org tenancy needs no
+// cross-schema relation; every read re-scopes reports by organizationId.
+// techSignatureKey: the technician's half, captured when the field app mints
+// the link (the Skip path stores no signature at all).
+model ServiceReportSignLink {
+  id               String    @id @default(uuid())
+  token            String    @unique // crypto-random (32 bytes, base64url)
+  organizationId   String
+  reportIds        String[]
+  techSignatureKey String?
+  createdBy        String?
+  createdAt        DateTime  @default(now())
+  expiresAt        DateTime?
+  revokedAt        DateTime?
+  signedAt         DateTime?
+  signerName       String?
+  signerIp         String?
+  userAgent        String?
+
+  @@index([organizationId])
+}
+
 // Client e-signature link (2026-08, interior-design quotations): the office
 // mints an unguessable token; the client opens /sign/<token> with no login,
 // reads the rendered quotation, signs on a canvas and accepts the T&Cs. On

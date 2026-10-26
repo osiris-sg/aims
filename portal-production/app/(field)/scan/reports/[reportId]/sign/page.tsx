@@ -12,6 +12,7 @@ import { uploadImage } from "@/helpers/imageUploader";
 import GuidedPhotoCapture, { type CapturedPhoto } from "@/components/delivery/GuidedPhotoCapture";
 import { photoSrc } from "@/components/maintenance/ReportPhotos";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import RemoteSignLinkButton from "../../../../components/RemoteSignLinkButton";
 
 /**
  * SIGN A REPORT THAT WAS SKIPPED.
@@ -179,6 +180,14 @@ export default function SignReportPage() {
         onComplete={(captured) => void finish(captured)}
         onBackFromTech={() => router.push("/scan/reports/ongoing")}
       />
+
+      {/* Remote alternative: the customer signs from a link instead of this pad. */}
+      {report.kind === "SERVICE" && (
+        <>
+          <Divider />
+          <RemoteSignLinkButton reportIds={[report.id]} disabled={submitting || photosUploading} />
+        </>
+      )}
 
       {error && <Alert severity="error">{error}</Alert>}
     </Box>

@@ -37,6 +37,7 @@ import {
   renderEssConclusion,
 } from "@/components/maintenance/EssReportView";
 import ReportPhotos from "@/components/maintenance/ReportPhotos";
+import CustomerSignLinkButton from "../_components/CustomerSignLinkButton";
 
 // Labels come from the SHARED catalogue (see the drift warning there). Which
 // template a report renders under is read from the ROW's stamped templateId,
@@ -243,6 +244,10 @@ export default function MaintenanceReportDetailPage() {
               color="success"
               variant="outlined"
             />
+          )}
+          {/* Unsigned: let the customer sign remotely (one-use link). */}
+          {report.status !== "completed" && (
+            <CustomerSignLinkButton reportId={report.id} hasTechSignature={!!(report.serviceData as any)?.techSignatureKey} />
           )}
           <Button variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()}>
             Print

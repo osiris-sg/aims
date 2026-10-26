@@ -99,6 +99,8 @@ const VERB_ACTIONS: Record<string, string> = {
   'skip-install': 'SKIP', start: 'START', end: 'END',
   // Driver hand-off (2026-09): the rider's POST /deliveries/:id/handoff.
   handoff: 'HANDOFF', 'cancel-handoff': 'CANCEL_HANDOFF',
+  // Service-report remote signature: minting the customer's sign link.
+  'sign-link': 'SHARE',
   revoke: 'REVOKE', activate: 'ACTIVATE', deactivate: 'DEACTIVATE',
   'auto-match': 'MATCH', match: 'MATCH', unmatch: 'UNMATCH', ignore: 'IGNORE',
   // Designer advances (2026-10-06): approve/decline and the payout stamp.
@@ -230,7 +232,10 @@ export class ActionLogInterceptor implements NestInterceptor {
       // treated: opens log as a Guest VIEW, and the one write (the customer
       // signing) logs as a Guest SIGN rather than falling through to "System
       // creation" — who signed is the whole point of that row.
-      path.startsWith('/public/document/')
+      path.startsWith('/public/document/') ||
+      // Service-report remote signature link (2026-10-26): opens log as a
+      // Guest VIEW, the customer's signature as a Guest SIGN.
+      path.startsWith('/public/service-report/')
     ) {
       // params.token FIRST: the path tail is the verb ('sign') on the write
       // route, so popping the last segment would record the verb as the actor.
@@ -265,6 +270,8 @@ export class ActionLogInterceptor implements NestInterceptor {
       if (s === 'links') return method === 'DELETE' ? 'UNLINK' : method === 'POST' ? 'LINK' : METHOD_ACTION[method] || 'UNKNOWN';
       // POST /trade-steps/:id/subtasks/:key ticks a sub-task: the key is data, not a verb.
       if (i > 0 && segments[i - 1] === 'subtasks') return 'UPDATE';
+      // GET .../sign-link reads the active link; only the POST mints one.
+      if (s === 'sign-link' && method !== 'POST') return METHOD_ACTION[method] || 'UNKNOWN';
       if (VERB_ACTIONS[s]) return VERB_ACTIONS[s];
       break;
     }
