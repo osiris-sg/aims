@@ -50,24 +50,37 @@ token hands it back to the API as the `aims_uid` claim.
 
 ## Import (dry run first)
 
+The script reads every user from the **dev** instance through the Backend API
+(names, username, all emails and phones with verified status and primary,
+public/private/unsafe metadata) and uses the dashboard export CSV **only** for
+`password_digest` + `password_hasher`. Keys come from the environment and are
+never printed: the dev `sk_test_` key from `api-server-production/.env`, the
+production `sk_live_` key from `~/Desktop/aims/.env.clerk-target` (gitignored).
+Keep the export CSV and the mapping file **outside the repo**.
+
 ```bash
 cd api-server-production
-# dev ids to import, e.g. the AIMS members (PROD UserOrganization / UserRole user ids)
-CLERK_TARGET_SECRET_KEY=sk_live_... npx ts-node scripts/_clerk-import-users.ts \
-  --file ~/Downloads/clerk-users-export.csv --only aims-member-ids.txt --out clerk-mapping.csv
-# read clerk-mapping.csv (would_create / skip_*), then:
-CLERK_TARGET_SECRET_KEY=sk_live_... npx ts-node scripts/_clerk-import-users.ts \
-  --file ~/Downloads/clerk-users-export.csv --only aims-member-ids.txt --out clerk-mapping.csv --apply
+CLERK_SECRET_KEY=<dev sk_test_> CLERK_TARGET_SECRET_KEY=<prod sk_live_> \
+  npx ts-node --transpile-only scripts/_clerk-import-users.ts \
+  --hashes ~/Downloads/<dev-instance-export>.csv --out /tmp/clerk-mapping.csv
+# read the report + mapping (would_create / exists / skip_*), then add --apply
 ```
 
-Re-running is safe: users whose dev id is already an `external_id` on the target are skipped.
+`--only ids.txt` narrows the run to a list of dev ids; the default is every dev user.
+The dry run only reads (dev users, production lookups) and writes nothing.
+
+**Re-run right before cutover.** The import is idempotent: a dev id that is already
+an `external_id` on production is reported `exists` and skipped. Re-running it with
+`--apply` just before cutover picks up any dev users created after the first import
+(2026-10-26: 71 imported, 1 skipped as unreferenced with no verified identifier).
+Use a fresh dashboard export so new users' password hashes are included.
 
 ## Cutover day
 
 Expected impact: the API stays up throughout. Every user is signed out once and signs in again (portal and field app).
 
 1. **T-1h:** freeze user creation in AIMS (no new users in User Management).
-2. Run the import again (delta) with `--apply`. Check `clerk-mapping.csv` has no `error` rows.
+2. Run the import again (delta) with `--apply` and a fresh dev export CSV. New dev users are created, everyone else shows `exists`. Check the mapping has no `error` rows.
 3. **Render (API, prod service):** set
    - `CLERK_SECRET_KEY` = production `sk_live_...`
    - `CLERK_PUBLISHABLE_KEY` = production `pk_live_...`
