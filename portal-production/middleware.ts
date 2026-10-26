@@ -27,6 +27,9 @@ const isPublicRoute = createRouteMatcher([
   "/schedule/(.*)",
   "/book/(.*)",
   "/signature/9eyFpEEFvrmPZN3qvwD_Zw",
+  // Legal pages proxied from the landing site on ai-ms.io (next.config rewrites).
+  "/privacy-policy",
+  "/terms",
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
