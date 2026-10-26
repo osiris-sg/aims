@@ -122,5 +122,58 @@
    "ref": "#26",
    "source": "Vedanta Oct'26 declaration"
   }
+ },
+ {
+  "at": "2026-10-26T07:16:56.836Z",
+  "action": "UPDATE",
+  "resource": "trade-order",
+  "resourceId": "6996d129-47c4-4efc-ae07-2a9ec02cd26d",
+  "details": {
+   "ref": "#23",
+   "checkFields": {
+    "from": [
+     "clientPremium"
+    ],
+    "to": [
+     "clientPremium"
+    ]
+   },
+   "notesAppended": "Client premium to confirm with ADH (sheet says 200 or 265; AIMS has 190). The negative margin after the split (454003422 half at 240) is not final.",
+   "supplierPremium": {
+    "from": 162,
+    "to": 201
+   }
+  }
+ },
+ {
+  "at": "2026-10-26T07:16:56.861Z",
+  "action": "UPDATE",
+  "resource": "supplier-order",
+  "resourceId": "cf0627e2-1187-4019-86d9-502be7e02a8d",
+  "details": {
+   "ref": "S13 (#23)",
+   "qtyMt": {
+    "from": 200,
+    "to": 100
+   },
+   "piNo": {
+    "from": null,
+    "to": "9331004319"
+   }
+  }
+ },
+ {
+  "at": "2026-10-26T07:16:56.885Z",
+  "action": "CREATE",
+  "resource": "supplier-order",
+  "resourceId": "ee90f0dc-1432-4571-b46e-2ab55674070f",
+  "details": {
+   "ref": "S17 (#23 second half)",
+   "forOrderId": "6996d129-47c4-4efc-ae07-2a9ec02cd26d",
+   "contract": "454003422",
+   "qtyMt": 100,
+   "piNo": "9331004321",
+   "supplierPremium": 240
+  }
  }
 ]
