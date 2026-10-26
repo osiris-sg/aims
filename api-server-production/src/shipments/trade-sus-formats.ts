@@ -30,10 +30,12 @@ export const VEDANTA_PRODUCER_BLOCK = [
 ].join('\n');
 
 /**
- * Round AO — the e-signature lines under ADH's COA_集計ファイル, copied as every ADH summary prints them (all 13 in the
- * Drive, Jan–Oct 2026): two lines on the left and Vedanta's signature block on the right. Text only, no logo.
+ * The e-signature lines under the COA summary: Vedanta's own sentence as printed on its COA / PL / CI / COO PDFs
+ * ("…PHYSICALLY SIGNED.SAME TO BE TREATED AS ORIGINAL."), with the missing space restored, on the left; Vedanta's
+ * signature block on the right. Round AP: replaces ADH's run-together copy ("PHYSICALLYSIGNED", "LIMITEDALUMINIU").
+ * Text only, no logo.
  */
-export const SUS_COA_FOOTER = ['IT IS ELECTRONICALLY SIGNED DOCUMENT HENCE NOT REQUIRED PHYSICALLYSIGNED. SAME', 'TO BE TREATED AS ORIGINAL FOR VEDANTA LIMITEDALUMINIU'].join('\n');
+export const SUS_COA_FOOTER = ['IT IS ELECTRONICALLY SIGNED DOCUMENT HENCE NOT REQUIRED PHYSICALLY SIGNED.', 'SAME TO BE TREATED AS ORIGINAL.'].join('\n');
 export const SUS_COA_SIGN_BLOCK = ['FOR VEDANTA ALUMINIUM METAL LIMITED', '(SEZ Unit)'].join('\n');
 
 export const SUS_COA_COLUMNS: GenColumn[] = [

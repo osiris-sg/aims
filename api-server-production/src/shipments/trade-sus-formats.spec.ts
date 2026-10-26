@@ -52,10 +52,12 @@ describe('SUS COA_集計ファイル', () => {
     expect(body).toContain('10.195');
     expect(body).not.toContain('ELECTRONICALLY SIGNED');
   });
-  it("round AO: prints Vedanta's e-signature lines (as ADH's summaries) and totals with three decimals", () => {
+  it("prints Vedanta's e-signature lines (Vedanta's wording, not ADH's run-together copy) and totals with three decimals", () => {
     const r = buildSusCoaSummary(COA, { piecesPerBundle: 5 });
     const { body } = renderSusCoaHtml({ date: '2026-07-22', footer: SUS_COA_FOOTER, signBlock: SUS_COA_SIGN_BLOCK }, r.columns, r.rows);
-    expect(body).toContain('IT IS ELECTRONICALLY SIGNED DOCUMENT HENCE NOT REQUIRED PHYSICALLYSIGNED. SAME');
+    expect(body).toContain('IT IS ELECTRONICALLY SIGNED DOCUMENT HENCE NOT REQUIRED PHYSICALLY SIGNED.');
+    expect(body).toContain('SAME TO BE TREATED AS ORIGINAL.');
+    expect(body).not.toMatch(/PHYSICALLYSIGNED|LIMITEDALUMINIU/);
     expect(body).toContain('FOR VEDANTA ALUMINIUM METAL LIMITED');
     expect(body).toContain('(SEZ Unit)');
     expect(body).toContain('10.195');
