@@ -1,4 +1,4 @@
--- org_cappitech · generated from orgs/cappitech.prisma (DRY RUN). Unqualified names resolve to org_cappitech via search_path.
+-- org_cappitech · generated from prisma/tenancy/orgs/cappitech.prisma (DRY RUN). Unqualified names resolve to org_cappitech via search_path.
 -- Adds every FK. If any copied row points at data that was not copied, this fails and rolls back: that is the integrity check.
 
 BEGIN;

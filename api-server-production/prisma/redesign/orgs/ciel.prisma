@@ -89,28 +89,38 @@ model Permission {
 }
 
 model Customer {
-  id              String            @id @default(uuid()) @db.Uuid
-  customerCode    String? // Auto-generated code like CA001, CB002
-  name            String
-  email           String?
-  phone           String?
-  address         String?
-  gstRegNo        String? // Customer's GST/Tax registration number
+  id                String            @id @default(uuid()) @db.Uuid
+  customerCode      String? // Auto-generated code like CA001, CB002
+  name              String
+  email             String?
+  phone             String?
+  address           String?
+  gstRegNo          String? // Customer's GST/Tax registration number
+  // Japanese legal name / address / contact (Shipments, 2026-10): printed on
+  // the JP trade documents (請求書 name only; 計量検収票 / 納品書兼… name +
+  // address + contact). English documents keep `name`.
+  jpName            String?
+  jpAddress         String?
+  jpContact         String?
   // Trading currency (one per customer code — a customer trading in two
   // currencies gets two customer codes). Documents inherit this; GL converts
   // to base at the accountant's standing rate (AccountingSetting.currencyRates).
-  currency        String            @default("SGD")
-  salesmanId      String? // Reference to UserOrganization.id for the assigned salesman
+  currency          String            @default("SGD")
+  salesmanId        String? // Reference to UserOrganization.id for the assigned salesman
   // Xero pull-sync: ContactID from Xero (null = not yet synced).
-  xeroId          String?           @unique
-  xeroLastSyncAt  DateTime?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  organizationId  String
-  priceHistories  PriceHistory[] // Track price history for this customer
-  payments        Payment[]
-  projects        Project[]         @relation("CustomerProjects")
-  orders          Order[]           @relation("CustomerOrders")
+  xeroId            String?           @unique
+  xeroLastSyncAt    DateTime?
+  // Delivery group posts (2026-09-30): the WhatsApp group a signed delivery
+  // is posted to (Project first, then Customer, then the org ops group).
+  whatsappGroupId   String?
+  whatsappGroupName String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  organizationId    String
+  priceHistories    PriceHistory[] // Track price history for this customer
+  payments          Payment[]
+  projects          Project[]         @relation("CustomerProjects")
+  orders            Order[]           @relation("CustomerOrders")
 
   @@unique([email, organizationId])
   @@unique([id, organizationId])
@@ -122,7 +132,7 @@ model Customer {
 }
 
 model Supplier {
-  id             String        @id @default(uuid()) @db.Uuid
+  id             String          @id @default(uuid()) @db.Uuid
   supplierCode   String?
   name           String
   email          String?
@@ -130,12 +140,12 @@ model Supplier {
   address        String?
   gstRegNo       String?
   // Trading currency — same one-currency-per-code convention as Customer.
-  currency       String        @default("SGD")
+  currency       String          @default("SGD")
   // Xero pull-sync: ContactID from Xero (suppliers are also Contacts in Xero).
-  xeroId         String?       @unique
+  xeroId         String?         @unique
   xeroLastSyncAt DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
   organizationId String
   billPayments   BillPayment[]
 
@@ -246,28 +256,36 @@ model AuditLog {
 }
 
 model EmailIngestConfig {
-  id             String  @id @default(uuid())
-  organizationId String  @unique
-  enabled        Boolean @default(false)
+  id             String   @id @default(uuid())
+  organizationId String   @unique
+  enabled        Boolean  @default(false)
   // Sender allow-list: full addresses or @domain suffixes, e.g.
   // ["ap@daikin.com.sg", "@sembcorp.com"]. Empty array = accept all senders.
-  watchedSenders Json    @default("[]")
+  watchedSenders Json     @default("[]")
   // AI    → classify each attachment by issuer (INVOICE = AR / BILL = AP).
   // FIXED → skip classification, always create defaultDocType.
-  routingMode    String  @default("AI")
+  routingMode    String   @default("AI")
   defaultDocType String? // used when routingMode=FIXED: INVOICE | BILL
   // Hard rules, evaluated deterministically top-down BEFORE any AI call;
   // first match wins. Shape:
   //   { conditions: [{ field: "SUBJECT"|"SENDER"|"BODY",
   //       operator: "CONTAINS"|"EQUALS"|"STARTS_WITH"|"DOMAIN", value }...],
   //     action: "IGNORE"|"FORCE_BILL"|"FORCE_INVOICE"|"AI_GUIDANCE", guidance? }[]
-  rules          Json    @default("[]")
+  rules          Json     @default("[]")
   // Free-text per-org instructions appended to the AI classifier prompt as
   // trusted admin guidance (unlike the untrusted email envelope).
   aiGuidance     String?
   // Reserved for a future auto-confirm mode; both create paths only make
   // DRAFTs today.
-  createMode     String  @default("DRAFT")
+  createMode     String   @default("DRAFT")
+  // Shipments intake sender filter (2026-10): keep an email when any of from / to / cc is an allowed domain /
+  // address (the org's own addresses alone don't count), or the subject / attachment names carry a shipment
+  // key, or it is on a thread already matched to an order. OFF | SHADOW (decide + log, keep everything) | ENFORCE.
+  allowDomains   String[] @default([])
+  allowAddresses String[] @default([])
+  filterMode     String   @default("OFF")
+  /// Notes per domain / party for the settings screen: { "maersk.com": "unverified", "Hoei": "add when known" }.
+  filterNotes    Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -275,7 +293,7 @@ model EmailIngestConfig {
 }
 
 model EmailIngestLog {
-  id                 String  @id @default(uuid())
+  id                 String    @id @default(uuid())
   organizationId     String
   // Provider Message-ID when supplied; else synthesized from a payload hash
   // so provider retries dedupe onto the same row.
@@ -285,9 +303,33 @@ model EmailIngestLog {
   status             String // RECEIVED | PARSED | IGNORED | FAILED
   reason             String?
   // Document ids created from this email (BILL and/or INVOICE drafts).
-  createdDocumentIds Json    @default("[]")
-  attachmentCount    Int     @default(0)
+  createdDocumentIds Json      @default("[]")
+  attachmentCount    Int       @default(0)
   rawMeta            Json?
+  // ── Triage (routingMode TRIAGE / AUTO) ─────────────────────────────────
+  /// SHIPMENT | NOT_SHIPMENT | UNSURE (NOT_SHIPMENT rows keep only a hashed Message-ID, date, verdict, counterparty).
+  verdict            String?
+  /// IN | OUT (OUT = sent from the org's own domain).
+  direction          String?
+  counterparty       String?
+  /// Validated AI output (keys, attachments[], suggestedSteps[]).
+  triage             Json?
+  /// SUGGESTED | UNMATCHED | PROCESSED | UNSURE | UNDONE | PURGED — the Email inbox tab.
+  inboxState         String?
+  /// Matched order / shipment (plain ids; the inbox can reassign).
+  orderId            String?   @db.Uuid
+  shipmentId         String?   @db.Uuid
+  /// What PROCESS did (files attached, fields filled, steps completed, sub-tasks ticked) — each undoable.
+  actions            Json?
+  /// Thread fallback: In-Reply-To / References / normalized subject.
+  threadKey          String?
+  inReplyTo          String?
+  emailDate          DateTime?
+  /// Sender filter verdict (SHADOW: logged, mail kept; ENFORCE: DROP rows are minimal, nothing stored) and why.
+  filterVerdict      String?
+  filterReason       String?
+  /// UNSURE rows are purged after this (14 days).
+  purgeAfter         DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -295,6 +337,8 @@ model EmailIngestLog {
 
   @@unique([organizationId, messageId])
   @@index([organizationId, createdAt])
+  @@index([organizationId, inboxState])
+  @@index([organizationId, threadKey])
 }
 
 model ChartOfAccount {
@@ -1065,7 +1109,7 @@ model RevenueItem {
   includes            Json? // [{ text: string, qty?: number }]
   unitCost            Float? // default cost per uom (what the subcontractor charges)
   uom                 String? // sqft | ft | nos | trip | lot
-  pricingMode         String   @default("priced") // priced | inclusive | complimentary
+  pricingMode         String  @default("priced") // priced | inclusive | complimentary
   supplierName        String? // which contractor's price list the unitCost came from
 
   @@index([organizationId, isActive])
@@ -1234,39 +1278,43 @@ model RecurringInvoiceTemplate {
 }
 
 model Project {
-  id               String              @id @default(uuid()) @db.Uuid
-  projectNumber    String? // e.g. PRJ-2026-001
-  name             String
-  description      String?
+  id                String                @id @default(uuid()) @db.Uuid
+  projectNumber     String? // e.g. PRJ-2026-001
+  name              String
+  description       String?
   // Optional plain delivery/site address for the project (free text). Preferred
   // over the linked SiteOffice.address as the "Deliver To" source for scheduled
   // deliveries. Additive/nullable.
-  address          String?
-  organizationId   String?
-  customerId       String?             @db.Uuid // direct FK; siteOffice still optional
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
-  startDate        DateTime?
-  endDate          DateTime?
-  status           ProjectStatus       @default(pending)
+  address           String?
+  organizationId    String?
+  customerId        String?               @db.Uuid // direct FK; siteOffice still optional
+  // Delivery group posts (2026-09-30): the WhatsApp group a signed delivery
+  // is posted to (Project first, then Customer, then the org ops group).
+  whatsappGroupId   String?
+  whatsappGroupName String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  startDate         DateTime?
+  endDate           DateTime?
+  status            ProjectStatus         @default(pending)
   // ---- Interior-design project fields (CIEL, 2026-08) — null for other orgs ----
-  designer         String? // designer in charge (name; user link comes with commissions)
-  stage            String? // signed | design | works | carpentry | handover | completed
-  commissionPct    Float? // designer's share of project profit (their sheet: 50%)
-  documents        Document[]
-  designerUserId   String? // Clerk user id of the designer in charge (drives WhatsApp routing)
+  designer          String? // designer in charge (name; user link comes with commissions)
+  stage             String? // signed | design | works | carpentry | handover | completed
+  commissionPct     Float? // designer's share of project profit (their sheet: 50%)
+  documents         Document[]
+  designerUserId    String? // Clerk user id of the designer in charge (drives WhatsApp routing)
   // Management-only supplier rebate override for THIS project (CIEL 09-16):
   // suppliers quietly rebate ~10% of invoiced costs back to the firm; costs
   // stay booked at full value (designer commission unaffected), the rebate is
   // company profit visible to management only. null → per-supplier % → 10.
-  rebatePct        Float?
-  source           String? // where the project came from: lead | referral | self (CIEL 09-01)
-  leadId           String? @db.Uuid // the Lead this project was converted from
-  costs            ProjectCost[]
-  milestones       ProjectMilestone[]
-  scheduleItems    ProjectScheduleItem[]
-  shareLinks       ProjectShareLink[]
-  customer         Customer?           @relation("CustomerProjects", fields: [customerId], references: [id])
+  rebatePct         Float?
+  source            String? // where the project came from: lead | referral | self (CIEL 09-01)
+  leadId            String?               @db.Uuid // the Lead this project was converted from
+  costs             ProjectCost[]
+  milestones        ProjectMilestone[]
+  scheduleItems     ProjectScheduleItem[]
+  shareLinks        ProjectShareLink[]
+  customer          Customer?             @relation("CustomerProjects", fields: [customerId], references: [id])
 
   @@unique([projectNumber, organizationId])
   @@index([organizationId, status])
@@ -1284,6 +1332,10 @@ model Lead {
   email                String?
   phone                String?
   whatsappPhone        String? // WA number when it differs from the call number ("Phone No: 8511 8680 / WA 8958 2178")
+  // 3-hourly "reply the lead" nudge (guru 2026-10-03): last nudge sent to the
+  // assigned designer and how many so far; cleared logic lives in the cron.
+  contactNudgeAt       DateTime?
+  contactNudgeCount    Int       @default(0)
   // Appointment with the homeowner (guru/Mike 2026-09-25): set from the lead
   // drawer, shown on the dashboard master calendar.
   appointmentAt        DateTime?
@@ -1291,7 +1343,7 @@ model Lead {
   // ALL the lead's numbers, normalized digits, in entry order (guru 2026-09-21:
   // "he can continue to add multiple"). phone/whatsappPhone mirror the first
   // two for the older single-number code paths.
-  phones               String[] @default([])
+  phones               String[]  @default([])
   phoneVerified        Boolean   @default(false)
   location             String?
   propertyType         String? // HDB | Resale Private Condo | ...
@@ -1317,6 +1369,10 @@ model Lead {
   assignedAt           DateTime?
   // First detected WhatsApp contact with the lead (quest step 1 auto-complete).
   firstContactedAt     DateTime?
+  // First INBOUND WhatsApp message from the lead (guru 2026-10-03: manager
+  // "replied vs never replied" insights) — direction-aware, unlike
+  // firstContactedAt which any chat sets.
+  firstReplyAt         DateTime?
   firstContactDeadline DateTime? // Network: 24h from distribution
   replacementDeadline  DateTime? // Network: 14 days from distribution
   quotationId          String?   @db.Uuid
@@ -1425,32 +1481,32 @@ model ProjectQuestStep {
 }
 
 model ProjectScheduleItem {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
-  projectId      String   @db.Uuid
-  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId      String    @db.Uuid
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   label          String
-  kind           String   @default("work") // work | note | holiday
+  kind           String    @default("work") // work | note | holiday
   startDate      DateTime
   endDate        DateTime
-  sortOrder      Int      @default(0)
+  sortOrder      Int       @default(0)
   notes          String?
   reminderSentAt DateTime? // 9am designer WhatsApp ("send before video+photo") sent
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([organizationId, projectId])
   @@index([projectId, startDate])
 }
 
 model ProjectShareLink {
-  id         String    @id @default(uuid())
-  token      String    @unique
-  projectId  String    @db.Uuid
-  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  kind       String    @default("schedule")
-  createdAt  DateTime  @default(now())
-  revokedAt  DateTime?
+  id        String    @id @default(uuid())
+  token     String    @unique
+  projectId String    @db.Uuid
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind      String    @default("schedule")
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
 
   @@index([projectId])
 }
@@ -1509,6 +1565,86 @@ model WorkSection {
 
   @@unique([organizationId, title])
   @@index([organizationId, sortOrder])
+}
+
+model DesignerAdvance {
+  id               String    @id @default(uuid())
+  organizationId   String
+  projectId        String?   @db.Uuid
+  projectName      String?
+  requestedById    String
+  requestedByName  String?
+  amount           Float
+  reason           String?
+  // Signatures (guru 2026-10-07): the designer signs the request, management
+  // signs the approval — stored as small PNG data-URLs for the record.
+  requestSignature String?
+  approveSignature String?
+  status           String    @default("pending") // pending | approved | declined | paid
+  decidedById      String?
+  decidedByName    String?
+  decidedAt        DateTime?
+  decisionNote     String?
+  paidAt           DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([organizationId, status])
+  @@index([organizationId, requestedById])
+}
+
+model DesignerAppointment {
+  id             String   @id @default(uuid())
+  organizationId String
+  designerUserId String
+  designerName   String?
+  title          String // client name / purpose
+  phone          String?
+  location       String?
+  note           String?
+  startAt        DateTime
+  endAt          DateTime
+  source         String   @default("designer") // designer | client | block
+  status         String   @default("booked") // booked | cancelled
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, designerUserId, startAt])
+}
+
+model DesignerBookingLink {
+  id             String    @id @default(uuid())
+  organizationId String
+  designerUserId String    @unique
+  designerName   String?
+  token          String    @unique
+  slotMinutes    Int       @default(60)
+  hourStart      Int       @default(10) // SGT
+  hourEnd        Int       @default(20)
+  daysAhead      Int       @default(14)
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([organizationId])
+}
+
+model InvoiceIntake {
+  id                 String   @id @default(uuid())
+  organizationId     String
+  status             String   @default("queued") // queued | confirmed | skipped
+  attachmentUrl      String?
+  attachmentKey      String?
+  filename           String?
+  extraction         Json? // supplierName/invoiceNo/date/amount/description/siteAddress
+  matchedProjectId   String?  @db.Uuid
+  matchedProjectName String?
+  source             String   @default("whatsapp")
+  uploadedBy         String?
+  resolvedCostId     String?  @db.Uuid
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([organizationId, status])
 }
 
 model WhatsAppMessage {
@@ -1725,4 +1861,16 @@ model AdInsight {
   @@unique([organizationId, date, adId])
   @@index([organizationId, date])
   @@index([organizationId, campaignId])
+}
+
+model WhatsAppGroup {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String
+  groupId        String
+  name           String
+  lastSeenAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, groupId])
 }

@@ -1,4 +1,4 @@
--- org_platformorg · generated from orgs/platformorg.prisma (DRY RUN). Unqualified names resolve to org_platformorg via search_path.
+-- org_platformorg · generated from prisma/tenancy/orgs/platformorg.prisma (DRY RUN). Unqualified names resolve to org_platformorg via search_path.
 -- Creates the schema, its enums, tables and indexes. No foreign keys yet (added after the copy).
 
 BEGIN;
@@ -74,6 +74,8 @@ CREATE TABLE "Customer" (
     "salesmanId" TEXT,
     "xeroId" TEXT,
     "xeroLastSyncAt" TIMESTAMP(3),
+    "whatsappGroupId" TEXT,
+    "whatsappGroupName" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "organizationId" TEXT NOT NULL,

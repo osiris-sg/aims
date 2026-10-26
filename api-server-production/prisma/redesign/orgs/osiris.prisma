@@ -151,29 +151,39 @@ model Permission {
 }
 
 model Customer {
-  id              String            @id @default(uuid()) @db.Uuid
-  customerCode    String? // Auto-generated code like CA001, CB002
-  name            String
-  email           String?
-  phone           String?
-  address         String?
-  gstRegNo        String? // Customer's GST/Tax registration number
+  id                String            @id @default(uuid()) @db.Uuid
+  customerCode      String? // Auto-generated code like CA001, CB002
+  name              String
+  email             String?
+  phone             String?
+  address           String?
+  gstRegNo          String? // Customer's GST/Tax registration number
+  // Japanese legal name / address / contact (Shipments, 2026-10): printed on
+  // the JP trade documents (請求書 name only; 計量検収票 / 納品書兼… name +
+  // address + contact). English documents keep `name`.
+  jpName            String?
+  jpAddress         String?
+  jpContact         String?
   // Trading currency (one per customer code — a customer trading in two
   // currencies gets two customer codes). Documents inherit this; GL converts
   // to base at the accountant's standing rate (AccountingSetting.currencyRates).
-  currency        String            @default("SGD")
-  salesmanId      String? // Reference to UserOrganization.id for the assigned salesman
+  currency          String            @default("SGD")
+  salesmanId        String? // Reference to UserOrganization.id for the assigned salesman
   // Xero pull-sync: ContactID from Xero (null = not yet synced).
-  xeroId          String?           @unique
-  xeroLastSyncAt  DateTime?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  organizationId  String
-  priceHistories  PriceHistory[] // Track price history for this customer
-  payments        Payment[]
-  projects        Project[]         @relation("CustomerProjects")
-  orders          Order[]           @relation("CustomerOrders")
-  deliveries      Delivery[]
+  xeroId            String?           @unique
+  xeroLastSyncAt    DateTime?
+  // Delivery group posts (2026-09-30): the WhatsApp group a signed delivery
+  // is posted to (Project first, then Customer, then the org ops group).
+  whatsappGroupId   String?
+  whatsappGroupName String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  organizationId    String
+  priceHistories    PriceHistory[] // Track price history for this customer
+  payments          Payment[]
+  projects          Project[]         @relation("CustomerProjects")
+  orders            Order[]           @relation("CustomerOrders")
+  deliveries        Delivery[]
 
   @@unique([email, organizationId])
   @@unique([id, organizationId])
@@ -185,7 +195,7 @@ model Customer {
 }
 
 model Supplier {
-  id             String        @id @default(uuid()) @db.Uuid
+  id             String          @id @default(uuid()) @db.Uuid
   supplierCode   String?
   name           String
   email          String?
@@ -193,12 +203,12 @@ model Supplier {
   address        String?
   gstRegNo       String?
   // Trading currency — same one-currency-per-code convention as Customer.
-  currency       String        @default("SGD")
+  currency       String          @default("SGD")
   // Xero pull-sync: ContactID from Xero (suppliers are also Contacts in Xero).
-  xeroId         String?       @unique
+  xeroId         String?         @unique
   xeroLastSyncAt DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
   organizationId String
   billPayments   BillPayment[]
 
@@ -309,28 +319,36 @@ model AuditLog {
 }
 
 model EmailIngestConfig {
-  id             String  @id @default(uuid())
-  organizationId String  @unique
-  enabled        Boolean @default(false)
+  id             String   @id @default(uuid())
+  organizationId String   @unique
+  enabled        Boolean  @default(false)
   // Sender allow-list: full addresses or @domain suffixes, e.g.
   // ["ap@daikin.com.sg", "@sembcorp.com"]. Empty array = accept all senders.
-  watchedSenders Json    @default("[]")
+  watchedSenders Json     @default("[]")
   // AI    → classify each attachment by issuer (INVOICE = AR / BILL = AP).
   // FIXED → skip classification, always create defaultDocType.
-  routingMode    String  @default("AI")
+  routingMode    String   @default("AI")
   defaultDocType String? // used when routingMode=FIXED: INVOICE | BILL
   // Hard rules, evaluated deterministically top-down BEFORE any AI call;
   // first match wins. Shape:
   //   { conditions: [{ field: "SUBJECT"|"SENDER"|"BODY",
   //       operator: "CONTAINS"|"EQUALS"|"STARTS_WITH"|"DOMAIN", value }...],
   //     action: "IGNORE"|"FORCE_BILL"|"FORCE_INVOICE"|"AI_GUIDANCE", guidance? }[]
-  rules          Json    @default("[]")
+  rules          Json     @default("[]")
   // Free-text per-org instructions appended to the AI classifier prompt as
   // trusted admin guidance (unlike the untrusted email envelope).
   aiGuidance     String?
   // Reserved for a future auto-confirm mode; both create paths only make
   // DRAFTs today.
-  createMode     String  @default("DRAFT")
+  createMode     String   @default("DRAFT")
+  // Shipments intake sender filter (2026-10): keep an email when any of from / to / cc is an allowed domain /
+  // address (the org's own addresses alone don't count), or the subject / attachment names carry a shipment
+  // key, or it is on a thread already matched to an order. OFF | SHADOW (decide + log, keep everything) | ENFORCE.
+  allowDomains   String[] @default([])
+  allowAddresses String[] @default([])
+  filterMode     String   @default("OFF")
+  /// Notes per domain / party for the settings screen: { "maersk.com": "unverified", "Hoei": "add when known" }.
+  filterNotes    Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -338,7 +356,7 @@ model EmailIngestConfig {
 }
 
 model EmailIngestLog {
-  id                 String  @id @default(uuid())
+  id                 String    @id @default(uuid())
   organizationId     String
   // Provider Message-ID when supplied; else synthesized from a payload hash
   // so provider retries dedupe onto the same row.
@@ -348,9 +366,33 @@ model EmailIngestLog {
   status             String // RECEIVED | PARSED | IGNORED | FAILED
   reason             String?
   // Document ids created from this email (BILL and/or INVOICE drafts).
-  createdDocumentIds Json    @default("[]")
-  attachmentCount    Int     @default(0)
+  createdDocumentIds Json      @default("[]")
+  attachmentCount    Int       @default(0)
   rawMeta            Json?
+  // ── Triage (routingMode TRIAGE / AUTO) ─────────────────────────────────
+  /// SHIPMENT | NOT_SHIPMENT | UNSURE (NOT_SHIPMENT rows keep only a hashed Message-ID, date, verdict, counterparty).
+  verdict            String?
+  /// IN | OUT (OUT = sent from the org's own domain).
+  direction          String?
+  counterparty       String?
+  /// Validated AI output (keys, attachments[], suggestedSteps[]).
+  triage             Json?
+  /// SUGGESTED | UNMATCHED | PROCESSED | UNSURE | UNDONE | PURGED — the Email inbox tab.
+  inboxState         String?
+  /// Matched order / shipment (plain ids; the inbox can reassign).
+  orderId            String?   @db.Uuid
+  shipmentId         String?   @db.Uuid
+  /// What PROCESS did (files attached, fields filled, steps completed, sub-tasks ticked) — each undoable.
+  actions            Json?
+  /// Thread fallback: In-Reply-To / References / normalized subject.
+  threadKey          String?
+  inReplyTo          String?
+  emailDate          DateTime?
+  /// Sender filter verdict (SHADOW: logged, mail kept; ENFORCE: DROP rows are minimal, nothing stored) and why.
+  filterVerdict      String?
+  filterReason       String?
+  /// UNSURE rows are purged after this (14 days).
+  purgeAfter         DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -358,6 +400,8 @@ model EmailIngestLog {
 
   @@unique([organizationId, messageId])
   @@index([organizationId, createdAt])
+  @@index([organizationId, inboxState])
+  @@index([organizationId, threadKey])
 }
 
 model ChartOfAccount {
@@ -1455,31 +1499,35 @@ model RecurringInvoiceTemplate {
 }
 
 model Project {
-  id               String              @id @default(uuid()) @db.Uuid
-  projectNumber    String? // e.g. PRJ-2026-001
-  name             String
-  description      String?
+  id                String                @id @default(uuid()) @db.Uuid
+  projectNumber     String? // e.g. PRJ-2026-001
+  name              String
+  description       String?
   // Optional plain delivery/site address for the project (free text). Preferred
   // over the linked SiteOffice.address as the "Deliver To" source for scheduled
   // deliveries. Additive/nullable.
-  address          String?
-  organizationId   String?
-  customerId       String?             @db.Uuid // direct FK; siteOffice still optional
-  customerPoNumber String?
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
-  startDate        DateTime?
-  endDate          DateTime?
-  status           ProjectStatus       @default(pending)
-  siteOfficeId     String?             @db.Uuid
+  address           String?
+  organizationId    String?
+  customerId        String?               @db.Uuid // direct FK; siteOffice still optional
+  customerPoNumber  String?
+  // Delivery group posts (2026-09-30): the WhatsApp group a signed delivery
+  // is posted to (Project first, then Customer, then the org ops group).
+  whatsappGroupId   String?
+  whatsappGroupName String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  startDate         DateTime?
+  endDate           DateTime?
+  status            ProjectStatus         @default(pending)
+  siteOfficeId      String?               @db.Uuid
   // ---- Interior-design project fields (CIEL, 2026-08) — null for other orgs ----
-  documents        Document[]
-  deliveries       Delivery[]
+  documents         Document[]
+  deliveries        Delivery[]
   // Management-only supplier rebate override for THIS project (CIEL 09-16):
   // suppliers quietly rebate ~10% of invoiced costs back to the firm; costs
   // stay booked at full value (designer commission unaffected), the rebate is
   // company profit visible to management only. null → per-supplier % → 10.
-  customer         Customer?           @relation("CustomerProjects", fields: [customerId], references: [id])
+  customer          Customer?             @relation("CustomerProjects", fields: [customerId], references: [id])
 
   @@unique([projectNumber, organizationId])
   @@index([organizationId, status])
@@ -1489,20 +1537,20 @@ model Project {
 }
 
 model Delivery {
-  id             String            @id @default(uuid()) @db.Uuid
-  organizationId String
+  id                String            @id @default(uuid()) @db.Uuid
+  organizationId    String
   // Per-org serial (paper-trail analogue, same pattern as MSR.reportNumber).
   // Assigned at creation — required, unlike MSR's nullable historic rows.
-  deliveryNumber Int
+  deliveryNumber    Int
   // OUTBOUND (normal delivery) or RETURN (reverse — collecting rentals back to
   // stock). Additive with a default so every existing run reads as OUTBOUND.
-  direction      DeliveryDirection @default(OUTBOUND)
-  status         DeliveryRunStatus @default(in_progress)
+  direction         DeliveryDirection @default(OUTBOUND)
+  status            DeliveryRunStatus @default(in_progress)
   // Nullable so an office-SCHEDULED run can exist before any rider picks it up.
   // The rider claims it at scan-to-bind (sets riderUserId, status → in_progress).
   // Every rider-started run sets it at creation as before.
-  riderUserId    String?
-  riderName      String?
+  riderUserId       String?
+  riderName         String?
   // DRIVER HANDOFF (2026-09): who delivers the CURRENT trip of a scheduled run.
   // SELF = the rider; DRIVER = handed to another driver via a drv_ share link
   // (QR). Cleared at each sign-off so the next trip asks again. vehicleNumber
@@ -1512,21 +1560,21 @@ model Delivery {
   handoffMode       String?
   handedOffAt       DateTime?
   handedOffByUserId String?
-  projectId      String?           @db.Uuid
-  customerId     String?           @db.Uuid
-  siteAddress    String? // free-text drop site when no project is linked yet
-  notes          String?
+  projectId         String?           @db.Uuid
+  customerId        String?           @db.Uuid
+  siteAddress       String? // free-text drop site when no project is linked yet
+  notes             String?
   // Office-scheduled runs: the target delivery date/time. Null for ad-hoc runs
   // recorded live in the field. A run with scheduledFor set + status `scheduled`
   // is waiting for a rider to pick it up.
-  scheduledFor   DateTime?
+  scheduledFor      DateTime?
   // Office DRAFT: a partly-filled schedule the office can come back to. A draft
   // is NOT a real scheduled run — it is excluded from every rider-facing query,
   // from claim/merge/fold/cancel, and it mints NO Delivery Order. The DO is
   // created only when the draft is promoted to a real schedule. Boolean rather
   // than a DeliveryRunStatus value on purpose: adding an enum value means
   // ALTER TYPE ADD VALUE, which has stopped backend deploys before.
-  isDraft        Boolean           @default(false)
+  isDraft           Boolean           @default(false)
   /// AD_HOC marks a run a rider started from a scan with no scheduled run to
   /// join. Set at CREATION only — existing rows keep the SCHEDULED default, so
   /// nothing is reclassified. Deliberately not inferred from `projectId IS
@@ -1537,15 +1585,22 @@ model Delivery {
   /// An AD_HOC run completes down a third path: its DO is created but NOT
   /// committed, so the unit stays `reserved` until the office attaches a
   /// project and the deployment is created.
+  // Accepted QUOTATION this run was auto-created from (enableQuotationToDelivery,
+  // WCT 2026-10-26: signing/confirming a quotation auto-creates a DRAFT schedule).
+  // Written only by the quotation→delivery hook; also the idempotency key (one
+  // run per quotation). The DO minted at promotion reads it to stamp
+  // quotationNo + sourceDocument* (and the quote's prices) onto its config.
+  // Plain pointer, no FK — same reasoning as the frozen documentId below.
+  sourceQuotationId String?           @db.Uuid
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may
   // still serve) and dropped in a later cleanup.
-  documentId     String?           @db.Uuid
-  startedAt      DateTime          @default(now())
-  completedAt    DateTime?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  documentId        String?           @db.Uuid
+  startedAt         DateTime          @default(now())
+  completedAt       DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   project      Project?                   @relation(fields: [projectId], references: [id])
   customer     Customer?                  @relation(fields: [customerId], references: [id])
@@ -1557,20 +1612,21 @@ model Delivery {
   @@unique([organizationId, deliveryNumber])
   @@index([documentId])
   @@index([organizationId, status, createdAt])
+  @@index([organizationId, sourceQuotationId])
 }
 
 model DeliveryItem {
-  id             String         @id @default(uuid()) @db.Uuid
-  deliveryId     String         @db.Uuid
-  delivery       Delivery       @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  id             String                     @id @default(uuid()) @db.Uuid
+  deliveryId     String                     @db.Uuid
+  delivery       Delivery                   @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
   // A catalog-resolved line carries assetId (+ inventoryId for tracked units).
   // A FREE-TYPED line has BOTH null — description-only, awaiting office
   // resolution to a real asset/unit. Plain UUIDs (no FK) — mirrors how
   // DocumentItem references stock without hard coupling.
-  assetId        String?        @db.Uuid
-  inventoryId    String?        @db.Uuid
+  assetId        String?                    @db.Uuid
+  inventoryId    String?                    @db.Uuid
   description    String?
-  quantity       Int            @default(1)
+  quantity       Int                        @default(1)
   // Class for a FREE-TYPED line only (no assetId to read it from). NULL on
   // catalog-backed lines — those resolve the class through their Asset.
   assetClass     AssetClass?
@@ -1579,8 +1635,8 @@ model DeliveryItem {
   // Walk order. DeliveryItem has no createdAt and its id is a random uuid, so
   // there was no way to step through a run's items in the order the office
   // entered them. Written at schedule time; 0 for rows created before this.
-  sortOrder      Int            @default(0)
-  deliveryStatus DeliveryStatus @default(not_delivered)
+  sortOrder      Int                        @default(0)
+  deliveryStatus DeliveryStatus             @default(not_delivered)
   // Set when the rider CONSCIOUSLY passes an item over during the walk-through.
   // Not inferable: `not_delivered` alone conflates "skipped" with "not reached
   // yet", which the basket's Delivering / Skipped split has to tell apart.
@@ -1588,14 +1644,14 @@ model DeliveryItem {
   deliveringAt   DateTime?
   deliveredAt    DateTime?
   completedAt    DateTime?
-  installSkipped Boolean        @default(false)
+  installSkipped Boolean                    @default(false)
   // THE LINK (per-item, 2026-08) — the DO this ITEM fulfils. One run's items
   // may fulfil different DOs. SetNull: deleting a (draft) DO un-links the
   // items and they fall back into the office queue. No documentItemId — the
   // row-level binding already exists physically via DocumentItem.inventoryId;
   // (documentId, inventoryId) recovers it, same join stamping/deduction use.
-  documentId     String?        @db.Uuid
-  document       Document?      @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  documentId     String?                    @db.Uuid
+  document       Document?                  @relation(fields: [documentId], references: [id], onDelete: SetNull)
   // Deliberately NO deductedAt — stock deduction is the DO's job, performed
   // at link time through the existing DocumentItem claim.
   // Proof MSRs (DO_START/DO_ACK) captured against THIS line — the inverse of
@@ -1752,9 +1808,47 @@ model MaintenanceSchedule {
   createdAt       DateTime  @default(now())
   remindedAt      DateTime?
   cancelledAt     DateTime?
+  // RECURRING (2026-09): every occurrence of a repeating date is its own row
+  // sharing seriesId (null = a one-off). repeatEvery / repeatUnit ("WEEK" or
+  // "MONTH", validated in the service, kept a String so the change stays
+  // additive columns) sit on each occurrence; the daily job creates the next
+  // occurrence from the series' latest row once its date has passed.
+  repeatEvery     Int?
+  repeatUnit      String?
+  seriesId        String?
 
   @@index([organizationId, assetId, dueDate])
   @@index([dueDate, remindedAt])
+}
+
+model DeliveryGroupPost {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String
+  deliveryId      String    @db.Uuid
+  signedAt        DateTime
+  status          String    @default("PENDING")
+  final           Boolean   @default(false)
+  tripNumber      Int       @default(1)
+  groupId         String?
+  groupName       String?
+  groupSource     String?
+  caption         String
+  photoKeys       String[]
+  extraPhotoCount Int       @default(0)
+  documentIds     String[]
+  pdfKeys         String[]
+  attempts        Int       @default(0)
+  error           String?
+  claimedAt       DateTime?
+  claimedBy       String?
+  renderedAt      DateTime?
+  sentAt          DateTime?
+  messageIds      String[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([deliveryId, signedAt])
+  @@index([organizationId, status])
 }
 
 model WhatsAppMessage {
@@ -1971,4 +2065,16 @@ model AdInsight {
   @@unique([organizationId, date, adId])
   @@index([organizationId, date])
   @@index([organizationId, campaignId])
+}
+
+model WhatsAppGroup {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String
+  groupId        String
+  name           String
+  lastSeenAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, groupId])
 }

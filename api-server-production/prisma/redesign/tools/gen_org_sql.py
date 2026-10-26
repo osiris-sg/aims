@@ -51,37 +51,67 @@ def split_fk(sql):
 
 os.makedirs(OUT + '/sql', exist_ok=True)
 pre = []   # preflight parts: (check, item, count-sql)
-all_tenant = sorted({m for v in MJ['modules'].values() for m in v} - {'DocumentLine'})
+
+# The org's OWN prisma file is the source of truth for which tables its schema
+# gets and therefore which tables must be copied (guru 2026-10-26). modules.json
+# was frozen 2026-09-28 and never learned about the Trade/Shipments subsystem,
+# Contract, DesignerAdvance, InvoiceIntake…, so a module-driven copy created
+# those tables empty and stranded the rows in public: 2,145 of Asia Deal Hub's
+# and 158 of CIEL's. prisma/tenancy/orgs/*.prisma has been hand-maintained and
+# is what the app actually runs on, so it wins over the generated staging copy.
+TENANCY = API + '/prisma/tenancy/orgs'
+def org_prisma(slug):
+    live = f'{TENANCY}/{slug}.prisma'
+    return (live, True) if os.path.exists(live) else (f'{OUT}/orgs/{slug}.prisma', False)
+
+# Every tenant-owned model in public, straight from schema.prisma (verified
+# column-for-column against prod 2026-10-26). A table only exists to be copied
+# if public has it; models that are new in the org files (DocumentLine) are
+# created empty and skipped below.
+all_tenant = sorted(set(orig) - PLATFORM - set(MJ['legacy']) - {'DocumentLine'})
 for slug, o in MJ['orgs'].items():
     sch = f'org_{slug}'; d = OUT + f'/sql/{slug}'; os.makedirs(d, exist_ok=True)
     orgset = f"(SELECT id FROM public.\"Organization\" WHERE name ILIKE '{o['pattern']}')"
-    ddl = diff_from_empty(f'orgs/{slug}.prisma')
+    src_file, is_live = org_prisma(slug)
+    ddl = diff_from_empty(src_file)
     create, fks = split_fk(ddl)
-    head = f'-- {sch} · generated from orgs/{slug}.prisma (DRY RUN). Unqualified names resolve to {sch} via search_path.\n'
+    head = f'-- {sch} · generated from {"prisma/tenancy/orgs" if is_live else "prisma/redesign/orgs"}/{slug}.prisma (DRY RUN). Unqualified names resolve to {sch} via search_path.\n'
     open(d + '/1_create.sql', 'w').write(head + f'-- Creates the schema, its enums, tables and indexes. No foreign keys yet (added after the copy).\n\nBEGIN;\nCREATE SCHEMA IF NOT EXISTS {sch};\nSET LOCAL search_path TO {sch}, public;\n\n' + create + '\nCOMMIT;\n')
     open(d + '/3_foreign_keys.sql', 'w').write(head + '-- Adds every FK. If any copied row points at data that was not copied, this fails and rolls back: that is the integrity check.\n\nBEGIN;\n' + f'SET LOCAL search_path TO {sch}, public;\n\n' + fks + '\nCOMMIT;\n')
     # copy
-    org_file = open(OUT + f'/orgs/{slug}.prisma').read()
+    org_file = open(src_file).read()
     ob = {re.match(r'model (\w+)', b).group(1): b for b in re.findall(r'^(model \w+ \{.*?^\})', org_file, re.S | re.M)}
     ins = [f'-- {sch} · copy this org\'s rows out of public (read) into {sch} (write). public is NOT modified.',
            f'-- Org matched by: name ILIKE \'{o["pattern"]}\' (preflight checks it matches exactly one org).', '', 'BEGIN;']
-    for m in o['models']:
-        if m == 'DocumentLine': continue
-        cols = [(f, t) for f, t, mod, rest in fields(ob[m]) if (t in SCAL or t in ENUMS) and f not in {'Document': ['customerId', 'supplierId']}.get(m, [])]
-        tgt = ', '.join(f'"{f}"' for f, _ in cols)
-        src = ', '.join((f't."{f}"::text::{sch}."{t}"' if t in ENUMS else f't."{f}"') for f, t in cols)
+    models = [m for m in ob if m in orig]          # copyable: public has the table
+    org_only = [m for m in ob if m not in orig]     # new in the org schema → created empty
+    for m in org_only:
+        ins.append(f'-- {m}: new in the org schema, nothing to copy from public.')
+    for m in models:
+        pub = {f for f, *_ in fields(orig[m])}      # columns public actually has
+        # Scalar + enum columns the org file and public BOTH have. Arrays are
+        # copied too (Role.allowedModules, Asset.accessoryIds, Lead.phones …);
+        # enums are cast through text because the org schema owns its own copy
+        # of the enum type.
+        cols = [(f, t, mod) for f, t, mod, rest in fields(ob[m])
+                if (t in SCAL or t in ENUMS) and f in pub]
+        tgt = ', '.join(f'"{f}"' for f, _, _ in cols)
+        def cast(f, t, mod):
+            if t not in ENUMS: return f't."{f}"'
+            return f't."{f}"::text[]::{sch}."{t}"[]' if mod == '[]' else f't."{f}"::text::{sch}."{t}"'
+        src = ', '.join(cast(f, t, mod) for f, t, mod in cols)
         ins.append(f'INSERT INTO {sch}."{m}" ({tgt})\n  SELECT {src}\n  FROM public."{m}" t\n  WHERE {pred(m, "t", orgset)};\n')
-    if 'Role' in o['models']:
+    if 'Role' in models:
         ins.append(f'-- Role ↔ Permission links for this org\'s roles (implicit Prisma join table)\nINSERT INTO {sch}."_PermissionToRole" ("A", "B")\n  SELECT j."A", j."B" FROM public."_PermissionToRole" j JOIN public."Role" r ON r.id = j."B"\n  WHERE r."organizationId" IN {orgset};\n')
     ins += ['COMMIT;']
     open(d + '/2_copy.sql', 'w').write('\n'.join(ins) + '\n')
     open(d + '/9_rollback.sql', 'w').write(f'-- Undo everything for {sch}. public was never modified, so this is the whole rollback.\nDROP SCHEMA IF EXISTS {sch} CASCADE;\n')
     # preflight: data this org has in tables/columns its own schema will NOT get
     for m in all_tenant:
-        if m in o['models']: continue
+        if m in ob: continue
         pre.append(('left behind: table not in org schema', f'{slug} · {m}', f'SELECT count(*) FROM public."{m}" t WHERE {pred(m, "t", orgset)}'))
     for m, cols in o['dropped'].items():
-        if m not in o['models']: continue
+        if m not in ob: continue
         for c in cols:
             pre.append(('left behind: column not in org schema', f'{slug} · {m}.{c}',
                         f'SELECT count(*) FROM public."{m}" t WHERE {pred(m, "t", orgset)} AND t."{c}" IS NOT NULL'
@@ -117,4 +147,19 @@ reg = ["-- 81 · Seed the org → schema registry (after platform.prisma is push
 reg.append('SELECT o.id, v.s, v.f, now() FROM platform."Organization" o JOIN (VALUES\n' + ',\n'.join(
     f"  ('{v['pattern']}', 'org_{k}', 'orgs/{k}.prisma')" for k, v in MJ['orgs'].items()) + '\n) AS v(p, s, f) ON o.name ILIKE v.p\nON CONFLICT ("organizationId") DO NOTHING;')
 open(OUT + '/sql/81_seed_org_registry.sql', 'w').write('\n'.join(reg) + '\n')
+
+# 90 · Archive the old per-org tables out of public so nothing can read the stale
+# copies. Generated (was hand-written until 2026-10-26, and the regeneration
+# rmtree deleted it — scripts/_tenancy-cutover.ts needs both files to exist).
+# Legacy tables stay in public as the archive the README describes.
+arch = sorted(set(orig) - PLATFORM - set(MJ['legacy']))
+open(OUT + '/sql/90_archive_public.sql', 'w').write(
+    '-- 90 · Cutover: move the old per-org tables out of public so nothing can read the stale copies.\n'
+    f"-- Legacy tables ({', '.join(MJ['legacy'])}) stay in public.\n"
+    'BEGIN;\nCREATE SCHEMA IF NOT EXISTS archive_public;\n'
+    + '\n'.join(f'ALTER TABLE public."{m}" SET SCHEMA archive_public;' for m in arch) + '\nCOMMIT;\n')
+open(OUT + '/sql/90_archive_public.rollback.sql', 'w').write(
+    '-- 90 rollback · the old per-org tables go back into public.\nBEGIN;\n'
+    + '\n'.join(f'ALTER TABLE archive_public."{m}" SET SCHEMA public;' for m in arch) + '\nCOMMIT;\n')
+print('archive tables', len(arch))
 print('checks', len(pre))

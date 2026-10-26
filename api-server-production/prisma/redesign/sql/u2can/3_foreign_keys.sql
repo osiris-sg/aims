@@ -1,4 +1,4 @@
--- org_u2can · generated from orgs/u2can.prisma (DRY RUN). Unqualified names resolve to org_u2can via search_path.
+-- org_u2can · generated from prisma/tenancy/orgs/u2can.prisma (DRY RUN). Unqualified names resolve to org_u2can via search_path.
 -- Adds every FK. If any copied row points at data that was not copied, this fails and rolls back: that is the integrity check.
 
 BEGIN;

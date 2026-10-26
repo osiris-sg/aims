@@ -1,4 +1,4 @@
--- org_biofuel · generated from orgs/biofuel.prisma (DRY RUN). Unqualified names resolve to org_biofuel via search_path.
+-- org_biofuel · generated from prisma/tenancy/orgs/biofuel.prisma (DRY RUN). Unqualified names resolve to org_biofuel via search_path.
 -- Creates the schema, its enums, tables and indexes. No foreign keys yet (added after the copy).
 
 BEGIN;
@@ -107,6 +107,8 @@ CREATE TABLE "Customer" (
     "salesmanId" TEXT,
     "xeroId" TEXT,
     "xeroLastSyncAt" TIMESTAMP(3),
+    "whatsappGroupId" TEXT,
+    "whatsappGroupName" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "organizationId" TEXT NOT NULL,
@@ -1002,6 +1004,8 @@ CREATE TABLE "Project" (
     "organizationId" TEXT,
     "customerId" UUID,
     "customerPoNumber" TEXT,
+    "whatsappGroupId" TEXT,
+    "whatsappGroupName" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "startDate" TIMESTAMP(3),
@@ -1151,6 +1155,7 @@ CREATE TABLE "Delivery" (
     "riderName" TEXT,
     "vehicleNumber" TEXT,
     "handoffMode" TEXT,
+    "origin" "DeliveryOrigin" NOT NULL DEFAULT 'SCHEDULED',
     "handedOffAt" TIMESTAMP(3),
     "handedOffByUserId" TEXT,
     "projectId" UUID,
@@ -1159,6 +1164,7 @@ CREATE TABLE "Delivery" (
     "notes" TEXT,
     "scheduledFor" TIMESTAMP(3),
     "isDraft" BOOLEAN NOT NULL DEFAULT false,
+    "sourceQuotationId" UUID,
     "documentId" UUID,
     "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "completedAt" TIMESTAMP(3),
@@ -1261,6 +1267,9 @@ CREATE TABLE "MaintenanceSchedule" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "remindedAt" TIMESTAMP(3),
     "cancelledAt" TIMESTAMP(3),
+    "repeatEvery" INTEGER,
+    "repeatUnit" TEXT,
+    "seriesId" TEXT,
 
     CONSTRAINT "MaintenanceSchedule_pkey" PRIMARY KEY ("id")
 );
@@ -1437,6 +1446,49 @@ CREATE TABLE "AdInsight" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "AdInsight_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DeliveryGroupPost" (
+    "id" UUID NOT NULL,
+    "organizationId" TEXT NOT NULL,
+    "deliveryId" UUID NOT NULL,
+    "signedAt" TIMESTAMP(3) NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "final" BOOLEAN NOT NULL DEFAULT false,
+    "tripNumber" INTEGER NOT NULL DEFAULT 1,
+    "groupId" TEXT,
+    "groupName" TEXT,
+    "groupSource" TEXT,
+    "caption" TEXT NOT NULL,
+    "photoKeys" TEXT[],
+    "extraPhotoCount" INTEGER NOT NULL DEFAULT 0,
+    "documentIds" TEXT[],
+    "pdfKeys" TEXT[],
+    "attempts" INTEGER NOT NULL DEFAULT 0,
+    "error" TEXT,
+    "claimedAt" TIMESTAMP(3),
+    "claimedBy" TEXT,
+    "renderedAt" TIMESTAMP(3),
+    "sentAt" TIMESTAMP(3),
+    "messageIds" TEXT[],
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "DeliveryGroupPost_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "WhatsAppGroup" (
+    "id" UUID NOT NULL,
+    "organizationId" TEXT NOT NULL,
+    "groupId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "lastSeenAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "WhatsAppGroup_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1895,6 +1947,9 @@ CREATE INDEX "Delivery_documentId_idx" ON "Delivery"("documentId");
 CREATE INDEX "Delivery_organizationId_status_createdAt_idx" ON "Delivery"("organizationId", "status", "createdAt");
 
 -- CreateIndex
+CREATE INDEX "Delivery_organizationId_sourceQuotationId_idx" ON "Delivery"("organizationId", "sourceQuotationId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Delivery_organizationId_deliveryNumber_key" ON "Delivery"("organizationId", "deliveryNumber");
 
 -- CreateIndex
@@ -1995,6 +2050,15 @@ CREATE INDEX "AdInsight_organizationId_campaignId_idx" ON "AdInsight"("organizat
 
 -- CreateIndex
 CREATE UNIQUE INDEX "AdInsight_organizationId_date_adId_key" ON "AdInsight"("organizationId", "date", "adId");
+
+-- CreateIndex
+CREATE INDEX "DeliveryGroupPost_organizationId_status_idx" ON "DeliveryGroupPost"("organizationId", "status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DeliveryGroupPost_deliveryId_signedAt_key" ON "DeliveryGroupPost"("deliveryId", "signedAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "WhatsAppGroup_organizationId_groupId_key" ON "WhatsAppGroup"("organizationId", "groupId");
 
 -- CreateIndex
 CREATE INDEX "_PermissionToRole_B_index" ON "_PermissionToRole"("B");

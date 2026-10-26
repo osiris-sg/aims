@@ -1,4 +1,4 @@
--- org_ciel · generated from orgs/ciel.prisma (DRY RUN). Unqualified names resolve to org_ciel via search_path.
+-- org_ciel · generated from prisma/tenancy/orgs/ciel.prisma (DRY RUN). Unqualified names resolve to org_ciel via search_path.
 -- Creates the schema, its enums, tables and indexes. No foreign keys yet (added after the copy).
 
 BEGIN;
@@ -77,6 +77,8 @@ CREATE TABLE "Customer" (
     "salesmanId" TEXT,
     "xeroId" TEXT,
     "xeroLastSyncAt" TIMESTAMP(3),
+    "whatsappGroupId" TEXT,
+    "whatsappGroupName" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "organizationId" TEXT NOT NULL,
@@ -894,6 +896,8 @@ CREATE TABLE "Project" (
     "address" TEXT,
     "organizationId" TEXT,
     "customerId" UUID,
+    "whatsappGroupId" TEXT,
+    "whatsappGroupName" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "startDate" TIMESTAMP(3),
@@ -920,6 +924,8 @@ CREATE TABLE "Lead" (
     "email" TEXT,
     "phone" TEXT,
     "whatsappPhone" TEXT,
+    "contactNudgeAt" TIMESTAMP(3),
+    "contactNudgeCount" INTEGER NOT NULL DEFAULT 0,
     "appointmentAt" TIMESTAMP(3),
     "appointmentNote" TEXT,
     "phones" TEXT[] DEFAULT ARRAY[]::TEXT[],
@@ -947,6 +953,7 @@ CREATE TABLE "Lead" (
     "assignedToName" TEXT,
     "assignedAt" TIMESTAMP(3),
     "firstContactedAt" TIMESTAMP(3),
+    "firstReplyAt" TIMESTAMP(3),
     "firstContactDeadline" TIMESTAMP(3),
     "replacementDeadline" TIMESTAMP(3),
     "quotationId" UUID,
@@ -1021,6 +1028,67 @@ CREATE TABLE "ProjectMilestone" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "ProjectMilestone_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DesignerAppointment" (
+    "id" TEXT NOT NULL,
+    "organizationId" TEXT NOT NULL,
+    "designerUserId" TEXT NOT NULL,
+    "designerName" TEXT,
+    "title" TEXT NOT NULL,
+    "phone" TEXT,
+    "location" TEXT,
+    "note" TEXT,
+    "startAt" TIMESTAMP(3) NOT NULL,
+    "endAt" TIMESTAMP(3) NOT NULL,
+    "source" TEXT NOT NULL DEFAULT 'designer',
+    "status" TEXT NOT NULL DEFAULT 'booked',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "DesignerAppointment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DesignerBookingLink" (
+    "id" TEXT NOT NULL,
+    "organizationId" TEXT NOT NULL,
+    "designerUserId" TEXT NOT NULL,
+    "designerName" TEXT,
+    "token" TEXT NOT NULL,
+    "slotMinutes" INTEGER NOT NULL DEFAULT 60,
+    "hourStart" INTEGER NOT NULL DEFAULT 10,
+    "hourEnd" INTEGER NOT NULL DEFAULT 20,
+    "daysAhead" INTEGER NOT NULL DEFAULT 14,
+    "revokedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "DesignerBookingLink_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DesignerAdvance" (
+    "id" TEXT NOT NULL,
+    "organizationId" TEXT NOT NULL,
+    "projectId" UUID,
+    "projectName" TEXT,
+    "requestedById" TEXT NOT NULL,
+    "requestedByName" TEXT,
+    "amount" DOUBLE PRECISION NOT NULL,
+    "reason" TEXT,
+    "requestSignature" TEXT,
+    "approveSignature" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "decidedById" TEXT,
+    "decidedByName" TEXT,
+    "decidedAt" TIMESTAMP(3),
+    "decisionNote" TEXT,
+    "paidAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "DesignerAdvance_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1262,6 +1330,26 @@ CREATE TABLE "WhatsAppAppointment" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "WhatsAppAppointment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "InvoiceIntake" (
+    "id" TEXT NOT NULL,
+    "organizationId" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'queued',
+    "attachmentUrl" TEXT,
+    "attachmentKey" TEXT,
+    "filename" TEXT,
+    "extraction" JSONB,
+    "matchedProjectId" UUID,
+    "matchedProjectName" TEXT,
+    "source" TEXT NOT NULL DEFAULT 'whatsapp',
+    "uploadedBy" TEXT,
+    "resolvedCostId" UUID,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "InvoiceIntake_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1718,6 +1806,24 @@ CREATE INDEX "ProjectCost_projectId_status_idx" ON "ProjectCost"("projectId", "s
 CREATE INDEX "ProjectMilestone_organizationId_projectId_idx" ON "ProjectMilestone"("organizationId", "projectId");
 
 -- CreateIndex
+CREATE INDEX "DesignerAppointment_organizationId_designerUserId_startAt_idx" ON "DesignerAppointment"("organizationId", "designerUserId", "startAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DesignerBookingLink_designerUserId_key" ON "DesignerBookingLink"("designerUserId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DesignerBookingLink_token_key" ON "DesignerBookingLink"("token");
+
+-- CreateIndex
+CREATE INDEX "DesignerBookingLink_organizationId_idx" ON "DesignerBookingLink"("organizationId");
+
+-- CreateIndex
+CREATE INDEX "DesignerAdvance_organizationId_status_idx" ON "DesignerAdvance"("organizationId", "status");
+
+-- CreateIndex
+CREATE INDEX "DesignerAdvance_organizationId_requestedById_idx" ON "DesignerAdvance"("organizationId", "requestedById");
+
+-- CreateIndex
 CREATE INDEX "ProjectQuestStep_organizationId_projectId_idx" ON "ProjectQuestStep"("organizationId", "projectId");
 
 -- CreateIndex
@@ -1788,6 +1894,9 @@ CREATE INDEX "WhatsAppAppointment_organizationId_groupId_idx" ON "WhatsAppAppoin
 
 -- CreateIndex
 CREATE INDEX "WhatsAppAppointment_reminderStatus_remindAt_idx" ON "WhatsAppAppointment"("reminderStatus", "remindAt");
+
+-- CreateIndex
+CREATE INDEX "InvoiceIntake_organizationId_status_idx" ON "InvoiceIntake"("organizationId", "status");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "AdAccountConnection_organizationId_key" ON "AdAccountConnection"("organizationId");
