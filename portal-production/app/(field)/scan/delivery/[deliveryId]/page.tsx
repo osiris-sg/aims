@@ -886,7 +886,9 @@ export default function DeliveryBasketPage() {
   // A service job (WCT) that has been started and has no written report yet:
   // every line in flight is a SERVICE line with nothing to scan.
   const serviceJobOpen =
-    !isReturnRun &&
+    // `isReturnRun` is declared further down, so the direction is read straight
+    // off the run here — reading the variable would be a use-before-declaration.
+    run.direction !== "RETURN" &&
     run.status === "in_progress" &&
     deliveringItems.length >= 1 &&
     deliveringItems.every((it) => !it.inventoryId && !it.assetId && it.effectiveAssetClass === "SERVICE") &&
