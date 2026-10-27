@@ -49,9 +49,13 @@ export default function FinalizeDeliveryPage() {
   // the service report scheduled with the run — finalize lands there, not on
   // the "Delivery completed" screen.
   const [serviceJob, setServiceJob] = useState(false);
+  // A SERVICE run (WCT) has nothing to install — the "Installation needed?"
+  // question is skipped entirely and the page opens on the signature
+  // (guru 2026-10-27: "remove this logic for wct entirely").
+  const [serviceRun, setServiceRun] = useState(false);
   useFieldAppBar({
     title: isReturn ? "Finish return" : "Finish delivery",
-    onBack: () => (step === "sign" && !isReturn ? setStep("install") : router.back()),
+    onBack: () => (step === "sign" && !isReturn && !serviceRun ? setStep("install") : router.back()),
     backDisabled: working,
   });
   useEffect(() => {
@@ -68,7 +72,13 @@ export default function FinalizeDeliveryPage() {
         // normal order now: select lines → report → sign-off) lands on the
         // finished screen; only a run with no report yet is sent to write one.
         const hasReport = Array.isArray(run.reports) && run.reports.some((r: { kind?: string; status?: string }) => r.kind === "SERVICE" && r.status === "completed");
-        setServiceJob(!hasReport && run.items.some((it: { assetClass?: string | null }) => String(it.assetClass ?? "").toUpperCase() === "SERVICE"));
+        const isServiceRun = run.items.some((it: { assetClass?: string | null }) => String(it.assetClass ?? "").toUpperCase() === "SERVICE");
+        setServiceJob(!hasReport && isServiceRun);
+        if (isServiceRun) {
+          setServiceRun(true);
+          setInstallChoice("no");
+          setStep("sign");
+        }
         if (run.status !== "in_progress") return;
         const n = run.items.filter((it: { deliveryStatus: string }) => it.deliveryStatus === "not_installed").length;
         if (n > 0) setPartialCount(n);
