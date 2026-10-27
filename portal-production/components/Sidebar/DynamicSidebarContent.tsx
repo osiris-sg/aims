@@ -89,7 +89,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
   const [navLang, setNavLang] = React.useState<'en' | 'ja'>('en');
@@ -232,6 +232,8 @@ export default function DynamicSidebarContent() {
         if (key === 'marketing' && m.moduleCode === 'CRM' && !isAdsInsightsEnabled) return false;
         // Accounting → Posting Queue rides on the enablePostingQueue org flag (guru 2026-10-24).
         if (key === 'posting-queue' && m.moduleCode === 'ACCOUNTING' && !isPostingQueueEnabled) return false;
+        // User Management → Roles: hidden when the org runs on preset roles (guru 2026-10-27).
+        if (key === 'roles' && m.moduleCode === 'USER_MANAGEMENT' && isRolePresetsEnabled) return false;
         // Round P: every Sales (Shipments) submenu shows (same rule as the top bar) — except the retired
         // ones (round W: Inbox left the menu; the Dashboard hosts the emails now), whatever the DB row says.
         if (m.moduleCode === 'SHIPMENTS' && visibleSalesSubmenus([s]).length === 0) return false;

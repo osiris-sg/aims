@@ -9,6 +9,7 @@ const waPrefsOf = (v: any): WaPrefs => ({ ...WA_DEFAULTS, ...(v && typeof v === 
 import { useForm } from "react-hook-form";
 import FormInputBox from "@/form-components/FormInputBox";
 import { request } from "@/helpers/request";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useAuth } from "@clerk/nextjs";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
@@ -21,6 +22,20 @@ interface Props {
   user: any;
 }
 
+// Preset-role orgs (guru 2026-10-27): the client picks ONE built-in role and
+// never sees permissions. Presets are told apart by their stored description
+// prefix; 'field-tech' keeps its name (the app keys on it) but reads as
+// "Technician (field app)".
+const PRESET_PREFIX = "Preset · ";
+const PRESET_LABEL: Record<string, string> = { "field-tech": "Technician (field app)" };
+const presetLabel = (r: { name: string; description?: string | null }) => PRESET_LABEL[r.name] ?? r.name;
+const presetSummary = (r: { description?: string | null }) => {
+  const d = String(r.description ?? "");
+  const i = d.indexOf(" — ");
+  return d.startsWith(PRESET_PREFIX) && i > 0 ? d.slice(i + 3) : d;
+};
+const isPresetRole = (r: { name: string; description?: string | null }) => r.name !== "superadmin" && String(r.description ?? "").startsWith(PRESET_PREFIX);
+
 interface Role {
   id: string;
   name: string;
@@ -31,6 +46,8 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
   const { getToken } = useAuth();
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const { isRolePresetsEnabled } = useOrganizationFeatures();
+  const visibleRoles = isRolePresetsEnabled ? roles.filter(isPresetRole) : roles;
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -434,23 +451,26 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                 <Grid item xs={12}>
                   <FormControl fullWidth>
                     <InputLabel id="edit-roles-label" sx={{ color: "#666666" }}>
-                      Select Roles
+                      {isRolePresetsEnabled ? "Role" : "Select Roles"}
                     </InputLabel>
                     <Select
                       labelId="edit-roles-label"
                       id="edit-roles"
-                      label="Select Roles"
-                      multiple
-                      value={selectedRoles}
-                      onChange={(e) => setSelectedRoles(e.target.value as string[])}
+                      label={isRolePresetsEnabled ? "Role" : "Select Roles"}
+                      multiple={!isRolePresetsEnabled}
+                      value={isRolePresetsEnabled ? (selectedRoles[0] ?? "") : selectedRoles}
+                      onChange={(e) => {
+                        const v = e.target.value as string | string[];
+                        setSelectedRoles(Array.isArray(v) ? v : v ? [v] : []);
+                      }}
                       renderValue={(selected) => (
                         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                          {selected.map((value) => {
+                          {(Array.isArray(selected) ? selected : [selected]).filter(Boolean).map((value) => {
                             const role = roles.find((r) => r.id === value);
                             return (
                               <Chip
                                 key={value}
-                                label={role?.name || value}
+                                label={role ? presetLabel(role) : value}
                                 size="small"
                                 sx={{
                                   backgroundColor: "#e3f2fd",
@@ -461,7 +481,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                                     "&:hover": { color: "#1565c0" },
                                   },
                                 }}
-                                onDelete={() => handleRoleToggle(value)}
+                                onDelete={isRolePresetsEnabled ? undefined : () => handleRoleToggle(value)}
                               />
                             );
                           })}
@@ -488,15 +508,15 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                         bgcolor: "background.paper",
                       }}
                     >
-                      {roles.map((role) => (
+                      {visibleRoles.map((role) => (
                         <MenuItem key={role.id} value={role.id} sx={{ color: "#222" }}>
                           <Box>
                             <Typography variant="body2" sx={{ fontWeight: 500, color: "#222" }}>
-                              {role.name}
+                              {presetLabel(role)}
                             </Typography>
                             {role.description && (
                               <Typography variant="caption" sx={{ color: "#666" }}>
-                                {role.description}
+                                {presetSummary(role)}
                               </Typography>
                             )}
                           </Box>

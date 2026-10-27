@@ -18,6 +18,8 @@ interface OrganizationFeatures {
   enableConfirmQuotation?: boolean;
   enableQuotationESign?: boolean;
   enableQuotationToDelivery?: boolean;
+  // Preset roles with built-in permissions; no role / permission editor for the client.
+  enableRolePresets?: boolean;
   enableCappitechOrders?: boolean;
   enableNettRoundDown?: boolean;
   enableQuotationProjectLink?: boolean;
@@ -58,6 +60,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // a DRAFT scheduled delivery; scheduling needs no Project / Sale Order for
   // these orgs. Default OFF.
   enableQuotationToDelivery: false,
+  enableRolePresets: false,
   // Gates the rich Cappitech Orders flow; default false = slim Orders (Biofuel default).
   enableCappitechOrders: false,
   enableDocumentListView: false,
@@ -208,6 +211,7 @@ export function useOrganizationFeatures() {
     isConfirmQuotationEnabled: features.enableConfirmQuotation ?? false,
     isQuotationESignEnabled: features.enableQuotationESign ?? false,
     isQuotationToDeliveryEnabled: features.enableQuotationToDelivery ?? false,
+    isRolePresetsEnabled: features.enableRolePresets ?? false,
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,
     isQuotationProjectLinkEnabled: features.enableQuotationProjectLink ?? false,

@@ -129,6 +129,10 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   // No Posting Queue page (guru 2026-10-27: same as Chong Aik) — invoices
   // post on confirm; the accountant reviews in GL / AR / AP.
   enablePostingQueue: false,
+  // Preset roles (Admin / Sales / Accounting / Operations / Technician / Viewer)
+  // with built-in permissions; User Management shows no role editor. Roles are
+  // materialised by scripts/apply-role-presets.ts (guru 2026-10-27).
+  enableRolePresets: true,
 };
 // Role allowedModules codes that must not carry over (modules off on WCT).
 const DROP_FROM_ROLE_MODULES = new Set(['CRM', 'CUSTOMER_INFORMATION', 'AUDIT', 'ADMIN', 'USER_MANAGEMENT', 'PROJECTS']);
