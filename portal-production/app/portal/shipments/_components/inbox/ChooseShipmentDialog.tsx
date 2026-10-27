@@ -29,7 +29,7 @@ import { answerFor, docPlainName, L, likelyOptions, optionKey } from "../../_lib
 type Step = "q1" | "what" | "which" | "files" | "issue" | "confirm";
 type Outcome = { kind: "shipments" } | { kind: "not_shipment" };
 type Opt = { key: string; orderId: string | null; shipmentId: string | null; ref: string; label: string };
-type FileState = { targets: string[]; docType: string | null; skip: boolean };
+type FileState = { targets: string[]; docType: string | null; skip: boolean; /** Round AS: kept waiting for its casts. */ wait: boolean };
 type IssueForm = { title: string; summaryEn: string; summaryJa: string; owner: string; effectiveFrom: string; coaBanner: boolean; linkPicked: boolean };
 
 /** The document slots a person may put a file in (the intake's triage types — the planner files by them). */
@@ -132,7 +132,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
       for (const f of placements.data.files) {
         const k = fileKey(f);
         if (prev[k]) next[k] = prev[k];
-        else next[k] = { targets: f.inline ? [] : f.defaults.map((d) => optionKey({ orderId: d.orderId ?? "", shipmentId: d.shipmentId })), docType: f.docType, skip: f.inline };
+        else next[k] = { targets: f.inline ? [] : f.defaults.map((d) => optionKey({ orderId: d.orderId ?? "", shipmentId: d.shipmentId })), docType: f.docType, skip: f.inline, wait: !f.inline && f.keys.length > 0 && !f.defaults.length && !f.holders.length };
       }
       return next;
     });
@@ -171,7 +171,13 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
   const hasFiles = (t.files ?? 0) > 0;
 
   // ── the steps' actions ──
+  const wf = q.waitingFile ?? null;
   const yes = () => {
+    if (wf) {
+      setOutcome({ kind: "shipments" });
+      setStep("confirm");
+      return;
+    }
     if (isDeal) {
       onClose();
       onCreateOrder(t);
@@ -179,7 +185,14 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
     }
     setStep("which");
   };
-  const no = () => setStep("what");
+  const no = () => {
+    if (wf) {
+      setOutcome({ kind: "not_shipment" });
+      setStep("confirm");
+      return;
+    }
+    setStep("what");
+  };
   const notShipment = () => {
     setOutcome({ kind: "not_shipment" });
     setStep("confirm");
@@ -205,12 +218,14 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
   const buildAnswer = (): InboxAnswer | null => {
     if (!outcome) return null;
     if (outcome.kind === "not_shipment") return answerFor({ kind: "not_shipment" }, q.kind);
+    // Round AS: attach the waiting file to the proposed shipment (the server files that one attachment).
+    if (wf && q.options[0]) return { kind: "record", orderId: q.options[0].orderId, shipmentId: q.options[0].shipmentId, targets: [{ orderId: q.options[0].orderId, shipmentId: q.options[0].shipmentId }] };
     const targets = pickedTargets.filter((p) => p.orderId).map((p) => ({ orderId: p.orderId!, shipmentId: p.shipmentId }));
     const filesOut: AnswerFile[] | undefined = fileRows.length
       ? fileRows.map((f) => {
           const s = files[fileKey(f)];
           const tg = s && !s.skip ? s.targets.map((k) => optOf(k, f)).filter((o): o is Opt => !!o).map((o) => ({ orderId: o.orderId, shipmentId: o.shipmentId })) : [];
-          return { emailId: f.emailId, index: f.index, targets: tg, docType: s?.docType ?? f.docType ?? null };
+          return { emailId: f.emailId, index: f.index, targets: tg, docType: s?.docType ?? f.docType ?? null, ...(s?.skip && s.wait && f.keys.length ? { wait: true } : {}) };
         })
       : undefined;
     const issueOut: AnswerIssue | null =
@@ -238,7 +253,8 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
   };
   const back = () =>
     setStep(
-      step === "confirm" ? (outcome?.kind === "shipments" ? (issueOn ? "issue" : hasFiles ? "files" : "which") : "what")
+      wf ? "q1"
+      : step === "confirm" ? (outcome?.kind === "shipments" ? (issueOn ? "issue" : hasFiles ? "files" : "which") : "what")
       : step === "issue" ? (hasFiles ? "files" : "which")
       : step === "files" ? "which"
       : step === "which" ? (isDeal ? "what" : "q1")
@@ -269,7 +285,8 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
   const refsOf = (keys: string[], f?: Placement) => keys.map((k) => optOf(k, f)?.ref).filter(Boolean).join(lang === "ja" ? "、" : ", ");
   const pickedRefs = picked.map((p) => p.ref).join(lang === "ja" ? "、" : ", ");
   const title =
-    step === "q1" ? (isDeal ? q.title : q.multi || q.issue ? q.title : labels.isShipmentQ)
+    wf && step === "confirm" ? (outcome?.kind === "shipments" ? labels.waitingAttach(wf.name, q.options[0]?.ref ?? "") : labels.waitingKeep(q.options[0]?.ref ?? ""))
+    : step === "q1" ? (isDeal ? q.title : q.multi || q.issue || wf ? q.title : labels.isShipmentQ)
     : step === "what" ? labels.whatThen
     : step === "which" ? labels.whichShipment
     : step === "files" ? labels.whereFiles
@@ -406,7 +423,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
             <Stack spacing={1.5} divider={<Divider flexItem />}>
               {fileRows.map((f) => {
                 const k = fileKey(f);
-                const s = files[k] ?? { targets: [], docType: f.docType, skip: f.inline };
+                const s = files[k] ?? { targets: [], docType: f.docType, skip: f.inline, wait: false };
                 const set = (patch: Partial<FileState>) => setFiles((prev) => ({ ...prev, [k]: { ...s, ...patch } }));
                 const options = [...new Set([...picked.map((p) => p.key), ...f.defaults.map((d) => optionKey({ orderId: d.orderId ?? "", shipmentId: d.shipmentId })), ...f.holders.map((d) => optionKey({ orderId: d.orderId ?? "", shipmentId: d.shipmentId })), ...optsByKey.keys()])];
                 const hint = f.inline
@@ -427,6 +444,9 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
                       {hint}
                       {f.outsidePick && !s.skip ? ` · ${labels.outsidePick}` : ""}
                     </Typography>
+                    {s.skip && !f.inline && f.keys.length > 0 && (
+                      <FormControlLabel control={<Checkbox size="small" checked={s.wait} onChange={(e) => set({ wait: e.target.checked })} />} label={<Typography variant="body2">{labels.keepWaiting(f.keys.filter((x) => x.length === 8).join(", ") || f.keys.join(", "))}</Typography>} data-tour="answer-file-wait" />
+                    )}
                     {!s.skip && (
                       <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
                         <Autocomplete
@@ -482,7 +502,14 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
           )}
         </DialogContent>
       )}
-      {step === "confirm" && (
+      {step === "confirm" && wf && (
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" data-tour="answer-step-confirm">
+            {outcome?.kind === "shipments" ? `${q.options[0]?.summary ?? ""} — ${q.options[0]?.why ?? ""}. ${labels.waitingAttachNote}` : q.found}
+          </Typography>
+        </DialogContent>
+      )}
+      {step === "confirm" && !wf && (
         <DialogContent dividers>
           {outcome?.kind === "shipments" ? (
             <Stack spacing={1.5} data-tour="answer-step-confirm">
@@ -502,7 +529,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
                       const s = files[fileKey(f)];
                       return (
                         <Typography key={fileKey(f)} variant="body2" sx={{ wordBreak: "break-word" }}>
-                          <b>{f.name}</b> → {!s || s.skip ? labels.notFiled : `${refsOf(s.targets, f)} · ${slotLabel(s.docType ?? "")}`}
+                          <b>{f.name}</b> → {!s || s.skip ? (s?.wait && f.keys.length ? labels.keptWaiting : labels.notFiled) : `${refsOf(s.targets, f)} · ${slotLabel(s.docType ?? "")}`}
                         </Typography>
                       );
                     })}

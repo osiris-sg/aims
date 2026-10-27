@@ -12,14 +12,14 @@ import { sheetText } from '../shipments/trade-extract.service';
 import { TradeConfigService } from '../shipments/trade-config.service';
 import { sha256Of, TradeFilesService } from '../shipments/trade-files.service';
 import { TradeIssuesService } from '../shipments/trade-issues.service';
-import { matchAttachmentByCast, TradeCastIndexService } from '../shipments/trade-cast-index';
+import { castKeysOf, matchAttachmentByCast, TradeCastIndexService } from '../shipments/trade-cast-index';
 import { TradeStepsService } from '../shipments/trade-steps.service';
 import { ShipmentsNotifyService } from '../shipments/shipments-notify.service';
 import { StoredEmailMeta } from './email-store';
 import { companyOf, companyOverridesOf } from './email-companies';
 import { attachmentHits, attachmentTarget, autoTier, DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, orderCuesMatch, ownTextCues, recordRef, SourceFamily, subjectCues, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
 import { auditLink, AuditResult, RECHECK_TEXT } from './email-audit';
-import { answerText, Lang, QuestionCard, QuestionInput, questionOf } from './email-question';
+import { answerText, waitingFileCard, Lang, QuestionCard, QuestionInput, questionOf } from './email-question';
 import { arrivalNoticeLine, filedLine, importPermitLine, needsCheckText, NeedsCheckInput, senderLine } from '../operator/push-text';
 import { splitQuoted, missingQuotedEmails, quotedEmailHeaders } from './email-quote';
 import { blockRemoteContent, parseEmail, ParsedEmail } from './email-mime';
@@ -154,7 +154,7 @@ export type EmailActor = { id: string | null; name: string | null; via?: 'whatsa
  * Round AR: `files` = where each attachment goes (its own targets, empty = not filed; `docType` = the slot), `issue` =
  * a general issue (not one shipment) created with the answer; `kind: 'general'` = only the issue (+ any placed files).
  */
-export type AnswerFile = { emailId: string; index: number; targets: Array<{ orderId: string | null; shipmentId: string | null }>; docType?: string | null };
+export type AnswerFile = { emailId: string; index: number; targets: Array<{ orderId: string | null; shipmentId: string | null }>; docType?: string | null; /** Round AS: not filed now — kept waiting for a PL / COA with its casts. */ wait?: boolean };
 export type AnswerIssue = { title: string; summaryEn?: string | null; summaryJa?: string | null; customerId?: string | null; supplierId?: string | null; effectiveFrom?: string | null; docTypes?: string[]; shipmentIds?: string[]; orderIds?: string[] };
 export type AnswerBody =
   | { kind: 'record'; orderId?: string | null; shipmentId?: string | null; targets?: Array<{ orderId: string | null; shipmentId: string | null }>; files?: AnswerFile[]; issue?: AnswerIssue | null }
@@ -427,6 +427,14 @@ export class EmailTriageService {
     for (const id of ids) {
       const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id, organizationId } });
       if (!log || log.inboxState === 'PROCESSED' || log.inboxState === 'HIDDEN' || log.inboxState === 'PURGED') continue;
+      // Round AS: the card of a file kept waiting — attach it to the proposed shipment, or keep it waiting.
+      if ((log.actions as any)?.question?.kind === 'WAITING_FILE' && a.kind !== 'later') {
+        const r = await this.answerWaiting(organizationId, log, a, actor);
+        if (r.ref) refs.add(r.ref);
+        files += r.files;
+        done.push(id);
+        continue;
+      }
       if (a.kind === 'record' || a.kind === 'general') {
         const chosen = (a.targets?.length ? a.targets : a.kind === 'record' ? [{ orderId: a.orderId ?? null, shipmentId: a.shipmentId ?? null }] : []).filter((t) => t.orderId || t.shipmentId).slice(0, 10);
         let targets: IntakeTarget[];
@@ -460,6 +468,9 @@ export class EmailTriageService {
             await this.prisma.emailIngestLog.update({ where: { id }, data: { actions: { ...((fresh?.actions as object) ?? {}), issue } as any } });
           }
         }
+        // Round AS: files left unfiled on purpose but kept waiting for a PL / COA with their casts.
+        const waits = (a.files ?? []).filter((f) => f.emailId === id && f.wait && !f.targets.length);
+        if (waits.length) await this.keepWaiting(organizationId, id, waits, actor);
       } else if (a.kind === 'not_shipment' || a.kind === 'not_deal') {
         await this.prisma.emailIngestLog.update({
           where: { id },
@@ -476,6 +487,112 @@ export class EmailTriageService {
       this.actionLog.system('email-question', a.kind === 'record' || a.kind === 'general' ? 'PROCESS' : 'UPDATE', 'EmailIngestLog', { organizationId, resourceId: id, details: { answer: a.kind, by: actor.name ?? actor.id, via: actor.via ?? 'portal', subject: (log.subject ?? '').slice(0, 60), ...(issue ? { issue: issue.title } : {}), ...(a.kind === 'record' || a.kind === 'general' ? { placed: (a.files ?? []).filter((f) => f.emailId === id && f.targets.length).length } : {}) } });
     }
     return { kind: a.kind, ids: done, refs: [...refs], files, issue, text: answerText(a.kind, lang, { refs: [...refs], files, emails: done.length, issue: issue?.title ?? null }) };
+  }
+
+  /**
+   * Round AS — keep files waiting: an attachment left unfiled because its casts / bundles are on no shipment's PL / COA
+   * yet. Stored on the email (actions.waiting) with its keys; checkWaiting() proposes it as a card once a shipment
+   * carries one of them. Never filed by itself.
+   */
+  async keepWaiting(organizationId: string, logId: string, files: AnswerFile[], actor: EmailActor) {
+    const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
+    if (!log) return;
+    const ev = await this.evidence(log);
+    const typed = (((log.triage ?? {}) as Partial<TriageResult>).attachments ?? []) as Array<{ filename: string; docType: string }>;
+    const prev = ((log.actions as any)?.waiting ?? []) as any[];
+    const add = files
+      .filter((f) => !prev.some((w) => w.index === f.index))
+      .map((f) => {
+        const att = ev.attachments[f.index];
+        const keys = castKeysOf(`${att?.name ?? ''}\n${att?.text ?? ''}`);
+        return { index: f.index, name: att?.name ?? `attachment ${f.index + 1}`, docType: f.docType ?? typed.find((t) => t.filename === att?.name)?.docType ?? 'COA', keys: [...keys.batches, ...keys.casts], status: 'waiting', since: new Date().toISOString(), by: actor.name ?? actor.id, rejected: [] as string[] };
+      })
+      .filter((w) => w.keys.length);
+    if (!add.length) return;
+    const fresh: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId }, select: { actions: true } });
+    await this.prisma.emailIngestLog.update({ where: { id: logId }, data: { actions: { ...((fresh?.actions as object) ?? {}), waiting: [...prev, ...add] } as any } });
+    this.actionLog.system('email-question', 'UPDATE', 'EmailIngestLog', { organizationId, resourceId: logId, details: { waiting: add.map((w) => ({ name: w.name, keys: w.keys })), by: actor.name ?? actor.id } });
+  }
+
+  /**
+   * Round AS — the waiting files whose cast / bundle no. a shipment's PL / COA now carries EXACTLY (one shipment only)
+   * come back as a card ("Attach … to #22-1?"): the email returns to Unprocessed with a WAITING_FILE question. Hourly,
+   * and after the intake filed a PL / COA. Nothing is filed by itself.
+   */
+  @Cron('23 * * * *')
+  async checkWaiting(orgId?: string): Promise<{ proposed: number }> {
+    if (!this.casts) return { proposed: 0 };
+    const rows: Array<{ id: string; organizationId: string; actions: any }> = await this.prisma.emailIngestLog.findMany({
+      where: { ...(orgId ? { organizationId: orgId } : {}), inboxState: 'PROCESSED', actions: { path: ['waiting'], array_contains: [{ status: 'waiting' }] } },
+      select: { id: true, organizationId: true, actions: true },
+      take: 200,
+    });
+    let proposed = 0;
+    const byOrg = new Map<string, typeof rows>();
+    for (const r of rows) byOrg.set(r.organizationId, [...(byOrg.get(r.organizationId) ?? []), r]);
+    for (const [org, list] of byOrg) {
+      await runAsOrg(org, async () => {
+        const holders = await this.casts!.holders(org);
+        for (const r of list) {
+          const waiting = (r.actions?.waiting ?? []) as any[];
+          const i = waiting.findIndex((w) => w.status === 'waiting');
+          if (i < 0) continue;
+          const w = waiting[i];
+          const m = matchAttachmentByCast({ name: w.keys.join(' ') }, '', holders.filter((h) => !(w.rejected ?? []).includes(h.shipmentId)));
+          if (!m.best?.orderId) continue;
+          const at = new Date().toISOString();
+          waiting[i] = { ...w, status: 'proposed', proposal: { orderId: m.best.orderId, shipmentId: m.best.shipmentId, why: m.best.why, at } };
+          await this.prisma.emailIngestLog.update({
+            where: { id: r.id },
+            data: { inboxState: 'SUGGESTED', actions: { ...(r.actions ?? {}), waiting, question: { kind: 'WAITING_FILE', at, index: w.index, name: w.name, docType: w.docType, orderId: m.best.orderId, shipmentId: m.best.shipmentId, why: m.best.why } } as any },
+          });
+          this.actionLog.system('email-waiting-file', 'UPDATE', 'EmailIngestLog', { organizationId: org, resourceId: r.id, details: { file: w.name, proposed: m.best.shipmentId, why: m.best.why } });
+          await this.notifyNeedsMe(org, r.id, 'SUGGESTED');
+          proposed++;
+        }
+      });
+    }
+    if (proposed) this.logger.log(`[waiting-files] proposed ${proposed}`);
+    return { proposed };
+  }
+
+  /** Round AS — the answer to a WAITING_FILE card: Yes files the one attachment on the proposed shipment; No keeps it waiting (that shipment is not proposed again). */
+  private async answerWaiting(organizationId: string, log: any, a: AnswerBody, actor: EmailActor): Promise<{ ref: string | null; files: number }> {
+    const actions = (log.actions ?? {}) as Record<string, any>;
+    const q = actions.question;
+    const waiting = [...((actions.waiting ?? []) as any[])];
+    const i = waiting.findIndex((w) => w.index === q.index && w.status === 'proposed');
+    const at = new Date().toISOString();
+    const { question: _q, ...rest } = actions;
+    if (a.kind === 'record' || a.kind === 'general') {
+      const t = (a.kind === 'record' ? a.targets?.[0] ?? { orderId: a.orderId ?? null, shipmentId: a.shipmentId ?? null } : a.targets?.[0]) ?? { orderId: q.orderId, shipmentId: q.shipmentId };
+      const shipmentId = t.shipmentId ?? q.shipmentId;
+      const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta>;
+      const att = meta.attachments?.[q.index];
+      if (!att || !shipmentId) throw new BadRequestException('The waiting file is no longer there');
+      const buf = await this.s3.downloadFile(att.key);
+      const sha = sha256Of(buf);
+      const docType = TRIAGE_DOC_TYPES[q.docType] ?? 'COA';
+      const step = await this.prisma.tradeStep.findFirst({ where: { organizationId, shipmentId, OR: [{ requiredDocTypes: { has: docType } }, { optionalDocTypes: { has: docType } }] }, orderBy: { sortOrder: 'asc' }, select: { id: true } });
+      const f = await this.files.upload(
+        organizationId,
+        { originalname: att.name, mimetype: att.contentType, size: buf.length, buffer: buf } as Express.Multer.File,
+        { docType, shipmentIds: [shipmentId], ...(step ? { stepId: step.id } : {}), notes: `From email (kept waiting): ${log.subject ?? ''}`.slice(0, 2000) } as any,
+        actor,
+        { source: 'EMAIL', emailLogId: log.id, sha256: sha, completedShipmentsOk: true },
+      );
+      const act: IntakeAction = { kind: 'file', status: 'done', attachmentIndex: q.index, filename: att.name, docType, ownerKind: 'shipment', ownerId: shipmentId, fileId: f.id, waitingAt: at } as any;
+      if (i >= 0) waiting[i] = { ...waiting[i], status: 'filed', filedAt: at, fileId: f.id, shipmentId };
+      await this.prisma.emailIngestLog.update({ where: { id: log.id }, data: { inboxState: 'PROCESSED', status: 'PROCESSED', actions: { ...rest, waiting, done: [...((rest.done ?? []) as IntakeAction[]), act], answered: { kind: 'waiting_file', at, by: actor.name ?? actor.id, via: actor.via ?? null } } as any } });
+      this.actionLog.system('email-question', 'PROCESS', 'EmailIngestLog', { organizationId, resourceId: log.id, details: { answer: 'waiting_file', file: att.name, shipmentId, by: actor.name ?? actor.id, via: actor.via ?? 'portal' } });
+      const named = await this.refs(organizationId, [], [shipmentId]);
+      return { ref: named.ship.get(shipmentId) ?? null, files: 1 };
+    }
+    // No: keep waiting; this shipment is not proposed again.
+    if (i >= 0) waiting[i] = { ...waiting[i], status: 'waiting', proposal: undefined, rejected: [...(waiting[i].rejected ?? []), q.shipmentId] };
+    await this.prisma.emailIngestLog.update({ where: { id: log.id }, data: { inboxState: 'PROCESSED', actions: { ...rest, waiting, answered: { kind: 'waiting_keep', at, by: actor.name ?? actor.id, via: actor.via ?? null } } as any } });
+    this.actionLog.system('email-question', 'UPDATE', 'EmailIngestLog', { organizationId, resourceId: log.id, details: { answer: 'waiting_keep', file: q.name, notOn: q.shipmentId, by: actor.name ?? actor.id } });
+    return { ref: null, files: 0 };
   }
 
   /** Round AR: the shipments an email names exactly — own-content B/L / CI hits and each attachment's cast / bundle no. */
@@ -641,6 +758,16 @@ export class EmailTriageService {
     for (const id of ids) {
       const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id, organizationId } });
       if (!log) continue;
+      const answered = ((log.actions ?? {}) as any).answered;
+      if ((body.kind === 'record' || body.kind === 'general') && answered?.kind === 'waiting_file') {
+        // Round AS: only the waiting file's own filing goes; the file waits again (the hourly check proposes it again).
+        await this.undo(organizationId, id, actor, { only: (x) => (x as any).waitingAt === answered.at });
+        const fresh: any = await this.prisma.emailIngestLog.findFirst({ where: { id }, select: { actions: true } });
+        const waiting = (((fresh?.actions ?? {}) as any).waiting ?? []).map((w: any) => (w.status === 'filed' && w.filedAt === answered.at ? { ...w, status: 'waiting', filedAt: undefined, fileId: undefined, proposal: undefined } : w));
+        await this.prisma.emailIngestLog.update({ where: { id }, data: { inboxState: 'PROCESSED', status: 'PROCESSED', actions: { ...((fresh?.actions as object) ?? {}), waiting, answered: { kind: 'waiting_undone', at: new Date().toISOString(), by: actor.name ?? actor.id } } as any } });
+        n++;
+        continue;
+      }
       if (body.kind === 'record' || body.kind === 'general') {
         if ((((log.actions ?? {}) as any).done ?? []).some((x: IntakeAction) => x.status === 'done')) await this.undo(organizationId, id, actor);
         else if (log.inboxState === 'PROCESSED') {
@@ -1609,18 +1736,21 @@ export class EmailTriageService {
       },
     });
     await this.notifyFiled(organizationId, log, done, opts.review);
+    // Round AS: a new PL / COA may carry the casts a waiting file needs — check (a proposal card, never a filing).
+    if (done.some((x) => x.kind === 'file' && x.status === 'done' && /^(PL|PL_XLS|COA|COA_XLS|CONTAINER_PL|BUNDLE_LIST)$/.test(x.docType ?? ''))) setImmediate(() => void runAsOrg(organizationId, () => this.checkWaiting(organizationId)).catch(() => undefined));
     return this.row(organizationId, logId);
   }
 
   /** Undo everything the email did: remove its files (reopening steps they completed), clear the fields it filled, untick its sub-tasks. */
-  async undo(organizationId: string, logId: string, actor: EmailActor) {
+  async undo(organizationId: string, logId: string, actor: EmailActor, opts: { only?: (a: IntakeAction) => boolean } = {}) {
     const log = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
     if (!log) throw new NotFoundException('Email not found');
     const acts = (((log.actions ?? {}) as any).done ?? []) as IntakeAction[];
     if (!acts.some((a) => a.status === 'done')) throw new BadRequestException('Nothing to undo');
     const out: IntakeAction[] = [];
     for (const a of [...acts].reverse()) {
-      if (a.status !== 'done') {
+      // Round AS: `only` = undo just these actions (a waiting file's own filing), the rest stays done.
+      if (a.status !== 'done' || (opts.only && !opts.only(a))) {
         out.unshift(a);
         continue;
       }
@@ -1682,7 +1812,8 @@ export class EmailTriageService {
     const planned = out.map((a) => (a.status === 'undone' ? { ...a, status: 'planned' as const, fileId: undefined, reopenedStepIds: undefined } : a));
     await this.prisma.emailIngestLog.update({
       where: { id: logId },
-      data: { actions: { ...((log.actions as object) ?? {}), planned, done: [], undone: out } as any, inboxState: 'SUGGESTED', status: 'STORED' },
+      // Round AS: a scoped undo keeps the rest of what the email did (done) and its state.
+      data: opts.only ? { actions: { ...((log.actions as object) ?? {}), done: out } as any } : { actions: { ...((log.actions as object) ?? {}), planned, done: [], undone: out } as any, inboxState: 'SUGGESTED', status: 'STORED' },
     });
     return this.row(organizationId, logId);
   }
@@ -1976,6 +2107,10 @@ export class EmailTriageService {
     // Round AR: several shipments named exactly → all proposed (ticked) together.
     const multi = ((m.exactMulti ?? []) as Array<{ orderId: string; shipmentId: string; why: string }>).filter((x) => x.orderId && x.shipmentId).map((x) => ({ orderId: x.orderId, shipmentId: x.shipmentId, ref: refOf(x.orderId, x.shipmentId), why: [x.why] }));
     const q = m.question as { kind?: string; current?: string[]; secondTargets?: Array<{ orderId: string; shipmentId: string | null }>; secondText?: string } | null;
+    if (q?.kind === 'WAITING_FILE') {
+      const w = q as any;
+      return waitingFileCard(lang, { emailId: m.id, index: w.index, name: w.name, docType: w.docType, why: w.why }, { orderId: w.orderId, shipmentId: w.shipmentId, ref: refOf(w.orderId, w.shipmentId), summary: summaryOf(w.orderId, w.shipmentId) });
+    }
     const recheck = q?.kind === 'RECHECK' ? { current: q.current ?? [], second: (q.secondTargets ?? []).map((s) => ({ ...s, ref: refOf(s.orderId, s.shipmentId) })), secondText: q.secondText ?? '' } : null;
     return questionOf({
       lang,

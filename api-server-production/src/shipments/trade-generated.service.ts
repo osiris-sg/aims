@@ -89,7 +89,7 @@ import {
   renderHoeiIvPlHtml,
   toHoeiLines,
 } from './trade-hoei-formats';
-import { applicantName, buildSusCoaSummary, buildSusPackingList, isSusTemplate, mergeSusCoaParts, SUS_COA_COLUMNS, SUS_COA_FOOTER, SUS_COA_SIGN_BLOCK, SUS_COA_TEMPLATE, SUS_PL_COLUMNS, SUS_PL_TEMPLATE, SusCoaPart, SusFormatError, susLotPackingRows, susPackingListXlsx, VEDANTA_PRODUCER_BLOCK } from './trade-sus-formats';
+import { applicantName, buildSusCoaSummary, isManualCoaText, mixedBundleNote, parseManualCoa, buildSusPackingList, isSusTemplate, mergeSusCoaParts, SUS_COA_COLUMNS, SUS_COA_FOOTER, SUS_COA_SIGN_BLOCK, SUS_COA_TEMPLATE, SUS_PL_COLUMNS, SUS_PL_TEMPLATE, SusCoaPart, SusFormatError, susLotPackingRows, susPackingListXlsx, VEDANTA_PRODUCER_BLOCK } from './trade-sus-formats';
 
 export type TemplateKind = 'table' | 'invoice' | 'single' | 'sgjp' | 'si';
 type Owner = { shipmentId: string; contractId?: undefined; orderId?: undefined } | { contractId: string; shipmentId?: undefined; orderId?: undefined } | { orderId: string; shipmentId?: undefined; contractId?: undefined };
@@ -433,8 +433,9 @@ export class TradeGeneratedService {
       return { built: { columns: SUS_PL_COLUMNS.map((c) => ({ ...c })), rows, notes: [`Lot of ${plParts.length} B/Ls — one sheet each: ${[...new Set(rows.map((r) => String(r.sheet)))].join(', ')}`, ...notes] }, header };
     }
     const merged = mergeSusCoaParts(coaParts);
-    header = { ...header, date: merged.date, dateLine: merged.dateLine, invoiceNo: merged.invoiceNo } as GenHeader;
-    return { built: { columns: SUS_COA_COLUMNS.map((c) => ({ ...c })), rows: merged.rows, notes: [...merged.notes, ...notes] }, header };
+    const mixed = await this.mixedBundleNotes(organizationId, lot.map((m) => m.id));
+    header = { ...header, date: merged.date, dateLine: merged.dateLine, invoiceNo: merged.invoiceNo, ...(mixed.length ? { footnotes: mixed.join('\n') } : {}) } as GenHeader;
+    return { built: { columns: SUS_COA_COLUMNS.map((c) => ({ ...c })), rows: merged.rows, notes: [...merged.notes, ...mixed.map((n) => `Footnote: ${n}`), ...notes] }, header };
   }
 
   /**
@@ -476,6 +477,14 @@ export class TradeGeneratedService {
     let header = await this.defaultHeader(organizationId, shipment, this.template(docType).title, docType);
     if (isSusTemplate(templateKey)) {
       header = await this.susHeader(organizationId, shipment, header, docType, fromPdf);
+      // Round AS: a mixed bundle stays under its cast as in Vedanta's COA (ADH's practice); a footnote names its casts.
+      if (templateKey === SUS_COA_TEMPLATE) {
+        const mixed = await this.mixedBundleNotes(organizationId, [shipment.id]);
+        if (mixed.length) {
+          header = { ...header, footnotes: mixed.join('\n') } as GenHeader;
+          built = { ...built, notes: [...built.notes, ...mixed.map((n) => `Footnote: ${n}`)] };
+        }
+      }
     } else if (docType === 'CUSTOMER_COA') {
       // 分析日付: the source's own date, else Vedanta's COA PDF, else the B/L (on-board) date — editable before finalizing.
       const date = fromPdf?.date ?? (await this.coaPdfDateFor(organizationId, shipment.id)) ?? isoDay(shipment.etd);
@@ -1997,6 +2006,35 @@ export class TradeGeneratedService {
       return en as GenHeader;
     }
     return h;
+  }
+
+  /**
+   * Round AS — the footnote lines for the mixed bundles of these shipments: every COA PDF on them that is a Vedanta
+   * manual COA (pieces per cast) — "Bundle 265C118614: 4 pcs cast 265C1186 + 1 pc cast 265C1190 (manual COA attached)".
+   * Weights are never split (the manual COA has none): the bundle stays where Vedanta's COA puts it.
+   */
+  async mixedBundleNotes(organizationId: string, shipmentIds: string[]): Promise<string[]> {
+    const files: Array<{ id: string; fileName: string; s3Key: string }> = await this.prisma.tradeFile.findMany({
+      where: { organizationId, docType: { in: ['COA', 'COA_XLS'] }, links: { some: { hiddenAt: null, shipmentId: { in: shipmentIds } } } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, fileName: true, s3Key: true },
+    });
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const f of files.filter((x) => /\.pdf$/i.test(x.fileName))) {
+      try {
+        const text = await pdfText(await this.s3.downloadFile(f.s3Key));
+        if (!isManualCoaText(text)) continue;
+        for (const b of parseManualCoa(text)) {
+          if (seen.has(b.bundle)) continue;
+          seen.add(b.bundle);
+          out.push(mixedBundleNote(b));
+        }
+      } catch {
+        /* an unreadable PDF adds no footnote */
+      }
+    }
+    return out;
   }
 
   /** Round AM — the header of SUS's own formats: Vedanta's producer block and key lines, filled from the shipment. */

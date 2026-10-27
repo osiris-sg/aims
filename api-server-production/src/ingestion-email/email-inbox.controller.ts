@@ -303,7 +303,7 @@ function cleanFiles(v: unknown): AnswerFile[] | undefined {
     if (!emailId || !Number.isInteger(index) || index < 0 || index >= 100) return [];
     const targets = (Array.isArray(f?.targets) ? f.targets : []).map((t: any) => ({ orderId: id(t?.orderId), shipmentId: id(t?.shipmentId) })).filter((t: any) => t.orderId || t.shipmentId).slice(0, 10);
     const docType = typeof f?.docType === 'string' && /^[A-Z0-9_]{2,40}$/.test(f.docType) ? f.docType : null;
-    return [{ emailId, index, targets, docType }];
+    return [{ emailId, index, targets, docType, ...(f?.wait === true && !targets.length ? { wait: true } : {}) }];
   });
 }
 

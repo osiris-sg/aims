@@ -104,6 +104,12 @@ export const L = {
     confirmNote: "Nothing is applied until Confirm. Files can be undone; the issue stays on the profile (set it Resolved there).",
     supplier: "Supplier",
     customer: "Customer",
+    // Round AS: a file kept waiting.
+    keepWaiting: (keys: string) => `Keep it waiting: propose it when a packing list / COA with ${keys} arrives`,
+    keptWaiting: "not filed · kept waiting",
+    waitingAttach: (name: string, ref: string) => `Attach "${name}" to ${ref}?`,
+    waitingAttachNote: "Only this file is filed (in its document slot). Undo takes back just this file.",
+    waitingKeep: (ref: string) => `Keep the file waiting? ${ref} won't be proposed again.`,
   },
   ja: {
     createOrder: "新規案件 → 注文を作成",
@@ -198,6 +204,11 @@ export const L = {
     confirmNote: "確定するまで何も反映されません。ファイルは元に戻せます。課題はプロフィールに残ります（そこで「解決済み」にします）。",
     supplier: "サプライヤー",
     customer: "顧客",
+    keepWaiting: (keys: string) => `待機させる：${keys} を含むパッキングリスト／COAが届いたら提案`,
+    keptWaiting: "登録しない · 待機中",
+    waitingAttach: (name: string, ref: string) => `「${name}」を ${ref} に添付しますか？`,
+    waitingAttachNote: "このファイルだけを書類スロットに登録します。元に戻すとこのファイルだけが外れます。",
+    waitingKeep: (ref: string) => `ファイルを待機のままにしますか？ ${ref} は今後提案されません。`,
   },
 } as const;
 

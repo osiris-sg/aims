@@ -313,6 +313,43 @@ export interface SusCoaHeader {
   signBlock?: string;
   /** Round AO: a lot of several B/Ls — the date line with its casts, printed instead of the single date. */
   dateLine?: string;
+  /** Round AS: one line per mixed bundle (from Vedanta's manual COA), printed under the table (editable). */
+  footnotes?: string;
+}
+
+/** Round AS — one bundle with logs of several casts, as Vedanta's manual COA lists it (pieces per cast; no weights). */
+export interface MixedBundle {
+  bundle: string;
+  parts: Array<{ cast: string; pieces: number; material: string | null }>;
+}
+
+/** Vedanta's manual COA ("Average Chemical composition in %", "No. of pieces") — not the automatic test report. */
+export function isManualCoaText(text: string): boolean {
+  const t = String(text ?? '').replace(/\s+/g, ' ');
+  return /average\s*chemical\s*composition/i.test(t) && /no\.?\s*of\s*pieces/i.test(t);
+}
+
+/**
+ * Round AS — the mixed bundles of a manual COA. Its PDF text breaks numbers with spaces ("26 5 C1 186 4 B6 005 01"), so
+ * the text is read with all whitespace removed: a bundle no. (cast + 2 digits) followed by its cast rows (cast, pieces,
+ * material code, then the chemistry). Only bundles with two or more casts are returned. Weights are never read (the
+ * manual COA has none).
+ */
+export function parseManualCoa(text: string): MixedBundle[] {
+  const s = String(text ?? '').replace(/\s+/g, '').toUpperCase();
+  const starts = [...s.matchAll(/(\d{3}C\d{6})(?=\d{3}C\d{4}\d{1,2}B)/g)].map((m) => ({ bundle: m[1], at: m.index! + m[1].length }));
+  const out: MixedBundle[] = [];
+  starts.forEach((b, i) => {
+    const seg = s.slice(b.at, i + 1 < starts.length ? starts[i + 1].at - starts[i + 1].bundle.length : s.length);
+    const parts = [...seg.matchAll(/(\d{3}C\d{4})(\d{1,2})(B\d+?)(?=\d\.\d)/g)].map((m) => ({ cast: m[1], pieces: Number(m[2]), material: m[3] }));
+    if (parts.length >= 2 && parts.some((p) => p.cast === b.bundle.slice(0, 8))) out.push({ bundle: b.bundle, parts });
+  });
+  return out;
+}
+
+/** "Bundle 265C118614: 4 pcs cast 265C1186 + 1 pc cast 265C1190 (manual COA attached)". */
+export function mixedBundleNote(b: MixedBundle): string {
+  return `Bundle ${b.bundle}: ${b.parts.map((p) => `${p.pieces} ${p.pieces === 1 ? 'pc' : 'pcs'} cast ${p.cast}`).join(' + ')} (manual COA attached)`;
 }
 
 const esc = (v: unknown) =>
@@ -365,6 +402,7 @@ export function renderSusCoaHtml(h: Partial<Omit<SusCoaHeader, 'layout'>> & { la
   table.grid td { padding: 2px; text-align: center; font-variant-numeric: tabular-nums; }
   table.grid td.num { text-align: right; }
   table.grid tr.tot td { border-top: 1px solid #111; }
+  .notes { margin-top: 10px; white-space: pre-line; font-size: 7.2pt; }
   .foot { margin-top: 18px; white-space: pre-line; font-size: 7.4pt; }
   .sign { margin-top: 14px; white-space: pre-line; font-size: 7.4pt; text-align: right; }
   `;
@@ -377,6 +415,7 @@ export function renderSusCoaHtml(h: Partial<Omit<SusCoaHeader, 'layout'>> & { la
   <table class="grid"><thead><tr>${cols.map((c) => `<th>${esc(c.label)}</th>`).join('')}</tr></thead>
   <tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td class="${num(c) ? 'num' : ''}">${c.kind === 'mt' ? mt(r[c.key]) : esc(r[c.key] ?? '')}</td>`).join('')}</tr>`).join('')}
   <tr class="tot">${cols.map((c) => `<td class="${num(c) ? 'num' : ''}">${totalCell(c)}</td>`).join('')}</tr></tbody></table>
+  ${h.footnotes ? `<div class="notes">${esc(h.footnotes)}</div>` : ''}
   ${h.footer ? `<div class="foot">${esc(h.footer)}</div>` : ''}
   ${h.signBlock ? `<div class="sign">${esc(h.signBlock)}</div>` : ''}
   `;

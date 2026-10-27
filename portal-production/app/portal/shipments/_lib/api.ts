@@ -745,10 +745,12 @@ export type InboxQuestion = {
   multi?: boolean;
   /** Round AR: AIMS reads a general issue — the Answer flow offers it prefilled. */
   issue?: IssueProposal | null;
+  /** Round AS: a file kept waiting from an earlier email, now proposed for options[0]. */
+  waitingFile?: { emailId: string; index: number; name: string; docType: string } | null;
 };
 /** Round AR: one attachment placed — on its own targets (none = not filed), in a slot (doc type). */
 export type AnswerTarget = { orderId: string | null; shipmentId: string | null };
-export type AnswerFile = { emailId: string; index: number; targets: AnswerTarget[]; docType?: string | null };
+export type AnswerFile = { emailId: string; index: number; targets: AnswerTarget[]; docType?: string | null; /** Round AS: not filed now — kept waiting for a PL / COA with its casts. */ wait?: boolean };
 export type AnswerIssue = { title: string; summaryEn?: string | null; summaryJa?: string | null; customerId?: string | null; supplierId?: string | null; effectiveFrom?: string | null; docTypes?: string[]; shipmentIds?: string[]; orderIds?: string[] };
 /** Round AA: a "record" answer may name several shipments (`targets`, up to 10); `orderId` / `shipmentId` = the first one (back-compat). Round AR: `files` + `issue`; "general" = an issue (± placed files). */
 export type InboxAnswer =

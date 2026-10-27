@@ -36,6 +36,8 @@ export interface QuestionCard {
   details: string[];
   /** Round AR: the suggested options belong together (the email names several shipments exactly) — tick them all. */
   multi?: boolean;
+  /** Round AS: a file kept waiting from an earlier email — its casts are now on this shipment's PL / COA; attach it? */
+  waitingFile?: { emailId: string; index: number; name: string; docType: string } | null;
   /** Round AR: AIMS reads a general issue (process / policy change), proposed as "General issue" with this draft. */
   issue?: { title: string; summaryEn: string | null; summaryJa: string | null; effectiveFrom: string | null } | null;
   /** The WhatsApp line: "Reply 1, 2 or 3 · 0 = ask later · X = not a shipment". */
@@ -235,4 +237,24 @@ export function parseNumberedReply(text: string, q: Pick<QuestionCard, 'kind' | 
   if (q.kind === 'NEW_DEAL') return n === 1 ? { kind: 'create_order' } : n === 2 ? { kind: 'not_deal' } : null;
   const o = q.options[n - 1];
   return o ? { kind: 'record', option: o } : null;
+}
+
+/**
+ * Round AS — the card of a file kept waiting ("COA 265C1701,265C1689 SUS 26th Oct.pdf"): a packing list / COA with one
+ * of its casts / bundles arrived on a shipment, so AIMS proposes attaching it there. Yes = file it there, No = keep
+ * waiting (that shipment is not proposed again), Ask later.
+ */
+export function waitingFileCard(lang: Lang, w: { emailId: string; index: number; name: string; docType: string; why: string }, target: { orderId: string; shipmentId: string; ref: string; summary: string | null }): QuestionCard {
+  const ja = lang === 'ja';
+  return {
+    kind: 'CONFIRM',
+    lang,
+    title: ja ? `「${w.name}」を ${target.ref} に添付しますか？` : `Attach "${w.name}" to ${target.ref}?`,
+    found: ja ? `待機中のファイル · ${w.why}` : `A file kept waiting · ${w.why}`,
+    options: [{ id: `r:${target.orderId}:${target.shipmentId}`, orderId: target.orderId, shipmentId: target.shipmentId, ref: target.ref, summary: target.summary ?? target.ref, why: w.why, suggested: true }],
+    extras: { createOrder: false, notShipment: true, notDeal: false, askLater: true },
+    details: [],
+    replyHint: ja ? '1 = 添付 · X = まだ待つ · 0 = 後で' : 'Reply 1 = attach · X = keep waiting · 0 = ask later',
+    waitingFile: { emailId: w.emailId, index: w.index, name: w.name, docType: w.docType },
+  };
 }

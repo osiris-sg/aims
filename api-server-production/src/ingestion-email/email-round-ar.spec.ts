@@ -67,3 +67,17 @@ describe('round AR — several shipments, general issues', () => {
     expect(parseReasonerOutput({ isShipmentMail: true, reason: 'r', decisions: [] }, [], 0)?.generalIssue).toBeNull();
   });
 });
+
+import { waitingFileCard } from './email-question';
+
+describe('round AS — a file kept waiting', () => {
+  it('its card proposes the one shipment, Yes / keep waiting / later', () => {
+    const c = waitingFileCard('en', { emailId: 'e', index: 3, name: 'COA 265C1701,265C1689 SUS 26th Oct.pdf', docType: 'COA', why: 'cast 265C1701 on its packing list / COA' }, { orderId: 'o22', shipmentId: 's22', ref: '#22-1', summary: '#22-1 · SUS · 6005' });
+    expect(c.title).toBe('Attach "COA 265C1701,265C1689 SUS 26th Oct.pdf" to #22-1?');
+    expect(c.options).toHaveLength(1);
+    expect(c.options[0]).toMatchObject({ shipmentId: 's22', suggested: true });
+    expect(c.waitingFile).toEqual({ emailId: 'e', index: 3, name: 'COA 265C1701,265C1689 SUS 26th Oct.pdf', docType: 'COA' });
+    expect(c.extras).toEqual({ createOrder: false, notShipment: true, notDeal: false, askLater: true });
+    expect(waitingFileCard('ja', { emailId: 'e', index: 3, name: 'x.pdf', docType: 'COA', why: 'w' }, { orderId: 'o', shipmentId: 's', ref: '#22-1', summary: null }).title).toBe('「x.pdf」を #22-1 に添付しますか？');
+  });
+});
