@@ -640,7 +640,14 @@ export class MaintenanceReportsService {
 
     if (!result.success) {
       this.logger.error(`MSR ${reportId} email failed: ${result.error}`);
+      return;
     }
+    // Record the send on the report so the office page can say "emailed" only
+    // when it really was (guru 2026-10-27: the chip showed on a report the
+    // technician had not even written yet).
+    await this.prisma.maintenanceServiceReport
+      .update({ where: { id: reportId }, data: { serviceData: { ...sd, emailSentAt: new Date().toISOString(), emailSentTo: clientEmail } } })
+      .catch((err: any) => this.logger.warn(`MSR ${reportId}: could not stamp emailSentAt: ${err?.message}`));
   }
 
   /**

@@ -68,6 +68,9 @@ interface ServiceData {
   ess?: EssServiceData | null;
   /** WCT: created with the delivery run, not yet written by the technician. */
   scheduled?: boolean;
+  // Stamped by the API when the report PDF was actually emailed to the customer.
+  emailSentAt?: string;
+  emailSentTo?: string;
 }
 
 interface MsrDetail {
@@ -242,11 +245,22 @@ export default function MaintenanceReportDetailPage() {
               View Invoice
             </Button>
           )}
-          {!report.paymentRequired && (
+          {/* Only a report that was ACTUALLY sent says so (the API stamps
+              serviceData.emailSentAt on a successful send). A finished report
+              with no customer email says why nothing went out; a draft or
+              scheduled report says nothing here. */}
+          {!report.paymentRequired && (report.serviceData as any)?.emailSentAt && (
             <Chip
               icon={<EmailIcon />}
-              label="Report emailed to customer"
+              label={`Report emailed to customer${(report.serviceData as any)?.emailSentTo ? ` · ${(report.serviceData as any).emailSentTo}` : ""}`}
               color="success"
+              variant="outlined"
+            />
+          )}
+          {!report.paymentRequired && report.status === "completed" && !(report.serviceData as any)?.emailSentAt && (
+            <Chip
+              icon={<EmailIcon />}
+              label={(report.serviceData as any)?.clientEmail ? "Email not sent yet" : "Not emailed — no customer email on the report"}
               variant="outlined"
             />
           )}
