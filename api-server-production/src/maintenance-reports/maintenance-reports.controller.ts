@@ -90,6 +90,15 @@ export class MaintenanceReportsController {
     return this.service.completeScheduled(id, body ?? {}, org.id, technicianUserId);
   }
 
+  /** Field app: save the service walk's progress (ticks, photos so far, remarks,
+   *  where the technician is) on the SCHEDULED report, so leaving the page or
+   *  a reload between the Before and After photos loses nothing. */
+  @Patch(':id/draft')
+  @Permissions('maintenance-reports:create')
+  saveDraft(@Param('id') id: string, @Body() body: { draft?: Record<string, any> }, @UserOrganization() org: { id: string }) {
+    return this.service.saveDraft(id, body?.draft ?? {}, org.id);
+  }
+
   /** Optional photos on a SERVICE report: replace the set while it is a draft. */
   @Patch(':id/photos')
   @Permissions('maintenance-reports:create')

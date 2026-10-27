@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
 import {
@@ -19,6 +19,8 @@ import {
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PrintIcon from "@mui/icons-material/Print";
 import DownloadIcon from "@mui/icons-material/Download";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import DoneAllIcon from "@mui/icons-material/DoneAll";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
@@ -35,20 +37,25 @@ import {
 } from "@/lib/msr-templates";
 
 /**
- * WCT SERVICE REPORT — captured from the FINISHED job (2026-10-27).
+ * WCT service job — the SERVICE itself, walked step by step (guru 2026-10-27:
+ * "once he starts delivery the next step is to start the service as well and
+ * then the flow starts"). Reached straight from Start delivery on the run; the
+ * customer's sign-off comes AFTER this walk.
  *
- * The WCT flow is Quotation → DO → service done → invoice → service report:
- * once the run is signed off and its invoice exists, the technician writes the
- * customer's report here — the paper's "Type of Service/Job" ticks, then the
- * Before / After photos of each equipment serviced with the standard work
- * lines, the area-cleaning photo and any remarks. There is no customer
- * signature on this document (the customer signed the DO), so submitting it
- * completes it: it gets its running number, is emailed to the customer and
- * lands on the office's Service Reports page, linked to the run and invoice.
+ *   JOB      — company / location / date (from the run), tick the job types,
+ *              "Start service"
+ *   per section the ticks call for:
+ *     BEFORE — the Before photos, "Work done → After photos"
+ *     AFTER  — the After photos + the ✓ work lines, "Next"
+ *     (a single-grid section — Unit Location, Area Cleaning — is one step)
+ *   FINISH   — remarks, customer email, "Finish service"
+ *   then     — the service lines are ended and the run goes to the customer
+ *              signature; the report has its number and is emailed.
  *
- *   step 1  Job      — company / location / date (from the run), job types
- *   step 2  Photos   — one block per section the job types call for
- *   step 3  Submit   — remarks, customer email, create
+ * Every step is SAVED on the scheduled report (PATCH /maintenance-reports/:id/
+ * draft) as it happens, so leaving the page, a reload or a phone that sleeps
+ * between the Before and the After photos loses nothing: reopening the run
+ * resumes exactly where the technician was.
  *
  * The run's DO_START condition photo of the service line seeds the "Unit
  * Location" grid so the first page needs nothing re-shot.
@@ -62,7 +69,6 @@ interface RunItem {
   assetClass?: string | null;
   deliveryStatus: string;
 }
-
 interface RunReport {
   id: string;
   kind: string;
@@ -70,7 +76,6 @@ interface RunReport {
   photos?: string[] | null;
   deliveryItemId?: string | null;
 }
-
 interface Run {
   id: string;
   deliveryNumber: number;
@@ -92,9 +97,22 @@ const isoDate = (v?: string | null): string => {
   return `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())}`;
 };
 
-type Grids = Record<string, { before: CapturedPhoto[]; after: CapturedPhoto[]; photos: CapturedPhoto[]; lines: Set<number> }>;
+type Grid = { before: CapturedPhoto[]; after: CapturedPhoto[]; photos: CapturedPhoto[]; lines: Set<number> };
+type Grids = Record<string, Grid>;
+/** Where the technician is in the walk. */
+type Cursor = { phase: "job" } | { phase: "section"; index: number; sub: "before" | "after" | "photo" } | { phase: "finish" };
 
-const STEPS = ["Job", "Photos", "Submit"] as const;
+/** The shape saved under serviceData.draft (keys only — photos are S3 keys). */
+interface Draft {
+  jobTypes: string[];
+  grids: Record<string, { before: string[]; after: string[]; photos: string[]; lines: number[] }>;
+  customerName: string;
+  jobLocation: string;
+  serviceDate: string;
+  clientEmail: string;
+  remarks: string;
+  cursor: Cursor;
+}
 
 export default function WctServiceReportPage() {
   const params = useParams();
@@ -106,8 +124,7 @@ export default function WctServiceReportPage() {
   const [run, setRun] = useState<Run | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-
-  const [step, setStep] = useState(1);
+  const [cursor, setCursor] = useState<Cursor>({ phase: "job" });
   const [customerName, setCustomerName] = useState("");
   const [jobLocation, setJobLocation] = useState("");
   const [serviceDate, setServiceDate] = useState(isoDate());
@@ -119,12 +136,22 @@ export default function WctServiceReportPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ id: string; reportNumber: number | null } | null>(null);
-
+  const [restored, setRestored] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const { surface: printSurface, printReport, downloadReport, busy: printBusy } = useMsrPrint();
 
   const technicianName =
     user?.fullName ?? user?.firstName ?? user?.username ?? user?.primaryEmailAddress?.emailAddress ?? undefined;
 
+  // The service line(s) this walk is for; the report SCHEDULED with the run
+  // (a draft row the office's schedule created — completed at the end, which
+  // is when it gets its number); and a report already written.
+  const serviceItems = useMemo(() => (run?.items ?? []).filter((i) => String(i.assetClass ?? "").toUpperCase() === "SERVICE"), [run]);
+  const scheduledDraft = useMemo(() => (run?.reports ?? []).find((r) => r.kind === "SERVICE" && r.status !== "completed") ?? null, [run]);
+  const existing = useMemo(() => (run?.reports ?? []).find((r) => r.kind === "SERVICE" && r.status === "completed") ?? null, [run]);
+  const sections = useMemo(() => wctSectionsFor(Array.from(jobTypes)), [jobTypes]);
+
+  // ── load the run, then resume from the saved draft when there is one ──────
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -139,10 +166,41 @@ export default function WctServiceReportPage() {
         setCustomerName(r.customer?.name ?? "");
         setJobLocation(r.siteAddress ?? "");
         setServiceDate(isoDate(r.completedAt ?? r.scheduledFor ?? null));
+        const draftRow = (r.reports ?? []).find((x) => x.kind === "SERVICE" && x.status !== "completed");
+        if (draftRow) {
+          try {
+            const full = await request({ path: `/maintenance-reports/${draftRow.id}`, method: "GET" }, {}, token);
+            const d: Draft | undefined = (full?.data ?? full)?.serviceData?.draft;
+            if (!cancelled && d && Array.isArray(d.jobTypes)) {
+              setJobTypes(new Set(d.jobTypes));
+              const g: Grids = {};
+              for (const [id, v] of Object.entries(d.grids ?? {})) {
+                g[id] = {
+                  before: (v.before ?? []).map(toPhoto),
+                  after: (v.after ?? []).map(toPhoto),
+                  photos: (v.photos ?? []).map(toPhoto),
+                  lines: new Set(v.lines ?? []),
+                };
+              }
+              setGrids(g);
+              if (d.customerName) setCustomerName(d.customerName);
+              if (d.jobLocation) setJobLocation(d.jobLocation);
+              if (d.serviceDate) setServiceDate(d.serviceDate);
+              if (d.clientEmail) setClientEmail(d.clientEmail);
+              if (d.remarks) setRemarks(d.remarks);
+              if (d.cursor && d.cursor.phase) setCursor(d.cursor);
+            }
+          } catch {
+            /* no draft to resume — start from the top */
+          }
+        }
       } catch (e: any) {
         if (!cancelled) setLoadError(e?.message ?? "Could not load the delivery");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setRestored(true);
+          setLoading(false);
+        }
       }
     })();
     return () => {
@@ -150,17 +208,8 @@ export default function WctServiceReportPage() {
     };
   }, [deliveryId, getToken]);
 
-  // The service line(s) this report is for; the report SCHEDULED with the run
-  // (a draft row the office's schedule created — completed here, which is when
-  // it gets its number); and a report already written.
-  const serviceItems = useMemo(() => (run?.items ?? []).filter((i) => String(i.assetClass ?? "").toUpperCase() === "SERVICE"), [run]);
-  const scheduledDraft = useMemo(() => (run?.reports ?? []).find((r) => r.kind === "SERVICE" && r.status !== "completed") ?? null, [run]);
-  const existing = useMemo(() => (run?.reports ?? []).find((r) => r.kind === "SERVICE" && r.status === "completed") ?? null, [run]);
-
-  const sections = useMemo(() => wctSectionsFor(Array.from(jobTypes)), [jobTypes]);
-
-  // Every section the ticks call for gets a grid; the service line's DO_START
-  // condition photos seed Unit Location once.
+  // Every section the ticks call for gets a grid (a restored one is kept); the
+  // service line's DO_START condition photos seed Unit Location once.
   useEffect(() => {
     setGrids((prev) => {
       const next: Grids = { ...prev };
@@ -180,15 +229,47 @@ export default function WctServiceReportPage() {
     });
   }, [sections, run, serviceItems]);
 
+  // ── autosave the walk on the scheduled report ─────────────────────────────
+  const draftOf = useCallback((): Draft => {
+    const g: Draft["grids"] = {};
+    for (const [id, v] of Object.entries(grids)) {
+      g[id] = { before: v.before.map((p) => p.key), after: v.after.map((p) => p.key), photos: v.photos.map((p) => p.key), lines: Array.from(v.lines).sort((a, b) => a - b) };
+    }
+    return { jobTypes: Array.from(jobTypes), grids: g, customerName, jobLocation, serviceDate, clientEmail, remarks, cursor };
+  }, [grids, jobTypes, customerName, jobLocation, serviceDate, clientEmail, remarks, cursor]);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSaved = useRef<string>("");
+  useEffect(() => {
+    if (!restored || !scheduledDraft || created || existing) return;
+    const payload = draftOf();
+    const json = JSON.stringify(payload);
+    if (json === lastSaved.current) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      try {
+        setSaveState("saving");
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const res = await request({ path: `/maintenance-reports/${scheduledDraft.id}/draft`, method: "PATCH" }, { draft: payload }, token);
+        if (res?.success === false) throw new Error(res?.message ?? "save failed");
+        lastSaved.current = json;
+        setSaveState("saved");
+      } catch {
+        setSaveState("failed");
+      }
+    }, 600);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, [draftOf, restored, scheduledDraft, created, existing, getToken]);
+
   const upload = async (blob: Blob): Promise<string | null> => {
     const token = await getToken();
     if (!token) throw new Error("Not signed in");
     const key = await uploadImage({ blob, folderName: "maintenance-reports", token });
     return key || null;
   };
-
-  const setGrid = (id: string, patch: Partial<Grids[string]>) => setGrids((g) => ({ ...g, [id]: { ...g[id], ...patch } }));
-
+  const setGrid = (id: string, patch: Partial<Grid>) => setGrids((g) => ({ ...g, [id]: { ...g[id], ...patch } }));
   const toggleJobType = (id: string) =>
     setJobTypes((s) => {
       const n = new Set(s);
@@ -197,7 +278,70 @@ export default function WctServiceReportPage() {
       return n;
     });
 
-  const submit = async () => {
+  // A restored cursor can point past the sections the (changed) ticks call for
+  // — fall back to the job step rather than a blank page.
+  useEffect(() => {
+    if (restored && cursor.phase === "section" && !sections[cursor.index]) setCursor({ phase: "job" });
+  }, [restored, cursor, sections]);
+
+  // ── the walk ──────────────────────────────────────────────────────────────
+  const firstStepOf = (index: number): Cursor => ({ phase: "section", index, sub: sections[index]?.mode === "before-after" ? "before" : "photo" });
+  const goNext = () => {
+    setError(null);
+    if (cursor.phase === "job") {
+      setCursor(sections.length ? firstStepOf(0) : { phase: "finish" });
+      return;
+    }
+    if (cursor.phase === "section") {
+      if (cursor.sub === "before") {
+        setCursor({ phase: "section", index: cursor.index, sub: "after" });
+        return;
+      }
+      const nextIndex = cursor.index + 1;
+      setCursor(nextIndex < sections.length ? firstStepOf(nextIndex) : { phase: "finish" });
+    }
+  };
+  const goBack = () => {
+    setError(null);
+    if (cursor.phase === "job") {
+      router.replace(run?.status === "completed" ? `/scan/deliveries/finished/${deliveryId}` : `/scan/delivery/${deliveryId}`);
+      return;
+    }
+    if (cursor.phase === "section") {
+      if (cursor.sub === "after") {
+        setCursor({ phase: "section", index: cursor.index, sub: "before" });
+        return;
+      }
+      if (cursor.index === 0) {
+        setCursor({ phase: "job" });
+        return;
+      }
+      const prev = cursor.index - 1;
+      setCursor({ phase: "section", index: prev, sub: sections[prev]?.mode === "before-after" ? "after" : "photo" });
+      return;
+    }
+    setCursor(sections.length ? { phase: "section", index: sections.length - 1, sub: sections[sections.length - 1].mode === "before-after" ? "after" : "photo" } : { phase: "job" });
+  };
+
+  // Progress: job + one step per grid (two for a before/after section) + finish.
+  const totalSteps = 1 + sections.reduce((n, s) => n + (s.mode === "before-after" ? 2 : 1), 0) + 1;
+  const stepNumber = (() => {
+    if (cursor.phase === "job") return 1;
+    if (cursor.phase === "finish") return totalSteps;
+    let n = 1;
+    for (let i = 0; i < cursor.index; i++) n += sections[i].mode === "before-after" ? 2 : 1;
+    return n + (cursor.sub === "after" ? 2 : 1);
+  })();
+  const stepTitle = (() => {
+    if (cursor.phase === "job") return "Job";
+    if (cursor.phase === "finish") return "Finish";
+    const s = sections[cursor.index];
+    const name = s ? `${s.heading}${s.subject ? ` ${s.subject}` : ""}` : "Section";
+    return cursor.sub === "before" ? `${name} — Before` : cursor.sub === "after" ? `${name} — After` : name;
+  })();
+
+  // ── finish: complete the scheduled report, then the customer's sign-off ──
+  const finish = async () => {
     setError(null);
     setSubmitting(true);
     try {
@@ -258,18 +402,25 @@ export default function WctServiceReportPage() {
       if (res?.success === false) throw new Error(res?.message ?? "Could not create the service report");
       const row = res?.data ?? res;
       setCreated({ id: row.id, reportNumber: row.reportNumber ?? null });
+      // The job is still open: end the service lines (the unsigned "End
+      // Delivery" the DO flow does) and go straight to the customer signature.
+      if (run?.status !== "completed") {
+        const ack = await request({ path: `/deliveries/${deliveryId}/ack-all`, method: "POST" }, {}, token);
+        if (ack?.success === false) throw new Error(ack?.message ?? "Could not end the service lines");
+        router.replace(`/scan/delivery/${deliveryId}/finalize`);
+        return;
+      }
     } catch (e: any) {
-      setError(e?.message ?? "Could not create the service report");
+      setError(e?.message ?? "Could not finish the service");
     } finally {
       setSubmitting(false);
     }
   };
 
-  // After the report: mark every service line delivered (the unsigned "End
-  // Delivery" the DO flow does) and hand over to the one customer signature.
-  const [finishing, setFinishing] = useState(false);
+  // A job that was already signed off before this walk existed: the report is
+  // the last thing, so it just lands on the finished screen.
   const continueToSignOff = async () => {
-    setFinishing(true);
+    setSubmitting(true);
     setError(null);
     try {
       const token = await getToken();
@@ -279,28 +430,20 @@ export default function WctServiceReportPage() {
       router.replace(`/scan/delivery/${deliveryId}/finalize`);
     } catch (e: any) {
       setError(e?.message ?? "Could not continue to the sign-off");
-      setFinishing(false);
+      setSubmitting(false);
     }
   };
-  const stepName = STEPS[step - 1];
+
   useFieldAppBar({
-    title: "Service Report",
-    subtitle: run && !created ? `Delivery #${run.deliveryNumber} · Step ${step} of ${STEPS.length} · ${stepName}` : run ? `Delivery #${run.deliveryNumber}` : undefined,
-    // Step 1's Back goes to the finished-delivery screen (finalize lands here
-    // directly, so history would lead back into the sign-off), which keeps
-    // saying the report is pending until it is written.
-    // Step 1's Back returns to where the job is: the run page while the job is
-    // still open (the report is written during the job, before the sign-off),
-    // the finished-delivery screen once it is completed.
-    onBack: created
-      ? undefined
-      : () => (step === 1 ? router.replace(run?.status === "completed" ? `/scan/deliveries/finished/${deliveryId}` : `/scan/delivery/${deliveryId}`) : setStep((v) => v - 1)),
-    backDisabled: submitting,
+    title: "Service",
+    subtitle: run && !created ? `Delivery #${run.deliveryNumber} · Step ${stepNumber} of ${totalSteps} · ${stepTitle}` : run ? `Delivery #${run.deliveryNumber}` : undefined,
+    onBack: created ? undefined : goBack,
+    backDisabled: submitting || uploading,
   });
 
   if (loading) {
     return (
-      <Box sx={{ display: "flex", justifyContent: "center", py: 10 }}>
+      <Box sx={{ p: 2, display: "flex", justifyContent: "center", pt: 6 }}>
         <CircularProgress />
       </Box>
     );
@@ -340,45 +483,42 @@ export default function WctServiceReportPage() {
             Back to delivery
           </Button>
         ) : (
-          /* The job is still open: the report is written, now the customer
-             signs. End the service lines (unsigned) and go to the sign-off. */
-          <Button
-            variant="contained"
-            color="success"
-            onClick={() => void continueToSignOff()}
-            disabled={finishing}
-            fullWidth
-            sx={FIELD_BUTTON_SX}
-          >
-            {finishing ? "One moment…" : "Continue to customer sign-off"}
+          <Button variant="contained" color="success" onClick={() => void continueToSignOff()} disabled={submitting} fullWidth sx={FIELD_BUTTON_SX}>
+            {submitting ? "One moment…" : "Continue to customer sign-off"}
           </Button>
         )}
       </Box>
     );
   }
 
-  const canLeaveJob = jobTypes.size > 0 && customerName.trim().length > 0;
+  const canStart = jobTypes.size > 0 && customerName.trim().length > 0;
+  const section = cursor.phase === "section" ? sections[cursor.index] : null;
+  const grid = section ? grids[section.id] : null;
+  const saveNote = saveState === "saving" ? "Saving…" : saveState === "saved" ? "Progress saved" : saveState === "failed" ? "Could not save progress — check the connection" : "";
 
   return (
     <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5, pb: 6 }}>
       <Box>
-        <Typography variant="subtitle1">{stepName}</Typography>
-        <LinearProgress variant="determinate" value={(step / STEPS.length) * 100} sx={{ mt: 1, borderRadius: 1, height: 6 }} />
+        <Typography variant="subtitle1">{stepTitle}</Typography>
+        <LinearProgress variant="determinate" value={(stepNumber / totalSteps) * 100} sx={{ mt: 1, borderRadius: 1, height: 6 }} />
+        {scheduledDraft && saveNote && (
+          <Typography variant="caption" color={saveState === "failed" ? "error.main" : "text.secondary"} sx={{ display: "block", mt: 0.5 }}>
+            {saveNote}
+          </Typography>
+        )}
       </Box>
-
       {serviceItems.length === 0 && (
         <Alert severity="warning">This delivery has no Service line. The report is still written against the run.</Alert>
       )}
-      {step === 1 && (
-        <Alert severity="info">
-          {run.status === "completed"
-            ? "The job is signed off. Write the service report now — it goes to the customer by email."
-            : "Write the service report for the work done. The customer signs off right after."}
-        </Alert>
-      )}
 
-      {stepName === "Job" && (
+      {/* JOB — what is being done today */}
+      {cursor.phase === "job" && (
         <Stack spacing={2}>
+          <Alert severity="info">
+            {run.status === "completed"
+              ? "The job is signed off. Write the service report now — it goes to the customer by email."
+              : "Tick what is being done today, then take the Before photos, do the work, take the After photos. The customer signs at the end."}
+          </Alert>
           <TextField label="Company" value={customerName} onChange={(e) => setCustomerName(e.target.value)} fullWidth size="small" />
           <TextField label="Location" value={jobLocation} onChange={(e) => setJobLocation(e.target.value)} fullWidth size="small" multiline minRows={2} />
           <TextField label="Date of Servicing" type="date" value={serviceDate} onChange={(e) => setServiceDate(e.target.value)} fullWidth size="small" InputLabelProps={{ shrink: true }} />
@@ -403,76 +543,85 @@ export default function WctServiceReportPage() {
               ))}
             </Box>
           ))}
-          {!canLeaveJob && <Typography variant="caption" color="text.secondary">Tick at least one job type to continue.</Typography>}
+          {!canStart && <Typography variant="caption" color="text.secondary">Tick at least one job type to start.</Typography>}
+          {error && <Alert severity="error">{error}</Alert>}
+          <Button variant="contained" size="large" startIcon={<PlayArrowIcon />} onClick={goNext} disabled={!canStart} fullWidth sx={FIELD_BUTTON_SX}>
+            Start service
+          </Button>
         </Stack>
       )}
 
-      {stepName === "Photos" && (
-        <Stack spacing={3}>
-          {sections.map((s) => {
-            const g = grids[s.id];
-            if (!g) return null;
-            return (
-              <Box key={s.id} sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 1.5 }}>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                  {s.heading}{s.subject ? ` ${s.subject}` : ""}
+      {/* ONE SECTION — Before, then After (or the single grid) */}
+      {cursor.phase === "section" && section && grid && (
+        <Stack spacing={2}>
+          <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 1.5 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              {section.heading}{section.subject ? ` ${section.subject}` : ""}
+            </Typography>
+            {cursor.sub === "before" && (
+              <>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Take the Before photos, then do the work.
                 </Typography>
-                {s.mode === "before-after" ? (
-                  <>
-                    <PhotoCaptureField label="Before" photos={g.before} onChange={(p) => setGrid(s.id, { before: p })} upload={upload} maxPhotos={WCT_MAX_PHOTOS_PER_GRID} onError={(m) => setError(m || null)} onUploadingChange={setUploading} />
-                    <PhotoCaptureField label="After" photos={g.after} onChange={(p) => setGrid(s.id, { after: p })} upload={upload} maxPhotos={WCT_MAX_PHOTOS_PER_GRID} onError={(m) => setError(m || null)} onUploadingChange={setUploading} />
-                  </>
-                ) : (
-                  <PhotoCaptureField label="Photo" photos={g.photos} onChange={(p) => setGrid(s.id, { photos: p })} upload={upload} maxPhotos={WCT_MAX_PHOTOS_PER_GRID} onError={(m) => setError(m || null)} onUploadingChange={setUploading} />
-                )}
-                <Box sx={{ mt: 1 }}>
-                  {s.lines.map((line, i) => (
-                    <FormControlLabel
-                      key={i}
-                      sx={{ display: "flex", alignItems: "flex-start", ml: 0 }}
-                      control={
-                        <Checkbox
-                          size="small"
-                          checked={g.lines.has(i)}
-                          onChange={() => {
-                            const n = new Set(g.lines);
-                            if (n.has(i)) n.delete(i);
-                            else n.add(i);
-                            setGrid(s.id, { lines: n });
-                          }}
-                          sx={{ py: 0.25 }}
-                        />
-                      }
-                      label={<Typography variant="body2" sx={{ pt: 0.4 }}>{line}</Typography>}
-                    />
-                  ))}
-                </Box>
+                <PhotoCaptureField label="Before" photos={grid.before} onChange={(p) => setGrid(section.id, { before: p })} upload={upload} maxPhotos={WCT_MAX_PHOTOS_PER_GRID} onError={(m) => setError(m || null)} onUploadingChange={setUploading} />
+              </>
+            )}
+            {cursor.sub === "after" && (
+              <>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Work done — take the After photos and un-tick anything not done.
+                </Typography>
+                <PhotoCaptureField label="After" photos={grid.after} onChange={(p) => setGrid(section.id, { after: p })} upload={upload} maxPhotos={WCT_MAX_PHOTOS_PER_GRID} onError={(m) => setError(m || null)} onUploadingChange={setUploading} />
+              </>
+            )}
+            {cursor.sub === "photo" && (
+              <PhotoCaptureField label="Photo" photos={grid.photos} onChange={(p) => setGrid(section.id, { photos: p })} upload={upload} maxPhotos={WCT_MAX_PHOTOS_PER_GRID} onError={(m) => setError(m || null)} onUploadingChange={setUploading} />
+            )}
+            {cursor.sub !== "before" && (
+              <Box sx={{ mt: 1 }}>
+                {section.lines.map((line, i) => (
+                  <FormControlLabel
+                    key={i}
+                    sx={{ display: "flex", alignItems: "flex-start", ml: 0 }}
+                    control={
+                      <Checkbox
+                        size="small"
+                        checked={grid.lines.has(i)}
+                        onChange={() => {
+                          const n = new Set(grid.lines);
+                          if (n.has(i)) n.delete(i);
+                          else n.add(i);
+                          setGrid(section.id, { lines: n });
+                        }}
+                        sx={{ py: 0.25 }}
+                      />
+                    }
+                    label={<Typography variant="body2" sx={{ pt: 0.4 }}>{line}</Typography>}
+                  />
+                ))}
               </Box>
-            );
-          })}
+            )}
+          </Box>
+          {error && <Alert severity="error">{error}</Alert>}
+          <Button variant="contained" size="large" onClick={goNext} disabled={uploading} fullWidth sx={FIELD_BUTTON_SX}>
+            {cursor.sub === "before" ? "Work done → After photos" : cursor.index + 1 < sections.length ? "Next" : "All done → finish"}
+          </Button>
         </Stack>
       )}
 
-      {stepName === "Submit" && (
+      {/* FINISH — remarks, email, complete the report, then the sign-off */}
+      {cursor.phase === "finish" && (
         <Stack spacing={2}>
           <TextField label="Remarks (optional)" value={remarks} onChange={(e) => setRemarks(e.target.value)} fullWidth multiline minRows={3} />
-          <TextField label="Customer email (optional — the report is emailed here)" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} fullWidth size="small" type="email" helperText="Leave blank to use the customer's email on file." />
+          <TextField label="Customer email (optional — the report is emailed here)" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} fullWidth size="small" />
           <Typography variant="body2" color="text.secondary">
             {customerName || "—"} · {jobLocation || "—"} · {serviceDate} · {jobTypes.size} job type{jobTypes.size === 1 ? "" : "s"} · {sections.length} photo section{sections.length === 1 ? "" : "s"}
           </Typography>
+          {error && <Alert severity="error">{error}</Alert>}
+          <Button variant="contained" color="success" size="large" startIcon={<DoneAllIcon />} onClick={finish} disabled={submitting || uploading} fullWidth sx={FIELD_BUTTON_SX}>
+            {submitting ? <CircularProgress size={20} color="inherit" /> : run.status === "completed" ? "Create service report" : "Finish service → customer sign-off"}
+          </Button>
         </Stack>
-      )}
-
-      {error && <Alert severity="error">{error}</Alert>}
-
-      {stepName === "Submit" ? (
-        <Button variant="contained" onClick={submit} disabled={submitting || uploading} fullWidth sx={FIELD_BUTTON_SX}>
-          {submitting ? <CircularProgress size={20} color="inherit" /> : "Create service report"}
-        </Button>
-      ) : (
-        <Button variant="contained" onClick={() => setStep((v) => v + 1)} disabled={uploading || (stepName === "Job" && !canLeaveJob)} fullWidth sx={FIELD_BUTTON_SX}>
-          Next
-        </Button>
       )}
     </Box>
   );

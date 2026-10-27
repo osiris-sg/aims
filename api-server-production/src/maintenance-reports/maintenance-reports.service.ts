@@ -563,6 +563,30 @@ export class MaintenanceReportsService {
    * is still a draft (Pending Sign). A signed report is read-only. Keys come
    * from POST /uploads/image; at most MAX_SERVICE_REPORT_PHOTOS.
    */
+  /**
+   * Save the field walk's progress under serviceData.draft on a draft SERVICE
+   * report (the one scheduled with the run). Replaced whole each time; the
+   * form owns the shape. Capped so a runaway client cannot bloat the row.
+   */
+  async saveDraft(id: string, draft: Record<string, any>, organizationId: string) {
+    const report = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { id, organizationId },
+      select: { id: true, kind: true, status: true, serviceData: true },
+    });
+    if (!report) throw new NotFoundException('Service report not found');
+    if (report.kind !== MaintenanceReportKind.SERVICE) throw new BadRequestException('Only service reports carry a draft');
+    if (report.status === 'completed') throw new BadRequestException('This service report is already completed');
+    if (!draft || typeof draft !== 'object' || Array.isArray(draft)) throw new BadRequestException('draft must be an object');
+    if (JSON.stringify(draft).length > 60_000) throw new BadRequestException('The draft is too large');
+    const sd = ((report.serviceData as Record<string, any> | null) ?? {}) as Record<string, any>;
+    const updated = await this.prisma.maintenanceServiceReport.update({
+      where: { id },
+      data: { serviceData: { ...sd, draft: { ...draft, savedAt: new Date().toISOString() } } as Prisma.InputJsonValue },
+      select: { id: true },
+    });
+    return updated;
+  }
+
   async updatePhotos(id: string, photos: unknown, organizationId: string) {
     const report = await this.prisma.maintenanceServiceReport.findFirst({
       where: { id, organizationId },

@@ -883,6 +883,14 @@ export default function DeliveryBasketPage() {
   // Delivery" / "End Return" button covers all of them: ack-all fans across every
   // delivering item (free-typed included).
   const deliveringItems = run.items.filter((it) => it.deliveryStatus === "delivering");
+  // A service job (WCT) that has been started and has no written report yet:
+  // every line in flight is a SERVICE line with nothing to scan.
+  const serviceJobOpen =
+    !isReturnRun &&
+    run.status === "in_progress" &&
+    deliveringItems.length >= 1 &&
+    deliveringItems.every((it) => !it.inventoryId && !it.assetId && it.effectiveAssetClass === "SERVICE") &&
+    !(run.reports ?? []).some((r) => r.kind === "SERVICE" && r.status === "completed");
 
   // Bulk end: prefer a UNIT lead (its ack -> after-ack screens capture the shared
   // proof, then ack-all fans it across every delivering item including free-typed
@@ -2096,7 +2104,22 @@ export default function DeliveryBasketPage() {
       {/* Single End action for the WHOLE box: a unit lead captures one signature/
           photo/GPS and ack-all fans it across every delivering item (free-typed
           included). Shown while anything is still delivering. */}
-      {deliveringItems.length >= 1 && !returnToAdHoc && !handedOver && (
+      {/* SERVICE JOB in progress (WCT): the service walk — Before photos, the
+          work, After photos, the sign-off — is where the job continues; it
+          resumes where the technician left it. "End Delivery" is done by the
+          walk itself, so it is not offered here. */}
+      {serviceJobOpen ? (
+        <Button
+          fullWidth
+          variant="contained"
+          startIcon={<TaskAltIcon />}
+          onClick={() => router.push(`/scan/delivery/${run.id}/service-report`)}
+          disabled={busy}
+          sx={{ mt: 1.5, minHeight: 44 }}
+        >
+          Continue service
+        </Button>
+      ) : deliveringItems.length >= 1 && !returnToAdHoc && !handedOver && (
         <Button
           fullWidth
           variant="contained"
