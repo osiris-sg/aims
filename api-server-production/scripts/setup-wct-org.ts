@@ -71,15 +71,16 @@ const SOURCE_SCHEMA = 'org_biofuel';
 const OSIRIS_ORG_ID = 'd068f159-e45a-4da8-beaf-62e903f44141';
 const OSIRIS_SCHEMA = 'org_osiris';
 
-// The nav in guru's screenshot: Dashboard · Sales · Inventory · Projects ·
-// Service Reports (MAINTENANCE) · Accounting · Deliveries · Org Settings.
+// The nav (guru 2026-10-27): Dashboard · Sales · Inventory · Deliveries ·
+// Service Reports (MAINTENANCE) · Accounting · Org Settings. No Projects —
+// WCT runs jobs off accepted quotations, never projects.
 // CUSTOMERS / SUPPLIERS live under Org Settings (Master Files). Customer
 // Information explicitly off; CRM / Audit / Admin Panel off as on Biofuel.
 const MODULE_ENABLED: Record<string, boolean> = {
   DASHBOARD: true,
   SALES: true,
   INVENTORY: true,
-  PROJECTS: true,
+  PROJECTS: false, // no projects at WCT (guru 2026-10-27)
   MAINTENANCE: true,
   ACCOUNTING: true,
   DELIVERIES: true,
@@ -99,6 +100,9 @@ const MODULE_ENABLED: Record<string, boolean> = {
   PAYMENTS: false,
   REPORTS: false,
 };
+// Nav positions that differ from Biofuel's stored order (sortOrder, ascending;
+// the sidebar pins SALES at 0.5). Deliveries sits right after Inventory (1).
+const SORT_OVERRIDE: Record<string, number> = { DELIVERIES: 2 };
 // Feature flags forced regardless of the source org.
 const FEATURE_OVERRIDES: Record<string, boolean> = {
   // 2026-10-22: OFF. "Follow the CIEL one" turned out to mean a layout of its
@@ -127,7 +131,7 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   enablePostingQueue: false,
 };
 // Role allowedModules codes that must not carry over (modules off on WCT).
-const DROP_FROM_ROLE_MODULES = new Set(['CRM', 'CUSTOMER_INFORMATION', 'AUDIT', 'ADMIN', 'USER_MANAGEMENT']);
+const DROP_FROM_ROLE_MODULES = new Set(['CRM', 'CUSTOMER_INFORMATION', 'AUDIT', 'ADMIN', 'USER_MANAGEMENT', 'PROJECTS']);
 
 function assertOrgOnly(rows: any[], label: string) {
   for (const r of rows) {
@@ -221,7 +225,7 @@ async function main() {
       enabled: MODULE_ENABLED[m.moduleCode] ?? false,
       displayName: m.displayName,
       icon: m.icon,
-      sortOrder: m.sortOrder,
+      sortOrder: SORT_OVERRIDE[m.moduleCode] ?? m.sortOrder,
       config: cfg,
     };
   });
@@ -229,7 +233,7 @@ async function main() {
     if (stored.has(code)) continue;
     const cat = MODULE_CATALOG.find((c) => c.moduleCode === code);
     if (!cat) continue;
-    modRows.push({ organizationId: ORG_ID, moduleCode: code, enabled: MODULE_ENABLED[code], displayName: cat.displayName, icon: cat.icon, sortOrder: cat.sortOrder, config: cat.config });
+    modRows.push({ organizationId: ORG_ID, moduleCode: code, enabled: MODULE_ENABLED[code], displayName: cat.displayName, icon: cat.icon, sortOrder: SORT_OVERRIDE[code] ?? cat.sortOrder, config: cat.config });
   }
   assertOrgOnly(modRows, 'OrganizationModule');
   const enabledCodes = modRows.filter((m: any) => m.enabled).map((m: any) => m.moduleCode);
@@ -238,7 +242,7 @@ async function main() {
     for (const m of modRows) {
       await plat.organizationModule.upsert({
         where: { organizationId_moduleCode: { organizationId: ORG_ID, moduleCode: m.moduleCode } },
-        update: { enabled: m.enabled }, // reconcile on re-run
+        update: { enabled: m.enabled, sortOrder: m.sortOrder }, // reconcile on re-run
         create: m,
       });
     }
