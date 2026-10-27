@@ -17,6 +17,9 @@ export const SHIPMENT_KEYS = {
   parties: ["trade-parties"] as const,
   generated: ["trade-generated"] as const,
   hub: ["trade-hub"] as const,
+  /** Round AR: issues and a record's emails. */
+  issues: ["trade-issues"] as const,
+  recordEmails: ["trade-record-emails"] as const,
 };
 
 const useOrgId = () => {
@@ -290,6 +293,8 @@ export function useTradeMutation<TVars, TResult>(fn: (api: ReturnType<typeof use
         qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.generated }),
         qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.hub }),
         qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.config }),
+        qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.issues }),
+        qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.recordEmails }),
       ]).catch(() => undefined);
       // Wait for fresh data, but never hold a dialog on "Uploading…" / "Working…" because
       // one refetch is slow or paused: the rest arrives in the background.
@@ -319,4 +324,37 @@ export const useClientSupplier = (id: string | undefined) => {
   const api = useShipmentsApi();
   const orgId = useOrgId();
   return useQuery({ queryKey: [...CLIENT_KEYS.all, orgId, "supplier", id], enabled: !!orgId && !!id, queryFn: () => api.clientSupplier(id!) });
+};
+
+/** Round AR: issues of a customer / supplier / order. */
+export const useIssues = (q: { customerId?: string; supplierId?: string; orderId?: string; shipmentId?: string }, enabled = true) => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({
+    queryKey: [...SHIPMENT_KEYS.issues, orgId, "list", q],
+    enabled: !!orgId && enabled && !!(q.customerId || q.supplierId || q.orderId || q.shipmentId),
+    queryFn: () => api.issues(q),
+  });
+};
+
+/** Round AR: the open issues that apply to a shipment's step (the banner). */
+export const useShipmentIssues = (shipmentId?: string, docType?: string, enabled = true) => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({
+    queryKey: [...SHIPMENT_KEYS.issues, orgId, "shipment", shipmentId, docType ?? null],
+    enabled: !!orgId && !!shipmentId && enabled,
+    queryFn: () => api.issuesForShipment(shipmentId!, docType),
+  });
+};
+
+/** Round AR: the emails linked to a shipment or an order. */
+export const useRecordEmails = (q: { shipmentId?: string; orderId?: string }, enabled = true) => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({
+    queryKey: [...SHIPMENT_KEYS.recordEmails, orgId, q],
+    enabled: !!orgId && enabled && !!(q.shipmentId || q.orderId),
+    queryFn: () => api.recordEmails(q),
+  });
 };

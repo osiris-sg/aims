@@ -37,6 +37,21 @@ function answer(d: any, key: readonly unknown[]): unknown {
     if (!f.customerId && d.ordersQ?.[norm(f)]) return d.ordersQ[norm(f)];
     return f.customerId ? d.ordersBy?.[f.customerId] : d.ordersAll;
   }
+  // Round AR: issues (by supplier / customer / order), the step banner, a record's emails, and the Answer flow's queries.
+  if (k0 === "trade-issues") {
+    if (key[2] === "shipment") return d.issuesShipment?.[key[3] as string] ?? [];
+    const q: any = key[3] ?? {};
+    return d.issues?.[q.supplierId ?? q.customerId ?? q.orderId ?? q.shipmentId] ?? [];
+  }
+  if (k0 === "trade-record-emails") return d.recordEmails ?? [];
+  if (k0 === "trade-shipments" && key[2] === "list") {
+    const f: any = key[3] ?? {};
+    if (d.answer) return f.status === "COMPLETED" ? d.answer.shipsDone : d.answer.shipsOpen;
+  }
+  if (k0 === "trade-parties") return key[2] === "suppliers" ? (d.answer?.suppliers ?? d.suppliers) : (d.answer?.customers ?? d.customers);
+  if (k0 === "inbox-placements") return d.answer?.placements;
+  if (k0 === "inbox-issue-draft") return d.answer?.draft;
+  if (k0 === "trade-cast-search") return d.answer?.cast?.[key[1] as string] ?? [];
   return undefined;
 }
 

@@ -4145,6 +4145,40 @@ model TradeFile {
   @@index([organizationId, sha256])
 }
 
+/// Round AR: a general issue on a customer or supplier — a process / policy change or quality note that is not about
+/// one shipment (e.g. Vedanta: "Mixed-batch bundles: manual COA + ADH material code from Sep supplies"). Shown on the
+/// Clients profile and the order; open issues show as a banner on the affected shipments' steps (docTypes). Never
+/// deleted: resolved (status RESOLVED).
+model TradeIssue {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String
+  title          String
+  summaryEn      String?
+  summaryJa      String?
+  customerId     String?
+  supplierId     String?
+  /// Optional links (ids of TradeOrder / Shipment / EmailIngestLog).
+  orderIds       String[]  @default([])
+  shipmentIds    String[]  @default([])
+  emailLogIds    String[]  @default([])
+  /// The step document types the banner shows on (e.g. CUSTOMER_COA = step 4 COA).
+  docTypes       String[]  @default([])
+  /// Free text: "September supplies", "from 2026-09".
+  effectiveFrom  String?
+  /// OPEN | RESOLVED
+  status         String    @default("OPEN")
+  resolvedAt     DateTime?
+  resolvedByName String?
+  createdById    String?
+  createdByName  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([organizationId, status])
+  @@index([organizationId, customerId])
+  @@index([organizationId, supplierId])
+}
+
 model TradeFileLink {
   id              String   @id @default(uuid()) @db.Uuid
   organizationId  String

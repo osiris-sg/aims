@@ -11,9 +11,10 @@ import { Alert, Box, Chip, CircularProgress, Grid2, Paper, Stack, Tab, Tabs, Typ
 import { useClientSupplier } from "../../../_lib/hooks";
 import OrdersListView from "../../../_components/OrdersListView";
 import { useOrdersView } from "../../../_components/OrdersViewToggle";
+import IssuesPanel from "../../../_components/IssuesPanel";
 import { ClientsHeader, ContactsList, ContractsPanel, KV, T, useLang, useTab } from "../../_components/ClientsBits";
 
-const TABS = ["orders", "contracts", "details"] as const;
+const TABS = ["orders", "contracts", "details", "issues"] as const;
 
 export default function ClientSupplierPage() {
   const { id } = useParams<{ id: string }>();
@@ -43,6 +44,7 @@ export default function ClientSupplierPage() {
             <Tab value="orders" label={L.orders} />
             <Tab value="contracts" label={`${L.contracts} (${d.contracts.length})`} />
             <Tab value="details" label={L.details} />
+            <Tab value="issues" label={lang === "ja" ? "課題" : "Issues"} data-tour="client-tab-issues" />
           </Tabs>
           {tab === "orders" && <OrdersListView fixedSupplierId={d.supplier.id} view={view} onViewChange={setView} />}
           {tab === "contracts" && <ContractsPanel contracts={d.contracts} party="supplier" />}
@@ -95,6 +97,7 @@ export default function ClientSupplierPage() {
               </Grid2>
             </Grid2>
           )}
+          {tab === "issues" && <IssuesPanel supplierId={d.supplier.id} title={lang === "ja" ? "課題" : "Issues"} />}
         </>
       )}
     </Box>

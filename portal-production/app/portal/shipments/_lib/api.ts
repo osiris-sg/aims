@@ -730,6 +730,8 @@ export type InboxMessage = InboxRow & { reason: InboxReason | null; matchReason:
 /** Round W: the question card of an unprocessed thread (see api-server email-question.ts). */
 export type InboxLang = "en" | "ja";
 export type InboxQuestionOption = { id: string; orderId: string; shipmentId: string | null; ref: string; summary: string; why: string; suggested: boolean };
+/** Round AR: AIMS's reading of a general issue (process / policy change), proposed on the card. */
+export type IssueProposal = { title: string; summaryEn: string | null; summaryJa: string | null; effectiveFrom: string | null };
 export type InboxQuestion = {
   kind: "CONFIRM" | "WHICH" | "CHECK" | "NEW_DEAL" | "IS_SHIPMENT" | "RECHECK";
   lang: InboxLang;
@@ -739,9 +741,36 @@ export type InboxQuestion = {
   extras: { createOrder: boolean; notShipment: boolean; notDeal: boolean; askLater: boolean };
   details: string[];
   replyHint: string;
+  /** Round AR: the suggested options belong together (several shipments named exactly) — tick them all. */
+  multi?: boolean;
+  /** Round AR: AIMS reads a general issue — the Answer flow offers it prefilled. */
+  issue?: IssueProposal | null;
 };
-/** Round AA: a "record" answer may name several shipments (`targets`, up to 10); `orderId` / `shipmentId` = the first one (back-compat). */
-export type InboxAnswer = { kind: "record"; orderId?: string | null; shipmentId?: string | null; targets?: Array<{ orderId: string; shipmentId: string | null }> } | { kind: "not_shipment" } | { kind: "not_deal" } | { kind: "later" };
+/** Round AR: one attachment placed — on its own targets (none = not filed), in a slot (doc type). */
+export type AnswerTarget = { orderId: string | null; shipmentId: string | null };
+export type AnswerFile = { emailId: string; index: number; targets: AnswerTarget[]; docType?: string | null };
+export type AnswerIssue = { title: string; summaryEn?: string | null; summaryJa?: string | null; customerId?: string | null; supplierId?: string | null; effectiveFrom?: string | null; docTypes?: string[]; shipmentIds?: string[]; orderIds?: string[] };
+/** Round AA: a "record" answer may name several shipments (`targets`, up to 10); `orderId` / `shipmentId` = the first one (back-compat). Round AR: `files` + `issue`; "general" = an issue (± placed files). */
+export type InboxAnswer =
+  | { kind: "record"; orderId?: string | null; shipmentId?: string | null; targets?: Array<{ orderId: string; shipmentId: string | null }>; files?: AnswerFile[]; issue?: AnswerIssue | null }
+  | { kind: "general"; issue: AnswerIssue; files?: AnswerFile[]; targets?: Array<{ orderId: string; shipmentId: string | null }> }
+  | { kind: "not_shipment" }
+  | { kind: "not_deal" }
+  | { kind: "later" };
+/** Round AR: the confirm screen's per-attachment default target (B/L / CI in the file, else its exact cast / bundle no.). */
+export type PlacementRef = { orderId: string | null; shipmentId: string | null; ref: string | null; why: string };
+export type Placement = { emailId: string; subject: string | null; index: number; name: string; size: number | null; docType: string | null; inline: boolean; keys: string[]; bundles: string[]; defaults: PlacementRef[]; holders: PlacementRef[]; outsidePick: boolean };
+export type IssueDraft = IssueProposal & { docTypes: string[]; supplierId: string | null; customerId: string | null; counterpartyName: string | null };
+/** Round AR — a general issue on a customer / supplier (Clients profile, the order, the step banner). */
+export type TradeIssue = {
+  id: string; title: string; summaryEn: string | null; summaryJa: string | null; customerId: string | null; supplierId: string | null; customerName: string | null; supplierName: string | null;
+  orderIds: string[]; shipmentIds: string[]; emailLogIds: string[]; docTypes: string[]; effectiveFrom: string | null; status: "OPEN" | "RESOLVED";
+  resolvedAt: string | null; resolvedByName: string | null; createdByName: string | null; createdAt: string; updatedAt: string;
+  shipments: Array<{ id: string; ref: string | null }>; orders: Array<{ id: string; ref: string | null }>; emails: Array<{ id: string; subject: string | null; from: string | null; date: string | null }>;
+};
+export type IssueBody = Partial<Pick<TradeIssue, "title" | "summaryEn" | "summaryJa" | "customerId" | "supplierId" | "orderIds" | "shipmentIds" | "emailLogIds" | "docTypes" | "effectiveFrom" | "status">>;
+/** Round AR: an email linked to a shipment / order (its link, any of its targets, or a file it filed there). */
+export type RecordEmail = { id: string; subject: string | null; fromDomain: string | null; date: string; inboxState: string; direction: string | null; counterparty: string | null; targets: number; files: number; issue: { id: string; title: string } | null };
 /** Round AG — the Monthly order list. */
 export type MonthlyQuery = { from?: string; to?: string; basis?: "delivery" | "ship"; customerId?: string; supplier?: string; grade?: string; status?: string; supplierId?: string; stage?: string; bucket?: "pending" | "completed"; q?: string; contractId?: string; shipMonth?: string };
 /** Round AM — plain-word statuses (computed from the steps). */
@@ -765,7 +794,7 @@ export type MonthlyListResult = {
   counts?: { pending: number; completed: number; all: number };
   elsewhere?: string[];
 };
-export type InboxAnswerResult = { kind: InboxAnswer["kind"]; ids: string[]; refs: string[]; files: number; text: string };
+export type InboxAnswerResult = { kind: InboxAnswer["kind"]; ids: string[]; refs: string[]; files: number; text: string; issue?: { id: string; title: string } | null };
 // ── Round AM: Clients (Customers · Suppliers) ─────────────────────────────
 export type ClientStats = { openOrders: number; tonsThisMonth: number; tonsLast3Months: number; last3From: string; last3To: string; lastDelivery: { date: string | null; month: string | null; ref: string } | null };
 export type ClientCustomerRow = ClientStats & { id: string; code: string | null; short: string; name: string; jpName: string | null; currency: string; contracts: number; billingMode: "TWO_STAGE" | "SINGLE"; hasProfile: boolean; port: string | null };
@@ -1790,6 +1819,15 @@ export function useShipmentsApi() {
       /** Round W: one-tap answer of a question card (for every email it covers) and its Undo. */
       inboxAnswer: (ids: string[], answer: InboxAnswer, lang?: InboxLang) => call<InboxAnswerResult>(`/email-inbox/answer${qs({ lang })}`, "POST", { ids, answer }),
       inboxAnswerUndo: (ids: string[], kind: InboxAnswer["kind"]) => call<{ undone: number }>(`/email-inbox/answer/undo`, "POST", { ids, kind }),
+      // Round AR: the confirm screen's placements, a draft issue, a record's emails, issues, the cast-no. search.
+      inboxPlacements: (ids: string[], targets: AnswerTarget[]) => call<{ files: Placement[] }>(`/email-inbox/placements`, "POST", { ids, targets }, 120_000),
+      inboxIssueDraft: (ids: string[]) => call<IssueDraft>(`/email-inbox/issue-draft`, "POST", { ids }, 90_000),
+      recordEmails: (q: { shipmentId?: string; orderId?: string }) => call<RecordEmail[]>(`/email-inbox/record${qs(q)}`),
+      issues: (q: { customerId?: string; supplierId?: string; orderId?: string; shipmentId?: string; status?: "OPEN" | "RESOLVED" }) => call<TradeIssue[]>(`/trade-issues${qs(q)}`),
+      issuesForShipment: (shipmentId: string, docType?: string) => call<TradeIssue[]>(`/trade-issues/shipment/${shipmentId}${qs({ docType })}`),
+      createIssue: (body: IssueBody) => call<TradeIssue>(`/trade-issues`, "POST", body),
+      updateIssue: (id: string, body: IssueBody) => call<TradeIssue>(`/trade-issues/${id}`, "PATCH", body),
+      castSearch: (q: string) => call<Array<{ shipmentId: string; orderId: string | null; key: string }>>(`/trade-issues/casts${qs({ q })}`, "GET", {}, 120_000),
       /** Round T: the whole email (headers, text, defused HTML, attachments) and its thread. */
       inboxMessage: (id: string) => call<EmailMessage>(`/email-inbox/${id}/message`),
       inboxThread: (id: string) => call<InboxThreadDetail>(`/email-inbox/${id}/thread`),

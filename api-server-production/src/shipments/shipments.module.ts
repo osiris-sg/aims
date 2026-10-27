@@ -40,6 +40,9 @@ import { TradeGeneratedService } from './trade-generated.service';
 import { TradeHubService } from './trade-hub.service';
 import { TradeExtractController } from './trade-extract.controller';
 import { TradeExtractService } from './trade-extract.service';
+import { TradeIssuesController } from './trade-issues.controller';
+import { TradeIssuesService } from './trade-issues.service';
+import { TradeCastIndexService } from './trade-cast-index';
 import { TradeFilesController } from './trade-files.controller';
 import { TradeFilesService } from './trade-files.service';
 import { TradeThumbsService } from './trade-thumbs.service';
@@ -57,6 +60,7 @@ import { TradeStepsService } from './trade-steps.service';
 @Module({
   imports: [CommonModule, DocumentExtractionModule, DocumentsModule, DocumentTemplatesModule, EmailModule, NotificationsModule],
   controllers: [
+    TradeIssuesController,
     CarrierTrackingController,
     ClientsController,
     MonthlyListController,
@@ -99,8 +103,10 @@ import { TradeStepsService } from './trade-steps.service';
     TradeGeneratedService,
     TradeHubService,
     TradeExtractService,
+    TradeIssuesService,
+    TradeCastIndexService,
     PrismaService,
   ],
-  exports: [CarrierTrackingService, MonthlyListService, ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService],
+  exports: [CarrierTrackingService, MonthlyListService, ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService, TradeIssuesService, TradeCastIndexService],
 })
 export class ShipmentsModule {}

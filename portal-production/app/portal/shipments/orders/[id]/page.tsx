@@ -39,6 +39,8 @@ import EstimatorPanel, { ESTIMATOR_STEPS } from "../../_components/EstimatorPane
 import ReconciliationPanel from "../../_components/ReconciliationPanel";
 import PriceCheckPanel from "../../_components/PriceCheckPanel";
 import StepPaymentForm from "../../_components/StepPaymentForm";
+import IssuesPanel from "../../_components/IssuesPanel";
+import RecordEmailsPanel from "../../_components/RecordEmailsPanel";
 
 const TABS = ["journey", "details", "files"] as const;
 /** Order steps from here on (11 Invoice #2, 13 reconciliation) show after the shipments. */
@@ -549,6 +551,7 @@ export default function OrderPage() {
       {tab === 1 && (
         <Stack spacing={3}>
           <OrderOverview order={o} onEdit={() => setEditOpen(true)} />
+          <IssuesPanel orderId={o.id} />
           {s && (
             <Box>
               <Typography variant="overline" color="text.secondary">
@@ -568,6 +571,9 @@ export default function OrderPage() {
             </Typography>
             <LinkedDocuments links={o.docLinks ?? []} returnTo={hereTab("files")} canEdit={o.status === "OPEN"} />
             <FilesTable filter={{ orderId: o.id }} currentId={o.id} uploadTargets={[orderOwner]} canUpload={o.status === "OPEN"} />
+            <Box sx={{ mt: 2 }}>
+              <RecordEmailsPanel orderId={o.id} title="Emails — order" />
+            </Box>
           </Box>
           {s && shipOwner && (
             <Box>
@@ -576,6 +582,9 @@ export default function OrderPage() {
               </Typography>
               <LinkedDocuments links={s.docLinks ?? []} returnTo={hereTab("files")} canEdit={s.status === "OPEN"} />
               <FilesTable filter={{ shipmentId: s.id }} currentId={s.id} uploadTargets={[shipOwner]} canUpload={s.status === "OPEN"} />
+              <Box sx={{ mt: 2 }}>
+                <RecordEmailsPanel shipmentId={s.id} title={`Emails — shipment ${s.ref}`} />
+              </Box>
             </Box>
           )}
         </Stack>

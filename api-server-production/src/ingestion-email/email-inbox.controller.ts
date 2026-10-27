@@ -4,7 +4,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { AnswerBody, EmailTriageService, InboxState, IntakeTarget } from './email-triage.service';
+import { AnswerBody, AnswerFile, AnswerIssue, EmailTriageService, InboxState, IntakeTarget } from './email-triage.service';
 import { Lang } from './email-question';
 import { StoredEmailMeta } from './email-store';
 import { S3Service } from '../common/services/s3.service';
@@ -65,9 +65,39 @@ export class EmailInboxController {
   @ApiOperation({ summary: 'Round W: undo an answer — files back out, hidden emails back, a snooze cleared.' })
   answerUndo(@Body() body: { ids?: unknown; kind?: unknown }, @Req() req: Req2) {
     const ids = Array.isArray(body?.ids) ? body.ids.filter((x: unknown): x is string => typeof x === 'string' && UUID.test(x)) : [];
-    const kind = ['record', 'not_shipment', 'not_deal', 'later'].includes(String(body?.kind)) ? (String(body!.kind) as AnswerBody['kind']) : null;
+    const kind = ['record', 'general', 'not_shipment', 'not_deal', 'later'].includes(String(body?.kind)) ? (String(body!.kind) as AnswerBody['kind']) : null;
     if (!ids.length || !kind) throw new BadRequestException('ids and kind are required');
     return this.triage.answerUndo(this.org(req), { ids, kind }, this.actor(req));
+  }
+
+  @Post('placements')
+  @Permissions('shipments:read')
+  @ApiOperation({ summary: "Round AR: the Answer flow's confirm screen — each attachment of these emails with its slot and AIMS's best target (B/L / CI in the file, else its exact cast / bundle no.)." })
+  placements(@Body() body: { ids?: unknown; targets?: unknown }, @Req() req: Req2) {
+    const ids = Array.isArray(body?.ids) ? body.ids.filter((x: unknown): x is string => typeof x === 'string' && UUID.test(x)) : [];
+    if (!ids.length) throw new BadRequestException('ids are required');
+    const id = (v: unknown) => (typeof v === 'string' && UUID.test(v) ? v : null);
+    const targets = Array.isArray(body?.targets) ? body.targets.slice(0, 10).map((t: any) => ({ orderId: id(t?.orderId), shipmentId: id(t?.shipmentId) })).filter((t: any) => t.orderId || t.shipmentId) : [];
+    return this.triage.placements(this.org(req), ids, targets);
+  }
+
+  @Post('issue-draft')
+  @Permissions('shipments:read')
+  @ApiOperation({ summary: 'Round AR: a draft general issue (title, EN + JA summary, effective from, supplier / customer) read from these emails — nothing is saved.' })
+  issueDraft(@Body() body: { ids?: unknown }, @Req() req: Req2) {
+    const ids = Array.isArray(body?.ids) ? body.ids.filter((x: unknown): x is string => typeof x === 'string' && UUID.test(x)) : [];
+    if (!ids.length) throw new BadRequestException('ids are required');
+    return this.triage.issueDraft(this.org(req), ids);
+  }
+
+  @Get('record')
+  @Permissions('shipments:read')
+  @ApiOperation({ summary: "Round AR: the emails linked to a shipment or an order (its link, any of its targets, or a file it filed there)." })
+  recordEmails(@Query('shipmentId') shipmentId: string | undefined, @Query('orderId') orderId: string | undefined, @Req() req: Req2) {
+    const sid = shipmentId && UUID.test(shipmentId) ? shipmentId : null;
+    const oid = orderId && UUID.test(orderId) ? orderId : null;
+    if (!sid && !oid) throw new BadRequestException('shipmentId or orderId is required');
+    return this.triage.recordEmails(this.org(req), { shipmentId: sid, orderId: oid });
   }
 
   @Get('filter-preview')
@@ -248,9 +278,52 @@ function cleanAnswer(a: unknown): AnswerBody | null {
     const shipmentId = id(o.shipmentId);
     // Round AA: several shipments at once (the Choose-shipment dialog), at most 10.
     const targets = Array.isArray(o.targets) ? o.targets.map((t: any) => ({ orderId: id(t?.orderId), shipmentId: id(t?.shipmentId) })).filter((t: any) => t.orderId || t.shipmentId).slice(0, 10) : [];
-    return orderId || shipmentId || targets.length ? { kind: 'record', orderId: orderId ?? targets[0]?.orderId ?? null, shipmentId: shipmentId ?? targets[0]?.shipmentId ?? null, ...(targets.length ? { targets } : {}) } : null;
+    const files = cleanFiles(o.files);
+    const issue = cleanIssueIn(o.issue);
+    const placed = (files ?? []).some((f) => f.targets.length);
+    return orderId || shipmentId || targets.length || placed ? { kind: 'record', orderId: orderId ?? targets[0]?.orderId ?? null, shipmentId: shipmentId ?? targets[0]?.shipmentId ?? null, ...(targets.length ? { targets } : {}), ...(files ? { files } : {}), ...(issue ? { issue } : {}) } : null;
+  }
+  if (o.kind === 'general') {
+    const issue = cleanIssueIn(o.issue);
+    if (!issue) return null;
+    const files = cleanFiles(o.files);
+    const targets = Array.isArray(o.targets) ? o.targets.map((t: any) => ({ orderId: id(t?.orderId), shipmentId: id(t?.shipmentId) })).filter((t: any) => t.orderId || t.shipmentId).slice(0, 10) : [];
+    return { kind: 'general', issue, ...(files ? { files } : {}), ...(targets.length ? { targets } : {}) };
   }
   return o.kind === 'not_shipment' || o.kind === 'not_deal' || o.kind === 'later' ? { kind: o.kind } : null;
+}
+
+/** Round AR: the answer's per-attachment placements (at most 100) — each with its own targets (≤10) and slot. */
+function cleanFiles(v: unknown): AnswerFile[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const id = (x: unknown) => (typeof x === 'string' && UUID.test(x) ? x : null);
+  return v.slice(0, 100).flatMap((f: any) => {
+    const emailId = id(f?.emailId);
+    const index = Number(f?.index);
+    if (!emailId || !Number.isInteger(index) || index < 0 || index >= 100) return [];
+    const targets = (Array.isArray(f?.targets) ? f.targets : []).map((t: any) => ({ orderId: id(t?.orderId), shipmentId: id(t?.shipmentId) })).filter((t: any) => t.orderId || t.shipmentId).slice(0, 10);
+    const docType = typeof f?.docType === 'string' && /^[A-Z0-9_]{2,40}$/.test(f.docType) ? f.docType : null;
+    return [{ emailId, index, targets, docType }];
+  });
+}
+
+/** Round AR: a general issue from the Answer flow (validated again by the issues service). */
+function cleanIssueIn(v: unknown): AnswerIssue | null {
+  const o = v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
+  if (!o || typeof o.title !== 'string' || !o.title.trim()) return null;
+  const s = (x: unknown) => (typeof x === 'string' && x.trim() ? x.trim() : null);
+  const ids = (x: unknown) => (Array.isArray(x) ? x.filter((y): y is string => typeof y === 'string' && UUID.test(y)).slice(0, 50) : []);
+  return {
+    title: o.title.trim().slice(0, 200),
+    summaryEn: s(o.summaryEn),
+    summaryJa: s(o.summaryJa),
+    customerId: s(o.customerId),
+    supplierId: s(o.supplierId),
+    effectiveFrom: s(o.effectiveFrom),
+    docTypes: Array.isArray(o.docTypes) ? o.docTypes.filter((d): d is string => typeof d === 'string' && /^[A-Z0-9_]{2,40}$/.test(d)).slice(0, 10) : [],
+    shipmentIds: ids(o.shipmentIds),
+    orderIds: ids(o.orderIds),
+  };
 }
 /** Assign / preview body: ids validated, at most 10 targets, attachment indexes as small integers. */
 function cleanAssign(body: { orderId?: unknown; shipmentId?: unknown; targets?: unknown; accept?: unknown }): { orderId?: string | null; shipmentId?: string | null; targets?: IntakeTarget[]; accept?: boolean } {

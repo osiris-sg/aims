@@ -53,6 +53,7 @@ import { FileThumb, useFileViewer } from "./FilePreview";
 import LinkInvoiceDialog from "./LinkInvoiceDialog";
 import { DocLinkChip } from "./LinkedDocuments";
 import BulkDropDialog, { bulkDocTypes } from "./BulkDropDialog";
+import IssueBanner from "./IssueBanner";
 
 /** One short line under each document title (what it is / where it comes from). */
 const DOC_HINTS: Record<string, string> = {
@@ -515,6 +516,8 @@ export default function StepCards({
         </Stack>
 
         <Stack spacing={1.25} sx={{ mt: 2 }}>
+          {/* Round AR: open general issues (supplier / customer / order) for the COA step. */}
+          {owner.kind === "shipment" && s.requiredDocTypes.includes("CUSTOMER_COA") && <IssueBanner shipmentId={owner.id} docType="CUSTOMER_COA" />}
           {recordOpen && s.requiredDocTypes.filter((d) => !canCreate(d)).length >= 2 && (
             <Box data-tour="step-bulk-drop">
               <DropZone

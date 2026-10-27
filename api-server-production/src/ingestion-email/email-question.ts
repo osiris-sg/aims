@@ -34,6 +34,10 @@ export interface QuestionCard {
   extras: { createOrder: boolean; notShipment: boolean; notDeal: boolean; askLater: boolean };
   /** NEW_DEAL: the PI / contract details AIMS found ("PI SIAE_PI_26100906", "6063 · 50 t"). */
   details: string[];
+  /** Round AR: the suggested options belong together (the email names several shipments exactly) — tick them all. */
+  multi?: boolean;
+  /** Round AR: AIMS reads a general issue (process / policy change), proposed as "General issue" with this draft. */
+  issue?: { title: string; summaryEn: string | null; summaryJa: string | null; effectiveFrom: string | null } | null;
   /** The WhatsApp line: "Reply 1, 2 or 3 · 0 = ask later · X = not a shipment". */
   replyHint: string;
 }
@@ -57,6 +61,10 @@ export interface QuestionInput {
   recheck?: { current: string[]; second: Array<{ orderId: string; shipmentId: string | null; ref: string }>; secondText: string } | null;
   /** NO_ORDER: the order-form seed(s) of the thread. */
   seed?: { piNo: string | null; contractNo: string | null; grade: string | null; qtyMt: number | null; customerKey: string | null; deliveryMonth: string | null } | null;
+  /** Round AR: shipments named exactly (B/L / CI / cast / bundle no.) — several = proposed together. */
+  multi?: Array<{ orderId: string; shipmentId: string | null; ref: string; why: string[] }>;
+  /** Round AR: the reasoner's general-issue reading. */
+  issue?: { title: string; summaryEn: string | null; summaryJa: string | null; effectiveFrom: string | null } | null;
   /** The record summary ("#18-2 · SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct"). */
   summaryOf: (orderId: string, shipmentId: string | null) => string | null;
   date?: Date | null;
@@ -72,6 +80,8 @@ const T = {
     newDeal: 'New deal not in AIMS yet. Create the order?',
     newDealKnown: (what: string) => `Is this about the new ${what} deal? It isn't in AIMS yet.`,
     recheck: "AIMS re-checked this and isn't sure anymore. Which is right?",
+    multi: (n: number, refs: string) => `This email is about ${n} shipments (${refs}). Link it to all of them?`,
+    general: (title: string) => `Looks like a general issue, not one shipment: "${title}". Add it as an issue?`,
     from: (c: string) => `From ${c}`,
     files: (n: number) => `${n} file${n === 1 ? '' : 's'}`,
     mentions: (x: string) => `mentions ${x}`,
@@ -92,6 +102,8 @@ const T = {
     newDeal: 'AIMSにまだない新しい案件です。注文を作成しますか？',
     newDealKnown: (what: string) => `新しい ${what} の案件ですか？ AIMSにはまだありません。`,
     recheck: 'AIMSが再確認したところ、確信が持てなくなりました。どちらが正しいですか？',
+    multi: (n: number, refs: string) => `このメールは ${n} 件の出荷（${refs}）に関するものです。すべてに紐付けますか？`,
+    general: (title: string) => `特定の出荷ではない全般的な課題のようです：「${title}」。課題として追加しますか？`,
     from: (c: string) => `${c} から`,
     files: (n: number) => `添付 ${n} 件`,
     mentions: (x: string) => `${x} に言及`,
@@ -151,6 +163,8 @@ export function questionOf(i: QuestionInput): QuestionCard {
     if (i.suggested) push(opt({ ...i.suggested, why: [t.before] }, true));
     for (const s of i.recheck.second) push(opt({ ...s, why: [i.recheck.secondText] }, false));
   } else if (i.suggested) push(opt(i.suggested, true));
+  // Round AR: every shipment the email names exactly is proposed (ticked) together.
+  for (const c of i.multi ?? []) push(opt(c, true));
   for (const c of i.candidates) push(opt(c, false));
   // An order-level option is redundant when one of its shipments is already an option ("#20" next to "#20-1").
   // Round X: up to 8 options — a detention request quoting every Wan Hai shipment names them all.
@@ -162,8 +176,11 @@ export function questionOf(i: QuestionInput): QuestionCard {
   const keyLine = i.keys?.blNo ? `B/L ${i.keys.blNo}` : i.keys?.piNo ? `PI ${i.keys.piNo}` : i.keys?.ciNo ? `CI ${i.keys.ciNo}` : i.keys?.contractNo ? (ja ? `契約 ${i.keys.contractNo}` : `contract ${i.keys.contractNo}`) : t.noBl;
   const found = [i.company ? t.from(i.company) : null, i.attachments.length ? t.files(i.attachments.length) : null, mentions ? t.mentions(mentions) : null, keyLine, i.threadSize > 1 && i.threadSubject ? t.thread(i.threadSubject.replace(/\s+/g, ' ').trim().slice(0, 30)) : null].filter(Boolean).join(' · ');
 
-  const base = { lang: i.lang, found, options: opts, details: [] as string[], extras: { createOrder: true, notShipment: true, notDeal: false, askLater: true } };
+  const multi = !i.recheck && (i.multi?.length ?? 0) > 1;
+  const base = { lang: i.lang, found, options: opts, details: [] as string[], extras: { createOrder: true, notShipment: true, notDeal: false, askLater: true }, ...(multi ? { multi: true } : {}), ...(i.issue ? { issue: i.issue } : {}) };
   if (i.recheck) return { ...base, kind: 'RECHECK', title: t.recheck, replyHint: t.replyHint(opts.length) };
+  if (multi) return { ...base, kind: 'WHICH', title: t.multi(opts.filter((o) => o.suggested).length, opts.filter((o) => o.suggested).map((o) => o.ref).join(ja ? '、' : ', ')), replyHint: t.replyHint(opts.length) };
+  if (i.issue && !i.suggested) return { ...base, kind: 'WHICH', title: t.general(i.issue.title), replyHint: t.replyHint(opts.length) };
   if (i.reasonCode === 'NO_ORDER') {
     const s = i.seed;
     const what = [s?.grade, s?.qtyMt ? `${s.qtyMt} t` : null].filter(Boolean).join(' · ');
@@ -187,11 +204,15 @@ export function questionWhatsAppText(q: QuestionCard, subject60: string): string
 }
 
 /** After an answer: "Linked to #18-2 · 2 files filed" / "Hidden — not about a shipment" / "Asked again tomorrow". */
-export function answerText(kind: 'record' | 'not_shipment' | 'not_deal' | 'later', lang: Lang, o: { refs?: string[]; files?: number; emails?: number } = {}): string {
+export function answerText(kind: 'record' | 'general' | 'not_shipment' | 'not_deal' | 'later', lang: Lang, o: { refs?: string[]; files?: number; emails?: number; issue?: string | null } = {}): string {
   const ja = lang === 'ja';
   const refs = (o.refs ?? []).join(' + ');
   const files = o.files ?? 0;
   const n = o.emails ?? 1;
+  // Round AR: a general issue (with or without linked shipments).
+  const issue = o.issue ? (ja ? `課題「${o.issue}」を追加` : `Issue added: ${o.issue}`) : '';
+  if ((kind === 'record' || kind === 'general') && !refs) return issue || (ja ? '処理しました' : 'Done');
+  if (kind === 'general' || (kind === 'record' && issue)) return [issue, answerText('record', lang, { ...o, issue: null })].filter(Boolean).join(ja ? ' · ' : ' · ');
   if (kind === 'record') return ja ? `${refs} に紐付けました${files ? ` · 書類 ${files} 件を登録` : ''}${n > 1 ? `（メール ${n} 件）` : ''}` : `Linked to ${refs}${files ? ` · ${files} file${files === 1 ? '' : 's'} filed` : ''}${n > 1 ? ` (${n} emails)` : ''}`;
   if (kind === 'not_shipment') return ja ? '非表示にしました — 出荷ではない' : 'Hidden — not about a shipment';
   if (kind === 'not_deal') return ja ? '非表示にしました — 案件ではない' : 'Hidden — not a deal';
