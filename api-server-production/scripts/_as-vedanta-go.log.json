@@ -1,0 +1,67 @@
+[
+ {
+  "at": "2026-10-27T19:04:04.975Z",
+  "action": "ANSWER",
+  "email": "ba03dfb5-353a-4f08-bea0-b586d3eb1864",
+  "result": "Issue added: Vedanta: New bundling & COA policy for ADH material from September supplies · Linked to #16-1 + #19-2 · 2 files filed",
+  "issue": {
+   "id": "e9cb904c-1dc4-422d-b9fd-91be20d3b8e9",
+   "title": "Vedanta: New bundling & COA policy for ADH material from September supplies"
+  }
+ },
+ {
+  "at": "2026-10-27T19:04:04.988Z",
+  "action": "FILE",
+  "kind": "file",
+  "status": "done",
+  "file": "COA 265C1186 SUS 26th Oct.pdf",
+  "docType": "COA",
+  "ownerId": "a3bb6f9f-3d72-480b-bd64-3c929cb67d1f",
+  "fileId": "4c2a6f1e-51bc-4678-aa7a-946678255d23"
+ },
+ {
+  "at": "2026-10-27T19:04:04.988Z",
+  "action": "FILE",
+  "kind": "file",
+  "status": "done",
+  "file": "AUTOMATIC COA.pdf",
+  "docType": "COA",
+  "ownerId": "1c960d3a-35ff-4197-8ceb-7196fa92cde3",
+  "fileId": "492879d5-f308-4bed-88f4-4c977dd354b8"
+ },
+ {
+  "at": "2026-10-27T19:04:04.988Z",
+  "action": "WAITING",
+  "waiting": [
+   {
+    "by": "Elroy (owner's go, round AS)",
+    "keys": [
+     "265C168914",
+     "265C170109",
+     "265C1689",
+     "265C1701",
+     "266C1692"
+    ],
+    "name": "COA 265C1701,265C1689 SUS 26th Oct.pdf",
+    "index": 3,
+    "since": "2026-10-27T19:04:04.948Z",
+    "status": "waiting",
+    "docType": "COA",
+    "rejected": []
+   }
+  ]
+ },
+ {
+  "at": "2026-10-27T19:04:24.383Z",
+  "action": "UPDATE",
+  "what": "waiting keys",
+  "keys": [
+   [
+    "265C168914",
+    "265C170109",
+    "265C1689",
+    "265C1701"
+   ]
+  ]
+ }
+]

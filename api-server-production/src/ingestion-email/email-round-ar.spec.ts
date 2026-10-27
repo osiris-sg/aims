@@ -81,3 +81,12 @@ describe('round AS — a file kept waiting', () => {
     expect(waitingFileCard('ja', { emailId: 'e', index: 3, name: 'x.pdf', docType: 'COA', why: 'w' }, { orderId: 'o', shipmentId: 's', ref: '#22-1', summary: null }).title).toBe('「x.pdf」を #22-1 に添付しますか？');
   });
 });
+
+import { waitingKeys } from './email-triage.service';
+
+describe('round AS — waiting keys', () => {
+  it('bundles and their own casts, never the minority cast', () => {
+    expect(waitingKeys('COA 265C1701,265C1689 SUS 26th Oct.pdf\n265C168914 266C1692 1 B600526\n265C170109 265C1701')).toEqual(['265C168914', '265C170109', '265C1689', '265C1701']);
+    expect(waitingKeys('COA 265C1186.pdf')).toEqual(['265C1186']);
+  });
+});

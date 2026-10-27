@@ -504,8 +504,7 @@ export class EmailTriageService {
       .filter((f) => !prev.some((w) => w.index === f.index))
       .map((f) => {
         const att = ev.attachments[f.index];
-        const keys = castKeysOf(`${att?.name ?? ''}\n${att?.text ?? ''}`);
-        return { index: f.index, name: att?.name ?? `attachment ${f.index + 1}`, docType: f.docType ?? typed.find((t) => t.filename === att?.name)?.docType ?? 'COA', keys: [...keys.batches, ...keys.casts], status: 'waiting', since: new Date().toISOString(), by: actor.name ?? actor.id, rejected: [] as string[] };
+        return { index: f.index, name: att?.name ?? `attachment ${f.index + 1}`, docType: f.docType ?? typed.find((t) => t.filename === att?.name)?.docType ?? 'COA', keys: waitingKeys(`${att?.name ?? ''}\n${att?.text ?? ''}`), status: 'waiting', since: new Date().toISOString(), by: actor.name ?? actor.id, rejected: [] as string[] };
       })
       .filter((w) => w.keys.length);
     if (!add.length) return;
@@ -2622,6 +2621,15 @@ export function placementTargets(chosen: Array<{ orderId: string | null; shipmen
     }
   }
   return [...map.values()].slice(0, 10);
+}
+
+/**
+ * Round AS — what a waiting file waits for: its bundle numbers and their own casts (a manual COA's minority cast, e.g.
+ * 266C1692 in "COA 265C1701,265C1689", would point at another shipment); the casts it names when it names no bundle.
+ */
+export function waitingKeys(text: string): string[] {
+  const k = castKeysOf(text);
+  return k.batches.length ? [...k.batches, ...new Set(k.batches.map((b) => b.slice(0, 8)))] : k.casts;
 }
 
 /** Extra fields the store keeps for triage (header To / Cc, thread headers, the body's text). */
