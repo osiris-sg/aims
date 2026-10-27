@@ -15,7 +15,10 @@ import { AssetClass } from '@prisma/client';
 export const MIN_PHOTOS_BY_ASSET_CLASS: Record<AssetClass, number> = {
   EQUIPMENT: 4, // Front, Back, Left, Right
   ACCESSORY: 1,
-  SERVICE: 1, // one "before" shot of the work area
+  // No DO photos for a service job (WCT 2026-10-27): on the DO the technician
+  // only selects the lines being done and the customer signs once; the Before /
+  // After photos of the work belong to the SERVICE REPORT written right after.
+  SERVICE: 0,
 };
 
 /** The class every unclassified thing falls back to (matches the column default). */

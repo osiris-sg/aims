@@ -17,7 +17,9 @@ export const DEFAULT_ASSET_CLASS: AssetClass = "EQUIPMENT";
 export const MIN_PHOTOS_BY_ASSET_CLASS: Record<AssetClass, number> = {
   EQUIPMENT: 4, // Front, Back, Left, Right
   ACCESSORY: 1,
-  SERVICE: 1,
+  // A service job takes no DO photos (WCT 2026-10-27): the line is just selected
+  // on the DO; the Before / After photos belong to the service report after it.
+  SERVICE: 0,
 };
 
 /** Picker options for a CATALOG asset or a stock-org free-typed line. */

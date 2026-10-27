@@ -42,6 +42,7 @@ import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
 import EditNoteIcon from "@mui/icons-material/EditNote";
 import SkipNextIcon from "@mui/icons-material/SkipNext";
+import TaskAltIcon from "@mui/icons-material/TaskAlt";
 import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
@@ -482,6 +483,36 @@ export default function DeliveryBasketPage() {
       }
     },
     [deliveryId, getToken, fetchRun, router],
+  );
+
+  // SERVICE line (WCT service job, 2026-10-27): on the DO the technician only
+  // SELECTS the line being done — no condition photo, no per-line signature.
+  // Start it straight from here (the free-item photo page is for stock lines);
+  // the bottom "End Delivery" and the one signature at finish follow, and the
+  // Before / After photos of the work are captured in the service report after.
+  const selectServiceLine = useCallback(
+    async (it: RunItem) => {
+      setBusy(true);
+      setActionMsg(null);
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const res = await request(
+          { path: `/deliveries/${deliveryId}/items/${encodeURIComponent(it.id)}/start`, method: "POST" },
+          { photos: [] },
+          token,
+        );
+        if (res?.success === false) throw new Error(res?.message ?? "Could not select this item");
+        const fresh = await fetchRun();
+        if (fresh) setRun(fresh);
+        setActionMsg(`${it.description || "Item"} selected ✓`);
+      } catch (e: any) {
+        setActionMsg(e?.message ?? "Could not select this item");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [deliveryId, getToken, fetchRun],
   );
 
   // Collect ONE return item — NO signature (2026-08 signature-at-end for returns,
@@ -1756,6 +1787,18 @@ export default function DeliveryBasketPage() {
                   OUTBOUND here (same guided capture, class-based minimum); only the
                   End differs (a return is collected, not signed for). */}
               {!walkItem.inventoryId && !walkItem.assetId && walkItem.deliveryStatus === "not_delivered" && (
+                walkItem.effectiveAssetClass === "SERVICE" && !isReturnRun ? (
+                  <Button
+                    variant="contained"
+                    size="large"
+                    startIcon={<TaskAltIcon />}
+                    onClick={() => selectServiceLine(walkItem)}
+                    disabled={busy}
+                    sx={{ py: 1.5, minHeight: 48 }}
+                  >
+                    Select item
+                  </Button>
+                ) : (
                 <Button
                   variant="contained"
                   size="large"
@@ -1766,6 +1809,7 @@ export default function DeliveryBasketPage() {
                 >
                   {isReturnRun ? "Start Return" : "Start Delivery"}
                 </Button>
+                )
               )}
               {/* Free-typed line already started -> End marks it delivered with no
                   signature (captured at Finalize), by DeliveryItem.id. */}
@@ -1953,6 +1997,19 @@ export default function DeliveryBasketPage() {
                         own page, keyed by DeliveryItem.id: Start (guided photos)
                         then End (signature). Same lifecycle as a unit line. */}
                     {!it.inventoryId && !it.assetId && it.deliveryStatus === "not_delivered" && run.status !== "cancelled" && (
+                      it.effectiveAssetClass === "SERVICE" && !isReturnRun ? (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<TaskAltIcon />}
+                          onClick={() => selectServiceLine(it)}
+                          disabled={busy}
+                          sx={{ minHeight: 40 }}
+                          data-tour="run-select-service-item"
+                        >
+                          Select item
+                        </Button>
+                      ) : (
                       <Button
                         size="small"
                         variant="contained"
@@ -1963,6 +2020,7 @@ export default function DeliveryBasketPage() {
                       >
                         {isReturnRun ? "Start Return" : "Start Delivery"}
                       </Button>
+                      )
                     )}
                     {/* Delivering items (free-typed and unit) have NO per-item End
                         action — the single "End Delivery" at the bottom of the box

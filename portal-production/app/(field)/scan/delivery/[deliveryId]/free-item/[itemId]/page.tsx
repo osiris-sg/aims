@@ -21,7 +21,7 @@ import { capturePosition } from "@/helpers/geolocation";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
 import GuidedPhotoCapture from "@/components/delivery/GuidedPhotoCapture";
 import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/SignaturePadField";
-import { minPhotosForAssetClass } from "@/helpers/assetClass";
+import { assetClassLabel, minPhotosForAssetClass } from "@/helpers/assetClass";
 
 /**
  * FREE-TYPED line — full delivery flow (Route A). A description-only line (a
@@ -220,7 +220,7 @@ export default function FreeTypedItemFlowPage() {
     <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5 }}>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", rowGap: 0.5 }}>
         <Typography variant="subtitle1">{label}</Typography>
-        <StatusChip label={requiredPhotos === 1 ? "ACCESSORY" : "EQUIPMENT"} tone="neutral" />
+        <StatusChip label={assetClassLabel(item.assetClass).toUpperCase()} tone="neutral" />
       </Stack>
 
       {isStart ? (
@@ -236,7 +236,7 @@ export default function FreeTypedItemFlowPage() {
             />
           ) : (
             <PhotoCaptureField
-              label="Condition photo (required)"
+              label={requiredPhotos === 0 ? "Photo (optional — the service report takes the Before / After)" : "Condition photo (required)"}
               photos={photos}
               onChange={setPhotos}
               upload={uploadPhoto("do-start")}

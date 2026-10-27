@@ -254,6 +254,12 @@ reproduced as the `WCT_V1` service-report template:
   (`ensureScheduledServiceReport`). Service Reports lists it as **Scheduled**
   (kept out of the field app's Pending Sign list), the run page shows a
   "Service report" bar; cancel / delete / back-to-draft drops it.
+- **The DO step is just selection** (guru, round 5c): a Service line takes
+  no condition photo (`MIN_PHOTOS_BY_ASSET_CLASS.SERVICE = 0`, both copies)
+  and no per-line signature. The run page's "Select item" button starts the
+  line in one tap (`POST items/:id/start`, no photos); "End Delivery" and the
+  one signature at finish are unchanged; the run list's `photos` flag skips a
+  service-only run. Stock lines (Equipment / Accessory) keep the photo flow.
 - **Mandatory, right after the sign-off** — the field finalize of a service
   job lands on `/scan/delivery/[id]/service-report` instead of "Delivery
   completed": step 1 Company / Location / Date (from the run) + job types;

@@ -2339,6 +2339,9 @@ export class DeliveriesService {
               assetId: true,
               inventoryId: true,
               documentId: true,
+              // SERVICE lines take no DO photos (the service report has them),
+              // so the `photos` signal below skips a service-only run.
+              assetClass: true,
               // The rider's scheduled list labels each line from these two. They
               // were absent from this select, so every row rendered as the
               // fallback "Item" with no quantity — the rows themselves have
@@ -2516,7 +2519,9 @@ export class DeliveriesService {
       // itself below). The old DOCUMENT-level attempt was removed because a DO
       // carries no pointer back to a quotation — it flagged all 364 Biofuel DOs,
       // and a signal that is always on carries no information.
-      const noPhotos = !(photoCountByRun.get(d.id) ?? 0);
+      // A service-only run (WCT) carries its photos on the service report, not the DO.
+      const serviceOnly = d.items.length > 0 && d.items.every((i) => !i.assetId && i.assetClass === AssetClass.SERVICE);
+      const noPhotos = !serviceOnly && !(photoCountByRun.get(d.id) ?? 0);
       const missing: string[] | null =
         d.origin === DeliveryOrigin.AD_HOC && d.direction === DeliveryDirection.RETURN
           ? // AD-HOC RETURN (2026-10-22): the rider keyed item IDs in on site. What
