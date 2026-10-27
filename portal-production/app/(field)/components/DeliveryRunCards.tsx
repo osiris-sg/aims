@@ -341,6 +341,8 @@ export function CompletedRunCard({ run: r, onOpen }: { run: RunSummary; onOpen: 
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
             <RunNo n={r.deliveryNumber} />
             <StatusChip label="COMPLETED" tone="good" />
+            {/* WCT service job: the job is not closed until its service report is written. */}
+            {r.serviceReport?.status === "pending" && <StatusChip label="REPORT DUE" tone="warn" />}
             <Box sx={{ flexGrow: 1 }} />
             <Typography variant="caption" color="text.secondary">
               {relTime(completedRunTime(r))}

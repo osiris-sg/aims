@@ -769,8 +769,90 @@ export class DeliveriesService {
         this.logger.warn(`createScheduled: push notify failed for delivery ${run.id}: ${err?.message}`),
       );
     }
+    if (!isDraft) await this.ensureScheduledServiceReport(run.id, organizationId);
 
     return { ...run, documentId };
+  }
+
+  /**
+   * SCHEDULED SERVICE REPORT (WCT 2026-10-27). The flow is Quotation → DO →
+   * service done → invoice → service report, and the report is part of the
+   * job from the moment it is scheduled: a run with a SERVICE-class line gets
+   * a draft report row (kind SERVICE, status draft, `serviceData.scheduled`)
+   * so the office sees it coming on Service Reports and the field app
+   * completes THAT row right after the delivery is signed off (it gets its
+   * number then — numbers follow the order jobs are actually done). Re-runs
+   * refresh the header fields of a still-scheduled report; a report that was
+   * already written is never touched. Best-effort: never fails the schedule.
+   */
+  private async ensureScheduledServiceReport(deliveryId: string, organizationId: string): Promise<void> {
+    try {
+      const run = await this.prisma.delivery.findFirst({
+        where: { id: deliveryId, organizationId },
+        select: {
+          id: true,
+          isDraft: true,
+          status: true,
+          siteAddress: true,
+          scheduledFor: true,
+          customer: { select: { name: true, email: true } },
+          items: { select: { assetClass: true, assetId: true } },
+        },
+      });
+      if (!run || run.isDraft) return;
+      const hasServiceLine = run.items.some((i) => !i.assetId && i.assetClass === AssetClass.SERVICE);
+      if (!hasServiceLine) return;
+      const header = {
+        customerName: run.customer?.name ?? null,
+        clientEmail: run.customer?.email ?? null,
+        jobLocation: run.siteAddress ?? null,
+        serviceDate: run.scheduledFor
+          ? new Date(run.scheduledFor).toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' })
+          : null,
+      };
+      const existing = await this.prisma.maintenanceServiceReport.findFirst({
+        where: { deliveryId, kind: 'SERVICE' },
+        select: { id: true, status: true, serviceData: true },
+      });
+      if (existing) {
+        const sd = (existing.serviceData as any) ?? {};
+        if (existing.status === 'draft' && sd.scheduled === true) {
+          await this.prisma.maintenanceServiceReport.update({
+            where: { id: existing.id },
+            data: { serviceData: { ...sd, ...header } as Prisma.InputJsonValue },
+          });
+        }
+        return;
+      }
+      await this.prisma.maintenanceServiceReport.create({
+        data: {
+          organizationId,
+          deliveryId,
+          kind: 'SERVICE',
+          status: 'draft',
+          // Nobody has done the work yet; the technician who completes it
+          // replaces this sentinel.
+          technicianUserId: 'scheduled',
+          description: 'Scheduled service report',
+          serviceData: {
+            templateId: 'WCT_V1',
+            templateVersion: 1,
+            scheduled: true,
+            ...header,
+            wct: { jobTypes: [], sections: {} },
+          } as Prisma.InputJsonValue,
+        },
+      });
+    } catch (err: any) {
+      this.logger.warn(`ensureScheduledServiceReport: delivery ${deliveryId}: ${err?.message}`);
+    }
+  }
+
+  /** Drop the scheduled (never written) service report of a run being cancelled or deleted. */
+  private async dropScheduledServiceReport(deliveryId: string): Promise<void> {
+    await this.prisma.maintenanceServiceReport.deleteMany({
+      where: { deliveryId, kind: 'SERVICE', status: 'draft', reportNumber: null, serviceData: { path: ['scheduled'], equals: true } },
+    });
   }
 
   /**
@@ -1048,6 +1130,11 @@ export class DeliveriesService {
         this.logger.error(`updateScheduled: draft DO regen failed for run ${id}: ${err?.message}`, err?.stack);
       }
     }
+
+    // A promoted (or re-dated) service job carries its scheduled report; a run
+    // saved back to a draft is not a job yet, so its scheduled report goes.
+    if (willBeDraft) await this.dropScheduledServiceReport(id);
+    else await this.ensureScheduledServiceReport(id, organizationId);
 
     return this.prisma.delivery.findUniqueOrThrow({ where: { id }, include: { items: true } });
   }
@@ -2377,6 +2464,21 @@ export class DeliveriesService {
       if (!r.deliveryId) continue;
       photoCountByRun.set(r.deliveryId, (photoCountByRun.get(r.deliveryId) ?? 0) + (r.photos?.length ?? 0));
     }
+    // The run's SERVICE REPORT (WCT service jobs): scheduled with the run,
+    // written by the technician after the sign-off. The field lists badge a
+    // completed run whose report is still pending; the office list links it.
+    const serviceRows = photoRunIds.length
+      ? await this.prisma.maintenanceServiceReport.findMany({
+          where: { deliveryId: { in: photoRunIds }, kind: 'SERVICE' },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, deliveryId: true, status: true, reportNumber: true },
+        })
+      : [];
+    const serviceReportByRun = new Map<string, { id: string; status: 'pending' | 'completed'; reportNumber: number | null }>();
+    for (const r of serviceRows) {
+      if (!r.deliveryId || serviceReportByRun.has(r.deliveryId)) continue;
+      serviceReportByRun.set(r.deliveryId, { id: r.id, status: r.status === 'completed' ? 'completed' : 'pending', reportNumber: r.reportNumber });
+    }
     const enriched = docs.map((d) => {
       const distinct = [...new Map(d.items.filter((i) => i.document).map((i) => [i.document!.id, i.document!])).values()];
       const runDoc = distinct.length === 1 ? distinct[0] : null;
@@ -2480,6 +2582,7 @@ export class DeliveriesService {
         // `origin` rides through from the row; the list keys its Ad-hoc column
         // off it rather than inferring from a null project.
         missing,
+        serviceReport: serviceReportByRun.get(d.id) ?? null,
         document: runDoc
           ? { ...runDoc, poNo: poNoByDoc.get(runDoc.id) ?? null, saleOrderId: saleOrderIdByDoc.get(runDoc.id) ?? null }
           : null,
@@ -5967,6 +6070,7 @@ export class DeliveriesService {
           note = `Draft DO ${doc.name ?? doc.id} was already confirmed — left in place; only the run was cancelled.`;
         }
       }
+      await this.dropScheduledServiceReport(deliveryId);
       const updated = await this.prisma.delivery.update({ where: { id: deliveryId }, data: { status: 'cancelled' } });
       await this.endTripHandoff(deliveryId);
       return note ? { ...updated, note } : updated;
@@ -6056,7 +6160,9 @@ export class DeliveriesService {
       throw new BadRequestException('This run has units bound to it and cannot be deleted. Cancel it instead.');
     }
     // A scheduled/draft run should carry no field reports; if it does, the run
-    // was worked and this is not a safe delete.
+    // was worked and this is not a safe delete. Its SCHEDULED service report
+    // (a placeholder nobody has written) is not field work: it goes with the run.
+    await this.dropScheduledServiceReport(deliveryId);
     const msrCount = await this.prisma.maintenanceServiceReport.count({ where: { deliveryId } });
     if (msrCount) {
       throw new BadRequestException('This run has field reports attached and cannot be deleted. Cancel it instead.');

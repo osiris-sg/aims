@@ -73,6 +73,23 @@ export class MaintenanceReportsController {
     return this.service.createInvoiceFromMsr(id, org.id);
   }
 
+  /**
+   * Complete a SCHEDULED service report (WCT: the row was created with the
+   * run; the technician fills it in right after the delivery is signed off).
+   */
+  @Post(':id/complete')
+  @Permissions('maintenance-reports:create')
+  completeScheduled(
+    @Param('id') id: string,
+    @Body() body: { serviceData?: Record<string, any>; technicianName?: string; description?: string; deliveryItemId?: string },
+    @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
+  ) {
+    const technicianUserId = req.user?.id;
+    if (!technicianUserId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.completeScheduled(id, body ?? {}, org.id, technicianUserId);
+  }
+
   /** Optional photos on a SERVICE report: replace the set while it is a draft. */
   @Patch(':id/photos')
   @Permissions('maintenance-reports:create')

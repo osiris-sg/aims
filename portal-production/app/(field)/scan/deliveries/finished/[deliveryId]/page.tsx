@@ -52,6 +52,7 @@ interface RunItem {
 
 interface Report {
   kind: string;
+  status?: string;
   signature: string | null;
   signedByName: string | null;
   signedAt: string | null;
@@ -154,12 +155,12 @@ export default function FinishedDeliveryDetailPage() {
     [run],
   );
 
-  // WCT flow: Quotation → DO → service done → invoice → SERVICE REPORT. A run
-  // with a Service line offers the report here, from the finished job; the
-  // button reads differently once one has been written (the run's reports
-  // include SERVICE rows).
+  // WCT flow: Quotation → DO → service done → invoice → SERVICE REPORT. The
+  // report is scheduled with the run and MUST be written once the job is
+  // signed off (finalize lands on the report form; this screen keeps nagging
+  // until it is completed). The run's reports include the SERVICE row.
   const isServiceJob = useMemo(() => !!run?.items.some((i) => String(i.assetClass ?? "").toUpperCase() === "SERVICE"), [run]);
-  const hasServiceReport = useMemo(() => !!run?.reports.some((r) => r.kind === "SERVICE"), [run]);
+  const hasServiceReport = useMemo(() => !!run?.reports.some((r) => r.kind === "SERVICE" && r.status === "completed"), [run]);
 
   if (loading) {
     return (
@@ -220,6 +221,11 @@ export default function FinishedDeliveryDetailPage() {
           partly signed run. */}
       <DoPrintActions doId={printableDoId} docLabel={isReturn ? "RDO" : "DO"} />
 
+      {isServiceJob && !isReturn && !hasServiceReport && !partlySigned && (
+        <Alert severity="warning">
+          Service report pending — this job is not finished until the service report is written and sent to the customer.
+        </Alert>
+      )}
       {isServiceJob && !isReturn && (
         <Button
           variant={hasServiceReport ? "outlined" : "contained"}

@@ -41,6 +41,9 @@ export interface RunSummary {
   document: { id: string; name: string | null; poNo?: string | null } | null;
   project: { id: string; name: string } | null;
   customer: { id: string; name: string } | null;
+  // WCT service job: the service report scheduled with the run — `pending`
+  // until the technician writes it after the sign-off. Null = not a service job.
+  serviceReport?: { id: string; status: "pending" | "completed"; reportNumber: number | null } | null;
 }
 
 const docsOf = (res: any): RunSummary[] => ((res?.data ?? res)?.docs ?? []) as RunSummary[];

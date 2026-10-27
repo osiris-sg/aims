@@ -150,9 +150,12 @@ export default function WctServiceReportPage() {
     };
   }, [deliveryId, getToken]);
 
-  // The service line(s) this report is for, and a report already written.
+  // The service line(s) this report is for; the report SCHEDULED with the run
+  // (a draft row the office's schedule created — completed here, which is when
+  // it gets its number); and a report already written.
   const serviceItems = useMemo(() => (run?.items ?? []).filter((i) => String(i.assetClass ?? "").toUpperCase() === "SERVICE"), [run]);
-  const existing = useMemo(() => (run?.reports ?? []).find((r) => r.kind === "SERVICE") ?? null, [run]);
+  const scheduledDraft = useMemo(() => (run?.reports ?? []).find((r) => r.kind === "SERVICE" && r.status !== "completed") ?? null, [run]);
+  const existing = useMemo(() => (run?.reports ?? []).find((r) => r.kind === "SERVICE" && r.status === "completed") ?? null, [run]);
 
   const sections = useMemo(() => wctSectionsFor(Array.from(jobTypes)), [jobTypes]);
 
@@ -215,28 +218,43 @@ export default function WctServiceReportPage() {
         if (g.lines.size !== s.lines.length) r.lines = Array.from(g.lines).sort((a, b) => a - b);
         wct.sections[s.id] = r;
       }
-      const res = await request(
-        { path: "/maintenance-reports", method: "POST" },
-        {
-          kind: "SERVICE",
-          deliveryId,
-          ...(serviceItems[0] ? { deliveryItemId: serviceItems[0].id } : {}),
-          description: remarks.trim() || serviceItems.map((i) => i.description).filter(Boolean).join(", ") || "Service report",
-          ...(technicianName ? { technicianName } : {}),
-          paymentRequired: false,
-          serviceData: {
-            templateId: "WCT_V1",
-            templateVersion: TEMPLATE_VERSIONS.WCT_V1,
-            customerName: customerName.trim() || null,
-            jobLocation: jobLocation.trim() || null,
-            clientEmail: clientEmail.trim() || null,
-            serviceDate,
-            remarks: remarks.trim() || null,
-            wct,
-          },
-        },
-        token,
-      );
+      const serviceData = {
+        templateId: "WCT_V1",
+        templateVersion: TEMPLATE_VERSIONS.WCT_V1,
+        customerName: customerName.trim() || null,
+        jobLocation: jobLocation.trim() || null,
+        clientEmail: clientEmail.trim() || null,
+        serviceDate,
+        remarks: remarks.trim() || null,
+        wct,
+      };
+      const description = remarks.trim() || serviceItems.map((i) => i.description).filter(Boolean).join(", ") || "Service report";
+      // The scheduled row is completed in place; a run scheduled before reports
+      // were scheduled with it (or an ad-hoc job) creates one now.
+      const res = scheduledDraft
+        ? await request(
+            { path: `/maintenance-reports/${scheduledDraft.id}/complete`, method: "POST" },
+            {
+              serviceData,
+              description,
+              ...(technicianName ? { technicianName } : {}),
+              ...(serviceItems[0] ? { deliveryItemId: serviceItems[0].id } : {}),
+            },
+            token,
+          )
+        : await request(
+            { path: "/maintenance-reports", method: "POST" },
+            {
+              kind: "SERVICE",
+              deliveryId,
+              ...(serviceItems[0] ? { deliveryItemId: serviceItems[0].id } : {}),
+              description,
+              ...(technicianName ? { technicianName } : {}),
+              paymentRequired: false,
+              serviceData,
+            },
+            token,
+          );
       if (res?.success === false) throw new Error(res?.message ?? "Could not create the service report");
       const row = res?.data ?? res;
       setCreated({ id: row.id, reportNumber: row.reportNumber ?? null });
@@ -251,7 +269,10 @@ export default function WctServiceReportPage() {
   useFieldAppBar({
     title: "Service Report",
     subtitle: run && !created ? `Delivery #${run.deliveryNumber} · Step ${step} of ${STEPS.length} · ${stepName}` : run ? `Delivery #${run.deliveryNumber}` : undefined,
-    onBack: created ? undefined : () => (step === 1 ? router.back() : setStep((v) => v - 1)),
+    // Step 1's Back goes to the finished-delivery screen (finalize lands here
+    // directly, so history would lead back into the sign-off), which keeps
+    // saying the report is pending until it is written.
+    onBack: created ? undefined : () => (step === 1 ? router.replace(`/scan/deliveries/finished/${deliveryId}`) : setStep((v) => v - 1)),
     backDisabled: submitting,
   });
 
@@ -310,6 +331,11 @@ export default function WctServiceReportPage() {
 
       {serviceItems.length === 0 && (
         <Alert severity="warning">This delivery has no Service line. The report is still written against the run.</Alert>
+      )}
+      {step === 1 && (
+        <Alert severity="info">
+          The job is signed off. Write the service report now — it is the last step and goes to the customer by email.
+        </Alert>
       )}
 
       {stepName === "Job" && (

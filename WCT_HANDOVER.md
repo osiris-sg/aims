@@ -247,17 +247,27 @@ reproduced as the `WCT_V1` service-report template:
   (`WctReportView`, iframe of `GET /maintenance-reports/:id/html`), the field
   app's Print / Download PDF, the customer's PDF (`GET …/:id/pdf`, the email,
   the sign-link PDF) all show this HTML.
-- **Capture** — field app, `/scan/delivery/[id]/service-report`, reached from
-  the "Delivery completed" screen's **Write Service Report** button (runs with a
-  Service-class line): step 1 Company / Location / Date (from the run) + job
-  types; step 2 Before/After photos per section the ticks call for (Unit
-  Location seeded from the line's DO_START photo; un-tick a line not done);
-  step 3 remarks + optional customer email → one `POST /maintenance-reports`
-  with no `assetId` (now optional for a SERVICE report on a run), `deliveryId`
-  + `deliveryItemId`, `serviceData.templateId = WCT_V1`. The server fills
-  customer / site / customer email from the run, links `invoiceDocumentId` to
-  the invoice created off the run's DO, numbers it and — since the paper has
-  no customer signature — creates it **completed** and emails it at once.
+- **Scheduled with the job** (guru, round 5b): scheduling a run that has a
+  Service-class line (`createScheduled` / `updateScheduled` promotion) creates
+  the report row with it — kind SERVICE, status draft, `serviceData.scheduled`,
+  customer / site / planned date filled, no number yet
+  (`ensureScheduledServiceReport`). Service Reports lists it as **Scheduled**
+  (kept out of the field app's Pending Sign list), the run page shows a
+  "Service report" bar; cancel / delete / back-to-draft drops it.
+- **Mandatory, right after the sign-off** — the field finalize of a service
+  job lands on `/scan/delivery/[id]/service-report` instead of "Delivery
+  completed": step 1 Company / Location / Date (from the run) + job types;
+  step 2 Before/After photos per section the ticks call for (Unit Location
+  seeded from the line's DO_START photo; un-tick a line not done); step 3
+  remarks + optional customer email → `POST /maintenance-reports/:id/complete`
+  on the scheduled row (a run without one falls back to `POST
+  /maintenance-reports` with no `assetId`, now optional for a SERVICE report on
+  a run). Completing assigns the running number (order jobs are done), the
+  technician, `deliveryItemId`, `invoiceDocumentId` (the invoice created off
+  the run's DO) and — the paper has no customer signature — sets **completed**
+  and emails it. Until then the finished screen says "Service report pending"
+  and the Completed list badges the run "REPORT DUE"; the run list payload
+  carries `serviceReport: { id, status, reportNumber }`.
 - Not done: the e2e harness has no stage for it yet (04-complete drives the
   guest link, not the field app); the paper's SCDF/NEA slide images are
   reproduced as text boxes, not pictures; the bizSAFE/BCA badges print as a

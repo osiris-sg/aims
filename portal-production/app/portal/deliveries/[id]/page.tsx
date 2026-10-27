@@ -1094,11 +1094,28 @@ export default function DeliveryDetailPage() {
         </DialogActions>
       </Dialog>
 
+      {/* WCT service job: the service report scheduled with the run (written by
+          the technician right after the sign-off; the last step of the flow). */}
+      {(() => {
+        const sr = run.reports.find((r) => r.kind === "SERVICE");
+        if (!sr) return null;
+        const done = sr.status === "completed";
+        return (
+          <Paper variant="outlined" sx={{ p: 2, mb: 3, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+            <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>Service report</Typography>
+            <Chip size="small" label={done ? "Completed" : "Scheduled — awaiting the technician"} color={done ? "success" : "info"} variant={done ? "filled" : "outlined"} />
+            <Button size="small" variant="outlined" onClick={() => router.push(`/portal/maintenance-reports/${sr.id}`)} data-tour="run-service-report">
+              {done ? "Open report" : "Preview"}
+            </Button>
+          </Paper>
+        );
+      })()}
+
       {/* Proof — the office's evidence the delivery happened */}
       <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
         Proof of delivery
       </Typography>
-      {run.reports.length === 0 ? (
+      {run.reports.filter((r) => r.kind !== "SERVICE").length === 0 ? (
         <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
           <Typography variant="body2" color="text.secondary">No field reports recorded yet.</Typography>
         </Paper>
@@ -1139,7 +1156,8 @@ export default function DeliveryDetailPage() {
               </Paper>
             ));
           })()}
-          {groupProofReports(run.reports).map((group) => {
+          {/* The SERVICE row is the service report (its own bar above), not delivery proof. */}
+          {groupProofReports(run.reports.filter((r) => r.kind !== "SERVICE")).map((group) => {
             // Serial for a member, resolved off the run's items (reports carry
             // inventoryId; items carry the sku). Falls back to the description,
             // then to nothing — a free-typed line has no unit.

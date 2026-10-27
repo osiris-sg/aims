@@ -66,6 +66,8 @@ interface ServiceData {
   templateId?: string | null;
   templateVersion?: number | null;
   ess?: EssServiceData | null;
+  /** WCT: created with the delivery run, not yet written by the technician. */
+  scheduled?: boolean;
 }
 
 interface MsrDetail {
@@ -273,7 +275,12 @@ export default function MaintenanceReportDetailPage() {
                   {sd.customerName ?? "—"} · {sd.jobLocation ?? "—"} · {sd.serviceDate ?? "—"} · by {report.technicianName ?? "—"} · created {formatDateTime(report.createdAt)}
                 </Typography>
               </Box>
-              <Chip size="small" label={report.status} color={report.status === "completed" ? "success" : "default"} sx={{ textTransform: "capitalize" }} />
+              <Chip
+                size="small"
+                label={report.status === "draft" && sd.scheduled ? "Scheduled — awaiting the technician" : report.status}
+                color={report.status === "completed" ? "success" : report.status === "draft" && sd.scheduled ? "info" : "default"}
+                sx={{ textTransform: sd.scheduled ? "none" : "capitalize" }}
+              />
             </Stack>
           </Paper>
           <WctReportView reportId={report.id} reportNumber={report.reportNumber} />

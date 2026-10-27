@@ -400,6 +400,102 @@ export class MaintenanceReportsService {
   }
 
   /**
+   * COMPLETE A SCHEDULED SERVICE REPORT (WCT 2026-10-27). The row was created
+   * with the run (deliveries.service ensureScheduledServiceReport); right after
+   * the delivery is signed off the technician fills it in here. This is where
+   * it gets its running number, its technician, its link to the invoice the
+   * completed run created, and goes out to the customer by email — the paper
+   * has no customer signature (the customer signed the DO), so submitting is
+   * completing.
+   */
+  async completeScheduled(
+    id: string,
+    body: { serviceData?: Record<string, any>; technicianName?: string; description?: string; deliveryItemId?: string },
+    organizationId: string,
+    technicianUserId: string,
+  ) {
+    const report = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { id, organizationId, kind: 'SERVICE' },
+      select: { id: true, status: true, deliveryId: true, serviceData: true, reportNumber: true },
+    });
+    if (!report) throw new NotFoundException('Service report not found');
+    if (report.status === 'completed') throw new BadRequestException('This service report is already completed');
+    const existing = (report.serviceData as Record<string, any> | null) ?? {};
+    if (existing.scheduled !== true) throw new BadRequestException('Only a scheduled service report can be completed this way');
+    if (!report.deliveryId) throw new BadRequestException('This scheduled report is not tied to a delivery');
+
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: report.deliveryId, organizationId },
+      select: {
+        siteAddress: true,
+        customer: { select: { name: true, email: true } },
+        items: { select: { id: true, documentId: true, assetId: true, assetClass: true }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+      },
+    });
+    if (!run) throw new NotFoundException('Delivery not found in this organization');
+    const serviceLine = body.deliveryItemId
+      ? run.items.find((i) => i.id === body.deliveryItemId)
+      : run.items.find((i) => !i.assetId && i.assetClass === 'SERVICE');
+    const doIds = [...new Set(run.items.map((i) => i.documentId).filter((v): v is string => !!v))];
+    const invoice = doIds.length
+      ? await this.prisma.document.findFirst({
+          where: { organizationId, type: 'INVOICE', OR: doIds.map((d) => ({ config: { path: ['sourceDocumentId'], equals: d } })) },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true },
+        })
+      : null;
+
+    const incoming = body.serviceData ?? {};
+    const { scheduled: _scheduled, ...kept } = existing;
+    void _scheduled;
+    const serviceData: Record<string, any> = {
+      ...kept,
+      ...incoming,
+      templateId: 'WCT_V1',
+      templateVersion: incoming.templateVersion ?? kept.templateVersion ?? 1,
+      customerName: incoming.customerName || kept.customerName || run.customer?.name || null,
+      jobLocation: incoming.jobLocation || kept.jobLocation || run.siteAddress || null,
+      clientEmail: incoming.clientEmail || kept.clientEmail || run.customer?.email || null,
+    };
+
+    // Same per-org running number as create(): unique on (org, reportNumber),
+    // one retry on a P2002 race.
+    let updated: Awaited<ReturnType<typeof this.prisma.maintenanceServiceReport.update>> | null = null;
+    for (let attempt = 0; attempt < 2 && !updated; attempt++) {
+      const latest = await this.prisma.maintenanceServiceReport.findFirst({
+        where: { organizationId, reportNumber: { not: null } },
+        orderBy: { reportNumber: 'desc' },
+        select: { reportNumber: true },
+      });
+      const reportNumber = (latest?.reportNumber ?? 0) + 1;
+      try {
+        updated = await this.prisma.maintenanceServiceReport.update({
+          where: { id },
+          data: {
+            reportNumber,
+            technicianUserId,
+            ...(body.technicianName ? { technicianName: body.technicianName } : {}),
+            description: body.description?.trim() || serviceData.remarks || 'Service report',
+            status: 'completed',
+            serviceData: serviceData as Prisma.InputJsonValue,
+            ...(serviceLine ? { deliveryItemId: serviceLine.id } : {}),
+            ...(invoice ? { invoiceDocumentId: invoice.id } : {}),
+          },
+        });
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && attempt === 0) continue;
+        throw err;
+      }
+    }
+    if (!updated) throw new Error('Failed to assign a unique report number after retries');
+
+    void this.sendReportEmailInBackground(updated.id).catch((err) =>
+      this.logger.error(`Background MSR email failed for ${updated!.id}: ${err?.message}`, err?.stack),
+    );
+    return updated;
+  }
+
+  /**
    * The report PDF (puppeteer), as emailed to the customer: header, findings,
    * signatures and, at the very end, the optional photos.
    *
@@ -1024,6 +1120,10 @@ export class MaintenanceReportsService {
       organizationId,
       kind: 'SERVICE',
       ...(status ? { status } : {}),
+      // A SCHEDULED service report (WCT: created with the run, written after
+      // the sign-off) is a draft nobody has to sign — keep it out of the field
+      // app's Pending Sign list. The office list (no status filter) shows it.
+      ...(status === 'draft' ? { NOT: { serviceData: { path: ['scheduled'], equals: true } } } : {}),
     };
 
     if (trimmed) {

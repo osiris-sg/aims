@@ -45,6 +45,10 @@ export default function FinalizeDeliveryPage() {
   // only for the items handed over so far. Read from the run itself so the copy
   // is right after a reload too. null until loaded (the full-run copy shows).
   const [partialCount, setPartialCount] = useState<number | null>(null);
+  // WCT service job (a SERVICE-class line): the sign-off is followed at once by
+  // the service report scheduled with the run — finalize lands there, not on
+  // the "Delivery completed" screen.
+  const [serviceJob, setServiceJob] = useState(false);
   useFieldAppBar({
     title: isReturn ? "Finish return" : "Finish delivery",
     onBack: () => (step === "sign" && !isReturn ? setStep("install") : router.back()),
@@ -59,7 +63,9 @@ export default function FinalizeDeliveryPage() {
         if (!token) return;
         const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET" }, {}, token);
         const run = res?.data ?? res;
-        if (cancelled || !run?.items || run.status !== "in_progress") return;
+        if (cancelled || !run?.items) return;
+        setServiceJob(run.items.some((it: { assetClass?: string | null }) => String(it.assetClass ?? "").toUpperCase() === "SERVICE"));
+        if (run.status !== "in_progress") return;
         const n = run.items.filter((it: { deliveryStatus: string }) => it.deliveryStatus === "not_installed").length;
         if (n > 0) setPartialCount(n);
       } catch {
@@ -117,6 +123,12 @@ export default function FinalizeDeliveryPage() {
       const out = res?.data ?? res;
       if (!isReturn && out?.partial) {
         router.replace(`/scan/deliveries/finished/${deliveryId}?signed=${Number(out.signedItemCount) || 0}`);
+        return;
+      }
+      // A service job goes straight into its service report (Quotation → DO →
+      // service done → invoice → service report); the finished screen comes after.
+      if (!isReturn && serviceJob) {
+        router.replace(`/scan/delivery/${deliveryId}/service-report`);
         return;
       }
       router.replace(isReturn ? "/scan" : `/scan/deliveries/finished/${deliveryId}`);

@@ -29,10 +29,13 @@ interface ServiceData {
   customerName?: string | null;
   serviceDate?: string | null;
   jobLocation?: string | null;
+  /** WCT: created with the delivery run, not yet written by the technician. */
+  scheduled?: boolean;
 }
 
 interface MsrRow {
   id: string;
+  status?: string;
   reportNumber: number | null;
   createdAt: string;
   paymentRequired: boolean;
@@ -42,15 +45,18 @@ interface MsrRow {
   inventory: { sku: string; serialNumber: string | null } | null;
 }
 
-type StatusKind = "completed" | "pending-invoice" | "invoice-created";
+type StatusKind = "completed" | "pending-invoice" | "invoice-created" | "scheduled";
 
 const statusFor = (row: MsrRow): StatusKind => {
+  // WCT: scheduled with the run, written by the technician after the sign-off.
+  if (row.status === "draft" && row.serviceData?.scheduled) return "scheduled";
   if (!row.paymentRequired) return "completed";
   if (row.invoiceDocumentId) return "invoice-created";
   return "pending-invoice";
 };
 
-const statusChipProps = (kind: StatusKind): { label: string; color: "success" | "warning"; variant: "filled" | "outlined" } => {
+const statusChipProps = (kind: StatusKind): { label: string; color: "success" | "warning" | "info"; variant: "filled" | "outlined" } => {
+  if (kind === "scheduled") return { label: "Scheduled", color: "info", variant: "outlined" };
   if (kind === "pending-invoice") return { label: "Pending Invoice", color: "warning", variant: "filled" };
   if (kind === "invoice-created") return { label: "Invoice Created", color: "success", variant: "outlined" };
   return { label: "Completed", color: "success", variant: "filled" };
