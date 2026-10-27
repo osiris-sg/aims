@@ -1111,11 +1111,18 @@ export default function DeliveryDetailPage() {
         );
       })()}
 
-      {/* Proof — the office's evidence the delivery happened */}
+      {/* Proof — the office's evidence the delivery happened. A service job
+          (WCT) has no "Delivery Started" proof worth showing: its service lines
+          start with one tap and no photo, and the work's photos live on the
+          service report — so those rows are left out (guru 2026-10-27). */}
+      {(() => {
+        const proofReports = run.reports.filter((r) => r.kind !== "SERVICE" && !(serviceJobs && r.kind === "DO_START"));
+        return (
+      <>
       <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
         Proof of delivery
       </Typography>
-      {run.reports.filter((r) => r.kind !== "SERVICE").length === 0 ? (
+      {proofReports.length === 0 ? (
         <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
           <Typography variant="body2" color="text.secondary">No field reports recorded yet.</Typography>
         </Paper>
@@ -1124,7 +1131,7 @@ export default function DeliveryDetailPage() {
           {/* Delivered in several trips: one card per sign-off, oldest first,
               naming the trip's items, when it started and ended, and who signed. */}
           {(() => {
-            const signOffs = groupSignOffs(run.reports);
+            const signOffs = groupSignOffs(proofReports);
             if (signOffs.length < 2) return null;
             const itemName = (id: string) => {
               const it = run.items.find((x) => x.id === id);
@@ -1157,7 +1164,7 @@ export default function DeliveryDetailPage() {
             ));
           })()}
           {/* The SERVICE row is the service report (its own bar above), not delivery proof. */}
-          {groupProofReports(run.reports.filter((r) => r.kind !== "SERVICE")).map((group) => {
+          {groupProofReports(proofReports).map((group) => {
             // Serial for a member, resolved off the run's items (reports carry
             // inventoryId; items carry the sku). Falls back to the description,
             // then to nothing — a free-typed line has no unit.
@@ -1291,6 +1298,9 @@ export default function DeliveryDetailPage() {
           })}
         </Stack>
       )}
+      </>
+        );
+      })()}
 
       {/* Link picker */}
       <Dialog open={pickerOpen} onClose={() => !acting && setPickerOpen(false)} fullWidth maxWidth="sm">
