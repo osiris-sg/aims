@@ -17,6 +17,19 @@ function requireOrgId(req: RequestWithOrganization): string {
   return id;
 }
 
+
+/**
+ * Query dates arrive as "YYYY-MM-DD" from the date pickers. `new Date(s)` made
+ * that MIDNIGHT UTC, so an "as of today" cut-off excluded everything posted
+ * today after 08:00 Singapore (guru 2026-10-27: WCT's GL showed nothing while
+ * its journals existed). A date-only END / as-of value now means the END of
+ * that day in Singapore; a date-only START value the start of it. Full
+ * timestamps pass through unchanged.
+ */
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const startOfDay = (s: string): Date => (DATE_ONLY.test(s) ? new Date(`${s}T00:00:00.000+08:00`) : new Date(s));
+const endOfDay = (s: string): Date => (DATE_ONLY.test(s) ? new Date(`${s}T23:59:59.999+08:00`) : new Date(s));
+
 @ApiTags('journal')
 @ApiBearerAuth()
 @Controller('journal')
@@ -41,8 +54,8 @@ export class JournalController {
       type: q.type,
       sourceDocumentId: q.sourceDocumentId,
       sourcePaymentId: q.sourcePaymentId,
-      startDate: q.startDate ? new Date(q.startDate) : undefined,
-      endDate: q.endDate ? new Date(q.endDate) : undefined,
+      startDate: q.startDate ? startOfDay(q.startDate) : undefined,
+      endDate: q.endDate ? endOfDay(q.endDate) : undefined,
       page: q.page ? parseInt(q.page) : undefined,
       limit: q.limit ? parseInt(q.limit) : undefined,
     });
@@ -82,7 +95,7 @@ export class JournalController {
   @Permissions('journal:read')
   @ApiQuery({ name: 'asOfDate', required: false })
   trialBalance(@Req() req: RequestWithOrganization, @Query('asOfDate') asOfDate?: string) {
-    return this.service.trialBalance(requireOrgId(req), asOfDate ? new Date(asOfDate) : undefined);
+    return this.service.trialBalance(requireOrgId(req), asOfDate ? endOfDay(asOfDate) : undefined);
   }
 
   // Per-account debit/credit/net movement for a date range — powers the
@@ -93,8 +106,8 @@ export class JournalController {
   @ApiQuery({ name: 'endDate', required: false })
   accountActivity(@Req() req: RequestWithOrganization, @Query() q: any) {
     return this.service.accountActivityReport(requireOrgId(req), {
-      startDate: q.startDate ? new Date(q.startDate) : undefined,
-      endDate: q.endDate ? new Date(q.endDate) : undefined,
+      startDate: q.startDate ? startOfDay(q.startDate) : undefined,
+      endDate: q.endDate ? endOfDay(q.endDate) : undefined,
     });
   }
 
@@ -103,7 +116,7 @@ export class JournalController {
   @Permissions('journal:read')
   @ApiQuery({ name: 'asOf', required: false })
   foreignBankListing(@Req() req: RequestWithOrganization, @Query('asOf') asOf?: string) {
-    return this.service.foreignBankListing(requireOrgId(req), { asOf: asOf ? new Date(asOf) : undefined });
+    return this.service.foreignBankListing(requireOrgId(req), { asOf: asOf ? endOfDay(asOf) : undefined });
   }
 
   // Xero-style Journal Report — posted journals grouped with balanced lines.
@@ -114,8 +127,8 @@ export class JournalController {
   @ApiQuery({ name: 'orderBy', required: false, description: 'journalNumber | entryDate | postedAt' })
   journalReport(@Req() req: RequestWithOrganization, @Query() q: any) {
     return this.service.journalReport(requireOrgId(req), {
-      startDate: q.startDate ? new Date(q.startDate) : undefined,
-      endDate: q.endDate ? new Date(q.endDate) : undefined,
+      startDate: q.startDate ? startOfDay(q.startDate) : undefined,
+      endDate: q.endDate ? endOfDay(q.endDate) : undefined,
       orderBy: q.orderBy,
       includeUnposted: q.includeUnposted === 'true' || q.includeUnposted === '1',
     });
@@ -128,8 +141,8 @@ export class JournalController {
   @ApiQuery({ name: 'endDate', required: false })
   bankSummary(@Req() req: RequestWithOrganization, @Query() q: any) {
     return this.service.bankSummary(requireOrgId(req), {
-      startDate: q.startDate ? new Date(q.startDate) : undefined,
-      endDate: q.endDate ? new Date(q.endDate) : undefined,
+      startDate: q.startDate ? startOfDay(q.startDate) : undefined,
+      endDate: q.endDate ? endOfDay(q.endDate) : undefined,
     });
   }
 
@@ -142,8 +155,8 @@ export class JournalController {
   @ApiQuery({ name: 'accountIds', required: false, description: 'comma-separated ChartOfAccount ids' })
   glDetail(@Req() req: RequestWithOrganization, @Query() q: any) {
     return this.service.glDetailReport(requireOrgId(req), {
-      startDate: q.startDate ? new Date(q.startDate) : undefined,
-      endDate: q.endDate ? new Date(q.endDate) : undefined,
+      startDate: q.startDate ? startOfDay(q.startDate) : undefined,
+      endDate: q.endDate ? endOfDay(q.endDate) : undefined,
       accountIds: q.accountIds ? String(q.accountIds).split(',').filter(Boolean) : undefined,
       includeOpening: q.includeOpening === '1' || q.includeOpening === 'true',
     });
@@ -159,8 +172,8 @@ export class JournalController {
     @Query() q: any,
   ) {
     return this.service.generalLedger(requireOrgId(req), accountId, {
-      startDate: q.startDate ? new Date(q.startDate) : undefined,
-      endDate: q.endDate ? new Date(q.endDate) : undefined,
+      startDate: q.startDate ? startOfDay(q.startDate) : undefined,
+      endDate: q.endDate ? endOfDay(q.endDate) : undefined,
     });
   }
 
@@ -177,7 +190,7 @@ export class JournalController {
   @ApiQuery({ name: 'cutOffDate', required: true })
   @ApiQuery({ name: 'closingStock', required: false, type: Number })
   profitLoss(@Req() req: RequestWithOrganization, @Query() q: any) {
-    const cutOffDate = q.cutOffDate ? new Date(q.cutOffDate) : new Date();
+    const cutOffDate = q.cutOffDate ? endOfDay(q.cutOffDate) : new Date();
     const closingStock = q.closingStock !== undefined ? Number(q.closingStock) : undefined;
     return this.service.profitLossReport(requireOrgId(req), { cutOffDate, closingStock });
   }
@@ -188,7 +201,7 @@ export class JournalController {
   @ApiQuery({ name: 'asOfDate', required: true })
   @ApiQuery({ name: 'closingStock', required: false, type: Number })
   balanceSheet(@Req() req: RequestWithOrganization, @Query() q: any) {
-    const asOfDate = q.asOfDate ? new Date(q.asOfDate) : new Date();
+    const asOfDate = q.asOfDate ? endOfDay(q.asOfDate) : new Date();
     const closingStock = q.closingStock !== undefined ? Number(q.closingStock) : undefined;
     return this.service.balanceSheetReport(requireOrgId(req), { asOfDate, closingStock });
   }
@@ -200,8 +213,8 @@ export class JournalController {
   @ApiQuery({ name: 'endDate', required: true })
   cashFlow(@Req() req: RequestWithOrganization, @Query() q: any) {
     return this.service.cashFlowReport(requireOrgId(req), {
-      startDate: new Date(q.startDate),
-      endDate: new Date(q.endDate),
+      startDate: startOfDay(q.startDate),
+      endDate: endOfDay(q.endDate),
     });
   }
 
@@ -217,8 +230,8 @@ export class JournalController {
   })
   gstReport(@Req() req: RequestWithOrganization, @Query() q: any) {
     return this.service.gstReport(requireOrgId(req), {
-      startDate: q.startDate ? new Date(q.startDate) : undefined,
-      endDate: q.endDate ? new Date(q.endDate) : undefined,
+      startDate: q.startDate ? startOfDay(q.startDate) : undefined,
+      endDate: q.endDate ? endOfDay(q.endDate) : undefined,
       category: q.category,
     });
   }
