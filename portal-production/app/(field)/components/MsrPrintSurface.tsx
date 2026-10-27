@@ -16,10 +16,35 @@ import {
 } from "@/components/maintenance/EssReportView";
 import ReportPhotos from "@/components/maintenance/ReportPhotos";
 import {
+  isSystemPrintAvailable,
   printHtmlViaSystem,
   savePdfViaSystem,
   serializeNodeToPrintHtml,
 } from "../lib/systemPrint";
+
+/**
+ * WEB FALLBACK (the field app opened in a phone browser rather than the
+ * Android shell — guru 2026-10-27: '"SystemPrint" plugin is not implemented
+ * on web'): the Android print / save plugin is not there, so Print opens the
+ * server's PDF of the report in a new tab (the browser's viewer prints and
+ * shares it) and Download hands the same PDF to the browser as a file.
+ */
+const API_BASE = (process.env.NEXT_PUBLIC_BACKEND_API_URL || "").replace(/\/$/, "");
+async function fetchReportPdf(reportId: string, token: string): Promise<{ url: string; fileName: string }> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  try {
+    const org = window.sessionStorage.getItem("aims-admin-active-org");
+    if (org) headers["X-Active-Org-Id"] = org;
+  } catch {
+    /* no session storage */
+  }
+  const res = await fetch(`${API_BASE}/maintenance-reports/${encodeURIComponent(reportId)}/pdf`, { headers });
+  if (!res.ok) throw new Error(`Could not get the report PDF (${res.status})`);
+  const blob = await res.blob();
+  const cd = res.headers.get("Content-Disposition") || "";
+  const m = /filename="?([^";]+)"?/.exec(cd);
+  return { url: URL.createObjectURL(blob), fileName: m?.[1] || `service-report-${reportId}.pdf` };
+}
 
 /**
  * Print / download a MAINTENANCE REPORT.
@@ -154,6 +179,25 @@ export function useMsrPrint(): UseMsrPrintResult {
 
   const printReport = useCallback(
     async (reportId: string) => {
+      if (!isSystemPrintAvailable()) {
+        // Open the tab synchronously (still inside the tap) so the browser
+        // does not block it, then point it at the PDF once it is fetched.
+        const win = window.open("", "_blank");
+        setBusy("Loading the report…");
+        try {
+          const token = await getToken();
+          if (!token) throw new Error("Not signed in");
+          const { url } = await fetchReportPdf(reportId, token);
+          if (win) win.location.href = url;
+          else window.location.href = url;
+        } catch (e) {
+          win?.close();
+          throw e;
+        } finally {
+          setBusy(null);
+        }
+        return;
+      }
       setBusy("Loading the report…");
       try {
         const prepared = await prepare(reportId);
@@ -177,11 +221,28 @@ export function useMsrPrint(): UseMsrPrintResult {
         setReport(null);
       }
     },
-    [prepare],
+    [prepare, getToken],
   );
 
   const downloadReport = useCallback(
     async (reportId: string) => {
+      if (!isSystemPrintAvailable()) {
+        setBusy("Loading the report…");
+        try {
+          const token = await getToken();
+          if (!token) throw new Error("Not signed in");
+          const { url, fileName } = await fetchReportPdf(reportId, token);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          return { uri: url, fileName };
+        } finally {
+          setBusy(null);
+        }
+      }
       setBusy("Loading the report…");
       try {
         const prepared = await prepare(reportId);
@@ -200,7 +261,7 @@ export function useMsrPrint(): UseMsrPrintResult {
         setReport(null);
       }
     },
-    [prepare],
+    [prepare, getToken],
   );
 
   const sd = report?.serviceData ?? {};
