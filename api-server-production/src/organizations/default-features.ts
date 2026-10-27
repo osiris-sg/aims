@@ -103,6 +103,11 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // fires the draft invoice exactly like Biofuel. Also relaxes scheduling:
   // these orgs schedule without a Project / Sale Order. Default OFF.
   enableQuotationToDelivery: false,
+  // Preset roles (WCT 2026-10-27, meant for every org): the org runs on the
+  // built-in roles in src/roles/role-presets.ts and the client never sees
+  // permissions — User Management shows only Users with a single Role
+  // dropdown, and the Roles / Permissions editor is hidden. Default OFF.
+  enableRolePresets: false,
   // LME feed (round AK, 2026-10-25): daily LME aluminium cash-settlement from Westmetall (07:00 JST) fills the empty
   // months of the org's LME table and keeps its own provisional month current; typed months are never changed; a
   // month turning final raises "revise CI / invoice" tasks. Only orgs with the SHIPMENTS module. Default OFF: while
