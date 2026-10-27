@@ -90,6 +90,10 @@ export interface WctServiceReportInput {
 const CSS = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: Calibri, Carlito, Arial, sans-serif; font-size: 12.5px; color: #000; background: #fff; line-height: 1.35; }
+  /* On SCREEN (the office page's and the field app's iframe) nothing else
+     supplies the page margins the PDF gets from Puppeteer, so the paper hugged
+     the edges (guru 2026-10-27). Print / PDF keep their own margins. */
+  @media screen { body { padding: 12mm 14mm; } }
   table.sheet { width: 100%; border-collapse: collapse; }
   table.sheet > thead { display: table-header-group; }
   table.sheet > thead > tr > td, table.sheet > tbody > tr > td { padding: 0; border: none; vertical-align: top; }
