@@ -93,7 +93,7 @@ const MODULE_ENABLED: Record<string, boolean> = {
   ORDERS: false,
   DOCUMENTS: false,
   INVOICES: false,
-  USER_MANAGEMENT: false,
+  USER_MANAGEMENT: true, // the WCT admin manages their own users (guru 2026-10-27)
   CRM: false,
   AUDIT: false,
   ADMIN: false,
@@ -254,7 +254,10 @@ async function main() {
   for (const r of roles) {
     // Keep the role's module list (MASTERFILES / DELIVERIES are nav codes, not
     // stored modules) minus the modules WCT does not have.
-    const allowed = Array.isArray(r.allowedModules) ? r.allowedModules.filter((c: string) => !DROP_FROM_ROLE_MODULES.has(c)) : r.allowedModules;
+    // USER_MANAGEMENT stays on the Admin role only (guru 2026-10-27).
+    const allowed = Array.isArray(r.allowedModules)
+      ? r.allowedModules.filter((c: string) => !DROP_FROM_ROLE_MODULES.has(c) || (c === 'USER_MANAGEMENT' && r.name === 'Admin'))
+      : r.allowedModules;
     const have = await org.role.findFirst({ where: { organizationId: ORG_ID, name: r.name }, select: { id: true } });
     log(`Role ${r.name}`, `${have ? 'exists' : 'create'} — ${r.permissions.length} permissions${Array.isArray(allowed) && allowed.length ? `, modules ${allowed.join(',')}` : ', modules all'}`);
     if (have) {
