@@ -154,6 +154,11 @@ const CSS = `
   .grid .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .grid.one { grid-template-columns: 1fr; }
   .grid.one .ph { aspect-ratio: 4 / 3; }
+  /* Laid out by how many photos there are (guru 2026-10-27): one sits in the
+     middle at reading size, two side by side, three as a pair with the third
+     centred underneath, four as a 2×2 block. */
+  .grid.n1 { grid-template-columns: minmax(0, 62%); justify-content: center; }
+  .grid.n3 .ph:last-child { grid-column: 1 / span 2; width: 50%; justify-self: center; }
   .lines { padding: 6px 8px 2px 28px; font-size: 13.5px; }
   .lines div::before { content: "\\2713  "; }
   .lines div.off { color: #999; }
@@ -229,7 +234,8 @@ function photoGrid(keys: readonly string[] | undefined, single: boolean): string
   const list = (keys ?? []).filter((k) => typeof k === 'string' && k && !k.startsWith('data:')).slice(0, 4);
   if (!list.length) return `<div class="grid${single ? ' one' : ''}"><div class="ph"></div></div>`;
   const one = single && list.length === 1;
-  return `<div class="grid${one ? ' one' : ''}">${list.map((k) => `<div class="ph"><img src="${esc(url(k))}" alt="" /></div>`).join('')}</div>`;
+  const cls = `grid${one ? ' one' : ''} n${list.length}`;
+  return `<div class="${cls}">${list.map((k) => `<div class="ph"><img src="${esc(url(k))}" alt="" /></div>`).join('')}</div>`;
 }
 
 function sectionPage(s: WctPhotoSection, r: WctSectionResult | undefined): string {
