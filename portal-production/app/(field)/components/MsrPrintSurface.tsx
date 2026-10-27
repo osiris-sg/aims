@@ -126,18 +126,28 @@ export function useMsrPrint(): UseMsrPrintResult {
   const [busy, setBusy] = useState<string | null>(null);
 
   const prepare = useCallback(
-    async (reportId: string): Promise<{ node: HTMLElement; title: string }> => {
+    async (reportId: string): Promise<{ node: HTMLElement | null; html?: string; title: string }> => {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request({ path: `/maintenance-reports/${reportId}`, method: "GET" }, {}, token);
       const data = res?.data ?? res;
       if (!data?.id) throw new Error("Report not found");
+      const title = `Report-${data.reportNumber ?? data.id.slice(0, 8)}`;
+      // A WCT report is a paper of its own that only the server draws (letterhead
+      // on every page, photo pages, advisory): print the server's HTML as-is,
+      // exactly as the DO with a named layout does — there is no offscreen sheet.
+      if (templateFor(data.serviceData?.templateId) === "WCT_V1") {
+        const served = await request({ path: `/maintenance-reports/${reportId}/html`, method: "GET" }, {}, token);
+        const html: string | undefined = served?.data?.html ?? served?.html;
+        if (!html) throw new Error(served?.message ?? "Could not render the report");
+        return { node: null, html, title };
+      }
       setReport(data);
       await new Promise<void>((r) => requestAnimationFrame(() => r()));
       const node = holderRef.current;
       if (!node) throw new Error("Could not prepare the report for printing");
       await waitForPaint(node);
-      return { node, title: `Report-${data.reportNumber ?? data.id.slice(0, 8)}` };
+      return { node, title };
     },
     [getToken],
   );
@@ -146,17 +156,20 @@ export function useMsrPrint(): UseMsrPrintResult {
     async (reportId: string) => {
       setBusy("Loading the report…");
       try {
-        const { node, title } = await prepare(reportId);
+        const prepared = await prepare(reportId);
+        const { title } = prepared;
         setBusy("Preparing the document…");
         // NO fit-to-page. A maintenance report — an ESS one especially — is a
         // genuinely multi-page document: eight categories, 35 items, a defect
         // table and the reference sections. Shrinking it to one page would make
         // it unreadable to save a sheet of paper. It BREAKS cleanly instead;
         // see MSR_PRINT_PAGE_STYLE.
-        const html = await serializeNodeToPrintHtml(node, {
-          title,
-          pageStyle: MSR_PRINT_PAGE_STYLE,
-        });
+        const html =
+          prepared.html ??
+          (await serializeNodeToPrintHtml(prepared.node!, {
+            title,
+            pageStyle: MSR_PRINT_PAGE_STYLE,
+          }));
         setBusy("Opening the print dialog…");
         await printHtmlViaSystem(html, title);
       } finally {
@@ -171,12 +184,15 @@ export function useMsrPrint(): UseMsrPrintResult {
     async (reportId: string) => {
       setBusy("Loading the report…");
       try {
-        const { node, title } = await prepare(reportId);
+        const prepared = await prepare(reportId);
+        const { title } = prepared;
         setBusy("Preparing the document…");
-        const html = await serializeNodeToPrintHtml(node, {
-          title,
-          pageStyle: MSR_PRINT_PAGE_STYLE,
-        });
+        const html =
+          prepared.html ??
+          (await serializeNodeToPrintHtml(prepared.node!, {
+            title,
+            pageStyle: MSR_PRINT_PAGE_STYLE,
+          }));
         setBusy("Saving the PDF…");
         return await savePdfViaSystem(html, title);
       } finally {

@@ -11,8 +11,24 @@ import { DeliveriesService } from '../deliveries/deliveries.service';
 import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto';
 import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
 import { CreateLocationPingsDto } from './dto/location-ping.dto';
-import { buildServiceReportHtml, MAX_SERVICE_REPORT_PHOTOS, servicePdfMargin } from './service-report-pdf';
+import { buildServiceReportHtml, MAX_SERVICE_REPORT_PHOTOS, servicePdfOptions } from './service-report-pdf';
+import { templateFor } from './msr-templates';
+import type { WctOrgProfile } from './service-report-wct';
 import { minPhotosForAssetClass } from 'src/common/asset-class';
+
+/** Org fields every renderer may need: name/logo for the stock sheets, the rest for the WCT letterhead + footer. */
+const REPORT_ORG_SELECT = { name: true, logo: true, address: true, phoneNumber: true, email: true, website: true, registrationNumber: true } as const;
+
+interface ReportForRender {
+  id?: string;
+  reportNumber: number | null;
+  technicianName: string | null;
+  serviceData: unknown;
+  photos?: string[] | null;
+  asset: { name: string; skuKey: string } | null;
+  inventory: { sku: string; serialNumber: string | null } | null;
+  organization: WctOrgProfile;
+}
 
 @Injectable()
 export class MaintenanceReportsService {
@@ -97,15 +113,61 @@ export class MaintenanceReportsService {
   }
 
   async create(dto: CreateMaintenanceReportDto, organizationId: string, technicianUserId: string) {
-    const asset = await this.prisma.asset.findFirst({
-      where: { id: dto.assetId, organizationId },
-      // assetClass drives the condition-photo minimum below (OSI-81).
-      select: { id: true, assetClass: true },
-    });
-    if (!asset) throw new NotFoundException('Asset not found in this organization');
+    const asset = dto.assetId
+      ? await this.prisma.asset.findFirst({
+          where: { id: dto.assetId, organizationId },
+          // assetClass drives the condition-photo minimum below (OSI-81).
+          select: { id: true, assetClass: true },
+        })
+      : null;
+    if (dto.assetId && !asset) throw new NotFoundException('Asset not found in this organization');
 
     const effectiveKind = dto.kind ?? 'SERVICE';
     const isRevampedServiceSubmission = effectiveKind === 'SERVICE' && !!dto.serviceData;
+
+    // ASSET-LESS SERVICE REPORT (WCT 2026-10-27): a service job (kitchen-hood
+    // degrease) is a SERVICE-class delivery line with nothing to scan, so the
+    // report hangs off the RUN — Quotation → DO → service done → invoice →
+    // service report. The run supplies what the paper's header needs when the
+    // field app did not (customer, site, customer email for the auto-email),
+    // and the report is linked to the invoice the completed run created.
+    let runFill: { customerName?: string | null; clientEmail?: string | null; jobLocation?: string | null; invoiceDocumentId?: string | null } = {};
+    if (!asset) {
+      if (effectiveKind !== 'SERVICE' || !dto.deliveryId) {
+        throw new BadRequestException('assetId is required unless this is a service report on a delivery run');
+      }
+      const run = await this.prisma.delivery.findFirst({
+        where: { id: dto.deliveryId, organizationId },
+        select: {
+          id: true,
+          siteAddress: true,
+          customer: { select: { name: true, email: true } },
+          items: { select: { id: true, documentId: true } },
+        },
+      });
+      if (!run) throw new NotFoundException('Delivery not found in this organization');
+      if (dto.deliveryItemId && !run.items.some((i) => i.id === dto.deliveryItemId)) {
+        throw new BadRequestException('That line is not on this delivery');
+      }
+      const doIds = [...new Set(run.items.map((i) => i.documentId).filter((v): v is string => !!v))];
+      const invoice = doIds.length
+        ? await this.prisma.document.findFirst({
+            where: { organizationId, type: 'INVOICE', OR: doIds.map((d) => ({ config: { path: ['sourceDocumentId'], equals: d } })) },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true },
+          })
+        : null;
+      runFill = {
+        customerName: run.customer?.name ?? null,
+        clientEmail: run.customer?.email ?? null,
+        jobLocation: run.siteAddress ?? null,
+        invoiceDocumentId: invoice?.id ?? null,
+      };
+    }
+    // The WCT paper carries no customer signature (the customer signed the DO),
+    // so it is complete the moment the technician submits it and goes out by
+    // email straight away, like a signed generic report would.
+    const selfCompleting = isRevampedServiceSubmission && templateFor(dto.serviceData?.templateId) === 'WCT_V1';
 
     // Standalone-run start (delivery-first) REQUIRES condition photos per unit —
     // physical state must be evidenced before the unit moves. The DO-first arm
@@ -130,7 +192,7 @@ export class MaintenanceReportsService {
     // not pass it keeps the hard rule.
     if (effectiveKind === 'DO_START' && dto.deliveryId && !dto.documentId && !dto.deferPhotos) {
       const photoCount = dto.photos?.length ?? 0;
-      const required = minPhotosForAssetClass(asset.assetClass);
+      const required = minPhotosForAssetClass(asset?.assetClass ?? null);
       if (photoCount < required) {
         throw new BadRequestException(
           required === 1
@@ -197,8 +259,9 @@ export class MaintenanceReportsService {
 
     const baseData: Prisma.MaintenanceServiceReportUncheckedCreateInput = {
       organizationId,
-      assetId: dto.assetId,
+      assetId: dto.assetId ?? null,
       inventoryId: dto.inventoryId,
+      ...(runFill.invoiceDocumentId ? { invoiceDocumentId: runFill.invoiceDocumentId } : {}),
       technicianUserId,
       technicianName: dto.technicianName,
       description: dto.description,
@@ -215,7 +278,11 @@ export class MaintenanceReportsService {
       // server-stamped (U1+items DO-first, flag-gated above). Null for
       // SERVICE and for DO-first rows when the flag is off.
       ...(effectiveDeliveryId ? { deliveryId: effectiveDeliveryId } : {}),
-      ...(resolvedDeliveryItemId ? { deliveryItemId: resolvedDeliveryItemId } : {}),
+      ...(dto.deliveryItemId && !asset
+        ? { deliveryItemId: dto.deliveryItemId }
+        : resolvedDeliveryItemId
+          ? { deliveryItemId: resolvedDeliveryItemId }
+          : {}),
       // Geolocation captured at submission. Submission proceeds even if these
       // are absent (browser denial / no signal); just write null.
       ...(typeof dto.latitude === 'number' ? { latitude: dto.latitude } : {}),
@@ -229,6 +296,11 @@ export class MaintenanceReportsService {
         ? {
             serviceData: {
               ...(dto.serviceData ?? {}),
+              // Run-derived header fields fill only what the form left blank
+              // (an explicit null from the form counts as blank).
+              ...(runFill.customerName && !dto.serviceData?.customerName ? { customerName: runFill.customerName } : {}),
+              ...(runFill.clientEmail && !dto.serviceData?.clientEmail ? { clientEmail: runFill.clientEmail } : {}),
+              ...(runFill.jobLocation && !dto.serviceData?.jobLocation ? { jobLocation: runFill.jobLocation } : {}),
               ...(dto.angles?.length ? { photoAngles: dto.angles } : {}),
               // Per-photo damage rides in the SAME parallel-array shape as the
               // angles rather than reshaping photos[], which the office panel,
@@ -256,7 +328,9 @@ export class MaintenanceReportsService {
             signedAt: new Date(),
             status: 'completed' as const,
           }
-        : {}),
+        : selfCompleting
+          ? { status: 'completed' as const }
+          : {}),
     };
 
     // Non-revamped flows (DO_START, DO_ACK, legacy SERVICE) skip the
@@ -338,17 +412,16 @@ export class MaintenanceReportsService {
    * path, so its output is unchanged. NO fit-to-page: a maintenance report
    * BREAKS cleanly rather than shrink, as the field print does.
    */
-  async renderReportPdf(report: {
-    reportNumber: number | null;
-    technicianName: string | null;
-    serviceData: unknown;
-    photos?: string[] | null;
-    asset: { name: string; skuKey: string } | null;
-    inventory: { sku: string; serialNumber: string | null } | null;
-    organization: { name: string; logo?: string | null };
-  }): Promise<Buffer> {
+  async renderReportPdf(report: ReportForRender): Promise<Buffer> {
     const sd = (report.serviceData as any) ?? {};
-    const html = buildServiceReportHtml({
+    const html = this.renderReportHtml(report);
+    return this.pdfGenerator.generatePdfFromHtml(html, servicePdfOptions(sd, report.photos, report.organization));
+  }
+
+  /** The report as HTML — the office preview and the field print show this verbatim for the WCT paper. */
+  renderReportHtml(report: ReportForRender): string {
+    const sd = (report.serviceData as any) ?? {};
+    return buildServiceReportHtml({
       reportNumber: report.reportNumber,
       technicianName: report.technicianName,
       serviceData: sd,
@@ -357,9 +430,36 @@ export class MaintenanceReportsService {
       orgName: report.organization.name,
       orgLogo: report.organization.logo,
       photos: report.photos ?? [],
+      org: report.organization,
     });
-    const margin = servicePdfMargin(sd, report.photos);
-    return this.pdfGenerator.generatePdfFromHtml(html, margin ? { margin } : undefined);
+  }
+
+  /** One org-scoped read with everything the renderers need. */
+  private async loadForRender(id: string, organizationId: string): Promise<ReportForRender> {
+    const report = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { id, organizationId },
+      include: {
+        asset: { select: { name: true, skuKey: true } },
+        inventory: { select: { sku: true, serialNumber: true } },
+        organization: { select: REPORT_ORG_SELECT },
+      },
+    });
+    if (!report) throw new NotFoundException('Service report not found');
+    return report;
+  }
+
+  /** GET /maintenance-reports/:id/html → the rendered report (JSON-wrapped). */
+  async getReportHtml(id: string, organizationId: string): Promise<{ html: string; templateId: string }> {
+    const report = await this.loadForRender(id, organizationId);
+    const sd = (report.serviceData as any) ?? {};
+    return { html: this.renderReportHtml(report), templateId: templateFor(sd.templateId) };
+  }
+
+  /** GET /maintenance-reports/:id/pdf → the same PDF the customer is emailed. */
+  async getReportPdf(id: string, organizationId: string): Promise<{ buffer: Buffer; filename: string }> {
+    const report = await this.loadForRender(id, organizationId);
+    const buffer = await this.renderReportPdf(report);
+    return { buffer, filename: `service-report-${report.reportNumber ?? report.id.slice(0, 8)}.pdf` };
   }
 
   /**
@@ -408,7 +508,7 @@ export class MaintenanceReportsService {
       include: {
         asset: { select: { name: true, skuKey: true } },
         inventory: { select: { sku: true, serialNumber: true } },
-        organization: { select: { name: true, logo: true } },
+        organization: { select: REPORT_ORG_SELECT },
       },
     });
     if (!report) {

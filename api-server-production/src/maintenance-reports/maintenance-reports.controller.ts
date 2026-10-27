@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { UserOrganization } from 'src/auth/decorators/user-organization.decorator';
@@ -94,6 +94,27 @@ export class MaintenanceReportsController {
   @Permissions('maintenance-reports:read')
   findById(@Param('id') id: string, @UserOrganization() org: { id: string }) {
     return this.service.findById(id, org.id);
+  }
+
+  /**
+   * The report rendered by the server (the same HTML the PDF is printed
+   * from). The office page and the field print show a WCT report through
+   * this rather than drawing their own copy of the paper.
+   */
+  @Get(':id/html')
+  @Permissions('maintenance-reports:read')
+  getHtml(@Param('id') id: string, @UserOrganization() org: { id: string }) {
+    return this.service.getReportHtml(id, org.id);
+  }
+
+  /** The report PDF — identical to the one emailed to the customer. */
+  @Get(':id/pdf')
+  @Permissions('maintenance-reports:read')
+  async getPdf(@Param('id') id: string, @UserOrganization() org: { id: string }, @Res() res: Response) {
+    const { buffer, filename } = await this.service.getReportPdf(id, org.id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.send(buffer);
   }
 
   @Get('asset/:assetId')

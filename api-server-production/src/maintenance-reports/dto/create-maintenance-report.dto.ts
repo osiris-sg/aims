@@ -3,9 +3,18 @@ import { IsArray, IsBoolean, IsEnum, IsLatitude, IsLongitude, IsObject, IsOption
 import { MaintenanceReportKind } from '@prisma/client';
 
 export class CreateMaintenanceReportDto {
-  @ApiProperty({ description: 'Asset this service report is for (UUID).' })
+  @ApiPropertyOptional({
+    description:
+      'Asset this service report is for (UUID). Optional ONLY for a SERVICE report on a delivery run (WCT service job: a SERVICE-class line has no asset) — then deliveryId is required.',
+  })
+  @IsOptional()
   @IsUUID()
-  assetId!: string;
+  assetId?: string;
+
+  @ApiPropertyOptional({ description: 'The delivery line (DeliveryItem) an asset-less service report is for. Must be on deliveryId.' })
+  @IsOptional()
+  @IsUUID()
+  deliveryItemId?: string;
 
   @ApiPropertyOptional({ description: 'Specific inventory unit serviced, when known.' })
   @IsOptional()

@@ -13,6 +13,7 @@ import {
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import DescriptionIcon from "@mui/icons-material/Description";
 import { request } from "@/helpers/request";
 import { formatUnitLabel } from "../../../../lib/btPrinter";
 import { DoPrintActions } from "../../../../components/DoPrintActions";
@@ -36,6 +37,8 @@ import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 
 interface RunItem {
   id: string;
+  // SERVICE = work done on site (WCT): the finished job gets a service report.
+  assetClass?: string | null;
   deliveryStatus: "not_delivered" | "delivering" | "not_installed" | "completed";
   quantity: number | null;
   description: string | null;
@@ -151,6 +154,13 @@ export default function FinishedDeliveryDetailPage() {
     [run],
   );
 
+  // WCT flow: Quotation → DO → service done → invoice → SERVICE REPORT. A run
+  // with a Service line offers the report here, from the finished job; the
+  // button reads differently once one has been written (the run's reports
+  // include SERVICE rows).
+  const isServiceJob = useMemo(() => !!run?.items.some((i) => String(i.assetClass ?? "").toUpperCase() === "SERVICE"), [run]);
+  const hasServiceReport = useMemo(() => !!run?.reports.some((r) => r.kind === "SERVICE"), [run]);
+
   if (loading) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", py: 10 }}>
@@ -209,6 +219,20 @@ export default function FinishedDeliveryDetailPage() {
       {/* Print DO / Download DO (native shell only), shared with the basket of a
           partly signed run. */}
       <DoPrintActions doId={printableDoId} docLabel={isReturn ? "RDO" : "DO"} />
+
+      {isServiceJob && !isReturn && (
+        <Button
+          variant={hasServiceReport ? "outlined" : "contained"}
+          color={hasServiceReport ? "inherit" : "primary"}
+          startIcon={<DescriptionIcon />}
+          onClick={() => router.push(`/scan/delivery/${run.id}/service-report`)}
+          fullWidth
+          sx={FIELD_BUTTON_SX}
+          data-tour="field-service-report"
+        >
+          {hasServiceReport ? "View Service Report" : "Write Service Report"}
+        </Button>
+      )}
 
       <Button
         variant="outlined"

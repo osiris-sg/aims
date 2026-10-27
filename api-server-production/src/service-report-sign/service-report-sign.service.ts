@@ -214,7 +214,8 @@ export class ServiceReportSignService {
       include: {
         asset: { select: { name: true, skuKey: true } },
         inventory: { select: { sku: true, serialNumber: true } },
-        organization: { select: { name: true, logo: true } },
+        // Letterhead + footer fields for the WCT paper (name/logo are what the stock sheets use).
+        organization: { select: { name: true, logo: true, address: true, phoneNumber: true, email: true, website: true, registrationNumber: true } },
       },
     });
     if (!report) throw new NotFoundException('Not found');

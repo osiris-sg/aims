@@ -32,7 +32,7 @@
  * story for the reports that predate this module.
  */
 
-export type MsrTemplateId = 'GENERIC_V1' | 'ESS_V1';
+export type MsrTemplateId = 'GENERIC_V1' | 'ESS_V1' | 'WCT_V1';
 
 /** Per-item verdict on the ESS detailed record. */
 export type EssVerdict = 'PASS' | 'FAIL';
@@ -461,8 +461,15 @@ export function isEssAssetName(assetName?: string | null): boolean {
   return typeof assetName === 'string' && /^\s*lion/i.test(assetName);
 }
 
-/** Pick the template for a NEW report. Capture-time only — never at render. */
-export function resolveTemplateId(assetName?: string | null): MsrTemplateId {
+/**
+ * Pick the template for a NEW report. Capture-time only — never at render.
+ *
+ * A SERVICE-class delivery line (WCT 2026-10-27: work done on site, no asset
+ * behind it) is captured on the WCT kitchen-exhaust service report; an asset
+ * named "LION…" on the ESS form; everything else on the generic checklist.
+ */
+export function resolveTemplateId(assetName?: string | null, opts?: { assetClass?: string | null }): MsrTemplateId {
+  if (String(opts?.assetClass ?? '').toUpperCase() === 'SERVICE') return 'WCT_V1';
   return isEssAssetName(assetName) ? 'ESS_V1' : 'GENERIC_V1';
 }
 
@@ -471,17 +478,19 @@ export function resolveTemplateId(assetName?: string | null): MsrTemplateId {
  * An unrecognised or absent id is GENERIC_V1 — the pre-template rows.
  */
 export function templateFor(templateId?: string | null): MsrTemplateId {
-  return templateId === 'ESS_V1' ? 'ESS_V1' : 'GENERIC_V1';
+  return templateId === 'ESS_V1' ? 'ESS_V1' : templateId === 'WCT_V1' ? 'WCT_V1' : 'GENERIC_V1';
 }
 
 export const TEMPLATE_VERSIONS: Record<MsrTemplateId, number> = {
   GENERIC_V1: 1,
   ESS_V1: 1,
+  WCT_V1: 1,
 };
 
 export const TEMPLATE_LABELS: Record<MsrTemplateId, string> = {
   GENERIC_V1: 'Maintenance & Inspection Service Report',
   ESS_V1: 'Air-Cooled Energy Storage Inspection Report',
+  WCT_V1: 'Service Report',
 };
 
 /** Stable key for one sub-item of the detailed record. */
@@ -512,3 +521,361 @@ export const ESS_ALL_MEASURES: (EssMeasure & { categoryId: number })[] = ESS_CAT
 
 /** Total sub-item count — 4+1+5+9+6+3+5+2 = 35. */
 export const ESS_ITEM_COUNT = ESS_CATEGORIES.reduce((n, c) => n + c.items.length, 0);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WCT_V1 — WCT (S) Systems kitchen-exhaust SERVICE REPORT (2026-10-27).
+//
+// Transcribed from the client's paper report #012392 (Da Paolo Gastronomia,
+// 12/10/2026, 12 pages): page 1 is the job sheet (Company / Location, Date of
+// Servicing, the "Type of Service/Job" tick table), page 2 the cover letter,
+// then one photo page per equipment serviced (Before / After, with the fixed
+// work lines ticked under the photos), the area-cleaning photo, the SCDF / NEA
+// advisory, the cleaning-frequency table and the closing lines.
+//
+// Captured in the FIELD APP on a SERVICE-class delivery line (a WCT job has no
+// asset to scan), rendered ONLY by the server (service-report-wct.ts) so the
+// office page, the field print, the customer's PDF and the email are one
+// document. Wording below is the paper's VERBATIM text where the paper has it;
+// the de-dusting and additions lines (no paper sample) are marked as such.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type WctJobGroupId = 'chemical' | 'dedusting' | 'additions';
+
+export interface WctJobTypeItem {
+  /** Persisted contract: `serviceData.wct.jobTypes` holds ticked ids. Never renumber. */
+  id: string;
+  label: string;
+  /** The indented "- Consist of …" line under a (Full) system row. */
+  sub?: string;
+  /** The red italic "*Where accessible*" note. */
+  note?: string;
+}
+
+export interface WctJobTypeGroup {
+  id: WctJobGroupId;
+  /** Printed as the column / band heading, colon included, as on paper. */
+  title: string;
+  items: WctJobTypeItem[];
+}
+
+/**
+ * The "Type of Service/Job" table. Chemical Degreasing and De-Dusting print
+ * side by side (left / right column, row for row); Additions and Alterations
+ * is the full-width band under them.
+ */
+export const WCT_JOB_TYPE_GROUPS: WctJobTypeGroup[] = [
+  {
+    id: 'chemical',
+    title: 'Chemical Degreasing :',
+    items: [
+      { id: 'CD_FULL', label: 'Kitchen Exhaust System (Full)', sub: 'Consist of Exhaust Hood , Fan & Ductworks', note: '*Where accessible*' },
+      { id: 'CD_HOOD', label: 'Exhaust Hood' },
+      { id: 'CD_FAN', label: 'Exhaust Fan' },
+      { id: 'CD_DUCT', label: 'Exhaust Ductworks' },
+      { id: 'CD_LOUVRE', label: 'Exhaust Louvre Grille' },
+      { id: 'CD_AIR_CLEANER', label: 'Air Cleaner' },
+      { id: 'CD_UV', label: 'UV Light' },
+    ],
+  },
+  {
+    id: 'dedusting',
+    title: 'De-Dusting Work :',
+    items: [
+      { id: 'DD_FULL', label: 'Fresh Air System (Full)', sub: 'Consist of Fresh Air Ductwork & Fan/Motor', note: '*Where accessible*' },
+      { id: 'DD_DUCT', label: 'Fresh Air Ductwork' },
+      { id: 'DD_FAN', label: 'Fresh Air Fan' },
+      { id: 'DD_GRILLE', label: 'Fresh Air Grille' },
+    ],
+  },
+  {
+    id: 'additions',
+    title: 'Additions and Alterations Work :',
+    items: [
+      { id: 'AA_MOTOR', label: 'Replacement of Exhaust Motor' },
+      { id: 'AA_UV', label: 'Installation/Replacement of UV light' },
+      { id: 'AA_CARBON', label: 'Replacement of Carbon Filter' },
+      { id: 'AA_BAFFLE', label: 'Replacement of Baffle Filter' },
+      { id: 'AA_AC_FILTER', label: 'Replacement of Air Cleaner Filter' },
+    ],
+  },
+];
+
+/** Every job-type item, flattened, for lookups by id. */
+export const WCT_JOB_TYPES: (WctJobTypeItem & { groupId: WctJobGroupId })[] = WCT_JOB_TYPE_GROUPS.flatMap((g) =>
+  g.items.map((it) => ({ ...it, groupId: g.id })),
+);
+
+export interface WctPhotoSection {
+  /** Persisted contract: key of `serviceData.wct.sections`. Never rename. */
+  id: string;
+  /** "Chemical Degreasing of" / "De-Dusting of" / a full heading. */
+  heading: string;
+  /** The underlined equipment name after the heading, when there is one. */
+  subject?: string;
+  /** before-after: a Before grid and an After grid. single: one grid. */
+  mode: 'before-after' | 'single';
+  /** Printed on every report (Unit Location, Area Cleaning). */
+  always?: boolean;
+  /** Printed when any of these job types is ticked. */
+  jobTypes?: string[];
+  /** The ✓ work lines under the photos. The tech un-ticks what was not done. */
+  lines: string[];
+  /** True where the lines are NOT from a paper sample (written for AIMS). */
+  draftedLines?: boolean;
+}
+
+const CD_PROTECT = 'Setting up protection coverage before cleaning process begins.';
+const CD_SCRAPE = 'Heavy grease accumulations are scraped.';
+const CD_WASH = 'Water pressure washed.';
+const CD_JOINTS = 'Checking, identify, reinforcement for leaking joints with heavy salient.';
+
+/**
+ * The photo pages, in print order. A section prints when it is `always` or
+ * one of its `jobTypes` is ticked; the field form offers exactly that set.
+ */
+export const WCT_PHOTO_SECTIONS: WctPhotoSection[] = [
+  {
+    id: 'UNIT_LOCATION',
+    heading: 'Unit Location',
+    mode: 'single',
+    always: true,
+    lines: ['Checking, testing of electrical readings before service conduct.'],
+  },
+  {
+    id: 'HOOD',
+    heading: 'Chemical Degreasing of',
+    subject: 'Kitchen Exhaust Hood',
+    mode: 'before-after',
+    jobTypes: ['CD_FULL', 'CD_HOOD'],
+    lines: [CD_PROTECT, CD_SCRAPE, 'Chemical degreasing for Exhaust Hood & Grease baffle filters.', CD_WASH],
+  },
+  {
+    id: 'FAN',
+    heading: 'Chemical Degreasing of',
+    subject: 'Kitchen Exhaust Fan',
+    mode: 'before-after',
+    jobTypes: ['CD_FULL', 'CD_FAN'],
+    lines: [CD_PROTECT, CD_SCRAPE, 'Chemical degreasing for MV fan/ fan impeller/ fan hub (interior and exterior)', CD_WASH],
+  },
+  {
+    id: 'DUCT',
+    heading: 'Chemical Degreasing of',
+    subject: 'Kitchen Exhaust Ductwork',
+    mode: 'before-after',
+    jobTypes: ['CD_FULL', 'CD_DUCT'],
+    lines: [
+      CD_PROTECT,
+      CD_SCRAPE,
+      'Chemical degreasing the exhaust ductworks inside/outside kitchen area to the its provision & 1metre before and after existing MV fan',
+      CD_WASH,
+      CD_JOINTS,
+    ],
+  },
+  {
+    id: 'UV',
+    heading: 'Chemical Degreasing of',
+    subject: 'UV Light',
+    mode: 'before-after',
+    jobTypes: ['CD_UV', 'AA_UV'],
+    lines: [CD_PROTECT, CD_SCRAPE, 'Chemical degreasing for UV lights in the ductwork.', CD_WASH, CD_JOINTS],
+  },
+  {
+    id: 'LOUVRE',
+    heading: 'Chemical Degreasing of',
+    subject: 'Exhaust Louvre Grille',
+    mode: 'before-after',
+    jobTypes: ['CD_LOUVRE'],
+    lines: [CD_PROTECT, CD_SCRAPE, 'Chemical degreasing for exhaust lourves grille/discharge', CD_WASH, 'Checking of wire mesh condition for Exhaust lourves.'],
+  },
+  {
+    id: 'AIR_CLEANER',
+    heading: 'Chemical Degreasing of',
+    subject: 'Air Cleaner',
+    mode: 'before-after',
+    jobTypes: ['CD_AIR_CLEANER', 'AA_AC_FILTER'],
+    lines: [CD_PROTECT, CD_SCRAPE, 'Chemical degreasing for air cleaner cells and filters.', CD_WASH],
+    draftedLines: true,
+  },
+  {
+    id: 'FA_DUCT',
+    heading: 'De-Dusting of',
+    subject: 'Fresh Air Ductwork',
+    mode: 'before-after',
+    jobTypes: ['DD_FULL', 'DD_DUCT'],
+    lines: [CD_PROTECT, 'Dust accumulations are removed from the fresh air ductwork inside/outside kitchen area.', 'Checking, identify, reinforcement for leaking joints.'],
+    draftedLines: true,
+  },
+  {
+    id: 'FA_FAN',
+    heading: 'De-Dusting of',
+    subject: 'Fresh Air Fan/Motor',
+    mode: 'before-after',
+    jobTypes: ['DD_FULL', 'DD_FAN'],
+    lines: [CD_PROTECT, 'Dust accumulations are removed from the fresh air fan/ fan impeller/ motor (interior and exterior).', 'Fan operation checked after cleaning.'],
+    draftedLines: true,
+  },
+  {
+    id: 'FA_GRILLE',
+    heading: 'De-Dusting of',
+    subject: 'Fresh Air Grille',
+    mode: 'before-after',
+    jobTypes: ['DD_GRILLE'],
+    lines: [CD_PROTECT, 'Dust accumulations are removed from the fresh air grilles.', 'Checking of grille condition.'],
+    draftedLines: true,
+  },
+  {
+    id: 'ADDITIONS',
+    heading: 'Additions and Alterations Work',
+    mode: 'before-after',
+    jobTypes: ['AA_MOTOR', 'AA_CARBON', 'AA_BAFFLE'],
+    lines: ['Replacement parts installed, tested and the system run checked.', 'Removed parts cleared from site.'],
+    draftedLines: true,
+  },
+  {
+    id: 'AREA_CLEANING',
+    heading: 'Area Cleaning (After Job Completed)',
+    mode: 'single',
+    always: true,
+    lines: ['Area cleaning of service work area and clear debris from site.'],
+  },
+];
+
+/** The sections a report with these job types prints / captures, in print order. */
+export function wctSectionsFor(jobTypes: readonly string[] | null | undefined): WctPhotoSection[] {
+  const ticked = new Set(jobTypes ?? []);
+  return WCT_PHOTO_SECTIONS.filter((s) => s.always || (s.jobTypes ?? []).some((j) => ticked.has(j)));
+}
+
+/** Most photos per Before / After / single grid (two per row, two rows, as on paper). */
+export const WCT_MAX_PHOTOS_PER_GRID = 4;
+
+/** "#012392" — the paper prints the running number six digits wide. */
+export function wctReportNumber(n?: number | null): string {
+  return n == null ? '#—' : `#${String(n).padStart(6, '0')}`;
+}
+
+/** The cover letter's scope sentence follows what was ticked. */
+export function wctScopeSentence(jobTypes: readonly string[] | null | undefined): string {
+  const groups = new Set(WCT_JOB_TYPES.filter((j) => (jobTypes ?? []).includes(j.id)).map((j) => j.groupId));
+  const parts: string[] = [];
+  if (groups.has('chemical') || groups.size === 0) parts.push('Chemical Degreasing of kitchen exhaust systems');
+  if (groups.has('dedusting')) parts.push('De-Dusting of fresh air systems');
+  if (groups.has('additions')) parts.push('Additions and Alterations work');
+  return `The scope of work includes providing skilled labor and using appropriate materials to Supply and ${parts.join(', ')}.`;
+}
+
+/** Page 2 — printed, never captured (the paper's letter, verbatim). */
+export const WCT_COVER_LETTER = {
+  salutation: 'Dear Valued Client,',
+  opening: 'With reference above, we are pleased to inform you that We have successfully completed the job at the above-mentioned location.',
+  scheduled: 'The work was scheduled for the date mentioned above.',
+  photos: 'Attached behind are pictures for the work conducted during the process.',
+  insight: 'We hope that our report has provided you with a useful insight into the understanding of your exhaust system.',
+  thanks: 'Your satisfaction is our goal, and we are looking forward to serving you better. Thank you for choosing WCT (S) Systems Pte Ltd.',
+  attention: 'For your kind attention with immediate effect,',
+};
+
+export const WCT_CONTACTS: { label: string; value: string }[] = [
+  { label: 'Domain Website', value: 'www.wct.com.sg' },
+  { label: 'Email Address', value: 'info@wct.com.sg' },
+  { label: 'For Billing/Finance/Accounting', value: 'admin@wct.com.sg' },
+  { label: 'For General Matters/Enquiry/Sales', value: 'info@wct.com.sg' },
+  { label: 'For Service Report', value: 'isadora@wct.com.sg' },
+  { label: 'For Urgent Matters (24/7)', value: 'henry@wct.com.sg' },
+];
+
+export const WCT_VALUES: { title: string; text: string }[] = [
+  {
+    title: 'Our Mission',
+    text: 'Working as a team, we function as a body that moves in sync with the same vision. We have always hold ourselves as a movement that stands on integrity and our utmost importance is making sure every customer is satisfied with our service. We want to be the provider, which is the most efficient and convenient to you.',
+  },
+  {
+    title: 'Our Vision',
+    text: 'We want every client to be our long-term partners, which is why it is important to us to provide you with only the highest service quality that meets levels of compliance and satisfaction so you could continue to believe in our sincerity in building a long-term business partnership with you.',
+  },
+  {
+    title: 'Our Drive',
+    text: 'While we have accomplished several huge commercial projects successfully, we still hold ourselves responsible to what you value. This drives us to constantly offer innovative and effective solutions to all needs and requirements.',
+  },
+];
+
+/** The letter's signatory block. Office staff, not the technician. */
+export const WCT_SIGNATORY = { regards: 'Warmest Regards,', name: 'Isadora Eng', title: 'Operational Finance', email: 'isadora@wct.com.sg' };
+
+/** Advisory page — the paper pastes SCDF / NEA slides; the text is reproduced. */
+export const WCT_ADVISORY = {
+  heading: 'Advisory',
+  source: '(Source from SCDF & NEA)',
+  ked: {
+    title: 'KED Requirements',
+    points: [
+      'Setback is needed from the KED when it runs outside of an eating establishment/industrial unit.',
+      'Non fire rated KED shall be located minimum 3m away from LPG cylinders and pipe work. It shall not be located directly above LPG storage cabinet.',
+      'The exhaust ducts and kitchen hoods (including the interior) shall be degreased and cleaned at least once every 12 months. The work shall be carried out by a specialist and the records of cleaning and degreasing shall be kept by the owner/operator for verification by relevant authority.',
+    ],
+  },
+  enforcement: {
+    title: 'ENFORCEMENT',
+    points: [
+      'NFSOs (not FHAN) – fine, court action for non compliance to the SCDF Fire Safety Circular – if operators fail to see that the exhaust ducts (including the interior) and kitchen hoods be degreased and cleaned at least once every 12 months',
+      'The cleaning and maintenance of KED once in 12 months apply to all KED',
+    ],
+  },
+  nea: {
+    title: 'Recommended minimum cleaning frequency (NEA)',
+    rows: [
+      ['Floor and wall next to preparation area', 'Daily (or after operation)'],
+      ['Doors', 'Weekly'],
+      ['Windows, ceilings, overhead fixtures (e.g. lighting covers and fans)', 'Monthly'],
+      ['Food processing equipment', 'Daily (or after operation)'],
+      ['Food containers, crockery and utensils', 'Daily (or after operation)'],
+      ['Food preparation table', 'Daily (or after operation)'],
+      ['Sinks, taps, gullies and drains', 'Daily (or after operation)'],
+      ['Exhaust hood, flue and ventilation systems', 'Monthly'],
+    ],
+    /** The row the paper circles in red. */
+    highlight: 'Exhaust hood, flue and ventilation systems',
+  },
+};
+
+export const WCT_FREQUENCY = {
+  heading: 'Recommendation of Frequency',
+  title: 'How Often Should You Have Your System Cleaned?',
+  columns: ['Type or Volume of Cooking', 'Cleaning Frequency'],
+  rows: [
+    ['System serving solid fuel cooking operations', 'Monthly'],
+    ['System serving high-volume cooking operations, such as 24-hour cooking, charbroiling or wok cooking.', 'Quarterly'],
+    ['System serving moderate-volume cooking operations.', 'Semi-Annually'],
+    ['System serving low-volume cooking operations, such as churches, day camps, seasonal businesses, senior centres', 'Annually'],
+  ],
+};
+
+export const WCT_CLOSING = {
+  en: 'Our management is always happy to serve you! if you have any comments and suggestions regarding our services and products, please feel free to share it with us. We value our customers and your opinions. We look forward to serving you again.',
+  zh: '我们的管理人员永远乐意为您服务！如果您对我们的服务和产品有任何意见和建议，请随时与我们分享。我们重视客户和您的意见。我们期待再次为您服务。',
+};
+
+/**
+ * What one photo section stores. `lines` is the ticked line INDEXES (into the
+ * section's `lines`); absent = every line, which is what the field form
+ * starts from. `photos` is the single grid; `before` / `after` the pair.
+ */
+export interface WctSectionResult {
+  before?: string[];
+  after?: string[];
+  photos?: string[];
+  lines?: number[];
+}
+
+/** The WCT payload, stored at `serviceData.wct`. */
+export interface WctServiceData {
+  /** Ticked "Type of Service/Job" ids (WCT_JOB_TYPES). */
+  jobTypes: string[];
+  /** Section id → photos and ticked lines. Only captured sections are present. */
+  sections: Record<string, WctSectionResult>;
+}
+
+/** True when a section's line i is ticked on a stored result. */
+export function wctLineTicked(result: WctSectionResult | undefined, i: number): boolean {
+  return !result?.lines || result.lines.includes(i);
+}

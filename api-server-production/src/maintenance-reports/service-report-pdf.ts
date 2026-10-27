@@ -9,6 +9,7 @@
  * the output deterministic.
  */
 
+import { buildWctServiceReportHtml, wctServicePdfOptions, type WctOrgProfile } from './service-report-wct';
 import {
   ESS_CATEGORIES,
   ESS_POWER_ON_TESTS,
@@ -71,6 +72,7 @@ interface ServiceData {
   templateId?: string | null;
   templateVersion?: number | null;
   ess?: EssServiceData | null;
+  wct?: any;
 }
 
 export interface ServiceReportPdfInput {
@@ -84,6 +86,19 @@ export interface ServiceReportPdfInput {
   orgLogo?: string | null;
   /** Optional proof photos (S3 keys), printed at the very end. */
   photos?: string[] | null;
+  /** Letterhead + footer fields (WCT paper). Falls back to orgName / orgLogo. */
+  org?: WctOrgProfile | null;
+}
+
+/** PDF options for a report: page inset for the multi-page layouts, plus the WCT paper's per-page footer. */
+export function servicePdfOptions(
+  serviceData: { templateId?: string | null } | null,
+  photos: string[] | null | undefined,
+  org: WctOrgProfile,
+): { margin: { top: string; right: string; bottom: string; left: string }; pageNumbers?: { label?: string; format?: 'of' | 'slash'; fontPx?: number; paddingX?: string } } | undefined {
+  if (templateFor(serviceData?.templateId) === 'WCT_V1') return wctServicePdfOptions(org);
+  const margin = servicePdfMargin(serviceData, photos);
+  return margin ? { margin } : undefined;
 }
 
 /**
@@ -387,6 +402,16 @@ const buildEssBodyHtml = (ess: EssServiceData | null): string => {
 
 export function buildServiceReportHtml(input: ServiceReportPdfInput): string {
   const sd = input.serviceData ?? {};
+  // The WCT paper is a document of its own (letterhead on every page, photo
+  // pages, advisory) — a separate builder, chosen by the row's stamped id.
+  if (templateFor(sd.templateId) === 'WCT_V1') {
+    return buildWctServiceReportHtml({
+      reportNumber: input.reportNumber,
+      technicianName: input.technicianName,
+      serviceData: sd,
+      org: input.org ?? { name: input.orgName, logo: input.orgLogo },
+    });
+  }
   const checkedSet = new Set(sd.checklist ?? []);
   const techSigUrl = sd.techSignatureKey ? `${S3_PREFIX}${sd.techSignatureKey}` : null;
   const clientSigUrl = sd.clientSignatureKey ? `${S3_PREFIX}${sd.clientSignatureKey}` : null;

@@ -224,6 +224,45 @@ flow video yet (see §7):
    template: the proof-of-delivery photo section of the stock DO sheet is NOT
    part of the WCT layout.
 
+### Service report (round 5, 2026-10-27) — the LAST step of the flow
+
+Guru's flow: **Quotation → DO → service done → invoice → service report.** The
+report is the client's paper (report #012392, Da Paolo Gastronomia, 12 pages),
+reproduced as the `WCT_V1` service-report template:
+
+- **Template** (`portal-production/lib/msr-templates.ts`, mirrored in
+  `api-server-production/src/maintenance-reports/msr-templates.ts` — keep the
+  two in sync): the "Type of Service/Job" tick table (Chemical Degreasing ·
+  De-Dusting Work · Additions and Alterations Work), the photo sections
+  (Unit Location, one Before/After page per equipment with its ✓ work lines,
+  Area Cleaning), the cover letter, contacts, Mission/Vision/Drive, signatory
+  (Isadora Eng), the SCDF/NEA advisory, the frequency table and the EN+ZH
+  closing lines. Paper wording is verbatim; the de-dusting / additions lines
+  (no paper sample) are marked `draftedLines` for WCT to correct.
+- **Renderer** `src/maintenance-reports/service-report-wct.ts` — the only
+  drawing of the paper: letterhead (logo, red company block, UEN) repeated on
+  every page via an outer-table `<thead>`, "#012392"-style number, dashed
+  Company/Location box, red tick stamps, Before/After grids, Puppeteer footer
+  with TEL / WEBSITE / EMAIL / ADDRESS and "Page n of N". The office page
+  (`WctReportView`, iframe of `GET /maintenance-reports/:id/html`), the field
+  app's Print / Download PDF, the customer's PDF (`GET …/:id/pdf`, the email,
+  the sign-link PDF) all show this HTML.
+- **Capture** — field app, `/scan/delivery/[id]/service-report`, reached from
+  the "Delivery completed" screen's **Write Service Report** button (runs with a
+  Service-class line): step 1 Company / Location / Date (from the run) + job
+  types; step 2 Before/After photos per section the ticks call for (Unit
+  Location seeded from the line's DO_START photo; un-tick a line not done);
+  step 3 remarks + optional customer email → one `POST /maintenance-reports`
+  with no `assetId` (now optional for a SERVICE report on a run), `deliveryId`
+  + `deliveryItemId`, `serviceData.templateId = WCT_V1`. The server fills
+  customer / site / customer email from the run, links `invoiceDocumentId` to
+  the invoice created off the run's DO, numbers it and — since the paper has
+  no customer signature — creates it **completed** and emails it at once.
+- Not done: the e2e harness has no stage for it yet (04-complete drives the
+  guest link, not the field app); the paper's SCDF/NEA slide images are
+  reproduced as text boxes, not pictures; the bizSAFE/BCA badges print as a
+  text line.
+
 ## 7. Open items for guru
 
 - **Logo**: not supplied. Upload on Company Profile; the layout prints it at

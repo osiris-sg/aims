@@ -38,6 +38,7 @@ import {
 } from "@/components/maintenance/EssReportView";
 import ReportPhotos from "@/components/maintenance/ReportPhotos";
 import CustomerSignLinkButton from "../_components/CustomerSignLinkButton";
+import WctReportView from "../_components/WctReportView";
 
 // Labels come from the SHARED catalogue (see the drift warning there). Which
 // template a report renders under is read from the ROW's stamped templateId,
@@ -193,6 +194,8 @@ export default function MaintenanceReportDetailPage() {
   // story for reports captured before templates existed.
   const templateId = templateFor(sd.templateId);
   const isEss = templateId === "ESS_V1";
+  // The WCT paper is the server's own document; the page shows it as served.
+  const isWct = templateId === "WCT_V1";
   const ess = sd.ess ?? null;
   const checkedSet = new Set(sd.checklist ?? []);
   const techSigUrl = sd.techSignatureKey ? `${RESOURCE_URL}${sd.techSignatureKey}` : null;
@@ -245,16 +248,39 @@ export default function MaintenanceReportDetailPage() {
               variant="outlined"
             />
           )}
-          {/* Unsigned: let the customer sign remotely (one-use link). */}
-          {report.status !== "completed" && (
+          {/* Unsigned: let the customer sign remotely (one-use link). The WCT
+              paper carries no customer signature, so it never offers one. */}
+          {report.status !== "completed" && !isWct && (
             <CustomerSignLinkButton reportId={report.id} hasTechSignature={!!(report.serviceData as any)?.techSignatureKey} />
           )}
-          <Button variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()}>
-            Print
-          </Button>
+          {!isWct && (
+            <Button variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()}>
+              Print
+            </Button>
+          )}
         </Stack>
       </Stack>
 
+      {isWct && (
+        <>
+          <Paper variant="outlined" sx={{ p: 2 }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
+              <Box>
+                <Typography variant="h6" fontWeight={700}>
+                  Service Report #{report.reportNumber != null ? String(report.reportNumber).padStart(6, "0") : "—"}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {sd.customerName ?? "—"} · {sd.jobLocation ?? "—"} · {sd.serviceDate ?? "—"} · by {report.technicianName ?? "—"} · created {formatDateTime(report.createdAt)}
+                </Typography>
+              </Box>
+              <Chip size="small" label={report.status} color={report.status === "completed" ? "success" : "default"} sx={{ textTransform: "capitalize" }} />
+            </Stack>
+          </Paper>
+          <WctReportView reportId={report.id} reportNumber={report.reportNumber} />
+        </>
+      )}
+
+      {!isWct && (<>
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 2 }}>
           <Box>
@@ -406,6 +432,7 @@ export default function MaintenanceReportDetailPage() {
       <Box className="msr-photos-print">
         <ReportPhotos photos={report.photos} variant="print" />
       </Box>
+      </>)}
 
       {/* Global print rules — strip the portal sidebar/navbar layout and keep
           only the report content. The toolbar above uses its own media query;
