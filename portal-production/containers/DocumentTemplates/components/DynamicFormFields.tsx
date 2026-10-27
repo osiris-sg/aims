@@ -136,6 +136,26 @@ function useCustomerContacts(selectedCustomer: any, formData: any, setFormData: 
   return { contacts, fill, selectedId, open, setOpen, saving, draft, setDraft, save };
 }
 
+/** The header pickers are MUI Selects — `inputSx` styles a descendant
+ *  `.MuiInputBase-root`, which a Select IS rather than contains, so apply the
+ *  same box (height, border, radius) to the Select itself. */
+// A function, not a const: fieldBorderColor / fieldBorderHoverColor are
+// declared further down this module (reading them here at load time would hit
+// the temporal dead zone); resolved at render instead.
+const pickerSelectSx = () => ({
+  height: 28,
+  fontSize: '13px',
+  fontFamily: fieldFontFamily,
+  bgcolor: 'background.paper',
+  borderRadius: '4px',
+  border: '1px solid',
+  borderColor: fieldBorderColor,
+  '&:hover': { borderColor: fieldBorderHoverColor },
+  '&.Mui-focused': { borderColor: 'primary.main' },
+  '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+  '& .MuiSelect-select': { py: 0, px: 1, display: 'flex', alignItems: 'center', height: '28px !important', minHeight: 0 },
+});
+
 function ContactPicker({ cc, inputSx, disabled }: { cc: ReturnType<typeof useCustomerContacts>; inputSx: any; disabled?: boolean }) {
   return (
     <>
@@ -149,7 +169,7 @@ function ContactPicker({ cc, inputSx, disabled }: { cc: ReturnType<typeof useCus
               const poc = cc.contacts.find((c: any) => c.id === e.target.value);
               if (poc) cc.fill(poc);
             }}
-            sx={{ ...inputSx, fontSize: '13px' }}
+            sx={{ ...inputSx, ...pickerSelectSx() }}
             renderValue={(val) => {
               const poc = cc.contacts.find((c: any) => c.id === val);
               return poc ? poc.name : <span style={{ color: '#9e9e9e' }}>Attn To…</span>;
@@ -304,7 +324,7 @@ function LocationPicker({ sl, inputSx, disabled }: { sl: ReturnType<typeof useCu
             if (v === '__legacy__') return;
             sl.fill(v ? sl.sites.find((st: any) => st.id === v) ?? null : null);
           }}
-          sx={{ ...inputSx, fontSize: '13px' }}
+          sx={{ ...inputSx, ...pickerSelectSx() }}
           renderValue={(val) => {
             if (val === '__legacy__') return legacy;
             const site = sl.sites.find((st: any) => st.id === val);
@@ -1308,7 +1328,10 @@ export default function DynamicFormFields({
       sx={{
         display: 'flex',
         alignItems: 'center',
-        gap: 1,
+        // No gap: the input sits flush against the label cell's border, exactly
+        // like the two-per-line rows (guru 2026-10-27: "make the fields touch
+        // the border").
+        gap: 0,
         borderBottom: 1,
         borderColor: 'divider',
       }}
@@ -1556,7 +1579,7 @@ export default function DynamicFormFields({
   const renderContactTermsRow = () => (
     <Box
       key="contact-terms"
-      sx={{ display: 'flex', alignItems: 'center', gap: 1, borderBottom: 1, borderColor: 'divider' }}
+      sx={{ display: 'flex', alignItems: 'center', gap: 0, borderBottom: 1, borderColor: 'divider' }}
     >
       <Typography sx={leftLabelSx}>{contactField!.displayLabel}</Typography>
       {/* Phone: picker + readout + Terms wrap instead of clipping. */}

@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Inject, Injectable, forwardRef } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, forwardRef } from '@nestjs/common';
 import { tierOfRoleNames } from '../common/role-tier';
 import { DeliveriesService } from '../deliveries/deliveries.service';
 import { randomUUID } from 'crypto';
@@ -198,6 +198,16 @@ export class DocumentsService {
     PO: 'PURCHASE_ORDER', PURCHASE_ORDER: 'PURCHASE_ORDER',
     PR: 'PURCHASE_RETURN', PURCHASE_RETURN: 'PURCHASE_RETURN',
   };
+
+  /** A document with no real line item cannot be confirmed (guru 2026-10-27).
+   *  Group headers / tag rows do not count; a line counts when it has a
+   *  description or an amount. Mirrors the editor's guard. */
+  private assertHasLineItems(config: any, what = 'document'): void {
+    const items: any[] = Array.isArray(config?.items) ? config.items : [];
+    const strip = (v: any) => String(v ?? '').replace(/<[^>]*>/g, '').trim();
+    const ok = items.some((it) => it && !it.isGroupHeader && !it.isTagGroup && (strip(it.description) !== '' || Number(it.amount) > 0 || Number(it.unitPrice) > 0));
+    if (!ok) throw new BadRequestException(`Add at least one line item before confirming this ${what}.`);
+  }
 
   async repostGlForDocument(
     organizationId: string,
@@ -1313,6 +1323,8 @@ export class DocumentsService {
       // number. (Computed locally — `becomingConfirmed` below is defined after
       // this update.)
       const doConfirmingNow = dto.status === 'confirmed' && existingDocument.status !== 'confirmed';
+      // Confirming an EMPTY document is refused here as well as in the editor.
+      if (doConfirmingNow) this.assertHasLineItems(dto.config ?? existingDocument.config, String(existingDocument.type || 'document').toLowerCase().replace(/_/g, ' '));
       let confirmedDoName: string | undefined;
       if (
         doConfirmingNow &&
@@ -6212,6 +6224,7 @@ export class DocumentsService {
       if (!document) {
         throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
       }
+      this.assertHasLineItems((document as any).config, 'delivery order');
 
       // Validate it's a Delivery Order
       if (document.type !== 'DO' && document.type !== 'DELIVERY_ORDER') {
@@ -6311,6 +6324,7 @@ export class DocumentsService {
       if (!document) {
         throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
       }
+      this.assertHasLineItems((document as any).config, 'invoice');
 
       // Validate it's an Invoice
       const invoiceTypes = ['INVOICE', 'TI', 'TI2'];

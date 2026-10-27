@@ -1,5 +1,6 @@
 "use client";
 
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import React, { useState } from "react";
 import {
   Alert,
@@ -104,6 +105,7 @@ export function ScheduledRunCard({
   onStart: () => void | Promise<void>;
   onViewDo: (assetId: string, docId: string) => void;
 }) {
+  const { isQuotationToDeliveryEnabled: serviceJobs } = useOrganizationFeatures();
   const isReturn = r.direction === "RETURN";
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -184,7 +186,9 @@ export function ScheduledRunCard({
       ) : (
         <SiteAddress run={r} context={context} />
       )}
-      {r.document?.poNo && (
+      {/* Service-job orgs (WCT) run jobs off an accepted quotation, not a
+          customer PO — the PO line is noise there (guru 2026-10-27). */}
+      {r.document?.poNo && !serviceJobs && (
         <Typography variant="body2">
           <b>PO No.:</b> {r.document.poNo}
         </Typography>

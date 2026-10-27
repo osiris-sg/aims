@@ -2912,7 +2912,25 @@ export default function TabbedDocumentCreator({
     setPriceHistoryDialogOpen(true);
   };
 
+  // No line items → nothing to confirm (guru 2026-10-27: "dont let them confirm
+  // if they never put in any items"). Group headers / tag rows don't count; a
+  // line counts when it has a description or an amount. Checked here on every
+  // confirm path (the server refuses too) so the office gets a plain message
+  // instead of a numbered, empty document.
+  const hasLineItems = () =>
+    (Array.isArray(items) ? items : []).some(
+      (it: any) =>
+        it && !it.isGroupHeader && !it.isTagGroup &&
+        (String(it.description ?? "").replace(/<[^>]*>/g, "").trim() !== "" || Number(it.amount) > 0 || Number(it.unitPrice) > 0),
+    );
+  const refuseEmptyConfirm = () => {
+    if (hasLineItems()) return false;
+    toast.error("Add at least one line item before confirming.");
+    return true;
+  };
+
   const handleConfirmDocument = async () => {
+    if (refuseEmptyConfirm()) return;
     setIsConfirming(true);
     try {
       // Get current user info for tracking
@@ -2954,6 +2972,7 @@ export default function TabbedDocumentCreator({
   // user to optionally convert the quotation into a PO / DO / Invoice via the
   // ConvertQuotation dialog. Does NOT reload — the dialog handles next steps.
   const handleConfirmQuotation = async () => {
+    if (refuseEmptyConfirm()) return;
     // Type gate — every quotation that has a Type field configured (the QF
     // template's Project / Route Order picker) must have one chosen before
     // confirm. Without it the auto-created Order has orderType=null, and
@@ -3034,6 +3053,7 @@ export default function TabbedDocumentCreator({
 
   // Handle PO confirmation with supplier D/O info
   const handleConfirmPO = async (poData: ConfirmPOData) => {
+    if (refuseEmptyConfirm()) return;
     setIsConfirming(true);
     try {
       // Get current user info for tracking
@@ -3078,6 +3098,7 @@ export default function TabbedDocumentCreator({
 
   // Handle Stock Adjustment confirmation
   const handleConfirmAdjustment = async (adjustmentData: ConfirmAdjustmentData) => {
+    if (refuseEmptyConfirm()) return;
     setIsConfirming(true);
     try {
       // Get current user info for tracking
@@ -3121,6 +3142,7 @@ export default function TabbedDocumentCreator({
 
   // Handle Delivery Order confirmation (may deduct stock based on org settings)
   const handleConfirmDO = async (doData: ConfirmDOData) => {
+    if (refuseEmptyConfirm()) return;
     setIsConfirming(true);
     try {
       const token = await getToken();
@@ -3187,6 +3209,7 @@ export default function TabbedDocumentCreator({
 
   // Handle Purchase Return confirmation
   const handleConfirmPR = async (prData: ConfirmPRData) => {
+    if (refuseEmptyConfirm()) return;
     setIsConfirming(true);
     try {
       const token = await getToken();
@@ -3267,6 +3290,7 @@ export default function TabbedDocumentCreator({
 
   // Handle Invoice confirmation (may deduct stock based on org settings)
   const handleConfirmInvoice = async (invoiceData: ConfirmInvoiceData) => {
+    if (refuseEmptyConfirm()) return;
     setIsConfirming(true);
     try {
       const token = await getToken();
