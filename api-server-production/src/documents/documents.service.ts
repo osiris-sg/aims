@@ -5835,6 +5835,14 @@ export class DocumentsService {
       doDoc.projectId ?? undefined,
     );
     console.log(`🧾 DO→INVOICE: created invoice ${invoice.id} from DO ${documentId}`);
+    // A service report written DURING the job (before the sign-off) could not
+    // link an invoice that did not exist yet — link it now that it does.
+    await this.prisma.maintenanceServiceReport
+      .updateMany({
+        where: { organizationId, kind: 'SERVICE', status: 'completed', invoiceDocumentId: null, delivery: { items: { some: { documentId } } } },
+        data: { invoiceDocumentId: invoice.id },
+      })
+      .catch((e: any) => console.warn(`DO→INVOICE: could not link the service report to ${invoice.name}: ${e?.message}`));
     // Post it to the GL right away (guru 2026-10-27: "if an invoice is created
     // it should already post to GL") — the draft carries totals, tax and the
     // quotation's account codes now, so it posts exactly as a saved invoice

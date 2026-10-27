@@ -265,6 +265,23 @@ export default function WctServiceReportPage() {
     }
   };
 
+  // After the report: mark every service line delivered (the unsigned "End
+  // Delivery" the DO flow does) and hand over to the one customer signature.
+  const [finishing, setFinishing] = useState(false);
+  const continueToSignOff = async () => {
+    setFinishing(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request({ path: `/deliveries/${deliveryId}/ack-all`, method: "POST" }, {}, token);
+      if (res?.success === false) throw new Error(res?.message ?? "Could not end the service lines");
+      router.replace(`/scan/delivery/${deliveryId}/finalize`);
+    } catch (e: any) {
+      setError(e?.message ?? "Could not continue to the sign-off");
+      setFinishing(false);
+    }
+  };
   const stepName = STEPS[step - 1];
   useFieldAppBar({
     title: "Service Report",
@@ -272,7 +289,12 @@ export default function WctServiceReportPage() {
     // Step 1's Back goes to the finished-delivery screen (finalize lands here
     // directly, so history would lead back into the sign-off), which keeps
     // saying the report is pending until it is written.
-    onBack: created ? undefined : () => (step === 1 ? router.replace(`/scan/deliveries/finished/${deliveryId}`) : setStep((v) => v - 1)),
+    // Step 1's Back returns to where the job is: the run page while the job is
+    // still open (the report is written during the job, before the sign-off),
+    // the finished-delivery screen once it is completed.
+    onBack: created
+      ? undefined
+      : () => (step === 1 ? router.replace(run?.status === "completed" ? `/scan/deliveries/finished/${deliveryId}` : `/scan/delivery/${deliveryId}`) : setStep((v) => v - 1)),
     backDisabled: submitting,
   });
 
@@ -313,9 +335,24 @@ export default function WctServiceReportPage() {
           Download PDF
         </Button>
         {error && <Alert severity="error">{error}</Alert>}
-        <Button variant="text" onClick={() => router.replace(`/scan/deliveries/finished/${run.id}`)} fullWidth sx={FIELD_BUTTON_SX}>
-          Back to delivery
-        </Button>
+        {run.status === "completed" ? (
+          <Button variant="text" onClick={() => router.replace(`/scan/deliveries/finished/${run.id}`)} fullWidth sx={FIELD_BUTTON_SX}>
+            Back to delivery
+          </Button>
+        ) : (
+          /* The job is still open: the report is written, now the customer
+             signs. End the service lines (unsigned) and go to the sign-off. */
+          <Button
+            variant="contained"
+            color="success"
+            onClick={() => void continueToSignOff()}
+            disabled={finishing}
+            fullWidth
+            sx={FIELD_BUTTON_SX}
+          >
+            {finishing ? "One moment…" : "Continue to customer sign-off"}
+          </Button>
+        )}
       </Box>
     );
   }
@@ -334,7 +371,9 @@ export default function WctServiceReportPage() {
       )}
       {step === 1 && (
         <Alert severity="info">
-          The job is signed off. Write the service report now — it is the last step and goes to the customer by email.
+          {run.status === "completed"
+            ? "The job is signed off. Write the service report now — it goes to the customer by email."
+            : "Write the service report for the work done. The customer signs off right after."}
         </Alert>
       )}
 

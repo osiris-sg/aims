@@ -1432,6 +1432,30 @@ export default function DeliveryBasketPage() {
                   try {
                     await unskipItems(skippedIds);
                     if (skippedIds.length) await load();
+                    // SERVICE JOB (WCT, guru 2026-10-27): the ticked lines ARE the
+                    // selection — there is nothing to scan and no per-line step,
+                    // so start every picked service line here and go straight
+                    // into the service report. The customer's sign-off follows
+                    // the report. Walking the technician through "Select item"
+                    // line by line was the same tick again.
+                    const pickedRows = ids.map((id) => run.items.find((it) => it.id === id)).filter(Boolean) as RunItem[];
+                    const serviceJob =
+                      !isReturnRun && pickedRows.length > 0 && pickedRows.every((it) => !it.inventoryId && !it.assetId && it.effectiveAssetClass === "SERVICE");
+                    if (serviceJob) {
+                      const token = await getToken();
+                      if (!token) throw new Error("Not signed in");
+                      for (const it of pickedRows) {
+                        if (it.deliveryStatus !== "not_delivered") continue;
+                        const res = await request(
+                          { path: `/deliveries/${deliveryId}/items/${encodeURIComponent(it.id)}/start`, method: "POST" },
+                          { photos: [] },
+                          token,
+                        );
+                        if (res?.success === false) throw new Error(res?.message ?? `Could not start "${it.description || "item"}"`);
+                      }
+                      router.push(`/scan/delivery/${deliveryId}/service-report`);
+                      return;
+                    }
                     router.push(tripHref(ids));
                   } catch (e: any) {
                     setActionMsg(e?.message ?? "Could not bring the skipped item back");

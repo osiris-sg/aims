@@ -64,7 +64,11 @@ export default function FinalizeDeliveryPage() {
         const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET" }, {}, token);
         const run = res?.data ?? res;
         if (cancelled || !run?.items) return;
-        setServiceJob(run.items.some((it: { assetClass?: string | null }) => String(it.assetClass ?? "").toUpperCase() === "SERVICE"));
+        // A service job whose report was already written during the job (the
+        // normal order now: select lines → report → sign-off) lands on the
+        // finished screen; only a run with no report yet is sent to write one.
+        const hasReport = Array.isArray(run.reports) && run.reports.some((r: { kind?: string; status?: string }) => r.kind === "SERVICE" && r.status === "completed");
+        setServiceJob(!hasReport && run.items.some((it: { assetClass?: string | null }) => String(it.assetClass ?? "").toUpperCase() === "SERVICE"));
         if (run.status !== "in_progress") return;
         const n = run.items.filter((it: { deliveryStatus: string }) => it.deliveryStatus === "not_installed").length;
         if (n > 0) setPartialCount(n);
