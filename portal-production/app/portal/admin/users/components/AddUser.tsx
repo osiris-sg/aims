@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment, Divider, ToggleButton, ToggleButtonGroup } from "@mui/material";
+import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment, Divider, ToggleButton, ToggleButtonGroup , alpha } from "@mui/material";
 import { useForm } from "react-hook-form";
 import FormInputBox from "@/form-components/FormInputBox";
 import useAddUserStates from "../hooks/useAddUser";
@@ -178,7 +178,10 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
       PaperProps={{
         sx: {
           width: { xs: "100%", sm: 500 },
-          backgroundColor: "#ffffff",
+          // Theme tokens, not light-only hexes — this drawer was unreadable in
+          // dark mode (black role names on a near-black menu, guru 2026-10-28).
+          bgcolor: "background.paper",
+          backgroundImage: "none",
           boxShadow: "0 8px 32px rgba(0, 0, 0, 0.12)",
         },
       }}
@@ -188,23 +191,24 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
           display: "flex",
           flexDirection: "column",
           height: "100%",
-          backgroundColor: "#ffffff",
+          bgcolor: "background.paper",
         }}
       >
         {/* Header */}
         <Box
           sx={{
             p: 3,
-            borderBottom: "1px solid #e0e0e0",
-            backgroundColor: "#f8f9fa",
+            borderBottom: 1,
+            borderColor: "divider",
+            bgcolor: "surfaceTones.low",
           }}
         >
           <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 1 }}>
-            <PersonAddIcon sx={{ color: "#1976d2", fontSize: "1.75rem" }} />
+            <PersonAddIcon sx={{ color: "primary.main", fontSize: "1.75rem" }} />
             <Typography
               variant="h5"
               sx={{
-                color: "#1a1a1a",
+                color: "text.primary",
                 fontWeight: 600,
                 fontSize: "1.5rem",
               }}
@@ -212,7 +216,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
               Create New User
             </Typography>
           </Box>
-          <Typography variant="body2" sx={{ color: "#666666" }}>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
             Add a new user account with email and role assignments
           </Typography>
         </Box>
@@ -223,7 +227,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
             flex: 1,
             p: 3,
             overflowY: "auto",
-            backgroundColor: "#ffffff",
+            bgcolor: "background.paper",
           }}
         >
           <form onSubmit={handleSubmit(onSubmit)}>
@@ -232,11 +236,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                 <Alert
                   severity="error"
                   onClose={() => setError("")}
-                  sx={{
-                    backgroundColor: "#ffebee",
-                    color: "#c62828",
-                    "& .MuiAlert-icon": { color: "#c62828" },
-                  }}
+                  variant="outlined"
                 >
                   {error}
                 </Alert>
@@ -343,7 +343,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                       size="small"
                       onClick={togglePasswordVisibility}
                       sx={{
-                        color: "#666666",
+                        color: "text.secondary",
                         textTransform: "none",
                         minWidth: "auto",
                         p: 0.5,
@@ -356,7 +356,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
 
                 <Grid item xs={12}>
                   <FormControl fullWidth required>
-                    <InputLabel id="select-organization-label" sx={{ color: "#666666" }}>
+                    <InputLabel id="select-organization-label">
                       Select Organization
                     </InputLabel>
                     <Select
@@ -368,22 +368,27 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                       MenuProps={{
                         PaperProps: {
                           sx: {
-                            bgcolor: "#fff", // White background
-                            color: "#222", // Dark text
+                            bgcolor: "background.paper",
+                            backgroundImage: "none",
+                            border: 1,
+                            borderColor: "divider",
+                            maxHeight: 420,
+                            maxWidth: { xs: "calc(100vw - 32px)", sm: 452 },
+                            "& .MuiMenuItem-root": { whiteSpace: "normal", alignItems: "flex-start", py: 1 },
                           },
                         },
                       }}
                       sx={{
                         "& .MuiOutlinedInput-notchedOutline": {
-                          borderColor: "#e0e0e0",
+                          borderColor: "divider",
                         },
                         "&:hover .MuiOutlinedInput-notchedOutline": {
-                          borderColor: "#1976d2",
+                          borderColor: "primary.main",
                         },
                         "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                          borderColor: "#1976d2",
+                          borderColor: "primary.main",
                         },
-                        bgcolor: "#fff", // White background for the select input itself
+                        bgcolor: "background.paper",
                       }}
                     >
                       {organizations.map((org) => (
@@ -397,7 +402,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
 
                 <Grid item xs={12}>
                   <FormControl fullWidth>
-                    <InputLabel id="select-roles-label" sx={{ color: "#666666" }}>
+                    <InputLabel id="select-roles-label">
                       Select Roles
                     </InputLabel>
                     <Select
@@ -418,12 +423,12 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                                 label={role?.name || value}
                                 size="small"
                                 sx={{
-                                  backgroundColor: "#e3f2fd",
-                                  color: "#1976d2",
+                                  bgcolor: (t) => alpha(t.palette.primary.main, t.palette.mode === "dark" ? 0.22 : 0.12),
+                                  color: "primary.main",
                                   fontWeight: 500,
                                   "& .MuiChip-deleteIcon": {
-                                    color: "#1976d2",
-                                    "&:hover": { color: "#1565c0" },
+                                    color: "primary.main",
+                                    "&:hover": { color: "primary.dark" },
                                   },
                                 }}
                                 onDelete={() => handleRoleToggle(value)}
@@ -435,32 +440,37 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                       MenuProps={{
                         PaperProps: {
                           sx: {
-                            bgcolor: "#fff", // White background
-                            color: "#222", // Dark text
+                            bgcolor: "background.paper",
+                            backgroundImage: "none",
+                            border: 1,
+                            borderColor: "divider",
+                            maxHeight: 420,
+                            maxWidth: { xs: "calc(100vw - 32px)", sm: 452 },
+                            "& .MuiMenuItem-root": { whiteSpace: "normal", alignItems: "flex-start", py: 1 },
                           },
                         },
                       }}
                       sx={{
                         "& .MuiOutlinedInput-notchedOutline": {
-                          borderColor: "#e0e0e0",
+                          borderColor: "divider",
                         },
                         "&:hover .MuiOutlinedInput-notchedOutline": {
-                          borderColor: "#1976d2",
+                          borderColor: "primary.main",
                         },
                         "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                          borderColor: "#1976d2",
+                          borderColor: "primary.main",
                         },
-                        bgcolor: "#fff", // White background for the select input itself
+                        bgcolor: "background.paper",
                       }}
                     >
                       {roles.map((role) => (
-                        <MenuItem key={role.id} value={role.id} sx={{ color: "#222" }}>
-                          <Box>
-                            <Typography variant="body2" sx={{ fontWeight: 500, color: "#222" }}>
+                        <MenuItem key={role.id} value={role.id}>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 600, color: "text.primary" }}>
                               {role.name}
                             </Typography>
                             {role.description && (
-                              <Typography variant="caption" sx={{ color: "#666" }}>
+                              <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1.4 }}>
                                 {role.description}
                               </Typography>
                             )}
@@ -479,8 +489,9 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
         <Box
           sx={{
             p: 3,
-            borderTop: "1px solid #e0e0e0",
-            backgroundColor: "#f8f9fa",
+            borderTop: 1,
+            borderColor: "divider",
+            bgcolor: "surfaceTones.low",
           }}
         >
           <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2 }}>
@@ -499,14 +510,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                 onClose();
               }}
               disabled={loading}
-              sx={{
-                borderColor: "#666666",
-                color: "#666666",
-                "&:hover": {
-                  borderColor: "#1976d2",
-                  color: "#1976d2",
-                },
-              }}
+              color="inherit"
             >
               Cancel
             </Button>
@@ -516,16 +520,6 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
               color="primary"
               disabled={loading}
               onClick={handleSubmit(onSubmit)}
-              sx={{
-                backgroundColor: "#1976d2",
-                "&:hover": {
-                  backgroundColor: "#1565c0",
-                },
-                "&:disabled": {
-                  backgroundColor: "#e0e0e0",
-                  color: "#999999",
-                },
-              }}
             >
               {loading ? "Creating..." : "Create User"}
             </Button>
