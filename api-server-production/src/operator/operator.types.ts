@@ -200,6 +200,8 @@ export interface SessionState {
   pendingUpload?: OperatorContext['upload'] | null;
   /** Round AF: the step of the WhatsApp answer flow for the last "needs your answer" push (shipments orgs). */
   answerFlow?: { logId: string; kind: string; step: 'what' | 'which'; at: string } | null;
+  /** The last ask_choice with more than three options: rows carry the index, and "More…" pages through it. */
+  choiceOptions?: { question: string; options: string[] } | null;
   /** Bulk invoice mode (guru 2026-10-11): uploads queue straight to the portal
    *  mass-intake, no per-invoice confirm. Toggled by the bulk_invoice_mode tool. */
   bulkInvoiceMode?: boolean;

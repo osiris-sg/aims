@@ -266,7 +266,8 @@ export class OperatorService {
           await adapter.sendText(msg.chatId, "You don't have access to that organization.");
           return;
         }
-        await this.presentOrgPicker(adapter, msg.chatId, resolved.options ?? []);
+        const page = msg.callbackData?.startsWith('orgpage:') ? Number(msg.callbackData.slice(8)) || 0 : 0;
+        await this.presentOrgPicker(adapter, msg.chatId, resolved.options ?? [], undefined, page);
       }
       return;
     }
@@ -958,11 +959,9 @@ export class OperatorService {
     await this.saveSession(...this.sk(msg), session);
 
     if (choiceFromTools) {
-      await adapter.sendButtons(
-        msg.chatId,
-        choiceFromTools.question,
-        choiceFromTools.options.slice(0, 3).map((o: string) => ({ label: o.slice(0, 20), data: `choice:${o}` })),
-      );
+      session.choiceOptions = choiceFromTools.options.length > 3 ? choiceFromTools : null;
+      await this.saveSession(...this.sk(msg), session);
+      await this.presentChoice(adapter, msg.chatId, choiceFromTools, 0);
     }
 
     for (const p of pendingFromTools) if (!heldBefore.has(p.id)) await this.sendPendingCard(adapter, msg.chatId, p);
@@ -1151,7 +1150,7 @@ export class OperatorService {
   private serviceJobPrompt(): string {
     return [
       `SERVICE-JOB ORGANIZATION. The work flows Quotation → customer signature → delivery (the service visit) → service report + customer sign-off → invoice. Lead the user through it; do not wait to be asked for each step.`,
-      `A. QUOTATION: resolve the customer (find_customer, or create_customer by name). Then the lines: call list_service_items and show the price list as short numbered lines (code, name, price) so the user picks by number or code; or they paste their own lines (description, quantity, price) which go in as free text. Ask for the JOB LOCATION (the site address) if they did not give one; Subject and Attention are optional. Then create_quotation (pass picks as code, free text as description) and preview_document. Fix whatever they change with edit_document.`,
+      `A. QUOTATION: resolve the customer (find_customer, or create_customer by name). Then the lines: call list_service_items and show the WHOLE price list as numbered lines (code, name, price), every item, never a shortened set; the user replies with the numbers or codes and the quantities (several at once), or they paste their own lines (description, quantity, price) which go in as free text. Ask for the JOB LOCATION (the site address) if they did not give one; Subject and Attention are optional. Then create_quotation (pass picks as code, free text as description) and preview_document. Fix whatever they change with edit_document.`,
       `B. SEND FOR SIGNATURE: once the user says the quotation is right, do NOT confirm it yourself. Ask in one line: "Send it to <customer> for signature on WhatsApp <number on file> or by email <email on file>?" (use ask_choice with those two options when both are on file; ask for the number or address when neither is). Then call send_for_signature; it is held for their Confirm. The customer signs on the link and the quotation is CONFIRMED at that moment. Only if the customer signed on paper and the user says so, use confirm_document.`,
       `C. DELIVERY: when the quotation is accepted, a DRAFT delivery is created automatically and the user gets a message. To schedule it they give a date and time: call confirm_draft_delivery with the quotation number and the ISO date/time (held for Confirm). That makes the job live for the technician and mints the Delivery Order. Never use schedule_delivery or create_delivery_order in this flow; the draft already exists.`,
       `D. INVOICE: the technician does the job in the field app (service report, customer sign-off). The Delivery Order completes and a DRAFT INVOICE is created automatically, already posted to the ledger; the user gets a message. They confirm it with confirm_invoice (held for Confirm), or ask for changes first (edit_document). Never create the invoice by hand in this flow.`,
@@ -1191,25 +1190,33 @@ export class OperatorService {
   /**
    * Render the org picker. WhatsApp reply buttons cap at THREE (the adapter
    * silently drops the rest), so anything larger goes out as a tappable list,
-   * which holds ten. Beyond that, `/org <name>` narrows it.
+   * which holds ten rows. More than ten orgs (guru 2026-10-28: WCT was the
+   * eleventh and never showed): nine per page plus a "More…" row that pages
+   * on; `/org <name>` still narrows it.
    */
   private async presentOrgPicker(
     adapter: ChannelAdapter,
     chatId: string,
     options: Array<{ id: string; name: string }>,
     currentName?: string,
+    offset = 0,
   ): Promise<void> {
     const prompt = currentName
       ? `Currently working in ${currentName}. Switch to:`
       : 'Which organization should I work in?';
     if (options.length > 3 && adapter.sendList) {
+      const PAGE = 9;
+      const paged = options.length > 10;
+      const from = paged ? Math.max(0, Math.min(offset, options.length - 1)) : 0;
+      const slice = paged ? options.slice(from, from + PAGE) : options.slice(0, 10);
+      const remaining = paged ? options.length - (from + slice.length) : 0;
+      const rows = slice.map((o) => ({ id: `org:${o.id}`, title: o.name.slice(0, 24) }));
+      if (remaining > 0) rows.push({ id: `orgpage:${from + PAGE}`, title: `More… (${remaining} more)`.slice(0, 24) });
       await adapter.sendList(
         chatId,
-        options.length > 10
-          ? `${prompt}\n\nShowing the first 10. Send "/org <name>" to narrow it down.`
-          : prompt,
+        paged ? `${prompt}\n\n${from + 1}–${from + slice.length} of ${options.length}. Send "/org <name>" to jump straight to one.` : prompt,
         'Choose org',
-        options.slice(0, 10).map((o) => ({ id: `org:${o.id}`, title: o.name })),
+        rows,
       );
       return;
     }
@@ -1218,6 +1225,33 @@ export class OperatorService {
       prompt,
       options.slice(0, 3).map((o) => ({ label: o.name, data: `org:${o.id}` })),
     );
+  }
+
+  /**
+   * Render an ask_choice. Up to three options are buttons; more go out as a
+   * tappable list — nine rows a page plus a "More…" row (guru 2026-10-28: when
+   * they are choosing services they must see ALL of them). Row ids carry the
+   * option's index; the label's " — " tail becomes the row description.
+   */
+  private async presentChoice(adapter: ChannelAdapter, chatId: string, choice: { question: string; options: string[] }, offset: number): Promise<void> {
+    const { question, options } = choice;
+    if (options.length <= 3 || !adapter.sendList) {
+      await adapter.sendButtons(chatId, question, options.slice(0, 3).map((o) => ({ label: o.slice(0, 20), data: `choice:${o}` })));
+      return;
+    }
+    const PAGE = 9;
+    const paged = options.length > 10;
+    const from = paged ? Math.max(0, Math.min(offset, options.length - 1)) : 0;
+    const slice = paged ? options.slice(from, from + PAGE) : options.slice(0, 10);
+    const remaining = paged ? options.length - (from + slice.length) : 0;
+    const rows = slice.map((o, i) => {
+      const [head, ...tail] = o.split(/\s+[—–-]\s+/);
+      const title = (head || o).trim().slice(0, 24) || `Option ${from + i + 1}`;
+      const description = (tail.length ? tail.join(' - ') : head && head.length > 24 ? o : '').trim().slice(0, 72);
+      return { id: `choicei:${from + i}`, title, ...(description ? { description } : {}) };
+    });
+    if (remaining > 0) rows.push({ id: `choicepage:${from + PAGE}`, title: `More… (${remaining} more)`.slice(0, 24) });
+    await adapter.sendList(chatId, paged ? `${question}\n\n${from + 1}–${from + slice.length} of ${options.length}.` : question, 'Choose', rows);
   }
 
   /** Persist the chosen org for this sender and confirm it. */
@@ -1242,12 +1276,28 @@ export class OperatorService {
     msg: InboundMessage,
     data: string,
   ): Promise<void> {
-    if (data.startsWith('choice:')) {
+    if (data.startsWith('choice:') || data.startsWith('choicei:')) {
       // The label the user tapped re-enters as ordinary text, so the model
-      // picks up exactly where it left off with no special-casing.
-      const picked = data.slice('choice:'.length);
+      // picks up exactly where it left off with no special-casing. A list row
+      // carries the option's INDEX (row ids are short; service names are not).
       const choiceSession = await this.loadSession(...this.sk(msg));
+      const picked = data.startsWith('choicei:') ? choiceSession.choiceOptions?.options[Number(data.slice(8))] || '' : data.slice('choice:'.length);
+      if (!picked) {
+        await adapter.sendText(msg.chatId, 'That list has expired. Tell me which one you mean.');
+        return;
+      }
+      choiceSession.choiceOptions = null;
       await this.runAgent(ctx, adapter, { ...msg, text: picked, callbackData: undefined }, choiceSession, picked);
+      return;
+    }
+    if (data.startsWith('choicepage:')) {
+      // "More…" on a long choice list: the next page of the same options.
+      const s = await this.loadSession(...this.sk(msg));
+      if (!s.choiceOptions) {
+        await adapter.sendText(msg.chatId, 'That list has expired. Tell me which one you mean.');
+        return;
+      }
+      await this.presentChoice(adapter, msg.chatId, s.choiceOptions, Number(data.slice(11)) || 0);
       return;
     }
 
@@ -1277,6 +1327,12 @@ export class OperatorService {
 
     if (data.startsWith('org:')) {
       await this.switchOrg(ctx, adapter, msg, data.slice(4));
+      return;
+    }
+    if (data.startsWith('orgpage:')) {
+      // "More…" on the org list: the next page of the same list.
+      const options = await this.auth.listOrgOptions(ctx);
+      await this.presentOrgPicker(adapter, msg.chatId, options, ctx.organizationName, Number(data.slice(8)) || 0);
       return;
     }
 
@@ -1595,6 +1651,10 @@ export class OperatorService {
       if (d.startsWith('confirm:')) shown = 'Confirm';
       else if (d.startsWith('cancel:') || d === 'cancel') shown = 'Cancel';
       else if (d.startsWith('choice:')) shown = d.slice(7);
+      else if (d.startsWith('choicei:')) {
+        const row = await this.prisma.operatorSession.findUnique({ where: { channel_channelUserId: { channel, channelUserId } }, select: { state: true } }).catch(() => null);
+        shown = ((row?.state as any)?.choiceOptions?.options || [])[Number(d.slice(8))] || text;
+      } else if (d.startsWith('choicepage:')) shown = 'More…';
       else {
         // Find the label of the button that carried this payload.
         const row = await this.prisma.operatorSession.findUnique({

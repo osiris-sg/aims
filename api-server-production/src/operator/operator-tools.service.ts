@@ -2250,18 +2250,18 @@ export class OperatorToolsService {
       {
         name: 'ask_choice',
         description:
-          "Ask the user to pick between options, shown as tappable buttons. USE THIS INSTEAD of writing choices out as '1. ... 2. ...' in your reply — tapping beats typing. Max 3 options, each at most 20 characters (the channel's limit), so keep them terse ('Use SO202609-0002', 'Upload the PO', 'Save as draft'). Their tap comes back as the next message. Do not use it for a straight yes/no on an action you are about to take — those already get their own Confirm button.",
+          "Ask the user to pick ONE option, shown as tappable buttons (up to 3) or a tappable list (4 or more; the list pages, so pass EVERY option, never a cut-down set). USE THIS INSTEAD of writing single-pick choices out as '1. ... 2. ...' in your reply — tapping beats typing. Keep labels short ('Use SO202609-0002', 'Upload the PO', 'Save as draft'); a label may carry a longer description after ' — '. Their tap comes back as the next message. Not for a straight yes/no on an action you are about to take (those get their own Confirm button), and not for picking SEVERAL things at once (write a numbered list and let them reply with the numbers).",
         permissions: [],
         input_schema: {
           type: 'object',
           properties: {
             question: { type: 'string', description: 'One short line. State the gap, not the background.' },
-            options: { type: 'array', items: { type: 'string' }, description: 'Up to 3 short labels, <=20 chars each.' },
+            options: { type: 'array', items: { type: 'string' }, description: 'Every option, short labels (<=20 chars for buttons; a list shows up to 24 plus a description).' },
           },
           required: ['question', 'options'],
         },
         run: async (_ctx, args) => {
-          const options = (args.options || []).map((o: any) => String(o)).filter(Boolean).slice(0, 3);
+          const options = (args.options || []).map((o: any) => String(o).trim()).filter(Boolean).slice(0, 100);
           if (options.length < 2) return { result: { error: 'Give at least 2 options, or just ask in your reply.' } };
           return {
             result: { shown: true },
