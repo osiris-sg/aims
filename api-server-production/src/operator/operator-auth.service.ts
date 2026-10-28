@@ -447,18 +447,26 @@ export class OperatorAuthService {
       return;
     }
     // Member-profile user with no identity row yet: create one to persist the
-    // org they just chose (look up who this number belongs to in that org).
+    // org they just chose. The number is looked up on ANY of the person's
+    // member profiles, not only the target org's: a user known through their
+    // Biofuel profile switching to WCT (where they have no profile) used to
+    // get "Now working in WCT" and then silently land back in Biofuel on the
+    // next message, because nothing was stored (guru 2026-10-28).
     if (channel === 'whatsapp') {
-      const prof = await this.prisma.organizationMemberProfile.findFirst({
-        where: { whatsappNumber: { in: this.numberVariants(channelUserId) }, organizationId },
-        select: { userId: true },
+      const profiles = await this.prisma.organizationMemberProfile.findMany({
+        where: { whatsappNumber: { in: this.numberVariants(channelUserId) } },
+        select: { userId: true, organizationId: true },
       });
-      if (prof) {
+      const users = [...new Set(profiles.map((p) => p.userId))];
+      const userId = users.length === 1 ? users[0] : profiles.find((p) => p.organizationId === organizationId)?.userId;
+      if (userId) {
         await this.prisma.operatorIdentity.upsert({
           where: { channel_channelUserId: { channel, channelUserId } },
-          create: { channel, channelUserId, clerkUserId: prof.userId, organizationId, verified: true },
+          create: { channel, channelUserId, clerkUserId: userId, organizationId, verified: true },
           update: { organizationId },
         });
+      } else {
+        this.logger.warn(`setOrganization: no identity and no member profile for ${channelUserId}; the org choice could not be stored`);
       }
     }
   }

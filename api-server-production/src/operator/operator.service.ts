@@ -1267,7 +1267,14 @@ export class OperatorService {
       return;
     }
     await this.auth.setOrganization(msg.channel, msg.channelUserId, org.id);
-    await adapter.sendText(msg.chatId, `✅ Now working in ${org.name}. Everything I do next applies to this org.`);
+    // An org whose WhatsApp agent is OFF would swallow every message from here
+    // on without a word (handleInboundSerial ignores them) — say so now.
+    const agentOn = msg.channel !== 'whatsapp' || (await isOrgFeatureEnabled(this.prisma, org.id, 'enableWhatsAppAgent').catch(() => false));
+    await adapter.sendText(
+      msg.chatId,
+      `✅ Now working in ${org.name}. Everything I do next applies to this org.` +
+        (agentOn ? '' : `\n\n⚠️ The WhatsApp agent is switched OFF for ${org.name} (flag enableWhatsAppAgent), so messages here will be ignored until an admin turns it on.`),
+    );
   }
 
   private async handleCallback(
