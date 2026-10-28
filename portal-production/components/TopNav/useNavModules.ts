@@ -55,7 +55,14 @@ export function resolveSubmenuRoute(module: any, submenu: any): string {
   return `${module.config.route}/${submenuKey}`;
 }
 
-export const submenuLabel = (s: any) => (typeof s === "string" ? s : s?.label || s?.key || "");
+// String submenus are stored as raw keys ("users", "stock-card"), so they
+// rendered lowercase in the top nav while the sidebar title-cased them
+// (guru 2026-10-28). Same rule here: capitalise, hyphens become spaces.
+export const submenuLabel = (s: any) => {
+  const raw = typeof s === "string" ? s : s?.label || s?.key || "";
+  if (typeof s !== "string") return raw;
+  return raw.charAt(0).toUpperCase() + raw.slice(1).replace(/-/g, " ");
+};
 
 export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
