@@ -3060,7 +3060,7 @@ export class OperatorToolsService {
         return { ok: true, message: `✅ Sign link for ${num} sent to ${r.via === 'whatsapp' ? `+${r.to}` : r.to}${until}. I will let you know when it is signed; the quotation is confirmed at that moment.\n${r.url}` };
       }
       if (r.reason === 'no-line') {
-        return { ok: true, message: `No WhatsApp line is connected for ${ctx.organizationName}, so I could not send it myself. Forward this to +${r.to}:\n${r.message}\n\nOr tap to open WhatsApp with it ready: ${r.waHref}` };
+        return { ok: true, message: `No WhatsApp line is available to send from right now, so I could not send it myself. Forward this to +${r.to}:\n${r.message}\n\nOr tap to open WhatsApp with it ready: ${r.waHref}` };
       }
       return { ok: false, message: `Could not send the sign link ${r.via === 'whatsapp' ? `to +${r.to} on WhatsApp` : `to ${r.to}`}: ${r.reason || 'send failed'}. The link itself is ${r.url}` };
     }

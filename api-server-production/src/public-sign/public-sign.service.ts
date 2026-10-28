@@ -207,9 +207,13 @@ export class PublicSignService {
     }
 
     const waHref = `https://wa.me/${to}?text=${encodeURIComponent(text)}`;
-    const primed = await this.whatsapp.primeForOrg(to, organizationId).catch(() => false);
+    // The org's own line, else the shared AIMS line the sender already texts
+    // (a client org does not have to connect a number of its own), else the
+    // platform line. Nothing at all → the caller hands over a wa.me link.
+    const staffNumbers = actor?.id ? await this.numbersOf(actor.id, organizationId) : [];
+    const primed = await this.whatsapp.primeForOrgOrShared(to, organizationId, staffNumbers).catch(() => false);
     if (!primed) {
-      await record('whatsapp', false, 'no WhatsApp line connected');
+      await record('whatsapp', false, 'no WhatsApp line available');
       return { sent: false, ...base, reason: 'no-line', waHref };
     }
     let res = await this.whatsapp.sendTextResult(to, text).catch((e: any) => ({ ok: false, code: null as number | null, message: String(e?.message ?? e) }));
@@ -222,6 +226,15 @@ export class PublicSignService {
     }
     await record('whatsapp', res.ok, res.message ?? undefined);
     return res.ok ? { sent: true, ...base } : { sent: false, ...base, reason: res.message || 'send failed', waHref };
+  }
+
+  /** The WhatsApp numbers a staff member is known by (linked identity + member profile). */
+  private async numbersOf(userId: string, organizationId: string): Promise<string[]> {
+    const [ids, profiles]: [Array<{ channelUserId: string }>, Array<{ whatsappNumber: string | null }>] = await Promise.all([
+      this.prisma.operatorIdentity.findMany({ where: { channel: 'whatsapp', clerkUserId: userId, verified: true }, select: { channelUserId: true } }).catch(() => []),
+      this.prisma.organizationMemberProfile.findMany({ where: { userId, organizationId, whatsappNumber: { not: null } }, select: { whatsappNumber: true } }).catch(() => []),
+    ]);
+    return [...ids.map((i) => i.channelUserId), ...profiles.map((p) => p.whatsappNumber || '')].filter(Boolean);
   }
 
   /** Current sign status of a document for the editor header. */

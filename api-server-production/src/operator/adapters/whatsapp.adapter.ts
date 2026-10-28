@@ -77,6 +77,42 @@ export class WhatsAppAdapter implements ChannelAdapter {
     return true;
   }
 
+  /**
+   * Prime a send to someone OUTSIDE the org (a customer getting a sign link)
+   * when the org owns no line of its own (guru 2026-10-28: "WCT doesn't need
+   * to connect, they just text the Osiris number"). Order: the org's own
+   * line; the line any of the acting staff member's numbers last wrote to
+   * (the shared AIMS line they already talk to); the platform org's line.
+   */
+  async primeForOrgOrShared(chatId: string, organizationId: string, staffNumbers: string[] = []): Promise<boolean> {
+    if (await this.primeForOrg(chatId, organizationId)) return true;
+    const digits = staffNumbers.map((n) => String(n || '').replace(/\D/g, '')).filter(Boolean);
+    if (digits.length) {
+      const last = await this.prisma.whatsAppMessage
+        .findFirst({ where: { counterparty: { in: digits }, direction: 'INBOUND', phoneNumberId: { not: null } }, orderBy: { createdAt: 'desc' }, select: { phoneNumberId: true } })
+        .catch(() => null);
+      if (last?.phoneNumberId) {
+        const conn = await this.prisma.whatsAppConnection.findFirst({ where: { phoneNumberId: last.phoneNumberId, status: 'CONNECTED' }, select: { phoneNumberId: true } });
+        if (conn) {
+          this.replyFrom.set(chatId, conn.phoneNumberId);
+          return true;
+        }
+      }
+    }
+    const platform = await this.prisma.organization.findFirst({ where: { name: WhatsAppAdapter.SHARED_LINE_ORG_NAME }, select: { id: true } }).catch(() => null);
+    if (platform) {
+      const conn = await this.prisma.whatsAppConnection.findFirst({ where: { organizationId: platform.id, status: 'CONNECTED' }, orderBy: [{ isPrimary: 'desc' }, { connectedAt: 'asc' }], select: { phoneNumberId: true } });
+      if (conn) {
+        this.replyFrom.set(chatId, conn.phoneNumberId);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** The org whose line is the shared AIMS number every client's staff can text (same as LeadsService.AGENT_ORG_NAME). */
+  private static readonly SHARED_LINE_ORG_NAME = 'Osiris Technology Pte. Ltd.';
+
   private async connFor(chatId: string) {
     const phoneNumberId = this.replyFrom.get(chatId);
     if (!phoneNumberId) return null;
