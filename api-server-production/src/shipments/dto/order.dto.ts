@@ -71,7 +71,8 @@ export class UpdateOrderDto extends PartialType(CreateOrderDto) {
 
 export class ListOrdersQuery {
   /** pending = OPEN, completed = COMPLETED + CANCELLED. */
-  @IsOptional() @IsIn(['pending', 'completed']) bucket?: 'pending' | 'completed';
+  // Round AT: "all" = no status filter (the All tab, round AN) — the portal sends it.
+  @IsOptional() @IsIn(['pending', 'completed', 'all']) bucket?: 'pending' | 'completed' | 'all';
   @IsOptional() @IsUUID() customerId?: string;
   /** Round AM: a supplier's orders (Clients → Suppliers). */
   @IsOptional() @IsUUID() supplierId?: string;
