@@ -28,6 +28,9 @@ import { LeadsService } from '../leads/leads.service';
 import { S3Service } from '../common/services/s3.service';
 import { OperatorAuthService } from './operator-auth.service';
 import { PublicDocumentService } from '../public-document/public-document.service';
+import { PublicSignService } from '../public-sign/public-sign.service';
+import { QUOTATION_TO_DELIVERY_FLAG } from '../deliveries/quotation-to-delivery';
+import { isOrgFeatureEnabled } from '../common/org-features';
 import { OperatorContext, PendingAction, WebUiEvent } from './operator.types';
 import { ActionLogService } from '../action-log/action-log.service';
 import { cleanText } from './text.util';
@@ -143,6 +146,7 @@ export class OperatorToolsService {
     private readonly leads: LeadsService,
     private readonly deliveries: DeliveriesService,
     private readonly publicDocuments: PublicDocumentService,
+    private readonly publicSign: PublicSignService,
     private readonly xeroSync: XeroSyncService,
     private readonly bankRec: BankRecService,
     private readonly s3: S3Service,
@@ -502,6 +506,161 @@ export class OperatorToolsService {
       },
 
       {
+        name: 'list_service_items',
+        description:
+          "The organization's PRICE LIST (Revenue Master File / service catalogue): code, name, default price, UOM. In a service-job org this is what a quotation is built from: SHOW the user this list (short numbered lines: code, name, price) so they pick, then pass each pick to create_quotation as `code`. `query` narrows by words in the code or name.",
+        permissions: ['documents:read'],
+        input_schema: {
+          type: 'object',
+          properties: { query: { type: 'string', description: 'Optional words to match in the code or name' } },
+        },
+        run: async (ctx, { query }) => {
+          const words = String(query || '').trim().split(/\s+/).filter(Boolean);
+          const rows = await this.prisma.revenueItem.findMany({
+            where: {
+              organizationId: ctx.organizationId,
+              isActive: true,
+              ...(words.length
+                ? { AND: words.map((w) => ({ OR: [{ code: { contains: w, mode: 'insensitive' as const } }, { name: { contains: w, mode: 'insensitive' as const } }] })) }
+                : {}),
+            },
+            orderBy: [{ code: 'asc' }],
+            select: { id: true, code: true, name: true, unitPrice: true, uom: true, type: true },
+            take: 60,
+          });
+          return {
+            result: rows.map((r) => ({ code: r.code, name: r.name, unitPrice: r.unitPrice, uom: r.uom || (r.type === 'SERVICE' ? 'LOT' : 'PCS'), type: r.type })),
+          };
+        },
+      },
+
+      {
+        name: 'send_for_signature',
+        description:
+          "Send a quotation's client e-sign link to the customer on WhatsApp or by email. Signing CONFIRMS the quotation (and in a service-job org creates the draft delivery). Use after the draft is right: ask the user 'WhatsApp <number> or email <address>?' using the customer's details on file, then call this. `to` may be omitted when the customer has a number/email on file. Sends externally, so it is held for the user's Confirm. Only unconfirmed quotations.",
+        permissions: ['documents:update'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            documentId: { type: 'string', description: 'Quotation id or number' },
+            via: { type: 'string', description: "'whatsapp' or 'email'" },
+            to: { type: 'string', description: 'WhatsApp number (digits, Singapore numbers may omit 65) or email address. Defaults to the customer on file.' },
+            message: { type: 'string', description: 'Optional wording; a plain default with the link is used otherwise.' },
+          },
+          required: ['documentId', 'via'],
+        },
+        run: async (ctx, args) => {
+          const doc = await this.findDoc(ctx.organizationId, args.documentId);
+          if (!doc) return { result: { error: 'Quotation not found in this organization' } };
+          if (!['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(doc.type).toUpperCase())) return { result: { error: `Only quotations can be sent for signature. ${doc.name} is a ${doc.type}.` } };
+          if (doc.status === 'confirmed') return { result: { error: `${doc.name} is already confirmed.` } };
+          const cfg: any = doc.config || {};
+          const di: any = cfg.documentInfo || {};
+          const via = String(args.via || '').toLowerCase() === 'email' ? 'email' : 'whatsapp';
+          let to = String(
+            args.to ||
+              (via === 'whatsapp'
+                ? cfg.attention?.phoneNumber || di.contactNumber || cfg.customer?.mobile || cfg.customer?.phoneNumber || cfg.customer?.phone || ''
+                : cfg.attention?.email || di.contactEmail || cfg.customerEmail || cfg.customer?.email || ''),
+          ).trim();
+          if (!to && cfg.customerId) {
+            const c: any = await this.prisma.customer.findFirst({ where: { id: cfg.customerId, organizationId: ctx.organizationId } }).catch(() => null);
+            to = String((via === 'whatsapp' ? c?.mobile || c?.phoneNumber || c?.phone : c?.email) || '').trim();
+          }
+          if (via === 'whatsapp') {
+            to = to.replace(/\D/g, '').replace(/^0+/, '');
+            if (to.length === 8) to = `65${to}`;
+            if (to.length < 8) return { result: { error: 'No WhatsApp number on file for this customer. Ask the user for the number.' } };
+          } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+            return { result: { error: 'No email on file for this customer. Ask the user for the address.' } };
+          }
+          const who = cfg.customerName || cfg.customer?.name || 'the customer';
+          return {
+            result: { needsConfirmation: true, documentNumber: doc.name, via, to },
+            pending: {
+              kind: 'send_for_signature',
+              documentId: doc.id,
+              documentType: doc.type,
+              summary: `Send quotation ${doc.name} to ${who} for signature ${via === 'whatsapp' ? `on WhatsApp +${to}` : `by email to ${to}`}`,
+              args: { via, to, message: args.message ? cleanText(String(args.message)) : undefined },
+              createdAt: new Date().toISOString(),
+            },
+          };
+        },
+      },
+
+      {
+        name: 'confirm_draft_delivery',
+        description:
+          'Service-job orgs: SCHEDULE the draft delivery that was auto-created from an accepted quotation: set its date/time and confirm its items, which makes it live for the technician and mints the Delivery Order. Give the quotation number (or the draft delivery id) and the date/time. Held for the user\'s Confirm.',
+        permissions: ['documents:create-basic'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            quotationNumber: { type: 'string', description: 'The accepted quotation the draft came from, e.g. QO202610-0012 (or its id)' },
+            deliveryId: { type: 'string', description: 'The draft delivery id, when known instead' },
+            scheduledFor: { type: 'string', description: 'ISO date/time, e.g. 2026-11-03T09:00:00+08:00' },
+            siteAddress: { type: 'string', description: 'Optional: override the job site address' },
+            notes: { type: 'string' },
+          },
+          required: ['scheduledFor'],
+        },
+        run: async (ctx, args) => {
+          let run: any = null;
+          if (args.deliveryId) {
+            run = await this.prisma.delivery.findFirst({ where: { id: String(args.deliveryId), organizationId: ctx.organizationId }, include: { items: { orderBy: { sortOrder: 'asc' } }, customer: { select: { name: true } } } });
+          } else if (args.quotationNumber) {
+            const qo = await this.findDoc(ctx.organizationId, String(args.quotationNumber));
+            if (!qo) return { result: { error: `Quotation ${args.quotationNumber} not found in this organization.` } };
+            run = await this.prisma.delivery.findFirst({ where: { organizationId: ctx.organizationId, sourceQuotationId: qo.id }, orderBy: { createdAt: 'desc' }, include: { items: { orderBy: { sortOrder: 'asc' } }, customer: { select: { name: true } } } });
+            if (!run) return { result: { error: `No delivery has been created from ${qo.name} yet. It is created when the quotation is accepted (signed by the customer, or confirmed).` } };
+          } else {
+            return { result: { error: 'Give the quotation number or the draft delivery id.' } };
+          }
+          if (!run) return { result: { error: 'Draft delivery not found in this organization.' } };
+          if (!run.isDraft) return { result: { alreadyScheduled: true, deliveryNumber: run.deliveryNumber, scheduledFor: run.scheduledFor, status: run.status } };
+          const when = new Date(String(args.scheduledFor));
+          if (isNaN(when.getTime())) return { result: { error: 'scheduledFor must be an ISO date/time.' } };
+          // Collapse the qty-1 slots of a catalog line back into one DTO line
+          // (the service re-expands them), free-typed lines as they are.
+          const byAsset = new Map<string, number>();
+          const dtoItems: any[] = [];
+          for (const it of run.items) {
+            if (it.assetId) {
+              if (!byAsset.has(it.assetId)) {
+                byAsset.set(it.assetId, dtoItems.length);
+                dtoItems.push({ assetId: it.assetId, quantity: 0 });
+              }
+              dtoItems[byAsset.get(it.assetId)!].quantity += Number(it.quantity) || 1;
+            } else {
+              dtoItems.push({ description: it.description, quantity: Number(it.quantity) || 1, assetClass: it.assetClass || 'SERVICE' });
+            }
+          }
+          if (!dtoItems.length) return { result: { error: 'The draft has no items. Add them in Deliveries first.' } };
+          const dto: any = {
+            isDraft: false,
+            scheduledFor: when.toISOString(),
+            customerId: run.customerId || undefined,
+            projectId: run.projectId || undefined,
+            address: String(args.siteAddress || run.siteAddress || '').trim() || undefined,
+            items: dtoItems,
+            ...(args.notes ? { notes: cleanText(String(args.notes)) } : {}),
+          };
+          const whenText = when.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Singapore' });
+          const lines = dtoItems.map((d: any) => `${d.quantity} x ${d.description || 'catalog item'}`);
+          return {
+            result: { needsConfirmation: true, deliveryNumber: run.deliveryNumber, customer: run.customer?.name || null, scheduledFor: whenText, items: dtoItems.length, site: dto.address || null },
+            pending: {
+              kind: 'confirm_delivery',
+              summary: `Schedule delivery #${run.deliveryNumber}${run.customer?.name ? ` for ${run.customer.name}` : ''} on ${whenText}\n${lines.join('\n')}\nSite: ${dto.address || '(none on file)'}`,
+              args: { deliveryId: run.id, deliveryNumber: run.deliveryNumber, dto, customerName: run.customer?.name || '' },
+              createdAt: new Date().toISOString(),
+            },
+          };
+        },
+      },
+
+      {
         name: 'find_item',
         description:
           'Search products/assets by name, SKU or description. Every word must match, so spacing and punctuation do not matter ("lion 250" finds "LION-250"). Returns the item id and list price. Required to add a stock line to a document.',
@@ -556,7 +715,7 @@ export class OperatorToolsService {
       {
         name: 'create_quotation',
         description:
-          'Create a DRAFT quotation for a customer. Provide resolved customerId and line items. Prices are looked up automatically when unitPrice is omitted. The draft is NOT sent or confirmed. Always preview it and ask the user to confirm.',
+          'Create a DRAFT quotation for a customer. Provide resolved customerId and line items. Prices are looked up automatically when unitPrice is omitted. The draft is NOT sent or confirmed. Always preview it and ask the user to confirm. In a service-job org the lines usually come from list_service_items (pass each pick as `code`); pasted free-text lines (description + quantity + price) are fine too; ask for the Job Location.',
         permissions: ['documents:create-basic'],
         input_schema: {
           type: 'object',
@@ -569,6 +728,7 @@ export class OperatorToolsService {
                 type: 'object',
                 properties: {
                   itemId: { type: 'string', description: 'Asset id from find_item. Omit for a service/labour line.' },
+                  code: { type: 'string', description: 'Price-list code from list_service_items (service-job orgs). The line takes that item\'s text, default price, UOM and GL account; description/unitPrice override them.' },
                   description: { type: 'string' },
                   quantity: { type: 'number' },
                   unitPrice: { type: 'number', description: 'Optional. Defaults to last sold price, else list price' },
@@ -580,6 +740,9 @@ export class OperatorToolsService {
             },
             poNo: { type: 'string' },
             notes: { type: 'string' },
+            jobLocation: { type: 'string', description: 'Service-job orgs: the site address where the work happens (prints in the Job Location box; the delivery goes there).' },
+            subject: { type: 'string', description: 'Service-job orgs: the Subject line of the quotation.' },
+            attention: { type: 'string', description: 'The contact person at the customer (Attention line).' },
           },
           required: ['customerId', 'items'],
         },
@@ -2589,6 +2752,23 @@ export class OperatorToolsService {
       let unitPrice = raw.unitPrice != null ? Number(raw.unitPrice) : undefined;
       let asset: any = null;
 
+      // A PRICE-LIST line (service-job orgs, WCT 2026-10-28): the org's
+      // Revenue Master File item picked by code or id — carries its text,
+      // default price, UOM and GL account exactly as the editor's picker does.
+      let priceItem: any = null;
+      if (!raw.itemId && (raw.code || raw.revenueItemId)) {
+        const code = String(raw.code || '').trim();
+        priceItem = await this.prisma.revenueItem.findFirst({
+          where: {
+            organizationId: ctx.organizationId,
+            isActive: true,
+            ...(raw.revenueItemId ? { id: String(raw.revenueItemId) } : { code: { equals: code, mode: 'insensitive' as const } }),
+          },
+          select: { id: true, code: true, name: true, unitPrice: true, uom: true, accountCode: true, taxRate: true, type: true },
+        });
+        if (!priceItem) return { result: { error: `No price-list item with code "${code || raw.revenueItemId}" in this organization. Call list_service_items to see the codes.` } };
+        if (unitPrice == null && priceItem.unitPrice != null) unitPrice = Number(priceItem.unitPrice);
+      }
       if (raw.itemId) {
         asset = await this.prisma.asset.findFirst({
           where: { id: raw.itemId, organizationId: ctx.organizationId },
@@ -2613,15 +2793,16 @@ export class OperatorToolsService {
         id: Date.now() + i,
         inventoryItemId: asset ? asset.id : '', // Asset id (products mode); '' for service lines
         ...(isService ? { isService: true } : {}),
-        itemCode: cleanText(asset?.skuKey || raw.itemCode || ''),
-        description: cleanText(raw.description || asset?.description || asset?.name || ''),
-        uom: asset?.uom || raw.uom || (isService ? 'HR' : 'PCS'),
+        itemCode: cleanText(asset?.skuKey || priceItem?.code || raw.itemCode || ''),
+        description: cleanText(raw.description || priceItem?.name || asset?.description || asset?.name || ''),
+        uom: asset?.uom || priceItem?.uom || raw.uom || (isService ? (priceItem ? 'LOT' : 'HR') : 'PCS'),
         quantity,
         unitPrice, // NOT `price` — every reader uses unitPrice
         discount,
         amount, // caller-supplied; nothing derives it on write
-        tax: gstPercent,
-        accountCode: asset?.salesAccountCode || null,
+        tax: priceItem?.taxRate != null ? Number(priceItem.taxRate) : gstPercent,
+        accountCode: asset?.salesAccountCode || priceItem?.accountCode || null,
+        ...(priceItem ? { revenueItemId: priceItem.id } : {}),
       });
     }
 
@@ -2649,6 +2830,12 @@ export class OperatorToolsService {
       absorbTax,
       poNo: args.poNo || '',
       referenceNo: args.referenceNo || '',
+      // Service-job paper (WCT): Job Location / Subject boxes and the
+      // Attention line. Stored under documentInfo, where the editor and the
+      // WCT layout read them (and where the draft delivery takes its site).
+      ...(args.jobLocation ? { location: cleanText(String(args.jobLocation)) } : {}),
+      ...(args.subject ? { subject: cleanText(String(args.subject)) } : {}),
+      ...(args.attention ? { contactName: cleanText(String(args.attention)) } : {}),
       // Credit / debit notes: the invoice they correct and why. The note
       // layout prints both ("Invoice No." row and a Reason block).
       ...(args.againstInvoice ? { invoiceNo: cleanText(String(args.againstInvoice)) } : {}),
@@ -2679,6 +2866,7 @@ export class OperatorToolsService {
       ...totals,
       dueDate: dueStr,
       note: args.notes ? cleanText(args.notes) : undefined,
+      ...(args.attention ? { attention: { name: cleanText(String(args.attention)) } } : {}),
       documentInfo: { ...shared, ...totals },
     };
 
@@ -2859,6 +3047,31 @@ export class OperatorToolsService {
           ? `✅ Saved as a DRAFT schedule for ${customerName} (${ref}). The office needs to assign a project in Deliveries before it goes live.`
           : `✅ Delivery ${ref} scheduled for ${customerName}.`,
       };
+    }
+
+    if (pending.kind === 'send_for_signature') {
+      const a = pending.args || {};
+      const r = await this.publicSign.sendLink(pending.documentId!, ctx.organizationId, { via: a.via, to: a.to, message: a.message }, ctx.actor);
+      const doc = await this.findDoc(ctx.organizationId, pending.documentId!);
+      const num = doc?.name || 'the quotation';
+      const until = r.expiresAt ? ` (valid until ${new Date(r.expiresAt).toLocaleDateString('en-SG', { day: '2-digit', month: 'short', year: 'numeric' })})` : '';
+      if (r.sent) {
+        this.log(ctx, 'SENT', 'document', pending.documentId, num, `Sign link sent to ${r.to} on ${r.via} via Operator (${ctx.channel})`);
+        return { ok: true, message: `✅ Sign link for ${num} sent to ${r.via === 'whatsapp' ? `+${r.to}` : r.to}${until}. I will let you know when it is signed; the quotation is confirmed at that moment.\n${r.url}` };
+      }
+      if (r.reason === 'no-line') {
+        return { ok: true, message: `No WhatsApp line is connected for ${ctx.organizationName}, so I could not send it myself. Forward this to +${r.to}:\n${r.message}\n\nOr tap to open WhatsApp with it ready: ${r.waHref}` };
+      }
+      return { ok: false, message: `Could not send the sign link ${r.via === 'whatsapp' ? `to +${r.to} on WhatsApp` : `to ${r.to}`}: ${r.reason || 'send failed'}. The link itself is ${r.url}` };
+    }
+
+    if (pending.kind === 'confirm_delivery') {
+      const a = pending.args || {};
+      const run: any = await this.deliveries.updateScheduled(a.deliveryId, a.dto, ctx.organizationId);
+      const ref = run?.deliveryNumber ?? a.deliveryNumber;
+      this.log(ctx, 'STATUS_CHANGED', 'delivery', a.deliveryId, String(ref), `Draft delivery scheduled via Operator (${ctx.channel})`);
+      const when = a.dto?.scheduledFor ? new Date(a.dto.scheduledFor).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Singapore' }) : '';
+      return { ok: true, message: `✅ Delivery #${ref}${a.customerName ? ` for ${a.customerName}` : ''} scheduled${when ? ` for ${when}` : ''}. The technician sees it in the field app; the Delivery Order is minted. When the job is signed off, the draft invoice is created and I will tell you.` };
     }
 
     if (pending.kind === 'api_write') {

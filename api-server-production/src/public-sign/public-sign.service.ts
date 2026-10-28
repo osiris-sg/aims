@@ -5,6 +5,10 @@ import { grossOf } from '../common/document-money';
 import { DocumentsService } from '../documents/documents.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ProjectCostingService } from '../project-costing/project-costing.service';
+import { EmailService } from '../email/email.service';
+import { StaffWhatsAppService } from '../staff-whatsapp/staff-whatsapp.service';
+import { WhatsAppAdapter } from '../operator/adapters/whatsapp.adapter';
+import { TemplateStatusService } from '../operator/template-status.service';
 
 const QUOTATION_TYPES = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
 const VALIDITY_DAYS = 14; // "This quotation and agreement is valid for 14 days"
@@ -21,6 +25,10 @@ export class PublicSignService {
     private readonly documents: DocumentsService,
     private readonly notifications: NotificationsService,
     private readonly costing: ProjectCostingService,
+    private readonly email: EmailService,
+    private readonly staffWhatsApp: StaffWhatsAppService,
+    private readonly whatsapp: WhatsAppAdapter,
+    private readonly templates: TemplateStatusService,
   ) {}
 
   /** Shared by e-sign and manual confirm: create the project if missing, seed its payment schedule. */
@@ -124,6 +132,96 @@ export class PublicSignService {
     }
     const path = `/sign/${link.token}`;
     return { token: link.token, path, url: this.portalUrl(path), expiresAt: link.expiresAt, createdAt: link.createdAt };
+  }
+
+  /**
+   * SEND the sign link to the customer (guru 2026-10-28: "once confirmed it
+   * will ask them to send the link to the customer number or email them …
+   * also on the dashboard during send for signature"). Mints or reuses the
+   * link, then:
+   *   whatsapp — a text from the org's connected business line (the approved
+   *              notify template when the customer's 24-hour window is closed).
+   *              No line connected → not sent; the caller gets a wa.me link to
+   *              forward the message by hand.
+   *   email    — a plain email with the link (Resend).
+   * Never throws for a delivery problem: the result says what happened.
+   */
+  async sendLink(
+    documentId: string,
+    organizationId: string,
+    body: { via?: string; to?: string; message?: string },
+    actor?: { id?: string; name?: string; email?: string },
+  ): Promise<{ sent: boolean; via: 'whatsapp' | 'email'; to: string; url: string; expiresAt: Date | null; message: string; reason?: string; waHref?: string }> {
+    const via = String(body?.via || '').toLowerCase() === 'email' ? 'email' : 'whatsapp';
+    const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { id: true, name: true, config: true, documentTemplateId: true, type: true } });
+    if (!doc) throw new NotFoundException('Document not found');
+    const link = await this.createForDocument(documentId, organizationId);
+    const cfg: any = doc.config || {};
+    const di: any = cfg.documentInfo || {};
+    const customerName = String(cfg.customerName || cfg.customer?.name || di.customerName || '').trim();
+    const contactName = String(cfg.attention?.name || di.contactName || cfg.customer?.contactPerson || '').trim();
+    const toDefault =
+      via === 'whatsapp'
+        ? cfg.attention?.phoneNumber || di.contactNumber || cfg.customer?.mobile || cfg.customer?.phoneNumber || cfg.customer?.phone || cfg.customerPhone || ''
+        : cfg.attention?.email || di.contactEmail || cfg.customerEmail || cfg.customer?.email || '';
+    let to = String(body?.to || toDefault || '').trim();
+    if (via === 'whatsapp') {
+      to = to.replace(/\D/g, '').replace(/^0+/, '');
+      if (to.length === 8) to = `65${to}`;
+      if (to.length < 8) throw new BadRequestException('The customer has no WhatsApp number on file. Enter the number to send to.');
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      throw new BadRequestException('The customer has no email on file. Enter the email address to send to.');
+    }
+    const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } });
+    const total = Number(grossOf(cfg) ?? 0);
+    const amount = total > 0 ? ` (S$ ${total.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : '';
+    const until = link.expiresAt ? ` The link is valid until ${new Date(link.expiresAt).toLocaleDateString('en-SG', { day: '2-digit', month: 'short', year: 'numeric' })}.` : '';
+    const greeting = contactName || customerName ? `Hi ${contactName || customerName}, ` : 'Hi, ';
+    const message = String(body?.message || '').trim() || `${greeting}please review and sign quotation ${doc.name || ''}${amount} here: ${link.url}.${until} Thank you, ${org?.name || 'AIMS'}.`;
+    const text = message.includes(link.url) ? message : `${message}\n${link.url}`;
+    const base = { via, to, url: link.url, expiresAt: link.expiresAt ?? null, message: text } as const;
+    // Document history row ("History & notes" in the editor), same table the
+    // editor's SENT rows use. Never breaks the send.
+    const record = (how: string, ok: boolean, detail?: string) =>
+      this.prisma.auditLog
+        .create({
+          data: {
+            userId: actor?.id || 'system',
+            userName: actor?.name || null,
+            userEmail: actor?.email || null,
+            action: ok ? 'SENT' : 'EMAIL_FAILED',
+            resource: 'document',
+            resourceId: doc.id,
+            resourceName: doc.name || null,
+            organizationId,
+            details: { detail: ok ? `Sign link sent to ${to} on ${how}` : `Sign link to ${to} on ${how} failed${detail ? `: ${detail}` : ''}`, via, to },
+          },
+        })
+        .catch(() => null);
+
+    if (via === 'email') {
+      const html = `<p>${escapeHtml(greeting.trim())}</p><p>Please review and sign quotation <b>${escapeHtml(doc.name || '')}</b>${escapeHtml(amount)}:</p><p><a href="${link.url}">${link.url}</a></p><p>${escapeHtml(until.trim())}</p><p>Thank you,<br/>${escapeHtml(org?.name || 'AIMS')}</p>`;
+      const res = await this.email.sendSimpleEmail({ to: [to], subject: `Quotation ${doc.name || ''} from ${org?.name || 'AIMS'} — please sign`, html });
+      await record('email', res.success, res.error);
+      return res.success ? { sent: true, ...base } : { sent: false, ...base, reason: res.error || 'email failed' };
+    }
+
+    const waHref = `https://wa.me/${to}?text=${encodeURIComponent(text)}`;
+    const primed = await this.whatsapp.primeForOrg(to, organizationId).catch(() => false);
+    if (!primed) {
+      await record('whatsapp', false, 'no WhatsApp line connected');
+      return { sent: false, ...base, reason: 'no-line', waHref };
+    }
+    let res = await this.whatsapp.sendTextResult(to, text).catch((e: any) => ({ ok: false, code: null as number | null, message: String(e?.message ?? e) }));
+    if (!res.ok && (res.code === 131047 || /re-?engagement/i.test(res.message ?? ''))) {
+      // The customer has not written to the line in 24 hours: the approved
+      // one-parameter notify template carries the same text.
+      const tpl = await this.templates.notifyTemplate(organizationId).catch(() => 'aims_notify');
+      const ok = tpl ? await this.whatsapp.sendTemplate(to, tpl, text, 'en').catch(() => false) : false;
+      res = ok ? { ok: true, code: null, message: null } : { ok: false, code: res.code, message: `${res.message ?? 'window closed'}; template ${tpl || 'aims_notify'} failed too` };
+    }
+    await record('whatsapp', res.ok, res.message ?? undefined);
+    return res.ok ? { sent: true, ...base } : { sent: false, ...base, reason: res.message || 'send failed', waHref };
   }
 
   /** Current sign status of a document for the editor header. */
@@ -390,9 +488,21 @@ export class PublicSignService {
     // auto-draft the staff Confirm button does. Pure helper — flag-gated
     // inside, idempotent, never throws.
     const { autoDraftDeliveryFromQuotation } = await import('../deliveries/quotation-to-delivery');
-    await autoDraftDeliveryFromQuotation(this.prisma, doc.organizationId, doc.id, this.logger);
+    const run = await autoDraftDeliveryFromQuotation(this.prisma, doc.organizationId, doc.id, this.logger);
 
     const clientLabel = quote?.header?.clientName || cfg?.customer?.name || cfg?.customerName || '';
+    // The office on WhatsApp (guru 2026-10-28): the customer signed; in a
+    // service-job org the draft delivery is waiting for a date. Flag-gated,
+    // best-effort.
+    await this.staffWhatsApp.push(
+      doc.organizationId,
+      `Quotation ${allocatedName || doc.name || ''} signed by ${name}${clientLabel ? ` (${clientLabel})` : ''}.` +
+        (run ? ` Draft delivery #${run.deliveryNumber} created: please schedule a date and confirm the items.` : ' It is now confirmed.'),
+      {
+        linkPath: run ? `/portal/deliveries/${run.id}` : isIdQuote ? `/portal/sales/quotations/id/${doc.id}` : doc.documentTemplateId ? `/portal/documents/${doc.type}/${doc.documentTemplateId}/${doc.id}` : '/portal',
+        dedupeKey: `quotation-signed:${doc.id}`,
+      },
+    );
     await this.notifications.emit({
       organizationId: doc.organizationId,
       kind: 'quotation_signed',
@@ -411,4 +521,8 @@ export class PublicSignService {
     this.logger.log(`quotation ${doc.name} signed by ${name} (${meta.ip || 'ip?'})`);
     return { ok: true, signedAt, projectId };
   }
+}
+
+function escapeHtml(v: string): string {
+  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

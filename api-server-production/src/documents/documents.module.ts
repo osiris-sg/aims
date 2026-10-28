@@ -11,6 +11,7 @@ import { DocumentTemplatesModule } from '../documentTemplates/documentTemplates.
 import { AccountMemoryModule } from '../account-memory/account-memory.module';
 import { DocumentNumberingModule } from '../document-numbering/document-numbering.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { StaffWhatsAppModule } from '../staff-whatsapp/staff-whatsapp.module';
 import { DeliveriesModule } from '../deliveries/deliveries.module';
 
 @Module({
@@ -18,7 +19,7 @@ import { DeliveriesModule } from '../deliveries/deliveries.module';
   // AD-HOC run hands off to DeliveriesService.attachProjectToAdHocRun rather
   // than half-doing the same work here. DeliveriesModule already imports this
   // module, so the reference has to be lazy on BOTH sides.
-  imports: [CommonModule, PriceHistoryModule, EmailModule, JournalModule, OrdersModule, DocumentTemplatesModule, DocumentNumberingModule, AccountMemoryModule, NotificationsModule, forwardRef(() => DeliveriesModule)],
+  imports: [CommonModule, PriceHistoryModule, EmailModule, JournalModule, OrdersModule, DocumentTemplatesModule, DocumentNumberingModule, AccountMemoryModule, NotificationsModule, StaffWhatsAppModule, forwardRef(() => DeliveriesModule)],
   controllers: [DocumentsController],
   providers: [DocumentsService, PrismaService],
   // Exported so MaintenanceReportsModule can call createBasicDocument when

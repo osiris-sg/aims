@@ -95,6 +95,8 @@ const VERB_ACTIONS: Record<string, string> = {
   hide: 'HIDE',
   // Round AR: the Answer flow's draft of a general issue read from the emails (nothing saved).
   'issue-draft': 'EXTRACT',
+  // Quotation e-sign link sent to the customer (WhatsApp / email) from the editor or the agent (2026-10-28).
+  send: 'SEND',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
   // Field delivery verbs (2026-09): the customer sign-off (full or partial, and
   // the guest link's), the return sign-off, ad-hoc acknowledge, install skip, and

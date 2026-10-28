@@ -3,6 +3,7 @@ import { stripEmoji } from './push-text';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
 import { CHAT_UPLOAD_PROJECT_COST_FLAG, isOrgFeatureEnabled } from '../common/org-features';
+import { QUOTATION_TO_DELIVERY_FLAG } from '../deliveries/quotation-to-delivery';
 import { matchProjectByAddress } from '../common/address-match';
 import { REPLY_WORDS } from '../ingestion-email/email-question';
 import { OperatorAuthService } from './operator-auth.service';
@@ -138,6 +139,9 @@ const TOOL_STATUS: Record<string, string> = {
   add_project_cost: '🧾 Recording the project cost...',
   edit_schedule: '🗓 Updating the schedule...',
   import_price_list: '📚 Adding the price list to the Work Library...',
+  list_service_items: '📚 Fetching the price list...',
+  send_for_signature: '✍️ Preparing the sign link...',
+  confirm_draft_delivery: '🗓 Preparing the schedule...',
   schedule_delivery: '🚚 Preparing the delivery...',
   find_sales_order: '🔎 Looking for the order or quotation...',
   api_write: '⚙️ Preparing the change...',
@@ -807,6 +811,10 @@ export class OperatorService {
       { role: 'user', content: text },
     ];
     const toolDefs = ctx.profile === 'shipments' ? this.shipTools.definitions(ctx) : this.tools.definitions(ctx);
+    // Service-job orgs (enableQuotationToDelivery, WCT 2026-10-28): the
+    // quotation → signature → delivery → service → invoice walk, so the agent
+    // drives the flow instead of waiting to be asked for each step.
+    const serviceJobOrg = ctx.profile !== 'shipments' && (await isOrgFeatureEnabled(this.prisma, ctx.organizationId, QUOTATION_TO_DELIVERY_FLAG).catch(() => false));
     // Every action held this turn, in order. One slot kept only the LAST
     // card when the model held two in a round ("delete those two" showed one
     // card and the other was forgotten, guru 2026-10-21).
@@ -849,6 +857,7 @@ export class OperatorService {
         const lang = replyLanguage(text);
         systemBlocks.push({ type: 'text', text: lang === 'ja' ? 'REPLY LANGUAGE NOW: Japanese (日本語で答える). The latest message is Japanese.' : 'REPLY LANGUAGE NOW: English. The latest message is English, whatever language the earlier turns were in.' });
       }
+      if (serviceJobOrg) systemBlocks.push({ type: 'text', text: this.serviceJobPrompt() });
       if (session.bulkInvoiceMode) {
         systemBlocks.push({
           type: 'text',
@@ -1134,6 +1143,18 @@ export class OperatorService {
       `12. NEVER mention tool names or internal mechanics to the user (no "create_customer", "api_get", "the tool"). Speak in terms of what AIMS does: "I'll add the customer", "the invoice list".`,
       `13. NON-FINANCIAL CREATES NEED NO PERMISSION: adding a customer, a supplier, a draft document or a note is safe and reversible. When the details are clear, do it and report the result in one line; only ask when something is genuinely ambiguous or missing. Do not read the details back and ask "shall I go ahead?". The confirm gate (rule 3) is for money and finality, not for drafts and master data.`,
       `11. RETRY, DON'T REMEMBER FAILURES: tool errors are often transient (deploys, config changes between messages). When the user asks again for something that failed earlier in this chat, ALWAYS call the tool again fresh. NEVER claim you "tried again" unless you actually called the tool this turn, and never present an old error as the current state.`,
+    ].join('\n');
+  }
+
+  /** The service-job flow (guru 2026-10-28): what happens in what order, so
+   *  the agent leads the user through it. */
+  private serviceJobPrompt(): string {
+    return [
+      `SERVICE-JOB ORGANIZATION. The work flows Quotation → customer signature → delivery (the service visit) → service report + customer sign-off → invoice. Lead the user through it; do not wait to be asked for each step.`,
+      `A. QUOTATION: resolve the customer (find_customer, or create_customer by name). Then the lines: call list_service_items and show the price list as short numbered lines (code, name, price) so the user picks by number or code; or they paste their own lines (description, quantity, price) which go in as free text. Ask for the JOB LOCATION (the site address) if they did not give one; Subject and Attention are optional. Then create_quotation (pass picks as code, free text as description) and preview_document. Fix whatever they change with edit_document.`,
+      `B. SEND FOR SIGNATURE: once the user says the quotation is right, do NOT confirm it yourself. Ask in one line: "Send it to <customer> for signature on WhatsApp <number on file> or by email <email on file>?" (use ask_choice with those two options when both are on file; ask for the number or address when neither is). Then call send_for_signature; it is held for their Confirm. The customer signs on the link and the quotation is CONFIRMED at that moment. Only if the customer signed on paper and the user says so, use confirm_document.`,
+      `C. DELIVERY: when the quotation is accepted, a DRAFT delivery is created automatically and the user gets a message. To schedule it they give a date and time: call confirm_draft_delivery with the quotation number and the ISO date/time (held for Confirm). That makes the job live for the technician and mints the Delivery Order. Never use schedule_delivery or create_delivery_order in this flow; the draft already exists.`,
+      `D. INVOICE: the technician does the job in the field app (service report, customer sign-off). The Delivery Order completes and a DRAFT INVOICE is created automatically, already posted to the ledger; the user gets a message. They confirm it with confirm_invoice (held for Confirm), or ask for changes first (edit_document). Never create the invoice by hand in this flow.`,
     ].join('\n');
   }
 

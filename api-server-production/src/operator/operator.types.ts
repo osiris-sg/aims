@@ -173,6 +173,8 @@ export interface PendingAction {
     | 'edit_schedule'
     | 'import_price_list'
     | 'schedule_delivery'
+    | 'send_for_signature'
+    | 'confirm_delivery'
     | 'api_write'
     | 'request_advance'
     | 'shipments';

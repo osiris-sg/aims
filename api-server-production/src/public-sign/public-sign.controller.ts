@@ -63,6 +63,19 @@ export class PublicSignController {
     return this.service.addDesignerSignature(id, organizationId, body || ({} as any), req.user?.id);
   }
 
+  @UseGuards(ClerkAuthGuard)
+  @Permissions('documents:update')
+  @Post('documents/:id/sign-link/send')
+  @ApiOperation({ summary: 'Send the e-sign link to the customer on WhatsApp or by email' })
+  send(@Param('id') id: string, @Body() body: { via?: string; to?: string; message?: string }, @Req() req: any) {
+    const u: any = req.user || {};
+    return this.service.sendLink(id, orgId(req), body || {}, {
+      id: u.id,
+      name: [u.firstName, u.lastName].filter(Boolean).join(' ') || undefined,
+      email: u.emailAddresses?.[0]?.emailAddress,
+    });
+  }
+
   @Post('documents/:id/sign-link/revoke')
   revoke(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     return this.service.revokeForDocument(id, orgId(req));

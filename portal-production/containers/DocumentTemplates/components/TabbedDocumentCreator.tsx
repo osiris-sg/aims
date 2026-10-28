@@ -8031,6 +8031,7 @@ export default function TabbedDocumentCreator({
           documentNumber={formData?.documentInfo?.documentNumber || (existingData as any)?.name || null}
           clientName={(formData as any)?.customer?.name || ""}
           clientPhone={(formData as any)?.attention?.phoneNumber || (formData as any)?.customer?.mobile || (formData as any)?.customer?.phoneNumber || ""}
+          clientEmail={(formData as any)?.attention?.email || (formData as any)?.customerEmail || (formData as any)?.customer?.email || ""}
           onClose={() => setSignLinkDialogOpen(false)}
         />
       )}

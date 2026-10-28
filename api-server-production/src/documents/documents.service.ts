@@ -23,6 +23,7 @@ import { S3Service } from 'src/common/services/s3.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { AuditService } from 'src/common/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { StaffWhatsAppService } from '../staff-whatsapp/staff-whatsapp.service';
 import * as moment from 'moment';
 import { pdfOptionsFor, isWctLayout } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
@@ -52,6 +53,7 @@ export class DocumentsService {
     private auditService: AuditService,
     private accountMemory: AccountMemoryService,
     private notifications: NotificationsService,
+    private staffWhatsApp: StaffWhatsAppService,
     // Lazy: DeliveriesModule imports DocumentsModule, so this closes a cycle.
     // Used ONLY for the ad-hoc project hand-off in updateDocument.
     @Inject(forwardRef(() => DeliveriesService))
@@ -1669,10 +1671,22 @@ export class DocumentsService {
         // (public-sign.service sign()) makes the same call.
         {
           const { autoDraftDeliveryFromQuotation } = await import('../deliveries/quotation-to-delivery');
-          await autoDraftDeliveryFromQuotation(this.prisma, organizationId, id, {
+          const run = await autoDraftDeliveryFromQuotation(this.prisma, organizationId, id, {
             warn: (m) => console.warn(`⚠️ ${m}`),
             log: (m) => console.log(`🚚 ${m}`),
           });
+          // Tell the office on WhatsApp (guru 2026-10-28): the quotation is
+          // confirmed and its draft delivery is waiting for a date. Flag-gated
+          // and best-effort inside; never fails the confirm.
+          if (run) {
+            const c: any = configAsPlainObject || {};
+            const who = c.customerName || c.customer?.name || '';
+            await this.staffWhatsApp.push(
+              organizationId,
+              `Quotation ${updatedDocument.name || ''}${who ? ` (${who})` : ''} confirmed. Draft delivery #${run.deliveryNumber} created: please schedule a date and confirm the items.`,
+              { linkPath: `/portal/deliveries/${run.id}`, dedupeKey: `quotation-confirmed:${id}` },
+            );
+          }
         }
       }
 
@@ -5864,6 +5878,18 @@ export class DocumentsService {
       entityId: invoice.id,
       linkUrl: `/portal/documents/${invoice.type ?? 'INVOICE'}/${templateId}/${invoice.id}`,
     });
+    // The same news on the office's WhatsApp (guru 2026-10-28: "once the
+    // maintenance and DO is done they will get a noti that the draft invoice
+    // is created pls confirm"). Flag-gated, best-effort.
+    {
+      const c: any = invoiceConfig || {};
+      const who = c.customerName || c.customer?.name || '';
+      await this.staffWhatsApp.push(
+        organizationId,
+        `Job done: ${doDoc.name || 'the delivery order'} is signed off${who ? ` by ${who}` : ''}. Draft invoice ${invoice.name || ''} is created and posted to the ledger: please review and confirm it.`,
+        { linkPath: `/portal/documents/${invoice.type ?? 'INVOICE'}/${templateId}/${invoice.id}`, dedupeKey: `invoice-draft:${invoice.id}` },
+      );
+    }
 
     return invoice;
   }

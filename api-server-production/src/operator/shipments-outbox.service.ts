@@ -160,9 +160,19 @@ export class ShipmentsOutboxService {
       }
       if (rest.length) {
         const lang = rest.some((r) => /[぀-ヿ一-鿿]/.test(r.text)) ? 'ja' : 'en';
-        const ok = await this.whatsapp.sendText(to, batchText(rest, lang, await this.links.url(org, DASHBOARD_PATH))).then(() => true).catch(() => false);
-        await this.mark(rest, ok, 'text send failed');
-        ok ? (sent += rest.length) : (failed += rest.length);
+        const text = batchText(rest, lang, await this.links.url(org, DASHBOARD_PATH));
+        let res = await this.whatsapp.sendTextResult(to, text).catch((e: any) => ({ ok: false, code: null as number | null, message: String(e?.message ?? e) }));
+        if (!res.ok && (res.code === 131047 || /re-?engagement/i.test(res.message ?? ''))) {
+          // Lifecycle pushes to staff (StaffWhatsAppService: quotation signed,
+          // draft delivery / draft invoice created) must land even when the
+          // user has not written to the line in 24 hours: the approved
+          // one-parameter notify template carries the same text.
+          const tpl = await this.templates.notifyTemplate(org).catch(() => 'aims_notify');
+          const viaTemplate = tpl ? await this.whatsapp.sendTemplate(to, tpl, text, 'en').catch(() => false) : false;
+          res = viaTemplate ? { ok: true, code: null, message: null } : { ok: false, code: res.code, message: `${res.message ?? 'window closed'}; template ${tpl || 'aims_notify'} failed too` };
+        }
+        await this.mark(rest, res.ok, `text send failed${res.message ? `: ${String(res.message).slice(0, 120)}` : ''}`);
+        res.ok ? (sent += rest.length) : (failed += rest.length);
       }
     }
     if (sent || failed) this.logger.log(`outbox: sent ${sent}, failed ${failed}`);

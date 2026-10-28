@@ -6,7 +6,6 @@ import { MarketingModule } from '../marketing/marketing.module';
 import { LeadsModule } from '../leads/leads.module';
 import { DeliveriesModule } from '../deliveries/deliveries.module';
 import { PrismaService } from '../common/prisma.service';
-import { TemplateStatusService } from './template-status.service';
 import { CommonModule } from '../common/common.module';
 import { CustomersModule } from '../customers/customers.module';
 import { AssetsModule } from '../assets/assets.module';
@@ -34,7 +33,8 @@ import { ShipmentsOutboxService } from './shipments-outbox.service';
 import { ShipmentsModule } from '../shipments/shipments.module';
 import { IngestionEmailModule } from '../ingestion-email/ingestion-email.module';
 import { TelegramAdapter } from './adapters/telegram.adapter';
-import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
+import { WhatsAppAdapterModule } from './adapters/whatsapp-adapter.module';
+import { PublicSignModule } from '../public-sign/public-sign.module';
 import { WebAdapter } from './adapters/web.adapter';
 
 /**
@@ -74,9 +74,11 @@ import { AuthModule } from '../auth/auth.module';
     BankRecModule, // bank_rec_checkpoint tool
     ShipmentsModule, // round S: the shipments tool set (ADH) + the WhatsApp outbox
     IngestionEmailModule, // round S: email_link / intake from a WhatsApp file
+    WhatsAppAdapterModule, // the one WhatsApp sender (shared with PublicSignModule)
+    PublicSignModule, // send_for_signature tool → the quotation e-sign link
   ],
   controllers: [OperatorController, OperatorWebController],
-  providers: [OperatorService, OperatorAuthService, OperatorToolsService, ShipmentsToolsService, ShipmentsOutboxService, TelegramAdapter, WhatsAppAdapter, WebAdapter, PrismaService, TemplateStatusService],
-  exports: [OperatorService, OperatorAuthService, WhatsAppAdapter, WebAdapter, TemplateStatusService],
+  providers: [OperatorService, OperatorAuthService, OperatorToolsService, ShipmentsToolsService, ShipmentsOutboxService, TelegramAdapter, WebAdapter, PrismaService],
+  exports: [OperatorService, OperatorAuthService, WebAdapter, WhatsAppAdapterModule],
 })
 export class OperatorModule {}
