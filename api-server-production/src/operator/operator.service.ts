@@ -1214,7 +1214,7 @@ export class OperatorService {
       if (remaining > 0) rows.push({ id: `orgpage:${from + PAGE}`, title: `More… (${remaining} more)`.slice(0, 24) });
       await adapter.sendList(
         chatId,
-        paged ? `${prompt}\n\n${from + 1}–${from + slice.length} of ${options.length}. Send "/org <name>" to jump straight to one.` : prompt,
+        paged ? `${prompt}\n\n${from + 1} to ${from + slice.length} of ${options.length}. Send "/org <name>" to jump straight to one.` : prompt,
         'Choose org',
         rows,
       );
@@ -1251,7 +1251,7 @@ export class OperatorService {
       return { id: `choicei:${from + i}`, title, ...(description ? { description } : {}) };
     });
     if (remaining > 0) rows.push({ id: `choicepage:${from + PAGE}`, title: `More… (${remaining} more)`.slice(0, 24) });
-    await adapter.sendList(chatId, paged ? `${question}\n\n${from + 1}–${from + slice.length} of ${options.length}.` : question, 'Choose', rows);
+    await adapter.sendList(chatId, paged ? `${question}\n\n${from + 1} to ${from + slice.length} of ${options.length}.` : question, 'Choose', rows);
   }
 
   /** Persist the chosen org for this sender and confirm it. */

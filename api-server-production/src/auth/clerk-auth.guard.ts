@@ -249,6 +249,25 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
     let overrideOrg: { id: string; name: string; [k: string]: any } | null = null;
     const rawActiveOrgId = request.headers['x-active-org-id'];
     const rawUseRealOrg = request.headers['x-use-real-org'];
+    // A MEMBER of several orgs may switch between them too (guru 2026-10-28):
+    // the WhatsApp agent's api_get / api_write self-call as the user with the
+    // agent's org in this header, and a plain member who had switched to WCT
+    // in the chat kept getting Biofuel's data because the header only counted
+    // for osiris-admins and the guard fell back to their FIRST membership.
+    // Only an org they actively belong to; anything else is ignored as before.
+    if (!isOsirisAdmin && rawActiveOrgId && !rawUseRealOrg) {
+      const headerVal = String(Array.isArray(rawActiveOrgId) ? rawActiveOrgId[0] : rawActiveOrgId);
+      if (headerVal && headerVal !== userOrg?.organization?.id) {
+        const member = await this.prisma.userOrganization.findFirst({
+          where: { userId: user.id, organizationId: headerVal, isActive: true },
+          select: USER_ORG_SELECT,
+        });
+        if (member?.organization) {
+          overrideOrg = member.organization as any;
+          dbg(`🔀 Org switch (member): ${userOrg?.organization?.name ?? '(none)'} → ${overrideOrg!.name}`);
+        }
+      }
+    }
     if (isOsirisAdmin && rawActiveOrgId && !rawUseRealOrg) {
       const headerVal = Array.isArray(rawActiveOrgId) ? rawActiveOrgId[0] : rawActiveOrgId;
       const target = await this.prisma.organization.findUnique({
@@ -283,8 +302,8 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
         console.warn(`User ${user.id} is not assigned to any organization`);
         throw new ForbiddenException('User is not assigned to any organization. Please contact your administrator to be assigned to an organization.');
       } else {
-        request.userOrganization = userOrg.organization;
-        dbg('User is assigned to an organization:', userOrg.organization.name);
+        request.userOrganization = overrideOrg ?? userOrg.organization;
+        dbg('User is assigned to an organization:', request.userOrganization.name);
       }
       request.isOsirisAdmin = false;
     }
@@ -304,8 +323,10 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
       return true;
     }
 
-    // Filter roles based on context (we already have all the data)
-    const relevantUserRoles = userRoles.filter((userRole) => userRole.organizationId === userOrg.organization.id);
+    // Filter roles by the EFFECTIVE org (the switched-to one when a member
+    // switched), so their permissions are the ones they hold there.
+    const effectiveOrgId = request.userOrganization?.id ?? userOrg.organization.id;
+    const relevantUserRoles = userRoles.filter((userRole) => userRole.organizationId === effectiveOrgId);
 
     if (relevantUserRoles.length === 0) {
       throw new ForbiddenException('User has no assigned roles in this organization');
