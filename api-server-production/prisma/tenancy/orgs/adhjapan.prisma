@@ -1387,6 +1387,8 @@ model TradeOrder {
   organizationId  String
   year            Int
   orderNo         Int
+  /// Round AT: the order numbers this order had before a renumber (search "#26" still finds it; never reused by it).
+  previousOrderNos Int[] @default([])
   contractId      String?           @db.Uuid
   customerId      String            @db.Uuid
   supplierId      String            @db.Uuid

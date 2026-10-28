@@ -49,6 +49,8 @@ export interface ShipmentFact {
 export interface OrderFact {
   id: string;
   orderNo: number;
+  /** Round AT: numbers before a renumber ("#26" still finds it). */
+  previousOrderNos?: number[];
   status: string;
   checkFields: string[];
   customerId: string;
@@ -252,7 +254,7 @@ export function searchMatch(o: OrderFact, q: string | null | undefined): null | 
   const t = (q ?? '').trim().toLowerCase();
   if (!t) return 'order';
   const no = /^#?(\d+)(?:-(\d+))?$/.exec(t);
-  if (no && Number(no[1]) === o.orderNo) return no[2] ? (s) => !!s && s.seqNo === Number(no[2]) : 'order';
+  if (no && (Number(no[1]) === o.orderNo || (o.previousOrderNos ?? []).includes(Number(no[1])))) return no[2] ? (s) => !!s && s.seqNo === Number(no[2]) : 'order';
   const has = (v: string | null | undefined) => !!v && v.toLowerCase().includes(t);
   const lines = o.supplierLines ?? [];
   if ([o.customerName, clientName(o.customerKey, o.customerName), o.customerPoNo, o.piNo, o.grade, o.supplierContractNo, ...lines.flatMap((l) => [l.contractNo, l.piNo])].some(has)) return 'order';

@@ -514,6 +514,9 @@ export type OrderListItem = {
   year: number;
   orderNo: number;
   label: string;
+  /** Round AT: the order's numbers before a renumber; `was` = the old number a search found it by ("#26"). */
+  previousOrderNos?: number[];
+  was?: string;
   contractId: string | null;
   contractNo: string | null;
   customerId: string;

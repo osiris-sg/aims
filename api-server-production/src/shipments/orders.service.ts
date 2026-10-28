@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { ActionLogService } from '../action-log/action-log.service';
 import { PrismaService } from '../common/prisma.service';
 import { CreateOrderDto, ListOrdersQuery, MonthlyOrdersDto, UpdateOrderDto } from './dto/order.dto';
 import { CreateShipmentDto } from './dto/shipment.dto';
@@ -52,12 +53,16 @@ export function monthHeader(month: string | null, orders: number, qtyMt: number 
  * reconciliation; shipments hold steps 3–10, 12 and 14. Supplier orders are
  * no longer made (the table stays, unused).
  */
+/** Round AT: order numbers from here up are parked ranges (history #1001…, test #9001…), never the next number. */
+export const LIVE_ORDER_NO_END = 1000;
+
 @Injectable()
 export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: TradeConfigService,
     private readonly shipments: ShipmentsService,
+    @Optional() private readonly actionLog?: ActionLogService,
   ) {}
 
   async list(organizationId: string, query: ListOrdersQuery) {
@@ -77,7 +82,8 @@ export class OrdersService {
       ...(q
         ? {
             OR: [
-              ...(qNo ? [{ orderNo: qNo }] : []),
+              // Round AT: an old number (before a renumber) finds the order too.
+              ...(qNo ? [{ orderNo: qNo }, { previousOrderNos: { has: qNo } }] : []),
               { piNo: { contains: q, mode: 'insensitive' as const } },
               { grade: { contains: q, mode: 'insensitive' as const } },
               { contract: { contractNo: { contains: q, mode: 'insensitive' as const } } },
@@ -137,6 +143,8 @@ export class OrdersService {
       return {
         ...o,
         label: orderLabel(o),
+        // Round AT: found by an old number ("#26" → #28) — the list shows "was #26".
+        ...(qNo && o.orderNo !== qNo && (o.previousOrderNos ?? []).includes(qNo) ? { was: `#${qNo}` } : {}),
         contractNo: o.contract?.contractNo ?? null,
         customerName: o.customer?.name ?? null,
         monthsLabel: monthsLabel(o.shipMonth, o.deliveryMonth),
@@ -266,10 +274,23 @@ export class OrdersService {
     return { id, isTest };
   }
 
-  /** The next free order number for a year (the New Order form's default). */
+  /**
+   * The next order number for a year (the New Order form's default): the highest LIVE number + 1. Round AT: numbers
+   * from LIVE_ORDER_NO_END up are parked ranges (history #1001…, test #9001…) and a gap below the highest number is
+   * never filled by itself (#23 kept free for a case still to come).
+   */
   async nextOrderNo(organizationId: string, year: number, db: Db = this.prisma): Promise<number> {
-    const last: { orderNo: number } | null = await db.tradeOrder.findFirst({ where: { organizationId, year }, orderBy: { orderNo: 'desc' }, select: { orderNo: true } });
+    const last: { orderNo: number } | null = await db.tradeOrder.findFirst({ where: { organizationId, year, orderNo: { lt: LIVE_ORDER_NO_END } }, orderBy: { orderNo: 'desc' }, select: { orderNo: true } });
     return (last?.orderNo ?? 0) + 1;
+  }
+
+  /** Round AT: "#28 is taken by a hidden test order (SUS Co., Ltd. · 6063 · 300 t)" — which order holds a number. */
+  private async takenMessage(db: Db, organizationId: string, year: number, orderNo: number, notId?: string): Promise<string | null> {
+    const o: any = await db.tradeOrder.findFirst({ where: { organizationId, year, orderNo, ...(notId ? { NOT: { id: notId } } : {}) }, select: { isTest: true, status: true, grade: true, qtyMt: true, notes: true, customer: { select: { name: true } } } });
+    if (!o) return null;
+    const what = [o.customer?.name, o.grade, o.qtyMt !== null && o.qtyMt !== undefined ? `${Number(o.qtyMt)} t` : null].filter(Boolean).join(' · ');
+    const kind = o.isTest ? 'a hidden test order' : /Backfilled from Drive/.test(o.notes ?? '') ? 'a history order (backfilled from the Drive)' : o.status === 'OPEN' ? 'an open order' : `a ${String(o.status).toLowerCase()} order`;
+    return `#${orderNo} (${year}) is taken by ${kind} (${what})`;
   }
 
   async create(organizationId: string, dto: CreateOrderDto, actor: TradeActor) {
@@ -313,8 +334,8 @@ export class OrdersService {
         await this.assertParties(tx, organizationId, supplierId, customerId);
         const year = dto.year ?? (dto.shipMonth ? Number(dto.shipMonth.slice(0, 4)) : Number(tradeToday().slice(0, 4)));
         const orderNo = dto.orderNo ?? (await this.nextOrderNo(organizationId, year, tx));
-        const dup = await tx.tradeOrder.findFirst({ where: { organizationId, year, orderNo }, select: { id: true } });
-        if (dup) throw new BadRequestException(`Order #${orderNo} already exists for ${year}`);
+        const taken = await this.takenMessage(tx, organizationId, year, orderNo);
+        if (taken) throw new BadRequestException(taken);
         // Premiums default from the contract line of the same grade (else its only line); typed values win.
         const line = defaultLine((contract?.lines ?? []) as ContractLineRow[], dto.grade);
         const settings = await this.config.getSettings(organizationId, tx);
@@ -428,6 +449,7 @@ export class OrdersService {
   }
 
   async update(organizationId: string, id: string, dto: UpdateOrderDto, actor: TradeActor | null = null) {
+    let moved: { from: number; to: number; year: number } | null = null;
     await this.prisma.$transaction(async (tx: Db) => {
       const existing = await tx.tradeOrder.findFirst({ where: { id, organizationId }, select: { id: true, year: true, orderNo: true, customerId: true } });
       if (!existing) throw new NotFoundException('Order not found');
@@ -439,14 +461,18 @@ export class OrdersService {
       const year = dto.year ?? existing.year;
       const orderNo = dto.orderNo ?? existing.orderNo;
       if (year !== existing.year || orderNo !== existing.orderNo) {
-        const dup = await tx.tradeOrder.findFirst({ where: { organizationId, year, orderNo, NOT: { id } }, select: { id: true } });
-        if (dup) throw new BadRequestException(`Order #${orderNo} already exists for ${year}`);
+        const taken = await this.takenMessage(tx, organizationId, year, orderNo, id);
+        if (taken) throw new BadRequestException(taken);
       }
+      // Round AT: a renumbered order keeps its old number as an alias (search, the WhatsApp agent).
+      const renumbered = orderNo !== existing.orderNo && year === existing.year;
+      if (renumbered) moved = { from: existing.orderNo, to: orderNo, year };
       await tx.tradeOrder.update({
         where: { id, organizationId },
         data: {
           ...(dto.year !== undefined ? { year } : {}),
           ...(dto.orderNo !== undefined ? { orderNo } : {}),
+          ...(renumbered ? { previousOrderNos: { push: existing.orderNo } } : {}),
           ...(dto.contractId !== undefined ? { contractId: dto.contractId || null } : {}),
           ...(dto.customerId ? { customerId: dto.customerId } : {}),
           ...(dto.supplierId ? { supplierId: dto.supplierId } : {}),
@@ -464,6 +490,9 @@ export class OrdersService {
       }
     });
     await this.config.syncSteps(this.prisma, organizationId, [{ orderId: id }], actor, { fields: Object.keys(dto) });
+    // Round AT: the renumber itself in the Activity Log, old → new (the PATCH row only carries the form).
+    const m = moved as { from: number; to: number; year: number } | null;
+    if (m) this.actionLog?.system('order-renumber', 'UPDATE', 'trade-orders', { organizationId, resourceId: id, details: { orderNo: { from: m.from, to: m.to }, year: m.year, by: actor?.name ?? actor?.id ?? null } });
     return this.getById(organizationId, id);
   }
 

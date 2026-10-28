@@ -45,7 +45,7 @@ export class ShipmentsService {
       ...(q
         ? {
             OR: [
-              ...(refM ? [{ order: { orderNo: Number(refM[1]) }, ...(refM[2] ? { seqNo: Number(refM[2]) } : {}) }] : []),
+              ...(refM ? [{ order: { orderNo: Number(refM[1]) }, ...(refM[2] ? { seqNo: Number(refM[2]) } : {}) }, { order: { previousOrderNos: { has: Number(refM[1]) } }, ...(refM[2] ? { seqNo: Number(refM[2]) } : {}) }] : []),
               { blNumber: { contains: q, mode: 'insensitive' as const } },
               { vessel: { contains: q, mode: 'insensitive' as const } },
               { voyageNo: { contains: q, mode: 'insensitive' as const } },

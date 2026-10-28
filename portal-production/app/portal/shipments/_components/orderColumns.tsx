@@ -29,9 +29,16 @@ export function orderColumns(o: { onMenu: (e: React.MouseEvent, row: OrderListIt
           if (r.kind === "order") {
             // Round Q: no expand chevron — the row opens the order; each shipment's bar is in the progress hover.
             return (
-              <Typography variant="body2" sx={{ fontWeight: 800, whiteSpace: "nowrap" }}>
-                {r.label}
-              </Typography>
+              <>
+                <Typography variant="body2" sx={{ fontWeight: 800, whiteSpace: "nowrap" }}>
+                  {r.label}
+                </Typography>
+                {r.was && (
+                  <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }} data-tour="order-was">
+                    was {r.was}
+                  </Typography>
+                )}
+              </>
             );
           }
           return (
