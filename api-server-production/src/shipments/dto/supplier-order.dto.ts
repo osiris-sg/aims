@@ -43,7 +43,8 @@ export class UpdateSupplierOrderDto extends PartialType(CreateSupplierOrderDto) 
 }
 
 export class ListSupplierOrdersQuery {
-  @IsOptional() @IsIn(['pending', 'completed']) bucket?: 'pending' | 'completed';
+  // Round AT: "all" = no status filter (the All tab, round AN) — the portal sends it.
+  @IsOptional() @IsIn(['pending', 'completed', 'all']) bucket?: 'pending' | 'completed' | 'all';
   @IsOptional() @IsUUID() supplierId?: string;
   @IsOptional() @IsUUID() contractId?: string;
   @IsOptional() @Matches(MONTH) declarationMonth?: string;

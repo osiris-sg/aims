@@ -88,7 +88,8 @@ export class ListShipmentsQuery {
   @IsOptional() @IsUUID() customerId?: string;
   @IsOptional() @IsIn(['OPEN', 'COMPLETED', 'CANCELLED']) status?: string;
   /** List tab: pending = OPEN, completed = COMPLETED + CANCELLED. */
-  @IsOptional() @IsIn(['pending', 'completed']) bucket?: 'pending' | 'completed';
+  // Round AT: "all" = no status filter (the All tab, round AN) — the portal sends it.
+  @IsOptional() @IsIn(['pending', 'completed', 'all']) bucket?: 'pending' | 'completed' | 'all';
   /** Shipments list (round H): in_transit | arrived | delivered | completed. */
   @IsOptional() @IsIn(['in_transit', 'arrived', 'delivered', 'completed']) tab?: 'in_transit' | 'arrived' | 'delivered' | 'completed';
   /** A step code (the shipment's current step), or COMPLETED (every step done). */
