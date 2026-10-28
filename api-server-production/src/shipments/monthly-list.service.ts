@@ -59,6 +59,7 @@ export class MonthlyListService {
       select: {
         id: true,
         orderNo: true,
+        previousOrderNos: true,
         status: true,
         checkFields: true,
         customerId: true,
@@ -93,6 +94,7 @@ export class MonthlyListService {
       return {
         id: o.id,
         orderNo: o.orderNo,
+        previousOrderNos: o.previousOrderNos ?? [],
         status: o.status,
         checkFields: o.checkFields ?? [],
         customerId: o.customerId,

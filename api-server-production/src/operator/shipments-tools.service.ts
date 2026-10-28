@@ -1194,12 +1194,13 @@ export class ShipmentsToolsService {
     if (!ref) return null;
     const shipSel = { id: true, seqNo: true, orderId: true, blNumber: true, vessel: true, eta: true, order: { select: { orderNo: true, customer: { select: { name: true } } } } };
     const shipOf = (s: any) => ({ id: s.id, ref: shipmentRefOf(s.order?.orderNo, s.seqNo), orderId: s.orderId ?? null });
+    // Round AT: the current number first, else an old number (before a renumber) — "#26" → #28 "(was #26)".
     if (ref.kind === 'order') {
-      const o = await this.prisma.tradeOrder.findFirst({ where: { organizationId: org, orderNo: ref.orderNo }, select: { id: true, orderNo: true } });
-      return o ? { order: { id: o.id, label: `#${o.orderNo}` } } : null;
+      const o = (await this.prisma.tradeOrder.findFirst({ where: { organizationId: org, orderNo: ref.orderNo }, select: { id: true, orderNo: true } })) ?? (await this.prisma.tradeOrder.findFirst({ where: { organizationId: org, previousOrderNos: { has: ref.orderNo } }, orderBy: { updatedAt: 'desc' }, select: { id: true, orderNo: true } }));
+      return o ? { order: { id: o.id, label: o.orderNo === ref.orderNo ? `#${o.orderNo}` : `#${o.orderNo} (was #${ref.orderNo})` } } : null;
     }
     if (ref.kind === 'shipment') {
-      const s = await this.prisma.shipment.findFirst({ where: { organizationId: org, seqNo: ref.seqNo, order: { orderNo: ref.orderNo } }, select: shipSel });
+      const s = (await this.prisma.shipment.findFirst({ where: { organizationId: org, seqNo: ref.seqNo, order: { orderNo: ref.orderNo } }, select: shipSel })) ?? (await this.prisma.shipment.findFirst({ where: { organizationId: org, seqNo: ref.seqNo, order: { previousOrderNos: { has: ref.orderNo } } }, select: shipSel }));
       return s ? { shipment: shipOf(s) } : null;
     }
     if (ref.kind === 'bl') {
