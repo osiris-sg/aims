@@ -17,6 +17,10 @@ import { clientsNavModule, navLangOf, visibleSalesSubmenus, withoutSalesMonthly 
 const HIDDEN_MODULES = new Set<string>(["CUSTOMERS", "SUPPLIERS"]);
 const HIDDEN_SUBMENUS: Record<string, string[]> = {
   INVENTORY: ["products", "list"],
+  // Accounting → Reports retired (guru 2026-10-24, top nav 2026-10-28): every
+  // report sits under General Ledger / AR / AP. Hidden here so orgs whose
+  // stored subMenus still carry it don't show it.
+  ACCOUNTING: ["reports"],
   // User Management → Roles retired (guru 2026-10-28): roles are picked on the
   // user itself. Hidden here so orgs whose stored subMenus still carry it
   // don't show it.
