@@ -129,7 +129,10 @@ export const MODULE_CATALOG: CatalogModule[] = [
     defaultEnabled: true,
     config: {
       route: '/portal/user-management',
-      subMenus: ['users', 'roles'],
+      // Roles retired from the menu (guru 2026-10-28) — roles are picked on the
+      // user itself. Existing orgs still carry 'roles' in their stored row; the
+      // portal hides it (HIDDEN_SUBMENUS in DynamicSidebarContent + useNavModules).
+      subMenus: ['users'],
     },
   },
   {

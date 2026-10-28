@@ -205,6 +205,10 @@ export default function DynamicSidebarContent() {
     // General Ledger / AR / AP. Hidden here so orgs whose stored subMenus still
     // carry it (see scripts/retire-accounting-reports-submenu.ts) don't show it.
     ACCOUNTING: ['reports'],
+    // User Management → Roles retired (guru 2026-10-28): roles are picked on
+    // the user itself, so the separate screen is gone. Hidden here so orgs
+    // whose stored subMenus still carry it don't show it.
+    USER_MANAGEMENT: ['roles'],
   };
   // Display-order overrides (win over each module's stored sortOrder). Sales sits
   // just below Dashboard so it appears above Inventory for every org.
