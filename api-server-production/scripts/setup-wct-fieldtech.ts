@@ -15,10 +15,16 @@
  *
  * Flags: --env dev|prod, --apply (dry run otherwise), --role <name>
  * (default field-tech), --username <name> OR --email <addr> (the login id),
- * --password <pw> (else a strong one is generated and printed). Idempotent: an
- * existing Clerk user is reused; --password resets it. Only the field-tech
- * role is made exclusive (other roles are stripped); any other role is added
- * without removing existing ones. guru runs the prod --apply with `!`.
+ * --password <pw> (else a strong one is generated and printed), --first /
+ * --last <name>. Idempotent: an existing Clerk user is reused; --password
+ * resets it. Only the field-tech role is made exclusive (other roles are
+ * stripped); any other role is added without removing existing ones. Like
+ * users.service createUser, the Clerk user gets external_id = its own id (the
+ * `aims_uid` claim). guru runs the prod --apply with `!`.
+ *
+ * Since the Clerk production cutover the local .env.production is gone: pass
+ * the prod DATABASE_URL and the Clerk PRODUCTION CLERK_SECRET_KEY inline
+ * (loadEnv still checks the database host).
  */
 import { createClerkClient } from '@clerk/backend';
 import { randomBytes } from 'crypto';
@@ -41,6 +47,8 @@ const LOGIN_ID = EMAIL || USERNAME!;
 // Optional fixed password (e.g. --password password for testing). When set,
 // Clerk's strength / breach check is skipped so a weak one is accepted.
 const CUSTOM_PASSWORD = argVal('--password');
+const FIRST_NAME = argVal('--first');
+const LAST_NAME = argVal('--last');
 loadEnv(ENV);
 
 const genPassword = () => `Wct!${randomBytes(12).toString('base64').replace(/[+/=]/g, '').slice(0, 12)}`;
@@ -83,6 +91,8 @@ async function main() {
     } else {
       password = CUSTOM_PASSWORD || genPassword();
       clerkUser = await clerk.users.createUser({
+        ...(FIRST_NAME ? { firstName: FIRST_NAME } : {}),
+        ...(LAST_NAME ? { lastName: LAST_NAME } : {}),
         ...(EMAIL ? { emailAddress: [EMAIL] } : { username: USERNAME! }),
         password,
         skipPasswordChecks: !!CUSTOM_PASSWORD,
@@ -91,7 +101,13 @@ async function main() {
       console.log(`  clerk      created ${clerkUser.id}`);
     }
 
-    const userId = clerkUser?.id;
+    if (APPLY && clerkUser && !clerkUser.externalId) {
+      // Same as ClerkIdentityService.stampExternalId: external_id = its own id.
+      clerkUser = await clerk.users.updateUser(clerkUser.id, { externalId: clerkUser.id });
+      console.log(`  clerk      external_id = ${clerkUser.externalId}`);
+    }
+    // The AIMS id: an imported user keeps its old (dev) id as external_id.
+    const userId = clerkUser ? clerkUser.externalId || clerkUser.id : undefined;
     console.log(`  membership ${APPLY ? 'upsert' : 'would upsert'} UserOrganization + ${ROLE_NAME} UserRole${isFieldTech ? ' (only this role)' : ''}`);
     if (APPLY && userId) {
       await plat.userOrganization.upsert({
@@ -108,6 +124,9 @@ async function main() {
         update: { isActive: true },
         create: { userId, roleId: role.id, organizationId: ORG_ID, isActive: true },
       });
+      await plat.actionLog
+        .create({ data: { organizationId: ORG_ID, actorType: 'SYSTEM', actorId: 'system:setup-wct-user', actorName: 'System creation', channel: 'cron', action: 'CREATE', resource: 'UserRole', resourceId: userId, details: { login: LOGIN_ID, role: ROLE_NAME } } })
+        .catch((e: any) => console.log(`  actionlog  not written: ${e?.message}`));
     }
 
     console.log(`\n${APPLY ? 'DONE' : 'DRY RUN DONE — re-run with --apply to create.'}`);
