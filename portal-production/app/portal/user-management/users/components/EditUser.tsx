@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment, TextField, Switch, FormControlLabel, Divider } from "@mui/material";
+import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment, TextField, Switch, FormControlLabel, Divider , alpha } from "@mui/material";
 
 // WhatsApp shipments assistant (round S): per-user pushes. Mirrors the API defaults.
 type WaPrefs = { digest: boolean; needsMe: boolean; filed: boolean; events: boolean; quietFrom: string; quietTo: string; lang: "en" | "ja" };
@@ -14,6 +14,7 @@ import { useAuth } from "@clerk/nextjs";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import PersonIcon from "@mui/icons-material/Person";
+import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 
 interface Props {
   open: boolean;
@@ -46,7 +47,17 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
   const { getToken } = useAuth();
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
-  const { isRolePresetsEnabled } = useOrganizationFeatures();
+  // Commission % and the yearly sales target feed the ID-firm screens
+  // (ID quotations + the ID project page's target bar), so they belong to the
+  // orgs running that flow — CIEL today (guru 2026-10-28).
+  const { isRolePresetsEnabled, isIdQuotationEnabled } = useOrganizationFeatures();
+  // The WhatsApp digest block belongs to the shipments assistant (it talks about
+  // ETAs, permits, free time and Japan quiet hours), so only orgs that run the
+  // Shipments module see it — everyone else just gets the identity fields
+  // (guru 2026-10-28). The WhatsApp NUMBER stays for every org: it links the
+  // person to the Osiris operator agent.
+  const { isModuleEnabled } = useConfiguration();
+  const showWhatsAppDigest = isModuleEnabled("SHIPMENTS");
   const visibleRoles = isRolePresetsEnabled ? roles.filter(isPresetRole) : roles;
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -234,7 +245,11 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
       PaperProps={{
         sx: {
           width: { xs: "100%", sm: 500 },
-          backgroundColor: "#ffffff",
+          // Theme tokens, not light-only hexes: the paper was forced white
+          // while the dark theme painted near-white text on it, so the whole
+          // drawer read as blank (guru 2026-10-28).
+          bgcolor: "background.paper",
+          backgroundImage: "none",
           boxShadow: "0 8px 32px rgba(0, 0, 0, 0.12)",
         },
       }}
@@ -244,23 +259,24 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
           display: "flex",
           flexDirection: "column",
           height: "100%",
-          backgroundColor: "#ffffff",
+          bgcolor: "background.paper",
         }}
       >
         {/* Header */}
         <Box
           sx={{
             p: 3,
-            borderBottom: "1px solid #e0e0e0",
-            backgroundColor: "#f8f9fa",
+            borderBottom: 1,
+            borderColor: "divider",
+            bgcolor: "surfaceTones.low",
           }}
         >
           <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 1 }}>
-            <PersonIcon sx={{ color: "#1976d2", fontSize: "1.75rem" }} />
+            <PersonIcon sx={{ color: "primary.main", fontSize: "1.75rem" }} />
             <Typography
               variant="h5"
               sx={{
-                color: "#1a1a1a",
+                color: "text.primary",
                 fontWeight: 600,
                 fontSize: "1.5rem",
               }}
@@ -268,7 +284,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
               Edit User
             </Typography>
           </Box>
-          <Typography variant="body2" sx={{ color: "#666666" }}>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
             Update user information, email, password, and role assignments
           </Typography>
         </Box>
@@ -279,7 +295,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
             flex: 1,
             p: 3,
             overflowY: "auto",
-            backgroundColor: "#ffffff",
+            bgcolor: "background.paper",
           }}
         >
           <form onSubmit={handleSubmit(onSubmit)}>
@@ -288,11 +304,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                 <Alert
                   severity="error"
                   onClose={() => setError("")}
-                  sx={{
-                    backgroundColor: "#ffebee",
-                    color: "#c62828",
-                    "& .MuiAlert-icon": { color: "#c62828" },
-                  }}
+                  variant="outlined"
                 >
                   {error}
                 </Alert>
@@ -358,6 +370,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                     data-tour="user-whatsapp-number"
                   />
                 </Grid>
+                {showWhatsAppDigest && (
                 <Grid item xs={12}>
                   <Divider sx={{ my: 1 }} />
                   <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
@@ -390,6 +403,8 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                     </Grid>
                   </Grid>
                 </Grid>
+                )}
+                {isIdQuotationEnabled && (
                 <Grid item xs={6}>
                   <TextField
                     label="Default Commission %"
@@ -402,7 +417,9 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                     inputProps={{ inputMode: "decimal" }}
                   />
                 </Grid>
+                )}
 
+                {isIdQuotationEnabled && (
                 <Grid item xs={6}>
                   <TextField
                     label="Yearly Sales Target (S$)"
@@ -415,6 +432,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                     inputProps={{ inputMode: "decimal" }}
                   />
                 </Grid>
+                )}
 
                 <Grid item xs={12}>
                   <FormInputBox
@@ -437,7 +455,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                       size="small"
                       onClick={togglePasswordVisibility}
                       sx={{
-                        color: "#666666",
+                        color: "text.secondary",
                         textTransform: "none",
                         minWidth: "auto",
                         p: 0.5,
@@ -450,7 +468,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
 
                 <Grid item xs={12}>
                   <FormControl fullWidth>
-                    <InputLabel id="edit-roles-label" sx={{ color: "#666666" }}>
+                    <InputLabel id="edit-roles-label">
                       {isRolePresetsEnabled ? "Role" : "Select Roles"}
                     </InputLabel>
                     <Select
@@ -473,12 +491,12 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                                 label={role ? presetLabel(role) : value}
                                 size="small"
                                 sx={{
-                                  backgroundColor: "#e3f2fd",
-                                  color: "#1976d2",
+                                  bgcolor: (t) => alpha(t.palette.primary.main, t.palette.mode === "dark" ? 0.22 : 0.12),
+                                  color: "primary.main",
                                   fontWeight: 500,
                                   "& .MuiChip-deleteIcon": {
-                                    color: "#1976d2",
-                                    "&:hover": { color: "#1565c0" },
+                                    color: "primary.main",
+                                    "&:hover": { color: "primary.dark" },
                                   },
                                 }}
                                 onDelete={isRolePresetsEnabled ? undefined : () => handleRoleToggle(value)}
@@ -491,31 +509,36 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                         PaperProps: {
                           sx: {
                             bgcolor: "background.paper",
-                            color: "#222",
+                            backgroundImage: "none",
+                            border: 1,
+                            borderColor: "divider",
+                            maxHeight: 420,
+                            maxWidth: { xs: "calc(100vw - 32px)", sm: 452 },
+                            "& .MuiMenuItem-root": { whiteSpace: "normal", alignItems: "flex-start", py: 1 },
                           },
                         },
                       }}
                       sx={{
                         "& .MuiOutlinedInput-notchedOutline": {
-                          borderColor: "#e0e0e0",
+                          borderColor: "divider",
                         },
                         "&:hover .MuiOutlinedInput-notchedOutline": {
-                          borderColor: "#1976d2",
+                          borderColor: "primary.main",
                         },
                         "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                          borderColor: "#1976d2",
+                          borderColor: "primary.main",
                         },
                         bgcolor: "background.paper",
                       }}
                     >
                       {visibleRoles.map((role) => (
-                        <MenuItem key={role.id} value={role.id} sx={{ color: "#222" }}>
+                        <MenuItem key={role.id} value={role.id}>
                           <Box>
-                            <Typography variant="body2" sx={{ fontWeight: 500, color: "#222" }}>
+                            <Typography variant="body2" sx={{ fontWeight: 600, color: "text.primary" }}>
                               {presetLabel(role)}
                             </Typography>
                             {role.description && (
-                              <Typography variant="caption" sx={{ color: "#666" }}>
+                              <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1.4 }}>
                                 {presetSummary(role)}
                               </Typography>
                             )}
@@ -534,8 +557,9 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
         <Box
           sx={{
             p: 3,
-            borderTop: "1px solid #e0e0e0",
-            backgroundColor: "#f8f9fa",
+            borderTop: 1,
+            borderColor: "divider",
+            bgcolor: "surfaceTones.low",
           }}
         >
           <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2 }}>
@@ -549,14 +573,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                 onClose();
               }}
               disabled={loading}
-              sx={{
-                borderColor: "#666666",
-                color: "#666666",
-                "&:hover": {
-                  borderColor: "#1976d2",
-                  color: "#1976d2",
-                },
-              }}
+              color="inherit"
             >
               Cancel
             </Button>
@@ -566,16 +583,6 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
               color="primary"
               disabled={loading}
               onClick={handleSubmit(onSubmit)}
-              sx={{
-                backgroundColor: "#1976d2",
-                "&:hover": {
-                  backgroundColor: "#1565c0",
-                },
-                "&:disabled": {
-                  backgroundColor: "#e0e0e0",
-                  color: "#999999",
-                },
-              }}
             >
               {loading ? "Updating..." : "Update User"}
             </Button>
