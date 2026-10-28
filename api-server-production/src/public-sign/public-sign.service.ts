@@ -77,8 +77,10 @@ export class PublicSignService {
   }
 
   private portalUrl(path: string) {
-    const base = (process.env.PORTAL_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
-    return base ? `${base}${path}` : path;
+    // A relative path is fine for the editor (it knows its origin) but useless
+    // in a WhatsApp message or an email, so the live portal is the fallback.
+    const base = (process.env.PORTAL_URL || process.env.FRONTEND_URL || 'https://app.ai-ms.io').replace(/\/$/, '');
+    return `${base}${path}`;
   }
 
   // ── office (authenticated) ────────────────────────────────────────────

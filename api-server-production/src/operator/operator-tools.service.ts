@@ -34,6 +34,7 @@ import { isOrgFeatureEnabled } from '../common/org-features';
 import { OperatorContext, PendingAction, WebUiEvent } from './operator.types';
 import { ActionLogService } from '../action-log/action-log.service';
 import { cleanText } from './text.util';
+import { runAsOrg } from '../common/tenancy/tenant-context';
 
 /** What a tool hands back to the loop. `pending` asks the caller to raise a
  *  confirm prompt instead of proceeding. */
@@ -293,7 +294,10 @@ export class OperatorToolsService {
       return { result: { error: `You do not have permission to ${name} (needs ${tool.permissions.join(', ')}).` } };
     }
     try {
-      const outcome = await tool.run(ctx, args || {});
+      // Tools run inside the org's tenancy context, as an HTTP request would:
+      // models without an organizationId column (DocumentSignLink) otherwise
+      // cannot be written on a per-org database (2026-10-28).
+      const outcome = await runAsOrg(ctx.organizationId, () => tool.run(ctx, args || {}));
       // GLOBAL (guru 2026-10-02): EVERY confirmation card shows WHAT is being
       // confirmed — all tools, all orgs. An in-context upload rides as-is;
       // otherwise a document-backed card (confirm/post/pay/email a doc)
@@ -3036,6 +3040,10 @@ export class OperatorToolsService {
   }
 
   async runPending(ctx: OperatorContext, pending: PendingAction): Promise<{ ok: boolean; message: string }> {
+    return runAsOrg(ctx.organizationId, () => this.runPendingInOrg(ctx, pending));
+  }
+
+  private async runPendingInOrg(ctx: OperatorContext, pending: PendingAction): Promise<{ ok: boolean; message: string }> {
     if (pending.kind === 'schedule_delivery') {
       const { dto, customerName, isDraft } = pending.args || {};
       const run: any = await this.deliveries.createScheduled(dto, ctx.organizationId);

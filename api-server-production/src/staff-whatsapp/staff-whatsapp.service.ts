@@ -73,6 +73,27 @@ export class StaffWhatsAppService {
     return out;
   }
 
+  /** Append the push to the recipient's Operator session (history + transcript). Best-effort. */
+  private async rememberInChat(to: string, text: string): Promise<void> {
+    try {
+      const key = { channel_channelUserId: { channel: 'whatsapp', channelUserId: to } };
+      const row = await this.prisma.operatorSession.findUnique({ where: key, select: { state: true } });
+      if (!row) return;
+      const state: any = row.state || {};
+      const history = Array.isArray(state.history) ? state.history : [];
+      const transcript = Array.isArray(state.transcript) ? state.transcript : [];
+      const at = new Date().toISOString();
+      const next = {
+        ...state,
+        history: [...history, { role: 'assistant', content: text }].slice(-40),
+        transcript: [...transcript, { id: `push-${Date.now().toString(36)}`, at, role: 'assistant', kind: 'text', text, via: 'whatsapp' }].slice(-300),
+      };
+      await this.prisma.operatorSession.update({ where: key, data: { state: next } });
+    } catch (e: any) {
+      this.logger.warn(`push not recorded in the chat of ${to}: ${e?.message}`);
+    }
+  }
+
   /** Queue `text` for the org's office staff. Returns the number of rows written. */
   async push(organizationId: string, text: string, opts: StaffPushOpts = {}): Promise<number> {
     try {
@@ -94,6 +115,11 @@ export class StaffWhatsAppService {
         })),
         skipDuplicates: true,
       });
+      // The agent must KNOW it said this: the push lands in each recipient's
+      // WhatsApp conversation memory as an assistant turn, so "schedule it
+      // tomorrow 9am" right after "draft delivery #5 created" makes sense to
+      // the model instead of "the quotation isn't signed yet".
+      if (res.count) await Promise.all(rows.map((r) => this.rememberInChat(r.to, body)));
       return res.count;
     } catch (e: any) {
       this.logger.warn(`staff WhatsApp push skipped (${opts.dedupeKey || 'event'}): ${e?.message}`);
