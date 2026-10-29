@@ -37,6 +37,8 @@ import ScheduleReturnDialog from "./_components/ScheduleReturnDialog";
 import MaintenanceScheduleDialog from "@/components/maintenance/MaintenanceScheduleDialog";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { SiteClockChip, SiteClockView } from "./_components/SiteClockStatus";
+import { canPurge, confirmCopy, runWasStarted } from "./_lib/run-actions";
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
 
 /**
  * Office Deliveries queue (phase-1 layer 4; per-item linking 2026-08).
@@ -58,6 +60,8 @@ interface DeliveryRow {
   isDraft?: boolean;
   status: RunStatus;
   riderName: string | null;
+  // Set by a claim or a rider-started run; null while nobody has started it.
+  riderUserId?: string | null;
   siteAddress: string | null;
   startedAt: string;
   completedAt: string | null;
@@ -110,6 +114,7 @@ const rowActions = (r: DeliveryRow) => {
   const canDelete = r.status === "scheduled";
   return { canCancel, canDelete };
 };
+// A cancelled run offers "Delete permanently" to Osiris admins only (backend re-checks it committed nothing).
 
 export default function DeliveriesQueuePage() {
   const router = useRouter();
@@ -124,13 +129,14 @@ export default function DeliveriesQueuePage() {
   const [returnOpen, setReturnOpen] = useState(false);
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const { isMaintenanceDatesEnabled, isQuotationToDeliveryEnabled } = useOrganizationFeatures();
+  const { isOsirisAdmin } = useOrganization();
   // Service-job org (WCT): runs have no project, so the column is just Customer / Site.
   const serviceJobs = isQuotationToDeliveryEnabled;
   // Anchored to the CLICK POSITION, not the button element — element anchors
   // detach when rows re-render and the menu then opens at the top-left
   // corner (full-sweep fix, guru 2026-09-14).
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; row: DeliveryRow } | null>(null);
-  const [confirm, setConfirm] = useState<{ action: "cancel" | "delete"; row: DeliveryRow } | null>(null);
+  const [confirm, setConfirm] = useState<{ action: "cancel" | "delete" | "purge"; row: DeliveryRow } | null>(null);
   const [acting, setActing] = useState(false);
   const [actionMsg, setActionMsg] = useState<{ text: string; severity: "success" | "error" } | null>(null);
 
@@ -200,14 +206,18 @@ export default function DeliveriesQueuePage() {
       const res =
         action === "cancel"
           ? await request({ path: `/deliveries/${row.id}/cancel`, method: "POST" }, {}, token)
-          : await request({ path: `/deliveries/${row.id}`, method: "DELETE" }, {}, token);
+          : action === "purge"
+            ? await request({ path: `/deliveries/${row.id}/purge`, method: "POST" }, {}, token)
+            : await request({ path: `/deliveries/${row.id}`, method: "DELETE" }, {}, token);
       if (res?.success === false) throw new Error(res?.message ?? "Action failed");
       const note = (res?.data ?? res)?.note as string | undefined;
       setActionMsg({
         text:
           action === "cancel"
             ? `Delivery #${row.deliveryNumber} cancelled.${note ? ` ${note}` : ""}`
-            : `Delivery #${row.deliveryNumber} deleted.`,
+            : action === "purge"
+              ? `Delivery #${row.deliveryNumber} deleted permanently.`
+              : `Delivery #${row.deliveryNumber} deleted.`,
         severity: "success",
       });
       setConfirm(null);
@@ -273,8 +283,9 @@ export default function DeliveriesQueuePage() {
 
   const kebabNode = (r: DeliveryRow) => {
     const { canCancel, canDelete } = rowActions(r);
-    // A committed run (delivered / completed / cancelled) offers neither action.
-    if (!canCancel && !canDelete) return <Typography variant="body2" color="text.secondary">—</Typography>;
+    // A committed run (delivered / completed / cancelled) offers neither action
+    // (an Osiris admin still gets "Delete permanently" on a cancelled one).
+    if (!canCancel && !canDelete && !canPurge(r, isOsirisAdmin)) return <Typography variant="body2" color="text.secondary">—</Typography>;
     return (
       <IconButton
         size="small"
@@ -409,7 +420,7 @@ export default function DeliveriesQueuePage() {
                 <Typography variant="caption" color="text.secondary" display="block">
                   Scheduled: {fmtDateTime(r.scheduledFor)}
                 </Typography>
-                {r.startedAt && (
+                {runWasStarted(r) && (
                   <Typography variant="caption" color="text.secondary" display="block">
                     Started: {fmtDateTime(r.startedAt)}
                   </Typography>
@@ -510,7 +521,7 @@ export default function DeliveriesQueuePage() {
                     </TableCell>
                     <TableCell align="center">{r.items?.length ?? 0}</TableCell>
                     <TableCell>{fmtDateTime(r.scheduledFor)}</TableCell>
-                    <TableCell>{fmtDateTime(r.startedAt)}</TableCell>
+                    <TableCell>{runWasStarted(r) ? fmtDateTime(r.startedAt) : "—"}</TableCell>
                     <TableCell>{fmtDateTime(r.completedAt)}</TableCell>
                     <TableCell align="right" onClick={(e) => e.stopPropagation()}>
                       {kebabNode(r)}
@@ -560,29 +571,36 @@ export default function DeliveriesQueuePage() {
             Delete{menu.row.isDraft ? " draft" : ""}
           </MenuItem>
         )}
+        {menu && canPurge(menu.row, isOsirisAdmin) && (
+          <MenuItem
+            sx={{ color: "error.main" }}
+            onClick={() => {
+              const row = menu.row;
+              setMenu(null);
+              setConfirm({ action: "purge", row });
+            }}
+          >
+            Delete permanently
+          </MenuItem>
+        )}
       </Menu>
 
       <Dialog open={!!confirm} onClose={() => !acting && setConfirm(null)}>
         {confirm && (
           <>
-            <DialogTitle>
-              {confirm.action === "cancel"
-                ? `Cancel delivery #${confirm.row.deliveryNumber}?`
-                : `Delete ${confirm.row.isDraft ? "draft" : "delivery"} #${confirm.row.deliveryNumber}?`}
-            </DialogTitle>
+            <DialogTitle>{confirmCopy(confirm.action, confirm.row).title}</DialogTitle>
             <DialogContent>
-              <DialogContentText>
-                {confirm.action === "cancel"
-                  ? "The run is marked cancelled and any reserved units are returned to stock. This cannot be undone."
-                  : "This permanently removes the run and its unconfirmed draft Delivery Order. It cannot be undone. A run that has delivered or linked anything cannot be deleted; cancel it instead."}
-              </DialogContentText>
+              <DialogContentText>{confirmCopy(confirm.action, confirm.row).body}</DialogContentText>
+              {confirmCopy(confirm.action, confirm.row).siteclock && (
+                <DialogContentText sx={{ mt: 1.5, fontWeight: 600 }}>{confirmCopy(confirm.action, confirm.row).siteclock}</DialogContentText>
+              )}
             </DialogContent>
             <DialogActions>
               <Button onClick={() => setConfirm(null)} disabled={acting}>
                 Keep it
               </Button>
               <Button onClick={runAction} color="error" variant="contained" disabled={acting}>
-                {acting ? "Working…" : confirm.action === "cancel" ? "Cancel delivery" : "Delete"}
+                {acting ? "Working…" : confirmCopy(confirm.action, confirm.row).button}
               </Button>
             </DialogActions>
           </>

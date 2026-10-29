@@ -1,4 +1,4 @@
-import { SiteClockLinkService } from './siteclock-link.service';
+import { SiteClockLinkService, normaliseApiKey } from './siteclock-link.service';
 import { seal } from '../common/secret-box';
 
 // ── an in-memory Prisma with just the calls the service makes ──────────────
@@ -338,5 +338,21 @@ describe('SiteClockLinkService', () => {
     // flag still off for OTHER → still not linked even after enabling
     await w.svc.saveConnection(OTHER, { enabled: true });
     expect(await w.svc.isLinked(OTHER)).toBe(false);
+  });
+
+  it('a key pasted with the key file\'s SITECLOCK_API_KEY= prefix, quotes or spaces is accepted', async () => {
+    const k = 'sck_live_' + 'Ab9_'.repeat(6);
+    expect(normaliseApiKey(`SITECLOCK_API_KEY=${k}`)).toBe(k);
+    expect(normaliseApiKey(`  "${k}"\n`)).toBe(k);
+    expect(normaliseApiKey(undefined)).toBe('');
+    const w = world();
+    const c = await w.svc.saveConnection(OTHER, { baseUrl: 'https://sc', siteclockCompanyId: 'c', apiKey: ` SITECLOCK_API_KEY=${k} ` });
+    expect(c).toMatchObject({ connected: true, apiKeyLast4: k.slice(-4) });
+  });
+
+  it('a rejected save says why (the portal shows this message, not "saved")', async () => {
+    const w = world();
+    await expect(w.svc.saveConnection(OTHER, { baseUrl: 'https://sc', siteclockCompanyId: '', apiKey: KEY })).rejects.toThrow('SiteClock company id is required');
+    expect(w.prisma.siteClockConnection.rows.filter((r: any) => r.organizationId === OTHER)).toHaveLength(0);
   });
 });

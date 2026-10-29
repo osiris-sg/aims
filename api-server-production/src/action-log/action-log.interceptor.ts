@@ -95,6 +95,8 @@ const VERB_ACTIONS: Record<string, string> = {
   hide: 'HIDE',
   // Round AR: the Answer flow's draft of a general issue read from the emails (nothing saved).
   'issue-draft': 'EXTRACT',
+  // Deliveries: OsirisAdmin permanent delete of a cancelled run that committed nothing (2026-10-30).
+  purge: 'PURGE',
   // Quotation e-sign link sent to the customer (WhatsApp / email) from the editor or the agent (2026-10-28).
   send: 'SEND',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
@@ -193,6 +195,10 @@ export class ActionLogInterceptor implements NestInterceptor {
       if (errorMessage) details.error = String(errorMessage).substring(0, 500);
       const activeOrgHeader = req.headers?.['x-active-org-id'];
       if (activeOrgHeader) details.viewingAs = String(activeOrgHeader);
+      // A handler can leave a short summary of what it did (e.g. what a
+      // permanent delete removed) for this row: req.actionLogResult.
+      const handlerResult = (req as any).actionLogResult;
+      if (handlerResult !== undefined && status === 'SUCCESS') details.result = handlerResult;
 
       void this.actionLog.log({
         actorType,
