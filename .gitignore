@@ -19,3 +19,6 @@ gcp-credentials*.json
 # Customer details passed to setup scripts (--customers=<file>), never committed
 *.customers.json
 .env.clerk-target
+
+# agents
+.omc/
