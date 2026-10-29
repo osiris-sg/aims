@@ -5,6 +5,7 @@ import { AssetClass, DeliveryDirection, DeliveryOrigin, DeliveryStatus, Deployme
 import { restampDeploymentTypeOnDocuments } from '../common/do-deployment-type';
 import { PrismaService } from 'src/common/prisma.service';
 import { isUnconfirmedDoc } from 'src/common/doc-status';
+import { purgeBlocker } from './purge-guard';
 import { resolveLineAssetClass, minPhotosForAssetClass } from 'src/common/asset-class';
 import { DocumentsService } from '../documents/documents.service';
 import { ProjectsService } from '../projects/projects.service';
@@ -6235,6 +6236,68 @@ export class DeliveriesService {
     ]);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     return { id: deliveryId, deleted: true };
+  }
+
+  /**
+   * OsirisAdmin: permanently delete a CANCELLED run that committed nothing
+   * (test data, a run created by mistake). Same live-state rule as remove():
+   * every fact is re-read here by id + org and purgeBlocker() decides. Its
+   * placeholder DO (DO-PENDING-nn, unconfirmed) and unwritten scheduled service
+   * report go with it; number counters are left alone (the gap is accepted).
+   * A SiteClock job still live is cancelled by the link (SiteClock cancels are
+   * final and it has no delete); one already cancelled stays hidden there.
+   */
+  async purgeCancelled(deliveryId: string, organizationId: string) {
+    const delivery = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      include: {
+        items: { select: { inventoryId: true, documentId: true, deliveryStatus: true, deliveringAt: true, deliveredAt: true, completedAt: true } },
+        customer: { select: { name: true } },
+      },
+    });
+    if (!delivery) throw new NotFoundException('Delivery not found');
+
+    const docIds = [...new Set(delivery.items.map((i) => i.documentId).filter((v): v is string => !!v))];
+    const placeholderReport = { deliveryId, kind: 'SERVICE' as const, status: 'draft', reportNumber: null, serviceData: { path: ['scheduled'], equals: true } };
+    const [docs, invoices, postedEntries, allReports, placeholderReports, groupPosts] = await Promise.all([
+      docIds.length
+        ? this.prisma.document.findMany({ where: { id: { in: docIds }, organizationId }, select: { id: true, name: true, status: true } })
+        : Promise.resolve([] as Array<{ id: string; name: string | null; status: string | null }>),
+      docIds.length
+        ? this.prisma.document.count({ where: { organizationId, type: 'INVOICE', OR: docIds.map((id) => ({ config: { path: ['sourceDocumentId'], equals: id } })) } })
+        : Promise.resolve(0),
+      docIds.length ? this.prisma.journalEntry.count({ where: { sourceDocumentId: { in: docIds }, status: 'POSTED' } }) : Promise.resolve(0),
+      this.prisma.maintenanceServiceReport.count({ where: { deliveryId } }),
+      this.prisma.maintenanceServiceReport.count({ where: placeholderReport as any }),
+      this.prisma.deliveryGroupPost.count({ where: { deliveryId } }),
+    ]);
+    const blocker = purgeBlocker({
+      status: delivery.status,
+      isDraft: delivery.isDraft,
+      items: delivery.items,
+      docs,
+      invoices,
+      postedEntries,
+      reports: allReports - placeholderReports,
+      groupPosts,
+    });
+    if (blocker) throw new BadRequestException(blocker);
+
+    await this.prisma.$transaction([
+      this.prisma.maintenanceServiceReport.deleteMany({ where: placeholderReport as any }),
+      ...(docIds.length ? [this.prisma.document.deleteMany({ where: { id: { in: docIds }, organizationId } })] : []),
+      this.prisma.delivery.delete({ where: { id: deliveryId } }),
+    ]);
+    void this.siteclock?.touch(organizationId, deliveryId); // a job still live in SiteClock gets cancelled
+    return {
+      id: deliveryId,
+      deleted: true,
+      deliveryNumber: delivery.deliveryNumber,
+      customer: delivery.customer?.name ?? null,
+      items: delivery.items.length,
+      placeholderDocs: docs.map((d) => d.name ?? d.id),
+      placeholderReports,
+    };
   }
 }
 

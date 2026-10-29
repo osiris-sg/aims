@@ -50,6 +50,7 @@ import { normalizeAssetClass } from "@/helpers/assetClass";
 import ScheduleDeliveryDialog from "@/app/portal/deliveries/_components/ScheduleDeliveryDialog";
 import DeliveryGroupPostsPanel from "@/components/deliveries/DeliveryGroupPostsPanel";
 import { SiteClockCard, SiteClockView } from "@/app/portal/deliveries/_components/SiteClockStatus";
+import { canPurge, confirmCopy, runWasStarted } from "@/app/portal/deliveries/_lib/run-actions";
 
 /**
  * Delivery run detail (office). Items + the field PROOF (photos, signature,
@@ -78,6 +79,9 @@ interface RunDetail {
   // until the office attaches a project here.
   origin?: "SCHEDULED" | "AD_HOC";
   riderName: string | null;
+  // Set by a claim or a rider-started run; null while nobody has started it.
+  riderUserId?: string | null;
+  isDraft?: boolean;
   // Driver hand-off (2026-09): the current trip is with another driver.
   handoffMode?: "SELF" | "DRIVER" | null;
   vehicleNumber?: string | null;
@@ -249,7 +253,7 @@ export default function DeliveryDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { getToken } = useAuth();
-  const { organization } = useOrganization();
+  const { organization, isOsirisAdmin } = useOrganization();
   // Service-job org (enableQuotationToDelivery — WCT 2026-10-27): runs are jobs
   // from an accepted quotation, not rental deployments. No project to attach,
   // and a line is Equipment or SERVICE (work on site) instead of Rental / Sale.
@@ -261,6 +265,8 @@ export default function DeliveryDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
+  // Destructive run actions always go through a confirm dialog (2026-10-30).
+  const [confirmAction, setConfirmAction] = useState<"cancel" | "purge" | null>(null);
   // Per-item RENTAL/SALE toggle busy state, keyed by the unit being updated.
   const [typeBusy, setTypeBusy] = useState<string | null>(null);
   // Per-line Equipment/Service busy state (service-job orgs), keyed by DeliveryItem id.
@@ -719,13 +725,34 @@ export default function DeliveryDetailPage() {
       if (!token) throw new Error("Not signed in");
       const res = await request({ path: `/deliveries/${deliveryId}/cancel`, method: "POST" }, {}, token);
       if (res.success === false) throw new Error(res.message ?? "Cancel failed");
+      setConfirmAction(null);
       await load();
     } catch (e: any) {
+      setConfirmAction(null);
       setActionError(e?.message ?? "Cancel failed");
     } finally {
       setActing(false);
     }
   };
+  // OsirisAdmin: permanently delete a cancelled run that committed nothing.
+  const purgeRun = async () => {
+    if (!run) return;
+    setActing(true);
+    setActionError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const res = await request({ path: `/deliveries/${deliveryId}/purge`, method: "POST" }, {}, token);
+      if (res?.success === false) throw new Error(res.message ?? "Delete failed");
+      router.push("/portal/deliveries");
+    } catch (e: any) {
+      setConfirmAction(null);
+      setActionError(e?.message ?? "Delete failed");
+    } finally {
+      setActing(false);
+    }
+  };
+  const confirmText = confirmAction ? confirmCopy(confirmAction, run) : null;
   const toggleItem = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -788,7 +815,8 @@ export default function DeliveryDetailPage() {
         )}
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Rider: {run.riderName ?? "—"} · Started {fmtDateTime(run.startedAt)}
+        Rider: {run.riderName ?? "—"}
+        {runWasStarted(run) ? ` · Started ${fmtDateTime(run.startedAt)}` : ""}
         {run.completedAt ? ` · Completed ${fmtDateTime(run.completedAt)}` : ""}
         {/* Project/customer omit-when-absent, same pattern as Site: — a
             pre-assign run just shows a shorter line, no empty labels. */}
@@ -858,11 +886,52 @@ export default function DeliveryDetailPage() {
             Waiting for a rider — they claim it by scanning any unit of a scheduled
             product. Nothing is reserved until then.
           </Typography>
-          <Button variant="outlined" color="error" onClick={cancelScheduled} disabled={acting}>
-            {acting ? "Cancelling…" : "Cancel scheduled delivery"}
+          <Button variant="outlined" color="error" onClick={() => setConfirmAction("cancel")} disabled={acting}>
+            Cancel scheduled delivery
           </Button>
         </Paper>
       )}
+
+      {/* OsirisAdmin only: a cancelled run that committed nothing (test data,
+          a mistake) can be removed for good. The backend refuses anything with
+          a real DO number, moved stock or an invoice. */}
+      {canPurge(run, isOsirisAdmin) && (
+        <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Osiris admin: this cancelled delivery can be deleted permanently if it never committed anything.
+          </Typography>
+          <Button variant="outlined" color="error" onClick={() => setConfirmAction("purge")} disabled={acting}>
+            Delete permanently
+          </Button>
+        </Paper>
+      )}
+
+      <Dialog open={!!confirmText} onClose={() => !acting && setConfirmAction(null)} maxWidth="xs" fullWidth>
+        {confirmText && (
+          <>
+            <DialogTitle>{confirmText.title}</DialogTitle>
+            <DialogContent>
+              <Typography variant="body2">{confirmText.body}</Typography>
+              {confirmText.siteclock && (
+                <Typography variant="body2" sx={{ mt: 1.5, fontWeight: 600 }}>
+                  {confirmText.siteclock}
+                </Typography>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setConfirmAction(null)} disabled={acting}>Keep it</Button>
+              <Button
+                color="error"
+                variant="contained"
+                disabled={acting}
+                onClick={() => void (confirmAction === "purge" ? purgeRun() : cancelScheduled())}
+              >
+                {acting ? "Working…" : confirmText.button}
+              </Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
 
       {/* Actions — shown while ANY item is unlinked. Selection-scoped: link
           the checked subset, repeat for the rest (items may span DOs). */}

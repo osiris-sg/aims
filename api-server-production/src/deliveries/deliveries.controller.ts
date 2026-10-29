@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
@@ -16,6 +16,8 @@ import { AdHocReturnDto } from './dto/adhoc-return.dto';
 
 interface ClerkRequest extends Request {
   user?: { id?: string };
+  isOsirisAdmin?: boolean;
+  actionLogResult?: unknown;
 }
 
 /**
@@ -557,5 +559,16 @@ export class DeliveriesController {
   @Permissions('maintenance-reports:create')
   remove(@Param('id') id: string, @UserOrganization() org: { id: string }) {
     return this.service.remove(id, org.id);
+  }
+
+  // OsirisAdmin: permanently delete a CANCELLED run that committed nothing
+  // (no real DO number, no stock moved, no invoice). The service re-checks it
+  // all against live rows. What was removed rides on the Activity Log row.
+  @Post(':id/purge')
+  async purge(@Req() req: ClerkRequest, @Param('id') id: string, @UserOrganization() org: { id: string }) {
+    if (!req.isOsirisAdmin) throw new ForbiddenException('Only an Osiris admin can delete a delivery permanently.');
+    const result = await this.service.purgeCancelled(id, org.id);
+    req.actionLogResult = result;
+    return result;
   }
 }

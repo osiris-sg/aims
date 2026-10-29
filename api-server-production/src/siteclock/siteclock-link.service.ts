@@ -498,7 +498,7 @@ export class SiteClockLinkService {
     const existing = await this.prisma.siteClockConnection.findUnique({ where: { organizationId } });
     const baseUrl = (body.baseUrl ?? existing?.baseUrl ?? '').trim().replace(/\/+$/, '');
     const companyId = (body.siteclockCompanyId ?? existing?.siteclockCompanyId ?? '').trim();
-    const apiKey = (body.apiKey ?? '').trim();
+    const apiKey = normaliseApiKey(body.apiKey);
     if (!/^https?:\/\/[^\s]+$/.test(baseUrl)) throw new BadRequestException('Base URL must start with http:// or https://');
     if (!companyId) throw new BadRequestException('SiteClock company id is required');
     if (!existing && !apiKey) throw new BadRequestException('API key is required');
@@ -533,6 +533,15 @@ export class SiteClockLinkService {
       return { ok: false, error };
     }
   }
+}
+
+/** The key as pasted: tolerates surrounding spaces / quotes and a copied `SITECLOCK_API_KEY=` prefix (the key file's line). */
+export function normaliseApiKey(raw?: string | null): string {
+  return String(raw ?? '')
+    .trim()
+    .replace(/^SITECLOCK_API_KEY\s*=\s*/i, '')
+    .replace(/^["']|["']$/g, '')
+    .trim();
 }
 
 function clampDuration(n: number) {
