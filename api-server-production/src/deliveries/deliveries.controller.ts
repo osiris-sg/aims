@@ -5,6 +5,7 @@ import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { UserOrganization } from 'src/auth/decorators/user-organization.decorator';
 import { DeliveriesService } from './deliveries.service';
+import { SiteClockLinkService } from '../siteclock/siteclock-link.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { CreateDoFromDeliveryDto, LinkDeliveryDto } from './dto/link-delivery.dto';
@@ -26,7 +27,10 @@ interface ClerkRequest extends Request {
 @Controller('deliveries')
 @UseGuards(ClerkAuthGuard)
 export class DeliveriesController {
-  constructor(private readonly service: DeliveriesService) {}
+  constructor(
+    private readonly service: DeliveriesService,
+    private readonly siteclock: SiteClockLinkService,
+  ) {}
 
   @Post()
   @Permissions('maintenance-reports:create')
@@ -128,7 +132,7 @@ export class DeliveriesController {
 
   @Get()
   @Permissions('maintenance-reports:read')
-  list(
+  async list(
     @UserOrganization() org: { id: string },
     @Req() req: ClerkRequest,
     @Query('unlinked') unlinked?: string,
@@ -141,7 +145,7 @@ export class DeliveriesController {
     @Query('limit') limit?: string,
   ) {
     const isMine = mine === 'true' || mine === '1';
-    return this.service.list(org.id, {
+    const out = await this.service.list(org.id, {
       unlinked: unlinked === 'true' || unlinked === '1',
       status,
       // Rider resume view — scope to the caller's own runs.
@@ -152,6 +156,32 @@ export class DeliveriesController {
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     });
+    // SiteClock link (enableSiteClockLink orgs only; others get the list unchanged).
+    const views = await this.siteclock.viewsFor(org.id, (out.docs ?? []).map((d: any) => d.id));
+    if (!views.size) return out;
+    return { ...out, docs: out.docs.map((d: any) => ({ ...d, siteclock: views.get(d.id) ?? null })) };
+  }
+
+  // SiteClock link (WCT): the schedule form's switch + default duration, and the
+  // worker picker (grouped by SiteClock team). The key stays on the server.
+  // Declared before :id like scheduled-open.
+  @Get('siteclock/config')
+  @Permissions('documents:create-basic')
+  siteclockConfig(@UserOrganization() org: { id: string }) {
+    return this.siteclock.formConfig(org.id);
+  }
+
+  @Get('siteclock/workers')
+  @Permissions('documents:create-basic')
+  siteclockWorkers(@UserOrganization() org: { id: string }, @Query('fresh') fresh?: string) {
+    return this.siteclock.workers(org.id, fresh === '1' || fresh === 'true');
+  }
+
+  // "Retry" on a run whose SiteClock job didn't go through.
+  @Post(':id/siteclock/sync')
+  @Permissions('documents:create-basic')
+  siteclockSync(@Param('id') id: string, @UserOrganization() org: { id: string }) {
+    return this.siteclock.retry(org.id, id);
   }
 
   // Field: the rider's assign step lists EVERY open scheduled OUTBOUND run by
@@ -169,8 +199,10 @@ export class DeliveriesController {
 
   @Get(':id')
   @Permissions('maintenance-reports:read')
-  findById(@Param('id') id: string, @UserOrganization() org: { id: string }) {
-    return this.service.findById(id, org.id);
+  async findById(@Param('id') id: string, @UserOrganization() org: { id: string }) {
+    const run: any = await this.service.findById(id, org.id);
+    const views = await this.siteclock.viewsFor(org.id, run?.id ? [run.id] : []);
+    return views.size ? { ...run, siteclock: views.get(run.id) ?? null } : run;
   }
 
   @Post(':id/link')

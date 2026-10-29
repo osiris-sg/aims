@@ -113,4 +113,10 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // month turning final raises "revise CI / invoice" tasks. Only orgs with the SHIPMENTS module. Default OFF: while
   // off nothing is written anywhere ("Fetch now" in Settings → Shipping previews). ADH after the owner's go.
   enableLmeFeed: false,
+  // SiteClock link (WCT 2026-10-30): a scheduled delivery can be put on a
+  // SiteClock worker's schedule. AIMS creates / moves / reassigns / cancels the
+  // SiteClock job and pushes its progress (IN_PROGRESS when the run starts,
+  // COMPLETED when it is done); nothing comes back. Also needs an enabled
+  // SiteClockConnection (Admin → organisation → SiteClock). Default OFF.
+  enableSiteClockLink: false,
 };

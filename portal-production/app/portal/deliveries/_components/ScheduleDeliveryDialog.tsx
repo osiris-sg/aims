@@ -41,6 +41,7 @@ import ProjectContactPicker, { ContactLite, ContactAssignment } from "@/app/port
 import { useOrganization } from "@hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import ExtractQuotationDialog from "@/containers/DocumentTemplates/components/ExtractQuotationDialog";
+import SiteClockSchedulePicker, { SiteClockPick } from "./SiteClockSchedulePicker";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
@@ -115,6 +116,8 @@ interface EditRun {
     machineLocation?: string | null;
   } | null;
   items: Array<{ asset: { id: string; name: string; skuKey: string } | null; quantity: number; description: string | null; assetClass?: string | null }>;
+  // SiteClock link (enableSiteClockLink orgs): the worker this run is scheduled on.
+  siteclock?: { workerId: string | null; workerName: string | null; durationMin: number } | null;
 }
 
 export default function ScheduleDeliveryDialog({
@@ -130,7 +133,7 @@ export default function ScheduleDeliveryDialog({
 }) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
-  const { isQuotationToDeliveryEnabled } = useOrganizationFeatures();
+  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled } = useOrganizationFeatures();
   // Service-job org (enableQuotationToDelivery — WCT 2026-10-27): a run is a job
   // from an accepted quotation, not a rental deployment. No Project and no Sales
   // Order sections at all (the backend relaxes the same two rules under the same
@@ -148,6 +151,10 @@ export default function ScheduleDeliveryDialog({
   // datetime-local left the time portion effectively uneditable for the office).
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("09:00");
+  // SiteClock link (WCT): worker + job length. Sent only when the org's link is
+  // live (scLive), so a form that couldn't load SiteClock never clears a pick.
+  const [scPick, setScPick] = useState<SiteClockPick>({ workerId: null, workerName: null, durationMin: null });
+  const [scLive, setScLive] = useState(false);
   // The PO is no longer typed — it comes from a selected Sales Order (a Document
   // of type SALES_ORDER). poNumber stays as the DISPLAY string written to
   // config.poNo; saleOrder carries the pointer written to config.saleOrderId.
@@ -220,6 +227,12 @@ export default function ScheduleDeliveryDialog({
     // Re-arm the customer-change guard below: on a fresh open, the first run of
     // that effect must NOT be treated as a customer change.
     loadedForCustomerRef.current = undefined;
+    setScLive(false);
+    setScPick({
+      workerId: editRun?.siteclock?.workerId ?? null,
+      workerName: editRun?.siteclock?.workerName ?? null,
+      durationMin: editRun?.siteclock?.durationMin ?? null,
+    });
     if (editRun) {
       // Edit mode: prefill from the still-scheduled run + its draft DO.
       setRows(
@@ -887,6 +900,14 @@ export default function ScheduleDeliveryDialog({
           // fire-and-forget save commits. Only with a project (the backend keys
           // ProjectContact on it); untouched, this re-sends the loaded set.
           ...(project ? { contacts: projectContacts } : {}),
+          // SiteClock link: the current pick (null = None → the backend cancels a job it made).
+          ...(isSiteClockLinkEnabled && scLive
+            ? {
+                siteclockWorkerId: scPick.workerId,
+                siteclockWorkerName: scPick.workerName,
+                ...(scPick.durationMin ? { siteclockDurationMin: scPick.durationMin } : {}),
+              }
+            : {}),
         },
         token,
       );
@@ -1292,6 +1313,9 @@ export default function ScheduleDeliveryDialog({
             required
           />
         </Stack>
+        {isSiteClockLinkEnabled && (
+          <SiteClockSchedulePicker open={open} value={scPick} onChange={setScPick} onEnabled={setScLive} scheduleTime={scheduleTime} />
+        )}
 
         {note && <Alert severity="info" sx={{ mt: 2 }} onClose={() => setNote(null)}>{note}</Alert>}
         {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}

@@ -102,6 +102,7 @@ import { toast } from "react-toastify";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 import EmailIngestionTab from "./EmailIngestionTab";
 import ApiKeysTab from "./ApiKeysTab";
+import SiteClockTab from "./SiteClockTab";
 import { FEATURE_FLAG_DEFAULTS } from "@/app/portal/hooks/useOrganizationFeatures";
 import WhatsAppGroupPicker from "@/components/deliveries/WhatsAppGroupPicker";
 import TemplateDesignDialog from "./TemplateDesignDialog";
@@ -1141,6 +1142,7 @@ export default function OrganizationDetailPage() {
             <Tab icon={<SettingsIcon />} label="Settings" />
             <Tab icon={<Email />} label="Email Ingestion" />
             <Tab icon={<AdminPanelSettings />} label="API Keys" />
+            <Tab icon={<AdminPanelSettings />} label="SiteClock" />
           </Tabs>
         </Box>
 
@@ -1793,6 +1795,11 @@ export default function OrganizationDetailPage() {
         {/* API KEYS TAB — external /v1 API key management */}
         <TabPanel value={tabValue} index={6}>
           <ApiKeysTab organizationId={organizationId} />
+        </TabPanel>
+
+        {/* SiteClock Tab */}
+        <TabPanel value={tabValue} index={7}>
+          <SiteClockTab organizationId={organizationId} />
         </TabPanel>
       </Paper>
 

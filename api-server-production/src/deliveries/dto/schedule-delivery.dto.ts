@@ -11,6 +11,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
   ValidateIf,
   ValidateNested,
@@ -162,6 +163,28 @@ export class ScheduleDeliveryDto {
   @IsOptional()
   @IsString()
   machineLocation?: string;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    description:
+      'SiteClock link (orgs with enableSiteClockLink): the SiteClock worker whose schedule this run goes on. null clears it (the SiteClock job is cancelled); omitted leaves the current pick alone.',
+  })
+  @IsOptional()
+  @IsString()
+  siteclockWorkerId?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, description: 'Display name of the picked SiteClock worker (shown on the run).' })
+  @IsOptional()
+  @IsString()
+  siteclockWorkerName?: string | null;
+
+  @ApiProperty({ required: false, description: 'Length of the SiteClock job in minutes (5 to 1440). Defaults to the connection default (60).' })
+  @IsOptional()
+  @IsInt()
+  @Min(5)
+  @Max(1440)
+  siteclockDurationMin?: number;
 
   @ApiProperty({
     required: false,

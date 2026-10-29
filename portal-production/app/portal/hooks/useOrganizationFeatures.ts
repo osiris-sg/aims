@@ -18,6 +18,7 @@ interface OrganizationFeatures {
   enableConfirmQuotation?: boolean;
   enableQuotationESign?: boolean;
   enableQuotationToDelivery?: boolean;
+  enableSiteClockLink?: boolean;
   // Preset roles with built-in permissions; no role / permission editor for the client.
   enableRolePresets?: boolean;
   enableCappitechOrders?: boolean;
@@ -144,6 +145,11 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // LME feed (round AK): daily LME aluminium cash-settlement from Westmetall fills the empty months of the org's
   // LME table (Settings → Shipping). OFF until the owner's go; while off nothing is written ("Fetch now" previews).
   enableLmeFeed: false,
+  // SiteClock link (WCT 2026-10-30): the schedule form can put a delivery on a
+  // SiteClock worker's schedule (Duration + SiteClock worker), and the run shows
+  // its SiteClock state. Also needs the org's SiteClock connection (Admin →
+  // organisation → SiteClock). Default OFF.
+  enableSiteClockLink: false,
 };
 
 interface OrganizationUIConfig {
@@ -211,6 +217,7 @@ export function useOrganizationFeatures() {
     isConfirmQuotationEnabled: features.enableConfirmQuotation ?? false,
     isQuotationESignEnabled: features.enableQuotationESign ?? false,
     isQuotationToDeliveryEnabled: features.enableQuotationToDelivery ?? false,
+    isSiteClockLinkEnabled: features.enableSiteClockLink ?? false,
     isRolePresetsEnabled: features.enableRolePresets ?? false,
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,

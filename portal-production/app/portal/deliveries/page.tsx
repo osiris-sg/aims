@@ -36,6 +36,7 @@ import ScheduleDeliveryDialog from "./_components/ScheduleDeliveryDialog";
 import ScheduleReturnDialog from "./_components/ScheduleReturnDialog";
 import MaintenanceScheduleDialog from "@/components/maintenance/MaintenanceScheduleDialog";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { SiteClockChip, SiteClockView } from "./_components/SiteClockStatus";
 
 /**
  * Office Deliveries queue (phase-1 layer 4; per-item linking 2026-08).
@@ -73,6 +74,8 @@ interface DeliveryRow {
   // already holds project-less runs that are a mix of stranded scans, genuine
   // deliveries and empty office drafts, so the null says nothing about origin.
   origin?: "SCHEDULED" | "AD_HOC";
+  // SiteClock link: attached by the API only for enableSiteClockLink orgs.
+  siteclock?: SiteClockView | null;
   // What the office still has to supply on an AD-HOC run: any of PO, customer,
   // project, photos. NULL on a scheduled run, meaning "not applicable" — the
   // office chose its project and customer up front, so there is nothing to flag.
@@ -491,7 +494,10 @@ export default function DeliveriesQueuePage() {
                     <TableCell>
                       <Chip size="small" label={chip.label} color={chip.color} />
                     </TableCell>
-                    <TableCell>{r.riderName ?? "—"}</TableCell>
+                    <TableCell>
+                      {r.riderName ?? "—"}
+                      {r.siteclock && <SiteClockChip deliveryId={r.id} view={r.siteclock} onChanged={() => void load()} />}
+                    </TableCell>
                     <TableCell>
                       <Typography variant="body2" noWrap>
                         {r.project?.name ?? r.customer?.name ?? r.siteAddress ?? "—"}

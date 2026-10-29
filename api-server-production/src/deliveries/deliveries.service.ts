@@ -54,6 +54,7 @@ export function parseAdHocReturnNotes(notes: string | null | undefined): { custo
 import { enqueueDeliveryGroupPost } from '../delivery-group-posts/enqueue';
 import { isOrgFeatureEnabled } from 'src/common/org-features';
 import { QUOTATION_TO_DELIVERY_FLAG, applyQuotationLinkToDoConfig } from './quotation-to-delivery';
+import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
 @Injectable()
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
@@ -75,6 +76,8 @@ export class DeliveriesService {
     private readonly push: PushService,
     // Global module; optional so hand-built instances (scripts) still work.
     @Optional() private readonly actionLog?: ActionLogService,
+    // SiteClock link (WCT): optional so hand-built instances (scripts) still work.
+    @Optional() private readonly siteclock?: SiteClockLinkService,
   ) {}
 
   // ── reservation ──────────────────────────────────────────────────────────
@@ -770,6 +773,9 @@ export class DeliveriesService {
       );
     }
     if (!isDraft) await this.ensureScheduledServiceReport(run.id, organizationId);
+    // SiteClock link (orgs with enableSiteClockLink only): put the run on the
+    // picked worker's schedule. Never throws, never waits on SiteClock.
+    await this.siteclock?.onScheduleSaved(organizationId, run.id, siteclockInput(dto));
 
     return { ...run, documentId };
   }
@@ -1135,6 +1141,8 @@ export class DeliveriesService {
     // saved back to a draft is not a job yet, so its scheduled report goes.
     if (willBeDraft) await this.dropScheduledServiceReport(id);
     else await this.ensureScheduledServiceReport(id, organizationId);
+    // SiteClock link: move / reassign the job, or cancel it (worker cleared, back to draft).
+    await this.siteclock?.onScheduleSaved(organizationId, id, siteclockInput(dto));
 
     return this.prisma.delivery.findUniqueOrThrow({ where: { id }, include: { items: true } });
   }
@@ -1640,6 +1648,7 @@ export class DeliveriesService {
       assetId: dto.assetId,
     });
 
+    void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     return { deliveryId, deliveryNumber: run.deliveryNumber, claimed: true };
   }
 
@@ -1683,6 +1692,7 @@ export class DeliveriesService {
         },
       });
     }
+    void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     return this.prisma.delivery.findUniqueOrThrow({ where: { id: deliveryId }, include: { items: true } });
   }
 
@@ -2692,6 +2702,7 @@ export class DeliveriesService {
     }
 
     await this.recomputeRunStatus(deliveryId, organizationId);
+    void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     return this.prisma.deliveryItem.findUnique({ where: { id: target.id } });
   }
 
@@ -3025,6 +3036,7 @@ export class DeliveriesService {
     // Folds the run to `delivered`, which is the ONLY state finalizeRun accepts.
     // The signature page then sees a normal delivered run and needs no branch.
     await this.recomputeRunStatus(deliveryId, organizationId);
+    void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     return this.prisma.delivery.findUnique({ where: { id: deliveryId } });
   }
 
@@ -3085,6 +3097,7 @@ export class DeliveriesService {
           ...(target === 'completed' && !delivery.completedAt ? { completedAt: new Date() } : {}),
         },
       });
+      void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: status follows the run
       // Completion hook: the FIRST time a run reaches `completed`. Exactly ONE
       // of two mutually-exclusive branches runs, routed by whether the run is
       // already linked to a DO:
@@ -4258,6 +4271,7 @@ export class DeliveriesService {
       }
     }
     await this.recomputeRunStatus(deliveryId, organizationId);
+    void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     return { acknowledged, total: pending.length };
   }
 
@@ -4362,6 +4376,7 @@ export class DeliveriesService {
     // PARTIAL SIGN-OFF (2026-09): an in_progress run signs for what it has
     // handed over so far. The run stays open for the rest; see finalizeRunPartial.
     if (run.status === 'in_progress' && opts.allowPartial) {
+      void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
       return this.finalizeRunPartial(deliveryId, dto, organizationId, technicianUserId);
     }
     // `delivered` is the fold's "every item delivered" state (all not_installed
@@ -4442,6 +4457,7 @@ export class DeliveriesService {
     // the next trip asks "Who's delivering?" again.
     await this.endTripHandoff(deliveryId);
     const finished = await this.prisma.delivery.findUnique({ where: { id: deliveryId } });
+    void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     return finished ? { ...finished, signedItemCount, partial: false } : finished;
   }
 
@@ -4846,6 +4862,7 @@ export class DeliveriesService {
       data: { deliveryStatus: DeliveryStatus.completed, completedAt: now },
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
+    void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     return this.prisma.delivery.findUnique({ where: { id: deliveryId } });
   }
 
@@ -5799,6 +5816,7 @@ export class DeliveriesService {
       data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: new Date(), skippedAt: null },
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
+    void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
   }
 
@@ -5896,6 +5914,7 @@ export class DeliveriesService {
         data: { deliveryStatus: DeliveryStatus.delivering, deliveringAt: new Date(), skippedAt: null },
       });
     });
+    void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
   }
 
@@ -5925,6 +5944,7 @@ export class DeliveriesService {
     if (dir?.direction === DeliveryDirection.RETURN) {
       const collected = await this.collectReturnFreeTyped(deliveryId, item.id, organizationId);
       await this.recomputeRunStatus(deliveryId, organizationId);
+      void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
       return collected ?? this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
     }
     // No signature and NO acknowledgement photos here (2026-08 signature-at-end):
@@ -5964,6 +5984,7 @@ export class DeliveriesService {
       await this.deployFreeTypedLine(runMeta?.projectId, item.description, organizationId);
     }
     await this.recomputeRunStatus(deliveryId, organizationId);
+    void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
   }
 
@@ -6078,6 +6099,7 @@ export class DeliveriesService {
       await this.dropScheduledServiceReport(deliveryId);
       const updated = await this.prisma.delivery.update({ where: { id: deliveryId }, data: { status: 'cancelled' } });
       await this.endTripHandoff(deliveryId);
+      void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
       return note ? { ...updated, note } : updated;
     }
 
@@ -6129,6 +6151,7 @@ export class DeliveriesService {
     });
     // A cancelled run's driver link must stop working too.
     await this.endTripHandoff(deliveryId);
+    void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     return cancelled;
   }
 
@@ -6210,6 +6233,13 @@ export class DeliveriesService {
         : []),
       this.prisma.delivery.delete({ where: { id: deliveryId } }),
     ]);
+    void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     return { id: deliveryId, deleted: true };
   }
+}
+
+/** The schedule form's SiteClock fields, or undefined when the request carries none (link left alone). */
+function siteclockInput(dto: ScheduleDeliveryDto): SiteClockScheduleInput | undefined {
+  if (dto.siteclockWorkerId === undefined && dto.siteclockWorkerName === undefined && dto.siteclockDurationMin === undefined) return undefined;
+  return { workerId: dto.siteclockWorkerId, workerName: dto.siteclockWorkerName, durationMin: dto.siteclockDurationMin };
 }

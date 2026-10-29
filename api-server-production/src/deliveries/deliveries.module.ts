@@ -3,6 +3,7 @@ import { PrismaService } from 'src/common/prisma.service';
 import { DocumentsModule } from '../documents/documents.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { SiteClockModule } from '../siteclock/siteclock.module';
 import { DeliveriesController } from './deliveries.controller';
 import { DeliveriesService } from './deliveries.service';
 
@@ -17,7 +18,8 @@ import { DeliveriesService } from './deliveries.service';
   // ProjectsModule is ALSO forwardRef'd: it sits on the same cycle
   // (Documents -> Deliveries -> Projects -> Documents), so a hard reference here
   // re-closes the loop even with the Documents edge made lazy.
-  imports: [forwardRef(() => DocumentsModule), forwardRef(() => ProjectsModule), NotificationsModule],
+  // SiteClockModule exports SiteClockLinkService — the WCT SiteClock job sync.
+  imports: [forwardRef(() => DocumentsModule), forwardRef(() => ProjectsModule), NotificationsModule, SiteClockModule],
   controllers: [DeliveriesController],
   providers: [DeliveriesService, PrismaService],
   // Exported so MaintenanceReportsService can bridge standalone-run MSRs
