@@ -4538,3 +4538,58 @@ model ShipmentTracking {
 
   @@index([organizationId, shipmentId, createdAt])
 }
+
+// ── SiteClock link (WCT 2026-10-30, flag enableSiteClockLink) ────────────────
+// A scheduled delivery can be put on a SiteClock worker's schedule: AIMS creates,
+// moves, reassigns and cancels a SiteClock job for the run, and pushes its
+// progress (IN_PROGRESS when the run starts, COMPLETED when it is done). Nothing
+// comes back from SiteClock. Both tables are platform-level (plain pointers, no
+// FK) so the sync sweep reads them across orgs without a tenant fan-out.
+
+/// Per-org SiteClock credentials. apiKey is AES-256-GCM sealed with the
+/// AIMS_SECRETS_KEY env var (common/secret-box.ts) and never sent to the portal.
+model SiteClockConnection {
+  id                 String    @id @default(uuid())
+  organizationId     String    @unique
+  baseUrl            String // e.g. https://api.siteclock.osiris.sg
+  siteclockCompanyId String // the SiteClock company the key belongs to
+  apiKeyEnc          String // sealed sck_live_… key
+  apiKeyLast4        String
+  enabled            Boolean   @default(false)
+  defaultDurationMin Int       @default(60)
+  lastOkAt           DateTime?
+  lastError          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+/// One SiteClock job per delivery run. worker/duration are the office's choice;
+/// the rest of the job (time, address, title) is read from the run at sync time,
+/// so every path that changes a run is covered by one sweep.
+model DeliverySiteClockJob {
+  id               String    @id @default(uuid())
+  organizationId   String
+  deliveryId       String    @unique // plain pointer: the row outlives a deleted run so the cancel still goes out
+  workerId         String? // SiteClock user id; null = the office cleared it (job cancelled)
+  workerName       String?
+  durationMin      Int       @default(60)
+  // externalRef sent to SiteClock: "aims-delivery:<deliveryId>", with ":<n>" for a
+  // job re-created after a cancel (SiteClock cancels are final).
+  externalRef      String
+  generation       Int       @default(1)
+  siteclockJobId   String?
+  siteRef          String? // site ref last PUT (hash of org + customer + normalised address)
+  syncedHash       String? // hash of the job fields last accepted by SiteClock
+  lastPushedStatus String? // SCHEDULED | IN_PROGRESS | COMPLETED | CANCELLED
+  syncState        String    @default("PENDING") // PENDING | SYNCED | FAILED
+  attempts         Int       @default(0)
+  nextAttemptAt    DateTime  @default(now())
+  lastError        String?
+  lastSyncedAt     DateTime?
+  alertedAt        DateTime? // office bell rung for the current failure streak
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([organizationId])
+  @@index([syncState, nextAttemptAt])
+}

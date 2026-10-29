@@ -49,6 +49,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { normalizeAssetClass } from "@/helpers/assetClass";
 import ScheduleDeliveryDialog from "@/app/portal/deliveries/_components/ScheduleDeliveryDialog";
 import DeliveryGroupPostsPanel from "@/components/deliveries/DeliveryGroupPostsPanel";
+import { SiteClockCard, SiteClockView } from "@/app/portal/deliveries/_components/SiteClockStatus";
 
 /**
  * Delivery run detail (office). Items + the field PROOF (photos, signature,
@@ -69,6 +70,8 @@ type RunStatus = "scheduled" | "in_progress" | "delivered" | "completed" | "canc
 interface RunDetail {
   id: string;
   deliveryNumber: number;
+  // SiteClock link: attached by the API only for enableSiteClockLink orgs.
+  siteclock?: SiteClockView | null;
   status: RunStatus;
   direction?: "OUTBOUND" | "RETURN";
   // AD_HOC runs complete without deducting stock — their units sit `reserved`
@@ -804,6 +807,11 @@ export default function DeliveryDetailPage() {
         />
       )}
 
+      {/* SiteClock link (WCT): the worker this run is scheduled on in SiteClock. */}
+      {run.siteclock && (
+        <SiteClockCard deliveryId={deliveryId} view={run.siteclock} scheduledFor={run.scheduledFor} onChanged={() => void load()} />
+      )}
+
       {actionError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>{actionError}</Alert>}
 
       {/* Handed to another driver (field app QR hand-off). The office can cancel
@@ -1471,6 +1479,9 @@ export default function DeliveryDetailPage() {
               }
             : null,
           items: run.items.map((i) => ({ asset: i.asset, quantity: i.quantity, description: i.description, assetClass: i.assetClass })),
+          siteclock: run.siteclock
+            ? { workerId: run.siteclock.workerId, workerName: run.siteclock.workerName, durationMin: run.siteclock.durationMin }
+            : null,
         }}
       />
     </Box>
