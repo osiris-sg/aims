@@ -80,6 +80,7 @@ export class DocumentNumberingService {
     pattern: string,
     docCode: string,
     when: Date,
+    db: { document: { findMany: (args: any) => Promise<Array<{ name: string | null }>> } } = this.prisma,
   ): Promise<number> {
     const serialToken = /\{(#+)\}/.exec(pattern);
     if (!serialToken) return 0;
@@ -91,7 +92,7 @@ export class DocumentNumberingService {
       docCode,
     );
     if (!prefix) return 0;
-    const existing = await this.prisma.document.findMany({
+    const existing = await db.document.findMany({
       where: { organizationId, name: { startsWith: prefix } },
       select: { name: true },
     });
@@ -146,6 +147,48 @@ export class DocumentNumberingService {
     });
 
     return DocumentNumberingService.format(format.pattern, claimed, when, docCode);
+  }
+
+  /**
+   * Issue the next number with the format's counter row LOCKED for the whole
+   * claim (enableRealDoOnSchedule, WCT 2026-10-30: a scheduled run's DO gets its
+   * real number at once, so two office users scheduling at the same moment must
+   * never get the same one). A no-op UPDATE takes the row lock; a concurrent
+   * issuer waits on it until this transaction commits and then reads the bumped
+   * counter. The highest existing number is read INSIDE the lock, so imported
+   * or hand-typed numbers are still skipped. Same pattern, reset and padding as
+   * generateNumber, which every other caller keeps using unchanged. Null when
+   * the org has no active format for the type (caller falls back).
+   */
+  async issueNumberLocked(
+    organizationId: string,
+    documentType: string,
+    formatId?: string | null,
+    when: Date = new Date(),
+  ): Promise<string | null> {
+    let format = formatId
+      ? await this.prisma.documentNumberFormat.findFirst({ where: { id: formatId, organizationId } })
+      : null;
+    if (!format) {
+      format = await this.prisma.documentNumberFormat.findFirst({
+        where: { organizationId, documentType, isActive: true },
+        orderBy: { sortOrder: 'asc' },
+      });
+      if (!format) return null;
+    }
+    const docCode = DOC_CODE[format.documentType] || '';
+    const key = this.resetKey(format.resetPolicy, when);
+    return this.prisma.$transaction(async (tx) => {
+      const f = await tx.documentNumberFormat.update({ where: { id: format!.id }, data: { nextSerial: { increment: 0 } } });
+      const maxExisting = await this.maxExistingSerial(organizationId, f.pattern, docCode, when, tx);
+      const restart = key != null && f.lastResetKey !== key;
+      const serial = Math.max(restart ? 1 : f.nextSerial, maxExisting + 1);
+      await tx.documentNumberFormat.update({
+        where: { id: f.id },
+        data: { nextSerial: serial + 1, ...(key != null ? { lastResetKey: key } : {}) },
+      });
+      return DocumentNumberingService.format(f.pattern, serial, when, docCode);
+    });
   }
 
   // Roll the counter back when a just-numbered document is deleted (e.g. the

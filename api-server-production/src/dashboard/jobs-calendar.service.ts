@@ -77,6 +77,7 @@ export class JobsCalendarService {
         orderBy: { scheduledFor: 'asc' },
       }),
     );
+    const dos = await this.runDos(organizationId, rows.map((r) => r.id));
     return rows.map((r) => ({
       id: r.id,
       deliveryNumber: r.deliveryNumber,
@@ -89,7 +90,33 @@ export class JobsCalendarService {
       customerName: r.customer?.name ?? null,
       projectName: r.project?.name ?? null,
       service: (r.items?.length ?? 0) > 0,
+      deliveryOrder: dos.get(r.id) ?? null,
     }));
+  }
+
+  /** Each run's Delivery Order (first DO its lines point at): number, status, template, cancelled mark. */
+  private async runDos(organizationId: string, runIds: string[]) {
+    const out = new Map<string, { id: string; name: string | null; status: string; templateId: string; cancelled: boolean }>();
+    if (!runIds.length) return out;
+    const items: any[] = await runAsOrg(organizationId, () =>
+      this.prisma.deliveryItem.findMany({ where: { deliveryId: { in: runIds }, documentId: { not: null } }, select: { deliveryId: true, documentId: true } }),
+    );
+    const docIds = [...new Set(items.map((i) => i.documentId as string))];
+    if (!docIds.length) return out;
+    const docs: any[] = await runAsOrg(organizationId, () =>
+      this.prisma.document.findMany({
+        where: { id: { in: docIds }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } },
+        select: { id: true, name: true, status: true, documentTemplateId: true, config: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+    for (const d of docs) {
+      for (const i of items) {
+        if (i.documentId !== d.id || out.has(i.deliveryId)) continue;
+        out.set(i.deliveryId, { id: d.id, name: d.name ?? null, status: d.status, templateId: d.documentTemplateId, cancelled: (d.config as any)?.cancelled === true });
+      }
+    }
+    return out;
   }
 
   private async siteclockJobs(organizationId: string, from: string, to: string): Promise<{ jobs: CalendarSiteClockJob[] | null; status: JobsCalendarResponse['siteclock'] }> {

@@ -30,6 +30,9 @@ test("the SiteClock line appears only while the job is live", () => {
   assert.equal(c.title, "Cancel delivery #9?");
   assert.equal(c.siteclock, "This also cancels the SiteClock job for Elroy.");
   assert.equal(confirmCopy("cancel", { deliveryNumber: 9 }).siteclock, null);
+  // Real DO numbers (enableRealDoOnSchedule): the cancel dialog says the DO is kept.
+  assert.match(confirmCopy("cancel", { deliveryNumber: 9 }, { keepsDo: true }).body, /keeps its number and is marked Cancelled/);
+  assert.doesNotMatch(confirmCopy("cancel", { deliveryNumber: 9 }).body, /keeps its number/);
   assert.match(confirmCopy("delete", { deliveryNumber: 4, isDraft: true, siteclock: { workerId: "w", lastPushedStatus: "SCHEDULED" } }).siteclock, /SiteClock job\./);
 });
 

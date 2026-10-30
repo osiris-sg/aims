@@ -131,7 +131,7 @@ export class SiteClockClient {
   putSite(ref: string, body: { name: string; address: string }) {
     return this.call<{ site: { id: string; externalRef: string } }>('PUT', `/v1/sites/by-ref/${this.ref(ref)}`, body);
   }
-  createJob(body: { externalRef: string; workerId: string; siteRef: string; startAt: string; endAt: string; title: string; notes: string | null }) {
+  createJob(body: { externalRef: string; workerId: string; siteRef: string; startAt: string; endAt: string; title: string; notes: string | null; externalUrl?: string | null; externalUrlLabel?: string | null }) {
     return this.call<{ job: SiteClockJob; duplicate?: boolean }>('POST', '/v1/jobs', body);
   }
   patchJob(ref: string, body: Record<string, unknown>) {

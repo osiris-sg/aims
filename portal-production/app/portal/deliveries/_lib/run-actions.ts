@@ -46,13 +46,15 @@ export type RunAction = "cancel" | "delete" | "purge";
 export function confirmCopy(
   action: RunAction,
   run: { deliveryNumber: number; isDraft?: boolean; siteclock?: SiteClockLike | null },
+  // enableRealDoOnSchedule: the run's DO already has its real number, so a cancel keeps it (as Cancelled).
+  opts: { keepsDo?: boolean } = {},
 ): { title: string; body: string; siteclock: string | null; button: string } {
   const job = liveSiteClockJob(run.siteclock);
   const siteclock = job ? `This also cancels the SiteClock job${job.workerName ? ` for ${job.workerName}` : ""}.` : null;
   if (action === "cancel") {
     return {
       title: `Cancel delivery #${run.deliveryNumber}?`,
-      body: "The run is marked cancelled and any reserved units are returned to stock. This cannot be undone.",
+      body: `The run is marked cancelled and any reserved units are returned to stock.${opts.keepsDo ? " Its Delivery Order keeps its number and is marked Cancelled." : ""} This cannot be undone.`,
       siteclock,
       button: "Cancel delivery",
     };

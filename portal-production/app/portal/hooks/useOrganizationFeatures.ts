@@ -20,6 +20,7 @@ interface OrganizationFeatures {
   enableQuotationToDelivery?: boolean;
   enableSiteClockLink?: boolean;
   enableJobsCalendar?: boolean;
+  enableRealDoOnSchedule?: boolean;
   // Preset roles with built-in permissions; no role / permission editor for the client.
   enableRolePresets?: boolean;
   enableCappitechOrders?: boolean;
@@ -155,6 +156,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // day calendar of scheduled deliveries, returns, service runs and the org's
   // SiteClock jobs; the usual dashboard sections sit below it. Default OFF.
   enableJobsCalendar: false,
+  // Real DO numbers on schedule (WCT 2026-10-30): a scheduled run's DO gets its
+  // real number at once; a Pending / Completed / Cancelled tag shows next to it.
+  enableRealDoOnSchedule: false,
 };
 
 interface OrganizationUIConfig {
@@ -224,6 +228,7 @@ export function useOrganizationFeatures() {
     isQuotationToDeliveryEnabled: features.enableQuotationToDelivery ?? false,
     isSiteClockLinkEnabled: features.enableSiteClockLink ?? false,
     isJobsCalendarEnabled: features.enableJobsCalendar ?? false,
+    isRealDoOnScheduleEnabled: features.enableRealDoOnSchedule ?? false,
     isRolePresetsEnabled: features.enableRolePresets ?? false,
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,

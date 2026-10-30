@@ -28,6 +28,7 @@ import * as moment from 'moment';
 import { pdfOptionsFor, isWctLayout } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
 import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
+import { carryServerDoKeys } from '../deliveries/do-number';
 
 // Who performed a document action — derived from req.user in the controller.
 export interface DocumentActor {
@@ -1124,6 +1125,11 @@ export class DocumentsService {
       // save is stamped in the document history as EDITED_AFTER_CONFIRM with
       // the actor, so the person who re-edited a confirmed document is always
       // traceable. (The old behavior threw "Cannot edit confirmed document".)
+      // Server-owned DO keys (enableRealDoOnSchedule): the editor rebuilds config
+      // from its own field list and would drop them on every save, which would
+      // let a cancelled DO lose its Cancelled mark. Carry them over unless the
+      // incoming config sets them itself.
+      if (configAsPlainObject && existingDocument.type === 'DELIVERY_ORDER') carryServerDoKeys(existingDocument.config, configAsPlainObject);
       const wasConfirmedBeforeSave = !['draft', 'unconfirmed'].includes(existingDocument.status);
 
       // Managers and up only (guru 2026-09-29): a Designer-tier user may
@@ -1325,6 +1331,11 @@ export class DocumentsService {
       // number. (Computed locally — `becomingConfirmed` below is defined after
       // this update.)
       const doConfirmingNow = dto.status === 'confirmed' && existingDocument.status !== 'confirmed';
+      // A DO voided by its run's cancel (enableRealDoOnSchedule) keeps its number
+      // for the record and is never confirmed afterwards.
+      if (doConfirmingNow && (existingDocument.config as any)?.cancelled === true && existingDocument.type === 'DELIVERY_ORDER') {
+        throw new HttpException(`${existingDocument.name ?? 'This DO'} was cancelled with its delivery and can't be confirmed.`, HttpStatus.BAD_REQUEST);
+      }
       // Confirming an EMPTY document is refused here as well as in the editor.
       if (doConfirmingNow) this.assertHasLineItems(dto.config ?? existingDocument.config, String(existingDocument.type || 'document').toLowerCase().replace(/_/g, ' '));
       let confirmedDoName: string | undefined;
@@ -2734,6 +2745,55 @@ export class DocumentsService {
       return realName;
     }
     return doc.name ?? null;
+  }
+
+  /**
+   * enableRealDoOnSchedule (WCT 2026-10-30): create a scheduled run's DO under
+   * its REAL number straight away (no DO-PENDING-NN placeholder). The number is
+   * issued with the format's counter locked (issueNumberLocked), so concurrent
+   * schedules get different numbers. Other paths still mint DO numbers without
+   * that lock (the editor's New DO, a different template), so a clash is still
+   * possible in principle: a unique-key failure retries with a fresh number,
+   * and a same-name DO elsewhere in the org renames THIS one (just created,
+   * nobody has seen it) to a fresh number. Orgs without a DO number format fall
+   * back to the legacy prefix + serial.
+   */
+  async createNumberedDeliveryOrder(
+    templateId: string,
+    organizationId: string,
+    config: any,
+    projectId?: string,
+  ) {
+    const issue = async () =>
+      (await this.documentNumbering.issueNumberLocked(organizationId, 'DELIVERY_ORDER', (config as any)?.numberFormatId ?? null)) ??
+      (await this.generateSequentialDocumentName(organizationId, 'DELIVERY_ORDER', templateId, config, new Date()));
+    const clashes = (name: string, id: string) =>
+      this.prisma.document.count({ where: { organizationId, type: 'DELIVERY_ORDER', name, id: { not: id } } });
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const name = await issue();
+      let doc;
+      try {
+        doc = await this.createBasicDocument(templateId, 'DELIVERY_ORDER', organizationId, config, projectId, undefined, name);
+      } catch (e: any) {
+        if (attempt < 5 && /unique constraint/i.test(String(e?.message))) continue;
+        throw e;
+      }
+      for (let rename = 1; (await clashes(doc.name!, doc.id)) > 0; rename++) {
+        if (rename > 5) throw new HttpException(`DO number ${doc.name} is already in use — please retry`, HttpStatus.CONFLICT);
+        const fresh = await issue();
+        const before = doc.name;
+        doc = await this.prisma.document.update({ where: { id: doc.id }, data: { name: fresh } });
+        void this.logDocumentEvent({
+          documentId: doc.id,
+          organizationId,
+          action: 'EDITED',
+          detail: `Renumbered ${before} → ${fresh}: ${before} was taken at the same moment`,
+          documentName: fresh,
+        });
+      }
+      return doc;
+    }
+    throw new HttpException('Could not issue a DO number — please retry', HttpStatus.CONFLICT);
   }
 
   /**

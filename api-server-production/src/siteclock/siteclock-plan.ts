@@ -10,6 +10,11 @@ import { createHash } from 'crypto';
  * office's pick stored on the link. Status follows the run:
  *   scheduled → SCHEDULED, in_progress / delivered → IN_PROGRESS, completed → COMPLETED;
  *   cancelled, deleted, back to draft, no date, or no worker → the job is cancelled.
+ *
+ * The title carries the run's DO number and the job carries a "View DO" link
+ * (the DO's view-only guest page). Those keep following the DO after work has
+ * started or finished (a wording-only PATCH), so a renumbered DO shows up in
+ * SiteClock too; who / when / where stay fixed once started.
  */
 
 // WCT is in Singapore and AIMS has no per-org time zone; SGT has no DST, so the
@@ -34,6 +39,10 @@ export interface PlanRun {
   customerName: string | null;
   projectName: string | null;
   items: { description: string; quantity: number }[];
+  /** The run's Delivery Order number (Document.name), null when it has none yet. */
+  doNumber: string | null;
+  /** https link to the DO's view-only guest page, null when there is none. */
+  doUrl: string | null;
 }
 
 export interface PlanLink {
@@ -54,13 +63,21 @@ export interface JobFields {
   endAt: string;
   title: string;
   notes: string | null;
+  externalUrl: string | null;
+  externalUrlLabel: string | null;
 }
+
+/** The wording SiteClock still takes after a job has started or finished. */
+export type JobText = Pick<JobFields, 'title' | 'notes' | 'externalUrl' | 'externalUrlLabel'>;
+
+export const DO_LINK_LABEL = 'View DO';
 
 export type Step =
   | { kind: 'regenerate'; externalRef: string; generation: number }
   | { kind: 'putSite'; siteRef: string; name: string; address: string }
   | { kind: 'create'; fields: JobFields; hash: string }
   | { kind: 'patch'; fields: JobFields; hash: string }
+  | { kind: 'patchText'; fields: JobText; hash: string }
   | { kind: 'status'; status: 'IN_PROGRESS' | 'COMPLETED'; at: string }
   | { kind: 'cancel'; reason: string };
 
@@ -100,17 +117,24 @@ export function siteRefFor(organizationId: string, customerId: string | null, ad
   return `aims-site:${h.slice(0, 32)}`;
 }
 
-const hashFields = (f: JobFields) =>
-  createHash('sha256')
-    .update(JSON.stringify([f.workerId, f.siteRef, f.startAt, f.endAt, f.title, f.notes]))
-    .digest('hex')
-    .slice(0, 32);
+const sha16 = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex').slice(0, 16);
+/** Schedule half (who / where / when) + wording half (title, notes, link): a started job compares only the second. */
+const schedHash = (f: JobFields) => sha16([f.workerId, f.siteRef, f.startAt, f.endAt]);
+const textHash = (f: JobText) => sha16([f.title, f.notes, f.externalUrl, f.externalUrlLabel]);
+const hashFields = (f: JobFields) => `${schedHash(f)}${textHash(f)}`;
+/** After a wording-only PATCH: SiteClock's schedule is what it was, the wording is new. */
+const afterTextPatch = (synced: string | null, f: JobText) => `${(synced ?? '').slice(0, 16).padEnd(16, '0')}${textHash(f)}`;
+const textSynced = (synced: string | null, f: JobText) => (synced ?? '').slice(16) === textHash(f);
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
+/** "#12 Acme Pte Ltd · DO202610007" (no "· …" until the run has a DO). */
 export function jobTitle(run: PlanRun) {
   const who = run.customerName || run.projectName || 'Delivery';
-  return clip(`#${run.deliveryNumber} ${who}`, 200);
+  const doNo = run.doNumber?.trim();
+  if (!doNo) return clip(`#${run.deliveryNumber} ${who}`, 200);
+  const tail = ` · ${doNo}`;
+  return `${clip(`#${run.deliveryNumber} ${who}`, 200 - tail.length)}${tail}`;
 }
 
 export function jobNotes(run: PlanRun): string | null {
@@ -143,12 +167,12 @@ export function planSync(run: PlanRun | null, link: PlanLink, deliveryId: string
     const reason = !run ? 'Delivery deleted in AIMS' : run.status === 'cancelled' ? 'Delivery cancelled in AIMS' : !link.workerId ? 'Worker removed in AIMS' : 'Delivery unscheduled in AIMS';
     return { target, steps: [{ kind: 'cancel', reason }] };
   }
-  // A finished job is final on both sides.
-  if (last === 'COMPLETED') return { target, steps: [] };
-
   const r = run!;
   const address = (r.siteAddress || '').trim();
-  if (!address) return { target, steps: [], problem: 'The delivery has no address, so SiteClock has nowhere to put the job' };
+  if (!address) {
+    if (last === 'COMPLETED') return { target, steps: [] };
+    return { target, steps: [], problem: 'The delivery has no address, so SiteClock has nowhere to put the job' };
+  }
 
   const steps: Step[] = [];
   let fresh = last === null;
@@ -163,6 +187,7 @@ export function planSync(run: PlanRun | null, link: PlanLink, deliveryId: string
   if (fresh || siteRef !== link.siteRef) steps.push({ kind: 'putSite', siteRef, name: siteName(r, address), address });
 
   const start = r.scheduledFor!;
+  const doUrl = r.doUrl && /^https:\/\//.test(r.doUrl) ? r.doUrl : null;
   const fields: JobFields = {
     workerId: link.workerId!,
     siteRef,
@@ -170,12 +195,22 @@ export function planSync(run: PlanRun | null, link: PlanLink, deliveryId: string
     endAt: toSgtIso(new Date(start.getTime() + Math.max(5, link.durationMin) * 60_000)),
     title: jobTitle(r),
     notes: jobNotes(r),
+    externalUrl: doUrl,
+    externalUrlLabel: doUrl ? DO_LINK_LABEL : null,
   };
   const hash = hashFields(fields);
+  const text: JobText = { title: fields.title, notes: fields.notes, externalUrl: fields.externalUrl, externalUrlLabel: fields.externalUrlLabel };
+  // A finished job is final on both sides, except its wording: the DO number
+  // in the title and the View DO link still follow the document.
+  if (last === 'COMPLETED') {
+    return { target, steps: textSynced(link.syncedHash, text) ? [] : [{ kind: 'patchText', fields: text, hash: afterTextPatch(link.syncedHash, text) }] };
+  }
   if (fresh) steps.push({ kind: 'create', fields, hash });
   // Who / when / where only change while the job is still just scheduled (AIMS
   // locks a run's schedule once a rider starts it anyway).
   else if (last === 'SCHEDULED' && hash !== link.syncedHash) steps.push({ kind: 'patch', fields, hash });
+  // Started: only the wording (title, notes, link) can still change.
+  else if (last === 'IN_PROGRESS' && !textSynced(link.syncedHash, text)) steps.push({ kind: 'patchText', fields: text, hash: afterTextPatch(link.syncedHash, text) });
 
   const have = fresh ? RANK.SCHEDULED : RANK[last!];
   if (RANK[target] > have) {

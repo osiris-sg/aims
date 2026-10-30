@@ -120,6 +120,13 @@ describe('jobs calendar merge', () => {
     expect(day).toMatchObject({ allDay: true, start: '2026-11-03', end: null, completed: true, statusLabel: 'Done' });
   });
 
+  it("a run's DO: completed DO → Completed, voided DO → Cancelled, no DO → nothing", () => {
+    const dl = (deliveryOrder: any) => buildCalendarEvents([run({ deliveryOrder })], [], null)[0];
+    expect(dl({ id: 'd', name: 'DO202610007', status: 'delivered_installed', templateId: 't', cancelled: false })).toMatchObject({ doNumber: 'DO202610007', doTag: 'Completed' });
+    expect(dl({ id: 'd', name: 'DO202610008', status: 'unconfirmed', templateId: 't', cancelled: true })).toMatchObject({ doNumber: 'DO202610008', doTag: 'Cancelled' });
+    expect(dl(null)).toMatchObject({ doNumber: null, doTag: null, doHref: null });
+  });
+
   it('completed and cancelled runs are flagged for fading / hiding', () => {
     const ev = buildCalendarEvents([run({ id: D1, status: 'completed' }), run({ id: D2, status: 'cancelled' })], [], null);
     expect(ev.find((e) => e.id === `aims:${D1}`)).toMatchObject({ completed: true, cancelled: false });
@@ -167,6 +174,12 @@ describe('JobsCalendarService', () => {
       organizationUIConfig: { findUnique: jest.fn().mockResolvedValue({ features: { enableJobsCalendar: opts.flag ?? true } }) },
       delivery: { findMany: deliveryFind },
       deliverySiteClockJob: { findMany: jest.fn().mockResolvedValue([]) },
+      deliveryItem: { findMany: jest.fn().mockResolvedValue([{ deliveryId: D1, documentId: 'doc1' }]) },
+      document: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'doc1', name: 'DO202610007', status: 'unconfirmed', documentTemplateId: 'tpl1', config: {}, createdAt: new Date() },
+        ]),
+      },
     };
     const calendarJobs = jest.fn(opts.sc ?? (async () => [scJob()]));
     const svc = new JobsCalendarService(prisma, { calendarJobs } as any);
@@ -192,6 +205,10 @@ describe('JobsCalendarService', () => {
     expect(res.siteclock.state).toBe('ok');
     expect(res.timezone).toBe('Asia/Singapore');
     expect(res.events.map((e) => e.kind).sort()).toEqual(['service', 'siteclock']);
+    // The popup's DO block: number, tag, and the office DO page.
+    const run = res.events.find((e) => e.source === 'aims')!;
+    expect(run).toMatchObject({ doNumber: 'DO202610007', doTag: 'Pending', doHref: '/portal/documents/DELIVERY_ORDER/tpl1/doc1' });
+    expect(res.events.find((e) => e.source === 'siteclock')).toMatchObject({ doNumber: null, doTag: null, doHref: null });
   });
 
   it('caches the SiteClock feed for 60 s per org + range', async () => {

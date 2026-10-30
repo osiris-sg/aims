@@ -37,6 +37,8 @@ import ScheduleReturnDialog from "./_components/ScheduleReturnDialog";
 import MaintenanceScheduleDialog from "@/components/maintenance/MaintenanceScheduleDialog";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { SiteClockChip, SiteClockView } from "./_components/SiteClockStatus";
+import DoStatusTag from "@/components/DoStatusTag";
+import { runDoTag } from "@/helpers/doStatusTag";
 import { canPurge, confirmCopy, runWasStarted } from "./_lib/run-actions";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 
@@ -106,14 +108,17 @@ const fmtDateTime = (d: string | null) =>
 // scheduled + isDraft). A completed, delivered, or cancelled run matches
 // neither, so it offers no actions at all. These flags only decide what to
 // OFFER; the backend re-validates against live state on every call.
-const rowActions = (r: DeliveryRow) => {
+// realDo (enableRealDoOnSchedule): a scheduled run's DO already has its real
+// number, which is never deleted — such a run is cancelled, not deleted.
+const rowActions = (r: DeliveryRow, realDo = false) => {
   const items = r.items ?? [];
   const delivered = items.some((i) => i.deliveryStatus === "not_installed" || i.deliveryStatus === "completed");
   const linked = items.some((i) => !!i.documentId);
   const canCancel = !r.isDraft && (r.status === "scheduled" || (r.status === "in_progress" && !delivered && !linked));
-  const canDelete = r.status === "scheduled";
+  const canDelete = r.status === "scheduled" && !(realDo && !r.isDraft && linked);
   return { canCancel, canDelete };
 };
+const keepsDo = (r: DeliveryRow, realDo: boolean) => realDo && !r.isDraft && (r.items ?? []).some((i) => !!i.documentId);
 // A cancelled run offers "Delete permanently" to Osiris admins only (backend re-checks it committed nothing).
 
 export default function DeliveriesQueuePage() {
@@ -128,7 +133,7 @@ export default function DeliveriesQueuePage() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
-  const { isMaintenanceDatesEnabled, isQuotationToDeliveryEnabled } = useOrganizationFeatures();
+  const { isMaintenanceDatesEnabled, isQuotationToDeliveryEnabled, isRealDoOnScheduleEnabled } = useOrganizationFeatures();
   const { isOsirisAdmin } = useOrganization();
   // Service-job org (WCT): runs have no project, so the column is just Customer / Site.
   const serviceJobs = isQuotationToDeliveryEnabled;
@@ -247,7 +252,7 @@ export default function DeliveriesQueuePage() {
     // distinct DOs → a plain count (open individual ones from the run).
     if (distinct.length === 1) {
       const d = distinct[0];
-      return (
+      const chip = (
         <Chip
           size="small"
           variant="outlined"
@@ -260,6 +265,14 @@ export default function DeliveriesQueuePage() {
             void openDocument(d.id);
           }}
         />
+      );
+      // Real DO numbers (enableRealDoOnSchedule): the job's state sits next to the number.
+      if (!isRealDoOnScheduleEnabled || r.isDraft) return chip;
+      return (
+        <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap>
+          {chip}
+          <DoStatusTag tag={runDoTag(r.status)} />
+        </Stack>
       );
     }
     return <Chip size="small" variant="outlined" color="success" label={`${distinct.length} DOs`} />;
@@ -282,7 +295,7 @@ export default function DeliveriesQueuePage() {
   };
 
   const kebabNode = (r: DeliveryRow) => {
-    const { canCancel, canDelete } = rowActions(r);
+    const { canCancel, canDelete } = rowActions(r, isRealDoOnScheduleEnabled);
     // A committed run (delivered / completed / cancelled) offers neither action
     // (an Osiris admin still gets "Delete permanently" on a cancelled one).
     if (!canCancel && !canDelete && !canPurge(r, isOsirisAdmin)) return <Typography variant="body2" color="text.secondary">—</Typography>;
@@ -559,7 +572,7 @@ export default function DeliveriesQueuePage() {
             Cancel delivery
           </MenuItem>
         )}
-        {menu && rowActions(menu.row).canDelete && (
+        {menu && rowActions(menu.row, isRealDoOnScheduleEnabled).canDelete && (
           <MenuItem
             sx={{ color: "error.main" }}
             onClick={() => {
@@ -588,11 +601,11 @@ export default function DeliveriesQueuePage() {
       <Dialog open={!!confirm} onClose={() => !acting && setConfirm(null)}>
         {confirm && (
           <>
-            <DialogTitle>{confirmCopy(confirm.action, confirm.row).title}</DialogTitle>
+            <DialogTitle>{confirmCopy(confirm.action, confirm.row, { keepsDo: keepsDo(confirm.row, isRealDoOnScheduleEnabled) }).title}</DialogTitle>
             <DialogContent>
-              <DialogContentText>{confirmCopy(confirm.action, confirm.row).body}</DialogContentText>
-              {confirmCopy(confirm.action, confirm.row).siteclock && (
-                <DialogContentText sx={{ mt: 1.5, fontWeight: 600 }}>{confirmCopy(confirm.action, confirm.row).siteclock}</DialogContentText>
+              <DialogContentText>{confirmCopy(confirm.action, confirm.row, { keepsDo: keepsDo(confirm.row, isRealDoOnScheduleEnabled) }).body}</DialogContentText>
+              {confirmCopy(confirm.action, confirm.row, { keepsDo: keepsDo(confirm.row, isRealDoOnScheduleEnabled) }).siteclock && (
+                <DialogContentText sx={{ mt: 1.5, fontWeight: 600 }}>{confirmCopy(confirm.action, confirm.row, { keepsDo: keepsDo(confirm.row, isRealDoOnScheduleEnabled) }).siteclock}</DialogContentText>
               )}
             </DialogContent>
             <DialogActions>
@@ -600,7 +613,7 @@ export default function DeliveriesQueuePage() {
                 Keep it
               </Button>
               <Button onClick={runAction} color="error" variant="contained" disabled={acting}>
-                {acting ? "Working…" : confirmCopy(confirm.action, confirm.row).button}
+                {acting ? "Working…" : confirmCopy(confirm.action, confirm.row, { keepsDo: keepsDo(confirm.row, isRealDoOnScheduleEnabled) }).button}
               </Button>
             </DialogActions>
           </>

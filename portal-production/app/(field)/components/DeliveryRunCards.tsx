@@ -1,6 +1,8 @@
 "use client";
 
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import DoStatusTag from "@/components/DoStatusTag";
+import { runDoTag } from "@/helpers/doStatusTag";
 import React, { useState } from "react";
 import {
   Alert,
@@ -105,7 +107,7 @@ export function ScheduledRunCard({
   onStart: () => void | Promise<void>;
   onViewDo: (assetId: string, docId: string) => void;
 }) {
-  const { isQuotationToDeliveryEnabled: serviceJobs } = useOrganizationFeatures();
+  const { isQuotationToDeliveryEnabled: serviceJobs, isRealDoOnScheduleEnabled } = useOrganizationFeatures();
   const isReturn = r.direction === "RETURN";
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -223,9 +225,10 @@ export function ScheduledRunCard({
             sx={{ minHeight: 44 }}
             onClick={() => onViewDo(viewDo.assetId, viewDo.docId)}
           >
-            View full DO
+            View full DO{isRealDoOnScheduleEnabled && r.document?.name ? ` ${r.document.name}` : ""}
           </Button>
         )}
+        {viewDo && isRealDoOnScheduleEnabled && <DoStatusTag tag={runDoTag(r.status)} />}
       </Stack>
       {startError && (
         <Alert severity="error" sx={{ mx: 1.75, mb: 1.75 }} onClose={() => setStartError(null)}>

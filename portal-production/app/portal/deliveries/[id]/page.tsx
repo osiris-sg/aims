@@ -51,6 +51,8 @@ import ScheduleDeliveryDialog from "@/app/portal/deliveries/_components/Schedule
 import DeliveryGroupPostsPanel from "@/components/deliveries/DeliveryGroupPostsPanel";
 import { SiteClockCard, SiteClockView } from "@/app/portal/deliveries/_components/SiteClockStatus";
 import { canPurge, confirmCopy, runWasStarted } from "@/app/portal/deliveries/_lib/run-actions";
+import DoStatusTag from "@/components/DoStatusTag";
+import { runDoTag } from "@/helpers/doStatusTag";
 
 /**
  * Delivery run detail (office). Items + the field PROOF (photos, signature,
@@ -257,7 +259,7 @@ export default function DeliveryDetailPage() {
   // Service-job org (enableQuotationToDelivery — WCT 2026-10-27): runs are jobs
   // from an accepted quotation, not rental deployments. No project to attach,
   // and a line is Equipment or SERVICE (work on site) instead of Rental / Sale.
-  const { isQuotationToDeliveryEnabled: serviceJobs } = useOrganizationFeatures();
+  const { isQuotationToDeliveryEnabled: serviceJobs, isRealDoOnScheduleEnabled: realDoNumbers } = useOrganizationFeatures();
   const deliveryId = params?.id as string;
 
   const [run, setRun] = useState<RunDetail | null>(null);
@@ -752,7 +754,7 @@ export default function DeliveryDetailPage() {
       setActing(false);
     }
   };
-  const confirmText = confirmAction ? confirmCopy(confirmAction, run) : null;
+  const confirmText = confirmAction ? confirmCopy(confirmAction, run, { keepsDo: realDoNumbers && !run.isDraft && run.items.some((i) => !!i.documentId) }) : null;
   const toggleItem = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -776,7 +778,11 @@ export default function DeliveryDetailPage() {
         ) : unlinkedItems.length > 0 ? (
           <Chip size="small" variant="outlined" color="warning" label={`${linkedCount} of ${run.items.length} linked`} />
         ) : distinctDocs.length === 1 ? (
-          <Chip size="small" variant="outlined" color="success" label={`Linked: ${distinctDocs[0].name ?? distinctDocs[0].id}`} />
+          <>
+            <Chip size="small" variant="outlined" color="success" label={`Linked: ${distinctDocs[0].name ?? distinctDocs[0].id}`} />
+            {/* Real DO numbers (enableRealDoOnSchedule): the job's state next to the number. */}
+            {realDoNumbers && !run.isDraft && <DoStatusTag tag={runDoTag(run.status)} />}
+          </>
         ) : (
           <Chip size="small" variant="outlined" color="success" label={`Linked: ${distinctDocs.length} DOs`} />
         )}
@@ -1073,18 +1079,21 @@ export default function DeliveryDetailPage() {
                   </TableCell>
                   <TableCell>
                     {it.document ? (
-                      <Chip
-                        size="small"
-                        variant="outlined"
-                        color="success"
-                        clickable
-                        label={it.document.name ?? it.document.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void openDocument(it.document!.id);
-                        }}
-                        title="Open this delivery order"
-                      />
+                      <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap>
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          color="success"
+                          clickable
+                          label={it.document.name ?? it.document.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void openDocument(it.document!.id);
+                          }}
+                          title="Open this delivery order"
+                        />
+                        {realDoNumbers && !run.isDraft && <DoStatusTag tag={runDoTag(run.status)} />}
+                      </Stack>
                     ) : (
                       <Typography variant="body2" color="text.secondary">—</Typography>
                     )}

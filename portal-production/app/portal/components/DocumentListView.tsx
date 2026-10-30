@@ -54,6 +54,9 @@ const DOC_STATUS_OPTIONS = [
 ];
 import { useCreateDocumentFlow } from "./useCreateDocumentFlow";
 import { docGrossTotal } from "@/helpers/docTotal";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import DoStatusTag from "@/components/DoStatusTag";
+import { docDoTag } from "@/helpers/doStatusTag";
 
 interface Props {
   documentTypes: string[];
@@ -204,6 +207,8 @@ export default function DocumentListView({
 
   // Customers for the Customer filter dropdown (stable, unfiltered options).
   const { customers: filterCustomers = [] } = useGetCustomers({ limit: 1000 });
+  // Real DO numbers (enableRealDoOnSchedule): a DO shows Pending / Completed / Cancelled next to its number.
+  const { isRealDoOnScheduleEnabled } = useOrganizationFeatures();
   const filterConfig: FilterField[] = useMemo(
     () => [
       { type: "dateRange", key: "createdOn", label: "Created On" },
@@ -269,8 +274,19 @@ export default function DocumentListView({
     {
       accessorKey: "name",
       header: `${documentLabel} #`,
-      cell: ({ row }: any) =>
-        row.original.name ? <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{row.original.name}</Box> : "—",
+      cell: ({ row }: any) => {
+        const r = row.original;
+        if (!r.name) return "—";
+        const num = <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{r.name}</Box>;
+        const isDo = ["DELIVERY_ORDER", "DO"].includes(String(r.documentType || r.type || "").toUpperCase());
+        if (!isRealDoOnScheduleEnabled || !isDo) return num;
+        return (
+          <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+            {num}
+            <DoStatusTag tag={docDoTag(r)} />
+          </Stack>
+        );
+      },
     },
     {
       accessorKey: "associated_customer",

@@ -469,6 +469,7 @@ model DeliverySiteClockJob {
   siteclockJobId   String?
   siteRef          String? // site ref last PUT (hash of org + customer + normalised address)
   syncedHash       String? // hash of the job fields last accepted by SiteClock
+  syncedDoNumber   String? // DO number in the job's title at the last sync ('' = none; null = synced before 2026-10-30)
   lastPushedStatus String? // SCHEDULED | IN_PROGRESS | COMPLETED | CANCELLED
   syncState        String    @default("PENDING") // PENDING | SYNCED | FAILED
   attempts         Int       @default(0)

@@ -1,4 +1,4 @@
-import { backoffMs, externalRefFor, jobNotes, planSync, PlanLink, PlanRun, siteRefFor, toSgtIso } from './siteclock-plan';
+import { backoffMs, externalRefFor, jobNotes, jobTitle, planSync, PlanLink, PlanRun, siteRefFor, toSgtIso } from './siteclock-plan';
 
 const ORG = '5c700000-0000-4000-8000-5c7000000001';
 const D = '11111111-1111-4111-8111-111111111111';
@@ -18,6 +18,8 @@ const run = (o: Partial<PlanRun> = {}): PlanRun => ({
   customerName: 'Acme Kitchens',
   projectName: null,
   items: [{ description: 'Exhaust degrease', quantity: 1 }],
+  doNumber: null,
+  doUrl: null,
   ...o,
 });
 const link = (o: Partial<PlanLink> = {}): PlanLink => ({
@@ -40,7 +42,7 @@ function applied(l: PlanLink, p: ReturnType<typeof planSync>): PlanLink {
     if (s.kind === 'regenerate') Object.assign(n, { generation: s.generation, externalRef: s.externalRef, siteclockJobId: null, syncedHash: null, lastPushedStatus: null, siteRef: null });
     if (s.kind === 'putSite') n.siteRef = s.siteRef;
     if (s.kind === 'create') Object.assign(n, { siteclockJobId: 'job1', syncedHash: s.hash, lastPushedStatus: 'SCHEDULED' });
-    if (s.kind === 'patch') n.syncedHash = s.hash;
+    if (s.kind === 'patch' || s.kind === 'patchText') n.syncedHash = s.hash;
     if (s.kind === 'status') n.lastPushedStatus = s.status;
     if (s.kind === 'cancel') n.lastPushedStatus = 'CANCELLED';
   }
@@ -155,6 +157,75 @@ describe('siteclock plan', () => {
       ),
     ).toBe('2 × Degrease\nFilter swap\n\nCall Mr Tan on arrival');
     expect(jobNotes(run({ items: [], notes: null }))).toBeNull();
+  });
+
+  describe('DO number in the title + View DO link', () => {
+    const DO_URL = 'https://app.ai-ms.io/guest/do/vo_abc';
+    const withDo = (o: Partial<PlanRun> = {}) => run({ doNumber: 'DO202610007', doUrl: DO_URL, ...o });
+
+    it('title "#<run> <customer> · <DO>" and the link on create', () => {
+      const p = planSync(withDo(), link(), D);
+      const create = p.steps.find((x) => x.kind === 'create') as any;
+      expect(create.fields).toMatchObject({ title: '#7 Acme Kitchens · DO202610007', externalUrl: DO_URL, externalUrlLabel: 'View DO' });
+    });
+
+    it('no DO yet: no "·" and no link', () => {
+      const create = planSync(run(), link(), D).steps.find((x) => x.kind === 'create') as any;
+      expect(create.fields).toMatchObject({ title: '#7 Acme Kitchens', externalUrl: null, externalUrlLabel: null });
+    });
+
+    it('a non-https link is never sent', () => {
+      const create = planSync(withDo({ doUrl: 'http://localhost:3000/guest/do/vo_x' }), link(), D).steps.find((x) => x.kind === 'create') as any;
+      expect(create.fields).toMatchObject({ externalUrl: null, externalUrlLabel: null });
+    });
+
+    it('a long customer name is clipped, the DO number never is', () => {
+      const t = jobTitle(withDo({ customerName: 'X'.repeat(300) }));
+      expect(t.length).toBeLessThanOrEqual(200);
+      expect(t.endsWith(' · DO202610007')).toBe(true);
+    });
+
+    it('renumbered while scheduled: one PATCH with the full fields', () => {
+      const l = applied(link(), planSync(withDo({ doNumber: 'DO-PENDING-01' }), link(), D));
+      const p = planSync(withDo(), l, D);
+      expect(kinds(p)).toEqual(['patch']);
+      expect((p.steps[0] as any).fields.title).toBe('#7 Acme Kitchens · DO202610007');
+    });
+
+    it('renumbered while in progress: wording only (title, notes, link), no schedule fields', () => {
+      let l = applied(link(), planSync(withDo({ doNumber: 'DO-PENDING-01' }), link(), D));
+      l = applied(l, planSync(withDo({ doNumber: 'DO-PENDING-01', status: 'in_progress' }), l, D));
+      const p = planSync(withDo({ status: 'in_progress' }), l, D);
+      expect(kinds(p)).toEqual(['patchText']);
+      expect(Object.keys((p.steps[0] as any).fields).sort()).toEqual(['externalUrl', 'externalUrlLabel', 'notes', 'title']);
+      l = applied(l, p);
+      expect(kinds(planSync(withDo({ status: 'in_progress' }), l, D))).toEqual([]);
+      // a moved window on a started run is still not sent
+      expect(kinds(planSync(withDo({ status: 'in_progress', scheduledFor: new Date('2026-11-05T02:00:00Z') }), l, D))).toEqual([]);
+    });
+
+    it('completed: a DO claimed at completion still reaches the title; then nothing', () => {
+      let l = applied(link(), planSync(withDo({ doNumber: 'DO-PENDING-01' }), link(), D));
+      l = applied(l, planSync(withDo({ doNumber: 'DO-PENDING-01', status: 'completed' }), l, D));
+      expect(l.lastPushedStatus).toBe('COMPLETED');
+      const p = planSync(withDo({ status: 'completed' }), l, D);
+      expect(kinds(p)).toEqual(['patchText']);
+      expect((p.steps[0] as any).fields.title).toBe('#7 Acme Kitchens · DO202610007');
+      l = applied(l, p);
+      expect(kinds(planSync(withDo({ status: 'completed' }), l, D))).toEqual([]);
+      expect(kinds(planSync(withDo({ status: 'completed', siteAddress: '' }), { ...l, syncedHash: null }, D))).toEqual([]);
+    });
+
+    it('status and wording together: wording first, then the status', () => {
+      let l = applied(link(), planSync(withDo({ doNumber: 'DO-PENDING-01' }), link(), D));
+      l = applied(l, planSync(withDo({ doNumber: 'DO-PENDING-01', status: 'in_progress' }), l, D));
+      expect(kinds(planSync(withDo({ status: 'completed' }), l, D))).toEqual(['patchText', 'status:COMPLETED']);
+    });
+
+    it('a link synced before this change (old 32-char hash) gets one wording update', () => {
+      const l = link({ lastPushedStatus: 'IN_PROGRESS', siteRef: siteRefFor(ORG, 'c1', '1 Tuas Ave 8, Singapore 639218'), syncedHash: 'f'.repeat(32), siteclockJobId: 'job1' });
+      expect(kinds(planSync(withDo({ status: 'in_progress' }), l, D))).toEqual(['patchText']);
+    });
   });
 
   it('backs off 1, 2, 5, 15, 30 min then hourly', () => {
