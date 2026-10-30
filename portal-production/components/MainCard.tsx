@@ -1,16 +1,23 @@
 "use client";
 import { Box, useMediaQuery, useTheme } from "@mui/material";
-import React from "react";
+import React, { createContext, useContext } from "react";
 
 interface Props {
   children: React.ReactNode;
 }
 
+// Set by a page that already wraps several sections in ONE MainCard (the jobs
+// calendar dashboard): a MainCard inside it renders as a plain block instead of
+// a second full-height scroll area. Unset everywhere else, so nothing changes.
+export const MainCardEmbedContext = createContext(false);
+
 export default function MainCard(props: Props) {
   const theme = useTheme();
   const isXsScreen = useMediaQuery(theme.breakpoints.down("md"));
+  const embedded = useContext(MainCardEmbedContext);
 
   const { children } = props;
+  if (embedded) return <Box sx={{ width: "100%" }}>{children}</Box>;
   return (
     <Box
       sx={{

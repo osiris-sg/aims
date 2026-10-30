@@ -430,6 +430,17 @@ export class SiteClockLinkService {
     return out;
   }
 
+  /**
+   * SiteClock's calendar feed for the jobs calendar (enableJobsCalendar). Uses
+   * the org's connection whether or not enableSiteClockLink is on; null when
+   * there is no enabled connection. SiteClock errors are thrown to the caller.
+   */
+  async calendarJobs(organizationId: string, from: string, to: string) {
+    const conn = await this.connection(organizationId);
+    if (!conn || !conn.enabled || !conn.apiKeyEnc) return null;
+    return (await this.client(conn).calendar(from, to)).jobs;
+  }
+
   /** For the schedule form: is the link on here, and the default duration. */
   async formConfig(organizationId: string) {
     if (!(await this.isLinked(organizationId))) return { enabled: false };

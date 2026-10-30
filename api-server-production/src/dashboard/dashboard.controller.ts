@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Body, Query, UseGuards, Req } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
+import { JobsCalendarService } from './jobs-calendar.service';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
@@ -19,7 +20,10 @@ interface RequestWithOrganization extends Request {
 @UseGuards(ClerkAuthGuard)
 @Controller('dashboard')
 export class DashboardController {
-  constructor(private readonly dashboardService: DashboardService) {}
+  constructor(
+    private readonly dashboardService: DashboardService,
+    private readonly jobsCalendar: JobsCalendarService,
+  ) {}
 
   @Get('overview')
   @Permissions('dashboard:read')
@@ -145,6 +149,17 @@ export class DashboardController {
   async saveOpsLayout(@Req() req: RequestWithOrganization, @Body() body: { layout: Array<{ id: string; w: number }> }) {
     const layout = Array.isArray(body?.layout) ? body.layout : [];
     return await this.dashboardService.saveOpsLayout(this.orgOf(req), this.userOf(req), layout);
+  }
+
+  // ── Jobs calendar (WCT 2026-10-30, enableJobsCalendar) ─────────────────
+  // Scheduled deliveries / returns / service runs plus the org's SiteClock
+  // jobs for a visible range (yyyy-MM-dd, inclusive, at most 62 days).
+
+  @Get('jobs-calendar')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Jobs calendar: AIMS runs and SiteClock jobs in a date range' })
+  async getJobsCalendar(@Req() req: RequestWithOrganization, @Query('from') from: string, @Query('to') to: string) {
+    return await this.jobsCalendar.get(this.orgOf(req), from, to);
   }
 
   private userOf(req: RequestWithOrganization): string {

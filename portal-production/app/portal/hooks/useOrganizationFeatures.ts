@@ -19,6 +19,7 @@ interface OrganizationFeatures {
   enableQuotationESign?: boolean;
   enableQuotationToDelivery?: boolean;
   enableSiteClockLink?: boolean;
+  enableJobsCalendar?: boolean;
   // Preset roles with built-in permissions; no role / permission editor for the client.
   enableRolePresets?: boolean;
   enableCappitechOrders?: boolean;
@@ -150,6 +151,10 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // its SiteClock state. Also needs the org's SiteClock connection (Admin →
   // organisation → SiteClock). Default OFF.
   enableSiteClockLink: false,
+  // Jobs calendar (WCT 2026-10-30): the Dashboard opens with a month / week /
+  // day calendar of scheduled deliveries, returns, service runs and the org's
+  // SiteClock jobs; the usual dashboard sections sit below it. Default OFF.
+  enableJobsCalendar: false,
 };
 
 interface OrganizationUIConfig {
@@ -218,6 +223,7 @@ export function useOrganizationFeatures() {
     isQuotationESignEnabled: features.enableQuotationESign ?? false,
     isQuotationToDeliveryEnabled: features.enableQuotationToDelivery ?? false,
     isSiteClockLinkEnabled: features.enableSiteClockLink ?? false,
+    isJobsCalendarEnabled: features.enableJobsCalendar ?? false,
     isRolePresetsEnabled: features.enableRolePresets ?? false,
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,
