@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma.service';
+import { randomBytes } from 'crypto';
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import { open, seal, secretBoxReady } from '../common/secret-box';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -32,7 +33,11 @@ export interface SiteClockLinkView {
 }
 
 type Conn = { id: string; organizationId: string; baseUrl: string; siteclockCompanyId: string; apiKeyEnc: string; enabled: boolean; defaultDurationMin: number };
-type LinkRow = PlanLink & { id: string; organizationId: string; deliveryId: string; workerName: string | null; attempts: number; alertedAt: Date | null };
+type LinkRow = PlanLink & { id: string; organizationId: string; deliveryId: string; workerName: string | null; attempts: number; alertedAt: Date | null; syncedDoNumber: string | null };
+
+/** The portal's public origin, for the DO's guest link (SiteClock takes https only). */
+const portalOrigin = () => (process.env.PORTAL_URL || process.env.FRONTEND_URL || 'https://app.ai-ms.io').replace(/\/+$/, '');
+const VIEW_ONLY_PREFIX = 'vo_'; // PublicDocumentService's view-only (unsignable) /guest/do links
 
 const SITECLOCK_STATUSES: PushedStatus[] = ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
 const asPushed = (s: string | undefined | null): PushedStatus | null => (SITECLOCK_STATUSES.includes(s as PushedStatus) ? (s as PushedStatus) : null);
@@ -159,7 +164,7 @@ export class SiteClockLinkService {
 
   // ── sync ─────────────────────────────────────────────────────────────────
 
-  private async loadRun(organizationId: string, deliveryId: string): Promise<PlanRun | null> {
+  private async loadRun(organizationId: string, deliveryId: string, mintLink = true): Promise<PlanRun | null> {
     const run = await runAsOrg(organizationId, () =>
       this.prisma.delivery.findFirst({
         where: { id: deliveryId, organizationId },
@@ -177,7 +182,7 @@ export class SiteClockLinkService {
           customerId: true,
           customer: { select: { name: true } },
           project: { select: { name: true } },
-          items: { select: { description: true, quantity: true, assetId: true }, orderBy: { sortOrder: 'asc' } },
+          items: { select: { description: true, quantity: true, assetId: true, documentId: true }, orderBy: { sortOrder: 'asc' } },
         },
       }),
     );
@@ -187,6 +192,7 @@ export class SiteClockLinkService {
     const assetIds = [...new Set((r.items ?? []).map((i: any) => i.assetId).filter(Boolean))] as string[];
     const assets = assetIds.length ? await runAsOrg(organizationId, () => this.prisma.asset.findMany({ where: { id: { in: assetIds }, organizationId }, select: { id: true, name: true } })) : [];
     const assetName = new Map(assets.map((a: any) => [a.id, a.name as string]));
+    const doc = await this.runDo(organizationId, (r.items ?? []).map((i: any) => i.documentId));
     return {
       id: r.id,
       organizationId: r.organizationId,
@@ -202,7 +208,50 @@ export class SiteClockLinkService {
       customerName: r.customer?.name ?? null,
       projectName: r.project?.name ?? null,
       items: (r.items ?? []).map((i: any) => ({ description: String(i.description || assetName.get(i.assetId) || ''), quantity: Number(i.quantity) || 1 })),
+      doNumber: doc?.name ?? null,
+      doUrl: doc ? await this.doLink(organizationId, doc.id, mintLink) : null,
     };
+  }
+
+  /** The run as the next sync would see it, WITHOUT minting a guest link (the backfill dry run). */
+  loadRunForDryRun(organizationId: string, deliveryId: string): Promise<PlanRun | null> {
+    return this.loadRun(organizationId, deliveryId, false);
+  }
+
+  /** The run's Delivery Order (the document its lines point at), if any. */
+  private async runDo(organizationId: string, documentIds: (string | null)[]) {
+    const ids = [...new Set(documentIds.filter((v): v is string => !!v))];
+    if (!ids.length) return null;
+    return runAsOrg(organizationId, () =>
+      this.prisma.document.findFirst({
+        where: { id: { in: ids }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, name: true },
+      }),
+    );
+  }
+
+  /**
+   * "View DO" on the SiteClock job: the DO's VIEW-ONLY guest page
+   * (/guest/do/vo_…, same page as the office's DO link but never signable, so a
+   * worker can't sign for the customer). Reuses the newest live view-only link;
+   * mints one only when the DO never had one. If the office has revoked them
+   * all, the job gets no link — a revoke is never undone by a sync.
+   */
+  private async doLink(organizationId: string, documentId: string, mint = true): Promise<string | null> {
+    return runAsOrg(organizationId, async () => {
+      const links = await this.prisma.documentShareLink.findMany({
+        where: { documentId, token: { startsWith: VIEW_ONLY_PREFIX } },
+        orderBy: { createdAt: 'desc' },
+        select: { token: true, revokedAt: true },
+      });
+      const live = links.find((l) => !l.revokedAt);
+      if (!live && (links.length || !mint)) return null;
+      const token =
+        live?.token ??
+        (await this.prisma.documentShareLink.create({ data: { documentId, token: `${VIEW_ONLY_PREFIX}${randomBytes(32).toString('base64url')}` }, select: { token: true } })).token;
+      return `${portalOrigin()}/guest/do/${token}`;
+    });
   }
 
   /** Bring one link's SiteClock job in line with its run. Returns the final link state. */
@@ -230,6 +279,7 @@ export class SiteClockLinkService {
     }
 
     const run = await this.loadRun(org, link.deliveryId);
+    const doNumber = run?.doNumber ?? null;
     const done: string[] = [];
     // A step can teach us SiteClock's real state (e.g. the job was already
     // cancelled there); re-plan from it, a few rounds at most.
@@ -239,7 +289,9 @@ export class SiteClockLinkService {
       if (!plan.steps.length) {
         await this.prisma.deliverySiteClockJob.update({
           where: { id: link.id },
-          data: { syncState: 'SYNCED', attempts: 0, lastError: null, lastSyncedAt: new Date(), alertedAt: null },
+          // syncedDoNumber: the DO number the job now shows ('' = none), so the
+          // sweep notices a renumbered DO ('' vs null = synced before it existed).
+          data: { syncState: 'SYNCED', attempts: 0, lastError: null, lastSyncedAt: new Date(), alertedAt: null, syncedDoNumber: doNumber ?? '' },
         });
         await this.prisma.siteClockConnection.update({ where: { id: conn.id }, data: { lastOkAt: new Date(), lastError: null } }).catch(() => undefined);
         if (done.length) {
@@ -283,8 +335,11 @@ export class SiteClockLinkService {
         const r = await client.createJob({ externalRef: link.externalRef, ...step.fields });
         return this.save(link, { siteclockJobId: r.job.id, syncedHash: step.hash, lastPushedStatus: asPushed(r.job.status) ?? 'SCHEDULED' });
       }
-      case 'patch': {
-        const r = await client.patchJob(link.externalRef, { ...step.fields });
+      case 'patch':
+      case 'patchText': {
+        // patchText: the job has started or finished — title, notes and link
+        // only, and the worker isn't pinged for a renumbered DO.
+        const r = await client.patchJob(link.externalRef, { ...step.fields, ...(step.kind === 'patchText' ? { notify: false } : {}) });
         return this.save(link, { siteclockJobId: r.job.id, syncedHash: step.hash, lastPushedStatus: asPushed(r.job.status) ?? link.lastPushedStatus });
       }
       case 'status': {
@@ -398,12 +453,54 @@ export class SiteClockLinkService {
           if (want !== l.lastPushedStatus) ids.add(l.id);
         }
       }
+      for (const id of await this.renumbered([...orgs])) ids.add(id);
       for (const id of ids) await this.syncLink(id).catch((e: any) => this.logger.warn(`sweep ${id}: ${e?.message}`));
     } catch (e: any) {
       this.logger.warn(`sweep failed: ${e?.message}`);
     } finally {
       this.sweeping = false;
     }
+  }
+
+  /**
+   * Links whose DO number changed since the job last took it (a DO-PENDING-NN
+   * claimed at completion, a number edited on the DO), so the title follows —
+   * also on started and finished jobs. Only links synced since syncedDoNumber
+   * existed are compared; older ones are brought over by the backfill script.
+   */
+  private async renumbered(orgs: string[]): Promise<string[]> {
+    const out: string[] = [];
+    const links = await this.prisma.deliverySiteClockJob.findMany({
+      where: { organizationId: { in: orgs }, syncState: 'SYNCED', syncedDoNumber: { not: null }, lastPushedStatus: { in: ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED'] } },
+      select: { id: true, organizationId: true, deliveryId: true, syncedDoNumber: true },
+    });
+    const byOrg = new Map<string, typeof links>();
+    for (const l of links) byOrg.set(l.organizationId, [...(byOrg.get(l.organizationId) ?? []), l]);
+    for (const [org, rows] of byOrg) {
+      const items = await runAsOrg(org, () =>
+        this.prisma.deliveryItem.findMany({
+          where: { deliveryId: { in: rows.map((l) => l.deliveryId) }, documentId: { not: null } },
+          select: { deliveryId: true, documentId: true },
+        }),
+      );
+      const docIds = [...new Set(items.map((i) => i.documentId!))];
+      const docs = docIds.length
+        ? await runAsOrg(org, () =>
+            this.prisma.document.findMany({
+              where: { id: { in: docIds }, organizationId: org, type: { in: ['DELIVERY_ORDER', 'DO'] } },
+              orderBy: { createdAt: 'asc' },
+              select: { id: true, name: true },
+            }),
+          )
+        : [];
+      const nameById = new Map(docs.map((d) => [d.id, d.name ?? '']));
+      const runDo = new Map<string, string>();
+      for (const d of docs) {
+        for (const i of items) if (i.documentId === d.id && !runDo.has(i.deliveryId)) runDo.set(i.deliveryId, nameById.get(d.id)!);
+      }
+      for (const l of rows) if ((runDo.get(l.deliveryId) ?? '') !== l.syncedDoNumber) out.push(l.id);
+    }
+    return out;
   }
 
   // ── office reads ─────────────────────────────────────────────────────────

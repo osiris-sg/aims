@@ -8,6 +8,8 @@ const matches = (row: Row, where: Row = {}): boolean =>
     if (v && typeof v === 'object' && !(v instanceof Date)) {
       if ('in' in v) return v.in.includes(row[k]);
       if ('lte' in v) return row[k] <= v.lte;
+      if ('startsWith' in v) return typeof row[k] === 'string' && row[k].startsWith(v.startsWith);
+      if ('not' in v) return v.not === null ? row[k] != null : row[k] !== v.not;
     }
     return row[k] === v;
   });
@@ -75,6 +77,9 @@ function world() {
     deliverySiteClockJob: table([], linkDefaults),
     delivery: table([]),
     asset: table([]),
+    deliveryItem: table([]),
+    document: table([]),
+    documentShareLink: table([], () => ({ revokedAt: null })),
   };
   const bells: any[] = [];
   const notifications: any = { emit: async (p: any) => void bells.push(p) };
@@ -177,6 +182,64 @@ function world() {
 }
 
 describe('SiteClockLinkService', () => {
+  it('title carries the DO number, the job a View DO link (view-only, minted once); a renumbered DO follows; a revoke is respected', async () => {
+    const w = world();
+    const doc = { id: 'doc1', organizationId: WCT, type: 'DELIVERY_ORDER', name: 'DO202610007', createdAt: new Date() };
+    w.prisma.document.rows.push(doc);
+    const run = w.addRun({ items: [{ description: 'Degrease', quantity: 1, assetId: null, documentId: 'doc1' }] });
+    w.prisma.deliveryItem.rows.push({ deliveryId: run.id, documentId: 'doc1' });
+    await w.svc.onScheduleSaved(WCT, run.id, { workerId: 'w1', workerName: 'Ali' });
+    await w.settle();
+    const ref = `aims-delivery:${run.id}`;
+    let job = w.sc.jobs.get(ref)!;
+    expect(job.title).toBe(`#${run.deliveryNumber} Acme · DO202610007`);
+    expect(job.externalUrl).toMatch(/^https:\/\/[^/]+\/guest\/do\/vo_[A-Za-z0-9_-]{40,}$/);
+    expect(job.externalUrlLabel).toBe('View DO');
+    expect(w.prisma.documentShareLink.rows).toHaveLength(1);
+    expect(w.linkOf(run.id).syncedDoNumber).toBe('DO202610007');
+
+    await w.svc.touch(WCT, run.id);
+    await w.settle();
+    expect(w.prisma.documentShareLink.rows).toHaveLength(1); // reused, not re-minted
+
+    Object.assign(run, { status: 'in_progress', startedAt: new Date('2026-11-03T02:05:00Z') });
+    await w.svc.touch(WCT, run.id);
+    await w.settle();
+    doc.name = 'DO202610009'; // renumbered on the DO, no hook on that path
+    const calls = w.sc.calls.length;
+    await w.svc.sweep();
+    job = w.sc.jobs.get(ref)!;
+    expect(job.title).toBe(`#${run.deliveryNumber} Acme · DO202610009`);
+    expect(job.status).toBe('IN_PROGRESS');
+    expect(w.sc.calls.slice(calls)).toEqual([`PATCH /v1/jobs/by-ref/${ref}`]);
+    expect(w.linkOf(run.id).syncedDoNumber).toBe('DO202610009');
+    await w.svc.sweep();
+    expect(w.sc.calls.length).toBe(calls + 1); // nothing new: no further calls
+
+    w.prisma.documentShareLink.rows[0].revokedAt = new Date(); // office revoked the DO link
+    doc.name = 'DO202610010';
+    await w.svc.sweep();
+    job = w.sc.jobs.get(ref)!;
+    expect(job.externalUrl).toBeNull();
+    expect(job.title.endsWith('DO202610010')).toBe(true);
+    expect(w.prisma.documentShareLink.rows).toHaveLength(1); // not re-minted after a revoke
+  });
+
+  it('links synced before syncedDoNumber existed are left to the backfill', async () => {
+    const w = world();
+    const doc = { id: 'doc2', organizationId: WCT, type: 'DELIVERY_ORDER', name: 'DO-PENDING-01', createdAt: new Date() };
+    w.prisma.document.rows.push(doc);
+    const run = w.addRun({ items: [{ description: 'Degrease', quantity: 1, assetId: null, documentId: 'doc2' }] });
+    w.prisma.deliveryItem.rows.push({ deliveryId: run.id, documentId: 'doc2' });
+    await w.svc.onScheduleSaved(WCT, run.id, { workerId: 'w1', workerName: 'Ali' });
+    await w.settle();
+    w.linkOf(run.id).syncedDoNumber = null; // as synced by the previous release
+    doc.name = 'DO202610011';
+    const calls = w.sc.calls.length;
+    await w.svc.sweep();
+    expect(w.sc.calls.length).toBe(calls);
+  });
+
   it('does nothing at all for an org without the flag', async () => {
     const w = world();
     const run = w.addRun({ organizationId: OTHER });

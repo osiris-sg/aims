@@ -55,6 +55,9 @@ import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { ListCard, StatusChip } from "@/app/(field)/components/fieldUi";
 import type { FieldTone } from "@/themes/fieldTheme";
 import { claimReturnRun } from "../../../lib/deliveryLists";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import DoStatusTag from "@/components/DoStatusTag";
+import { runDoTag } from "@/helpers/doStatusTag";
 
 /**
  * Standalone-delivery BASKET (Layer 3 + in-basket scanning patch).
@@ -154,6 +157,8 @@ const RUN_STATUS_LABEL: Record<Run["status"], string> = {
 };
 
 export default function DeliveryBasketPage() {
+  // Real DO numbers (enableRealDoOnSchedule): the DO's state sits next to its number.
+  const { isRealDoOnScheduleEnabled } = useOrganizationFeatures();
   const params = useParams();
   const router = useRouter();
   const { getToken } = useAuth();
@@ -1656,6 +1661,11 @@ export default function DeliveryBasketPage() {
               return ` · ${distinct.length} DOs`;
             })()}
           </Typography>
+          {isRealDoOnScheduleEnabled && run.items.some((i) => i.document) && (
+            <Box sx={{ mt: 0.5 }}>
+              <DoStatusTag tag={runDoTag(run.status)} />
+            </Box>
+          )}
         </Box>
       </Stack>
 

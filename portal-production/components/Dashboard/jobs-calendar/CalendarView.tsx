@@ -16,6 +16,7 @@ import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
 import { CALENDAR_TZ, CANCELLED_COLOR, KIND_COLOR, KIND_LABEL, crewLine, timeWindow, toCalendarInputs, type CalendarEvent } from "./calendarModel";
+import DoStatusTag from "@/components/DoStatusTag";
 
 interface Props {
   events: CalendarEvent[];
@@ -167,11 +168,26 @@ function EventCard({ event: e }: { event: CalendarEvent }) {
           sx={{ height: 22, bgcolor: alpha(color, 0.15), color: "text.primary", border: `1px solid ${alpha(color, 0.5)}` }}
         />
       </Row>
+      {e.doNumber && (
+        <Row label="DO">
+          <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Box component="span" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{e.doNumber}</Box>
+            {e.doTag && <DoStatusTag tag={e.doTag} />}
+          </Stack>
+        </Row>
+      )}
       <Divider sx={{ my: 1.5 }} />
       {e.href ? (
-        <Button component={Link} href={e.href} size="small" variant="contained" disableElevation>
-          Open delivery
-        </Button>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          <Button component={Link} href={e.href} size="small" variant="contained" disableElevation>
+            Open delivery
+          </Button>
+          {e.doHref && (
+            <Button component={Link} href={e.doHref} size="small" variant="outlined">
+              View DO
+            </Button>
+          )}
+        </Stack>
       ) : e.siteclockUrl ? (
         <Button href={e.siteclockUrl} target="_blank" rel="noopener noreferrer" size="small" variant="outlined" endIcon={<OpenInNewIcon fontSize="small" />}>
           Open in SiteClock

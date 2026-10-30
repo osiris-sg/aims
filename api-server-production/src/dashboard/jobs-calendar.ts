@@ -11,12 +11,16 @@
  *  - SiteClock jobs AIMS created (externalRef "aims-delivery:…") never show on
  *    their own: their crew and arrive / leave times merge onto the AIMS event.
  *  - Every other SiteClock job is its own event.
+ *  - An AIMS run's popup carries its DO number, the DO's Pending / Completed /
+ *    Cancelled tag and the office DO page (WCT real DO numbers, 2026-10-30).
  */
+import { DoStatusTag, doStatusTag } from '../deliveries/do-number';
 
 export const CALENDAR_TZ = 'Asia/Singapore';
 export const CALENDAR_MAX_DAYS = 62;
 export const DEFAULT_RUN_MINUTES = 60;
 const SGT_OFFSET_MS = 8 * 3600_000;
+
 const AIMS_REF = 'aims-delivery:';
 
 export interface CalendarRun {
@@ -32,6 +36,8 @@ export interface CalendarRun {
   projectName: string | null;
   /** Any SERVICE line on the run (WCT service jobs). */
   service: boolean;
+  /** The run's Delivery Order (the document its lines point at), if it has one. */
+  deliveryOrder?: { id: string; name: string | null; status: string; templateId: string; cancelled: boolean } | null;
 }
 
 export interface CalendarLink {
@@ -93,6 +99,20 @@ export interface CalendarEvent {
   /** "Open in SiteClock" (SiteClock jobs only). */
   siteclockUrl: string | null;
   deliveryNumber: number | null;
+  /** AIMS runs with a DO: its number, its Pending / Completed / Cancelled tag and the office DO page. */
+  doNumber: string | null;
+  doTag: DoStatusTag | null;
+  doHref: string | null;
+}
+
+/** The DO block of a run's popup: number, tag (from the DO itself) and the office DO page. */
+function doFields(d: CalendarRun['deliveryOrder']): Pick<CalendarEvent, 'doNumber' | 'doTag' | 'doHref'> {
+  if (!d) return { doNumber: null, doTag: null, doHref: null };
+  return {
+    doNumber: d.name,
+    doTag: doStatusTag({ status: d.status, config: { cancelled: d.cancelled } }),
+    doHref: `/portal/documents/DELIVERY_ORDER/${d.templateId}/${d.id}`,
+  };
 }
 
 const RUN_STATUS_LABEL: Record<string, string> = {
@@ -189,6 +209,9 @@ export function buildCalendarEvents(runs: CalendarRun[], links: CalendarLink[], 
       href: null,
       siteclockUrl: j.webUrl,
       deliveryNumber: null,
+      doNumber: null,
+      doTag: null,
+      doHref: null,
     });
   }
 
@@ -219,6 +242,7 @@ export function buildCalendarEvents(runs: CalendarRun[], links: CalendarLink[], 
       href: `/portal/deliveries/${r.id}`,
       siteclockUrl: null,
       deliveryNumber: r.deliveryNumber,
+      ...doFields(r.deliveryOrder),
     });
   }
 

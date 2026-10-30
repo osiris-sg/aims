@@ -125,4 +125,11 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // events alone when there is none). Existing dashboard sections move below
   // it. Default OFF; WCT only.
   enableJobsCalendar: false,
+  // Real DO numbers on schedule (WCT 2026-10-30): a scheduled delivery's DO gets
+  // its real number (e.g. DO202610007) the moment it is scheduled — no
+  // DO-PENDING-NN placeholder — issued with the counter locked so concurrent
+  // schedules never share one. Completion keeps the number; cancelling keeps
+  // the DO as Cancelled. A Pending / Completed / Cancelled tag shows next to
+  // the number. Default OFF; WCT only.
+  enableRealDoOnSchedule: false,
 };

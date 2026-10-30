@@ -32,6 +32,10 @@ export interface CalendarEvent {
   href: string | null;
   siteclockUrl: string | null;
   deliveryNumber: number | null;
+  /** AIMS runs with a DO: its number, Pending / Completed / Cancelled tag, and the office DO page. */
+  doNumber?: string | null;
+  doTag?: "Pending" | "Completed" | "Cancelled" | null;
+  doHref?: string | null;
 }
 
 export interface CalendarPayload {

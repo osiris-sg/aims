@@ -81,6 +81,8 @@ import {
   DragIndicator as DragIndicatorIcon,
 } from "@mui/icons-material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import DoStatusTag from "@/components/DoStatusTag";
+import { docDoTag } from "@/helpers/doStatusTag";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import DocumentAssistantDrawer, { ProposalPatch } from "./DocumentAssistantDrawer";
 import DocumentHistoryDrawer from "./DocumentHistoryDrawer";
@@ -357,7 +359,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled } = useOrganizationFeatures();
   // The Project header row + the DO "project required" rule only make sense
   // for orgs that run the Projects module. An org without it (Chong Aik, guru
   // 2026-10-22) must not see "Select a project / Create new project" even when
@@ -4948,6 +4950,14 @@ export default function TabbedDocumentCreator({
                 borderColor: "divider",
               }}
             >
+              {/* Real DO numbers (enableRealDoOnSchedule): the DO's number is final from
+                  the day it is scheduled, so whether the job is done shows as a tag. */}
+              {isRealDoOnScheduleEnabled && String(actualDocumentType || "").toUpperCase() === "DELIVERY_ORDER" && existingData?.name && (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mr: "auto" }}>
+                  <Typography variant="body2" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{existingData.name}</Typography>
+                  <DoStatusTag tag={docDoTag({ status: existingData?.status, config: existingData })} />
+                </Box>
+              )}
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                 <Typography variant="body2" sx={{ fontStyle: "italic", fontWeight: 600, color: "text.secondary" }}>
                   Unconfirmed User:

@@ -55,6 +55,7 @@ export function parseAdHocReturnNotes(notes: string | null | undefined): { custo
 import { enqueueDeliveryGroupPost } from '../delivery-group-posts/enqueue';
 import { isOrgFeatureEnabled } from 'src/common/org-features';
 import { QUOTATION_TO_DELIVERY_FLAG, applyQuotationLinkToDoConfig } from './quotation-to-delivery';
+import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from './do-number';
 import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
 @Injectable()
 export class DeliveriesService {
@@ -691,8 +692,11 @@ export class DeliveriesService {
           },
           include: { items: true },
         });
-      } catch (err) {
-        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') continue;
+      } catch (err: any) {
+        // By code, not instanceof: under per-org tenancy the error comes from an
+        // org client's own Prisma runtime, so the class check missed it and two
+        // schedules at the same moment failed instead of taking the next number.
+        if (err?.code === 'P2002') continue;
         throw err;
       }
     }
@@ -733,19 +737,7 @@ export class DeliveriesService {
         // ids the rows were just created with — a direct pairing, not sortOrder).
         deliveryItemIdFor: (lineIdx, n) => plannedIds[lineIdx]?.[n],
       });
-      // OSI-83: a scheduled DRAFT must NOT consume a real DO number — mint a
-      // per-org placeholder (DO-PENDING-NN); the real number is claimed when the
-      // office confirms the DO. Max-of-existing so it survives arbitrary padding.
-      const pendings = await this.prisma.document.findMany({
-        where: { organizationId, name: { startsWith: 'DO-PENDING-' } },
-        select: { name: true },
-      });
-      const maxPending = pendings.reduce((mx, d) => {
-        const mm = d.name?.match(/-(\d+)$/);
-        return mm ? Math.max(mx, parseInt(mm[1], 10)) : mx;
-      }, 0);
-      const placeholderName = `DO-PENDING-${String(maxPending + 1).padStart(2, '0')}`;
-      const doc = await this.documentsService.createBasicDocument(templateId, 'DELIVERY_ORDER', organizationId, doConfig, dto.projectId, undefined, placeholderName);
+      const doc = await this.createScheduledDo(templateId, organizationId, doConfig, dto.projectId);
       documentId = doc.id;
       await this.prisma.deliveryItem.updateMany({ where: { deliveryId: run.id }, data: { documentId: doc.id } });
     } catch (err: any) {
@@ -779,6 +771,36 @@ export class DeliveriesService {
     await this.siteclock?.onScheduleSaved(organizationId, run.id, siteclockInput(dto));
 
     return { ...run, documentId };
+  }
+
+  /**
+   * The DO a run gets when it is scheduled (createScheduled, or a draft's
+   * promotion in updateScheduled).
+   *
+   * Default (OSI-83): a scheduled run must NOT consume a real DO number — mint a
+   * per-org placeholder (DO-PENDING-NN); the real number is claimed when the
+   * office confirms the DO or the run completes. Max-of-existing so it survives
+   * arbitrary padding.
+   *
+   * enableRealDoOnSchedule (WCT 2026-10-30): the REAL number now, issued with
+   * the counter locked (DocumentsService.createNumberedDeliveryOrder). The DO is
+   * stamped issuedOnSchedule so a later cancel keeps it (as Cancelled) and a
+   * delete of the run refuses.
+   */
+  private async createScheduledDo(templateId: string, organizationId: string, doConfig: any, projectId?: string) {
+    if (await isOrgFeatureEnabled(this.prisma, organizationId, REAL_DO_ON_SCHEDULE_FLAG)) {
+      return this.documentsService.createNumberedDeliveryOrder(templateId, organizationId, { ...doConfig, issuedOnSchedule: true }, projectId);
+    }
+    const pendings = await this.prisma.document.findMany({
+      where: { organizationId, name: { startsWith: 'DO-PENDING-' } },
+      select: { name: true },
+    });
+    const maxPending = pendings.reduce((mx, d) => {
+      const mm = d.name?.match(/-(\d+)$/);
+      return mm ? Math.max(mx, parseInt(mm[1], 10)) : mx;
+    }, 0);
+    const placeholderName = `DO-PENDING-${String(maxPending + 1).padStart(2, '0')}`;
+    return this.documentsService.createBasicDocument(templateId, 'DELIVERY_ORDER', organizationId, doConfig, projectId, undefined, placeholderName);
   }
 
   /**
@@ -1076,18 +1098,7 @@ export class DeliveriesService {
         if (run.sourceQuotationId) {
           await applyQuotationLinkToDoConfig(this.prisma, organizationId, run.sourceQuotationId, doConfig, this.logger);
         }
-        const pending = await this.prisma.document.findMany({
-          where: { organizationId, name: { startsWith: 'DO-PENDING-' } },
-          select: { name: true },
-        });
-        const maxPending = pending.reduce((mx, d) => {
-          const mm = d.name?.match(/-(\d+)$/);
-          return mm ? Math.max(mx, parseInt(mm[1], 10)) : mx;
-        }, 0);
-        const placeholderName = `DO-PENDING-${String(maxPending + 1).padStart(2, '0')}`;
-        const doc = await this.documentsService.createBasicDocument(
-          templateId, 'DELIVERY_ORDER', organizationId, doConfig, dto.projectId, undefined, placeholderName,
-        );
+        const doc = await this.createScheduledDo(templateId, organizationId, doConfig, dto.projectId);
         await this.prisma.deliveryItem.updateMany({ where: { deliveryId: id }, data: { documentId: doc.id } });
       } catch (err: any) {
         this.logger.error(`updateScheduled: DO mint on promotion failed for delivery ${id}: ${err?.message}`, err?.stack);
@@ -6089,9 +6100,14 @@ export class DeliveriesService {
       if (docId) {
         const doc = await this.prisma.document.findFirst({
           where: { id: docId, organizationId },
-          select: { id: true, name: true, status: true },
+          select: { id: true, name: true, status: true, config: true },
         });
-        if (doc && isUnconfirmedDoc(doc.status)) {
+        if (doc && isIssuedOnSchedule(doc.config) && isUnconfirmedDoc(doc.status)) {
+          // enableRealDoOnSchedule: the DO was issued under its real number, so it
+          // stays — same number, marked Cancelled (void). Never deleted.
+          await this.prisma.document.update({ where: { id: doc.id }, data: { config: cancelledDoConfig(doc.config, delivery.deliveryNumber) } });
+          note = `Delivery Order ${doc.name ?? doc.id} is kept and marked Cancelled.`;
+        } else if (doc && isUnconfirmedDoc(doc.status)) {
           await this.prisma.document.delete({ where: { id: docId } });
         } else if (doc) {
           note = `Draft DO ${doc.name ?? doc.id} was already confirmed — left in place; only the run was cancelled.`;
@@ -6205,6 +6221,16 @@ export class DeliveriesService {
         where: { id: { in: docIds }, organizationId },
         select: { id: true, name: true, status: true },
       });
+      // enableRealDoOnSchedule: an issued DO number is never deleted with its run.
+      const issued = await this.prisma.document.findFirst({
+        where: { id: { in: docIds }, organizationId, config: { path: ['issuedOnSchedule'], equals: true } },
+        select: { id: true, name: true },
+      });
+      if (issued) {
+        throw new BadRequestException(
+          `This run's Delivery Order ${issued.name ?? issued.id} already has its number. Cancel the run instead — the DO is kept and marked Cancelled.`,
+        );
+      }
       const confirmed = docs.find((d) => !isUnconfirmedDoc(d.status));
       if (confirmed) {
         throw new BadRequestException(
