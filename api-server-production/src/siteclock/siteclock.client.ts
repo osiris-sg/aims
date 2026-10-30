@@ -43,6 +43,31 @@ export interface SiteClockJob {
   [k: string]: any;
 }
 
+/** One job on SiteClock's calendar feed (GET /v1/jobs/calendar), its own or AIMS's. */
+export interface SiteClockCalendarJob {
+  id: string;
+  source: 'siteclock' | 'external';
+  externalSource: string | null;
+  externalRef: string | null;
+  externalStatus: string | null;
+  title: string;
+  location: string;
+  description: string | null;
+  date: string;
+  startTime: string | null;
+  expectedMinutes: number | null;
+  timezone: string;
+  allDay: boolean;
+  startAt: string | null;
+  endAt: string | null;
+  site: { id: string; externalRef: string | null; name: string; address: string | null; lat: number; lng: number };
+  teams: { id: string; name: string }[];
+  progress: 'NOT_STARTED' | 'IN_PROGRESS' | 'DONE';
+  crew: { workerId: string; name: string; employeeNo: string | null; arrivedAt: string | null; leftAt: string | null; onJobMinutes: number | null }[];
+  cancelledAt: string | null;
+  webUrl: string;
+}
+
 export interface SiteClockClientOptions {
   baseUrl: string;
   apiKey: string;
@@ -114,6 +139,13 @@ export class SiteClockClient {
   }
   cancelJob(ref: string, reason?: string) {
     return this.call<{ job: SiteClockJob }>('POST', `/v1/jobs/by-ref/${this.ref(ref)}/cancel`, reason ? { reason } : {});
+  }
+  /** Every job of the company on from..to (yyyy-MM-dd, inclusive, at most 62 days). */
+  calendar(from: string, to: string) {
+    return this.call<{ from: string; to: string; timezone: string; jobs: SiteClockCalendarJob[] }>(
+      'GET',
+      `/v1/jobs/calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    );
   }
   getJob(ref: string) {
     return this.call<{ job: SiteClockJob }>('GET', `/v1/jobs/by-ref/${this.ref(ref)}`);

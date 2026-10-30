@@ -119,4 +119,10 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // COMPLETED when it is done); nothing comes back. Also needs an enabled
   // SiteClockConnection (Admin → organisation → SiteClock). Default OFF.
   enableSiteClockLink: false,
+  // Jobs calendar (WCT 2026-10-30): the Dashboard opens with a month / week /
+  // day calendar of scheduled deliveries, returns and service runs plus every
+  // job on the org's SiteClock company (uses its SiteClockConnection; AIMS
+  // events alone when there is none). Existing dashboard sections move below
+  // it. Default OFF; WCT only.
+  enableJobsCalendar: false,
 };

@@ -1817,6 +1817,7 @@ model Delivery {
   @@index([documentId])
   @@index([organizationId, status, createdAt])
   @@index([organizationId, sourceQuotationId])
+  @@index([organizationId, scheduledFor]) // jobs calendar range reads
 }
 
 model DeliveryItem {
