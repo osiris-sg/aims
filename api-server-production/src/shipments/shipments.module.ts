@@ -1,3 +1,4 @@
+import { TradeDueService } from './trade-due.service';
 import { ClientsController } from './clients.controller';
 import { ClientsService } from './clients.service';
 import { MonthlyListController } from './monthly-list.controller';
@@ -89,6 +90,7 @@ import { TradeStepsService } from './trade-steps.service';
     TradePriceCheckService,
     TradePaymentsService,
     TradeAlertsService,
+    TradeDueService, // round AY: due dates per step
     LmeFeedService,
     CarrierTrackingService,
     TradeDashboardService,
@@ -107,6 +109,6 @@ import { TradeStepsService } from './trade-steps.service';
     TradeCastIndexService,
     PrismaService,
   ],
-  exports: [CarrierTrackingService, MonthlyListService, ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService, TradeIssuesService, TradeCastIndexService],
+  exports: [TradeDueService, CarrierTrackingService, MonthlyListService, ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService, TradeIssuesService, TradeCastIndexService],
 })
 export class ShipmentsModule {}

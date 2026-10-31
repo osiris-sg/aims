@@ -794,6 +794,8 @@ export type MonthlyRow = {
   supplierContractNo: string | null; supplierOrderDate: string | null; supplierTon: number | null; supplierStatus: string;
   shipmentStatus: string | null; managementNo: string | null; blNumber: string | null; etd: string | null; eta: string | null; month: string | null;
   orderStage: OrderStageCode; orderStageLabel: string; supplierStage: SupplierStageCode; supplierStageLabel: string; unconfirmed: boolean; notes: string | null;
+  /** Round AY: steps past their due date on this row. */
+  overdue?: { steps: number; days: number; labels: string[] } | null;
 };
 export type MonthlyBlock = { client: string; rows: MonthlyRow[]; orders: number; tons: number };
 export type MonthlyListResult = {
@@ -835,6 +837,17 @@ export type ClientCustomerDetail = {
 };
 /** Round AY: one step of the order process (Clients → a customer → Process). */
 export type ProcessStepDef = { scope: "ORDER" | "SHIPMENT"; code: string; no: string; en: string; ja: string; ongoing?: boolean };
+/** Round AY part 2: the order page's Overall process. */
+export type StepDueState = "done" | "current" | "upcoming" | "overdue" | "na";
+export type ProcessCell = { stepId: string; code: string; no: string; title: string; titleJa: string | null; kind: "order" | "shipment"; recordId: string; orderId: string; shipmentId: string | null; ref: string; status: string; ongoing?: boolean; state: StepDueState; doneAt: string | null; due: string | null; dueSource: "manual" | "rule" | null; dueWhy: string | null; dueSetByName: string | null; dueSetAt: string | null; daysLate: number | null };
+export type ProcessSchedule = { etd: string | null; tsPort: string | null; tsEta: string | null; tsEtd: string | null; eta: string | null; arrived: string | null; deliveries: string[] };
+export type OrderProcess = {
+  today: string; overdue: number;
+  /** The org's enableStepDueDates flag: off → no due dates (steps and schedule only). */
+  dueDates?: boolean;
+  columns: Array<{ kind: "order" | "shipment"; id: string; ref: string; status: string; schedule: ProcessSchedule | null }>;
+  rows: Array<{ no: string; code: string; title: string; titleJa: string | null; cells: Record<string, ProcessCell> }>;
+};
 export type ProcessImpact = {
   skipSteps: string[]; openOrders: number; openShipments: number;
   hidden: Array<{ ref: string; step: string }>; shown: Array<{ ref: string; step: string }>; doneKept: Array<{ ref: string; step: string }>; completes: string[];
@@ -1558,6 +1571,8 @@ export function useShipmentsApi() {
       clientCustomer: (id: string) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}`),
       clientSuppliers: () => call<ClientSupplierRow[]>(`/trade-clients/suppliers`),
       clientSupplier: (id: string) => call<ClientSupplierDetail>(`/trade-clients/suppliers/${id}`),
+      orderProcess: (id: string) => call<OrderProcess>(`/trade-orders/${id}/process`),
+      setStepDue: (stepId: string, dueAt: string | null) => call<{ stepId: string; from: string | null; to: string | null }>(`/trade-steps/${stepId}/due`, "PATCH", { dueAt }),
       clientProcessPreview: (id: string, skipSteps: string[]) => call<ProcessImpact>(`/trade-clients/customers/${id}/process/preview`, "POST", { skipSteps }),
       clientUpdateProcess: (id: string, skipSteps: string[]) => call<{ impact: ProcessImpact; customer: ClientCustomerDetail }>(`/trade-clients/customers/${id}/process`, "PATCH", { skipSteps }),
       clientUpdateFormat: (id: string, docType: string, body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null }) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}`, "PATCH", body),

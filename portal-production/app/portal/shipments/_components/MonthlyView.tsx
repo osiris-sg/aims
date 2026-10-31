@@ -176,6 +176,12 @@ export default function MonthlyView({
               )}
             </span>
           </Tooltip>
+          {r.overdue && (
+            // Round AY: steps past their due date on this row.
+            <Tooltip title={r.overdue.labels.join("\n")} disableInteractive slotProps={{ tooltip: { sx: { whiteSpace: "pre-line" } } }}>
+              <Chip size="small" color="error" variant="outlined" label={lang === "ja" ? `期限超過 ${r.overdue.days}日` : `overdue ${r.overdue.days}d`} sx={{ ml: 0.75, height: 20, "& .MuiChip-label": { px: 0.75, fontSize: 11 } }} data-tour="monthly-overdue" />
+            </Tooltip>
+          )}
         </TableCell>,
         merged(9, r.supplierContractNo ?? "", { whiteSpace: "pre-line" }), // round AM: a split order lists "contract · PI" per supplier order
         merged(10, dmy(r.supplierOrderDate), { whiteSpace: "nowrap" }),

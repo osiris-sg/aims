@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { TradeDueService } from './trade-due.service';
+import { Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { orderLabel, shipmentRef, tradeToday } from './shipments.rules';
 import { TradeConfigService } from './trade-config.service';
@@ -22,6 +23,7 @@ export class TradeDashboardService {
     private readonly prisma: PrismaService,
     private readonly config: TradeConfigService,
     private readonly orders: OrdersService,
+    @Optional() private readonly due?: TradeDueService,
   ) {}
 
   /** Orders delivering from 3 months ago on (cancelled ones left out), as the Excel's grid. */
@@ -47,6 +49,8 @@ export class TradeDashboardService {
       select: { orderId: true, shipmentId: true, supplierOrderId: true },
     });
     const overdue = new Set(due.flatMap((a) => [a.orderId, a.shipmentId, a.supplierOrderId]).filter((x): x is string => !!x));
+    // Round AY: a step past its due date marks its record overdue too.
+    if (this.due) for (const id of await this.due.overdueRecordIds(organizationId).catch(() => new Set<string>())) overdue.add(id);
     const orders: PipelineOrder[] = rows.map((o) => ({
       id: o.id,
       label: orderLabel(o),

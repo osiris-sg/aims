@@ -1,4 +1,5 @@
-import { Body, Controller, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
+import { TradeDueService } from './trade-due.service';
+import { Body, Controller, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -9,7 +10,19 @@ import { TradeStepsService } from './trade-steps.service';
 @Controller('trade-steps')
 @UseGuards(ClerkAuthGuard)
 export class TradeStepsController {
-  constructor(private readonly steps: TradeStepsService) {}
+  constructor(
+    private readonly steps: TradeStepsService,
+    private readonly due: TradeDueService,
+  ) {}
+
+  /** Round AY: set this step's due date by hand ({ dueAt: "YYYY-MM-DD" }) or back to the rule ({ dueAt: null }). */
+  @Patch(':id/due')
+  @Permissions('shipments:update')
+  async setDue(@Param('id', ParseUUIDPipe) id: string, @Body() body: { dueAt?: string | null }, @Req() req: TradeRequest) {
+    const r = await this.due.setDue(orgIdOf(req), id, body?.dueAt ?? null, actorOf(req));
+    (req as any).actionLogResult = { dueAt: { from: r.from, to: r.to } };
+    return r;
+  }
 
   @Post(':id/start')
   @Permissions('shipments:update')

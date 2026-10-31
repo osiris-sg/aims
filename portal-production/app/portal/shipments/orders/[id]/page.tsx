@@ -28,6 +28,7 @@ import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { recordFileCount, STEP_PAYMENT, useShipmentsApi, type AnExtraction, type BlExtraction, type Order, type PermitCheck, type PermitExtraction, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
 import { blLabel, depositTermLabel, fmtDay, fmtDmy, fmtMoney, fmtMt, fmtYen, shortParty, stepLabel, shortCustomer } from "../../_lib/format";
 import RecordHeader from "../../_components/RecordHeader";
+import OverallProcess from "../../_components/OverallProcess";
 import ShipmentOverview from "../../_components/ShipmentOverview";
 import StepCards, { type StepContext } from "../../_components/StepCards";
 import ShipmentFormDialog from "../../_components/ShipmentFormDialog";
@@ -407,6 +408,7 @@ export default function OrderPage() {
 
       {tab === 0 && (
         <Stack spacing={3}>
+          <OverallProcess orderId={o.id} />
           <Box data-tour="order-steps">
             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
               <Typography variant="overline" color="text.secondary">

@@ -3,7 +3,8 @@
  * and hands them to the pure builder (monthly-list.ts). The .xlsx (their layout) and CSV come from the same rows; the
  * WhatsApp tool sends a summary + the .xlsx. 管理NO is ADH's client-order number (#n-s), computed.
  */
-import { Injectable } from '@nestjs/common';
+import { TradeDueService } from './trade-due.service';
+import { Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { TradeConfigService } from './trade-config.service';
 import { currentStepOf, tradeToday } from './shipments.rules';
@@ -37,6 +38,7 @@ export class MonthlyListService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: TradeConfigService,
+    @Optional() private readonly due?: TradeDueService,
   ) {}
 
   filterOf(q: MonthlyQuery, today = tradeToday()) {
@@ -148,7 +150,7 @@ export class MonthlyListService {
   async list(organizationId: string, q: MonthlyQuery) {
     const f = this.filterOf(q);
     const facts = await this.facts(organizationId);
-    const blocks = buildMonthlyList(facts, f);
+    const blocks = await this.withOverdue(organizationId, buildMonthlyList(facts, f));
     // The filter choices come from every live order (not only the window), so a filter never empties its own menu.
     const options = {
       clients: [...new Map(facts.map((o) => [o.customerId, { id: o.customerId, name: buildMonthlyList([o], { from: '0000-01', to: '9999-12', basis: 'delivery' })[0]?.client ?? o.customerName }])).values()].sort((a, b) => a.name.localeCompare(b.name)),
@@ -165,6 +167,28 @@ export class MonthlyListService {
       ? [...new Set(buildMonthlyList(facts, { ...f, from: '0000-01', to: '9999-12' }).flatMap((b) => b.rows.map((r) => r.month)).filter((m): m is string => !!m && (m < f.from || m > f.to)))].sort()
       : [];
     return { filter: f, blocks, options, counts, elsewhere, totals: { orders: blocks.reduce((a, b) => a + b.orders, 0), rows: blocks.reduce((a, b) => a + b.rows.length, 0), tons: blocks.reduce((a, b) => a + b.tons, 0) } };
+  }
+
+  /**
+   * Round AY: the "overdue" badge — the shipment row's steps past their due date (and, on an order's first row, the
+   * order's own steps): how many and the most days late. The list only; the export is unchanged.
+   */
+  private async withOverdue(organizationId: string, blocks: MonthlyBlock[]): Promise<MonthlyBlock[]> {
+    if (!this.due) return blocks;
+    let items: Awaited<ReturnType<TradeDueService['openItems']>> = [];
+    try {
+      items = (await this.due.openItems(organizationId)).filter((i) => i.state === 'overdue');
+    } catch {
+      return blocks;
+    }
+    const of = (pred: (i: (typeof items)[number]) => boolean) => {
+      const hit = items.filter(pred);
+      return hit.length ? { steps: hit.length, days: Math.max(...hit.map((i) => i.daysLate ?? 0)), labels: hit.map((i) => `${i.ref} ${i.no} ${i.title} (due ${i.due})`) } : null;
+    };
+    return blocks.map((b) => ({
+      ...b,
+      rows: b.rows.map((r) => ({ ...r, overdue: of((i) => (r.shipmentId ? i.shipmentId === r.shipmentId : false) || (r.first && i.kind === 'order' && i.orderId === r.orderId) || (!r.shipmentId && i.orderId === r.orderId)) })),
+    }));
   }
 
   private async orgName(organizationId: string) {

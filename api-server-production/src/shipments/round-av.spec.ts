@@ -60,7 +60,7 @@ describe('round AV — new / edit a shipment from the email, as ADH Sales', () =
     it('the controllers put it on the request for the interceptor row (create and edit)', async () => {
       const req: any = { userOrganization: { id: 'org1' }, user: { id: 'u1' } };
       const orders: any = { addShipment: jest.fn().mockResolvedValue({ id: 's1', ref: '#27-1' }), emailSourceNote: jest.fn().mockResolvedValue({ source: 'from email "x"', emailId: 'e1', ref: '#27-1' }) };
-      await new OrdersController(orders).addShipment('11111111-1111-4111-8111-111111111111', { fromEmailId: 'e1', blNumber: 'X1' } as any, req);
+      await new OrdersController(orders, {} as any).addShipment('11111111-1111-4111-8111-111111111111', { fromEmailId: 'e1', blNumber: 'X1' } as any, req);
       expect(req.actionLogResult).toEqual({ source: 'from email "x"', emailId: 'e1', ref: '#27-1' });
       const req2: any = { userOrganization: { id: 'org1' }, user: { id: 'u1' } };
       const shipments: any = { update: jest.fn().mockResolvedValue({ id: 's1', ref: '#27-1' }), emailSourceNote: jest.fn().mockResolvedValue({ source: 'from email "y"', emailId: 'e2', ref: '#27-1' }) };
