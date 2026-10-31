@@ -32,8 +32,11 @@ export class ShipmentsController {
 
   @Patch(':id')
   @Permissions('shipments:update')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateShipmentDto, @Req() req: TradeRequest) {
-    return this.shipments.update(orgIdOf(req), id, dto, actorOf(req));
+  async update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateShipmentDto, @Req() req: TradeRequest) {
+    const s = await this.shipments.update(orgIdOf(req), id, dto, actorOf(req));
+    // Round AV: an edit from the Answer flow names its email on the Activity Log row.
+    if (dto.fromEmailId) (req as any).actionLogResult = await this.shipments.emailSourceNote(orgIdOf(req), dto.fromEmailId, (s as any)?.ref ?? null);
+    return s;
   }
 
   @Delete(':id')

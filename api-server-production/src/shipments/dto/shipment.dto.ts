@@ -14,6 +14,8 @@ export class CreateShipmentDto {
 
   /** A stored B/L draft file (e.g. from "Fill from B/L draft"): linked to the new shipment and its B/L draft step. */
   @IsOptional() @IsUUID() blDraftFileId?: string;
+  /** Round AV: made / edited from an email in the Answer flow — named in the Activity Log ("from email <subject>"). Not stored on the shipment. */
+  @IsOptional() @IsUUID() fromEmailId?: string;
 
   /** Defaults to the contract's customer. */
   @IsOptional() @IsUUID() customerId?: string | null;

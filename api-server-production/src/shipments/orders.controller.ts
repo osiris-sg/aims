@@ -82,8 +82,11 @@ export class OrdersController {
   /** "Add shipment": the next B/L under the order ("#19-2"), B/L pending. */
   @Post(':id/shipments')
   @Permissions('shipments:create')
-  addShipment(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AddShipmentDto, @Req() req: TradeRequest) {
-    return this.orders.addShipment(orgIdOf(req), id, dto ?? {}, actorOf(req));
+  async addShipment(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AddShipmentDto, @Req() req: TradeRequest) {
+    const s = await this.orders.addShipment(orgIdOf(req), id, dto ?? {}, actorOf(req));
+    // Round AV: "+ New shipment" in the Answer flow names its email on the Activity Log row.
+    if (dto?.fromEmailId) (req as any).actionLogResult = await this.orders.emailSourceNote(orgIdOf(req), dto.fromEmailId, (s as any)?.ref ?? null);
+    return s;
   }
 
   /** Step 13: the order's money in one place, with profit = d − a − b − c. */

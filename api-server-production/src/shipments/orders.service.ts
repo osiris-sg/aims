@@ -544,6 +544,11 @@ export class OrdersService {
   }
 
   /** "Add shipment": the next B/L under the order (#19-2), B/L pending. */
+  /** Round AV: the Activity Log note of a shipment made from an email (see ShipmentsService.emailSourceNote). */
+  emailSourceNote(organizationId: string, emailId: string, ref: string | null) {
+    return this.shipments.emailSourceNote(organizationId, emailId, ref);
+  }
+
   async addShipment(organizationId: string, orderId: string, dto: Omit<CreateShipmentDto, 'orderId' | 'contractId'>, actor: TradeActor) {
     return this.shipments.create(organizationId, { ...dto, orderId } as CreateShipmentDto, actor);
   }

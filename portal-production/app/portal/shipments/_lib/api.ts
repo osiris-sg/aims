@@ -613,6 +613,10 @@ export type OrderInput = Partial<{
   contractFileId: string;
   status: "CANCELLED";
 }>;
+/** Round AV — what an email says EXACTLY about one shipment (POST /email-inbox/shipment-facts). A field has a value only when every place agrees. */
+export type EmailFactKey = "blNumber" | "vessel" | "voyageNo" | "etd" | "eta" | "netWeightMt" | "grossWeightMt" | "totalBundles" | "containerCount" | "ciNumber";
+export type EmailFactField = { value: string | null; candidates: Array<{ value: string; sources: string[] }> };
+export type EmailShipmentFacts = { emailId: string; subject: string | null; fields: Partial<Record<EmailFactKey, EmailFactField>>; containers: string[] };
 export type OrderFilters = { bucket?: "pending" | "completed" | "all"; customerId?: string; supplierId?: string; contractId?: string; shipMonth?: string; includeTest?: "true"; q?: string; page?: number; pageSize?: number };
 /** Orders list month headers ("Sep 2026 — 4 orders, 600 MT"), counted over the whole filtered list. */
 export type OrderMonth = { month: string | null; orders: number; qtyMt: number | null; label: string };
@@ -1413,6 +1417,8 @@ export type ShipmentInput = {
   costs?: ShipmentCosts;
   /** A stored B/L draft file to link to the new shipment (Fill from B/L draft). */
   blDraftFileId?: string;
+  /** Round AV: made / edited from this email in the Answer flow (named in the Activity Log). */
+  fromEmailId?: string;
   contractLineId?: string | null;
   blNumber?: string | null;
   vessel?: string | null;
@@ -1826,6 +1832,7 @@ export function useShipmentsApi() {
       inboxAnswerUndo: (ids: string[], kind: InboxAnswer["kind"]) => call<{ undone: number }>(`/email-inbox/answer/undo`, "POST", { ids, kind }),
       // Round AR: the confirm screen's placements, a draft issue, a record's emails, issues, the cast-no. search.
       inboxPlacements: (ids: string[], targets: AnswerTarget[]) => call<{ files: Placement[] }>(`/email-inbox/placements`, "POST", { ids, targets }, 120_000),
+      inboxShipmentFacts: (ids: string[]) => call<EmailShipmentFacts>(`/email-inbox/shipment-facts`, "POST", { ids }, 120_000),
       inboxIssueDraft: (ids: string[]) => call<IssueDraft>(`/email-inbox/issue-draft`, "POST", { ids }, 90_000),
       recordEmails: (q: { shipmentId?: string; orderId?: string }) => call<RecordEmail[]>(`/email-inbox/record${qs(q)}`),
       issues: (q: { customerId?: string; supplierId?: string; orderId?: string; shipmentId?: string; status?: "OPEN" | "RESOLVED" }) => call<TradeIssue[]>(`/trade-issues${qs(q)}`),

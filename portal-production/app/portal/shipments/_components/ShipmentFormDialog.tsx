@@ -12,14 +12,19 @@
 // `inline`: the same form without the dialog, on shipment step 2 of the deal
 // page (a new contract's shipment starts with the B/L pending); there "Fill
 // from B/L draft" stores the draft on the shipment's step 2 straight away.
+// Round AV: `bare` renders the form in the Answer flow's side drawer; `order` creates the shipment under that
+// order (no contract to pick); `emailFacts` prefills a NEW shipment's empty fields from the email (marked
+// "from email") and, on an edit, shows a differing email value next to its field with "Use this" — never
+// applied by itself; `qtyLimit` asks before saving a net weight over the order's quantity left.
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Grid2, MenuItem, TextField, Typography, useMediaQuery } from "@mui/material";
-import { useShipmentsApi, type BlExtraction, type ContractLine, type ContractListItem, type Shipment, type ShipmentDraft, type ShipmentInput } from "../_lib/api";
+import { Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Grid2, Link as MuiLink, MenuItem, TextField, Typography, useMediaQuery } from "@mui/material";
+import { useShipmentsApi, type BlExtraction, type ContractLine, type ContractListItem, type EmailFactKey, type EmailShipmentFacts, type Shipment, type ShipmentDraft, type ShipmentInput } from "../_lib/api";
 import { useContracts, useTradeMutation } from "../_lib/hooks";
 import { commodityOf, lineLabel, toDateInput } from "../_lib/format";
 import { filledSx, PdfDropZone, SourcePdfPane } from "./PdfDrop";
 import { anyDateError, guardDate } from "../_lib/dates";
+import { factPrefill, factSuggestion } from "../_lib/shipment-picker";
 
 /** The contract line whose grade matches the B/L (the only line, or exactly one match). */
 const lineForGrade = (lines: ContractLine[], grade: string | null) => {
@@ -61,6 +66,11 @@ const fromShipment = (s: Shipment): Form => {
   return f;
 };
 
+const sourcesText = (sources: string[]) => sources.map((x) => (x === "email text" ? "email" : x)).join(", ");
+
+
+export type OrderRef = { id: string; ref: string; nextRef?: string | null; customerName?: string | null; contractNo?: string | null; currency?: string | null; deliveryMonth?: string | null; commodity?: string | null; sizeSpec?: string | null };
+
 type ContractRef = { id: string; contractNo: string; currency?: string | null; deliveryMonth?: string | null; lines?: ContractLine[]; customer?: { id: string; name: string } | null };
 
 export default function ShipmentFormDialog({
@@ -70,6 +80,11 @@ export default function ShipmentFormDialog({
   contract: presetContract,
   onSaved,
   inline = false,
+  order = null,
+  emailFacts = null,
+  fromEmailId = null,
+  qtyLimit = null,
+  bare = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -80,6 +95,16 @@ export default function ShipmentFormDialog({
   onSaved?: (s: Shipment) => void;
   /** Render the form in place (deal page, shipment step 2) instead of a dialog; needs `shipment`. */
   inline?: boolean;
+  /** Round AV: create the shipment under this order (the Answer flow's "+ New shipment"); no contract to pick. */
+  order?: OrderRef | null;
+  /** Round AV: what the email says exactly — prefills a new shipment, "Use this" on an edit. */
+  emailFacts?: EmailShipmentFacts | null;
+  /** Round AV: the email this create / edit comes from (named in the Activity Log). */
+  fromEmailId?: string | null;
+  /** Round AV: the order's quantity left (its max ± tolerance minus the other shipments' net). */
+  qtyLimit?: { remainingMt: number; maxMt: number; orderRef: string } | null;
+  /** Round AV: the form and its buttons without the dialog (the Answer flow's side drawer). */
+  bare?: boolean;
 }) {
   const [form, setForm] = useState<Form>({ ...EMPTY, currency: "USD" });
   const [contractId, setContractId] = useState<string>("");
@@ -93,10 +118,13 @@ export default function ShipmentFormDialog({
   const [readingFile, setReadingFile] = useState<File | null>(null);
   // PDF beside the form (about half the width) only on wide screens; below ~1400px it stacks above it.
   const wide = useMediaQuery("(min-width:1400px)");
-  const side = (!!source || !!readingFile) && wide;
+  const side = (!!source || !!readingFile) && wide && !bare;
   const [error, setError] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
-  const pickContract = open && !shipment && !presetContract;
+  // Round AV: fields filled from the email (until the user changes them), and "save anyway" over the order qty.
+  const [fromEmail, setFromEmail] = useState<Set<Key>>(new Set());
+  const [askOver, setAskOver] = useState(false);
+  const pickContract = open && !shipment && !presetContract && !order;
   const contracts = useContracts({ status: "OPEN", pageSize: 100 }, pickContract);
 
   useEffect(() => {
@@ -105,19 +133,39 @@ export default function ShipmentFormDialog({
     setTouched(false);
     setSource(null);
     setFilled(new Set());
+    setFromEmail(new Set());
+    setAskOver(false);
     if (shipment) {
       setForm(fromShipment(shipment));
       setContractId(shipment.contractId ?? "");
       setLineId(shipment.contractLineId ?? "");
     } else {
-      setForm({ ...EMPTY, currency: presetContract?.currency || "USD", deliveryMonth: presetContract?.deliveryMonth ?? "" });
+      // Under an order: what "Add shipment" would take from it (currency, delivery month, product, size), editable.
+      setForm(
+        order
+          ? { ...EMPTY, currency: order.currency || "USD", deliveryMonth: order.deliveryMonth ?? "", commodity: order.commodity ?? "", sizeSpec: order.sizeSpec ?? "" }
+          : { ...EMPTY, currency: presetContract?.currency || "USD", deliveryMonth: presetContract?.deliveryMonth ?? "" },
+      );
       setContractId(presetContract?.id ?? "");
       setLineId("");
       if (presetContract?.lines?.length === 1) pickLine(presetContract.lines[0]);
     }
     // Reset only when the dialog opens or the record changes, not on every refetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, shipment?.id, presetContract?.id, inline]);
+  }, [open, shipment?.id, presetContract?.id, inline, order?.id]);
+
+  // Round AV: a NEW shipment takes the email's exact values into its empty fields (marked "from email").
+  useEffect(() => {
+    if (!open || shipment || !emailFacts) return;
+    const hit: Key[] = [];
+    setForm((f) => {
+      const add = factPrefill(f, emailFacts) as Partial<Form>;
+      hit.push(...(Object.keys(add) as Key[]));
+      return { ...f, ...add };
+    });
+    setFromEmail((cur) => new Set([...cur, ...hit]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, shipment?.id, emailFacts?.emailId, emailFacts ? 1 : 0]);
 
   const options: ContractListItem[] = useMemo(() => contracts.data?.items ?? [], [contracts.data]);
   const selected = options.find((c) => c.id === contractId) ?? null;
@@ -135,7 +183,7 @@ export default function ShipmentFormDialog({
   const customerName = shipment?.customer?.name ?? presetContract?.customer?.name ?? selected?.customer?.name ?? null;
   const contractLabel = shipment?.contract?.contractNo ?? presetContract?.contractNo ?? null;
 
-  const save = useTradeMutation((api, body: ShipmentInput) => (shipment ? api.updateShipment(shipment.id, body) : api.createShipment(body)));
+  const save = useTradeMutation((api, body: ShipmentInput) => (shipment ? api.updateShipment(shipment.id, body) : order ? api.addOrderShipment(order.id, body) : api.createShipment(body)));
 
   const unfill = (k: string) =>
     setFilled((f) => {
@@ -146,8 +194,47 @@ export default function ShipmentFormDialog({
     });
   const set = (k: Key) => (e: React.ChangeEvent<HTMLInputElement>) => {
     unfill(k);
+    if (fromEmail.has(k)) setFromEmail((x) => { const n = new Set(x); n.delete(k); return n; });
+    if (k === "netWeightMt") setAskOver(false);
     setForm((f) => ({ ...f, [k]: e.target.value }));
   };
+  /** "Use this": the email's value into the field (only on the user's click). */
+  const takeEmailValue = (k: Key, v: string) => {
+    unfill(k);
+    if (k === "netWeightMt") setAskOver(false);
+    setForm((f) => ({ ...f, [k]: v }));
+    setFromEmail((x) => new Set(x).add(k));
+  };
+  /** Under the field: "from email · AN.pdf", or the email's other value(s) with "Use this". */
+  const emailHint = (k: Key): React.ReactNode => {
+    const sug = factSuggestion(k as EmailFactKey, form[k], emailFacts);
+    if (!sug) return null;
+    if (sug.same && (fromEmail.has(k) || !!shipment)) {
+      return (
+        <Box component="span" sx={{ color: "info.main", fontWeight: 600 }} title={sourcesText(sug.same.sources)} data-tour="from-email">
+          {shipment ? "Same as the email" : "from email"}
+        </Box>
+      );
+    }
+    if (!sug.others.length) return null;
+    return (
+      <Box component="span" data-tour="email-suggestion">
+        {sug.several ? "The email names several: " : "Email: "}
+        {sug.others.map((c, i) => (
+          <React.Fragment key={c.value}>
+            {i > 0 ? " · " : null}
+            <b title={sourcesText(c.sources)}>{c.value}</b>{" "}
+            <MuiLink component="button" type="button" variant="caption" onClick={() => takeEmailValue(k, c.value)} sx={{ verticalAlign: "baseline", fontWeight: 700 }} data-tour="use-email-value">
+              Use this
+            </MuiLink>
+          </React.Fragment>
+        ))}
+      </Box>
+    );
+  };
+  // Round AV: the order's quantity left — a net weight over it is asked about once before saving.
+  const netNum = form.netWeightMt.trim() === "" ? null : Number(form.netWeightMt);
+  const overQty = !!qtyLimit && netNum !== null && Number.isFinite(netNum) && netNum > qtyLimit.remainingMt + 1e-9;
 
   /** Put a B/L draft read into the form; the B/L's commodity / size win over the line's. */
   const applyBl = (x: BlExtraction) => {
@@ -220,19 +307,26 @@ export default function ShipmentFormDialog({
   const datesError = !!form.etd && !!form.eta && form.eta < form.etd;
   const monthError = form.deliveryMonth.trim() !== "" && !MONTH.test(form.deliveryMonth.trim());
   const invalid =
-    !contractId || (lineRequired && !lineId) || currencyError || monthError || anyDateError(form.etd, form.eta, form.actualArrivalDate, form.deliveryMonth) || DECIMAL_KEYS.some((k) => badDecimal(form[k])) || INT_KEYS.some((k) => badInt(form[k]));
+    (!order && !contractId) || (lineRequired && !lineId) || currencyError || monthError || anyDateError(form.etd, form.eta, form.actualArrivalDate, form.deliveryMonth) || DECIMAL_KEYS.some((k) => badDecimal(form[k])) || INT_KEYS.some((k) => badInt(form[k]));
 
   const submit = async () => {
     setTouched(true);
     if (invalid) return;
+    if (overQty && !askOver) {
+      setAskOver(true);
+      return;
+    }
     setError(null);
     const body: ShipmentInput = { currency: form.currency.trim() };
     TEXT_KEYS.forEach((k) => (body[k] = form[k].trim() === "" ? null : form[k].trim()));
     [...DECIMAL_KEYS, ...INT_KEYS].forEach((k) => (body[k] = form[k].trim() === "" ? null : Number(form[k])));
     DATE_KEYS.forEach((k) => (body[k] = form[k] || null));
     if (lineRequired) body.contractLineId = lineId;
-    if (!shipment) body.contractId = contractId;
+    if (!shipment && !order) body.contractId = contractId;
     if (!shipment && source) body.blDraftFileId = source.fileId;
+    if (fromEmailId) body.fromEmailId = fromEmailId;
+    // A new shipment under an order: an empty field is left out, so the server takes it from the order as "Add shipment" does.
+    if (!shipment && order) for (const k of Object.keys(body) as Array<keyof ShipmentInput>) if (body[k] === null) delete body[k];
     try {
       const saved = await save.mutateAsync(body);
       onSaved?.(saved);
@@ -243,9 +337,11 @@ export default function ShipmentFormDialog({
     }
   };
 
-  const tf = (k: Key, label: string, extra: Partial<React.ComponentProps<typeof TextField>> = {}) => (
-    <TextField label={label} fullWidth size="small" value={form[k]} onChange={set(k)} sx={filledSx(filled.has(k))} {...guardDate(extra, form[k])} />
-  );
+  const tf = (k: Key, label: string, extra: Partial<React.ComponentProps<typeof TextField>> = {}) => {
+    const hint = emailFacts ? emailHint(k) : null;
+    const merged = hint ? { ...extra, helperText: extra.helperText ? <>{extra.helperText} · {hint}</> : hint, FormHelperTextProps: { component: "div" } as any } : extra;
+    return <TextField label={label} fullWidth size="small" value={form[k]} onChange={set(k)} sx={filledSx(filled.has(k) || fromEmail.has(k))} {...guardDate(merged, form[k])} />;
+  };
 
   const body = (
     <>
@@ -277,9 +373,25 @@ export default function ShipmentFormDialog({
             {error}
           </Alert>
         )}
+        {overQty && qtyLimit && (
+          <Alert severity="warning" sx={{ mb: 2 }} data-tour="shipment-over-qty">
+            Net {Number(form.netWeightMt).toLocaleString("en-US", { maximumFractionDigits: 3 })} t is more than {qtyLimit.orderRef} has left ({Math.max(0, qtyLimit.remainingMt).toLocaleString("en-US", { maximumFractionDigits: 3 })} t of max {qtyLimit.maxMt.toLocaleString("en-US", { maximumFractionDigits: 3 })} t incl. tolerance).
+            {askOver ? " Save again to keep it anyway." : ""}
+          </Alert>
+        )}
         <Grid2 container spacing={2}>
           {/* Inline on the deal page the contract and customer are already on screen. */}
-          {!inline && (
+          {!inline && order && (
+            <>
+          <Grid2 size={{ xs: 12, sm: 6 }}>
+            <TextField label="Order" fullWidth size="small" value={`${order.ref}${order.contractNo ? ` · contract ${order.contractNo}` : ""}`} disabled />
+          </Grid2>
+          <Grid2 size={{ xs: 12, sm: 6 }}>
+            <TextField label="Customer" fullWidth size="small" value={customerName ?? order.customerName ?? ""} disabled InputLabelProps={{ shrink: true }} />
+          </Grid2>
+            </>
+          )}
+          {!inline && !order && (
             <>
           <Grid2 size={{ xs: 12, sm: 6 }}>
             {pickContract ? (
@@ -313,6 +425,8 @@ export default function ShipmentFormDialog({
             </>
           )}
 
+          {/* Under an order without product lines there is nothing to pick (round AV). */}
+          {!(order && !lineRequired) && (
           <Grid2 size={{ xs: 12, sm: 8 }}>
             <TextField
               select
@@ -342,6 +456,7 @@ export default function ShipmentFormDialog({
               ))}
             </TextField>
           </Grid2>
+          )}
           <Grid2 size={{ xs: 12, sm: 4 }}>
             {tf("deliveryMonth", "Delivery month", { type: "month", InputLabelProps: { shrink: true }, error: monthError, helperText: monthError ? "Use YYYY-MM" : undefined })}
           </Grid2>
@@ -421,14 +536,23 @@ export default function ShipmentFormDialog({
   );
   const actions = (
     <>
-        <Button onClick={cancel} disabled={save.isPending || reading}>
+        <Button onClick={cancel} disabled={save.isPending || reading} data-tour="shipment-form-cancel">
           {inline ? "Reset" : "Cancel"}
         </Button>
-        <Button variant="contained" onClick={submit} disabled={save.isPending || reading}>
-          {save.isPending ? "Saving…" : inline ? "Save B/L details" : shipment ? "Save changes" : "Create shipment"}
+        <Button variant="contained" onClick={submit} disabled={save.isPending || reading} data-tour="shipment-form-save">
+          {save.isPending ? "Saving…" : askOver && overQty ? "Save anyway" : inline ? "Save B/L details" : shipment ? "Save changes" : order?.nextRef ? `Create ${order.nextRef}` : "Create shipment"}
         </Button>
       </>
   );
+
+  if (bare) {
+    return (
+      <Box>
+        {body}
+        <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: 2, position: "sticky", bottom: 0, py: 1.5, bgcolor: "background.paper", borderTop: 1, borderColor: "divider" }}>{actions}</Box>
+      </Box>
+    );
+  }
 
   if (inline) {
     return (
