@@ -95,9 +95,11 @@ export class OrganizationsController {
   @Get()
   @UseGuards(ClerkAuthGuard)
   @Permissions('organizations:read')
-  async getOrganizations() {
+  async getOrganizations(@Req() req: RequestWithOrganization) {
     try {
-      const organizations = await this.organizationsService.findAll();
+      // Round AW: only a platform admin lists every org; anyone else sees their current org.
+      const all = await this.organizationsService.findAll();
+      const organizations = req.isOsirisAdmin ? all : all.filter((o) => o.id === req.userOrganization?.id);
       return {
         success: true,
         message: 'Organizations retrieved successfully',
@@ -154,9 +156,10 @@ export class OrganizationsController {
   @Get(':id')
   @UseGuards(ClerkAuthGuard)
   @Permissions('organizations:read-one')
-  async getOrganizationById(@Param('id') id: string) {
+  async getOrganizationById(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     try {
-      const organization = await this.organizationsService.findOne(id);
+      // Round AW: another org reads as not found unless the caller is a platform admin.
+      const organization = req.isOsirisAdmin || req.userOrganization?.id === id ? await this.organizationsService.findOne(id) : null;
       if (!organization) {
         return {
           success: false,

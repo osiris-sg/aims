@@ -1,5 +1,6 @@
 // src/roles/roles.service.ts
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { AdminActor, isPlatformRoleName, isReservedRoleName, normRoleName, PLATFORM_PERMISSIONS } from '../auth/admin-scope';
 import { PrismaService } from 'src/common/prisma.service';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
@@ -8,8 +9,26 @@ import { UpdateRoleDto } from './dto/update-role.dto';
 export class RolesService {
   constructor(private prisma: PrismaService) {}
 
-  async create(createRoleDto: CreateRoleDto, organizationId: string) {
+  /** Round AW: a non-platform caller only sees / changes roles of their own org (404 otherwise). */
+  private assertOwn(role: { organizationId: string }, actor?: AdminActor) {
+    if (actor && !actor.platform && role.organizationId !== actor.orgId) throw new NotFoundException('Role not found');
+  }
+
+  /** Round AW: permissions that reach beyond one org are added to a role only by a platform admin. */
+  private async assertNoPlatformGrant(permissionIds: string[] | undefined, already: string[], actor?: AdminActor) {
+    if (!actor || actor.platform || !permissionIds?.length) return;
+    const added = permissionIds.filter((id) => !already.includes(id));
+    if (!added.length) return;
+    const hits = await this.prisma.permission.findMany({ where: { id: { in: added }, name: { in: PLATFORM_PERMISSIONS } }, select: { name: true } });
+    if (hits.length) throw new ForbiddenException(`Only Osiris can grant ${hits.map((h) => h.name).join(', ')}`);
+  }
+
+  async create(createRoleDto: CreateRoleDto, organizationId: string, actor?: AdminActor) {
     const { permissionIds, allowedModules, ...roleData } = createRoleDto;
+    if (actor && !actor.platform && isReservedRoleName(roleData.name)) {
+      throw new BadRequestException(`"${roleData.name}" is a reserved role name`);
+    }
+    await this.assertNoPlatformGrant(permissionIds, [], actor);
 
     // Check if role with same name already exists in this organization
     const existingRole = await this.prisma.role.findUnique({
@@ -120,7 +139,7 @@ export class RolesService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, actor?: AdminActor) {
     const role = await this.prisma.role.findUnique({
       where: { id },
       include: {
@@ -136,6 +155,7 @@ export class RolesService {
     if (!role) {
       throw new NotFoundException(`Role with ID '${id}' not found`);
     }
+    this.assertOwn(role, actor);
 
     return role;
   }
@@ -154,17 +174,26 @@ export class RolesService {
     });
   }
 
-  async update(id: string, updateRoleDto: UpdateRoleDto) {
+  async update(id: string, updateRoleDto: UpdateRoleDto, actor?: AdminActor) {
     const { permissionIds, allowedModules, ...roleData } = updateRoleDto;
 
     // Check if role exists
     const existingRole = await this.prisma.role.findUnique({
       where: { id },
+      include: { permissions: { select: { id: true } } },
     });
 
     if (!existingRole) {
       throw new NotFoundException(`Role with ID '${id}' not found`);
     }
+    this.assertOwn(existingRole, actor);
+    if (actor && !actor.platform) {
+      if (isPlatformRoleName(existingRole.name)) throw new ForbiddenException(`The ${existingRole.name} role is managed by Osiris`);
+      if (roleData.name !== undefined && normRoleName(roleData.name) !== normRoleName(existingRole.name) && isReservedRoleName(roleData.name)) {
+        throw new BadRequestException(`"${roleData.name}" is a reserved role name`);
+      }
+    }
+    await this.assertNoPlatformGrant(permissionIds, existingRole.permissions.map((p) => p.id), actor);
 
     // Check if updating name and if new name conflicts with existing role in the same organization
     if (roleData.name && roleData.name !== existingRole.name) {
@@ -215,7 +244,7 @@ export class RolesService {
     }
   }
 
-  async remove(id: string) {
+  async remove(id: string, actor?: AdminActor) {
     // Check if role exists
     const existingRole = await this.prisma.role.findUnique({
       where: { id },
@@ -227,6 +256,8 @@ export class RolesService {
     if (!existingRole) {
       throw new NotFoundException(`Role with ID '${id}' not found`);
     }
+    this.assertOwn(existingRole, actor);
+    if (actor && !actor.platform && isPlatformRoleName(existingRole.name)) throw new ForbiddenException(`The ${existingRole.name} role is managed by Osiris`);
 
     // Check if role is assigned to any users
     if (existingRole.userRoles && existingRole.userRoles.length > 0) {

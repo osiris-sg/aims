@@ -4,6 +4,7 @@ import { UsersService } from './users.service';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { UserOrganization } from 'src/auth/decorators/user-organization.decorator';
+import { actorOf } from 'src/auth/admin-scope';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody, ApiQuery } from '@nestjs/swagger';
 import { GetUsersDto } from './dto/get-users.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -22,14 +23,14 @@ export class UsersController {
 
   @Post(':userId/roles')
   @Permissions('users:assign-role')
-  assignRole(@Param('userId') userId: string, @Body() body: { roleId: string }, @UserOrganization() organization: { id: string; name: string }) {
-    return this.usersService.assignRoleToUser(userId, body.roleId, organization.id);
+  assignRole(@Param('userId') userId: string, @Body() body: { roleId: string }, @UserOrganization() organization: { id: string; name: string }, @Req() req: any) {
+    return this.usersService.assignRoleToUser(userId, body.roleId, organization.id, actorOf(req, organization.id));
   }
 
   @Delete(':userId/roles/:roleId')
   @Permissions('users:remove-role')
-  removeRole(@Param('userId') userId: string, @Param('roleId') roleId: string, @UserOrganization() organization: { id: string; name: string }) {
-    return this.usersService.removeRoleFromUser(userId, roleId, organization.id);
+  removeRole(@Param('userId') userId: string, @Param('roleId') roleId: string, @UserOrganization() organization: { id: string; name: string }, @Req() req: any) {
+    return this.usersService.removeRoleFromUser(userId, roleId, organization.id, actorOf(req, organization.id));
   }
 
   @Get(':userId/roles')
@@ -45,12 +46,9 @@ export class UsersController {
   @ApiResponse({ status: 400, description: 'Bad request' })
   @ApiResponse({ status: 404, description: 'User or role not found' })
   @ApiBody({ type: CreateUserDto })
-  createUser(@Body() createUserDto: CreateUserDto, @UserOrganization() organization: { id: string; name: string }) {
-    // If organizationId is not provided in DTO, get it from user's organization
-    if (!createUserDto.organizationId) {
-      createUserDto.organizationId = organization.id;
-    }
-    return this.usersService.createUser(createUserDto);
+  createUser(@Body() createUserDto: CreateUserDto, @UserOrganization() organization: { id: string; name: string }, @Req() req: any) {
+    // Round AW: the service pins a non-platform caller to their own org (403 for another org id).
+    return this.usersService.createUser(createUserDto, actorOf(req, organization.id));
   }
 
   @Get('me/profile')
@@ -70,7 +68,8 @@ export class UsersController {
   @Patch(':userId/profile')
   @Permissions('users:update')
   @ApiOperation({ summary: 'Update the org-scoped member profile (WhatsApp number, default commission %, yearly sales target)' })
-  updateProfile(@Param('userId') userId: string, @Body() body: { whatsappNumber?: string | null; whatsappPrefs?: Record<string, unknown> | null; commissionPct?: number | null; yearlySalesTarget?: number | null }, @UserOrganization() organization: { id: string; name: string }) {
+  async updateProfile(@Param('userId') userId: string, @Body() body: { whatsappNumber?: string | null; whatsappPrefs?: Record<string, unknown> | null; commissionPct?: number | null; yearlySalesTarget?: number | null }, @UserOrganization() organization: { id: string; name: string }, @Req() req: any) {
+    await this.usersService.assertReach(userId, actorOf(req, organization.id));
     return this.usersService.upsertMemberProfile(userId, organization.id, body || {});
   }
 
@@ -82,12 +81,9 @@ export class UsersController {
   @ApiResponse({ status: 404, description: 'User not found' })
   @ApiParam({ name: 'userId', description: 'The Clerk user ID to update' })
   @ApiBody({ type: UpdateUserDto })
-  updateUser(@Param('userId') userId: string, @Body() updateUserDto: UpdateUserDto, @UserOrganization() organization: { id: string; name: string }) {
-    // If organizationId is not provided in DTO, get it from user's organization
-    if (!updateUserDto.organizationId) {
-      updateUserDto.organizationId = organization.id;
-    }
-    return this.usersService.updateUser(userId, updateUserDto);
+  updateUser(@Param('userId') userId: string, @Body() updateUserDto: UpdateUserDto, @UserOrganization() organization: { id: string; name: string }, @Req() req: any) {
+    // Round AW: the service pins a non-platform caller to their own org and its members.
+    return this.usersService.updateUser(userId, updateUserDto, actorOf(req, organization.id));
   }
 
   @Post('list')
@@ -99,11 +95,13 @@ export class UsersController {
 
   @Delete(':userId')
   @Permissions('users:delete')
-  @ApiOperation({ summary: 'Delete a user and all their role associations' })
+  @ApiOperation({ summary: "Remove a user from the caller's organization (membership + roles kept inactive)" })
   @ApiResponse({ status: 200, description: 'User deleted successfully' })
   @ApiResponse({ status: 404, description: 'User not found' })
   @ApiParam({ name: 'userId', description: 'The Clerk user ID to delete' })
-  deleteUser(@Param('userId') userId: string) {
-    return this.usersService.deleteUser(userId);
+  async deleteUser(@Param('userId') userId: string, @UserOrganization() organization: { id: string; name: string }, @Req() req: any) {
+    const res = await this.usersService.deleteUser(userId, actorOf(req, organization.id));
+    req.actionLogResult = { removedFrom: res.removedFrom, rolesRemoved: res.rolesRemoved, clerkDeleted: res.clerkDeleted };
+    return res;
   }
 }
