@@ -1,3 +1,4 @@
+import { maskedProfile } from './clients-company';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CreateSupplierOrderDto, DeclarationDto, ListSupplierOrdersQuery, UpdateSupplierOrderDto } from './dto/supplier-order.dto';
@@ -117,7 +118,7 @@ export class SupplierOrdersService {
       label: supplierOrderLabel(so),
       steps,
       fileLinks: shapeFileLinks(so.fileLinks),
-      supplierProfile,
+      supplierProfile: maskedProfile(supplierProfile),
       depositAmount: so.depositAmount ?? depositOf(so.piAmount, so.depositPct ?? 10),
       progress: progressOf(so.steps),
       currentStep: currentStepOf(so.steps),

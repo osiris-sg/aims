@@ -19,6 +19,7 @@ import { ShipmentsModule } from '../src/shipments/shipments.module';
 import { TradeDueService } from '../src/shipments/trade-due.service';
 import { TradeAlertsService } from '../src/shipments/trade-alerts.service';
 import { MonthlyListService } from '../src/shipments/monthly-list.service';
+import { ClientsService } from '../src/shipments/clients.service';
 import { StaffWhatsAppService } from '../src/staff-whatsapp/staff-whatsapp.service';
 
 const ORG = '222c6494-96ae-42d0-9283-1b5eabf47b42';
@@ -39,7 +40,15 @@ const noop = new Proxy({}, { get: (_t, p) => (p === 'then' ? undefined : async (
     const proc = await mod.get(TradeDueService).orderProcess(ORG, o.id);
     const tasks = await mod.get(TradeAlertsService).myTasks(ORG);
     const monthly = await mod.get(MonthlyListService).list(ORG, { status: 'Open' } as any);
-    return { orderId: o.id, orderNo: o.orderNo, process: proc, tasks, monthly };
+    const clients = mod.get(ClientsService);
+    const customers = await clients.customers(ORG);
+    const suppliers = await clients.suppliers(ORG);
+    const lines = await clients.shippingLines(ORG);
+    const detail: Record<string, unknown> = {};
+    for (const c of customers) detail[c.id] = await clients.customer(ORG, c.id);
+    const sdetail: Record<string, unknown> = {};
+    for (const x of suppliers) sdetail[x.id] = await clients.supplier(ORG, x.id);
+    return { orderId: o.id, orderNo: o.orderNo, process: proc, tasks, monthly, customers, suppliers, lines, detail, sdetail };
   });
   writeFileSync(process.argv[2], JSON.stringify(out));
   console.log(`order #${out.orderNo}: ${out.process.columns.length} columns, ${out.process.rows.length} rows, ${out.process.overdue} overdue; tasks ${out.tasks.length} (${out.tasks.filter((t: any) => t.kind === 'STEP_DUE').length} steps); monthly rows with overdue ${out.monthly.blocks.flatMap((b: any) => b.rows).filter((r: any) => r.overdue).length}`);

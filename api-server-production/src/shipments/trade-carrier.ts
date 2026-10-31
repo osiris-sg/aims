@@ -28,6 +28,9 @@ const CARRIERS: Array<{ code: Carrier['code']; name: string; bl?: RegExp; line: 
   { code: 'MAERSK', name: 'Maersk', bl: /^\d{9,}$/, line: /MAERSK/i, url: (bl) => `https://www.maersk.com/tracking/${enc(bl)}`, prefilled: true },
 ];
 
+/** Round AY: the shipping lines AIMS knows (Clients → Shipping lines starts from these): code, name, tracking page. */
+export const carrierCatalog = (): Array<{ code: string; name: string; trackingUrl: string }> => CARRIERS.map((c) => ({ code: c.code, name: c.name, trackingUrl: c.url('') }));
+
 /** The carrier of a shipment: the shipping line field wins, else the B/L prefix. */
 export function carrierOf(blNumber: string | null | undefined, shippingLine?: string | null): Carrier | null {
   const bl = (blNumber ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');

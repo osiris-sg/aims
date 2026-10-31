@@ -11,6 +11,7 @@ import { Alert, Box, Chip, CircularProgress, Grid2, Paper, Stack, Tab, Tabs, Typ
 import { useClientSupplier } from "../../../_lib/hooks";
 import OrdersListView from "../../../_components/OrdersListView";
 import { useOrdersView } from "../../../_components/OrdersViewToggle";
+import CompanyDetails from "../../_components/CompanyDetails";
 import IssuesPanel from "../../../_components/IssuesPanel";
 import { ClientsHeader, ContactsList, ContractsPanel, KV, T, useLang, useTab } from "../../_components/ClientsBits";
 
@@ -49,6 +50,11 @@ export default function ClientSupplierPage() {
           {tab === "orders" && <OrdersListView fixedSupplierId={d.supplier.id} view={view} onViewChange={setView} />}
           {tab === "contracts" && <ContractsPanel contracts={d.contracts} party="supplier" />}
           {tab === "details" && (
+            <Stack spacing={2}>
+            <CompanyDetails kind="supplier" rec={{ id: d.supplier.id, name: d.supplier.name, address: d.supplier.address, email: d.supplier.email, phone: d.supplier.phone, gstRegNo: d.supplier.gstRegNo, currency: d.supplier.currency, jpName: d.company?.legalNameJa ?? null }} company={d.company} logistics={d.logistics} contacts={d.contactList ?? []} lang={lang}>
+              <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1.5, mb: 0.5 }}>{lang === "ja" ? "メールの送信者" : "Who e-mails us"}</Typography>
+              <ContactsList contacts={d.contacts} />
+            </CompanyDetails>
             <Grid2 container spacing={2}>
               <Grid2 size={{ xs: 12, md: 6 }}>
                 <Paper variant="outlined" sx={{ p: 2, mb: 2 }} data-tour="client-supplier-docs">
@@ -83,19 +89,8 @@ export default function ClientSupplierPage() {
                   {(d.terms.country || d.terms.loadingPort) && <KV k="Origin · loading port" v={[d.terms.country, d.terms.loadingPort].filter(Boolean).join(" · ")} />}
                 </Paper>
               </Grid2>
-              <Grid2 size={{ xs: 12, md: 6 }}>
-                <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>{lang === "ja" ? "会社情報" : "Company"}</Typography>
-                  <KV k="Name" v={d.supplier.name} />
-                  <KV k="Address" v={d.supplier.address} />
-                  <KV k="Code · currency" v={`${d.supplier.supplierCode ?? "—"} · ${d.supplier.currency}`} />
-                </Paper>
-                <Paper variant="outlined" sx={{ p: 2 }}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>{lang === "ja" ? "連絡先" : "Contacts"}</Typography>
-                  <ContactsList contacts={d.contacts} />
-                </Paper>
-              </Grid2>
             </Grid2>
+            </Stack>
           )}
           {tab === "issues" && <IssuesPanel supplierId={d.supplier.id} title={lang === "ja" ? "課題" : "Issues"} />}
         </>

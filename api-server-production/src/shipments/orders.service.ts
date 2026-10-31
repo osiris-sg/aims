@@ -1,3 +1,4 @@
+import { maskedProfile } from './clients-company';
 import { TradeDueService } from './trade-due.service';
 import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { ActionLogService } from '../action-log/action-log.service';
@@ -224,11 +225,11 @@ export class OrdersService {
     return {
       ...rest,
       label: orderLabel(o),
-      supplierProfile,
+      supplierProfile: maskedProfile(supplierProfile),
       steps,
       docLinks,
       fileLinks: shapeFileLinks(o.fileLinks),
-      profile,
+      profile: maskedProfile(profile),
       depositDueDate: depositDueDate(o.piDate, o.depositDueDays, o.depositDueUnit),
       monthsLabel: monthsLabel(o.shipMonth, o.deliveryMonth),
       productLabel: orderProductLabel(o),

@@ -810,8 +810,24 @@ export type MonthlyListResult = {
 export type InboxAnswerResult = { kind: InboxAnswer["kind"]; ids: string[]; refs: string[]; files: number; text: string; issue?: { id: string; title: string } | null };
 // ── Round AM: Clients (Customers · Suppliers) ─────────────────────────────
 export type ClientStats = { openOrders: number; tonsThisMonth: number; tonsLast3Months: number; last3From: string; last3To: string; lastDelivery: { date: string | null; month: string | null; ref: string } | null };
-export type ClientCustomerRow = ClientStats & { id: string; code: string | null; short: string; name: string; jpName: string | null; currency: string; contracts: number; billingMode: "TWO_STAGE" | "SINGLE"; hasProfile: boolean; port: string | null };
-export type ClientSupplierRow = { id: string; code: string | null; short: string; name: string; currency: string; hasPI: boolean; pricingMode: string; contracts: Array<{ contractNo: string; status: string }>; openOrders: number; pi: { waiting: number; received: number; depositPaid: number } | null; stats: ClientStats };
+export type ClientCustomerRow = ClientStats & { id: string; code: string | null; short: string; name: string; jpName: string | null; currency: string; contracts: number; billingMode: "TWO_STAGE" | "SINGLE"; hasProfile: boolean; port: string | null; country?: string | null; email?: string | null; phone?: string | null; mainContact?: MainContact | null; carriers?: string[] };
+/** Round AY part 3: the table's "main contact" (a contact on record, else the busiest e-mail sender). */
+export type MainContact = { name: string | null; email: string | null; phone: string | null };
+export type ClientSupplierRow = { id: string; code: string | null; short: string; name: string; currency: string; hasPI: boolean; pricingMode: string; contracts: Array<{ contractNo: string; status: string }>; openOrders: number; pi: { waiting: number; received: number; depositPaid: number } | null; stats: ClientStats; jpName?: string | null; country?: string | null; email?: string | null; phone?: string | null; mainContact?: MainContact | null; lastDelivery?: ClientStats["lastDelivery"]; carriers?: string[] };
+/** Round AY part 3: company info, logistics and contacts (Clients → Details). The bank account comes masked. */
+export type CompanyInfo = { country?: string; website?: string; paymentTerms?: string; bank?: { bankName?: string; branch?: string; accountName?: string; accountNo?: string; swift?: string }; notes?: string; legalNameJa?: string };
+export type LogisticsInfo = { carriers?: string[]; blPattern?: string; bookingPattern?: string; portOfLoading?: string; portOfDischarge?: string; incoterm?: string };
+export type ContactInfo = { id?: string; name: string; role?: string; email?: string; phone?: string; lang?: "ja" | "en"; isPrimary?: boolean };
+export type CompanyForm = { name?: string; jpName?: string | null; address?: string | null; jpAddress?: string | null; email?: string | null; phone?: string | null; gstRegNo?: string | null; currency?: string; company?: CompanyInfo; logistics?: LogisticsInfo; contacts?: ContactInfo[] };
+export type ShippingLine = {
+  code: string; name: string; website: string | null; trackingUrl: string | null; known: boolean;
+  agents: Array<{ name: string; company?: string; role?: string; email?: string; phone?: string }>;
+  freeTime: { detDays?: number; demDays?: number; note?: string } | null; notes: string | null;
+  shipments: number; openShipments: number; lastEta: string | null;
+  recent: Array<{ id: string; ref: string; orderId: string | null; status: string; blNumber: string | null; eta: string | null; customer: string | null }>;
+  clients: Array<{ id: string; kind: "customer" | "supplier"; name: string }>;
+};
+export type ShippingLines = { lines: ShippingLine[]; unmatched: Array<{ id: string; ref: string; orderId: string | null; blNumber: string | null; shippingLine: string | null; customer: string | null }> };
 export type ClientContract = {
   id: string; contractNo: string; status: string; grade: string | null; sizeSpec: string | null; periodStart: string | null; periodEnd: string | null; annualQtyMt: string | number | null; tolerancePct: string | number | null;
   incoterm: string | null; qpBasis: string | null; qmjpRule: string | null; balanceTerms: string | null; depositPercent: string | number | null; checkFields: string[];
@@ -828,12 +844,14 @@ export type DocFormatView = {
   choose: "variant" | "billing" | "fixed"; previewable: boolean; language: "ja" | "en"; addressee: string | null; effectiveAddressee: string; notes: string | null; samples: FormatSampleView[];
 };
 export type ClientCustomerDetail = {
-  customer: { id: string; customerCode: string | null; name: string; jpName: string | null; jpAddress: string | null; jpContact: string | null; email: string | null; phone: string | null; address: string | null; currency: string; contacts: Array<{ id: string; name: string; email: string | null; phone: string | null; designation: string | null; isPrimary: boolean }> };
+  customer: { id: string; customerCode: string | null; name: string; jpName: string | null; jpAddress: string | null; jpContact: string | null; email: string | null; phone: string | null; address: string | null; currency: string; contacts: Array<{ id: string; name: string; email: string | null; phone: string | null; designation: string | null; isPrimary: boolean; lang?: "ja" | "en" | null }>; gstRegNo?: string | null };
   short: string; profile: CustomerProfile; hasProfile: boolean; stats: ClientStats; contracts: ClientContract[]; contacts: ClientContact[]; ports: string[];
   deliverySites: Array<{ siteName: string; address: string; notes?: string; label?: string | null; warehouseCheck?: boolean; source: string }>;
   formats: DocFormatView[];
   /** Round AY: the customer's process — every step, and the ones left out. */
   process: { steps: ProcessStepDef[]; skipSteps: string[] };
+  /** Round AY part 3. */
+  company?: CompanyInfo; logistics?: LogisticsInfo; contactList?: ContactInfo[];
 };
 /** Round AY: one step of the order process (Clients → a customer → Process). */
 export type ProcessStepDef = { scope: "ORDER" | "SHIPMENT"; code: string; no: string; en: string; ja: string; ongoing?: boolean };
@@ -858,6 +876,8 @@ export type ClientSupplierDetail = {
   documentSet: { source: string; required: Array<{ code: string; label: string }>; optional: Array<{ code: string; label: string }> };
   terms: { hasPI: boolean; pricingMode: string; priceUnit: string | null; paymentTerms: { advancePct: number; balanceAgainst: string; balanceDays?: number | null; note?: string | null } | null; country: string | null; loadingPort: string | null; depositPercents: number[]; balanceTerms: Array<{ contractNo: string; text: string }>; lmeBasis: Array<{ contractNo: string; text: string }> };
   openStages: Array<{ orderNo: number; supplierStage: SupplierStageCode; orderStage: OrderStageCode }>;
+  /** Round AY part 3. */
+  company?: CompanyInfo; logistics?: LogisticsInfo; contactList?: ContactInfo[];
 };
 export type FormatPreview = { generator: string; source: string | null; notes: string[]; pdf: { fileName: string; contentType: string; base64: string }; xlsx: { fileName: string; contentType: string; base64: string } | null };
 /** Round AF: one attachment of a thread (inline signature images left out), with the email it came in. */
@@ -1570,6 +1590,13 @@ export function useShipmentsApi() {
       clientCustomers: () => call<ClientCustomerRow[]>(`/trade-clients/customers`),
       clientCustomer: (id: string) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}`),
       clientSuppliers: () => call<ClientSupplierRow[]>(`/trade-clients/suppliers`),
+      clientCreateCustomer: (body: CompanyForm) => call<ClientCustomerDetail>(`/trade-clients/customers`, "POST", body),
+      clientUpdateCustomer: (id: string, body: CompanyForm) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/details`, "PATCH", body),
+      clientCreateSupplier: (body: CompanyForm) => call<ClientSupplierDetail>(`/trade-clients/suppliers`, "POST", body),
+      clientUpdateSupplier: (id: string, body: CompanyForm) => call<ClientSupplierDetail>(`/trade-clients/suppliers/${id}/details`, "PATCH", body),
+      shippingLines: () => call<ShippingLines>(`/trade-clients/shipping-lines`),
+      addShippingLine: (body: Partial<ShippingLine>) => call<ShippingLines & { code: string }>(`/trade-clients/shipping-lines`, "POST", body),
+      updateShippingLine: (code: string, body: Partial<ShippingLine>) => call<ShippingLines & { code: string }>(`/trade-clients/shipping-lines/${code}`, "PATCH", body),
       clientSupplier: (id: string) => call<ClientSupplierDetail>(`/trade-clients/suppliers/${id}`),
       orderProcess: (id: string) => call<OrderProcess>(`/trade-orders/${id}/process`),
       setStepDue: (stepId: string, dueAt: string | null) => call<{ stepId: string; from: string | null; to: string | null }>(`/trade-steps/${stepId}/due`, "PATCH", { dueAt }),

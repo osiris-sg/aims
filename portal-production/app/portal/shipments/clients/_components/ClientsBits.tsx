@@ -30,7 +30,7 @@ const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct
 export const ym = (m: string | null | undefined) => (m && /^\d{4}-\d{2}$/.test(m) ? `${MON[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}` : m ?? "");
 
 /** Customers · Suppliers switch at the top of the Clients pages. */
-export function ClientsHeader({ active, title, children }: { active: "customers" | "suppliers"; title?: React.ReactNode; children?: React.ReactNode }) {
+export function ClientsHeader({ active, title, children }: { active: "customers" | "suppliers" | "shipping-lines"; title?: React.ReactNode; children?: React.ReactNode }) {
   const router = useRouter();
   const lang = useLang();
   const L = CLIENTS_LABELS[lang];
@@ -43,6 +43,7 @@ export function ClientsHeader({ active, title, children }: { active: "customers"
         <Tabs value={active} onChange={(_, v) => router.push(`${CLIENTS_ROUTE}/${v}`)} sx={{ minHeight: 40, "& .MuiTab-root": { minHeight: 40, textTransform: "none" } }}>
           <Tab value="customers" label={L.customers} data-tour="clients-tab-customers" />
           <Tab value="suppliers" label={L.suppliers} data-tour="clients-tab-suppliers" />
+          <Tab value="shipping-lines" label={L.shippingLines} data-tour="clients-tab-shipping-lines" />
         </Tabs>
         <Box sx={{ flex: 1 }} />
         {children}

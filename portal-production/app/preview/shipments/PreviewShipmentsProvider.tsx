@@ -28,6 +28,7 @@ function answer(d: any, key: readonly unknown[]): unknown {
     if (key[2] === "suppliers") return d.suppliers;
     if (key[2] === "customer") return d.detail?.[key[3] as string];
     if (key[2] === "supplier") return d.sdetail?.[key[3] as string];
+    if (key[2] === "shipping-lines") return d.shippingLines;
   }
   if (k0 === "trade-monthly-list") {
     const q: any = key[1] ?? {};

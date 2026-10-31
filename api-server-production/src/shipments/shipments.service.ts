@@ -1,3 +1,4 @@
+import { maskedProfile } from './clients-company';
 import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { etaChangedLine } from '../operator/push-text';
 import { TradeAlertsService } from './trade-alerts.service';
@@ -187,7 +188,7 @@ export class ShipmentsService {
       fileLinks: shapeFileLinks(s.fileLinks),
       ref: shipmentRef(s.order?.orderNo, s.seqNo),
       orderLabel: orderLabel(s.order),
-      profile,
+      profile: maskedProfile(profile),
       estimate: est,
       actuals: actualsTable(est, costs, settings.estimatorRates),
       productLine: s.order ? lineLabel({ grade: s.order.grade, product: s.order.product, sizeSpec: s.order.size, quantityMt: s.order.qtyMt }) : s.contractLine ? lineLabel(s.contractLine) : null,

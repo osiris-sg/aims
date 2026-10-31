@@ -320,6 +320,12 @@ export const useClientSuppliers = () => {
   const orgId = useOrgId();
   return useQuery({ queryKey: [...CLIENT_KEYS.all, orgId, "suppliers"], enabled: !!orgId, queryFn: () => api.clientSuppliers() });
 };
+/** Round AY part 3: Clients → Shipping lines. */
+export const useShippingLines = () => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({ queryKey: [...CLIENT_KEYS.all, orgId, "shipping-lines"], enabled: !!orgId, queryFn: () => api.shippingLines() });
+};
 export const useClientSupplier = (id: string | undefined) => {
   const api = useShipmentsApi();
   const orgId = useOrgId();

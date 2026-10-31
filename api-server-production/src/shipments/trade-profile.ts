@@ -12,6 +12,7 @@
  */
 import type { DeliveryProfile } from './trade-invoice';
 import { cleanSkipSteps, processStep } from './trade-process';
+import { keepAccount } from './clients-company';
 
 export type BillingMode = 'TWO_STAGE' | 'SINGLE';
 
@@ -68,6 +69,12 @@ export interface CustomerProfile {
   partyBlocks?: PartyBlocks;
   /** Round AY: step codes that are not part of this customer's process (Clients → Process); absent = every step. */
   skipSteps?: string[];
+  /** Round AY part 3 (Clients → Details): country, website, payment terms, bank, notes — see clients-company.ts. */
+  company?: import('./clients-company').CompanyInfo;
+  /** Round AY part 3: shipping lines used, B/L / booking patterns, ports, incoterm. */
+  logistics?: import('./clients-company').LogisticsInfo;
+  /** Round AY part 3: contacts (name, role, e-mail, phone, language, main) — kept here so they work in every tenancy mode. */
+  contacts?: import('./clients-company').ContactInfo[];
 }
 
 /** The documents AIMS makes for a customer, by step: 4 Customer COA / PL, 7 SG→JP IV & PL, 9 出庫・納入依頼書, 11 invoice. */
@@ -144,6 +151,10 @@ export interface SupplierProfile {
   piNoPatterns?: string[];
   contractNoPatterns?: string[];
   ciNoPatterns?: string[];
+  /** Round AY part 3 (Clients → Details): company info, logistics and contacts (suppliers have no contact table). */
+  company?: import('./clients-company').CompanyInfo;
+  logistics?: import('./clients-company').LogisticsInfo;
+  contacts?: import('./clients-company').ContactInfo[];
 }
 
 /** Every supplier's own key formats (intake validation): Vedanta's defaults are added by the callers. */
@@ -190,6 +201,19 @@ export function mergeSupplierProfiles(current: unknown, patch: Record<string, un
     if ('emailDomains' in r) {
       if (!Array.isArray(r.emailDomains) || !r.emailDomains.every((d) => typeof d === 'string')) fail('emailDomains must be a list');
       next.emailDomains = (r.emailDomains as string[]).map((d) => d.trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
+    }
+    // Round AY part 3 (validated by the Clients service): company info, logistics, contacts.
+    if ('company' in r) {
+      if (r.company !== null && (typeof r.company !== 'object' || Array.isArray(r.company))) fail('company must be an object');
+      next.company = keepAccount((r.company ?? undefined) as any, out[id]?.company);
+    }
+    if ('logistics' in r) {
+      if (r.logistics !== null && (typeof r.logistics !== 'object' || Array.isArray(r.logistics))) fail('logistics must be an object');
+      next.logistics = (r.logistics ?? undefined) as any;
+    }
+    if ('contacts' in r) {
+      if (r.contacts !== null && !Array.isArray(r.contacts)) fail('contacts must be a list');
+      next.contacts = (r.contacts ?? undefined) as any;
     }
     out[id] = next;
   }
@@ -352,7 +376,21 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
       ...(formats ? { docFormats: formats } : {}),
       ...(Object.keys(parties).length ? { partyBlocks: parties as PartyBlocks } : {}),
       ...(skipSteps.length ? { skipSteps } : {}),
+      // Round AY part 3: Clients → Details keeps these; a save without them (Org Settings → Customers) keeps the stored ones.
+      ...keepExtra(out[id] as CustomerProfile | undefined, p as Partial<CustomerProfile>),
     };
+  }
+  return out;
+}
+
+/** Round AY part 3: company / logistics / contacts — from the patch when it has them, else the stored ones (validated by the Clients service). */
+function keepExtra(stored: CustomerProfile | undefined, p: Partial<CustomerProfile>) {
+  const out: Partial<CustomerProfile> = {};
+  for (const k of ['company', 'logistics', 'contacts'] as const) {
+    let v: any = p[k] !== undefined ? p[k] : stored?.[k];
+    // The screen only ever has the masked bank account: keep the stored number.
+    if (k === 'company') v = keepAccount(v, stored?.company);
+    if (v && typeof v === 'object' && (Array.isArray(v) ? v.length : Object.keys(v).length)) (out as any)[k] = v;
   }
   return out;
 }
