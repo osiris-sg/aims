@@ -1,4 +1,5 @@
 import { type ExecutionContext, Injectable, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { isPlatformAdminRole } from './admin-scope';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
@@ -14,6 +15,7 @@ const USER_ROLE_SELECT = {
     select: {
       id: true,
       name: true,
+      organizationId: true,
       permissions: {
         select: {
           name: true,
@@ -233,7 +235,8 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
     dbg(`📊 Auth data ready in ${authQueryDuration}ms`);
 
     // Check if user has OsirisAdmin role
-    const isOsirisAdmin = userRoles.some((userRole) => userRole.role.name === 'osirisadmin');
+    // Round AW: only the osiris-platform org's osirisadmin role counts.
+    const isOsirisAdmin = userRoles.some((userRole) => isPlatformAdminRole(userRole as any));
 
     // Org-switch override (X-Active-Org-Id): admin-only. When an osiris-admin
     // has selected a different organization in the org switcher, the frontend

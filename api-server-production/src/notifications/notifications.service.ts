@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/common/prisma.service';
 import { MODULE_CATALOG } from 'src/configuration/module-catalog';
 import { tierOfRoleNames } from 'src/common/role-tier';
+import { PLATFORM_ADMIN_ROLE_WHERE } from 'src/auth/admin-scope';
 
 export interface EmitNotificationParams {
   organizationId: string;
@@ -113,7 +114,7 @@ export class NotificationsService {
         select: { userId: true },
       }),
       this.prisma.userRole.findMany({
-        where: { isActive: true, role: { name: 'osirisadmin' } },
+        where: { isActive: true, ...PLATFORM_ADMIN_ROLE_WHERE },
         select: { userId: true },
       }),
       this.prisma.userRole.findMany({

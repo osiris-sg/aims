@@ -149,7 +149,7 @@ export default function useUserTableHeader() {
     }),
     kebabColumn((row: any) => [
       { label: "Edit", onClick: () => handleEditUser(row) },
-      { label: "Delete", destructive: true, onClick: () => handleDeleteUser(row.id) },
+      { label: "Remove from organization", destructive: true, onClick: () => handleDeleteUser(row.id) },
     ]),
   ];
 

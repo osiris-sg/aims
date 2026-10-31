@@ -1,5 +1,5 @@
 // src/users/users.service.ts
-import { Injectable, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Inject } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { UserRole, Role, Permission } from '@prisma/client';
 import { GetUsersDto } from './dto/get-users.dto';
@@ -8,6 +8,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { ClerkClient } from '@clerk/backend';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
+import { AdminActor, PLATFORM_ADMIN_ROLE_WHERE } from '../auth/admin-scope';
 
 interface UserRoleWithDetails extends UserRole {
   role: Role & {
@@ -24,6 +25,43 @@ export class UsersService {
     // DB user id -> Clerk user (an imported prod user's DB id is its external_id).
     private readonly clerkIdentity: ClerkIdentityService,
   ) {}
+
+  /** Active member of the org: an active membership row or an active role there. */
+  private async isMember(userId: string, organizationId: string) {
+    const [uo, ur] = await Promise.all([
+      this.prisma.userOrganization.count({ where: { userId, organizationId, isActive: true } }),
+      this.prisma.userRole.count({ where: { userId, organizationId, isActive: true } }),
+    ]);
+    return uo + ur > 0;
+  }
+
+  /**
+   * Round AW: a caller who is not a platform admin only reaches members of
+   * their own org (404 otherwise, so another org's user id tells nothing),
+   * and never a platform admin's account.
+   */
+  async assertReach(userId: string, actor?: AdminActor) {
+    if (!actor || actor.platform) return;
+    if (!(await this.isMember(userId, actor.orgId))) throw new NotFoundException('User not found in this organization');
+    const platform = await this.prisma.userRole.count({ where: { userId, isActive: true, ...PLATFORM_ADMIN_ROLE_WHERE } });
+    if (platform) throw new ForbiddenException('Platform administrators can only be changed by Osiris');
+  }
+
+  /** Round AW: roles handed out by a non-platform caller must belong to their org. */
+  private async assertRolesInOrg(roleIds: string[], organizationId: string, actor?: AdminActor) {
+    if (!actor || actor.platform || !roleIds?.length) return;
+    const found = await this.prisma.role.findMany({ where: { id: { in: roleIds }, organizationId }, select: { id: true } });
+    const ok = new Set(found.map((r) => r.id));
+    const missing = roleIds.filter((id) => !ok.has(id));
+    if (missing.length) throw new NotFoundException(`Roles with IDs ${missing.join(', ')} not found in this organization`);
+  }
+
+  /** Round AW: a non-platform caller works in their own org, whatever the body says. */
+  private orgFor(requested: string | undefined, actor?: AdminActor) {
+    if (!actor || actor.platform) return requested || actor?.orgId;
+    if (requested && requested !== actor.orgId) throw new ForbiddenException('You can only manage users in your own organization');
+    return actor.orgId;
+  }
 
   async getUsers(getUsersDto: GetUsersDto, organizationId: string) {
     const { page = 1, limit = 10, search = '', filters = {} } = getUsersDto;
@@ -223,7 +261,9 @@ export class UsersService {
     };
   }
 
-  async assignRoleToUser(userId: string, roleId: string, organizationId: string) {
+  async assignRoleToUser(userId: string, roleId: string, organizationId: string, actor?: AdminActor) {
+    await this.assertReach(userId, actor);
+    await this.assertRolesInOrg([roleId], organizationId, actor);
     // Check if user already has this role in this organization
     const existingUserRole = await this.prisma.userRole.findFirst({
       where: {
@@ -233,8 +273,14 @@ export class UsersService {
       },
     });
 
-    if (existingUserRole) {
+    if (existingUserRole?.isActive) {
       throw new NotFoundException('User already has this role in this organization');
+    }
+    if (existingUserRole) {
+      // A removed assignment (round AW keeps the row) comes back on re-assign.
+      const back = await this.prisma.userRole.update({ where: { id: existingUserRole.id }, data: { isActive: true }, include: { role: { include: { permissions: true } } } });
+      ClerkAuthGuard.invalidateUser(userId);
+      return back.role;
     }
 
     // Create the user role assignment
@@ -259,7 +305,8 @@ export class UsersService {
     return userRole.role;
   }
 
-  async removeRoleFromUser(userId: string, roleId: string, organizationId: string) {
+  async removeRoleFromUser(userId: string, roleId: string, organizationId: string, actor?: AdminActor) {
+    await this.assertReach(userId, actor);
     const userRole = await this.prisma.userRole.findFirst({
       where: {
         userId,
@@ -282,8 +329,10 @@ export class UsersService {
     return { message: 'Role removed successfully' };
   }
 
-  async createUser(createUserDto: CreateUserDto) {
-    const { firstName, lastName, email, username, password, roleIds, organizationId } = createUserDto;
+  async createUser(createUserDto: CreateUserDto, actor?: AdminActor) {
+    const { firstName, lastName, email, username, password, roleIds } = createUserDto;
+    const organizationId = this.orgFor(createUserDto.organizationId, actor);
+    await this.assertRolesInOrg(roleIds, organizationId, actor);
 
     // A Clerk user needs at least one identifier — accept either email or username.
     if (!email && !username) {
@@ -321,6 +370,8 @@ export class UsersService {
     } catch (error: any) {
       console.error('Error creating user in Clerk:', error);
       if (error.errors?.[0]?.code === 'form_identifier_exists') {
+        const back = await this.readdRemovedMember(email, username, organizationId, roleIds);
+        if (back) return back;
         throw new NotFoundException('A user with this email address or username already exists');
       }
       throw new NotFoundException('Failed to create user in Clerk: ' + (error.message || 'Unknown error'));
@@ -391,8 +442,17 @@ export class UsersService {
     };
   }
 
-  async updateUser(userId: string, updateUserDto: UpdateUserDto) {
-    const { firstName, lastName, email, password, roleIds, organizationId } = updateUserDto;
+  async updateUser(userId: string, updateUserDto: UpdateUserDto, actor?: AdminActor) {
+    const { firstName, lastName, email, password, roleIds } = updateUserDto;
+    const organizationId = this.orgFor(updateUserDto.organizationId, actor);
+    await this.assertReach(userId, actor);
+    await this.assertRolesInOrg(roleIds ?? [], organizationId, actor);
+    // A login shared with another org: only a platform admin changes its email / password.
+    if (actor && !actor.platform && ((email && email.trim()) || (password && password.trim()))) {
+      const elsewhere = await this.prisma.userOrganization.count({ where: { userId, isActive: true, organizationId: { not: organizationId } } });
+      const rolesElsewhere = await this.prisma.userRole.count({ where: { userId, isActive: true, organizationId: { not: organizationId } } });
+      if (elsewhere + rolesElsewhere > 0) throw new ForbiddenException('This login is also used in another organization; ask Osiris to change its email or password');
+    }
 
     // Check if user exists by looking for their roles
     const existingUserRoles = await this.prisma.userRole.findMany({
@@ -502,23 +562,18 @@ export class UsersService {
         },
       });
 
-      // Delete existing role assignments for this organization
-      await this.prisma.userRole.deleteMany({
-        where: {
-          userId,
-          organizationId,
-        },
+      // Round AW: roles dropped in this org are marked inactive (rows kept);
+      // the chosen ones are created or switched back on.
+      await this.prisma.userRole.updateMany({
+        where: { userId, organizationId, isActive: true, roleId: { notIn: roleIds } },
+        data: { isActive: false },
       });
-
-      // Create new role assignments
       await Promise.all(
         roleIds.map((roleId) =>
-          this.prisma.userRole.create({
-            data: {
-              userId,
-              roleId,
-              organizationId,
-            },
+          this.prisma.userRole.upsert({
+            where: { userId_roleId_organizationId: { userId, roleId, organizationId } },
+            update: { isActive: true },
+            create: { userId, roleId, organizationId },
           }),
         ),
       );
@@ -529,7 +584,7 @@ export class UsersService {
 
     // Fetch updated user roles with details
     const updatedUserRoles = await this.prisma.userRole.findMany({
-      where: { userId },
+      where: { userId, isActive: true },
       include: {
         role: {
           include: {
@@ -554,48 +609,101 @@ export class UsersService {
     };
   }
 
-  async deleteUser(userId: string) {
-    // Check if user has any roles assigned
-    const userRoles = await this.prisma.userRole.findMany({
-      where: { userId },
-    });
+  /**
+   * Round AW: "Delete user" removes the user from the caller's org only — the
+   * membership and that org's role rows are kept and marked inactive (hidden,
+   * not deleted). The Clerk login is deleted only by a platform admin, only
+   * when no active membership is left anywhere, and never for a SiteClock user.
+   * A platform admin removing someone who is not in their current org removes
+   * them from every org (the admin panel's old reach).
+   */
+  async deleteUser(userId: string, actor?: AdminActor) {
+    if (actor && actor.userId && actor.userId === userId) throw new BadRequestException('You cannot remove yourself');
+    await this.assertReach(userId, actor);
+    const everywhere = !actor || (actor.platform && !(await this.isMember(userId, actor.orgId)));
+    const scope = everywhere ? { userId } : { userId, organizationId: actor!.orgId };
 
-    if (userRoles.length === 0) {
+    const [roles, memberships] = await Promise.all([
+      this.prisma.userRole.updateMany({ where: { ...scope, isActive: true }, data: { isActive: false } }),
+      this.prisma.userOrganization.updateMany({ where: { ...scope, isActive: true }, data: { isActive: false } }),
+    ]);
+    if (roles.count + memberships.count === 0) {
       throw new NotFoundException(`User with ID ${userId} not found or has no roles assigned`);
     }
-
-    // Delete all user role associations
-    await this.prisma.userRole.deleteMany({
-      where: { userId },
-    });
 
     // Access revoked — drop the guard's cached roles so it takes effect now.
     ClerkAuthGuard.invalidateUser(userId);
 
-    // The Clerk instance is shared with SiteClock — never delete a Clerk user
-    // SiteClock also uses (marked by publicMetadata.siteclock). If we can't
-    // tell, fail safe and keep the Clerk user.
-    let clerkUser;
-    try {
-      clerkUser = await this.clerkIdentity.toClerkUser(userId, { fresh: true });
-    } catch (error) {
-      console.error(`Kept Clerk user ${userId}: could not fetch it to check for SiteClock use:`, error);
-    }
-
-    if (clerkUser && clerkUser.publicMetadata?.siteclock != null) {
-      console.log(`Kept Clerk user ${userId}: also a SiteClock user`);
-    } else if (clerkUser) {
+    const left = await this.prisma.userOrganization.count({ where: { userId, isActive: true } })
+      + await this.prisma.userRole.count({ where: { userId, isActive: true } });
+    let clerkDeleted = false;
+    if (actor?.platform && left === 0) {
+      // The Clerk instance is shared with SiteClock — never delete a Clerk user
+      // SiteClock also uses (marked by publicMetadata.siteclock). If we can't
+      // tell, fail safe and keep the Clerk user.
+      let clerkUser;
       try {
-        await this.clerkClient.users.deleteUser(clerkUser.id);
-        this.clerkIdentity.invalidate(userId);
+        clerkUser = await this.clerkIdentity.toClerkUser(userId, { fresh: true });
       } catch (error) {
-        console.error('Error deleting user from Clerk:', error);
+        console.error(`Kept Clerk user ${userId}: could not fetch it to check for SiteClock use:`, error);
+      }
+
+      if (clerkUser && clerkUser.publicMetadata?.siteclock != null) {
+        console.log(`Kept Clerk user ${userId}: also a SiteClock user`);
+      } else if (clerkUser) {
+        try {
+          await this.clerkClient.users.deleteUser(clerkUser.id);
+          this.clerkIdentity.invalidate(userId);
+          clerkDeleted = true;
+        } catch (error) {
+          console.error('Error deleting user from Clerk:', error);
+        }
       }
     }
 
     return {
-      message: `User ${userId} has been removed from the system`,
+      message: everywhere ? `User ${userId} has been removed from every organization` : `User ${userId} has been removed from this organization`,
       success: true,
+      removedFrom: everywhere ? 'all' : actor!.orgId,
+      rolesRemoved: roles.count,
+      clerkDeleted,
+      otherMemberships: left,
+    };
+  }
+
+  /**
+   * Round AW: "Add user" with the email / username of someone this org removed
+   * earlier brings their membership back (their login was kept) with the new
+   * roles. Their password is left alone. Anyone else's existing login stays an error.
+   */
+  private async readdRemovedMember(email: string | undefined, username: string | undefined, organizationId: string, roleIds: string[]) {
+    const found = email
+      ? await this.clerkClient.users.getUserList({ emailAddress: [email] })
+      : await this.clerkClient.users.getUserList({ username: [username!] });
+    const clerkUser = (found as any)?.data?.[0] ?? (Array.isArray(found) ? found[0] : undefined);
+    if (!clerkUser) return null;
+    const userId = clerkUser.externalId || clerkUser.id;
+    const removed = await this.prisma.userOrganization.findUnique({ where: { userId_organizationId: { userId, organizationId } } });
+    if (!removed || removed.isActive) return null;
+    await this.prisma.userOrganization.update({ where: { id: removed.id }, data: { isActive: true } });
+    for (const roleId of roleIds) {
+      await this.prisma.userRole.upsert({
+        where: { userId_roleId_organizationId: { userId, roleId, organizationId } },
+        update: { isActive: true },
+        create: { userId, roleId, organizationId },
+      });
+    }
+    ClerkAuthGuard.invalidateUser(userId);
+    const roles = await this.prisma.userRole.findMany({ where: { userId, organizationId, isActive: true }, include: { role: { include: { permissions: true } } } });
+    return {
+      id: userId,
+      email: clerkUser.emailAddresses?.[0]?.emailAddress || email || null,
+      username: clerkUser.username || username || null,
+      name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || `User ${userId}`,
+      roles: roles.map((ur) => ({ id: ur.role.id, name: ur.role.name, description: ur.role.description, permissions: ur.role.permissions })),
+      readded: true,
+      createdAt: roles[0]?.createdAt || new Date(),
+      updatedAt: new Date(),
     };
   }
 }

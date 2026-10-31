@@ -3,6 +3,7 @@ import { randomInt } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { OperatorChannel, OperatorContext } from './operator.types';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
+import { isPlatformAdminRole } from '../auth/admin-scope';
 
 /** Flat (not a discriminated union) — this project runs strictNullChecks:false,
  *  which disables union narrowing, so callers check `ok` and read the fields. */
@@ -167,7 +168,7 @@ export class OperatorAuthService {
         where: { userId: clerkUserId, isActive: true },
         select: {
           organizationId: true,
-          role: { select: { name: true, permissions: { select: { resource: true, action: true } } } },
+          role: { select: { name: true, organizationId: true, permissions: { select: { resource: true, action: true } } } },
         },
       }),
       this.prisma.userOrganization.findMany({
@@ -178,8 +179,8 @@ export class OperatorAuthService {
 
     const orgs = memberships.map((m) => m.organization).filter(Boolean) as Array<{ id: string; name: string }>;
 
-    // osirisadmin is matched as a lowercase literal, same as ClerkAuthGuard.
-    const isOsirisAdmin = roles.some((r) => r.role?.name === 'osirisadmin');
+    // Same rule as ClerkAuthGuard: the osiris-platform org's osirisadmin role only.
+    const isOsirisAdmin = roles.some((r) => isPlatformAdminRole(r as any));
 
     // Never rely on findFirst — pick explicitly (assigned org, or the only one).
     let chosen = preferredOrgId ? orgs.find((o) => o.id === preferredOrgId) : undefined;
@@ -309,9 +310,9 @@ export class OperatorAuthService {
     if (!clerkUserId) return null;
     const roles = await this.prisma.userRole.findMany({
       where: { userId: clerkUserId, isActive: true },
-      select: { role: { select: { name: true } } },
+      select: { organizationId: true, role: { select: { name: true, organizationId: true } } },
     });
-    const isOsirisAdmin = roles.some((r) => r.role?.name === 'osirisadmin');
+    const isOsirisAdmin = roles.some((r) => isPlatformAdminRole(r));
     const org = await this.canUseOrg({ clerkUserId, isOsirisAdmin }, organizationId);
     if (!org) return null;
     await this.setOrganization(channel, channelUserId, organizationId);
@@ -379,14 +380,14 @@ export class OperatorAuthService {
   async contextAs(ctx: OperatorContext, targetUserId: string, label: string): Promise<OperatorContext> {
     const roles = await this.prisma.userRole.findMany({
       where: { userId: targetUserId, organizationId: ctx.organizationId, isActive: true },
-      select: { role: { select: { name: true, permissions: { select: { resource: true, action: true } } } } },
+      select: { organizationId: true, role: { select: { name: true, organizationId: true, permissions: { select: { resource: true, action: true } } } } },
     });
     return {
       ...ctx,
       clerkUserId: targetUserId,
       actor: { id: targetUserId, name: label },
       roles: roles.filter((r) => r.role).map((r) => ({ name: r.role!.name, permissions: r.role!.permissions })),
-      isOsirisAdmin: roles.some((r) => r.role?.name === 'osirisadmin'),
+      isOsirisAdmin: roles.some((r) => isPlatformAdminRole(r)),
       impersonating: { byUserId: ctx.clerkUserId, label },
     };
   }
