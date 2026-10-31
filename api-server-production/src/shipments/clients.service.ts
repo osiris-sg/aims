@@ -15,7 +15,9 @@ import { TradeGeneratedService } from './trade-generated.service';
 import { TradeActor } from './shipments.request';
 import { clientStats, ClientOrderFact, contactsFrom, DOC_FORMAT_SLOTS, formatViews, generatorFits } from './clients';
 import { clientName, shortSupplier } from './monthly-list';
-import { CustomerProfile, DOC_FORMAT_TYPES, DocFormatType, FormatSample, OTHER_DOC_TEMPLATES, profileFor, supplierProfileFor } from './trade-profile';
+import { CustomerProfile, DOC_FORMAT_TYPES, DocFormatType, FormatSample, naStepCodes, OTHER_DOC_TEMPLATES, profileFor, supplierProfileFor } from './trade-profile';
+import { cleanSkipSteps, ImpactRecord, PROCESS_STEPS, processImpact } from './trade-process';
+import { shipmentRef } from './shipments.rules';
 import { orderStage, supplierStage } from './trade-stage';
 
 const STEP = { code: true, status: true, notApplicable: true };
@@ -128,7 +130,43 @@ export class ClientsService {
       ports: [...new Set([profile.port, ...shipPorts.map((s) => s.portOfDischarge)].filter((x): x is string => !!x))],
       deliverySites: [...(profile.deliveryProfile ? [{ ...profile.deliveryProfile, source: 'profile' }] : []), ...legacy.map((d) => ({ ...d, source: 'documents defaults' }))],
       formats: formatViews(profile, c.jpName || c.name),
+      process: { steps: PROCESS_STEPS, skipSteps: profile.skipSteps ?? [] },
     };
+  }
+
+  // ── Round AY: the customer's process (which steps apply) ─────────────────
+  /** What saving `skipSteps` would do to the customer's open orders / shipments (nothing is written). */
+  async processImpact(organizationId: string, customerId: string, skipSteps: unknown) {
+    const p = await this.profileFor(organizationId, customerId);
+    const next: CustomerProfile = { ...p, skipSteps: cleanSkipSteps(skipSteps, (m) => { throw new BadRequestException(m); }) };
+    const STEPS = { select: { code: true, status: true, isOngoing: true, notApplicable: true, skipReason: true, displayNo: true, title: true } };
+    const orders: any[] = await this.prisma.tradeOrder.findMany({
+      where: { organizationId, customerId, status: 'OPEN' },
+      select: { id: true, orderNo: true, status: true, supplierId: true, steps: STEPS, shipments: { select: { id: true, seqNo: true, status: true, steps: STEPS } } },
+      orderBy: { orderNo: 'asc' },
+    });
+    const sp = new Map<string, any>();
+    for (const o of orders) if (!sp.has(o.supplierId)) sp.set(o.supplierId, await this.config.supplierProfileOf(organizationId, o.supplierId));
+    const supplierOf = new Map<string, string>();
+    const records: ImpactRecord[] = [];
+    for (const o of orders) {
+      records.push({ kind: 'order', id: o.id, ref: `#${o.orderNo}`, status: o.status, steps: o.steps });
+      supplierOf.set(o.id, o.supplierId);
+      for (const sh of o.shipments) {
+        records.push({ kind: 'shipment', id: sh.id, ref: shipmentRef(o.orderNo, sh.seqNo), orderId: o.id, status: sh.status, steps: sh.steps });
+        supplierOf.set(sh.id, o.supplierId);
+      }
+    }
+    const impact = processImpact(records, (r) => new Set(naStepCodes(next, r.kind === 'order' ? 'ORDER' : 'SHIPMENT', sp.get(supplierOf.get(r.id)!))));
+    return { skipSteps: next.skipSteps, ...impact };
+  }
+
+  /** Save the customer's process; its open orders / shipments follow (done steps stay done, nothing is deleted). */
+  async updateProcess(organizationId: string, customerId: string, skipSteps: unknown) {
+    const impact = await this.processImpact(organizationId, customerId, skipSteps);
+    const p = await this.profileFor(organizationId, customerId);
+    await this.config.updateSettings(organizationId, { customerProfiles: { [customerId]: { ...p, skipSteps: impact.skipSteps } } } as any);
+    return { impact, customer: await this.customer(organizationId, customerId) };
   }
 
   private async contracts(organizationId: string, where: { customerId?: string; supplierId?: string }) {

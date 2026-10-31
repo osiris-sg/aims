@@ -11,6 +11,7 @@
  * Pure: no Prisma, no Nest.
  */
 import type { DeliveryProfile } from './trade-invoice';
+import { cleanSkipSteps, processStep } from './trade-process';
 
 export type BillingMode = 'TWO_STAGE' | 'SINGLE';
 
@@ -65,6 +66,8 @@ export interface CustomerProfile {
   docFormats?: Partial<Record<DocFormatType, DocFormat>>;
   /** Round AN: Consignee / Buyer / Notify Party blocks of the customer's INVOICE & PACKING LIST (SGJP_IV_PL_HOEI). */
   partyBlocks?: PartyBlocks;
+  /** Round AY: step codes that are not part of this customer's process (Clients → Process); absent = every step. */
+  skipSteps?: string[];
 }
 
 /** The documents AIMS makes for a customer, by step: 4 Customer COA / PL, 7 SG→JP IV & PL, 9 出庫・納入依頼書, 11 invoice. */
@@ -200,8 +203,11 @@ export function mergeSupplierProfiles(current: unknown, patch: Record<string, un
 export function naStepCodes(p: CustomerProfile, scope: 'ORDER' | 'SHIPMENT' | 'CONTRACT' | 'SUPPLIER_ORDER', supplier?: SupplierProfile | null): string[] {
   const noPi = supplier && !supplier.hasPI ? ['PI_PAYMENT'] : [];
   if (scope === 'SUPPLIER_ORDER') return noPi;
+  // Round AY: the steps this customer's process leaves out (Clients → Process).
+  const skipped = (p.skipSteps ?? []).filter((c) => processStep(c)?.scope === scope);
   // One order process (2026-10, round H): steps 0 / 1 are the order's again.
-  if (scope === 'ORDER') return [...noPi, ...(p.billingMode === 'SINGLE' ? ['INVOICE_1'] : [])];
+  if (scope === 'ORDER') return [...new Set([...noPi, ...(p.billingMode === 'SINGLE' ? ['INVOICE_1'] : []), ...skipped])];
+  if (scope === 'SHIPMENT') return skipped;
   return [];
 }
 
@@ -323,6 +329,8 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
     const pb = p.partyBlocks;
     if (pb !== undefined && pb !== null && (typeof pb !== 'object' || Object.entries(pb).some(([k, v]) => !['consignee', 'buyer', 'notify'].includes(k) || (v !== undefined && v !== null && !isText(v, 600))))) fail('partyBlocks must be consignee / buyer / notify text');
     // A save without partyBlocks (Org Settings → Customers doesn't know them) keeps the stored ones.
+    // Round AY: a save without skipSteps (Org Settings → Customers doesn't know them) keeps the stored process.
+    const skipSteps = (p as { skipSteps?: unknown }).skipSteps === undefined ? ((out[id] as CustomerProfile | undefined)?.skipSteps ?? []) : cleanSkipSteps((p as { skipSteps?: unknown }).skipSteps, fail);
     const parties = pb === undefined ? { ...((out[id] as CustomerProfile | undefined)?.partyBlocks ?? {}) } : pb ? Object.fromEntries(Object.entries(pb).filter(([, v]) => typeof v === 'string' && v.trim()).map(([k, v]) => [k, (v as string).trim()])) : {};
     out[id] = {
       customerId: id,
@@ -343,6 +351,7 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
       docAddressee: p.docAddressee?.trim() || undefined,
       ...(formats ? { docFormats: formats } : {}),
       ...(Object.keys(parties).length ? { partyBlocks: parties as PartyBlocks } : {}),
+      ...(skipSteps.length ? { skipSteps } : {}),
     };
   }
   return out;

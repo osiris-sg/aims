@@ -11,6 +11,7 @@ import { ratesOf } from './trade-estimator';
 import { cleanAlertRules } from './trade-alerts';
 import { cleanLmeByMonth } from './trade-contract';
 import { bankEntity } from './trade-entity';
+import { isMovedToOrder, PROCESS_SKIP_REASON } from './trade-process';
 
 /** A Prisma client or interactive-transaction client. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -634,6 +635,7 @@ export class TradeConfigService {
     if (!hasExactlyOneOwner(owner)) throw new BadRequestException('A step belongs to exactly one order, shipment or contract');
     const p = profile ?? profileFor(null, null);
     const na = new Set(naStepCodes(p, scope, supplier));
+    const processSkips = new Set(p.skipSteps ?? []);
     const templates: Array<{ id: string; code: string; title: string; displayNo: string | null; sortOrder: number; requiredDocTypes: string[]; optionalDocTypes: string[]; requiredFields: string[]; isOngoing: boolean }> =
       await db.tradeStepTemplate.findMany({
         where: { organizationId, scope, isActive: true },
@@ -661,6 +663,7 @@ export class TradeConfigService {
           requiredFields: t.requiredFields ?? [],
           isOngoing: t.isOngoing,
           notApplicable: na.has(t.code),
+          ...(processSkips.has(t.code) ? { skipReason: PROCESS_SKIP_REASON } : {}),
           ...(subtasks ? { subtasks: subtasks as any } : {}),
         };
       }),
@@ -679,11 +682,36 @@ export class TradeConfigService {
       where: { organizationId, customerId, status: 'OPEN' },
       select: { id: true, supplierId: true, shipments: { select: { id: true, status: true } } },
     });
+    const touched: Array<{ id: string; shipments: Array<{ id: string; status: string }> }> = [];
     for (const o of orders) {
       const sp = await this.supplierProfileOf(organizationId, o.supplierId, db);
-      await this.applyProfile(db, organizationId, { orderId: o.id }, 'ORDER', p, sp);
-      for (const s of o.shipments.filter((x) => x.status === 'OPEN')) await this.applyProfile(db, organizationId, { shipmentId: s.id }, 'SHIPMENT', p, sp);
+      let changed = await this.applyProfile(db, organizationId, { orderId: o.id }, 'ORDER', p, sp);
+      const ships: Array<{ id: string; status: string }> = [];
+      for (const s of o.shipments.filter((x) => x.status === 'OPEN')) if (await this.applyProfile(db, organizationId, { shipmentId: s.id }, 'SHIPMENT', p, sp)) ships.push(s);
+      changed ||= ships.length > 0;
+      // Only records whose N/A steps changed are checked — a record someone reopened stays open.
+      if (changed) touched.push({ id: o.id, shipments: ships });
     }
+    return this.closeFinished(db, organizationId, touched);
+  }
+
+  /**
+   * Round AY: after a process change, a shipment whose remaining steps are all done completes, and so does its
+   * order once its own steps and every shipment are done (the same rules as completing a step; nothing else moves).
+   */
+  async closeFinished(db: Db, organizationId: string, orders: Array<{ id: string; shipments: Array<{ id: string; status: string }> }>) {
+    const closed = { shipments: [] as string[], contracts: [] as string[], orders: [] as string[] };
+    for (const o of orders) {
+      for (const sh of o.shipments.filter((x) => x.status === 'OPEN')) {
+        const steps: Array<{ status: string; isOngoing: boolean; notApplicable: boolean }> = await db.tradeStep.findMany({ where: { organizationId, shipmentId: sh.id }, select: { status: true, isOngoing: true, notApplicable: true } });
+        if (steps.length && steps.every((x) => !countsForProgress(x) || x.status === 'DONE')) {
+          await db.shipment.update({ where: { id: sh.id, organizationId }, data: { status: 'COMPLETED' } });
+          closed.shipments.push(sh.id);
+        }
+      }
+      await this.closeOrderIfDone(db, organizationId, o.id, closed);
+    }
+    return closed;
   }
 
   /** Re-apply a supplier's profile (PI or not, its shipping documents) to its open supplier orders and shipments. */
@@ -702,11 +730,14 @@ export class TradeConfigService {
     }
   }
 
-  async applyProfile(db: Db, organizationId: string, owner: TradeOwner, scope: TradeScope, p: CustomerProfile, supplier?: SupplierProfile | null) {
+  /** Returns whether any step's N/A flag changed. */
+  async applyProfile(db: Db, organizationId: string, owner: TradeOwner, scope: TradeScope, p: CustomerProfile, supplier?: SupplierProfile | null): Promise<boolean> {
+    let naChanged = false;
     const na = new Set(naStepCodes(p, scope, supplier));
-    const steps: Array<{ id: string; code: string; status: string; notApplicable: boolean; title: string; requiredDocTypes: string[]; subtasks: unknown }> = await db.tradeStep.findMany({
+    const processSkips = new Set(p.skipSteps ?? []);
+    const steps: Array<{ id: string; code: string; status: string; notApplicable: boolean; skipReason: string | null; title: string; requiredDocTypes: string[]; subtasks: unknown }> = await db.tradeStep.findMany({
       where: { organizationId, ...ownerWhere(owner) },
-      select: { id: true, code: true, status: true, notApplicable: true, title: true, requiredDocTypes: true, subtasks: true },
+      select: { id: true, code: true, status: true, notApplicable: true, skipReason: true, title: true, requiredDocTypes: true, subtasks: true },
     });
     const templates: Array<{ code: string; title: string; requiredDocTypes: string[] }> = await db.tradeStepTemplate.findMany({
       where: { organizationId, scope },
@@ -714,10 +745,18 @@ export class TradeConfigService {
     });
     for (const s of steps) {
       if (s.status === 'DONE') continue;
+      // Round AY: steps moved to the order in round H are never touched here (a profile save used to switch them back on).
+      if (isMovedToOrder(s)) continue;
       const t = templates.find((x) => x.code === s.code);
       const o = stepOverride(p, s.code, supplier);
       const data: Record<string, unknown> = {};
-      if (s.notApplicable !== na.has(s.code)) data.notApplicable = na.has(s.code);
+      if (s.notApplicable !== na.has(s.code)) {
+        data.notApplicable = na.has(s.code);
+        naChanged = true;
+      }
+      // Round AY: a step left out of the customer's process is marked as such (hidden in the step cards); back in → cleared.
+      const reason = na.has(s.code) && processSkips.has(s.code) ? PROCESS_SKIP_REASON : s.skipReason === PROCESS_SKIP_REASON ? null : s.skipReason;
+      if (reason !== s.skipReason) data.skipReason = reason;
       const want = o.requiredDocTypes ?? t?.requiredDocTypes;
       if (want && JSON.stringify(want) !== JSON.stringify(s.requiredDocTypes)) data.requiredDocTypes = want;
       const title = o.title ?? t?.title;
@@ -730,6 +769,7 @@ export class TradeConfigService {
       }
       if (Object.keys(data).length) await db.tradeStep.update({ where: { id: s.id }, data });
     }
+    return naChanged;
   }
 }
 

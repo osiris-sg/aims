@@ -38,6 +38,22 @@ export class ClientsController {
     return this.clients.supplier(orgIdOf(req), id);
   }
 
+  /** Round AY: what a process change would do to the customer's open orders / shipments (read-only). */
+  @Post('customers/:id/process/preview')
+  @Permissions('shipments:read')
+  processPreview(@Param('id', ParseUUIDPipe) id: string, @Body() body: { skipSteps?: string[] }, @Req() req: TradeRequest) {
+    return this.clients.processImpact(orgIdOf(req), id, body?.skipSteps ?? []);
+  }
+
+  /** Round AY: save which steps are part of the customer's process. */
+  @Patch('customers/:id/process')
+  @Permissions('shipments:update')
+  async updateProcess(@Param('id', ParseUUIDPipe) id: string, @Body() body: { skipSteps?: string[] }, @Req() req: TradeRequest) {
+    const res = await this.clients.updateProcess(orgIdOf(req), id, body?.skipSteps ?? []);
+    (req as any).actionLogResult = { skipSteps: res.impact.skipSteps, hidden: res.impact.hidden.length, shown: res.impact.shown.length, completes: res.impact.completes };
+    return res;
+  }
+
   /** Document formats: generator (Customer COA / PL), language, 宛先, note — saved on the customer profile. */
   @Patch('customers/:id/formats/:docType')
   @Permissions('shipments:update')
