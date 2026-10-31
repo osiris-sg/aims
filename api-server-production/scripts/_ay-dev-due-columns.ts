@@ -1,6 +1,6 @@
 /**
- * Round AY part 2: add TradeStep.dueAt / dueSetById / dueSetByName / dueSetAt on the DEV database (every schema that
- * has a "TradeStep" table — dev runs per-org tenancy and `prisma db push` refuses it). Prod needs nothing: Render's
+ * Round AY parts 2–3: add TradeStep.dueAt / dueSetById / dueSetByName / dueSetAt and TradeSetting.shippingLines on the
+ * DEV database (every schema that has those tables — dev runs per-org tenancy and `prisma db push` refuses it). Prod needs nothing: Render's
  * build pushes schema.prisma (public).
  *
  *   npx ts-node --transpile-only scripts/_ay-dev-due-columns.ts            # dry run: prints the SQL
@@ -28,7 +28,11 @@ const cols = [
   await c.connect();
   try {
     const schemas = (await c.query(`select table_schema from information_schema.tables where table_name = 'TradeStep' order by 1`)).rows.map((r) => r.table_schema as string);
-    const stmts = schemas.flatMap((s) => cols.map(([n, t]) => `ALTER TABLE "${s}"."TradeStep" ADD COLUMN IF NOT EXISTS "${n}" ${t}`));
+    const setSchemas = (await c.query(`select table_schema from information_schema.tables where table_name = 'TradeSetting' order by 1`)).rows.map((r) => r.table_schema as string);
+    const stmts = [
+      ...schemas.flatMap((s) => cols.map(([n, t]) => `ALTER TABLE "${s}"."TradeStep" ADD COLUMN IF NOT EXISTS "${n}" ${t}`)),
+      ...setSchemas.map((s) => `ALTER TABLE "${s}"."TradeSetting" ADD COLUMN IF NOT EXISTS "shippingLines" JSONB`),
+    ];
     if (!apply) {
       for (const q of stmts) console.log(q + ';');
       console.log(`\n-- dry run (${schemas.length} schema(s): ${schemas.join(', ')}); pass --apply to execute`);

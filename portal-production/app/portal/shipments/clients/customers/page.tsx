@@ -1,81 +1,63 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-// Round AM — Clients › Customers: SUS, Kato, Hoei (+ any other trade customer: one with a profile, an order or a
-// contract). Columns: name (short + full), open orders, tonnage this month / the 3 months before (order qty by
-// delivery month), last delivery, invoice profile (billing mode). The row opens the customer's profile.
+// Clients › Customers (round AM; round AY part 3: a proper table). Every trade customer (one with a profile, an order
+// or a contract): name EN / JA, country, main contact, e-mail, phone, open orders, last delivery, invoice profile —
+// sortable, searchable, rows selectable for a CSV export. "+ Add customer" opens the form in a drawer; the row opens
+// the customer's profile.
 
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Box, Chip, Typography } from "@mui/material";
-import PageTable from "@/components/PageTable";
+import { Alert, Box, Button, Chip } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
 import { useClientCustomers } from "../../_lib/hooks";
 import type { ClientCustomerRow } from "../../_lib/api";
-import { fmtDay } from "../../_lib/format";
-import { billingLabel, ClientsHeader, T, t3, useLang, ym } from "../_components/ClientsBits";
+import { billingLabel, ClientsHeader, T, useLang } from "../_components/ClientsBits";
+import ClientsTable, { type ClientsColumn } from "../_components/ClientsTable";
+import CompanyDrawer from "../_components/CompanyDrawer";
+import { ContactCell, lastDeliveryKey, lastDeliveryText, NameCell } from "../_components/ClientColumns";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 
 export default function ClientsCustomersPage() {
   const router = useRouter();
   const lang = useLang();
   const L = T[lang];
+  const ja = lang === "ja";
   const list = useClientCustomers();
-  const [search, setSearch] = useState("");
-  const rows = useMemo(() => (list.data ?? []).filter((c) => !search || `${c.short} ${c.name} ${c.jpName ?? ""}`.toLowerCase().includes(search.toLowerCase())), [list.data, search]);
-  const columns = useMemo(
-    () => [
-      {
-        id: "name",
-        header: lang === "ja" ? "顧客" : "Customer",
-        cell: ({ row }: any) => {
-          const c: ClientCustomerRow = row.original;
-          return (
-            <Box>
-              <Typography variant="body2" sx={{ fontWeight: 800 }}>{c.short}</Typography>
-              <Typography variant="caption" color="text.secondary">{[c.name, c.jpName].filter(Boolean).join(" · ")}</Typography>
-            </Box>
-          );
-        },
-      },
-      { id: "open", header: L.openOrders, cell: ({ row }: any) => row.original.openOrders },
-      { id: "month", header: L.thisMonth, cell: ({ row }: any) => t3(row.original.tonsThisMonth) },
-      { id: "last3", header: L.last3, cell: ({ row }: any) => <span title={`${ym(row.original.last3From)} – ${ym(row.original.last3To)} (delivery month)`}>{t3(row.original.tonsLast3Months)}</span> },
-      {
-        id: "last",
-        header: L.lastDelivery,
-        cell: ({ row }: any) => {
-          const d = (row.original as ClientCustomerRow).lastDelivery;
-          return d ? `${d.date ? fmtDay(d.date) : ym(d.month)} · ${d.ref}` : "—";
-        },
-      },
-      {
-        id: "billing",
-        header: L.invoice,
-        cell: ({ row }: any) => {
-          const c: ClientCustomerRow = row.original;
-          return <Chip size="small" variant="outlined" color={c.billingMode === "SINGLE" ? "secondary" : "default"} label={`${billingLabel(c.billingMode, lang)}${c.hasProfile ? "" : " (default)"}`} />;
-        },
-      },
-      { id: "contracts", header: L.contracts, cell: ({ row }: any) => row.original.contracts },
-    ],
-    [lang, L],
-  );
+  const { hasPermission, userRoles } = useUserPermissions();
+  const canAdd = hasPermission("customers", "create") || userRoles.length === 0;
+  const [add, setAdd] = useState(false);
   const href = (c: ClientCustomerRow) => `/portal/shipments/clients/customers/${c.id}`;
+  const columns: ClientsColumn<ClientCustomerRow>[] = [
+    { id: "name", label: ja ? "顧客" : "Customer", minWidth: 200, value: (c) => `${c.short} ${c.name} ${c.jpName ?? ""}`, render: (c) => <NameCell short={c.short} name={c.name} ja={c.jpName} /> },
+    { id: "country", label: ja ? "国" : "Country", value: (c) => c.country ?? "" },
+    { id: "contact", label: ja ? "主担当" : "Main contact", minWidth: 160, value: (c) => [c.mainContact?.name, c.mainContact?.email].filter(Boolean).join(" "), render: (c) => <ContactCell c={c.mainContact} /> },
+    { id: "email", label: ja ? "メール" : "E-mail", value: (c) => c.email ?? "" },
+    { id: "phone", label: ja ? "電話" : "Phone", value: (c) => c.phone ?? "" },
+    { id: "open", label: L.openOrders, align: "right", value: (c) => c.openOrders },
+    { id: "last", label: L.lastDelivery, value: (c) => lastDeliveryKey(c.lastDelivery), render: (c) => lastDeliveryText(c.lastDelivery) || "—" },
+    { id: "billing", label: L.invoice, value: (c) => billingLabel(c.billingMode, lang), render: (c) => <Chip size="small" variant="outlined" color={c.billingMode === "SINGLE" ? "secondary" : "default"} label={`${billingLabel(c.billingMode, lang)}${c.hasProfile ? "" : " (default)"}`} /> },
+  ];
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 } }} data-tour="clients-customers">
       <ClientsHeader active="customers" />
       {list.isError && <Alert severity="error">{(list.error as Error)?.message || "Could not load customers"}</Alert>}
-      <PageTable
-        tableName={lang === "ja" ? "顧客" : "Customers"}
-        columns={columns as any}
-        data={rows}
+      <ClientsTable
+        rows={list.data ?? []}
+        columns={columns}
+        rowKey={(c) => c.id}
+        onOpen={(c) => router.push(href(c))}
         loading={list.isLoading}
-        search={search}
-        setSearch={setSearch}
-        onRowClick={(c: ClientCustomerRow) => router.push(href(c))}
-        rowHref={href}
-        noSelectionColumn
-        totalDocs={rows.length}
+        csvName="customers"
+        lang={lang}
+        dataTour="clients-customers-table"
+        menu={(c) => [
+          { label: ja ? "開く" : "Open", onClick: () => router.push(href(c)) },
+          { label: ja ? "詳細を編集" : "Edit details", onClick: () => router.push(`${href(c)}?tab=details&edit=1`) },
+        ]}
+        actions={canAdd ? <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={() => setAdd(true)} data-tour="clients-add-customer">{ja ? "顧客を追加" : "Add customer"}</Button> : null}
       />
+      <CompanyDrawer kind="customer" open={add} initial={null} onClose={() => setAdd(false)} onSaved={(id) => id && router.push(`/portal/shipments/clients/customers/${id}?tab=details`)} lang={lang} />
     </Box>
   );
 }

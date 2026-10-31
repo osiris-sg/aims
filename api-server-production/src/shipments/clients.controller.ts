@@ -38,6 +38,50 @@ export class ClientsController {
     return this.clients.supplier(orgIdOf(req), id);
   }
 
+  // ── Round AY part 3: add / edit a customer or supplier, shipping lines ──
+  @Post('customers')
+  @Permissions('customers:create')
+  createCustomer(@Body() body: Record<string, unknown>, @Req() req: TradeRequest) {
+    return this.clients.createCustomer(orgIdOf(req), body ?? {});
+  }
+
+  @Patch('customers/:id/details')
+  @Permissions('customers:update')
+  updateCustomer(@Param('id', ParseUUIDPipe) id: string, @Body() body: Record<string, unknown>, @Req() req: TradeRequest) {
+    return this.clients.updateCustomerDetails(orgIdOf(req), id, body ?? {});
+  }
+
+  @Post('suppliers')
+  @Permissions('suppliers:create')
+  createSupplier(@Body() body: Record<string, unknown>, @Req() req: TradeRequest) {
+    return this.clients.createSupplier(orgIdOf(req), body ?? {});
+  }
+
+  @Patch('suppliers/:id/details')
+  @Permissions('suppliers:update')
+  updateSupplier(@Param('id', ParseUUIDPipe) id: string, @Body() body: Record<string, unknown>, @Req() req: TradeRequest) {
+    return this.clients.updateSupplierDetails(orgIdOf(req), id, body ?? {});
+  }
+
+  @Get('shipping-lines')
+  @Permissions('shipments:read')
+  shippingLines(@Req() req: TradeRequest) {
+    return this.clients.shippingLines(orgIdOf(req));
+  }
+
+  @Post('shipping-lines')
+  @Permissions('shipments:update')
+  addShippingLine(@Body() body: unknown, @Req() req: TradeRequest) {
+    return this.clients.saveShippingLine(orgIdOf(req), null, body);
+  }
+
+  @Patch('shipping-lines/:code')
+  @Permissions('shipments:update')
+  updateShippingLine(@Param('code') code: string, @Body() body: unknown, @Req() req: TradeRequest) {
+    if (!/^[A-Z0-9_]{2,40}$/.test(code)) throw new BadRequestException('Unknown shipping line');
+    return this.clients.saveShippingLine(orgIdOf(req), code, body);
+  }
+
   /** Round AY: what a process change would do to the customer's open orders / shipments (read-only). */
   @Post('customers/:id/process/preview')
   @Permissions('shipments:read')

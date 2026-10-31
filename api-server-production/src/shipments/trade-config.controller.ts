@@ -1,3 +1,4 @@
+import { maskedSettings } from './clients-company';
 import { Body, Controller, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
@@ -31,14 +32,15 @@ export class TradeConfigController {
   /** Org trade defaults (B/L instruction texts used to prefill new contracts). */
   @Get('settings')
   @Permissions('shipments:read')
-  settings(@Req() req: TradeRequest) {
-    return this.config.getSettings(orgIdOf(req));
+  async settings(@Req() req: TradeRequest) {
+    // Round AY: bank account numbers on the profiles are shown masked.
+    return maskedSettings(await this.config.getSettings(orgIdOf(req)));
   }
 
   @Patch('settings')
   @Permissions('shipments:update')
-  updateSettings(@Body() dto: UpdateTradeSettingsDto, @Req() req: TradeRequest) {
-    return this.config.updateSettings(orgIdOf(req), dto);
+  async updateSettings(@Body() dto: UpdateTradeSettingsDto, @Req() req: TradeRequest) {
+    return maskedSettings(await this.config.updateSettings(orgIdOf(req), dto));
   }
 
   /** Round AK — Settings → Shipping → LME: source, last fetch, the month's daily values, monthly averages vs the table. */

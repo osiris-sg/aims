@@ -16,6 +16,7 @@ import { fmtDay } from "../../../_lib/format";
 import { billingLabel, ClientsHeader, ContactsList, ContractsPanel, KV, T, t3, useLang, useTab, ym } from "../../_components/ClientsBits";
 import DocumentFormatsPanel from "../../_components/DocumentFormatsPanel";
 import ProcessPanel from "../../_components/ProcessPanel";
+import CompanyDetails from "../../_components/CompanyDetails";
 
 const TABS = ["orders", "contracts", "details", "process", "formats", "issues"] as const;
 
@@ -58,13 +59,24 @@ export default function ClientCustomerPage() {
           {tab === "orders" && <OrdersListView fixedCustomerId={d.customer.id} view={view} onViewChange={setView} />}
           {tab === "contracts" && <ContractsPanel contracts={d.contracts} party="customer" />}
           {tab === "details" && (
+            <Stack spacing={2}>
+            <CompanyDetails
+              kind="customer"
+              rec={d.customer}
+              company={d.company}
+              logistics={d.logistics}
+              contacts={d.contactList ?? []}
+              lang={lang}
+            >
+              {d.customer.contacts.length > 0 && <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1.5, mb: 0.5 }}>{lang === "ja" ? "マスターファイルの連絡先" : "On record (Master Files)"}</Typography>}
+              {d.customer.contacts.length > 0 && <ContactsList contacts={[]} records={d.customer.contacts} />}
+              <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1.5, mb: 0.5 }}>{lang === "ja" ? "メールの送信者" : "Who e-mails us"}</Typography>
+              <ContactsList contacts={d.contacts} />
+            </CompanyDetails>
             <Grid2 container spacing={2}>
               <Grid2 size={{ xs: 12, md: 6 }}>
                 <Paper variant="outlined" sx={{ p: 2 }}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>{lang === "ja" ? "会社情報" : "Company"}</Typography>
-                  <KV k="Name" v={d.customer.name} />
-                  <KV k="日本語名" v={d.customer.jpName} />
-                  <KV k="住所" v={d.customer.jpAddress ?? d.customer.address} />
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>{lang === "ja" ? "取引プロファイル" : "Trade profile"}</Typography>
                   <KV k="担当 (on documents)" v={d.customer.jpContact} />
                   <KV k="Code · currency" v={`${d.customer.customerCode ?? "—"} · ${d.customer.currency}`} />
                   <KV k="宛先 (PL / COA)" v={d.profile.docAddressee ?? d.customer.jpName ?? d.customer.name} />
@@ -78,7 +90,7 @@ export default function ClientCustomerPage() {
                 </Paper>
               </Grid2>
               <Grid2 size={{ xs: 12, md: 6 }}>
-                <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+                <Paper variant="outlined" sx={{ p: 2 }}>
                   <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>{lang === "ja" ? "港・納入先" : "Ports & delivery sites"}</Typography>
                   <KV k={lang === "ja" ? "港" : "Ports"} v={d.ports.join(", ") || "—"} />
                   {d.deliverySites.map((s, i) => (
@@ -91,12 +103,9 @@ export default function ClientCustomerPage() {
                   ))}
                   {!d.deliverySites.length && <Typography variant="body2" color="text.secondary">No delivery site yet (Org Settings → Customers).</Typography>}
                 </Paper>
-                <Paper variant="outlined" sx={{ p: 2 }}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1 }}>{lang === "ja" ? "連絡先" : "Contacts"}</Typography>
-                  <ContactsList contacts={d.contacts} records={d.customer.contacts} />
-                </Paper>
               </Grid2>
             </Grid2>
+            </Stack>
           )}
           {tab === "process" && <ProcessPanel customerId={d.customer.id} steps={d.process?.steps ?? []} skipSteps={d.process?.skipSteps ?? []} lang={lang} />}
           {tab === "formats" && <DocumentFormatsPanel customerId={d.customer.id} formats={d.formats} lang={lang} />}

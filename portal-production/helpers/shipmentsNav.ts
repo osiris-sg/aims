@@ -34,7 +34,7 @@ export function withoutSalesMonthly<T extends string | { key?: string; label?: s
  * row). Customers · Suppliers. Routes sit under /portal/shipments so the SHIPMENTS route guard covers them.
  */
 export const CLIENTS_ROUTE = "/portal/shipments/clients";
-export const CLIENTS_LABELS = { en: { top: "Clients", customers: "Customers", suppliers: "Suppliers" }, ja: { top: "取引先", customers: "顧客", suppliers: "仕入先" } } as const;
+export const CLIENTS_LABELS = { en: { top: "Clients", customers: "Customers", suppliers: "Suppliers", shippingLines: "Shipping lines" }, ja: { top: "取引先", customers: "顧客", suppliers: "仕入先", shippingLines: "船会社" } } as const;
 export function clientsNavModule(lang: "en" | "ja", salesSortOrder: number) {
   const L = CLIENTS_LABELS[lang];
   return {
@@ -43,7 +43,8 @@ export function clientsNavModule(lang: "en" | "ja", salesSortOrder: number) {
     enabled: true,
     icon: "PeopleRounded",
     sortOrder: salesSortOrder + 0.5,
-    config: { route: CLIENTS_ROUTE, subMenus: [{ key: "customers", label: L.customers }, { key: "suppliers", label: L.suppliers }] },
+    // Round AY: + Shipping lines.
+    config: { route: CLIENTS_ROUTE, subMenus: [{ key: "customers", label: L.customers }, { key: "suppliers", label: L.suppliers }, { key: "shipping-lines", label: L.shippingLines }] },
   };
 }
 /** Sales (route /portal/shipments) is not the active item on a Clients page. */

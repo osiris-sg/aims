@@ -76,8 +76,8 @@ test("round AM: Clients sits right after Sales (EN / JA), under the SHIPMENTS-gu
   const en = clientsNavModule("en", -3);
   assert.equal(en.displayName, "Clients");
   assert.equal(en.sortOrder, -2.5);
-  assert.deepEqual(en.config.subMenus.map((s) => s.label), ["Customers", "Suppliers"]);
-  assert.deepEqual(clientsNavModule("ja", -3).config.subMenus.map((s) => s.label), ["顧客", "仕入先"]);
+  assert.deepEqual(en.config.subMenus.map((s) => s.label), ["Customers", "Suppliers", "Shipping lines"]);
+  assert.deepEqual(clientsNavModule("ja", -3).config.subMenus.map((s) => s.label), ["顧客", "仕入先", "船会社"]);
   assert.equal(clientsNavModule("ja", -3).displayName, "取引先");
   assert.ok(CLIENTS_ROUTE.startsWith("/portal/shipments/"));
   assert.ok(isClientsPath("/portal/shipments/clients/customers/abc"));

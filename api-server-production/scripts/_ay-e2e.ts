@@ -6,7 +6,8 @@
  *
  *   TENANCY_MODE=per-org npx ts-node -r tsconfig-paths/register --transpile-only scripts/_ay-e2e.ts
  *
- * Dev writes are undone at the end (the process restored, the due date back to the rule); the Activity Log rows stay.
+ * Dev writes are undone at the end (the process restored, the due date back to the rule); the Activity Log rows stay,
+ * and part 3's "E2E AY …" customer, supplier and shipping line stay as test rows (nothing is deleted).
  * Refuses PROD_DATABASE_URL's host.
  */
 import 'dotenv/config';
@@ -157,15 +158,51 @@ const AFTER_9 = ['IMPORT_PERMIT', 'INVOICE_2', 'LOGISTICS_PAYMENT', 'XERO_HANDOF
 
   await prisma.organizationUIConfig.update({ where: { organizationId: ORG }, data: { features: { ...((ui?.features as object) ?? {}), enableStepDueDates: flagBefore ?? false } } });
 
+  // ── Part 3: Clients — add / edit a customer and a supplier, shipping lines ──
+  const run = Date.now().toString().slice(-6);
+  const sl = await request(http).get('/trade-clients/shipping-lines');
+  check('shipping lines: the lines AIMS knows, with their shipments', sl.status === 200 && sl.body?.lines?.some((l: any) => l.code === 'WANHAI') && sl.body.lines.every((l: any) => typeof l.shipments === 'number'), { status: sl.status, n: sl.body?.lines?.length });
+  const addC = await request(http).post('/trade-clients/customers').send({
+    name: `E2E AY Customer ${run}`, jpName: `E2Eテスト顧客${run}`, email: `ay${run}@example.test`, phone: '+81 3 0000 0000', gstRegNo: 'T1234567890123', currency: 'JPY',
+    company: { country: 'Japan', website: 'https://example.test', paymentTerms: 'TT 30 days', bank: { bankName: 'MUFG', accountNo: '1234567890' }, notes: 'e2e' },
+    contacts: [{ name: '佐藤 (e2e)', role: '購買', email: `sato${run}@example.test`, lang: 'ja', isPrimary: true }],
+    logistics: { carriers: ['WANHAI'], portOfDischarge: 'Nagoya', incoterm: 'CIF', blPattern: '^198[A-Z]{2}\\d{5}$' },
+  });
+  const cid = addC.body?.customer?.id;
+  check('add customer: 201 with company, masked bank, contact (+ language), logistics', addC.status === 201 && addC.body?.company?.bank?.accountNo === '••••7890' && addC.body?.contactList?.[0]?.lang === 'ja' && addC.body?.logistics?.carriers?.[0] === 'WANHAI', { status: addC.status, msg: addC.body?.message, company: addC.body?.company });
+  const list = await request(http).get('/trade-clients/customers');
+  const row = (list.body ?? []).find((c: any) => c.id === cid);
+  check('the Customers table lists it: country, main contact, e-mail, phone', !!row && row.country === 'Japan' && row.mainContact?.name === '佐藤 (e2e)' && row.email === `ay${run}@example.test`, row);
+  const ed = await request(http).patch(`/trade-clients/customers/${cid}/details`).send({ company: { country: 'Japan', paymentTerms: 'TT 45 days', bank: { bankName: 'MUFG', accountNo: '••••7890' } }, contacts: [{ id: addC.body?.contactList?.[0]?.id, name: '佐藤 (e2e)', role: '部長', lang: 'en', isPrimary: true }] });
+  const raw: any = await runAsOrg(ORG, () => prisma.tradeSetting.findUnique({ where: { organizationId: ORG }, select: { customerProfiles: true } }));
+  check('edit: saved; the masked account number kept the stored one; the contact edited in place', ed.status === 200 && raw?.customerProfiles?.[cid]?.company?.bank?.accountNo === '1234567890' && ed.body?.company?.paymentTerms === 'TT 45 days' && ed.body?.contactList?.length === 1 && ed.body?.contactList?.[0]?.role === '部長' && ed.body?.contactList?.[0]?.lang === 'en', { status: ed.status, stored: raw?.customerProfiles?.[cid]?.company?.bank });
+  const st = await request(http).get('/trade-config/settings');
+  check('Org Settings sends the bank account masked', st.status === 200 && st.body?.customerProfiles?.[cid]?.company?.bank?.accountNo === '••••7890', st.body?.customerProfiles?.[cid]?.company);
+  const badC = await request(http).post('/trade-clients/customers').send({ name: 'X', logistics: { carriers: ['NOPE'] } });
+  check('a bad shipping line code is refused (400)', badC.status === 400, badC.status);
+  const addS = await request(http).post('/trade-clients/suppliers').send({ name: `E2E AY Supplier ${run}`, company: { country: 'Indonesia', legalNameJa: 'テスト仕入先' }, contacts: [{ name: 'Budi (e2e)', email: `budi${run}@example.test`, isPrimary: true }] });
+  const sid = addS.body?.supplier?.id;
+  check('add supplier: 201 with its contacts and Japanese name', addS.status === 201 && addS.body?.contactList?.[0]?.name === 'Budi (e2e)' && addS.body?.company?.legalNameJa === 'テスト仕入先', { status: addS.status, msg: addS.body?.message });
+  const edS = await request(http).patch(`/trade-clients/suppliers/${sid}/details`).send({ contacts: [{ name: 'Sari (e2e)', role: 'Sales' }] });
+  check('edit supplier: a new contact added, the old one kept (never deleted)', edS.status === 200 && edS.body?.contactList?.length === 2, edS.body?.contactList);
+  const newLine = await request(http).post('/trade-clients/shipping-lines').send({ name: `E2E Line ${run}`, website: 'https://example.test', freeTime: { detDays: 4, demDays: 10 } });
+  const code = newLine.body?.code;
+  const edL = await request(http).patch(`/trade-clients/shipping-lines/${code}`).send({ name: `E2E Line ${run}`, agents: [{ company: 'Agent KK', name: 'Tanaka' }], notes: 'e2e' });
+  const wh = await request(http).patch('/trade-clients/shipping-lines/WANHAI').set('x-test-role', 'readonly').send({ notes: 'x' });
+  check('add + edit a shipping line (agents, free time); editing needs shipments:update', newLine.status === 201 && edL.status === 200 && edL.body?.lines?.find((l: any) => l.code === code)?.agents?.[0]?.company === 'Agent KK' && wh.status === 403, { add: newLine.status, edit: edL.status, ro: wh.status });
+  const dupe = await request(http).post('/trade-clients/shipping-lines').send({ name: 'Wan Hai Lines' });
+  check('a line already on the list is refused', dupe.status === 400, dupe.status);
+
   // ── Activity Log ──
   await settle(2500);
   const rows: any[] = await runAsOrg(ORG, () => prisma.actionLog.findMany({ where: { organizationId: ORG, actorId: USER.id, createdAt: { gte: started } }, orderBy: { createdAt: 'asc' } }));
   check('Activity Log: the process preview is a VIEW', rows.some((r) => /process\/preview$/.test(r.path) && r.action === 'VIEW'), rows.map((r) => `${r.method} ${r.path} ${r.action}`));
   check('Activity Log: the process save, as the user, with what it did', rows.some((r) => r.method === 'PATCH' && /\/process$/.test(r.path) && r.status === 'SUCCESS' && r.actorName === 'Take (e2e)' && Array.isArray(r.details?.result?.skipSteps)), rows.filter((r) => /\/process$/.test(r.path)).map((r) => r.details));
+  check('Activity Log: the customer / supplier / shipping line writes', ['/trade-clients/customers', '/trade-clients/suppliers', '/trade-clients/shipping-lines'].every((p) => rows.some((r) => r.method === 'POST' && r.path === p && r.status === 'SUCCESS' && r.action === 'CREATE')), rows.filter((r) => /trade-clients\/(customers|suppliers|shipping-lines)$/.test(r.path)).map((r) => `${r.method} ${r.path} ${r.action} ${r.status}`));
   check('Activity Log: the due-date change, from → to', !open || rows.some((r) => r.method === 'PATCH' && /\/due$/.test(r.path) && r.details?.result?.dueAt?.to === '2027-01-15'), rows.filter((r) => /\/due$/.test(r.path)).map((r) => r.details));
 
   await app.close();
-  console.log(`\n${failures ? `${failures} FAILED` : 'ALL PASS'} — dev data left as found (process restored, due date back to the rule, the flag as it was)`);
+  console.log(`\n${failures ? `${failures} FAILED` : 'ALL PASS'} — dev data left as found (process restored, due date back to the rule, the flag as it was; the E2E AY customer / supplier / line stay as test rows)`);
   process.exit(failures ? 1 : 0);
 })().catch((e) => {
   console.error(e);

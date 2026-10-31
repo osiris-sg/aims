@@ -1549,6 +1549,8 @@ model TradeSetting {
   supplierProfiles   Json?
   /// Alert rules (free days, reminder offsets, "stuck" days) — see trade-alerts.ts.
   alertRules         Json?
+  /// Round AY: Clients → Shipping lines — per carrier code: website, tracking link, local agents, free time, notes (clients-company.ts).
+  shippingLines      Json?
   updatedAt          DateTime @updatedAt
 }
 
