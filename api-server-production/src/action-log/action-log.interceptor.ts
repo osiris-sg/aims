@@ -61,7 +61,7 @@ const SKIP_GET_PATHS = [
 // house convention) — log them as VIEW, not CREATE.
 // trade-generated/preview (Shipments, 2026-10): renders live-preview HTML only.
 const VIEW_POST_RE =
-  /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview|documentTemplates\/variants\/[^/]+\/design-preview|trade-generated\/preview|trade-clients\/customers\/[0-9a-f-]{36}\/formats\/[A-Z_]+\/preview|email-inbox\/[0-9a-f-]{36}\/preview|email-inbox\/placements)$/;
+  /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview|documentTemplates\/variants\/[^/]+\/design-preview|trade-generated\/preview|trade-clients\/customers\/[0-9a-f-]{36}\/formats\/[A-Z_]+\/preview|email-inbox\/[0-9a-f-]{36}\/preview|email-inbox\/placements|email-inbox\/shipment-facts)$/;
 
 // Path verb segment → semantic action (checked against the LAST static segment).
 const VERB_ACTIONS: Record<string, string> = {

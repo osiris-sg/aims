@@ -200,6 +200,16 @@ export class ShipmentsService {
     };
   }
 
+  /**
+   * Round AV — the Activity Log note of a create / edit made from an email in the Answer flow:
+   * { source: 'from email "<subject, 60 chars>"', emailId, ref }. The email must be this org's.
+   */
+  async emailSourceNote(organizationId: string, emailId: string, ref: string | null) {
+    const log: { subject: string | null } | null = await this.prisma.emailIngestLog.findFirst({ where: { id: emailId, organizationId }, select: { subject: true } });
+    if (!log) return { source: 'from email (not found)', emailId, ref };
+    return { source: `from email "${(log.subject ?? '(no subject)').replace(/\s+/g, ' ').trim().slice(0, 60)}"`, emailId, ref };
+  }
+
   async create(organizationId: string, dto: CreateShipmentDto, actor: TradeActor) {
     const blNumber = optText(dto.blNumber) ?? null;
     try {

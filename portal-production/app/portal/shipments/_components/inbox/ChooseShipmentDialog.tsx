@@ -14,15 +14,24 @@
 //   Issue   (round AR) title, EN + JA summary, supplier / customer, effective from — drafted by AIMS from the email.
 //   Confirm every target, every file → where, the issue — Back / Confirm
 // Keyboard: Enter = the step's primary action, Esc = close. Same component on the Dashboard cards and in See all emails.
+// Round AV (Sayaka): step 3 adds and edits shipments without leaving the email — "+ New shipment…" on top (pick the
+// order, then the form), "+ New shipment (#27-1)" on an order without one, a pencil on every shipment row; both open
+// ShipmentDrawer (prefilled from the email where exact). A saved new shipment comes back ticked; an edit keeps the
+// selection. "All shipments" is grouped by order (newest ETA first), completed orders behind "Show completed".
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, IconButton, InputAdornment, List, ListItemButton, ListItemIcon, ListItemText, MenuItem, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, IconButton, InputAdornment, List, ListItemButton, ListItemIcon, ListItemText, MenuItem, Stack, Switch, TextField, Tooltip, Typography } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SearchIcon from "@mui/icons-material/Search";
 import { useQuery } from "@tanstack/react-query";
 import { useShipmentsApi, type AnswerFile, type AnswerIssue, type AnswerTarget, type InboxAnswer, type InboxLang, type InboxThread, type Placement, type ShipmentListItem } from "../../_lib/api";
-import { useCustomers, useShipments, useSuppliers } from "../../_lib/hooks";
+import { useCustomers, useOrders, useShipments, useSuppliers } from "../../_lib/hooks";
+import type { OrderListItem, Shipment } from "../../_lib/api";
+import { ShipmentDrawer, type DrawerMode } from "./ShipmentDrawer";
+import { nextShipmentRef, orderGroups, orderHaystack, orderLine as orderLineOf, shipmentLine as shipmentLineOf } from "../../_lib/shipment-picker";
 import { fmtDay, shortCustomer } from "../../_lib/format";
 import { answerFor, docPlainName, L, likelyOptions, optionKey } from "../../_lib/inbox-cards";
 
@@ -40,12 +49,9 @@ const CAST_RE = /^\d{3}[A-Z]\d{4}(\d{2})?$/i;
 const fileKey = (f: Pick<Placement, "emailId" | "index">) => `${f.emailId}:${f.index}`;
 const tKey = (t: { orderId?: string | null; shipmentId?: string | null }) => `${t.orderId ?? ""}:${t.shipmentId ?? ""}`;
 
-/** "#18-2 · SUS · 6005 · 20.4 t · ETA 29 Oct" — one line of the All-shipments list. */
-export function shipmentLine(s: ShipmentListItem): string {
-  const net = s.netWeightMt !== null && s.netWeightMt !== undefined && s.netWeightMt !== "" && Number.isFinite(Number(s.netWeightMt)) ? `${Number(s.netWeightMt).toLocaleString("en-US", { maximumFractionDigits: 1 })} t` : null;
-  const grade = s.order?.grade ?? s.contractLine?.grade ?? s.productLine ?? null;
-  return [s.ref || (s.blNumber ? `B/L ${s.blNumber}` : "Shipment"), shortCustomer(s.customerName ?? s.customer?.name), grade, net, s.eta ? `ETA ${fmtDay(s.eta).slice(0, 6)}` : null].filter(Boolean).join(" · ");
-}
+/** One line of the All-shipments list (round AV: the rule is in _lib/shipment-picker.ts). */
+export const shipmentLine = (s: Parameters<typeof shipmentLineOf>[0]) => shipmentLineOf(s, { day: fmtDay, customer: shortCustomer });
+const orderLine = (o: Parameters<typeof orderLineOf>[0]) => orderLineOf(o, { customer: shortCustomer });
 
 /** The search text of a shipment row: ref, customer, grade, B/L, vessel. */
 const haystack = (s: ShipmentListItem) => [s.ref, s.customerName, s.customer?.name, s.order?.grade, s.contractLine?.grade, s.productLine, s.blNumber, s.vessel].filter(Boolean).join(" ").toLowerCase();
@@ -66,10 +72,15 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
   const [issueOn, setIssueOn] = useState(false);
   const [files, setFiles] = useState<Record<string, FileState>>({});
   const [issue, setIssue] = useState<IssueForm | null>(null);
+  // Round AV: the add / edit drawer, shipments made here (until the lists refetch), completed orders shown.
+  const [drawer, setDrawer] = useState<DrawerMode | null>(null);
+  const [made, setMade] = useState<Map<string, Opt>>(new Map());
+  const [showCompleted, setShowCompleted] = useState(false);
   const ids = useMemo(() => (t.answerIds?.length ? t.answerIds : t.messages.filter((m) => m.inboxState !== "PROCESSED").map((m) => m.id)), [t]);
   const inList = open && (step === "which" || step === "files" || step === "issue" || step === "confirm");
   const ships = useShipments({ status: "OPEN", pageSize: 200 }, inList);
   const done = useShipments({ status: "COMPLETED", pageSize: 200 }, inList);
+  const orders = useOrders({ bucket: "all", pageSize: 200 }, open && step === "which");
   const suppliers = useSuppliers(open && step === "issue");
   const customers = useCustomers(open && step === "issue");
 
@@ -84,17 +95,18 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
     setIssueOn(!!q?.issue);
     setFiles({});
     setIssue(null);
+    setDrawer(null);
+    setMade(new Map());
+    setShowCompleted(false);
   }, [open, t.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const likelyKeys = useMemo(() => new Set(likely.map(optionKey)), [likely]);
   const allShips = useMemo(() => [...(ships.data?.items ?? []), ...(done.data?.items ?? [])].filter((s) => s.status !== "CANCELLED" && !!s.orderId), [ships.data, done.data]);
-  const others = useMemo(() => (ships.data?.items ?? []).filter((s) => s.status !== "CANCELLED" && !!s.orderId && !likelyKeys.has(optionKey({ orderId: s.orderId!, shipmentId: s.id }))), [ships.data, likelyKeys]);
   const needle = search.trim().toLowerCase();
   const castKey = CAST_RE.test(search.trim()) ? search.trim().toUpperCase() : null;
   const castHits = useQuery({ queryKey: ["trade-cast-search", castKey], enabled: open && step === "which" && !!castKey, queryFn: () => api.castSearch(castKey!), staleTime: 60_000 });
   const castShips = useMemo(() => (castHits.data ?? []).map((h) => allShips.find((s) => s.id === h.shipmentId)).filter((s): s is ShipmentListItem => !!s), [castHits.data, allShips]);
   const likelyShown = needle && !castKey ? likely.filter((o) => `${o.ref} ${o.summary} ${o.why}`.toLowerCase().includes(needle)) : likely;
-  const othersShown = needle && !castKey ? others.filter((s) => haystack(s).includes(needle)) : others;
   const toggle = (key: string) =>
     setTicked((prev) => {
       const next = new Set(prev);
@@ -111,8 +123,20 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
       const k = optionKey({ orderId: s.orderId!, shipmentId: s.id });
       if (!m.has(k)) m.set(k, { key: k, orderId: s.orderId!, shipmentId: s.id, ref: s.ref || s.blNumber || "Shipment", label: shipmentLine(s) });
     }
+    for (const [k, o] of made) if (!m.has(k)) m.set(k, o);
     return m;
-  }, [likely, allShips]);
+  }, [likely, allShips, made]);
+  const orderById = useMemo(() => new Map((orders.data?.items ?? []).map((o) => [o.id, o])), [orders.data]);
+  const shipById = useMemo(() => new Map(allShips.map((s) => [s.id, s])), [allShips]);
+  const groups = useMemo(() => orderGroups(orders.data?.items ?? [], { showCompleted }), [orders.data, showCompleted]);
+  /** A new shipment saved in the drawer: ticked, and listed until the lists catch up. */
+  const onDrawerSaved = (s: Shipment) => {
+    if (drawer?.kind === "new" && s.orderId) {
+      const k = optionKey({ orderId: s.orderId, shipmentId: s.id });
+      setMade((prev) => new Map(prev).set(k, { key: k, orderId: s.orderId!, shipmentId: s.id, ref: s.ref ?? "Shipment", label: shipmentLine(s as any) }));
+      setTicked((prev) => new Set(prev).add(k));
+    }
+  };
   const picked = useMemo(() => [...ticked].map((k) => optsByKey.get(k)).filter((o): o is Opt => !!o), [ticked, optsByKey]);
   const emails = t.answerIds?.length || t.emails || 1;
 
@@ -262,6 +286,8 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
     );
   const primary = step === "q1" ? yes : step === "which" ? next : step === "files" ? nextFromFiles : step === "issue" ? nextFromIssue : step === "confirm" ? confirm : null;
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // The drawer is rendered inside this dialog (React events bubble through its portal): its Enter is its own.
+    if (drawer) return;
     if (e.key !== "Enter" || !primary || busy) return;
     if ((e.target as HTMLElement)?.tagName === "TEXTAREA") return;
     if (step === "which" && !picked.length && !issueOn) return;
@@ -274,14 +300,48 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
       {label}
     </Button>
   );
-  const row = (key: string, primaryText: string, secondary?: string | null, tour?: string) => (
+  const row = (key: string, primaryText: string, secondary?: string | null, tour?: string, editId?: string | null, extra?: React.ReactNode) => (
     <ListItemButton key={key} dense onClick={() => toggle(key)} selected={ticked.has(key)} sx={{ py: 0.25, px: 1 }} data-tour={tour}>
       <ListItemIcon sx={{ minWidth: 36 }}>
         <Checkbox edge="start" size="small" checked={ticked.has(key)} tabIndex={-1} disableRipple />
       </ListItemIcon>
       <ListItemText primary={primaryText} secondary={secondary || undefined} primaryTypographyProps={{ variant: "body2", fontWeight: 600, sx: { wordBreak: "break-word" } }} secondaryTypographyProps={{ variant: "caption", sx: { wordBreak: "break-word" } }} />
+      {extra}
+      {editId && (
+        <Tooltip title={lang === "ja" ? "出荷を編集" : "Edit the shipment"}>
+          <IconButton
+            size="small"
+            edge="end"
+            aria-label={lang === "ja" ? "出荷を編集" : "Edit the shipment"}
+            onClick={(e) => {
+              e.stopPropagation();
+              setDrawer({ kind: "edit", shipmentId: editId });
+            }}
+            data-tour="choose-shipment-edit"
+          >
+            <EditOutlinedIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
     </ListItemButton>
   );
+  /** "+ New shipment (#27-1)" on an order row / group. */
+  const newFor = (o: OrderListItem) =>
+    o.status === "OPEN" ? (
+      <Button
+        size="small"
+        startIcon={<AddIcon fontSize="small" />}
+        onClick={(e) => {
+          e.stopPropagation();
+          setDrawer({ kind: "new", orderId: o.id });
+        }}
+        sx={{ textTransform: "none", flexShrink: 0, whiteSpace: "nowrap" }}
+        data-tour="choose-shipment-new-for-order"
+      >
+        {lang === "ja" ? `新しい出荷（${nextShipmentRef(o)}）` : `New shipment (${nextShipmentRef(o)})`}
+      </Button>
+    ) : null;
+  const liveShips = (o: OrderListItem) => (o.shipments ?? []).filter((x) => x.status !== "CANCELLED");
   const refsOf = (keys: string[], f?: Placement) => keys.map((k) => optOf(k, f)?.ref).filter(Boolean).join(lang === "ja" ? "、" : ", ");
   const pickedRefs = picked.map((p) => p.ref).join(lang === "ja" ? "、" : ", ");
   const title =
@@ -346,6 +406,11 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
             />
           </Box>
           <DialogContent dividers sx={{ p: 0 }}>
+            <Box sx={{ px: 2, pt: 1 }}>
+              <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setDrawer({ kind: "new" })} sx={{ textTransform: "none" }} data-tour="answer-new-shipment">
+                {lang === "ja" ? "新しい出荷…" : "New shipment…"}
+              </Button>
+            </Box>
             {!isDeal && (
               <Box sx={{ px: 2, pt: 1 }}>
                 <ListItemButton dense onClick={() => setIssueOn((v) => !v)} selected={issueOn} sx={{ py: 0.25, px: 1, borderRadius: 1 }} data-tour="answer-general-toggle">
@@ -380,28 +445,78 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
                   {labels.likely}
                 </Typography>
                 <List dense disablePadding data-tour="choose-shipment-likely">
-                  {likelyShown.map((o) => row(optionKey(o), o.summary || o.ref, [o.summary && o.summary.includes(o.ref) ? null : o.ref, o.why].filter(Boolean).join(" · "), "choose-shipment-option"))}
+                  {likelyShown.map((o) => {
+                    const ord = !o.shipmentId ? orderById.get(o.orderId) : null;
+                    const empty = !!ord && liveShips(ord).length === 0;
+                    const primaryText = empty ? `${orderLine(ord!)} · ${lang === "ja" ? "出荷なし" : "no shipment yet"}` : o.summary || o.ref;
+                    return row(optionKey(o), primaryText, [primaryText.includes(o.ref) ? null : o.ref, o.why].filter(Boolean).join(" · "), "choose-shipment-option", o.shipmentId, ord ? newFor(ord) : null);
+                  })}
                 </List>
               </Box>
             )}
             {likelyShown.length > 0 && <Divider sx={{ my: 1 }} />}
             {!castKey && (
               <Box sx={{ px: 2, pb: 1 }}>
-                <Typography variant="overline" color="text.secondary">
-                  {labels.allShipments}
-                </Typography>
-                {ships.isLoading ? (
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <Typography variant="overline" color="text.secondary" sx={{ flex: 1 }}>
+                    {labels.allShipments}
+                  </Typography>
+                  <FormControlLabel
+                    control={<Switch size="small" checked={showCompleted} onChange={(e) => setShowCompleted(e.target.checked)} />}
+                    label={<Typography variant="caption">{lang === "ja" ? "完了も表示" : "Show completed"}</Typography>}
+                    sx={{ mr: 0 }}
+                    data-tour="choose-shipment-show-completed"
+                  />
+                </Stack>
+                {ships.isLoading || orders.isLoading ? (
                   <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
                     {labels.loadingShipments}
                   </Typography>
-                ) : othersShown.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
-                    {labels.noShipments}
-                  </Typography>
                 ) : (
-                  <List dense disablePadding data-tour="choose-shipment-all">
-                    {othersShown.map((s) => row(optionKey({ orderId: s.orderId!, shipmentId: s.id }), shipmentLine(s), null, "choose-shipment-row"))}
-                  </List>
+                  (() => {
+                    const shown = groups
+                      .map((o) => {
+                        const rows = liveShips(o)
+                          .map((x) => shipById.get(x.id))
+                          .filter((x): x is ShipmentListItem => !!x && !likelyKeys.has(optionKey({ orderId: o.id, shipmentId: x.id })));
+                        if (!needle) return { o, rows };
+                        const orderHit = orderHaystack(o).includes(needle);
+                        const hits = orderHit ? rows : rows.filter((x) => haystack(x).includes(needle));
+                        return orderHit || hits.length ? { o, rows: hits } : null;
+                      })
+                      .filter((g): g is { o: OrderListItem; rows: ShipmentListItem[] } => !!g);
+                    if (!shown.length) {
+                      return (
+                        <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
+                          {labels.noShipments}
+                        </Typography>
+                      );
+                    }
+                    return (
+                      <Box data-tour="choose-shipment-all">
+                        {shown.map(({ o, rows }) => (
+                          <Box key={o.id} sx={{ mb: 0.75 }} data-tour="choose-shipment-group">
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 1, pt: 0.5 }}>
+                              <Typography variant="body2" sx={{ fontWeight: 800, flex: 1, minWidth: 0, wordBreak: "break-word" }}>
+                                {orderLine(o)}
+                                {o.status === "COMPLETED" ? <Chip size="small" label={lang === "ja" ? "完了" : "Completed"} sx={{ ml: 1, height: 20 }} /> : null}
+                              </Typography>
+                              {newFor(o)}
+                            </Stack>
+                            {rows.length ? (
+                              <List dense disablePadding sx={{ pl: 1.5 }}>
+                                {rows.map((x) => row(optionKey({ orderId: o.id, shipmentId: x.id }), shipmentLine(x), x.status === "COMPLETED" ? (lang === "ja" ? "完了" : "Completed") : null, "choose-shipment-row", x.id))}
+                              </List>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary" component="div" sx={{ pl: 2.5, pb: 0.5 }}>
+                                {liveShips(o).length ? (lang === "ja" ? "上の候補にあります" : "listed above") : lang === "ja" ? "出荷なし" : "no shipment yet"}
+                              </Typography>
+                            )}
+                          </Box>
+                        ))}
+                      </Box>
+                    );
+                  })()
                 )}
               </Box>
             )}
@@ -594,6 +709,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
           </Button>
         )}
       </DialogActions>
+      <ShipmentDrawer open={!!drawer} mode={drawer} emailIds={ids} lang={lang} onClose={() => setDrawer(null)} onSaved={onDrawerSaved} />
     </Dialog>
   );
 }

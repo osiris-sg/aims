@@ -1,4 +1,6 @@
 import { CarrierTrackingService } from '../shipments/carrier-tracking.service';
+import { mergeFacts, shipmentFacts, type ShipmentFacts } from './email-shipment-facts';
+import { localRefMap, refFreshener, renumberEventsOf, type RefFreshener } from './email-refs';
 import Anthropic from '@anthropic-ai/sdk';
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
@@ -667,6 +669,24 @@ export class EmailTriageService {
     const named = await this.refs(organizationId, [...new Set(rows.flatMap((r) => [...r.defaults, ...r.holders].map((d) => d.orderId)).filter((x): x is string => !!x))], [...new Set(rows.flatMap((r) => [...r.defaults, ...r.holders].map((d) => d.shipmentId)).filter((x): x is string => !!x))]);
     const ref = (d: { orderId: string | null; shipmentId: string | null }) => (d.shipmentId ? named.ship.get(d.shipmentId) : d.orderId ? named.order.get(d.orderId) : null) ?? null;
     return { files: rows.map((r) => ({ ...r, defaults: r.defaults.map((d) => ({ ...d, ref: ref(d) })), holders: r.holders.map((d) => ({ ...d, ref: ref(d) })) })) };
+  }
+
+  /**
+   * Round AV — the exact shipment facts of these emails (subject, own text, attachments) for the Answer flow's
+   * "+ New shipment" / edit drawer: a field is a value only when every place agrees (email-shipment-facts.ts).
+   * Read-only; the subject is returned for the drawer's caption and the Activity Log line.
+   */
+  async shipmentFacts(organizationId: string, ids: string[]) {
+    const logs: any[] = await this.prisma.emailIngestLog.findMany({ where: { organizationId, id: { in: ids.slice(0, 20) } }, orderBy: { createdAt: 'asc' } });
+    if (!logs.length) throw new NotFoundException('Email not found');
+    const ciPatterns = await this.ciPatterns(organizationId);
+    const per: ShipmentFacts[] = [];
+    for (const log of logs) {
+      const ev = await this.evidence(log);
+      per.push(shipmentFacts({ subject: ev.subject ?? null, own: splitQuoted(ev.body ?? '').own, attachments: ev.attachments, ciPatterns }));
+    }
+    const newest = logs[logs.length - 1];
+    return { emailId: newest.id, subject: newest.subject ?? null, ...mergeFacts(per) };
   }
 
   /** Round AR: the emails linked to a shipment / order (the email's own link, any of its targets, or a file it filed there). */
@@ -2064,8 +2084,39 @@ export class EmailTriageService {
     return map;
   }
 
+  /** Round AV: the org's renumber history (Activity Log) + today's numbers, cached 60 s — stored texts show today's refs. */
+  private freshCache = new Map<string, { at: number; fresh: RefFreshener }>();
+  private async freshener(organizationId: string): Promise<RefFreshener> {
+    const hit = this.freshCache.get(organizationId);
+    if (hit && Date.now() - hit.at < 60_000) return hit.fresh;
+    let fresh: RefFreshener = (t) => t ?? '';
+    try {
+      const rows: any[] = await (this.prisma as any).actionLog.findMany({
+        where: { organizationId, resource: 'trade-orders', action: 'UPDATE', actorId: { startsWith: 'system:' } },
+        select: { resourceId: true, createdAt: true, details: true },
+        orderBy: { createdAt: 'asc' },
+        take: 2000,
+      });
+      const events = renumberEventsOf(rows);
+      const ids = [...new Set(events.map((e) => e.orderId))];
+      const now: any[] = ids.length ? await this.prisma.tradeOrder.findMany({ where: { organizationId, id: { in: ids } }, select: { id: true, orderNo: true } }) : [];
+      fresh = refFreshener(events, new Map(now.map((o) => [o.id, o.orderNo as number])));
+    } catch (e: any) {
+      this.logger.warn(`renumber history for ${organizationId}: ${e?.message}`);
+    }
+    this.freshCache.set(organizationId, { at: Date.now(), fresh });
+    return fresh;
+  }
+
+  /** Round AV: a decision's stored refs ("#25" on a candidate) → that record's ref today, for its texts. */
+  private localRefs(a: Record<string, any>, refs: { order: Map<string, string>; ship: Map<string, string> }) {
+    const live = (c: { orderId?: string | null; shipmentId?: string | null }) => (c.shipmentId ? refs.ship.get(c.shipmentId) : c.orderId ? refs.order.get(c.orderId) : null) ?? null;
+    return localRefMap([...((a.candidates ?? []) as any[]), ...((a.quoted ?? []) as any[])].map((c) => ({ stored: c?.ref ?? null, live: c ? live(c) : null })));
+  }
+
   private async refs(organizationId: string, orderIds: string[], shipmentIds: string[]) {
     const companies = await this.companyOverrides(organizationId);
+    const fresh = await this.freshener(organizationId);
     const oSel = { id: true, orderNo: true, grade: true, qtyMt: true, customer: { select: { name: true } } };
     const [orders, ships]: [any[], any[]] = await Promise.all([
       orderIds.length ? this.prisma.tradeOrder.findMany({ where: { organizationId, id: { in: orderIds } }, select: oSel }) : [],
@@ -2080,6 +2131,7 @@ export class EmailTriageService {
     const label = (ref: string, o: any, bl?: string | null, net?: unknown) => [ref, [short(o?.customer?.name), o?.grade, qty(net ?? o?.qtyMt)].filter(Boolean).join(' ') || null, bl ? `B/L ${bl}` : null].filter(Boolean).join(' · ');
     return {
       companies,
+      fresh,
       order: new Map<string, string>(orders.map((o) => [o.id, `#${o.orderNo}`])),
       ship: new Map<string, string>(ships.map((s) => [s.id, s.order ? `#${s.order.orderNo}${s.seqNo ? `-${s.seqNo}` : ''}` : (s.blNumber ?? 'shipment')])),
       orderLabel: new Map<string, string>(orders.map((o) => [o.id, label(`#${o.orderNo}`, o)])),
@@ -2252,7 +2304,8 @@ export class EmailTriageService {
       preview: splitQuoted(String(((l.rawMeta ?? {}) as any).bodyText ?? '')).own.replace(/\s+/g, ' ').trim().slice(0, 320),
       /** Round Q: the backlog kind (HIDE / AUTO_LINK / HISTORY / NO_ORDER / CONFIRM / PICK / IS_SHIPMENT) and the order-form seed. */
       backlog: a.backlog ? { kind: a.backlog.kind, reason: a.backlog.reason, seed: a.backlog.seed ?? null } : null,
-      matchReason: a.reason ?? null,
+      // The reasoner's note carries its own write time; the matcher's reasons only the decision's own pairs.
+      matchReason: a.reason ? (refs.fresh ? refs.fresh(a.reason, { local: this.localRefs(a, refs), at: /^reasoner:/.test(a.reason) ? (a.reasoner?.at ?? null) : null }) : a.reason) : null,
       threadFrom: a.threadFrom ?? null,
       threadSize,
       linked: link ? { ...link, files, fields, linkOnly: !files.length && !fields.length } : null,
@@ -2332,10 +2385,16 @@ export class EmailTriageService {
     return { toConfirm: { emails: todo.counts.unprocessed, threads: todo.threads, total: todo.total }, filedAuto };
   }
 
-  private shape(l: any, refs: { order: Map<string, string>; ship: Map<string, string>; companies?: Record<string, string>; lang?: Lang }) {
+  private shape(l: any, refs: { order: Map<string, string>; ship: Map<string, string>; companies?: Record<string, string>; lang?: Lang; fresh?: RefFreshener }) {
     const meta = (l.rawMeta ?? {}) as Partial<StoredEmailMeta>;
     const actions = (l.actions ?? {}) as { planned?: IntakeAction[]; done?: IntakeAction[]; matchedBy?: string | null };
     const triage = (l.triage ?? {}) as Partial<TriageResult> & { error?: string | null };
+    // Round AV: stored refs / reasons with today's numbers (email-refs.ts); the stored rows are not changed.
+    const local = this.localRefs(actions as Record<string, any>, refs);
+    const fr = (t: string | null | undefined, at?: string | null) => (refs.fresh ? refs.fresh(t, { local, at }) : (t ?? ''));
+    const frList = (xs: unknown) => (Array.isArray(xs) ? xs.map((x) => (typeof x === 'string' ? fr(x) : x)) : []);
+    const liveRef = (c: any) => (c?.shipmentId ? refs.ship.get(c.shipmentId) : c?.orderId ? refs.order.get(c.orderId) : null) ?? c?.ref ?? null;
+    const t2 = triage as { summaryAt?: string | null; at?: string | null };
     return {
       id: l.id,
       date: l.emailDate ?? meta.date ?? l.createdAt,
@@ -2349,7 +2408,7 @@ export class EmailTriageService {
       subject: l.subject,
       from: l.fromAddress,
       /** Round AB / AC: the one-line summary in the viewer's language (stored at triage time); the body's first real sentence when there is none. Display text only. */
-      summary: summaryOfLog(l, refs.lang ?? 'en'),
+      summary: fr(summaryOfLog(l, refs.lang ?? 'en'), t2.summaryAt ?? t2.at ?? null) || null,
       attachments: (meta.attachments ?? []).map((a, i) => ({ index: i, name: a.name, docType: (triage.attachments ?? []).find((t) => t.filename === a.name)?.docType ?? null })),
       orderId: l.orderId,
       shipmentId: l.shipmentId,
@@ -2357,13 +2416,13 @@ export class EmailTriageService {
       matchedOrder: l.orderId ? refs.order.get(l.orderId) : null,
       matchedBy: actions.matchedBy ?? null,
       /** Subject words that disagree with the match ("grade 6005 ≠ 6063") — shown as "check". */
-      check: (actions as { check?: string[] }).check ?? [],
-      notes: (actions as { notes?: string[] }).notes ?? [],
+      check: frList((actions as { check?: string[] }).check) as string[],
+      notes: frList((actions as { notes?: string[] }).notes) as string[],
       autoTier: (actions as { autoTier?: string | null }).autoTier ?? null,
       source: (actions as { source?: string | null }).source ?? null,
       /** Round W: the independent sources that agree (two needed for auto) and the self-check result. */
       sources: (actions as { sources?: string[] }).sources ?? [],
-      sourceLines: (actions as { sourceLines?: string[] }).sourceLines ?? [],
+      sourceLines: frList((actions as { sourceLines?: string[] }).sourceLines) as string[],
       selfCheck: (actions as { selfCheck?: unknown }).selfCheck ?? null,
       question: (actions as { question?: unknown }).question ?? null,
       snoozedUntil: (actions as { snoozedUntil?: string | null }).snoozedUntil ?? null,
@@ -2371,9 +2430,9 @@ export class EmailTriageService {
       /** Which guard kept it a suggestion. */
       blocked: (actions as { blocked?: string[] }).blocked ?? [],
       /** The picker's top 3 (ref, score, reasons). */
-      candidates: (actions as { candidates?: unknown[] }).candidates ?? [],
+      candidates: ((actions as { candidates?: any[] }).candidates ?? []).map((c) => (c && typeof c === 'object' ? { ...c, ref: liveRef(c), reasons: frList(c.reasons) } : c)),
       /** Round X: records named only in the quoted text (the "which shipment?" options of a reply with no key of its own). */
-      quoted: (actions as { quoted?: unknown[] }).quoted ?? [],
+      quoted: ((actions as { quoted?: any[] }).quoted ?? []).map((c) => (c && typeof c === 'object' ? { ...c, ref: liveRef(c) } : c)),
       multiOrderIds: (actions as { multiOrderIds?: string[] }).multiOrderIds ?? [],
       targets: (actions as { targets?: unknown[] }).targets ?? [],
       review: (actions as { review?: unknown }).review ?? null,
@@ -2386,7 +2445,7 @@ export class EmailTriageService {
       issueProposal: (actions as { issueProposal?: unknown }).issueProposal ?? null,
       issue: (actions as { issue?: unknown }).issue ?? null,
       /** Round R: the one-line evidence note (hand review / the thread reasoner). */
-      evidence: (actions as { evidence?: string | null }).evidence ?? null,
+      evidence: (actions as { evidence?: string | null }).evidence ? fr((actions as { evidence?: string }).evidence, (actions as any).reasoner?.at ?? null) : null,
       reviewConfidence: (actions as { reviewConfidence?: string | null }).reviewConfidence ?? null,
       keys: triage.keys ?? null,
       planned: actions.planned ?? [],

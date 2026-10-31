@@ -90,6 +90,15 @@ export class EmailInboxController {
     return this.triage.issueDraft(this.org(req), ids);
   }
 
+  @Post('shipment-facts')
+  @Permissions('shipments:read')
+  @ApiOperation({ summary: 'Round AV: what these emails and their attachments say EXACTLY about one shipment (B/L, vessel / voyage, ETD / ETA, net / gross, bundles, containers, CI no.) — the Answer flow prefills its shipment form from it. Read-only.' })
+  shipmentFacts(@Body() body: { ids?: unknown }, @Req() req: Req2) {
+    const ids = Array.isArray(body?.ids) ? body.ids.filter((x: unknown): x is string => typeof x === 'string' && UUID.test(x)) : [];
+    if (!ids.length) throw new BadRequestException('ids are required');
+    return this.triage.shipmentFacts(this.org(req), ids);
+  }
+
   @Get('record')
   @Permissions('shipments:read')
   @ApiOperation({ summary: "Round AR: the emails linked to a shipment or an order (its link, any of its targets, or a file it filed there)." })

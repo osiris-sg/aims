@@ -32,6 +32,11 @@ function answer(d: any, key: readonly unknown[]): unknown {
     if (!q.customerId && d.monthlyQ?.[norm(q)]) return d.monthlyQ[norm(q)];
     return q.customerId ? d.monthlyBy?.[q.customerId] : d.monthlyAll;
   }
+  // Round AV: the add / edit drawer — an order's detail (quantity left), a shipment's detail (edit), the email facts.
+  if (k0 === "trade-orders" && key[2] === "detail") return d.orderDetail?.[key[3] as string];
+  if (k0 === "trade-shipments" && key[2] === "detail") return d.shipmentDetail?.[key[3] as string];
+  if (k0 === "inbox-shipment-facts") return d.answer?.facts;
+  if (k0 === "trade-orders" && key[2] === "list" && d.answer?.orders) return d.answer.orders;
   if (k0 === "trade-orders" && key[2] === "list") {
     const f: any = key[3] ?? {};
     if (!f.customerId && d.ordersQ?.[norm(f)]) return d.ordersQ[norm(f)];
