@@ -134,6 +134,8 @@ export interface MonthlyRow {
   unconfirmed: boolean;
   /** The shipment's own note (ADH's free text); null for an order without a shipment. */
   notes: string | null;
+  /** Round AY: steps past their due date on this row (the list's "overdue" badge; never in the export). */
+  overdue?: { steps: number; days: number; labels: string[] } | null;
   supplierContractNo: string | null;
   supplierOrderDate: string | null;
   supplierTon: number | null;

@@ -1,3 +1,4 @@
+import { TradeDueService } from './trade-due.service';
 import { ALERTABLE_ORDER, isTestRecord, isUnconfirmed, mutedRecordIds } from './trade-test-orders';
 import { freeTimeLine, stepOverdueLine } from '../operator/push-text';
 import { ShipmentsNotifyService } from './shipments-notify.service';
@@ -50,7 +51,20 @@ export class TradeAlertsService {
     private readonly actionLog: ActionLogService,
     @Optional() private readonly clerkIdentity?: ClerkIdentityService,
     @Optional() private readonly whatsapp?: ShipmentsNotifyService,
+    @Optional() private readonly due?: TradeDueService,
   ) {}
+
+  /** Round AY: steps due (by their due date) as tasks — computed, never stored, notified or pushed. */
+  private async stepTasks(organizationId: string, days: number, q: { shipmentId?: string; orderId?: string } = {}) {
+    if (!this.due) return [];
+    try {
+      const items = await this.due.tasks(organizationId, days);
+      return items.filter((i) => (!q.shipmentId || i.shipmentId === q.shipmentId) && (!q.orderId || i.orderId === q.orderId));
+    } catch (e) {
+      this.logger.warn(`step due tasks failed: ${(e as Error)?.message}`);
+      return [];
+    }
+  }
 
   private async rules(organizationId: string): Promise<AlertRules> {
     const row = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { alertRules: true } });
@@ -314,10 +328,13 @@ export class TradeAlertsService {
       take: 300,
       select: ALERT_SELECT,
     });
+    // Round AY: open steps due within a week (or overdue) join the open reminders.
+    const steps = !statuses || statuses.some((s) => s === 'DUE' || s === 'SCHEDULED') ? await this.stepTasks(organizationId, 7, q) : [];
+    const byDue = (a: any, b: any) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime();
     // A record's own alerts always show; the org-wide list leaves test orders out (round N).
-    if (q.shipmentId || q.orderId) return rows;
+    if (q.shipmentId || q.orderId) return [...rows, ...steps].sort(byDue);
     const test = await mutedRecordIds(this.prisma, organizationId);
-    return rows.filter((a) => !isTestRecord(test, a));
+    return [...rows.filter((a) => !isTestRecord(test, a)), ...steps].sort(byDue);
   }
 
   /** "My tasks today": due now and the next 3 days. */
@@ -325,7 +342,9 @@ export class TradeAlertsService {
     const soon = new Date(now.getTime() + 3 * 86_400_000);
     const test = await mutedRecordIds(this.prisma, organizationId);
     const rows: any[] = await this.prisma.tradeAlert.findMany({ where: { organizationId, status: { in: ['DUE', 'SCHEDULED'] }, dueAt: { lte: soon } }, orderBy: { dueAt: 'asc' }, take: 100, select: ALERT_SELECT });
-    return rows.filter((a) => !isTestRecord(test, a));
+    // Round AY: open steps due in the next 3 days or overdue.
+    const steps = await this.stepTasks(organizationId, 3);
+    return [...rows.filter((a) => !isTestRecord(test, a)), ...steps].sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime());
   }
 
   /** Round T: a reminder a person set (WhatsApp "remind me …"); shows in the bell and the digest like any task. */

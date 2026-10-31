@@ -85,6 +85,10 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // shipment(s) per attachment; applied by itself only when a hard key or a unique product match is verified.
   // Default OFF (ADH: switched on by setup-adh-org after the owner's go).
   enableEmailReasoner: false,
+  // Round AY (ADH, 2026-10-31): due dates per step (rules on ETD / ETA, editable per step) — the Overall process's due
+  // dates, "Step" items in My tasks, the overdue bars and the Monthly "overdue" badge. OFF until the owner confirms the
+  // default rules; while off the Overall process shows done / now / upcoming and the schedule only.
+  enableStepDueDates: false,
   // WhatsApp shipments agent (ADH, round S 2026-10-21): linked staff (User Management → WhatsApp) can
   // ask the shipments assistant on WhatsApp and get the digest / "needs you" pushes. Default OFF
   // (ADH: switched on by setup-adh-org after the owner's go).

@@ -1,3 +1,4 @@
+import { TradeDueService } from './trade-due.service';
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
@@ -13,7 +14,10 @@ import { tradeToday } from './shipments.rules';
 @Controller('trade-orders')
 @UseGuards(ClerkAuthGuard)
 export class OrdersController {
-  constructor(private readonly orders: OrdersService) {}
+  constructor(
+    private readonly orders: OrdersService,
+    private readonly due: TradeDueService,
+  ) {}
 
   @Get()
   @Permissions('shipments:read')
@@ -40,6 +44,13 @@ export class OrdersController {
   @Permissions('shipments:create')
   createMonthly(@Body() dto: MonthlyOrdersDto, @Req() req: TradeRequest) {
     return this.orders.createMonthly(orgIdOf(req), dto, actorOf(req));
+  }
+
+  /** Round AY: the order page's Overall process — every applicable step per record, its state and due date, and the schedule. */
+  @Get(':id/process')
+  @Permissions('shipments:read')
+  process(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
+    return this.due.orderProcess(orgIdOf(req), id);
   }
 
   @Get(':id')

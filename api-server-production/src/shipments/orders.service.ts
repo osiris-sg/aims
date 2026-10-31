@@ -1,3 +1,4 @@
+import { TradeDueService } from './trade-due.service';
 import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { ActionLogService } from '../action-log/action-log.service';
 import { PrismaService } from '../common/prisma.service';
@@ -63,7 +64,19 @@ export class OrdersService {
     private readonly config: TradeConfigService,
     private readonly shipments: ShipmentsService,
     @Optional() private readonly actionLog?: ActionLogService,
+    @Optional() private readonly due?: TradeDueService,
   ) {}
+
+  /** Round AY: records with a step past its due date join the ones with a due reminder (the bars' "overdue"). */
+  private async withStepOverdue(organizationId: string, ids: Set<string>) {
+    if (!this.due) return ids;
+    try {
+      for (const id of await this.due.overdueRecordIds(organizationId)) ids.add(id);
+    } catch {
+      /* the bars still show the reminders' overdue */
+    }
+    return ids;
+  }
 
   async list(organizationId: string, query: ListOrdersQuery) {
     // (rankByOrderNo: the exact order number first, then the other matches in list order.)
@@ -127,7 +140,7 @@ export class OrdersService {
       const ranked = rankByOrderNo(rows as Array<{ orderNo: number }>, qNo);
       rows.splice(0, rows.length, ...(ranked.slice(skip, skip + take) as typeof rows));
     }
-    const overdue = new Set((dueAlerts as Array<{ orderId: string | null; shipmentId: string | null }>).flatMap((a) => [a.orderId, a.shipmentId]).filter((x): x is string => !!x));
+    const overdue = await this.withStepOverdue(organizationId, new Set((dueAlerts as Array<{ orderId: string | null; shipmentId: string | null }>).flatMap((a) => [a.orderId, a.shipmentId]).filter((x): x is string => !!x)));
     const bars = await this.orderBars(organizationId, rows as any[], overdue);
     const items = rows.map(({ steps, shipments, ...o }: any) => {
       const b = bars.get(o.id)!;
@@ -238,7 +251,7 @@ export class OrdersService {
   async orderBars(organizationId: string, orders: Array<{ id: string; customerId: string; supplierId: string; steps: any[]; shipments: any[] }>, overdue?: Set<string>) {
     if (!overdue) {
       const due: Array<{ orderId: string | null; shipmentId: string | null }> = await this.prisma.tradeAlert.findMany({ where: { organizationId, status: 'DUE' }, select: { orderId: true, shipmentId: true } });
-      overdue = new Set(due.flatMap((a) => [a.orderId, a.shipmentId]).filter((x): x is string => !!x));
+      overdue = await this.withStepOverdue(organizationId, new Set(due.flatMap((a) => [a.orderId, a.shipmentId]).filter((x): x is string => !!x)));
     }
     const bare = orders.filter((o) => !o.shipments.some((sh: any) => sh.status !== 'CANCELLED'));
     const shipTemplates: Array<{ code: string; title: string; displayNo: string | null; sortOrder: number; isOngoing: boolean }> = bare.length

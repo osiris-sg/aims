@@ -1680,6 +1680,11 @@ model TradeStep {
   skipReason       String?
   /// Doesn't apply to this customer's profile ("N/A (customer profile)"): shown collapsed, never blocks completion.
   notApplicable    Boolean         @default(false)
+  /// Round AY: due date set by hand on this step (else the rule on the schedule, trade-due.ts), and who / when.
+  dueAt            DateTime?
+  dueSetById       String?
+  dueSetByName     String?
+  dueSetAt         DateTime?
   /// Sub-tasks such as "sent to customer": [{ key, label, done, at, by, source, na }].
   subtasks         Json?
   /// Money for a paying / receiving step (1 PI, 6 CI, 8 import tax, 12 logistics; 2 / 11 invoice receipts): { amount, currency, paidAt, account, proofFileId }.

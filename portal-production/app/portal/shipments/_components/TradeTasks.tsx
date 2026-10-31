@@ -79,7 +79,7 @@ export function TradeTasksList({
   if (!alerts?.length) {
     return (
       <Typography variant="body2" color="text.secondary">
-        Nothing due — reminders appear here (tax funding, arrival notices, free time, due dates, stuck steps).
+        Nothing due — reminders appear here (tax funding, arrival notices, free time, due dates, stuck steps, steps past their due date).
       </Typography>
     );
   }
@@ -107,16 +107,25 @@ export function TradeTasksList({
                 </Typography>
               )}
             </Box>
-            <Tooltip title="Done">
-              <IconButton size="small" aria-label="Done" onClick={() => act(a, () => api.alertDone(a.id))}>
-                <CheckIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Dismiss (comes back if its date moves)">
-              <IconButton size="small" aria-label="Dismiss" onClick={() => act(a, () => api.alertDismiss(a.id))}>
-                <CloseIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            {a.kind === "STEP_DUE" ? (
+              // Round AY: a step's due date — it closes when the step is done; the date is changed on the order's Overall process.
+              <Tooltip title="Closes when the step is done. Change its due date on the order's Overall process.">
+                <Chip size="small" variant="outlined" label="Step" data-tour="task-step-due" />
+              </Tooltip>
+            ) : (
+              <>
+                <Tooltip title="Done">
+                  <IconButton size="small" aria-label="Done" onClick={() => act(a, () => api.alertDone(a.id))}>
+                    <CheckIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Dismiss (comes back if its date moves)">
+                  <IconButton size="small" aria-label="Dismiss" onClick={() => act(a, () => api.alertDismiss(a.id))}>
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </>
+            )}
           </Stack>
         );
       })}
