@@ -428,6 +428,8 @@ export type CustomerProfile = {
   defaultBankCheck?: boolean;
   /** 宛先 on the Japanese PL / COA (blank = the legal name). */
   docAddressee?: string;
+  /** Round AY: step codes left out of this customer's process. */
+  skipSteps?: string[];
 };
 export type EstimatorRates = {
   taxMultiplier: number;
@@ -828,6 +830,14 @@ export type ClientCustomerDetail = {
   short: string; profile: CustomerProfile; hasProfile: boolean; stats: ClientStats; contracts: ClientContract[]; contacts: ClientContact[]; ports: string[];
   deliverySites: Array<{ siteName: string; address: string; notes?: string; label?: string | null; warehouseCheck?: boolean; source: string }>;
   formats: DocFormatView[];
+  /** Round AY: the customer's process — every step, and the ones left out. */
+  process: { steps: ProcessStepDef[]; skipSteps: string[] };
+};
+/** Round AY: one step of the order process (Clients → a customer → Process). */
+export type ProcessStepDef = { scope: "ORDER" | "SHIPMENT"; code: string; no: string; en: string; ja: string; ongoing?: boolean };
+export type ProcessImpact = {
+  skipSteps: string[]; openOrders: number; openShipments: number;
+  hidden: Array<{ ref: string; step: string }>; shown: Array<{ ref: string; step: string }>; doneKept: Array<{ ref: string; step: string }>; completes: string[];
 };
 export type ClientSupplierDetail = {
   supplier: { id: string; supplierCode: string | null; name: string; email: string | null; phone: string | null; address: string | null; currency: string; gstRegNo: string | null };
@@ -1548,6 +1558,8 @@ export function useShipmentsApi() {
       clientCustomer: (id: string) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}`),
       clientSuppliers: () => call<ClientSupplierRow[]>(`/trade-clients/suppliers`),
       clientSupplier: (id: string) => call<ClientSupplierDetail>(`/trade-clients/suppliers/${id}`),
+      clientProcessPreview: (id: string, skipSteps: string[]) => call<ProcessImpact>(`/trade-clients/customers/${id}/process/preview`, "POST", { skipSteps }),
+      clientUpdateProcess: (id: string, skipSteps: string[]) => call<{ impact: ProcessImpact; customer: ClientCustomerDetail }>(`/trade-clients/customers/${id}/process`, "PATCH", { skipSteps }),
       clientUpdateFormat: (id: string, docType: string, body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null }) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}`, "PATCH", body),
       clientHideSample: (id: string, docType: string, sampleId: string) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}/samples/${sampleId}/hide`, "PATCH", {}),
       clientSampleUrl: (id: string, docType: string, sampleId: string) => call<{ url: string; fileName: string; mimeType: string }>(`/trade-clients/customers/${id}/formats/${docType}/samples/${sampleId}/url`),

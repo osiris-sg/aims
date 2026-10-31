@@ -13,6 +13,7 @@
 // time (the current step by default); when the server completes a step the
 // page says so and opens the next one.
 
+import { hiddenStep } from "../../_lib/process";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Alert, Box, Button, ButtonBase, Chip, CircularProgress, Grid, IconButton, Menu, MenuItem, Paper, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
@@ -102,7 +103,7 @@ export default function OrderPage() {
   // Steps 0, 1, 2 come before the shipments; 11 and 13 after them.
   const earlySteps = useMemo(() => orderSteps.filter((x) => x.sortOrder < LATE_FROM), [orderSteps]);
   const lateSteps = useMemo(() => orderSteps.filter((x) => x.sortOrder >= LATE_FROM), [orderSteps]);
-  const shipSteps = useMemo(() => [...(s?.steps ?? [])].filter((x) => !(x.notApplicable && x.skipReason?.startsWith("Moved to the order"))).sort(byOrder), [s?.steps]);
+  const shipSteps = useMemo(() => [...(s?.steps ?? [])].filter((x) => !hiddenStep(x)).sort(byOrder), [s?.steps]);
   const current = firstOpen(earlySteps) ?? firstOpen(shipSteps) ?? firstOpen(lateSteps);
   // Round P: ?step=<stepId> (from an inbox "Linked to" chip) opens that step card.
   const wantedStep = params?.get("step") ?? null;
@@ -487,7 +488,7 @@ export default function OrderPage() {
                 <StepCards
                   highlightFile={wantedFile}
                   // Step 11 moved to the order (round H): the shipment's old row stays in the data, not on screen.
-                  steps={s.steps.filter((x) => !(x.notApplicable && x.skipReason?.startsWith("Moved to the order")))}
+                  steps={s.steps.filter((x) => !hiddenStep(x))}
                   owner={shipOwner!}
                   fileLinks={s.fileLinks}
                   docLinks={s.docLinks ?? []}

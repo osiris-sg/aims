@@ -22,6 +22,8 @@ function answer(d: any, key: readonly unknown[]): unknown {
   const [k0] = key;
   if (k0 === "trade-clients") {
     if (key[1] === "preview-shipments") return d.previewShipments?.[key[2] as string] ?? [];
+    // Round AY: Clients › a customer › Process — the effect of a change (keyed by customer, then the skip list).
+    if (key[1] === "process-preview") return d.processImpact?.[key[2] as string]?.[key[3] as string] ?? d.processImpact?.[key[2] as string]?.["*"];
     if (key[2] === "customers") return d.customers;
     if (key[2] === "suppliers") return d.suppliers;
     if (key[2] === "customer") return d.detail?.[key[3] as string];

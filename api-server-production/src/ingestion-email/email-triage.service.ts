@@ -574,7 +574,7 @@ export class EmailTriageService {
       const buf = await this.s3.downloadFile(att.key);
       const sha = sha256Of(buf);
       const docType = TRIAGE_DOC_TYPES[q.docType] ?? 'COA';
-      const step = await this.prisma.tradeStep.findFirst({ where: { organizationId, shipmentId, OR: [{ requiredDocTypes: { has: docType } }, { optionalDocTypes: { has: docType } }] }, orderBy: { sortOrder: 'asc' }, select: { id: true } });
+      const step = await this.prisma.tradeStep.findFirst({ where: { organizationId, shipmentId, OR: [{ requiredDocTypes: { has: docType } }, { optionalDocTypes: { has: docType } }] }, orderBy: [{ notApplicable: 'asc' }, { sortOrder: 'asc' }], select: { id: true } });
       const f = await this.files.upload(
         organizationId,
         { originalname: att.name, mimetype: att.contentType, size: buf.length, buffer: buf } as Express.Multer.File,
@@ -1206,8 +1206,9 @@ export class EmailTriageService {
     if (t?.shipmentId) {
       const sh = await this.prisma.shipment.findFirst({ where: { id: t.shipmentId, organizationId }, select: { status: true } });
       // Past the port: steps 9 and 10 (A/N & instructions, import permit) done.
-      const past: Array<{ code: string; status: string }> = sh ? await this.prisma.tradeStep.findMany({ where: { organizationId, shipmentId: t.shipmentId, code: { in: ['AN_INSTRUCTIONS', 'IMPORT_PERMIT'] } }, select: { code: true, status: true } }) : [];
-      targetClosed = !!sh && (sh.status !== 'OPEN' || (past.length === 2 && past.every((x) => x.status === 'DONE')));
+      // Round AY: a step left out of the customer's process (Hoei: no step 10) counts as passed.
+      const past: Array<{ code: string; status: string; notApplicable: boolean }> = sh ? await this.prisma.tradeStep.findMany({ where: { organizationId, shipmentId: t.shipmentId, code: { in: ['AN_INSTRUCTIONS', 'IMPORT_PERMIT'] } }, select: { code: true, status: true, notApplicable: true } }) : [];
+      targetClosed = !!sh && (sh.status !== 'OPEN' || (past.length === 2 && past.every((x) => x.status === 'DONE' || x.notApplicable)));
     } else if (t?.orderId) {
       const o = await this.prisma.tradeOrder.findFirst({ where: { id: t.orderId, organizationId }, select: { status: true } });
       targetClosed = !!o && o.status !== 'OPEN';
@@ -1692,7 +1693,7 @@ export class EmailTriageService {
             if (dup.emailLogId === logId && !already) {
               const step = await this.prisma.tradeStep.findFirst({
                 where: { organizationId, [ownerKey]: a.ownerId, OR: [{ requiredDocTypes: { has: a.docType } }, { optionalDocTypes: { has: a.docType } }] },
-                orderBy: { sortOrder: 'asc' },
+                orderBy: [{ notApplicable: 'asc' }, { sortOrder: 'asc' }],
                 select: { id: true },
               });
               await this.files.addLinks(organizationId, dup.id, { ...(a.ownerKind === 'order' ? { orderIds: [a.ownerId] } : a.ownerKind === 'supplierOrder' ? { supplierOrderIds: [a.ownerId] } : { shipmentIds: [a.ownerId] }), ...(step ? { stepId: step.id } : {}) } as any, actor, { completedShipmentsOk: !!opts.completedShipmentsOk });
@@ -1706,7 +1707,7 @@ export class EmailTriageService {
           const owner = a.ownerKind === 'order' ? { orderId: a.ownerId! } : a.ownerKind === 'supplierOrder' ? { supplierOrderId: a.ownerId! } : { shipmentId: a.ownerId! };
           const step = await this.prisma.tradeStep.findFirst({
             where: { organizationId, ...owner, OR: [{ requiredDocTypes: { has: a.docType } }, { optionalDocTypes: { has: a.docType } }] },
-            orderBy: { sortOrder: 'asc' },
+            orderBy: [{ notApplicable: 'asc' }, { sortOrder: 'asc' }],
             select: { id: true },
           });
           const f = await this.files.upload(
@@ -2196,7 +2197,7 @@ export class EmailTriageService {
       const owner = a.ownerKind === 'order' ? { orderId: a.ownerId } : a.ownerKind === 'supplierOrder' ? { supplierOrderId: a.ownerId } : { shipmentId: a.ownerId };
       const st = await this.prisma.tradeStep.findFirst({
         where: { organizationId, ...owner, OR: [{ requiredDocTypes: { has: a.docType } }, { optionalDocTypes: { has: a.docType } }] },
-        orderBy: { sortOrder: 'asc' },
+        orderBy: [{ notApplicable: 'asc' }, { sortOrder: 'asc' }],
         select: { id: true, displayNo: true, title: true },
       });
       steps.set(k, st ?? null);

@@ -1127,7 +1127,8 @@ export class ShipmentsToolsService {
     const hit = await this.resolve(ctx.organizationId, raw);
     if (!hit || 'many' in hit) return { result: { error: `"${raw}" must name one record` } };
     const owner = hit.shipment ? { shipmentId: hit.shipment.id } : { orderId: hit.order!.id };
-    const steps: any[] = await this.prisma.tradeStep.findMany({ where: { organizationId: ctx.organizationId, ...owner }, orderBy: { sortOrder: 'asc' }, select: { id: true, code: true, title: true, displayNo: true, status: true, requiredDocTypes: true, payment: true } });
+    // Round AY: N/A steps (not in the customer's process, moved to the order) are not offered.
+    const steps: any[] = await this.prisma.tradeStep.findMany({ where: { organizationId: ctx.organizationId, ...owner, notApplicable: false }, orderBy: { sortOrder: 'asc' }, select: { id: true, code: true, title: true, displayNo: true, status: true, requiredDocTypes: true, payment: true } });
     const w = want.toLowerCase().normalize('NFKC').replace(/^step\s*/, '');
     const st = steps.find((s) => (s.displayNo ?? '').toLowerCase() === w) ?? steps.find((s) => `${s.displayNo ?? ''} ${s.title} ${s.code}`.toLowerCase().normalize('NFKC').includes(w));
     if (!st) return { result: { error: `No step "${want}" on ${hit.shipment?.ref ?? hit.order!.label}`, steps: steps.map((s) => `${s.displayNo ?? ''} ${s.title} (${s.status})`) } };

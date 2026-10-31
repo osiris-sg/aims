@@ -3,7 +3,7 @@
 
 // Round AM — Clients › a customer: Orders (the Orders list / Monthly view pre-filtered to this customer), Contracts
 // (premiums, terms, the contract PDFs in AIMS), Details (company, contacts from known email senders, ports, delivery
-// sites), Document formats (what AIMS makes in steps 4 / 7 / 9 / 11, in which format, samples, preview).
+// sites), Process (round AY: which steps apply), Document formats (what AIMS makes in steps 4 / 7 / 9 / 11, in which format, samples, preview).
 
 import React from "react";
 import { useParams } from "next/navigation";
@@ -15,8 +15,9 @@ import IssuesPanel from "../../../_components/IssuesPanel";
 import { fmtDay } from "../../../_lib/format";
 import { billingLabel, ClientsHeader, ContactsList, ContractsPanel, KV, T, t3, useLang, useTab, ym } from "../../_components/ClientsBits";
 import DocumentFormatsPanel from "../../_components/DocumentFormatsPanel";
+import ProcessPanel from "../../_components/ProcessPanel";
 
-const TABS = ["orders", "contracts", "details", "formats", "issues"] as const;
+const TABS = ["orders", "contracts", "details", "process", "formats", "issues"] as const;
 
 export default function ClientCustomerPage() {
   const { id } = useParams<{ id: string }>();
@@ -50,6 +51,7 @@ export default function ClientCustomerPage() {
             <Tab value="orders" label={L.orders} data-tour="client-tab-orders" />
             <Tab value="contracts" label={`${L.contracts} (${d.contracts.length})`} data-tour="client-tab-contracts" />
             <Tab value="details" label={L.details} data-tour="client-tab-details" />
+            <Tab value="process" label={lang === "ja" ? "プロセス" : "Process"} data-tour="client-tab-process" />
             <Tab value="formats" label={L.formats} data-tour="client-tab-formats" />
             <Tab value="issues" label={lang === "ja" ? "課題" : "Issues"} data-tour="client-tab-issues" />
           </Tabs>
@@ -96,6 +98,7 @@ export default function ClientCustomerPage() {
               </Grid2>
             </Grid2>
           )}
+          {tab === "process" && <ProcessPanel customerId={d.customer.id} steps={d.process?.steps ?? []} skipSteps={d.process?.skipSteps ?? []} lang={lang} />}
           {tab === "formats" && <DocumentFormatsPanel customerId={d.customer.id} formats={d.formats} lang={lang} />}
           {tab === "issues" && <IssuesPanel customerId={d.customer.id} title={lang === "ja" ? "課題" : "Issues"} />}
         </>
