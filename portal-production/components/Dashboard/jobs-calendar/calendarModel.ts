@@ -36,6 +36,9 @@ export interface CalendarEvent {
   doNumber?: string | null;
   doTag?: "Pending" | "Completed" | "Cancelled" | null;
   doHref?: string | null;
+  /** WCT orders (enableWctOrders): the job's order number and the order page. */
+  orderNumber?: string | null;
+  orderHref?: string | null;
 }
 
 export interface CalendarPayload {

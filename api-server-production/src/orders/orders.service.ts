@@ -6,6 +6,8 @@ import {
   DocumentExtractionService,
   SupplierReconciliationData,
 } from '../document-extraction/document-extraction.service';
+import { deriveOrderStatus, isWctOrdersEnabled, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
+import { doStatusTag } from '../deliveries/do-number';
 
 /**
  * Orders are auto-created when a quotation is confirmed (gated by the
@@ -242,6 +244,7 @@ export class OrdersService {
   }
 
   async list(organizationId: string) {
+    if (await isWctOrdersEnabled(this.prisma, organizationId)) return this.listWct(organizationId);
     const orders = await this.prisma.order.findMany({
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
@@ -268,6 +271,7 @@ export class OrdersService {
   }
 
   async getById(id: string, organizationId: string) {
+    if (await isWctOrdersEnabled(this.prisma, organizationId)) return this.getWctById(id, organizationId);
     const order = await this.prisma.order.findFirst({
       where: { id, organizationId },
       include: {
@@ -334,9 +338,153 @@ export class OrdersService {
   }
 
   async delete(id: string, organizationId: string) {
+    // WCT orders: an order with jobs is never deleted from under them (the
+    // jobs would lose their order silently). No other org's order has jobs.
+    const jobs = await this.prisma.delivery.count({ where: { organizationId, orderId: id } });
+    if (jobs > 0) throw new HttpException('This order has jobs. Cancel or delete its jobs first.', HttpStatus.BAD_REQUEST);
     return this.prisma.order.delete({
       where: { id, organizationId },
     });
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // WCT orders (enableWctOrders, 2026-11-01): one order per accepted quotation,
+  // its jobs are Delivery runs (Delivery.orderId). The order is made by the
+  // quotation→delivery hook; jobs are added with POST /deliveries/scheduled
+  // { orderId }. These reads add the jobs and keep the stored status in step.
+  // ────────────────────────────────────────────────────────────────────────
+
+  /** Store the status the jobs say, where it drifted (best-effort). Mutates the rows. */
+  private async syncWctStatuses(organizationId: string, orders: Array<{ id: string; status: string; jobs: { status: string; isDraft: boolean }[] }>) {
+    for (const o of orders) {
+      const status = deriveOrderStatus(o.jobs);
+      if (o.status === status) continue;
+      o.status = status;
+      await this.prisma.order.update({ where: { id: o.id, organizationId }, data: { status } }).catch(() => undefined);
+    }
+  }
+
+  private async listWct(organizationId: string) {
+    const rows = await this.prisma.order.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        customer: { select: { id: true, name: true, customerCode: true } },
+        sourceQuotation: { select: { id: true, name: true, status: true, type: true, documentTemplateId: true } },
+        deliveries: { select: { id: true, deliveryNumber: true, status: true, isDraft: true, scheduledFor: true }, orderBy: { deliveryNumber: 'asc' } },
+      },
+    });
+    const orders = rows.map(({ deliveries, ...o }: any) => ({ ...o, jobs: deliveries as any[] }));
+    await this.syncWctStatuses(organizationId, orders);
+    const now = Date.now();
+    return orders.map(({ jobs, ...o }) => {
+      const live = jobs.filter((j) => j.status !== 'cancelled');
+      const upcoming = live
+        .filter((j) => !j.isDraft && j.status === 'scheduled' && j.scheduledFor && new Date(j.scheduledFor).getTime() >= now)
+        .map((j) => new Date(j.scheduledFor).toISOString())
+        .sort()[0];
+      return {
+        ...o,
+        statusLabel: WCT_ORDER_STATUS_LABEL[o.status as WctOrderStatus] ?? o.status,
+        jobCounts: {
+          total: live.length,
+          drafts: live.filter((j) => j.isDraft).length,
+          completed: live.filter((j) => !j.isDraft && j.status === 'completed').length,
+          cancelled: jobs.length - live.length,
+        },
+        nextJobAt: upcoming ?? null,
+      };
+    });
+  }
+
+  private async getWctById(id: string, organizationId: string) {
+    const row: any = await this.prisma.order.findFirst({
+      where: { id, organizationId },
+      include: {
+        customer: { select: { id: true, name: true, customerCode: true, address: true } },
+        sourceQuotation: { select: { id: true, name: true, status: true, type: true, documentTemplateId: true, config: true } },
+        deliveries: {
+          orderBy: { deliveryNumber: 'asc' },
+          select: {
+            id: true,
+            deliveryNumber: true,
+            status: true,
+            isDraft: true,
+            scheduledFor: true,
+            startedAt: true,
+            completedAt: true,
+            siteAddress: true,
+            riderUserId: true,
+            riderName: true,
+            items: { select: { documentId: true, description: true, quantity: true, assetId: true }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+          },
+        },
+      },
+    });
+    if (!row) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+    const { deliveries, sourceQuotation, ...order } = row;
+    const jobsRaw: any[] = deliveries;
+    const holder = [{ id: order.id, status: order.status, jobs: jobsRaw }];
+    await this.syncWctStatuses(organizationId, holder);
+    order.status = holder[0].status;
+
+    // Each job's DO (first DO its lines point at) and its SiteClock worker.
+    const docIds = [...new Set(jobsRaw.flatMap((j) => j.items.map((i: any) => i.documentId)).filter(Boolean))] as string[];
+    const [docs, links] = await Promise.all([
+      docIds.length
+        ? this.prisma.document.findMany({
+            where: { id: { in: docIds }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } },
+            select: { id: true, name: true, status: true, documentTemplateId: true, config: true, createdAt: true },
+            orderBy: { createdAt: 'asc' },
+          })
+        : Promise.resolve([] as any[]),
+      jobsRaw.length
+        ? this.prisma.deliverySiteClockJob.findMany({
+            where: { organizationId, deliveryId: { in: jobsRaw.map((j) => j.id) } },
+            select: { deliveryId: true, workerId: true, workerName: true, durationMin: true, syncState: true, lastError: true },
+          })
+        : Promise.resolve([] as any[]),
+    ]);
+    const linkBy = new Map(links.map((l: any) => [l.deliveryId, l]));
+    const jobs = jobsRaw.map((j) => {
+      const own = new Set(j.items.map((i: any) => i.documentId).filter(Boolean));
+      const d: any = docs.find((x: any) => own.has(x.id));
+      const l: any = linkBy.get(j.id);
+      return {
+        id: j.id,
+        deliveryNumber: j.deliveryNumber,
+        status: j.status,
+        isDraft: j.isDraft,
+        scheduledFor: j.scheduledFor,
+        startedAt: j.startedAt,
+        completedAt: j.completedAt,
+        siteAddress: j.siteAddress,
+        rider: j.riderUserId ? j.riderName || null : null,
+        worker: l ? { id: l.workerId, name: l.workerName, durationMin: l.durationMin, syncState: l.syncState, lastError: l.lastError } : null,
+        deliveryOrder: d
+          ? { id: d.id, name: d.name, status: d.status, templateId: d.documentTemplateId, tag: doStatusTag({ status: d.status, config: d.config }) }
+          : null,
+        lineCount: j.items.length,
+      };
+    });
+
+    // "Add job" prefill: the quotation's billable lines and where the work is.
+    const qcfg: any = sourceQuotation?.config || {};
+    const di: any = qcfg.documentInfo || {};
+    const { quotationLinesForJob } = await import('../deliveries/quotation-to-delivery');
+    const quotationLines = sourceQuotation ? await quotationLinesForJob(this.prisma, organizationId, qcfg) : [];
+    const lastSite = [...jobsRaw].reverse().find((j) => j.siteAddress)?.siteAddress;
+    const siteAddress = String(lastSite || di.location || di.jobLocation || qcfg.location || qcfg.deliveryTo || order.customer?.address || '').trim() || null;
+
+    return {
+      ...order,
+      statusLabel: WCT_ORDER_STATUS_LABEL[order.status as WctOrderStatus] ?? order.status,
+      sourceQuotation: sourceQuotation
+        ? { id: sourceQuotation.id, name: sourceQuotation.name, status: sourceQuotation.status, type: sourceQuotation.type, documentTemplateId: sourceQuotation.documentTemplateId }
+        : null,
+      jobs,
+      prefill: { siteAddress, lines: quotationLines },
+    };
   }
 
   /**
@@ -857,3 +1005,4 @@ export class OrdersService {
 function round2(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
+

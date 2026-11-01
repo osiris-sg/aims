@@ -43,6 +43,8 @@ export interface PlanRun {
   doNumber: string | null;
   /** https link to the DO's view-only guest page, null when there is none. */
   doUrl: string | null;
+  /** WCT orders: the job's order number (Order.orderNumber), null / absent outside that flow. */
+  orderNumber?: string | null;
 }
 
 export interface PlanLink {
@@ -128,13 +130,17 @@ const textSynced = (synced: string | null, f: JobText) => (synced ?? '').slice(1
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
-/** "#12 Acme Pte Ltd · DO202610007" (no "· …" until the run has a DO). */
+/**
+ * "#12 Acme Pte Ltd · DO202610007" (no "· …" until the run has a DO); a job of
+ * a WCT order leads with the order: "ORD202611-001 · #12 Acme Pte Ltd · DO202611008".
+ */
 export function jobTitle(run: PlanRun) {
   const who = run.customerName || run.projectName || 'Delivery';
   const doNo = run.doNumber?.trim();
-  if (!doNo) return clip(`#${run.deliveryNumber} ${who}`, 200);
-  const tail = ` · ${doNo}`;
-  return `${clip(`#${run.deliveryNumber} ${who}`, 200 - tail.length)}${tail}`;
+  const ord = run.orderNumber?.trim();
+  const head = ord ? `${ord} · ` : '';
+  const tail = doNo ? ` · ${doNo}` : '';
+  return `${head}${clip(`#${run.deliveryNumber} ${who}`, 200 - head.length - tail.length)}${tail}`;
 }
 
 export function jobNotes(run: PlanRun): string | null {

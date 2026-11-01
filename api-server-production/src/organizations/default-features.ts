@@ -136,4 +136,14 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // the DO as Cancelled. A Pending / Completed / Cancelled tag shows next to
   // the number. Default OFF; WCT only.
   enableRealDoOnSchedule: false,
+  // WCT orders (2026-11-01, Phase 1): an accepted quotation (staff Confirm or
+  // the client's e-sign) makes ONE Order, numbered by the ORDER format in
+  // Document Numbering (default ORD{YYYY}{MM}-{###}), plus its first draft job;
+  // the order page lists its jobs and "Add job" schedules more. The order
+  // number shows on each job's DO ("Order No"), the SiteClock job title, the
+  // jobs calendar, the field app and the delivery page. The order's status
+  // follows its jobs. Works on top of enableQuotationToDelivery (the order is
+  // made in that hook); the Orders tab also needs the ORDERS module. Default
+  // OFF; WCT only.
+  enableWctOrders: false,
 };

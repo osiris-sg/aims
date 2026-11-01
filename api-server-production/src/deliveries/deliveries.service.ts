@@ -57,6 +57,7 @@ import { isOrgFeatureEnabled } from 'src/common/org-features';
 import { QUOTATION_TO_DELIVERY_FLAG, applyQuotationLinkToDoConfig } from './quotation-to-delivery';
 import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from './do-number';
 import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
+import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
 @Injectable()
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
@@ -81,6 +82,11 @@ export class DeliveriesService {
     // SiteClock link (WCT): optional so hand-built instances (scripts) still work.
     @Optional() private readonly siteclock?: SiteClockLinkService,
   ) {}
+
+  /** WCT orders: the job's order re-derives its status. Best-effort, never throws; a no-op for runs without an order. */
+  private async orderFollowsRun(organizationId: string, deliveryId: string) {
+    await refreshOrderStatusForRun(this.prisma, organizationId, deliveryId);
+  }
 
   // ── reservation ──────────────────────────────────────────────────────────
 
@@ -588,6 +594,8 @@ export class DeliveriesService {
     // (the DTO's ValidateIf moved here so the requirement can be per-org).
     const relaxedSchedule = await isOrgFeatureEnabled(this.prisma, organizationId, QUOTATION_TO_DELIVERY_FLAG);
     if (!isDraft && !dto.saleOrderId && !relaxedSchedule) throw new BadRequestException('A Sale Order is required for a scheduled delivery');
+    // WCT orders: "Add job" on an order schedules another job of that order.
+    const order = dto.orderId ? await this.orderForNewJob(dto.orderId, organizationId) : null;
     // projectId is REQUIRED (post-assign matching keys on it). Validate it up
     // front and derive the customer from the project when the office didn't send
     // one — the scheduled run must carry BOTH so the draft DO gets a customer and
@@ -614,7 +622,7 @@ export class DeliveriesService {
           : (dto.contactIds ?? []).map((contactId) => ({ contactId, group: null }));
       await this.projectsService.setProjectContacts(dto.projectId, organizationId, entries);
     }
-    const customerId = dto.customerId ?? project?.customerId ?? undefined;
+    const customerId = dto.customerId ?? project?.customerId ?? order?.customerId ?? undefined;
     // Delivery address: what the office typed (dto.address) wins; else default to
     // the project NAME (for this fleet the project name IS its site address).
     // Lands on the DO's Deliver To.
@@ -664,6 +672,9 @@ export class DeliveriesService {
             customerId,
             ...(deliveryAddress ? { siteAddress: deliveryAddress } : {}),
             ...(dto.notes?.trim() ? { notes: dto.notes.trim() } : {}),
+            // The order's jobs carry its quotation too: the DO prints the
+            // quotation number and the invoice prices from it, as for the first job.
+            ...(order ? { orderId: order.id, ...(order.sourceQuotationId ? { sourceQuotationId: order.sourceQuotationId } : {}) } : {}),
             items: {
               // A qty-N catalog line becomes N qty-1 SLOTS, so every position the
               // rider walks is a real row that can carry its own status and
@@ -737,6 +748,10 @@ export class DeliveriesService {
         // ids the rows were just created with — a direct pairing, not sortOrder).
         deliveryItemIdFor: (lineIdx, n) => plannedIds[lineIdx]?.[n],
       });
+      if (order) {
+        if (order.sourceQuotationId) await applyQuotationLinkToDoConfig(this.prisma, organizationId, order.sourceQuotationId, doConfig, this.logger);
+        await applyOrderToDoConfig(this.prisma, organizationId, order.id, doConfig);
+      }
       const doc = await this.createScheduledDo(templateId, organizationId, doConfig, dto.projectId);
       documentId = doc.id;
       await this.prisma.deliveryItem.updateMany({ where: { deliveryId: run.id }, data: { documentId: doc.id } });
@@ -769,8 +784,23 @@ export class DeliveriesService {
     // SiteClock link (orgs with enableSiteClockLink only): put the run on the
     // picked worker's schedule. Never throws, never waits on SiteClock.
     await this.siteclock?.onScheduleSaved(organizationId, run.id, siteclockInput(dto));
+    if (order) await refreshOrderStatus(this.prisma, organizationId, order.id);
 
     return { ...run, documentId };
+  }
+
+  /**
+   * WCT orders: the order a new job is added to (dto.orderId). Only for
+   * enableWctOrders orgs, only the caller's org's own order.
+   */
+  private async orderForNewJob(orderId: string, organizationId: string) {
+    if (!(await isWctOrdersEnabled(this.prisma, organizationId))) throw new BadRequestException('Orders with jobs are not enabled for this organisation');
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, organizationId },
+      select: { id: true, orderNumber: true, customerId: true, sourceQuotationId: true },
+    });
+    if (!order) throw new NotFoundException('Order not found in this organization');
+    return order;
   }
 
   /**
@@ -1098,6 +1128,8 @@ export class DeliveriesService {
         if (run.sourceQuotationId) {
           await applyQuotationLinkToDoConfig(this.prisma, organizationId, run.sourceQuotationId, doConfig, this.logger);
         }
+        // WCT orders: the job's DO carries its order (printed as "Order No").
+        if (run.orderId) await applyOrderToDoConfig(this.prisma, organizationId, run.orderId, doConfig);
         const doc = await this.createScheduledDo(templateId, organizationId, doConfig, dto.projectId);
         await this.prisma.deliveryItem.updateMany({ where: { deliveryId: id }, data: { documentId: doc.id } });
       } catch (err: any) {
@@ -1143,6 +1175,7 @@ export class DeliveriesService {
         if (run.sourceQuotationId) {
           await applyQuotationLinkToDoConfig(this.prisma, organizationId, run.sourceQuotationId, fragment, this.logger);
         }
+        if (run.orderId) await applyOrderToDoConfig(this.prisma, organizationId, run.orderId, fragment);
         await this.documentsService.replaceScheduledDoConfig(documentId, organizationId, fragment, dto.projectId);
       } catch (err: any) {
         this.logger.error(`updateScheduled: draft DO regen failed for run ${id}: ${err?.message}`, err?.stack);
@@ -1155,6 +1188,8 @@ export class DeliveriesService {
     else await this.ensureScheduledServiceReport(id, organizationId);
     // SiteClock link: move / reassign the job, or cancel it (worker cleared, back to draft).
     await this.siteclock?.onScheduleSaved(organizationId, id, siteclockInput(dto));
+    // WCT orders: promoting a draft job (or saving one back to draft) moves the order.
+    if (run.orderId) await refreshOrderStatus(this.prisma, organizationId, run.orderId);
 
     return this.prisma.delivery.findUniqueOrThrow({ where: { id }, include: { items: true } });
   }
@@ -1661,6 +1696,7 @@ export class DeliveriesService {
     });
 
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return { deliveryId, deliveryNumber: run.deliveryNumber, claimed: true };
   }
 
@@ -1705,6 +1741,7 @@ export class DeliveriesService {
       });
     }
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.delivery.findUniqueOrThrow({ where: { id: deliveryId }, include: { items: true } });
   }
 
@@ -2113,6 +2150,8 @@ export class DeliveriesService {
         // dialog already accepts it (EditRun.customer.customerCode) and the run
         // detail page forwards it — this select was the only thing withholding it.
         customer: { select: { id: true, name: true, customerCode: true } },
+        // WCT orders: the order this job belongs to (null outside that flow).
+        order: { select: { id: true, orderNumber: true, status: true } },
       },
     });
     if (!delivery) throw new NotFoundException('Delivery not found');
@@ -2375,6 +2414,8 @@ export class DeliveriesService {
           },
           project: { select: { id: true, name: true } },
           customer: { select: { id: true, name: true } },
+          // WCT orders: the job's order number on the list / field cards.
+          order: { select: { id: true, orderNumber: true } },
         },
       }),
       this.prisma.delivery.count({ where }),
@@ -2715,6 +2756,7 @@ export class DeliveriesService {
 
     await this.recomputeRunStatus(deliveryId, organizationId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.deliveryItem.findUnique({ where: { id: target.id } });
   }
 
@@ -3049,6 +3091,7 @@ export class DeliveriesService {
     // The signature page then sees a normal delivered run and needs no branch.
     await this.recomputeRunStatus(deliveryId, organizationId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.delivery.findUnique({ where: { id: deliveryId } });
   }
 
@@ -3110,6 +3153,7 @@ export class DeliveriesService {
         },
       });
       void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: status follows the run
+      await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
       // Completion hook: the FIRST time a run reaches `completed`. Exactly ONE
       // of two mutually-exclusive branches runs, routed by whether the run is
       // already linked to a DO:
@@ -4284,6 +4328,7 @@ export class DeliveriesService {
     }
     await this.recomputeRunStatus(deliveryId, organizationId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return { acknowledged, total: pending.length };
   }
 
@@ -4389,6 +4434,7 @@ export class DeliveriesService {
     // handed over so far. The run stays open for the rest; see finalizeRunPartial.
     if (run.status === 'in_progress' && opts.allowPartial) {
       void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+      await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
       return this.finalizeRunPartial(deliveryId, dto, organizationId, technicianUserId);
     }
     // `delivered` is the fold's "every item delivered" state (all not_installed
@@ -4470,6 +4516,7 @@ export class DeliveriesService {
     await this.endTripHandoff(deliveryId);
     const finished = await this.prisma.delivery.findUnique({ where: { id: deliveryId } });
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return finished ? { ...finished, signedItemCount, partial: false } : finished;
   }
 
@@ -4875,6 +4922,7 @@ export class DeliveriesService {
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.delivery.findUnique({ where: { id: deliveryId } });
   }
 
@@ -5829,6 +5877,7 @@ export class DeliveriesService {
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
   }
 
@@ -5927,6 +5976,7 @@ export class DeliveriesService {
       });
     });
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
   }
 
@@ -5957,6 +6007,7 @@ export class DeliveriesService {
       const collected = await this.collectReturnFreeTyped(deliveryId, item.id, organizationId);
       await this.recomputeRunStatus(deliveryId, organizationId);
       void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+      await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
       return collected ?? this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
     }
     // No signature and NO acknowledgement photos here (2026-08 signature-at-end):
@@ -5997,6 +6048,7 @@ export class DeliveriesService {
     }
     await this.recomputeRunStatus(deliveryId, organizationId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
   }
 
@@ -6117,6 +6169,7 @@ export class DeliveriesService {
       const updated = await this.prisma.delivery.update({ where: { id: deliveryId }, data: { status: 'cancelled' } });
       await this.endTripHandoff(deliveryId);
       void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+      await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
       return note ? { ...updated, note } : updated;
     }
 
@@ -6169,6 +6222,7 @@ export class DeliveriesService {
     // A cancelled run's driver link must stop working too.
     await this.endTripHandoff(deliveryId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return cancelled;
   }
 
@@ -6261,6 +6315,7 @@ export class DeliveriesService {
       this.prisma.delivery.delete({ where: { id: deliveryId } }),
     ]);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await refreshOrderStatus(this.prisma, organizationId, delivery.orderId); // WCT orders: the run is gone, so by its order id
     return { id: deliveryId, deleted: true };
   }
 
@@ -6315,6 +6370,7 @@ export class DeliveriesService {
       this.prisma.delivery.delete({ where: { id: deliveryId } }),
     ]);
     void this.siteclock?.touch(organizationId, deliveryId); // a job still live in SiteClock gets cancelled
+    await refreshOrderStatus(this.prisma, organizationId, delivery.orderId); // WCT orders: the run is gone, so by its order id
     return {
       id: deliveryId,
       deleted: true,

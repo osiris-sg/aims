@@ -101,6 +101,8 @@ interface RunDetail {
   // "<name> · <code>" instead of a bare name. `customer: run.customer` forwards
   // the whole object, so declaring it here is all that was needed.
   customer: { id: string; name: string; customerCode?: string | null } | null;
+  // WCT orders (enableWctOrders): the order this job belongs to.
+  order?: { id: string; orderNumber: string; status: string } | null;
   // Derived by the backend: the single distinct DO across linked items, else null.
   // saleOrderId: the pointer to the SALES_ORDER document this run is against,
   // read off the DO's config by findById. It MUST be declared and forwarded —
@@ -787,6 +789,10 @@ export default function DeliveryDetailPage() {
           <Chip size="small" variant="outlined" color="success" label={`Linked: ${distinctDocs.length} DOs`} />
         )}
         {run.origin === "AD_HOC" && <Chip size="small" color="warning" variant="outlined" label="Ad-hoc" />}
+        {/* WCT orders: the job's order, linked to the order page. */}
+        {run.order && (
+          <Chip size="small" variant="outlined" color="primary" clickable label={`Order ${run.order.orderNumber}`} onClick={() => router.push(`/portal/orders/${run.order!.id}`)} />
+        )}
         {run.status === "scheduled" && run.direction !== "RETURN" && (
           <>
             <Box sx={{ flex: 1 }} />

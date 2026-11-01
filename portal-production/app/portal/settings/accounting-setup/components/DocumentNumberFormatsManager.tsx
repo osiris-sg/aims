@@ -32,6 +32,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import { RowKebab } from "@/components/RowKebab";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 // Canonical document types — MUST match the values the create picker uses.
 export const NUMBERING_DOC_TYPES: { value: string; label: string }[] = [
@@ -48,13 +49,17 @@ export const NUMBERING_DOC_TYPES: { value: string; label: string }[] = [
   { value: "PAYMENT_VOUCHER", label: "Payment Voucher" },
   { value: "RECEIPT", label: "Receipt" },
 ];
-const labelOf = (v: string) => NUMBERING_DOC_TYPES.find((d) => d.value === v)?.label || v;
+// WCT orders (enableWctOrders): the Order number (ORD…) is a format too. Offered
+// in the picker only for that flag; never in "apply to all".
+const ORDER_NUMBER_TYPE = { value: "ORDER", label: "Order" };
+const labelOf = (v: string) => (v === ORDER_NUMBER_TYPE.value ? ORDER_NUMBER_TYPE.label : NUMBERING_DOC_TYPES.find((d) => d.value === v)?.label || v);
 
 // Short code per type — mirrors the backend {DOC} token.
 export const DOC_CODE: Record<string, string> = {
   QUOTATION: "QO", SALES_ORDER: "SO", DELIVERY_ORDER: "DO", INVOICE: "INV",
   CREDIT_NOTE: "CN", DEBIT_NOTE: "DN", PROFORMA: "PF", PURCHASE_ORDER: "PO",
   PURCHASE_RETURN: "PR", STOCK_ADJUSTMENT: "SA", PAYMENT_VOUCHER: "PV", RECEIPT: "RCP",
+  ORDER: "ORD",
 };
 
 // ---------- block builder <-> pattern ----------
@@ -129,6 +134,8 @@ const RESETS = [
 
 export default function DocumentNumberFormatsManager() {
   const { getToken } = useAuth();
+  const { isWctOrdersEnabled } = useOrganizationFeatures();
+  const docTypes = isWctOrdersEnabled ? [...NUMBERING_DOC_TYPES, ORDER_NUMBER_TYPE] : NUMBERING_DOC_TYPES;
   const [formats, setFormats] = useState<Format[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -297,7 +304,7 @@ export default function DocumentNumberFormatsManager() {
           <Stack gap={2} sx={{ mt: 0.5 }}>
             <Stack direction={{ xs: "column", sm: "row" }} gap={2}>
               <TextField select label="Document type" size="small" fullWidth value={documentType} disabled={applyAll} helperText={applyAll ? "Applies to every type" : undefined} onChange={(e) => setDocumentType(e.target.value)}>
-                {NUMBERING_DOC_TYPES.map((d) => (<MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>))}
+                {docTypes.map((d) => (<MenuItem key={d.value} value={d.value}>{d.label}</MenuItem>))}
               </TextField>
               <TextField label="Variant name" size="small" fullWidth value={label} placeholder="e.g. EW / JPSG" onChange={(e) => setLabel(e.target.value)} />
             </Stack>

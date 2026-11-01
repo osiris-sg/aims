@@ -72,6 +72,7 @@ export class JobsCalendarService {
           siteAddress: true,
           customer: { select: { name: true } },
           project: { select: { name: true } },
+          order: { select: { id: true, orderNumber: true } },
           items: { where: { assetClass: 'SERVICE' }, select: { id: true }, take: 1 },
         },
         orderBy: { scheduledFor: 'asc' },
@@ -91,6 +92,7 @@ export class JobsCalendarService {
       projectName: r.project?.name ?? null,
       service: (r.items?.length ?? 0) > 0,
       deliveryOrder: dos.get(r.id) ?? null,
+      order: r.order ?? null,
     }));
   }
 

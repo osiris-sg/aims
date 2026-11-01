@@ -193,6 +193,15 @@ export class ScheduleDeliveryDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'WCT orders (enableWctOrders): "Add job" on an order — the Order (UUID) the new job belongs to. Create only; the job takes the order\'s quotation (DO prints its number and prices) and its DO prints "Order No". Ignored on edit.',
+  })
+  @IsOptional()
+  @IsUUID()
+  orderId?: string;
 }
 
 /**

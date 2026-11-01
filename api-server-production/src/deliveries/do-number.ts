@@ -32,7 +32,8 @@ export function doStatusTag(doc: { status?: string | null; config?: unknown }): 
 }
 
 /** Config keys only the server writes on a DO (issued at schedule time / voided with its run). */
-export const SERVER_DO_KEYS = ['issuedOnSchedule', 'cancelled', 'cancelledAt', 'cancelledReason'] as const;
+// orderId / orderNo: WCT orders — the job's order, printed as "Order No".
+export const SERVER_DO_KEYS = ['issuedOnSchedule', 'cancelled', 'cancelledAt', 'cancelledReason', 'orderId', 'orderNo'] as const;
 
 /**
  * The editor rebuilds a document's config from its own field list on save and

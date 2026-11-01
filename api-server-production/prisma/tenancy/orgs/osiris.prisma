@@ -1263,11 +1263,15 @@ model Order {
   items             Json // Snapshot at order-creation time: [{ itemCode, description, quantity, unitPrice, costPrice?, taggedAssetCode?, ... }]
   linkedDocuments   Json? // { po: [{id,name}], do: [{id,name}], invoice: [{id,name}] }
   notes             String?
+  // WCT orders (enableWctOrders): mirrors schema.prisma.
+  invoiceDocumentId String?  @db.Uuid
+  attachments       Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   customer        Customer?    @relation("CustomerOrders", fields: [customerId], references: [id])
   sourceQuotation Document?    @relation("OrderSourceQuotation", fields: [sourceQuotationId], references: [id])
+  deliveries      Delivery[] // WCT orders: the order's jobs
 
   @@unique([orderNumber, organizationId])
   @@index([organizationId, status])
@@ -1555,6 +1559,8 @@ model Delivery {
   // Accepted QUOTATION this run was auto-created from (enableQuotationToDelivery,
   // WCT 2026-10-26). Mirrors schema.prisma — see the comment there.
   sourceQuotationId String?        @db.Uuid
+  // WCT orders (enableWctOrders): mirrors schema.prisma — see the comment there.
+  orderId           String?        @db.Uuid
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may
@@ -1568,6 +1574,7 @@ model Delivery {
   project      Project?                   @relation(fields: [projectId], references: [id])
   customer     Customer?                  @relation(fields: [customerId], references: [id])
   document     Document?                  @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  order        Order?                     @relation(fields: [orderId], references: [id], onDelete: SetNull)
   items        DeliveryItem[]
   reports      MaintenanceServiceReport[]
   shareLinks   DeliveryShareLink[] // run-scoped guest delivery links
@@ -1576,6 +1583,7 @@ model Delivery {
   @@index([documentId])
   @@index([organizationId, status, createdAt])
   @@index([organizationId, sourceQuotationId])
+  @@index([organizationId, orderId])
   @@index([organizationId, scheduledFor]) // jobs calendar range reads
 }
 

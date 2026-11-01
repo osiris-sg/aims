@@ -13,6 +13,8 @@
  *  - Every other SiteClock job is its own event.
  *  - An AIMS run's popup carries its DO number, the DO's Pending / Completed /
  *    Cancelled tag and the office DO page (WCT real DO numbers, 2026-10-30).
+ *  - A job of a WCT order (enableWctOrders, 2026-11-01) leads its title with
+ *    the order number and links the order page from the popup.
  */
 import { DoStatusTag, doStatusTag } from '../deliveries/do-number';
 
@@ -38,6 +40,8 @@ export interface CalendarRun {
   service: boolean;
   /** The run's Delivery Order (the document its lines point at), if it has one. */
   deliveryOrder?: { id: string; name: string | null; status: string; templateId: string; cancelled: boolean } | null;
+  /** WCT orders: the order this job belongs to. */
+  order?: { id: string; orderNumber: string } | null;
 }
 
 export interface CalendarLink {
@@ -103,6 +107,9 @@ export interface CalendarEvent {
   doNumber: string | null;
   doTag: DoStatusTag | null;
   doHref: string | null;
+  /** WCT orders: the job's order number and the order page. */
+  orderNumber?: string | null;
+  orderHref?: string | null;
 }
 
 /** The DO block of a run's popup: number, tag (from the DO itself) and the office DO page. */
@@ -157,7 +164,7 @@ const crewOf = (j: CalendarSiteClockJob): CalendarCrew[] => j.crew.map((c) => ({
 
 function runTitle(r: CalendarRun) {
   const who = r.customerName || r.projectName || r.siteAddress || 'Delivery';
-  return `${r.direction === 'RETURN' ? 'Return ' : ''}#${r.deliveryNumber} ${who}`;
+  return `${r.order?.orderNumber ? `${r.order.orderNumber} · ` : ''}${r.direction === 'RETURN' ? 'Return ' : ''}#${r.deliveryNumber} ${who}`;
 }
 
 /**
@@ -243,6 +250,7 @@ export function buildCalendarEvents(runs: CalendarRun[], links: CalendarLink[], 
       siteclockUrl: null,
       deliveryNumber: r.deliveryNumber,
       ...doFields(r.deliveryOrder),
+      ...(r.order ? { orderNumber: r.order.orderNumber, orderHref: `/portal/orders/${r.order.id}` } : {}),
     });
   }
 

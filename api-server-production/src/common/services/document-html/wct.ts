@@ -366,13 +366,16 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     );
     const shipTo = shipLines || soldAddr;
     const quotationNo = first(di('quotationNo'), di('quotationNumber'), di('referenceNo'), data?.sourceDocumentNumber);
+    // WCT orders (enableWctOrders): the job's order. No line at all on a DO without one.
+    const orderNo = first(di('orderNo'), data?.orderNo);
     const body = `
     <div class="title do">${escapeHtml(design.titleText || 'DELIVERY ORDER')}</div>
     <div class="stars">${'*'.repeat(46)}</div>
     <div style="display:flex;justify-content:center;margin-bottom:4px;">
       <div class="kv" style="column-gap:28px;">
         <span>Delivery Order No</span><span>${escapeHtml(docNumber)}</span>
-        <span>Quotation Number</span><span>${escapeHtml(quotationNo)}</span>
+        <span>Quotation Number</span><span>${escapeHtml(quotationNo)}</span>${orderNo ? `
+        <span>Order No</span><span>${escapeHtml(orderNo)}</span>` : ''}
         <span>Date</span><span>${escapeHtml(paperDate(di('date')))}</span>
       </div>
     </div>

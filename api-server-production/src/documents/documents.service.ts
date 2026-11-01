@@ -1655,7 +1655,10 @@ export class DocumentsService {
             select: { features: true },
           });
           const features = (uiConfig?.features as any) || {};
-          if (features.enableConfirmQuotation) {
+          // WCT orders (enableWctOrders) make their own Order in the
+          // quotation→delivery hook below (one order per quotation, with its
+          // first job), so the generic order must not be made next to it.
+          if (features.enableConfirmQuotation && features.enableWctOrders !== true) {
             // Orders is a nav module of its own — an org that confirms
             // quotations WITHOUT the Orders tab (WCT 2026-10-26) must not
             // grow invisible Order rows. A stored module row decides; no
@@ -1694,7 +1697,9 @@ export class DocumentsService {
             const who = c.customerName || c.customer?.name || '';
             await this.staffWhatsApp.push(
               organizationId,
-              `Quotation ${updatedDocument.name || ''}${who ? ` (${who})` : ''} confirmed. Draft delivery #${run.deliveryNumber} created: please schedule a date and confirm the items.`,
+              run.orderNumber
+                ? `Quotation ${updatedDocument.name || ''}${who ? ` (${who})` : ''} confirmed. Order ${run.orderNumber} created with draft job #${run.deliveryNumber}: please schedule a date and confirm the items.`
+                : `Quotation ${updatedDocument.name || ''}${who ? ` (${who})` : ''} confirmed. Draft delivery #${run.deliveryNumber} created: please schedule a date and confirm the items.`,
               { linkPath: `/portal/deliveries/${run.id}`, dedupeKey: `quotation-confirmed:${id}` },
             );
           }

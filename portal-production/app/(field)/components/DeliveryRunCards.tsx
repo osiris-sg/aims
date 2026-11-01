@@ -48,6 +48,16 @@ function RunNo({ n }: { n: React.ReactNode }) {
   );
 }
 
+/** WCT orders: the job's order number, next to the run number (nothing outside that flow). */
+function OrderNo({ run }: { run: RunSummary }) {
+  if (!run.order?.orderNumber) return null;
+  return (
+    <Typography sx={{ fontSize: 13, fontWeight: 600, color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>
+      {run.order.orderNumber}
+    </Typography>
+  );
+}
+
 /**
  * The run's drop site, from Delivery.siteAddress: the office-typed delivery
  * address (else the project name) written at scheduling time, the same string
@@ -164,6 +174,7 @@ export function ScheduledRunCard({
     <CardContent sx={{ display: "flex", flexDirection: "column", gap: 0.75, pb: 1 }}>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ flexWrap: "wrap", rowGap: 0.5 }}>
         <RunNo n={r.deliveryNumber} />
+        <OrderNo run={r} />
         <StatusChip tone={isReturn ? "warn" : "neutral"} label={isReturn ? "RETURN" : "DELIVERY"} />
         <Box sx={{ flexGrow: 1 }} />
         <StatusChip tone="info" label={fmtScheduled(r.scheduledFor)} />
@@ -314,6 +325,7 @@ export function InProgressRunCard({
         <CardContent>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
             <RunNo n={r.deliveryNumber} />
+            <OrderNo run={r} />
             <StatusChip label={chip.label.toUpperCase()} tone={chip.tone} />
             <Box sx={{ flexGrow: 1 }} />
             {opening ? (
@@ -347,6 +359,7 @@ export function CompletedRunCard({ run: r, onOpen }: { run: RunSummary; onOpen: 
         <CardContent>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
             <RunNo n={r.deliveryNumber} />
+            <OrderNo run={r} />
             <StatusChip label="COMPLETED" tone="good" />
             {/* WCT service job: the job is not closed until its service report is written. */}
             {r.serviceReport?.status === "pending" && <StatusChip label="REPORT DUE" tone="warn" />}

@@ -42,6 +42,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import ExtractQuotationDialog from "@/containers/DocumentTemplates/components/ExtractQuotationDialog";
 import SiteClockSchedulePicker, { SiteClockPick } from "./SiteClockSchedulePicker";
+import type { AddJobPrefill } from "@/helpers/wctOrders";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
@@ -125,11 +126,15 @@ export default function ScheduleDeliveryDialog({
   onClose,
   onCreated,
   editRun,
+  prefill,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
   editRun?: EditRun | null;
+  // WCT orders "Add job" (enableWctOrders): a NEW job of this order, the form
+  // pre-filled with its customer, site and quotation lines. Create mode only.
+  prefill?: AddJobPrefill | null;
 }) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
@@ -282,7 +287,24 @@ export default function ScheduleDeliveryDialog({
     setMachineLocation("");
     setCustomer(null);
     setProject(null);
-  }, [open, editRun]);
+    if (prefill) {
+      // "Add job" on an order: the order's customer, its site and the
+      // quotation's lines (catalog lines as products, the rest free-typed),
+      // kept like an edit-mode prefill so the customer load doesn't overwrite them.
+      if (prefill.lines.length) {
+        setRows(
+          prefill.lines.map((l) =>
+            l.asset
+              ? { asset: { id: l.asset.id, name: l.asset.name, skuKey: l.asset.skuKey ?? "" }, description: "", freeTyped: false, quantity: String(Math.max(1, l.quantity || 1)), assetClass: DEFAULT_ASSET_CLASS }
+              : { asset: null, description: l.description, freeTyped: true, quantity: String(Math.max(1, l.quantity || 1)), assetClass: normalizeAssetClass(l.assetClass) },
+          ),
+        );
+      }
+      setAddress(prefill.siteAddress ?? "");
+      setAddressTouched(!!prefill.siteAddress);
+      setCustomer(prefill.customer ? { id: prefill.customer.id, name: prefill.customer.name, customerCode: prefill.customer.customerCode, address: prefill.customer.address } : null);
+    }
+  }, [open, editRun, prefill]);
 
   // Debounced asset search.
   useEffect(() => {
@@ -894,6 +916,8 @@ export default function ScheduleDeliveryDialog({
           ...(machineLocation.trim() ? { machineLocation: machineLocation.trim() } : {}),
           ...(customer ? { customerId: customer.id } : {}),
           ...(project ? { projectId: project.id } : {}),
+          // WCT orders "Add job": the new job belongs to the order.
+          ...(!editRun && prefill ? { orderId: prefill.orderId } : {}),
           // Send the picker's CURRENT selection so the backend persists it before
           // deriving the DO's Attention. The pick-time PUT still fires for instant
           // feedback, but this closes the race where the DO is built before that
@@ -937,7 +961,7 @@ export default function ScheduleDeliveryDialog({
       maxWidth="sm"
       fullScreen={fullScreenDialog}
     >
-      <DialogTitle>{editRun ? "Edit scheduled delivery" : "Schedule a delivery"}</DialogTitle>
+      <DialogTitle>{editRun ? "Edit scheduled delivery" : prefill ? `Add a job to ${prefill.orderNumber}` : "Schedule a delivery"}</DialogTitle>
       <DialogContent dividers>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           {serviceJobs

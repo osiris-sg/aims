@@ -1670,16 +1670,22 @@ model Order {
   customerId        String?  @db.Uuid
   sourceQuotationId String?  @db.Uuid // Document.id of the originating quotation
   orderType         String? // Carried from the QF quotation's "Type" field: Project / Route Order
-  status            String   @default("DRAFT") // DRAFT / IN_PROGRESS / COMPLETED / CANCELLED (free-form)
+  status            String   @default("DRAFT") // DRAFT / IN_PROGRESS / COMPLETED / CANCELLED (free-form); WCT orders: OPEN / SCHEDULED / IN_PROGRESS / COMPLETED, derived from the jobs and stored
   items             Json // Snapshot at order-creation time: [{ itemCode, description, quantity, unitPrice, costPrice?, taggedAssetCode?, ... }]
   linkedDocuments   Json? // { po: [{id,name}], do: [{id,name}], invoice: [{id,name}] }
   notes             String?
+  // WCT orders (enableWctOrders, 2026-11-01): the one invoice for the whole
+  // order (Phase 4; plain pointer, no FK) and the order's files, same shape as
+  // Document.attachments (Phase 5). Nullable + additive (safe db push).
+  invoiceDocumentId String?  @db.Uuid
+  attachments       Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   organization    Organization @relation(fields: [organizationId], references: [id])
   customer        Customer?    @relation("CustomerOrders", fields: [customerId], references: [id])
   sourceQuotation Document?    @relation("OrderSourceQuotation", fields: [sourceQuotationId], references: [id])
+  deliveries      Delivery[] // WCT orders: the order's jobs
 
   @@unique([orderNumber, organizationId])
   @@index([organizationId, status])
@@ -3253,6 +3259,10 @@ model Delivery {
   // quotationNo + sourceDocument* (and the quote's prices) onto its config.
   // Plain pointer, no FK — same reasoning as the frozen documentId below.
   sourceQuotationId String?           @db.Uuid
+  // WCT orders (enableWctOrders, 2026-11-01): the Order this job belongs to. An
+  // accepted quotation makes ONE order and its first job; "Add job" on the
+  // order adds more. Null for every run outside that flow.
+  orderId           String?           @db.Uuid
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may
@@ -3267,6 +3277,7 @@ model Delivery {
   project      Project?                   @relation(fields: [projectId], references: [id])
   customer     Customer?                  @relation(fields: [customerId], references: [id])
   document     Document?                  @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  order        Order?                     @relation(fields: [orderId], references: [id], onDelete: SetNull)
   items        DeliveryItem[]
   reports      MaintenanceServiceReport[]
   shareLinks   DeliveryShareLink[] // run-scoped guest delivery links
@@ -3275,6 +3286,7 @@ model Delivery {
   @@index([documentId])
   @@index([organizationId, status, createdAt])
   @@index([organizationId, sourceQuotationId])
+  @@index([organizationId, orderId])
   @@index([organizationId, scheduledFor]) // jobs calendar range reads
 }
 
