@@ -28,10 +28,12 @@ import * as moment from 'moment';
 import { pdfOptionsFor, isWctLayout } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
 import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
-import { carryServerDoKeys } from '../deliveries/do-number';
+import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
+import { assetKey, descKey, isDisplayRow, orderInvoiceReference, planOrderInvoice } from '../orders/order-billing';
+import { quotationLinesForJob } from '../deliveries/quotation-to-delivery';
 
 // Who performed a document action — derived from req.user in the controller.
 export interface DocumentActor {
@@ -1133,6 +1135,7 @@ export class DocumentsService {
       // let a cancelled DO lose its Cancelled mark. Carry them over unless the
       // incoming config sets them itself.
       if (configAsPlainObject && existingDocument.type === 'DELIVERY_ORDER') carryServerDoKeys(existingDocument.config, configAsPlainObject);
+      if (configAsPlainObject && existingDocument.type === 'INVOICE') carryServerInvoiceKeys(existingDocument.config, configAsPlainObject);
       const wasConfirmedBeforeSave = !['draft', 'unconfirmed'].includes(existingDocument.status);
 
       // Managers and up only (guru 2026-09-29): a Designer-tier user may
@@ -6028,6 +6031,7 @@ export class DocumentsService {
       orderBy: { deliveryNumber: 'asc' },
     });
     let billable = jobs.filter((j) => isVerifiedJob(j) && !j.orderInvoiceId);
+    const adopted: string[] = [];
     // A job whose DO already has its own invoice (finished before invoicing
     // per order was switched on) is never billed twice: it keeps that invoice.
     if (billable.length) {
@@ -6038,6 +6042,7 @@ export class DocumentsService {
         const own = await this.prisma.document.findFirst({ where: { organizationId, type: 'INVOICE', OR: doIds.map((id) => ({ config: { path: ['sourceDocumentId'], equals: id } })) }, select: { id: true } });
         if (!own) continue;
         await this.prisma.delivery.updateMany({ where: { id: j.id, organizationId, orderInvoiceId: null }, data: { orderInvoiceId: own.id } });
+        adopted.push(own.id);
         billable = billable.filter((b) => b.id !== j.id);
       }
     }
@@ -6058,25 +6063,80 @@ export class DocumentsService {
     if (!claimed.length) return null;
 
     try {
-      // Each job's DO, in job order: its lines become the invoice's lines.
+      // Each job's DO, in job order: the jobs' lines, to tell the quote's scope from the extras.
       const items = await this.prisma.deliveryItem.findMany({ where: { deliveryId: { in: claimed.map((j) => j.id) }, documentId: { not: null } }, select: { deliveryId: true, documentId: true } });
       const doIdsInOrder: string[] = [];
-      for (const j of claimed) for (const it of items) if (it.deliveryId === j.id && it.documentId && !doIdsInOrder.includes(it.documentId)) doIdsInOrder.push(it.documentId);
+      const doJob = new Map<string, string>();
+      for (const j of claimed)
+        for (const it of items)
+          if (it.deliveryId === j.id && it.documentId && !doIdsInOrder.includes(it.documentId)) {
+            doIdsInOrder.push(it.documentId);
+            doJob.set(it.documentId, j.id);
+          }
       const dos = await this.prisma.document.findMany({ where: { id: { in: doIdsInOrder }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } } });
       const doById = new Map(dos.map((d) => [d.id, d]));
       const orderedDos = doIdsInOrder.map((id) => doById.get(id)).filter(Boolean) as any[];
       if (!orderedDos.length) throw new Error('the jobs have no Delivery Order to invoice from');
 
+      // The quotation is the contract: billed once per order (order-billing.ts).
+      // It is already billed when an earlier invoice of this order exists (the
+      // first one always carries it; a job that kept its own per-DO invoice
+      // billed it too). Checked against live rows, so a deleted invoice counts as never made.
       const quotationId = order.sourceQuotationId ?? (orderedDos[0].config as any)?.sourceDocumentId ?? null;
-      const lines: any[] = [];
+      const qo = quotationId ? await this.prisma.document.findFirst({ where: { id: quotationId, organizationId }, select: { name: true, config: true } }).catch(() => null) : null;
+      const qc: any = qo?.config || {};
+      const quoteItems: any[] = Array.isArray(qc.items) ? qc.items : [];
+      const earlierIds = [
+        ...new Set([
+          ...jobs.map((j) => j.orderInvoiceId).filter((v): v is string => !!v && !v.startsWith('claim:')),
+          ...adopted,
+          ...(Array.isArray((order.linkedDocuments as any)?.invoice) ? (order.linkedDocuments as any).invoice.map((x: any) => x?.id).filter(Boolean) : []),
+        ]),
+      ];
+      const earlier = earlierIds.length
+        ? await this.prisma.document.findMany({ where: { id: { in: earlierIds }, organizationId, type: 'INVOICE' }, select: { id: true, name: true }, orderBy: { createdAt: 'asc' } })
+        : [];
+      const workLines = quoteItems.filter((l) => !isDisplayRow(l));
+      const resolved = await quotationLinesForJob(this.prisma, organizationId, qc);
+      const quoteKey = new Map<any, string | null>(workLines.map((l, i) => [l, resolved[i]?.asset ? assetKey(resolved[i].asset!.id) : descKey(l.description)]));
+      const plan = planOrderInvoice({
+        quoteBilled: earlier.length > 0,
+        quoteLines: quoteItems,
+        jobs: claimed.map((j) => ({
+          jobId: j.id,
+          lines: orderedDos
+            .filter((d) => doJob.get(d.id) === j.id)
+            .flatMap((d) => (Array.isArray((d.config as any)?.items) ? (d.config as any).items : []).map((l: any) => ({ ...l, __doId: d.id }))),
+        })),
+        keyOfQuoteLine: (l) => quoteKey.get(l) ?? null,
+        keyOfJobLine: (l: any) => assetKey(l.assetId) ?? descKey(l.description),
+      });
+
+      if (plan.nothing) {
+        // The quote is billed and these jobs add nothing on top: no empty
+        // invoice. The jobs are covered by the invoice that billed the quote.
+        const cover = earlier[0];
+        // No quotation lines and nothing extra: nothing at all to bill (the catch hands the jobs back).
+        if (!cover) throw new HttpException('Nothing to invoice: the quotation has no lines and the jobs add none.', HttpStatus.BAD_REQUEST);
+        await this.prisma.delivery.updateMany({ where: { organizationId, orderInvoiceId: claim }, data: { orderInvoiceId: cover.id } });
+        console.log(`🧾 ORDER→INVOICE: ${order.orderNumber} jobs ${claimed.map((j) => `#${j.deliveryNumber}`).join(', ')} add no lines to the quotation; covered by ${cover.name} (${opts.trigger}).`);
+        await refreshOrderStatus(this.prisma, organizationId, order.id);
+        return { id: cover.id, name: cover.name, type: 'INVOICE', covered: true, jobNumbers: claimed.map((j) => j.deliveryNumber) } as any;
+      }
+
+      // Lines: the quotation's exactly as quoted (once), then each job's extras
+      // priced by the usual SO → quotation → asset ladder (a typed price stays).
+      const lines: any[] = plan.billQuote ? quoteItems.map((l) => ({ ...l, fromQuotation: true })) : [];
       for (const d of orderedDos) {
         const c: any = d.config || {};
-        const priced = await this.priceInvoiceLinesFromAsset(Array.isArray(c.items) ? c.items : [], organizationId, {
+        const extras = plan.extras.filter((e: any) => e.__doId === d.id).map(({ jobId: _j, __doId: _d, ...l }: any) => l);
+        if (!extras.length) continue;
+        const priced = await this.priceInvoiceLinesFromAsset(extras, organizationId, {
           saleOrderId: c.saleOrderId,
           sourceDocumentId: c.sourceDocumentId ?? quotationId ?? undefined,
           sourceDocumentType: c.sourceDocumentType ?? (quotationId ? 'QUOTATION' : undefined),
         });
-        for (const { deliveryGroup: _g, ...line } of priced as any[]) lines.push({ ...line, doNumber: d.name ?? null });
+        for (const { deliveryGroup: _g, ...line } of priced as any[]) lines.push({ ...line, doNumber: d.name ?? null, orderExtra: true });
       }
 
       // The header (customer, addresses, PO, quotation no.) from the first DO,
@@ -6087,32 +6147,32 @@ export class DocumentsService {
         issuedOnSchedule: _is, cancelled: _cn, cancelledAt: _cat, cancelledReason: _cr, ...base
       } = ((orderedDos[0].config as any) ?? {}) as Record<string, any>;
 
-      let taxSrc: any = null;
-      if (quotationId) {
-        const qo = await this.prisma.document.findFirst({ where: { id: quotationId, organizationId }, select: { name: true, config: true } }).catch(() => null);
-        const qc: any = qo?.config || {};
-        taxSrc = { gstPercent: qc.gstPercent ?? qc.documentInfo?.gstPercent, taxApplicable: qc.taxApplicable ?? qc.documentInfo?.taxApplicable, absorbTax: qc.absorbTax ?? qc.documentInfo?.absorbTax };
-      }
+      let taxSrc: any = qo ? { gstPercent: qc.gstPercent ?? qc.documentInfo?.gstPercent, taxApplicable: qc.taxApplicable ?? qc.documentInfo?.taxApplicable, absorbTax: qc.absorbTax ?? qc.documentInfo?.absorbTax } : null;
       if (!taxSrc || (taxSrc.gstPercent == null && taxSrc.taxApplicable == null && taxSrc.absorbTax == null)) {
         const orgRow: any = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { taxRate: true, taxApplicable: true } }).catch(() => null);
         taxSrc = { gstPercent: orgRow?.taxRate ?? 9, taxApplicable: orgRow?.taxApplicable === false ? 'N' : 'Y', absorbTax: 'N' };
       }
       const totals = computeDocumentTotals(lines, taxSrc);
-      const doNumbers = orderedDos.map((d) => d.name).filter(Boolean);
+      const doNumbers = orderedDos.map((d) => d.name).filter(Boolean) as string[];
+      const reference = orderInvoiceReference(order.orderNumber, doNumbers, (base as any).referenceNo ?? (base as any).documentInfo?.referenceNo);
       const invoiceConfig = stampDocumentMoney(
         {
           ...base,
           items: lines,
           date: new Date().toISOString(),
           // Priced from the quotation; the order + its DOs are named on it.
-          ...(quotationId ? { sourceDocumentId: quotationId, sourceDocumentType: 'QUOTATION' } : {}),
+          ...(quotationId ? { sourceDocumentId: quotationId, sourceDocumentType: 'QUOTATION', ...(qo?.name ? { sourceDocumentNumber: qo.name } : {}) } : {}),
           orderId: order.id,
           orderNo: order.orderNumber,
           orderJobIds: claimed.map((j) => j.id),
+          orderBillsQuote: plan.billQuote,
           deliveryOrderNos: doNumbers,
+          // Reference (the canonical free-text key) names the order and its DOs
+          // too, so the invoice lists find it by order number.
+          referenceNo: reference,
           ...totals,
           showTotals: true,
-          documentInfo: { ...((base as any).documentInfo || {}), ...totals },
+          documentInfo: { ...((base as any).documentInfo || {}), ...totals, referenceNo: reference },
         },
         { gross: totals.nettTotal, outstanding: totals.nettTotal, paid: 0 },
       );

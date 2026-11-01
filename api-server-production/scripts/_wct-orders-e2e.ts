@@ -189,7 +189,7 @@ const sgt = (dayOffset: number, hh: number, mm = 0) => {
     console.log(`dev WCT ready (flags were ${JSON.stringify(before)}; ORDER format ${hadOrderFormat ? 'existed' : 'absent'})`);
 
     let qn = 0;
-    const quotation = async () =>
+    const quotation = async (quoteItems?: any[]) =>
       prisma.document.create({
         data: {
           organizationId: WCT,
@@ -202,7 +202,7 @@ const sgt = (dayOffset: number, hh: number, mm = 0) => {
             customer: { id: customer!.id, name: CUSTOMER },
             customerName: CUSTOMER,
             documentInfo: { location: SITE },
-            items: [
+            items: quoteItems ?? [
               { id: 1, description: '<b>Kitchen exhaust degrease</b>', quantity: 1, unitPrice: 450, amount: 450 },
               { id: 2, description: 'Duct inspection', quantity: 2, unitPrice: 120, amount: 240 },
             ],
@@ -433,8 +433,8 @@ const sgt = (dayOffset: number, hh: number, mm = 0) => {
       const d: any = await doOf(runId);
       return d ? prisma.document.findFirst({ where: { organizationId: WCT, type: 'INVOICE', config: { path: ['sourceDocumentId'], equals: d.id } } }) : null;
     };
-    const mkOrder = async () => {
-      const q = await quotation();
+    const mkOrder = async (quoteItems?: any[]) => {
+      const q = await quotation(quoteItems);
       await confirm(q);
       const o: any = (await ordersOf(q.id))[0];
       const [first] = await jobsOf(o.id);
@@ -454,6 +454,17 @@ const sgt = (dayOffset: number, hh: number, mm = 0) => {
     check('P4: Invoice now bills only the verified job so far', JSON.stringify(cfgA.orderJobIds) === JSON.stringify([j6a.id]) && cfgA.orderNo === o6.orderNumber && cfgA.orderId === o6.id, [cfgA.orderJobIds, cfgA.orderNo]);
     check('P4: priced from the quotation (450 + 2 × 120 lines on the first job)', (cfgA.items || []).some((i: any) => Number(i.unitPrice) === 450) && (cfgA.items || []).some((i: any) => Number(i.unitPrice) === 120), (cfgA.items || []).map((i: any) => i.unitPrice));
     check('P4: invoice names the DO and the quotation', (cfgA.deliveryOrderNos || []).length === 1 && cfgA.sourceDocumentType === 'QUOTATION', [cfgA.deliveryOrderNos, cfgA.sourceDocumentType]);
+    check('P4: the first invoice bills the quotation exactly as quoted (690 + 9% = 752.10), once', cfgA.orderBillsQuote === true && (cfgA.items || []).length === 2 && Number(cfgA.nettTotal) === 752.1, [cfgA.orderBillsQuote, (cfgA.items || []).length, cfgA.nettTotal]);
+    check('P4: Reference pre-filled with the order and its DO', cfgA.referenceNo === `${o6.orderNumber} · ${cfgA.deliveryOrderNos[0]}`, cfgA.referenceNo);
+    const invHtml = renderWctBody('invoice', { ...cfgA, name: invADoc.name }, { name: 'WCT' }, resolveDesign({ layout: 'wct' }));
+    check('P4: the WCT invoice prints Order No and DO No', invHtml.includes('>Order No</span><span>' + o6.orderNumber) && invHtml.includes('>DO No</span><span>' + cfgA.deliveryOrderNos[0]), invHtml.includes('Order No'));
+    // An editor save rebuilds config from its own fields: the order keys survive it.
+    {
+      const { orderId: _oi, orderNo: _on, orderJobIds: _oj, orderBillsQuote: _ob, deliveryOrderNos: _dn, ...editorCfg } = cfgA;
+      await documents.updateDocument({ id: invA.id, type: 'INVOICE', config: { ...editorCfg, remarks: 'edited in the editor' } } as any, WCT);
+    }
+    const savedA: any = (await prisma.document.findFirst({ where: { id: invA.id } }))!.config;
+    check('P4: an editor save keeps orderNo / orderId / deliveryOrderNos', savedA.orderNo === o6.orderNumber && savedA.orderId === o6.id && JSON.stringify(savedA.deliveryOrderNos) === JSON.stringify(cfgA.deliveryOrderNos) && savedA.remarks === 'edited in the editor', [savedA.orderNo, savedA.deliveryOrderNos]);
     const jeA = await prisma.journalEntry.count({ where: { organizationId: WCT, sourceDocumentId: invA.id } });
     check('P4: the order invoice posted to the GL', jeA >= 1, jeA);
     const o6Row: any = await prisma.order.findFirst({ where: { id: o6.id } });
@@ -464,13 +475,14 @@ const sgt = (dayOffset: number, hh: number, mm = 0) => {
     await finishJob(j6c.id, { signature: SIG });
     const j6bRow: any = await prisma.delivery.findFirst({ where: { id: j6b.id } });
     const j6cRow: any = await prisma.delivery.findFirst({ where: { id: j6c.id } });
-    check('P4: the last job done → a SECOND invoice for jobs 2 + 3, automatically', !!j6bRow.orderInvoiceId && j6bRow.orderInvoiceId === j6cRow.orderInvoiceId && j6bRow.orderInvoiceId !== invA.id && !j6bRow.orderInvoiceId.startsWith('claim:'), [j6bRow.orderInvoiceId, j6cRow.orderInvoiceId]);
+    check('P4: the last jobs add nothing on top of the quotation → NO second invoice; they are covered by the first', j6bRow.orderInvoiceId === invA.id && j6cRow.orderInvoiceId === invA.id, [j6bRow.orderInvoiceId, j6cRow.orderInvoiceId]);
+    check('P4: …so the order has exactly one invoice', (await prisma.document.count({ where: { organizationId: WCT, type: 'INVOICE', config: { path: ['orderId'], equals: o6.id } } })) === 1);
     const invADoc2: any = await prisma.document.findFirst({ where: { id: invA.id } });
     check('P4: the first invoice is untouched', JSON.stringify(invADoc2.config.items) === JSON.stringify(cfgA.items) && JSON.stringify(invADoc2.config.orderJobIds) === JSON.stringify([j6a.id]));
     let o6Now: any = await prisma.order.findFirst({ where: { id: o6.id } });
     check('P4: every job invoiced → order Invoiced', o6Now.status === 'INVOICED', o6Now.status);
     const page6: any = await orders.getById(o6.id, WCT);
-    check('P4: order page lists both invoices with their jobs; nothing left to invoice', page6.invoicing === true && page6.invoices.length === 2 && JSON.stringify(page6.invoices[0].jobNumbers) === JSON.stringify([j6a.deliveryNumber]) && page6.toInvoice.length === 0, page6.invoices?.map((i: any) => i.jobNumbers));
+    check('P4: order page lists the one invoice covering all three jobs; nothing left to invoice', page6.invoicing === true && page6.invoices.length === 1 && JSON.stringify(page6.invoices[0].jobNumbers) === JSON.stringify([j6a.deliveryNumber, j6b.deliveryNumber, j6c.deliveryNumber]) && page6.toInvoice.length === 0, page6.invoices?.map((i: any) => i.jobNumbers));
     // paid → order Paid (the real payment status update)
     const payments = new PaymentsService(prisma as any, null as any);
     for (const inv of page6.invoices) {
@@ -480,7 +492,7 @@ const sgt = (dayOffset: number, hh: number, mm = 0) => {
       await payments.updateInvoiceStatusAfterPayment(inv.id, WCT);
     }
     o6Now = await prisma.order.findFirst({ where: { id: o6.id } });
-    check('P4: both invoices paid → order Paid', o6Now.status === 'PAID', o6Now.status);
+    check('P4: every invoice paid → order Paid', o6Now.status === 'PAID', o6Now.status);
     // a job invoiced per DO before the flag was on is not billed again
     await setFlags({ enableWctOrderInvoice: false });
     const { o: o7, first: j7 } = await mkOrder();
@@ -498,6 +510,66 @@ const sgt = (dayOffset: number, hh: number, mm = 0) => {
     const racing = await Promise.all([documents.maybeInvoiceOrder(o8.id, WCT), documents.maybeInvoiceOrder(o8.id, WCT), documents.maybeInvoiceOrder(o8.id, WCT)]);
     const o8Invoices = await prisma.document.count({ where: { organizationId: WCT, type: 'INVOICE', config: { path: ['orderId'], equals: o8.id } } });
     check('P4: three triggers at once → exactly one invoice', o8Invoices === 1 && racing.filter(Boolean).length === 1, [o8Invoices, racing.map((r: any) => !!r)]);
+
+    // ── P4b: the quotation is billed ONCE per order (guru 2026-11-02, ORD202611-001 billed $218 on a $109 quote) ──
+    const Q109 = [{ id: 1, description: 'S- Chemical degreasing for kitchen exhaust hoods (interior and exterior)', quantity: 1, unitPrice: 100, amount: 100, accountCode: 'SS001' }];
+    const orderInvoices = async (orderId: string) => {
+      const ids = [...new Set((await prisma.delivery.findMany({ where: { organizationId: WCT, orderId }, select: { orderInvoiceId: true } })).map((j) => j.orderInvoiceId).filter((v): v is string => !!v && !v.startsWith('claim:')))];
+      return prisma.document.findMany({ where: { id: { in: ids }, organizationId: WCT, type: 'INVOICE' }, orderBy: { createdAt: 'asc' } });
+    };
+    const nett = (d: any) => Number(d?.config?.nettTotal);
+    // An extra line typed on a job's DO (the office prices it in the DO editor).
+    const addExtraToDo = async (runId: string, description: string, price: number) => {
+      const d: any = await doOf(runId);
+      const items = [...((d.config as any).items || []), { description, quantity: 1, unitPrice: price, amount: price }];
+      await prisma.document.update({ where: { id: d.id }, data: { config: { ...(d.config as any), items } } });
+    };
+    {
+      // 1 quote at $109 incl GST, 2 jobs → one $109 invoice
+      const { o, first } = await mkOrder(Q109);
+      const second: any = await deliveries.createScheduled({ orderId: o.id, customerId: customer.id, address: SITE, scheduledFor: sgt(3, 11), items: lines(first) } as any, WCT);
+      await finishJob(first.id, { signature: SIG });
+      await finishJob(second.id, { signature: SIG });
+      const invs = await orderInvoices(o.id);
+      check('P4b: $109 quote, 2 jobs → ONE invoice of $109 (not $218)', invs.length === 1 && nett(invs[0]) === 109 && (invs[0].config as any).items.length === 1, invs.map((d) => [d.name, nett(d), (d.config as any).items.length]));
+      check('P4b: …both jobs on it, both DOs named', JSON.stringify((invs[0].config as any).deliveryOrderNos?.length) === '2' && (await prisma.delivery.count({ where: { orderId: o.id, orderInvoiceId: invs[0].id } })) === 2, (invs[0].config as any).deliveryOrderNos);
+      check('P4b: the quote line keeps its account code', (invs[0].config as any).items[0].accountCode === 'SS001', (invs[0].config as any).items[0]);
+    }
+    {
+      // …then an extra $50 line on job 2 → $109 + $54.50
+      const { o, first } = await mkOrder(Q109);
+      const second: any = await deliveries.createScheduled({ orderId: o.id, customerId: customer.id, address: SITE, scheduledFor: sgt(3, 13), items: lines(first) } as any, WCT);
+      await finishJob(first.id, { signature: SIG });
+      await addExtraToDo(second.id, 'Replace grease filter', 50);
+      await finishJob(second.id, { signature: SIG });
+      const invs = await orderInvoices(o.id);
+      const items = (invs[0]?.config as any)?.items || [];
+      check('P4b: an extra $50 line on job 2 → one invoice of $163.50 (109 + 54.50)', invs.length === 1 && nett(invs[0]) === 163.5, invs.map((d) => [d.name, nett(d)]));
+      check('P4b: …the extra is marked as one, with its DO', items.length === 2 && items[1].orderExtra === true && items[1].description === 'Replace grease filter' && !!items[1].doNumber, items);
+    }
+    {
+      // split: Invoice now after job 1 (the quote), a later job with an extra → a second invoice with ONLY the extra; one more with nothing extra → no third invoice
+      const { o, first } = await mkOrder(Q109);
+      const second: any = await deliveries.createScheduled({ orderId: o.id, customerId: customer.id, address: SITE, scheduledFor: sgt(3, 15), items: lines(first) } as any, WCT);
+      const third: any = await deliveries.createScheduled({ orderId: o.id, customerId: customer.id, address: SITE, scheduledFor: sgt(3, 17), items: lines(first) } as any, WCT);
+      await finishJob(first.id, { signature: SIG });
+      const inv1: any = await documents.invoiceOrder(o.id, WCT, { trigger: 'now' });
+      const inv1Doc: any = await prisma.document.findFirst({ where: { id: inv1.id } });
+      check('P4b split: Invoice now after job 1 → the quote, $109', nett(inv1Doc) === 109 && (inv1Doc.config as any).orderBillsQuote === true, nett(inv1Doc));
+      await finishJob(second.id, { signature: SIG });
+      check('P4b split: job 2 verified, job 3 still open → nothing billed yet', !(await prisma.delivery.findFirst({ where: { id: second.id } }))!.orderInvoiceId);
+      // Invoice now on job 2 alone: it adds nothing on top → no invoice, covered
+      const cover: any = await documents.invoiceOrder(o.id, WCT, { trigger: 'now' });
+      check('P4b split: Invoice now on a job with no extras → no new invoice, covered by the first', cover?.covered === true && cover.id === inv1.id && (await prisma.delivery.findFirst({ where: { id: second.id } }))!.orderInvoiceId === inv1.id && (await orderInvoices(o.id)).length === 1, cover);
+      await addExtraToDo(third.id, 'Replace grease filter', 50);
+      await finishJob(third.id, { signature: SIG });
+      const invs = await orderInvoices(o.id);
+      const extraOnly: any = invs.find((d) => d.id !== inv1.id);
+      check('P4b split: the later job with an extra → a SECOND invoice with ONLY the extra ($54.50)', invs.length === 2 && !!extraOnly && nett(extraOnly) === 54.5 && (extraOnly.config as any).items.length === 1 && (extraOnly.config as any).orderBillsQuote === false, invs.map((d) => [d.name, nett(d)]));
+      check('P4b split: the first invoice is untouched', nett(await prisma.document.findFirst({ where: { id: inv1.id } })) === 109);
+      const page: any = await orders.getById(o.id, WCT);
+      check('P4b split: order page: invoice 1 covers jobs 1 + 2, invoice 2 job 3; order Invoiced', page.invoices.length === 2 && JSON.stringify(page.invoices[0].jobNumbers) === JSON.stringify([first.deliveryNumber, second.deliveryNumber]) && JSON.stringify(page.invoices[1].jobNumbers) === JSON.stringify([third.deliveryNumber]) && page.status === 'INVOICED', [page.invoices.map((i: any) => i.jobNumbers), page.status]);
+    }
 
     // ── P5: service report on the order ──
     const opts5: any[] = await orders.orderReportOptions(o6.id, WCT);

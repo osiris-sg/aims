@@ -407,6 +407,9 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     data?.revisionNumber !== undefined && data?.revisionNumber !== null && data?.revisionNumber !== '' ? `R${data.revisionNumber}` : '',
   );
   const showTotals = ((data?.showTotals ?? data?.documentInfo?.showTotals) ?? true) !== false;
+  // WCT invoice per order: the order and the DOs the invoice covers. Only an order invoice carries them.
+  const orderNo = isInvoice ? first(di('orderNo'), data?.orderNo) : '';
+  const doNos = Array.isArray(data?.deliveryOrderNos) ? data.deliveryOrderNos.filter(Boolean).join(', ') : '';
 
   const header = `
   <div class="title">${escapeHtml(design.titleText || (isInvoice ? 'TAX INVOICE' : 'QUOTATION'))}</div>
@@ -415,6 +418,8 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     <div class="kv">
       <span class="k">Date</span><span>${escapeHtml(paperDate(di('date')))}</span>
       ${isInvoice && revision ? `<span class="k">Invoice Rev</span><span>${escapeHtml(revision)}</span>` : ''}
+      ${isInvoice && orderNo ? `<span class="k">Order No</span><span>${escapeHtml(orderNo)}</span>` : ''}
+      ${isInvoice && orderNo && doNos ? `<span class="k">DO No</span><span>${escapeHtml(doNos)}</span>` : ''}
       ${!isInvoice && di('validityPeriod') ? `<span class="k">Validity</span><span>${escapeHtml(di('validityPeriod'))}</span>` : ''}
       ${di('paymentTerms') && isInvoice ? `<span class="k">Terms</span><span>${escapeHtml(di('paymentTerms'))}</span>` : ''}
     </div>

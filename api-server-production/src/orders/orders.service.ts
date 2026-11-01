@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { S3Service } from '../common/services/s3.service';
@@ -11,6 +11,7 @@ import { isWctOrdersEnabled, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORD
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { doStatusTag } from '../deliveries/do-number';
+import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 
 /**
  * Orders are auto-created when a quotation is confirmed (gated by the
@@ -25,6 +26,10 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly extraction: DocumentExtractionService,
     private readonly s3: S3Service,
+    // Names for the order's "added / linked by" lines when the session token
+    // carries no name claims (the production tokens don't). Optional so the
+    // specs' hand-built services still construct.
+    @Optional() private readonly identity?: ClerkIdentityService,
   ) {}
 
   /**
@@ -522,7 +527,8 @@ export class OrdersService {
   ) {
     const order = await this.wctOrderOrThrow(id, organizationId);
     const list: any[] = Array.isArray(order.attachments) ? [...(order.attachments as any[])] : [];
-    const stamp = { id: randomUUID(), addedAt: new Date().toISOString(), addedBy: actor.id ?? null, addedByName: actor.name ?? null };
+    const addedByName = actor.name || (actor.id ? (await this.userNames([actor.id])).get(actor.id) : null) || null;
+    const stamp = { id: randomUUID(), addedAt: new Date().toISOString(), addedBy: actor.id ?? null, addedByName };
     let entry: any;
     if (body.kind === 'report') {
       if (!body.reportId) throw new HttpException('Pick a service report', HttpStatus.BAD_REQUEST);
@@ -580,7 +586,28 @@ export class OrdersService {
       ? await this.prisma.maintenanceServiceReport.findMany({ where: { id: { in: ids }, organizationId }, select: { id: true, reportNumber: true, status: true } })
       : [];
     const byId = new Map(reports.map((r) => [r.id, r]));
-    return list.map((a) => (a?.kind === 'report' ? { ...a, report: byId.get(a.reportId) ?? null } : a));
+    // An entry saved without a name (before names were looked up) gets one now, for display only.
+    const names = await this.userNames(list.filter((a) => a && !a.addedByName && a.addedBy).map((a) => a.addedBy));
+    return list.map((a) => {
+      const named = a && !a.addedByName && a.addedBy && names.get(a.addedBy) ? { ...a, addedByName: names.get(a.addedBy) } : a;
+      return named?.kind === 'report' ? { ...named, report: byId.get(named.reportId) ?? null } : named;
+    });
+  }
+
+  /** Display names (first + last, else the email) for AIMS user ids, from Clerk. Never throws; unknown ids are absent. */
+  private async userNames(ids: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (!ids.length || !this.identity) return out;
+    try {
+      const users = await this.identity.toClerkUsers(ids);
+      for (const [id, u] of users) {
+        const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.emailAddresses?.[0]?.emailAddress || '';
+        if (name) out.set(id, name);
+      }
+    } catch {
+      /* the line shows the date without a name */
+    }
+    return out;
   }
 
   /**

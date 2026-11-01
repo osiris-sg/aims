@@ -46,6 +46,20 @@ export function carryServerDoKeys(prev: unknown, next: Record<string, any>) {
   return next;
 }
 
+/**
+ * Config keys only the server writes on an INVOICE: a WCT order invoice's
+ * order, the jobs it bills, whether it carries the quotation, and the DOs it
+ * covers (printed as "Order No" / "DO No"). Absent on every other invoice.
+ */
+export const SERVER_INVOICE_KEYS = ['orderId', 'orderNo', 'orderJobIds', 'orderBillsQuote', 'deliveryOrderNos'] as const;
+
+/** carryServerDoKeys for an invoice's server keys. Mutates and returns `next`. */
+export function carryServerInvoiceKeys(prev: unknown, next: Record<string, any>) {
+  const p = prev && typeof prev === 'object' ? (prev as Record<string, any>) : {};
+  for (const k of SERVER_INVOICE_KEYS) if (p[k] !== undefined && next[k] === undefined) next[k] = p[k];
+  return next;
+}
+
 /** The config stamped onto a DO when its run is cancelled: same number, marked void. */
 export function cancelledDoConfig(config: unknown, deliveryNumber: number, at = new Date()) {
   const cfg = config && typeof config === 'object' ? (config as Record<string, any>) : {};

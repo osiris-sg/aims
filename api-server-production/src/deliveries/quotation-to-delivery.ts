@@ -29,7 +29,7 @@ export const QUOTATION_TO_DELIVERY_FLAG = 'enableQuotationToDelivery';
 const QUOTATION_TYPES = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
 
 /** Editor descriptions can be rich HTML; delivery items are plain text. */
-const plainText = (v: any): string =>
+export const plainText = (v: any): string =>
   String(v ?? '')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|li)>/gi, '\n')
@@ -41,7 +41,7 @@ const plainText = (v: any): string =>
     .split('\n')[0]
     .trim();
 
-const normDesc = (v: any): string => plainText(v).replace(/\s+/g, ' ').toLowerCase();
+export const normDesc = (v: any): string => plainText(v).replace(/\s+/g, ' ').toLowerCase();
 
 /** The quotation's billable lines (group headers and tag groups are display rows). */
 function quotationLines(cfg: any): any[] {

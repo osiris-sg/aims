@@ -25,6 +25,10 @@ export class OrderInvoiceController {
       trigger: 'now',
       actor: { id: u.id, name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || undefined },
     });
-    return invoice ? { id: invoice.id, name: invoice.name, type: invoice.type } : null;
+    if (!invoice) return null;
+    // covered: the quotation is already billed and these jobs added nothing on top, so no new invoice was made.
+    return invoice.covered
+      ? { id: invoice.id, name: invoice.name, type: invoice.type, covered: true, jobNumbers: invoice.jobNumbers ?? [] }
+      : { id: invoice.id, name: invoice.name, type: invoice.type };
   }
 }
