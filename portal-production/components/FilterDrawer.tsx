@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
 import DateRangePicker from "@/form-components/FormDateRangePicker";
+import CustomerPicker from "@/components/CustomerPicker";
 
 // Schema-driven filter config. Each page declares the filters it wants and
 // supplies the options. The drawer just renders.
@@ -12,7 +13,13 @@ export type FilterOption = { label: string; value: string | number };
 
 export type FilterField =
   | { type: "dateRange"; key: string; label: string }
-  | { type: "select"; key: string; label: string; options: FilterOption[] };
+  | { type: "select"; key: string; label: string; options: FilterOption[] }
+  // A customer id, picked with the server-search CustomerPicker (never a
+  // pre-loaded option list: orgs have thousands of customers).
+  | { type: "customer"; key: string; label: string };
+
+// "select" and "customer" both hold a single value in the form.
+const isValueField = (f: FilterField) => f.type === "select" || f.type === "customer";
 
 interface FilterDrawerProps {
   openFilterDrawerStatus: boolean;
@@ -30,7 +37,7 @@ export default function FilterDrawer(props: FilterDrawerProps) {
   const [disableSubmit] = useState(false);
   const { watch, control, setValue } = useForm({
     defaultValues: filterConfig.reduce((acc: any, f) => {
-      if (f.type === "select") acc[f.key] = defaultFilters?.[f.key] ?? "";
+      if (isValueField(f)) acc[f.key] = defaultFilters?.[f.key] ?? "";
       return acc;
     }, {}),
   });
@@ -42,7 +49,7 @@ export default function FilterDrawer(props: FilterDrawerProps) {
   useEffect(() => {
     if (!openFilterDrawerStatus) return;
     filterConfig.forEach((f) => {
-      if (f.type === "select") {
+      if (isValueField(f)) {
         setValue(f.key, defaultFilters?.[f.key] ?? "");
       }
     });
@@ -51,7 +58,7 @@ export default function FilterDrawer(props: FilterDrawerProps) {
 
   // Watch all select fields and sync into local filters state.
   const watchedSelects: Record<string, any> = filterConfig.reduce((acc: any, f) => {
-    if (f.type === "select") acc[f.key] = watch(f.key);
+    if (isValueField(f)) acc[f.key] = watch(f.key);
     return acc;
   }, {});
 
@@ -59,7 +66,7 @@ export default function FilterDrawer(props: FilterDrawerProps) {
     setFilters((prev: any) => {
       const next = { ...prev };
       filterConfig.forEach((f) => {
-        if (f.type === "select") {
+        if (isValueField(f)) {
           next[f.key] = watchedSelects[f.key] ?? "";
         }
       });
@@ -78,7 +85,7 @@ export default function FilterDrawer(props: FilterDrawerProps) {
   const handleResetAllFilters = () => {
     const reset: any = { ...defaultFilters };
     filterConfig.forEach((f) => {
-      if (f.type === "select") {
+      if (isValueField(f)) {
         setValue(f.key, "");
         reset[f.key] = "";
       }
@@ -139,6 +146,27 @@ export default function FilterDrawer(props: FilterDrawerProps) {
                 }
                 value={{ startDate: current.startDate, endDate: current.endDate }}
               />
+            );
+          }
+
+          if (field.type === "customer") {
+            return (
+              <Box key={field.key} width="100%" sx={{ position: "relative" }}>
+                <InputLabel sx={{ color: "text.secondary", fontSize: "0.875rem", mb: 0.5 }}>{field.label}</InputLabel>
+                <Controller
+                  control={control}
+                  name={field.key}
+                  render={({ field: { onChange, value } }) => (
+                    <CustomerPicker hideLabel value={value || null} onChange={(c) => onChange(c ? c.id : "")} />
+                  )}
+                />
+                <Button
+                  sx={{ position: "absolute", top: 0, right: 0, p: 0, color: "text.secondary", textTransform: "none", fontSize: "0.8rem", "&:hover": { color: "text.primary", backgroundColor: "transparent" } }}
+                  onClick={() => setValue(field.key, "")}
+                >
+                  Reset filter
+                </Button>
+              </Box>
             );
           }
 

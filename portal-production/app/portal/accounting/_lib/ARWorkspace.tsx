@@ -38,10 +38,11 @@ import PostAddOutlinedIcon from "@mui/icons-material/PostAddOutlined";
 import SearchIcon from "@mui/icons-material/Search";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
-import { useGetCustomers } from "@/app/portal/hooks/api";
+import { useCustomersByIds } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import JournalEntryDialog from "./JournalEntryDialog";
 import { ReportPrintExportButton } from "./report-export";
+import { todayIso } from "@/helpers/orgToday";
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -50,7 +51,7 @@ const fmt = (n: number) =>
 // this peels the second when present.
 const unwrap = (r: any) => (r && typeof r === "object" && r.success !== undefined && r.data !== undefined ? r.data : r);
 const dmy = (d: any) => (d ? new Date(d).toLocaleDateString("en-GB") : "—");
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => todayIso();
 const monthStartISO = (iso: string) => `${iso.slice(0, 7)}-01`;
 
 // AR reports offered in the View Reports dialog — the LEGACY AR home's report
@@ -121,12 +122,14 @@ export default function ARWorkspace() {
   const [sales, setSales] = useState(0);
   const [receipts, setReceipts] = useState(0);
 
-  const { customers = [] } = useGetCustomers({ limit: 1000 });
+  // Codes for the customers on screen (rows without contactCode), by id —
+  // never a capped "first 1000 customers" list.
+  const { byId: customersById } = useCustomersByIds(rows.filter((r) => !r.contactCode).map((r) => r.contactId));
   const codeById = useMemo(() => {
     const m = new Map<string, string>();
-    (customers || []).forEach((c: any) => m.set(c.id, c.customerCode || ""));
+    customersById.forEach((c, id) => m.set(id, c.customerCode || ""));
     return m;
-  }, [customers]);
+  }, [customersById]);
 
   useEffect(() => {
     let cancelled = false;

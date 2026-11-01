@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsBoolean, IsDateString, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
 
 class DateRangeDto {
   @IsDateString()
@@ -36,6 +36,13 @@ export class GetCustomerDto {
   @IsString()
   @IsOptional()
   search?: string;
+
+  // Pickers (search as you type, no paging): exact code / UEN / old-code
+  // matches first. "449" also matches phones and addresses, and the newest 20
+  // of those could push the customer with old code 449 off the list.
+  @IsBoolean()
+  @IsOptional()
+  exactFirst?: boolean;
 
   @ValidateNested()
   @Type(() => FiltersDto)

@@ -42,7 +42,10 @@ export const SIDE_WORDS = {
 export function useSideContacts(side: ReportSide) {
   // Both hooks run unconditionally (rules of hooks); only the active side's
   // list is used — react-query caches make the other call cheap.
-  const { customers = [] } = useGetCustomers({ limit: 1000 });
+  // The From / To code-range reports need EVERY debtor (a range is defined over
+  // the whole code list), so this is a complete list, not a capped page: WCT
+  // has ~4,000 customers and limit 1000 silently dropped three quarters.
+  const { customers = [] } = useGetCustomers({ limit: 20000 });
   const { suppliers = [] } = useGetSuppliers({ limit: 1000 });
   const list: any[] = side === "payable" ? suppliers : customers;
   const codeOf = (c: any) => String((side === "payable" ? c?.supplierCode : c?.customerCode) || "");

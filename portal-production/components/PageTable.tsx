@@ -119,7 +119,7 @@ export default function PageTable(props: Props) {
     return filterConfig.some((f) => {
       const v = filterObj[f.key];
       if (f.type === "dateRange") return Boolean(v?.startDate || v?.endDate);
-      if (f.type === "select") return v !== undefined && v !== null && v !== "";
+      if (f.type === "select" || f.type === "customer") return v !== undefined && v !== null && v !== "";
       return false;
     });
   };

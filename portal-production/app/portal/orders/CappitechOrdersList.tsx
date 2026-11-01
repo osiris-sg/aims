@@ -8,7 +8,6 @@ import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
-import { useGetCustomers } from "@/app/portal/hooks/api/useCustomers";
 import { Box, Chip, IconButton, Stack, Tooltip, Typography } from "@mui/material";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
@@ -53,8 +52,6 @@ export function CappitechOrdersList() {
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({ status: "", customerId: "", createdOn: { startDate: null, endDate: null } });
-
-  const { customers = [] } = useGetCustomers({ limit: 1000 });
 
   const fetchOrders = useCallback(async () => {
     if (!organization?.id) return;
@@ -129,14 +126,10 @@ export function CappitechOrdersList() {
           { value: "CANCELLED", label: "Cancelled" },
         ],
       },
-      {
-        type: "select",
-        key: "customerId",
-        label: "Customer",
-        options: (customers || []).map((c: any) => ({ value: c.id, label: c.name })),
-      },
+      // Server-search customer picker (orgs have thousands of customers).
+      { type: "customer", key: "customerId", label: "Customer" },
     ],
-    [customers],
+    [],
   );
 
   // Hide Customer when no row carries one (Cappitech orders aren't

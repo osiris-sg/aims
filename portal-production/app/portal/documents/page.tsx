@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useGetDocumentsPaginated, useDeleteDocument } from "@/app/portal/hooks/api";
-import { useGetCustomers } from "@/app/portal/hooks/api/useCustomers";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { kebabColumn } from "@/components/RowKebab";
@@ -88,9 +87,6 @@ export default function DocumentsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<Document | null>(null);
 
-  // Customers for the Customer filter dropdown
-  const { customers = [] } = useGetCustomers({ limit: 1000 });
-
   // Column-header sort → server sort field. Only real DB columns are
   // server-sortable (name/createdAt/status); the JSON-derived Item/Customer
   // columns have sorting disabled in the column defs below.
@@ -129,14 +125,10 @@ export default function DocumentsPage() {
       { type: "dateRange", key: "createdOn", label: "Created On" },
       { type: "select", key: "status", label: "Status", options: DOCUMENT_STATUS_OPTIONS },
       { type: "select", key: "documentType", label: "Document Type", options: DOCUMENT_TYPE_OPTIONS },
-      {
-        type: "select",
-        key: "customerId",
-        label: "Customer",
-        options: (customers || []).map((c: any) => ({ value: c.id, label: c.name })),
-      },
+      // Server-search customer picker (orgs have thousands of customers).
+      { type: "customer", key: "customerId", label: "Customer" },
     ],
-    [customers],
+    [],
   );
 
   // Delete document mutation

@@ -23,3 +23,29 @@ export function customerIdsMatch(c: CustomerIds, term: string): boolean {
 export function customerIdsLine(c: CustomerIds): string {
   return [c.uen ? `UEN ${c.uen}` : "", c.externalRef ? `Old code ${c.externalRef}` : ""].filter(Boolean).join(" · ");
 }
+
+type Rankable = CustomerIds & { customerCode?: string | null; name?: string | null };
+
+/**
+ * Order server search results for a picker: an exact code / old code / UEN hit
+ * first, then names starting with the term, then the rest (server order kept).
+ */
+export function rankCustomers<T extends Rankable>(list: T[], term: string): T[] {
+  const t = term.trim().toLowerCase();
+  if (!t) return list;
+  const score = (c: T) => {
+    if ((c.customerCode ?? "").toLowerCase() === t || oldCodeMatches(c.externalRef, t) || (c.uen ?? "").toLowerCase() === t) return 0;
+    if ((c.name ?? "").toLowerCase().startsWith(t) || (c.customerCode ?? "").toLowerCase().startsWith(t)) return 1;
+    return 2;
+  };
+  return list
+    .map((c, i) => ({ c, i, s: score(c) }))
+    .sort((a, b) => a.s - b.s || a.i - b.i)
+    .map((x) => x.c);
+}
+
+/** "CA001 · Acme Pte Ltd" (or just the name without a code). */
+export function customerLabel(c: { customerCode?: string | null; name?: string | null } | null | undefined): string {
+  if (!c) return "";
+  return [c.customerCode, c.name].filter((v) => v && String(v).trim()).join(" · ");
+}

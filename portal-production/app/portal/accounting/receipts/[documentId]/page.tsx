@@ -16,7 +16,8 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
-import { useGetCustomers } from "@/app/portal/hooks/api";
+import { useCustomerPool } from "@/app/portal/hooks/api/useCustomerPicker";
+import { todayIso } from "@/helpers/orgToday";
 
 const unwrap = (r: any) => (r && typeof r === "object" && r.data !== undefined ? r.data : r);
 
@@ -26,10 +27,13 @@ export default function OfficialReceiptPage() {
   const documentId = params.documentId as string;
   const { getToken } = useAuth();
   const { organization } = useOrganization();
-  const { customers = [] } = useGetCustomers({ limit: 1000 });
 
   const [existingData, setExistingData] = useState<any>(null);
   const [receipts, setReceipts] = useState<any[]>([]); // newest first, for ‹ › nav
+  // Customers: the document's own customer (by id) plus every customer the
+  // pickers have seen. Never a capped "first N" list: orgs have thousands
+  // (WCT ~4,000), and a capped list lost the selected customer.
+  const customers = useCustomerPool([existingData?.customer?.id, existingData?.customerId, ...receipts.map((r: any) => r.customerId)]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -63,7 +67,7 @@ export default function OfficialReceiptPage() {
           lastUsedAt: r.savedAt,
           updatedAt: r.updatedAt,
           orData: {
-            date: r.date || new Date().toISOString().slice(0, 10),
+            date: r.date || todayIso(),
             chequeNo: r.chequeNo || "",
             remarks: r.remarks || "",
             creditAccountCode: r.creditAccountCode || null,

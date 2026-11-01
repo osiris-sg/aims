@@ -9,16 +9,11 @@ import {
   Button,
   TextField,
   Grid,
-  MenuItem,
-  Select,
-  FormControl,
-  InputLabel,
   Card,
   CardContent,
   Alert,
-  CircularProgress,
 } from '@mui/material';
-import { useGetCustomers } from '@/app/portal/hooks/api';
+import CustomerPicker from '@/components/CustomerPicker';
 import { useGenerateSOA } from '@/app/portal/hooks/api';
 import { useOrganization } from '@/app/portal/hooks/useOrganization';
 import PageTable from '@/components/PageTable';
@@ -91,8 +86,6 @@ export default function StatementOfAccountPage() {
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<any>({});
 
-  // Fetch customers with new hook
-  const { customers = [], isLoading: loadingCustomers } = useGetCustomers({ limit: 1000 });
 
   // Generate SOA mutation
   const generateSOAMutation = useGenerateSOA();
@@ -269,29 +262,8 @@ export default function StatementOfAccountPage() {
       <Paper sx={{ p: 3, mb: 3 }}>
         <Grid container spacing={2} alignItems="center">
           <Grid item xs={12} md={4}>
-            <FormControl fullWidth>
-              <InputLabel>Customer</InputLabel>
-              <Select
-                value={selectedCustomer}
-                onChange={(e) => setSelectedCustomer(e.target.value)}
-                label="Customer"
-                disabled={loadingCustomers}
-              >
-                {loadingCustomers ? (
-                  <MenuItem disabled>
-                    <CircularProgress size={20} /> Loading customers...
-                  </MenuItem>
-                ) : customers.length === 0 ? (
-                  <MenuItem disabled>No customers found</MenuItem>
-                ) : (
-                  customers.map((customer: Customer) => (
-                    <MenuItem key={customer.id} value={customer.id}>
-                      {customer.name}
-                    </MenuItem>
-                  ))
-                )}
-              </Select>
-            </FormControl>
+            {/* Server search as you type; the chosen customer is fetched by id. */}
+            <CustomerPicker value={selectedCustomer || null} onChange={(c) => setSelectedCustomer(c ? c.id : '')} label="Customer" size="medium" />
           </Grid>
 
           <Grid item xs={12} md={3}>

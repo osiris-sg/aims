@@ -31,8 +31,9 @@ import {
 import { Add as AddIcon } from '@mui/icons-material';
 import { RowKebab } from '@/components/RowKebab';
 import { useGetPayments, useCreatePayment, useDeletePayment, PAYMENT_METHODS } from '@/app/portal/hooks/api';
-import { useGetCustomers } from '@/app/portal/hooks/api';
+import CustomerPicker from '@/components/CustomerPicker';
 import DocumentRefLink from "@/components/DocumentRefLink";
+import { todayIso } from "@/helpers/orgToday";
 
 interface Document {
   id: string;
@@ -53,7 +54,7 @@ export default function PaymentsPage() {
     customerId: '',
     documentId: '',
     amount: '',
-    paymentDate: new Date().toISOString().split('T')[0],
+    paymentDate: todayIso(),
     paymentMethod: 'cash',
     reference: '',
     notes: '',
@@ -62,8 +63,6 @@ export default function PaymentsPage() {
   // Fetch payments with new hook
   const { payments = [], total = 0, isLoading, refetch } = useGetPayments({ page: page + 1, limit: rowsPerPage });
 
-  // Fetch customers with new hook
-  const { customers = [] } = useGetCustomers({ limit: 1000 });
 
   // Create payment mutation
   const createPaymentMutation = useCreatePayment();
@@ -83,7 +82,7 @@ export default function PaymentsPage() {
       customerId: '',
       documentId: '',
       amount: '',
-      paymentDate: new Date().toISOString().split('T')[0],
+      paymentDate: todayIso(),
       paymentMethod: 'cash',
       reference: '',
       notes: '',
@@ -311,19 +310,13 @@ export default function PaymentsPage() {
 
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12}>
-              {/* Searchable — hundreds of customers make a plain select unusable. */}
-              <Autocomplete
-                options={customers as any[]}
-                getOptionLabel={(c: any) => c?.name ?? ''}
-                isOptionEqualToValue={(o: any, v: any) => o.id === v.id}
-                value={(customers as any[]).find((c: any) => c.id === formData.customerId) ?? null}
-                onChange={(_, c: any) => handleCustomerChange(c ? c.id : '')}
-                renderOption={(props, c: any) => (
-                  <li {...props} key={c.id}>{c.name}</li>
-                )}
-                ListboxProps={{ sx: { maxHeight: 320 } }}
-                renderInput={(params) => <TextField {...params} required label="Customer" placeholder="Search customer..." />}
-                autoHighlight
+              {/* Server search as you type (orgs have thousands of customers). */}
+              <CustomerPicker
+                value={formData.customerId || null}
+                onChange={(c) => handleCustomerChange(c ? c.id : '')}
+                label="Customer"
+                required
+                size="medium"
               />
             </Grid>
 

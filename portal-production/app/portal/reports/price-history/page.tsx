@@ -20,6 +20,8 @@ import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
 import PageTable from "@/components/PageTable";
+import CustomerPicker from "@/components/CustomerPicker";
+import { todayIso } from "@/helpers/orgToday";
 
 interface PriceHistoryItem {
   id: string;
@@ -52,7 +54,6 @@ export default function PriceHistoryReportPage() {
   const { getToken } = useAuth();
   const [loading, setLoading] = useState(false);
   const [priceHistory, setPriceHistory] = useState<PriceHistoryItem[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
   const [items, setItems] = useState<Item[]>([]);
 
   // PageTable-driven state (page is 1-based to match PageTable contract)
@@ -67,25 +68,6 @@ export default function PriceHistoryReportPage() {
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
-
-  const fetchCustomers = async () => {
-    try {
-      const token = await getToken();
-      if (!token) return;
-
-      const response = await request(
-        { path: "/customers", method: "GET" },
-        {},
-        token,
-      );
-
-      if (response?.data) {
-        setCustomers(response.data);
-      }
-    } catch (error) {
-      console.error("Error fetching customers:", error);
-    }
-  };
 
   const fetchItems = async () => {
     try {
@@ -143,7 +125,6 @@ export default function PriceHistoryReportPage() {
   };
 
   useEffect(() => {
-    fetchCustomers();
     fetchItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -192,7 +173,7 @@ export default function PriceHistoryReportPage() {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        const today = new Date().toISOString().split("T")[0];
+        const today = todayIso();
         a.download = `price-history-${today}.csv`;
         document.body.appendChild(a);
         a.click();
@@ -289,12 +270,13 @@ export default function PriceHistoryReportPage() {
         </Typography>
         <Grid2 container spacing={2}>
           <Grid2 size={{ xs: 12, md: 3 }}>
-            <Autocomplete
-              options={customers}
-              getOptionLabel={(option) => option.name}
-              value={selectedCustomer}
-              onChange={(_event, newValue) => setSelectedCustomer(newValue)}
-              renderInput={(params) => <TextField {...params} label="Customer" fullWidth />}
+            {/* Server search as you type (orgs have thousands of customers). */}
+            <CustomerPicker
+              value={selectedCustomer?.id ?? null}
+              initialCustomer={selectedCustomer}
+              onChange={(c) => setSelectedCustomer(c)}
+              label="Customer"
+              size="medium"
             />
           </Grid2>
           <Grid2 size={{ xs: 12, md: 3 }}>

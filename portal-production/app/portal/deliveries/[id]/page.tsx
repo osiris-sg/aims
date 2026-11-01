@@ -49,6 +49,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { normalizeAssetClass } from "@/helpers/assetClass";
 import ScheduleDeliveryDialog from "@/app/portal/deliveries/_components/ScheduleDeliveryDialog";
 import DeliveryGroupPostsPanel from "@/components/deliveries/DeliveryGroupPostsPanel";
+import CustomerPicker from "@/components/CustomerPicker";
 import { SiteClockCard, SiteClockView } from "@/app/portal/deliveries/_components/SiteClockStatus";
 import { canPurge, confirmCopy, runWasStarted } from "@/app/portal/deliveries/_lib/run-actions";
 import DoStatusTag from "@/components/DoStatusTag";
@@ -301,7 +302,6 @@ export default function DeliveryDetailPage() {
   const [attachError, setAttachError] = useState<string | null>(null);
   // Attach customer / project (ad-hoc RETURN runs, 2026-10-22).
   const [attachReturnOpen, setAttachReturnOpen] = useState(false);
-  const [returnCustomers, setReturnCustomers] = useState<Array<{ id: string; name: string }>>([]);
   const [returnProjects, setReturnProjects] = useState<Array<{ id: string; name: string; customerId: string | null }>>([]);
   const [returnCustomerId, setReturnCustomerId] = useState("");
   const [returnProjectId, setReturnProjectId] = useState("");
@@ -344,7 +344,8 @@ export default function DeliveryDetailPage() {
     return () => { cancelled = true; };
   }, [attachOpen, run?.customer?.id, getToken]);
 
-  // Customers + projects for the ad-hoc return dialog, loaded when it opens.
+  // Projects for the ad-hoc return dialog, loaded when it opens (the customer
+  // is a server-search CustomerPicker: orgs have thousands of customers).
   useEffect(() => {
     if (!attachReturnOpen) return;
     let cancelled = false;
@@ -353,19 +354,13 @@ export default function DeliveryDetailPage() {
       try {
         const token = await getToken();
         if (!token) return;
-        const [cRes, pRes] = await Promise.all([
-          request({ path: "/customers", method: "POST" }, { page: 1, limit: 500 }, token),
-          request({ path: "/projects", method: "POST" }, { page: 1, limit: 500 }, token),
-        ]);
-        const cBody = cRes?.data ?? cRes;
+        const pRes = await request({ path: "/projects", method: "POST" }, { page: 1, limit: 500 }, token);
         const pBody = pRes?.data ?? pRes;
-        const cList = Array.isArray(cBody?.docs) ? cBody.docs : Array.isArray(cBody) ? cBody : [];
         const pList = Array.isArray(pBody?.docs) ? pBody.docs : Array.isArray(pBody) ? pBody : [];
         if (cancelled) return;
-        setReturnCustomers(cList.map((c: any) => ({ id: c.id, name: c.name })));
         setReturnProjects(pList.map((p: any) => ({ id: p.id, name: p.name, customerId: p.customerId ?? p.customer?.id ?? null })));
       } catch {
-        if (!cancelled) setAttachReturnError("Could not load customers and projects");
+        if (!cancelled) setAttachReturnError("Could not load projects");
       }
     })();
     return () => { cancelled = true; };
@@ -1509,26 +1504,20 @@ export default function DeliveryDetailPage() {
             that project at the return date. Signatures and proof are not touched.
           </Typography>
           {attachReturnError && <Alert severity="error" sx={{ mb: 2 }}>{attachReturnError}</Alert>}
-          <TextField
-            select
-            fullWidth
-            size="small"
-            label="Customer"
-            value={returnCustomerId}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-              setReturnCustomerId(e.target.value);
+          <CustomerPicker
+            value={returnCustomerId || null}
+            onChange={(c) => {
+              const id = c?.id ?? "";
+              setReturnCustomerId(id);
               // A project of another customer no longer fits.
               const p = returnProjects.find((x) => x.id === returnProjectId);
-              if (p && e.target.value && p.customerId && p.customerId !== e.target.value) setReturnProjectId("");
+              if (p && id && p.customerId && p.customerId !== id) setReturnProjectId("");
             }}
+            label="Customer"
+            placeholder="Not yet"
             disabled={attachingReturn}
             sx={{ mb: 2 }}
-          >
-            <MenuItem value="">Not yet</MenuItem>
-            {returnCustomers.map((c) => (
-              <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-            ))}
-          </TextField>
+          />
           <TextField
             select
             fullWidth

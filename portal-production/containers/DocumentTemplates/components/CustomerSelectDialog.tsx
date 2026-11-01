@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -29,7 +29,9 @@ import {
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 import { useCreateCustomer } from "@/app/portal/hooks/api";
-import { customerIdsLine, customerIdsMatch } from "@/helpers/customerIds";
+import { customerIdsLine, customerIdsMatch, rankCustomers } from "@/helpers/customerIds";
+import { rememberCustomers, useCustomerSearch } from "@/app/portal/hooks/api/useCustomerPicker";
+import { useOrganization } from "@hooks/useOrganization";
 
 interface Customer {
   id: string;
@@ -52,6 +54,12 @@ interface CustomerSelectDialogProps {
   onClose: () => void;
   onSelectCustomer: (customer: Customer) => void;
   customers: Customer[];
+  /**
+   * Customers: search the server as you type instead of filtering `customers`
+   * (orgs have thousands; a pre-loaded list is capped). Suppliers keep the
+   * local filter.
+   */
+  serverSearch?: boolean;
 }
 
 export default function CustomerSelectDialog({
@@ -59,8 +67,16 @@ export default function CustomerSelectDialog({
   onClose,
   onSelectCustomer,
   customers,
+  serverSearch = false,
 }: CustomerSelectDialogProps) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [debounced, setDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(searchTerm), 250);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+  const remote = useCustomerSearch(debounced, { limit: 50, enabled: open && serverSearch });
+  const { organization } = useOrganization();
 
   // Quick-add: create a customer without leaving the picker (guru 2026-08-18).
   // The backend generates the customer code from the name; the new customer is
@@ -90,6 +106,7 @@ export default function CustomerSelectDialog({
       toast.success(`Customer ${created?.customerCode ? `${created.customerCode} — ` : ""}${created?.name || name} created`);
       setAddOpen(false);
       setSearchTerm("");
+      if (serverSearch) rememberCustomers(organization?.id, [created]);
       onSelectCustomer(created);
       onClose();
     } catch (e: any) {
@@ -100,6 +117,7 @@ export default function CustomerSelectDialog({
   // Free-text search across ALL displayed columns (code, name, phone, email),
   // plus UEN and the old (previous-system) code when the customer has them.
   const filteredCustomers = useMemo(() => {
+    if (serverSearch) return rankCustomers(remote.customers as Customer[], debounced);
     if (!searchTerm.trim()) {
       return customers;
     }
@@ -110,7 +128,7 @@ export default function CustomerSelectDialog({
       [customer.customerCode, customer.name, customer.phone, customer.email]
         .some((v) => String(v ?? "").toLowerCase().includes(term)) || customerIdsMatch(customer, term),
     );
-  }, [customers, searchTerm]);
+  }, [customers, searchTerm, serverSearch, remote.customers, debounced]);
 
   const handleRowClick = (customer: Customer) => {
     onSelectCustomer(customer);
@@ -311,7 +329,11 @@ export default function CustomerSelectDialog({
                 <TableRow>
                   <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">
-                      {searchTerm ? "No customers found matching your search" : "No customers available"}
+                      {serverSearch && (remote.isLoading || debounced !== searchTerm)
+                        ? "Searching…"
+                        : searchTerm
+                          ? "No customers found matching your search"
+                          : "No customers available"}
                     </Typography>
                     <Button
                       variant="outlined"

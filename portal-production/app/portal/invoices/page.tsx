@@ -15,7 +15,8 @@ import DownloadIcon from "@mui/icons-material/Download";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import LinkIcon from "@mui/icons-material/Link";
 import { Tab, Tabs, Chip, alpha, Stack, Typography, Menu, MenuItem } from "@mui/material";
-import { useDeleteDocument, useGetCustomers } from "@/app/portal/hooks/api";
+import { useDeleteDocument } from "@/app/portal/hooks/api";
+import { useCustomerById } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useRouter } from "next/navigation";
 import { useCreateDocumentFlow } from "@/app/portal/components/useCreateDocumentFlow";
 import moment from "moment";
@@ -537,20 +538,16 @@ export default function InvoicesPage() {
 
   // Filter invoices by AR tab. Computed live so user-edits to paymentSummary
   // (after recording a payment) update the visible row set.
-  // Customers for the Customer filter dropdown (unfiltered, stable options).
-  const { customers: filterCustomers = [] } = useGetCustomers({ limit: 1000 });
-  const customerNameById = useMemo(() => {
-    const m = new Map<string, string>();
-    (filterCustomers || []).forEach((c: any) => m.set(c.id, c.name));
-    return m;
-  }, [filterCustomers]);
+  // The customer picked in the filter (server-search picker; fetched by id so
+  // its name can match invoices that carry only the customer name).
+  const { customer: filterCustomer } = useCustomerById(filters.customerId || null);
   const invoiceFilterConfig: FilterField[] = useMemo(
     () => [
       { type: "dateRange", key: "createdOn", label: t("filterCreatedOn") },
       { type: "select", key: "status", label: t("filterStatus"), options: INVOICE_STATUS_OPTIONS.map((o) => ({ value: o.value, label: t(`statusOptions.${o.value}`) })) },
-      { type: "select", key: "customerId", label: t("filterCustomer"), options: (filterCustomers || []).map((c: any) => ({ value: c.id, label: c.name })) },
+      { type: "customer", key: "customerId", label: t("filterCustomer") },
     ],
-    [filterCustomers, t],
+    [t],
   );
 
   const visibleDocs = (() => {
@@ -564,7 +561,7 @@ export default function InvoicesPage() {
     if (customerFilter) {
       // Invoice docs carry the customer NAME (associated_customer), rarely an id
       // — match on either.
-      const name = customerNameById.get(customerFilter);
+      const name = filterCustomer && filterCustomer.id === customerFilter ? filterCustomer.name : undefined;
       docs = docs.filter((d) => {
         const docCustId = (d as any).customerId || (d as any).customer?.id;
         const docCustName = (d as any).associated_customer || (d as any).customer?.name;

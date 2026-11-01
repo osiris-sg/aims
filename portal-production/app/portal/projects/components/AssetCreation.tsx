@@ -3,10 +3,10 @@ import FormSelect from "@/form-components/FormSelect";
 import DateRangePicker from "@/form-components/FormDateRangePicker";
 import { Stack, Typography, Box } from "@mui/material";
 import React, { useState, useEffect } from "react";
-import { useFormContext, useWatch } from "react-hook-form";
+import { Controller, useFormContext, useWatch } from "react-hook-form";
 import AddCustomer from "./AddCustomer";
 import AddSiteOffice from "./AddSiteOffice";
-import { useGetCustomers } from "../hooks/useGetCustomers";
+import CustomerPicker from "@/components/CustomerPicker";
 import { useGetSiteOffices } from "../hooks/useGetSiteOffices";
 
 export default function ProjectCreation() {
@@ -17,9 +17,6 @@ export default function ProjectCreation() {
   } = useFormContext();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [siteOfficeDrawerOpen, setSiteOfficeDrawerOpen] = useState(false);
-  const [selectedCustomerId, setSelectedCustomerId] = useState("");
-  const { customers, refetch } = useGetCustomers();
-  console.log("Customers:", customers);
 
   const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
   const watchedCustomerId = useWatch({ control, name: "customerId" });
@@ -34,10 +31,8 @@ export default function ProjectCreation() {
   const handleCloseDrawer = (newCustomerId?: string) => {
     setDrawerOpen(false);
     if (newCustomerId) {
-      setSelectedCustomerId(newCustomerId);
       setValue("customerId", newCustomerId); // ✅ force update the form field
     }
-    refetch();
   };
 
   const watchedStartDate = useWatch({ control, name: "startDate" });
@@ -56,7 +51,15 @@ export default function ProjectCreation() {
             </Typography>
           </Box>
 
-          <FormSelect control={control} name="customerId" label="" menuTitle="Choose a customer" menuItems={customers.map((item) => ({ label: item.name, value: String(item.id) }))} defaultValue={selectedCustomerId} required />
+          {/* Server search as you type (orgs have thousands of customers). */}
+          <Controller
+            control={control}
+            name="customerId"
+            rules={{ required: "Customer is required" }}
+            render={({ field: { value, onChange } }) => (
+              <CustomerPicker hideLabel value={value || null} onChange={(c) => onChange(c ? c.id : "")} error={!!errors.customerId} helperText={errors.customerId?.message as string | undefined} />
+            )}
+          />
           {watchedCustomerId && (
             <>
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>

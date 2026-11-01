@@ -19,7 +19,7 @@ export class CustomersService {
 
   async getCustomers(getCustomerDto: GetCustomerDto, organizationId: string) {
     try {
-      const { page, limit, search, filters } = getCustomerDto;
+      const { page, limit, search, filters, exactFirst } = getCustomerDto;
       const skip = (page - 1) * limit;
       const whereClause: any = { organizationId };
 
@@ -59,7 +59,7 @@ export class CustomersService {
         whereClause.salesmanId = (filters as any).salesmanId;
       }
 
-      const customers = await this.prisma.customer.findMany({
+      const found = await this.prisma.customer.findMany({
         where: whereClause,
         skip,
         take: limit,
@@ -71,6 +71,29 @@ export class CustomersService {
           contacts: true,
         },
       });
+      // Pickers only (exactFirst, first page): exact code / UEN / old-code hits
+      // lead, then the rest. Not for the paged list (it would shift pages).
+      let customers = found;
+      const term = search?.trim();
+      if (exactFirst && term && page === 1) {
+        const exact = await this.prisma.customer.findMany({
+          where: {
+            ...whereClause,
+            OR: [
+              { customerCode: { equals: term, mode: 'insensitive' } },
+              { uen: { equals: term, mode: 'insensitive' } },
+              { externalRef: { equals: term } },
+              { externalRef: { startsWith: `${term}+` } },
+              { externalRef: { endsWith: `+${term}` } },
+              { externalRef: { contains: `+${term}+` } },
+            ],
+          },
+          take: limit,
+          include: { salesman: true, contacts: true },
+        });
+        const ids = new Set(exact.map((c) => c.id));
+        customers = [...exact, ...found.filter((c) => !ids.has(c.id))].slice(0, limit);
+      }
 
       // Enrich customers with salesman names from Clerk (one batched lookup).
       const salesmanUsers = await this.clerkIdentity.toClerkUsers(customers.map((c) => c.salesman?.userId));
@@ -133,6 +156,18 @@ export class CustomersService {
     } catch (error) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
+  /** Customers of the org by id (pickers / lookups); unknown or foreign ids are left out. */
+  async lookupCustomers(ids: unknown, organizationId: string) {
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const list = [...new Set((Array.isArray(ids) ? ids : []).filter((i): i is string => typeof i === 'string' && UUID.test(i)))];
+    if (list.length > 500) throw new HttpException('At most 500 ids per lookup', HttpStatus.BAD_REQUEST);
+    if (!list.length) return [];
+    return this.prisma.customer.findMany({
+      where: { organizationId, id: { in: list } },
+      include: { salesman: true, contacts: { orderBy: { createdAt: 'asc' } } },
+    });
   }
 
   async createCustomers(createCustomerDto: CreateCustomerDto, organizationId: string) {

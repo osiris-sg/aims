@@ -27,7 +27,8 @@ import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
 import { useCreatePayment, PAYMENT_METHODS } from "@/app/portal/hooks/api/usePayments";
 import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader";
-import { useGetCustomers } from "@/app/portal/hooks/api";
+import CustomerPicker from "@/components/CustomerPicker";
+import { useCustomerById } from "@/app/portal/hooks/api/useCustomerPicker";
 import moment from "moment";
 import { useTranslations } from "next-intl";
 
@@ -44,7 +45,7 @@ interface RecordPaymentDialogProps {
     status?: string;
     // Editor-created vs imported invoices carry the customer at different
     // paths on config — allow both here without narrowing further.
-    config?: { customerId?: string; customer?: { id?: string } };
+    config?: { customerId?: string; customerName?: string; customerCode?: string; customer?: { id?: string; name?: string; customerCode?: string } };
   };
 }
 
@@ -57,7 +58,11 @@ export default function RecordPaymentDialog({
   const t = useTranslations("invoices.recordPayment");
   const { getToken } = useAuth();
   const createPaymentMutation = useCreatePayment();
-  const { customers, isLoading: customersLoading } = useGetCustomers();
+  // The invoice's own customer, preloaded by id — never looked up in a capped
+  // list (WCT has ~4,000 customers; the default page missed most of them and
+  // left Customer empty, which disabled Record Payment).
+  const invoiceCustId = invoice ? invoice.customerId ?? invoice.config?.customerId ?? invoice.config?.customer?.id ?? null : null;
+  const { customer: invoiceCustomer } = useCustomerById(open ? invoiceCustId : null);
 
   // Form states
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
@@ -83,10 +88,16 @@ export default function RecordPaymentDialog({
       // If invoice is provided, pre-select customer and invoice. Editor-created
       // invoices store the customer FLAT (config.customerId); imported ones use
       // the nested config.customer.{id} — read all of them.
-      const custId = invoice.customerId ?? invoice.config?.customerId ?? invoice.config?.customer?.id;
-      const customer = customers?.find((c: any) => c.id === custId);
-      if (customer) {
-        setSelectedCustomer(customer);
+      // Show the invoice's own customer at once; the full record (below)
+      // replaces it when the lookup returns.
+      if (invoiceCustId) {
+        setSelectedCustomer(
+          invoiceCustomer ?? {
+            id: invoiceCustId,
+            name: invoice.customerName || invoice.config?.customerName || invoice.config?.customer?.name || "",
+            customerCode: invoice.config?.customerCode || invoice.config?.customer?.customerCode || null,
+          },
+        );
       }
       setSelectedInvoice(invoice);
       // Fetch payment summary for the invoice
@@ -95,7 +106,14 @@ export default function RecordPaymentDialog({
       // Reset form when opening without invoice
       resetForm();
     }
-  }, [open, invoice, customers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, invoice]);
+
+  // The full customer record arrived: swap it in for the preloaded stub.
+  useEffect(() => {
+    if (open && invoiceCustomer && selectedCustomer?.id === invoiceCustomer.id) setSelectedCustomer(invoiceCustomer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, invoiceCustomer]);
 
   // Load the org's bank/cash accounts for the "Deposit to" picker (once per open).
   useEffect(() => {
@@ -298,31 +316,15 @@ export default function RecordPaymentDialog({
 
       <DialogContent dividers>
         {/* Customer Selection */}
-        <Autocomplete
-          value={selectedCustomer}
-          onChange={(_, value) => handleCustomerChange(value)}
-          options={customers || []}
-          getOptionLabel={(option) => option.name || ""}
-          loading={customersLoading}
-          disabled={!!invoice?.customerId}
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label={t("customer")}
-              margin="normal"
-              required
-              fullWidth
-              InputProps={{
-                ...params.InputProps,
-                endAdornment: (
-                  <>
-                    {customersLoading ? <CircularProgress size={20} /> : null}
-                    {params.InputProps.endAdornment}
-                  </>
-                ),
-              }}
-            />
-          )}
+        <CustomerPicker
+          value={selectedCustomer?.id ?? null}
+          initialCustomer={selectedCustomer}
+          onChange={(value) => handleCustomerChange(value)}
+          label={t("customer")}
+          required
+          size="medium"
+          disabled={!!invoiceCustId}
+          sx={{ mt: 2, mb: 1 }}
         />
 
         {/* Invoice Selection */}

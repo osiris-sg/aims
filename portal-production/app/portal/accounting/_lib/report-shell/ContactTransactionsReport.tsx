@@ -8,7 +8,8 @@ import React, { useCallback, useMemo, useState } from "react";
 import { Autocomplete, Box, TextField, Typography } from "@mui/material";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../api";
-import { useGetCustomers, useGetSuppliers } from "@/app/portal/hooks/api";
+import { useGetSuppliers } from "@/app/portal/hooks/api";
+import CustomerPicker from "@/components/CustomerPicker";
 import ReportShell, { downloadCsv } from "./ReportShell";
 import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
 import { DateRangeSelect, FilterSelect } from "./DateRangeSelect";
@@ -22,7 +23,6 @@ const monthRange = () => {
 
 export default function ContactTransactionsReport({ basePath }: { basePath: string }) {
   const { request } = useAccountingApi();
-  const { customers } = useGetCustomers();
   const { suppliers } = useGetSuppliers();
 
   const init = monthRange();
@@ -33,7 +33,7 @@ export default function ContactTransactionsReport({ basePath }: { basePath: stri
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
-  const options = (contactType === "customer" ? customers : suppliers) || [];
+  const options = suppliers || [];
 
   const load = useCallback(async () => {
     if (!contact?.id) { toast.warn("Pick a contact first"); return; }
@@ -90,15 +90,26 @@ export default function ContactTransactionsReport({ basePath }: { basePath: stri
           />
           <Box>
             <Typography variant="caption" sx={{ fontWeight: 700 }}>Contact (required)</Typography>
-            <Autocomplete
-              size="small"
-              sx={{ width: 280, mt: 0.25 }}
-              options={options}
-              getOptionLabel={(o: any) => o?.name || ""}
-              value={contact}
-              onChange={(_, v) => setContact(v)}
-              renderInput={(p) => <TextField {...p} placeholder="Search for contact" />}
-            />
+            {/* Customers: server search (orgs have thousands); suppliers: the loaded list. */}
+            {contactType === "customer" ? (
+              <CustomerPicker
+                hideLabel
+                sx={{ width: 280, mt: 0.25 }}
+                value={contact?.id ?? null}
+                initialCustomer={contact}
+                onChange={(c) => setContact(c)}
+              />
+            ) : (
+              <Autocomplete
+                size="small"
+                sx={{ width: 280, mt: 0.25 }}
+                options={options}
+                getOptionLabel={(o: any) => o?.name || ""}
+                value={contact}
+                onChange={(_, v) => setContact(v)}
+                renderInput={(p) => <TextField {...p} placeholder="Search for contact" />}
+              />
+            )}
           </Box>
           <DateRangeSelect label="Date range" from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
         </>

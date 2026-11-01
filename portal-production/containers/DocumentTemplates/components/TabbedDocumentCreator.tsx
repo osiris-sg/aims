@@ -159,6 +159,7 @@ import {
 } from "./PaymentVoucherSection";
 import { getDocumentListRoute, getListRouteFromPathname } from "@/app/portal/components/documentRoutes"; // co-pkg: depends on fa8351c
 import { useAimsUserId } from "@hooks/useAimsUserId";
+import { todayIso } from "@/helpers/orgToday";
 
 // Helper to determine the parent route based on document type
 const getParentRoute = (docType: string): string => {
@@ -1043,7 +1044,7 @@ export default function TabbedDocumentCreator({
       gstRegNo: existingData?.customer?.gstRegNo || existingData?.customerGstRegNo || "",
     },
     documentInfo: {
-      date: existingData?.documentInfo?.date || existingData?.date || new Date().toISOString().split("T")[0],
+      date: existingData?.documentInfo?.date || existingData?.date || todayIso(),
       documentNumber: existingData?.documentInfo?.documentNumber || existingData?.documentNumber || existingData?.name || "",
       // Canonical key is referenceNo, but older writers used other keys
       // (AI-extraction: documentInfo.reference; ingestion: reference;
@@ -8811,6 +8812,7 @@ export default function TabbedDocumentCreator({
         open={customerDialogOpen}
         onClose={() => setCustomerDialogOpen(false)}
         customers={isSupplierDialog ? suppliers : customers}
+        serverSearch={!isSupplierDialog}
         onSelectCustomer={(customer) => {
           // Payment Voucher: the Locate dialog (supplier mode) picks the payee —
           // store the supplier object and reset the allocations/currency.

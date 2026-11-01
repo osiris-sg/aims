@@ -8,7 +8,6 @@ import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { kebabColumn } from "@/components/RowKebab";
 import type { FilterField } from "@/components/FilterDrawer";
-import { useGetCustomers } from "@/app/portal/hooks/api/useCustomers";
 import { Box, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button, CircularProgress, Typography, IconButton } from "@mui/material";
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
@@ -163,9 +162,6 @@ function LegacyProjectsPage() {
     }
   };
 
-  // Customers dropdown for the Customer filter
-  const { customers = [] } = useGetCustomers({ limit: 1000 });
-
   const filterConfig: FilterField[] = useMemo(
     () => [
       {
@@ -178,16 +174,12 @@ function LegacyProjectsPage() {
           { value: "completed", label: "Completed" },
         ],
       },
-      {
-        type: "select",
-        key: "customerId",
-        label: "Customer",
-        options: (customers || []).map((c: any) => ({ value: c.id, label: c.name })),
-      },
+      // Server-search customer picker (orgs have thousands of customers).
+      { type: "customer", key: "customerId", label: "Customer" },
       { type: "dateRange", key: "startDate", label: "Start Date" },
       { type: "dateRange", key: "endDate", label: "End Date" },
     ],
-    [customers],
+    [],
   );
 
   const handleDelete = async () => {

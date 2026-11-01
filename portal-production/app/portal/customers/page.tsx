@@ -12,6 +12,10 @@ import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
 import AddCustomer from "./components/AddCustomer";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@clerk/nextjs";
+import { useOrganization } from "@hooks/useOrganization";
+import { request } from "@/helpers/request";
 
 interface Customer {
   id: string;
@@ -69,18 +73,32 @@ export default function CustomersPage() {
   // Fetch customers with new hook (server already applied the filters).
   const { customers = [], total = 0, isLoading, refetch } = useGetCustomers({ page, limit, search, filters: apiFilters });
 
-  // Separate unfiltered fetch to build a STABLE salesman dropdown (deriving
-  // options from the filtered page would collapse to just the selected one).
-  const { customers: allCustomers = [] } = useGetCustomers({ limit: 1000 });
-  const salesmenOptions = useMemo(() => {
-    const seen = new Map<string, string>();
-    (allCustomers || []).forEach((c: any) => {
-      if (c.salesman?.id && !seen.has(c.salesman.id)) {
-        seen.set(c.salesman.id, `${c.salesman.name}${c.salesman.salesmanCode ? ` (${c.salesman.salesmanCode})` : ""}`);
-      }
-    });
-    return Array.from(seen.entries()).map(([value, label]) => ({ value, label }));
-  }, [allCustomers]);
+  // Salesman filter options from the org's salesmen (stable across filtered
+  // pages). Used to be derived from the first 1000 customers, which missed
+  // salesmen of the rest in orgs with thousands of customers.
+  const { getToken } = useAuth();
+  const { organization } = useOrganization();
+  const { data: salesmen = [] } = useQuery({
+    queryKey: ["customer-salesmen", organization?.id],
+    enabled: !!organization?.id,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const token = await getToken();
+      const res = await request({ path: "/customers/salesmen", method: "GET" }, {}, token || undefined);
+      const list = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+      return list as { id: string; name?: string; salesmanCode?: string }[];
+    },
+  });
+  const salesmenOptions = useMemo(
+    () =>
+      salesmen
+        .filter((s) => s?.id)
+        .map((s) => {
+          const name = s.name || s.salesmanCode || "Salesman";
+          return { value: s.id, label: s.salesmanCode && s.salesmanCode !== name ? `${name} (${s.salesmanCode})` : name };
+        }),
+    [salesmen],
+  );
 
   const filterConfig: FilterField[] = useMemo(
     () => [

@@ -8,7 +8,8 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
-import { useGetCustomers, useGetSuppliers } from "@/app/portal/hooks/api";
+import { useGetSuppliers } from "@/app/portal/hooks/api";
+import { useCustomerPool } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProjects";
 import { useGetDeliveryOrders } from "@/containers/DocumentTemplates/hooks/useGetDeliveryOrders";
 import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSiteOffices";
@@ -64,7 +65,10 @@ export default function EditDocumentPage() {
   }, [id, getToken]);
 
   // Fetch data
-  const { customers = [] } = useGetCustomers({ limit: 1000 });
+  // Customers: the document's own customer (by id) plus every customer the
+  // pickers have seen. Never a capped "first N" list: orgs have thousands
+  // (WCT ~4,000), and a capped list lost the selected customer.
+  const customers = useCustomerPool([selectedCustomerId]);
   const { suppliers = [] } = useGetSuppliers({ limit: 1000 });
   const { projects } = useGetProjects(selectedCustomerId); // Filter by customer
   const { deliveryOrders } = useGetDeliveryOrders(selectedCustomerId); // Filter by customer

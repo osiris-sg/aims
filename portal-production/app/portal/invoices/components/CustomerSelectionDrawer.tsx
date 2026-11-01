@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
-import { Drawer, Box, Typography, Button, List, ListItem, ListItemButton, ListItemText, ListItemAvatar, Avatar, TextField, InputAdornment, CircularProgress, Alert, Divider } from "@mui/material";
+import React, { useEffect, useState } from "react";
+import { Drawer, Box, Typography, Button, List, ListItem, ListItemButton, ListItemText, ListItemAvatar, Avatar, TextField, InputAdornment, CircularProgress, Divider } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import PersonIcon from "@mui/icons-material/Person";
 import CloseIcon from "@mui/icons-material/Close";
-import { useGetCustomers } from "@/app/portal/hooks/api";
+import { useCustomerSearch } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useTranslations } from "next-intl";
-import { customerIdsLine, customerIdsMatch } from "@/helpers/customerIds";
+import { customerIdsLine, rankCustomers } from "@/helpers/customerIds";
 
 interface Customer {
   id: string;
@@ -27,11 +27,15 @@ interface CustomerSelectionDrawerProps {
 export default function CustomerSelectionDrawer({ open, onClose, onSelectCustomer }: CustomerSelectionDrawerProps) {
   const t = useTranslations("invoices.customerDrawer");
   const [searchTerm, setSearchTerm] = useState("");
-  const { customers = [], isLoading, error } = useGetCustomers({ limit: 1000 });
-
-  // Filter customers based on search term
-  // Name or email, plus UEN / old (previous-system) code when the customer has them.
-  const filteredCustomers = customers.filter((customer: Customer) => customer.name.toLowerCase().includes(searchTerm.toLowerCase()) || (customer.email && customer.email.toLowerCase().includes(searchTerm.toLowerCase())) || customerIdsMatch(customer, searchTerm));
+  // Server search as you type (code, name, email, phone, address, UEN, old
+  // code): orgs have thousands of customers, a pre-loaded list missed most.
+  const [term, setTerm] = useState("");
+  useEffect(() => {
+    const id = setTimeout(() => setTerm(searchTerm), 250);
+    return () => clearTimeout(id);
+  }, [searchTerm]);
+  const { customers, isLoading } = useCustomerSearch(term, { limit: 50, enabled: open });
+  const filteredCustomers = rankCustomers(customers as Customer[], term);
 
   const handleSelectCustomer = (customer: Customer) => {
     onSelectCustomer(customer);
@@ -107,10 +111,6 @@ export default function CustomerSelectionDrawer({ open, onClose, onSelectCustome
               }}
             >
               <CircularProgress />
-            </Box>
-          ) : error ? (
-            <Box sx={{ p: 2 }}>
-              <Alert severity="error">{error instanceof Error ? error.message : String(error)}</Alert>
             </Box>
           ) : filteredCustomers.length === 0 ? (
             <Box

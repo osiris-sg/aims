@@ -17,7 +17,8 @@ import CleanDocumentPreview from "@/containers/DocumentTemplates/components/Clea
 import { useSearchParams } from "next/navigation";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
-import { useGetCustomers } from "@/app/portal/hooks/api";
+import CustomerPicker from "@/components/CustomerPicker";
+import { useCustomersByIds } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useOrganization } from "@hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import SendInvoiceEmailDialog from "@/app/portal/invoices/components/SendInvoiceEmailDialog";
@@ -138,7 +139,6 @@ export default function RecurringInvoicesView() {
   const { request } = useAccountingApi();
   // Phone: the editor dialog goes full-screen below sm
   const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
-  const { customers } = useGetCustomers();
   const searchParams = useSearchParams();
   const [items, setItems] = useState<Template[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
@@ -316,7 +316,9 @@ export default function RecurringInvoicesView() {
     })();
   }, [fromInvoiceId, request]);
 
-  const custName = (id: string) => customers?.find((c: any) => c.id === id)?.name || "—";
+  // Only the customers this page references, fetched by id (never a capped list).
+  const { byId: customerById } = useCustomersByIds([...(items || []).map((t: any) => t.customerId), form.customerId, meterFor?.customerId]);
+  const custName = (id: string) => customerById.get(id)?.name || "—";
   const sortedItems = useMemo(() => {
     const val = (t: any): any => {
       switch (sortCol) {
@@ -337,7 +339,7 @@ export default function RecurringInvoicesView() {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return arr;
-  }, [items, sortCol, sortDir, customers]);
+  }, [items, sortCol, sortDir, customerById]);
   const previewDate = useMemo(() => (form.nextRunDate ? new Date(form.nextRunDate) : new Date()), [form.nextRunDate]);
 
   const openNew = () => { setEditing(null); setForm({ ...blank, nextRunDate: nowLocalInput() }); setOpen(true); };
@@ -544,19 +546,11 @@ export default function RecurringInvoicesView() {
             )}
             <Stack direction={{ xs: "column", sm: "row" }} gap={2}>
               <TextField label="Name" size="small" fullWidth value={form.name} onChange={(e) => setForm((f: any) => ({ ...f, name: e.target.value }))} placeholder="China Railway monthly retainer" />
-              {/* Searchable — the full customer list is far too long for a plain select. */}
-              <Autocomplete
-                size="small"
-                fullWidth
-                options={(customers || []) as any[]}
-                getOptionLabel={(c: any) => c?.name ?? ""}
-                isOptionEqualToValue={(o: any, v: any) => o.id === v.id}
-                value={((customers || []) as any[]).find((c: any) => c.id === form.customerId) ?? null}
-                onChange={(_, c: any) => setForm((f: any) => ({ ...f, customerId: c ? c.id : "" }))}
-                renderOption={(props, c: any) => (<li {...props} key={c.id}>{c.name}</li>)}
-                ListboxProps={{ sx: { maxHeight: 320 } }}
-                renderInput={(params) => <TextField {...params} label="Customer" placeholder="Search customer..." />}
-                autoHighlight
+              {/* Server search as you type; the chosen customer is fetched by id. */}
+              <CustomerPicker
+                value={form.customerId || null}
+                onChange={(c) => setForm((f: any) => ({ ...f, customerId: c ? c.id : "" }))}
+                label="Customer"
               />
             </Stack>
             <Stack direction={{ xs: "column", sm: "row" }} gap={2}>
@@ -820,7 +814,7 @@ export default function RecurringInvoicesView() {
           customer={{
             id: form.customerId,
             name: custName(form.customerId),
-            email: (customers || []).find((c: any) => c.id === form.customerId)?.email,
+            email: customerById.get(form.customerId)?.email ?? undefined,
           }}
         />
       )}

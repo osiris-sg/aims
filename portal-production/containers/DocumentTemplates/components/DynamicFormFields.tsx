@@ -25,6 +25,8 @@ import {
 import { Search as SearchIcon } from '@mui/icons-material';
 import { useAuth } from '@clerk/nextjs';
 import { request } from '@/helpers/request';
+import { useOrganization } from '@hooks/useOrganization';
+import { rememberCustomers } from '@/app/portal/hooks/api/useCustomerPicker';
 import { toast } from 'react-toastify';
 import { FieldDefinition } from '../types/templateFieldTypes';
 
@@ -474,6 +476,8 @@ function CustomerCodeField({
 
   // ── Points-of-Contact (POC): auto-fill + inline create ──────────────────
   const { getToken } = useAuth();
+  const { organization } = useOrganization();
+  const organizationId = organization?.id;
 
   // Optimistically-added contacts (post-save), keyed by customer id, merged
   // with the server-provided list so a freshly created POC shows immediately
@@ -547,12 +551,24 @@ function CustomerCodeField({
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = async (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const foundCustomer = customers.find(
-        (c: any) => c.customerCode?.toLowerCase() === customerCodeInput.toLowerCase()
-      );
+      const code = customerCodeInput.trim().toLowerCase();
+      let foundCustomer = customers.find((c: any) => c.customerCode?.toLowerCase() === code);
+      // Customers are not all loaded (orgs have thousands): ask the server for
+      // the typed code. Suppliers (code mode) keep the local list.
+      if (!foundCustomer && code && storeMode === 'object') {
+        try {
+          const token = await getToken();
+          const res = await request({ path: '/customers', method: 'POST' }, { page: 1, limit: 10, search: customerCodeInput.trim(), exactFirst: true }, token || undefined);
+          const docs: any[] = res?.data?.docs || res?.data?.customers || [];
+          foundCustomer = docs.find((c: any) => c.customerCode?.toLowerCase() === code);
+          if (foundCustomer) rememberCustomers(organizationId, [foundCustomer]);
+        } catch {
+          // fall through: no match
+        }
+      }
       if (foundCustomer) {
         if (storeMode === 'object') {
           setFormData({

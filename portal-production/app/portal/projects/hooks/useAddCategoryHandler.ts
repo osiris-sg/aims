@@ -2,13 +2,11 @@ import { useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
-import { useGetCustomers } from "./useGetCustomers";
 
 export const useAddCustomerHandler = () => {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
   const organizationId = organization?.id;
-  const { customers, refetch: refetchCustomers } = useGetCustomers();
   const [customersLoading, setCustomersLoading] = useState(false);
   const [deleteCustomerLoading, setDeleteCustomerLoading] = useState(false);
 
@@ -32,7 +30,6 @@ export const useAddCustomerHandler = () => {
       );
 
       if (response.success) {
-        await refetchCustomers();
         return true;
       }
       return false;
@@ -62,7 +59,6 @@ export const useAddCustomerHandler = () => {
       );
 
       if (response.success) {
-        await refetchCustomers();
         return true;
       }
       return false;
@@ -77,7 +73,6 @@ export const useAddCustomerHandler = () => {
   return {
     handleAddCustomer,
     handleDeleteCustomer,
-    customers: customers || [],
     customersLoading,
     deleteCustomerLoading,
   };

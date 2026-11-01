@@ -1,15 +1,14 @@
 import React from "react";
 import { Stack, Typography, Table, TableHead, TableRow, TableCell, TableBody, Box, Skeleton } from "@mui/material";
 import { useFormContext, useWatch } from "react-hook-form";
-import { useGetCustomers } from "../hooks/useGetCustomers";
+import { useCustomerById } from "@/app/portal/hooks/api/useCustomerPicker";
 
 export default function LastStep() {
   const { control, getValues } = useFormContext();
   const assignments = useWatch({ control, name: "assignments" }) || [];
-  const { customers, isLoading } = useGetCustomers();
   const customerId = useWatch({ control, name: "customerId" });
-  const selectedCustomer = customers.find((c) => c.id === customerId);
-  console.log("Selected Customer:", selectedCustomer);
+  // The chosen customer by id (never looked up in a capped list).
+  const { customer: selectedCustomer, isLoading } = useCustomerById(customerId);
 
   return (
     <Stack spacing={4}>

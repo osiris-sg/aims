@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { useGetDocumentsPaginated, useDeleteDocument, useGetCustomers } from "@/app/portal/hooks/api";
+import { useGetDocumentsPaginated, useDeleteDocument } from "@/app/portal/hooks/api";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
@@ -130,20 +130,19 @@ export default function SalesDocumentList({
     sortDir: "desc",
   });
 
-  // Customers for the Customer filter dropdown (stable, unfiltered options).
-  const { customers: filterCustomers = [] } = useGetCustomers({ limit: 5000 });
   const filterConfig: FilterField[] = useMemo(() => {
     const cfg: FilterField[] = [
       { type: "dateRange", key: "createdOn", label: "Created On" },
       { type: "select", key: "status", label: "Status", options: SALES_STATUS_OPTIONS },
-      { type: "select", key: "customerId", label: "Customer", options: (filterCustomers || []).map((c: any) => ({ value: c.id, label: c.name })) },
+      // Server-search customer picker (orgs have thousands of customers).
+      { type: "customer", key: "customerId", label: "Customer" },
     ];
     // Only useful when this list shows more than one document type.
     if ((documentTypes?.length || 0) > 1) {
       cfg.push({ type: "select", key: "documentType", label: "Document Type", options: documentTypes.map((t) => ({ value: t, label: prettyDocType(t) })) });
     }
     return cfg;
-  }, [filterCustomers, documentTypes]);
+  }, [documentTypes]);
 
   // Rows come back already filtered and paged by the server.
   const filteredDocuments = documents;

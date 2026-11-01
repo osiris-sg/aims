@@ -36,7 +36,7 @@ import { Button } from "@mui/material";
 import moment from "moment";
 import { toast } from "react-toastify";
 import DocumentUploadDialog from "./DocumentUploadDialog";
-import { useDeleteDocument, useGetCustomers, useGetDocumentsPaginated, useGetDocumentStats } from "@/app/portal/hooks/api";
+import { useDeleteDocument, useGetDocumentsPaginated, useGetDocumentStats } from "@/app/portal/hooks/api";
 import type { FilterField } from "@/components/FilterDrawer";
 
 // Document statuses (NOT the legacy inventory statuses the old `availableFilters`
@@ -205,17 +205,16 @@ export default function DocumentListView({
     createdOn: { startDate: null, endDate: null },
   });
 
-  // Customers for the Customer filter dropdown (stable, unfiltered options).
-  const { customers: filterCustomers = [] } = useGetCustomers({ limit: 1000 });
   // Real DO numbers (enableRealDoOnSchedule): a DO shows Pending / Completed / Cancelled next to its number.
   const { isRealDoOnScheduleEnabled } = useOrganizationFeatures();
   const filterConfig: FilterField[] = useMemo(
     () => [
       { type: "dateRange", key: "createdOn", label: "Created On" },
       { type: "select", key: "status", label: "Status", options: DOC_STATUS_OPTIONS },
-      { type: "select", key: "customerId", label: "Customer", options: (filterCustomers || []).map((c: any) => ({ value: c.id, label: c.name })) },
+      // Server-search customer picker (orgs have thousands of customers).
+      { type: "customer", key: "customerId", label: "Customer" },
     ],
-    [filterCustomers],
+    [],
   );
 
   // Column-header sort → server sort field (name/status/createdAt only; the

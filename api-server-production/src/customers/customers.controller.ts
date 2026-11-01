@@ -45,6 +45,19 @@ export class CustomersController {
     return await this.customersService.getSalesmen(organizationId);
   }
 
+  // Customer pickers (2026-11-02): the customers a page already references
+  // (the selected one, a list's rows) by id, so a picker never depends on the
+  // customer being in the first page of a capped list. Body { ids } (≤ 500).
+  @Post('lookup')
+  @Permissions('customers:read')
+  async lookupCustomers(@Body() body: { ids?: unknown }, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.customersService.lookupCustomers(body?.ids, organizationId);
+  }
+
   @Get(':id')
   @Permissions('customers:read-one')
   async getCustomerById(@Param('id') id: string, @Req() req: RequestWithOrganization) {
