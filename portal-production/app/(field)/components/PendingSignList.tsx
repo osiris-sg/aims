@@ -125,8 +125,11 @@ export function PendingSignList({ search = "", barBottom = "0px" }: { search?: s
     });
   };
 
+  // Another technician's report is view-only: never part of a batch.
+  const editable = (r: ReportSummary) => r.canEdit !== false;
+
   const toggleGroup = (customer: string, list: ReportSummary[]) => {
-    const ids = list.map((r) => r.id);
+    const ids = list.filter(editable).map((r) => r.id);
     const allOn = ids.every((id) => selected.includes(id));
     if (allOn) { setSelected([]); setLockedCustomer(null); return; }
     setSelected(ids);
@@ -148,8 +151,8 @@ export function PendingSignList({ search = "", barBottom = "0px" }: { search?: s
       ) : (
         grouped.map(([customer, list]) => {
           const locked = lockedCustomer !== null && customer !== lockedCustomer;
-          const groupIds = list.map((r) => r.id);
-          const allOn = groupIds.every((id) => selected.includes(id));
+          const groupIds = list.filter(editable).map((r) => r.id);
+          const allOn = groupIds.length > 0 && groupIds.every((id) => selected.includes(id));
           const someOn = !allOn && groupIds.some((id) => selected.includes(id));
           return (
             <Box key={customer} sx={{ opacity: locked ? 0.45 : 1 }}>
@@ -160,7 +163,7 @@ export function PendingSignList({ search = "", barBottom = "0px" }: { search?: s
                   size="small"
                   checked={allOn}
                   indeterminate={someOn}
-                  disabled={locked}
+                  disabled={locked || !groupIds.length}
                   onChange={() => toggleGroup(customer, list)}
                   sx={{ mr: 0.5 }}
                   inputProps={{ "aria-label": `Select all reports for ${customer}` }}
@@ -176,18 +179,23 @@ export function PendingSignList({ search = "", barBottom = "0px" }: { search?: s
                   <React.Fragment key={r.id}>
                   {i > 0 && <Divider component="li" sx={{ mx: 2 }} />}
                   <ListItemButton
-                    onClick={() => router.push(`/scan/reports/${r.id}/sign`)}
+                    // Another technician's report opens read-only (print view).
+                    onClick={() => router.push(editable(r) ? `/scan/reports/${r.id}/sign` : `/scan/reports/${r.id}/print`)}
                     sx={{ minHeight: 68 }}
                   >
                     {/* stopPropagation: ticking must not also OPEN the report. */}
-                    <Checkbox
-                      edge="start"
-                      checked={selected.includes(r.id)}
-                      disabled={locked}
-                      onClick={(e) => { e.stopPropagation(); toggle(r); }}
-                      sx={{ mr: 0.5 }}
-                      inputProps={{ "aria-label": `Select report ${r.reportNumber ?? ""}` }}
-                    />
+                    {editable(r) ? (
+                      <Checkbox
+                        edge="start"
+                        checked={selected.includes(r.id)}
+                        disabled={locked}
+                        onClick={(e) => { e.stopPropagation(); toggle(r); }}
+                        sx={{ mr: 0.5 }}
+                        inputProps={{ "aria-label": `Select report ${r.reportNumber ?? ""}` }}
+                      />
+                    ) : (
+                      <Box sx={{ width: 42, mr: 0.5, flexShrink: 0 }} />
+                    )}
                     <DrawIcon color="warning" sx={{ mr: 1.5 }} />
                     <ListItemText
                       primaryTypographyProps={{ fontWeight: 600 }}
@@ -206,6 +214,7 @@ export function PendingSignList({ search = "", barBottom = "0px" }: { search?: s
                         .filter(Boolean)
                         .join(" · ")}
                     />
+                    {!editable(r) && <StatusChip label="View only" sx={{ ml: 1, flexShrink: 0 }} />}
                   </ListItemButton>
                   </React.Fragment>
                 ))}

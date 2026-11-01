@@ -114,6 +114,7 @@ Project page tabs: Active on Site / Past Deployments / Sales & Services / All In
 - "Add DO" on a deployment card attaches an unattached delivery order; "View details" expands deployed items, DOs and monthly invoices.
 - "Create Quotation" on the Quotations tab makes a quotation pre-linked to the project.
 - Field Reports tab shows service reports + delivery scans from the field app (photos, routes).
+- FIELD APP REPORTS (technicians, role "Technician (field app)" / field-tech, every org): a technician can open and read every service report in the org, but can only change (save a draft, photos, sign, complete) the reports they wrote or that sit on a job claimed by or planned for them. Other technicians' reports open read-only ("View only" in Pending Sign, no sign or edit buttons). Creating an invoice from a service report is done in the office. Invoices, payments, orders and documents stay office-only.
 
 === ORDERS ===
 /portal/orders. Slim list (default): pipeline-stage tabs (QO Confirmed → DO draft/confirmed/delivered/installed → Invoice draft/confirmed), search, eye opens the order. Order page: tick line items → "Create DO from selected" / "Create Invoice from selected"; open the source quotation or any linked document chip. With enableCappitechOrders ON: also Create SO/PO from selected, per-line discounts with recalibrate, and a "Upload & Verify" panel that scans supplier DOs / tax invoices against the order (batch verification with per-file status).

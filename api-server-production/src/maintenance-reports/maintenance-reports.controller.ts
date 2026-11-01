@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
@@ -8,12 +8,19 @@ import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto'
 import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
 import { CreateLocationPingsDto } from './dto/location-ping.dto';
 import { MaintenanceReportsService } from './maintenance-reports.service';
+import { fieldScopeUserId, ScopedRequest } from 'src/auth/field-scope';
 
 // Clerk strategy attaches the resolved User row at request.user (see
 // src/auth/clerk.strategy.ts and the @Req() usage in users.controller.ts).
-interface ClerkRequest extends Request {
+interface ClerkRequest extends Request, ScopedRequest {
   user?: { id?: string };
 }
+
+// Field-tech rule (2026-11-02, src/auth/field-scope.ts): every report in the
+// org is READABLE; a field-tech-only user may CHANGE (draft, photos, sign,
+// complete, location) only reports they wrote or on a job claimed by / planned
+// for them (403 otherwise), and never creates invoices. Reads carry `canEdit`
+// so the field app opens other people's reports read-only.
 
 @ApiTags('maintenance-reports')
 @Controller('maintenance-reports')
@@ -27,7 +34,7 @@ export class MaintenanceReportsController {
    */
   @Get()
   @Permissions('maintenance-reports:read')
-  findAll(
+  async findAll(
     @UserOrganization() org: { id: string },
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -35,14 +42,16 @@ export class MaintenanceReportsController {
     // `draft` = awaiting signature (the field app's Ongoing Reports),
     // `completed` = signed. Omitted keeps the office page's existing "both".
     @Query('status') status?: string,
+    @Req() req?: ClerkRequest,
   ) {
-    return this.service.findAllService(
+    const res = await this.service.findAllService(
       org.id,
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 20,
       search,
       status === 'draft' || status === 'completed' ? status : undefined,
     );
+    return { ...res, docs: await this.service.markCanEdit(res.docs, org.id, fieldScopeUserId(req)) };
   }
 
   @Post()
@@ -69,7 +78,9 @@ export class MaintenanceReportsController {
   createInvoice(
     @Param('id') id: string,
     @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
   ) {
+    if (fieldScopeUserId(req)) throw new ForbiddenException('Invoices are created by the office');
     return this.service.createInvoiceFromMsr(id, org.id);
   }
 
@@ -79,7 +90,7 @@ export class MaintenanceReportsController {
    */
   @Post(':id/complete')
   @Permissions('maintenance-reports:create')
-  completeScheduled(
+  async completeScheduled(
     @Param('id') id: string,
     @Body() body: { serviceData?: Record<string, any>; technicianName?: string; description?: string; deliveryItemId?: string },
     @UserOrganization() org: { id: string },
@@ -87,6 +98,7 @@ export class MaintenanceReportsController {
   ) {
     const technicianUserId = req.user?.id;
     if (!technicianUserId) throw new UnauthorizedException('Missing authenticated user');
+    await this.service.assertCanWriteReport(id, org.id, fieldScopeUserId(req));
     return this.service.completeScheduled(id, body ?? {}, org.id, technicianUserId);
   }
 
@@ -95,31 +107,36 @@ export class MaintenanceReportsController {
    *  a reload between the Before and After photos loses nothing. */
   @Patch(':id/draft')
   @Permissions('maintenance-reports:create')
-  saveDraft(@Param('id') id: string, @Body() body: { draft?: Record<string, any> }, @UserOrganization() org: { id: string }) {
+  async saveDraft(@Param('id') id: string, @Body() body: { draft?: Record<string, any> }, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    await this.service.assertCanWriteReport(id, org.id, fieldScopeUserId(req));
     return this.service.saveDraft(id, body?.draft ?? {}, org.id);
   }
 
   /** Optional photos on a SERVICE report: replace the set while it is a draft. */
   @Patch(':id/photos')
   @Permissions('maintenance-reports:create')
-  updatePhotos(@Param('id') id: string, @Body() body: { photos?: string[] }, @UserOrganization() org: { id: string }) {
+  async updatePhotos(@Param('id') id: string, @Body() body: { photos?: string[] }, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    await this.service.assertCanWriteReport(id, org.id, fieldScopeUserId(req));
     return this.service.updatePhotos(id, body?.photos ?? [], org.id);
   }
 
   @Post(':id/sign')
   @Permissions('maintenance-reports:sign')
-  sign(
+  async sign(
     @Param('id') id: string,
     @Body() dto: SignMaintenanceReportDto,
     @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
   ) {
+    await this.service.assertCanWriteReport(id, org.id, fieldScopeUserId(req));
     return this.service.sign(id, dto, org.id);
   }
 
   @Get(':id')
   @Permissions('maintenance-reports:read')
-  findById(@Param('id') id: string, @UserOrganization() org: { id: string }) {
-    return this.service.findById(id, org.id);
+  async findById(@Param('id') id: string, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    const report = await this.service.findById(id, org.id);
+    return { ...report, canEdit: await this.service.canWriteReport(id, org.id, fieldScopeUserId(req)) };
   }
 
   /**
@@ -171,11 +188,13 @@ export class MaintenanceReportsController {
    */
   @Post(':reportId/location-ping')
   @Permissions('maintenance-reports:create')
-  recordLocationPings(
+  async recordLocationPings(
     @Param('reportId') reportId: string,
     @Body() dto: CreateLocationPingsDto,
     @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
   ) {
+    await this.service.assertCanWriteReport(reportId, org.id, fieldScopeUserId(req));
     return this.service.recordLocationPings(reportId, org.id, dto);
   }
 

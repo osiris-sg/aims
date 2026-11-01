@@ -16,6 +16,7 @@ import { templateFor } from './msr-templates';
 import type { WctOrgProfile } from './service-report-wct';
 import { minPhotosForAssetClass } from 'src/common/asset-class';
 import { orgTodayFor } from '../common/org-today';
+import { ownReportWhere } from '../auth/field-scope';
 
 /** Org fields every renderer may need: name/logo for the stock sheets, the rest for the WCT letterhead + footer. */
 const REPORT_ORG_SELECT = { name: true, logo: true, address: true, phoneNumber: true, email: true, website: true, registrationNumber: true } as const;
@@ -1203,6 +1204,38 @@ export class MaintenanceReportsService {
       hasNextPage: skip + docs.length < total,
       hasPreviousPage: page > 1,
     };
+  }
+
+  /**
+   * Field-tech write rule (2026-11-02): a field-tech-only caller may change a
+   * report only when they wrote it or it sits on a job claimed by / planned
+   * for them (src/auth/field-scope.ts). Reading stays open to the whole org.
+   * Always true for office roles, mixed roles and admins (scopeUserId null).
+   */
+  async canWriteReport(id: string, organizationId: string, scopeUserId: string | null): Promise<boolean> {
+    if (!scopeUserId) return true;
+    const own = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { id, organizationId, ...ownReportWhere(scopeUserId) },
+      select: { id: true },
+    });
+    return !!own;
+  }
+
+  /** Stamp `canEdit` on listed reports (one query for a field tech; all true for the office). */
+  async markCanEdit<T extends { id: string }>(docs: T[], organizationId: string, scopeUserId: string | null): Promise<Array<T & { canEdit: boolean }>> {
+    if (!scopeUserId || !docs.length) return docs.map((d) => ({ ...d, canEdit: true }));
+    const own = await this.prisma.maintenanceServiceReport.findMany({
+      where: { organizationId, id: { in: docs.map((d) => d.id) }, ...ownReportWhere(scopeUserId) },
+      select: { id: true },
+    });
+    const ownIds = new Set(own.map((r) => r.id));
+    return docs.map((d) => ({ ...d, canEdit: ownIds.has(d.id) }));
+  }
+
+  async assertCanWriteReport(id: string, organizationId: string, scopeUserId: string | null) {
+    if (!(await this.canWriteReport(id, organizationId, scopeUserId))) {
+      throw new ForbiddenException('Only the technician on this job can change this report');
+    }
   }
 
   async listByAsset(assetId: string, organizationId: string) {
