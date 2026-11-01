@@ -29,6 +29,9 @@ import { pdfOptionsFor, isWctLayout } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
 import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
 import { carryServerDoKeys } from '../deliveries/do-number';
+import { refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
+import { isOrgFeatureEnabled } from '../common/org-features';
+import { isVerifiedJob } from '../deliveries/finish-modes';
 
 // Who performed a document action — derived from req.user in the controller.
 export interface DocumentActor {
@@ -5777,6 +5780,20 @@ export class DocumentsService {
    * the guard and the DO↔invoice link work.
    */
   async createInvoiceFromDeliveryOrder(documentId: string, organizationId: string) {
+    // WCT invoice per order (enableWctOrderInvoice): a job of an order is
+    // billed on the ORDER's invoice, never on its own. The DO is complete; the
+    // order bills itself once every job is done and verified (or on "Invoice
+    // now"). Every other DO (other orgs, runs without an order, the flag off)
+    // carries on below exactly as before.
+    {
+      const doHead = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { config: true } });
+      const orderId = (doHead?.config as any)?.orderId;
+      if (orderId && (await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDER_INVOICE_FLAG))) {
+        console.log(`🧾 DO→INVOICE: DO ${documentId} is a job of order ${orderId}; billed on the order's invoice.`);
+        await this.maybeInvoiceOrder(orderId, organizationId);
+        return null;
+      }
+    }
     const existing = await this.prisma.document.findFirst({
       where: {
         organizationId,
@@ -5957,6 +5974,190 @@ export class DocumentsService {
     }
 
     return invoice;
+  }
+
+  // ── WCT invoice per order (enableWctOrderInvoice, 2026-11-01) ───────────
+  //
+  // One invoice for the whole order instead of one per DO. A job goes on an
+  // invoice once it is completed AND verified (a signature is verified at once;
+  // a stamped-DO / paper finish after the office's Verify). Automatic when
+  // every job of the order is done and verified; "Invoice now" bills what is
+  // verified so far, and the jobs verified later go on a SECOND invoice for
+  // the same order — never blocked, never folded into an invoice already made.
+  // Each job is claimed (Delivery.orderInvoiceId) before the invoice exists, so
+  // two triggers at once never bill a job twice. Prices come from the
+  // quotation (the same SO → quotation → asset ladder as a DO's invoice); the
+  // invoice posts to the GL and notifies like the per-DO one did.
+
+  /** Automatic: bill the order when every job is done and verified and some are not invoiced yet. Never throws. */
+  async maybeInvoiceOrder(orderId: string, organizationId: string) {
+    try {
+      if (!(await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDER_INVOICE_FLAG))) return null;
+      const jobs = await this.prisma.delivery.findMany({
+        where: { organizationId, orderId },
+        select: { id: true, status: true, isDraft: true, verificationState: true, orderInvoiceId: true },
+      });
+      const live = jobs.filter((j) => j.status !== 'cancelled');
+      if (!live.length || live.some((j) => j.isDraft) || !live.every((j) => isVerifiedJob(j))) return null;
+      if (!live.some((j) => !j.orderInvoiceId)) return null;
+      return await this.invoiceOrder(orderId, organizationId, { trigger: 'auto' });
+    } catch (e: any) {
+      console.warn(`🧾 ORDER→INVOICE: automatic invoice for order ${orderId} failed: ${e?.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Bill the order's completed + verified jobs that are not on an invoice yet.
+   * trigger 'now' = the admin's "Invoice now" (refuses when there is nothing to
+   * bill); 'auto' = from maybeInvoiceOrder. Returns the new invoice, or null
+   * when another trigger already took the jobs.
+   */
+  async invoiceOrder(orderId: string, organizationId: string, opts: { trigger: 'auto' | 'now'; actor?: DocumentActor }) {
+    if (!(await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDER_INVOICE_FLAG))) {
+      throw new HttpException('Invoicing per order is not enabled for this organisation', HttpStatus.BAD_REQUEST);
+    }
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, organizationId },
+      select: { id: true, orderNumber: true, sourceQuotationId: true, linkedDocuments: true },
+    });
+    if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+    const jobs = await this.prisma.delivery.findMany({
+      where: { organizationId, orderId },
+      select: { id: true, deliveryNumber: true, status: true, verificationState: true, orderInvoiceId: true, projectId: true },
+      orderBy: { deliveryNumber: 'asc' },
+    });
+    let billable = jobs.filter((j) => isVerifiedJob(j) && !j.orderInvoiceId);
+    // A job whose DO already has its own invoice (finished before invoicing
+    // per order was switched on) is never billed twice: it keeps that invoice.
+    if (billable.length) {
+      const its = await this.prisma.deliveryItem.findMany({ where: { deliveryId: { in: billable.map((j) => j.id) }, documentId: { not: null } }, select: { deliveryId: true, documentId: true } });
+      for (const j of [...billable]) {
+        const doIds = [...new Set(its.filter((i) => i.deliveryId === j.id).map((i) => i.documentId as string))];
+        if (!doIds.length) continue;
+        const own = await this.prisma.document.findFirst({ where: { organizationId, type: 'INVOICE', OR: doIds.map((id) => ({ config: { path: ['sourceDocumentId'], equals: id } })) }, select: { id: true } });
+        if (!own) continue;
+        await this.prisma.delivery.updateMany({ where: { id: j.id, organizationId, orderInvoiceId: null }, data: { orderInvoiceId: own.id } });
+        billable = billable.filter((b) => b.id !== j.id);
+      }
+    }
+    if (!billable.length) {
+      if (opts.trigger === 'now') throw new HttpException('Nothing to invoice: no completed and verified job is waiting for an invoice.', HttpStatus.BAD_REQUEST);
+      return null;
+    }
+
+    // Claim the jobs first: only rows still unbilled are taken, so a second
+    // trigger at the same moment finds nothing left and stops.
+    const claim = `claim:${randomUUID()}`;
+    await this.prisma.delivery.updateMany({ where: { id: { in: billable.map((j) => j.id) }, organizationId, orderInvoiceId: null }, data: { orderInvoiceId: claim } });
+    const claimed = await this.prisma.delivery.findMany({
+      where: { organizationId, orderInvoiceId: claim },
+      select: { id: true, deliveryNumber: true, projectId: true },
+      orderBy: { deliveryNumber: 'asc' },
+    });
+    if (!claimed.length) return null;
+
+    try {
+      // Each job's DO, in job order: its lines become the invoice's lines.
+      const items = await this.prisma.deliveryItem.findMany({ where: { deliveryId: { in: claimed.map((j) => j.id) }, documentId: { not: null } }, select: { deliveryId: true, documentId: true } });
+      const doIdsInOrder: string[] = [];
+      for (const j of claimed) for (const it of items) if (it.deliveryId === j.id && it.documentId && !doIdsInOrder.includes(it.documentId)) doIdsInOrder.push(it.documentId);
+      const dos = await this.prisma.document.findMany({ where: { id: { in: doIdsInOrder }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } } });
+      const doById = new Map(dos.map((d) => [d.id, d]));
+      const orderedDos = doIdsInOrder.map((id) => doById.get(id)).filter(Boolean) as any[];
+      if (!orderedDos.length) throw new Error('the jobs have no Delivery Order to invoice from');
+
+      const quotationId = order.sourceQuotationId ?? (orderedDos[0].config as any)?.sourceDocumentId ?? null;
+      const lines: any[] = [];
+      for (const d of orderedDos) {
+        const c: any = d.config || {};
+        const priced = await this.priceInvoiceLinesFromAsset(Array.isArray(c.items) ? c.items : [], organizationId, {
+          saleOrderId: c.saleOrderId,
+          sourceDocumentId: c.sourceDocumentId ?? quotationId ?? undefined,
+          sourceDocumentType: c.sourceDocumentType ?? (quotationId ? 'QUOTATION' : undefined),
+        });
+        for (const { deliveryGroup: _g, ...line } of priced as any[]) lines.push({ ...line, doNumber: d.name ?? null });
+      }
+
+      // The header (customer, addresses, PO, quotation no.) from the first DO,
+      // without the DO's own identity — the same strip list as the per-DO invoice.
+      const {
+        documentNumber: _n, savedAt: _sa, savedBy: _sb, lastUsedAt: _la, lastUsedBy: _lb, confirmedAt: _ca, stockDeducted: _sd,
+        signature: _sg, signedAt: _st, signedByName: _sn, dueDate: _dd, columnLabels: _cl, tableColumnOrder: _tco, internalColumns: _ic,
+        issuedOnSchedule: _is, cancelled: _cn, cancelledAt: _cat, cancelledReason: _cr, ...base
+      } = ((orderedDos[0].config as any) ?? {}) as Record<string, any>;
+
+      let taxSrc: any = null;
+      if (quotationId) {
+        const qo = await this.prisma.document.findFirst({ where: { id: quotationId, organizationId }, select: { name: true, config: true } }).catch(() => null);
+        const qc: any = qo?.config || {};
+        taxSrc = { gstPercent: qc.gstPercent ?? qc.documentInfo?.gstPercent, taxApplicable: qc.taxApplicable ?? qc.documentInfo?.taxApplicable, absorbTax: qc.absorbTax ?? qc.documentInfo?.absorbTax };
+      }
+      if (!taxSrc || (taxSrc.gstPercent == null && taxSrc.taxApplicable == null && taxSrc.absorbTax == null)) {
+        const orgRow: any = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { taxRate: true, taxApplicable: true } }).catch(() => null);
+        taxSrc = { gstPercent: orgRow?.taxRate ?? 9, taxApplicable: orgRow?.taxApplicable === false ? 'N' : 'Y', absorbTax: 'N' };
+      }
+      const totals = computeDocumentTotals(lines, taxSrc);
+      const doNumbers = orderedDos.map((d) => d.name).filter(Boolean);
+      const invoiceConfig = stampDocumentMoney(
+        {
+          ...base,
+          items: lines,
+          date: new Date().toISOString(),
+          // Priced from the quotation; the order + its DOs are named on it.
+          ...(quotationId ? { sourceDocumentId: quotationId, sourceDocumentType: 'QUOTATION' } : {}),
+          orderId: order.id,
+          orderNo: order.orderNumber,
+          orderJobIds: claimed.map((j) => j.id),
+          deliveryOrderNos: doNumbers,
+          ...totals,
+          showTotals: true,
+          documentInfo: { ...((base as any).documentInfo || {}), ...totals },
+        },
+        { gross: totals.nettTotal, outstanding: totals.nettTotal, paid: 0 },
+      );
+      const templateId = await this.resolveTemplateIdForType('INVOICE', organizationId);
+      const invoice = await this.createBasicDocument(templateId, 'INVOICE', organizationId, invoiceConfig, claimed[0].projectId ?? orderedDos[0].projectId ?? undefined);
+
+      await this.prisma.delivery.updateMany({ where: { organizationId, orderInvoiceId: claim }, data: { orderInvoiceId: invoice.id } });
+      const ld: any = (order.linkedDocuments as any) || { po: [], do: [], invoice: [], salesOrder: [] };
+      ld.invoice = [...(Array.isArray(ld.invoice) ? ld.invoice : []), { id: invoice.id, name: invoice.name, jobIds: claimed.map((j) => j.id) }];
+      await this.prisma.order.update({ where: { id: order.id }, data: { invoiceDocumentId: invoice.id, linkedDocuments: ld } });
+      console.log(`🧾 ORDER→INVOICE: ${invoice.name} for ${order.orderNumber} (${opts.trigger}; jobs ${claimed.map((j) => `#${j.deliveryNumber}`).join(', ')})`);
+
+      // The jobs' service reports point at the invoice that bills them.
+      await this.prisma.maintenanceServiceReport
+        .updateMany({ where: { organizationId, kind: 'SERVICE', invoiceDocumentId: null, deliveryId: { in: claimed.map((j) => j.id) } }, data: { invoiceDocumentId: invoice.id } })
+        .catch(() => undefined);
+      await this.repostGlForDocument(organizationId, invoice.id, 'INVOICE', invoiceConfig, invoice.name).catch((e: any) =>
+        console.warn(`ORDER→INVOICE: GL post for ${invoice.name} skipped: ${e?.message}`),
+      );
+      const link = `/portal/documents/${invoice.type ?? 'INVOICE'}/${templateId}/${invoice.id}`;
+      const jobsText = claimed.map((j) => `#${j.deliveryNumber}`).join(', ');
+      await this.notifications.emit({
+        organizationId,
+        kind: 'INVOICE_DRAFT',
+        title: 'Draft invoice created',
+        body: `${invoice.name || 'A draft invoice'} for order ${order.orderNumber} (jobs ${jobsText}) is ready to review and confirm.`,
+        entityType: 'document',
+        entityId: invoice.id,
+        linkUrl: link,
+      });
+      {
+        const who = (invoiceConfig as any).customerName || (invoiceConfig as any).customer?.name || '';
+        await this.staffWhatsApp.push(
+          organizationId,
+          `Order ${order.orderNumber}${who ? ` (${who})` : ''}: ${opts.trigger === 'now' ? 'invoiced now for' : 'all jobs done and verified,'} jobs ${jobsText}. Draft invoice ${invoice.name || ''} is created and posted to the ledger: please review and confirm it.`,
+          { linkPath: link, dedupeKey: `order-invoice:${invoice.id}` },
+        );
+      }
+      await refreshOrderStatus(this.prisma, organizationId, order.id);
+      return invoice;
+    } catch (e: any) {
+      // Hand the jobs back so the next trigger can bill them.
+      await this.prisma.delivery.updateMany({ where: { organizationId, orderInvoiceId: claim }, data: { orderInvoiceId: null } }).catch(() => undefined);
+      throw e;
+    }
   }
 
   /**

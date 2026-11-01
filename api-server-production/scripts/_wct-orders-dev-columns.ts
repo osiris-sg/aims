@@ -35,6 +35,8 @@ const COLUMNS: Record<string, [string, string][]> = {
     ['verifiedByUserId', 'TEXT'],
     ['verifiedByName', 'TEXT'],
     ['verificationNote', 'TEXT'],
+    // Phase 4
+    ['orderInvoiceId', 'TEXT'],
   ],
   // Phase 2
   OrganizationMemberProfile: [['siteclockUserId', 'TEXT']],
@@ -44,6 +46,7 @@ const COLUMNS: Record<string, [string, string][]> = {
 const INDEXES: [string, string, string][] = [
   ['Delivery', 'Delivery_organizationId_orderId_idx', '"organizationId", "orderId"'],
   ['Delivery', 'Delivery_organizationId_verificationState_idx', '"organizationId", "verificationState"'],
+  ['Delivery', 'Delivery_orderInvoiceId_idx', '"orderInvoiceId"'],
   ['OrganizationMemberProfile', 'OrganizationMemberProfile_organizationId_siteclockUserId_idx', '"organizationId", "siteclockUserId"'],
 ];
 

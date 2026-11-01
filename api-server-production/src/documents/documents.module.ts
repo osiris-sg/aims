@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
 import { DocumentsController } from './documents.controller';
+import { OrderInvoiceController } from './order-invoice.controller';
 import { PrismaService } from 'src/common/prisma.service';
 import { CommonModule } from 'src/common/common.module';
 import { PriceHistoryModule } from '../price-history/price-history.module';
@@ -20,7 +21,7 @@ import { DeliveriesModule } from '../deliveries/deliveries.module';
   // than half-doing the same work here. DeliveriesModule already imports this
   // module, so the reference has to be lazy on BOTH sides.
   imports: [CommonModule, PriceHistoryModule, EmailModule, JournalModule, OrdersModule, DocumentTemplatesModule, DocumentNumberingModule, AccountMemoryModule, NotificationsModule, StaffWhatsAppModule, forwardRef(() => DeliveriesModule)],
-  controllers: [DocumentsController],
+  controllers: [DocumentsController, OrderInvoiceController],
   providers: [DocumentsService, PrismaService],
   // Exported so MaintenanceReportsModule can call createBasicDocument when
   // an MSR with paymentRequired=true spins off an Invoice from the office.

@@ -96,6 +96,7 @@ Spotlight anchors you may use in walkthrough steps (anchor field):
 - Shipments round R (order page focus, evidence): "record-current-step" (the "Step 4 · Customer docs" text in the record header), "order-header-line2" (the header's second line), "shipment-card-menu" (the ⋮ on the selected shipment card), "inbox-evidence" (the italic evidence line on an inbox message).
 - WCT finish modes (2026-11-01): "field-finish-mode" (the sign-off choice on the field app's finish screen), "deliveries-verification" (the Awaiting verification button on Deliveries), "job-verification" (the Sign-off box on a delivery page and on the field app's completed screen).
 - WCT my jobs (2026-11-01): "field-my-jobs" (the My jobs / All chips on the field app's Pending tab).
+- WCT invoice per order (2026-11-01): "wct-order-invoice-now" (the Invoice now button in the order page's Invoices section).
 - WCT orders (2026-11-01): "wct-order-add-job" (the "Add job" button at the top right of a WCT order page, /portal/orders/<id>).
 - WCT service job DO (2026-10-27): "run-select-service-item" (the "Select item" button on a Service line of the field app's run page — one tap, no photos).
 - WCT service report (2026-10-27): "field-service-report" (the "Write Service Report" / "View Service Report" button on the field app's "Delivery completed" screen of a run with a Service line), "service-report-print" / "service-report-download-pdf" (Print and Download PDF above the server-rendered paper on a WCT report's portal page).

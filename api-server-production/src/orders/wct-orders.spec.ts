@@ -32,6 +32,18 @@ describe('WCT orders: status from the jobs', () => {
     expect(deriveOrderStatus([{ status: 'completed', isDraft: false, verificationState: 'pending' }, job('scheduled')])).toBe('IN_PROGRESS');
   });
 
+  it('billing: Completed (to invoice) → Invoiced → Paid → Closed (with the service report)', () => {
+    const done = (orderInvoiceId: string | null) => ({ status: 'completed', isDraft: false, verificationState: 'verified', orderInvoiceId });
+    expect(deriveOrderStatus([done(null)], { invoiceStatuses: [] })).toBe('COMPLETED');
+    expect(deriveOrderStatus([done('inv1'), done(null)], { invoiceStatuses: ['unconfirmed'] })).toBe('COMPLETED');
+    expect(deriveOrderStatus([done('claim:x')], { invoiceStatuses: [] })).toBe('COMPLETED');
+    expect(deriveOrderStatus([done('inv1'), done('inv2')], { invoiceStatuses: ['paid', 'pending_payment'] })).toBe('INVOICED');
+    expect(deriveOrderStatus([done('inv1')], { invoiceStatuses: ['paid'] })).toBe('PAID');
+    expect(deriveOrderStatus([done('inv1')], { invoiceStatuses: ['paid'], hasServiceReport: true })).toBe('CLOSED');
+    // a new job added after invoicing: back to work
+    expect(deriveOrderStatus([done('inv1'), job('scheduled')], { invoiceStatuses: ['paid'] })).toBe('IN_PROGRESS');
+  });
+
   it('every scheduled job done → Completed; cancelled jobs do not count', () => {
     expect(deriveOrderStatus([job('completed')])).toBe('COMPLETED');
     expect(deriveOrderStatus([job('completed'), job('cancelled'), job('completed')])).toBe('COMPLETED');

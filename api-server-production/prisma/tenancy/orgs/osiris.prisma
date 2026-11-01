@@ -1573,6 +1573,8 @@ model Delivery {
   verifiedByUserId   String?
   verifiedByName     String?
   verificationNote   String?
+  // WCT invoice per order (enableWctOrderInvoice): mirrors schema.prisma.
+  orderInvoiceId     String?
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may
@@ -1597,6 +1599,7 @@ model Delivery {
   @@index([organizationId, sourceQuotationId])
   @@index([organizationId, orderId])
   @@index([organizationId, verificationState])
+  @@index([orderInvoiceId])
   @@index([organizationId, scheduledFor]) // jobs calendar range reads
 }
 

@@ -3,7 +3,7 @@
 // helpers/wctOrders.test.mjs. Statuses mirror
 // api-server-production/src/orders/wct-orders.ts (deriveOrderStatus).
 
-export type WctOrderStatus = "OPEN" | "SCHEDULED" | "IN_PROGRESS" | "AWAITING_VERIFICATION" | "COMPLETED";
+export type WctOrderStatus = "OPEN" | "SCHEDULED" | "IN_PROGRESS" | "AWAITING_VERIFICATION" | "COMPLETED" | "INVOICED" | "PAID" | "CLOSED";
 
 export const ORDER_STATUS_LABEL: Record<WctOrderStatus, string> = {
   OPEN: "Open",
@@ -11,6 +11,9 @@ export const ORDER_STATUS_LABEL: Record<WctOrderStatus, string> = {
   IN_PROGRESS: "In progress",
   AWAITING_VERIFICATION: "Awaiting verification",
   COMPLETED: "Completed",
+  INVOICED: "Invoiced",
+  PAID: "Paid",
+  CLOSED: "Closed",
 };
 
 export const ORDER_STATUS_COLOR: Record<WctOrderStatus, "default" | "info" | "warning" | "success"> = {
@@ -19,23 +22,28 @@ export const ORDER_STATUS_COLOR: Record<WctOrderStatus, "default" | "info" | "wa
   IN_PROGRESS: "warning",
   AWAITING_VERIFICATION: "warning",
   COMPLETED: "success",
+  INVOICED: "info",
+  PAID: "success",
+  CLOSED: "default",
 };
 
 export const orderStatusLabel = (s: string | null | undefined) => ORDER_STATUS_LABEL[s as WctOrderStatus] ?? (s || "—");
 export const orderStatusColor = (s: string | null | undefined) => ORDER_STATUS_COLOR[s as WctOrderStatus] ?? "default";
 
-export type OrderTab = "all" | "open" | "active" | "completed";
+export type OrderTab = "all" | "open" | "active" | "completed" | "billing";
 export const ORDER_TABS: { key: OrderTab; label: string }[] = [
   { key: "all", label: "All" },
   { key: "open", label: "Open" },
   { key: "active", label: "Scheduled / in progress" },
   { key: "completed", label: "Completed" },
+  { key: "billing", label: "Invoiced / paid" },
 ];
 
 export function orderMatchesTab(o: { status?: string | null }, tab: OrderTab): boolean {
   if (tab === "open") return o.status === "OPEN";
   if (tab === "active") return o.status === "SCHEDULED" || o.status === "IN_PROGRESS" || o.status === "AWAITING_VERIFICATION";
   if (tab === "completed") return o.status === "COMPLETED";
+  if (tab === "billing") return o.status === "INVOICED" || o.status === "PAID" || o.status === "CLOSED";
   return true;
 }
 
@@ -121,4 +129,11 @@ export function addJobPrefill(order: {
     siteAddress: order.prefill?.siteAddress ?? null,
     lines: (order.prefill?.lines ?? []).filter((l) => l && (l.asset || (l.description || "").trim())),
   };
+}
+
+/** "Invoice now" confirmation: what gets billed now and what happens to the rest. */
+export function invoiceNowText(toInvoice: number[], openJobs: number): string {
+  const jobs = toInvoice.map((n) => `#${n}`).join(", ");
+  const rest = openJobs > 0 ? ` The ${openJobs} job${openJobs === 1 ? "" : "s"} not done or not verified yet will go on a second invoice for this order once verified.` : "";
+  return `Create the invoice now for the verified job${toInvoice.length === 1 ? "" : "s"} ${jobs}?${rest}`;
 }

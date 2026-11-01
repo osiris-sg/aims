@@ -2,7 +2,7 @@
 // 2026-11-01: WCT orders (enableWctOrders): status labels / tabs, job labels, counts line, "Add job" prefill.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { orderStatusLabel, orderStatusColor, orderMatchesTab, orderMatchesSearch, jobStatusLabel, jobStatusColor, jobCountsLine, fmtJobWhen, addJobPrefill } from "./wctOrders.ts";
+import { invoiceNowText, orderStatusLabel, orderStatusColor, orderMatchesTab, orderMatchesSearch, jobStatusLabel, jobStatusColor, jobCountsLine, fmtJobWhen, addJobPrefill } from "./wctOrders.ts";
 
 test("order status: labels, colours, unknown values pass through", () => {
   assert.equal(orderStatusLabel("IN_PROGRESS"), "In progress");
@@ -71,4 +71,15 @@ test("Add job prefill: order id + number, customer, site, quotation lines (blank
   assert.equal(p.siteAddress, "10 Anson Road");
   assert.equal(p.lines.length, 2);
   assert.equal(addJobPrefill({ id: "o2", orderNumber: "ORD202611-002" }).lines.length, 0);
+});
+
+test("Invoice now text: names the jobs and says where the rest go", () => {
+  assert.equal(invoiceNowText([12], 0), "Create the invoice now for the verified job #12?");
+  assert.equal(invoiceNowText([12, 13], 1), "Create the invoice now for the verified jobs #12, #13? The 1 job not done or not verified yet will go on a second invoice for this order once verified.");
+});
+
+test("billing tab: invoiced / paid / closed", () => {
+  for (const s of ["INVOICED", "PAID", "CLOSED"]) assert.equal(orderMatchesTab({ status: s }, "billing"), true);
+  assert.equal(orderMatchesTab({ status: "COMPLETED" }, "billing"), false);
+  assert.equal(orderStatusLabel("PAID"), "Paid");
 });

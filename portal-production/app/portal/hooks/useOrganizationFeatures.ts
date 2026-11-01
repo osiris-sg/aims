@@ -24,6 +24,7 @@ interface OrganizationFeatures {
   enableWctOrders?: boolean;
   enableWctMyJobs?: boolean;
   enableWctFinishModes?: boolean;
+  enableWctOrderInvoice?: boolean;
   // Preset roles with built-in permissions; no role / permission editor for the client.
   enableRolePresets?: boolean;
   enableCappitechOrders?: boolean;
@@ -173,6 +174,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // WCT finish modes (2026-11-01): stamped-DO photo / paper finish, verified by
   // the office (Deliveries → Awaiting verification). Default OFF.
   enableWctFinishModes: false,
+  // WCT invoice per order (2026-11-01): one invoice per order, "Invoice now". Default OFF.
+  enableWctOrderInvoice: false,
 };
 
 interface OrganizationUIConfig {
@@ -246,6 +249,7 @@ export function useOrganizationFeatures() {
     isWctOrdersEnabled: features.enableWctOrders ?? false,
     isWctMyJobsEnabled: features.enableWctMyJobs ?? false,
     isWctFinishModesEnabled: features.enableWctFinishModes ?? false,
+    isWctOrderInvoiceEnabled: features.enableWctOrderInvoice ?? false,
     isRolePresetsEnabled: features.enableRolePresets ?? false,
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,

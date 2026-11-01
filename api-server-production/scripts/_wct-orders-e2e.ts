@@ -29,6 +29,12 @@
  *     a signature is verified at once; reject (reason) → resubmit → verify;
  *     the order waits in Awaiting verification, then Completed; the queue,
  *     the calendar and the order page show the check.
+ *   P4 invoice per order (enableWctOrderInvoice): no per-DO invoice for an
+ *     order's jobs; "Invoice now" bills the verified jobs so far, the jobs
+ *     verified later go on a SECOND invoice automatically; nothing to bill →
+ *     refused; two triggers at once → one invoice; a job already invoiced per
+ *     DO (flag switched on later) is never billed again; GL posted; paid →
+ *     order Paid.
  *
  * Boots only the deliveries + public-sign + orders modules (no cron), WhatsApp
  * + push + email replaced by no-ops.
@@ -68,13 +74,15 @@ import { autoDraftDeliveryFromQuotation } from '../src/deliveries/quotation-to-d
 import { renderWctBody } from '../src/common/services/document-html/wct';
 import { resolveDesign } from '../src/common/services/document-html/design';
 import { seal } from '../src/common/secret-box';
+import { PaymentsService } from '../src/payments/payments.service';
+import { refreshOrderStatus } from '../src/orders/wct-orders';
 
 const WCT = '5c700000-0000-4000-8000-5c7000000001';
 const SC_URL = process.env.SC_URL || 'http://localhost:4100';
 const SC_COMPANY = process.env.SC_COMPANY || '';
 const SC_KEY = (fs.readFileSync(process.env.SC_KEY_FILE || '', 'utf8').match(/sck_live_[A-Za-z0-9_-]+/) || [])[0] || '';
 const [W1, W2] = (process.env.SC_WORKERS || '').split(',');
-const FLAGS = ['enableQuotationToDelivery', 'enableWctOrders', 'enableSiteClockLink', 'enableRealDoOnSchedule', 'enableJobsCalendar', 'enableQuotationESign', 'enableConfirmQuotation', 'enableWctMyJobs', 'enableWctFinishModes'] as const;
+const FLAGS = ['enableQuotationToDelivery', 'enableWctOrders', 'enableSiteClockLink', 'enableRealDoOnSchedule', 'enableJobsCalendar', 'enableQuotationESign', 'enableConfirmQuotation', 'enableWctMyJobs', 'enableWctFinishModes', 'enableWctOrderInvoice'] as const;
 const TECH = 'user_e2e_wct_tech';
 const WORKER_USER = 'user_e2e_wct_worker_1'; // Phase 2: a WCT field-tech linked to SiteClock worker W1
 const CUSTOMER = 'WCT Orders E2E Customer';
@@ -404,6 +412,78 @@ const sgt = (dayOffset: number, hh: number, mm = 0) => {
     await setFlags({ enableWctFinishModes: false });
     await expectRefusal('P3: flag off → the queue is closed', () => deliveries.verificationQueue(WCT), /not enabled/);
     await setFlags({ enableWctFinishModes: true });
+
+    // ── P4: invoice per order ──
+    await setFlags({ enableWctOrderInvoice: true });
+    const perDoInvoice = async (runId: string) => {
+      const d: any = await doOf(runId);
+      return d ? prisma.document.findFirst({ where: { organizationId: WCT, type: 'INVOICE', config: { path: ['sourceDocumentId'], equals: d.id } } }) : null;
+    };
+    const mkOrder = async () => {
+      const q = await quotation();
+      await confirm(q);
+      const o: any = (await ordersOf(q.id))[0];
+      const [first] = await jobsOf(o.id);
+      await deliveries.updateScheduled(first.id, { scheduledFor: sgt(2, 9), items: lines(first), customerId: customer.id, address: SITE } as any, WCT);
+      return { q, o, first };
+    };
+    const { o: o6, first: j6a } = await mkOrder();
+    const j6b: any = await deliveries.createScheduled({ orderId: o6.id, customerId: customer.id, address: SITE, scheduledFor: sgt(2, 11), items: [{ description: 'Duct inspection', quantity: 2, assetClass: 'SERVICE' }] } as any, WCT);
+    const j6c: any = await deliveries.createScheduled({ orderId: o6.id, customerId: customer.id, address: SITE, scheduledFor: sgt(2, 13), items: [{ description: 'Kitchen exhaust degrease', quantity: 1, assetClass: 'SERVICE' }] } as any, WCT);
+    await finishJob(j6a.id, { signature: SIG });
+    await finishJob(j6b.id, { completionMode: 'stamped_do', stampedDoPhotos: ['do-stamped/e2e-p4.jpg'] });
+    check('P4: no per-DO invoice for an order job', !(await perDoInvoice(j6a.id)) && !(await perDoInvoice(j6b.id)));
+    check('P4: …and no order invoice yet (a job still to do, one to verify)', !(await prisma.delivery.findFirst({ where: { id: j6a.id } }))!.orderInvoiceId);
+    const invA: any = await documents.invoiceOrder(o6.id, WCT, { trigger: 'now' });
+    const invADoc: any = await prisma.document.findFirst({ where: { id: invA.id } });
+    const cfgA: any = invADoc.config;
+    check('P4: Invoice now bills only the verified job so far', JSON.stringify(cfgA.orderJobIds) === JSON.stringify([j6a.id]) && cfgA.orderNo === o6.orderNumber && cfgA.orderId === o6.id, [cfgA.orderJobIds, cfgA.orderNo]);
+    check('P4: priced from the quotation (450 + 2 × 120 lines on the first job)', (cfgA.items || []).some((i: any) => Number(i.unitPrice) === 450) && (cfgA.items || []).some((i: any) => Number(i.unitPrice) === 120), (cfgA.items || []).map((i: any) => i.unitPrice));
+    check('P4: invoice names the DO and the quotation', (cfgA.deliveryOrderNos || []).length === 1 && cfgA.sourceDocumentType === 'QUOTATION', [cfgA.deliveryOrderNos, cfgA.sourceDocumentType]);
+    const jeA = await prisma.journalEntry.count({ where: { organizationId: WCT, sourceDocumentId: invA.id } });
+    check('P4: the order invoice posted to the GL', jeA >= 1, jeA);
+    const o6Row: any = await prisma.order.findFirst({ where: { id: o6.id } });
+    check('P4: the order stores its invoice', o6Row.invoiceDocumentId === invA.id && (o6Row.linkedDocuments?.invoice || []).some((x: any) => x.id === invA.id), [o6Row.invoiceDocumentId]);
+    await expectRefusal('P4: Invoice now with nothing verified left → refused', () => documents.invoiceOrder(o6.id, WCT, { trigger: 'now' }), /Nothing to invoice/);
+    await deliveries.verifyJob(j6b.id, WCT, { id: 'u-admin', name: 'E2E Admin' });
+    check('P4: job 2 verified but job 3 still to do → no second invoice yet', !(await prisma.delivery.findFirst({ where: { id: j6b.id } }))!.orderInvoiceId);
+    await finishJob(j6c.id, { signature: SIG });
+    const j6bRow: any = await prisma.delivery.findFirst({ where: { id: j6b.id } });
+    const j6cRow: any = await prisma.delivery.findFirst({ where: { id: j6c.id } });
+    check('P4: the last job done → a SECOND invoice for jobs 2 + 3, automatically', !!j6bRow.orderInvoiceId && j6bRow.orderInvoiceId === j6cRow.orderInvoiceId && j6bRow.orderInvoiceId !== invA.id && !j6bRow.orderInvoiceId.startsWith('claim:'), [j6bRow.orderInvoiceId, j6cRow.orderInvoiceId]);
+    const invADoc2: any = await prisma.document.findFirst({ where: { id: invA.id } });
+    check('P4: the first invoice is untouched', JSON.stringify(invADoc2.config.items) === JSON.stringify(cfgA.items) && JSON.stringify(invADoc2.config.orderJobIds) === JSON.stringify([j6a.id]));
+    let o6Now: any = await prisma.order.findFirst({ where: { id: o6.id } });
+    check('P4: every job invoiced → order Invoiced', o6Now.status === 'INVOICED', o6Now.status);
+    const page6: any = await orders.getById(o6.id, WCT);
+    check('P4: order page lists both invoices with their jobs; nothing left to invoice', page6.invoicing === true && page6.invoices.length === 2 && JSON.stringify(page6.invoices[0].jobNumbers) === JSON.stringify([j6a.deliveryNumber]) && page6.toInvoice.length === 0, page6.invoices?.map((i: any) => i.jobNumbers));
+    // paid → order Paid (the real payment status update)
+    const payments = new PaymentsService(prisma as any, null as any);
+    for (const inv of page6.invoices) {
+      const d: any = await prisma.document.findFirst({ where: { id: inv.id } });
+      const gross = Number(d.config?.totalWithTax ?? d.config?.grandTotal ?? d.config?.nettTotal ?? 0);
+      await prisma.payment.create({ data: { organizationId: WCT, customerId: customer.id, documentId: inv.id, amount: gross, paymentDate: new Date(), paymentMethod: 'transfer', reference: 'e2e', createdBy: 'e2e' } as any });
+      await payments.updateInvoiceStatusAfterPayment(inv.id, WCT);
+    }
+    o6Now = await prisma.order.findFirst({ where: { id: o6.id } });
+    check('P4: both invoices paid → order Paid', o6Now.status === 'PAID', o6Now.status);
+    // a job invoiced per DO before the flag was on is not billed again
+    await setFlags({ enableWctOrderInvoice: false });
+    const { o: o7, first: j7 } = await mkOrder();
+    await finishJob(j7.id, { signature: SIG });
+    const own7: any = await perDoInvoice(j7.id);
+    check('P4: flag off → the per-DO invoice as before', !!own7, own7?.id);
+    await setFlags({ enableWctOrderInvoice: true });
+    const again7 = await documents.maybeInvoiceOrder(o7.id, WCT);
+    const j7Row: any = await prisma.delivery.findFirst({ where: { id: j7.id } });
+    check('P4: flag on later → no second invoice; the job keeps its per-DO invoice', again7 === null && j7Row.orderInvoiceId === own7.id && (await prisma.document.count({ where: { organizationId: WCT, type: 'INVOICE', id: { not: own7.id }, config: { path: ['orderId'], equals: o7.id } } })) === 0, [again7, j7Row.orderInvoiceId]);
+    // two triggers at once → one invoice
+    const { o: o8, first: j8 } = await mkOrder();
+    await finishJob(j8.id, { completionMode: 'paper', completionNote: 'copy with the site office' });
+    await prisma.delivery.update({ where: { id: j8.id }, data: { verificationState: 'verified', verifiedByName: 'E2E Admin', verifiedAt: new Date() } });
+    const racing = await Promise.all([documents.maybeInvoiceOrder(o8.id, WCT), documents.maybeInvoiceOrder(o8.id, WCT), documents.maybeInvoiceOrder(o8.id, WCT)]);
+    const o8Invoices = await prisma.document.count({ where: { organizationId: WCT, type: 'INVOICE', config: { path: ['orderId'], equals: o8.id } } });
+    check('P4: three triggers at once → exactly one invoice', o8Invoices === 1 && racing.filter(Boolean).length === 1, [o8Invoices, racing.map((r: any) => !!r)]);
 
     // ── G: flag off → the old path ──
     await setFlags({ enableWctOrders: false });

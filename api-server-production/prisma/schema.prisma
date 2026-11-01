@@ -3290,6 +3290,11 @@ model Delivery {
   verifiedByUserId   String?
   verifiedByName     String?
   verificationNote   String? // the reject reason
+  // WCT invoice per order (enableWctOrderInvoice, 2026-11-01): the order
+  // invoice this job is billed on. Set when the job is claimed for an invoice
+  // (a "claim:" token first, then the invoice id), so a job is never billed
+  // twice; null = not invoiced yet. Plain pointer, no FK.
+  orderInvoiceId     String?
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may
@@ -3315,6 +3320,7 @@ model Delivery {
   @@index([organizationId, sourceQuotationId])
   @@index([organizationId, orderId])
   @@index([organizationId, verificationState])
+  @@index([orderInvoiceId])
   @@index([organizationId, scheduledFor]) // jobs calendar range reads
 }
 

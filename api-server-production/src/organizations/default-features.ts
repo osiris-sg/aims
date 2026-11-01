@@ -160,4 +160,13 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // new evidence). A customer signature is verified at once. The run's status
   // stays completed (verificationState column). Default OFF; WCT only.
   enableWctFinishModes: false,
+  // WCT invoice per order (2026-11-01, Phase 4; needs enableWctOrders): a job
+  // of an order makes NO invoice of its own. The order is invoiced once every
+  // job is done and verified (automatically), or with "Invoice now" on the
+  // order page for what is verified so far — jobs verified later go on a second
+  // invoice for the same order. Priced from the quotation, posted to the GL,
+  // notified per order. Send / Mark paid as for any invoice; the order then
+  // reads Invoiced → Paid → Closed (paid + service report on the order).
+  // Default OFF; WCT only.
+  enableWctOrderInvoice: false,
 };

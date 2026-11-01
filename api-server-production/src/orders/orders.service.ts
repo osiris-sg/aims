@@ -6,7 +6,9 @@ import {
   DocumentExtractionService,
   SupplierReconciliationData,
 } from '../document-extraction/document-extraction.service';
-import { deriveOrderStatus, isWctOrdersEnabled, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
+import { isWctOrdersEnabled, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
+import { isVerifiedJob } from '../deliveries/finish-modes';
+import { isOrgFeatureEnabled } from '../common/org-features';
 import { doStatusTag } from '../deliveries/do-number';
 
 /**
@@ -354,14 +356,9 @@ export class OrdersService {
   // { orderId }. These reads add the jobs and keep the stored status in step.
   // ────────────────────────────────────────────────────────────────────────
 
-  /** Store the status the jobs say, where it drifted (best-effort). Mutates the rows. */
-  private async syncWctStatuses(organizationId: string, orders: Array<{ id: string; status: string; jobs: { status: string; isDraft: boolean; verificationState?: string | null }[] }>) {
-    for (const o of orders) {
-      const status = deriveOrderStatus(o.jobs);
-      if (o.status === status) continue;
-      o.status = status;
-      await this.prisma.order.update({ where: { id: o.id, organizationId }, data: { status } }).catch(() => undefined);
-    }
+  /** Store the status the jobs + invoices say, where it drifted (best-effort). Mutates the rows. */
+  private async syncWctStatuses(organizationId: string, orders: Array<{ id: string; status: string }>) {
+    for (const o of orders) o.status = (await refreshOrderStatus(this.prisma, organizationId, o.id)) ?? o.status;
   }
 
   private async listWct(organizationId: string) {
@@ -420,6 +417,7 @@ export class OrdersService {
             completionMode: true,
             verificationState: true,
             verificationNote: true,
+            orderInvoiceId: true,
             items: { select: { documentId: true, description: true, quantity: true, assetId: true }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
           },
         },
@@ -468,6 +466,8 @@ export class OrdersService {
         completionMode: j.completionMode ?? null,
         verificationState: j.verificationState ?? null,
         verificationNote: j.verificationNote ?? null,
+        // WCT invoice per order: the order invoice this job is billed on (null = not yet).
+        invoiceId: j.orderInvoiceId && !String(j.orderInvoiceId).startsWith('claim:') ? j.orderInvoiceId : null,
         worker: l ? { id: l.workerId, name: l.workerName, durationMin: l.durationMin, syncState: l.syncState, lastError: l.lastError } : null,
         deliveryOrder: d
           ? { id: d.id, name: d.name, status: d.status, templateId: d.documentTemplateId, tag: doStatusTag({ status: d.status, config: d.config }) }
@@ -492,7 +492,36 @@ export class OrdersService {
         : null,
       jobs,
       prefill: { siteAddress, lines: quotationLines },
+      ...(await this.wctBilling(organizationId, jobsRaw)),
     };
+  }
+
+  /**
+   * WCT invoice per order: the order's invoices (oldest first) and whether
+   * "Invoice now" has anything to bill (completed + verified jobs not on an
+   * invoice yet). invoicing = enableWctOrderInvoice.
+   */
+  private async wctBilling(organizationId: string, jobs: any[]) {
+    const invoicing = await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDER_INVOICE_FLAG);
+    const ids = [...new Set(jobs.map((j) => j.orderInvoiceId).filter((v) => v && !String(v).startsWith('claim:')))] as string[];
+    const docs = ids.length
+      ? await this.prisma.document.findMany({
+          where: { id: { in: ids }, organizationId },
+          select: { id: true, name: true, status: true, type: true, documentTemplateId: true, config: true, createdAt: true },
+          orderBy: { createdAt: 'asc' },
+        })
+      : [];
+    const invoices = docs.map((d: any) => ({
+      id: d.id,
+      name: d.name,
+      status: d.status,
+      href: `/portal/documents/${d.type}/${d.documentTemplateId}/${d.id}`,
+      total: Number(d.config?.grandTotal ?? d.config?.documentInfo?.grandTotal ?? d.config?.nettTotal ?? 0) || 0,
+      jobNumbers: jobs.filter((j) => j.orderInvoiceId === d.id).map((j) => j.deliveryNumber),
+      createdAt: d.createdAt,
+    }));
+    const toInvoice = jobs.filter((j) => isVerifiedJob(j) && !j.orderInvoiceId).map((j) => j.deliveryNumber);
+    return { invoicing, invoices, toInvoice };
   }
 
   /**

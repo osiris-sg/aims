@@ -31,7 +31,8 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import moment from "moment";
 import ScheduleDeliveryDialog from "@/app/portal/deliveries/_components/ScheduleDeliveryDialog";
-import { addJobPrefill, fmtJobWhen, jobStatusColor, jobStatusLabel, orderStatusColor, orderStatusLabel, type PrefillLine } from "@/helpers/wctOrders";
+import { addJobPrefill, fmtJobWhen, invoiceNowText, jobStatusColor, jobStatusLabel, orderStatusColor, orderStatusLabel, type PrefillLine } from "@/helpers/wctOrders";
+import { Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
 
 // WCT order page (enableWctOrders, 2026-11-01): the order header, its jobs
 // (Delivery runs), and "Add job", which opens the usual schedule dialog
@@ -48,6 +49,16 @@ interface Job {
   rider: string | null;
   worker: { id: string | null; name: string | null; durationMin: number; syncState: string; lastError: string | null } | null;
   deliveryOrder: { id: string; name: string | null; status: string; templateId: string; tag: "Pending" | "Completed" | "Cancelled" } | null;
+  verificationState?: string | null;
+  invoiceId?: string | null;
+}
+interface OrderInvoice {
+  id: string;
+  name: string | null;
+  status: string;
+  href: string;
+  total: number;
+  jobNumbers: number[];
 }
 interface WctOrder {
   id: string;
@@ -58,7 +69,13 @@ interface WctOrder {
   sourceQuotation: { id: string; name: string; status: string; type: string; documentTemplateId: string } | null;
   jobs: Job[];
   prefill: { siteAddress: string | null; lines: PrefillLine[] };
+  // WCT invoice per order (enableWctOrderInvoice)
+  invoicing?: boolean;
+  invoices?: OrderInvoice[];
+  toInvoice?: number[];
 }
+
+const INVOICE_STATUS: Record<string, string> = { draft: "Draft", unconfirmed: "Draft", confirmed: "Confirmed", pending_payment: "Sent, awaiting payment", paid: "Paid" };
 
 const doHref = (d: NonNullable<Job["deliveryOrder"]>) => `/portal/documents/DELIVERY_ORDER/${d.templateId}/${d.id}`;
 
@@ -71,6 +88,9 @@ export default function WctOrderDetail({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; job: Job } | null>(null);
+  const [invoiceAsk, setInvoiceAsk] = useState(false);
+  const [invoicing, setInvoicing] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!organization?.id) return;
@@ -231,6 +251,93 @@ export default function WctOrderDetail({ id }: { id: string }) {
           </Table>
         </TableContainer>
       )}
+
+      {actionError && (
+        <Alert severity="warning" sx={{ mt: 2 }} onClose={() => setActionError(null)}>
+          {actionError}
+        </Alert>
+      )}
+      {order.invoicing && (
+        <Box sx={{ mt: 3 }}>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+              Invoices
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Button size="small" variant="outlined" disabled={!order.toInvoice?.length || invoicing} onClick={() => setInvoiceAsk(true)} data-tour="wct-order-invoice-now">
+              Invoice now
+            </Button>
+          </Stack>
+          {!order.invoices?.length ? (
+            <Typography variant="body2" color="text.secondary">
+              {order.toInvoice?.length
+                ? `${order.toInvoice.length} verified job${order.toInvoice.length === 1 ? "" : "s"} not invoiced yet. The order is invoiced automatically once every job is done and verified, or use Invoice now.`
+                : "The order is invoiced once every job is done and verified."}
+            </Typography>
+          ) : (
+            <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Invoice</TableCell>
+                    <TableCell>Jobs</TableCell>
+                    <TableCell align="right">Amount</TableCell>
+                    <TableCell>Status</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {order.invoices.map((inv) => (
+                    <TableRow key={inv.id} hover sx={{ cursor: "pointer" }} onClick={() => router.push(inv.href)}>
+                      <TableCell sx={{ fontWeight: 600 }}>{inv.name || "Invoice"}</TableCell>
+                      <TableCell>{inv.jobNumbers.map((n) => `#${n}`).join(", ")}</TableCell>
+                      <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                        {inv.total.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </TableCell>
+                      <TableCell>
+                        <Chip size="small" label={INVOICE_STATUS[inv.status] ?? inv.status} color={inv.status === "paid" ? "success" : inv.status === "pending_payment" ? "info" : "default"} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </Box>
+      )}
+
+      <Dialog open={invoiceAsk} onClose={() => setInvoiceAsk(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Invoice now</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {invoiceNowText(order.toInvoice ?? [], order.jobs.filter((j) => j.status !== "cancelled" && !j.invoiceId && !(order.toInvoice ?? []).includes(j.deliveryNumber)).length)}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInvoiceAsk(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disableElevation
+            disabled={invoicing}
+            onClick={async () => {
+              setInvoicing(true);
+              try {
+                const token = await getToken();
+                const res = await request({ path: `/orders/${order.id}/invoice-now`, method: "POST" }, {}, token ?? undefined);
+                if (res?.success === false) throw new Error(res?.message || "Could not create the invoice");
+                setInvoiceAsk(false);
+                await load();
+              } catch (e: any) {
+                setActionError(e?.message || "Could not create the invoice");
+                setInvoiceAsk(false);
+              } finally {
+                setInvoicing(false);
+              }
+            }}
+          >
+            Create invoice
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Menu anchorReference="anchorPosition" anchorPosition={menu?.pos} open={!!menu} onClose={() => setMenu(null)}>
         <MenuItem

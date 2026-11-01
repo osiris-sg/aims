@@ -4755,9 +4755,19 @@ export class DeliveriesService {
     return this.verificationView(r, organizationId);
   }
 
-  /** Hook for what follows a verified job (Phase 4: the order's invoice). */
-  private async afterJobVerified(_deliveryId: string, _organizationId: string): Promise<void> {
-    return;
+  /** A verified job may be the last one its order was waiting for: bill the order (enableWctOrderInvoice). */
+  private async afterJobVerified(deliveryId: string, organizationId: string): Promise<void> {
+    await this.orderBillingFollowsRun(organizationId, deliveryId);
+  }
+
+  /** WCT invoice per order: the order bills itself once every remaining job is done and verified. Never throws. */
+  private async orderBillingFollowsRun(organizationId: string, deliveryId: string): Promise<void> {
+    try {
+      const run = await this.prisma.delivery.findFirst({ where: { id: deliveryId, organizationId }, select: { orderId: true } });
+      if (run?.orderId) await this.documentsService.maybeInvoiceOrder(run.orderId, organizationId);
+    } catch (err: any) {
+      this.logger.warn(`order billing after run ${deliveryId}: ${err?.message}`);
+    }
   }
 
   /**
@@ -6410,6 +6420,7 @@ export class DeliveriesService {
       await this.endTripHandoff(deliveryId);
       void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
       await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
+    await this.orderBillingFollowsRun(organizationId, deliveryId); // the jobs left may now all be billable
       return note ? { ...updated, note } : updated;
     }
 
@@ -6463,6 +6474,7 @@ export class DeliveriesService {
     await this.endTripHandoff(deliveryId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
+    await this.orderBillingFollowsRun(organizationId, deliveryId); // the jobs left may now all be billable
     return cancelled;
   }
 

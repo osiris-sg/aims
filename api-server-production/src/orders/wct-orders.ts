@@ -25,7 +25,10 @@ import {
  */
 export const WCT_ORDERS_FLAG = 'enableWctOrders';
 
-export type WctOrderStatus = 'OPEN' | 'SCHEDULED' | 'IN_PROGRESS' | 'AWAITING_VERIFICATION' | 'COMPLETED';
+/** WCT invoice per order (Phase 4): the order is billed on its own invoice(s), not one per DO. */
+export const WCT_ORDER_INVOICE_FLAG = 'enableWctOrderInvoice';
+
+export type WctOrderStatus = 'OPEN' | 'SCHEDULED' | 'IN_PROGRESS' | 'AWAITING_VERIFICATION' | 'COMPLETED' | 'INVOICED' | 'PAID' | 'CLOSED';
 
 export const WCT_ORDER_STATUS_LABEL: Record<WctOrderStatus, string> = {
   OPEN: 'Open',
@@ -33,7 +36,18 @@ export const WCT_ORDER_STATUS_LABEL: Record<WctOrderStatus, string> = {
   IN_PROGRESS: 'In progress',
   AWAITING_VERIFICATION: 'Awaiting verification',
   COMPLETED: 'Completed',
+  INVOICED: 'Invoiced',
+  PAID: 'Paid',
+  CLOSED: 'Closed',
 };
+
+/** What billing adds to the job picture (Phases 4–5). */
+export interface OrderBilling {
+  /** Status of each of the order's invoices. */
+  invoiceStatuses?: string[];
+  /** A service report is on the order (a file or a linked AIMS report). */
+  hasServiceReport?: boolean;
+}
 
 /**
  * The order's status from its jobs. Cancelled jobs don't count; a draft job is
@@ -45,15 +59,27 @@ export const WCT_ORDER_STATUS_LABEL: Record<WctOrderStatus, string> = {
  *   any job started or done (others still to do)         → IN_PROGRESS
  *   otherwise (jobs scheduled, none started)             → SCHEDULED
  * A job finished before verification existed (verificationState null) counts
- * as checked.
+ * as checked. Once every job is done and checked, billing takes over:
+ *   some jobs not on an invoice yet                       → COMPLETED (to invoice)
+ *   every job invoiced, an invoice not fully paid         → INVOICED
+ *   every invoice paid, no service report on the order    → PAID
+ *   paid and the service report attached                  → CLOSED
  */
-export function deriveOrderStatus(jobs: { status: string; isDraft: boolean; verificationState?: string | null }[]): WctOrderStatus {
+export function deriveOrderStatus(
+  jobs: { status: string; isDraft: boolean; verificationState?: string | null; orderInvoiceId?: string | null }[],
+  billing: OrderBilling = {},
+): WctOrderStatus {
   const live = jobs.filter((j) => j.status !== 'cancelled');
   const scheduled = live.filter((j) => !j.isDraft);
   const drafts = live.length - scheduled.length;
   if (!scheduled.length) return 'OPEN';
   if (!drafts && scheduled.every((j) => j.status === 'completed')) {
-    return scheduled.every((j) => j.verificationState == null || j.verificationState === 'verified') ? 'COMPLETED' : 'AWAITING_VERIFICATION';
+    if (!scheduled.every((j) => j.verificationState == null || j.verificationState === 'verified')) return 'AWAITING_VERIFICATION';
+    const invoiced = scheduled.every((j) => !!j.orderInvoiceId && !j.orderInvoiceId.startsWith('claim:'));
+    const invoices = billing.invoiceStatuses ?? [];
+    if (!invoiced || !invoices.length) return 'COMPLETED';
+    if (!invoices.every((st) => st === 'paid')) return 'INVOICED';
+    return billing.hasServiceReport ? 'CLOSED' : 'PAID';
   }
   if (scheduled.some((j) => j.status !== 'scheduled')) return 'IN_PROGRESS';
   return 'SCHEDULED';
@@ -108,10 +134,15 @@ export async function refreshOrderStatus(prisma: any, organizationId: string, or
   if (!orderId) return null;
   try {
     return await runAsOrg(organizationId, async () => {
-      const order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true } });
+      const order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, attachments: true } });
       if (!order) return null;
-      const jobs = await prisma.delivery.findMany({ where: { organizationId, orderId }, select: { status: true, isDraft: true, verificationState: true } });
-      const status = deriveOrderStatus(jobs);
+      const jobs = await prisma.delivery.findMany({ where: { organizationId, orderId }, select: { status: true, isDraft: true, verificationState: true, orderInvoiceId: true } });
+      const invoiceIds = [...new Set(jobs.map((j: any) => j.orderInvoiceId).filter((v: any) => v && !String(v).startsWith('claim:')))] as string[];
+      const invoices = invoiceIds.length ? await prisma.document.findMany({ where: { id: { in: invoiceIds }, organizationId }, select: { status: true } }) : [];
+      const status = deriveOrderStatus(jobs, {
+        invoiceStatuses: invoices.map((d: any) => String(d.status)),
+        hasServiceReport: hasServiceReportAttachment(order.attachments),
+      });
       if (order.status !== status) await prisma.order.update({ where: { id: orderId }, data: { status } });
       return status;
     });
@@ -145,4 +176,9 @@ export async function applyOrderToDoConfig(prisma: any, organizationId: string, 
     /* best-effort: the DO is still made without the order line */
   }
   return cfg;
+}
+
+/** Phase 5: the order carries a service report (an uploaded file or a linked AIMS report). */
+export function hasServiceReportAttachment(attachments: unknown): boolean {
+  return Array.isArray(attachments) && attachments.some((a: any) => a && (a.kind === 'report' || a.kind === 'file'));
 }
