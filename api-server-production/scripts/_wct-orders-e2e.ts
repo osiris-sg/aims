@@ -23,6 +23,12 @@
  *   P2 worker logins (enableWctMyJobs): a job scheduled on SiteClock worker W1
  *     is planned for W1's AIMS login; the field list marks it "mine" for that
  *     user only; re-picking W2 (no login) clears it; flag off → nothing stored.
+ *   P3 finish modes (enableWctFinishModes): stamped-DO photo / paper finish
+ *     without a signature (refused with the flag off), pending until an admin
+ *     verifies; the photo lands on the DO's attachments + the proof report;
+ *     a signature is verified at once; reject (reason) → resubmit → verify;
+ *     the order waits in Awaiting verification, then Completed; the queue,
+ *     the calendar and the order page show the check.
  *
  * Boots only the deliveries + public-sign + orders modules (no cron), WhatsApp
  * + push + email replaced by no-ops.
@@ -68,7 +74,8 @@ const SC_URL = process.env.SC_URL || 'http://localhost:4100';
 const SC_COMPANY = process.env.SC_COMPANY || '';
 const SC_KEY = (fs.readFileSync(process.env.SC_KEY_FILE || '', 'utf8').match(/sck_live_[A-Za-z0-9_-]+/) || [])[0] || '';
 const [W1, W2] = (process.env.SC_WORKERS || '').split(',');
-const FLAGS = ['enableQuotationToDelivery', 'enableWctOrders', 'enableSiteClockLink', 'enableRealDoOnSchedule', 'enableJobsCalendar', 'enableQuotationESign', 'enableConfirmQuotation', 'enableWctMyJobs'] as const;
+const FLAGS = ['enableQuotationToDelivery', 'enableWctOrders', 'enableSiteClockLink', 'enableRealDoOnSchedule', 'enableJobsCalendar', 'enableQuotationESign', 'enableConfirmQuotation', 'enableWctMyJobs', 'enableWctFinishModes'] as const;
+const TECH = 'user_e2e_wct_tech';
 const WORKER_USER = 'user_e2e_wct_worker_1'; // Phase 2: a WCT field-tech linked to SiteClock worker W1
 const CUSTOMER = 'WCT Orders E2E Customer';
 const SITE = '10 Anson Road, Singapore 079903';
@@ -340,6 +347,63 @@ const sgt = (dayOffset: number, hh: number, mm = 0) => {
     for (const r of [p2, p2off]) await deliveries.cancel(r.id, WCT).catch(() => undefined);
     await prisma.organizationMemberProfile.deleteMany({ where: { organizationId: WCT, userId: WORKER_USER } });
     await prisma.userOrganization.deleteMany({ where: { organizationId: WCT, userId: WORKER_USER } });
+
+    // ── P3: finish modes + verification ──
+    const finishJob = async (runId: string, finish: any) => {
+      const row: any = await prisma.delivery.findFirst({ where: { id: runId }, include: { items: true } });
+      for (const it of row.items) {
+        await deliveries.startFreeTypedItem(runId, it.id, { technicianName: 'E2E Tech' }, WCT, TECH);
+        await deliveries.endFreeTypedItem(runId, it.id, { technicianName: 'E2E Tech' }, WCT, TECH);
+      }
+      return deliveries.finalizeRun(runId, { technicianName: 'E2E Tech', installNeeded: false, ...finish }, WCT, TECH, { allowPartial: true });
+    };
+    const q5 = await quotation();
+    await confirm(q5);
+    const o5: any = (await ordersOf(q5.id))[0];
+    const [j5a] = await jobsOf(o5.id);
+    await deliveries.updateScheduled(j5a.id, { scheduledFor: sgt(1, 15), items: lines(j5a), customerId: customer.id, address: SITE, siteclockWorkerId: W1, siteclockWorkerName: 'Cal Worker 1' } as any, WCT);
+    const j5b: any = await deliveries.createScheduled({ orderId: o5.id, customerId: customer.id, address: SITE, scheduledFor: sgt(1, 17), items: [{ description: 'Duct inspection', quantity: 1, assetClass: 'SERVICE' }] } as any, WCT);
+    await expectRefusal('P3: flag off → a paper finish is refused (signature rule unchanged)', () => finishJob(j5a.id, { completionMode: 'paper' }), /not enabled/);
+    await setFlags({ enableWctFinishModes: true });
+    await expectRefusal('P3: a stamped-DO finish needs its photo', () => deliveries.finalizeRun(j5a.id, { completionMode: 'stamped_do', stampedDoPhotos: [] } as any, WCT, TECH, { allowPartial: true }), /photo of the stamped DO/);
+    await deliveries.finalizeRun(j5a.id, { completionMode: 'stamped_do', stampedDoPhotos: ['do-stamped/e2e-1.jpg'], completionNote: 'Stamped by the site manager', technicianName: 'E2E Tech', installNeeded: false } as any, WCT, TECH, { allowPartial: true });
+    let j5aRow: any = await prisma.delivery.findFirst({ where: { id: j5a.id } });
+    check('P3: stamped-DO finish without a signature → completed, Awaiting verification', j5aRow.status === 'completed' && j5aRow.completionMode === 'stamped_do' && j5aRow.verificationState === 'pending', [j5aRow.status, j5aRow.completionMode, j5aRow.verificationState]);
+    const j5aDo: any = await doOf(j5a.id);
+    check('P3: the photo is on the DO as a "Stamped DO" attachment', ((j5aDo?.attachments as any[]) || []).some((a) => a.fileKey === 'do-stamped/e2e-1.jpg' && a.label === 'Stamped DO'), j5aDo?.attachments);
+    const proof = await prisma.maintenanceServiceReport.findMany({ where: { deliveryId: j5a.id, kind: 'DO_ACK', description: { startsWith: 'Stamped DO' } } });
+    check('P3: …and on the run’s proof report, linked to the DO', proof.length === 1 && proof[0].photos.includes('do-stamped/e2e-1.jpg') && proof[0].documentId === j5aDo?.id, proof.map((p) => [p.photos, p.documentId]));
+    await finishJob(j5b.id, { signature: SIG, recipientName: 'Site Manager' });
+    const j5bRow: any = await prisma.delivery.findFirst({ where: { id: j5b.id } });
+    check('P3: a signature finish is verified at once', j5bRow.completionMode === 'signature' && j5bRow.verificationState === 'verified' && j5bRow.verifiedByName === 'Customer signature', [j5bRow.completionMode, j5bRow.verificationState]);
+    let o5Now: any = await prisma.order.findFirst({ where: { id: o5.id } });
+    check('P3: order waits: Awaiting verification', o5Now.status === 'AWAITING_VERIFICATION', o5Now.status);
+    let queue: any[] = await deliveries.verificationQueue(WCT, 'pending');
+    const qRow = queue.find((r) => r.id === j5a.id);
+    check('P3: the queue has the job with its photo, note, order and DO', !!qRow && qRow.photos.includes('do-stamped/e2e-1.jpg') && qRow.completionNote === 'Stamped by the site manager' && qRow.order?.orderNumber === o5.orderNumber && qRow.deliveryOrder?.id === j5aDo?.id, qRow);
+    check('P3: a signed job is not in the queue', !queue.some((r) => r.id === j5b.id));
+    const calP3 = await calendar.get(WCT, sgt(1, 15).slice(0, 10), sgt(1, 15).slice(0, 10));
+    check('P3: calendar popup shows the check', calP3.events.find((e) => e.id === `aims:${j5a.id}`)?.verificationLabel === 'Awaiting verification' && calP3.events.find((e) => e.id === `aims:${j5b.id}`)?.verificationLabel === 'Verified');
+    const page5: any = await orders.getById(o5.id, WCT);
+    check('P3: order page jobs carry the check', page5.jobs.find((j: any) => j.id === j5a.id)?.verificationState === 'pending' && page5.statusLabel === 'Awaiting verification', page5.jobs.map((j: any) => j.verificationState));
+    await expectRefusal('P3: reject needs a reason', () => deliveries.rejectJob(j5a.id, WCT, { id: 'u-admin', name: 'E2E Admin' }, '  '), /Say why/);
+    await deliveries.rejectJob(j5a.id, WCT, { id: 'u-admin', name: 'E2E Admin' }, 'Stamp not readable');
+    j5aRow = await prisma.delivery.findFirst({ where: { id: j5a.id } });
+    check('P3: rejected with the reason; run stays completed', j5aRow.verificationState === 'rejected' && j5aRow.verificationNote === 'Stamp not readable' && j5aRow.status === 'completed', [j5aRow.verificationState, j5aRow.verificationNote]);
+    check('P3: rejected list has it', (await deliveries.verificationQueue(WCT, 'rejected')).some((r: any) => r.id === j5a.id));
+    await expectRefusal('P3: resubmit needs a photo or a note', () => deliveries.resubmitEvidence(j5a.id, WCT, { id: TECH, name: 'E2E Tech' }, {}), /photo of the stamped DO or a note/);
+    await deliveries.resubmitEvidence(j5a.id, WCT, { id: TECH, name: 'E2E Tech' }, { photos: ['do-stamped/e2e-2.jpg'], note: 'Clearer photo' });
+    j5aRow = await prisma.delivery.findFirst({ where: { id: j5a.id } });
+    const j5aDo2: any = await doOf(j5a.id);
+    check('P3: resubmitted → Awaiting verification again, both photos kept, new one on the DO', j5aRow.verificationState === 'pending' && (j5aRow.completionPhotos as string[]).length === 2 && ((j5aDo2?.attachments as any[]) || []).some((a) => a.fileKey === 'do-stamped/e2e-2.jpg'), [j5aRow.verificationState, j5aRow.completionPhotos]);
+    const view: any = await deliveries.verifyJob(j5a.id, WCT, { id: 'u-admin', name: 'E2E Admin' });
+    check('P3: verified by the admin', view?.verificationState === 'verified' && view?.verifiedByName === 'E2E Admin', view);
+    o5Now = await prisma.order.findFirst({ where: { id: o5.id } });
+    check('P3: every job checked → order Completed', o5Now.status === 'COMPLETED', o5Now.status);
+    await expectRefusal('P3: an already verified job cannot be rejected', () => deliveries.rejectJob(j5a.id, WCT, { id: 'u-admin' }, 'late'), /already verified/);
+    await setFlags({ enableWctFinishModes: false });
+    await expectRefusal('P3: flag off → the queue is closed', () => deliveries.verificationQueue(WCT), /not enabled/);
+    await setFlags({ enableWctFinishModes: true });
 
     // ── G: flag off → the old path ──
     await setFlags({ enableWctOrders: false });

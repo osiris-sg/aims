@@ -59,6 +59,7 @@ import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from 
 import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
 import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
 import { plannedRiderView, savePlannedRider } from './planned-rider';
+import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
 @Injectable()
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
@@ -4423,6 +4424,10 @@ export class DeliveriesService {
       // photos; false -> no installation recorded.
       installNeeded?: boolean;
       installPhotos?: string[];
+      // WCT finish modes (enableWctFinishModes): signature (default) / stamped_do / paper.
+      completionMode?: CompletionMode;
+      stampedDoPhotos?: string[];
+      completionNote?: string;
     },
     organizationId: string,
     technicianUserId: string,
@@ -4438,7 +4443,19 @@ export class DeliveriesService {
     if (run.direction === DeliveryDirection.RETURN) {
       throw new BadRequestException('Returns are signed at collection, not at run finalize');
     }
-    if (!dto.signature) throw new BadRequestException('Customer signature is required');
+    // WCT finish modes: a stamped-DO photo or a paper finish replaces the
+    // signature, only behind the flag and only for a full finish. Without the
+    // flag (and for every other org) the signature rule is exactly as before.
+    const mode: CompletionMode = isCompletionMode(dto.completionMode) ? dto.completionMode : 'signature';
+    const finishModes = await isOrgFeatureEnabled(this.prisma, organizationId, WCT_FINISH_MODES_FLAG);
+    const finishProblem = finishModeProblem({
+      mode,
+      flagOn: finishModes,
+      signature: dto.signature,
+      photos: dto.stampedDoPhotos,
+      partial: run.status === 'in_progress' && !!opts.allowPartial,
+    });
+    if (finishProblem) throw new BadRequestException(finishProblem);
     if (run.status === 'completed') throw new BadRequestException('This delivery is already finalized');
     // PARTIAL SIGN-OFF (2026-09): an in_progress run signs for what it has
     // handed over so far. The run stays open for the rest; see finalizeRunPartial.
@@ -4492,15 +4509,56 @@ export class DeliveriesService {
       });
     }
     // One signature stamped across every still-unsigned proof MSR on the run.
+    // A stamped-DO / paper finish completes them WITHOUT a signature.
     await this.prisma.maintenanceServiceReport.updateMany({
       where: { deliveryId, kind: { in: ['DO_ACK', 'DO_INSTALL'] }, status: { not: 'completed' } },
-      data: {
-        signature: dto.signature,
-        ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
-        signedAt: now,
-        status: 'completed',
-      },
+      data:
+        mode === 'signature'
+          ? {
+              signature: dto.signature,
+              ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
+              signedAt: now,
+              status: 'completed',
+            }
+          : { status: 'completed' },
     });
+    const stampedPhotos = mode === 'stamped_do' ? (dto.stampedDoPhotos ?? []).map((k) => String(k).trim()).filter(Boolean) : [];
+    if (mode !== 'signature') {
+      // The field record of a stamped-DO / paper finish: one run-level
+      // DO_ACK carrying the stamped-DO photos (it lands in the DO's Proof of
+      // Delivery like any other proof photo) or the paper note.
+      await this.prisma.maintenanceServiceReport.create({
+        data: {
+          organizationId,
+          technicianUserId,
+          assetId: null,
+          inventoryId: null,
+          deliveryId,
+          kind: 'DO_ACK',
+          status: 'completed',
+          description: `${mode === 'stamped_do' ? 'Stamped DO (photo)' : 'Completed: paper copy to follow'}${dto.completionNote?.trim() ? ` — ${dto.completionNote.trim()}` : ''}`,
+          ...(stampedPhotos.length ? { photos: stampedPhotos } : {}),
+          ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+          ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+          ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+        },
+      });
+    }
+    // WCT finish modes: how it was finished + the office check, stamped BEFORE
+    // the run folds to completed so every completion hook (the order's
+    // invoice, its status) already sees whether the job still waits.
+    if (finishModes) {
+      await this.prisma.delivery.update({
+        where: { id: deliveryId },
+        data: {
+          completionMode: mode,
+          completionNote: dto.completionNote?.trim() || null,
+          completionPhotos: stampedPhotos.length ? stampedPhotos : undefined,
+          verificationNote: null,
+          ...initialVerification(mode, now),
+        },
+      });
+    }
     // Link the run's proof MSRs (photos + this signature) onto their born-linked
     // DO(s) so the DO preview/PDF actually finds them. A born-linked scheduled
     // run never passes through link() (the only other place MSR.documentId is
@@ -4514,6 +4572,8 @@ export class DeliveriesService {
       data: { deliveryStatus: DeliveryStatus.completed, completedAt: now },
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
+    // The stamped-DO photos also go on the DO itself, as "Stamped DO" attachments.
+    if (stampedPhotos.length) await this.attachStampedDo(deliveryId, organizationId, stampedPhotos, { id: technicianUserId, name: dto.technicianName });
     // Auto-revoke any guest share link on this run, but ONLY once the run is
     // finished: the link must stop accepting anything then (matches the guest
     // resolveToken guard). A run that did not complete keeps its link.
@@ -4528,6 +4588,176 @@ export class DeliveriesService {
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return finished ? { ...finished, signedItemCount, partial: false } : finished;
+  }
+
+  // ── WCT finish modes: verification (enableWctFinishModes) ──────────────
+
+  /** The run's DO(s) get the stamped-DO photos as "Stamped DO" attachments. Best-effort. */
+  private async attachStampedDo(deliveryId: string, organizationId: string, photos: string[], actor: { id?: string; name?: string }) {
+    try {
+      const items = await this.prisma.deliveryItem.findMany({ where: { deliveryId, documentId: { not: null } }, select: { documentId: true } });
+      const docIds = [...new Set(items.map((i) => i.documentId as string))];
+      for (const docId of docIds) {
+        await this.documentsService.addAttachments(
+          docId,
+          organizationId,
+          photos.map((key, n) => ({ fileKey: key, fileName: `Stamped DO${photos.length > 1 ? ` ${n + 1}` : ''}.${(key.split('.').pop() || 'jpg').toLowerCase()}`, mimeType: 'image/jpeg', label: 'Stamped DO' })),
+          { id: actor.id, name: actor.name },
+        );
+      }
+    } catch (err: any) {
+      this.logger.warn(`attachStampedDo ${deliveryId}: ${err?.message}`);
+    }
+  }
+
+  private async assertFinishModes(organizationId: string) {
+    if (!(await isOrgFeatureEnabled(this.prisma, organizationId, WCT_FINISH_MODES_FLAG))) {
+      throw new BadRequestException('Job verification is not enabled for this organisation');
+    }
+  }
+
+  /**
+   * The admin's "Awaiting verification" queue: completed jobs finished with a
+   * stamped-DO photo or on paper, still pending (default) or rejected.
+   */
+  async verificationQueue(organizationId: string, state: 'pending' | 'rejected' | 'all' = 'pending') {
+    await this.assertFinishModes(organizationId);
+    const runs = await this.prisma.delivery.findMany({
+      where: { organizationId, status: 'completed', verificationState: state === 'all' ? { in: ['pending', 'rejected'] } : state },
+      orderBy: { completedAt: 'asc' },
+      include: {
+        customer: { select: { id: true, name: true } },
+        order: { select: { id: true, orderNumber: true } },
+        items: { select: { documentId: true } },
+      },
+    });
+    return Promise.all(runs.map((r) => this.verificationView(r, organizationId)));
+  }
+
+  /** One job's verification block (also used by the delivery page and the order page). */
+  private async verificationView(r: any, organizationId: string) {
+    const docIds = [...new Set((r.items ?? []).map((i: any) => i.documentId).filter(Boolean))] as string[];
+    const [doc, proof] = await Promise.all([
+      docIds.length
+        ? this.prisma.document.findFirst({ where: { id: { in: docIds }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, name: true, documentTemplateId: true }, orderBy: { createdAt: 'asc' } })
+        : null,
+      this.prisma.maintenanceServiceReport.findMany({
+        where: { deliveryId: r.id, kind: 'DO_ACK', assetId: null, description: { startsWith: 'Stamped DO' } },
+        select: { photos: true },
+      }),
+    ]);
+    const photos = [...new Set([...((r.completionPhotos as string[]) ?? []), ...proof.flatMap((p) => p.photos ?? [])])];
+    return {
+      id: r.id,
+      deliveryNumber: r.deliveryNumber,
+      completedAt: r.completedAt,
+      scheduledFor: r.scheduledFor,
+      siteAddress: r.siteAddress,
+      rider: r.riderName ?? null,
+      customer: r.customer ?? null,
+      order: r.order ?? null,
+      deliveryOrder: doc ? { id: doc.id, name: doc.name, templateId: doc.documentTemplateId } : null,
+      completionMode: r.completionMode,
+      completionNote: r.completionNote,
+      photos,
+      verificationState: r.verificationState,
+      verificationNote: r.verificationNote,
+      verifiedAt: r.verifiedAt,
+      verifiedByName: r.verifiedByName,
+    };
+  }
+
+  private async jobForVerification(deliveryId: string, organizationId: string) {
+    await this.assertFinishModes(organizationId);
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { id: true, status: true, verificationState: true, orderId: true, completionPhotos: true, deliveryNumber: true },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.status !== 'completed' || !run.verificationState) throw new BadRequestException('Only a completed job waiting for verification can be checked');
+    return run;
+  }
+
+  /** Admin: the stamped DO / paper copy is fine. */
+  async verifyJob(deliveryId: string, organizationId: string, actor: { id?: string; name?: string }) {
+    const run = await this.jobForVerification(deliveryId, organizationId);
+    if (run.verificationState === 'verified') return this.verificationOf(deliveryId, organizationId);
+    await this.prisma.delivery.update({
+      where: { id: deliveryId },
+      data: { verificationState: 'verified', verifiedAt: new Date(), verifiedByUserId: actor.id ?? null, verifiedByName: actor.name ?? null, verificationNote: null },
+    });
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: a verified job may complete the order
+    await this.afterJobVerified(deliveryId, organizationId);
+    return this.verificationOf(deliveryId, organizationId);
+  }
+
+  /** Admin: the evidence is not good enough; back to the worker / office with the reason. */
+  async rejectJob(deliveryId: string, organizationId: string, actor: { id?: string; name?: string }, reason: string) {
+    const why = (reason || '').trim();
+    if (!why) throw new BadRequestException('Say why the job is rejected');
+    const run = await this.jobForVerification(deliveryId, organizationId);
+    if (run.verificationState === 'verified') throw new BadRequestException('This job is already verified');
+    await this.prisma.delivery.update({
+      where: { id: deliveryId },
+      data: { verificationState: 'rejected', verifiedAt: new Date(), verifiedByUserId: actor.id ?? null, verifiedByName: actor.name ?? null, verificationNote: why },
+    });
+    await this.orderFollowsRun(organizationId, deliveryId);
+    return this.verificationOf(deliveryId, organizationId);
+  }
+
+  /** Worker or office: new stamped-DO photo(s) and/or a note for a rejected (or pending) job → back to "Awaiting verification". */
+  async resubmitEvidence(deliveryId: string, organizationId: string, actor: { id?: string; name?: string }, body: { photos?: string[]; note?: string }) {
+    const run = await this.jobForVerification(deliveryId, organizationId);
+    if (run.verificationState === 'verified') throw new BadRequestException('This job is already verified');
+    const photos = (body.photos ?? []).map((k) => String(k).trim()).filter(Boolean);
+    const note = body.note?.trim() || '';
+    if (!photos.length && !note) throw new BadRequestException('Add a photo of the stamped DO or a note');
+    if (photos.length) {
+      await this.prisma.maintenanceServiceReport.create({
+        data: {
+          organizationId,
+          technicianUserId: actor.id ?? 'unknown',
+          assetId: null,
+          inventoryId: null,
+          deliveryId,
+          kind: 'DO_ACK',
+          status: 'completed',
+          description: `Stamped DO (photo, resubmitted)${note ? ` — ${note}` : ''}`,
+          photos,
+          ...(actor.name ? { technicianName: actor.name } : {}),
+        },
+      });
+      await this.stampProofMsrDocumentIds(deliveryId, organizationId);
+      await this.attachStampedDo(deliveryId, organizationId, photos, actor);
+    }
+    await this.prisma.delivery.update({
+      where: { id: deliveryId },
+      data: {
+        verificationState: 'pending',
+        verifiedAt: null,
+        verifiedByUserId: null,
+        verifiedByName: null,
+        ...(photos.length ? { completionPhotos: [...(((run.completionPhotos as string[]) ?? []) as string[]), ...photos] } : {}),
+        ...(note ? { completionNote: note } : {}),
+      },
+    });
+    await this.orderFollowsRun(organizationId, deliveryId);
+    return this.verificationOf(deliveryId, organizationId);
+  }
+
+  /** The verification block of one job (delivery page). Null when the job has none. */
+  async verificationOf(deliveryId: string, organizationId: string) {
+    const r = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      include: { customer: { select: { id: true, name: true } }, order: { select: { id: true, orderNumber: true } }, items: { select: { documentId: true } } },
+    });
+    if (!r || !r.verificationState) return null;
+    return this.verificationView(r, organizationId);
+  }
+
+  /** Hook for what follows a verified job (Phase 4: the order's invoice). */
+  private async afterJobVerified(_deliveryId: string, _organizationId: string): Promise<void> {
+    return;
   }
 
   /**

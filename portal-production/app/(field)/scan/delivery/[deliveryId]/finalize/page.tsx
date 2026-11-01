@@ -17,6 +17,8 @@ import { request } from "@/helpers/request";
 import { uploadImage } from "@/helpers/imageUploader";
 import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/SignaturePadField";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { FINISH_OPTIONS, FinishMode, finishButtonLabel, finishProblem } from "@/helpers/wctFinishModes";
 
 /**
  * RUN FINALIZE (2026-08). The ONE closing sequence for the whole run, reached when
@@ -53,6 +55,13 @@ export default function FinalizeDeliveryPage() {
   // question is skipped entirely and the page opens on the signature
   // (guru 2026-10-27: "remove this logic for wct entirely").
   const [serviceRun, setServiceRun] = useState(false);
+  // WCT finish modes (enableWctFinishModes): besides the customer's signature,
+  // a photo of the DO the customer stamped, or "completed, paper copy later".
+  // Full finish only (a partial sign-off is always signed).
+  const { isWctFinishModesEnabled } = useOrganizationFeatures();
+  const [mode, setMode] = useState<FinishMode>("signature");
+  const [stampedPhotos, setStampedPhotos] = useState<CapturedPhoto[]>([]);
+  const [completionNote, setCompletionNote] = useState("");
   useFieldAppBar({
     title: isReturn ? "Finish return" : "Finish delivery",
     onBack: () => (step === "sign" && !isReturn && !serviceRun ? setStep("install") : router.back()),
@@ -91,6 +100,8 @@ export default function FinalizeDeliveryPage() {
     };
   }, [deliveryId, getToken, isReturn]);
   const partial = partialCount !== null;
+  const modesOffered = isWctFinishModesEnabled && !isReturn && !partial;
+  const finishMode: FinishMode = modesOffered ? mode : "signature";
 
   const uploadInstallPhoto = async (blob: Blob): Promise<string | null> => {
     const token = await getToken();
@@ -98,12 +109,38 @@ export default function FinalizeDeliveryPage() {
     return uploadImage({ blob, folderName: "do-install", token });
   };
 
+  const uploadStampedPhoto = async (blob: Blob): Promise<string | null> => {
+    const token = await getToken();
+    if (!token) return null;
+    return uploadImage({ blob, folderName: "do-stamped", token });
+  };
+
   const submit = async () => {
+    if (finishMode !== "signature") {
+      const problem = finishProblem(finishMode, stampedPhotos.length);
+      if (problem) {
+        setError(problem);
+        return;
+      }
+      await send({
+        completionMode: finishMode,
+        ...(finishMode === "stamped_do" ? { stampedDoPhotos: stampedPhotos.map((p) => p.key) } : {}),
+        ...(completionNote.trim() ? { completionNote: completionNote.trim() } : {}),
+        installNeeded: installChoice === "yes",
+        ...(installChoice === "yes" && installPhotos.length ? { installPhotos: installPhotos.map((p) => p.key) } : {}),
+      });
+      return;
+    }
     if (!sigRef.current || sigRef.current.isEmpty()) {
       setError(isReturn ? "The customer needs to sign to complete the return." : "The customer needs to sign to complete the delivery.");
       return;
     }
     const signature = sigRef.current.toDataUrl();
+    await send({ signature });
+  };
+
+  const send = async (finish: { signature?: string; completionMode?: FinishMode; stampedDoPhotos?: string[]; completionNote?: string; installNeeded?: boolean; installPhotos?: string[] }) => {
+    const signature = finish.signature;
     setWorking(true);
     setError(null);
     try {
@@ -120,12 +157,14 @@ export default function FinalizeDeliveryPage() {
           )
         : await request(
             { path: `/deliveries/${deliveryId}/finalize`, method: "POST" },
-            {
-              signature,
-              ...(signedByName.trim() ? { recipientName: signedByName.trim() } : {}),
-              installNeeded: installChoice === "yes",
-              ...(installChoice === "yes" && installPhotos.length ? { installPhotos: installPhotos.map((p) => p.key) } : {}),
-            },
+            finish.completionMode
+              ? finish
+              : {
+                  signature,
+                  ...(signedByName.trim() ? { recipientName: signedByName.trim() } : {}),
+                  installNeeded: installChoice === "yes",
+                  ...(installChoice === "yes" && installPhotos.length ? { installPhotos: installPhotos.map((p) => p.key) } : {}),
+                },
             token,
           );
       if (res?.success === false) throw new Error(res?.message ?? (isReturn ? "Could not finalize the return" : "Could not finalize the delivery"));
@@ -215,6 +254,52 @@ export default function FinalizeDeliveryPage() {
         </>
       ) : (
         <>
+          {modesOffered && (
+            <Stack spacing={1} data-tour="field-finish-mode">
+              <Typography variant="h6" fontWeight={700}>
+                How is the job signed off?
+              </Typography>
+              {FINISH_OPTIONS.map((o) => (
+                <Button key={o.value} fullWidth variant={mode === o.value ? "contained" : "outlined"} onClick={() => setMode(o.value)} sx={{ minHeight: 48, justifyContent: "flex-start", textAlign: "left" }}>
+                  <Box>
+                    <Typography sx={{ fontWeight: 600, fontSize: 15 }}>{o.label}</Typography>
+                    <Typography sx={{ fontSize: 12, opacity: 0.8 }}>{o.hint}</Typography>
+                  </Box>
+                </Button>
+              ))}
+            </Stack>
+          )}
+
+          {finishMode !== "signature" ? (
+            <>
+              {finishMode === "stamped_do" && (
+                <PhotoCaptureField
+                  label="Photo of the stamped DO"
+                  photos={stampedPhotos}
+                  onChange={setStampedPhotos}
+                  upload={uploadStampedPhoto}
+                  onError={(m) => setError(m || null)}
+                  onUploadingChange={setWorking}
+                />
+              )}
+              <TextField
+                label={finishMode === "paper" ? "Note (optional), e.g. who has the paper copy" : "Note (optional)"}
+                value={completionNote}
+                onChange={(e) => setCompletionNote(e.target.value)}
+                size="small"
+                fullWidth
+                multiline
+                minRows={2}
+              />
+              <Typography variant="body2" color="text.secondary">
+                The job is completed now and waits for the office to verify it.
+              </Typography>
+              <Button fullWidth variant="contained" color="success" onClick={submit} disabled={working} sx={{ minHeight: 48 }}>
+                {working ? <CircularProgress size={22} /> : finishButtonLabel(finishMode)}
+              </Button>
+            </>
+          ) : (
+          <>
           <Typography variant="h6" fontWeight={700}>
             Customer signature
           </Typography>
@@ -247,6 +332,8 @@ export default function FinalizeDeliveryPage() {
               "Complete delivery"
             )}
           </Button>
+          </>
+          )}
         </>
       )}
     </Box>

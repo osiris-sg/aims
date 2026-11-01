@@ -73,6 +73,7 @@ export class JobsCalendarService {
           customer: { select: { name: true } },
           project: { select: { name: true } },
           order: { select: { id: true, orderNumber: true } },
+          verificationState: true,
           items: { where: { assetClass: 'SERVICE' }, select: { id: true }, take: 1 },
         },
         orderBy: { scheduledFor: 'asc' },
@@ -93,6 +94,7 @@ export class JobsCalendarService {
       service: (r.items?.length ?? 0) > 0,
       deliveryOrder: dos.get(r.id) ?? null,
       order: r.order ?? null,
+      verificationState: r.verificationState ?? null,
     }));
   }
 

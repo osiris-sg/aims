@@ -26,6 +26,15 @@ const COLUMNS: Record<string, [string, string][]> = {
     // Phase 2
     ['plannedRiderUserId', 'TEXT'],
     ['plannedRiderName', 'TEXT'],
+    // Phase 3
+    ['completionMode', 'TEXT'],
+    ['completionNote', 'TEXT'],
+    ['completionPhotos', 'JSONB'],
+    ['verificationState', 'TEXT'],
+    ['verifiedAt', 'TIMESTAMP(3)'],
+    ['verifiedByUserId', 'TEXT'],
+    ['verifiedByName', 'TEXT'],
+    ['verificationNote', 'TEXT'],
   ],
   // Phase 2
   OrganizationMemberProfile: [['siteclockUserId', 'TEXT']],
@@ -34,6 +43,7 @@ const COLUMNS: Record<string, [string, string][]> = {
 /** Indexes: [table, index name, column list]. */
 const INDEXES: [string, string, string][] = [
   ['Delivery', 'Delivery_organizationId_orderId_idx', '"organizationId", "orderId"'],
+  ['Delivery', 'Delivery_organizationId_verificationState_idx', '"organizationId", "verificationState"'],
   ['OrganizationMemberProfile', 'OrganizationMemberProfile_organizationId_siteclockUserId_idx', '"organizationId", "siteclockUserId"'],
 ];
 

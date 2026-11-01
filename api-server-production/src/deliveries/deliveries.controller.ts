@@ -9,7 +9,7 @@ import { SiteClockLinkService } from '../siteclock/siteclock-link.service';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { AddDeliveryItemDto } from './dto/add-delivery-item.dto';
 import { CreateDoFromDeliveryDto, LinkDeliveryDto } from './dto/link-delivery.dto';
-import { AckAllDto, AddItemPhotosDto, AssignDeliveryItemDto, FreeTypedEndDto, FreeTypedStartDto, SetDeploymentTypeDto, SetItemAssetClassDto, SkipInstallDto } from './dto/assign-delivery.dto';
+import { AckAllDto, AddItemPhotosDto, AssignDeliveryItemDto, FreeTypedEndDto, FreeTypedStartDto, RejectJobDto, ResubmitEvidenceDto, SetDeploymentTypeDto, SetItemAssetClassDto, SkipInstallDto } from './dto/assign-delivery.dto';
 import { ScheduleDeliveryDto, ClaimScheduledDto, ClaimReturnDto } from './dto/schedule-delivery.dto';
 import { ScheduleReturnDto } from './dto/schedule-return.dto';
 import { AdHocReturnDto } from './dto/adhoc-return.dto';
@@ -201,12 +201,45 @@ export class DeliveriesController {
     return this.service.listOpenScheduledForPicker(org.id, assetId);
   }
 
+  // WCT finish modes (enableWctFinishModes): the admin's "Awaiting
+  // verification" queue. Declared BEFORE ':id' so the literal segment is not
+  // read as a delivery id.
+  @Get('verification')
+  @Permissions('maintenance-reports:read')
+  verificationQueue(@UserOrganization() org: { id: string }, @Query('state') state?: string) {
+    const s = state === 'rejected' || state === 'all' ? state : 'pending';
+    return this.service.verificationQueue(org.id, s);
+  }
+
   @Get(':id')
   @Permissions('maintenance-reports:read')
   async findById(@Param('id') id: string, @UserOrganization() org: { id: string }) {
     const run: any = await this.service.findById(id, org.id);
+    // WCT finish modes: the job's verification block (null for every other run).
+    if (run?.verificationState) run.verification = await this.service.verificationOf(id, org.id);
     const views = await this.siteclock.viewsFor(org.id, run?.id ? [run.id] : []);
     return views.size ? { ...run, siteclock: views.get(run.id) ?? null } : run;
+  }
+
+  // WCT finish modes: the admin accepts a stamped-DO / paper finish.
+  @Post(':id/verify')
+  @Permissions('documents:update')
+  verify(@Param('id') id: string, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.service.verifyJob(id, org.id, actorOf(req));
+  }
+
+  // WCT finish modes: the admin rejects it, with the reason.
+  @Post(':id/reject')
+  @Permissions('documents:update')
+  reject(@Param('id') id: string, @Body() dto: RejectJobDto, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.service.rejectJob(id, org.id, actorOf(req), dto.reason);
+  }
+
+  // WCT finish modes: new evidence for a rejected job (worker or office) → awaiting verification again.
+  @Post(':id/resubmit-evidence')
+  @Permissions('maintenance-reports:create')
+  resubmitEvidence(@Param('id') id: string, @Body() dto: ResubmitEvidenceDto, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.service.resubmitEvidence(id, org.id, actorOf(req), dto);
   }
 
   @Post(':id/link')
@@ -573,4 +606,11 @@ export class DeliveriesController {
     req.actionLogResult = result;
     return result;
   }
+}
+
+/** Who did it, for the verification fields (id + display name from the Clerk user). */
+function actorOf(req: any): { id?: string; name?: string } {
+  const u: any = req?.user || {};
+  const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username || undefined;
+  return { id: u.id, name };
 }

@@ -24,6 +24,14 @@ describe('WCT orders: status from the jobs', () => {
     expect(deriveOrderStatus([job('completed'), job('scheduled', true)])).toBe('IN_PROGRESS');
   });
 
+  it('all done but a stamped-DO / paper finish not checked yet → Awaiting verification', () => {
+    expect(deriveOrderStatus([{ status: 'completed', isDraft: false, verificationState: 'verified' }, { status: 'completed', isDraft: false, verificationState: 'pending' }])).toBe('AWAITING_VERIFICATION');
+    expect(deriveOrderStatus([{ status: 'completed', isDraft: false, verificationState: 'rejected' }])).toBe('AWAITING_VERIFICATION');
+    expect(deriveOrderStatus([{ status: 'completed', isDraft: false, verificationState: 'verified' }, { status: 'completed', isDraft: false, verificationState: null }])).toBe('COMPLETED');
+    // still other jobs to do: in progress, whatever the check says
+    expect(deriveOrderStatus([{ status: 'completed', isDraft: false, verificationState: 'pending' }, job('scheduled')])).toBe('IN_PROGRESS');
+  });
+
   it('every scheduled job done → Completed; cancelled jobs do not count', () => {
     expect(deriveOrderStatus([job('completed')])).toBe('COMPLETED');
     expect(deriveOrderStatus([job('completed'), job('cancelled'), job('completed')])).toBe('COMPLETED');

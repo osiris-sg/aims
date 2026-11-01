@@ -17,6 +17,7 @@
  *    the order number and links the order page from the popup.
  */
 import { DoStatusTag, doStatusTag } from '../deliveries/do-number';
+import { VERIFICATION_LABEL } from '../deliveries/finish-modes';
 
 export const CALENDAR_TZ = 'Asia/Singapore';
 export const CALENDAR_MAX_DAYS = 62;
@@ -42,6 +43,8 @@ export interface CalendarRun {
   deliveryOrder?: { id: string; name: string | null; status: string; templateId: string; cancelled: boolean } | null;
   /** WCT orders: the order this job belongs to. */
   order?: { id: string; orderNumber: string } | null;
+  /** WCT finish modes: the office check of a stamped-DO / paper finish. */
+  verificationState?: string | null;
 }
 
 export interface CalendarLink {
@@ -110,6 +113,8 @@ export interface CalendarEvent {
   /** WCT orders: the job's order number and the order page. */
   orderNumber?: string | null;
   orderHref?: string | null;
+  /** WCT finish modes: "Awaiting verification" / "Verified" / "Rejected" for a checked job. */
+  verificationLabel?: string | null;
 }
 
 /** The DO block of a run's popup: number, tag (from the DO itself) and the office DO page. */
@@ -251,6 +256,9 @@ export function buildCalendarEvents(runs: CalendarRun[], links: CalendarLink[], 
       deliveryNumber: r.deliveryNumber,
       ...doFields(r.deliveryOrder),
       ...(r.order ? { orderNumber: r.order.orderNumber, orderHref: `/portal/orders/${r.order.id}` } : {}),
+      ...(r.verificationState && VERIFICATION_LABEL[r.verificationState as keyof typeof VERIFICATION_LABEL]
+        ? { verificationLabel: VERIFICATION_LABEL[r.verificationState as keyof typeof VERIFICATION_LABEL] }
+        : {}),
     });
   }
 

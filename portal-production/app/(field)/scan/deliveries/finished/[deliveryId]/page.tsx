@@ -15,6 +15,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DescriptionIcon from "@mui/icons-material/Description";
 import { request } from "@/helpers/request";
+import VerificationPanel, { JobVerification } from "@/components/delivery/VerificationPanel";
 import { formatUnitLabel } from "../../../../lib/btPrinter";
 import { DoPrintActions } from "../../../../components/DoPrintActions";
 import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
@@ -64,6 +65,8 @@ interface Report {
 interface Run {
   id: string;
   deliveryNumber: number;
+  // WCT finish modes (enableWctFinishModes): a stamped-DO / paper sign-off and its office check.
+  verification?: JobVerification | null;
   // RETURN runs land here too (2026-10-22, ad-hoc returns): the title reads
   // "Return completed" and the print actions render the RDO.
   direction?: "OUTBOUND" | "RETURN";
@@ -211,7 +214,12 @@ export default function FinishedDeliveryDetailPage() {
         </Typography>
       </Stack>
 
-      {!ack && (
+      {/* WCT finish modes: waiting for the office, or rejected with the reason + "Send new evidence". */}
+      {run.verification && run.verification.completionMode !== "signature" && (
+        <VerificationPanel verification={run.verification} canDecide={false} onChanged={(v) => setRun((prev) => (prev ? { ...prev, verification: v } : prev))} />
+      )}
+
+      {!ack && !(run.verification && run.verification.completionMode !== "signature") && (
         <Alert severity="info">
           No signed {isReturn ? "return" : "delivery"} is stored for this run. The printout will show the items without a signature.
         </Alert>

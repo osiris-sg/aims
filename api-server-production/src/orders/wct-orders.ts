@@ -25,12 +25,13 @@ import {
  */
 export const WCT_ORDERS_FLAG = 'enableWctOrders';
 
-export type WctOrderStatus = 'OPEN' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED';
+export type WctOrderStatus = 'OPEN' | 'SCHEDULED' | 'IN_PROGRESS' | 'AWAITING_VERIFICATION' | 'COMPLETED';
 
 export const WCT_ORDER_STATUS_LABEL: Record<WctOrderStatus, string> = {
   OPEN: 'Open',
   SCHEDULED: 'Scheduled',
   IN_PROGRESS: 'In progress',
+  AWAITING_VERIFICATION: 'Awaiting verification',
   COMPLETED: 'Completed',
 };
 
@@ -38,16 +39,22 @@ export const WCT_ORDER_STATUS_LABEL: Record<WctOrderStatus, string> = {
  * The order's status from its jobs. Cancelled jobs don't count; a draft job is
  * work not yet scheduled.
  *   no job scheduled yet (none, only drafts / cancelled) → OPEN
- *   every scheduled job done and no draft waiting        → COMPLETED
+ *   every scheduled job done and checked, no draft        → COMPLETED
+ *   every scheduled job done, some still to be checked
+ *     (stamped-DO / paper finish pending or rejected)     → AWAITING_VERIFICATION
  *   any job started or done (others still to do)         → IN_PROGRESS
  *   otherwise (jobs scheduled, none started)             → SCHEDULED
+ * A job finished before verification existed (verificationState null) counts
+ * as checked.
  */
-export function deriveOrderStatus(jobs: { status: string; isDraft: boolean }[]): WctOrderStatus {
+export function deriveOrderStatus(jobs: { status: string; isDraft: boolean; verificationState?: string | null }[]): WctOrderStatus {
   const live = jobs.filter((j) => j.status !== 'cancelled');
   const scheduled = live.filter((j) => !j.isDraft);
   const drafts = live.length - scheduled.length;
   if (!scheduled.length) return 'OPEN';
-  if (!drafts && scheduled.every((j) => j.status === 'completed')) return 'COMPLETED';
+  if (!drafts && scheduled.every((j) => j.status === 'completed')) {
+    return scheduled.every((j) => j.verificationState == null || j.verificationState === 'verified') ? 'COMPLETED' : 'AWAITING_VERIFICATION';
+  }
   if (scheduled.some((j) => j.status !== 'scheduled')) return 'IN_PROGRESS';
   return 'SCHEDULED';
 }
@@ -103,7 +110,7 @@ export async function refreshOrderStatus(prisma: any, organizationId: string, or
     return await runAsOrg(organizationId, async () => {
       const order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true } });
       if (!order) return null;
-      const jobs = await prisma.delivery.findMany({ where: { organizationId, orderId }, select: { status: true, isDraft: true } });
+      const jobs = await prisma.delivery.findMany({ where: { organizationId, orderId }, select: { status: true, isDraft: true, verificationState: true } });
       const status = deriveOrderStatus(jobs);
       if (order.status !== status) await prisma.order.update({ where: { id: orderId }, data: { status } });
       return status;

@@ -152,4 +152,12 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // opens on "My jobs" (All is one tap away), and starting a job planned for
   // someone else asks first. Default OFF; WCT only.
   enableWctMyJobs: false,
+  // WCT finish modes + verification (2026-11-01, Phase 3): the field app's
+  // finish step also offers "Photo of the stamped DO" (saved on the DO as a
+  // "Stamped DO" attachment and on the run's proof) and "Mark completed, paper
+  // copy later"; those jobs wait in Deliveries → Awaiting verification for an
+  // admin to Verify or Reject (with a reason; the worker or office then sends
+  // new evidence). A customer signature is verified at once. The run's status
+  // stays completed (verificationState column). Default OFF; WCT only.
+  enableWctFinishModes: false,
 };

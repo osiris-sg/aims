@@ -168,6 +168,7 @@ function EventCard({ event: e }: { event: CalendarEvent }) {
           sx={{ height: 22, bgcolor: alpha(color, 0.15), color: "text.primary", border: `1px solid ${alpha(color, 0.5)}` }}
         />
       </Row>
+      {e.verificationLabel && <Row label="Sign-off">{e.verificationLabel}</Row>}
       {e.orderNumber && (
         <Row label="Order">
           <Box component="span" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{e.orderNumber}</Box>

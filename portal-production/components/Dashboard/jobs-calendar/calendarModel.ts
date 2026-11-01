@@ -39,6 +39,8 @@ export interface CalendarEvent {
   /** WCT orders (enableWctOrders): the job's order number and the order page. */
   orderNumber?: string | null;
   orderHref?: string | null;
+  /** WCT finish modes: the office check of a stamped-DO / paper finish. */
+  verificationLabel?: string | null;
 }
 
 export interface CalendarPayload {

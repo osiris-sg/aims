@@ -23,6 +23,7 @@ interface OrganizationFeatures {
   enableRealDoOnSchedule?: boolean;
   enableWctOrders?: boolean;
   enableWctMyJobs?: boolean;
+  enableWctFinishModes?: boolean;
   // Preset roles with built-in permissions; no role / permission editor for the client.
   enableRolePresets?: boolean;
   enableCappitechOrders?: boolean;
@@ -169,6 +170,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // WCT worker logins (2026-11-01): field app "My jobs"; starting someone
   // else's job asks first. Default OFF.
   enableWctMyJobs: false,
+  // WCT finish modes (2026-11-01): stamped-DO photo / paper finish, verified by
+  // the office (Deliveries → Awaiting verification). Default OFF.
+  enableWctFinishModes: false,
 };
 
 interface OrganizationUIConfig {
@@ -241,6 +245,7 @@ export function useOrganizationFeatures() {
     isRealDoOnScheduleEnabled: features.enableRealDoOnSchedule ?? false,
     isWctOrdersEnabled: features.enableWctOrders ?? false,
     isWctMyJobsEnabled: features.enableWctMyJobs ?? false,
+    isWctFinishModesEnabled: features.enableWctFinishModes ?? false,
     isRolePresetsEnabled: features.enableRolePresets ?? false,
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,

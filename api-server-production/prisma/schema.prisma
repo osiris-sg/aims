@@ -3274,6 +3274,22 @@ model Delivery {
   // schedule's worker is saved. riderUserId stays who actually started it.
   plannedRiderUserId String?
   plannedRiderName   String?
+  // WCT finish modes + verification (enableWctFinishModes, 2026-11-01): how
+  // the job was finished — signature (customer signs on the device) /
+  // stamped_do (photo of the DO the customer stamped) / paper (marked done, the
+  // paper copy comes back later) — and the office check of it: pending /
+  // verified / rejected. A signature is verified at once; the other two wait
+  // for an admin. Null on every run before the flag = verified (signed as
+  // always). Plain strings, NOT new DeliveryRunStatus values: the run's status
+  // stays `completed`.
+  completionMode     String?
+  completionNote     String?
+  completionPhotos   Json? // S3 keys of the stamped-DO photos (also on the run's proof report + the DO's attachments)
+  verificationState  String?
+  verifiedAt         DateTime?
+  verifiedByUserId   String?
+  verifiedByName     String?
+  verificationNote   String? // the reject reason
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may
@@ -3298,6 +3314,7 @@ model Delivery {
   @@index([organizationId, status, createdAt])
   @@index([organizationId, sourceQuotationId])
   @@index([organizationId, orderId])
+  @@index([organizationId, verificationState])
   @@index([organizationId, scheduledFor]) // jobs calendar range reads
 }
 

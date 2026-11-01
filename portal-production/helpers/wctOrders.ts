@@ -3,12 +3,13 @@
 // helpers/wctOrders.test.mjs. Statuses mirror
 // api-server-production/src/orders/wct-orders.ts (deriveOrderStatus).
 
-export type WctOrderStatus = "OPEN" | "SCHEDULED" | "IN_PROGRESS" | "COMPLETED";
+export type WctOrderStatus = "OPEN" | "SCHEDULED" | "IN_PROGRESS" | "AWAITING_VERIFICATION" | "COMPLETED";
 
 export const ORDER_STATUS_LABEL: Record<WctOrderStatus, string> = {
   OPEN: "Open",
   SCHEDULED: "Scheduled",
   IN_PROGRESS: "In progress",
+  AWAITING_VERIFICATION: "Awaiting verification",
   COMPLETED: "Completed",
 };
 
@@ -16,6 +17,7 @@ export const ORDER_STATUS_COLOR: Record<WctOrderStatus, "default" | "info" | "wa
   OPEN: "default",
   SCHEDULED: "info",
   IN_PROGRESS: "warning",
+  AWAITING_VERIFICATION: "warning",
   COMPLETED: "success",
 };
 
@@ -32,7 +34,7 @@ export const ORDER_TABS: { key: OrderTab; label: string }[] = [
 
 export function orderMatchesTab(o: { status?: string | null }, tab: OrderTab): boolean {
   if (tab === "open") return o.status === "OPEN";
-  if (tab === "active") return o.status === "SCHEDULED" || o.status === "IN_PROGRESS";
+  if (tab === "active") return o.status === "SCHEDULED" || o.status === "IN_PROGRESS" || o.status === "AWAITING_VERIFICATION";
   if (tab === "completed") return o.status === "COMPLETED";
   return true;
 }
@@ -55,14 +57,18 @@ const RUN_STATUS_LABEL: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-/** A job's state on the order page; a draft (not scheduled yet) reads "Draft". */
-export function jobStatusLabel(j: { status: string; isDraft?: boolean | null }): string {
+/** A job's state on the order page; a draft (not scheduled yet) reads "Draft", a finish still to be checked reads its check. */
+export function jobStatusLabel(j: { status: string; isDraft?: boolean | null; verificationState?: string | null }): string {
   if (j.isDraft && j.status === "scheduled") return "Draft";
+  if (j.status === "completed" && j.verificationState === "pending") return "Awaiting verification";
+  if (j.status === "completed" && j.verificationState === "rejected") return "Rejected";
   return RUN_STATUS_LABEL[j.status] ?? j.status;
 }
 
-export function jobStatusColor(j: { status: string; isDraft?: boolean | null }): "default" | "info" | "warning" | "success" {
+export function jobStatusColor(j: { status: string; isDraft?: boolean | null; verificationState?: string | null }): "default" | "info" | "warning" | "success" | "error" {
   if (j.isDraft && j.status === "scheduled") return "default";
+  if (j.status === "completed" && j.verificationState === "rejected") return "error";
+  if (j.status === "completed" && j.verificationState === "pending") return "warning";
   if (j.status === "completed") return "success";
   if (j.status === "in_progress" || j.status === "delivered") return "warning";
   if (j.status === "cancelled") return "default";
@@ -70,10 +76,11 @@ export function jobStatusColor(j: { status: string; isDraft?: boolean | null }):
 }
 
 /** "3 jobs · 1 done" (drafts and cancelled named when present). */
-export function jobCountsLine(c: { total: number; drafts: number; completed: number; cancelled: number } | null | undefined): string {
+export function jobCountsLine(c: { total: number; drafts: number; completed: number; cancelled: number; awaitingVerification?: number } | null | undefined): string {
   if (!c || (!c.total && !c.cancelled)) return "No jobs";
   const parts = [`${c.total} job${c.total === 1 ? "" : "s"}`];
   if (c.completed) parts.push(`${c.completed} done`);
+  if (c.awaitingVerification) parts.push(`${c.awaitingVerification} to verify`);
   if (c.drafts) parts.push(`${c.drafts} draft`);
   if (c.cancelled) parts.push(`${c.cancelled} cancelled`);
   return parts.join(" · ");

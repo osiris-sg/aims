@@ -134,6 +134,9 @@ describe('jobs calendar merge', () => {
     const [plain] = buildCalendarEvents([run()], [], null);
     expect(plain.title.startsWith('#')).toBe(true);
     expect(plain).not.toHaveProperty('orderNumber');
+    expect(plain).not.toHaveProperty('verificationLabel');
+    const [pending] = buildCalendarEvents([run({ status: 'completed', verificationState: 'pending' })], [], null);
+    expect(pending.verificationLabel).toBe('Awaiting verification');
   });
 
   it('completed and cancelled runs are flagged for fading / hiding', () => {

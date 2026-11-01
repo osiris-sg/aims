@@ -52,6 +52,7 @@ import DeliveryGroupPostsPanel from "@/components/deliveries/DeliveryGroupPostsP
 import { SiteClockCard, SiteClockView } from "@/app/portal/deliveries/_components/SiteClockStatus";
 import { canPurge, confirmCopy, runWasStarted } from "@/app/portal/deliveries/_lib/run-actions";
 import DoStatusTag from "@/components/DoStatusTag";
+import VerificationPanel, { JobVerification } from "@/components/delivery/VerificationPanel";
 import { runDoTag } from "@/helpers/doStatusTag";
 
 /**
@@ -103,6 +104,8 @@ interface RunDetail {
   customer: { id: string; name: string; customerCode?: string | null } | null;
   // WCT orders (enableWctOrders): the order this job belongs to.
   order?: { id: string; orderNumber: string; status: string } | null;
+  // WCT finish modes (enableWctFinishModes): the sign-off and its office check.
+  verification?: JobVerification | null;
   // Derived by the backend: the single distinct DO across linked items, else null.
   // saleOrderId: the pointer to the SALES_ORDER document this run is against,
   // read off the DO's config by findById. It MUST be declared and forwarded —
@@ -836,6 +839,13 @@ export default function DeliveryDetailPage() {
         {run.customer ? ` · Customer: ${run.customer.name}` : ""}
         {run.siteAddress ? ` · Site: ${run.siteAddress}` : ""}
       </Typography>
+
+      {/* WCT finish modes: how the job was signed off and the office check (Verify / Reject). */}
+      {run.verification && (
+        <Box sx={{ my: 2 }}>
+          <VerificationPanel verification={run.verification} canDecide onChanged={() => void load()} />
+        </Box>
+      )}
 
       {/* Signed DO download + "Posted to group" (delivery group posts). Shown
           once the customer has signed for anything on an outbound run. */}

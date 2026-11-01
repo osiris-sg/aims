@@ -1805,6 +1805,15 @@ model Delivery {
   // WCT worker logins (enableWctMyJobs): mirrors schema.prisma.
   plannedRiderUserId String?
   plannedRiderName   String?
+  // WCT finish modes + verification (enableWctFinishModes): mirrors schema.prisma.
+  completionMode     String?
+  completionNote     String?
+  completionPhotos   Json?
+  verificationState  String?
+  verifiedAt         DateTime?
+  verifiedByUserId   String?
+  verifiedByName     String?
+  verificationNote   String?
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may
@@ -1828,6 +1837,7 @@ model Delivery {
   @@index([organizationId, status, createdAt])
   @@index([organizationId, sourceQuotationId])
   @@index([organizationId, orderId])
+  @@index([organizationId, verificationState])
   @@index([organizationId, scheduledFor]) // jobs calendar range reads
 }
 

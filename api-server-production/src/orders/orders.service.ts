@@ -355,7 +355,7 @@ export class OrdersService {
   // ────────────────────────────────────────────────────────────────────────
 
   /** Store the status the jobs say, where it drifted (best-effort). Mutates the rows. */
-  private async syncWctStatuses(organizationId: string, orders: Array<{ id: string; status: string; jobs: { status: string; isDraft: boolean }[] }>) {
+  private async syncWctStatuses(organizationId: string, orders: Array<{ id: string; status: string; jobs: { status: string; isDraft: boolean; verificationState?: string | null }[] }>) {
     for (const o of orders) {
       const status = deriveOrderStatus(o.jobs);
       if (o.status === status) continue;
@@ -371,7 +371,7 @@ export class OrdersService {
       include: {
         customer: { select: { id: true, name: true, customerCode: true } },
         sourceQuotation: { select: { id: true, name: true, status: true, type: true, documentTemplateId: true } },
-        deliveries: { select: { id: true, deliveryNumber: true, status: true, isDraft: true, scheduledFor: true }, orderBy: { deliveryNumber: 'asc' } },
+        deliveries: { select: { id: true, deliveryNumber: true, status: true, isDraft: true, scheduledFor: true, verificationState: true }, orderBy: { deliveryNumber: 'asc' } },
       },
     });
     const orders = rows.map(({ deliveries, ...o }: any) => ({ ...o, jobs: deliveries as any[] }));
@@ -390,6 +390,7 @@ export class OrdersService {
           total: live.length,
           drafts: live.filter((j) => j.isDraft).length,
           completed: live.filter((j) => !j.isDraft && j.status === 'completed').length,
+          awaitingVerification: live.filter((j) => j.status === 'completed' && (j.verificationState === 'pending' || j.verificationState === 'rejected')).length,
           cancelled: jobs.length - live.length,
         },
         nextJobAt: upcoming ?? null,
@@ -416,6 +417,9 @@ export class OrdersService {
             siteAddress: true,
             riderUserId: true,
             riderName: true,
+            completionMode: true,
+            verificationState: true,
+            verificationNote: true,
             items: { select: { documentId: true, description: true, quantity: true, assetId: true }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
           },
         },
@@ -460,6 +464,10 @@ export class OrdersService {
         completedAt: j.completedAt,
         siteAddress: j.siteAddress,
         rider: j.riderUserId ? j.riderName || null : null,
+        // WCT finish modes: how it was finished and the office check (null before the flag).
+        completionMode: j.completionMode ?? null,
+        verificationState: j.verificationState ?? null,
+        verificationNote: j.verificationNote ?? null,
         worker: l ? { id: l.workerId, name: l.workerName, durationMin: l.durationMin, syncState: l.syncState, lastError: l.lastError } : null,
         deliveryOrder: d
           ? { id: d.id, name: d.name, status: d.status, templateId: d.documentTemplateId, tag: doStatusTag({ status: d.status, config: d.config }) }
