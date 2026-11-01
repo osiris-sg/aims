@@ -175,6 +175,11 @@ model Customer {
   phone           String?
   address         String?
   gstRegNo        String? // Customer's GST/Tax registration number
+  // Registration number (UEN, e.g. 201302496E); not the GST number.
+  uen             String?
+  // Id of this customer in an outside system it was imported from (WCT:
+  // the DP Info DebtorCode).
+  externalRef     String?
   // Trading currency (one per customer code — a customer trading in two
   // currencies gets two customer codes). Documents inherit this; GL converts
   // to base at the accountant's standing rate (AccountingSetting.currencyRates).
