@@ -59,6 +59,37 @@ export class OrdersController {
     return this.ordersService.getById(id, orgId);
   }
 
+  // WCT service report on the order (enableWctOrders): the reports the order
+  // page offers to link (the order's own first; ?number= finds any by number).
+  @Get(':id/report-options')
+  @Permissions('orders:read')
+  async reportOptions(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const orgId = req.userOrganization?.id;
+    if (!orgId) throw new Error('User is not assigned to any organization');
+    return this.ordersService.orderReportOptions(id, orgId, (req.query?.number as string) || undefined);
+  }
+
+  // WCT: attach an uploaded file (POST /uploads/image first) or link a service report.
+  @Post(':id/attachments')
+  @Permissions('documents:update')
+  async addAttachment(
+    @Param('id') id: string,
+    @Body() body: { kind?: string; fileKey?: string; fileName?: string; mimeType?: string; label?: string; reportId?: string },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const orgId = req.userOrganization?.id;
+    if (!orgId) throw new Error('User is not assigned to any organization');
+    return this.ordersService.addOrderAttachment(id, orgId, body || {}, actorOf(req));
+  }
+
+  @Post(':id/attachments/remove')
+  @Permissions('documents:update')
+  async removeAttachment(@Param('id') id: string, @Body() body: { id: string }, @Req() req: RequestWithOrganization) {
+    const orgId = req.userOrganization?.id;
+    if (!orgId) throw new Error('User is not assigned to any organization');
+    return this.ordersService.removeOrderAttachment(id, orgId, body?.id);
+  }
+
   @Post('from-quotation/:quotationId')
   @Permissions('orders:create')
   async createFromQuotation(
@@ -136,4 +167,10 @@ export class OrdersController {
     if (!orgId) throw new Error('User is not assigned to any organization');
     return this.ordersService.delete(id, orgId);
   }
+}
+
+/** Who added it (id + display name from the Clerk user). */
+function actorOf(req: any): { id?: string; name?: string } {
+  const u: any = req?.user || {};
+  return { id: u.id, name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || undefined };
 }

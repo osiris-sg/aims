@@ -2,7 +2,7 @@
 // 2026-11-01: WCT orders (enableWctOrders): status labels / tabs, job labels, counts line, "Add job" prefill.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { invoiceNowText, orderStatusLabel, orderStatusColor, orderMatchesTab, orderMatchesSearch, jobStatusLabel, jobStatusColor, jobCountsLine, fmtJobWhen, addJobPrefill } from "./wctOrders.ts";
+import { attachmentLine, invoiceNowText, orderStatusLabel, orderStatusColor, orderMatchesTab, orderMatchesSearch, jobStatusLabel, jobStatusColor, jobCountsLine, fmtJobWhen, addJobPrefill } from "./wctOrders.ts";
 
 test("order status: labels, colours, unknown values pass through", () => {
   assert.equal(orderStatusLabel("IN_PROGRESS"), "In progress");
@@ -82,4 +82,10 @@ test("billing tab: invoiced / paid / closed", () => {
   for (const s of ["INVOICED", "PAID", "CLOSED"]) assert.equal(orderMatchesTab({ status: s }, "billing"), true);
   assert.equal(orderMatchesTab({ status: "COMPLETED" }, "billing"), false);
   assert.equal(orderStatusLabel("PAID"), "Paid");
+});
+
+test("service report lines: uploaded file / linked report", () => {
+  assert.deepEqual(attachmentLine({ id: "a", kind: "file", fileName: "SR-12.pdf", label: "Service report", addedByName: "Ann", addedAt: "2026-11-01T03:00:00Z" }), { title: "SR-12.pdf", detail: "Service report · added by Ann, 01 Nov 2026" });
+  assert.equal(attachmentLine({ id: "b", kind: "report", reportId: "r", reportNumber: 7, report: { id: "r", reportNumber: 7, status: "completed" } }).title, "Service report #7");
+  assert.equal(attachmentLine({ id: "c", kind: "report", reportId: "r", report: null }).detail, "Report not found");
 });

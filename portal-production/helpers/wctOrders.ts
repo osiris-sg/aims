@@ -137,3 +137,39 @@ export function invoiceNowText(toInvoice: number[], openJobs: number): string {
   const rest = openJobs > 0 ? ` The ${openJobs} job${openJobs === 1 ? "" : "s"} not done or not verified yet will go on a second invoice for this order once verified.` : "";
   return `Create the invoice now for the verified job${toInvoice.length === 1 ? "" : "s"} ${jobs}?${rest}`;
 }
+
+/** WCT service report on the order (Phase 5): an uploaded file or a linked AIMS service report. */
+export interface OrderAttachment {
+  id: string;
+  kind: "file" | "report";
+  label?: string | null;
+  fileKey?: string;
+  fileName?: string;
+  mimeType?: string;
+  reportId?: string;
+  reportNumber?: number | null;
+  report?: { id: string; reportNumber: number | null; status: string } | null;
+  addedAt?: string;
+  addedByName?: string | null;
+}
+
+export interface ReportOption {
+  id: string;
+  reportNumber: number | null;
+  status: string;
+  jobNumber: number | null;
+  technicianName: string | null;
+  ofThisOrder: boolean;
+}
+
+/** One line of the order's Service report list. */
+export function attachmentLine(a: OrderAttachment): { title: string; detail: string } {
+  const when = a.addedAt ? new Date(a.addedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Singapore" }) : "";
+  const by = [a.addedByName, when].filter(Boolean).join(", ");
+  if (a.kind === "report") {
+    const n = a.report?.reportNumber ?? a.reportNumber;
+    const st = a.report ? (a.report.status === "completed" ? "Completed" : "Draft") : "Report not found";
+    return { title: `Service report ${n ? `#${n}` : "(draft)"}`, detail: [st, by && `linked by ${by}`].filter(Boolean).join(" · ") };
+  }
+  return { title: a.fileName || "File", detail: [a.label || "Uploaded file", by && `added by ${by}`].filter(Boolean).join(" · ") };
+}

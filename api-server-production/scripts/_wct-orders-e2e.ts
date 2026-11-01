@@ -35,6 +35,9 @@
  *     refused; two triggers at once → one invoice; a job already invoiced per
  *     DO (flag switched on later) is never billed again; GL posted; paid →
  *     order Paid.
+ *   P5 service report on the order: upload a file / link an AIMS service
+ *     report (the order's own job reports offered first, any by number);
+ *     remove; a paid order with the report on it reads Closed.
  *
  * Boots only the deliveries + public-sign + orders modules (no cron), WhatsApp
  * + push + email replaced by no-ops.
@@ -484,6 +487,42 @@ const sgt = (dayOffset: number, hh: number, mm = 0) => {
     const racing = await Promise.all([documents.maybeInvoiceOrder(o8.id, WCT), documents.maybeInvoiceOrder(o8.id, WCT), documents.maybeInvoiceOrder(o8.id, WCT)]);
     const o8Invoices = await prisma.document.count({ where: { organizationId: WCT, type: 'INVOICE', config: { path: ['orderId'], equals: o8.id } } });
     check('P4: three triggers at once → exactly one invoice', o8Invoices === 1 && racing.filter(Boolean).length === 1, [o8Invoices, racing.map((r: any) => !!r)]);
+
+    // ── P5: service report on the order ──
+    const opts5: any[] = await orders.orderReportOptions(o6.id, WCT);
+    check('P5: the order’s own job reports are offered', opts5.length >= 1 && opts5.every((r) => r.ofThisOrder), opts5.map((r) => [r.reportNumber, r.ofThisOrder]));
+    let otherReport = await prisma.maintenanceServiceReport.findFirst({ where: { organizationId: WCT, kind: 'SERVICE', reportNumber: { not: null }, deliveryId: { notIn: [j6a.id, j6b.id, j6c.id] } }, select: { id: true, reportNumber: true } });
+    if (!otherReport) {
+      // dev has none: give the other order's (o8) scheduled report the next number
+      const draft = await prisma.maintenanceServiceReport.findFirst({ where: { organizationId: WCT, kind: 'SERVICE', deliveryId: j8.id }, select: { id: true } });
+      const top = await prisma.maintenanceServiceReport.findFirst({ where: { organizationId: WCT, reportNumber: { not: null } }, orderBy: { reportNumber: 'desc' }, select: { reportNumber: true } });
+      if (draft) otherReport = await prisma.maintenanceServiceReport.update({ where: { id: draft.id }, data: { reportNumber: (top?.reportNumber ?? 0) + 1 }, select: { id: true, reportNumber: true } });
+    }
+    if (otherReport) {
+      const byNo: any[] = await orders.orderReportOptions(o6.id, WCT, String(otherReport.reportNumber));
+      check('P5: any service report can be found by its number', byNo.some((r) => r.id === otherReport.id && !r.ofThisOrder), byNo.map((r) => r.reportNumber));
+    } else console.log('SKIP  P5: no numbered service report outside the order on dev to search for');
+    let att: any[] = await orders.addOrderAttachment(o6.id, WCT, { kind: 'file', fileKey: 'orders/e2e/service-report.pdf', fileName: 'service-report.pdf', mimeType: 'application/pdf' }, { id: 'u-admin', name: 'E2E Admin' });
+    let o6s: any = await prisma.order.findFirst({ where: { id: o6.id } });
+    check('P5: file attached (kind file, who added it) → paid order Closed', att.length === 1 && att[0].kind === 'file' && att[0].addedByName === 'E2E Admin' && o6s.status === 'CLOSED', [att, o6s.status]);
+    att = await orders.addOrderAttachment(o6.id, WCT, { kind: 'file', fileKey: 'orders/e2e/service-report.pdf', fileName: 'service-report.pdf' }, { id: 'u-admin' });
+    check('P5: the same file twice is kept once', att.length === 1, att.length);
+    att = await orders.addOrderAttachment(o6.id, WCT, { kind: 'report', reportId: opts5[0].id }, { id: 'u-admin', name: 'E2E Admin' });
+    const rep = att.find((a) => a.kind === 'report');
+    check('P5: an AIMS service report linked, with its current number + status', !!rep && rep.reportId === opts5[0].id && rep.report?.id === opts5[0].id, rep);
+    await expectRefusal('P5: an unknown report is refused', () => orders.addOrderAttachment(o6.id, WCT, { kind: 'report', reportId: '00000000-0000-4000-8000-000000000000' }, {}), /not found/);
+    await expectRefusal('P5: a file entry needs the uploaded key', () => orders.addOrderAttachment(o6.id, WCT, { kind: 'file' }, {}), /Upload the file first/);
+    att = await orders.removeOrderAttachment(o6.id, WCT, att.find((a) => a.kind === 'file').id);
+    o6s = await prisma.order.findFirst({ where: { id: o6.id } });
+    check('P5: file removed, the linked report keeps it Closed', att.length === 1 && o6s.status === 'CLOSED', [att.length, o6s.status]);
+    att = await orders.removeOrderAttachment(o6.id, WCT, att[0].id);
+    o6s = await prisma.order.findFirst({ where: { id: o6.id } });
+    check('P5: nothing on the order → back to Paid', att.length === 0 && o6s.status === 'PAID', o6s.status);
+    const page6b: any = await orders.getById(o6.id, WCT);
+    check('P5: the order page carries the attachments list', Array.isArray(page6b.attachments));
+    await setFlags({ enableWctOrders: false });
+    await expectRefusal('P5: orders flag off → attachments refused', () => orders.addOrderAttachment(o6.id, WCT, { kind: 'file', fileKey: 'k', fileName: 'f' }, {}), /not enabled/);
+    await setFlags({ enableWctOrders: true });
 
     // ── G: flag off → the old path ──
     await setFlags({ enableWctOrders: false });

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
@@ -493,7 +494,93 @@ export class OrdersService {
       jobs,
       prefill: { siteAddress, lines: quotationLines },
       ...(await this.wctBilling(organizationId, jobsRaw)),
+      attachments: await this.orderAttachmentsView(organizationId, Array.isArray(order.attachments) ? (order.attachments as any[]) : []),
     };
+  }
+
+  // ── WCT service report on the order (enableWctOrders, 2026-11-01, Phase 5) ──
+  // Order.attachments holds the order's files, same shape as Document.attachments
+  // plus a kind: { id, kind: 'file', fileKey, fileName, mimeType?, label?, … }
+  // for an uploaded file (S3, uploaded first through POST /uploads/image), or
+  // { id, kind: 'report', reportId, reportNumber, label, … } for an AIMS service
+  // report linked to it. Either one counts as "the service report is on the
+  // order" (a paid order then reads Closed).
+
+  private async wctOrderOrThrow(id: string, organizationId: string) {
+    if (!(await isWctOrdersEnabled(this.prisma, organizationId))) throw new HttpException('Orders with jobs are not enabled for this organisation', HttpStatus.BAD_REQUEST);
+    const order = await this.prisma.order.findFirst({ where: { id, organizationId }, select: { id: true, orderNumber: true, attachments: true } });
+    if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+    return order;
+  }
+
+  /** Add an uploaded file, or link an AIMS service report, to the order. */
+  async addOrderAttachment(
+    id: string,
+    organizationId: string,
+    body: { kind?: string; fileKey?: string; fileName?: string; mimeType?: string; label?: string; reportId?: string },
+    actor: { id?: string; name?: string },
+  ) {
+    const order = await this.wctOrderOrThrow(id, organizationId);
+    const list: any[] = Array.isArray(order.attachments) ? [...(order.attachments as any[])] : [];
+    const stamp = { id: randomUUID(), addedAt: new Date().toISOString(), addedBy: actor.id ?? null, addedByName: actor.name ?? null };
+    let entry: any;
+    if (body.kind === 'report') {
+      if (!body.reportId) throw new HttpException('Pick a service report', HttpStatus.BAD_REQUEST);
+      const report = await this.prisma.maintenanceServiceReport.findFirst({
+        where: { id: body.reportId, organizationId, kind: 'SERVICE' },
+        select: { id: true, reportNumber: true, status: true },
+      });
+      if (!report) throw new HttpException('Service report not found', HttpStatus.NOT_FOUND);
+      if (list.some((a) => a.kind === 'report' && a.reportId === report.id)) return this.orderAttachmentsView(organizationId, list);
+      entry = { ...stamp, kind: 'report', reportId: report.id, reportNumber: report.reportNumber ?? null, label: body.label?.trim() || 'Service report' };
+    } else {
+      const key = String(body.fileKey || '').trim();
+      if (!key || !body.fileName) throw new HttpException('Upload the file first', HttpStatus.BAD_REQUEST);
+      if (list.some((a) => a.kind === 'file' && a.fileKey === key)) return this.orderAttachmentsView(organizationId, list);
+      entry = { ...stamp, kind: 'file', fileKey: key, fileName: body.fileName, ...(body.mimeType ? { mimeType: body.mimeType } : {}), label: body.label?.trim() || 'Service report' };
+    }
+    list.push(entry);
+    await this.prisma.order.update({ where: { id, organizationId }, data: { attachments: list as Prisma.InputJsonValue } });
+    await refreshOrderStatus(this.prisma, organizationId, id);
+    return this.orderAttachmentsView(organizationId, list);
+  }
+
+  async removeOrderAttachment(id: string, organizationId: string, attachmentId: string) {
+    const order = await this.wctOrderOrThrow(id, organizationId);
+    const list: any[] = Array.isArray(order.attachments) ? (order.attachments as any[]) : [];
+    const next = list.filter((a) => a?.id !== attachmentId);
+    if (next.length === list.length) throw new HttpException('Attachment not found on this order', HttpStatus.NOT_FOUND);
+    await this.prisma.order.update({ where: { id, organizationId }, data: { attachments: next as Prisma.InputJsonValue } });
+    await refreshOrderStatus(this.prisma, organizationId, id);
+    return this.orderAttachmentsView(organizationId, next);
+  }
+
+  /**
+   * Reports the order page offers to link: the service reports of the order's
+   * own jobs first, then (with ?number=) any service report by its number.
+   */
+  async orderReportOptions(id: string, organizationId: string, number?: string) {
+    await this.wctOrderOrThrow(id, organizationId);
+    const jobs = await this.prisma.delivery.findMany({ where: { organizationId, orderId: id }, select: { id: true, deliveryNumber: true } });
+    const jobNo = new Map(jobs.map((j) => [j.id, j.deliveryNumber]));
+    const n = number && /^\d+$/.test(number.trim()) ? parseInt(number.trim(), 10) : null;
+    const reports = await this.prisma.maintenanceServiceReport.findMany({
+      where: { organizationId, kind: 'SERVICE', OR: [{ deliveryId: { in: jobs.map((j) => j.id) } }, ...(n !== null ? [{ reportNumber: n }] : [])] },
+      select: { id: true, reportNumber: true, status: true, deliveryId: true, createdAt: true, technicianName: true },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    return reports.map((r) => ({ ...r, jobNumber: r.deliveryId ? jobNo.get(r.deliveryId) ?? null : null, ofThisOrder: !!(r.deliveryId && jobNo.has(r.deliveryId)) }));
+  }
+
+  /** The attachments with each linked report's current number + status. */
+  private async orderAttachmentsView(organizationId: string, list: any[]) {
+    const ids = list.filter((a) => a?.kind === 'report' && a.reportId).map((a) => a.reportId);
+    const reports = ids.length
+      ? await this.prisma.maintenanceServiceReport.findMany({ where: { id: { in: ids }, organizationId }, select: { id: true, reportNumber: true, status: true } })
+      : [];
+    const byId = new Map(reports.map((r) => [r.id, r]));
+    return list.map((a) => (a?.kind === 'report' ? { ...a, report: byId.get(a.reportId) ?? null } : a));
   }
 
   /**
