@@ -157,6 +157,8 @@ export class DeliveriesController {
       includeDrafts: includeDrafts === 'true' || includeDrafts === '1',
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
+      // WCT "My jobs": each row says whether it is planned for the caller.
+      viewerUserId: req.user?.id,
     });
     // SiteClock link (enableSiteClockLink orgs only; others get the list unchanged).
     const views = await this.siteclock.viewsFor(org.id, (out.docs ?? []).map((d: any) => d.id));

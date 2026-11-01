@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Alert, Box, CircularProgress } from "@mui/material";
+import { Alert, Box, Chip, CircularProgress, Stack } from "@mui/material";
 import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
 import SearchOffIcon from "@mui/icons-material/SearchOff";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
@@ -12,6 +12,7 @@ import { CompletedRunCard, InProgressRunCard, ScheduledRunCard } from "../compon
 import { FieldBottomNav, FieldBottomNavSpacer } from "../components/FieldBottomNav";
 import { FieldHomeHeader } from "../components/FieldHomeHeader";
 import { EmptyState } from "../components/fieldUi";
+import { JobsScope, scopeJobs } from "@/helpers/wctMyJobs";
 
 /**
  * Deliveries home: the field app's landing screen.
@@ -56,9 +57,13 @@ export default function DeliveriesHomePage() {
   const router = useRouter();
   const search = useSearchParams();
   const { getToken } = useAuth();
-  const { features, isLoading } = useOrganizationFeatures();
+  const { features, isLoading, isWctMyJobsEnabled } = useOrganizationFeatures();
+  // WCT "My jobs" (enableWctMyJobs): the Pending tab opens on the jobs planned
+  // for this worker; All shows every scheduled job as before.
+  const [scope, setScope] = useState<JobsScope>("mine");
   const rawTab = search?.get("tab") ?? null;
   const tab: DeliveriesTab = isTab(rawTab) ? rawTab : "pending";
+  const scoped = isWctMyJobsEnabled && tab === "pending";
   const [q, setQ] = useState("");
   // Per-tab cache: switching back to a tab shows its last list at once while
   // the refetch runs. undefined = never loaded.
@@ -128,7 +133,11 @@ export default function DeliveriesHomePage() {
   );
 
   const runs = lists[tab];
-  const filtered = useMemo(() => (runs ?? []).filter((r) => runMatchesSearch(r, q)), [runs, q]);
+  const filtered = useMemo(
+    () => (scoped ? scopeJobs(runs ?? [], scope) : runs ?? []).filter((r) => runMatchesSearch(r, q)),
+    [runs, q, scoped, scope],
+  );
+  const mineCount = useMemo(() => scopeJobs(runs ?? [], "mine").length, [runs]);
 
   if (isLoading) {
     return (
@@ -165,6 +174,12 @@ export default function DeliveriesHomePage() {
 
       <Box sx={{ flex: 1, p: 2, display: "flex", flexDirection: "column", gap: 1.5 }}>
         {error && <Alert severity="error">{error}</Alert>}
+        {scoped && runs !== undefined && (
+          <Stack direction="row" spacing={1} data-tour="field-my-jobs">
+            <Chip label={`My jobs (${mineCount})`} color={scope === "mine" ? "primary" : "default"} variant={scope === "mine" ? "filled" : "outlined"} onClick={() => setScope("mine")} />
+            <Chip label={`All (${runs.length})`} color={scope === "all" ? "primary" : "default"} variant={scope === "all" ? "filled" : "outlined"} onClick={() => setScope("all")} />
+          </Stack>
+        )}
 
         {runs === undefined ? (
           loading && (
@@ -174,6 +189,8 @@ export default function DeliveriesHomePage() {
           )
         ) : runs.length === 0 ? (
           <EmptyState icon={<LocalShippingOutlinedIcon />} message={EMPTY_COPY[tab]} />
+        ) : scoped && scope === "mine" && mineCount === 0 && !q ? (
+          <EmptyState icon={<LocalShippingOutlinedIcon />} message="No jobs planned for you. Tap All to see every scheduled job." />
         ) : filtered.length === 0 ? (
           <EmptyState icon={<SearchOffIcon />} message={<>No delivery matches &quot;{q}&quot;.</>} />
         ) : (

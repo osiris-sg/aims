@@ -22,6 +22,7 @@ interface OrganizationFeatures {
   enableJobsCalendar?: boolean;
   enableRealDoOnSchedule?: boolean;
   enableWctOrders?: boolean;
+  enableWctMyJobs?: boolean;
   // Preset roles with built-in permissions; no role / permission editor for the client.
   enableRolePresets?: boolean;
   enableCappitechOrders?: boolean;
@@ -165,6 +166,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // WCT orders (2026-11-01): an accepted quotation makes one Order (ORD…) with
   // its first draft job; the order page lists its jobs and adds more. Default OFF.
   enableWctOrders: false,
+  // WCT worker logins (2026-11-01): field app "My jobs"; starting someone
+  // else's job asks first. Default OFF.
+  enableWctMyJobs: false,
 };
 
 interface OrganizationUIConfig {
@@ -236,6 +240,7 @@ export function useOrganizationFeatures() {
     isJobsCalendarEnabled: features.enableJobsCalendar ?? false,
     isRealDoOnScheduleEnabled: features.enableRealDoOnSchedule ?? false,
     isWctOrdersEnabled: features.enableWctOrders ?? false,
+    isWctMyJobsEnabled: features.enableWctMyJobs ?? false,
     isRolePresetsEnabled: features.enableRolePresets ?? false,
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,

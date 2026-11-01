@@ -1802,6 +1802,9 @@ model Delivery {
   sourceQuotationId String?        @db.Uuid
   // WCT orders (enableWctOrders): mirrors schema.prisma — see the comment there.
   orderId           String?        @db.Uuid
+  // WCT worker logins (enableWctMyJobs): mirrors schema.prisma.
+  plannedRiderUserId String?
+  plannedRiderName   String?
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may

@@ -3,6 +3,7 @@
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import DoStatusTag from "@/components/DoStatusTag";
 import { runDoTag } from "@/helpers/doStatusTag";
+import { plannedLine, startConfirmText } from "@/helpers/wctMyJobs";
 import React, { useState } from "react";
 import {
   Alert,
@@ -122,6 +123,8 @@ export function ScheduledRunCard({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  // WCT "My jobs": a job planned for someone else asks before it starts.
+  const [confirmOther, setConfirmOther] = useState<string | null>(null);
   // Deliveries: show still-open (unbound) slots; a bound item means someone
   // already started picking it up. Returns are unit-bound from birth, so their
   // manifest IS the units to collect.
@@ -135,6 +138,14 @@ export function ScheduledRunCard({
   const collectFrom = isReturn ? r.siteAddress?.trim() || null : null;
 
   const start = async () => {
+    const ask = startConfirmText(r);
+    if (ask) {
+      setConfirmOther(ask);
+      return;
+    }
+    await doStart();
+  };
+  const doStart = async () => {
     if (starting) return;
     setStartError(null);
     setStarting(true);
@@ -179,6 +190,11 @@ export function ScheduledRunCard({
         <Box sx={{ flexGrow: 1 }} />
         <StatusChip tone="info" label={fmtScheduled(r.scheduledFor)} />
       </Stack>
+      {plannedLine(r) && (
+        <Typography variant="body2" sx={{ fontWeight: r.plannedRider?.isMe ? 600 : 400 }} color={r.plannedRider?.isMe ? "primary" : "text.secondary"}>
+          {plannedLine(r)}
+        </Typography>
+      )}
       {context && (
         <Typography variant="body2" color="text.secondary">
           {context}
@@ -246,6 +262,27 @@ export function ScheduledRunCard({
           {startError}
         </Alert>
       )}
+
+      <Dialog open={!!confirmOther} onClose={() => setConfirmOther(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Someone else's job</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">{confirmOther}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="text" onClick={() => setConfirmOther(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setConfirmOther(null);
+              void doStart();
+            }}
+          >
+            Start anyway
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {isReturn && (
         <Dialog open={detailsOpen} onClose={() => setDetailsOpen(false)} fullWidth maxWidth="xs">

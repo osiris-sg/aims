@@ -58,6 +58,7 @@ import { QUOTATION_TO_DELIVERY_FLAG, applyQuotationLinkToDoConfig } from './quot
 import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from './do-number';
 import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
 import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
+import { plannedRiderView, savePlannedRider } from './planned-rider';
 @Injectable()
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
@@ -781,6 +782,9 @@ export class DeliveriesService {
       );
     }
     if (!isDraft) await this.ensureScheduledServiceReport(run.id, organizationId);
+    // WCT "My jobs" (enableWctMyJobs): the job is planned for the AIMS user
+    // behind the picked SiteClock worker. Flag-gated, never throws.
+    await savePlannedRider(this.prisma, organizationId, run.id, dto);
     // SiteClock link (orgs with enableSiteClockLink only): put the run on the
     // picked worker's schedule. Never throws, never waits on SiteClock.
     await this.siteclock?.onScheduleSaved(organizationId, run.id, siteclockInput(dto));
@@ -1186,6 +1190,8 @@ export class DeliveriesService {
     // saved back to a draft is not a job yet, so its scheduled report goes.
     if (willBeDraft) await this.dropScheduledServiceReport(id);
     else await this.ensureScheduledServiceReport(id, organizationId);
+    // WCT "My jobs": a re-picked (or cleared) worker moves who the job is planned for.
+    await savePlannedRider(this.prisma, organizationId, id, dto);
     // SiteClock link: move / reassign the job, or cancel it (worker cleared, back to draft).
     await this.siteclock?.onScheduleSaved(organizationId, id, siteclockInput(dto));
     // WCT orders: promoting a draft job (or saving one back to draft) moves the order.
@@ -2363,6 +2369,8 @@ export class DeliveriesService {
       // Office only. Drafts are invisible everywhere by default so no rider
       // query can ever surface one.
       includeDrafts?: boolean;
+      // WCT "My jobs": the caller, to mark the rows planned for them.
+      viewerUserId?: string;
     } = {},
   ) {
     const page = Math.max(1, opts.page ?? 1);
@@ -2650,6 +2658,8 @@ export class DeliveriesService {
         // `origin` rides through from the row; the list keys its Ad-hoc column
         // off it rather than inferring from a null project.
         missing,
+        // WCT "My jobs" (enableWctMyJobs): null on every run without a planned rider.
+        plannedRider: plannedRiderView(d as any, opts.viewerUserId),
         serviceReport: serviceReportByRun.get(d.id) ?? null,
         document: runDoc
           ? { ...runDoc, poNo: poNoByDoc.get(runDoc.id) ?? null, saleOrderId: saleOrderIdByDoc.get(runDoc.id) ?? null }

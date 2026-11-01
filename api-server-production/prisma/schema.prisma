@@ -1052,12 +1052,18 @@ model OrganizationMemberProfile {
   signatureImage    String? // saved signature (PNG data URL) for one-tap counter-signing
   uiLang            String? // round AZ: the portal language this user picked in this org ("en" | "ja"; SHIPMENTS orgs only). null = English
   teamId            String? // hierarchy (CIEL 09-19): the Team this member belongs to
+  // WCT worker logins (enableWctMyJobs, 2026-11-01): this member's SiteClock
+  // user id (Clerk publicMetadata.siteclock.userId), written by
+  // scripts/setup-wct-siteclock-fieldtechs.ts. A job scheduled on that
+  // SiteClock worker is planned for this member ("My jobs").
+  siteclockUserId   String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   @@unique([organizationId, userId])
   @@index([whatsappNumber])
   @@index([organizationId, teamId])
+  @@index([organizationId, siteclockUserId])
 }
 
 // Sales team (hierarchy access, CIEL 09-19): a Junior Manager leads a team of
@@ -3263,6 +3269,11 @@ model Delivery {
   // accepted quotation makes ONE order and its first job; "Add job" on the
   // order adds more. Null for every run outside that flow.
   orderId           String?           @db.Uuid
+  // WCT worker logins (enableWctMyJobs, 2026-11-01): who the job is PLANNED
+  // for — the AIMS user behind the picked SiteClock worker, set whenever the
+  // schedule's worker is saved. riderUserId stays who actually started it.
+  plannedRiderUserId String?
+  plannedRiderName   String?
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may

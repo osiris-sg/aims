@@ -43,6 +43,8 @@ export interface RunSummary {
   customer: { id: string; name: string } | null;
   /** WCT orders (enableWctOrders): the order this job belongs to. */
   order?: { id: string; orderNumber: string } | null;
+  /** WCT "My jobs" (enableWctMyJobs): who the job is planned for; isMe = the signed-in user. */
+  plannedRider?: { userId: string | null; name: string | null; isMe: boolean } | null;
   // WCT service job: the service report scheduled with the run — `pending`
   // until the technician writes it after the sign-off. Null = not a service job.
   serviceReport?: { id: string; status: "pending" | "completed"; reportNumber: number | null } | null;

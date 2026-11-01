@@ -146,4 +146,10 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // made in that hook); the Orders tab also needs the ORDERS module. Default
   // OFF; WCT only.
   enableWctOrders: false,
+  // WCT worker logins (2026-11-01, Phase 2): a job scheduled on a SiteClock
+  // worker is planned for that worker's AIMS login (linked by
+  // scripts/setup-wct-siteclock-fieldtechs.ts). The field app's Pending tab
+  // opens on "My jobs" (All is one tap away), and starting a job planned for
+  // someone else asks first. Default OFF; WCT only.
+  enableWctMyJobs: false,
 };

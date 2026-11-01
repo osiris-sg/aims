@@ -20,6 +20,9 @@
  *   F cancelling a job / deleting an order with jobs;
  *   G enableWctOrders off → the old one-run-per-quotation path, no order; other
  *     orgs' Order / Delivery rows unchanged by the whole run.
+ *   P2 worker logins (enableWctMyJobs): a job scheduled on SiteClock worker W1
+ *     is planned for W1's AIMS login; the field list marks it "mine" for that
+ *     user only; re-picking W2 (no login) clears it; flag off → nothing stored.
  *
  * Boots only the deliveries + public-sign + orders modules (no cron), WhatsApp
  * + push + email replaced by no-ops.
@@ -65,7 +68,8 @@ const SC_URL = process.env.SC_URL || 'http://localhost:4100';
 const SC_COMPANY = process.env.SC_COMPANY || '';
 const SC_KEY = (fs.readFileSync(process.env.SC_KEY_FILE || '', 'utf8').match(/sck_live_[A-Za-z0-9_-]+/) || [])[0] || '';
 const [W1, W2] = (process.env.SC_WORKERS || '').split(',');
-const FLAGS = ['enableQuotationToDelivery', 'enableWctOrders', 'enableSiteClockLink', 'enableRealDoOnSchedule', 'enableJobsCalendar', 'enableQuotationESign', 'enableConfirmQuotation'] as const;
+const FLAGS = ['enableQuotationToDelivery', 'enableWctOrders', 'enableSiteClockLink', 'enableRealDoOnSchedule', 'enableJobsCalendar', 'enableQuotationESign', 'enableConfirmQuotation', 'enableWctMyJobs'] as const;
+const WORKER_USER = 'user_e2e_wct_worker_1'; // Phase 2: a WCT field-tech linked to SiteClock worker W1
 const CUSTOMER = 'WCT Orders E2E Customer';
 const SITE = '10 Anson Road, Singapore 079903';
 const ORD = /^ORD\d{6}-\d{3,}$/;
@@ -295,6 +299,47 @@ const sgt = (dayOffset: number, hh: number, mm = 0) => {
     check('F: cancelling job 2 leaves the order Scheduled (job 1 still to do)', o1Now.status === 'SCHEDULED', o1Now.status);
     check('F: the cancelled job’s SiteClock job is cancelled', (await jobWhen(second.id, (x) => x.status === 'CANCELLED'))?.status === 'CANCELLED');
     await expectRefusal('F: an order with jobs cannot be deleted', () => orders.delete(o1.id, WCT), /has jobs/);
+
+    // ── P2: worker logins / My jobs ──
+    await setFlags({ enableWctMyJobs: true });
+    await prisma.userOrganization.upsert({
+      where: { userId_organizationId: { userId: WORKER_USER, organizationId: WCT } },
+      update: { isActive: true },
+      create: { userId: WORKER_USER, organizationId: WCT, isActive: true },
+    });
+    await prisma.organizationMemberProfile.upsert({
+      where: { organizationId_userId: { organizationId: WCT, userId: WORKER_USER } },
+      update: { siteclockUserId: W1 },
+      create: { organizationId: WCT, userId: WORKER_USER, siteclockUserId: W1 },
+    });
+    const p2: any = await deliveries.createScheduled(
+      { orderId: o1.id, customerId: customer.id, address: SITE, scheduledFor: sgt(4, 9), items: [{ description: 'Filter change', quantity: 1, assetClass: 'SERVICE' }], siteclockWorkerId: W1, siteclockWorkerName: 'Cal Worker 1' } as any,
+      WCT,
+    );
+    let p2Row: any = await prisma.delivery.findFirst({ where: { id: p2.id } });
+    check('P2: a job on SiteClock worker W1 is planned for W1’s AIMS login', p2Row.plannedRiderUserId === WORKER_USER && p2Row.plannedRiderName === 'Cal Worker 1', [p2Row.plannedRiderUserId, p2Row.plannedRiderName]);
+    const listAs = async (viewerUserId: string) => ((await deliveries.list(WCT, { status: 'scheduled', limit: 100, viewerUserId })) as any).docs.find((r: any) => r.id === p2.id);
+    const asWorker = await listAs(WORKER_USER);
+    const asOther = await listAs('user_someone_else');
+    check('P2: field list: "mine" for the planned worker, someone else’s job for anyone else', asWorker?.plannedRider?.isMe === true && asOther?.plannedRider?.isMe === false && asOther?.plannedRider?.name === 'Cal Worker 1', [asWorker?.plannedRider, asOther?.plannedRider]);
+    await deliveries.updateScheduled(p2.id, { scheduledFor: sgt(4, 9), items: [{ description: 'Filter change', quantity: 1, assetClass: 'SERVICE' }], customerId: customer.id, address: SITE, siteclockWorkerId: W2, siteclockWorkerName: 'Cal Worker 2' } as any, WCT);
+    p2Row = await prisma.delivery.findFirst({ where: { id: p2.id } });
+    check('P2: re-picked on W2 (no AIMS login) → no planned login, name kept for the card', p2Row.plannedRiderUserId === null && p2Row.plannedRiderName === 'Cal Worker 2', [p2Row.plannedRiderUserId, p2Row.plannedRiderName]);
+    await deliveries.updateScheduled(p2.id, { scheduledFor: sgt(4, 9), items: [{ description: 'Filter change', quantity: 1, assetClass: 'SERVICE' }], customerId: customer.id, address: SITE } as any, WCT);
+    p2Row = await prisma.delivery.findFirst({ where: { id: p2.id } });
+    check('P2: an edit without a worker pick leaves the planned rider alone', p2Row.plannedRiderName === 'Cal Worker 2', p2Row.plannedRiderName);
+    await setFlags({ enableWctMyJobs: false });
+    const p2off: any = await deliveries.createScheduled(
+      { orderId: o1.id, customerId: customer.id, address: SITE, scheduledFor: sgt(4, 11), items: [{ description: 'Filter change', quantity: 1, assetClass: 'SERVICE' }], siteclockWorkerId: W1, siteclockWorkerName: 'Cal Worker 1' } as any,
+      WCT,
+    );
+    const p2offRow: any = await prisma.delivery.findFirst({ where: { id: p2off.id } });
+    check('P2: flag off → nothing planned is stored', p2offRow.plannedRiderUserId === null && p2offRow.plannedRiderName === null, [p2offRow.plannedRiderUserId, p2offRow.plannedRiderName]);
+    const offList = await listAs(WORKER_USER);
+    check('P2: flag off → list rows of other runs keep plannedRider null unless stored', ((await deliveries.list(WCT, { status: 'scheduled', limit: 100, viewerUserId: WORKER_USER })) as any).docs.find((r: any) => r.id === p2off.id)?.plannedRider === null && !!offList);
+    for (const r of [p2, p2off]) await deliveries.cancel(r.id, WCT).catch(() => undefined);
+    await prisma.organizationMemberProfile.deleteMany({ where: { organizationId: WCT, userId: WORKER_USER } });
+    await prisma.userOrganization.deleteMany({ where: { organizationId: WCT, userId: WORKER_USER } });
 
     // ── G: flag off → the old path ──
     await setFlags({ enableWctOrders: false });
